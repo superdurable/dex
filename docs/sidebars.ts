@@ -23,6 +23,18 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Agent Skills',
+      customProps: {section: 'agent-skills'},
+      collapsed: false,
+      items: [
+        'build-with-ai/dex-developer-skill',
+        'build-with-ai/dex-developer-skill/dex-app-builder',
+        'build-with-ai/dex-developer-skill/dex-sdk',
+        'build-with-ai/dex-developer-skill/dex-connector-contributor',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Concepts',
       customProps: {section: 'concepts'},
       link: {type: 'doc', id: 'concepts/index'},
@@ -87,18 +99,6 @@ const sidebars: SidebarsConfig = {
             'agent-frameworks/mastra',
           ],
         },
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Agent Skills',
-      customProps: {section: 'agent-skills'},
-      collapsed: false,
-      items: [
-        'build-with-ai/dex-developer-skill',
-        'build-with-ai/dex-developer-skill/dex-app-builder',
-        'build-with-ai/dex-developer-skill/dex-sdk',
-        'build-with-ai/dex-developer-skill/dex-connector-contributor',
       ],
     },
     {

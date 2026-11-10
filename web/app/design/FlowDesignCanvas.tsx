@@ -64,7 +64,7 @@ export function FlowDesignCanvas({
   /** Receives the height, in pixels, that opens on the whole Flow below the toolbar, per view and width. */
   onPreferredHeight?: (heightPx: number) => void;
 }) {
-  const [direction, setDirection] = useState<Direction>('tb');
+  const [direction, setDirection] = useState<Direction>('lr');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [detourFor, setDetourFor] = useState<string | null>(null);

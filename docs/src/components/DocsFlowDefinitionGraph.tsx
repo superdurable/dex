@@ -14,14 +14,8 @@ import type {FlowDefinitionGraph} from '@superdurable/flow-definition-renderer';
 // Loaded only on pages that draw a Flow, with its layout engine and styles.
 const DocsFlowCanvas = lazy(() => import('./DocsFlowCanvas'));
 
-/** A first-paint guess at the canvas height, from the Step count, until the drawing reports its own. */
-function estimatedCanvasHeightPx(graph: FlowDefinitionGraph): number {
-  const stepCount = graph.nodes.filter((node) => node.kind === 'step').length;
-  return ESTIMATE_BASE_PX + ESTIMATE_PER_STEP_PX * stepCount;
-}
-
-const ESTIMATE_BASE_PX = 300;
-const ESTIMATE_PER_STEP_PX = 60;
+/** First-paint canvas height until the drawing reports its own; left to right, few Flows are taller. */
+const ESTIMATED_CANVAS_HEIGHT_PX = 340;
 
 interface DocsFlowDefinitionGraphProps {
   graph: FlowDefinitionGraph;
@@ -47,7 +41,7 @@ export default function DocsFlowDefinitionGraph({graph}: DocsFlowDefinitionGraph
       aria-modal={isExpanded || undefined}
       className={`docs-flow-definition-graph${isExpanded ? ' is-expanded' : ''}`}
       role={isExpanded ? 'dialog' : 'figure'}
-      style={{'--docs-flow-canvas-height': `${estimatedCanvasHeightPx(graph)}px`} as CSSProperties}
+      style={{'--docs-flow-canvas-height': `${ESTIMATED_CANVAS_HEIGHT_PX}px`} as CSSProperties}
     >
       <div className="docs-flow-definition-graph-actions">
         <button

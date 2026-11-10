@@ -20,6 +20,7 @@ Not released yet. The next minor release, web/v1.43.0, ships these changes.
 
 ### Changed
 
+- The Flow design graph on the **Design** tab and on **Designs** opens left to right. **Direction** still switches it to top to bottom. [Reference](/reference/web/dex-web#flow-canvas).
 - The **Agent session** message box sends between turns through **send_user_message**. While a turn runs, **Queue** keeps the message for the next turn and **Steer** steers the running turn. [Reference](/reference/web/dex-web#agent-session-view).
 - Writes to **connections.json** hold an exclusive lock on **connections.json.lock**, which the connectors Go SDK also takes when it writes back a refreshed credential. Dex Web checks a save against the file as read inside the lock, and a write that waits more than 15 seconds fails with HTTP 503 **CONNECTOR_CONNECTIONS_FILE_BUSY**. An OAuth callback that fails with **CONNECTOR_CONNECTION_CHANGED** says to start the authorization again. [Reference](/reference/web/local-connector-setup#choose-the-storage-directory).
 
