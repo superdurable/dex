@@ -14,3 +14,9 @@ import DexExpressiveness.TraceSets
 import DexExpressiveness.Properties
 import DexExpressiveness.Simulation
 import DexExpressiveness.Theorems
+import DexExpressiveness.Examples.Schedule
+import DexExpressiveness.Examples.Lockstep
+import DexExpressiveness.Examples.Mutex
+import DexExpressiveness.Examples.TimedSelect
+import DexExpressiveness.Examples.TimerOrder
+import DexExpressiveness.Examples.LockstepChecks
