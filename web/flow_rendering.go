@@ -195,6 +195,11 @@ func validateFlowDefinitionV2(file string, graph []byte, header flowDefinitionHe
 		return fmt.Errorf("Flow Definition Graph 2.0 %s has invalid RPC locks: %w", file, err)
 	}
 	definition.RPCLocks = rpcLocks
+	agentSession, err := loadAgentSession(header.Nodes)
+	if err != nil {
+		return fmt.Errorf("Flow Definition Graph 2.0 %s has invalid nodes: %w", file, err)
+	}
+	definition.AgentSession = agentSession
 	if definition.Start != nil {
 		if err := loadStartStepPhase(header.Nodes, definition.Start); err != nil {
 			return fmt.Errorf("Flow Definition Graph 2.0 %s has invalid Start Step: %w", file, err)

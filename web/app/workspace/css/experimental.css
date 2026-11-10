@@ -427,3 +427,25 @@ html .v2-shell.xp .ses {
 html .xp .v2-case > .sc-block:first-of-type {
   margin-top: 0;
 }
+
+.xp .xp-head-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.xp .xp-new-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--xp-accent);
+  color: var(--xp-surface);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}

@@ -20,6 +20,7 @@ import {
   decodeAgentState,
   decodeAgentToolCall,
   decodeAgentUsage,
+  decodeSessionSettings,
   decodePendingInterrupts,
   type AgentInterruptRecord,
   type AgentMessageIndexRecord,
@@ -97,6 +98,8 @@ export interface SessionReadInput {
 export interface SessionView {
   state: AgentStateRecord | null;
   usage: AgentUsageRecord | null;
+  /** The session's settings; null when the session has none, or they could not be read. */
+  sessionSettings: Record<string, unknown> | null;
   messageIndex: AgentMessageIndexRecord | null;
   pendingInterrupts: AgentInterruptRecord[];
   items: ConversationItem[];
@@ -148,6 +151,7 @@ export function readSession(input: SessionReadInput): SessionView {
 
   const state = readSingle(SESSION_ATTRIBUTE.state, decodeAgentState, true);
   const usage = readSingle(SESSION_ATTRIBUTE.usage, decodeAgentUsage, false);
+  const sessionSettings = readSingle(SESSION_ATTRIBUTE.sessionSettings, decodeSessionSettings, false);
   const messageIndex = readSingle(SESSION_ATTRIBUTE.messageIndex, decodeAgentMessageIndex, false);
   const pendingInterrupts = values.has(SESSION_ATTRIBUTE.pendingInterrupts)
     ? readSingle(SESSION_ATTRIBUTE.pendingInterrupts, decodePendingInterrupts, false) ?? []
@@ -252,6 +256,7 @@ export function readSession(input: SessionReadInput): SessionView {
   return {
     state,
     usage,
+    sessionSettings,
     messageIndex,
     pendingInterrupts,
     items,

@@ -19,9 +19,9 @@ SubFlow 主要有两种用途：
 
 Dex Server 根据父 Flow ID、Step execution 和 condition 序号生成 SubFlow ID。因此重试或重复启动会找到同一个子 Flow，而不是再启动一个。默认情况下，父 Flow 继续等待运行中的子 Flow，使用已完成子 Flow 的结果，并重启异常结束的子 Flow。
 
-同一个父 Flow ID 的后续 run，如果创建了相同的 Step execution ID 并使用相同的 condition 序号，就会得到相同的 SubFlow ID。每个 run 的 Step execution 编号都从头开始，所以这种情况很常见。这时 Dex 按 reuse policy 把它的启动当作一次重复启动。使用默认 policy 时，它会复用之前 run 中运行中或已完成的子 Flow，直到 Dex 删除那个子 Flow。**ALWAYS_RESTART** 会启动新的子 Flow，但会终止仍在运行的旧子 Flow。两个子 Flow 都要继续运行时，换一个父 Flow ID。
+Dex 根据父 Flow ID 和启动 SubFlow 的 Step 计算 SubFlow ID。用同一个父 Flow ID 再启动一次时，新的 run 通常会算出和之前的 run 相同的 SubFlow ID。这时 Dex 按 reuse policy 处理。使用默认 policy 时，新的 run 会拿到之前 run 的子 Flow（无论它还在运行还是已经完成），直到 Dex 删除那个子 Flow。要让每个 run 都启动新的子 Flow，就用 **ALWAYS_RESTART**。如果之前的子 Flow 还在运行，它会被终止。两个子 Flow 都要继续运行时，换一个父 Flow ID。
 
-父 Step 被取消或父 Flow 关闭时，子 Flow 会继续运行。你需要自己停止它，或者给它设置 Flow timeout。
+父 Step 被取消或父 Flow 关闭时，子 Flow 会继续运行。你需要自己停止它，或者给子 Flow 设置 Flow timeout，让它到时自行结束。
 
 ## 启动并等待 SubFlow
 

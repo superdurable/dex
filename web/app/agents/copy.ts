@@ -59,9 +59,66 @@ export const SESSION_COPY = {
   writtenBy: 'Written by',
   steerLabel: 'Message to the agent',
   steerPlaceholder: 'Tell the agent what to do instead',
+  composerIdlePlaceholder: 'Message the agent',
+  composerRunningPlaceholder: 'Queue a message for the next turn, or steer this one',
   steer: 'Steer',
   send: 'Send',
+  queue: 'Queue',
   steerIdleNote: 'No turn is running, so this message starts the next turn.',
+  runningNote: 'Queue keeps the message for the next turn. Steer ends this turn at its next safe point and starts a new one with it.',
+  queued: 'Message queued. It starts the next turn after this one ends.',
+  sendRefused: 'The session did not take the message (send_user_message returned false). Reload to see why.',
+  noSessionRPC(rpcName: string): string {
+    return `This Flow's definition is not a Dex Agents session graph with the ${rpcName} RPC.`;
+  },
+  noSessionActions: "This Flow's definition declares no session Actions, so Dex Web cannot tell which permission sends messages.",
+
+  // Session settings.
+  settingsHeading: 'Session settings',
+  settingsNone: 'None',
+  settingsLabel: 'Session settings JSON',
+  settingsNoSecrets: 'Settings are stored in the session and shown to everyone who can read it. Never put a secret in them; name a credential the Worker resolves instead.',
+  settingsReplace: 'Saving replaces every setting. {} clears them.',
+  settingsNextTurn: 'A running turn keeps the settings it started with. The change applies from the next turn.',
+  settingsSave: 'Save settings',
+  settingsSaving: 'Saving…',
+  settingsReset: 'Discard changes',
+  settingsSaved: 'Settings saved. They apply from the next turn.',
+  settingsRefused: 'The session did not take the settings (update_session_settings returned false): it has not initialized yet. Try again in a moment.',
+  settingsChangedElsewhere: 'The stored settings changed while you were editing. Discard changes to see them.',
+  settingsNotObject: 'Settings must be one JSON object, such as {"model": "gpt-5-mini"}.',
+  settingsNotJSON(reason: string): string {
+    return `Settings are not valid JSON: ${reason}`;
+  },
+  settingsTooLarge(size: number, limit: number): string {
+    return `Settings are ${size.toLocaleString()} bytes of compact JSON. The limit is ${limit.toLocaleString()} bytes.`;
+  },
+
+  // New session.
+  newSession: 'New session',
+  newSessionTitle(flowType: string): string {
+    return `New ${flowType} session`;
+  },
+  newSessionClose: 'Close New session',
+  agentFlowType: 'Agent',
+  sessionId: 'Session ID',
+  sessionIdHint: 'The Flow ID of the session. A new random ID is filled in.',
+  sessionIdRequired: 'Session ID is required.',
+  sessionIdReserved: 'A session ID cannot contain /, $, or :.',
+  firstMessage: 'First message',
+  firstMessageHint: 'Optional. Without one, the session waits for a message.',
+  modelSetting: 'model',
+  modelHint: 'Optional. The model name the Worker maps to a model client.',
+  systemPromptSetting: 'system_prompt',
+  systemPromptHint: 'Optional. Takes effect only when the agent reads system_prompt from its settings.',
+  otherSettings: 'Other settings (JSON object)',
+  otherSettingsHint: 'Optional. model and system_prompt above replace the same keys here.',
+  startSession: 'Start session',
+  startingSession: 'Starting…',
+  startFailed: 'The session did not start.',
+  started(sessionId: string): string {
+    return `Started session ${sessionId}.`;
+  },
   stop: 'Stop turn',
   stopping: 'Stopping…',
   sending: 'Sending…',
