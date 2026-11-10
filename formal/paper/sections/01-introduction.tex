@@ -29,14 +29,24 @@ say that some \emph{class} of programs is expressible, and it does not say
 what ``expressible'' means when the engine interleaves the pieces of a
 program in ways the source program never wrote down.
 
-This paper gives the other kind of evidence: one precise claim, with a
-machine-checked proof.
+This paper gives the other kind of evidence: two precise claims, each with
+a machine-checked proof.
 
 \begin{quote}
 \emph{Every well-formed program of a small concurrent imperative language
 \Lang{} translates into a Dex Flow that is trace-equivalent to it, assuming
 no failures.}
 \end{quote}
+
+\begin{quote}
+\emph{In the same fragment, crashes, takeovers, retries, zombie Workers,
+and duplicate deliveries change no observable event of a Flow, except that
+external effects may repeat.}
+\end{quote}
+
+The first claim is about expressiveness, and \S\ref{sec:language} to
+\S\ref{sec:engineering} develop it. The second is about durability, the
+reason a workflow engine exists, and \S\ref{sec:failures} develops it.
 
 \paragraph{What ``expressive'' means here.}
 \Lang{} is a conventional shared-memory concurrent language: threads with
@@ -105,15 +115,26 @@ and Timers.
   the gaps that the provers found in the fixed definitions, the fuzz that
   now tests those definitions for inductiveness, and two defects that the
   work exposed in the real server.
+\item \textbf{Failure transparency} (\S\ref{sec:failures}): a failure
+  model written against the server, with crashes, takeovers, Worker
+  failures, zombie Workers, stale results, and StartFlow retries; an
+  abstraction map with ghost history that turns every failure into a
+  stutter; and the Lean theorems \lean{safety_failure_forward},
+  \lean{liveness_failure}, \lean{endToEnd_safety}, and
+  \lean{endToEnd_liveness}, with the same three axioms and kernel-checked
+  runs with a crash, retries, and a zombie effect.
 \end{enumerate}
 
 \paragraph{What is not claimed.}
 The scope is narrow on purpose, and \S\ref{sec:limitations} discusses each
 limit.
 \begin{itemize}
-\item \emph{No failures.} The environment has no crashes, no retries, and no
-  redelivery. That a Flow behaves the same with crashes as without is a
-  separate proposition and is future work.
+\item \emph{Failures, under hypotheses.} The failure theorem covers SYNC
+  Step methods only, assumes that no method exhausts its retries and that
+  user code ignores the attempt number and similar context, assumes
+  finitely many failures for liveness, and keeps the timer order of the
+  first theorem as an idealization. Effects may repeat and overlap; the
+  theorem does not make them exactly-once.
 \item \emph{A model, not the code.} The Dex side of the theorem is a
   hand-written model of the server, validated by review against the source.
   It is not extracted from the implementation.
@@ -135,8 +156,12 @@ limit.
 \end{itemize}
 
 \paragraph{Artifacts.}
-The semantics is \file{formal/semantics/dex-core-semantics.md} (revision~8;
-``the specification'' below). The Lean development is \file{formal/lean/}.
+The semantics is \file{formal/semantics/dex-core-semantics.md} (``the
+specification'' below). The first theorem formalizes its revision~8;
+revision~9 adds the failure model of Section~11 and leaves every
+failure-free rule unchanged. The Lean development is \file{formal/lean/}.
 File paths in this paper are relative to the repository root, and Lean
-files are under \file{formal/lean/DexExpressiveness/}. Numbers are for
-commit \texttt{33e998003} of the development.
+files are under \file{formal/lean/DexExpressiveness/}. Numbers for the
+first theorem are for commit \texttt{33e998003} of the development, and
+numbers for the failure theorem for commit \texttt{5a8e0634c}, which
+changes no file of the first proof except for import lines.

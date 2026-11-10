@@ -1,0 +1,477 @@
+\section{Failure transparency}
+\label{sec:failures}
+
+The theorems of \S\ref{sec:theorems} assume that nothing fails. This
+section adds failures and proves the second theorem: in the same fragment,
+server crashes, standby takeovers, Worker failures, retries, zombie
+Workers, duplicate results, and StartFlow retries change no observable
+event, except that external effects may repeat. Together with the first
+theorem this connects a well-formed \Lang{} program to its execution on a
+Dex server that fails.
+
+The failure model is Section~11 of the specification (revision~9), written
+against the server at a later commit than the failure-free rules, again
+with a citation for every rule. The failure-free rules are unchanged, so
+the first proof stays valid. In Lean the model is \emph{DexF}
+(\file{Failure/}); the failure-free model of the earlier sections is called
+\emph{Dex} below.
+
+\subsection{The failure model}
+\label{sec:failure-model}
+
+DexF is the Dex model plus four pieces of state and a set of failure rules.
+The state records whether the server is up; a set $Z$ of \emph{zombie}
+tasks, Worker tasks that the server gave up but that may still run; a set
+$I$ of interrupted attempts, which recovery rebuilds; and, per invocation,
+an attempt number, a phase Pending, Running, or Backoff, a task ID, and a
+\emph{retained snapshot}. A Step method's attempts share one snapshot: the
+server takes it at the first start and every retry reuses it.
+Table~\ref{tab:failure-rules} lists the rules.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}P{4.1cm}L@{}}
+\toprule
+Rule & What happens \\
+\midrule
+\rulename{CRASH} & The server stops. Committed state, timers, the clock,
+  and the zombies stay; every running task becomes a zombie; engine memory
+  is lost. A log write with an unknown outcome is a crash. \\
+\rulename{RECOVER} & The server restarts from the log. Every attempt that
+  was Running joins $I$; it is never handed out again. \\
+\rulename{RECOVER-INTERRUPT} & A separate commit per element of $I$: the
+  attempt fails and goes to Backoff, or is ignored if a fence rejects it. \\
+\rulename{ATTEMPT-LOST} & An attempt fails at any time (Worker error,
+  method or heartbeat timeout, disconnect, server error). It keeps its
+  snapshot, arms a retry timer, and its task becomes a zombie. \\
+\rulename{ATTEMPT-EXHAUSTED} & The same failure when the retry policy
+  allows no further attempt, or a non-retryable one: the Flow closes as
+  Failed. \\
+\rulename{ATTEMPT-RETURNED} & The Worker rejected the task; it goes back to
+  Pending with the same attempt number and snapshot. \\
+\rulename{ATTEMPT-HEARTBEAT} & A heartbeat checkpoint commits. \\
+\rulename{RESULT-STALE} & A result, failure, or heartbeat whose fence (Step
+  execution, method, attempt number, phase, task ID) no longer matches is
+  ignored. Duplicate proposals are stale. \\
+\rulename{RETRY-FIRE} & A due retry timer moves a Backoff invocation back
+  to Pending, with its retained snapshot. It is part of
+  \rulename{TIMER-FIRE}. \\
+\rulename{ZOMBIE-EFFECT} & A zombie emits its next external effect, or is
+  dropped. \\
+\rulename{START-RETRY} & A StartFlow with the start's request ID and
+  \kw{ignore\_already\_started\_error} returns the existing run. It is a
+  stamped log entry and writes no run state. \\
+\rulename{ENGINE-REJECT} & After the run was purged, the engine rejects a
+  publication before proposing anything, with the event that apply's
+  rejection would give. \\
+\bottomrule
+\end{tabularx}
+\caption{The failure rules of DexF (specification \S11.3). Every rule is
+silent except \rulename{ATTEMPT-EXHAUSTED}, which emits $\ev{closed}$, and
+\rulename{ZOMBIE-EFFECT}, which emits $\ev{fx}$.}
+\label{tab:failure-rules}
+\end{table}
+
+Three choices make the model larger than the code, which is the safe
+direction for an inclusion theorem: more DexF runs are more obligations.
+Failures are nondeterministic and unconditioned; the model does not
+describe how the engine detects them. A zombie may emit effects at any
+later time, also after a newer attempt of the same method has started. And
+a zombie's result may commit after a crash and before its interrupt, an
+order that the code makes unlikely but that the model allows.
+
+\paragraph{Durability.}
+The durable point of a commit is its log batch in object storage, written
+create-only. Recovery replays the same stamped commands through the same
+apply function as live commits; it is not a special mode. A standby
+takeover is a crash of the old owner followed by recovery on the new one.
+The new owner writes an epoch marker at the first free log position, and
+replay voids every later batch of the old epoch, so the log has one writer
+at a time. The old owner may still carry frames to Workers until it stops;
+those tasks are zombies, and their results cannot reach the new owner.
+
+\subsection{Scope, decisions, and hypotheses}
+\label{sec:failure-scope}
+
+The owner decided the scope before any proof (decisions D1 to D8 and OD1 of
+the specification). Table~\ref{tab:failure-hypotheses} lists what the
+theorem assumes and how the Lean model treats each assumption.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}P{1.2cm}LP{4.6cm}@{}}
+\toprule
+ & Assumption & In Lean \\
+\midrule
+D1 & The fragment of the first theorem: one Flow, the admissible
+  environment extended by StartFlow retries; no RPCs, SubFlows, StopFlow,
+  or Attribute locks. & The Dex model, extended. \\
+D2 & Every Step method is SYNC: an attempt reaches a Worker only after its
+  start commits. An ASYNC start lost in a crash runs the same attempt again
+  with a new snapshot. & \lean{IsSyncOnly}, true by construction: DexF has
+  only the SYNC start. \\
+H1 & No attempt exhausts its retries. Exhaustion closes the Flow as
+  Failed, which no failure-free run does. & Part of the trace sets. \\
+H2 & No failure policy (ProceedOnFailure, ProceedToConfiguredStep). &
+  \lean{HasNoFailurePolicy}, true by construction. \\
+H3 & User code ignores the attempt-varying context: attempt number, first
+  attempt time, last error, last heartbeat value. & A hypothesis:
+  \lean{IgnoresAttemptContext}. \\
+H4 & No non-retryable failure. & A case of H1. \\
+D6 & On one node, the wall clock does not step back between the timer
+  service's due check and the stamping of its command. & The premise of
+  the timer rule. \\
+D7 & The input word is the \emph{outcome word}: requests in the order of
+  their final outcomes. A re-sent publication is a second request. & The
+  admissible outcome words. \\
+HP & Every StartFlow retry is ordered in the log before the purge of the
+  run. & True by construction: the model keeps a closed run. \\
+FF, FR, FI & For liveness: finitely many failures; the server comes back;
+  every interrupt commits. & Part of \lean{DexF.IsFair}. \\
+OD1 & Timers fire as a prefix of the due timers, as in the first theorem. &
+  The timer rule of the Dex model. \\
+\bottomrule
+\end{tabularx}
+\caption{What the failure theorem assumes. H1 to H4 exclude four features
+that change observable behavior beyond repeated effects.}
+\label{tab:failure-hypotheses}
+\end{table}
+
+Four entries hold by construction, and it is worth saying what that means.
+The Lean model has no failure policy, no ASYNC start, and no purge of a
+closed run. The theorem covers those features by leaving them out; the
+named predicates make the omission visible in every statement. H3 is the
+one real hypothesis on the program. A DexF program is a function from the
+attempt context to a Flow definition, so a program that reads its attempt
+number is expressible, and the theorem excludes it explicitly.
+
+D5, finitely many failures, is a necessary assumption, not a choice: no
+system makes progress under infinitely many crashes. D6 needs no clock
+agreement between hosts. Stamps increase strictly after a takeover too,
+because the new owner seeds its watermark from the largest applied stamp.
+The timer order of OD1 is an idealization. The specification found one
+window in which the code fires a timer while an earlier-due timer, armed by
+a command applied just before, is still armed (Open question~26). It
+exists without any failure. The owner kept the prefix rule for both
+theorems, so that they compose, and neither theorem covers runs in that
+window.
+
+\subsection{Repetitions and erasure}
+\label{sec:repetitions}
+
+DexF tags every $\ev{fx}$ event with a ghost index: $\ev{fx}(e, m, x)^j$ is
+the $j$-th effect of some attempt of method $m$ of Step execution $e$. An
+event is \emph{repeated} when an earlier event of the trace has the same
+source and index. $\mathit{erase}(t)$ removes the repeated events of a
+trace $t$ (\lean{eraseRepeats}). A trace $t$ is a \emph{repetition} of $u$
+when $t$ is $u$ with inserted events, each equal in source and label to an
+earlier event of $u$ (\lean{IsRepetition}).
+
+\paragraph{First occurrences come in order.}
+The theorem rests on one fact: for each method, the first occurrences of
+the indexes $1, 2, 3, \ldots$ appear in this order, with the labels of one
+effect list, even when zombies overlap with newer attempts. Three facts
+give it.
+\begin{enumerate}
+\item Every attempt computes the same effect list and response. The
+  handler is a function, and its arguments are equal across attempts: the
+  snapshot is retained on every retry path (an ordinary failure, a restart
+  or takeover interrupt, a returned attempt, a retry fire, the next start);
+  the Step input does not change while a method is live; and H3 makes the
+  attempt context irrelevant.
+\item An attempt emits its effects in list order.
+\item So when index $j$ first appears, some attempt has already emitted
+  $1$ to $j-1$, and each of them has appeared.
+\end{enumerate}
+The first occurrences are therefore the effects of one \emph{virtual} task
+of Dex, and every other $\ev{fx}$ event of the method equals the first
+occurrence of its index. D2 is needed for the first fact: under ASYNC a
+crash can lose a start that a Worker already received, and the rerun takes
+a new snapshot, so its effect list may differ.
+
+\subsection{The abstraction map}
+\label{sec:abstraction}
+
+The proof is a forward simulation of DexF by Dex under a function
+$\alpha$ from DexF configurations to Dex configurations
+(\lean{abstractConfig}, \file{Failure/Abstraction.lean}). Every failure
+transition maps to a stutter, every other transition to Dex transitions
+with the same events, and the first occurrence of each effect index to a
+Worker effect of the virtual task.
+
+$\alpha$ forgets attempt numbers, task IDs, heartbeat checkpoints, retry
+timers, $Z$, $I$, and whether the server is up. It decides by the snapshot,
+not by the phase: an invocation that holds a snapshot, also in Backoff or
+Pending after a failure, maps to a running invocation with one virtual
+task; an invocation without one never started and maps to a pending one.
+This is sound because a retrying invocation looks to apply exactly like a
+running one: same snapshot, same input, same locals.
+
+The virtual task cannot be read off a live task. The attempt that went
+furthest may be gone, and two runs can reach the same durable state with
+different histories, for example an attempt that returned an empty effect
+list and was then ignored after a failure, against one that failed before
+it ran. So DexF keeps \emph{ghost} history variables that no rule reads
+and only $\alpha$ uses (\lean{Ghost}):
+\begin{itemize}
+\item $h(e, m)$, the largest effect index any attempt emitted, and
+  $v(e, m)$, the furthest phase any attempt reached: not run, ran with a
+  given effect list and response, or returned. Both are monotone. The
+  virtual task has emitted the first $h(e, m)$ effects and is in phase
+  $v(e, m)$.
+\item $\mathit{par}(e, m)$, the handler's arguments at the first start. A
+  Flow close clears an invocation and releases its snapshot while a zombie
+  may still emit its first effect. $\alpha$ then keeps a canceled virtual
+  task built from $\mathit{par}$, $v$, and $h$, exactly like a canceled task
+  of Dex, until the last real task of the method is gone.
+\item $n$ and $\zeta$: failure commands take run sequence numbers that Dex
+  never sees. $\zeta$ maps the sequence number of the $k$-th applied normal
+  command to $k$, and $n$ counts them, so $\alpha$ relabels every
+  sequence-derived value of the model, such as the enqueue order of
+  messages. $\zeta$ must be state, not a function of it: two runs can reach
+  equal states, one through a normal Step start and one through a
+  heartbeat at the same sequence number, and need different relabelings.
+\end{itemize}
+
+The specification classifies every command by whether it advances the
+run's persisted sequence counter: \emph{normal} commands map to Dex commits;
+\emph{failure}, \emph{bookkeeping}, internal ignored, and post-close
+housekeeping commands map to stutters; a rejected client request maps to
+the same Dex rejection with the same event. The simulation needs seven
+invariants (\lean{Invariant}, \file{Failure/Relation.lean}): one committed
+result per invocation; one effect list per method; every task has emitted
+a prefix of length at most $h$; retained state belongs to invocations that
+started; the abstract state equals the Dex state up to relabeling; retry
+timers belong to Backoff invocations; and interrupts name minted tasks.
+
+\subsection{The theorems in Lean}
+\label{sec:failure-theorems}
+
+The trace sets are \lean{IsFailureFiniteTrace} and
+\lean{IsFailureFairMaximalTrace} (DexF runs that satisfy H1 and H4, for an
+admissible outcome word, and for liveness D6, HP, and the fairness of
+Table~\ref{tab:failure-hypotheses}), and \lean{IsFreeFiniteTrace} for Dex
+(\file{Failure/Observation.lean}). A DexF word may contain StartFlow
+retries; $w{\downarrow}$ (\lean{eraseRetries}) deletes them. The statements
+are in \file{Failure/Statements/Main.lean}.
+
+\paragraph{Safety.}
+Erasing the repeated effects of a finite DexF trace gives a finite Dex
+trace for the word without retries:
+\begin{Verbatim}
+theorem safety_failure_forward (program : Program σ)
+    (hasNoFailurePolicy : HasNoFailurePolicy program)
+    (isSyncOnly : IsSyncOnly program)
+    (ignoresAttemptContext : IgnoresAttemptContext program)
+    (environment : Dex.Environment σ)
+    (requests : List (Request σ)) (trace : List (Obs σ))
+    (isTrace : IsFailureFiniteTrace program environment requests trace) :
+    IsFreeFiniteTrace program.failureFreeFlow environment
+      (eraseRetries requests) (eraseRepeats trace)
+\end{Verbatim}
+\lean{safety_failure_repetition} adds that the DexF trace, with the ghost
+indexes dropped, is a repetition of that Dex trace.
+\lean{freeFiniteTrace_isFailureFiniteTrace} is the converse inclusion
+$\mathit{Tr}_\mathit{free} \subseteq \mathit{Tr}_\mathit{fail}$: every Dex
+trace is a DexF trace with no failure. This is not trivial, because DexF
+carries more state. It is the only backward statement for finite traces.
+The converse of the forward statement is false: not every repetition is
+reachable. An attempt runs from the start and emits its effects in order,
+so index $j$ never has more copies than index $j-1$. For an effect list
+$[a, b, c]$, one extra $c$ without an extra $a$ and $b$ before it is a
+repetition that no DexF run produces.
+
+\paragraph{Liveness.}
+A DexF step is a progress step exactly when its image under the transition
+map is a Dex progress step (\lean{isProgress_eq_dexProgress}). Failures,
+stale results, StartFlow retries, and repeated effects are therefore not
+progress, and infinitely many of them do not make a run divergent. The
+theorem says nothing about an internal livelock of the engine.
+
+\begin{Verbatim}
+theorem liveness_failure (program : Program σ)
+    (hasNoFailurePolicy : HasNoFailurePolicy program)
+    (isSyncOnly : IsSyncOnly program)
+    (ignoresAttemptContext : IgnoresAttemptContext program)
+    (environment : Dex.Environment σ) (word : Sequence (Request σ))
+    (isAdmissible : IsAdmissibleOutcomeWord environment word)
+    (erasedWord : Sequence (Dex.Request σ))
+    (isErasure : IsRetryErasure word erasedWord)
+    (trace : Sequence (Dex.Obs σ)) (marker : Marker) :
+    ((∃ failureTrace,
+        IsFailureFairMaximalTrace program word failureTrace marker ∧
+        IsRepeatErasure failureTrace trace) →
+      (Dex.system program.failureFreeFlow).IsFairMaximalTrace
+        Dex.IsFair some erasedWord trace marker) ∧
+    (HasNoRetry word →
+      (Dex.system program.failureFreeFlow).IsFairMaximalTrace
+        Dex.IsFair some erasedWord trace marker →
+      ∃ failureTrace,
+        IsFailureFairMaximalTrace program word failureTrace marker ∧
+        IsRepeatErasure failureTrace trace)
+\end{Verbatim}
+
+The forward inclusion holds for every admissible outcome word, markers
+included. The backward inclusion holds for words without retries, and it
+is false for words with them. A deduplicated StartFlow retry is a log
+entry, and its stamp strictly advances the partition clock. A word with
+1,000,001 retries between two publications therefore forces more than a
+second between them. A failure-free run can arm a one-second timer of one
+Step and, before it is due, a zero-second timer of another Step that the
+second publication starts, and fire the second timer first. With the
+retries in between, the first timer is due first and takes the only
+message both wait for, and no DexF run for that word has the failure-free
+trace. The specification states liveness as an equality; Lean states, and
+proves, the two inclusions that hold.
+
+\paragraph{End to end.}
+\lean{endToEnd_safety} and \lean{endToEnd_liveness} compose these with
+\lean{expressiveness_of_isWellFormed}. For every well-formed \Lang{}
+program $S$, every \Lang{} trace of $S$ is the projection of a finite DexF
+trace of \tr{S}, and the projection of every finite DexF trace of \tr{S} is
+an \Lang{} trace of $S$ with inserted $\ev{out}(x)$ events, each equal in
+value to an earlier $\ev{out}(x)$:
+\begin{Verbatim}
+theorem endToEnd_safety (program : L.Program)
+    (isWellFormed : program.IsWellFormed) :
+    (∀ lTrace, IsLFiniteTrace program lTrace →
+      ∃ requests failureTrace,
+        IsFailureFiniteTrace (Program.ofFlow ⟦program⟧) environment
+          requests failureTrace ∧
+        failureTrace.filterMap (fun event => project event.toDex) = lTrace) ∧
+    (∀ requests failureTrace,
+      IsFailureFiniteTrace (Program.ofFlow ⟦program⟧) environment
+        requests failureTrace →
+      ∃ lTrace, IsLFiniteTrace program lTrace ∧
+        IsOutRepetition
+          (failureTrace.filterMap (fun event => project event.toDex)) lTrace)
+\end{Verbatim}
+The projection drops the source of an effect, so on the \Lang{} side an
+inserted $\ev{out}(x)$ is only known to equal some earlier $\ev{out}(x)$.
+For fair maximal traces the statement is stronger: the projection of
+$\mathit{erase}(t)$ is a fair maximal \Lang{} trace with the same marker,
+forward for every admissible outcome word and backward for words without
+retries.
+
+\paragraph{What the kernel checked.}
+The proof contains no \texttt{sorry} and no \lean{native_decide}. For
+\lean{safety_failure_forward}, \lean{safety_failure_repetition},
+\lean{freeFiniteTrace_isFailureFiniteTrace}, \lean{liveness_failure},
+\lean{endToEnd_safety}, \lean{endToEnd_liveness}, and the leaf lemmas
+\lean{step_simulated}, \lean{invariant_step}, and
+\lean{effectHistory_of_exec}, \texttt{\#print axioms} reports
+\lean{propext}, \lean{Classical.choice}, and \lean{Quot.sound};
+for \lean{isProgress_eq_dexProgress} it reports \lean{propext} and
+\lean{Quot.sound}. The statements of the failure theorem rest on about
+1,900 lines of new definitions that a reader must check against the
+specification (\file{Failure/Config.lean}, \file{Rules.lean},
+\file{Repeats.lean}, \file{Observation.lean}, and the main statements), on top
+of the Dex model. The abstraction map and the invariants are internal to
+the proof and need no trust.
+
+\subsection{The proof and its work packages}
+\label{sec:failure-proof}
+
+The proof followed the method of \S\ref{sec:engineering}. The failure
+model was written against the code first, and repeated adversarial
+reviews checked it; its review log has 34 entries. Each finding was
+checked against the code and accepted. Among them were rejected client
+requests that had been made silent, a purge of closed runs that lets a
+late StartFlow retry start a second run, an abstraction that was not a
+function of the configuration, and a canceled invocation whose zombie
+could still emit its first effect. The Lean
+definitions and statements were then fixed, reviewed for vacuity and escape
+hatches, and tested with an inductiveness fuzz before any proof. The proof
+was cut into seven work packages with fixed statements
+(Table~\ref{tab:failure-packages}), proved in parallel. No package changed a
+definition or a statement.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}P{1.2cm}LP{5.2cm}@{}}
+\toprule
+Package & Content & Statements \\
+\midrule
+WP-F1 & A normal step maps to its Dex counterpart. &
+  \lean{normalStep_simulated} \\
+WP-F2 & A failure step is a stutter under $\alpha$. &
+  \lean{failureStep_isStutter} \\
+WP-F3 & First occurrences map to the virtual task, repeats to stutters;
+  the ghost $h$ and the trace agree. & \lean{workerStep_simulated},
+  \lean{effectHistory_of_exec} \\
+WP-F4 & The invariants are preserved. & \lean{invariant_step} \\
+WP-F5 & Safety, both inclusions. & \lean{safety_failure_forward},
+  \lean{freeFiniteTrace_isFailureFiniteTrace}, \ldots \\
+WP-F6 & The progress rule and liveness. &
+  \lean{isProgress_eq_dexProgress}, \lean{liveness_failure} \\
+WP-F7 & The end-to-end corollary. & \lean{endToEnd_safety},
+  \lean{endToEnd_liveness} \\
+\bottomrule
+\end{tabularx}
+\caption{The work packages of the failure proof.}
+\label{tab:failure-packages}
+\end{table}
+
+\paragraph{Inductiveness fuzz.}
+The fuzz (\lean{failure-fuzz}) walks pseudo-random DexF runs with failures
+on a hand-written Flow and on the translations of eleven example \Lang{}
+programs. At every step it checks the step simulation, the progress rule,
+and a Boolean mirror of the invariants. It then perturbs every fifth
+configuration in one place, keeps the copies that the mirror accepts, and
+checks every enabled step from them. With the arguments
+\texttt{300 5 10 12} it takes 31,160 walk steps with 194 crashes, 324
+attempt losses, 189 starts on a retained snapshot, 27 repeated effects, and
+118 StartFlow retries; it checks 8,425,297 single steps from 841,930 kept
+copies and reports no failure. A planted program that breaks H3 makes it
+report 404 failures. The fuzz found three gaps in the first invariants
+before any proof: an interrupt could name a task ID not yet minted; a Step
+execution ID could be reused when a Step counter was out of date; and a
+closed run could keep a running invocation.
+
+\paragraph{Non-vacuity.}
+Two DexF runs of $\kw{main}(x)\colon \kw{emit}(1); \kw{exit}(0)$ are
+checked in the kernel (\file{Failure/Examples/CrashRetryZombie.lean}). The
+first has a crash, two retries, a start on a retained snapshot, a zombie
+effect, an interrupt, a stale result, a zombie drop, and a StartFlow retry;
+its trace is in $\mathit{Tr}_\mathit{fail}$, erases to a Dex trace, and
+projects to $\ev{begin}(7), \ev{out}(1), \ev{out}(1), \ev{out}(1),
+\ev{exit}(0)$, the \Lang{} trace $\ev{begin}(7), \ev{out}(1),
+\ev{exit}(0)$ with two inserted $\ev{out}(1)$. In the second, a zombie's
+result commits after a crash and before its interrupt, which apply then
+ignores.
+
+\paragraph{Size.}
+Table~\ref{tab:failure-size} gives the size of the failure development. It
+adds 83 files and 31,813 lines to the development of \S\ref{sec:size}, and
+the specification grew to 3,521 lines. By their git author dates, the 80
+commits of this work under \file{formal/}, from the first draft of the
+failure model to the last proof, fall between 10:58 and 15:35 on one day.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+Part of \file{Failure/} & Files & Lines & Content \\
+\midrule
+definitions & 6 & 2,268 & configurations, rules, repetition, $\alpha$,
+  invariants, trace sets \\
+\texttt{Statements/} & 2 & 391 & the leaf and main statements \\
+\texttt{Proofs/} & 49 & 18,940 & WP-F1 to WP-F4 and the leaf part of
+  WP-F6 \\
+\texttt{Composite/} & 17 & 8,305 & WP-F5 to WP-F7 \\
+\texttt{Examples/} & 4 & 1,334 & kernel-checked runs, review probes, the
+  fuzz \\
+tooling & 5 & 575 & decidable equality, checkers, aggregators \\
+\midrule
+Total & 83 & 31,813 & \\
+\bottomrule
+\end{tabular}
+\caption{The failure development at commit \texttt{5a8e0634c}, counted
+with \texttt{wc -l}. \file{FailureFuzz.lean}, the fuzz entry point, adds
+59 lines outside \file{Failure/}.}
+\label{tab:failure-size}
+\end{table}

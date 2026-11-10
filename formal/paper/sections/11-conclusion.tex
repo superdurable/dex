@@ -8,8 +8,12 @@ enough to express a conventional concurrent language: every well-formed
 program of \Lang{}, with its threads, mutexes, condition variables, timed
 receives, cancellation, and exceptions, translates into a Flow with the
 same observable finite traces and the same fair maximal traces, in a
-failure-free environment. The statement is precise, its scope is explicit,
-and its proof is checked by the Lean kernel from three standard axioms.
+failure-free environment. We have also shown that, in the same fragment,
+failures are transparent: crashes, takeovers, Worker retries, zombie
+Workers, and duplicate deliveries add nothing observable except repeated
+external effects, each equal to an earlier one. The statements are
+precise, their scope is explicit, and their proofs are checked by the Lean
+kernel from three standard axioms.
 
 The constructive content is the translation. Each live thread that has not
 halted is carried by one active Step, whose input is the thread's state; a
@@ -33,12 +37,20 @@ that can be tested cheaply before anyone tries to prove it. We lost time to
 six gaps that a fuzz of perturbed reachable states finds in under a
 minute.
 
+The failure theorem adds a lesson of its own. Repeated effects are not
+arbitrary: because every attempt of a method reuses one snapshot and runs
+the same handler, the first occurrences of its effects come in order, even
+when zombies overlap with newer attempts. That is what makes erasure
+work, and it is also why an application needs more than idempotent
+effects: a late repeat can still overwrite a newer write, so effects need
+idempotency keys, commutativity, or a fence by attempt.
+
 The limits are equally explicit. The Dex side is a model validated by
-review, liveness assumes fair scheduling and Workers that settle, and
-failures are out of scope. The next step is the complementary proposition,
-that a Flow under crashes, retries, and redelivery behaves, up to repeated
-external effects, as one of its failure-free runs; together with this
-theorem it would connect a
-conventional concurrent program to its durable execution. Extending the
-admissible environment with RPC entry points, and connecting the model to
-the server's deterministic simulation tests, are the other two directions.
+review, and liveness assumes fair scheduling and Workers that settle. The
+failure theorem covers SYNC methods only, assumes that no method exhausts
+its retries and that user code ignores its attempt, keeps the timer order
+as an idealization, and has a backward liveness inclusion only for words
+without StartFlow retries. Extending the admissible environment and the
+failure model with RPC entry points, SubFlows, and Attribute locks, and
+connecting the model to the server's deterministic simulation tests, are
+the next directions.
