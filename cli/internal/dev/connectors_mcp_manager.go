@@ -143,6 +143,12 @@ func (m *connectorsMCPManager) acquire(ctx context.Context) (connectorsMCPServer
 	if announcement, result, _ := discoverConnectorsMCPServer(ctx, m.cfg, m.localClient); result == connectorsMCPServerReusable {
 		return connectorsMCPServer{announcement: announcement}, nil
 	}
+	if m.binary.version != "" {
+		// A cached release is verified again before each start, so a restart never runs a changed binary.
+		if _, err := m.resolver.cachedRelease(m.binary.version, nil); err != nil {
+			m.binary = connectorsMCPResolvedBinary{}
+		}
+	}
 	if m.binary.path == "" {
 		binary, err := m.resolver.resolveBinary(ctx)
 		if err != nil {

@@ -60,10 +60,25 @@ func (announcement *connectorsMCPAnnouncement) validateEndpoint() error {
 	if announcement.InstanceID == "" {
 		return errors.New("instanceId is empty")
 	}
-	for name, rawURL := range map[string]string{"url": announcement.URL, "healthUrl": announcement.HealthURL} {
-		if _, err := parseLoopbackHTTPURL(rawURL); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
+	return announcement.validateAddresses()
+}
+
+// validateAddresses requires url and healthUrl to be /mcp and /healthz on one loopback http address.
+func (announcement *connectorsMCPAnnouncement) validateAddresses() error {
+	mcpURL, err := parseLoopbackHTTPURL(announcement.URL)
+	if err != nil {
+		return fmt.Errorf("url: %w", err)
+	}
+	healthURL, err := parseLoopbackHTTPURL(announcement.HealthURL)
+	if err != nil {
+		return fmt.Errorf("healthUrl: %w", err)
+	}
+	if mcpURL.Host != healthURL.Host {
+		return fmt.Errorf("url %s and healthUrl %s name different addresses", announcement.URL, announcement.HealthURL)
+	}
+	if mcpURL.Path != connectorsMCPMountPath || healthURL.Path != "/healthz" ||
+		mcpURL.RawQuery != "" || healthURL.RawQuery != "" || mcpURL.Fragment != "" || healthURL.Fragment != "" {
+		return fmt.Errorf("url %s and healthUrl %s must end in /mcp and /healthz", announcement.URL, announcement.HealthURL)
 	}
 	return nil
 }

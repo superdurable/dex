@@ -68,7 +68,10 @@ type connectorsMCPReleaseAsset struct {
 type connectorsMCPInstalledRelease struct {
 	Version        string `json:"version"`
 	LaunchContract int    `json:"launchContract"`
-	SHA256         string `json:"sha256"`
+	// SHA256 is the verified archive digest from the release index.
+	SHA256 string `json:"sha256"`
+	// BinarySHA256 is the digest of the binary extracted from that archive; it is checked before every start.
+	BinarySHA256 string `json:"binarySha256"`
 }
 
 // connectorsMCPResolvedBinary names the executable to start and the release it came from.
@@ -106,7 +109,24 @@ func newConnectorsMCPReleaseResolver(
 	if logs == nil {
 		panic("connectors MCP logs writer must not be nil")
 	}
-	return &connectorsMCPReleaseResolver{cfg: cfg, httpClient: httpClient, platform: platform, logs: logs}
+	return &connectorsMCPReleaseResolver{
+		cfg: cfg, httpClient: newHTTPSOnlyClient(httpClient), platform: platform, logs: logs,
+	}
+}
+
+// newHTTPSOnlyClient copies httpClient and refuses to follow a redirect to a non-https URL.
+func newHTTPSOnlyClient(httpClient *http.Client) *http.Client {
+	httpsOnlyClient := *httpClient
+	httpsOnlyClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if request.URL.Scheme != "https" {
+			return fmt.Errorf("refusing redirect to non-https URL %s", request.URL.Redacted())
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &httpsOnlyClient
 }
 
 // resolveBinary returns the executable to start: --connectors-mcp-binary when set, otherwise a verified release
@@ -123,7 +143,7 @@ func (r *connectorsMCPReleaseResolver) resolveBinary(ctx context.Context) (conne
 		return connectorsMCPResolvedBinary{}, fmt.Errorf("create connectors MCP release cache: %w", err)
 	}
 	if r.cfg.Version != "" {
-		if installed, err := r.loadInstalledRelease(r.cfg.Version); err == nil {
+		if installed, err := r.cachedRelease(r.cfg.Version, nil); err == nil {
 			return installed, nil
 		}
 	}
@@ -135,7 +155,7 @@ func (r *connectorsMCPReleaseResolver) resolveBinary(ctx context.Context) (conne
 	if err != nil {
 		return connectorsMCPResolvedBinary{}, err
 	}
-	if installed, err := r.loadInstalledRelease(release.Version); err == nil {
+	if installed, err := r.cachedRelease(release.Version, &release); err == nil {
 		return installed, nil
 	}
 	installed, installErr := r.installRelease(ctx, release)
@@ -215,6 +235,9 @@ func (r *connectorsMCPReleaseResolver) getHTTPS(ctx context.Context, rawURL stri
 	response, err := r.httpClient.Do(request)
 	if err != nil {
 		return nil, err
+	}
+	if response.Request == nil || response.Request.URL.Scheme != "https" {
+		return nil, errors.Join(fmt.Errorf("%s was not answered over https", rawURL), response.Body.Close())
 	}
 	if response.StatusCode != http.StatusOK {
 		closeErr := response.Body.Close()
@@ -345,11 +368,12 @@ func (r *connectorsMCPReleaseResolver) installRelease(
 	if err := os.Mkdir(releaseDirectory, 0o700); err != nil {
 		return connectorsMCPResolvedBinary{}, fmt.Errorf("create connectors MCP release directory: %w", err)
 	}
-	if err := extractConnectorsMCPBinary(archivePath, filepath.Join(releaseDirectory, connectorsMCPBinaryName)); err != nil {
+	binarySHA256, err := extractConnectorsMCPBinary(archivePath, filepath.Join(releaseDirectory, connectorsMCPBinaryName))
+	if err != nil {
 		return connectorsMCPResolvedBinary{}, fmt.Errorf("extract connectors MCP release %s: %w", release.Version, err)
 	}
 	installed, err := json.Marshal(connectorsMCPInstalledRelease{
-		Version: release.Version, LaunchContract: release.LaunchContract, SHA256: actualSHA256,
+		Version: release.Version, LaunchContract: release.LaunchContract, SHA256: actualSHA256, BinarySHA256: binarySHA256,
 	})
 	if err != nil {
 		return connectorsMCPResolvedBinary{}, fmt.Errorf("encode connectors MCP release record: %w", err)
@@ -359,12 +383,12 @@ func (r *connectorsMCPReleaseResolver) installRelease(
 	}
 	if err := os.Rename(releaseDirectory, filepath.Join(r.cfg.ToolsDirectory, release.Version)); err != nil {
 		// A concurrent dexcli may have installed the same release first.
-		if existing, loadErr := r.loadInstalledRelease(release.Version); loadErr == nil {
+		if existing, loadErr := r.verifyInstalledRelease(release.Version, &release); loadErr == nil {
 			return existing, nil
 		}
 		return connectorsMCPResolvedBinary{}, fmt.Errorf("install connectors MCP release %s: %w", release.Version, err)
 	}
-	return r.loadInstalledRelease(release.Version)
+	return r.verifyInstalledRelease(release.Version, &release)
 }
 
 // downloadArchive writes the archive at rawURL to destination and returns its lowercase hex SHA-256.
@@ -392,76 +416,164 @@ func (r *connectorsMCPReleaseResolver) downloadArchive(ctx context.Context, rawU
 }
 
 // extractConnectorsMCPBinary copies the archive's regular file named dex-connectors-mcp to destination with mode
-// 0755. Every other entry is ignored, so archive paths never reach the file system.
-func extractConnectorsMCPBinary(archivePath string, destination string) (extractErr error) {
+// 0755 and returns its lowercase hex SHA-256. Every other entry is ignored, so archive paths never reach the file
+// system.
+func extractConnectorsMCPBinary(archivePath string, destination string) (binarySHA256 string, extractErr error) {
 	archive, err := os.Open(archivePath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { extractErr = errors.Join(extractErr, archive.Close()) }()
 	decompressed, err := gzip.NewReader(archive)
 	if err != nil {
-		return fmt.Errorf("open gzip stream: %w", err)
+		return "", fmt.Errorf("open gzip stream: %w", err)
 	}
 	defer func() { extractErr = errors.Join(extractErr, decompressed.Close()) }()
 	entries := tar.NewReader(decompressed)
 	for {
 		header, err := entries.Next()
 		if errors.Is(err, io.EOF) {
-			return fmt.Errorf("archive has no %s file", connectorsMCPBinaryName)
+			return "", fmt.Errorf("archive has no %s file", connectorsMCPBinaryName)
 		}
 		if err != nil {
-			return fmt.Errorf("read archive: %w", err)
+			return "", fmt.Errorf("read archive: %w", err)
 		}
 		if header.Typeflag != tar.TypeReg || filepath.Base(filepath.Clean(header.Name)) != connectorsMCPBinaryName {
 			continue
 		}
 		if header.Size > connectorsMCPMaxBinaryBytes {
-			return fmt.Errorf("%s in the archive exceeds %d bytes", connectorsMCPBinaryName, connectorsMCPMaxBinaryBytes)
+			return "", fmt.Errorf("%s in the archive exceeds %d bytes", connectorsMCPBinaryName, connectorsMCPMaxBinaryBytes)
 		}
 		binary, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o755)
 		if err != nil {
-			return err
+			return "", err
 		}
-		_, copyErr := io.Copy(binary, io.LimitReader(entries, connectorsMCPMaxBinaryBytes))
-		return errors.Join(copyErr, binary.Close())
+		hash := sha256.New()
+		_, copyErr := io.Copy(io.MultiWriter(binary, hash), io.LimitReader(entries, connectorsMCPMaxBinaryBytes))
+		if err := errors.Join(copyErr, binary.Close()); err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(hash.Sum(nil)), nil
 	}
 }
 
-// loadInstalledRelease returns the cached release version, or an error when it is missing, incomplete, or uses an
-// unsupported launch contract.
-func (r *connectorsMCPReleaseResolver) loadInstalledRelease(version string) (connectorsMCPResolvedBinary, error) {
+// errConnectorsMCPReleaseNotCached reports that a release version has no usable cache entry.
+var errConnectorsMCPReleaseNotCached = errors.New("connectors MCP release is not cached")
+
+// cachedRelease returns the verified cached release version, or an error wrapping errConnectorsMCPReleaseNotCached.
+// It removes a cache entry that fails verification, so the release is downloaded again.
+func (r *connectorsMCPReleaseResolver) cachedRelease(
+	version string,
+	expected *connectorsMCPRelease,
+) (connectorsMCPResolvedBinary, error) {
+	installed, err := r.verifyInstalledRelease(version, expected)
+	if err == nil {
+		return installed, nil
+	}
+	if errors.Is(err, errConnectorsMCPReleaseNotCached) {
+		return connectorsMCPResolvedBinary{}, err
+	}
+	fmt.Fprintf(r.logs, "Connectors MCP: discarding cached release %s: %v\n", version, err)
+	if removeErr := os.RemoveAll(filepath.Join(r.cfg.ToolsDirectory, version)); removeErr != nil {
+		return connectorsMCPResolvedBinary{}, errors.Join(err, fmt.Errorf("remove cached release %s: %w", version, removeErr))
+	}
+	return connectorsMCPResolvedBinary{}, fmt.Errorf("%w: %v", errConnectorsMCPReleaseNotCached, err)
+}
+
+// verifyInstalledRelease returns the cached release version after checking it: no symlink below the Dex state
+// directory, a supported launch contract matching expected when given, and a binary whose SHA-256 matches the digest
+// recorded from the verified archive. It wraps errConnectorsMCPReleaseNotCached when the version directory is absent.
+//
+// The check detects a corrupt or swapped cache entry. It does not defend against another process of the same user:
+// one that can write the Dex state directory can also replace dexcli itself.
+func (r *connectorsMCPReleaseResolver) verifyInstalledRelease(
+	version string,
+	expected *connectorsMCPRelease,
+) (connectorsMCPResolvedBinary, error) {
 	if !connectorsMCPReleaseVersionPattern.MatchString(version) {
 		return connectorsMCPResolvedBinary{}, fmt.Errorf("invalid connectors MCP release version %q", version)
 	}
 	releaseDirectory := filepath.Join(r.cfg.ToolsDirectory, version)
-	content, err := os.ReadFile(filepath.Join(releaseDirectory, connectorsMCPInstalledReleaseFileName))
+	for _, directory := range []string{filepath.Dir(r.cfg.ToolsDirectory), r.cfg.ToolsDirectory, releaseDirectory} {
+		info, err := os.Lstat(directory)
+		if errors.Is(err, os.ErrNotExist) {
+			return connectorsMCPResolvedBinary{}, fmt.Errorf("%w: %s does not exist", errConnectorsMCPReleaseNotCached, directory)
+		}
+		if err != nil {
+			return connectorsMCPResolvedBinary{}, err
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return connectorsMCPResolvedBinary{}, fmt.Errorf("%s is not a plain directory", directory)
+		}
+	}
+	recordPath := filepath.Join(releaseDirectory, connectorsMCPInstalledReleaseFileName)
+	if err := requirePlainFile(recordPath); err != nil {
+		return connectorsMCPResolvedBinary{}, err
+	}
+	content, err := os.ReadFile(recordPath)
 	if err != nil {
 		return connectorsMCPResolvedBinary{}, err
 	}
 	var installed connectorsMCPInstalledRelease
 	if err := json.Unmarshal(content, &installed); err != nil {
-		return connectorsMCPResolvedBinary{}, fmt.Errorf("decode %s: %w", releaseDirectory, err)
+		return connectorsMCPResolvedBinary{}, fmt.Errorf("decode %s: %w", recordPath, err)
 	}
 	if installed.Version != version || !isSupportedConnectorsMCPLaunchContract(installed.LaunchContract) {
-		return connectorsMCPResolvedBinary{}, fmt.Errorf("cached connectors MCP release %s is not usable", version)
+		return connectorsMCPResolvedBinary{}, fmt.Errorf("%s names version %q with launch contract %d",
+			recordPath, installed.Version, installed.LaunchContract)
+	}
+	if expected != nil {
+		asset := expected.Assets[r.platform]
+		if installed.LaunchContract != expected.LaunchContract || installed.SHA256 != strings.ToLower(asset.SHA256) {
+			return connectorsMCPResolvedBinary{}, fmt.Errorf("%s does not match release %s in the release index", recordPath, version)
+		}
 	}
 	binaryPath := filepath.Join(releaseDirectory, connectorsMCPBinaryName)
-	info, err := os.Stat(binaryPath)
+	if err := requirePlainFile(binaryPath); err != nil {
+		return connectorsMCPResolvedBinary{}, err
+	}
+	actualSHA256, err := fileSHA256(binaryPath)
 	if err != nil {
 		return connectorsMCPResolvedBinary{}, err
 	}
-	if !info.Mode().IsRegular() {
-		return connectorsMCPResolvedBinary{}, fmt.Errorf("%s is not a regular file", binaryPath)
+	if len(installed.BinarySHA256) != 2*sha256.Size || actualSHA256 != installed.BinarySHA256 {
+		return connectorsMCPResolvedBinary{}, fmt.Errorf("%s sha256 is %s, but %s recorded %q",
+			binaryPath, actualSHA256, recordPath, installed.BinarySHA256)
 	}
 	return connectorsMCPResolvedBinary{path: binaryPath, version: version}, nil
 }
 
-// newestInstalledRelease returns the highest cached release with a supported launch contract, honoring Version when
-// it is set, or an error when none is cached.
+// requirePlainFile returns an error unless path is a regular file and not a symlink.
+func requirePlainFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", path)
+	}
+	return nil
+}
+
+// fileSHA256 returns the lowercase hex SHA-256 of the file at path.
+func fileSHA256(path string) (digest string, hashErr error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { hashErr = errors.Join(hashErr, file.Close()) }()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("hash %s: %w", path, err)
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// newestInstalledRelease returns the highest verified cached release, honoring Version when it is set, or an error
+// when none is cached. Cache entries that fail verification are removed.
 func (r *connectorsMCPReleaseResolver) newestInstalledRelease() (connectorsMCPResolvedBinary, error) {
 	if r.cfg.Version != "" {
-		return r.loadInstalledRelease(r.cfg.Version)
+		return r.cachedRelease(r.cfg.Version, nil)
 	}
 	entries, err := os.ReadDir(r.cfg.ToolsDirectory)
 	if err != nil {
@@ -469,10 +581,10 @@ func (r *connectorsMCPReleaseResolver) newestInstalledRelease() (connectorsMCPRe
 	}
 	var newest connectorsMCPResolvedBinary
 	for _, entry := range entries {
-		if !entry.IsDir() || !connectorsMCPReleaseVersionPattern.MatchString(entry.Name()) {
+		if !connectorsMCPReleaseVersionPattern.MatchString(entry.Name()) {
 			continue
 		}
-		installed, err := r.loadInstalledRelease(entry.Name())
+		installed, err := r.cachedRelease(entry.Name(), nil)
 		if err != nil {
 			continue
 		}
@@ -481,7 +593,7 @@ func (r *connectorsMCPReleaseResolver) newestInstalledRelease() (connectorsMCPRe
 		}
 	}
 	if newest.version == "" {
-		return connectorsMCPResolvedBinary{}, errors.New("no cached release")
+		return connectorsMCPResolvedBinary{}, errConnectorsMCPReleaseNotCached
 	}
 	return newest, nil
 }

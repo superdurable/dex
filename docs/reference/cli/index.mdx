@@ -73,17 +73,24 @@ the Connectors library releases. dexcli does not compile any Connector in.
 **dexcli dev** prepares the server in this order:
 
 1. It reuses a compatible server that already runs for the same state
-   directory and **connections.json**. A server is compatible when its process
-   is alive, its **/healthz** answers, dexcli supports its launch contract, and
-   it offers the same **--connectors-mcp-connection** selection, in any order.
+   directory and **connections.json**. dexcli does not trust **server.json**
+   alone: the server must hold the state directory's instance lock, and its
+   **/healthz**, on the same address as its **/mcp**, must confirm the
+   instance, launch contract, and version. dexcli must support that launch
+   contract, and the server must offer the same **--connectors-mcp-connection**
+   selection, in any order.
 2. Otherwise it runs **--connectors-mcp-binary** when set. Without it, dexcli
    reads the release index at
    **https://connectors.superdurable.io/connectors-mcp/index.json** at most once
    a day. It picks the newest release whose launch contract it supports, and
-   downloads the archive for this platform. It checks the archive's SHA-256
-   against the index before it extracts the binary. Releases are cached in
-   **$HOME/.dex/tools/dex-connectors-mcp/&lt;version&gt;**. When the index cannot be
-   fetched, dexcli uses the newest cached release.
+   downloads the archive for this platform. Every request and redirect must use
+   https. It checks the archive's SHA-256 against the index before it extracts
+   the binary. Releases are cached in
+   **$HOME/.dex/tools/dex-connectors-mcp/&lt;version&gt;**, with the SHA-256 of the
+   extracted binary. Before each start, dexcli checks the cached binary against
+   that SHA-256 and refuses symlinks in the cache. It deletes a cache entry that
+   fails, and downloads the release again. When the index cannot be fetched,
+   dexcli uses the newest cached release that passes the check.
 3. It starts the server on a free loopback port. The server reads the
    **connections.json** in **--connector-config-dir**, the file the Dex Web
    Connectors page writes. Its state directory is
@@ -99,6 +106,10 @@ restarts, **/mcp** answers HTTP 503. When no server can run, for example
 offline with an empty cache, on a platform without a release, or after 5
 failed starts in a row, **dexcli dev** keeps running and prints a hint to
 stderr. Pass **--connectors-mcp=false** to turn the server off.
+
+The cache check detects a corrupt or replaced cache entry. It does not protect
+against a program that runs as the same user: a program that can write
+**$HOME/.dex** can also replace **dexcli** itself.
 
 Tool calls carry no credentials. **/mcp** therefore accepts only loopback
 **Host** names: **localhost**, ***.localhost**, and loopback IP addresses. Other

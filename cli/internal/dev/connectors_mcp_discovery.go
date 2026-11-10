@@ -23,6 +23,7 @@ import (
 
 const (
 	connectorsMCPServerFileName       = "server.json"
+	connectorsMCPLockFileName         = "server.lock"
 	connectorsMCPHealthRequestTimeout = 2 * time.Second
 	connectorsMCPMaxHealthBytes       = 64 << 10
 )
@@ -48,9 +49,10 @@ type connectorsMCPHealth struct {
 	ToolCount      int    `json:"toolCount"`
 }
 
-// discoverConnectorsMCPServer reads server.json in cfg.StateDirectory and checks that its process is alive and its
-// /healthz answers with the same instance. It returns the announcement, the discovery result, and, unless the
-// server is reusable, the reason.
+// discoverConnectorsMCPServer reads server.json in cfg.StateDirectory and decides whether its server can be reused.
+// server.json is only a claim: the server must also hold the instance lock, and its /healthz on the same address
+// as url must confirm the instance, launch contract, and version. It returns the announcement, the discovery result,
+// and, unless the server is reusable, the reason.
 func discoverConnectorsMCPServer(
 	ctx context.Context,
 	cfg *ConnectorsMCPConfig,
@@ -64,18 +66,30 @@ func discoverConnectorsMCPServer(
 	if err := json.Unmarshal(content, &announcement); err != nil {
 		return connectorsMCPAnnouncement{}, connectorsMCPServerAbsent, fmt.Sprintf("decode server.json: %v", err)
 	}
+	if err := announcement.validateAddresses(); err != nil {
+		return announcement, connectorsMCPServerAbsent, fmt.Sprintf("server.json: %v", err)
+	}
+	if !filepath.IsAbs(announcement.StateDir) || filepath.Clean(announcement.StateDir) != filepath.Clean(cfg.StateDirectory) {
+		return announcement, connectorsMCPServerAbsent, fmt.Sprintf(
+			"server.json names state directory %q, not %s", announcement.StateDir, cfg.StateDirectory)
+	}
 	if announcement.PID <= 0 || !isProcessAlive(announcement.PID) {
 		return announcement, connectorsMCPServerAbsent, fmt.Sprintf("process %d from server.json is not running", announcement.PID)
 	}
-	if _, err := parseLoopbackHTTPURL(announcement.HealthURL); err != nil {
-		return announcement, connectorsMCPServerAbsent, fmt.Sprintf("server.json healthUrl: %v", err)
+	isLockHeld, err := isConnectorsMCPInstanceLockHeld(cfg.StateDirectory)
+	if err != nil {
+		return announcement, connectorsMCPServerAbsent, err.Error()
+	}
+	if !isLockHeld {
+		return announcement, connectorsMCPServerAbsent, "no server holds the instance lock, so server.json is stale"
 	}
 	health, err := checkConnectorsMCPHealth(ctx, localClient, announcement.HealthURL)
 	if err != nil {
 		return announcement, connectorsMCPServerAbsent, err.Error()
 	}
-	if health.InstanceID != announcement.InstanceID {
-		return announcement, connectorsMCPServerAbsent, "server.json names another instance than /healthz"
+	if health.InstanceID != announcement.InstanceID || health.LaunchContract != announcement.LaunchContract ||
+		(health.Version != "" && health.Version != announcement.Version) {
+		return announcement, connectorsMCPServerAbsent, "/healthz does not confirm the instance, launch contract, and version in server.json"
 	}
 	if err := announcement.validateEndpoint(); err != nil {
 		return announcement, connectorsMCPServerIncompatible, fmt.Sprintf("server at %s: %v", announcement.URL, err)
@@ -94,6 +108,27 @@ func discoverConnectorsMCPServer(
 			"server at %s offers another connection selection than --connectors-mcp-connection", announcement.URL)
 	}
 	return announcement, connectorsMCPServerReusable, ""
+}
+
+// isConnectorsMCPInstanceLockHeld reports whether another open file holds server.lock in stateDirectory. It tries
+// a non-blocking lock and releases it at once when it succeeds.
+func isConnectorsMCPInstanceLockHeld(stateDirectory string) (bool, error) {
+	lockFile, err := os.Open(filepath.Join(stateDirectory, connectorsMCPLockFileName))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("open instance lock: %w", err)
+	}
+	lockErr := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if errors.Is(lockErr, syscall.EWOULDBLOCK) {
+		return true, lockFile.Close()
+	}
+	if lockErr != nil {
+		return false, errors.Join(fmt.Errorf("try instance lock: %w", lockErr), lockFile.Close())
+	}
+	// Closing the file releases the lock this probe took.
+	return false, lockFile.Close()
 }
 
 // checkConnectorsMCPHealth returns the /healthz body at healthURL, or an error unless it is HTTP 200 with status ok.
