@@ -41,15 +41,6 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'concepts/client',
-        {
-          type: 'category',
-          label: 'Correctness and Expressiveness',
-          link: {type: 'doc', id: 'concepts/correctness-and-expressiveness/index'},
-          items: [
-            'concepts/correctness-and-expressiveness/expressiveness-proof',
-            'concepts/correctness-and-expressiveness/workflow-patterns',
-          ],
-        },
       ],
     },
     {
@@ -198,6 +189,16 @@ const sidebars: SidebarsConfig = {
         'use-cases/microservice-orchestration',
         'use-cases/job-post',
         'use-cases/customer-refund',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Correctness and Expressiveness',
+      customProps: {section: 'correctness'},
+      link: {type: 'doc', id: 'correctness-and-expressiveness/index'},
+      items: [
+        'correctness-and-expressiveness/expressiveness-proof',
+        'correctness-and-expressiveness/workflow-patterns',
       ],
     },
     {

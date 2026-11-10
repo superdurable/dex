@@ -1978,5 +1978,29 @@
   {
     "from": "/zh-Hans/reference/rust/flows-and-steps/failure-and-redelivery",
     "to": "/zh-Hans/reference/rust/failure-and-retries"
+  },
+  {
+    "from": "/concepts/correctness-and-expressiveness",
+    "to": "/correctness-and-expressiveness"
+  },
+  {
+    "from": "/zh-Hans/concepts/correctness-and-expressiveness",
+    "to": "/zh-Hans/correctness-and-expressiveness"
+  },
+  {
+    "from": "/concepts/correctness-and-expressiveness/expressiveness-proof",
+    "to": "/correctness-and-expressiveness/expressiveness-proof"
+  },
+  {
+    "from": "/zh-Hans/concepts/correctness-and-expressiveness/expressiveness-proof",
+    "to": "/zh-Hans/correctness-and-expressiveness/expressiveness-proof"
+  },
+  {
+    "from": "/concepts/correctness-and-expressiveness/workflow-patterns",
+    "to": "/correctness-and-expressiveness/workflow-patterns"
+  },
+  {
+    "from": "/zh-Hans/concepts/correctness-and-expressiveness/workflow-patterns",
+    "to": "/zh-Hans/correctness-and-expressiveness/workflow-patterns"
   }
 ]
