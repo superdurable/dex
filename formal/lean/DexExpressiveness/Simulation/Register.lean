@@ -961,4 +961,433 @@ theorem wp3a_simulated_of_run {program : Program} {lConfig : L.Config}
           rw [isRunningNew] at isClosed
           cases isClosed }
 
+/-! ## The timer clause -/
+
+/-- No armed timer belongs to the Step of a `waitStarted` thread. -/
+theorem wp3a_no_timer_of_record {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (lInvariant : L.Invariant program lConfig)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    (isWaitStarted : thread.phase = .waitStarted)
+    {record : Dex.StepRecord signature} (carries : StepCarriesThread program thread record)
+    (timer : Dex.TimerId signature) (fireTime : Nat)
+    (isArmed : run.timers.get? timer = some fireTime) : timer.step ≠ record.id := by
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  obtain ⟨owner, chan, since, isOwner, isBlocked, isTimed, _⟩ :=
+    (related.timers timer fireTime).mp isArmed
+  intro sameStep
+  have isNotBoot : wp2_isBootPhase thread.phase = false := by
+    rw [isWaitStarted]
+    rfl
+  cases timerCase : thread.timer with
+  | none =>
+    have isPoint := wp2_record_of_no_timer carries isNotBoot timerCase
+    rw [← sameStep, isTimed] at isPoint
+    cases isPoint
+  | some entry =>
+    obtain ⟨number, seconds⟩ := entry
+    have isRecordId := wp2_record_of_timer carries isNotBoot timerCase
+    obtain ⟨⟨ownerSeconds, ownerTimer⟩, _⟩ :=
+      wp2_timer_of_blocked_timed lInvariant isOwner isBlocked
+    have sameNumber : timer.step.number = number := by rw [sameStep, isRecordId]
+    rw [sameNumber] at ownerTimer
+    have isThread := lInvariant.timerNumbersInjective owner isOwner thread isMember number
+      ownerSeconds seconds ownerTimer timerCase
+    rw [isThread, isWaitStarted] at isBlocked
+    cases isBlocked
+
+/-- The timer clause when the timers stay and the thread arms none. -/
+theorem wp3a_timers_same {program : Program} {lConfig lNext : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (lInvariant : L.Invariant program lConfig)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    (isWaitStarted : thread.phase = .waitStarted) (newPhase : Phase)
+    (isNotTimed : ∀ number deadline chan since,
+      newPhase ≠ .blocked (.timed number deadline chan) since)
+    (sameThreads : lNext.threads = (lConfig.setPhase tid newPhase).threads)
+    (newTimers : AssocList (Dex.TimerId signature) Nat)
+    (hasTimers : ∀ timer fireTime,
+      newTimers.get? timer = some fireTime ↔ run.timers.get? timer = some fireTime) :
+    ∀ timer fireTime, newTimers.get? timer = some fireTime ↔
+      ∃ owner chan since, owner ∈ lNext.threads ∧
+        owner.phase = .blocked (.timed timer.step.number fireTime chan) since ∧
+        timer.step.stepType = StepType.timed ∧ timer.index = 0 := by
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  have memNew := wp2_mem_setPhase lInvariant isFound newPhase
+  intro timer fireTime
+  rw [hasTimers, related.timers, sameThreads]
+  constructor
+  · rintro ⟨owner, chan, since, isOwner, isBlocked, rest⟩
+    refine ⟨owner, chan, since, (memNew owner).mpr (Or.inl ⟨isOwner, ?_⟩), isBlocked, rest⟩
+    intro isChanged
+    have isThread : owner = thread :=
+      wp2_thread_eq_of_tid lInvariant isOwner isMember (isChanged.trans hasTid.symm)
+    rw [isThread, isWaitStarted] at isBlocked
+    cases isBlocked
+  · rintro ⟨owner, chan, since, isOwner, isBlocked, rest⟩
+    rcases (memNew owner).mp isOwner with ⟨isOld, _⟩ | isNew
+    · exact ⟨owner, chan, since, isOld, isBlocked, rest⟩
+    · rw [isNew] at isBlocked
+      exact (isNotTimed _ _ _ _ isBlocked).elim
+
+/-- Disarming the timers of the Step of a `waitStarted` thread removes none. -/
+theorem wp3a_get?_disarmed {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (lInvariant : L.Invariant program lConfig)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    (isWaitStarted : thread.phase = .waitStarted)
+    {record : Dex.StepRecord signature} (carries : StepCarriesThread program thread record)
+    (timer : Dex.TimerId signature) (fireTime : Nat) :
+    AssocList.get? (run.timers.filter (fun entry => !decide (entry.1.step = record.id))) timer =
+        some fireTime ↔
+      run.timers.get? timer = some fireTime := by
+  by_cases isStep : timer.step = record.id
+  · constructor
+    · intro isKept
+      rw [wp2_get?_filter_of_rejected
+        (fun key : Dex.TimerId signature => !decide (key.step = record.id)) run.timers timer
+        (by simp [isStep])] at isKept
+      cases isKept
+    · intro isArmed
+      exact absurd isStep (wp3a_no_timer_of_record related lInvariant isFound isWaitStarted
+        carries timer fireTime isArmed)
+  · rw [AssocList.get?_filter_of_kept
+      (fun key : Dex.TimerId signature => !decide (key.step = record.id)) run.timers timer
+      (by simp [isStep])]
+
+/-- The timer clause when the thread arms the timer of its `Timed` Step. -/
+theorem wp3a_timers_armed {program : Program} {lConfig lNext : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (lInvariant : L.Invariant program lConfig)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    (isWaitStarted : thread.phase = .waitStarted)
+    {record : Dex.StepRecord signature} (carries : StepCarriesThread program thread record)
+    (number seconds : Nat) (hasTimer : thread.timer = some (number, seconds))
+    (fireAt : Nat) (chan : Option ExtChan) (since : Nat)
+    (sameThreads : lNext.threads =
+      (lConfig.setPhase tid (.blocked (.timed number fireAt chan) since)).threads) :
+    ∀ timer fireTime,
+      AssocList.get? (run.timers.set { step := record.id, index := 0 } fireAt) timer =
+          some fireTime ↔
+        ∃ owner ownerChan ownerSince, owner ∈ lNext.threads ∧
+          owner.phase = .blocked (.timed timer.step.number fireTime ownerChan) ownerSince ∧
+          timer.step.stepType = StepType.timed ∧ timer.index = 0 := by
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  have memNew := wp2_mem_setPhase lInvariant isFound (.blocked (.timed number fireAt chan) since)
+  have isNotBoot : wp2_isBootPhase thread.phase = false := by
+    rw [isWaitStarted]
+    rfl
+  have isRecordId := wp2_record_of_timer carries isNotBoot hasTimer
+  -- No other thread is blocked on the timer number of this thread.
+  have notOld : ∀ owner, owner ∈ lConfig.threads → ∀ deadline ownerChan ownerSince,
+      owner.phase ≠ .blocked (.timed number deadline ownerChan) ownerSince := by
+    intro owner isOwner deadline ownerChan ownerSince isBlocked
+    obtain ⟨⟨ownerSeconds, ownerTimer⟩, _⟩ :=
+      wp2_timer_of_blocked_timed lInvariant isOwner isBlocked
+    have isThread := lInvariant.timerNumbersInjective owner isOwner thread isMember number
+      ownerSeconds seconds ownerTimer hasTimer
+    rw [isThread, isWaitStarted] at isBlocked
+    cases isBlocked
+  intro timer fireTime
+  rw [sameThreads]
+  by_cases isNew : timer = { step := record.id, index := 0 }
+  · rw [isNew, AssocList.get?_set_self]
+    constructor
+    · intro sameTime
+      injection sameTime with sameTime
+      rw [← sameTime]
+      exact ⟨_, chan, since, (memNew _).mpr (Or.inr rfl), by simp [isRecordId],
+        by rw [isRecordId], rfl⟩
+    · rintro ⟨owner, ownerChan, ownerSince, isOwner, isBlocked, _⟩
+      rcases (memNew owner).mp isOwner with ⟨isOld, _⟩ | isNewOwner
+      · dsimp only at isBlocked
+        rw [isRecordId] at isBlocked
+        exact absurd isBlocked (notOld owner isOld _ _ _)
+      · rw [isNewOwner] at isBlocked
+        injection isBlocked with sameOn
+        injection sameOn with _ sameDeadline
+        rw [sameDeadline]
+  · rw [AssocList.get?_set_other _ _ _ _ isNew, related.timers]
+    constructor
+    · rintro ⟨owner, ownerChan, ownerSince, isOwner, isBlocked, rest⟩
+      refine ⟨owner, ownerChan, ownerSince, (memNew owner).mpr (Or.inl ⟨isOwner, ?_⟩), isBlocked,
+        rest⟩
+      intro isChanged
+      have isThread : owner = thread :=
+        wp2_thread_eq_of_tid lInvariant isOwner isMember (isChanged.trans hasTid.symm)
+      rw [isThread, isWaitStarted] at isBlocked
+      cases isBlocked
+    · rintro ⟨owner, ownerChan, ownerSince, isOwner, isBlocked, isTimed, isIndex⟩
+      rcases (memNew owner).mp isOwner with ⟨isOld, _⟩ | isNewOwner
+      · exact ⟨owner, ownerChan, ownerSince, isOld, isBlocked, isTimed, isIndex⟩
+      · rw [isNewOwner] at isBlocked
+        injection isBlocked with sameOn
+        injection sameOn with sameNumber
+        exfalso
+        apply isNew
+        obtain ⟨⟨stepType, stepNumber⟩, index⟩ := timer
+        simp only at isTimed isIndex sameNumber
+        rw [isRecordId, isTimed, isIndex, sameNumber]
+
+/-! ## The Channel clauses -/
+
+/-- No thread boots while another thread has begun a wait. -/
+theorem wp3a_noBoot {program : Program} {lConfig : L.Config}
+    (lInvariant : L.Invariant program lConfig) {tid : Tid} {thread : L.Thread}
+    (isFound : lConfig.findThread? tid = some thread)
+    (isWaitStarted : thread.phase = .waitStarted) :
+    ∀ other, other ∈ lConfig.threads →
+      other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning := by
+  obtain ⟨isMember, _⟩ := wp2_mem_of_findThread? isFound
+  intro other isOther
+  rw [← wp2_isBootPhase_eq_false]
+  cases bootCase : wp2_isBootPhase other.phase with
+  | false => rfl
+  | true =>
+    have isBootPhase : other.phase = .bootPending ∨ other.phase = .bootRunning := by
+      cases phaseCase : other.phase <;> simp [phaseCase, wp2_isBootPhase] at bootCase ⊢
+    have isOnly := (lInvariant.bootIsInitial other isOther isBootPhase).1
+    rw [isOnly] at isMember
+    have isThread : thread = other := by simpa using isMember
+    rw [isThread] at isWaitStarted
+    rcases isBootPhase with isPhase | isPhase <;> rw [isPhase] at isWaitStarted <;>
+      cases isWaitStarted
+
+/-- The Channel clauses when no Channel and no L queue changes. -/
+theorem wp3a_channels_same {program : Program} {lConfig lNext : L.Config}
+    {dexConfig : Dex.Config signature} {run newRun : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (areBooted : ∀ other, other ∈ lConfig.threads →
+      other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning)
+    (tid : Tid) (newPhase : Phase)
+    (sameInput : lNext.inputQueues = lConfig.inputQueues)
+    (sameOwners : lNext.mutexOwners = lConfig.mutexOwners)
+    (sameJoinable : lNext.joinable = lConfig.joinable)
+    (sameWakes : lNext.cvWakes = lConfig.cvWakes)
+    (samePending : ∀ chan, newRun.pendingMessages chan = run.pendingMessages chan) :
+    wp3a_ChannelsRelated lNext run newRun tid newPhase :=
+  { inputQueues := fun chan => by
+      rw [samePending]
+      show _ = ((lNext.inputQueues.get? chan).getD []).map _
+      rw [sameInput]
+      exact related.inputQueues chan
+    mutexTokens := fun mutex => by
+      rw [samePending, sameOwners]
+      exact related.mutexTokens areBooted mutex
+    joinTokens := fun joined => by
+      rw [samePending, sameJoinable]
+      exact related.joinTokens joined
+    cvWakes := fun cv waiter => by
+      rw [samePending, sameWakes]
+      exact related.cvWakes cv waiter
+    cancelOther := fun other _ => samePending _
+    cancelBefore := fun isPending => by
+      rw [samePending] at isPending
+      exact isPending
+    cancelAfter := fun isPending => Or.inl (by rw [samePending]; exact isPending) }
+
+/-- The Channel clauses when the thread receives the head of an external Channel. -/
+theorem wp3a_channels_external {program : Program} {lConfig lNext : L.Config}
+    {dexConfig : Dex.Config signature} {run newRun : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (areBooted : ∀ other, other ∈ lConfig.threads →
+      other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning)
+    (tid : Tid) (newPhase : Phase) (chan : ExtChan) (later : List Val)
+    (nextInput : lNext.inputQueues = lConfig.inputQueues.set chan later)
+    (sameOwners : lNext.mutexOwners = lConfig.mutexOwners)
+    (sameJoinable : lNext.joinable = lConfig.joinable)
+    (sameWakes : lNext.cvWakes = lConfig.cvWakes)
+    (isPopped : newRun.pendingMessages (Chan.external chan) = later.map DexVal.value)
+    (sameOthers : ∀ other, other ≠ Chan.external chan →
+      newRun.pendingMessages other = run.pendingMessages other) :
+    wp3a_ChannelsRelated lNext run newRun tid newPhase :=
+  { inputQueues := fun other => by
+      show _ = ((lNext.inputQueues.get? other).getD []).map _
+      rw [nextInput]
+      by_cases isChan : other = chan
+      · rw [isChan, isPopped, AssocList.get?_set_self]
+        rfl
+      · rw [sameOthers _ (by simp [isChan]), AssocList.get?_set_other _ _ _ _ isChan]
+        exact related.inputQueues other
+    mutexTokens := fun mutex => by
+      rw [sameOthers _ (by simp), sameOwners]
+      exact related.mutexTokens areBooted mutex
+    joinTokens := fun joined => by
+      rw [sameOthers _ (by simp), sameJoinable]
+      exact related.joinTokens joined
+    cvWakes := fun cv waiter => by
+      rw [sameOthers _ (by simp), sameWakes]
+      exact related.cvWakes cv waiter
+    cancelOther := fun other _ => sameOthers _ (by simp)
+    cancelBefore := fun isPending => by
+      rw [sameOthers _ (by simp)] at isPending
+      exact isPending
+    cancelAfter := fun isPending => Or.inl (by rw [sameOthers _ (by simp)]; exact isPending) }
+
+/-- The Channel clauses when the thread takes the token of a mutex. -/
+theorem wp3a_channels_mutex {program : Program} {lConfig lNext : L.Config}
+    {dexConfig : Dex.Config signature} {run newRun : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (areBooted : ∀ other, other ∈ lConfig.threads →
+      other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning)
+    (tid : Tid) (newPhase : Phase) (mutex : MutexId)
+    (sameInput : lNext.inputQueues = lConfig.inputQueues)
+    (nextOwners : lNext.mutexOwners = lConfig.mutexOwners.set mutex (some tid))
+    (sameJoinable : lNext.joinable = lConfig.joinable)
+    (sameWakes : lNext.cvWakes = lConfig.cvWakes)
+    (isPopped : newRun.pendingMessages (Chan.mutexToken mutex) = [])
+    (sameOthers : ∀ other, other ≠ Chan.mutexToken mutex →
+      newRun.pendingMessages other = run.pendingMessages other) :
+    wp3a_ChannelsRelated lNext run newRun tid newPhase :=
+  { inputQueues := fun chan => by
+      rw [sameOthers _ (by simp)]
+      show _ = ((lNext.inputQueues.get? chan).getD []).map _
+      rw [sameInput]
+      exact related.inputQueues chan
+    mutexTokens := fun other => by
+      rw [nextOwners]
+      by_cases isMutex : other = mutex
+      · rw [isMutex, isPopped, AssocList.get?_set_self]
+        simp
+      · rw [sameOthers _ (by simp [isMutex]), AssocList.get?_set_other _ _ _ _ isMutex]
+        exact related.mutexTokens areBooted other
+    joinTokens := fun joined => by
+      rw [sameOthers _ (by simp), sameJoinable]
+      exact related.joinTokens joined
+    cvWakes := fun cv waiter => by
+      rw [sameOthers _ (by simp), sameWakes]
+      exact related.cvWakes cv waiter
+    cancelOther := fun other _ => sameOthers _ (by simp)
+    cancelBefore := fun isPending => by
+      rw [sameOthers _ (by simp)] at isPending
+      exact isPending
+    cancelAfter := fun isPending => Or.inl (by rw [sameOthers _ (by simp)]; exact isPending) }
+
+/-- The Channel clauses when the thread joins an ended thread. -/
+theorem wp3a_channels_join {program : Program} {lConfig lNext : L.Config}
+    {dexConfig : Dex.Config signature} {run newRun : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (areBooted : ∀ other, other ∈ lConfig.threads →
+      other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning)
+    (joinableNodup : lConfig.joinable.Nodup)
+    (tid : Tid) (newPhase : Phase) (target : Tid)
+    (sameInput : lNext.inputQueues = lConfig.inputQueues)
+    (sameOwners : lNext.mutexOwners = lConfig.mutexOwners)
+    (nextJoinable : lNext.joinable = lConfig.joinable.erase target)
+    (sameWakes : lNext.cvWakes = lConfig.cvWakes)
+    (isPopped : newRun.pendingMessages (Chan.joinDone target) = [])
+    (sameOthers : ∀ other, other ≠ Chan.joinDone target →
+      newRun.pendingMessages other = run.pendingMessages other) :
+    wp3a_ChannelsRelated lNext run newRun tid newPhase :=
+  { inputQueues := fun chan => by
+      rw [sameOthers _ (by simp)]
+      show _ = ((lNext.inputQueues.get? chan).getD []).map _
+      rw [sameInput]
+      exact related.inputQueues chan
+    mutexTokens := fun mutex => by
+      rw [sameOthers _ (by simp), sameOwners]
+      exact related.mutexTokens areBooted mutex
+    joinTokens := fun joined => by
+      rw [nextJoinable]
+      by_cases isTarget : joined = target
+      · rw [isTarget, isPopped]
+        simp [joinableNodup.not_mem_erase]
+      · rw [sameOthers _ (by simp [isTarget]), related.joinTokens joined]
+        simp [List.mem_erase_of_ne isTarget]
+    cvWakes := fun cv waiter => by
+      rw [sameOthers _ (by simp), sameWakes]
+      exact related.cvWakes cv waiter
+    cancelOther := fun other _ => sameOthers _ (by simp)
+    cancelBefore := fun isPending => by
+      rw [sameOthers _ (by simp)] at isPending
+      exact isPending
+    cancelAfter := fun isPending => Or.inl (by rw [sameOthers _ (by simp)]; exact isPending) }
+
+/-- The Channel clauses when the thread finds an early wake of its wait. -/
+theorem wp3a_channels_cvWake {program : Program} {lConfig lNext : L.Config}
+    {dexConfig : Dex.Config signature} {run newRun : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (areBooted : ∀ other, other ∈ lConfig.threads →
+      other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning)
+    (tid : Tid) (newPhase : Phase) (cv : CvId)
+    (sameInput : lNext.inputQueues = lConfig.inputQueues)
+    (sameOwners : lNext.mutexOwners = lConfig.mutexOwners)
+    (sameJoinable : lNext.joinable = lConfig.joinable)
+    (nextWakes : lNext.cvWakes = lConfig.cvWakes.erase (cv, tid))
+    (message : DexVal) (remaining : List DexVal)
+    (hasMessage : run.pendingMessages (Chan.cvWake cv tid) = message :: remaining)
+    (isPopped : newRun.pendingMessages (Chan.cvWake cv tid) = remaining)
+    (sameOthers : ∀ other, other ≠ Chan.cvWake cv tid →
+      newRun.pendingMessages other = run.pendingMessages other) :
+    wp3a_ChannelsRelated lNext run newRun tid newPhase :=
+  { inputQueues := fun chan => by
+      rw [sameOthers _ (by simp)]
+      show _ = ((lNext.inputQueues.get? chan).getD []).map _
+      rw [sameInput]
+      exact related.inputQueues chan
+    mutexTokens := fun mutex => by
+      rw [sameOthers _ (by simp), sameOwners]
+      exact related.mutexTokens areBooted mutex
+    joinTokens := fun joined => by
+      rw [sameOthers _ (by simp), sameJoinable]
+      exact related.joinTokens joined
+    cvWakes := fun otherCv waiter => by
+      rw [nextWakes]
+      by_cases isWake : (otherCv, waiter) = (cv, tid)
+      · injection isWake with sameCv sameWaiter
+        rw [sameCv, sameWaiter, isPopped, List.count_erase_self]
+        have wasCounted := related.cvWakes cv tid
+        rw [hasMessage] at wasCounted
+        simp only [List.length_cons] at wasCounted
+        omega
+      · rw [sameOthers _ (by
+            intro sameChan
+            injection sameChan with sameCv sameWaiter
+            exact isWake (by rw [sameCv, sameWaiter])),
+          List.count_erase_of_ne isWake]
+        exact related.cvWakes otherCv waiter
+    cancelOther := fun other _ => sameOthers _ (by simp)
+    cancelBefore := fun isPending => by
+      rw [sameOthers _ (by simp)] at isPending
+      exact isPending
+    cancelAfter := fun isPending => Or.inl (by rw [sameOthers _ (by simp)]; exact isPending) }
+
+/-- The Channel clauses when the thread observes its cancel request. -/
+theorem wp3a_channels_cancel {program : Program} {lConfig lNext : L.Config}
+    {dexConfig : Dex.Config signature} {run newRun : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (areBooted : ∀ other, other ∈ lConfig.threads →
+      other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning)
+    (tid : Tid)
+    (sameInput : lNext.inputQueues = lConfig.inputQueues)
+    (sameOwners : lNext.mutexOwners = lConfig.mutexOwners)
+    (sameJoinable : lNext.joinable = lConfig.joinable)
+    (sameWakes : lNext.cvWakes = lConfig.cvWakes)
+    (message : DexVal) (remaining : List DexVal)
+    (hasMessage : run.pendingMessages (Chan.cancelRequest tid) = message :: remaining)
+    (sameOthers : ∀ other, other ≠ Chan.cancelRequest tid →
+      newRun.pendingMessages other = run.pendingMessages other) :
+    wp3a_ChannelsRelated lNext run newRun tid (.woken .canceled) :=
+  { inputQueues := fun chan => by
+      rw [sameOthers _ (by simp)]
+      show _ = ((lNext.inputQueues.get? chan).getD []).map _
+      rw [sameInput]
+      exact related.inputQueues chan
+    mutexTokens := fun mutex => by
+      rw [sameOthers _ (by simp), sameOwners]
+      exact related.mutexTokens areBooted mutex
+    joinTokens := fun joined => by
+      rw [sameOthers _ (by simp), sameJoinable]
+      exact related.joinTokens joined
+    cvWakes := fun cv waiter => by
+      rw [sameOthers _ (by simp), sameWakes]
+      exact related.cvWakes cv waiter
+    cancelOther := fun other isOther => sameOthers _ (by simp [isOther])
+    cancelBefore := fun _ => by simp [hasMessage]
+    cancelAfter := fun _ => Or.inr rfl }
+
 end DexExpressiveness
