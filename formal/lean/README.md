@@ -10,7 +10,15 @@ The semantics it formalizes is
 [`formal/semantics/dex-core-semantics.md`](../semantics/dex-core-semantics.md),
 revision 5. "Spec" below means that document.
 
-## Status: Stage 1, revised after the first review
+## Status: Stage 2a in progress, stopped on an open issue
+
+Stage 2a proves the safety theorem. Eight of the twelve `sorry` of Stage 1
+are proved, and `safety_of_isWellFormed` depends on exactly two: the step
+simulations. Work on those found a discrepancy between L and its translation
+for programs that forge a mutex handle. See
+[Open issue found in Stage 2a](#open-issue-found-in-stage-2a-forged-mutex-handles).
+
+### Stage 1, revised after the first review
 
 Stage 1 is the model and the statements. The two main theorems are stated and
 reduced to four inclusion lemmas. Those lemmas, and eight more that the proof
@@ -77,7 +85,7 @@ and `make copyright-check` passes.
 | `DexExpressiveness/Simulation.lean` | The candidate simulation relation, the two step simulations, and the two liveness inclusions. Every `sorry` is here. |
 | `DexExpressiveness/FiniteTraces.lean` | Proved from the step simulations: the two finite-trace inclusions that give safety. |
 | `DexExpressiveness/Properties.lean` | Proved facts. No `sorry`. |
-| `DexExpressiveness/Examples/*.lean` | Concrete runs checked in the Lean kernel, and lockstep checks. No `sorry`. |
+| `DexExpressiveness/Examples/*.lean` | Concrete runs checked in the Lean kernel, and lockstep checks. No `sorry`. `ForgedMutexHandle.lean` is the counterexample of the open issue below. |
 
 A reviewer who checks the statements against the spec reads, in order:
 `Core/TransitionSystem.lean`, the five `Dex/` files, the three `L/` files, the
@@ -474,6 +482,63 @@ reachable, which is where `program.IsWellFormed` applies.
 requests of the simulating Dex actions are the encoded request of the L
 label.
 
+## Open issue found in Stage 2a: forged mutex handles
+
+**Stage 2a is stopped on this point. It needs an owner decision.** Nothing in
+the model, the translation, or the theorem statements was changed for it.
+
+`Expr.lit` accepts any `Val`, so a source program can write the handle of a
+mutex that `newMutex` has not created yet, for example
+`.lit (.mutex (.dynamic [] 1))`. A thread can then block in `lock` on a mutex
+that does not exist.
+
+- L: `lock` of a mutex that does not exist blocks
+  (`Config.registerWait`, case `lock`). `newMutex` creates the mutex unlocked
+  and does not look at blocked threads (`Config.applyIntent`, case
+  `newMutex`). The locker stays blocked forever.
+- Dex: the locker's Step waits on the token Channel. `newMutex` publishes the
+  first token, and `wake` gives it to the waiting Step.
+
+`Examples/ForgedMutexHandle.lean` has the program and checks both runs in the
+kernel:
+
+```text
+locker():  lock(<forged handle of the mutex main creates>); emit(1)
+main(x):   t := fork locker(); sleep(0); m := newMutex(); x := recv(9)
+```
+
+| Fact | Lean |
+| --- | --- |
+| The L run in which the locker blocks first has trace `[begin(0)]`. | `l_trace` |
+| At its end the mutex is unlocked and the locker is still blocked on it. | `l_lockerIsStuck` |
+| The translated Flow has trace `[begin(0), out(1)]`. | `dex_trace` |
+| The lockstep run reports a mismatch. | `lockstep_findsMismatch` |
+
+Consequences:
+
+- The program is well formed, so `liveness_of_isWellFormed` is false for it
+  as the model stands. For the word `[start 0]`, L has the fair maximal trace
+  `[begin(0)]` with marker `δ`. Every fair run of the Flow emits `out(1)`:
+  the locker's wait is satisfied either when it registers or when the token
+  is published. This last claim is argued, not proved in Lean.
+- `safety_of_isWellFormed` may still hold for this program, because L can
+  reach `[begin(0), out(1)]` by letting the locker register after the
+  creation. But the step simulations (items 7 and 8) are false for it: the
+  two sides cannot stay in step. So the safety proof cannot be completed
+  until the point is decided.
+- The same holds for no other handle. A forged thread handle is harmless: a
+  `join` or `cancel` of a thread that does not exist yet behaves the same on
+  both sides. A statically known mutex beyond `staticMutexCount` is never
+  created on either side.
+
+Options:
+
+| Option | Change | Cost |
+| --- | --- | --- |
+| (a) Handles cannot be forged. Recommended. | L syntax: literals are null, Booleans, integers, and strings; a statically known mutex gets its own expression. Spec §8.1 says so. | Small. A handle then exists only after its `newMutex`, `fork`, or `cvOf`. The example programs that use `.lit (.mutex (.static 0))` and `.lit (.thread [])` change to the new expression, or drop the self-cancel. |
+| (b) `newMutex` serves blocked lockers. | L semantics: creating a mutex grants it to the first thread already blocked on its identity. | Small in Lean, but L gets a rule that only forged handles can trigger. |
+| (c) Well-formedness excludes it. | `Program.IsWellFormed` also requires that no thread locks a mutex that does not exist. | Small, but it also excludes `lock` of a statically known mutex beyond `staticMutexCount`, which is harmless. |
+
 ## Stage 2a progress
 
 Stage 2a proves `safety_of_isWellFormed`. Liveness stays `sorry` until
@@ -491,6 +556,22 @@ classical case splits, so `Classical.choice` may appear among the axioms.
 | 6 | `armedTimers_areTimedSteps` | Proved, `Invariants.lean`. |
 | 9 | `finiteTrace_dex_to_l` | Proved from item 7, `FiniteTraces.lean`. |
 | 10 | `finiteTrace_l_to_dex` | Proved from item 8, `FiniteTraces.lean`. |
+
+Proof lines added in Stage 2a so far: about 2,800, in `Dex/RunLemmas.lean`,
+`Dex/WaitLemmas.lean`, `Dex/RunInvariant.lean`, `Invariants.lean`, and
+`FiniteTraces.lean`.
+
+What remains for safety is items 7 and 8. Three strengthenings of `Related`
+are already known to be needed, apart from the open issue above:
+
+- While `main` boots, the relation must fix the whole thread state (thread
+  ID, counter, stack, code, no timer), not only the locals.
+- A thread blocked in a timed operation must have exactly one timer condition
+  in its Step's wait.
+- Thread IDs and created mutex IDs must be fresh: for live threads `a` and
+  `b` and every `k` at or above `a`'s counter, `a.tid ++ [k]` is not a prefix
+  of `b.tid`, and the same for joinable thread IDs and the creators of
+  existing mutexes.
 
 Items 4 to 6 follow from one inductive invariant. `Dex/RunInvariant.lean`
 defines `Run.Invariant` (unique Step IDs, counted Step numbers, quiet
