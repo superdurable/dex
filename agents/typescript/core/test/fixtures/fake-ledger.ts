@@ -89,6 +89,8 @@ const getBalanceDefinition = definition("getBalance", "found", "notFound", "inva
 const createPayoutDefinition = definition("createPayout", "paid", "providerRejected", "uncertain", "invalidResponse", "defect");
 const postNoteDefinition = definition("postNote", "posted", "providerRejected", "uncertain", "defect");
 const closeAccountDefinition = definition("closeAccount", "closed", "defect");
+// An operation ID whose default tool name changed in dex-agents 0.5.0.
+const getBalanceByIdDefinition = definition("getBalanceByID", "found", "notFound", "invalidResponse", "defect");
 
 interface ProviderEntry {
   readonly operation: string;
@@ -182,6 +184,10 @@ export class GetBalanceOperation implements Query<GetBalanceInput, Balance> {
     if (input.accountId === "garbled") {
       return newQueryBranch("invalidResponse", { accountId: input.accountId, amount: 0 }, {}, failure("getBalance", "bad body"));
     }
+    if (input.accountId === "defect") {
+      // The Connector SDK turns an undeclared branch into defect.
+      return newQueryBranch("undeclared", { accountId: input.accountId, amount: 0 });
+    }
     const payouts = this.provider.writes("createPayout").length;
     const padding = input.padding ?? 0;
     return newQueryBranch("found", {
@@ -189,6 +195,13 @@ export class GetBalanceOperation implements Query<GetBalanceInput, Balance> {
       amount: 100 - payouts,
       ...(padding > 0 ? { filler: "x".repeat(padding) } : {}),
     });
+  }
+}
+
+/** getBalance under an operation ID with an acronym. */
+export class GetBalanceByIdOperation extends GetBalanceOperation {
+  public override definition(): QueryDefinition {
+    return getBalanceByIdDefinition;
   }
 }
 
@@ -223,6 +236,10 @@ export class CreatePayoutOperation implements Mutation<CreatePayoutInput, Payout
     if (words.includes("invalid")) {
       return newMutationBranch("invalidResponse", {}, {}, failure("createPayout", "bad body"));
     }
+    if (words.includes("defect")) {
+      // After the provider accepted the payout, the SDK turns an undeclared branch into defect.
+      return newMutationBranch("undeclared", {});
+    }
     if (words.includes("uncertain")) {
       return newMutationUncertain({}, failure("createPayout", "server error after send"));
     }
@@ -250,9 +267,17 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
     if (words.includes("reject")) {
       return newMutationBranch("providerRejected", {}, {}, failure("postNote", "channel archived"));
     }
+    if (words.includes("own-checkpoint-once") && call.context.attempt === 1) {
+      await call.context.recordHeartbeat({ stage: "before the fence" });
+      return newMutationRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "postNote", message: "rate limited" });
+    }
     const fence = new Fence(call, 30_000);
     const decision = fence.decide();
     const attempt = call.context.attempt;
+    if (decision.kind === "failClosed" && words.includes("reject-when-fail-closed")) {
+      // A wrong listing: the fence cannot tell whether an earlier attempt sent.
+      return newMutationBranch("providerRejected", {}, {}, failure("postNote", "refused after a lost marker"));
+    }
     if (decision.kind === "failClosed") {
       return newMutationUncertain({}, failure("postNote", decision.error?.message ?? "invalid checkpoint"));
     }
@@ -284,6 +309,16 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
       await this.provider.waitAt(words, "gate-before-can-resend", attempt);
       await fence.recordCanResend();
       return newMutationRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "postNote", message: "rate limited" });
+    }
+    if (words.includes("overwrite-after-send")) {
+      await call.context.recordHeartbeat({ stage: "after send" });
+    }
+    if (words.includes("retry-after-send")) {
+      return newMutationRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "postNote", message: "rate limited" });
+    }
+    if (words.includes("reject-after-send")) {
+      // A wrong listing: the claim proves the provider may have acted.
+      return newMutationBranch("providerRejected", {}, {}, failure("postNote", "refused after send"));
     }
     await fence.recordProviderId(noteId);
     if (words.includes("uncertain")) {
