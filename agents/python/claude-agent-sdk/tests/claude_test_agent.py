@@ -25,7 +25,9 @@ single-attempt Mutation, until a test hides it.
 An application PreToolUse hook rewrites ``publish`` input ``"rewrite me"`` to
 ``"rewritten"``, raises a ``payout_checked`` amount to 500 when its memo is
 ``raise``, and appends ``+`` to any ``publish`` message or ``lookup``
-query that starts with ``stamp`` on every call, resumed calls included. With
+query that starts with ``stamp`` on every call it sees; the adapter skips
+application hooks for a resumed call that has a final record. Another denies
+``publish`` and ``post_note`` while ``DENY_FLAG_FILE_NAME`` exists. With
 ``REAL_CLI_ENVIRONMENT_VARIABLE`` set, the agent runs the bundled Claude Code
 CLI with that JSON object as extra CLI environment. A comma-separated
 ``ALLOWED_TOOLS_ENVIRONMENT_VARIABLE`` becomes ``allowed_tools``.
@@ -43,6 +45,7 @@ from typing import Any, cast
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
+    HookCallback,
     HookContext,
     HookInput,
     HookJSONOutput,
@@ -100,6 +103,8 @@ SPEND_REPORTS_LOG_NAME = "spend-reports.jsonl"
 REWRITTEN_PUBLISH_INPUT = {"message": "rewritten"}
 RAISED_PAYOUT_AMOUNT = 500
 HIDE_SOURCE_TOOLS_FILE_NAME = "hide-source-tools"
+DENY_FLAG_FILE_NAME = "deny-publish-and-post-note"
+APPLICATION_HOOK_DENIAL = "the application hook denies this call"
 SLOW_WRITE_GATE = "slow_write"
 TOOL_POLICIES = {
     "publish": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
@@ -132,6 +137,10 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
                     HookMatcher(matcher="mcp__tools__publish", hooks=[rewrite_publish_input]),
                     HookMatcher(matcher="mcp__tools__(publish|lookup)", hooks=[stamp_tool_input]),
                     HookMatcher(matcher="mcp__tools__payout_checked", hooks=[raise_checked_payout]),
+                    HookMatcher(
+                        matcher="mcp__tools__(publish|post_note)",
+                        hooks=[_deny_while_flagged(state_dir)],
+                    ),
                 ]
             },
         )
@@ -291,6 +300,26 @@ async def stamp_tool_input(
         HookJSONOutput,
         {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": tool_input}},
     )
+
+
+def _deny_while_flagged(state_dir: Path) -> HookCallback:
+    async def deny_while_flagged(
+        hook_input: HookInput, tool_use_id: str | None, context: HookContext
+    ) -> HookJSONOutput:
+        if not (state_dir / DENY_FLAG_FILE_NAME).exists():
+            return {}
+        return cast(
+            HookJSONOutput,
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": APPLICATION_HOOK_DENIAL,
+                }
+            },
+        )
+
+    return deny_while_flagged
 
 
 async def raise_checked_payout(

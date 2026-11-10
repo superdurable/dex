@@ -35,6 +35,7 @@ from dex_agents_claude_agent_sdk import ClaudeAgentRunner, claude_agent_session_
 from dex_agents_claude_agent_sdk.tool_sources import ToolSourceRouter
 from tests.claude_test_agent import (
     ALLOWED_TOOLS_ENVIRONMENT_VARIABLE,
+    DENY_FLAG_FILE_NAME,
     HIDE_SOURCE_TOOLS_FILE_NAME,
     RAISED_PAYOUT_AMOUNT,
     RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE,
@@ -338,6 +339,26 @@ async def test_two_writes_in_one_reply_run_one_at_a_time_in_the_model_order(
     payout_outputs = _tool_outputs(snapshot, "create_payout")
     assert "Writes run one at a time in your order" in payout_outputs[0]
     assert payout_outputs[1:] == ['{"amount":5,"payoutId":"createPayout-2"}']
+
+
+async def test_an_application_hook_that_denies_on_resume_cannot_hide_a_source_result(
+    harness: ClaudeAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    ledger = _ledger(harness)
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, _call("post_note", {"accountId": "a-1", "text": "once gate-after-accept:deny"})
+    )
+    await harness.gate("deny").wait_until_reached()
+    # The call passed the hook when it was deferred; the hook now denies every post_note.
+    (harness.state_dir / DENY_FLAG_FILE_NAME).write_text("")
+    harness.gate("deny").release()
+
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == 'post_note: {"noteId":"postNote-1"}'
+    assert len(ledger.sends("postNote")) == 1
+    assert (await harness.executed_step_types(session_id)).count("CallSingleAttemptTool") == 1
 
 
 @pytest.mark.parametrize("listing", ["empty", "raise"])

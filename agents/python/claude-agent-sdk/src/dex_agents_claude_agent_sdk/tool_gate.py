@@ -18,6 +18,7 @@ from typing import Any, cast
 import jsonschema
 from claude_agent_sdk import (
     DeferredToolUse,
+    HookCallback,
     HookContext,
     HookInput,
     HookJSONOutput,
@@ -264,6 +265,21 @@ class ToolCallGate:
         return self._turn.resolve_tool_policy(
             custom_tool_name or cli_tool_name, self._tool_catalog.framework_effect(custom_tool_name)
         )
+
+    def skip_hook_on_replay(self, callback: HookCallback) -> HookCallback:
+        """Wrap an application PreToolUse callback so it never sees a call with a final record."""
+
+        async def call_unless_replayed(
+            hook_input: HookInput, tool_use_id: str | None, context: HookContext
+        ) -> HookJSONOutput:
+            fields = cast(dict[str, Any], hook_input)
+            call_id = str(fields.get("tool_use_id") or tool_use_id or "")
+            record = self._turn.recorded_tool_call(call_id) if call_id else None
+            if record is not None and record.status.is_final:
+                return {}
+            return await callback(hook_input, tool_use_id, context)
+
+        return call_unless_replayed
 
     async def decide_pre_tool_use(
         self,

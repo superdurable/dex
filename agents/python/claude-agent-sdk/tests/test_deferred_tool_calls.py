@@ -25,6 +25,7 @@ from dex_agents import (
 )
 from dex_agents.testing import wait_for_agent_snapshot
 from dex_agents_claude_agent_sdk import APPROVED_CLI_TOOL_OUTPUT, CLAUDE_TRANSCRIPT_ITEM_KIND
+from tests.claude_test_agent import DENY_FLAG_FILE_NAME
 from tests.conftest import ClaudeAgentHarness
 from tests.fake_claude_cli import RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE
 
@@ -330,10 +331,29 @@ async def test_hook_that_rewrites_every_call_cannot_hide_a_recorded_result(
         session_id, interrupt.interrupt_id, approved=True
     )
     snapshot = await harness.wait_for_turns(session_id, 1)
-    # On resume the MCP call carries "stamp++", unlike the hook's input and the record.
+    # On resume the adapter skips the application hook; the MCP call answers from the record.
     assert snapshot.messages[-1].text == "lookup: found stamp+; publish: published stamp+"
     assert harness.invocations.count("publish") == 1
     assert harness.invocations.count("lookup") == 1
+
+
+async def test_an_application_hook_that_denies_on_resume_cannot_hide_a_recorded_result(
+    harness: ClaudeAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, 'call publish {"message": "once"}')
+    interrupt = await harness.wait_for_pending_interrupt(session_id)
+    # The call passed the hook when it was deferred; the hook now denies every publish.
+    (harness.state_dir / DENY_FLAG_FILE_NAME).write_text("")
+
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == "publish: published once"
+    assert harness.invocations.count("publish") == 1
+    assert (await harness.executed_step_types(session_id)).count("CallSingleAttemptTool") == 1
 
 
 async def test_deferred_call_with_invalid_input_fails_without_running(

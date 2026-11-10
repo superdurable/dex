@@ -511,7 +511,15 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         hooks: dict[HookEvent, list[HookMatcher]] = {
             event: list(matchers) for event, matchers in (options.hooks or {}).items()
         }
-        hooks.setdefault("PreToolUse", []).append(
+        # A replayed call passed these hooks when it was first decided; a deny now would hide it.
+        hooks["PreToolUse"] = [
+            replace(
+                matcher,
+                hooks=[tool_call_gate.skip_hook_on_replay(callback) for callback in matcher.hooks],
+            )
+            for matcher in hooks.get("PreToolUse", [])
+        ]
+        hooks["PreToolUse"].append(
             HookMatcher(matcher=None, hooks=[tool_call_gate.decide_pre_tool_use])
         )
         return replace(

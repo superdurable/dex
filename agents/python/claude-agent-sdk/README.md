@@ -462,7 +462,10 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
   placeholder such as `[image content omitted]`.
 - The adapter's PreToolUse matcher runs beside your own PreToolUse hooks. Your
   hooks may rewrite input with `updatedInput`, but must not return permission
-  decisions for tools the adapter defers.
+  decisions for tools the adapter defers. The adapter does not call your
+  PreToolUse hooks for a resumed call that already has a final record: the
+  call passed them when it was deferred, and a later deny would hide its
+  recorded result.
 - `CLAUDE_CODE_BUILT_IN_TOOL_NAMES` lists the CLI 2.1 tool names. If a newer
   CLI adds a tool whose name a custom tool uses, the hook denies that call and
   the segment fails with an error naming the collision.
