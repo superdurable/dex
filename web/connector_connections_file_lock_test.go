@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/superdurable/dex/web/api"
 )
 
 const (
@@ -78,14 +81,16 @@ func TestConnectorConnectionStoreWriteWaitsForExternalLockAndKeepsExternalWrite(
 	external.Connections = append(external.Connections, testLocalConnectorConnection("slack", "workspace", "xoxb", nil))
 	holder := startConnectionsLockHolderForTest(t, store, &external)
 
+	waitContext, isWaiting := withConnectorConnectionsFileLockWaitObserverForTest(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		done <- store.put(t.Context(), testLocalConnectorConnection("gmail", "sender", "gmail-token", nil), nil, "")
+		done <- store.putLockedForTest(waitContext, testLocalConnectorConnection("gmail", "sender", "gmail-token", nil), "")
 	}()
+	awaitConnectorConnectionsFileLockWaitForTest(t, isWaiting)
 	select {
 	case err := <-done:
 		t.Fatalf("write finished while another process held the lock: %v", err)
-	case <-time.After(300 * time.Millisecond):
+	default:
 	}
 	holder.release(t)
 	if err := receiveConnectorWriteResultForTest(t, done); err != nil {
@@ -124,7 +129,7 @@ func TestConnectorConnectionStoreRefusesStaleWriteAfterExternalCredentialWriteBa
 	done := make(chan error, 1)
 	go func() {
 		edited := testLocalConnectorConnection("github", "reviewer", "token-from-browser", nil)
-		done <- store.put(t.Context(), edited, nil, authorizedRevision)
+		done <- store.putLockedForTest(t.Context(), edited, authorizedRevision)
 	}()
 	holder.release(t)
 	if err := receiveConnectorWriteResultForTest(t, done); !errors.Is(err, errConnectorConnectionChanged) {
@@ -155,7 +160,7 @@ func TestConnectorConnectionStoreWriteTimesOutWhileExternalLockIsHeld(t *testing
 
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
-	err = store.put(ctx, testLocalConnectorConnection("gmail", "sender", "gmail-token", nil), nil, "")
+	err = store.putLockedForTest(ctx, testLocalConnectorConnection("gmail", "sender", "gmail-token", nil), "")
 	if !errors.Is(err, errConnectorConnectionsFileBusy) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("write error = %v, want errConnectorConnectionsFileBusy", err)
 	}
@@ -173,7 +178,7 @@ func TestConnectorConnectionStoreWriteTimesOutWhileExternalLockIsHeld(t *testing
 	if !bytes.Equal(before, after) {
 		t.Fatalf("timed out write changed the file:\n%s", after)
 	}
-	if err := store.put(t.Context(), testLocalConnectorConnection("gmail", "sender", "gmail-token", nil), nil, ""); err != nil {
+	if err := store.putLockedForTest(t.Context(), testLocalConnectorConnection("gmail", "sender", "gmail-token", nil), ""); err != nil {
 		t.Fatalf("write after the lock was released: %v", err)
 	}
 }
@@ -203,7 +208,7 @@ func TestConnectorConnectionStoresSharingAFileSerializeWritesAndReplaceItAtomica
 			defer writers.Done()
 			for writeIndex := range writesPerStore {
 				name := fmt.Sprintf("store-%d-connection-%02d", storeIndex, writeIndex)
-				writeErrors <- store.put(t.Context(), testLocalConnectorConnection("github", name, "token", nil), nil, "")
+				writeErrors <- store.putLockedForTest(t.Context(), testLocalConnectorConnection("github", name, "token", nil), "")
 			}
 		}()
 	}
@@ -243,6 +248,171 @@ func TestConnectorConnectionStoresSharingAFileSerializeWritesAndReplaceItAtomica
 	}
 	if lockInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("lock file permissions = %o, want 0600", lockInfo.Mode().Perm())
+	}
+}
+
+func TestConnectorConnectionListRespondsWhileADeleteWaitsForTheExternalLock(t *testing.T) {
+	setup, mux := connectorConnectionsFileLockTestSetup(t)
+	holder := startConnectionsLockHolderForTest(t, setup.store, nil)
+	waitContext, isWaiting := withConnectorConnectionsFileLockWaitObserverForTest(t.Context())
+	deleteRequest := authorizedConnectorRequest(t, setup, http.MethodDelete, "/api/v2/connector-connections/gmail/support-mail", nil)
+	deleteRecorder := httptest.NewRecorder()
+	deleteDone := make(chan struct{})
+	go func() {
+		mux.ServeHTTP(deleteRecorder, deleteRequest.WithContext(waitContext))
+		close(deleteDone)
+	}()
+	awaitConnectorConnectionsFileLockWaitForTest(t, isWaiting)
+
+	listRequest := authorizedConnectorRequest(t, setup, http.MethodGet, "/api/v2/connector-connections", nil)
+	listed := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, listRequest)
+		listed <- recorder
+	}()
+	// The delete waits up to connectorConnectionsFileLockMaxWait; a list blocked behind it would miss this bound.
+	select {
+	case recorder := <-listed:
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"support-mail"`) {
+			t.Fatalf("list status = %d: %s", recorder.Code, recorder.Body.String())
+		}
+	case <-time.After(connectorConnectionsFileLockMaxWait / 2):
+		t.Fatal("connection list waited for the connections file lock")
+	}
+	select {
+	case <-deleteDone:
+		t.Fatalf("delete finished while another process held the lock: %d %s", deleteRecorder.Code, deleteRecorder.Body.String())
+	default:
+	}
+	holder.release(t)
+	select {
+	case <-deleteDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("delete did not finish after the external lock was released")
+	}
+	if deleteRecorder.Code != http.StatusOK || !strings.Contains(deleteRecorder.Body.String(), `"deleted":true`) {
+		t.Fatalf("delete status = %d: %s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+}
+
+func TestConnectorConnectionDeleteReturnsBusyWhenTheExternalLockOutlastsTheRequest(t *testing.T) {
+	setup, mux := connectorConnectionsFileLockTestSetup(t)
+	before, err := os.ReadFile(setup.store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder := startConnectionsLockHolderForTest(t, setup.store, nil)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	request := authorizedConnectorRequest(t, setup, http.MethodDelete, "/api/v2/connector-connections/gmail/support-mail", nil)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request.WithContext(ctx))
+	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), `"CONNECTOR_CONNECTIONS_FILE_BUSY"`) {
+		t.Fatalf("delete status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	holder.release(t)
+	after, err := os.ReadFile(setup.store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("timed out delete changed the file:\n%s", after)
+	}
+	again := sendStandaloneTestRequest(t, setup, mux, http.MethodDelete, "/api/v2/connector-connections/gmail/support-mail", "")
+	if again.Code != http.StatusOK || !strings.Contains(again.Body.String(), `"deleted":true`) {
+		t.Fatalf("delete after the lock was released = %d: %s", again.Code, again.Body.String())
+	}
+}
+
+func TestConnectorOAuthCallbackAfterExternalCredentialWriteBackReturnsChanged(t *testing.T) {
+	authorization := authorizeConnectorOAuthTestRelease(t, connectorManifestOAuth2{},
+		respondWithConnectorOAuthTestToken(t, http.StatusOK, `{"access_token":"provider-access-token"}`))
+	requireConnectorOAuthTestCallback(t, authorization, http.StatusSeeOther, "")
+	setup := authorization.setup
+
+	startRequest := httptest.NewRequest(http.MethodPost, "/api/v2/connector-connections/example/workspace/oauth/start", strings.NewReader(
+		`{"clientId":"oauth-client-id","clientSecret":"oauth-client-secret","configuration":{},"credentialValues":{},"credentialSecrets":{}}`,
+	))
+	startRequest.SetPathValue("connectorId", "example")
+	startRequest.SetPathValue("connectionName", "workspace")
+	startRequest.Host = "127.0.0.1:8802"
+	startRequest.Header.Set("Origin", "http://127.0.0.1:8802")
+	startRequest.Header.Set(connectorCSRFHeader, setup.csrfToken)
+	startRequest.Header.Set(api.V2DefinitionRevisionHeader, "sha256:test")
+	startRecorder := httptest.NewRecorder()
+	setup.handleOAuthStart(startRecorder, startRequest)
+	if startRecorder.Code != http.StatusOK {
+		t.Fatalf("reauthorization start status = %d: %s", startRecorder.Code, startRecorder.Body.String())
+	}
+	var startResponse struct {
+		AuthorizationURL string `json:"authorizationUrl"`
+	}
+	if err := json.Unmarshal(startRecorder.Body.Bytes(), &startResponse); err != nil {
+		t.Fatal(err)
+	}
+	authorizationURL, err := url.Parse(startResponse.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	external := readConnectorConnectionsFileForTest(t, setup.store)
+	external.Connections[0].Credentials["access_token"] = json.RawMessage(`"application-refreshed-token"`)
+	startConnectionsLockHolderForTest(t, setup.store, &external).release(t)
+
+	callback := httptest.NewRequest(http.MethodGet, "/api/v2/connector-oauth/callback?state="+
+		url.QueryEscape(authorizationURL.Query().Get("state"))+"&code=authorization-code", nil)
+	callbackRecorder := httptest.NewRecorder()
+	setup.handleOAuthCallback(callbackRecorder, callback)
+	requireConnectorOAuthTestCallback(t, connectorOAuthTestAuthorization{callback: callbackRecorder, setup: setup},
+		http.StatusConflict, "CONNECTOR_CONNECTION_CHANGED")
+	if !strings.Contains(callbackRecorder.Body.String(), "start the authorization again") {
+		t.Fatalf("callback message = %s", callbackRecorder.Body.String())
+	}
+	stored, found, err := setup.store.get("example", "workspace")
+	if err != nil || !found {
+		t.Fatalf("found = %v, err = %v", found, err)
+	}
+	if got := string(stored.Credentials["access_token"]); got != `"application-refreshed-token"` {
+		t.Fatalf("access_token = %s, want the external write-back", got)
+	}
+}
+
+// connectorConnectionsFileLockTestSetup returns a setup whose file stores the standalone gmail/support-mail connection.
+func connectorConnectionsFileLockTestSetup(t *testing.T) (*connectorSetup, *http.ServeMux) {
+	t.Helper()
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, nil))
+	installConnectorTestRelease(t, setup, standaloneTestIdentity(), "google",
+		[]connectorManifestField{{Name: "access_token", Type: "secretString", Required: true}})
+	connection := localConnectorConnection{
+		ConnectorID: "gmail", ConnectionName: "support-mail", ModulePath: standaloneTestModulePath, ModuleVersion: "v0.25.2",
+		Provider: "google", Configuration: map[string]json.RawMessage{},
+		Credentials: map[string]json.RawMessage{"access_token": json.RawMessage(`"stored-secret"`)},
+	}
+	if err := setup.store.putCurrentForTest(connection, nil); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	setup.registerHandlers(mux)
+	return setup, mux
+}
+
+// withConnectorConnectionsFileLockWaitObserverForTest returns a context whose lock attempts close the channel on first wait.
+func withConnectorConnectionsFileLockWaitObserverForTest(ctx context.Context) (context.Context, <-chan struct{}) {
+	isWaiting := make(chan struct{})
+	var closeOnce sync.Once
+	observer := func() {
+		closeOnce.Do(func() { close(isWaiting) })
+	}
+	return context.WithValue(ctx, connectorConnectionsFileLockWaitObserverKey{}, observer), isWaiting
+}
+
+func awaitConnectorConnectionsFileLockWaitForTest(t *testing.T, isWaiting <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-isWaiting:
+	case <-time.After(10 * time.Second):
+		t.Fatal("write never waited for the connections file lock")
 	}
 }
 

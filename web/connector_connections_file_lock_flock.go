@@ -29,6 +29,7 @@ func lockFileExclusively(ctx context.Context, path string) (*os.File, error) {
 		return nil, errors.Join(fmt.Errorf("Connector connections lock file %w", err), file.Close())
 	}
 	delay := connectorConnectionsFileLockFirstPollDelay
+	isWaiting := false
 	for {
 		err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
@@ -36,6 +37,10 @@ func lockFileExclusively(ctx context.Context, path string) (*os.File, error) {
 		}
 		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
 			return nil, errors.Join(fmt.Errorf("lock Connector connections lock file: %w", err), file.Close())
+		}
+		if !isWaiting {
+			isWaiting = true
+			notifyConnectorConnectionsFileLockWait(ctx)
 		}
 		if err := waitForConnectorConnectionsFileLockPoll(ctx, delay); err != nil {
 			return nil, errors.Join(err, file.Close())

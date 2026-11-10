@@ -229,15 +229,39 @@ func testLocalConnectorConnection(
 
 // putCurrentForTest saves connection against the record revision stored now.
 func (store *connectorConnectionStore) putCurrentForTest(connection localConnectorConnection, keepCredentialFields []string) error {
+	fileLock, err := store.lockConnectionsFile(context.Background())
+	if err != nil {
+		return err
+	}
+	defer fileLock.release()
 	revision, err := store.revision(connection.ConnectorID, connection.ConnectionName)
 	if err != nil {
 		return err
 	}
-	return store.put(context.Background(), connection, keepCredentialFields, revision)
+	return store.put(fileLock, connection, keepCredentialFields, revision)
+}
+
+// putLockedForTest takes the connections file lock under ctx and saves connection against expectedRevision.
+func (store *connectorConnectionStore) putLockedForTest(
+	ctx context.Context,
+	connection localConnectorConnection,
+	expectedRevision string,
+) error {
+	fileLock, err := store.lockConnectionsFile(ctx)
+	if err != nil {
+		return err
+	}
+	defer fileLock.release()
+	return store.put(fileLock, connection, nil, expectedRevision)
 }
 
 // putTriggerBindingCurrentForTest saves binding against the connection and binding revisions stored now.
 func (store *connectorConnectionStore) putTriggerBindingCurrentForTest(binding localConnectorTriggerBinding) error {
+	fileLock, err := store.lockConnectionsFile(context.Background())
+	if err != nil {
+		return err
+	}
+	defer fileLock.release()
 	connectionRevision, err := store.revision(binding.ConnectorID, binding.ConnectionName)
 	if err != nil {
 		return err
@@ -246,14 +270,19 @@ func (store *connectorConnectionStore) putTriggerBindingCurrentForTest(binding l
 	if err != nil {
 		return err
 	}
-	return store.putTriggerBinding(context.Background(), binding, connectionRevision, bindingRevision)
+	return store.putTriggerBinding(fileLock, binding, connectionRevision, bindingRevision)
 }
 
 // deleteCurrentForTest deletes the connection against the record revision stored now.
 func (store *connectorConnectionStore) deleteCurrentForTest(connectorID string, connectionName string) (bool, error) {
+	fileLock, err := store.lockConnectionsFile(context.Background())
+	if err != nil {
+		return false, err
+	}
+	defer fileLock.release()
 	revision, err := store.revision(connectorID, connectionName)
 	if err != nil {
 		return false, err
 	}
-	return store.delete(context.Background(), connectorID, connectionName, revision)
+	return store.delete(fileLock, connectorID, connectionName, revision)
 }

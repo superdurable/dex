@@ -249,12 +249,12 @@ func (store *connectorConnectionStore) listTriggerBindings(connectorID string, c
 // putTriggerBinding saves the binding while the file keeps both expected revisions ("" for absent).
 // It returns errConnectorConnectionChanged when either revision differs or the connection is absent.
 func (store *connectorConnectionStore) putTriggerBinding(
-	ctx context.Context,
+	fileLock *connectorConnectionsFileLock,
 	binding localConnectorTriggerBinding,
 	expectedConnectionRevision string,
 	expectedBindingRevision string,
 ) error {
-	return store.updateConnections(ctx, func(file *connectorConnectionsFile) (bool, error) {
+	return store.updateConnections(fileLock, func(file *connectorConnectionsFile) (bool, error) {
 		if err := requireStoredConnectionRevision(*file, binding.ConnectorID, binding.ConnectionName, expectedConnectionRevision); err != nil {
 			return false, err
 		}
@@ -333,12 +333,12 @@ func (store *connectorConnectionStore) putUseConfiguration(configuration localCo
 // put replaces the connection, copying each keepCredentialFields value from the stored record.
 // It returns errConnectorConnectionChanged unless the stored record keeps expectedRevision ("" for absent).
 func (store *connectorConnectionStore) put(
-	ctx context.Context,
+	fileLock *connectorConnectionsFileLock,
 	connection localConnectorConnection,
 	keepCredentialFields []string,
 	expectedRevision string,
 ) error {
-	return store.updateConnections(ctx, func(file *connectorConnectionsFile) (bool, error) {
+	return store.updateConnections(fileLock, func(file *connectorConnectionsFile) (bool, error) {
 		if err := requireStoredConnectionRevision(*file, connection.ConnectorID, connection.ConnectionName, expectedRevision); err != nil {
 			return false, err
 		}
@@ -376,13 +376,13 @@ func putConnectionInFile(file *connectorConnectionsFile, connection localConnect
 // delete deletes the connection with its Trigger bindings and use configurations, and reports whether it existed.
 // It returns errConnectorConnectionChanged unless the stored record keeps expectedRevision ("" for absent).
 func (store *connectorConnectionStore) delete(
-	ctx context.Context,
+	fileLock *connectorConnectionsFileLock,
 	connectorID string,
 	connectionName string,
 	expectedRevision string,
 ) (bool, error) {
 	isDeleted := false
-	err := store.updateConnections(ctx, func(file *connectorConnectionsFile) (bool, error) {
+	err := store.updateConnections(fileLock, func(file *connectorConnectionsFile) (bool, error) {
 		if err := requireStoredConnectionRevision(*file, connectorID, connectionName, expectedRevision); err != nil {
 			return false, err
 		}
@@ -434,16 +434,40 @@ func deleteConnectionFromFile(file *connectorConnectionsFile, connectorID string
 	return true
 }
 
+// connectorConnectionsFileLock is a held cross-process lock of the connections file.
+type connectorConnectionsFileLock struct {
+	// file is the open lock file, or nil on a platform without file locks.
+	file *os.File
+}
+
+// lockConnectionsFile waits for the connections file lock; see lockConnectorConnectionsFile for the wait bound.
+func (store *connectorConnectionStore) lockConnectionsFile(ctx context.Context) (*connectorConnectionsFileLock, error) {
+	file, err := lockConnectorConnectionsFile(ctx, store.lockPath)
+	if err != nil {
+		return nil, err
+	}
+	return &connectorConnectionsFileLock{file: file}, nil
+}
+
+// release releases the lock.
+func (fileLock *connectorConnectionsFileLock) release() {
+	if fileLock.file == nil {
+		return
+	}
+	// Closing the only descriptor of the lock file releases its lock even when Close reports an error.
+	if err := fileLock.file.Close(); err != nil {
+		slog.Warn("close Connector connections lock file", "error", err)
+	}
+}
+
 // updateConnections is the only connections file write path; change runs under store.mu and must not call store methods.
 func (store *connectorConnectionStore) updateConnections(
-	ctx context.Context,
+	fileLock *connectorConnectionsFileLock,
 	change func(file *connectorConnectionsFile) (isChanged bool, err error),
 ) error {
-	lockFile, err := lockConnectorConnectionsFile(ctx, store.lockPath)
-	if err != nil {
-		return err
+	if fileLock == nil {
+		panic("connections file write requires the connections file lock")
 	}
-	defer releaseConnectorConnectionsFileLock(lockFile)
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	file, err := store.load()
@@ -455,17 +479,6 @@ func (store *connectorConnectionStore) updateConnections(
 		return err
 	}
 	return store.write(file)
-}
-
-// releaseConnectorConnectionsFileLock releases a lock that lockConnectorConnectionsFile returned.
-func releaseConnectorConnectionsFileLock(lockFile *os.File) {
-	if lockFile == nil {
-		return
-	}
-	// Closing the only descriptor of the lock file releases its lock even when Close reports an error.
-	if err := lockFile.Close(); err != nil {
-		slog.Warn("close Connector connections lock file", "error", err)
-	}
 }
 
 // requireStoredConnectionRevision returns errConnectorConnectionChanged unless the record has expectedRevision ("" for absent).
