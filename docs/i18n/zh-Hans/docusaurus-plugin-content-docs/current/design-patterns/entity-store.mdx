@@ -5,18 +5,13 @@ sidebar_label: Entity Flow with SQL Projection
 
 # Entity Flow with SQL Projection
 
-每个实体（例如一个用户）对应一个 Flow。Dex 把这个 Flow 中选定的 Attribute
-投影（复制）到你的应用自己的 SQL 表中。权威状态保存在 Flow 里，所有写入都经过
-Flow。Dex 异步更新 SQL 表，表中只保存最新的值，用于读取和查询。
+每个实体（例如一个用户）对应一个 Flow。Dex 把这个 Flow 中选定的 Attribute 投影（复制）到你的应用自己的 SQL 表中。权威状态保存在 Flow 里，所有写入都经过 Flow。Dex 异步更新 SQL 表，表中只保存最新的值，用于读取和查询。
 
-可运行示例为每个用户保留一个 **UserProfileFlow**。它的 Flow ID 就是
-**public.user_profiles** 表的 **user_id** 主键。Server 配置把目标 Attribute Store
-命名为 **entityStore**。
+可运行示例为每个用户保留一个 **UserProfileFlow**。它的 Flow ID 就是 **public.user_profiles** 表的 **user_id** 主键。Server 配置把目标 Attribute Store 命名为 **entityStore**。
 
 ## 适用场景
 
-当一个实体需要 durable 状态或通过 RPC 更新，而你的应用还要在数据库中查询它的最新
-状态时，使用这个模式。不要根据 SQL 表做 Flow 决策，应读取 Flow 状态。
+当一个实体需要 durable 状态或通过 RPC 更新，而你的应用还要在数据库中查询它的最新状态时，使用这个模式。不要根据 SQL 表做 Flow 决策，应读取 Flow 状态。
 
 ## 工作方式
 
@@ -28,8 +23,7 @@ Flow。Dex 异步更新 SQL 表，表中只保存最新的值，用于读取和�
 
 ### 定义同步的 Attribute
 
-每种 SDK 都把同一组 profile 字段标记为需要投影。Flow 的 persistence schema 包含这些
-Attribute，所以 Dex 先把每个值持久保存，再把它同步到 SQL。
+每种 SDK 都把同一组 profile 字段标记为需要投影。Flow 的 persistence schema 包含这些 Attribute，所以 Dex 先把每个值持久保存，再把它同步到 SQL。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-store/user_profile_flow.py', go: 'examples/go/patterns/entity-store/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/UserProfileFlow.java', typescript: 'examples/typescript/src/patterns/entity-store/user-profile-flow.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs'}}>
 <SdkSnippet lang="python">
@@ -296,8 +290,7 @@ fn update(&self, context: &mut Context, replacement: UserProfile) -> HandlerResu
 
 ### 启动 Flow 时选择存储目标
 
-Attribute Store 在 Server 上配置。启动 Flow 时，在 **FlowConfig** 中选择它。同一个
-启动请求中的初始 Attribute 值也会投影到 SQL。
+Attribute Store 在 Server 上配置。启动 Flow 时，在 **FlowConfig** 中选择它。同一个启动请求中的初始 Attribute 值也会投影到 SQL。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-store/controller.py', go: 'examples/go/patterns/entity-store/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/EntityStoreController.java', typescript: 'examples/typescript/src/patterns/entity-store/controller.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs'}}>
 <SdkSnippet lang="python">
