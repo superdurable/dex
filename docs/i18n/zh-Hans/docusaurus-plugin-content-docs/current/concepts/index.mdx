@@ -35,6 +35,10 @@ Primitive 是 Flow 使用的构件。每个 Primitive 都属于一个 Flow。
 
 [Client](/concepts/client) 是应用在 Worker 之外使用的 API，用来启动、调用、读取、等待和运维 Flow。
 
+## Connector {#connector}
+
+[Connector](/concepts/connector) 把 Flow 接到外部服务商，例如邮件或支付服务。它为 Flow 提供调用服务商的现成 Step，以及根据服务商事件启动或更新 Flow 的 Trigger。
+
 ## 它们如何配合
 
 ```text
@@ -68,5 +72,5 @@ Primitive 是 Flow 使用的构件。每个 Primitive 都属于一个 Flow。
 
 - 先读 [Flow](/concepts/flow) 和 [Step](/concepts/step)。各个 Primitive 都建立在它们之上。
 - [Design patterns](/design-patterns) 说明如何组合这些概念解决常见问题。
-- [Correctness and expressiveness](/concepts/correctness-and-expressiveness) 说明 Dex 能表达什么，以及它如何保持正确。
+- [Correctness and expressiveness](/correctness-and-expressiveness) 说明 Dex 能表达什么，以及它如何保持正确。
 - [Developer reference](/reference) 包含参数、默认值、上限和版本细节。

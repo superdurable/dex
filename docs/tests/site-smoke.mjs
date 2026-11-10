@@ -90,7 +90,7 @@ const dexConnectorContributor = await readFile(
   join(root, 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html'),
   'utf8',
 );
-const connector = await readFile(join(root, 'components', 'connector', 'index.html'), 'utf8');
+const connector = await readFile(join(root, 'concepts', 'connector', 'index.html'), 'utf8');
 const zhCron = await readFile(join(root, 'zh-Hans', 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
 const zhDexSkills = await readFile(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
 const zhDexAppBuilder = await readFile(
@@ -105,7 +105,7 @@ const zhDexConnectorContributor = await readFile(
   join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html'),
   'utf8',
 );
-const zhConnector = await readFile(join(root, 'zh-Hans', 'components', 'connector', 'index.html'), 'utf8');
+const zhConnector = await readFile(join(root, 'zh-Hans', 'concepts', 'connector', 'index.html'), 'utf8');
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'concepts', 'primitives', 'subflow', 'index.html'), 'utf8');
 const dexSkillHostTabsSource = await readFile(join(docsRoot, 'src', 'components', 'DexSkillHostTabs.tsx'), 'utf8');
@@ -385,14 +385,14 @@ assert.match(zhDexConnectorContributor, /Repository 与 Fork 工作流/);
 assert.match(zhDexConnectorContributor, /在 Connector 以确切版本\s*发布之前，应用不能进入生产/);
 assert.match(zhDexConnectorContributor, /必须有 Go 实现/);
 assert.match(zhDexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/blob\/main\/AGENTS\.md/);
-assert.match(connector, /Dex component/);
+assert.match(connector, /ready-made Steps/);
 assert.match(connector, /Connectors support Go, Python, and TypeScript/);
 assert.match(connector, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/issues\/new/);
-assert.match(connector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/components\/connector\/"/);
-assert.match(zhConnector, /Dex component/);
+assert.match(connector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/concepts\/connector\/"/);
+assert.match(zhConnector, /现成 Step/);
 assert.match(zhConnector, /Connector 支持 Go、Python 和 TypeScript/);
 assert.match(zhConnector, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/issues\/new/);
-assert.match(zhConnector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/components\/connector\/"/);
+assert.match(zhConnector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/concepts\/connector\/"/);
 assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/concepts\/primitives\/subflow\/"/);
 
 await Promise.all([

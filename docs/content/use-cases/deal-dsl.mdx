@@ -68,7 +68,7 @@ It uses these patterns:
 - **Finite-state machine**: the current state and every transition are explicit, so you can inspect them.
 - **Keyed Channel**: each named condition is a key on one Channel. You do not define a Channel for each condition.
 - **Shared state map**: condition messages and actions each add small key-value updates to one **DealStateData** map.
-- [**Entity store**](/design-patterns/entity-store) gives each Go execution a stable Flow ID and searchable process, item, buyer, current-state, and pending-condition Attributes.
+- [**Entity store**](/design-patterns/entity-store) gives each Go Flow run a stable Flow ID and searchable process, item, buyer, current-state, and pending-condition Attributes.
 
 The examples in every SDK use one action list per state. The Go example adds separate pre-actions and post-actions, a PostgreSQL definition catalog, search endpoints, and a browser UI.
 

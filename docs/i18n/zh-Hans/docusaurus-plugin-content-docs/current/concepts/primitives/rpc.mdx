@@ -8,7 +8,7 @@ import RpcRequestDiagram from '@site/src/components/primitives/rpc/RpcRequestDia
 
 # RPC
 
-**RPC**（Remote Procedure Call）让 Flow 外的代码与正在运行的 Flow execution 交互。web handler、另一个服务或运维工具通过 [Client](/concepts/client) 调用它。
+**RPC**（Remote Procedure Call）让 Flow 外的代码与正在运行的 Flow 交互。web handler、另一个服务或运维工具通过 [Client](/concepts/client) 调用它。
 
 **Client** 发起 RPC。**Dex Server** 将它发送给 **Worker**。**Worker** 执行后，将结果返回给 **Dex Server**，由它保存。**Dex Server** 再将输出返回给 **Client**。
 

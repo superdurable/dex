@@ -1,14 +1,16 @@
 ---
 title: Connector
 sidebar_label: Connector
+slug: /concepts/connector
 ---
 
 # Connector
 
-A **Connector** is a Dex component that connects a Flow to an external provider, such as an email,
-payment, or news service. It packages typed operations, handling of incoming
-provider events, authorization, and optional configuration UI. Provider
-credentials never enter durable Flow state.
+A **Connector** connects a Flow to an external provider, such as an email,
+payment, or news service. It gives your Flow ready-made Steps that call the
+provider, and Triggers that turn provider events into Flow starts or RPC calls.
+Your application imports a Connector package and uses its Steps like your own.
+Provider credentials never enter durable Flow state.
 
 Official Connectors are released separately from Dex. Before you write
 provider integration code yourself, [find a Connector](#find-a-connector) for
@@ -27,10 +29,10 @@ A Connector can expose five capabilities:
 - **UI** supplies reusable configuration units. Dex Web combines them into the
   settings form for a Step or a Trigger binding.
 
-A provider module exposes only the capabilities it needs. Your application uses
-the types generated for the exact module release it imports.
+A Connector exposes only the capabilities its provider needs. Your application
+uses the types generated for the exact Connector release it imports.
 
-## Operations are Connector Steps
+## Operations are ready-made Steps {#operations-are-connector-steps}
 
 Each operation has a factory that creates a Connector Step. Your application
 maps the current Step input to the provider input. It connects each required
@@ -39,18 +41,34 @@ gets Dex retries, timeouts, durability, and recovery like any other
 [Step](/concepts/step).
 
 A Connector result contains the operation output, a receipt, the selected
-branch, and a safe failure classification when one exists. The result does not carry the previous
-Step input forward. Keep business context in an
+branch, and a safe failure classification when one exists. The result does not
+carry the previous Step input forward. Keep business context in an
 [Attribute](/concepts/primitives/attribute), or pass it through an application
 Step before the Connector.
-
-A mutation's idempotency key stays the same when Dex retries the Step. When a mutation's outcome is unknown, the
-Connector selects an uncertainty branch. The Flow can then query the provider
-and reconcile, instead of sending the mutation again blindly.
 
 Only the happy-path branch must be connected. You can leave optional branches
 unconnected. If the Connector selects an unconnected branch, the Flow fails.
 The provider outcome stays visible for recovery.
+
+<a id="queries-and-mutations"></a>
+
+### Effect classes {#effect-classes}
+
+Each operation is a Query or a Mutation. A Query reads provider state. A
+Mutation changes it. Each operation has an effect class that says what a
+repeated call does:
+
+| Effect class | Operations | What a repeated call does |
+| --- | --- | --- |
+| Read | Every Query | Changes nothing. |
+| Idempotent write | A Mutation that its Connector marks safe to repeat | Makes no second effect. The Connector author has confirmed that the provider ignores a repeat with the same idempotency key. |
+| Non-idempotent write | Every other Mutation | Can make a second effect. |
+
+A Mutation sends the same idempotency key every time Dex retries its Step.
+
+When a Mutation's outcome is unknown, the Connector selects an uncertainty
+branch. Connect it to a Step that queries the provider and reconciles. Do not
+send the Mutation again blindly.
 
 ## Triggers start or update Flows
 
@@ -62,26 +80,19 @@ Your application supplies the final filter, resolves the Flow ID, and maps the
 provider event to a typed input. It chooses whether the event starts a Flow or
 calls a typed [RPC](/concepts/primitives/rpc) on an existing Flow. A Flow start
 uses the provider event ID as its request ID, so a repeated event does not
-start a second Flow. An RPC target handles duplicates itself, in its own
+start a second Flow. An RPC target must handle duplicates itself, in its own
 bounded state.
 
 Local Trigger runners save a matched event before they acknowledge it to the
 provider. After a restart, they deliver the events that were still pending.
 
-## Connections and configuration
+## Connections {#connections-and-configuration}
 
-Flow definitions refer to a connection by name, not by its credentials. In
-local development, Dex Web lists those names under **Connectors**. Before it
-writes connection, operation, or Trigger-binding configuration, it verifies
-that the module is the exact official release.
+A connection is a named, authorized account at a provider. Flow definitions
+refer to a connection by its name, not by its credentials. Your application
+resolves the name to credentials when it calls the provider.
 
-An application can also use a connection that no Flow definition names, such
-as one an agent tool uses. Add that connection by name on the same page, then
-authorize it like any other.
-
-A Connector UI runs in a sandboxed iframe with an opaque origin. Dex Web runs
-the provider commands that the Connector release declares. Stored
-credentials never enter the iframe, Flow input, Attributes, results, receipts,
+Stored credentials never enter Flow input, Attributes, results, receipts,
 Streams, logs, or generated artifacts.
 
 ## Languages
@@ -102,22 +113,8 @@ Runnable examples are under
 If you need another language,
 [open a Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new).
 
-## Use or contribute a Connector
-
-The [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
-contains manifests, generated APIs, provider implementations, UI units, and
-runnable examples.
-
-Use the [Dex SDK skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx) when an
-application consumes a released Connector. Use the
-[Dex Connector Contributor skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)
-to add or modify an official Connector, operation, Trigger, or UI unit.
-
-## How it fits with the other components
-
-Your [application](/components/application) imports a Connector package and
-runs its operations as Connector Steps. A Trigger turns a provider event into a
-Flow start or an RPC call.
+<a id="use-or-contribute-a-connector"></a>
+<a id="how-it-fits-with-the-other-components"></a>
 
 ## Find a Connector
 
@@ -125,15 +122,31 @@ Browse the [Connector catalog](https://connectors.superdurable.io/). It lists
 each released Connector, its operations, and its language support. The catalog
 is the reference for each Connector.
 
+The [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
+contains manifests, generated APIs, provider implementations, UI units, and
+runnable examples.
+
+Use the [Dex SDK skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx) when an
+application uses a released Connector. Use the
+[Dex Connector Contributor skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)
+to add or change an official Connector, operation, Trigger, or UI unit.
+
 ## Set up Connectors locally
 
-For local development, [Dex Web](/components/web) configures
-Connector accounts and Trigger bindings for a Go application. It does this only
-in **dexcli dev**.
+For local development, [Dex Web](/components/web) configures Connector
+connections and Trigger bindings for a Go application. It does this only in
+**dexcli dev**.
 
 1. Start **dexcli dev** with your Flow Definition Graph directory.
-2. Open the **Connectors** page in Dex Web and configure each account.
+2. Open the **Connectors** page in Dex Web. It lists the connection names that
+   your Flow definitions use. Authorize each one.
 3. Start your application with the connection file that Dex Web shows.
+
+To use a connection that no Flow definition names, such as one an agent tool
+uses, add it by name on the same page. Then authorize it like any other.
+
+Dex Web configures only the exact official Connector release. A Connector's UI
+runs in a sandboxed iframe, and stored credentials never enter it.
 
 The connection file holds plaintext secrets for local use only. Do not commit
 it or use it in production.

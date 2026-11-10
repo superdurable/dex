@@ -35,7 +35,7 @@ Step 的一个方法。WaitFor 的条件满足后运行；Step 没有 WaitFor �
 
 #### [Flow ID](/concepts/flow#identifiers)
 
-你的应用为一次 Flow execution 指定的 ID。
+你的应用为一次 Flow run 指定的 ID。
 
 #### [GetAttributes](/reference/server/runtime-client#read-attributes)
 
@@ -55,7 +55,7 @@ Step 的一个方法。WaitFor 的条件满足后运行；Step 没有 WaitFor �
 
 #### [Time Travel](/components/application)
 
-修复问题后，从之前的某个 Step 开始创建一次新的 Flow execution。
+修复问题后，让一次 Flow run 从之前的某个 Step 重新开始。这次 run 保留原来的 Run ID。
 
 #### [RPC](/concepts/primitives/rpc)
 
@@ -63,7 +63,7 @@ Worker 上的 handler，供外部读写一条正在运行的 Flow。
 
 #### [Run ID](/concepts/flow#identifiers)
 
-引擎为 Flow execution 中的一次运行尝试分配的 ID。
+引擎为同一个 Flow ID 的每次 run 分配的 ID。
 
 #### [Step](/concepts/step)
 

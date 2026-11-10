@@ -27,6 +27,7 @@
   --accent-agent-skills: #be185d;
   --accent-design-patterns: #6d28d9;
   --accent-product-examples: #92400e;
+  --accent-correctness: #4338ca;
   --accent-reference: #0f766e;
   --accent-glossary: #3f6212;
   --section-accent: var(--ifm-color-primary);
@@ -50,6 +51,7 @@ html[data-theme='dark'] {
   --accent-agent-skills: #f472b6;
   --accent-design-patterns: #a78bfa;
   --accent-product-examples: #fbbf24;
+  --accent-correctness: #a5b4fc;
   --accent-reference: #2dd4bf;
   --accent-glossary: #a3e635;
 }
@@ -61,6 +63,7 @@ html[data-theme='dark'] {
 [data-docs-section='agent-skills'] { --section-accent: var(--accent-agent-skills); }
 [data-docs-section='design-patterns'] { --section-accent: var(--accent-design-patterns); }
 [data-docs-section='product-examples'] { --section-accent: var(--accent-product-examples); }
+[data-docs-section='correctness'] { --section-accent: var(--accent-correctness); }
 [data-docs-section='reference'] { --section-accent: var(--accent-reference); }
 [data-docs-section='glossary'] { --section-accent: var(--accent-glossary); }
 
@@ -75,6 +78,7 @@ html[data-theme='dark'] {
 .main-wrapper:has([data-docs-section='agent-skills'] > .theme-doc-markdown) { --section-accent: var(--accent-agent-skills); }
 .main-wrapper:has([data-docs-section='design-patterns'] > .theme-doc-markdown) { --section-accent: var(--accent-design-patterns); }
 .main-wrapper:has([data-docs-section='product-examples'] > .theme-doc-markdown) { --section-accent: var(--accent-product-examples); }
+.main-wrapper:has([data-docs-section='correctness'] > .theme-doc-markdown) { --section-accent: var(--accent-correctness); }
 .main-wrapper:has([data-docs-section='reference'] > .theme-doc-markdown) { --section-accent: var(--accent-reference); }
 .main-wrapper:has([data-docs-section='glossary'] > .theme-doc-markdown) { --section-accent: var(--accent-glossary); }
 

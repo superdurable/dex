@@ -5,7 +5,7 @@ slug: /concepts/primitives/subflow
 
 # SubFlow
 
-A **SubFlow** is a Flow execution that a parent Flow starts from one of its
+A **SubFlow** is a Flow run that a parent Flow starts from one of its
 Steps. The child is a normal Flow with its own Steps, Attributes, and Channels.
 The parent waits for it like any other condition in **WaitFor**.
 
@@ -15,7 +15,7 @@ SubFlow has two main uses:
 
 1. Move complicated logic into a smaller Flow. This makes business logic easier
    to maintain.
-2. Fan out work. One Flow execution cannot run too many operations at once, but
+2. Fan out work. One Flow run cannot do too many operations at once, but
    it can hand work to many SubFlows. The SubFlows run at the same time, so the
    parent reaches much higher concurrency.
 
