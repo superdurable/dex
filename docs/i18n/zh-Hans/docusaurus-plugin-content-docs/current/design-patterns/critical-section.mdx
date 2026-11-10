@@ -60,8 +60,7 @@ Dex 无法阻止被取消的方法继续调用外部系统。Dex 归还 token �
 
 ## 规则
 
-- 只发布一个 token。在启动各分支的 Step 中发布，或者更早发布。
-- 让拿到 token 的 Step 只做交接。受保护的工作放在后面的 Step 中。
+- 在启动各分支的 Step 中发布 token，或者更早发布。
 - token Channel 只用于 token。
 - 让这段流程尽量短。一个分支在段内时，其余分支都在等待。
 - token 的值无关紧要。受保护的状态放在 Attribute 中。

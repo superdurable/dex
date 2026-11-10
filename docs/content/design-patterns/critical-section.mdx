@@ -59,8 +59,7 @@ Dex cannot stop a canceled method's calls to external systems. A canceled **Exec
 
 ## Rules
 
-- Publish exactly one token. Publish it in the Step that starts the branches, or before.
-- Make the Step that takes the token a pure handoff. Do the protected work in later Steps.
+- Publish the token in the Step that starts the branches, or before.
 - Use the token Channel for the token only.
 - Keep the section short. Every other branch waits while one branch is inside.
 - The token's value does not matter. Keep the protected state in Attributes.
