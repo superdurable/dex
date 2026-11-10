@@ -889,6 +889,41 @@ class McpToolSource:
             request_meta=request_meta,
         )
 
+    def has_started_tool_task(self, call: DeferredToolExecution) -> bool:
+        """Report whether a call resumes a task an earlier attempt started, without a new call.
+
+        ``execute_deferred_tool_call`` reads the task an earlier attempt of
+        the same call saved as its heartbeat checkpoint, and resumes it
+        instead of sending ``tools/call`` again. A caller that checks
+        something before every new ``tools/call``, such as what the tool runs
+        now, skips that check when this returns ``True``, so a started task
+        is always recovered.
+
+        Example:
+            >>> if not tools.has_started_tool_task(call):
+            ...     await check_before_sending(call)
+            >>> return await tools.execute_deferred_tool_call(call)
+
+        .. versionadded:: 0.5.0
+
+        Args:
+            call: The approved call from the tool Step, as built by ``deferred_tool_call``.
+
+        Returns:
+            ``True`` when the call's heartbeat checkpoint names a task of the
+            server and tool on its record, so executing it sends no
+            ``tools/call``; ``False`` otherwise, including for a call whose
+            server this source no longer configures.
+        """
+        record = call.tool_call
+        try:
+            target = self._target_from_reference(record.tool_name, record.tool_source_reference)
+        except ToolExecutionError:
+            return False
+        if target is None:
+            return False
+        return _task_id_from_checkpoint(call.heartbeat_checkpoint, target) is not None
+
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
         """Poll one MCP task that ``execute_deferred_tool_call`` started, once.
 

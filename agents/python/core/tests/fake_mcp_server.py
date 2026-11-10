@@ -60,6 +60,7 @@ with one ``topic`` argument.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import uuid
@@ -101,6 +102,8 @@ from dex_agents.testing import FileGate, InvocationLog
 
 STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_MCP_STATE_DIR"
 INVOCATION_LOG_NAME = "mcp-invocations.log"
+#: Each recorded run's request ``_meta``, one JSON object per line.
+REQUEST_META_LOG_NAME = "mcp-request-meta.jsonl"
 READY_LINE = "Uvicorn running on"
 
 _READ_ONLY = ToolAnnotations(read_only_hint=True)
@@ -443,8 +446,11 @@ def _invocations() -> InvocationLog:
 
 
 def _record(tool_name: str, request_context: ServerRequestContext[Any, Any]) -> str:
-    key = str((request_context.meta or {}).get(IDEMPOTENCY_KEY_META_KEY, "no-key"))
+    meta = dict(request_context.meta or {})
+    key = str(meta.get(IDEMPOTENCY_KEY_META_KEY, "no-key"))
     _invocations().record(f"{tool_name} {key}")
+    with (_state_dir() / REQUEST_META_LOG_NAME).open("a") as log:
+        log.write(json.dumps({"tool": tool_name, "meta": meta}, default=str) + "\n")
     return key
 
 

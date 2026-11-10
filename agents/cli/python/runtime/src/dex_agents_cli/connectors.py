@@ -359,11 +359,14 @@ class ConnectorsMcpToolSource:
         turn = current_turn_config() or self._resolver.resolve(recorded_turn_settings(call))
         if not _is_enabled(turn.connectors, identity):
             raise ToolExecutionError(f"tool {record.tool_name} is switched off for this session")
+        unwrapped = replace(call, tool_call=record)
         if identity is None:
-            return await self._mcp.execute_deferred_tool_call(replace(call, tool_call=record))
-        await self._check_binding(record, identity)
+            return await self._mcp.execute_deferred_tool_call(unwrapped)
+        # A task an earlier attempt started is resumed, never sent again, so it needs no check.
+        if not self._mcp.has_started_tool_task(unwrapped):
+            await self._check_binding(record, identity)
         return await self._mcp.execute_deferred_tool_call(
-            replace(call, tool_call=record), request_meta=_expected_identity_meta(identity)
+            unwrapped, request_meta=_expected_identity_meta(identity)
         )
 
     async def _check_binding(self, record: AgentToolCall, approved: ConnectorToolIdentity) -> None:

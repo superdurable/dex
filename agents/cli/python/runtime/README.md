@@ -173,7 +173,12 @@ again and requires the tool's current connector, connection, and operation to
 equal the ones the call was made for; otherwise the call fails and nothing is
 sent. It also sends them in the `tools/call` request's `_meta` as
 `io.superdurable.connectors/expectedConnector`, `expectedConnection`, and
-`expectedOperation`, so a server can refuse a mismatch itself.
+`expectedOperation`. The client-side check only narrows the window: a name can
+still move between the check and the call. The connectors MCP server enforces
+the expected identity in the same step that runs the operation from its release
+that supports these keys; with an older server, the check is the only guard.
+A retried attempt that resumes a task an earlier attempt started sends no new
+`tools/call`, so it skips the check and always recovers the task.
 
 At startup the command lists the server once:
 

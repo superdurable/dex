@@ -116,7 +116,12 @@ from dex_agents.testing import (
     find_free_port,
     wait_for_agent_snapshot,
 )
-from tests.fake_mcp_server import INVOCATION_LOG_NAME, READY_LINE, STATE_DIR_ENVIRONMENT_VARIABLE
+from tests.fake_mcp_server import (
+    INVOCATION_LOG_NAME,
+    READY_LINE,
+    REQUEST_META_LOG_NAME,
+    STATE_DIR_ENVIRONMENT_VARIABLE,
+)
 from tests.mcp_agent import (
     CORE_DIR,
     GATEWAY_URL_ENVIRONMENT_VARIABLE,
@@ -702,6 +707,61 @@ async def test_without_a_poller_the_tool_step_polls_the_task_to_its_end(
     )
 
     assert result == ToolExecutionResult(output="report on q14")
+
+
+async def test_request_meta_reaches_the_server_but_never_replaces_the_idempotency_key(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    tools = build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url)
+
+    result = await tools.execute_deferred_tool_call(
+        _deferred_execution(
+            "remote__lookup", '{"query": "q21"}', "remote", "lookup", supports_tool_tasks=False
+        ),
+        request_meta={IDEMPOTENCY_KEY_META_KEY: "forged-key", "com.example/expected": "work"},
+    )
+
+    assert result == ToolExecutionResult(output="found q21")
+    entries = [
+        json.loads(line)
+        for line in (mcp_harness.state_dir / REQUEST_META_LOG_NAME).read_text().splitlines()
+    ]
+    (sent,) = [entry["meta"] for entry in entries if entry["tool"] == "lookup"]
+    assert sent[IDEMPOTENCY_KEY_META_KEY] == "session-direct/turn-1/call-1"
+    assert sent["com.example/expected"] == "work"
+
+
+async def test_has_started_tool_task_names_only_a_checkpoint_of_the_same_server_and_tool(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    tools = build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url)
+    saved_checkpoints: list[str] = []
+
+    async def save_heartbeat_checkpoint(checkpoint: str) -> None:
+        saved_checkpoints.append(checkpoint)
+
+    first = _deferred_execution(
+        "remote__long_report",
+        '{"topic": "q22"}',
+        "remote",
+        "long_report",
+        save_heartbeat_checkpoint=save_heartbeat_checkpoint,
+    )
+    assert not tools.has_started_tool_task(first)
+    assert isinstance(await tools.execute_deferred_tool_call(first), ToolTaskStarted)
+    (checkpoint,) = saved_checkpoints
+    retried = _deferred_execution(
+        "remote__long_report",
+        '{"topic": "q22"}',
+        "remote",
+        "long_report",
+        heartbeat_checkpoint=checkpoint,
+    )
+    assert tools.has_started_tool_task(retried)
+    other_tool = _deferred_execution(
+        "remote__lookup", '{"query": "q22"}', "remote", "lookup", heartbeat_checkpoint=checkpoint
+    )
+    assert not tools.has_started_tool_task(other_tool)
 
 
 async def test_a_retried_attempt_resumes_its_task_without_calling_the_tool_again(

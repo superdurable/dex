@@ -1208,7 +1208,9 @@ adds `traceparent` to `_meta` when OpenTelemetry has an active trace.
 `execute_deferred_tool_call(call, request_meta=...)` adds more `_meta`
 entries to the request, such as the identity a caller expects the server to
 check before it runs the call; the idempotency key wins over an entry of the
-same name.
+same name. `has_started_tool_task(call)` tells whether a call resumes a task an
+earlier attempt started rather than sending a new `tools/call`, so such a
+caller skips checks that only matter before a new call.
 
 | What happens | Recorded | Re-issued? |
 | --- | --- | --- |

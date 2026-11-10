@@ -46,7 +46,7 @@ async def test_a_connector_read_runs_at_once_and_an_approved_write_runs_once(
     await expect(
         child,
         "tools: ask_user,gmail_get_message,hackernews_get_top_stories,misc_untagged,"
-        "slack_post_thread_reply",
+        "reddit_export_report,slack_post_thread_reply",
     )
     child.sendline("call hackernews_get_top_stories {}")
     await expect(child, "done: hackernews_get_top_stories=1. Durable agents")
