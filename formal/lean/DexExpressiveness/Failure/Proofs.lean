@@ -1,3 +1,16 @@
+import DexExpressiveness.Failure.Proofs.WPF1Lists
+import DexExpressiveness.Failure.Proofs.WPF1Relabel
+import DexExpressiveness.Failure.Proofs.WPF1Abstract
+import DexExpressiveness.Failure.Proofs.WPF1Commit
+import DexExpressiveness.Failure.Proofs.WPF1Steps
+import DexExpressiveness.Failure.Proofs.WPF1Publish
+import DexExpressiveness.Failure.Proofs.WPF1StepStart
+import DexExpressiveness.Failure.Proofs.WPF1TimerFire
+import DexExpressiveness.Failure.Proofs.WPF1CompleteBase
+import DexExpressiveness.Failure.Proofs.WPF1CompleteTasks
+import DexExpressiveness.Failure.Proofs.WPF1StepComplete
+import DexExpressiveness.Failure.Proofs.WPF1StepCompleteRule
+import DexExpressiveness.Failure.Proofs.WPF1NormalSteps
 /-!
 # Proofs of the leaf statements
 

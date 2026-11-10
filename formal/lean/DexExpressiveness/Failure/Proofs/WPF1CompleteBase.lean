@@ -39,14 +39,14 @@ theorem NotCurrentAt.updateStep {step : Dex.StepExecId σ} {method : Dex.Method}
   intro record isMember isStep
   obtain ⟨original, isOriginal, isRecord⟩ := (Dex.Run.mem_updateStep _ _ _ _).mp isMember
   by_cases isUpdated : original.id = updated
-  · rw [if_pos isUpdated] at isRecord
+  · rw [ite_eq_left isUpdated] at isRecord
     subst isRecord
     rw [keepsId] at isStep
     rcases isAllowed original isOriginal isUpdated isStep with isSame | isOther
     · rw [isSame]
       exact notCurrent original isOriginal isStep
     · exact isOther
-  · rw [if_neg isUpdated] at isRecord
+  · rw [ite_eq_right isUpdated] at isRecord
     subst isRecord
     exact notCurrent record isOriginal isStep
 
@@ -57,10 +57,10 @@ theorem notCurrentAt_updateStep_none (run : Dex.Run σ) (step : Dex.StepExecId �
   intro record isMember isStep
   obtain ⟨original, _, isRecord⟩ := (Dex.Run.mem_updateStep _ _ _ _).mp isMember
   by_cases isUpdated : original.id = step
-  · rw [if_pos isUpdated] at isRecord
+  · rw [ite_eq_left isUpdated] at isRecord
     subst isRecord
     simp
-  · rw [if_neg isUpdated] at isRecord
+  · rw [ite_eq_right isUpdated] at isRecord
     subst isRecord
     exact absurd isStep isUpdated
 
@@ -73,12 +73,12 @@ theorem NonWaitingAt.updateStep {step : Dex.StepExecId σ} {run : Dex.Run σ}
   intro record isMember isStep
   obtain ⟨original, isOriginal, isRecord⟩ := (Dex.Run.mem_updateStep _ _ _ _).mp isMember
   by_cases isUpdated : original.id = updated
-  · rw [if_pos isUpdated] at isRecord
+  · rw [ite_eq_left isUpdated] at isRecord
     subst isRecord
     rw [keepsId] at isStep
     rw [keepsPhase]
     exact nonWaiting original isOriginal isStep
-  · rw [if_neg isUpdated] at isRecord
+  · rw [ite_eq_right isUpdated] at isRecord
     subst isRecord
     exact nonWaiting record isOriginal isStep
 

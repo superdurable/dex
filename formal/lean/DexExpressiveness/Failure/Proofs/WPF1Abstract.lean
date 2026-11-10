@@ -92,7 +92,7 @@ theorem get?_filterMap_of_key {α κ ν : Type} [DecidableEq κ] (entryOf : α �
       | some entry =>
         have isKey := keyed head entry isEntry
         simp only [AssocList.get?]
-        rw [if_neg (by rw [isKey]; exact headOther)]
+        rw [ite_eq_right (by rw [isKey]; exact headOther)]
         exact inductionHypothesis tailOther
   induction elements with
   | nil => cases isMember
@@ -121,7 +121,7 @@ theorem get?_filterMap_of_key {α κ ν : Type} [DecidableEq κ] (entryOf : α �
       | some entry =>
         have isKey := keyed head entry isEntry
         simp only [AssocList.get?]
-        rw [if_neg (by rw [isKey]; exact keyOther)]
+        rw [ite_eq_right (by rw [isKey]; exact keyOther)]
         exact inductionHypothesis inTail keysNodup.2
 
 /-- The attempt state of a Step after `reconcileAttempts`. -/
@@ -261,9 +261,9 @@ theorem reconcile_invocations (ghost : Ghost σ) (completed : Option (Invocation
       intro start extra isFresh
       simp only [List.foldl_cons]
       by_cases isContained : (start ++ extra).contains key = true
-      · rw [if_pos isContained]
+      · rw [ite_eq_left isContained]
         exact inductionHypothesis start extra isFresh
-      · rw [if_neg isContained, set_of_not_contains _ _ _ (by simpa using isContained),
+      · rw [ite_eq_right isContained, set_of_not_contains _ _ _ (by simpa using isContained),
           List.append_assoc]
         apply inductionHypothesis
         intro entry isMember
@@ -288,9 +288,9 @@ theorem get?_map_of_keeps_key {κ ν : Type} [DecidableEq κ] (map : AssocList �
       show change entry = ((change entry).1, (change entry).2) from rfl]
     simp only [AssocList.get?]
     by_cases isWanted : entry.1 = key
-    · rw [if_pos ((keepsKey entry).trans isWanted)]
+    · rw [ite_eq_left ((keepsKey entry).trans isWanted)]
       simp [isWanted]
-    · rw [if_neg (by rw [keepsKey]; exact isWanted), inductionHypothesis]
+    · rw [ite_eq_right (by rw [keepsKey]; exact isWanted), inductionHypothesis]
       simp [isWanted]
 
 theorem get?_eq_find? {κ ν : Type} [DecidableEq κ] (map : AssocList κ ν) (key : κ) :

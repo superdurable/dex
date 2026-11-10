@@ -42,11 +42,11 @@ theorem mem_of_get? {κ ν : Type} [DecidableEq κ] (map : AssocList κ ν) (key
     obtain ⟨entryKey, entryValue⟩ := entry
     simp only [AssocList.get?] at isFound
     by_cases isKey : entryKey = key
-    · rw [if_pos isKey] at isFound
+    · rw [ite_eq_left isKey] at isFound
       cases isFound
       subst isKey
       exact List.mem_cons_self ..
-    · rw [if_neg isKey] at isFound
+    · rw [ite_eq_right isKey] at isFound
       exact List.mem_cons_of_mem _ (inductionHypothesis isFound)
 
 theorem exists_mem_of_get?_isSome {κ ν : Type} [DecidableEq κ] (map : AssocList κ ν) (key : κ)
@@ -371,16 +371,16 @@ theorem keeps_updateStep_other (run : Dex.Run σ) (step updated : Dex.StepExecId
   · intro record isMember isStep
     obtain ⟨original, isOriginal, isRecord⟩ := (Dex.Run.mem_updateStep _ _ _ _).mp isMember
     by_cases isUpdated : original.id = updated
-    · rw [if_pos isUpdated] at isRecord
+    · rw [ite_eq_left isUpdated] at isRecord
       rw [isRecord, keepsId] at isStep
       exact absurd (isUpdated.symm.trans isStep) isOther
-    · rw [if_neg isUpdated] at isRecord
+    · rw [ite_eq_right isUpdated] at isRecord
       rw [isRecord] at isStep ⊢
       exact nonWaiting original isOriginal isStep
   · intro record isMember isStep
     apply (Dex.Run.mem_updateStep _ _ _ _).mpr
     refine ⟨record, isMember, ?_⟩
-    rw [if_neg (by rw [isStep]; exact Ne.symm isOther)]
+    rw [ite_eq_right (by rw [isStep]; exact Ne.symm isOther)]
 
 theorem keeps_evalStep (run : Dex.Run σ) (evaluated step : Dex.StepExecId σ)
     (nonWaiting : NonWaitingAt step run) :
