@@ -32,7 +32,7 @@ import io.superdurable.dex.exceptions.ValueMappingException;
 import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.FlowAlreadyStartedOptions;
-import io.superdurable.gen.FlowExecutionID;
+import io.superdurable.gen.FlowRunID;
 import io.superdurable.gen.FlowResetStepMethod;
 import io.superdurable.gen.FlowResetType;
 import io.superdurable.gen.FlowServiceGrpc;
@@ -55,7 +55,6 @@ import io.superdurable.gen.ServerInfo;
 import io.superdurable.gen.SkipTimerRequest;
 import io.superdurable.gen.StartFlowRequest;
 import io.superdurable.gen.StopFlowRequest;
-import io.superdurable.gen.TriggerContinueAsNewRequest;
 import io.superdurable.gen.UpdateFlowConfigRequest;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WaitForFlowRequest;
@@ -959,7 +958,7 @@ public final class Client implements AutoCloseable {
                 GetFlowSummaryRequest.newBuilder().setFlowId(flowId).build()),
                 FlowTargetRequirement.EXISTING,
                 flowId);
-        final FlowExecutionID execution = response.getFlowExecutionId();
+        final FlowRunID execution = response.getFlowRunId();
         return new FlowInfo(
                 execution.getFlowId(),
                 execution.getRunId(),
@@ -1258,24 +1257,6 @@ public final class Client implements AutoCloseable {
             final String query,
             final int pageSize,
             final String nextPageToken) {
-        return searchFlows(query, pageSize, nextPageToken, SearchFlowsOptions.newBuilder().build());
-    }
-
-    /**
-     * Searches with inclusion options.
-     * @param query filter
-     * @param pageSize maximum
-     * @param nextPageToken token
-     * @param options inclusion
-     * @return page
-     * @throws IllegalStateException if the Dex Server does not support protocol version 4
-     */
-    public SearchFlowsPage searchFlows(
-            final String query,
-            final int pageSize,
-            final String nextPageToken,
-            final SearchFlowsOptions options) {
-        java.util.Objects.requireNonNull(options, "options");
         if (pageSize < 0) {
             throw new IllegalArgumentException("search page size must not be negative");
         }
@@ -1284,7 +1265,6 @@ public final class Client implements AutoCloseable {
                         .setQuery(query == null ? "" : query)
                         .setPageSize(pageSize)
                         .setNextPageToken(nextPageToken == null ? "" : nextPageToken)
-                        .setIncludeContinuedAsNew(options.getIncludeContinuedAsNew())
                         .build()));
         final List<SearchFlowEntry> flows =
                 new ArrayList<SearchFlowEntry>(response.getFlowRunsCount());
@@ -1381,15 +1361,13 @@ public final class Client implements AutoCloseable {
 
     /**
      * Blocks until a specific Step execution completes or its caller-visible request expires.
-     * The server derives a stable Request ID from the Step execution when none is supplied.
-     * Request timeout covers transparent transport reattachments. Internal handler timeout controls
-     * the lifetime of each server-side wait and does not end this request. An active caller
-     * transparently reattaches when that wait ends.
+     * The Server does not read the request ID for this wait.
+     * Request timeout covers transparent transport reattachments.
      *
      * @param flowId the target Flow ID
      * @param stepExecutionId the Step execution to observe
-     * @param options the Request ID override and request/handler timeout controls
-     * @throws IllegalArgumentException if either timeout is unsupported
+     * @param options the optional request ID and request timeout
+     * @throws IllegalArgumentException if the request timeout is unsupported
      * @throws RequestTimeoutException if a positive request timeout expires first
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
@@ -1400,7 +1378,6 @@ public final class Client implements AutoCloseable {
             final StepExecutionId stepExecutionId,
             final WaitForStepCompletionOptions options) {
         final ClientRequestBudget requestBudget = new ClientRequestBudget(options.getRequestTimeout());
-        final int internalHandlerTimeoutSeconds = seconds32(options.getInternalHandlerTimeout());
         while (true) {
             try {
                 negotiateServerProtocol(requestBudget.getDeadlineNanos());
@@ -1416,7 +1393,6 @@ public final class Client implements AutoCloseable {
                         .setStepExecutionNumber(
                                 Integer.toString(stepExecutionId.getExecutionNumber()))
                         .setRequestTimeoutSeconds(requestAttempt.getRemainingSeconds())
-                        .setInternalHandlerTimeoutSeconds(internalHandlerTimeoutSeconds)
                         .setRequestId(options.getRequestId() == null ? "" : options.getRequestId())
                         .build()),
                         FlowTargetRequirement.ACTIVE,
@@ -1438,19 +1414,17 @@ public final class Client implements AutoCloseable {
 
     /**
      * Blocks until a singleton Attribute satisfies a scalar match or its request timeout expires.
-     * The server derives a stable Request ID from the condition when none is supplied.
+     * The Server does not read the request ID for this wait.
      * Missing Attributes never match. Strings and booleans support equality and inequality;
      * numeric values also support ordered comparisons. The returned value is current state when
      * the condition matches, so rapid revisions may coalesce. See {@link AttributeMatch} for
      * constructing typed conditions.
-     * Request timeout covers transparent transport reattachments. Internal handler timeout controls
-     * the lifetime of each server-side wait and does not end this request. An active caller
-     * transparently reattaches when that wait ends.
+     * Request timeout covers transparent transport reattachments.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute definition
      * @param match the scalar predicate to await
-     * @param options the Request ID override and request/handler timeout controls
+     * @param options the optional request ID and request timeout
      * @param <T> the Attribute value type
      * @return the current Attribute value that satisfied the match
      * @throws IllegalArgumentException if the budget, match operand, or operator is invalid, or if
@@ -1477,7 +1451,7 @@ public final class Client implements AutoCloseable {
      * @param attribute the registered Attribute-map definition
      * @param instance the map instance
      * @param match the scalar predicate to await
-     * @param options the Request ID override and request/handler timeout controls
+     * @param options the optional request ID and request timeout
      * @param <T> the Attribute value type
      * @return the current AttributeMap value that satisfied the match
      * @throws IllegalArgumentException if the budget, match operand, or operator is invalid, or if
@@ -1517,7 +1491,6 @@ public final class Client implements AutoCloseable {
                 ? attribute.getName()
                 : Registry.physicalName(attribute.getName(), instance);
         final ClientRequestBudget requestBudget = new ClientRequestBudget(options.getRequestTimeout());
-        final int internalHandlerTimeoutSeconds = seconds32(options.getInternalHandlerTimeout());
         while (true) {
             try {
                 negotiateServerProtocol(requestBudget.getDeadlineNanos());
@@ -1534,7 +1507,6 @@ public final class Client implements AutoCloseable {
                                 .setOperator(match.getOperator())
                                 .setOperand(encoded))
                         .setRequestTimeoutSeconds(requestAttempt.getRemainingSeconds())
-                        .setInternalHandlerTimeoutSeconds(internalHandlerTimeoutSeconds)
                         .setRequestId(options.getRequestId() == null ? "" : options.getRequestId())
                         .build()),
                         FlowTargetRequirement.ACTIVE,
@@ -1608,22 +1580,6 @@ public final class Client implements AutoCloseable {
                         .setFlowId(flowId)
                         .setFlowConfig(mapFlowConfig(config))
                         .build()),
-                FlowTargetRequirement.ACTIVE,
-                flowId);
-    }
-
-    /**
-     * Requests that the current Flow run continue as new.
-     *
-     * @param flowId the target Flow ID
-     * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
-     * @throws DexServiceException if Dex otherwise cannot apply the request
-     * @throws IllegalStateException if the Dex Server does not support protocol version 4
-     */
-    public void triggerContinueAsNew(final String flowId) {
-        call(
-                () -> service.triggerContinueAsNew(
-                        TriggerContinueAsNewRequest.newBuilder().setFlowId(flowId).build()),
                 FlowTargetRequirement.ACTIVE,
                 flowId);
     }
@@ -1819,13 +1775,6 @@ public final class Client implements AutoCloseable {
             if (config.getActiveStepSearchMode() != null) {
                 mapped.setActiveStepSearchMode(mapSearchMode(config.getActiveStepSearchMode()));
             }
-            if (config.getContinueAsNewThreshold() != null) {
-                mapped.setContinueAsNewThreshold(config.getContinueAsNewThreshold());
-            }
-            if (config.getContinueAsNewPageSizeBytes() != null) {
-                mapped.setContinueAsNewPageSizeInBytes(
-                        config.getContinueAsNewPageSizeBytes());
-            }
             if (config.getStepDurability() != null) {
                 mapped.setStepDurability(mapDurability(config.getStepDurability()));
             }
@@ -2010,8 +1959,6 @@ public final class Client implements AutoCloseable {
                 return FlowStatus.TERMINATED;
             case FLOW_STATUS_CANCELED:
                 return FlowStatus.CANCELED;
-            case FLOW_STATUS_CONTINUED_AS_NEW:
-                return FlowStatus.CONTINUED_AS_NEW;
             default:
                 throw new IllegalArgumentException("unknown Flow status " + status);
         }

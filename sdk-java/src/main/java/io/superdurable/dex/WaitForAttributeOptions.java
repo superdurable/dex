@@ -14,29 +14,22 @@ import java.time.Duration;
 
 /**
  * Configures one durable Attribute match wait.
- * The server derives a stable Request ID from the Attribute condition when none is supplied.
- * Reuse an override only for the same logical predicate.
- * The request timeout bounds the caller-visible call across transparent transport reattachments.
- * Temporal permits 10 in-flight Updates per Workflow Execution. The internal handler timeout
- * reclaims accepted waits that outlive callers and could consume those slots. An active caller
- * transparently starts another generation, which adds another Update to history. Leave it at zero
- * unless abandoned waits can approach the limit. Prefer a value longer than normal request
- * timeouts and reconnect gaps.
+ * The Server does not read the request ID for this wait.
+ * Request timeout bounds the caller-visible call across transport reattachments.
+ * Disconnecting releases the wait slot.
  */
 public final class WaitForAttributeOptions {
     private final String requestId;
     private final Duration requestTimeout;
-    private final Duration internalHandlerTimeout;
 
     private WaitForAttributeOptions(final Builder builder) {
         requestId = builder.requestId;
         requestTimeout = builder.requestTimeout;
-        internalHandlerTimeout = builder.internalHandlerTimeout;
     }
 
     /**
      * Creates an empty builder.
-     * The server derives a stable Request ID when none is configured.
+     * The Server does not read the request ID for this wait.
      *
      * @return a new builder
      */
@@ -52,21 +45,16 @@ public final class WaitForAttributeOptions {
         return requestTimeout;
     }
 
-    Duration getInternalHandlerTimeout() {
-        return internalHandlerTimeout;
-    }
-
     /** Builds immutable Attribute wait options. */
     public static final class Builder {
         private String requestId;
         private Duration requestTimeout = Duration.ZERO;
-        private Duration internalHandlerTimeout = Duration.ZERO;
 
         private Builder() {
         }
 
         /**
-         * Overrides the stable Request ID derived from the Attribute condition.
+         * Sets an optional request ID; the Server does not read it.
          *
          * @param value the non-empty Request ID override
          * @return this builder
@@ -85,22 +73,6 @@ public final class WaitForAttributeOptions {
          */
         public Builder requestTimeout(final Duration value) {
             requestTimeout = value;
-            return this;
-        }
-
-        /**
-         * Bounds one internal Temporal Update handler generation.
-         * Set a positive value only to reclaim accepted waits left in flight after callers exit.
-         * Temporal permits 10 in-flight Updates per Workflow Execution. Active callers
-         * transparently start another generation, which counts toward Temporal's 2,000-Update
-         * history limit. Zero disables rollover. Prefer a value longer than normal request
-         * timeouts and reconnect gaps.
-         *
-         * @param value a nonnegative whole-second duration within the protocol range
-         * @return this builder
-         */
-        public Builder internalHandlerTimeout(final Duration value) {
-            internalHandlerTimeout = value;
             return this;
         }
 

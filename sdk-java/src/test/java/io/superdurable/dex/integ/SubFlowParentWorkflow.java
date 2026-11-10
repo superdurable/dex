@@ -223,39 +223,3 @@ final class SubFlowAbnormalRestartParentWorkflow implements Flow<Integer> {
         }
     }
 }
-
-final class SubFlowContinueAsNewParentWorkflow implements Flow<Integer> {
-    private final ParentStep parentStep = new ParentStep();
-
-    @Override
-    public StepList<Integer> getSteps() {
-        return StepList.startStep(parentStep);
-    }
-
-    static final class ParentStep implements Step<Integer> {
-        private final SubFlowOptions childOptions = SubFlowOptions.newBuilder()
-                .configOverride(FlowConfig.newBuilder().continueAsNewThreshold(100).build())
-                .build();
-
-        @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
-        }
-
-        @Override
-        public Wait waitFor(final Context context, final Integer input) {
-            return Wait.allOf(
-                    SubFlow.run(BasicWorkflow.class, input, childOptions),
-                    SubFlow.run(TimerWorkflow.class, 300, childOptions));
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Integer input) {
-            final FlowResult completed = SubFlow.getConditionResults(context);
-            final FlowResult delayed = SubFlow.getConditionResults(context, 1);
-            return StepDecision.gracefulComplete(
-                    SubFlow.getFlowId(context) + "|" + completed.getSingleOutput(Integer.class)
-                            + "|" + SubFlow.getFlowId(context, 1) + "|" + delayed.getStatus());
-        }
-    }
-}

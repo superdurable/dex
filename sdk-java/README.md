@@ -665,13 +665,10 @@ include buffered publishes, and omit empty instances. Returned keys are decoded
 and sorted. Conditional completion is
 `StepDecision.forceCompleteIfChannelsEmpty(...)`.
 
-Request IDs are optional for both durable waits. When omitted, the server
-derives a stable ID from the Step execution or Attribute condition. Reuse an
-override only for the same wait. `requestTimeout` is the total SDK call budget
-across transparent transport reattachments. Zero waits indefinitely.
-A caller timeout or cancellation does not finish an accepted durable wait. Set `internalHandlerTimeout` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value comfortably longer than normal
-request timeouts and reconnect gaps. Zero disables timed rollover. Request
-expiry throws `RequestTimeoutException`.
+Request IDs are optional for both waits. The Server does not read them for these
+waits. `requestTimeout` bounds the total SDK call across transport reattachments;
+zero waits indefinitely. Request expiry throws `RequestTimeoutException`.
+A caller disconnect releases its wait slot.
 
 `client.getAttributes(flowId, reads...)` reads committed Attribute values
 from outside the Flow without an RPC. Pass singleton `Attribute` definitions
@@ -1049,11 +1046,7 @@ Published JARs store the diagnostic SDK version in the
 `Implementation-Version` manifest attribute. Direct class-directory builds use
 `dev`. The artifact version never participates in the compatibility decision.
 
-## Search run inclusion
+## Search Flow runs
 
-Searches exclude runs with the ContinuedAsNew status by default. server-zd never reports that status. Application queries still
-need `FlowType` when using shared index slots. An explicit inclusion option
-removes only the default exclusion; it does not override query filters. Keep
-the query, inclusion option, and page size consistent across pages.
-
-Pass `SearchFlowsOptions.newBuilder().setIncludeContinuedAsNew(true).build()` to `searchFlows(query, pageSize, nextPageToken, options)` for execution-chain inspection. Existing overloads use the default.
+Searches return runs that match the query. Include `FlowType` when using shared
+index slots, and keep the query and page size consistent across pages.

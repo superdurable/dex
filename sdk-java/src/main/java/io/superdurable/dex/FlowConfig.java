@@ -21,8 +21,6 @@ import java.util.List;
  * <p>Use this value as a start-time override or in an update request.
  * Flow starts select pull Workers; updates preserve the existing Worker routing.
  * Unset properties use server defaults at start and retain existing values on update.
- * Continue-as-new thresholds bound execution history and page size; consult the server deployment
- * configuration before overriding them.
  *
  * <pre>{@code
  * FlowConfig config = FlowConfig.newBuilder()
@@ -34,8 +32,6 @@ import java.util.List;
  */
 public final class FlowConfig {
     private final ActiveStepSearchMode activeStepSearchMode;
-    private final Integer continueAsNewThreshold;
-    private final Integer continueAsNewPageSizeBytes;
     private final StepDurability stepDurability;
     private final List<String> attributeStoreNames;
     private final Integer historyWindowEvents;
@@ -43,8 +39,6 @@ public final class FlowConfig {
 
     private FlowConfig(final Builder builder) {
         this.activeStepSearchMode = builder.activeStepSearchMode;
-        this.continueAsNewThreshold = builder.continueAsNewThreshold;
-        this.continueAsNewPageSizeBytes = builder.continueAsNewPageSizeBytes;
         this.stepDurability = builder.stepDurability;
         this.attributeStoreNames = builder.attributeStoreNames;
         this.historyWindowEvents = builder.historyWindowEvents;
@@ -62,14 +56,6 @@ public final class FlowConfig {
 
     ActiveStepSearchMode getActiveStepSearchMode() {
         return activeStepSearchMode;
-    }
-
-    Integer getContinueAsNewThreshold() {
-        return continueAsNewThreshold;
-    }
-
-    Integer getContinueAsNewPageSizeBytes() {
-        return continueAsNewPageSizeBytes;
     }
 
     StepDurability getStepDurability() {
@@ -91,8 +77,6 @@ public final class FlowConfig {
     /** Builds immutable {@link FlowConfig} values. */
     public static final class Builder {
         private ActiveStepSearchMode activeStepSearchMode;
-        private Integer continueAsNewThreshold;
-        private Integer continueAsNewPageSizeBytes;
         private StepDurability stepDurability;
         private List<String> attributeStoreNames;
         private Integer historyWindowEvents;
@@ -115,29 +99,7 @@ public final class FlowConfig {
             return this;
         }
 
-        /**
-         * Sets the history-event threshold that triggers continue-as-new.
-         *
-         * @param value the threshold count
-         * @return this builder
-         */
-        public Builder continueAsNewThreshold(final int value) {
-            continueAsNewThreshold = value;
-            return this;
-        }
-
-        /**
-         * Sets the history page-size threshold that triggers continue-as-new.
-         *
-         * @param value the page-size threshold in bytes
-         * @return this builder
-         */
-        public Builder continueAsNewPageSizeBytes(final int value) {
-            continueAsNewPageSizeBytes = value;
-            return this;
-        }
-
-        /**
+            /**
          * Sets the normal default durability for Step methods in this Flow.
          *
          * <p>The server default is {@link StepDurability#SYNC}. A method-level setting in
