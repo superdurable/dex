@@ -281,8 +281,9 @@ A commit is atomic, but it is not isolated. A method reads the Flow state that
 was committed when Dex handed it to a Worker. Other Steps and RPCs can commit
 before the method does. Dex does not check that the values the method read are
 still current. So two Steps or RPCs that read and then write the same Attribute
-can overwrite each other's update. Give each of them the same
-[Attribute lock](/concepts/primitives/attribute#locking).
+can overwrite each other's update. To prevent this, have both declare a lock
+on that Attribute. Dex then runs them one at a time. See
+[Attribute locks](/concepts/primitives/attribute#locking).
 
 <a id="failure-and-redelivery"></a>
 <a id="heartbeats-not-acknowledged"></a>

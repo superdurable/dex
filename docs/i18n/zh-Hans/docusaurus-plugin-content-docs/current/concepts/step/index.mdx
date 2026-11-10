@@ -238,7 +238,7 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 
 每次 **WaitFor** 或 **Execute** 调用是一个独立的提交。Dex 把它的 Attribute 写入和 Channel 发布与结果一起提交，而且只在方法成功时提交。对外部系统的调用不在这个提交里。
 
-提交是原子的，但不是隔离的。方法读到的是 Dex 把它交给 Worker 时已经 commit 的 Flow 状态。在这个方法 commit 之前，其他 Step 和 RPC 可以先 commit。Dex 不检查方法读到的值在 commit 时是否仍然是最新的。所以两个先读后写同一个 Attribute 的 Step 或 RPC，可能互相覆盖对方的更新。让它们都声明同一个 [Attribute lock](/concepts/primitives/attribute#locking)。
+提交是原子的，但不是隔离的。方法读到的是 Dex 把它交给 Worker 时已经 commit 的 Flow 状态。在这个方法 commit 之前，其他 Step 和 RPC 可以先 commit。Dex 不检查方法读到的值在 commit 时是否仍然是最新的。所以两个先读后写同一个 Attribute 的 Step 或 RPC，可能互相覆盖对方的更新。要避免这种情况，让它们都在这个 Attribute 上声明 lock。Dex 会让它们依次执行。见 [Attribute lock](/concepts/primitives/attribute#locking)。
 
 <a id="failure-and-redelivery"></a>
 <a id="heartbeats-not-acknowledged"></a>
