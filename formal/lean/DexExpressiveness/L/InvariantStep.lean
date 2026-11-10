@@ -1,4 +1,4 @@
-import DexExpressiveness.L.Invariant
+import DexExpressiveness.L.InvariantStepFrame
 
 /-!
 # Every L transition keeps the L invariant
