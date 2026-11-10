@@ -70,11 +70,37 @@ inductive Val
   | cv (cv : CvId)
   deriving DecidableEq, Repr
 
+/-- A literal of the source language (spec §8.1, "Handles and literals":
+"L literals are only null, Boolean, integer, and string"). A thread, mutex, or
+condition variable handle is not a literal, so a program cannot forge one. -/
+inductive Literal
+  /-- L's null. -/
+  | null
+  /-- A Boolean. -/
+  | bool (value : Bool)
+  /-- An integer. -/
+  | int (value : Int)
+  /-- A string. -/
+  | str (value : String)
+  deriving DecidableEq, Repr
+
+/-- The value of a literal. -/
+def Literal.toVal : Literal → Val
+  | .null => .null
+  | .bool value => .bool value
+  | .int value => .int value
+  | .str value => .str value
+
 /-- A pure expression over thread-local variables. "Local computation is
-invisible" (spec §8.1), so expressions never touch shared state. -/
+invisible" (spec §8.1), so expressions never touch shared state. Handles are
+unforgeable (spec §8.1, "Handles and literals"): a mutex handle comes only
+from `newMutex` or from `staticMutex`, a thread handle only from `fork`, and
+a condition variable handle only from `cvOf` of a mutex handle. -/
 inductive Expr
-  /-- A literal value. -/
-  | lit (value : Val)
+  /-- A literal: null, a Boolean, an integer, or a string. -/
+  | lit (value : Literal)
+  /-- The handle of the statically known mutex with this index (spec §8.2). -/
+  | staticMutex (index : Nat)
   /-- A local variable; an unset variable reads null. -/
   | var (name : Var)
   /-- Integer addition. -/

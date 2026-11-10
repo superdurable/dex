@@ -266,6 +266,7 @@ def decodeBlockedOutcome (code : Code) (results : Option (Dex.ConditionResults s
     match code, conditionResults.channelMessages with
     | .source (.lock _) :: _, [some _] => .granted
     | .park _ :: _, [some _] => .granted
+    | .relock _ :: _, [some _] => .granted
     | .source (.join _) :: _, [some _, _] => .granted
     | .source (.join _) :: _, [none, some _] => .canceled
     | .source (.recv _ _) :: _, [some message, _] => .received (decodeMessage message)

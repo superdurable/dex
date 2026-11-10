@@ -25,4 +25,3 @@ import DexExpressiveness.Examples.Mutex
 import DexExpressiveness.Examples.TimedSelect
 import DexExpressiveness.Examples.TimerOrder
 import DexExpressiveness.Examples.LockstepChecks
-import DexExpressiveness.Examples.ForgedMutexHandle

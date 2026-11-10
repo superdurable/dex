@@ -10,13 +10,13 @@ The semantics it formalizes is
 [`formal/semantics/dex-core-semantics.md`](../semantics/dex-core-semantics.md),
 revision 5. "Spec" below means that document.
 
-## Status: Stage 2a in progress, stopped on an open issue
+## Status: Stage 2a in progress
 
 Stage 2a proves the safety theorem. Eight of the twelve `sorry` of Stage 1
 are proved, and `safety_of_isWellFormed` depends on exactly two: the step
-simulations. Work on those found a discrepancy between L and its translation
-for programs that forge a mutex handle. See
-[Open issue found in Stage 2a](#open-issue-found-in-stage-2a-forged-mutex-handles).
+simulations. Work on those found that a program could forge a mutex handle;
+the owner decided on 2026-11-10 that handles are unforgeable. See
+[Decided in Stage 2a](#decided-in-stage-2a-handles-are-unforgeable).
 
 ### Stage 1, revised after the first review
 
@@ -85,7 +85,7 @@ and `make copyright-check` passes.
 | `DexExpressiveness/Simulation.lean` | The candidate simulation relation, the two step simulations, and the two liveness inclusions. Every `sorry` is here. |
 | `DexExpressiveness/FiniteTraces.lean` | Proved from the step simulations: the two finite-trace inclusions that give safety. |
 | `DexExpressiveness/Properties.lean` | Proved facts. No `sorry`. |
-| `DexExpressiveness/Examples/*.lean` | Concrete runs checked in the Lean kernel, and lockstep checks. No `sorry`. `ForgedMutexHandle.lean` is the counterexample of the open issue below. |
+| `DexExpressiveness/Examples/*.lean` | Concrete runs checked in the Lean kernel, and lockstep checks. No `sorry`. |
 
 A reviewer who checks the statements against the spec reads, in order:
 `Core/TransitionSystem.lean`, the five `Dex/` files, the three `L/` files, the
@@ -206,6 +206,7 @@ How they read against the spec:
 | Spec §8.1 | Lean (`L/Semantics.lean` unless noted) |
 | --- | --- |
 | Constructs | `Stmt`, `Expr`, `Val`, `Program` (`L/Syntax.lean`); the runtime `Instr` (`L/ThreadLocal.lean`) |
+| Handles and literals | `Literal`, `Expr.lit`, `Expr.staticMutex` (`L/Syntax.lean`); `evalExpr_mutex_origin`, `evalExpr_thread_origin` (`Properties.lean`) |
 | `Obs_L` | `Event` (`L/Syntax.lean`) |
 | Atomic actions | `Intent` and `completeStatement` (`L/ThreadLocal.lean`); `Config.applyIntent` |
 | Mutex | `Config.registerWait` case `lock`; `Config.releaseMutex` |
@@ -258,6 +259,7 @@ How they read against the spec:
 | 37 | `Dex.Fairness.WorkersSettle`, `Dex.Fairness.ResultsCommit`. |
 | 38 | `L.Fairness`, `L.IsFair`. |
 | 39 | `Stmt.select`, `Stmt.recv`. |
+| 40 | `Literal`, `Expr.staticMutex`; `evalExpr_mutex_origin`, `evalExpr_thread_origin`. |
 
 ## What the Dex model leaves out
 
@@ -314,8 +316,8 @@ repeated in the next section.
     last produce no event.
 11. **Source and runtime syntax are separate types.** `Stmt` has the
     constructs of spec §8.1 only. The code a thread has left is a list of
-    `Instr`: a source statement, or the runtime `park` that `wait(cv, m)`
-    leaves behind.
+    `Instr`: a source statement, or the runtime `park` and `relock` that
+    `wait(cv, m)` leaves behind.
 12. **The waiter list is loaded by an exact selection.** `Key.cvWaiters cv`
     is an AttributeMap instance. `moveToPoint` puts `waiters/cv` in the
     Execute load selection of the Step of a `wait`, `signal`, or `broadcast`
@@ -482,62 +484,33 @@ reachable, which is where `program.IsWellFormed` applies.
 requests of the simulating Dex actions are the encoded request of the L
 label.
 
-## Open issue found in Stage 2a: forged mutex handles
+## Decided in Stage 2a: handles are unforgeable
 
-**Stage 2a is stopped on this point. It needs an owner decision.** Nothing in
-the model, the translation, or the theorem statements was changed for it.
+Work on the step simulations found that a program could forge the handle of a
+mutex before `newMutex` created it. A thread that locked it blocked forever
+in L and was woken in Dex, so the liveness statement was false for such a
+well-formed program (spec Review log, row L5, with the program).
 
-`Expr.lit` accepts any `Val`, so a source program can write the handle of a
-mutex that `newMutex` has not created yet, for example
-`.lit (.mutex (.dynamic [] 1))`. A thread can then block in `lock` on a mutex
-that does not exist.
+**Owner decision, 2026-11-10: handles are unforgeable** (spec §8.1 "Handles
+and literals"; Appendix A, item 40).
 
-- L: `lock` of a mutex that does not exist blocks
-  (`Config.registerWait`, case `lock`). `newMutex` creates the mutex unlocked
-  and does not look at blocked threads (`Config.applyIntent`, case
-  `newMutex`). The locker stays blocked forever.
-- Dex: the locker's Step waits on the token Channel. `newMutex` publishes the
-  first token, and `wake` gives it to the waiting Step.
+- `Expr.lit` takes a `Literal`: null, a Boolean, an integer, or a string.
+- `Expr.staticMutex index` is the handle of a statically known mutex.
+- Thread handles follow the same rule: there is no thread literal, so a
+  thread handle comes only from `fork`. This choice costs nothing, because it
+  follows from the restriction on literals, and it means that no thread can
+  cancel or join itself and that `main` is never canceled.
+- The runtime instruction `Instr.relock mutex` replaces the `lock` of a
+  literal that `wait(cv, m)` used to leave behind.
+- `evalExpr_mutex_origin` and `evalExpr_thread_origin` (`Properties.lean`,
+  proved) state the rule: a mutex handle that an expression evaluates to is
+  static or already in a local variable, and a thread handle is already in a
+  local variable.
 
-`Examples/ForgedMutexHandle.lean` has the program and checks both runs in the
-kernel:
-
-```text
-locker():  lock(<forged handle of the mutex main creates>); emit(1)
-main(x):   t := fork locker(); sleep(0); m := newMutex(); x := recv(9)
-```
-
-| Fact | Lean |
-| --- | --- |
-| The L run in which the locker blocks first has trace `[begin(0)]`. | `l_trace` |
-| At its end the mutex is unlocked and the locker is still blocked on it. | `l_lockerIsStuck` |
-| The translated Flow has trace `[begin(0), out(1)]`. | `dex_trace` |
-| The lockstep run reports a mismatch. | `lockstep_findsMismatch` |
-
-Consequences:
-
-- The program is well formed, so `liveness_of_isWellFormed` is false for it
-  as the model stands. For the word `[start 0]`, L has the fair maximal trace
-  `[begin(0)]` with marker `δ`. Every fair run of the Flow emits `out(1)`:
-  the locker's wait is satisfied either when it registers or when the token
-  is published. This last claim is argued, not proved in Lean.
-- `safety_of_isWellFormed` may still hold for this program, because L can
-  reach `[begin(0), out(1)]` by letting the locker register after the
-  creation. But the step simulations (items 7 and 8) are false for it: the
-  two sides cannot stay in step. So the safety proof cannot be completed
-  until the point is decided.
-- The same holds for no other handle. A forged thread handle is harmless: a
-  `join` or `cancel` of a thread that does not exist yet behaves the same on
-  both sides. A statically known mutex beyond `staticMutexCount` is never
-  created on either side.
-
-Options:
-
-| Option | Change | Cost |
-| --- | --- | --- |
-| (a) Handles cannot be forged. Recommended. | L syntax: literals are null, Booleans, integers, and strings; a statically known mutex gets its own expression. Spec §8.1 says so. | Small. A handle then exists only after its `newMutex`, `fork`, or `cvOf`. The example programs that use `.lit (.mutex (.static 0))` and `.lit (.thread [])` change to the new expression, or drop the self-cancel. |
-| (b) `newMutex` serves blocked lockers. | L semantics: creating a mutex grants it to the first thread already blocked on its identity. | Small in Lean, but L gets a rule that only forged handles can trigger. |
-| (c) Well-formedness excludes it. | `Program.IsWellFormed` also requires that no thread locks a mutex that does not exist. | Small, but it also excludes `lock` of a statically known mutex beyond `staticMutexCount`, which is harmless. |
+`Examples/ForgedMutexHandle.lean`, which checked the counterexample in the
+kernel, is deleted: the program can no longer be written, because no
+expression denotes the handle of a mutex that `newMutex` has not created. The
+two lemmas above are the check that replaces it.
 
 ## Stage 2a progress
 
@@ -562,7 +535,7 @@ Proof lines added in Stage 2a so far: about 2,800, in `Dex/RunLemmas.lean`,
 `FiniteTraces.lean`.
 
 What remains for safety is items 7 and 8. Three strengthenings of `Related`
-are already known to be needed, apart from the open issue above:
+are already known to be needed:
 
 - While `main` boots, the relation must fix the whole thread state (thread
   ID, counter, stack, code, no timer), not only the locals.

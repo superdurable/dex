@@ -21,7 +21,7 @@ open DexExpressiveness DexExpressiveness.L DexExpressiveness.Translation
 open DexExpressiveness.Examples
 
 /-- The statically known mutex `m0`. -/
-def m0 : Expr := .lit (.mutex (.static 0))
+def m0 : Expr := .staticMutex 0
 
 /-- `lock(m0); emit(2); unlock(m0)`. -/
 def workerBody : Stmt :=

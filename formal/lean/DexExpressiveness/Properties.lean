@@ -158,6 +158,10 @@ theorem requiredMutex_eq_of_intent (program : Program) (core : ThreadCore) (code
       simp only [completeStatement] at isResult
       subst isResult
       simp [requiredMutex, cvOperand]
+    | relock mutex =>
+      simp only [completeStatement] at isResult
+      subst isResult
+      simp [requiredMutex, cvOperand]
     | source statement =>
       cases statement <;> simp only [completeStatement, returnValue] at isResult <;>
         (repeat' split at isResult) <;>
@@ -165,6 +169,58 @@ theorem requiredMutex_eq_of_intent (program : Program) (core : ThreadCore) (code
          first
            | (simp [requiredMutex, cvOperand]; done)
            | (simp only [requiredMutex, cvOperand]; (repeat' split) <;> simp_all))
+
+/-! ## Handles are unforgeable (spec §8.1, "Handles and literals") -/
+
+/-- A mutex handle that an expression evaluates to is the handle of a
+statically known mutex, or it is already in a local variable. So a thread
+holds the handle of a created mutex only after `newMutex` put it into a local
+variable of some thread. -/
+theorem evalExpr_mutex_origin (locals : Env) (expression : Expr) (mutex : MutexId)
+    (isMutex : evalExpr locals expression = some (.mutex mutex)) :
+    (∃ index, mutex = .static index) ∨ ∃ name, locals.get? name = some (.mutex mutex) := by
+  cases expression with
+  | lit value => cases value <;> simp [evalExpr, Literal.toVal] at isMutex
+  | staticMutex index =>
+    left
+    simp only [evalExpr, Option.some.injEq, Val.mutex.injEq] at isMutex
+    exact ⟨index, isMutex.symm⟩
+  | var name =>
+    right
+    refine ⟨name, ?_⟩
+    simp only [evalExpr, Option.some.injEq] at isMutex
+    cases bound : locals.get? name with
+    | none => simp [bound] at isMutex
+    | some value =>
+      simp only [bound, Option.getD_some] at isMutex
+      rw [isMutex]
+  | add left right => simp only [evalExpr] at isMutex; split at isMutex <;> simp at isMutex
+  | eq left right => simp only [evalExpr] at isMutex; split at isMutex <;> simp at isMutex
+  | lt left right => simp only [evalExpr] at isMutex; split at isMutex <;> simp at isMutex
+  | not operand => simp only [evalExpr] at isMutex; split at isMutex <;> simp at isMutex
+  | cvOf mutexExpr index => simp only [evalExpr] at isMutex; split at isMutex <;> simp at isMutex
+
+/-- A thread handle that an expression evaluates to is already in a local
+variable: thread handles come only from `fork`. -/
+theorem evalExpr_thread_origin (locals : Env) (expression : Expr) (thread : Tid)
+    (isThread : evalExpr locals expression = some (.thread thread)) :
+    ∃ name, locals.get? name = some (.thread thread) := by
+  cases expression with
+  | lit value => cases value <;> simp [evalExpr, Literal.toVal] at isThread
+  | staticMutex index => simp [evalExpr] at isThread
+  | var name =>
+    refine ⟨name, ?_⟩
+    simp only [evalExpr, Option.some.injEq] at isThread
+    cases bound : locals.get? name with
+    | none => simp [bound] at isThread
+    | some value =>
+      simp only [bound, Option.getD_some] at isThread
+      rw [isThread]
+  | add left right => simp only [evalExpr] at isThread; split at isThread <;> simp at isThread
+  | eq left right => simp only [evalExpr] at isThread; split at isThread <;> simp at isThread
+  | lt left right => simp only [evalExpr] at isThread; split at isThread <;> simp at isThread
+  | not operand => simp only [evalExpr] at isThread; split at isThread <;> simp at isThread
+  | cvOf mutexExpr index => simp only [evalExpr] at isThread; split at isThread <;> simp at isThread
 
 /-! ## Determinism (spec §4.1) -/
 

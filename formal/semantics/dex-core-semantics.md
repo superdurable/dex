@@ -1,8 +1,9 @@
 # Dex Core Semantics (Step 0 of the expressiveness proof)
 
-Status: revision 5 (after three adversarial reviews, and the owner decisions
-of 2026-11-09 on the review of the Lean statements; see
-[Review log](#10-review-log)). The Lean development is in `formal/lean/`.
+Status: revision 6 (after three adversarial reviews, the owner decisions of
+2026-11-09 on the review of the Lean statements, and the owner decision of
+2026-11-10 on unforgeable handles; see [Review log](#10-review-log)). The
+Lean development is in `formal/lean/`.
 
 Base commit: `9b37482ed` on `main`. Every `path:line` below is relative to the
 repository root at that commit.
@@ -1640,6 +1641,20 @@ does; they are L design decisions for the owner.
 - **`select`.** [owner, 2026-11-09, kept as taken] `select` has exactly one
   `recv` branch and one `after` branch. A `select` without `after` is not a
   separate construct: it is `recv(c)` followed by the branch (Section 8.3).
+- **Handles and literals.** [owner, 2026-11-10] L literals are only null,
+  Boolean, integer, and string. Handles cannot be forged:
+  - A mutex handle comes from only two places: `newMutex`, and the
+    static-mutex expression, which names one of the program's statically
+    known mutexes by its index.
+  - A thread handle comes only from `fork`. So no thread holds its own
+    handle, and no thread holds the handle of `main`: a thread cannot cancel
+    or join itself, and `main` is never canceled.
+  - A condition variable handle is formed from a mutex handle and an index.
+
+  So a thread can name a created mutex only after `newMutex` created it. A
+  static-mutex expression whose index is beyond the program's statically
+  known mutexes names a mutex that never exists; `lock` on it blocks forever,
+  in L and in Dex.
 - **Halting.** [owner, 2026-11-09] L has no static types. A statement whose
   operand has the wrong type halts its thread: a non-Boolean condition, a
   `lock` of a value that is not a mutex, a call of an unknown procedure or
@@ -1862,6 +1877,13 @@ objecting, 2026-11-09**, and is now written into the spec.
 The numbers K3 to K15 are the point numbers of "Points for the owner" in
 `formal/lean/README.md`.
 
+Revision 6 records one owner decision of 2026-11-10. The proof of the safety
+theorem found the point (Lean commit `56057f7a7`).
+
+| # | Point | Decision or resolution |
+| --- | --- | --- |
+| L5 | Forged mutex handles. A literal could be any value, so a program could write the handle of a mutex before `newMutex` created it. A thread that locked it blocked forever in L, because creating a mutex does not serve blocked lockers; in Dex the first token that `newMutex` publishes wakes the waiting Step. For `locker(): lock(<forged handle>); emit(1)` and `main: fork locker(); sleep(0); newMutex(); recv(9)`, L had the fair maximal trace `[begin(0)]` with `δ`, and every fair run of the Flow emits `out(1)`. | **Owner decision, 2026-11-10.** Mutex handles are unforgeable: L literals are only null, Boolean, integer, and string, and a mutex handle comes only from `newMutex` or the static-mutex expression. The same rule is applied to thread handles, which come only from `fork`: it follows from the restriction on literals at no cost, and it rules out handles of threads that do not exist. Section 8.1, Handles and literals; Appendix A, item 40. |
+
 ## Appendix A. Assumptions and decisions in one list
 
 1. User code is a total function with output-only external effects (2.2).
@@ -1941,3 +1963,6 @@ The numbers K3 to K15 are the point numbers of "Points for the owner" in
     (5.5).
 39. `select` has one `recv` branch and one `after` branch; without `after`
     it is `recv(c)` followed by the branch [owner, kept as taken] (8.1).
+40. L literals are only null, Boolean, integer, and string. Mutex handles
+    come only from `newMutex` and the static-mutex expression; thread handles
+    come only from `fork` [owner, 2026-11-10] (8.1).

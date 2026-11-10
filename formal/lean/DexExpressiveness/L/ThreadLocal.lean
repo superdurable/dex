@@ -19,16 +19,19 @@ namespace DexExpressiveness.L
 abbrev Env := AssocList Var Val
 
 /-- One instruction of the code a thread has left to run: a source statement,
-or the runtime instruction `park`. `park` is not source syntax (`Stmt` has no
-such constructor), so no program can contain it; only `wait(cv, m)` produces
-it, when it rewrites itself to `park cv; lock(m)`. -/
+or one of the runtime instructions `park` and `relock`. They are not source
+syntax (`Stmt` has no such constructor), so no program can contain them; only
+`wait(cv, m)` produces them, when it rewrites itself to `park cv; relock m`. -/
 inductive Instr
   /-- A source statement. -/
   | source (statement : Stmt)
-  /-- The second half of `wait(cv, m)`: the thread stays in `cv`'s queue
+  /-- The second part of `wait(cv, m)`: the thread stays in `cv`'s queue
   until a signal dequeues it (spec §8.3 `wait`: "Then a Step that waits
   `Until(cv/w.ForOne())`"). -/
   | park (cv : CvId)
+  /-- The third part of `wait(cv, m)`: "then `lock(m)` again" (spec §8.3). It
+  names the mutex directly, because a mutex handle is not a literal. -/
+  | relock (mutex : MutexId)
   deriving DecidableEq, Repr
 
 /-- The code left in the current procedure body, as an instruction list. Its
@@ -46,7 +49,8 @@ def pushCode : Stmt → Code → Code
 /-- Evaluate an expression. `none` is a dynamic type error, which halts the
 thread (spec §8.1, "Halting"). -/
 def evalExpr (locals : Env) : Expr → Option Val
-  | .lit value => some value
+  | .lit value => some value.toVal
+  | .staticMutex index => some (.mutex (.static index))
   | .var name => some ((locals.get? name).getD .null)
   | .add left right =>
     match evalExpr locals left, evalExpr locals right with
@@ -205,6 +209,7 @@ def completeStatement (program : Program) (core : ThreadCore) (code : Code) (loa
     | _ => returnValue core .null
   -- Blocking instructions complete through `resumeBlocked`, never through here.
   | .park _ :: _ => halted
+  | .relock _ :: _ => halted
   | .source statement :: rest =>
     match statement with
     | .skip => { intent := .silent, core := core, code := rest }
@@ -275,7 +280,7 @@ def completeStatement (program : Program) (core : ThreadCore) (code : Code) (loa
         if cvId.mutex = mutexId then
           { intent := .cvWait cvId
             core := core
-            code := .park cvId :: .source (.lock (.lit (.mutex mutexId))) :: rest }
+            code := .park cvId :: .relock mutexId :: rest }
         else halted
       | _, _ => halted
     | .signal cv =>
@@ -355,13 +360,14 @@ def beginKind (core : ThreadCore) : Code → BeginKind
   | _ => .plain
 
 /-- Whether the head instruction blocks: `lock`, `recv`, `join`, or the
-runtime `park`. Timed operations block too, but only after their Enter;
-`Thread.timer` tracks that. -/
+runtime `park` and `relock`. Timed operations block too, but only after their
+Enter; `Thread.timer` tracks that. -/
 def isBlockingHead : Code → Bool
   | .source (.lock _) :: _ => true
   | .source (.recv _ _) :: _ => true
   | .source (.join _) :: _ => true
   | .park _ :: _ => true
+  | .relock _ :: _ => true
   | _ => false
 
 /-- What a blocking statement waits for. -/
@@ -388,6 +394,7 @@ def waitRequest (core : ThreadCore) : Code → Option WaitRequest
     | some (.thread target) => some (.join target)
     | _ => none
   | .park cv :: _ => some (.park cv)
+  | .relock mutex :: _ => some (.lock mutex)
   | _ => none
 
 /-- How a blocking or timed operation was decided (spec §8.1: "A blocked timed
@@ -414,6 +421,7 @@ def resumeBlocked (core : ThreadCore) (code : Code) (outcome : WakeOutcome) : St
   match code, outcome with
   | .source (.lock _) :: rest, .granted => { intent := .silent, core := core, code := rest }
   | .park _ :: rest, .granted => { intent := .silent, core := core, code := rest }
+  | .relock _ :: rest, .granted => { intent := .silent, core := core, code := rest }
   | .source (.join _) :: rest, .granted => { intent := .silent, core := core, code := rest }
   | .source (.join _) :: _, .canceled => ended
   | .source (.recv target _) :: rest, .received message =>

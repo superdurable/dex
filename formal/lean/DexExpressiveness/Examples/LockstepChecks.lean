@@ -34,7 +34,7 @@ def requests : List L.Request :=
   [.start (.int 3), .input 7 (.int 50), .input 7 (.int 51), .input 3 (.int 9)]
 
 /-- The statically known mutex `m0`. -/
-def m0 : Expr := .lit (.mutex (.static 0))
+def m0 : Expr := .staticMutex 0
 
 /-- The condition variable 0 of `m0`. -/
 def cv0 : Expr := .cvOf m0 0
@@ -142,12 +142,13 @@ def newMutexProgram : Program :=
       [.newMutex 1, .lock (.var 1), .unlock (.var 1), .lock (.var 1), .fail (.lit (.str "bad"))]
     staticMutexCount := 0 }
 
-/-- `main` cancels itself and ends at `recv` without an exit: the program is
-stuck forever, the `δ` outcome. -/
-def selfCancelProgram : Program :=
-  { procs := []
+/-- A thread is canceled before or after it blocks in `recv` and ends
+without its second emit; `main` joins it and then blocks forever: the program
+is stuck, the `δ` outcome. -/
+def cancelProgram : Program :=
+  { procs := [(0, { params := [], body := block [.emit (int 1), .recv 1 4, .emit (int 2)] })]
     mainParam := 0
-    mainBody := block [.cancel (.lit (.thread [])), .emit (int 1), .recv 1 4, .emit (int 2)]
+    mainBody := block [.fork 1 0 [], .cancel (.var 1), .join (.var 1), .emit (int 3), .recv 2 5]
     staticMutexCount := 0 }
 
 /-- A dynamic type error in a blocking statement: the thread halts. -/
@@ -167,7 +168,7 @@ def typeErrorProgram : Program :=
 #guard lockstepMismatches selectRaceProgram requests 800 24 == []
 #guard lockstepMismatches lateEmitProgram requests 200 16 == []
 #guard lockstepMismatches newMutexProgram requests 200 4 == []
-#guard lockstepMismatches selfCancelProgram requests 200 6 == []
+#guard lockstepMismatches cancelProgram requests 300 8 == []
 #guard lockstepMismatches typeErrorProgram requests 200 4 == []
 
 end DexExpressiveness.Examples.LockstepChecks
