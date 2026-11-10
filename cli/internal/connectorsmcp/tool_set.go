@@ -269,8 +269,7 @@ func newToolBinding(
 	}, nil
 }
 
-// checkManifestMatchesOperation reports a manifest entry whose kind or agent.branches differ from the compiled
-// operation, so stale agent metadata never classifies a branch it does not describe.
+// checkManifestMatchesOperation returns an error when the manifest's kind or agent.branches differ from the operation.
 func checkManifestMatchesOperation(operation agentOperation, runner operationRunner) error {
 	if operation.manifest.Kind != runner.kind() {
 		return fmt.Errorf("the manifest says %s, the compiled operation is a %s", operation.manifest.Kind, runner.kind())

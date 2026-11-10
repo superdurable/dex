@@ -21,8 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCompiledConnectorsMatchAgentManifests guards a connector module bump: every compiled connection opens through
-// the bridge, and every agent manifest entry matches the compiled operation's kind, branches, and input type.
+// TestCompiledConnectorsMatchAgentManifests guards module bumps: manifests must match compiled operations.
 func TestCompiledConnectorsMatchAgentManifests(t *testing.T) {
 	directory := t.TempDir()
 	fixtures := allConnectorFixtures("")

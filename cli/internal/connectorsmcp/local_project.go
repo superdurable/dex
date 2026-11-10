@@ -24,10 +24,10 @@ var hostedProjectEnvironment = []string{"DEX_PROJECT_ID", "DEX_PROJECT_SCOPE", "
 // localProjectEnvironmentMu serializes the process-wide variable that selects the local connections file.
 var localProjectEnvironmentMu sync.Mutex
 
-// loadLocalProject loads the connections file Dex Web writes, the way a Dex application does under dexcli dev.
-// The SDK then resolves, refreshes, and writes back credentials, so dexcli never decodes them itself.
-// A missing file returns an error that matches os.ErrNotExist.
+// loadLocalProject returns the project of the connections file Dex Web writes, or an error matching
+// os.ErrNotExist when the file is missing.
 func loadLocalProject(ctx context.Context, connectionsPath string) (*projectconfig.LoadedProject, error) {
+	// The SDK then resolves, refreshes, and writes back credentials, as for a Dex application.
 	for _, name := range hostedProjectEnvironment {
 		if os.Getenv(name) != "" {
 			return nil, fmt.Errorf("unset %s: it selects a hosted project instead of the local connections file", name)

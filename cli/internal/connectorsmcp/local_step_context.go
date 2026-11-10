@@ -19,8 +19,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-// localStepContext is the dex.Context one MCP tool call runs a connector operation with.
-// Its Step execution ID is the call's idempotency key, so the connector Call ID is stable per key.
+// localStepContext is one tool call's dex.Context; its Step execution ID is the idempotency key.
 type localStepContext struct {
 	context.Context
 	flowID          string

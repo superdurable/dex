@@ -21,8 +21,7 @@ import (
 	dexweb "github.com/superdurable/dex/web"
 )
 
-// webListenerServer serves Dex Web with the Connectors MCP endpoint mounted beside it on one listener.
-// It copies Dex Web's HTTP timeouts and cancels in-flight requests, such as long polls, on Shutdown.
+// webListenerServer serves Dex Web and /mcp on one listener, with Dex Web's timeouts.
 type webListenerServer struct {
 	httpServer            *http.Server
 	cancelRequestContexts context.CancelFunc
@@ -58,12 +57,12 @@ func (server *webListenerServer) Shutdown(ctx context.Context) error {
 
 // newConnectorsMCPServer returns the Connectors MCP server that dexcli dev mounts for cfg.
 func newConnectorsMCPServer(cfg *Config, logs io.Writer) (*connectorsmcp.Server, error) {
+	// No --allowed-hosts: a tunnel name for Dex Web must not expose unauthenticated writes.
 	return connectorsmcp.NewServer(
 		&connectorsmcp.Config{
 			ConnectorConfigDirectory: cfg.ConnectorConfigDirectory,
 			StateDirectory:           filepath.Join(cfg.StateDirectory, connectorsmcp.StateDirectoryName),
 			Connections:              cfg.MCPConnections,
-			AllowedHosts:             dexweb.SplitAllowedHosts(cfg.AllowedHosts),
 			Version:                  cfg.version,
 		},
 		slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo})),

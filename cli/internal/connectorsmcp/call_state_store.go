@@ -43,8 +43,7 @@ type callStateRecord struct {
 	UpdatedAt time.Time       `json:"updatedAt"`
 }
 
-// callStateStore keeps one owner-only file per keyed call under <state directory>/calls.
-// A per-key lock, in this process and through a lock file across processes, serializes calls with one key.
+// callStateStore keeps one owner-only state file per keyed call, locked per key across processes.
 type callStateStore struct {
 	directory string
 

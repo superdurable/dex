@@ -168,16 +168,13 @@ func (executor *toolCallExecutor) callKeyedMutation(
 	record.ConnectionName = binding.connectionName
 	record.RequestDigest = digest
 	record.Attempt++
-	if err := executor.store.write(stateKey, record); err != nil {
+	state := &keyedCallState{store: executor.store, stateKey: stateKey, record: record}
+	if err := state.write(); err != nil {
 		executor.logger.Error("connector call state cannot be written", "tool", binding.name, "error", err)
 		return nil, retryableError(binding, "call state is unwritable; nothing was sent", false, 0)
 	}
-	persistHeartbeat := func(heartbeat json.RawMessage) error {
-		record.Heartbeat = heartbeat
-		return executor.store.write(stateKey, record)
-	}
 	// A client timeout or disconnect must not cancel a send in flight.
-	stepContext, cancel := newOperationContext(context.WithoutCancel(ctx), binding, idempotencyKey, record.Attempt, record.Heartbeat, persistHeartbeat)
+	stepContext, cancel := newOperationContext(context.WithoutCancel(ctx), binding, idempotencyKey, record.Attempt, record.Heartbeat, state.persistHeartbeat)
 	defer cancel()
 	result, runErr := binding.runner.run(stepContext, binding.reference, arguments)
 	if runErr != nil && (isConnectorRetry(runErr) || errors.Is(runErr, errArgumentsDoNotDecode)) {
@@ -194,12 +191,33 @@ func (executor *toolCallExecutor) callKeyedMutation(
 	if err != nil {
 		return nil, fmt.Errorf("encode tool result: %w", err)
 	}
-	record.Result = encoded
-	if err := executor.store.write(stateKey, record); err != nil {
+	if err := state.storeResult(encoded); err != nil {
 		// A retry then reads the claimed checkpoint and never sends again.
 		executor.logger.Warn("connector call result was not stored", "tool", binding.name, "error", err)
 	}
 	return newToolResult(stored, false), nil
+}
+
+// keyedCallState is the state record of one keyed call while the call holds its key's lock.
+type keyedCallState struct {
+	store    *callStateStore
+	stateKey string
+	record   callStateRecord
+}
+
+func (state *keyedCallState) write() error {
+	return state.store.write(state.stateKey, state.record)
+}
+
+// persistHeartbeat stores the Connector's single-dispatch checkpoint before the Connector proceeds.
+func (state *keyedCallState) persistHeartbeat(heartbeat json.RawMessage) error {
+	state.record.Heartbeat = heartbeat
+	return state.write()
+}
+
+func (state *keyedCallState) storeResult(result json.RawMessage) error {
+	state.record.Result = result
+	return state.write()
 }
 
 func newOperationContext(
@@ -218,7 +236,7 @@ func newOperationContext(
 	return newLocalStepContext(attemptContext, localFlowID, stepExecutionID, attempt, previousHeartbeat, persistHeartbeat), cancel
 }
 
-// mapRunError maps an error without a branch. A connector Retry becomes an error the client may repeat with the key.
+// mapRunError maps an error without a branch; a connector Retry becomes a retryable JSON-RPC error.
 func (executor *toolCallExecutor) mapRunError(binding *toolBinding, stepContext *localStepContext, err error, isRetryable bool) (*mcp.CallToolResult, error) {
 	if errors.Is(err, errArgumentsDoNotDecode) {
 		return newToolResult(rejectedResult(fmt.Sprintf("invalid arguments for %s: %v", binding.name, err)), false), nil

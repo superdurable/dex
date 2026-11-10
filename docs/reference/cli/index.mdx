@@ -144,8 +144,10 @@ returned to a retry carries **io.superdurable.dex/replayed** true.
 Tool calls carry no credentials, so the server listens only on loopback.
 **dexcli dev** serves **/mcp** only when **--bind-address** is a loopback
 address. A request whose **Host** is a DNS name other than a loopback name or an
-**--allowed-hosts** entry gets HTTP 403, which stops DNS rebinding. Cross-origin
-browser requests are refused.
+**--allowed-hosts** entry gets HTTP 403, which stops DNS rebinding. The
+**/mcp** of **dexcli dev** ignores its **--allowed-hosts**, so a tunnel name
+added for Dex Web does not expose tool calls. Cross-origin browser requests are
+refused.
 
 ## Connect to Dex
 

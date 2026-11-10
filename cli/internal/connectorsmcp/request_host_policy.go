@@ -14,8 +14,7 @@ import (
 	"strings"
 )
 
-// requestHostPolicy refuses a request whose Host header names another site, so DNS rebinding cannot call tools.
-// It accepts the same names as Dex Web's /api: loopback names, IP addresses, and the allowed hosts.
+// requestHostPolicy accepts Dex Web's /api Host names: loopback names, IP addresses, and allowed hosts.
 type requestHostPolicy struct {
 	allowedHosts map[string]bool
 }
@@ -38,7 +37,7 @@ func (policy requestHostPolicy) allows(hostHeader string) bool {
 	return isLoopbackHostName(host) || net.ParseIP(host) != nil || policy.allowedHosts[host]
 }
 
-// protect wraps next with the Host check and cross-origin protection against browser pages.
+// protect wraps next with the Host check, which stops DNS rebinding, and cross-origin protection.
 func (policy requestHostPolicy) protect(next http.Handler) http.Handler {
 	crossOriginProtection := http.NewCrossOriginProtection()
 	protected := crossOriginProtection.Handler(next)

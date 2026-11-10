@@ -18,8 +18,8 @@ import (
 
 // readGeneratedConnection returns the operations and reference of a generated connector Connection, or an error
 // when its fields differ from what the connector generator emits.
-// Bridge until generated Connections export Operations and Reference; keeps credentials inside SDK code.
 func readGeneratedConnection[OPERATIONS any](connection any, connectionName string) (OPERATIONS, sdkgo.ConnectionRef, error) {
+	// Bridge until generated Connections export Operations and Reference.
 	var operations OPERATIONS
 	value := reflect.New(reflect.TypeOf(connection)).Elem()
 	value.Set(reflect.ValueOf(connection))
