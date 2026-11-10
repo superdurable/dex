@@ -7,11 +7,14 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { ToolsInput } from "@mastra/core/agent";
-import { isProviderDefinedTool } from "@mastra/core/tools";
+import type { PublicSchema } from "@mastra/core/schema";
+import { createTool, isProviderDefinedTool } from "@mastra/core/tools";
 import {
   toolEffectFromMcpToolAnnotations,
+  type ListedSourceTool,
   type McpToolAnnotations,
   type ResolvedToolPolicy,
+  type SourceToolDefinition,
   type ToolEffect,
   type ToolPolicy,
 } from "@superdurable/dex-agents";
@@ -29,12 +32,29 @@ export interface MastraModelStepToolPlan {
   readonly mastraRunToolNames: ReadonlySet<string>;
 }
 
-/** Every agent tool runs in a session Step; tools Mastra runs itself need an explicit inline `read` policy. */
+/**
+ * Refuses a tool name that Mastra would rename for the model, which would break lookups by name.
+ * @param toolName - The tool name.
+ * @param origin - Where the name comes from, for the error.
+ * @throws {TypeError} When the name does not match the pattern.
+ */
+export function requireMastraToolName(toolName: string, origin: string): void {
+  if (!mastraToolNamePattern.test(toolName)) {
+    throw new TypeError(`Mastra tool name "${toolName}" must match ${mastraToolNamePattern.source}; ${origin}`);
+  }
+}
+
+/**
+ * Every agent tool and tool source tool runs in a session Step; tools Mastra runs itself need an explicit inline
+ * `read` policy. A policy that names a tool source tool never makes it a tool Mastra runs.
+ */
 export function planMastraModelStepTools(
   agentTools: ToolsInput,
   toolPolicies: Readonly<Record<string, ToolPolicy>>,
   resolveToolPolicy: ResolveToolPolicy,
   shouldTrustMcpServerToolAnnotations: boolean,
+  sourceTools: ReadonlyMap<string, ListedSourceTool> = new Map(),
+  sourceToolNames: ReadonlySet<string> = new Set(),
 ): MastraModelStepToolPlan {
   const clientTools: ToolsInput = {};
   const activeToolNames: string[] = [];
@@ -45,12 +65,7 @@ export function planMastraModelStepTools(
     return Object.hasOwn(toolPolicies, toolName) && policy.effect === "read" && !policy.requiresApproval;
   };
   for (const [toolName, tool] of Object.entries(agentTools)) {
-    if (!mastraToolNamePattern.test(toolName)) {
-      throw new TypeError(
-        `Mastra tool name "${toolName}" must match ${mastraToolNamePattern.source}; ` +
-          "rename its key in the agent's tools",
-      );
-    }
+    requireMastraToolName(toolName, "rename its key in the agent's tools");
     // A provider runs these itself, so the session cannot run them in a Step.
     if (isProviderDefinedTool(tool)) {
       if (isAllowedToRunInsideModelStep(toolName)) {
@@ -66,13 +81,31 @@ export function planMastraModelStepTools(
       resolveMastraToolPolicy(toolName, tool, resolveToolPolicy, shouldTrustMcpServerToolAnnotations),
     );
   }
+  for (const [toolName, listed] of sourceTools) {
+    if (Object.hasOwn(agentTools, toolName)) {
+      throw new TypeError(`tool ${toolName} of a tool source uses the name of a Mastra agent tool`);
+    }
+    requireMastraToolName(toolName, "a tool source listed it");
+    clientTools[toolName] = createSourceTool(listed.tool);
+    activeToolNames.push(toolName);
+  }
   for (const toolName of Object.keys(toolPolicies)) {
-    if (!Object.hasOwn(agentTools, toolName) && isAllowedToRunInsideModelStep(toolName)) {
+    const isSourceTool = sourceTools.has(toolName) || sourceToolNames.has(toolName);
+    if (!Object.hasOwn(agentTools, toolName) && !isSourceTool && isAllowedToRunInsideModelStep(toolName)) {
       activeToolNames.push(toolName);
       mastraRunToolNames.add(toolName);
     }
   }
   return { clientTools, activeToolNames, clientToolPolicies, mastraRunToolNames };
+}
+
+/** A tool source's tool as the model sees it. It has no `execute`, so Mastra returns its calls to the runner. */
+function createSourceTool(definition: SourceToolDefinition): ToolsInput[string] {
+  return createTool({
+    id: definition.name,
+    description: definition.description,
+    inputSchema: definition.inputSchema as PublicSchema,
+  }) as ToolsInput[string];
 }
 
 function resolveMastraToolPolicy(

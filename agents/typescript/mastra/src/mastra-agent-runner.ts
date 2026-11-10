@@ -12,6 +12,7 @@ import { standardSchemaToJSONSchema, toStandardSchema } from "@mastra/core/schem
 import { MASTRA_RESOURCE_ID_KEY, MASTRA_THREAD_ID_KEY, RequestContext } from "@mastra/core/request-context";
 import type { LLMStepResult, MastraModelOutput, StepStartPayload } from "@mastra/core/stream";
 import {
+  ToolSourceRouter,
   addAgentUsage,
   buildContextSummaryNote,
   buildContextSummaryPrompt,
@@ -24,6 +25,7 @@ import {
   selectTurnBoundaryCutoff,
   type AgentEventWriter,
   type AgentFrameworkRunner,
+  type AgentToolCall,
   type AgentTurnContext,
   type AgentTurnOutcome,
   type AgentUsage,
@@ -32,9 +34,12 @@ import {
   type DeferredToolCall,
   type DeferredToolExecution,
   type FrameworkMessage,
+  type ListedSourceTool,
   type ModelCallMetadata,
+  type ToolCallStepOptions,
   type ToolExecutionResult,
   type ToolPolicy,
+  type ToolSource,
 } from "@superdurable/dex-agents";
 
 import { toGenAIProviderName } from "./gen-ai-provider-names.js";
@@ -50,7 +55,14 @@ import {
   projectMastraMessage,
   type MastraTurnRunState,
 } from "./mastra-message-codec.js";
-import { planMastraModelStepTools, type MastraModelStepToolPlan } from "./mastra-tool-plan.js";
+import {
+  planMastraModelStepTools,
+  requireMastraToolName,
+  type MastraModelStepToolPlan,
+} from "./mastra-tool-plan.js";
+
+// The runner's envelope around a source's toolSourceReference: the building source's name.
+const mastraToolSourceNameKey = "mastra_tool_source";
 
 /**
  * The session and turn for which the runner asks the application for a Mastra `RequestContext`.
@@ -106,6 +118,53 @@ export interface MastraAgentRunnerOptions {
    * @since 0.3.0
    */
   readonly summaryModel?: ConstructorParameters<typeof Agent>[0]["model"];
+  /**
+   * Tool sources whose tools the agent offers next to its own tools, such as `ConnectorToolSource` from
+   * `@superdurable/dex-agents/connectors`. Defaults to none.
+   *
+   * Every `RunModel` lists each source and passes its tools to Mastra as client tools with the source's
+   * description and JSON Schema and without `execute`, so a call of one never runs inside the model call. A
+   * source whose listing throws or takes longer than {@link toolSourceListingTimeoutMs} offers no tools in that
+   * model call. The source builds each call, so the source alone decides its effect, its approval, and whether it
+   * is a write that runs in the model's order after the response's earlier writes; Mastra approval settings and
+   * MCP annotations do not apply, and a {@link toolPolicies} entry for a `ConnectorToolSource` tool changes only
+   * its approval. The call then runs once in its own tool Step through the source, with the Step options the
+   * source gives it, such as a connector operation's timeout and retry policy. `createRequestContext` does not
+   * apply to it.
+   *
+   * The runner polls no tool tasks and asks no tool questions: a source call that asks a question records
+   * `failed`, and one that starts a task records `failed` for a `read` call and `outcome_unknown` otherwise.
+   * Each source needs a unique `sourceName`, stored with every call it builds, so keep it stable across deploys.
+   * Construction fails when two sources declare one tool name or a declared name does not match Mastra's tool name
+   * pattern. The agent's tools resolve per `RequestContext`, so a source tool that repeats an agent tool fails its
+   * `RunModel` attempt instead, as does a listing that repeats another source's tool.
+   *
+   * @example
+   * ```ts
+   * import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };
+   * import { CreateRefundInputSchema, newProjectConnection } from "@superdurable/connector-stripe";
+   * import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
+   *
+   * const stripe = newProjectConnection(project, "billing-stripe");
+   * const runner = new MastraAgentRunner(supportAgent, {
+   *   toolSources: [
+   *     new ConnectorToolSource([
+   *       connectorTool(stripe.operations.createRefund(), stripe.reference, {
+   *         manifest,
+   *         inputValidator: CreateRefundInputSchema,
+   *       }),
+   *     ]),
+   *   ],
+   * });
+   * ```
+   * @since 0.4.0
+   */
+  readonly toolSources?: readonly ToolSource[];
+  /**
+   * How long one `RunModel` waits for each tool source's listing, in milliseconds. Defaults to 10 seconds.
+   * @since 0.4.0
+   */
+  readonly toolSourceListingTimeoutMs?: number;
 }
 
 /**
@@ -141,14 +200,18 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
   private readonly shouldTrustMcpServerToolAnnotations: boolean;
   private readonly createRequestContext: (turn: MastraTurnIdentity) => RequestContext;
   private readonly summaryModel: MastraAgentRunnerOptions["summaryModel"];
+  private readonly toolSources: ToolSourceRouter;
 
   /**
    * Creates a runner for one Mastra agent.
    *
    * @param agent - The Mastra agent. Its tools, instructions, model, and processors are read in every
    * Step, so changes to a dynamic configuration apply from the next Step.
-   * @param options - Tool policy names, step limit, MCP annotation trust, and request context factory.
-   * @throws {RangeError} When `maxSteps` is not a positive integer.
+   * @param options - Tool policy names, step limit, MCP annotation trust, request context factory, and tool
+   * sources.
+   * @throws {RangeError} When `maxSteps` or `toolSourceListingTimeoutMs` is not positive.
+   * @throws {TypeError} When a tool source is invalid, two sources declare one tool name, or a declared name does
+   * not match Mastra's tool name pattern.
    */
   public constructor(
     private readonly agent: Agent,
@@ -162,6 +225,15 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
     this.shouldTrustMcpServerToolAnnotations = options.shouldTrustMcpServerToolAnnotations ?? false;
     this.createRequestContext = options.createRequestContext ?? (() => new RequestContext());
     this.summaryModel = options.summaryModel;
+    this.toolSources = new ToolSourceRouter(options.toolSources ?? [], {
+      sourceNameKey: mastraToolSourceNameKey,
+      ...(options.toolSourceListingTimeoutMs === undefined
+        ? {}
+        : { listingTimeoutMs: options.toolSourceListingTimeoutMs }),
+    });
+    for (const toolName of this.toolSources.declaredToolNames()) {
+      requireMastraToolName(toolName, "a tool source declares it");
+    }
   }
 
   /**
@@ -208,11 +280,14 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       });
     }
     const runState = turn.frameworkRunState === null ? null : decodeMastraTurnRunState(turn.frameworkRunState);
+    const sourceTools = await this.toolSources.listSourceTools();
     const toolPlan = planMastraModelStepTools(
       await this.agent.listTools({ requestContext }),
       this.toolPolicies,
       (toolName, frameworkEffect) => turn.resolveToolPolicy(toolName, frameworkEffect),
       this.shouldTrustMcpServerToolAnnotations,
+      sourceTools,
+      this.toolSources.declaredToolNames(),
     );
     await this.assertClientToolsReachModel(toolPlan, requestContext);
     const messages: MessageListInput = [
@@ -253,6 +328,14 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       };
     }
     const toolCalls = pendingInvocations.map((invocation): DeferredToolCall => {
+      const listedSourceTool = sourceTools.get(invocation.toolName);
+      if (listedSourceTool !== undefined) {
+        // The source decides the effect, the approval, and the write order; Mastra settings never apply.
+        return this.toolSources.buildDeferredToolCall(turn, listedSourceTool, {
+          toolCallId: invocation.toolCallId,
+          arguments: JSON.stringify(invocation.args ?? {}),
+        });
+      }
       const policy = toolPlan.clientToolPolicies.get(invocation.toolName);
       if (policy === undefined) {
         throw new Error(`Mastra left tool call ${invocation.toolCallId} of ${invocation.toolName} without a result`);
@@ -296,6 +379,7 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       fixedInputTokens += estimateTextTokens(`${toolName} ${typeof description === "string" ? description : ""}`);
       fixedInputTokens += estimateTextTokens(describeToolInputSchema(inputSchema));
     }
+    fixedInputTokens += estimateSourceToolTokens(this.toolSources.readCachedSourceTools());
     return estimateStoredInputTokens(turn, fixedInputTokens);
   }
 
@@ -351,6 +435,9 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
   /**
    * Runs the agent's original tool for one tool call, in `CallTool` or `CallSingleAttemptTool`.
    *
+   * A call that a tool source built goes to that source instead, with the whole execution, including the Step
+   * context and the heartbeat checkpoint. A source that asks the user a question records `failed`.
+   *
    * The tool receives the parsed arguments and a context with `toolCallId`, `abortSignal`, and a copy of
    * the `RequestContext` from {@link MastraAgentRunnerOptions.createRequestContext} that also holds the
    * call's idempotency key under {@link idempotencyKeyRequestContextKey}. A Mastra input validation
@@ -366,6 +453,9 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
    * @throws {ToolExecutionError} When the tool is missing, has no `execute`, rejects its input, or throws it.
    */
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
+    if (this.toolSources.isSourceToolCall(call.toolCall)) {
+      return this.toolSources.executeDeferredToolCallForResult(call);
+    }
     const requestContext = this.createTurnRequestContext({ flowId: call.flowId, turnId: call.toolCall.turnId });
     return executeMastraDeferredToolCall(
       await this.agent.listTools({ requestContext }),
@@ -373,6 +463,18 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       call,
       requestContext,
     );
+  }
+
+  /**
+   * Returns a tool source's timeout and retry policy for one call's tool Step, such as a connector operation's.
+   * Mastra tools keep the tool Steps' defaults.
+   * @param toolCall - The record whose tool Step starts.
+   * @returns The source's options, or `undefined` for the defaults.
+   * @throws {RangeError} When a source built the call but is not configured on this Worker.
+   * @since 0.4.0
+   */
+  public toolCallStepOptions(toolCall: AgentToolCall): ToolCallStepOptions | undefined {
+    return this.toolSources.toolCallStepOptions(toolCall);
   }
 
   private createTurnRequestContext(turn: MastraTurnIdentity): RequestContext {
@@ -402,6 +504,14 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       }
     }
   }
+}
+
+function estimateSourceToolTokens(sourceTools: ReadonlyMap<string, ListedSourceTool>): number {
+  let tokens = 0;
+  for (const { tool: definition } of sourceTools.values()) {
+    tokens += estimateTextTokens(`${definition.name} ${definition.description} ${JSON.stringify(definition.inputSchema)}`);
+  }
+  return tokens;
 }
 
 /** Returns a tool's input schema as the JSON schema text the model receives. */

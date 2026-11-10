@@ -248,6 +248,56 @@ the core's turn-failure note, built with `buildUserMessage`, as the failed
 turn's last message. It is an ordinary Mastra user message, so the next turn's
 model reads which tools already ran and does not repeat a write.
 
+## Tool sources
+
+`toolSources` in the runner or session options takes the core's tool sources,
+such as `ConnectorToolSource` from `@superdurable/dex-agents/connectors`, which
+offers reviewed Connector operations. Install `@superdurable/connectors-sdk`
+and the Connector packages.
+
+```ts
+import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };
+import { CreateRefundInputSchema, newProjectConnection } from "@superdurable/connector-stripe";
+import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
+
+const stripe = newProjectConnection(project, "billing-stripe");
+const refunds = new ConnectorToolSource([
+  connectorTool(stripe.operations.createRefund(), stripe.reference, {
+    manifest,
+    inputValidator: CreateRefundInputSchema,
+  }),
+]);
+```
+
+Pass `toolSources: [refunds]` to `createMastraAgentSessionFlow` or
+`MastraAgentRunner`.
+
+- Every `RunModel` lists each source and passes its tools to Mastra as client
+  tools with the source's description and JSON Schema and without `execute`.
+- A call of a source tool never runs inside the model call. The source
+  builds the call, so its effect, its approval, and whether it is an ordered
+  write come from the source; Mastra approval settings, MCP annotations, and `createRequestContext` do not apply. A
+  `toolPolicies` entry for a connector tool changes only its approval.
+- The call runs once in its own tool Step through the source's
+  `executeDeferredToolCall`, with the tool Step's context, heartbeat
+  checkpoint, and attempt, so a connector call keeps its Call ID and fence.
+  `toolCallStepOptions` gives the Step the operation's timeout and retry
+  policy. Connector writes of one response run one at a time in the model's
+  order, and a write that does not succeed skips the later ones.
+- The runner polls no tool tasks and asks no tool questions: a source call that
+  asks a question records `failed`, and one that starts a task records
+  `failed` for a `read` call and `outcome_unknown` otherwise.
+- Each source needs a unique, stable `sourceName`, stored with every call it
+  builds. A source whose listing throws or takes longer than
+  `toolSourceListingTimeoutMs` (default 10 seconds) offers no tools in that
+  model call.
+  A `toolPolicies` entry for a source tool never makes it a tool Mastra runs
+  itself.
+- Construction fails with `TypeError` when two sources declare one tool name
+  or a declared name does not match Mastra's tool name pattern. The agent's
+  tools resolve per `RequestContext`, so a source tool that repeats an agent
+  tool fails its `RunModel` attempt instead.
+
 ## Tools Mastra runs itself
 
 Mastra adds tools beyond the agent's `tools` and runs them inside its own loop:
