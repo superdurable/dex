@@ -5,3 +5,6 @@ import DexExpressiveness.Dex.Config
 import DexExpressiveness.Dex.MetaFunctions
 import DexExpressiveness.Dex.Rules
 import DexExpressiveness.Dex.Observation
+import DexExpressiveness.L.Syntax
+import DexExpressiveness.L.ThreadLocal
+import DexExpressiveness.L.Semantics
