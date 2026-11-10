@@ -6,6 +6,13 @@ for the Dex SDK and framework versions each release supports.
 
 ## Unreleased
 
+### Added
+
+- TypeScript core: **McpToolSource.executeDeferredToolCall** takes an optional
+  `requestMeta`, and **McpToolCallOptions** has `requestMeta`: more `_meta`
+  entries for the `tools/call` request, such as the identity the caller expects
+  the tool to have. The idempotency key entry wins over the same key.
+
 ### Fixed
 
 - Python and TypeScript Claude Agent SDK adapters: when the Claude Code CLI

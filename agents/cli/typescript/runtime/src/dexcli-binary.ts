@@ -24,6 +24,7 @@ import { readWantedTarFiles } from "./release-archive.js";
 export const pinnedDexcliVersion = "1.42.0";
 
 const downloadTimeoutMs = 300_000;
+const maximumRedirects = 5;
 const execFileAsync = promisify(execFile);
 const installedExecutables = ["dexcli", "dex-server-zd"] as const;
 const installRecordName = "install.json";
@@ -35,7 +36,7 @@ const installRecordName = "install.json";
  * SHA-256 digests recorded when it was installed; the first `dexcli` on `PATH` whose version is at least
  * {@link pinnedDexcliVersion}; otherwise the pinned release for this platform, downloaded from
  * `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` (GitHub releases by default), which must be `https`, or `http` on a loopback
- * host for development. The archive must match the release's
+ * host for development, as must every redirect. The archive must match the release's
  * `checksums.txt` SHA-256. Only its regular `dexcli` and `dex-server-zd` files are written, into a private
  * staging directory that is renamed into place; an archive with a link, an absolute path, or a `..` entry is
  * refused.
@@ -196,19 +197,38 @@ function sha256Of(content: Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+/** Downloads a URL, following at most five redirects, each of which must also be a trusted download URL. */
 async function download(url: string): Promise<Buffer> {
-  let response: Response;
-  try {
-    response = await fetch(url, { signal: AbortSignal.timeout(downloadTimeoutMs) });
-  } catch (error: unknown) {
-    throw new Error(`downloading ${url} failed: ${error instanceof Error ? error.message : String(error)}`, {
-      cause: error,
-    });
+  let current = url;
+  for (let hop = 0; hop <= maximumRedirects; hop += 1) {
+    let response: Response;
+    try {
+      response = await fetch(current, { redirect: "manual", signal: AbortSignal.timeout(downloadTimeoutMs) });
+    } catch (error: unknown) {
+      throw new Error(`downloading ${current} failed: ${error instanceof Error ? error.message : String(error)}`, {
+        cause: error,
+      });
+    }
+    const location = response.headers.get("location");
+    if (response.status >= 300 && response.status < 400 && location !== null) {
+      await response.arrayBuffer().catch(() => undefined);
+      const next = new URL(location, current).href;
+      try {
+        requireTrustedDownloadUrl(next);
+      } catch (error: unknown) {
+        throw new Error(`downloading ${url} was refused: it redirects to ${next}, which is not https or loopback http`, {
+          cause: error,
+        });
+      }
+      current = next;
+      continue;
+    }
+    if (!response.ok) {
+      throw new Error(`downloading ${current} failed with HTTP ${response.status}`);
+    }
+    return Buffer.from(await response.arrayBuffer());
   }
-  if (!response.ok) {
-    throw new Error(`downloading ${url} failed with HTTP ${response.status}`);
-  }
-  return Buffer.from(await response.arrayBuffer());
+  throw new Error(`downloading ${url} was refused: more than ${maximumRedirects} redirects`);
 }
 
 function releasePlatform(): string {

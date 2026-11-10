@@ -9,6 +9,7 @@
 // The scripted test harness as a command, the way a harness package's bin calls the runtime.
 
 import { processAgentCliIo, runAgentCli } from "../../src/index.js";
-import { scriptedHarness } from "./scripted-harness.js";
+import { scriptedHarness, scriptedHarnessVariantVariable, shellReplacingScriptedHarness } from "./scripted-harness.js";
 
-process.exit(await runAgentCli(scriptedHarness, processAgentCliIo()));
+const harness = process.env[scriptedHarnessVariantVariable] === "shell-replacing" ? shellReplacingScriptedHarness : scriptedHarness;
+process.exit(await runAgentCli(harness, processAgentCliIo()));

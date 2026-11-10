@@ -57,7 +57,9 @@ export {
 } from "./cli-environment.js";
 export {
   ConnectorsMcpToolSource,
+  DisabledConnectorsToolSource,
   connectorToolMetaKeys,
+  expectedIdentityMetaKeys,
   isConnectorToolEnabledBy,
   listConnectorToolIdentities,
   probeConnectorsMcp,
@@ -72,5 +74,9 @@ export {
   type StartedDexcliDev,
 } from "./dex-server.js";
 export { LocalToolSource, localToolNames } from "./local-tools/local-tool-source.js";
-export { TurnConfigResolver } from "./turn-config-resolver.js";
+export {
+  TurnConfigResolver,
+  type ToolStepTurn,
+  type TurnSessionSettingsReader,
+} from "./turn-config-resolver.js";
 export { resolveTurnToolPolicy } from "./tool-policy.js";

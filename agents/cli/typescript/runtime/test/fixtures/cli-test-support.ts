@@ -20,8 +20,19 @@ import {
   type PrivateDexEngine,
 } from "@superdurable/dex-agents/testing";
 
-import { namespaceSessionFlowType, resolveConfig, TurnConfigResolver, type HarnessContext } from "../../src/index.js";
-import { scriptedHarness, scriptedHarnessDirectoryVariable } from "./scripted-harness.js";
+import {
+  namespaceSessionFlowType,
+  resolveConfig,
+  TurnConfigResolver,
+  type AgentHarness,
+  type HarnessContext,
+} from "../../src/index.js";
+import {
+  scriptedHarness,
+  scriptedHarnessDirectoryVariable,
+  scriptedHarnessVariantVariable,
+  shellReplacingScriptedHarness,
+} from "./scripted-harness.js";
 
 const cliEntryPath = fileURLToPath(new URL("./scripted-harness-cli.js", import.meta.url));
 const defaultWaitMs = 90_000;
@@ -164,7 +175,11 @@ export class TestHome {
    * Creates the home.
    * @param ports - The Dex and Dex Web ports that `dex.server: auto` uses.
    */
-  public constructor(private readonly ports: { readonly dexPort: number; readonly webPort: number }) {
+  public constructor(
+    private readonly ports: { readonly dexPort: number; readonly webPort: number },
+    /** The harness the command runs. */
+    public readonly harness: AgentHarness = scriptedHarness,
+  ) {
     this.directory = mkdtempSync(join(tmpdir(), "dex-agents-cli-home-"));
     this.markerDirectory = join(this.directory, "markers");
     mkdirSync(this.markerDirectory, { recursive: true });
@@ -200,7 +215,7 @@ export class TestHome {
    */
   public sessionFlowType(workspace = this.workspace): string {
     mkdirSync(workspace, { recursive: true });
-    return namespaceSessionFlowType(scriptedHarness.flowType, {
+    return namespaceSessionFlowType(this.harness.flowType, {
       hostName: hostname(),
       userId: typeof process.getuid === "function" ? String(process.getuid()) : userInfo().username,
       configIdentity: this.hasConfig() ? realpathSync(this.configPath) : "defaults",
@@ -228,6 +243,7 @@ export class TestHome {
       DEX_AGENTS_DEX_PORT: String(this.ports.dexPort),
       DEX_AGENTS_WEB_PORT: String(this.ports.webPort),
       [scriptedHarnessDirectoryVariable]: this.markerDirectory,
+      ...(this.harness === shellReplacingScriptedHarness ? { [scriptedHarnessVariantVariable]: "shell-replacing" } : {}),
     };
   }
 }
@@ -266,7 +282,7 @@ export class SessionClients {
     const flowType = home.sessionFlowType();
     let opened = this.environments.get(flowType);
     if (opened === undefined) {
-      opened = this.open(flowType);
+      opened = this.open(flowType, home.harness);
       this.environments.set(flowType, opened);
     }
     return (await opened).sessions;
@@ -283,9 +299,12 @@ export class SessionClients {
     this.environments.clear();
   }
 
-  private async open(flowType: string): Promise<{ environment: AgentTestEnvironment; sessions: AgentSessionTestClient }> {
-    const effective = resolveConfig({}, scriptedHarness.configSection, scriptedHarness.defaultModel);
-    const turns = new TurnConfigResolver(effective, null, () => undefined);
+  private async open(
+    flowType: string,
+    harness: AgentHarness,
+  ): Promise<{ environment: AgentTestEnvironment; sessions: AgentSessionTestClient }> {
+    const effective = resolveConfig({}, harness.configSection, harness.defaultModel);
+    const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined));
     const context: HarnessContext = {
       flowType,
       config: effective,
@@ -295,8 +314,9 @@ export class SessionClients {
       toolSources: [],
       resolveTurn: (settings) => turns.resolveTurn(settings),
       currentTurn: () => turns.currentTurn(),
+      resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
     };
-    const flow = scriptedHarness.createSessionFlow(context);
+    const flow = harness.createSessionFlow(context);
     const environment = await AgentTestEnvironment.start({
       serverAddress: this.engine.serverAddress,
       flows: [flow],

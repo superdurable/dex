@@ -16,6 +16,7 @@ import { pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 import { ConnectorsMcpToolSource, TurnConfigResolver, resolveConfig } from "../../src/index.js";
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
+import { shellReplacingScriptedHarness } from "../fixtures/scripted-harness.js";
 
 describe("terminal chat with connectors and session settings", () => {
   let engine: PrivateDexEngine;
@@ -85,6 +86,9 @@ describe("terminal chat with connectors and session settings", () => {
     const runs = connectors.runsOf("slack_post_thread_reply").filter((run) => run.arguments.text === "approved reply");
     assert.equal(runs.length, 1);
     assert.notEqual(runs[0]?.idempotencyKey, undefined);
+    assert.equal(runs[0]?.meta["io.superdurable.connectors/expectedConnector"], "slack");
+    assert.equal(runs[0]?.meta["io.superdurable.connectors/expectedConnection"], "support-slack");
+    assert.equal(runs[0]?.meta["io.superdurable.connectors/expectedOperation"], "postThreadReply");
 
     cli.writeLine('call slack_post_thread_reply {"text":"rejected reply"}');
     await cli.stdout.waitFor("Approve slack_post_thread_reply?");
@@ -95,6 +99,27 @@ describe("terminal chat with connectors and session settings", () => {
     cli.writeLine('call hackernews_get_top_stories {}');
     await cli.stdout.waitFor("result: top stories: dex-1, dex-2");
     assert.doesNotMatch(cli.stdout.all, /Approve hackernews_get_top_stories/);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("a connector tool name rebound to another connection while waiting for approval is refused unsent", async () => {
+    const cli = start(
+      newHome(["connectors:", `  mcp: ${connectorsUrl}`, "  enabled: [slack]", "local_tools: {browser: false}"].join("\n")),
+    );
+    await cli.waitForSession();
+    cli.writeLine('call slack_post_thread_reply {"text":"rebound reply"}');
+    await cli.stdout.waitFor("Approve slack_post_thread_reply?");
+    connectors.slackConnection = "other-slack";
+    try {
+      cli.writeLine("y");
+      await cli.stdout.waitFor(
+        /result: .*requested for slack\/support-slack postThreadReply but now names slack\/other-slack postThreadReply; it did not run/,
+      );
+    } finally {
+      connectors.slackConnection = "support-slack";
+    }
+    assert.equal(connectors.runsOf("slack_post_thread_reply").filter((run) => run.arguments.text === "rebound reply").length, 0);
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
   });
@@ -213,7 +238,7 @@ describe("terminal chat with connectors and session settings", () => {
   test("an unavailable connectors server offers no tools, and its tools return in a later listing", async () => {
     const effective = resolveConfig({ connectors: { mcp: connectorsUrl } }, "builtin", "scripted/default");
     const lines: string[] = [];
-    const source = new ConnectorsMcpToolSource(connectorsUrl, new TurnConfigResolver(effective, null, () => undefined), (line) =>
+    const source = new ConnectorsMcpToolSource(connectorsUrl, new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined)), (line) =>
       lines.push(line),
     );
     connectors.unavailableReason = "the connectors MCP server is starting";
@@ -228,6 +253,46 @@ describe("terminal chat with connectors and session settings", () => {
       timeoutMs: 60_000,
     });
     assert.match(lines.join("\n"), /Connector tools are available again/);
+  });
+
+  test("a Worker whose file now switches shell off refuses a shell Step that another process requested", async () => {
+    const home = newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+    const first = start(home);
+    const sessionId = await first.waitForSession();
+    first.writeLine('call run_shell_command {"command":"echo ran > ran.txt"}');
+    await first.stdout.waitFor("Approve run_shell_command?");
+    await first.kill();
+
+    home.writeConfig("connectors: {enabled: []}\nlocal_tools: {browser: false, shell: {enabled: false}}\n");
+    const second = start(home, ["--resume", sessionId]);
+    await second.stdout.waitFor("Approve run_shell_command?");
+    second.writeLine("y");
+    await second.stdout.waitFor(/result: .*switched off in the configuration of the Worker that ran it; it did not run/);
+    assert.equal(existsSync(join(home.workspace, "ran.txt")), false);
+    second.writeLine("/exit");
+    assert.equal(await second.waitForExit(), 0);
+  });
+
+  test("a replacement shell tool reads the turn's narrowed permissions in its tool Step", async () => {
+    const home = new TestHome(enginePorts(engine), shellReplacingScriptedHarness);
+    home.writeConfig('connectors: {enabled: []}\nlocal_tools: {browser: false, shell: {enabled: true, allow: ["ls", "pwd"]}}\n');
+    const sessions = await sessionClients.of(home);
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    cli.writeLine("tools");
+    const tools = await cli.stdout.waitFor(/tools: [^\n]*/);
+    assert.match(tools, /replacement_shell/);
+    assert.doesNotMatch(tools, /run_shell_command/);
+    cli.writeLine("call replacement_shell {}");
+    await cli.stdout.waitFor('result: {"enabled":true,"allow":["ls","pwd"]}');
+    assert.equal(await sessions.updateSessionSettings(sessionId, { local_tools: { shell: { allow: ["ls"] } } }), true);
+    cli.writeLine("call replacement_shell {}");
+    await cli.stdout.waitFor('result: {"enabled":true,"allow":["ls"]}');
+    assert.equal(await sessions.updateSessionSettings(sessionId, { local_tools: { shell: { enabled: false } } }), true);
+    cli.writeLine("call replacement_shell {}");
+    await cli.stdout.waitFor('result: {"enabled":false,"allow":["ls","pwd"]}');
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
   });
 
   test("commands with different configurations never run each other's Steps", async () => {

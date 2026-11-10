@@ -55,6 +55,20 @@ const mcpServerName = "connectors";
 const identityListingTtlMs = 30_000;
 const probeTimeoutMs = 5_000;
 const disabledReferenceKey = "disabled_tool";
+const mcpReferenceKey = "mcp_reference";
+const expectedIdentityReferenceKey = "expected_identity";
+
+/**
+ * The `_meta` keys of a `tools/call` request that carry the connector, connection, and operation the call was
+ * requested for, so the connectors MCP server can refuse a call whose tool name now names another connection.
+ *
+ * @since 0.5.0
+ */
+export const expectedIdentityMetaKeys = Object.freeze({
+  connector: "io.superdurable.connectors/expectedConnector",
+  connection: "io.superdurable.connectors/expectedConnection",
+  operation: "io.superdurable.connectors/expectedOperation",
+});
 
 /**
  * The connector, connection, and operation of one connector MCP tool, from its `_meta`.
@@ -202,8 +216,17 @@ export class ConnectorsMcpToolSource implements ToolSource {
       arguments: call.arguments,
       listedTool: mcpTool,
     });
+    const identity = this.identities.byToolName.get(call.toolName);
+    const reference: ConnectorCallReference = {
+      [mcpReferenceKey]: inner.toolSourceReference ?? null,
+      [expectedIdentityReferenceKey]:
+        identity === undefined
+          ? null
+          : { connector: identity.connector, connection: identity.connection, operation: identity.operation },
+    };
     return {
       ...inner,
+      toolSourceReference: JSON.stringify(reference),
       toolName: call.toolName,
       policy: {
         effect: inner.policy.effect,
@@ -220,7 +243,84 @@ export class ConnectorsMcpToolSource implements ToolSource {
    */
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     throwWhenDisabled(call.toolCall);
-    return this.mcp.executeDeferredToolCall(call);
+    const reference = readConnectorCallReference(call.toolCall);
+    await this.authorizeOnThisWorker(call);
+    const expected = reference[expectedIdentityReferenceKey];
+    if (expected !== null) {
+      await this.requireSameBinding(call.toolCall.toolName, expected);
+    }
+    return this.mcp.executeDeferredToolCall(withMcpReference(call, reference), {
+      ...(expected === null
+        ? {}
+        : {
+            requestMeta: {
+              [expectedIdentityMetaKeys.connector]: expected.connector,
+              [expectedIdentityMetaKeys.connection]: expected.connection,
+              ...(expected.operation === null ? {} : { [expectedIdentityMetaKeys.operation]: expected.operation }),
+            },
+          }),
+    });
+  }
+
+  /**
+   * Checks, with a fresh listing, that the tool name still names the connector, connection, and operation it named
+   * when the call was built, so a name rebound to another connection meanwhile never sends.
+   */
+  private async requireSameBinding(toolName: string, expected: ExpectedConnectorIdentity): Promise<void> {
+    let current: ConnectorToolIdentity | undefined;
+    try {
+      current = (await this.readIdentities(true)).get(toolName);
+    } catch (error: unknown) {
+      throw new ToolExecutionError(`tool ${toolName} did not run: its connection cannot be checked: ${describeError(error)}`, {
+        cause: error,
+      });
+    }
+    if (
+      current === undefined ||
+      current.connector !== expected.connector ||
+      current.connection !== expected.connection ||
+      current.operation !== expected.operation
+    ) {
+      const now = current === undefined ? "is no longer listed" : `now names ${describeIdentity(current)}`;
+      throw new ToolExecutionError(
+        `tool ${toolName} was requested for ${describeIdentity(expected)} but ${now}; it did not run`,
+      );
+    }
+  }
+
+  /**
+   * Checks the call again on the Worker that runs it: its connection and operation must be enabled by this
+   * Worker's file and the turn's settings, and a call without approval must not be in `approval.always`.
+   */
+  private async authorizeOnThisWorker(call: DeferredToolExecution): Promise<void> {
+    const { toolName } = call.toolCall;
+    let permissions: TurnConfig;
+    try {
+      permissions = await this.turns.resolveToolStep({ flowId: call.flowId, turnId: call.toolCall.turnId });
+    } catch (error: unknown) {
+      throw new ToolExecutionError(
+        `tool ${toolName} did not run: the session's settings are rejected here: ${describeError(error)}`,
+        { cause: error },
+      );
+    }
+    if (permissions.connectors.enabled !== null) {
+      let identities: ReadonlyMap<string, ConnectorToolIdentity>;
+      try {
+        identities = await this.readIdentities();
+      } catch (error: unknown) {
+        throw new ToolExecutionError(`tool ${toolName} did not run: its connection cannot be checked: ${describeError(error)}`, {
+          cause: error,
+        });
+      }
+      if (!this.isToolEnabled(toolName, identities, permissions)) {
+        throw new ToolExecutionError(
+          `tool ${toolName} is not enabled in the configuration of the Worker that ran it; it did not run`,
+        );
+      }
+    }
+    if (!call.toolCall.requiresApproval && permissions.approval.always.includes(toolName)) {
+      throw new ToolExecutionError(`tool ${toolName} now needs approval, and this call had none; it did not run`);
+    }
   }
 
   /**
@@ -229,7 +329,11 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * @returns The poll outcome.
    */
   public pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
-    return this.mcp.pollToolTask(poll);
+    const reference = readConnectorCallReference(poll.toolCall);
+    return this.mcp.pollToolTask({
+      ...poll,
+      toolCall: { ...poll.toolCall, ...mcpReferenceField(reference) },
+    });
   }
 
   /**
@@ -238,16 +342,21 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * @returns A Promise that resolves once the server took the cancellation.
    */
   public cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
-    return this.mcp.cancelToolTask(cancellation);
+    const reference = readConnectorCallReference(cancellation.toolCall);
+    return this.mcp.cancelToolTask({
+      ...cancellation,
+      toolCall: { ...cancellation.toolCall, ...mcpReferenceField(reference) },
+    });
   }
 
   /**
    * Returns the connector identity of every tool the server lists now, whatever the configuration enables.
+   * @param isFresh - Whether to list the server again instead of using a listing from the last 30 seconds.
    * @returns The identities, by tool name.
    * @throws {Error} When the server cannot be listed.
    */
-  public async readIdentities(): Promise<ReadonlyMap<string, ConnectorToolIdentity>> {
-    if (Date.now() < this.identities.expiresAt) {
+  public async readIdentities(isFresh = false): Promise<ReadonlyMap<string, ConnectorToolIdentity>> {
+    if (!isFresh && Date.now() < this.identities.expiresAt) {
       return this.identities.byToolName;
     }
     const byToolName = new Map<string, ConnectorToolIdentity>();
@@ -277,6 +386,65 @@ export class ConnectorsMcpToolSource implements ToolSource {
       return fromListing;
     }
     return this.lastListing.find((tool) => tool.name === toolName)?.mcpTool;
+  }
+}
+
+/**
+ * The connector tool source of a Worker whose configuration has no connectors MCP server: it lists nothing and
+ * refuses every stored connector call, which another process may have requested, without running it.
+ *
+ * @since 0.5.0
+ */
+export class DisabledConnectorsToolSource implements ToolSource {
+  /** The same source name as {@link ConnectorsMcpToolSource}, so stored connector calls reach it. */
+  public readonly sourceName = "connectors";
+
+  /**
+   * Lists no tools.
+   * @returns An empty list.
+   */
+  public listTools(): Promise<readonly SourceToolDefinition[]> {
+    return Promise.resolve([]);
+  }
+
+  /**
+   * Builds a call that is refused when it runs; it is never called, because nothing is listed.
+   * @param _turn - The `RunModel` context.
+   * @param call - The model's call.
+   * @returns The deferred call.
+   */
+  public deferredToolCall(
+    _turn: AgentTurnContext,
+    call: { readonly toolCallId: string; readonly toolName: string; readonly arguments: string },
+  ): DeferredToolCall {
+    return {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      arguments: call.arguments,
+      policy: { effect: "read", requiresApproval: false },
+      toolSourceReference: JSON.stringify({ [disabledReferenceKey]: call.toolName }),
+    };
+  }
+
+  /**
+   * Refuses the call.
+   * @param call - The call.
+   * @returns Never.
+   * @throws {ToolExecutionError} Always.
+   */
+  public executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+    return Promise.reject(
+      new ToolExecutionError(`tool ${call.toolCall.toolName} needs connectors, which the Worker that ran it has off; it did not run`),
+    );
+  }
+
+  /**
+   * Refuses the poll.
+   * @returns Never.
+   * @throws {ToolExecutionError} Always.
+   */
+  public pollToolTask(): Promise<ToolTaskPollOutcome> {
+    return Promise.reject(new ToolExecutionError("connectors are off on this Worker"));
   }
 }
 
@@ -388,6 +556,51 @@ export function isConnectorToolEnabledBy(entry: ConnectorEntry, identity: Connec
 function readMetaString(meta: Record<string, unknown>, key: string): string | null {
   const value = meta[key];
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+/** The connector, connection, and operation a call was built for. */
+interface ExpectedConnectorIdentity {
+  readonly connector: string;
+  readonly connection: string;
+  readonly operation: string | null;
+}
+
+/** A connector call's stored reference: `McpToolSource`'s own reference and the expected identity. */
+interface ConnectorCallReference {
+  readonly [mcpReferenceKey]: string | null;
+  readonly [expectedIdentityReferenceKey]: ExpectedConnectorIdentity | null;
+}
+
+function readConnectorCallReference(toolCall: { readonly toolSourceReference?: string | null }): ConnectorCallReference {
+  const text = toolCall.toolSourceReference;
+  let value: unknown;
+  try {
+    value = text === undefined || text === null ? {} : JSON.parse(text);
+  } catch {
+    value = {};
+  }
+  const fields = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+  const mcpReference = fields[mcpReferenceKey];
+  const expected = fields[expectedIdentityReferenceKey];
+  return {
+    [mcpReferenceKey]: typeof mcpReference === "string" ? mcpReference : null,
+    [expectedIdentityReferenceKey]:
+      typeof expected === "object" && expected !== null ? (expected as ExpectedConnectorIdentity) : null,
+  };
+}
+
+function mcpReferenceField(reference: ConnectorCallReference): { toolSourceReference?: string } {
+  const mcpReference = reference[mcpReferenceKey];
+  return mcpReference === null ? {} : { toolSourceReference: mcpReference };
+}
+
+function withMcpReference(call: DeferredToolExecution, reference: ConnectorCallReference): DeferredToolExecution {
+  const { toolSourceReference: _connectorReference, ...toolCall } = call.toolCall;
+  return { ...call, toolCall: { ...toolCall, ...mcpReferenceField(reference) } };
+}
+
+function describeIdentity(identity: ExpectedConnectorIdentity): string {
+  return `${identity.connector}/${identity.connection}${identity.operation === null ? "" : ` ${identity.operation}`}`;
 }
 
 function throwWhenDisabled(toolCall: AgentToolCall): void {

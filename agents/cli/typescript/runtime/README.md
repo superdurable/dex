@@ -63,7 +63,14 @@ list, are not part of the hash, so changing them keeps `--resume` working.
 Changing the workspace, the file, or the user starts a new type: `--resume`
 of an older session then exits with 2 and says to resume it in its original
 environment, and `sessions` lists only the current environment's sessions.
-Two processes in the same environment share their sessions' Steps.
+Two processes in the same environment share their sessions' Steps. Because
+tool settings may differ between them, the Worker that runs a tool Step
+checks the call again right before it acts, with its own file and the
+settings the call's turn started with. It refuses the call, which then
+records `failed` without running, when the tool's group or connector
+connection or operation is off there, or when a call that had no approval is
+no longer allowed without one: a shell command missing from its allow list,
+or a tool now in `approval.always`.
 
 ## The harness interface
 
@@ -118,6 +125,7 @@ interface HarnessContext {
   readonly toolSources: readonly ToolSource[]; // connectors, then local tools
   resolveTurn(sessionSettings: SessionSettings): ResolvedTurn; // model, instructions, narrowing
   currentTurn(): ResolvedTurn; // the running model call's turn, else the file
+  resolveToolStepPermissions(step: { flowId: string; turnId: string }): Promise<ResolvedTurn>; // in a tool Step
 }
 
 type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
@@ -143,10 +151,32 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
     the call's policy, with the tool's effect and approval as floors and the
     turn's `approval.always`;
   - `context.currentTurn()`: the running turn's configuration, for callbacks
-    that run during the model call.
+    that run during the model call;
+  - `context.resolveToolStepPermissions({ flowId, turnId })`: the permissions
+    inside the harness's own tool Step, which runs outside the model call and
+    maybe on another Worker: this Worker's file narrowed by the settings the
+    turn started with. Check them right before acting.
 
   Reads run at once, writes and shell commands wait for approval, and the
-  working directory is `context.workspace`.
+  working directory is `context.workspace`. A replacement shell tool, for
+  example:
+
+  ```ts
+  const replacementShell = functionTool<{ command: string }>({
+    name: "shell",
+    description: "Run a shell command in the workspace.",
+    parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+    effect: "non_idempotent_write",
+    execute: async ({ command }, call) => {
+      // call is the Stepwise ToolCallContext, with flowId and turnId.
+      const permissions = await context.resolveToolStepPermissions(call);
+      if (!isLocalToolGroupEnabled(permissions, "shell")) {
+        throw new ToolExecutionError("shell commands are switched off; the command did not run");
+      }
+      return runInWorkspace(command, context.workspace);
+    },
+  });
+  ```
 - The runtime wraps the Flow's runner so that each model call runs with its
   turn's configuration in scope. The harness does not need to do anything for
   that.
@@ -162,6 +192,7 @@ The Python runtime uses the same names in snake case:
 | `LocalToolGroup` | `LocalToolGroup` (`files`, `shell`, `web_fetch`, `browser`) |
 | `runAgentCli(harness)` | `run_agent_cli(harness)` |
 | `isLocalToolGroupEnabled`, `isShellCommandApprovalRequired`, `resolveTurnToolPolicy` | the same names in snake case |
+| `HarnessContext.resolveToolStepPermissions(step)` | `HarnessContext.resolve_tool_step_permissions(step)` |
 
 ## Local tools
 
@@ -185,15 +216,21 @@ Each call is one Dex tool Step, recorded in the session.
   one hard link is refused. Searches check every file they open the same way.
   `write_file` and `edit_file` write a new file in the checked directory and
   rename it over the target, and never write through a link. After the
-  rename, the target must be the written file inside the workspace, or the
-  call fails loudly. Node has no `openat` or `renameat`, so a directory swapped
-  at the last moment is detected after the write rather than prevented; writes
-  are approved calls. This is not a sandbox: an approved shell command, or any
-  other program, can still change the workspace while a call runs.
+  rename, the target must be the written file inside the workspace.
+- Residual write race: Node has no `openat` or `renameat`, so the runtime
+  cannot pin the checked directory while it writes. A concurrent process that
+  swaps a directory of the path for a link during an approved write can make
+  the temporary file or the renamed file land outside the workspace. The
+  runtime then reports the call as failed, says the content may be outside,
+  and deletes the written file where its known names still find it. This is
+  not a sandbox: an approved shell command, or any other program, can change
+  the workspace while a call runs.
 - `edit_file` takes `path`, `old_text`, and `new_text`. `old_text` must occur
   exactly once in the file. When the file changed after `edit_file` read it,
   by identity, size, modification time, or content, the call fails with a
-  conflict and asks to read the file again.
+  conflict and asks to read the file again. That check runs right before the
+  rename, not atomically with it: a change made in the short window between
+  the check and the rename is still replaced.
 - Shell commands run with the system shell in `workspace`, in their own
   process group, with a 120-second default timeout. A command whose Worker
   died while it ran records `outcome_unknown` and never runs again.
@@ -234,17 +271,31 @@ keys of each tool, never its name:
 
 While the list is set, a tool without a connector and a connection is
 hidden. An entry with `tools` also needs `operation` and `operationName`, and
-matches a listed name against either. A configured connection that the server
+matches a listed name against either.
+
+A call records the connector, connection, and operation its tool name had
+when the model requested it. Right before it runs, the runtime lists the
+server again and refuses the call, which records `failed` without sending
+anything, when the name now has another identity, such as another connection.
+The `tools/call` request also carries the recorded identity in `_meta` as
+`io.superdurable.connectors/expectedConnector`, `expectedConnection`, and
+`expectedOperation`, so the server can refuse it too.
+
+A configured connection that the server
 does not list is reported as not authorized, and at a terminal the command
 opens the Dex Web Connectors page.
 
 ## The Dex server and dexcli
 
 `dex.server: auto` reuses a `dexcli dev` with Dex Web on port 8802 and Dex on
-8801 only when it answers `/readyz` with Dex Web's readiness JSON and the Dex
-FlowService answers on the Dex port; otherwise the command stops and names
-the port. This check also runs for a server that a command started. Without any server, it starts `dexcli dev`
-in the background on those ports. Its output goes to `~/.dex/agents/dexcli-dev.log`,
+8801 only when `/readyz` answers with Dex Web's readiness JSON, checked by
+value (`status` is `ready`, a non-empty `source`, a non-negative
+`definitionCount`, and an entity tag equal to `definitionRevision`), and the
+Dex FlowService answers on the Dex port; otherwise the command stops and
+names the port. This check also runs for a server that a command started.
+These are protocol checks, not authentication: a local process of another
+user that binds the ports first and imitates both answers is trusted. Without
+any server, it starts `dexcli dev` in the background on those ports. Its output goes to `~/.dex/agents/dexcli-dev.log`,
 and its pid and ports to `~/.dex/agents/dexcli-dev.json`. It keeps running
 after the command exits, so later commands and Dex Web reuse it.
 
@@ -253,7 +304,8 @@ The runtime finds `dexcli` in this order: `DEXCLI`; an earlier download in
 match the SHA-256 digests recorded in its `install.json`; the first `dexcli`
 on `PATH` of at least the pinned version; otherwise it downloads the pinned
 release for the platform from GitHub and checks its SHA-256 against the
-release's `checksums.txt`. It then writes only the archive's regular
+release's `checksums.txt`. Every download URL, and every redirect, must be
+`https`, or `http` on a loopback host. It then writes only the archive's regular
 `dexcli` and `dex-server-zd` files into a private staging directory and
 renames it into place. An archive with a link, an absolute path, or a `..`
 entry is refused.

@@ -41,6 +41,14 @@ describe("dexcli first-run download", () => {
     archives.set("hardlink", buildTarGz([...goodEntries, { name: "copy", typeFlag: "1", linkName: "dexcli" }]));
     server = createServer((request, response) => {
       requests.push(request.url ?? "");
+      if (request.url?.startsWith("/redirect-to-http/") === true) {
+        response.writeHead(302, { location: `http://mirror.example.com${request.url}` }).end();
+        return;
+      }
+      if (request.url?.startsWith("/redirect-to-loopback/") === true) {
+        response.writeHead(302, { location: request.url.replace("/redirect-to-loopback/", "/good/") }).end();
+        return;
+      }
       const [, kind, release, file] = (request.url ?? "").split("/");
       const archive = kind === undefined ? undefined : archives.get(kind);
       if (archive === undefined || release !== `cli-v${pinnedDexcliVersion}`) {
@@ -142,6 +150,18 @@ describe("dexcli first-run download", () => {
     const home = newHome();
     const environment = readCliEnvironment({ HOME: home, PATH: "", DEX_AGENTS_DEXCLI_DOWNLOAD_URL: "http://mirror.example.com/dex" });
     await assert.rejects(resolveDexcliExecutable(environment, () => undefined), /must be an https URL, or http on 127\.0\.0\.1/);
+  });
+
+  test("every redirect must stay on https or loopback http", async () => {
+    await assert.rejects(
+      resolveDexcliExecutable(environmentFor(newHome(), "redirect-to-http"), () => undefined),
+      /redirects to http:\/\/mirror\.example\.com\/redirect-to-http\/.*which is not https or loopback http/,
+    );
+    const home = newHome();
+    assert.equal(
+      await resolveDexcliExecutable(environmentFor(home, "redirect-to-loopback"), () => undefined),
+      join(home, ".dex", "bin", `dexcli-${pinnedDexcliVersion}`, "dexcli"),
+    );
   });
 
   test("DEXCLI wins over every other source", async () => {

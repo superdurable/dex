@@ -15,6 +15,7 @@ import type {
 } from "@superdurable/dex-agents";
 
 import type { EffectiveConfig, TurnConfig } from "./cli-config.js";
+import type { ToolStepTurn } from "./turn-config-resolver.js";
 
 /**
  * A group of local tools that the runtime offers, as the configuration's `local_tools` names them.
@@ -161,6 +162,28 @@ export interface HarnessContext {
    * @returns The configuration and instructions.
    */
   currentTurn(): ResolvedTurn;
+  /**
+   * Returns the permissions of a tool Step: this Worker's file configuration narrowed by the settings the
+   * Step's turn started with. A harness that replaces local tool groups calls it inside its own tool Step, right
+   * before acting, and refuses the call when the group is off, a shell command that ran without approval is no
+   * longer allow-listed, or `approval.always` now lists the tool. {@link currentTurn} does not work there, because
+   * a tool Step runs outside the model call and maybe on another Worker.
+   *
+   * @example
+   * ```ts
+   * execute: async ({ command }, call) => {
+   *   const permissions = await context.resolveToolStepPermissions(call); // a Stepwise ToolCallContext
+   *   if (!isLocalToolGroupEnabled(permissions, "shell")) {
+   *     throw new ToolExecutionError("shell commands are switched off; the command did not run");
+   *   }
+   *   return runCommand(command);
+   * }
+   * ```
+   * @param step - The Step's `flowId` and `turnId`; a Stepwise `ToolCallContext` has both.
+   * @returns The Step's turn configuration on this Worker.
+   * @throws {ConfigError} When the turn's settings widen this Worker's file; refuse the call then.
+   */
+  resolveToolStepPermissions(step: ToolStepTurn): Promise<ResolvedTurn>;
 }
 
 /**

@@ -312,7 +312,43 @@ export class LocalToolSource implements ToolSource {
       throw new ToolExecutionError(`tool ${toolName} is switched off for this session`);
     }
     const toolArguments = parseArguments(call.toolCall.arguments);
+    await this.authorizeOnThisWorker(call, toolArguments);
     return { output: await this.runTool(toolName, toolArguments, call) };
+  }
+
+  /**
+   * Checks the call again on the Worker that runs it, with this Worker's file and the turn's settings, because
+   * another process with another configuration may have requested it. A refused call did not run.
+   */
+  private async authorizeOnThisWorker(
+    call: DeferredToolExecution,
+    toolArguments: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    const { toolName } = call.toolCall;
+    const tool = localToolsByName.get(toolName);
+    let permissions: TurnConfig;
+    try {
+      permissions = await this.turns.resolveToolStep({ flowId: call.flowId, turnId: call.toolCall.turnId });
+    } catch (error: unknown) {
+      throw new ToolExecutionError(`tool ${toolName} did not run: the session's settings are rejected here: ${describe(error)}`, {
+        cause: error,
+      });
+    }
+    if (tool === undefined || !this.isGroupOn(tool.group, permissions)) {
+      throw new ToolExecutionError(`tool ${toolName} is switched off in the configuration of the Worker that ran it; it did not run`);
+    }
+    if (call.toolCall.requiresApproval) {
+      return;
+    }
+    if (permissions.approval.always.includes(toolName)) {
+      throw new ToolExecutionError(`tool ${toolName} now needs approval, and this call had none; it did not run`);
+    }
+    const command = toolArguments.command;
+    if (tool.group === "shell" && (typeof command !== "string" || isShellCommandApprovalRequired(permissions, command))) {
+      throw new ToolExecutionError(
+        "the command is not on the shell allow list of the Worker that ran it, and the call had no approval; it did not run",
+      );
+    }
   }
 
   /**
@@ -380,6 +416,10 @@ export class LocalToolSource implements ToolSource {
   private isGroupOn(group: LocalToolGroup, turn: TurnConfig): boolean {
     return this.offeredGroups.has(group) && isLocalToolGroupEnabled(turn, group);
   }
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function objectSchema(properties: Record<string, unknown>, required: readonly string[]): Record<string, unknown> {

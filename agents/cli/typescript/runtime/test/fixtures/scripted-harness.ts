@@ -13,15 +13,22 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   ScriptedModelClient,
   createStepwiseAgentSessionFlow,
+  functionTool,
+  type FunctionTool,
+  type StepwiseAgentRunner,
   type ModelClient,
   type ModelRequest,
   type ScriptedModelReply,
 } from "@superdurable/dex-agents/stepwise";
 
-import type { AgentHarness, HarnessContext } from "../../src/index.js";
+import type { AgentSessionFlow } from "@superdurable/dex-agents";
+
+import { isLocalToolGroupEnabled, type AgentHarness, type HarnessContext } from "../../src/index.js";
 
 /** Environment variable naming the directory where the scripted model writes gate markers. */
 export const scriptedHarnessDirectoryVariable = "DEX_AGENTS_CLI_TEST_DIRECTORY";
+/** Environment variable that selects `shell-replacing` for {@link shellReplacingScriptedHarness}. */
+export const scriptedHarnessVariantVariable = "DEX_AGENTS_CLI_TEST_HARNESS";
 
 /**
  * A Stepwise test harness whose model follows commands in the user's text:
@@ -39,28 +46,60 @@ export const scriptedHarness: AgentHarness = {
   configSection: "builtin",
   flowType: "DexAgentsCliScriptedSession",
   defaultModel: "scripted/default",
-  createSessionFlow: (context: HarnessContext) => {
-    const models = new Map<string, ModelClient>();
-    const modelFor = (model: string): ModelClient => {
-      let client = models.get(model);
-      if (client === undefined) {
-        client = new ScriptedModelClient((request) => respond(request, model));
-        models.set(model, client);
-      }
-      return client;
-    };
-    return createStepwiseAgentSessionFlow(
-      {
-        name: "scripted",
-        instructions: (turn) => context.resolveTurn(turn.sessionSettings ?? {}).instructions ?? "You are a scripted test agent.",
-        model: modelFor(context.config.model),
-        resolveModel: (settings) => modelFor(context.resolveTurn(settings).model),
-        toolSources: context.toolSources,
-      },
-      context.flowType,
-    );
-  },
+  createSessionFlow: (context: HarnessContext) => createScriptedSessionFlow(context, []),
 };
+
+/**
+ * The scripted harness with the `shell` group replaced by its own `replacement_shell` function tool, which answers
+ * with the permissions it reads in its tool Step through `resolveToolStepPermissions`.
+ */
+export const shellReplacingScriptedHarness: AgentHarness = {
+  ...scriptedHarness,
+  flowType: "DexAgentsCliScriptedShellSession",
+  replacedLocalTools: ["shell"],
+  createSessionFlow: (context: HarnessContext) =>
+    createScriptedSessionFlow(context, [
+      functionTool<Record<string, never>>({
+        name: "replacement_shell",
+        description: "Report the shell permissions of this tool Step.",
+        parameters: { type: "object", properties: {}, additionalProperties: false },
+        effect: "read",
+        execute: async (_arguments, call) => {
+          const permissions = await context.resolveToolStepPermissions(call);
+          return JSON.stringify({
+            enabled: isLocalToolGroupEnabled(permissions, "shell"),
+            allow: permissions.local_tools.shell.allow,
+          });
+        },
+      }),
+    ]),
+};
+
+function createScriptedSessionFlow(
+  context: HarnessContext,
+  tools: readonly FunctionTool[],
+): AgentSessionFlow<StepwiseAgentRunner> {
+  const models = new Map<string, ModelClient>();
+  const modelFor = (model: string): ModelClient => {
+    let client = models.get(model);
+    if (client === undefined) {
+      client = new ScriptedModelClient((request) => respond(request, model));
+      models.set(model, client);
+    }
+    return client;
+  };
+  return createStepwiseAgentSessionFlow(
+    {
+      name: "scripted",
+      instructions: (turn) => context.resolveTurn(turn.sessionSettings ?? {}).instructions ?? "You are a scripted test agent.",
+      model: modelFor(context.config.model),
+      resolveModel: (settings) => modelFor(context.resolveTurn(settings).model),
+      toolSources: context.toolSources,
+      tools,
+    },
+    context.flowType,
+  );
+}
 
 async function respond(request: ModelRequest, model: string): Promise<ScriptedModelReply> {
   const text = (ScriptedModelClient.userTexts(request).at(-1) ?? "").trim();

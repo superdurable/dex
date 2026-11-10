@@ -14,9 +14,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 
-import type { AgentTurnContext, ToolPolicy } from "@superdurable/dex-agents";
+import type { AgentTurnContext, DeferredToolExecution, ToolPolicy } from "@superdurable/dex-agents";
 
-import { namespaceSessionFlowType, resolveConfig, resolveTurnToolPolicy } from "../../src/index.js";
+import {
+  LocalToolSource,
+  TurnConfigResolver,
+  namespaceSessionFlowType,
+  resolveConfig,
+  resolveTurnToolPolicy,
+} from "../../src/index.js";
 import { WorkspaceFiles } from "../../src/local-tools/workspace-files.js";
 
 function newWorkspace(): { root: string; workspace: string; files: WorkspaceFiles } {
@@ -125,6 +131,39 @@ describe("the workspace boundary of the file tools", () => {
     await assert.rejects(files.editFile("missing.txt", "a", "b"), /does not exist/);
     assert.equal(await files.editFile("todo.txt", "milk", "oat milk $&"), "edited todo.txt: replaced 1 occurrence");
     assert.equal(readFileSync(join(workspace, "todo.txt"), "utf8"), "buy oat milk $&\nbuy bread\n");
+  });
+});
+
+describe("tool Step authorization on the executing Worker", () => {
+  test("a shell call without approval is refused when this Worker's allow list lacks the command", async () => {
+    const { workspace } = newWorkspace();
+    const effective = resolveConfig({ local_tools: { shell: { enabled: true, allow: [] } } }, "builtin", "m");
+    const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined));
+    const source = new LocalToolSource(workspace, new Set(["shell"]), turns, () => undefined);
+    const call = {
+      flowId: "session-1",
+      toolCall: {
+        toolCallId: "call-1",
+        turnId: "turn-1",
+        toolName: "run_shell_command",
+        arguments: JSON.stringify({ command: "echo ran > ran.txt" }),
+        requiresApproval: false,
+      },
+      cancellationSignal: new AbortController().signal,
+    } as unknown as DeferredToolExecution;
+    await assert.rejects(source.executeDeferredToolCall(call), /not on the shell allow list of the Worker that ran it/);
+    assert.equal(existsSync(join(workspace, "ran.txt")), false);
+    const approved = { ...call, toolCall: { ...call.toolCall, requiresApproval: true } } as DeferredToolExecution;
+    assert.match(String((await source.executeDeferredToolCall(approved) as { output: string }).output), /exit code 0/);
+    assert.equal(existsSync(join(workspace, "ran.txt")), true);
+  });
+
+  test("the turn's own settings apply in the tool Step, and another turn's copy reads as none", async () => {
+    const effective = resolveConfig({ local_tools: { shell: { enabled: true, allow: ["ls", "pwd"] } } }, "builtin", "m");
+    const stored = { turnId: "turn-2", sessionSettings: { local_tools: { shell: { allow: ["ls"] } } } };
+    const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(stored));
+    assert.deepEqual((await turns.resolveToolStep({ flowId: "s", turnId: "turn-2" })).local_tools.shell.allow, ["ls"]);
+    assert.deepEqual((await turns.resolveToolStep({ flowId: "s", turnId: "turn-1" })).local_tools.shell.allow, ["ls", "pwd"]);
   });
 });
 

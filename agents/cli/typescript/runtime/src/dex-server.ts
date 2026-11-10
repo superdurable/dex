@@ -110,7 +110,7 @@ export async function resolveDexServer(
       log(`Waiting for the dexcli dev at ${webUrl} to become ready.`);
     }
     const ready = readiness.state === "ready" ? readiness : await waitForReadiness(webUrl, reuseWaitTimeoutMs);
-    await requireDexcliDevIdentity(webUrl, serverAddress, ready.body);
+    await requireDexcliDevIdentity(webUrl, serverAddress, ready);
     return {
       serverAddress,
       isTls: false,
@@ -202,23 +202,37 @@ async function startDexcliDev(environment: CliEnvironment, log: (line: string) =
   }
 }
 
+/** A ready `/readyz` answer: its body, content type, and entity tag. */
+interface ReadyAnswer {
+  readonly body: string;
+  readonly contentType: string;
+  readonly entityTag: string | null;
+}
+
 /** What `/readyz` answered: nothing, a not-ready status, or ready with its body. */
 type Readiness =
   | { readonly state: "absent" }
   | { readonly state: "starting" }
-  | { readonly state: "ready"; readonly body: string };
+  | { readonly state: "ready"; readonly body: string; readonly contentType: string; readonly entityTag: string | null };
 
 async function probeReadiness(webUrl: string): Promise<Readiness> {
   try {
     const response = await fetch(`${webUrl}/readyz`, { signal: AbortSignal.timeout(readinessProbeTimeoutMs) });
     const body = await response.text();
-    return response.ok ? { state: "ready", body } : { state: "starting" };
+    return response.ok
+      ? {
+          state: "ready",
+          body,
+          contentType: response.headers.get("content-type") ?? "",
+          entityTag: response.headers.get("etag"),
+        }
+      : { state: "starting" };
   } catch {
     return { state: "absent" };
   }
 }
 
-async function waitForReadiness(webUrl: string, timeoutMs: number): Promise<{ readonly body: string }> {
+async function waitForReadiness(webUrl: string, timeoutMs: number): Promise<ReadyAnswer> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const readiness = await probeReadiness(webUrl);
@@ -231,10 +245,11 @@ async function waitForReadiness(webUrl: string, timeoutMs: number): Promise<{ re
 }
 
 /**
- * Checks that a server this command did not start is a `dexcli dev`: Dex Web's readiness JSON on the web port and
- * the Dex FlowService on the Dex port.
+ * Checks that a server on the ports is a `dexcli dev`: Dex Web's readiness JSON, with its values and entity tag, on
+ * the web port and the Dex FlowService on the Dex port. These are protocol checks, not authentication: a local
+ * process of another user that binds the ports first and imitates both answers is not detected.
  */
-async function requireDexcliDevIdentity(webUrl: string, serverAddress: string, readinessBody: string): Promise<void> {
+async function requireDexcliDevIdentity(webUrl: string, serverAddress: string, ready: ReadyAnswer): Promise<void> {
   const refuse = (reason: string): never => {
     throw new Error(
       `${webUrl} answers, but it is not a dexcli dev (${reason}). Stop that server, or set DEX_AGENTS_WEB_PORT and DEX_AGENTS_DEX_PORT to the ports of a dexcli dev or to free ports.`,
@@ -242,18 +257,24 @@ async function requireDexcliDevIdentity(webUrl: string, serverAddress: string, r
   };
   let readiness: unknown;
   try {
-    readiness = JSON.parse(readinessBody);
+    readiness = JSON.parse(ready.body);
   } catch {
     return refuse("its /readyz is not Dex Web's readiness JSON");
   }
   const fields = (readiness ?? {}) as Record<string, unknown>;
-  if (
-    fields.status !== "ready" ||
-    typeof fields.definitionRevision !== "string" ||
-    typeof fields.source !== "string" ||
-    typeof fields.definitionCount !== "number"
-  ) {
-    return refuse("its /readyz is not Dex Web's readiness JSON");
+  const revision = fields.definitionRevision;
+  const isReadinessJson =
+    ready.contentType.startsWith("application/json") &&
+    fields.status === "ready" &&
+    typeof revision === "string" &&
+    typeof fields.source === "string" &&
+    fields.source !== "" &&
+    typeof fields.definitionCount === "number" &&
+    Number.isSafeInteger(fields.definitionCount) &&
+    fields.definitionCount >= 0 &&
+    (revision === "" ? ready.entityTag === null : ready.entityTag === JSON.stringify(revision));
+  if (!isReadinessJson) {
+    return refuse("its /readyz does not answer with Dex Web's readiness JSON and entity tag");
   }
   const reason = await probeDexFlowService(serverAddress);
   if (reason !== undefined) {

@@ -276,6 +276,9 @@ export class WorkspaceFiles {
       throw error;
     }
     if (!(await this.isOpenedFileAt(target, written))) {
+      // The written file may have landed outside; remove it where its known names still find it.
+      await removeIfSameFile(target, written);
+      await removeIfSameFile(temporary, written);
       throw new ToolExecutionError(
         `${path} changed while it was written: the new content may not be at ${path} inside the workspace; check the workspace`,
       );
@@ -420,6 +423,13 @@ async function readText(
 
 function sha256Of(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function removeIfSameFile(path: string, written: Stats): Promise<void> {
+  const current = await lstat(path).catch(() => undefined);
+  if (current !== undefined && current.dev === written.dev && current.ino === written.ino) {
+    await rm(path, { force: true });
+  }
 }
 
 function requireSingleLink(stats: Stats, path: string): void {

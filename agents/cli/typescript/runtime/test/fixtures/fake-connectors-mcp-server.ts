@@ -19,6 +19,7 @@ export interface FakeConnectorRun {
   readonly toolName: string;
   readonly arguments: Readonly<Record<string, unknown>>;
   readonly idempotencyKey: string | undefined;
+  readonly meta: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -35,6 +36,8 @@ export class FakeConnectorsMcpServer {
   public readonly runs: FakeConnectorRun[] = [];
   /** When set, every request answers 503 with this reason, as `dexcli dev` does before the server is ready. */
   public unavailableReason: string | undefined;
+  /** The connection that `slack_post_thread_reply` names; tests rebind it. */
+  public slackConnection = "support-slack";
   private server: Server | undefined;
 
   /**
@@ -98,7 +101,12 @@ export class FakeConnectorsMcpServer {
     const server = new McpServer({ name: "fake-connectors", version: "1.0.0" });
     const record = (toolName: string, toolArguments: Record<string, unknown>, meta: Record<string, unknown> | undefined) => {
       const key = meta?.["io.superdurable.dex/idempotencyKey"];
-      this.runs.push({ toolName, arguments: toolArguments, idempotencyKey: typeof key === "string" ? key : undefined });
+      this.runs.push({
+        toolName,
+        arguments: toolArguments,
+        idempotencyKey: typeof key === "string" ? key : undefined,
+        meta: { ...meta },
+      });
     };
     server.registerTool(
       "hackernews_get_top_stories",
@@ -146,7 +154,7 @@ export class FakeConnectorsMcpServer {
       {
         description: "Reply in a Slack thread.",
         inputSchema: { text: z.string() },
-        _meta: identityMeta("slack", "support-slack", "postThreadReply"),
+        _meta: identityMeta("slack", this.slackConnection, "postThreadReply"),
       },
       (toolArguments, extra) => {
         record("slack_post_thread_reply", toolArguments, extra._meta);

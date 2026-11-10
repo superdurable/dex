@@ -175,11 +175,12 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
 
   test("dex.server auto refuses a server on its ports that is not a dexcli dev", async () => {
     const [dexPort, webPort] = await findFreeLoopbackPorts(2);
+    let definitionCount = 0;
     const impostor = createServer((request, response) => {
       if (request.url === "/readyz") {
         response
-          .writeHead(200, { "content-type": "application/json" })
-          .end(JSON.stringify({ status: "ready", definitionRevision: "r1", source: "directory", definitionCount: 0 }));
+          .writeHead(200, { "content-type": "application/json; charset=utf-8", etag: JSON.stringify("sha256:r1") })
+          .end(JSON.stringify({ status: "ready", definitionRevision: "sha256:r1", source: "local", definitionCount }));
         return;
       }
       response.writeHead(404).end();
@@ -198,6 +199,11 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       assert.match(cli.stderr.all, /answers, but it is not a dexcli dev \(127\.0\.0\.1:\d+ does not answer as a Dex server/);
       assert.doesNotMatch(cli.stderr.all, /Starting dexcli dev/);
       assert.doesNotMatch(cli.stdout.all, /Session /);
+
+      definitionCount = -1;
+      const wrongValues = start(home);
+      assert.equal(await wrongValues.waitForExit(), 1);
+      assert.match(wrongValues.stderr.all, /its \/readyz does not answer with Dex Web's readiness JSON and entity tag/);
     } finally {
       impostor.closeAllConnections();
       impostor.close();

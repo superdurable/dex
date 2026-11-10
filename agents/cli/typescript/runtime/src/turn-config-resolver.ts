@@ -14,12 +14,33 @@ import type {
   AgentTurnOutcome,
   DeferredToolOutcome,
   SessionSettings,
+  TurnSessionSettings,
 } from "@superdurable/dex-agents";
 
 import type { ResolvedTurn } from "./agent-harness.js";
 import { resolveTurn, type EffectiveConfig } from "./cli-config.js";
 
 const maximumCachedTurns = 64;
+
+/**
+ * The session and turn of one tool Step: a `DeferredToolExecution`'s `flowId` and `toolCall.turnId`, or a
+ * Stepwise `ToolCallContext`'s `flowId` and `turnId`.
+ *
+ * @since 0.5.0
+ */
+export interface ToolStepTurn {
+  /** The session's Flow ID. */
+  readonly flowId: string;
+  /** The turn that requested the call. */
+  readonly turnId: string;
+}
+
+/**
+ * Reads a session's committed `TurnSessionSettings` Attribute, or `undefined` when it has none.
+ *
+ * @since 0.5.0
+ */
+export type TurnSessionSettingsReader = (flowId: string) => Promise<TurnSessionSettings | undefined>;
 
 /**
  * Resolves each turn's configuration from its session settings and makes it visible to the tool sources.
@@ -40,11 +61,13 @@ export class TurnConfigResolver {
    * @param effective - The file's effective configuration.
    * @param fileInstructions - The file's instructions, or `null`.
    * @param reportWarnings - Called once per distinct settings with the JSON Pointers of their ignored keys.
+   * @param readTurnSessionSettings - Reads a session's turn settings, for tool Steps.
    */
   public constructor(
     private readonly effective: EffectiveConfig,
     private readonly fileInstructions: string | null,
     private readonly reportWarnings: (warnings: readonly string[]) => void,
+    private readonly readTurnSessionSettings: TurnSessionSettingsReader,
   ) {
     this.fileTurn = { ...effective, instructions: fileInstructions };
   }
@@ -92,6 +115,21 @@ export class TurnConfigResolver {
    */
   public turnOf(turn: AgentTurnContext): ResolvedTurn {
     return this.resolveTurn(turn.sessionSettings ?? {});
+  }
+
+  /**
+   * Returns the permissions of a tool Step: this Worker's file configuration with the settings its turn started
+   * with. A tool Step may run on another Worker than the model call that requested it, and outside the model
+   * call's scope, so tools check it right before they act. The settings come from the session's committed
+   * `TurnSessionSettings`; a copy from another turn reads as no settings, as in the session Flow.
+   *
+   * @param step - The tool Step's session and turn.
+   * @returns The turn's configuration on this Worker.
+   * @throws {ConfigError} When the turn's settings fail resolution against this Worker's file.
+   */
+  public async resolveToolStep(step: ToolStepTurn): Promise<ResolvedTurn> {
+    const stored = await this.readTurnSessionSettings(step.flowId);
+    return this.resolveTurn(stored !== undefined && stored.turnId === step.turnId ? stored.sessionSettings : {});
   }
 
   /**

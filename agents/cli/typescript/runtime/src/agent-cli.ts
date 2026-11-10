@@ -15,7 +15,14 @@ import type { Readable, Writable } from "node:stream";
 import { parseArgs } from "node:util";
 
 import { Client, FlowNotFoundError, Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
-import { startAgentSession, type ToolSource } from "@superdurable/dex-agents";
+import {
+  startAgentSession,
+  type AgentFrameworkRunner,
+  type AgentSessionFlow,
+  type DeferredToolOutcome,
+  type ToolSource,
+  type TurnSessionSettings,
+} from "@superdurable/dex-agents";
 
 import type { AgentHarness, HarnessContext, LocalToolGroup } from "./agent-harness.js";
 import { localToolGroups } from "./agent-harness.js";
@@ -36,6 +43,7 @@ import {
 } from "./config-file.js";
 import {
   ConnectorsMcpToolSource,
+  DisabledConnectorsToolSource,
   probeConnectorsMcp,
   type ConnectorToolIdentity,
 } from "./connector-tool-source.js";
@@ -158,6 +166,7 @@ class AgentCliCommand {
   private blobCache: BlobCache | undefined;
   private blobCacheDirectory: string | undefined;
   private localTools: LocalToolSource | undefined;
+  private sessionFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> | undefined;
 
   public constructor(
     private readonly harness: AgentHarness,
@@ -254,16 +263,14 @@ class AgentCliCommand {
       effective,
       readFileInstructions(effective, loaded.configPath, this.environment.homeDirectory),
       (warnings) => this.log(`Session settings keys ignored: ${warnings.join(", ")}`),
+      (flowId) => this.readTurnSessionSettings(flowId),
     );
     const workspace = this.prepareWorkspace(effective, loaded);
     const flowType = this.sessionFlowType(loaded, workspace);
-    const connectorSource = await this.connectConnectors(effective, server, turns, true);
-    const offeredGroups = this.offeredLocalToolGroups(effective);
-    const toolSources: ToolSource[] = connectorSource === undefined ? [] : [connectorSource];
-    if (offeredGroups.size > 0) {
-      this.localTools = new LocalToolSource(workspace, offeredGroups, turns, this.log);
-      toolSources.push(this.localTools);
-    }
+    // Both sources stay registered even when switched off, so they refuse calls another process requested.
+    const connectorSource = (await this.connectConnectors(effective, server, turns, true)) ?? new DisabledConnectorsToolSource();
+    this.localTools = new LocalToolSource(workspace, this.offeredLocalToolGroups(effective), turns, this.log);
+    const toolSources: ToolSource[] = [connectorSource, this.localTools];
     const context: HarnessContext = {
       flowType,
       config: effective,
@@ -273,12 +280,14 @@ class AgentCliCommand {
       toolSources,
       resolveTurn: (sessionSettings) => turns.resolveTurn(sessionSettings),
       currentTurn: () => turns.currentTurn(),
+      resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
     };
     const flow = this.harness.createSessionFlow(context);
     if (flow.getFlowType() !== flowType) {
       throw new Error(`the harness built a ${flow.getFlowType()} Flow; build it with HarnessContext.flowType ${flowType}`);
     }
     turns.installOn(flow.runner);
+    this.sessionFlow = flow;
     const registry = new Registry([flow]);
     this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
     this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
@@ -286,13 +295,14 @@ class AgentCliCommand {
       serverAddress: server.serverAddress,
       ...(server.isTls ? { flowServiceTls: {} } : {}),
     };
+    // The Client exists before the Worker starts, because tool Steps read their turn's settings through it.
+    this.client = new Client(registry, this.blobCache, connection);
     this.worker = new Worker(registry, this.blobCache, {
       ...connection,
       pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
     });
     await this.worker.start();
     await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
-    this.client = new Client(registry, this.blobCache, connection);
     const sessionId = await this.openSession(this.client, flow, flowType);
     this.io.stdout.write(
       `Session ${sessionId}. Type a message; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
@@ -301,6 +311,15 @@ class AgentCliCommand {
     const isFailed = await chat.run();
     this.io.stdout.write(`\nSession ${sessionId} keeps running. Resume it with: dex-agents-${this.harness.name} --resume ${sessionId}\n`);
     return isFailed ? 1 : 0;
+  }
+
+  /** Reads a session's committed turn settings through the command's Client. */
+  private async readTurnSessionSettings(flowId: string): Promise<TurnSessionSettings | undefined> {
+    if (this.client === undefined || this.sessionFlow === undefined) {
+      throw new Error("tool Steps run only after the session Flow and Client exist");
+    }
+    const [stored] = await this.client.getAttributes(flowId, this.sessionFlow.turnSessionSettings);
+    return stored;
   }
 
   /**
@@ -415,7 +434,7 @@ class AgentCliCommand {
       this.io.stdout.write(`Connectors MCP server ${url} is unavailable: ${availability.reason}\n`);
       return 1;
     }
-    const turns = new TurnConfigResolver(effective, null, () => undefined);
+    const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined));
     const source = new ConnectorsMcpToolSource(url, turns, this.log);
     const identities = await source.readIdentities();
     const operationsByConnection = new Map<string, string[]>();

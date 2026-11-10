@@ -213,6 +213,13 @@ export interface McpToolCallOptions {
   readonly saveHeartbeatCheckpoint?: (checkpoint: string) => Promise<void>;
   /** Aborts the requests, for example the tool Step's cancellation signal. */
   readonly signal?: AbortSignal;
+  /**
+   * More `_meta` entries to send with the `tools/call` request, such as the identity the caller expects the tool
+   * to have. The {@link mcpIdempotencyKeyMetaKey} entry from {@link idempotencyKey} wins over an entry with the
+   * same key. Defaults to none.
+   * @since 0.5.0
+   */
+  readonly requestMeta?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -668,12 +675,17 @@ export class McpToolSource {
    * The source saves the task ID as the heartbeat checkpoint first; a retried attempt that reads it returns
    * the same task without calling the tool again.
    * @param call - The approved call from the tool Step.
+   * @param options - `requestMeta`: more `_meta` entries for the `tools/call` request, as in
+   * {@link McpToolCallOptions.requestMeta}. Since 0.5.0.
    * @returns The tool output the model sees, or {@link ToolTaskStarted} for a task that `PollToolTask` polls.
    * @throws {ToolExecutionError} When the arguments are not a JSON object, the tool failed, the server
    * answered with an error or asked for input, or the call was never sent.
    * @throws {McpToolCallInterruptedError} When the call was sent and no result came back.
    */
-  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult | ToolTaskStarted> {
+  public async executeDeferredToolCall(
+    call: DeferredToolExecution,
+    options: { readonly requestMeta?: Readonly<Record<string, unknown>> } = {},
+  ): Promise<ToolExecutionResult | ToolTaskStarted> {
     const toolArguments = parseToolArguments(call.toolCall.arguments);
     if (this.isResourceAndPromptTool(call.toolCall.toolName)) {
       return this.runResourceAndPromptTool(call.toolCall.toolName, toolArguments, call.cancellationSignal);
@@ -696,6 +708,7 @@ export class McpToolSource {
         ? {}
         : { saveHeartbeatCheckpoint: (checkpoint: string) => call.saveHeartbeatCheckpoint!(checkpoint) }),
       signal: call.cancellationSignal,
+      ...(options.requestMeta === undefined ? {} : { requestMeta: options.requestMeta }),
     }, isTaskPolledBySession);
   }
 
@@ -1176,7 +1189,12 @@ class McpToolCall {
 
   private async sendToolCall({ client, transport }: McpConnection): Promise<ToolCallOutcome> {
     const meta =
-      this.options.idempotencyKey === undefined ? undefined : { [mcpIdempotencyKeyMetaKey]: this.options.idempotencyKey };
+      this.options.idempotencyKey === undefined && this.options.requestMeta === undefined
+        ? undefined
+        : {
+            ...this.options.requestMeta,
+            ...(this.options.idempotencyKey === undefined ? {} : { [mcpIdempotencyKeyMetaKey]: this.options.idempotencyKey }),
+          };
     const params = { name: this.target.mcpToolName, arguments: this.toolArguments, ...(meta === undefined ? {} : { _meta: meta }) };
     const requestOptions = {
       timeout: this.limits.requestTimeoutMs,
