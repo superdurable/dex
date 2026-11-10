@@ -193,6 +193,9 @@ type connectorConnectionWriteExpectation struct {
 	isFlowDeclared bool
 	// storedRevision is the file record's revision at authorization, or empty when the file held none.
 	storedRevision string
+	// modulePath and moduleVersion are the release the write was authorized for.
+	modulePath    string
+	moduleVersion string
 }
 
 // newConnectorConnectionWriteExpectation records the Flow declaration and the stored record of a connection
@@ -214,12 +217,12 @@ func (setup *connectorSetup) newConnectorConnectionWriteExpectation(
 	}
 	return connectorConnectionWriteExpectation{
 		generation: generation, isFlowDeclared: isFlowDeclared, storedRevision: storedRevision,
+		modulePath: identity.ModulePath, moduleVersion: identity.ModuleVersion,
 	}, nil
 }
 
-// putConnectionIfCurrent saves a connection as a compare-and-set under connectionsMu. The write must still be
-// current (see doCheckConnectionWriteIsCurrent), and the current Flow definitions or the added connection must
-// still name the connection's module. Otherwise it saves nothing and returns errConnectorConnectionChanged.
+// putConnectionIfCurrent saves a connection of the authorized release as a compare-and-set under connectionsMu;
+// see doCheckConnectionWriteIsCurrent. Otherwise it saves nothing and returns errConnectorConnectionChanged.
 func (setup *connectorSetup) putConnectionIfCurrent(
 	ctx context.Context,
 	connection localConnectorConnection,
@@ -229,26 +232,12 @@ func (setup *connectorSetup) putConnectionIfCurrent(
 	setup.connectionsMu.Lock()
 	defer setup.connectionsMu.Unlock()
 	key := connectorConnectionKey(connection.ConnectorID, connection.ConnectionName)
-	if err := setup.doCheckConnectionWriteIsCurrent(connection.ConnectorID, connection.ConnectionName, expectation); err != nil {
-		return err
-	}
-	snapshot, err := setup.flowDefinitions.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("load Flow definitions before saving a Connector connection: %w", err)
-	}
-	declared, isFlowDeclared, isConflict, err := connectorDefinitionForKey(
-		snapshot.Response, connection.ConnectorID, connection.ConnectionName, setup.releases.overrideIdentities(),
-	)
-	if err != nil {
-		return err
-	}
-	if isFlowDeclared != expectation.isFlowDeclared || isConflict ||
-		(isFlowDeclared && !hasConnectorModule(declared, connection.ModulePath, connection.ModuleVersion)) {
+	if !hasConnectorModule(connectorDefinitionIdentity{ModulePath: expectation.modulePath, ModuleVersion: expectation.moduleVersion},
+		connection.ModulePath, connection.ModuleVersion) {
 		return errConnectorConnectionChanged
 	}
-	if pending, isPending := setup.pendingConnections[key]; isPending &&
-		!hasConnectorModule(pending, connection.ModulePath, connection.ModuleVersion) {
-		return errConnectorConnectionChanged
+	if err := setup.doCheckConnectionWriteIsCurrent(ctx, connection.ConnectorID, connection.ConnectionName, expectation); err != nil {
+		return err
 	}
 	if err := setup.store.put(connection, keepCredentialFields); err != nil {
 		return err
@@ -262,13 +251,16 @@ func hasConnectorModule(identity connectorDefinitionIdentity, modulePath string,
 }
 
 // doCheckConnectionWriteIsCurrent requires connectionsMu. It returns errConnectorConnectionChanged unless the key
-// keeps the generation and the file keeps the record revision that the write was authorized against.
+// keeps the generation and the file keeps the record revision that the write was authorized against, and the
+// current Flow definitions and any added connection still name the authorized release.
 func (setup *connectorSetup) doCheckConnectionWriteIsCurrent(
+	ctx context.Context,
 	connectorID string,
 	connectionName string,
 	expectation connectorConnectionWriteExpectation,
 ) error {
-	if setup.connectionGenerations[connectorConnectionKey(connectorID, connectionName)] != expectation.generation {
+	key := connectorConnectionKey(connectorID, connectionName)
+	if setup.connectionGenerations[key] != expectation.generation {
 		return errConnectorConnectionChanged
 	}
 	storedRevision, err := setup.store.revision(connectorID, connectionName)
@@ -278,18 +270,46 @@ func (setup *connectorSetup) doCheckConnectionWriteIsCurrent(
 	if storedRevision != expectation.storedRevision {
 		return errConnectorConnectionChanged
 	}
+	snapshot, err := setup.flowDefinitions.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load Flow definitions before writing a Connector connection: %w", err)
+	}
+	declared, isFlowDeclared, isConflict, err := connectorDefinitionForKey(
+		snapshot.Response, connectorID, connectionName, setup.releases.overrideIdentities(),
+	)
+	if err != nil {
+		return err
+	}
+	if isFlowDeclared != expectation.isFlowDeclared || isConflict ||
+		(isFlowDeclared && !hasConnectorModule(declared, expectation.modulePath, expectation.moduleVersion)) {
+		return errConnectorConnectionChanged
+	}
+	if pending, isPending := setup.pendingConnections[key]; isPending &&
+		!hasConnectorModule(pending, expectation.modulePath, expectation.moduleVersion) {
+		return errConnectorConnectionChanged
+	}
 	return nil
 }
 
-// putTriggerBindingIfCurrent saves a Trigger binding while its connection's write is still current.
+// putTriggerBindingIfCurrent saves a Trigger binding while its connection's write is still current and the binding
+// keeps the revision it had at authorization, empty when it was absent.
 func (setup *connectorSetup) putTriggerBindingIfCurrent(
+	ctx context.Context,
 	binding localConnectorTriggerBinding,
 	expectation connectorConnectionWriteExpectation,
+	bindingRevision string,
 ) error {
 	setup.connectionsMu.Lock()
 	defer setup.connectionsMu.Unlock()
-	if err := setup.doCheckConnectionWriteIsCurrent(binding.ConnectorID, binding.ConnectionName, expectation); err != nil {
+	if err := setup.doCheckConnectionWriteIsCurrent(ctx, binding.ConnectorID, binding.ConnectionName, expectation); err != nil {
 		return err
+	}
+	currentBindingRevision, err := setup.store.triggerBindingRevision(binding)
+	if err != nil {
+		return err
+	}
+	if currentBindingRevision != bindingRevision {
+		return errConnectorConnectionChanged
 	}
 	return setup.store.putTriggerBinding(binding)
 }
@@ -297,13 +317,14 @@ func (setup *connectorSetup) putTriggerBindingIfCurrent(
 // deleteConnection deletes the stored record and any added connection for the key while the delete is still
 // current, and reports whether either existed. It returns errConnectorConnectionChanged when it is not.
 func (setup *connectorSetup) deleteConnection(
+	ctx context.Context,
 	connectorID string,
 	connectionName string,
 	expectation connectorConnectionWriteExpectation,
 ) (bool, error) {
 	setup.connectionsMu.Lock()
 	defer setup.connectionsMu.Unlock()
-	if err := setup.doCheckConnectionWriteIsCurrent(connectorID, connectionName, expectation); err != nil {
+	if err := setup.doCheckConnectionWriteIsCurrent(ctx, connectorID, connectionName, expectation); err != nil {
 		return false, err
 	}
 	key := connectorConnectionKey(connectorID, connectionName)

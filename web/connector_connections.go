@@ -375,7 +375,9 @@ func (setup *connectorSetup) handleDeleteConnection(response http.ResponseWriter
 	if !ok {
 		return
 	}
-	deleted, err := setup.deleteConnection(request.PathValue("connectorId"), request.PathValue("connectionName"), snapshot.ConnectionWrite)
+	deleted, err := setup.deleteConnection(
+		request.Context(), request.PathValue("connectorId"), request.PathValue("connectionName"), snapshot.ConnectionWrite,
+	)
 	if err != nil {
 		writeConnectorConnectionPutError(response, err, "CONNECTOR_CONNECTION_DELETE_FAILED", "Connector connection could not be deleted")
 		return
@@ -463,6 +465,13 @@ func (setup *connectorSetup) handlePutTriggerBinding(response http.ResponseWrite
 	}
 	triggerName := request.PathValue("triggerName")
 	bindingName := request.PathValue("bindingName")
+	bindingRevision, err := setup.store.triggerBindingRevision(localConnectorTriggerBinding{
+		ConnectorID: identity.ConnectorID, ConnectionName: identity.ConnectionName, TriggerName: triggerName, BindingName: bindingName,
+	})
+	if err != nil {
+		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_TRIGGER_BINDINGS_UNAVAILABLE", "Connector Trigger bindings are unavailable")
+		return
+	}
 	binding, found, conflict, err := connectorTriggerDefinitionForKey(
 		snapshot.Response, identity.ConnectorID, identity.ConnectionName, triggerName, bindingName,
 	)
@@ -489,7 +498,7 @@ func (setup *connectorSetup) handlePutTriggerBinding(response http.ResponseWrite
 		ConnectorID: identity.ConnectorID, ConnectionName: identity.ConnectionName,
 		TriggerName: triggerName, BindingName: bindingName, Configuration: body.Configuration,
 	}
-	if err := setup.putTriggerBindingIfCurrent(localBinding, snapshot.ConnectionWrite); err != nil {
+	if err := setup.putTriggerBindingIfCurrent(request.Context(), localBinding, snapshot.ConnectionWrite, bindingRevision); err != nil {
 		writeConnectorConnectionPutError(response, err, "CONNECTOR_TRIGGER_BINDING_WRITE_FAILED", "Connector Trigger binding could not be saved")
 		return
 	}

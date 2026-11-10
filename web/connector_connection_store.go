@@ -177,6 +177,26 @@ func (store *connectorConnectionStore) revision(connectorID string, connectionNa
 	return connectorConnectionRevision(stored.localConnectorConnection)
 }
 
+// triggerBindingRevision returns the stored binding's revision for the binding's key, or "" when the file holds none.
+func (store *connectorConnectionStore) triggerBindingRevision(binding localConnectorTriggerBinding) (string, error) {
+	bindings, err := store.listTriggerBindings(binding.ConnectorID, binding.ConnectionName)
+	if err != nil {
+		return "", err
+	}
+	for _, stored := range bindings {
+		if stored.TriggerName != binding.TriggerName || stored.BindingName != binding.BindingName {
+			continue
+		}
+		encoded, err := json.Marshal(stored)
+		if err != nil {
+			return "", fmt.Errorf("encode Connector Trigger binding for its revision: %w", err)
+		}
+		digest := sha256.Sum256(encoded)
+		return hex.EncodeToString(digest[:]), nil
+	}
+	return "", nil
+}
+
 // connectorConnectionRevision hashes a record's JSON encoding, so the revision is the same after the file is read again.
 func connectorConnectionRevision(connection localConnectorConnection) (string, error) {
 	encoded, err := json.Marshal(connection)

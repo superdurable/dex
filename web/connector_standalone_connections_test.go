@@ -318,14 +318,15 @@ func TestTriggerBindingWriteIsRefusedAfterItsConnectionIsDeletedOrCreatedAgain(t
 		ConnectorID: "slack", ConnectionName: "workspace", TriggerName: "threadReplyCreated", BindingName: "approvals",
 		Configuration: map[string]json.RawMessage{},
 	}
-	if err := setup.putTriggerBindingIfCurrent(binding, connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
+	if err := setup.putTriggerBindingIfCurrent(context.Background(), binding, connectionTestWriteExpectation(t, setup, "slack", "workspace"), ""); err != nil {
 		t.Fatal(err)
 	}
 	staleBinding := connectionTestWriteExpectation(t, setup, "slack", "workspace")
-	if _, err := setup.deleteConnection("slack", "workspace", connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
+	staleBindingRevision := triggerBindingTestRevision(t, setup, binding)
+	if _, err := setup.deleteConnection(context.Background(), "slack", "workspace", connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
 		t.Fatal(err)
 	}
-	if err := setup.putTriggerBindingIfCurrent(binding, staleBinding); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putTriggerBindingIfCurrent(context.Background(), binding, staleBinding, staleBindingRevision); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("binding write after delete err = %v", err)
 	}
 	if err := setup.store.putTriggerBinding(binding); !errors.Is(err, errConnectorConnectionChanged) {
@@ -335,7 +336,7 @@ func TestTriggerBindingWriteIsRefusedAfterItsConnectionIsDeletedOrCreatedAgain(t
 	if err := setup.store.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := setup.putTriggerBindingIfCurrent(binding, staleBinding); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putTriggerBindingIfCurrent(context.Background(), binding, staleBinding, staleBindingRevision); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("binding write after delete and create again err = %v", err)
 	}
 	if bindings, err := setup.store.listTriggerBindings("slack", "workspace"); err != nil || len(bindings) != 0 {
@@ -354,9 +355,12 @@ func TestTriggerBindingWriteIsRefusedAfterItsConnectionIsDeletedOrCreatedAgain(t
 			}
 			switch index % 3 {
 			case 0:
-				_, err = setup.deleteConnection("slack", "workspace", expectation)
+				_, err = setup.deleteConnection(context.Background(), "slack", "workspace", expectation)
 			case 1:
-				err = setup.putTriggerBindingIfCurrent(binding, expectation)
+				var bindingRevision string
+				if bindingRevision, err = setup.store.triggerBindingRevision(binding); err == nil {
+					err = setup.putTriggerBindingIfCurrent(context.Background(), binding, expectation, bindingRevision)
+				}
 			default:
 				err = setup.store.put(connection, nil)
 			}
@@ -397,7 +401,7 @@ func TestConnectionSavesAndDeletesAreCompareAndSetOnTheStoredRecord(t *testing.T
 	if err := setup.putConnectionIfCurrent(ctx, second, nil, connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
 		t.Fatal(err)
 	}
-	if deleted, err := setup.deleteConnection("slack", "workspace", deleteBeforeSave); deleted || !errors.Is(err, errConnectorConnectionChanged) {
+	if deleted, err := setup.deleteConnection(context.Background(), "slack", "workspace", deleteBeforeSave); deleted || !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("delete authorized before a save: deleted = %v, err = %v", deleted, err)
 	}
 	if stored := getConnectorTestConnection(t, setup, "slack", "workspace"); string(stored.Credentials["access_token"]) != `"xoxb-from-second-save"` {
@@ -405,7 +409,7 @@ func TestConnectionSavesAndDeletesAreCompareAndSetOnTheStoredRecord(t *testing.T
 	}
 
 	saveBeforeDelete := connectionTestWriteExpectation(t, setup, "slack", "workspace")
-	if _, err := setup.deleteConnection("slack", "workspace", connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
+	if _, err := setup.deleteConnection(context.Background(), "slack", "workspace", connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
 		t.Fatal(err)
 	}
 	if err := setup.putConnectionIfCurrent(ctx, first, nil, saveBeforeDelete); !errors.Is(err, errConnectorConnectionChanged) {
@@ -541,9 +545,23 @@ func newConnectionTestWriteExpectation(
 	if err != nil {
 		return connectorConnectionWriteExpectation{}, err
 	}
-	return setup.newConnectorConnectionWriteExpectation(
-		snapshot.Response, connectorDefinitionIdentity{ConnectorID: connectorID, ConnectionName: connectionName}, generation,
-	)
+	identity, found, _, err := setup.resolveConnectionIdentity(snapshot.Response, connectorID, connectionName)
+	if err != nil {
+		return connectorConnectionWriteExpectation{}, err
+	}
+	if !found {
+		identity = connectorDefinitionIdentity{ConnectorID: connectorID, ConnectionName: connectionName}
+	}
+	return setup.newConnectorConnectionWriteExpectation(snapshot.Response, identity, generation)
+}
+
+func triggerBindingTestRevision(t *testing.T, setup *connectorSetup, binding localConnectorTriggerBinding) string {
+	t.Helper()
+	revision, err := setup.store.triggerBindingRevision(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return revision
 }
 
 func TestStandaloneConnectionAddRequiresTheCSRFToken(t *testing.T) {
@@ -976,5 +994,71 @@ func TestConnectorCatalogFetchOutlivesTheCallerThatStartedIt(t *testing.T) {
 	}
 	if requests.Load() != 1 {
 		t.Fatalf("catalog requests = %d, want the canceled caller's fetch to serve the second caller", requests.Load())
+	}
+}
+
+func TestTwoWritesOfOneTriggerBindingSaveOnlyTheFirst(t *testing.T) {
+	ctx := context.Background()
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, nil))
+	if err := setup.store.put(testLocalConnectorConnection("slack", "workspace", "xoxb", nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	binding := func(phrase string) localConnectorTriggerBinding {
+		return localConnectorTriggerBinding{
+			ConnectorID: "slack", ConnectionName: "workspace", TriggerName: "threadReplyCreated", BindingName: "approvals",
+			Configuration: map[string]json.RawMessage{"phrase": json.RawMessage(`"` + phrase + `"`)},
+		}
+	}
+	for _, existing := range []string{"", "original"} {
+		if existing != "" {
+			if err := setup.putTriggerBindingIfCurrent(ctx, binding(existing),
+				connectionTestWriteExpectation(t, setup, "slack", "workspace"), triggerBindingTestRevision(t, setup, binding(existing))); err != nil {
+				t.Fatal(err)
+			}
+		}
+		firstConnection, secondConnection := connectionTestWriteExpectation(t, setup, "slack", "workspace"), connectionTestWriteExpectation(t, setup, "slack", "workspace")
+		firstBinding, secondBinding := triggerBindingTestRevision(t, setup, binding("")), triggerBindingTestRevision(t, setup, binding(""))
+		if err := setup.putTriggerBindingIfCurrent(ctx, binding("first"), firstConnection, firstBinding); err != nil {
+			t.Fatalf("existing %q: first binding write err = %v", existing, err)
+		}
+		if err := setup.putTriggerBindingIfCurrent(ctx, binding("second"), secondConnection, secondBinding); !errors.Is(err, errConnectorConnectionChanged) {
+			t.Fatalf("existing %q: second binding write err = %v", existing, err)
+		}
+		bindings, err := setup.store.listTriggerBindings("slack", "workspace")
+		if err != nil || len(bindings) != 1 || string(bindings[0].Configuration["phrase"]) != `"first"` {
+			t.Fatalf("existing %q: bindings = %+v, err = %v", existing, bindings, err)
+		}
+	}
+}
+
+func TestDeleteAndBindingWriteAreRefusedWhenTheFlowMovesToAnotherRelease(t *testing.T) {
+	ctx := context.Background()
+	race := newFlowReleaseRaceTest(t)
+	connection := testLocalConnectorConnection("slack", "workspace", "xoxb", nil)
+	connection.ModulePath, connection.ModuleVersion, connection.Provider = standaloneSlackTestModulePath, "v1.3.0", "slack"
+	if err := race.setup.store.put(connection, nil); err != nil {
+		t.Fatal(err)
+	}
+	binding := localConnectorTriggerBinding{
+		ConnectorID: "slack", ConnectionName: "workspace", TriggerName: "threadReplyCreated", BindingName: "approvals",
+		Configuration: map[string]json.RawMessage{},
+	}
+	deleteWrite := connectionTestWriteExpectation(t, race.setup, "slack", "workspace")
+	bindingWrite := connectionTestWriteExpectation(t, race.setup, "slack", "workspace")
+	if !bindingWrite.isFlowDeclared || bindingWrite.moduleVersion != "v1.3.0" {
+		t.Fatalf("authorization did not see the Flow's v1.3.0 connection: %+v", bindingWrite)
+	}
+	race.provider.replace(race.v2Snapshot)
+	if deleted, err := race.setup.deleteConnection(ctx, "slack", "workspace", deleteWrite); deleted || !errors.Is(err, errConnectorConnectionChanged) {
+		t.Fatalf("delete after the Flow moved: deleted = %v, err = %v", deleted, err)
+	}
+	if err := race.setup.putTriggerBindingIfCurrent(ctx, binding, bindingWrite, ""); !errors.Is(err, errConnectorConnectionChanged) {
+		t.Fatalf("binding write after the Flow moved err = %v", err)
+	}
+	if stored := getConnectorTestConnection(t, race.setup, "slack", "workspace"); stored.ModuleVersion != "v1.3.0" {
+		t.Fatalf("stored = %+v", stored)
+	}
+	if bindings, err := race.setup.store.listTriggerBindings("slack", "workspace"); err != nil || len(bindings) != 0 {
+		t.Fatalf("an old-release binding landed: %+v, %v", bindings, err)
 	}
 }
