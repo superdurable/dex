@@ -121,6 +121,29 @@ def checkRunInvariant (config : Config σ) (run : Run σ) : List String :=
     | some { method := method, state := .running taskId } => some (record, method, taskId)
     | _ => none)
   failsUnless "stepIdsNodup" (steps.map (fun record => record.id)).Nodup ++
+  failsUnless "stepNumbersCounted" (steps.all (fun record =>
+    decide (record.id.number ≤ (run.base.counters.get? record.id.stepType).getD 0))) ++
+  failsUnless "invocationMatchesPhase" (steps.all (fun record =>
+    match record.invocation with
+    | some invocation =>
+      decide (record.phase = (match invocation.method with
+        | .waitFor => Dex.Phase.waitFor
+        | .execute => Dex.Phase.execute))
+    | none => !decide (record.phase = .waitFor) && !decide (record.phase = .execute))) ++
+  failsUnless "historiesHaveSteps" (ghost.invocations.all (fun entry =>
+    steps.any (fun record => decide (record.id = entry.1.1) &&
+      (!decide (entry.1.2 = .execute) ||
+        decide (record.phase = .execute) || decide (record.phase = .completed) ||
+        decide (record.phase = .canceled))))) ++
+  failsUnless "retryTimersHaveHistories" (run.retryTimers.all (fun entry =>
+    (ghost.findInvocation? (entry.1.step, entry.1.method)).isSome)) ++
+  failsUnless "retryTimersNotAhead" (run.retryTimers.all (fun entry =>
+    steps.all (fun record =>
+      !decide (record.id = entry.1.step) ||
+        match record.invocation, run.findAttempt? record.id with
+        | some invocation, some attempt =>
+          !decide (invocation.method = entry.1.method) || decide (entry.1.attempt ≤ attempt.number)
+        | _, _ => true))) ++
   failsUnless "waitTimersNodup" (run.base.timers.map (fun entry => entry.1)).Nodup ++
   failsUnless "retryTimersNodup" (run.retryTimers.map (fun entry => entry.1)).Nodup ++
   failsUnless "attemptKeysNodup" (run.attempts.map (fun entry => entry.1)).Nodup ++

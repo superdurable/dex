@@ -127,6 +127,15 @@ def retryErasureChunk (word : Sequence (Request σ)) (position : Nat) : List (De
     | _ + 1, some first => if first.isRetryOf request then [] else [request.toDex]
     | _, _ => [request.toDex]
 
+/-- An outcome word without retries: no request after the first is a retry of
+the first (spec §11.3). Liveness holds as an equality only for such words
+(`liveness_failure`): a deduplicated retry is a log commit whose stamp
+strictly advances the partition clock, so retries can force time past a
+timer's fire time and remove a failure-free outcome. -/
+def HasNoRetry (word : Sequence (Request σ)) : Prop :=
+  ∀ position first request, word 0 = some first → word (position + 1) = some request →
+    first.isRetryOf request = false
+
 /-- `erased` is `w↓` of the finite or infinite outcome word `word` (spec
 §11.5). -/
 def IsRetryErasure (word : Sequence (Request σ)) (erased : Sequence (Dex.Request σ)) : Prop :=
@@ -231,9 +240,12 @@ def FailuresAreFinite : Prop :=
 def ServerRecovers : Prop :=
   ∀ index, run.labels index = .crash → ∃ later, index < later ∧ run.labels later = .recover
 
-/-- FI, interrupts commit: "Every element of `I` eventually takes
-[RECOVER-INTERRUPT]." An element leaves `I` only by its interrupt or by
-[CRASH]; by FF and FR the last [RECOVER] is followed by interrupts only. -/
+/-- FI, interrupts commit. Spec §11.5 says "Every element of `I` eventually
+takes [RECOVER-INTERRUPT]." Lean decision: every element of `I` eventually
+leaves `I`, by [RECOVER-INTERRUPT] or by a [CRASH] that empties `I`. This is
+the code's behavior: `I` is engine memory, and the next [RECOVER] rebuilds it
+from the durable Running invocations (`partition_rebuild.rs:112-148`). By FF
+and FR there is a last [RECOVER]; after it the two readings coincide. -/
 def InterruptsCommit : Prop :=
   ∀ interrupt : Interrupt σ, EventuallyFails (fun index => interrupt ∈ (run.states index).interrupts)
 

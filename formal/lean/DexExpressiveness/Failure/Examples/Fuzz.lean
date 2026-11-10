@@ -370,6 +370,31 @@ def perturbations (program : Program σ) (config : Config σ) : List (String × 
               { step := record.id, method := invocation.method, attempt := attempt.number } config.clock })
         | _, _ => none) ++
       run.base.steps.filterMap (fun record =>
+        match record.invocation, run.findAttempt? record.id with
+        | some invocation, some attempt =>
+          some ("retryTimer.addAhead", withRun { run with
+            retryTimers := run.retryTimers.set
+              { step := record.id, method := invocation.method, attempt := attempt.number + 1 }
+              config.clock })
+        | _, _ => none) ++
+      [("base.counters.reset", withRun { run with base := { run.base with counters := [] } }),
+       ("base.counters.decrement", withRun { run with
+          base := { run.base with
+            counters := run.base.counters.map (fun entry => (entry.1, entry.2 - 1)) } })] ++
+      run.base.steps.flatMap (fun record =>
+        ([Dex.Phase.waitFor, .waiting, .execute, .completed, .canceled].filter
+            (fun phase => phase != record.phase)).map (fun phase =>
+          ("step.phase", withRun { run with
+            base := run.base.updateStep record.id (fun current => { current with phase := phase }) }))) ++
+      run.base.steps.filterMap (fun record =>
+        if (ghost.findInvocation? (record.id, .execute)).isSome then none
+        else
+          some ("ghost.history.addExecute", { config with
+            ghost := { ghost with
+              invocations := ghost.invocations ++
+                [((record.id, .execute),
+                  { InvocationHistory.fresh ghost.normalCount with outcome := .canceled })] } })) ++
+      run.base.steps.filterMap (fun record =>
         match record.invocation with
         | some { method := method, state := .running _ } =>
           some ("invocation.pending", withRun { run with

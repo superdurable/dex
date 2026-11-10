@@ -1066,6 +1066,7 @@ binary `formal/lean/.lake/build/bin/failure-fuzz` is in `.gitignore` and
 | `Failure/Equality.lean`, `Failure/Check.lean` | Test tooling: decidable equality of configurations; `checkStepSimulated`, the decision of `IsStepSimulated`; `checkInvariant`, the Boolean mirror of `Invariant`, clause by clause. | Tooling |
 | `Failure/Examples/Script.lean`, `Failure/Examples/CrashRetryZombie.lean` | Two DexF runs of `main(x): emit(1); exit(0)`, checked in the kernel: one with a crash, two retries, a zombie effect, an interrupt, a stale result, a zombie drop, and a StartFlow retry; one in which a zombie's result commits before its interrupt, which apply then ignores. | Proved, no `sorry` |
 | `Failure/Examples/Fuzz.lean`, `FailureFuzz.lean` | The inductiveness fuzz and its executable `lake exe failure-fuzz`. | Tooling |
+| `Failure/Examples/ReviewProbes.lean` | The two findings of the first review, kept as kernel-checked regression checks: the configuration with a reused Step execution ID, which `Invariant` now rejects, and the timer race that retries change. | Proved, no `sorry` |
 
 A reviewer reads, in order: `Failure/Config.lean`, `Failure/Rules.lean`,
 `Failure/Repeats.lean`, `Failure/Abstraction.lean`,
@@ -1096,10 +1097,15 @@ theorem liveness_failure (program : Program σ)
     (word : Sequence (Request σ)) (isAdmissible : IsAdmissibleOutcomeWord environment word)
     (erasedWord : Sequence (Dex.Request σ)) (isErasure : IsRetryErasure word erasedWord)
     (trace : Sequence (Dex.Obs σ)) (marker : Marker) :
-    (∃ failureTrace, IsFailureFairMaximalTrace program word failureTrace marker ∧
-        IsRepeatErasure failureTrace trace) ↔
+    ((∃ failureTrace, IsFailureFairMaximalTrace program word failureTrace marker ∧
+        IsRepeatErasure failureTrace trace) →
       (Dex.system program.failureFreeFlow).IsFairMaximalTrace Dex.IsFair some erasedWord trace
-        marker
+        marker) ∧
+    (HasNoRetry word →
+      (Dex.system program.failureFreeFlow).IsFairMaximalTrace Dex.IsFair some erasedWord trace
+        marker →
+      ∃ failureTrace, IsFailureFairMaximalTrace program word failureTrace marker ∧
+        IsRepeatErasure failureTrace trace)
 
 theorem endToEnd_safety (program : L.Program) (isWellFormed : program.IsWellFormed) :
     (∀ lTrace, IsLFiniteTrace program lTrace →
@@ -1124,15 +1130,16 @@ theorem endToEnd_safety (program : L.Program) (isWellFormed : program.IsWellForm
 | WP-F5 | `safety_failure_forward` | `erase(t)` is a finite Dex trace for `w↓`. |
 | WP-F5 | `safety_failure_repetition` | `t` is a repetition of a finite Dex trace for `w↓`. |
 | WP-F6 | `isProgress_eq_dexProgress` | The progress Boolean of an enabled label is the progress rule of spec §11.5: its image under the transition map has a Dex progress step. So the DexF marker is the spec's. |
-| WP-F6 | `liveness_failure` | Fair maximal traces with markers, per admissible outcome word, are equal after `erase`. |
-| WP-F7 | `endToEnd_safety`, `endToEnd_liveness` | Composition with `expressiveness_of_isWellFormed` for well-formed L programs: finite traces in the `out(x)` repetition form, fair maximal traces in the erase-then-project form. |
+| WP-F6 | `liveness_failure` | Forward, for every admissible outcome word: `erase(t)` of a fair maximal DexF trace is a fair maximal Dex trace for `w↓` with the same marker. Backward, for words without retries (`HasNoRetry`): every fair maximal Dex trace for `w↓` is such an `erase(t)`. |
+| WP-F7 | `endToEnd_safety`, `endToEnd_liveness` | Composition with `expressiveness_of_isWellFormed` for well-formed L programs: finite traces in the `out(x)` repetition form; fair maximal traces in the erase-then-project form, forward for every admissible outcome word and backward for words without retries. |
 
 Every step lemma and theorem assumes H3, `IgnoresAttemptContext program`.
 I2 and I3 are false without it.
 
 `#print axioms` on every statement shows `propext` and `sorryAx` only;
 `invariant_initial`, `isRepetitionAfter_sound`, and every theorem of
-`Failure/Examples/CrashRetryZombie.lean` show no `sorryAx`.
+`Failure/Examples/CrashRetryZombie.lean` and `Failure/Examples/ReviewProbes.lean`
+show no `sorryAx`.
 
 ### Lean decisions
 
@@ -1214,6 +1221,35 @@ marked "Lean decision" at its definition.
 16. **End to end.** Finite traces use the `out(x)` repetition form of spec
     §11.5. Fair maximal traces use the stronger erase-then-project form:
     `π(erase(t))` equals an L trace exactly.
+17. **FI.** Spec §11.5 says "Every element of `I` eventually takes
+    [RECOVER-INTERRUPT]." `Fairness.InterruptsCommit` says that every element
+    of `I` eventually leaves `I`, by [RECOVER-INTERRUPT] or by a [CRASH] that
+    empties `I`. That is the code's behavior: `I` is engine memory, and the
+    next [RECOVER] rebuilds it from the durable Running invocations
+    (`partition_rebuild.rs:112-148`). By FF and FR there is a last [RECOVER],
+    and after it the two readings coincide.
+
+### Liveness is two inclusions
+
+Spec §11.5 states liveness as an equality for every admissible outcome word.
+The backward inclusion is false for words with retries, and the statement
+says so (`liveness_failure`, `endToEnd_liveness`).
+
+- A deduplicated StartFlow retry is a log commit whose stamp strictly
+  advances the partition clock (spec §11.3, "Log commit versus run `seq`").
+  The code stamps it, so the model does too.
+- A word with 1,000,001 retries between two publications therefore forces
+  more than one second between them. A failure-free run can register a
+  1-second timer of one Step and, before it is due, a 0-second timer of
+  another Step that the second publication starts; it fires the second timer
+  first. With the retries in between, the first timer is due first and
+  takes the only message both wait for. No DexF run for that word has the
+  failure-free trace.
+- `Failure/Examples/ReviewProbes.lean` checks the failure-free trace and the
+  change of the due order in the kernel (`retryTiming_freeTrace`,
+  `retryTiming_delayChangesDueOrder`); the rest of the argument is by hand.
+- For a word without retries the run with no failure gives the backward
+  inclusion. The forward inclusion holds for every admissible word.
 
 ### What DexF leaves out
 
@@ -1252,8 +1288,10 @@ The fuzz walks pseudo-random DexF runs with failures and checks
 `IsStepSimulated`, the progress rule (`checkProgressMatches`), and the mirror
 of `Invariant` at every step. It then changes every fifth configuration in
 one place (a task's counter, phase,
-attempt, or place; a history's `h`, `v`, `par`, or outcome; an attempt state;
-a retry timer; an interrupt; `up`; a stamp; a counter), skips a copy equal
+attempt, or place; a history's `h`, `v`, `par`, or outcome, or a forged
+Execute history; an attempt state; a retry timer, also one ahead of its
+attempt; an interrupt; `up`; a stamp; a counter; the Step counters; a Step's
+phase), skips a copy equal
 to its source, keeps the copies that the mirror accepts, and checks every
 enabled single step from them, [ATTEMPT-EXHAUSTED] included. It runs on a hand-written Flow with effect
 lists longer than one, WaitFor effects, mixed wait and retry timers,
@@ -1277,9 +1315,9 @@ invocation, and 118 StartFlow retries. The walks take every label kind
 except three: [ENGINE-REJECT], which applies only before the start;
 [ATTEMPT-EXHAUSTED], which only the steps from kept copies take; and the
 Complete rule of a zombie, which the second kernel-checked run covers. The
-fuzz samples 6,264 configurations, changes them into 465,681 copies that
-differ from their source, keeps 84,452, and checks 763,516 single steps from
-them. It reports no failure. The planted fault reports 131 failures. Two
+fuzz samples 6,264 configurations, changes them into 656,003 copies that
+differ from their source, keeps 120,178, and checks 1,109,839 single steps
+from them. It reports no failure. The planted fault reports 131 failures. Two
 `#guard` lines run a small fuzz when the file is built.
 
 #### Inductiveness: gaps found and fixed
@@ -1287,15 +1325,16 @@ them. It reports no failure. The planted fault reports 131 failures. Two
 | Gap | A configuration that was allowed | Closed by |
 | --- | --- | --- |
 | Interrupt of an unminted task | `I` holds `(e, m, a, t)` with `t = nextTaskId`; the next [STEP-START] mints task `t` into `Θ`, which breaks "`t ∉ dom(Θ)`" of I7. The first run of the fuzz found it with the change `interrupt.add`. | `Invariant.interruptsBelow`: every interrupt's task ID is below `nextTaskId`. |
+| Step execution ID reused | `Start-1` runs a returned task whose decision creates another `Start`, and the counter of `Start` is 0. Its Complete rule creates a second `Start-1`; the old history is taken for the new invocation, α keeps a virtual task that Dex removed, and `stepIdsNodup` fails. The first review found it with a kernel-checked configuration; the fuzz did not change counters then. | `RunInvariant.stepNumbersCounted` (counters cover every Step number), with `historiesHaveSteps` (every history belongs to an existing Step, an Execute history to one that reached `EX`), `invocationMatchesPhase`, and the retry timer freshness facts `retryTimersHaveHistories` and `retryTimersNotAhead`. `ReviewProbes.reusedStepConfig_isNotInvariant` checks the configuration. The fuzz now changes counters, phases, and histories; with the mirror of `stepNumbersCounted` removed, `failure-fuzz 120 5 6 2` reports 63 failures. |
 
 The fuzz is evidence, not proof: the work packages prove inductiveness.
 
 ### Notes for Stage 2
 
-- The backward direction of `liveness_failure` inserts each retry of `w`
-  into a fair Dex run for `w↓`. A [START-RETRY] stamps the clock, so it needs
-  a [TICK] before it and one after it. This is always possible: `canCommit`
-  is monotone in the clock, and a timer armed later has a later fire time.
+- The backward direction of `liveness_failure` is stated only for words
+  without retries; see [Liveness is two inclusions](#liveness-is-two-inclusions).
+  For those words the DexF run with no failure follows the Dex run step by
+  step.
 - `freeFiniteTrace_isFailureFiniteTrace` should simulate Dex
   [STEP-COMPLETE-STALE] by DexF `workerAbandon`, which takes no stamp, not by
   `resultStale`, which does.

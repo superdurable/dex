@@ -271,6 +271,38 @@ structure RunInvariant (config : Config σ) (run : Run σ) : Prop where
   /-- Step execution IDs are unique (`findStep?` reads the first match,
   `updateStep` changes every match). -/
   stepIdsNodup : (run.base.steps.map (fun record => record.id)).Nodup
+  /-- Step execution IDs are fresh: the counter of a Step type is at or above
+  the number of every Step execution of that type, so `new` never reuses an
+  ID (spec §3.1: "`n` is a per-type counter of the run"). -/
+  stepNumbersCounted : ∀ record, record ∈ run.base.steps →
+    record.id.number ≤ (run.base.counters.get? record.id.stepType).getD 0
+  /-- A Step's invocation has the method of its phase, and a Step in `WF` or
+  `EX` has an invocation (spec §3.1). So `WF` and `EX` each pend their
+  method at most once per Step execution. -/
+  invocationMatchesPhase : ∀ record, record ∈ run.base.steps →
+    match record.invocation with
+    | some invocation =>
+      record.phase = (match invocation.method with
+        | .waitFor => Dex.Phase.waitFor
+        | .execute => Dex.Phase.execute)
+    | none => record.phase ≠ .waitFor ∧ record.phase ≠ .execute
+  /-- Every ghost history belongs to an existing Step execution, and an
+  Execute history to one that reached `EX`. So an invocation pended for the
+  first time finds no history, and a completed invocation's history is never
+  taken for a new one. -/
+  historiesHaveSteps : ∀ entry, entry ∈ config.ghost.invocations →
+    ∃ record, record ∈ run.base.steps ∧ record.id = entry.1.1 ∧
+      (entry.1.2 = .execute →
+        record.phase = .execute ∨ record.phase = .completed ∨ record.phase = .canceled)
+  /-- Every retry timer belongs to an invocation that was pended. -/
+  retryTimersHaveHistories : ∀ entry, entry ∈ run.retryTimers →
+    ∃ history, config.ghost.findInvocation? (entry.1.step, entry.1.method) = some history
+  /-- A retry timer of the current invocation is not ahead of its attempt
+  number: "armed when attempt `a − 1` fails" (spec §11.2). -/
+  retryTimersNotAhead : ∀ entry record invocation attempt, entry ∈ run.retryTimers →
+    record ∈ run.base.steps → record.id = entry.1.step → record.invocation = some invocation →
+    invocation.method = entry.1.method → run.findAttempt? record.id = some attempt →
+    entry.1.attempt ≤ attempt.number
   /-- Armed wait timers have distinct IDs. -/
   waitTimersNodup : (run.base.timers.map (fun entry => entry.1)).Nodup
   /-- Armed retry timers have distinct IDs. -/
