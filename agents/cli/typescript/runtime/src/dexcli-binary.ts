@@ -6,14 +6,15 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { execFile, spawn } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
-import { accessSync, constants, existsSync, statSync } from "node:fs";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { accessSync, constants, existsSync, lstatSync, statSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import type { CliEnvironment } from "./cli-environment.js";
+import { readWantedTarFiles } from "./release-archive.js";
 
 /**
  * The `dexcli` release a command downloads when it finds no `dexcli` of at least this version.
@@ -24,20 +25,25 @@ export const pinnedDexcliVersion = "1.42.0";
 
 const downloadTimeoutMs = 300_000;
 const execFileAsync = promisify(execFile);
+const installedExecutables = ["dexcli", "dex-server-zd"] as const;
+const installRecordName = "install.json";
 
 /**
  * Returns a `dexcli` executable, downloading the pinned release on first use.
  *
- * The order is: `DEXCLI`; `~/.dex/bin/dexcli-<version>/dexcli` from an earlier download; `dexcli` on `PATH` when
- * its version is at least {@link pinnedDexcliVersion}; otherwise the pinned release for this platform, downloaded
- * from `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` (GitHub releases by default). The archive must match the release's
- * `checksums.txt` SHA-256 before it is unpacked into `~/.dex/bin`.
+ * The order is: `DEXCLI`; `~/.dex/bin/dexcli-<version>/dexcli` from an earlier download, after its files match the
+ * SHA-256 digests recorded when it was installed; the first `dexcli` on `PATH` whose version is at least
+ * {@link pinnedDexcliVersion}; otherwise the pinned release for this platform, downloaded from
+ * `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` (GitHub releases by default). The archive must match the release's
+ * `checksums.txt` SHA-256. Only its regular `dexcli` and `dex-server-zd` files are written, into a private
+ * staging directory that is renamed into place; an archive with a link, an absolute path, or a `..` entry is
+ * refused.
  *
  * @param environment - The command's environment settings.
  * @param log - Writes progress for the person at the terminal.
  * @returns The executable's path; `dex-server-zd` sits next to it unless it came from `PATH`.
- * @throws {Error} When `DEXCLI` is not executable, the platform has no release, or the download or checksum
- * fails.
+ * @throws {Error} When `DEXCLI` is not executable, a cached file changed since it was installed, the platform has
+ * no release, or the download, checksum, or archive check fails.
  * @since 0.5.0
  */
 export async function resolveDexcliExecutable(
@@ -52,7 +58,8 @@ export async function resolveDexcliExecutable(
   }
   const installDirectory = join(environment.binDirectory, `dexcli-${pinnedDexcliVersion}`);
   const cached = join(installDirectory, "dexcli");
-  if (isExecutable(cached)) {
+  if (existsSync(installDirectory)) {
+    await verifyInstalledFiles(installDirectory);
     return cached;
   }
   const onPath = await findDexcliOnPath(environment.executableSearchPath);
@@ -68,7 +75,9 @@ async function findDexcliOnPath(searchPath: readonly string[]): Promise<string |
     const candidate = join(directory, "dexcli");
     if (isExecutable(candidate)) {
       const version = await readDexcliVersion(candidate);
-      return version !== undefined && compareVersions(version, pinnedDexcliVersion) >= 0 ? candidate : undefined;
+      if (version !== undefined && compareVersions(version, pinnedDexcliVersion) >= 0) {
+        return candidate;
+      }
     }
   }
   return undefined;
@@ -92,30 +101,66 @@ async function downloadDexcli(environment: CliEnvironment, installDirectory: str
     download(`${releaseUrl}/checksums.txt`),
   ]);
   const expected = findChecksum(checksums.toString("utf8"), archiveName);
-  const actual = createHash("sha256").update(archive).digest("hex");
+  const actual = sha256Of(archive);
   if (expected !== actual) {
     throw new Error(`the downloaded ${archiveName} has SHA-256 ${actual}, but checksums.txt says ${expected}`);
   }
-  await mkdir(environment.binDirectory, { recursive: true });
-  const staging = join(environment.binDirectory, `.dexcli-${pinnedDexcliVersion}-${randomBytes(4).toString("hex")}`);
-  await mkdir(staging);
+  let files: Map<string, Buffer>;
   try {
-    const archivePath = join(staging, archiveName);
-    await writeFile(archivePath, archive);
-    await extractTarGz(archivePath, staging);
-    for (const executable of ["dexcli", "dex-server-zd"]) {
-      if (!statSync(join(staging, executable), { throwIfNoEntry: false })?.isFile()) {
-        throw new Error(`${archiveName} has no ${executable}`);
-      }
+    files = readWantedTarFiles(archive, installedExecutables);
+  } catch (error: unknown) {
+    throw new Error(`${archiveName} was refused: ${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    });
+  }
+  await mkdir(environment.binDirectory, { recursive: true });
+  const staging = await mkdtemp(join(environment.binDirectory, `.dexcli-${pinnedDexcliVersion}-`));
+  try {
+    const digests: Record<string, string> = {};
+    for (const name of installedExecutables) {
+      const content = files.get(name) ?? Buffer.alloc(0);
+      await writeFile(join(staging, name), content, { mode: 0o755, flag: "wx" });
+      digests[name] = sha256Of(content);
     }
-    await rm(archivePath);
-    await rename(staging, installDirectory).catch((error: unknown) => {
-      if (!existsSync(join(installDirectory, "dexcli"))) {
+    await writeFile(
+      join(staging, installRecordName),
+      `${JSON.stringify({ version: pinnedDexcliVersion, archive: archiveName, archiveSha256: actual, sha256: digests }, null, 2)}\n`,
+      { flag: "wx" },
+    );
+    await rename(staging, installDirectory).catch(async (error: unknown) => {
+      if (!existsSync(installDirectory)) {
         throw error;
       }
+      // Another command installed it first; use that copy after the same check.
+      await verifyInstalledFiles(installDirectory);
     });
   } finally {
     await rm(staging, { recursive: true, force: true });
+  }
+}
+
+/** Checks that each installed executable still has the digest recorded at install. */
+async function verifyInstalledFiles(installDirectory: string): Promise<void> {
+  const fail = (reason: string): never => {
+    throw new Error(
+      `the cached dexcli in ${installDirectory} ${reason}; delete that directory to download dexcli again`,
+    );
+  };
+  let record: { sha256?: Record<string, unknown> };
+  try {
+    record = JSON.parse(await readFile(join(installDirectory, installRecordName), "utf8")) as typeof record;
+  } catch {
+    return fail(`has no readable ${installRecordName}`);
+  }
+  for (const name of installedExecutables) {
+    const path = join(installDirectory, name);
+    const stats = lstatSync(path, { throwIfNoEntry: false });
+    if (stats === undefined || !stats.isFile() || !isExecutable(path)) {
+      fail(`has no executable regular file ${name}`);
+    }
+    if (record.sha256?.[name] !== sha256Of(await readFile(path))) {
+      fail(`has a ${name} that changed since it was installed`);
+    }
   }
 }
 
@@ -127,6 +172,10 @@ function findChecksum(checksums: string, archiveName: string): string {
     }
   }
   throw new Error(`checksums.txt has no entry for ${archiveName}`);
+}
+
+function sha256Of(content: Buffer): string {
+  return createHash("sha256").update(content).digest("hex");
 }
 
 async function download(url: string): Promise<Buffer> {
@@ -142,20 +191,6 @@ async function download(url: string): Promise<Buffer> {
     throw new Error(`downloading ${url} failed with HTTP ${response.status}`);
   }
   return Buffer.from(await response.arrayBuffer());
-}
-
-function extractTarGz(archivePath: string, directory: string): Promise<void> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn("tar", ["-xzf", archivePath, "-C", directory], { stdio: ["ignore", "ignore", "pipe"] });
-    let stderr = "";
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.once("error", rejectPromise);
-    child.once("close", (code) =>
-      code === 0 ? resolvePromise() : rejectPromise(new Error(`tar exited with ${code}: ${stderr.trim()}`)),
-    );
-  });
 }
 
 function releasePlatform(): string {

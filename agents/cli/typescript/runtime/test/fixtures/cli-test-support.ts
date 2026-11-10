@@ -7,8 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
@@ -20,7 +20,7 @@ import {
   type PrivateDexEngine,
 } from "@superdurable/dex-agents/testing";
 
-import { resolveConfig, TurnConfigResolver, type HarnessContext } from "../../src/index.js";
+import { namespaceSessionFlowType, resolveConfig, TurnConfigResolver, type HarnessContext } from "../../src/index.js";
 import { scriptedHarness, scriptedHarnessDirectoryVariable } from "./scripted-harness.js";
 
 const cliEntryPath = fileURLToPath(new URL("./scripted-harness-cli.js", import.meta.url));
@@ -195,6 +195,15 @@ export class TestHome {
   }
 
   /**
+   * Returns the session Flow type the command uses with this home's configuration.
+   * @returns The Flow type.
+   */
+  public sessionFlowType(): string {
+    const identity = this.hasConfig() ? realpathSync(this.configPath) : "defaults";
+    return namespaceSessionFlowType(scriptedHarness.flowType, hostname(), identity);
+  }
+
+  /**
    * Returns the command's environment.
    * @returns The variables.
    */
@@ -231,29 +240,63 @@ export function enginePorts(engine: PrivateDexEngine): { dexPort: number; webPor
 }
 
 /**
- * Opens a Client for the scripted harness's sessions, without a Worker.
- * @param engine - The engine.
- * @returns The environment and the session client.
+ * Clients for the scripted harness's sessions, without a Worker: one per session Flow type, which depends on the
+ * test home's configuration file.
  */
-export async function openSessionClient(
-  engine: PrivateDexEngine,
-): Promise<{ environment: AgentTestEnvironment; sessions: AgentSessionTestClient }> {
-  const effective = resolveConfig({}, scriptedHarness.configSection, scriptedHarness.defaultModel);
-  const turns = new TurnConfigResolver(effective, null, () => undefined);
-  const context: HarnessContext = {
-    flowType: scriptedHarness.flowType,
-    config: effective,
-    workspace: tmpdir(),
-    instructions: null,
-    harnessOptions: {},
-    toolSources: [],
-    resolveTurn: (settings) => turns.resolveTurn(settings),
-  };
-  const flow = scriptedHarness.createSessionFlow(context);
-  const environment = await AgentTestEnvironment.start({
-    serverAddress: engine.serverAddress,
-    flows: [flow],
-    isWorkerInProcess: false,
-  });
-  return { environment, sessions: new AgentSessionTestClient(environment.client, flow) };
+export class SessionClients {
+  private readonly environments = new Map<string, Promise<{ environment: AgentTestEnvironment; sessions: AgentSessionTestClient }>>();
+
+  /**
+   * Creates the clients.
+   * @param engine - The engine.
+   */
+  public constructor(private readonly engine: PrivateDexEngine) {}
+
+  /**
+   * Returns the client for the sessions of a test home's command.
+   * @param home - The test home; its configuration file must exist, or the command ran without one.
+   * @returns The client.
+   */
+  public async of(home: TestHome): Promise<AgentSessionTestClient> {
+    const flowType = home.sessionFlowType();
+    let opened = this.environments.get(flowType);
+    if (opened === undefined) {
+      opened = this.open(flowType);
+      this.environments.set(flowType, opened);
+    }
+    return (await opened).sessions;
+  }
+
+  /**
+   * Closes every client.
+   * @returns A Promise that resolves after they closed.
+   */
+  public async close(): Promise<void> {
+    for (const opened of this.environments.values()) {
+      await (await opened).environment.close();
+    }
+    this.environments.clear();
+  }
+
+  private async open(flowType: string): Promise<{ environment: AgentTestEnvironment; sessions: AgentSessionTestClient }> {
+    const effective = resolveConfig({}, scriptedHarness.configSection, scriptedHarness.defaultModel);
+    const turns = new TurnConfigResolver(effective, null, () => undefined);
+    const context: HarnessContext = {
+      flowType,
+      config: effective,
+      workspace: tmpdir(),
+      instructions: null,
+      harnessOptions: {},
+      toolSources: [],
+      resolveTurn: (settings) => turns.resolveTurn(settings),
+      currentTurn: () => turns.currentTurn(),
+    };
+    const flow = scriptedHarness.createSessionFlow(context);
+    const environment = await AgentTestEnvironment.start({
+      serverAddress: this.engine.serverAddress,
+      flows: [flow],
+      isWorkerInProcess: false,
+    });
+    return { environment, sessions: new AgentSessionTestClient(environment.client, flow) };
+  }
 }

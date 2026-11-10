@@ -40,7 +40,23 @@ they happen. A tool call that needs approval shows its name and arguments and
 asks `[y/n, or n <reason>]`. A question from the agent asks for an answer, or
 a choice number. Ctrl-C cancels the running turn, and a second Ctrl-C exits.
 `/exit` and the end of input also exit. Exiting never ends the session; the
-command prints the `--resume` line that continues it.
+command prints the `--resume` line that continues it. The command exits with 1
+when a turn or the session failed during the chat, 2 for invalid arguments or
+configuration, and 0 otherwise.
+
+### Sessions belong to one host and configuration file
+
+The runtime registers the session Flow type `<flowType>-<hash>`. The hash is
+the first 12 hexadecimal digits of the SHA-256 of
+`<host name>\n<configuration identity>` in UTF-8, where the identity is the
+real path of the configuration file, or `defaults` without a file. A Worker
+takes only the Steps of its own Flow type, so an approved write or shell
+command always runs in a process with the workspace and policies it was
+approved under. Editing the file, such as its allow list, keeps the type, so
+`--resume` still works. `--resume` and `sessions` see only the sessions of the
+same host and configuration file. Two processes that run the same
+configuration file share their sessions' Steps; they have the same workspace
+and policies.
 
 ## The harness interface
 
@@ -87,13 +103,14 @@ interface AgentHarness {
 }
 
 interface HarnessContext {
-  readonly flowType: string;
+  readonly flowType: string; // <AgentHarness.flowType>-<hash>; build the Flow with it
   readonly config: EffectiveConfig; // the file, defaults filled in
   readonly workspace: string; // absolute, exists
   readonly instructions: string | null; // system_prompt or system_prompt_file text
   readonly harnessOptions: Readonly<Record<string, unknown>>;
   readonly toolSources: readonly ToolSource[]; // connectors, then local tools
   resolveTurn(sessionSettings: SessionSettings): ResolvedTurn; // model, instructions, narrowing
+  currentTurn(): ResolvedTurn; // the running model call's turn, else the file
 }
 
 type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
@@ -110,10 +127,19 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
   the turn fails with the error code and JSON Pointer.
 - `replacedLocalTools` lists the groups the harness serves with its own
   tools. The runtime leaves them out of `context.toolSources`. The harness
-  switches its own tools on from `context.config.local_tools` and gives them
-  the same policy: reads run at once, writes and shell commands wait for
-  approval unless the shell allow list has the exact command, and the working
-  directory is `context.workspace`.
+  gives its own tools the same rules, with these exports:
+  - `isLocalToolGroupEnabled(turn, group)`: whether the turn switches the
+    group on, from `local_tools` and the session's narrowing;
+  - `isShellCommandApprovalRequired(turn, command)`: whether a command waits
+    for approval, which is unless the allow list has its exact text;
+  - `resolveTurnToolPolicy(turnContext, toolName, effect, requiresApproval, turn)`:
+    the call's policy, with the tool's effect as a floor and the turn's
+    `approval.always`;
+  - `context.currentTurn()`: the running turn's configuration, for callbacks
+    that run during the model call.
+
+  Reads run at once, writes and shell commands wait for approval, and the
+  working directory is `context.workspace`.
 - The runtime wraps the Flow's runner so that each model call runs with its
   turn's configuration in scope. The harness does not need to do anything for
   that.
@@ -125,9 +151,10 @@ The Python runtime uses the same names in snake case:
 | `AgentHarness` | `AgentHarness` (Protocol) |
 | `name`, `configSection`, `flowType`, `defaultModel`, `replacedLocalTools` | `name`, `config_section`, `flow_type`, `default_model`, `replaced_local_tools` |
 | `createSessionFlow(context)` | `create_session_flow(context)` |
-| `HarnessContext` with `config`, `workspace`, `instructions`, `harnessOptions`, `toolSources`, `resolveTurn` | `HarnessContext` with `config`, `workspace`, `instructions`, `harness_options`, `tool_sources`, `resolve_turn` |
+| `HarnessContext` with `flowType`, `config`, `workspace`, `instructions`, `harnessOptions`, `toolSources`, `resolveTurn`, `currentTurn` | `HarnessContext` with the same fields in snake case |
 | `LocalToolGroup` | `LocalToolGroup` (`files`, `shell`, `web_fetch`, `browser`) |
 | `runAgentCli(harness)` | `run_agent_cli(harness)` |
+| `isLocalToolGroupEnabled`, `isShellCommandApprovalRequired`, `resolveTurnToolPolicy` | the same names in snake case |
 
 ## Local tools
 
@@ -137,13 +164,23 @@ Each call is one Dex tool Step, recorded in the session.
 | --- | --- | --- | --- |
 | `files` | `read_file`, `list_directory`, `search_files` | read | none |
 | `files` | `write_file` | idempotent write | every call |
+| `files` | `edit_file` | single-attempt write | every call |
 | `shell` | `run_shell_command` | single-attempt write | unless the allow list has the whole command text |
 | `web_fetch` | `fetch_web_page` | read | none |
 | `browser` | `browser_navigate`, `browser_snapshot` | read | none |
 | `browser` | `browser_click`, `browser_fill`, `browser_submit_form` | single-attempt write | every call |
 
-- File paths are relative to `workspace`, or absolute inside it. A path that
-  leaves it, through `..`, an absolute path, or a symbolic link, fails.
+- File paths are relative to `workspace`, or absolute inside it, compared
+  after the file system resolves links and case. A path that leaves it,
+  through `..`, an absolute path, or a symbolic link, fails. Files open
+  without following a final link, and the opened file must still be the one
+  the path names, so a link swapped in meanwhile fails. A file with more than
+  one hard link is refused. `write_file` and `edit_file` write a new file in
+  the checked directory and rename it over the target, and never write
+  through a link. This is not a sandbox: an approved shell command, or any
+  other program, can still change the workspace while a call runs.
+- `edit_file` takes `path`, `old_text`, and `new_text`. `old_text` must occur
+  exactly once in the file.
 - Shell commands run with the system shell in `workspace`, in their own
   process group, with a 120-second default timeout. A command whose Worker
   died while it ran records `outcome_unknown` and never runs again.
@@ -153,36 +190,58 @@ Each call is one Dex tool Step, recorded in the session.
   downloads Chromium on first use. Each session has one page in the Worker's
   memory.
 - `approval.always` adds approval to any tool by name.
+- A local tool's effect is a floor. An explicit `ToolPolicy` for it may raise
+  the effect but never lowers it; its `requiresApproval` wins when set, as in
+  `McpToolSource.mergeToolPolicies`.
 
 ## Connectors
 
 `connectors.mcp: auto` uses the connectors MCP server that `dexcli dev`
 serves at `<Dex Web URL>/mcp`. When the runtime starts `dexcli dev`, it takes
-the URL from the `Connectors MCP:` line of its output. An `auto` server that
-is not available, such as one answering 503 while it starts, or an older
-`dexcli` without `/mcp`, turns connectors off for the run with a warning. An
-explicit `connectors.mcp` URL that is not available stops the command.
+the URL from the `Connectors MCP:` line of its output. When an `auto` server is
+not available, such as one answering 503 while it starts, or an older
+`dexcli` without `/mcp`, the command warns and continues; each model call
+lists the server again, so its tools appear once it is ready. An explicit
+`connectors.mcp` URL that is not available stops the command.
 
 The agent sees each connector tool by its MCP name, such as
-`slack_post_thread_reply`. `connectors.enabled` matches the
-`io.superdurable.dex/connector`, `connection`, and `operation` values in each
-tool's `_meta`. While the list is set, a tool without them is hidden. A
-configured connection that the server does not list is reported as not
-authorized, and at a terminal the command opens the Dex Web Connectors page.
+`slack_post_thread_reply`. `connectors.enabled` matches only these `_meta`
+keys of each tool, never its name:
+
+| Key | Value |
+| --- | --- |
+| `io.superdurable.connectors/connector` | Connector ID, such as `slack` |
+| `io.superdurable.connectors/connection` | Connection name |
+| `io.superdurable.connectors/operation` | operationId, such as `postThreadReply` |
+| `io.superdurable.connectors/operationName` | Its snake-case name, such as `post_thread_reply` |
+| `io.superdurable.connectors/connectorVersion` | The connector's version |
+
+While the list is set, a tool without a connector and a connection is
+hidden. An entry with `tools` also needs `operation` and `operationName`, and
+matches a listed name against either. A configured connection that the server
+does not list is reported as not authorized, and at a terminal the command
+opens the Dex Web Connectors page.
 
 ## The Dex server and dexcli
 
-`dex.server: auto` reuses the `dexcli dev` whose Dex Web answers `/readyz` on
-port 8802, with Dex on 8801. Without one, it starts `dexcli dev` in the
-background on those ports. Its output goes to `~/.dex/agents/dexcli-dev.log`,
+`dex.server: auto` reuses a `dexcli dev` with Dex Web on port 8802 and Dex on
+8801. It trusts one that a command started, when the recorded process is
+alive on the same ports. Any other server must answer `/readyz` with Dex
+Web's readiness JSON and the Dex FlowService on the Dex port; otherwise the
+command stops and names the port. Without any server, it starts `dexcli dev`
+in the background on those ports. Its output goes to `~/.dex/agents/dexcli-dev.log`,
 and its pid and ports to `~/.dex/agents/dexcli-dev.json`. It keeps running
 after the command exits, so later commands and Dex Web reuse it.
 
 The runtime finds `dexcli` in this order: `DEXCLI`; an earlier download in
-`~/.dex/bin/dexcli-<version>`; `dexcli` on `PATH` when it is at least the
-pinned version; otherwise it downloads the pinned release for the platform
-from GitHub, checks its SHA-256 against the release's `checksums.txt`, and
-unpacks it into `~/.dex/bin`.
+`~/.dex/bin/dexcli-<version>`, whose `dexcli` and `dex-server-zd` must still
+match the SHA-256 digests recorded in its `install.json`; the first `dexcli`
+on `PATH` of at least the pinned version; otherwise it downloads the pinned
+release for the platform from GitHub and checks its SHA-256 against the
+release's `checksums.txt`. It then writes only the archive's regular
+`dexcli` and `dex-server-zd` files into a private staging directory and
+renames it into place. An archive with a link, an absolute path, or a `..`
+entry is refused.
 
 | Variable | Meaning |
 | --- | --- |

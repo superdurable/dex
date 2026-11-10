@@ -8,6 +8,7 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { PassThrough } from "node:stream";
 import { after, afterEach, before, describe, test } from "node:test";
 
@@ -108,7 +109,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     const cli = start(home);
     await cli.waitForSession();
     await cli.stderr.waitFor("running with the defaults");
-    await cli.stderr.waitFor("Connectors are off for now");
+    await cli.stderr.waitFor("Connector tools are unavailable for now; each turn tries again");
     assert.equal(home.hasConfig(), false);
     cli.writeLine("hello");
     await cli.stdout.waitFor("echo: hello");
@@ -169,6 +170,32 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     await second.stdout.waitFor("echo: hello again");
     second.writeLine("/exit");
     assert.equal(await second.waitForExit(), 0);
+  });
+
+  test("dex.server auto refuses a server on its ports that is not a dexcli dev", async () => {
+    const [dexPort, webPort] = await findFreeLoopbackPorts(2);
+    const impostor = createServer((request, response) => {
+      if (request.url === "/readyz") {
+        response
+          .writeHead(200, { "content-type": "application/json" })
+          .end(JSON.stringify({ status: "ready", definitionRevision: "r1", source: "directory", definitionCount: 0 }));
+        return;
+      }
+      response.writeHead(404).end();
+    });
+    await new Promise<void>((resolve) => impostor.listen(webPort, "127.0.0.1", resolve));
+    try {
+      const home = new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 });
+      home.writeConfig("connectors: {enabled: []}\n");
+      const cli = start(home);
+      assert.equal(await cli.waitForExit(), 1);
+      assert.match(cli.stderr.all, /answers, but it is not a dexcli dev \(127\.0\.0\.1:\d+ does not answer as a Dex server/);
+      assert.doesNotMatch(cli.stderr.all, /Starting dexcli dev/);
+      assert.doesNotMatch(cli.stdout.all, /Session /);
+    } finally {
+      impostor.closeAllConnections();
+      impostor.close();
+    }
   });
 
   test("an unreachable or unready connectors.mcp URL stops the command with the reason", async () => {

@@ -12,7 +12,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
-import { connectionMetaKey, connectorMetaKey, operationMetaKey } from "../../src/index.js";
+import { canonicalOperationName, connectorToolMetaKeys } from "../../src/index.js";
 
 /** One recorded tool run on the fake server. */
 export interface FakeConnectorRun {
@@ -27,6 +27,7 @@ export interface FakeConnectorRun {
  *
  * - `hackernews_get_top_stories` (hackernews/default, read-only)
  * - `gmail_get_message` (gmail/personal, read-only)
+ * - `gmail_send_message` (gmail/personal, without operation keys in `_meta`)
  * - `slack_post_thread_reply` (slack/support-slack, a write without hints)
  */
 export class FakeConnectorsMcpServer {
@@ -126,6 +127,21 @@ export class FakeConnectorsMcpServer {
       },
     );
     server.registerTool(
+      "gmail_send_message",
+      {
+        description: "Send an email. Its _meta lacks the operation, so an operation limit hides it.",
+        inputSchema: { to: z.string() },
+        _meta: {
+          [connectorToolMetaKeys.connector]: "gmail",
+          [connectorToolMetaKeys.connection]: "personal",
+        },
+      },
+      (toolArguments, extra) => {
+        record("gmail_send_message", toolArguments, extra._meta);
+        return { content: [{ type: "text", text: `sent to ${toolArguments.to}` }] };
+      },
+    );
+    server.registerTool(
       "slack_post_thread_reply",
       {
         description: "Reply in a Slack thread.",
@@ -142,7 +158,13 @@ export class FakeConnectorsMcpServer {
 }
 
 function identityMeta(connector: string, connection: string, operation: string): Record<string, unknown> {
-  return { [connectorMetaKey]: connector, [connectionMetaKey]: connection, [operationMetaKey]: operation };
+  return {
+    [connectorToolMetaKeys.connector]: connector,
+    [connectorToolMetaKeys.connection]: connection,
+    [connectorToolMetaKeys.operation]: operation,
+    [connectorToolMetaKeys.operationName]: canonicalOperationName(operation),
+    [connectorToolMetaKeys.connectorVersion]: "1.0.0",
+  };
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {

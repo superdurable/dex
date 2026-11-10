@@ -13,9 +13,9 @@ import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import { outcomeUnknownToolResult } from "@superdurable/dex-agents";
-import { pollUntil, PrivateDexEngine, type AgentSessionTestClient, type AgentTestEnvironment } from "@superdurable/dex-agents/testing";
+import { pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
-import { CliProcess, TestHome, enginePorts, openSessionClient } from "../fixtures/cli-test-support.js";
+import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 
 const formPage = `<!doctype html>
 <html><head><title>Signup</title></head>
@@ -29,8 +29,7 @@ const formPage = `<!doctype html>
 
 describe("local tools", () => {
   let engine: PrivateDexEngine;
-  let environment: AgentTestEnvironment;
-  let sessions: AgentSessionTestClient;
+  let sessionClients: SessionClients;
   let pageServer: Server;
   let pageUrl: string;
   const submissions: string[] = [];
@@ -38,7 +37,7 @@ describe("local tools", () => {
 
   before(async () => {
     engine = await PrivateDexEngine.start();
-    ({ environment, sessions } = await openSessionClient(engine));
+    sessionClients = new SessionClients(engine);
     pageServer = createServer((request, response) => {
       if (request.method === "POST" && request.url === "/submit") {
         let body = "";
@@ -67,7 +66,7 @@ describe("local tools", () => {
   after(async () => {
     pageServer?.closeAllConnections();
     pageServer?.close();
-    await environment?.close();
+    await sessionClients?.close();
     await engine?.stop();
   });
 
@@ -112,6 +111,11 @@ describe("local tools", () => {
     cli.writeLine('call search_files {"query":"milk"}');
     await cli.stdout.waitFor("result: notes/today.txt:1: buy milk");
     assert.equal(cli.stdout.all.match(/Approve write_file\?/g)?.length, 2);
+    cli.writeLine('call edit_file {"path":"notes/today.txt","old_text":"milk","new_text":"oat milk"}');
+    await cli.stdout.waitFor("Approve edit_file?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("result: edited notes/today.txt: replaced 1 occurrence");
+    assert.equal(readFileSync(join(home.workspace, "notes", "today.txt"), "utf8"), "buy oat milk");
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
   });
@@ -169,7 +173,7 @@ describe("local tools", () => {
       await second.cli.stdout.waitFor(`Resumed session ${sessionId}`);
       await second.cli.stdout.waitFor(`result: ${outcomeUnknownToolResult}`, 180_000);
       assert.equal(readFileSync(startsLog, "utf8"), "started\n");
-      const snapshot = await sessions.getAgentSnapshot(sessionId);
+      const snapshot = await (await sessionClients.of(first.home)).getAgentSnapshot(sessionId);
       assert.equal(snapshot.messages.find((message) => message.role === "tool")?.toolOutput, outcomeUnknownToolResult);
       second.cli.writeLine("/exit");
       assert.equal(await second.cli.waitForExit(), 0);

@@ -42,6 +42,7 @@ type SessionFlow = AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
  */
 export class TerminalChat {
   private isExitRequested = false;
+  private hasFailure = false;
   private turnCancellation: AbortController | undefined;
   private isCancelRequested = false;
   private readonly handledInterruptIds = new Set<string>();
@@ -70,10 +71,10 @@ export class TerminalChat {
   ) {}
 
   /**
-   * Runs the chat until `/exit`, a second Ctrl-C, or the end of input.
-   * @returns A Promise that resolves when the chat ends; the session keeps running.
+   * Runs the chat until `/exit`, a second Ctrl-C, the end of input, or a failed session.
+   * @returns Whether a turn or the session failed during the chat; the session keeps running either way.
    */
-  public async run(): Promise<void> {
+  public async run(): Promise<boolean> {
     this.input.onInterrupt(() => this.handleInterrupt());
     this.eventReader = this.readEvents();
     try {
@@ -102,12 +103,14 @@ export class TerminalChat {
       this.eventReading.abort();
       await this.eventReader;
     }
+    return this.hasFailure;
   }
 
   private async runTurn(text: string): Promise<void> {
     const before = await readAgentSnapshot(this.client, this.flow, this.sessionId);
     if (before.state?.status === "failed") {
       this.write(`The session failed: ${before.state.lastTurnError ?? "unknown reason"}\n`);
+      this.hasFailure = true;
       this.isExitRequested = true;
       return;
     }
@@ -133,6 +136,7 @@ export class TerminalChat {
         if (state?.status === "failed") {
           this.endLine();
           this.write(`The session failed: ${state.lastTurnError ?? "unknown reason"}\n`);
+          this.hasFailure = true;
           this.isExitRequested = true;
           return;
         }
@@ -175,6 +179,7 @@ export class TerminalChat {
       this.write("Turn cancelled.\n");
     } else if (snapshot.state?.lastTurnError !== null && snapshot.state?.lastTurnError !== undefined) {
       this.write(`Turn failed: ${snapshot.state.lastTurnError}\n`);
+      this.hasFailure = true;
     }
   }
 

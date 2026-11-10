@@ -19,8 +19,8 @@ import {
   type ToolTaskPollOutcome,
 } from "@superdurable/dex-agents";
 
-import type { LocalToolGroup } from "../agent-harness.js";
-import { isShellCommandAllowed, type TurnConfig } from "../cli-config.js";
+import { isLocalToolGroupEnabled, isShellCommandApprovalRequired, type LocalToolGroup } from "../agent-harness.js";
+import type { TurnConfig } from "../cli-config.js";
 import { resolveTurnToolPolicy } from "../tool-policy.js";
 import type { TurnConfigResolver } from "../turn-config-resolver.js";
 import { BrowserSessions } from "./browser-sessions.js";
@@ -35,7 +35,7 @@ import { WorkspaceFiles } from "./workspace-files.js";
  * @since 0.5.0
  */
 export const localToolNames = Object.freeze({
-  files: Object.freeze(["read_file", "list_directory", "search_files", "write_file"]),
+  files: Object.freeze(["read_file", "list_directory", "search_files", "write_file", "edit_file"]),
   shell: Object.freeze(["run_shell_command"]),
   web_fetch: Object.freeze(["fetch_web_page"]),
   browser: Object.freeze(["browser_navigate", "browser_snapshot", "browser_click", "browser_fill", "browser_submit_form"]),
@@ -104,6 +104,24 @@ const localTools: readonly LocalTool[] = [
         "path",
         "content",
       ]),
+    },
+  },
+  {
+    group: "files",
+    effect: "non_idempotent_write",
+    requiresApproval: true,
+    definition: {
+      name: "edit_file",
+      description:
+        "Replace one exact occurrence of a text in an existing UTF-8 file in the workspace. old_text must occur exactly once. The user approves each edit.",
+      inputSchema: objectSchema(
+        {
+          path: pathProperty,
+          old_text: { type: "string", description: "The exact text to replace; it must occur once in the file." },
+          new_text: { type: "string", description: "The replacement text." },
+        },
+        ["path", "old_text", "new_text"],
+      ),
     },
   },
   {
@@ -200,7 +218,7 @@ const disabledReferenceKey = "disabled_tool";
  * The CLI's local tools, files, shell, web fetch, and browser, as a {@link ToolSource}. Each call runs in its own
  * Dex tool Step.
  *
- * Reads run at once. `write_file` and each browser click, fill, and submission wait for approval. Each shell
+ * Reads run at once. `write_file`, `edit_file`, and each browser click, fill, and submission wait for approval. Each shell
  * command waits for approval unless the turn's allow list has its exact text. The turn's `local_tools` switches
  * and `approval.always` apply to each model call.
  *
@@ -272,7 +290,7 @@ export class LocalToolSource implements ToolSource {
     let requiresApproval = tool.requiresApproval;
     if (tool.group === "shell") {
       const command = readShellCommand(call.arguments);
-      requiresApproval = command === undefined || !isShellCommandAllowed(command, turnConfig.local_tools.shell.allow);
+      requiresApproval = command === undefined || isShellCommandApprovalRequired(turnConfig, command);
     }
     return {
       toolCallId: call.toolCallId,
@@ -329,6 +347,12 @@ export class LocalToolSource implements ToolSource {
         return this.files.searchFiles(requireString(toolArguments, "query"), optionalString(toolArguments, "path") ?? ".");
       case "write_file":
         return this.files.writeFile(requireString(toolArguments, "path"), requireString(toolArguments, "content"));
+      case "edit_file":
+        return this.files.editFile(
+          requireString(toolArguments, "path"),
+          requireString(toolArguments, "old_text"),
+          requireString(toolArguments, "new_text"),
+        );
       case "run_shell_command":
         return runShellCommand(
           requireString(toolArguments, "command"),
@@ -354,10 +378,7 @@ export class LocalToolSource implements ToolSource {
   }
 
   private isGroupOn(group: LocalToolGroup, turn: TurnConfig): boolean {
-    if (!this.offeredGroups.has(group)) {
-      return false;
-    }
-    return group === "shell" ? turn.local_tools.shell.enabled : turn.local_tools[group];
+    return this.offeredGroups.has(group) && isLocalToolGroupEnabled(turn, group);
   }
 }
 

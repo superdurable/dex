@@ -14,13 +14,15 @@
  */
 
 export {
+  isLocalToolGroupEnabled,
+  isShellCommandApprovalRequired,
   localToolGroups,
   type AgentHarness,
   type HarnessContext,
   type LocalToolGroup,
   type ResolvedTurn,
 } from "./agent-harness.js";
-export { processAgentCliIo, runAgentCli, type AgentCliIo } from "./agent-cli.js";
+export { namespaceSessionFlowType, processAgentCliIo, runAgentCli, type AgentCliIo } from "./agent-cli.js";
 export {
   ConfigError,
   canonicalOperationName,
@@ -49,10 +51,9 @@ export {
 } from "./cli-environment.js";
 export {
   ConnectorsMcpToolSource,
-  connectionMetaKey,
-  connectorMetaKey,
+  connectorToolMetaKeys,
+  isConnectorToolEnabledBy,
   listConnectorToolIdentities,
-  operationMetaKey,
   probeConnectorsMcp,
   type ConnectorToolIdentity,
   type ConnectorsMcpAvailability,
@@ -66,3 +67,4 @@ export {
 } from "./dex-server.js";
 export { LocalToolSource, localToolNames } from "./local-tools/local-tool-source.js";
 export { TurnConfigResolver } from "./turn-config-resolver.js";
+export { resolveTurnToolPolicy } from "./tool-policy.js";

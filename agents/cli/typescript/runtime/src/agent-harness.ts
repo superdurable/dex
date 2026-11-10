@@ -19,7 +19,7 @@ import type { EffectiveConfig, TurnConfig } from "./cli-config.js";
 /**
  * A group of local tools that the runtime offers, as the configuration's `local_tools` names them.
  *
- * - `files`: `read_file`, `list_directory`, `search_files`, and `write_file`, inside the workspace.
+ * - `files`: `read_file`, `list_directory`, `search_files`, `write_file`, and `edit_file`, inside the workspace.
  * - `shell`: `run_shell_command`, in the workspace.
  * - `web_fetch`: `fetch_web_page`.
  * - `browser`: `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_fill`, and `browser_submit_form`.
@@ -87,8 +87,13 @@ export interface AgentHarness {
   /** The configuration file section with this harness's own options, such as `claude` or `builtin`. */
   readonly configSection: string;
   /**
-   * The Flow type of the command's sessions, unique on the Dex server, such as `DexAgentsClaudeSdkCliSession`.
-   * Keep it stable: `--resume` and the `sessions` subcommand find sessions by it.
+   * The base Flow type of the command's sessions, such as `DexAgentsClaudeSdkCliSession`. Keep it stable.
+   *
+   * The runtime registers `<flowType>-<hash>`, from `namespaceSessionFlowType`, where the hash covers the
+   * host name and the configuration file's real path. A Worker then takes only the Steps of sessions that a
+   * command with the same host and configuration file started, so an approved write or shell command runs with
+   * the workspace and policies it was approved under. Processes that share one configuration file share their
+   * sessions' Steps. `--resume` and the `sessions` subcommand see only the sessions of the same configuration.
    */
   readonly flowType: string;
   /** The model when the file sets none, or `null` when the command must refuse to run without one. */
@@ -118,7 +123,7 @@ export interface AgentHarness {
  * @since 0.5.0
  */
 export interface HarnessContext {
-  /** The Flow type to build, from {@link AgentHarness.flowType}. */
+  /** The Flow type to build: {@link AgentHarness.flowType} with the host and configuration hash. */
   readonly flowType: string;
   /** The file's effective configuration, after command-line overrides. */
   readonly config: EffectiveConfig;
@@ -147,6 +152,15 @@ export interface HarnessContext {
    * @throws {ConfigError} When the settings fail the schema or widen the file.
    */
   resolveTurn(sessionSettings: SessionSettings): ResolvedTurn;
+  /**
+   * Returns the configuration of the turn whose model call is running, or the file's configuration outside a
+   * model call. A harness that replaces local tool groups reads it in its own tool callbacks, such as an approval
+   * hook that runs during the model call, together with {@link isLocalToolGroupEnabled} and
+   * `resolveTurnToolPolicy`.
+   *
+   * @returns The configuration and instructions.
+   */
+  currentTurn(): ResolvedTurn;
 }
 
 /**
@@ -157,4 +171,37 @@ export interface HarnessContext {
 export interface ResolvedTurn extends TurnConfig {
   /** The turn's instructions: its `system_prompt`, the file's prompt file text, or `null`. */
   readonly instructions: string | null;
+}
+
+/**
+ * Returns whether a turn switches a local tool group on: `files`, `web_fetch`, and `browser` by their switches,
+ * and `shell` by `shell.enabled`. A harness that replaces a group checks it before offering or running its own
+ * tool of that group.
+ *
+ * @example
+ * ```ts
+ * const turn = context.currentTurn();
+ * if (!isLocalToolGroupEnabled(turn, "shell")) {
+ *   return { behavior: "deny", message: "shell commands are switched off for this session" };
+ * }
+ * ```
+ * @param turn - The turn's configuration.
+ * @param group - The group.
+ * @returns `true` when the group is on.
+ * @since 0.5.0
+ */
+export function isLocalToolGroupEnabled(turn: TurnConfig, group: LocalToolGroup): boolean {
+  return group === "shell" ? turn.local_tools.shell.enabled : turn.local_tools[group];
+}
+
+/**
+ * Returns whether a shell command waits for approval in a turn: unless the turn's allow list has its exact text.
+ *
+ * @param turn - The turn's configuration.
+ * @param command - The command text.
+ * @returns `true` when the command needs approval.
+ * @since 0.5.0
+ */
+export function isShellCommandApprovalRequired(turn: TurnConfig, command: string): boolean {
+  return !turn.local_tools.shell.allow.includes(command);
 }

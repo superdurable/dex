@@ -11,22 +11,22 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { pollUntil, PrivateDexEngine, type AgentSessionTestClient, type AgentTestEnvironment } from "@superdurable/dex-agents/testing";
+import { pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
-import { CliProcess, TestHome, enginePorts, openSessionClient } from "../fixtures/cli-test-support.js";
+import { ConnectorsMcpToolSource, TurnConfigResolver, resolveConfig } from "../../src/index.js";
+import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 
 describe("terminal chat with connectors and session settings", () => {
   let engine: PrivateDexEngine;
-  let environment: AgentTestEnvironment;
-  let sessions: AgentSessionTestClient;
+  let sessionClients: SessionClients;
   let connectors: FakeConnectorsMcpServer;
   let connectorsUrl: string;
   const processes: CliProcess[] = [];
 
   before(async () => {
     engine = await PrivateDexEngine.start();
-    ({ environment, sessions } = await openSessionClient(engine));
+    sessionClients = new SessionClients(engine);
     connectors = new FakeConnectorsMcpServer();
     connectorsUrl = await connectors.start();
   });
@@ -39,7 +39,7 @@ describe("terminal chat with connectors and session settings", () => {
 
   after(async () => {
     await connectors?.stop();
-    await environment?.close();
+    await sessionClients?.close();
     await engine?.stop();
   });
 
@@ -127,7 +127,7 @@ describe("terminal chat with connectors and session settings", () => {
     assert.equal(await cli.waitForExit(), 0);
     assert.match(cli.stdout.all, new RegExp(`--resume ${sessionId}`));
     writeFileSync(join(home.markerDirectory, "slow-model.release"), "");
-    const state = await sessions.readAgentState(sessionId);
+    const state = await (await sessionClients.of(home)).readAgentState(sessionId);
     assert.equal(state?.status, "waiting_for_user_message");
   });
 
@@ -152,8 +152,10 @@ describe("terminal chat with connectors and session settings", () => {
     assert.match(missing.stderr.all, /does not exist/);
   });
 
-  test("session settings narrow tools and change the model; widening fails the turn", async () => {
-    const cli = start(newHome(connectorConfig()));
+  test("session settings narrow tools and change the model; widening fails the turn and the exit code", async () => {
+    const home = newHome(connectorConfig());
+    const sessions = await sessionClients.of(home);
+    const cli = start(home);
     const sessionId = await cli.waitForSession();
     cli.writeLine("tools");
     await cli.stdout.waitFor(/tools: .*hackernews_get_top_stories.*slack_post_thread_reply/);
@@ -184,6 +186,77 @@ describe("terminal chat with connectors and session settings", () => {
     cli.writeLine("model");
     await cli.stdout.waitFor("model: scripted/default");
     cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 1);
+  });
+
+  test("an operation limit needs the tool's operation keys in _meta", async () => {
+    const cli = start(
+      newHome(
+        [
+          "connectors:",
+          `  mcp: ${connectorsUrl}`,
+          "  enabled:",
+          "    - gmail/personal: {tools: [get_message, send_message]}",
+          "local_tools: {browser: false}",
+        ].join("\n"),
+      ),
+    );
+    await cli.waitForSession();
+    cli.writeLine("tools");
+    const tools = await cli.stdout.waitFor(/tools: [^\n]*/);
+    assert.match(tools, /gmail_get_message/);
+    assert.doesNotMatch(tools, /gmail_send_message|hackernews|slack/);
+    cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("an unavailable connectors server offers no tools, and its tools return in a later listing", async () => {
+    const effective = resolveConfig({ connectors: { mcp: connectorsUrl } }, "builtin", "scripted/default");
+    const lines: string[] = [];
+    const source = new ConnectorsMcpToolSource(connectorsUrl, new TurnConfigResolver(effective, null, () => undefined), (line) =>
+      lines.push(line),
+    );
+    connectors.unavailableReason = "the connectors MCP server is starting";
+    try {
+      assert.deepEqual(await source.listTools(), []);
+      assert.match(lines.join("\n"), /Connector tools are unavailable for now/);
+    } finally {
+      connectors.unavailableReason = undefined;
+    }
+    await pollUntil(async () => ((await source.listTools()).length > 0 ? true : undefined), {
+      description: "the connector tools to return",
+      timeoutMs: 60_000,
+    });
+    assert.match(lines.join("\n"), /Connector tools are available again/);
+  });
+
+  test("commands with different configurations never run each other's Steps", async () => {
+    const config = "connectors: {enabled: []}\nlocal_tools: {browser: false}\n";
+    const homeA = newHome(config);
+    const homeB = newHome(config);
+    assert.notEqual(homeA.sessionFlowType(), homeB.sessionFlowType());
+    const cliA = start(homeA);
+    const cliB = start(homeB);
+    const sessionA = await cliA.waitForSession();
+    await cliB.waitForSession();
+    for (let index = 0; index < 4; index += 1) {
+      cliA.writeLine(`call write_file {"path":"from-a-${index}.txt","content":"a"}`);
+      await cliA.stdout.waitFor("Approve write_file?");
+      cliA.writeLine("y");
+      await cliA.stdout.waitFor(`result: wrote 1 bytes to from-a-${index}.txt`);
+      assert.equal(existsSync(join(homeA.workspace, `from-a-${index}.txt`)), true);
+      assert.equal(existsSync(join(homeB.workspace, `from-a-${index}.txt`)), false);
+    }
+    cliA.writeLine("/exit");
+    assert.equal(await cliA.waitForExit(), 0);
+    cliB.writeLine("/exit");
+    assert.equal(await cliB.waitForExit(), 0);
+
+    const resumeInB = start(homeB, ["--resume", sessionA]);
+    assert.equal(await resumeInB.waitForExit(), 2);
+    assert.match(resumeInB.stderr.all, /resume it with the configuration that started it/);
+    const sessionsOfB = start(homeB, ["sessions"]);
+    assert.equal(await sessionsOfB.waitForExit(), 0);
+    assert.doesNotMatch(sessionsOfB.stdout.all, new RegExp(sessionA));
   });
 });

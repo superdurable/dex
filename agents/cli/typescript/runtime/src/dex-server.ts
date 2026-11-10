@@ -7,9 +7,12 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+
+import { Client, FlowNotFoundError, Registry, openBlobCache } from "@superdurable/dex";
 
 import type { CliEnvironment } from "./cli-environment.js";
 import { resolveDexcliExecutable } from "./dexcli-binary.js";
@@ -20,6 +23,8 @@ const readinessProbeTimeoutMs = 2_000;
 const startTimeoutMs = 120_000;
 const reuseWaitTimeoutMs = 60_000;
 const pollIntervalMs = 250;
+const identityProbeTimeoutMs = 5_000;
+const identityProbeFlowId = "dex-agents-cli-identity-probe";
 
 /**
  * The Dex server a command uses.
@@ -56,13 +61,18 @@ export interface StartedDexcliDev {
   readonly webPort: number;
   /** The log file of its output. */
   readonly logPath: string;
+  /** The connectors MCP URL from its `Connectors MCP:` line, when it printed one. */
+  readonly connectorsMcpUrl?: string;
 }
 
 /**
  * Returns the Dex server of `dex.server`.
  *
- * For a URL, it returns the URL's address. For `auto`, it reuses the `dexcli dev` whose Dex Web answers
- * `/readyz` on `DEX_AGENTS_WEB_PORT` (8802), with Dex on `DEX_AGENTS_DEX_PORT` (8801). Without one, it starts
+ * For a URL, it returns the URL's address. For `auto`, it reuses the `dexcli dev` on `DEX_AGENTS_WEB_PORT` (Dex
+ * Web, 8802) and `DEX_AGENTS_DEX_PORT` (Dex, 8801). It trusts one that a command started, when the record's
+ * process is alive on the same ports. Any other server must prove it is a `dexcli dev`: its Dex Web `/readyz`
+ * answers with Dex Web's readiness JSON and its Dex port answers the Dex FlowService. Otherwise the command stops
+ * instead of sending sessions and connector calls to an unknown server. Without any server, it starts
  * `dexcli dev` on those ports in the background, with its output in `~/.dex/agents/dexcli-dev.log`, waits until
  * it is ready, and records it in `~/.dex/agents/dexcli-dev.json`. The started server keeps running after the
  * command exits, so later commands and Dex Web reuse it.
@@ -87,13 +97,28 @@ export async function resolveDexServer(
   }
   const webUrl = `http://127.0.0.1:${environment.dexcliDevWebPort}`;
   const serverAddress = `127.0.0.1:${environment.dexcliDevDexPort}`;
+  const record = readStartedDexcliDev(environment);
+  const isStartedByCommand =
+    record !== undefined &&
+    record.dexPort === environment.dexcliDevDexPort &&
+    record.webPort === environment.dexcliDevWebPort &&
+    isProcessAlive(record.pid);
   const readiness = await probeReadiness(webUrl);
-  if (readiness !== "absent") {
-    if (readiness === "starting") {
+  if (readiness.state !== "absent" || isStartedByCommand) {
+    if (readiness.state !== "ready") {
       log(`Waiting for the dexcli dev at ${webUrl} to become ready.`);
-      await waitForReadiness(webUrl, reuseWaitTimeoutMs);
     }
-    return { serverAddress, isTls: false, webUrl, autoConnectorsMcpUrl: `${webUrl}/mcp`, origin: "reused" };
+    const ready = readiness.state === "ready" ? readiness : await waitForReadiness(webUrl, reuseWaitTimeoutMs);
+    if (!isStartedByCommand) {
+      await requireDexcliDevIdentity(webUrl, serverAddress, ready.body);
+    }
+    return {
+      serverAddress,
+      isTls: false,
+      webUrl,
+      autoConnectorsMcpUrl: (isStartedByCommand ? record?.connectorsMcpUrl : undefined) ?? `${webUrl}/mcp`,
+      origin: "reused",
+    };
   }
   const connectorsMcpUrl = await startDexcliDev(environment, log);
   return {
@@ -153,15 +178,17 @@ async function startDexcliDev(environment: CliEnvironment, log: (line: string) =
     const output = readFileSync(logPath, "utf8");
     if (output.includes(readyLine)) {
       child.unref();
+      const connectorsMcpUrl = connectorsMcpLine.exec(output)?.[1];
       const record: StartedDexcliDev = {
         pid: child.pid ?? 0,
         dexPort: environment.dexcliDevDexPort,
         webPort: environment.dexcliDevWebPort,
         logPath,
+        ...(connectorsMcpUrl === undefined ? {} : { connectorsMcpUrl }),
       };
       writeFileSync(startedRecordPath(environment), `${JSON.stringify(record, null, 2)}\n`);
       log(`dexcli dev is running (pid ${record.pid}) and keeps running after this command exits.`);
-      return connectorsMcpLine.exec(output)?.[1];
+      return connectorsMcpUrl;
     }
     if (exitDescription !== undefined || Date.now() >= deadline) {
       if (exitDescription === undefined) {
@@ -176,25 +203,98 @@ async function startDexcliDev(environment: CliEnvironment, log: (line: string) =
   }
 }
 
-async function probeReadiness(webUrl: string): Promise<"ready" | "starting" | "absent"> {
+/** What `/readyz` answered: nothing, a not-ready status, or ready with its body. */
+type Readiness =
+  | { readonly state: "absent" }
+  | { readonly state: "starting" }
+  | { readonly state: "ready"; readonly body: string };
+
+async function probeReadiness(webUrl: string): Promise<Readiness> {
   try {
     const response = await fetch(`${webUrl}/readyz`, { signal: AbortSignal.timeout(readinessProbeTimeoutMs) });
-    await response.arrayBuffer();
-    return response.ok ? "ready" : "starting";
+    const body = await response.text();
+    return response.ok ? { state: "ready", body } : { state: "starting" };
   } catch {
-    return "absent";
+    return { state: "absent" };
   }
 }
 
-async function waitForReadiness(webUrl: string, timeoutMs: number): Promise<void> {
+async function waitForReadiness(webUrl: string, timeoutMs: number): Promise<{ readonly body: string }> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if ((await probeReadiness(webUrl)) === "ready") {
-      return;
+    const readiness = await probeReadiness(webUrl);
+    if (readiness.state === "ready") {
+      return readiness;
     }
     await delay(pollIntervalMs);
   }
   throw new Error(`the dexcli dev at ${webUrl} did not become ready within ${timeoutMs / 1000} seconds`);
+}
+
+/**
+ * Checks that a server this command did not start is a `dexcli dev`: Dex Web's readiness JSON on the web port and
+ * the Dex FlowService on the Dex port.
+ */
+async function requireDexcliDevIdentity(webUrl: string, serverAddress: string, readinessBody: string): Promise<void> {
+  const refuse = (reason: string): never => {
+    throw new Error(
+      `${webUrl} answers, but it is not a dexcli dev (${reason}). Stop that server, or set DEX_AGENTS_WEB_PORT and DEX_AGENTS_DEX_PORT to the ports of a dexcli dev or to free ports.`,
+    );
+  };
+  let readiness: unknown;
+  try {
+    readiness = JSON.parse(readinessBody);
+  } catch {
+    return refuse("its /readyz is not Dex Web's readiness JSON");
+  }
+  const fields = (readiness ?? {}) as Record<string, unknown>;
+  if (
+    fields.status !== "ready" ||
+    typeof fields.definitionRevision !== "string" ||
+    typeof fields.source !== "string" ||
+    typeof fields.definitionCount !== "number"
+  ) {
+    return refuse("its /readyz is not Dex Web's readiness JSON");
+  }
+  const reason = await probeDexFlowService(serverAddress);
+  if (reason !== undefined) {
+    refuse(`${serverAddress} does not answer as a Dex server: ${reason}`);
+  }
+}
+
+/** Returns why the address does not answer as the Dex FlowService, or `undefined` when it does. */
+async function probeDexFlowService(serverAddress: string): Promise<string | undefined> {
+  const cacheDirectory = mkdtempSync(join(tmpdir(), "dex-agents-probe-"));
+  const blobCache = openBlobCache({ directory: cacheDirectory, maxBytes: 1024 * 1024 });
+  const client = new Client(new Registry([]), blobCache, { serverAddress });
+  try {
+    const answer = client.describeFlow(identityProbeFlowId).then(
+      () => undefined,
+      (error: unknown) => (error instanceof FlowNotFoundError ? undefined : describeError(error)),
+    );
+    const timeout = delay(identityProbeTimeoutMs).then(() => "it did not answer within 5 seconds");
+    return await Promise.race([answer, timeout]);
+  } finally {
+    await client.close().catch(() => undefined);
+    blobCache.close();
+    rmSync(cacheDirectory, { recursive: true, force: true });
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: unknown) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function startedRecordPath(environment: CliEnvironment): string {

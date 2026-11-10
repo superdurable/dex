@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -191,7 +191,7 @@ class AgentCliCommand {
       case "connectors":
         return this.listConnectors(effective, server);
       case "sessions":
-        return this.listSessions(server);
+        return this.listSessions(loaded, server);
       default:
         return this.chat(effective, loaded, server);
     }
@@ -256,6 +256,7 @@ class AgentCliCommand {
       (warnings) => this.log(`Session settings keys ignored: ${warnings.join(", ")}`),
     );
     const workspace = this.prepareWorkspace(effective, loaded);
+    const flowType = this.sessionFlowType(loaded);
     const connectorSource = await this.connectConnectors(effective, server, turns, true);
     const offeredGroups = this.offeredLocalToolGroups(effective);
     const toolSources: ToolSource[] = connectorSource === undefined ? [] : [connectorSource];
@@ -264,15 +265,19 @@ class AgentCliCommand {
       toolSources.push(this.localTools);
     }
     const context: HarnessContext = {
-      flowType: this.harness.flowType,
+      flowType,
       config: effective,
       workspace,
       instructions: turns.currentTurn().instructions,
       harnessOptions: effective.harness_options,
       toolSources,
       resolveTurn: (sessionSettings) => turns.resolveTurn(sessionSettings),
+      currentTurn: () => turns.currentTurn(),
     };
     const flow = this.harness.createSessionFlow(context);
+    if (flow.getFlowType() !== flowType) {
+      throw new Error(`the harness built a ${flow.getFlowType()} Flow; build it with HarnessContext.flowType ${flowType}`);
+    }
     turns.installOn(flow.runner);
     const registry = new Registry([flow]);
     this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
@@ -288,17 +293,31 @@ class AgentCliCommand {
     await this.worker.start();
     await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
     this.client = new Client(registry, this.blobCache, connection);
-    const sessionId = await this.openSession(this.client, flow);
+    const sessionId = await this.openSession(this.client, flow, flowType);
     this.io.stdout.write(
       `Session ${sessionId}. Type a message; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
     );
     const chat = new TerminalChat(this.client, flow, sessionId, this.terminalInput(), this.io.stdout);
-    await chat.run();
+    const isFailed = await chat.run();
     this.io.stdout.write(`\nSession ${sessionId} keeps running. Resume it with: dex-agents-${this.harness.name} --resume ${sessionId}\n`);
-    return 0;
+    return isFailed ? 1 : 0;
   }
 
-  private async openSession(client: Client, flow: Parameters<typeof startAgentSession>[1]): Promise<string> {
+  /**
+   * Returns this command's session Flow type: the harness's Flow type with a hash of the host name and the
+   * configuration file's real path, or "defaults" without a file. So only Workers with the same workspace and
+   * policies take a session's Steps, and editing the file keeps its sessions.
+   */
+  private sessionFlowType(loaded: LoadedConfig): string {
+    const configIdentity = loaded.isFromFile ? realpathSync(loaded.configPath) : defaultsConfigIdentity;
+    return namespaceSessionFlowType(this.harness.flowType, hostname(), configIdentity);
+  }
+
+  private async openSession(
+    client: Client,
+    flow: Parameters<typeof startAgentSession>[1],
+    flowType: string,
+  ): Promise<string> {
     const resumeSessionId = this.parsed.resumeSessionId;
     if (resumeSessionId === undefined) {
       const sessionId = newSessionId(this.harness);
@@ -314,8 +333,10 @@ class AgentCliCommand {
       }
       throw error;
     }
-    if (info.flowType !== this.harness.flowType) {
-      throw new UsageError(`session ${resumeSessionId} is a ${info.flowType}, not a ${this.harness.flowType} session`);
+    if (info.flowType !== flowType) {
+      throw new UsageError(
+        `session ${resumeSessionId} is a ${info.flowType} session, but this machine and configuration run ${flowType} sessions; resume it with the configuration that started it`,
+      );
     }
     if (info.status !== "running") {
       throw new UsageError(`session ${resumeSessionId} is ${info.status}, so it cannot continue`);
@@ -342,14 +363,14 @@ class AgentCliCommand {
       return undefined;
     }
     const availability = await probeConnectorsMcp(url);
-    if (!availability.isAvailable) {
-      if (!isAuto) {
-        throw new Error(`the connectors MCP server is unavailable: ${availability.reason}`);
-      }
-      this.log(`Connectors are off for now: ${availability.reason}`);
-      return undefined;
+    if (!availability.isAvailable && !isAuto) {
+      throw new Error(`the connectors MCP server is unavailable: ${availability.reason}`);
     }
-    const source = new ConnectorsMcpToolSource(url, turns);
+    const source = new ConnectorsMcpToolSource(url, turns, this.log);
+    if (!availability.isAvailable) {
+      this.log(`Connector tools are unavailable for now; each turn tries again: ${availability.reason}`);
+      return source;
+    }
     await this.reportUnauthorizedConnectors(effective, await source.readIdentities(), server, isOpeningConnectorsPage);
     return source;
   }
@@ -391,13 +412,16 @@ class AgentCliCommand {
       return 1;
     }
     const turns = new TurnConfigResolver(effective, null, () => undefined);
-    const source = new ConnectorsMcpToolSource(url, turns);
+    const source = new ConnectorsMcpToolSource(url, turns, this.log);
     const identities = await source.readIdentities();
     const operationsByConnection = new Map<string, string[]>();
     for (const identity of identities.values()) {
       const key = `${identity.connector}/${identity.connection}`;
       const operations = operationsByConnection.get(key) ?? [];
-      operations.push(canonicalOperationName(identity.operation));
+      operations.push(
+        identity.operationName ??
+          (identity.operation === null ? identity.toolName : canonicalOperationName(identity.operation)),
+      );
       operationsByConnection.set(key, operations);
     }
     this.io.stdout.write(`Connectors MCP server: ${url}\nAuthorized connections:\n`);
@@ -420,7 +444,8 @@ class AgentCliCommand {
     return 0;
   }
 
-  private async listSessions(server: DexServerConnection): Promise<number> {
+  private async listSessions(loaded: LoadedConfig, server: DexServerConnection): Promise<number> {
+    const flowType = this.sessionFlowType(loaded);
     const registry = new Registry([]);
     this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
     this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
@@ -428,9 +453,9 @@ class AgentCliCommand {
       serverAddress: server.serverAddress,
       ...(server.isTls ? { flowServiceTls: {} } : {}),
     });
-    const page = await this.client.searchFlows(`FlowType = "${this.harness.flowType}"`, sessionsPageSize);
+    const page = await this.client.searchFlows(`FlowType = "${flowType}"`, sessionsPageSize);
     if (page.flows.length === 0) {
-      this.io.stdout.write(`No ${this.harness.flowType} sessions.\n`);
+      this.io.stdout.write(`No ${flowType} sessions.\n`);
       return 0;
     }
     for (const flow of page.flows) {
@@ -443,7 +468,7 @@ class AgentCliCommand {
   private prepareWorkspace(effective: EffectiveConfig, loaded: LoadedConfig): string {
     const workspace = expandConfigPath(effective.workspace, loaded.configPath, this.environment.homeDirectory);
     mkdirSync(workspace, { recursive: true });
-    return realpathSync(workspace);
+    return realpathSync.native(workspace);
   }
 
   private offeredLocalToolGroups(effective: EffectiveConfig): ReadonlySet<LocalToolGroup> {
@@ -466,6 +491,25 @@ class AgentCliCommand {
     const line = await this.terminalInput().nextLine();
     return line === lineWaitAborted ? null : line;
   }
+}
+
+/** The configuration identity of a run without a configuration file. */
+const defaultsConfigIdentity = "defaults";
+
+/**
+ * Returns the session Flow type of a harness on one host and configuration: `<flowType>-<hash>`, where the hash
+ * is the first 12 hexadecimal digits of the SHA-256 of `<host name>\n<configuration identity>` in UTF-8. The
+ * configuration identity is the real path of the configuration file, or `defaults` without a file.
+ *
+ * @param harnessFlowType - {@link AgentHarness.flowType}.
+ * @param hostName - The host name.
+ * @param configIdentity - The configuration file's real path, or `defaults`.
+ * @returns The session Flow type.
+ * @since 0.5.0
+ */
+export function namespaceSessionFlowType(harnessFlowType: string, hostName: string, configIdentity: string): string {
+  const hash = createHash("sha256").update(`${hostName}\n${configIdentity}`, "utf8").digest("hex").slice(0, 12);
+  return `${harnessFlowType}-${hash}`;
 }
 
 function parseCommandArguments(argv: readonly string[]): ParsedArguments {
