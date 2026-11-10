@@ -190,6 +190,9 @@ Flows or depend on write access:
 | **POST /api/v2/start** | Start a Flow. |
 | **PATCH /api/v2/display** | Edit a displayed Attribute. |
 | **POST /api/v2/actions** | Invoke an RPC. |
+| **POST /api/v2/agent-sessions/start** | Start a Dex Agents session. |
+| **POST /api/v2/agent-sessions/messages** | Send a message to a Dex Agents session. |
+| **POST /api/v2/agent-sessions/settings** | Change a Dex Agents session's settings. |
 
 These **POST** routes only read: **/api/flows/search**, **/api/v2/search**,
 and **/api/blobs/load**. **IsMutatingRequest** treats every other request with
