@@ -106,6 +106,7 @@ and `make copyright-check` passes.
 | `DexExpressiveness/L/ThreadLocal.lean` | What one statement does to its own thread, and the atomic action it asks for. |
 | `DexExpressiveness/L/Semantics.lean` | L small-step semantics, L fairness, `Program.IsWellFormed` (spec §8.1). |
 | `DexExpressiveness/L/Invariant.lean` | `L.Invariant`, the invariant of reachable L configurations. Fixed definitions. |
+| `DexExpressiveness/L/LockDiscipline.lean`, `L/LockDisciplineSound.lean` | Proved: a decidable static lock discipline (`Program.hasStaticLockDiscipline`) implies `Program.IsWellFormed`. |
 | `DexExpressiveness/L/InvariantStep.lean`, `L/InvariantStepLemmas.lean`, `L/InvariantStepLocal.lean`, `L/InvariantStepFrame.lean`, `L/InvariantStepActions.lean` | Work package 1, proved: every L transition keeps `L.Invariant`. |
 | `DexExpressiveness/Translation/Flow.lean` | The translation `⟦·⟧` (spec §8.2, §8.3). |
 | `DexExpressiveness/Translation/Projection.lean` | The projection `π`, the request encoding, `E_adm` of a translated program (spec §5.3). |
@@ -198,7 +199,8 @@ How they read against the spec:
   §8.1): `program.IsWellFormed`. It is a property of the L program under L's
   semantics, quantified over every input and schedule, like data-race
   freedom. The translation plays no part in it. The theorem names carry the
-  scope.
+  scope. The scope is not empty: see
+  [Well-formed programs exist](#well-formed-programs-exist).
 - `Program` is built from source statements only. The runtime instruction
   `park` is not a `Stmt`, so no program contains it.
 
@@ -485,6 +487,9 @@ All of this is free of `sorry`. `#print axioms` shows only `propext`,
 - `finiteTrace_dex_to_l`, `finiteTrace_l_to_dex`: the two inclusions of
   safety, from the step simulations and the invariants.
 - `literal_isNotHandle`: no request carries a handle.
+- `Program.isWellFormed_of_hasStaticLockDiscipline`, and `IsWellFormed` for
+  eight example programs (`Examples/WellFormed.lean`); the safety theorem at
+  three of them with no hypothesis (`Examples/WellFormedSafety.lean`).
 - `safety_of_isWellFormed`: proved, with no `sorry`.
 - `liveness_of_isWellFormed`, `expressiveness_of_isWellFormed`: proved from
   the inclusion lemmas; the two of liveness are `sorry`.
@@ -497,6 +502,53 @@ All of this is free of `sorry`. `#print axioms` shows only `propext`,
     return of `main`, on both sides.
   - `Examples/TimerOrder.lean`: two timers with equal deadlines fire in
     timer-number order on both sides.
+
+## Well-formed programs exist
+
+`Program.IsWellFormed` quantifies over every reachable configuration, so a
+concrete trace does not show that a program satisfies it. Without a witness
+the theorems could hold for no program at all.
+
+`L/LockDiscipline.lean` defines a decidable, syntactic sufficient condition,
+`Program.hasStaticLockDiscipline`: a must-hold lock-set analysis over the
+statically known mutexes. `lock(staticMutex i)` adds `i` to the set;
+`unlock`, `wait`, `signal`, and `broadcast` need a statically known operand
+whose mutex is in the set; the branches of an `if` or a `select` must agree;
+a loop body must give back the set it started from; a called or forked
+procedure body, a `try` body, and a handler are checked from the empty set.
+`L/LockDisciplineSound.lean` proves
+
+```lean
+theorem Program.isWellFormed_of_hasStaticLockDiscipline (program : Program)
+    (isDisciplined : program.hasStaticLockDiscipline = true) : program.IsWellFormed
+```
+
+The proof rests on one fact of L: only the owner of a mutex releases it, so
+the steps of other threads never shrink the set of mutexes a thread holds.
+
+`Examples/WellFormed.lean` proves `IsWellFormed` for eight programs, each by
+`decide` in the Lean kernel:
+
+| Program | Constructs |
+| --- | --- |
+| `Mutex.program` | `fork`, `join`, `lock`, `unlock`, `emit`, `exit` |
+| `TimedSelect.program` | `sleep`, timed `select`, `recv`, `cancel`, `fork`, `join` |
+| `LockstepChecks.signalProgram` | `wait`, `signal`, `lock`, `unlock`, `sleep` |
+| `LockstepChecks.broadcastProgram` | `wait` in a `while`, `broadcast`, shared variables |
+| `LockstepChecks.recursionProgram` | recursive `call`, `ret`, `if`, `while` |
+| `LockstepChecks.exceptionProgram` | `try`, `throw` across a call, an uncaught exception |
+| `LockstepChecks.selectRaceProgram` | three threads racing in `select`, `cancel` |
+| `WellFormed.createdMutexProgram` | `newMutex`, `lock` of a created mutex, `fail` |
+
+Together they use every construct of L. `Examples/WellFormedSafety.lean`
+states the safety theorem at three of them with no hypothesis left.
+
+The discipline is sufficient, not necessary. It tracks statically known
+mutexes only, and it empties the lock set after a `call` and after a `try`.
+So it rejects `unlock`, `wait`, `signal`, and `broadcast` on a created mutex
+(`LockstepChecks.newMutexProgram`), and a program that holds a lock across a
+call and unlocks after it. No program that was expected to be well formed
+turned out not to be.
 
 ## Lockstep checks
 
