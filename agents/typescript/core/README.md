@@ -1,7 +1,7 @@
 # @superdurable/dex-agents
 
 Durable agent sessions for Dex, shared by the TypeScript agent framework
-adapters. One Flow execution is one agent session, and the Flow ID is the
+adapters. One Flow run is one agent session, and the Flow ID is the
 session ID. An adapter package supplies a framework runner; this package owns
 the Steps, persistence, RPCs, live events, tool approval, and crash recovery.
 It runs in Step mode: each model call and each tool call is its own Dex Step,

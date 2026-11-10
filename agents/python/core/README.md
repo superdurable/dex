@@ -6,7 +6,7 @@ framework adapters. It provides one durable agent session Flow,
 framework adapter implements. The plan is
 [agent-framework-adapters.md](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
-One Flow execution is one agent session; the Flow ID is the session ID. The
+One Flow run is one agent session; the Flow ID is the session ID. The
 session runs in **Step mode**: every model call is one `RunModel` Step, and
 every tool call, READ included, is its own Step. The tool call Steps of one
 model response run in parallel, and `ResumeTurn` waits for their results
