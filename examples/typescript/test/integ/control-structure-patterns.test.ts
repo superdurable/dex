@@ -25,10 +25,7 @@ import {
   type FlowResult,
 } from "@superdurable/dex";
 
-import {
-  loanApplicationFlow,
-  stoppedCreditCheckFlowId,
-} from "../../src/patterns/cancel-case/loan-application-flow.js";
+import { stoppedCreditCheckFlowId } from "../../src/patterns/cancel-case/loan-application-flow.js";
 import {
   contractEditFlow,
   type ContractEdit,
@@ -168,12 +165,36 @@ test("critical section returns the token when an edit fails", async () => {
   assertContractEditsDoNotOverlap(records);
 });
 
+test("critical section returns the token when the handoff fails", async () => {
+  const edits: ContractEdit[] = [
+    { reviewer: "legal", shouldFailHandoff: true },
+    { reviewer: "finance" },
+  ];
+  const flowId = await startPatternFlow(contractEditFlow, "pattern-critical-section-handoff", edits);
+  const records = await contractEditRecords(flowId);
+  const outcomes = Object.fromEntries(records.map((record) => [record.reviewer, record.outcome]));
+  assert.deepEqual(outcomes, { legal: "failed", finance: "saved" });
+  assertContractEditsDoNotOverlap(records);
+});
+
+test("critical section returns the token on an early exit", async () => {
+  const edits: ContractEdit[] = [
+    { reviewer: "legal", shouldWithdraw: true },
+    { reviewer: "finance" },
+  ];
+  const flowId = await startPatternFlow(contractEditFlow, "pattern-critical-section-withdraw", edits);
+  const records = await contractEditRecords(flowId);
+  const outcomes = Object.fromEntries(records.map((record) => [record.reviewer, record.outcome]));
+  assert.deepEqual(outcomes, { legal: "withdrawn", finance: "saved" });
+  assertContractEditsDoNotOverlap(records);
+});
+
 test("cancel case stops the running child Flow", async () => {
-  const flowId = await startPatternFlow(loanApplicationFlow, "pattern-cancel-case", {
+  const flowId = await startPatternFlow(environment.loanApplicationFlow, "pattern-cancel-case", {
     applicantId: "applicant-1",
     creditReportDelaySeconds: 3600,
   });
-  await environment.client.invokeRPC(loanApplicationFlow.cancelApplication, flowId, "applicant withdrew");
+  await environment.client.invokeRPC(environment.loanApplicationFlow.cancelApplication, flowId, "applicant withdrew");
   const result = await environment.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
   assert.equal(result.status, "failed", result.errorMessage);
   assert.match(result.errorMessage ?? "", /application canceled: applicant withdrew/);
@@ -188,24 +209,24 @@ test("cancel case stops the running child Flow", async () => {
 });
 
 test("cancel case after the child Flow finished", async () => {
-  const flowId = await startPatternFlow(loanApplicationFlow, "pattern-cancel-case-late", {
+  const flowId = await startPatternFlow(environment.loanApplicationFlow, "pattern-cancel-case-late", {
     applicantId: "applicant-2",
     creditReportDelaySeconds: 1,
   });
   await waitForStep(flowId, "RunCreditCheck");
-  await environment.client.invokeRPC(loanApplicationFlow.cancelApplication, flowId, "applicant withdrew");
+  await environment.client.invokeRPC(environment.loanApplicationFlow.cancelApplication, flowId, "applicant withdrew");
   const result = await environment.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
   assert.equal(result.status, "failed", result.errorMessage);
   assert.match(result.errorMessage ?? "", /application canceled: applicant withdrew/);
 });
 
 test("cancel case completes with the underwriter decision", async () => {
-  const flowId = await startPatternFlow(loanApplicationFlow, "pattern-cancel-case-decided", {
+  const flowId = await startPatternFlow(environment.loanApplicationFlow, "pattern-cancel-case-decided", {
     applicantId: "applicant-3",
     creditReportDelaySeconds: 1,
   });
   await waitForStep(flowId, "RunCreditCheck");
-  await environment.client.invokeRPC(loanApplicationFlow.decideApplication, flowId, "approved");
+  await environment.client.invokeRPC(environment.loanApplicationFlow.decideApplication, flowId, "approved");
   const result = await waitForCompletedFlow(flowId);
   assert.deepEqual(
     result.completions

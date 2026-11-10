@@ -30,6 +30,7 @@ import {
   gracefulComplete,
   rpc,
   stringCodec,
+  type Client,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -37,8 +38,7 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-import { getClient } from "../../client-holder.js";
-import { creditCheckFlow, type CreditCheckFlow } from "./credit-check-flow.js";
+import type { CreditCheckFlow } from "./credit-check-flow.js";
 
 /**
  * The child's own Flow timeout. It stops the child even when the parent
@@ -60,14 +60,19 @@ export const underwriterDecided = new Channel("underwriterDecided", stringCodec)
 
 /** Waits for its child Flow or a cancellation, whichever comes first. */
 class RunCreditCheck implements Step<LoanApplication> {
-  public constructor(private readonly creditCheckFlow: CreditCheckFlow) {}
+  public constructor(
+    private readonly getClient: () => Client,
+    private readonly creditCheckFlow: CreditCheckFlow,
+  ) {}
 
   public getStepType(): string {
     return "RunCreditCheck";
   }
 
   public waitFor(_context: Context, application: LoanApplication): Wait {
+    // The cancel condition comes first: it wins when both are ready.
     return Wait.anyOf(
+      applicationCanceled.forOne(),
       SubFlow.run(
         this.creditCheckFlow,
         {
@@ -79,7 +84,6 @@ class RunCreditCheck implements Step<LoanApplication> {
           reusePolicy: SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY,
         },
       ),
-      applicationCanceled.forOne(),
     );
   }
 
@@ -87,7 +91,7 @@ class RunCreditCheck implements Step<LoanApplication> {
     const reasons = applicationCanceled.results(context);
     if (reasons.length > 0) {
       const childFlowId = SubFlow.getFlowId(context);
-      await stopCreditCheck(childFlowId);
+      await this.stopCreditCheck(childFlowId);
       stoppedCreditCheckFlowId.set(context, childFlowId);
       return forceFail(APPLICATION_CANCELED_PREFIX + reasons[0]);
     }
@@ -96,6 +100,26 @@ class RunCreditCheck implements Step<LoanApplication> {
       return forceFail(`credit check ended with status ${result.status}`);
     }
     return goTo(AwaitUnderwriterDecision, result.singleOutput(stringCodec));
+  }
+
+  /** Cancels the child; a missing or already closed child counts as stopped. */
+  private async stopCreditCheck(childFlowId: string): Promise<void> {
+    // Calling a field through this would hide the Step class from the Flow visualizer.
+    const getClient = this.getClient;
+    try {
+      await getClient().stopFlow(childFlowId, {
+        type: StopType.CANCEL,
+        reason: "loan application canceled",
+      });
+    } catch (error) {
+      if (
+        !(error instanceof FlowNotFoundError) &&
+        !(error instanceof FlowNotActiveOrNotFoundError) &&
+        !(error instanceof FlowClosingError)
+      ) {
+        throw error;
+      }
+    }
   }
 }
 
@@ -111,7 +135,7 @@ class AwaitUnderwriterDecision implements Step<string> {
   }
 
   public waitFor(_context: Context, _report: string): Wait {
-    return Wait.anyOf(underwriterDecided.forOne(), applicationCanceled.forOne());
+    return Wait.anyOf(applicationCanceled.forOne(), underwriterDecided.forOne());
   }
 
   public execute(context: Context, report: string): StepDecision {
@@ -123,24 +147,6 @@ class AwaitUnderwriterDecision implements Step<string> {
   }
 }
 
-/** Cancels the child; a missing or already closed child counts as stopped. */
-async function stopCreditCheck(childFlowId: string): Promise<void> {
-  try {
-    await getClient().stopFlow(childFlowId, {
-      type: StopType.CANCEL,
-      reason: "loan application canceled",
-    });
-  } catch (error) {
-    if (
-      !(error instanceof FlowNotFoundError) &&
-      !(error instanceof FlowNotActiveOrNotFoundError) &&
-      !(error instanceof FlowClosingError)
-    ) {
-      throw error;
-    }
-  }
-}
-
 /**
  * Runs a credit check in a child Flow. Canceling the application also stops
  * the child Flow.
@@ -148,8 +154,12 @@ async function stopCreditCheck(childFlowId: string): Promise<void> {
 export class LoanApplicationFlow implements Flow<LoanApplication> {
   private readonly runCreditCheck: RunCreditCheck;
 
-  public constructor(childFlow: CreditCheckFlow) {
-    this.runCreditCheck = new RunCreditCheck(childFlow);
+  /**
+   * @param getClient - Returns the Client that stops the child; it is called only during execute.
+   * @param creditCheckFlow - The registered child Flow.
+   */
+  public constructor(getClient: () => Client, creditCheckFlow: CreditCheckFlow) {
+    this.runCreditCheck = new RunCreditCheck(getClient, creditCheckFlow);
   }
 
   public getFlowType(): string {
@@ -179,5 +189,3 @@ export class LoanApplicationFlow implements Flow<LoanApplication> {
     underwriterDecided.publish(context, decision);
   }
 }
-
-export const loanApplicationFlow = new LoanApplicationFlow(creditCheckFlow);

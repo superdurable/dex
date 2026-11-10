@@ -21,13 +21,13 @@ import { join } from "node:path";
 
 import { Client, Registry, openBlobCache, type Flow } from "@superdurable/dex";
 
-import { setClient } from "../../src/client-holder.js";
+import { getClient, setClient } from "../../src/client-holder.js";
 import { HOUR_MS } from "../../src/config/env.js";
 import {
   startExampleWorker,
 } from "../../src/config/worker.js";
 import { creditCheckFlow } from "../../src/patterns/cancel-case/credit-check-flow.js";
-import { loanApplicationFlow } from "../../src/patterns/cancel-case/loan-application-flow.js";
+import { LoanApplicationFlow } from "../../src/patterns/cancel-case/loan-application-flow.js";
 import { contractEditFlow } from "../../src/patterns/critical-section/contract-edit-flow.js";
 import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-response-flow.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
@@ -46,6 +46,7 @@ import { subscriptionFlow } from "../../src/products/subscription/subscription-f
 import { userOnboardingFlow } from "../../src/products/signup/user-signup-flow.js";
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
+const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
 
 export interface IntegEnvironment {
   readonly client: Client;
@@ -61,6 +62,7 @@ export interface IntegEnvironment {
   readonly orchestrationFlow: typeof orchestrationFlow;
   readonly subscriptionFlow: typeof subscriptionFlow;
   readonly userOnboardingFlow: typeof userOnboardingFlow;
+  readonly loanApplicationFlow: typeof loanApplicationFlow;
   newFlowId(prefix: string): string;
   startOptions(): { timeoutMs: number };
   close(): Promise<void>;
@@ -136,6 +138,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     orchestrationFlow,
     subscriptionFlow,
     userOnboardingFlow,
+    loanApplicationFlow,
     newFlowId(prefix: string) {
       return `${prefix}-${randomUUID()}`;
     },

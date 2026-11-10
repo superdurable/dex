@@ -39,9 +39,14 @@ import {
 
 const CONTRACT_EDIT_DURATION_MS = 100;
 
-/** One reviewer's turn to edit the shared contract. */
+/**
+ * One reviewer's turn to edit the shared contract.
+ * The should* fields simulate a failure or a withdrawal for the example.
+ */
 export interface ContractEdit {
   readonly reviewer: string;
+  readonly shouldFailHandoff?: boolean;
+  readonly shouldWithdraw?: boolean;
   readonly shouldFailEdit?: boolean;
   readonly startedAtMillis?: number;
 }
@@ -75,13 +80,15 @@ class StartContractEdits implements Step<ContractEdit[]> {
   }
 }
 
-/** Enters the section by consuming the token. */
+/**
+ * Takes the token and hands off; it does no protected work, so canceling it
+ * is safe.
+ */
 class EnterContractEdit implements Step<ContractEdit> {
   public getStepType(): string {
     return "EnterContractEdit";
   }
 
-  // An Execute failure after the token was consumed must still publish it back.
   public getStepOptions(): StepOptions {
     return {
       executeRetry: { initialIntervalMs: 1_000, maximumAttempts: 2 },
@@ -93,10 +100,35 @@ class EnterContractEdit implements Step<ContractEdit> {
     return Wait.until(contractEditToken.forOne());
   }
 
-  public async execute(_context: Context, edit: ContractEdit): Promise<StepDecision> {
-    const startedAtMillis = Date.now();
+  public execute(_context: Context, edit: ContractEdit): StepDecision {
+    if (edit.shouldFailHandoff) {
+      throw new Error("contract handoff failed");
+    }
+    return goTo(EditContract, edit);
+  }
+}
+
+/** The first Step that works on the contract. Never cancel it. */
+class EditContract implements Step<ContractEdit> {
+  public getStepType(): string {
+    return "EditContract";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: { initialIntervalMs: 1_000, maximumAttempts: 2 },
+      executeFailure: ExecuteFailure.proceedTo(ReleaseContractEditToken),
+    };
+  }
+
+  public async execute(context: Context, edit: ContractEdit): Promise<StepDecision> {
+    const startedEdit = { ...edit, startedAtMillis: Date.now() };
+    if (startedEdit.shouldWithdraw) {
+      leaveContractEdit(context, startedEdit, "withdrawn");
+      return deadEnd();
+    }
     await sleep(CONTRACT_EDIT_DURATION_MS);
-    return goTo(SaveContractEdit, { ...edit, startedAtMillis });
+    return goTo(SaveContractEdit, startedEdit);
   }
 }
 
@@ -152,20 +184,24 @@ class FinishContractEdits implements Step<number> {
   }
 }
 
-/** Records the edit and publishes the token for the next reviewer. */
+/**
+ * Records the edit and publishes the token for the next reviewer.
+ * An edit that never started has an empty interval at its finish time.
+ */
 function leaveContractEdit(context: Context, edit: ContractEdit, outcome: string): void {
+  const finishedAtMillis = Date.now();
   contractEditFinished.publish(context, {
     reviewer: edit.reviewer,
     outcome,
-    startedAtMillis: edit.startedAtMillis ?? 0,
-    finishedAtMillis: Date.now(),
+    startedAtMillis: edit.startedAtMillis || finishedAtMillis,
+    finishedAtMillis,
   });
   contractEditToken.publish(context, "contract");
 }
 
 /**
  * Lets several reviewers edit one contract, one at a time.
- * A one-message Channel is the token that guards the two-Step edit section.
+ * A one-message Channel is the token that guards the edit section.
  */
 export class ContractEditFlow implements Flow<ContractEdit[]> {
   public getFlowType(): string {
@@ -175,6 +211,7 @@ export class ContractEditFlow implements Flow<ContractEdit[]> {
   public getSteps(): StepList<ContractEdit[]> {
     return StepList.startStep(new StartContractEdits()).otherSteps(
       new EnterContractEdit(),
+      new EditContract(),
       new SaveContractEdit(),
       new ReleaseContractEditToken(),
       new FinishContractEdits(),
