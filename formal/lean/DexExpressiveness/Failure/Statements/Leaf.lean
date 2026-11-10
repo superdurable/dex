@@ -138,7 +138,7 @@ theorem invariant_step (program : Program σ)
     (invariant : Invariant program config) (action : Action σ) (events : List (Obs σ))
     (next : Config σ) (isStep : step program config action = some (events, next)) :
     Invariant program next := by
-  sorry
+  exact invariant_step_proof program ignoresAttemptContext config invariant action events next isStep
 
 end InvariantStep
 
