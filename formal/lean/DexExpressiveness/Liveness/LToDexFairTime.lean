@@ -5,27 +5,33 @@ import DexExpressiveness.Simulation.Frame
 # Liveness, work package L6a: helpers for F1, F2, and F3 of the Dex run
 
 `Liveness/LToDexFair.lean` proves `DexRunOfLRun.timeDiverges`, `.timersFire`,
-and `.stepsStart` from the lemmas of this file. Three groups:
+and `.stepsStart` from the lemmas of this file. Everything here is proved.
 
-1. Inside a block. Every action of a block but at most one is a Worker step
-   (`fairActions_workerSteps`), and a Worker step keeps the run, the clock, the
-   last commit timestamp, and the next task ID (`Dex.step_workerStep_frame`).
-   So inside a block the run and the clock are those at the block's start or
-   those at its end (`DexRunOfLRun.run_clock_inside_block`, and the sharper
-   `DexRunOfLRun.exists_mainOffset`).
-2. Along the whole Dex run. The input of a Step never changes, except that
-   `finish` drops it (`Dex.Run.KeepsStepInputs`,
+1. Along the whole Dex run. The input of a Step never changes, except that
+   `finish` drops it (`Dex.Run.KeepsStepInputs`, `Dex.step_keepsStepInputs`,
    `Dex.keepsStepInputs_of_isRun`). A Step that carries a thread at two block
-   boundaries therefore carries the same thread at both.
-3. At a block boundary. A pending invocation belongs to the Step of a thread
+   boundaries therefore carries the same thread at both
+   (`DexRunOfLRun.sameInput_at_boundaries`).
+2. Inside a block. Every action of a block but at most one is a Worker step
+   (`fairActions_workerSteps`), and a Worker step keeps the run, the clock, the
+   timestamp of the last commit, and the next task ID
+   (`Dex.step_workerStep_frame`). So inside a block the run and the clock are
+   those at the block's start or those at its end
+   (`DexRunOfLRun.run_clock_inside_block`, and the sharper
+   `DexRunOfLRun.exists_mainOffset`). The proofs of F1 to F3 do not need this
+   group; it is here for the proofs of F4 and F5.
+3. Block boundaries. They are in order, and every position is at or before
+   one (`BlockRun.IsFlattenedTo.boundary_mono`, `.exists_boundary_ge`).
+4. At a block boundary. A pending invocation belongs to the Step of a thread
    whose next action has not begun (`IsSimulationState.pendingThread`), and an
    armed timer to the Step of a thread blocked on it
    (`IsSimulationState.timedThread`).
 
-F2 and F3 are then proved by contradiction: a timer that stayed armed and
-due, or an invocation that stayed pending, would stay so at every later block
-boundary, where it is an L timer of one thread, or one pending thread, and
-the L assumption says that this fails.
+F1 reads the clock at a block boundary. F2 and F3 are proved by
+contradiction: a timer that stayed armed and due, or an invocation that
+stayed pending, would stay so at every later block boundary. There it is an
+L timer of one thread, or one pending thread, the same thread at every
+boundary by group 1, and the L assumption says that this fails.
 -/
 
 namespace DexExpressiveness
@@ -45,9 +51,12 @@ def KeepsStepInputs (before after : Run σ) : Prop :=
     ∃ changed, after.findStep? step = some changed ∧
       (changed.input = record.input ∨ changed.input = none)
 
+/-- A run keeps its own inputs. -/
 theorem KeepsStepInputs.refl (run : Run σ) : run.KeepsStepInputs run :=
   fun _ record isFound => ⟨record, isFound, Or.inl rfl⟩
 
+/-- Two changes that keep the inputs, one after the other, keep them: a
+dropped input stays dropped. -/
 theorem KeepsStepInputs.trans {first second third : Run σ}
     (firstKeeps : first.KeepsStepInputs second) (secondKeeps : second.KeepsStepInputs third) :
     first.KeepsStepInputs third := by
@@ -97,13 +106,15 @@ theorem keepsStepInputs_newStep (run : Run σ) (stepType : σ.StepType) (input :
 
 /-- Folding a change that keeps the inputs keeps them. -/
 theorem keepsStepInputs_foldl {α : Type} (apply : Run σ → α → Run σ)
-    (keeps : ∀ (run : Run σ) (element : α), run.KeepsStepInputs (apply run element)) (elements : List α)
-    (run : Run σ) : run.KeepsStepInputs (elements.foldl apply run) := by
+    (keeps : ∀ (run : Run σ) (element : α), run.KeepsStepInputs (apply run element))
+    (elements : List α) (run : Run σ) : run.KeepsStepInputs (elements.foldl apply run) := by
   induction elements generalizing run with
   | nil => exact .refl run
   | cons element laterElements inductionHypothesis =>
     exact (keeps run element).trans (inductionHypothesis (apply run element))
 
+/-- `eval(e)` changes the phase, the invocation, and the condition results of
+`S[e]`, not its input. -/
 theorem keepsStepInputs_evalStep (run : Run σ) (step : StepExecId σ) :
     run.KeepsStepInputs (run.evalStep step) := by
   unfold evalStep
@@ -117,16 +128,20 @@ theorem keepsStepInputs_evalStep (run : Run σ) (step : StepExecId σ) :
         exact .of_steps_eq (by rw [consumeMessages_steps]; rfl)
     · exact .refl run
 
+/-- `wake(C)` is a sequence of `eval`. -/
 theorem keepsStepInputs_wake (run : Run σ) (changed : List σ.Chan) :
     run.KeepsStepInputs (run.wake changed) :=
   keepsStepInputs_foldl evalStep keepsStepInputs_evalStep _ run
 
+/-- `effects` writes Attributes, publishes, and wakes. -/
 theorem keepsStepInputs_applyEffects (run : Run σ) (effects : Effects σ) :
     run.KeepsStepInputs (run.applyEffects effects) := by
   unfold applyEffects
   refine KeepsStepInputs.trans (.of_steps_eq ?_) (keepsStepInputs_wake _ _)
   rw [(applyPublications_frame _ _).1, (applyWrites_frame _ _).1]
 
+/-- `register(e, W)` changes the phase and the wait of `S[e]`, then calls
+`eval(e)`. -/
 theorem keepsStepInputs_registerWait (run : Run σ) (step : StepExecId σ) (wait : Wait σ)
     (now : Nat) : run.KeepsStepInputs (run.registerWait step wait now) := by
   unfold registerWait
@@ -146,12 +161,14 @@ theorem keepsStepInputs_finishStep (run : Run σ) (step : StepExecId σ) (finalP
   exact KeepsStepInputs.trans (second := run.disarmTimersOf step) (.of_steps_eq rfl)
     (keepsStepInputs_updateStep _ _ _ (fun _ => rfl) (fun _ => Or.inr rfl))
 
+/-- `collect` changes only the outputs. -/
 theorem keepsStepInputs_collectOutput (run : Run σ) (step : StepExecId σ)
     (output : Option σ.Val) : run.KeepsStepInputs (run.collectOutput step output) := by
   cases output with
   | none => exact .refl run
   | some value => exact .of_steps_eq rfl
 
+/-- The close finishes every active Step, which drops their inputs. -/
 theorem keepsStepInputs_closeRun (run : Run σ) (status : CloseStatus) :
     run.KeepsStepInputs (run.closeRun status) := by
   unfold closeRun
@@ -162,6 +179,8 @@ theorem keepsStepInputs_closeRun (run : Run σ) (status : CloseStatus) :
         (fun current step => keepsStepInputs_finishStep current step .canceled) _ run)
       (.of_steps_eq rfl)
 
+/-- `decide(e, D)` finishes `S[e]`, then closes the run or appends the Steps
+of the moves. -/
 theorem keepsStepInputs_applyDecision (run : Run σ) (step : StepExecId σ)
     (decision : Decision σ) : run.KeepsStepInputs (run.applyDecision step decision) := by
   unfold applyDecision
@@ -175,6 +194,7 @@ theorem keepsStepInputs_applyDecision (run : Run σ) (step : StepExecId σ)
         current.newStep move.stepType move.input move.options (.step step))
       (fun current move => keepsStepInputs_newStep current _ _ _ _) _ _
 
+/-- [TIMER-FIRE] of one timer marks a timer condition done and calls `eval`. -/
 theorem keepsStepInputs_fireTimer (run : Run σ) (timer : TimerId σ) :
     run.KeepsStepInputs (run.fireTimer timer) := by
   unfold fireTimer
@@ -472,7 +492,8 @@ theorem isWorkerStep_of_getElem?_append
   · rw [List.getElem?_append_left isBefore] at isAction
     exact areWorkers action (List.mem_of_getElem? isAction)
   · rw [List.getElem?_append_right (by omega)] at isAction
-    obtain ⟨distance, isDistance⟩ : ∃ distance, offset - workerActions.length = distance + 1 :=
+    obtain ⟨distance, isDistance⟩ :
+        ∃ distance, offset - workerActions.length = distance + 1 :=
       ⟨offset - workerActions.length - 1, by omega⟩
     rw [isDistance, List.getElem?_cons_succ] at isAction
     exact laterAreWorkers action (List.mem_of_getElem? isAction)
@@ -533,7 +554,8 @@ theorem DexRunOfLRun.exists_mainOffset
       List.getElem?_eq_getElem isInside
     rw [built.isFlattened.labelInBlock index offset _ isLabel]
     exact areWorkers offset _ isLabel isOther
-  have stepKeeps : ∀ offset, offset < (dexBlocks.blocks index).length → offset ≠ mainOffset →
+  have stepKeeps : ∀ offset, offset < (dexBlocks.blocks index).length →
+      offset ≠ mainOffset →
       (dexRun.states (boundary index + offset + 1)).run =
         (dexRun.states (boundary index + offset)).run ∧
       (dexRun.states (boundary index + offset + 1)).clock =
@@ -592,5 +614,170 @@ theorem DexRunOfLRun.run_clock_inside_block
   by_cases isBefore : offset ≤ mainOffset
   · exact Or.inl (beforeMain offset isInside isBefore)
   · exact Or.inr (afterMain offset isInside (by omega))
+
+/-! ## Block boundaries -/
+
+/-- The block boundaries are in order. -/
+theorem BlockRun.IsFlattenedTo.boundary_mono {State Label Event : Type}
+    {blockRun : BlockRun State Label Event} {run : InfiniteRun State Label}
+    {boundary : Nat → Nat} (isFlattened : blockRun.IsFlattenedTo run boundary)
+    (first later : Nat) (isLater : first ≤ later) : boundary first ≤ boundary later := by
+  obtain ⟨distance, isDistance⟩ := Nat.exists_eq_add_of_le isLater
+  subst isDistance
+  induction distance with
+  | zero => exact Nat.le_refl _
+  | succ distance inductionHypothesis =>
+    have isNext := isFlattened.nextBoundary (first + distance)
+    have isBelow := inductionHypothesis (Nat.le_add_right _ _)
+    rw [← Nat.add_assoc]
+    omega
+
+/-- Every position of the flattened run is at or before a block boundary:
+infinitely many blocks are not empty, and each moves the boundary on. -/
+theorem BlockRun.IsFlattenedTo.exists_boundary_ge {State Label Event : Type}
+    {blockRun : BlockRun State Label Event} {run : InfiniteRun State Label}
+    {boundary : Nat → Nat} (isFlattened : blockRun.IsFlattenedTo run boundary)
+    (isInfinite : blockRun.HasInfinitelyManySteps) (position : Nat) :
+    ∃ index, position ≤ boundary index := by
+  induction position with
+  | zero => exact ⟨0, Nat.zero_le _⟩
+  | succ position inductionHypothesis =>
+    obtain ⟨index, isBelow⟩ := inductionHypothesis
+    obtain ⟨later, isLater, isNotEmpty⟩ := isInfinite index
+    have isMono := isFlattened.boundary_mono index later isLater
+    have isNext := isFlattened.nextBoundary later
+    have isPositive : 0 < (blockRun.blocks later).length := List.length_pos_iff.mpr isNotEmpty
+    exact ⟨later + 1, by omega⟩
+
+/-- Every position of the Dex run is at or before a block boundary. -/
+theorem DexRunOfLRun.exists_boundary_ge
+    (built : DexRunOfLRun program lRun dexBlocks dexRun boundary) (position : Nat) :
+    ∃ index, position ≤ boundary index :=
+  built.isFlattened.exists_boundary_ge built.isInfinite position
+
+/-- A Step that carries a thread at two block boundaries has the same input
+at both: the input of a Step never changes while the Step has one. -/
+theorem DexRunOfLRun.sameInput_at_boundaries
+    (built : DexRunOfLRun program lRun dexBlocks dexRun boundary) (first later : Nat)
+    (isLater : first ≤ later) {stepId : Dex.StepExecId signature}
+    {firstRun laterRun : Dex.Run signature} {firstRecord laterRecord : Dex.StepRecord signature}
+    (hasFirstRun : (dexBlocks.states first).run = some firstRun)
+    (isFirstFound : firstRun.findStep? stepId = some firstRecord)
+    (hasLaterRun : (dexBlocks.states later).run = some laterRun)
+    (isLaterFound : laterRun.findStep? stepId = some laterRecord)
+    (hasInput : laterRecord.input ≠ none) : laterRecord.input = firstRecord.input := by
+  obtain ⟨after, hasAfter, keeps⟩ := Dex.keepsStepInputs_of_isRun built.isDexRun
+    (boundary first) (boundary later) (built.isFlattened.boundary_mono first later isLater)
+    firstRun (by rw [built.isFlattened.stateAtBoundary first]; exact hasFirstRun)
+  rw [built.isFlattened.stateAtBoundary later, hasLaterRun] at hasAfter
+  cases hasAfter
+  obtain ⟨changed, isChanged, changedInput⟩ := keeps stepId firstRecord isFirstFound
+  rw [isLaterFound] at isChanged
+  cases isChanged
+  exact changedInput.resolve_right hasInput
+
+/-! ## At a block boundary: the thread of a pending invocation and of an armed timer -/
+
+/-- A Step that carries a thread has an input. -/
+theorem StepCarriesThread.input_ne_none {thread : L.Thread}
+    {record : Dex.StepRecord signature} (carries : StepCarriesThread program thread record) :
+    record.input ≠ none := by
+  obtain ⟨core, code, timer, phase⟩ := thread
+  rcases timer with _ | ⟨number, seconds⟩ <;> cases phase <;>
+    simp only [StepCarriesThread] at carries
+  all_goals first
+    | (rw [carries.2.1]; simp; done)
+    | (rw [carries.2]; simp; done)
+    | (obtain ⟨_, input, hasInput, _⟩ := carries
+       rw [hasInput]
+       simp)
+
+/-- A Step whose invocation runs as a task has no pending invocation. -/
+theorem HasRunningTask.not_pending {config : Dex.Config signature}
+    {record : Dex.StepRecord signature} {method : Dex.Method}
+    {Holds : Dex.Task signature → Prop} (hasTask : HasRunningTask config record method Holds)
+    (pendingMethod : Dex.Method) :
+    record.invocation ≠ some { method := pendingMethod, state := .pending } := by
+  obtain ⟨task, _, hasInvocation, _⟩ := hasTask
+  rw [hasInvocation]
+  simp
+
+/-- A pending invocation belongs to the Step of a thread whose next action
+has not begun; after the close no invocation is pending. -/
+theorem IsSimulationState.pendingThread {lConfig : L.Config} {dexConfig : Dex.Config signature}
+    (state : IsSimulationState program lConfig dexConfig) {flowRun : Dex.Run signature}
+    (hasRun : dexConfig.run = some flowRun) {stepId : Dex.StepExecId signature}
+    {record : Dex.StepRecord signature} {method : Dex.Method}
+    (isFound : flowRun.findStep? stepId = some record)
+    (isPending : record.invocation = some { method := method, state := .pending }) :
+    record.input ≠ none ∧
+    ∃ current, lConfig.findThread? (threadOfInput record.input) = some current ∧
+      (current.phase = .bootPending ∨ current.phase = .ready ∨
+        ∃ outcome, current.phase = .woken outcome) := by
+  obtain ⟨isRecord, _⟩ := Dex.Run.mem_of_findStep? flowRun stepId record isFound
+  cases statusCase : flowRun.status with
+  | closed status =>
+    have noInvocation :=
+      (state.isRelated.closed flowRun status hasRun statusCase).noInvocation record isRecord
+    rw [noInvocation] at isPending
+    cases isPending
+  | running =>
+    have related := state.isRelated.running flowRun hasRun statusCase
+    have isActive := related.invocationsAreActive record isRecord (by rw [isPending]; simp)
+    obtain ⟨thread, isThread, isLive, carries⟩ :=
+      related.stepsHaveThreads record isRecord isActive
+    have phaseMatches := related.phaseMatchesStep_of_carries thread isThread isLive record
+      isRecord isActive carries
+    refine ⟨carries.input_ne_none, thread, ?_, ?_⟩
+    · rw [threadOfInput_of_mem state.lInvariant isThread carries]
+      exact findThread?_of_mem state.lInvariant isThread
+    · cases phaseCase : thread.phase <;> simp only [PhaseMatchesStep, phaseCase] at phaseMatches
+      all_goals first
+        | exact Or.inl rfl
+        | exact Or.inr (Or.inl rfl)
+        | exact Or.inr (Or.inr ⟨_, rfl⟩)
+        | exact absurd isPending (phaseMatches.2.not_pending method)
+        | (rw [phaseMatches.2.1] at isPending; cases isPending)
+        | exact phaseMatches.elim
+
+/-- An armed timer is the index-0 timer of the `Timed` Step of a thread that
+is blocked on the timer with this number and this deadline; after the close
+no timer is armed. -/
+theorem IsSimulationState.timedThread {lConfig : L.Config} {dexConfig : Dex.Config signature}
+    (state : IsSimulationState program lConfig dexConfig) {flowRun : Dex.Run signature}
+    (hasRun : dexConfig.run = some flowRun) {timer : Dex.TimerId signature} {fireTime : Nat}
+    (isArmed : flowRun.timers.get? timer = some fireTime) :
+    ∃ record current chan since,
+      flowRun.findStep? timer.step = some record ∧ record.input ≠ none ∧
+      lConfig.findThread? (threadOfInput record.input) = some current ∧
+      current.phase = .blocked (.timed timer.step.number fireTime chan) since := by
+  cases statusCase : flowRun.status with
+  | closed status =>
+    have noTimer := (state.isRelated.closed flowRun status hasRun statusCase).noTimer
+    rw [noTimer] at isArmed
+    cases isArmed
+  | running =>
+    have related := state.isRelated.running flowRun hasRun statusCase
+    obtain ⟨thread, chan, since, isThread, isBlocked, isTimed, _⟩ :=
+      (related.timers timer fireTime).mp isArmed
+    obtain ⟨record, isRecord, _, carries, _⟩ :=
+      related.threadsHaveSteps thread isThread (by rw [isBlocked]; simp)
+    have fitsCode := state.lInvariant.phasesFitCode thread isThread
+    simp only [L.Thread.PhaseFitsCode, isBlocked] at fitsCode
+    obtain ⟨⟨seconds, hasTimer⟩, _⟩ := fitsCode
+    have shape := (stepCarriesThread_iff_of_booted program thread record
+      (by rw [isBlocked]; simp) (by rw [isBlocked]; simp)).mp carries
+    simp only [hasTimer] at shape
+    have isId : record.id = timer.step := by
+      rw [shape.1]
+      obtain ⟨⟨stepType, number⟩, index⟩ := timer
+      simp only at isTimed
+      rw [isTimed]
+    have idsNodup := (state.dexInvariant.runInvariant flowRun hasRun).idsNodup
+    refine ⟨record, thread, chan, since, ?_, carries.input_ne_none, ?_, isBlocked⟩
+    · rw [← isId]
+      exact Dex.Run.findStep?_of_mem_nodup flowRun record isRecord idsNodup
+    · rw [threadOfInput_of_mem state.lInvariant isThread carries]
+      exact findThread?_of_mem state.lInvariant isThread
 
 end DexExpressiveness
