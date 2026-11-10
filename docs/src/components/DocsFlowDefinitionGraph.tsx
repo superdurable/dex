@@ -34,10 +34,10 @@ export default function DocsFlowDefinitionGraph({graph}: DocsFlowDefinitionGraph
 
   return (
     <div
-      aria-label={isExpanded ? graph.flow.name : undefined}
+      aria-label={graph.flow.name}
       aria-modal={isExpanded || undefined}
       className={`docs-flow-definition-graph${isExpanded ? ' is-expanded' : ''}`}
-      role={isExpanded ? 'dialog' : undefined}
+      role={isExpanded ? 'dialog' : 'figure'}
     >
       <div className="docs-flow-definition-graph-actions">
         <button
