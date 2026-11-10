@@ -22,9 +22,10 @@ them in the [TypeScript SDK API reference](./index.mdx#api-reference).
 | Read the next message | **Client.readStream**, with the **resumeToken** of the last message | [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) |
 | List retained messages, newest first | **Client.listStreamMessages** | [List messages](/reference/server/runtime-data#stream-listing) |
 
-**Stream.write** sends the message immediately and returns nothing. Use
-**Stream.bufferedText** in an asynchronous Step. RPC handlers cannot write a
-Stream.
+**Stream.write** works in **waitFor**, **execute**, and the Flow timeout
+handler. An RPC handler cannot write a Stream. **Stream.write** sends the
+message immediately and returns nothing. Use **Stream.bufferedText** in an
+asynchronous Step.
 
 ## Example {#example}
 

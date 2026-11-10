@@ -22,9 +22,9 @@ them in the [Rust SDK API reference](./index.mdx#api-reference).
 | Read the next message | **Client::read_stream** or **Client::read_stream_with_timeout**, with the **resume_token** of the last message | [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) |
 | List retained messages, newest first | **Client::list_stream_messages** | [List messages](/reference/server/runtime-data#stream-listing) |
 
-**Stream::write** sends the message immediately from the Step. RPC and Flow
-timeout handlers cannot write a Stream. There, **Stream::write** returns a
-**HandlerError**.
+**Stream::write** works in **wait_for**, **execute**, and the Flow timeout
+handler. An RPC handler cannot write a Stream; there, **Stream::write** returns
+a **HandlerError**. **Stream::write** sends the message immediately.
 
 ## Example {#example}
 
