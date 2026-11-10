@@ -10,11 +10,8 @@
 
 from __future__ import annotations
 
-import asyncio
-import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import timedelta
 from typing import Any
 
 import httpx2
@@ -31,7 +28,12 @@ from dex_agents import (
     ToolTaskPollOutcome,
     ToolTaskStarted,
 )
-from dex_agents.mcp import McpStreamableHttpServerConfig, McpTool, McpToolSource
+from dex_agents.mcp import (
+    McpStreamableHttpServerConfig,
+    McpTool,
+    McpToolListingError,
+    McpToolSource,
+)
 from dex_agents.stepwise import SourceToolDefinition
 from dex_agents_cli.config import ConnectorsConfig
 from dex_agents_cli.turns import TurnConfigResolver, current_turn_config
@@ -96,15 +98,24 @@ class ConnectorToolIdentity:
             connectors: The ``connectors`` section of a turn.
 
         Returns:
-            ``True`` when an entry covers the connection and the operation, by
-            its snake-case name or its operationId.
+            ``True`` when an entry covers the connection and either lists no
+            operations or lists this one, by its snake-case name or its
+            operationId. An entry that lists operations needs both
+            ``operation`` and ``operationName`` in the tool's ``_meta``.
         """
-        names = (
-            [self.operation]
-            if self.operation_name is None
-            else [self.operation_name, self.operation]
-        )
-        return any(connectors.allows_tool(self.connector, self.connection, name) for name in names)
+        if connectors.enabled is None:
+            return True
+        for entry in connectors.enabled:
+            if not entry.covers_connection(self.connector, self.connection):
+                continue
+            if entry.tools is None:
+                return True
+            if self.operation_name is not None and (
+                entry.allows_operation(self.operation_name)
+                or entry.allows_operation(self.operation)
+            ):
+                return True
+        return False
 
 
 @dataclass(frozen=True)
@@ -192,23 +203,31 @@ class ConnectorsMcpToolSource:
     offered only while ``connectors.enabled`` is omitted.
     """
 
-    def __init__(self, url: str, resolver: TurnConfigResolver) -> None:
+    def __init__(
+        self,
+        url: str,
+        resolver: TurnConfigResolver,
+        *,
+        is_available: bool = True,
+        report: Callable[[str], None] | None = None,
+    ) -> None:
         """Connect to one connectors MCP server.
 
         Args:
             url: The server's MCP endpoint, on a loopback host.
             resolver: The turn configuration resolver.
+            is_available: Whether the server answered when the command started.
+            report: Prints a line when the server stops or starts answering;
+                ``None`` prints nothing.
         """
         self._url = url
         self._resolver = resolver
+        self._is_available = is_available
+        self._report = report
         self._mcp = McpToolSource(
             [McpStreamableHttpServerConfig(name=_MCP_SERVER_NAME, url=url)],
             client_name=_CLIENT_NAME,
-            listing_ttl=timedelta(seconds=_CATALOG_REFRESH_SECONDS),
         )
-        self._identities: dict[str, ConnectorToolIdentity | None] = {}
-        self._identities_read_at = 0.0
-        self._identity_lock = asyncio.Lock()
         self._last_listing: tuple[ConnectorToolDefinition, ...] = ()
 
     @property
@@ -226,12 +245,27 @@ class ConnectorsMcpToolSource:
         return self._last_listing
 
     async def list_tools(self) -> Sequence[SourceToolDefinition]:
-        """Return the tools the running turn enables; none outside a model call."""
+        """Return the tools the running turn enables; none outside a model call.
+
+        The server is listed again in every model call. While it does not
+        answer, no connector tools are offered, and a line is printed when it
+        stops and when it starts answering again.
+        """
         turn_config = current_turn_config()
         if turn_config is None:
             return ()
-        mcp_tools = await self._mcp.list_tools()
-        identities = await self._read_identities({tool.mcp_tool_name for tool in mcp_tools})
+        try:
+            mcp_tools = await self._mcp.list_tools(refresh=True)
+            catalog = await read_connector_catalog(self._url)
+        except (McpToolListingError, ConnectorsMcpUnavailableError) as error:
+            if self._is_available and self._report is not None:
+                self._report(f"Connector tools are unavailable for now: {error}")
+            self._is_available = False
+            return ()
+        if not self._is_available and self._report is not None:
+            self._report("Connector tools are available again.")
+        self._is_available = True
+        identities = {tool.name: tool.identity for tool in catalog}
         self._last_listing = tuple(
             ConnectorToolDefinition(
                 name=tool.mcp_tool_name,
@@ -282,17 +316,6 @@ class ConnectorsMcpToolSource:
     async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
         """Cancel one abandoned MCP task through ``McpToolSource``."""
         await self._mcp.cancel_tool_task(cancellation)
-
-    async def _read_identities(
-        self, mcp_tool_names: set[str]
-    ) -> Mapping[str, ConnectorToolIdentity | None]:
-        async with self._identity_lock:
-            is_stale = time.monotonic() - self._identities_read_at > _CATALOG_REFRESH_SECONDS
-            if is_stale or not mcp_tool_names <= self._identities.keys():
-                catalog = await read_connector_catalog(self._url)
-                self._identities = {tool.name: tool.identity for tool in catalog}
-                self._identities_read_at = time.monotonic()
-            return self._identities
 
 
 def _is_enabled(connectors: ConnectorsConfig, identity: ConnectorToolIdentity | None) -> bool:

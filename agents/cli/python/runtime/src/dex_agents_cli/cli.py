@@ -28,8 +28,9 @@ from dex import (
     AsyncWorker,
     BlobCacheConfig,
     ClientOptions,
-    FlowNotActiveOrNotFoundError,
+    FlowNotFoundError,
     FlowServiceTlsOptions,
+    FlowStatus,
     PullWorkerOptions,
     Registry,
     WorkerOptions,
@@ -58,7 +59,12 @@ from dex_agents_cli.connectors import (
 )
 from dex_agents_cli.dex_server import DexServerEndpoint, DexServerError, resolve_dex_server
 from dex_agents_cli.environment import RuntimeEnvironment
-from dex_agents_cli.harness import AgentHarness, HarnessContext, LocalToolGroup
+from dex_agents_cli.harness import (
+    AgentHarness,
+    HarnessContext,
+    LocalToolGroup,
+    session_flow_type,
+)
 from dex_agents_cli.local_tools import LocalToolSource
 from dex_agents_cli.turns import TurnConfigResolver, with_turn_config
 
@@ -108,7 +114,11 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         and 2 for a usage or configuration error.
     """
     arguments = _parse_arguments(harness, argv)
-    environment = RuntimeEnvironment.from_environment()
+    try:
+        environment = RuntimeEnvironment.from_environment()
+    except ValueError as error:
+        print(f"{command_name(harness)}: {error}", file=sys.stderr)
+        return 2
     _configure_logging(environment, harness)
     try:
         match arguments.command:
@@ -241,14 +251,15 @@ async def _run(
         config.system_prompt if config.system_prompt is not None else prompt_text,
         _report_ignored_settings,
     )
-    endpoint = _resolve_server(config, environment)
+    endpoint = await _resolve_server(config, environment)
     connectors = await _connect_connectors(config, endpoint, resolver)
     local_tools = _local_tool_source(config, workspace, harness, resolver)
     tool_sources: list[ToolSource] = [
         source for source in (connectors, local_tools) if source is not None
     ]
+    flow_type = session_flow_type(harness.flow_type, loaded.path, workspace)
     context = HarnessContext(
-        flow_type=harness.flow_type,
+        flow_type=flow_type,
         config=config,
         workspace=workspace.resolve(),
         instructions=resolver.file_instructions,
@@ -257,10 +268,8 @@ async def _run(
         resolver=resolver,
     )
     flow = with_turn_config(harness.create_session_flow(context), resolver)
-    if flow.get_flow_type() != harness.flow_type:
-        raise CommandError(
-            f"the harness built Flow type {flow.get_flow_type()}, not {harness.flow_type}"
-        )
+    if flow.get_flow_type() != flow_type:
+        raise CommandError(f"the harness built Flow type {flow.get_flow_type()}, not {flow_type}")
     registry = Registry([flow], allow_async_handlers=True)
     cache_directory = environment.agents_directory / "cache" / harness.name
     cache_directory.mkdir(parents=True, exist_ok=True)
@@ -283,13 +292,15 @@ async def _run(
     try:
         await worker.wait_pull_registered(timeout=_WORKER_REGISTRATION_TIMEOUT_SECONDS)
         sessions = AgentSessionClient(client, flow)
-        session_id = await _open_session(sessions, arguments.resume_session_id, harness)
+        session_id = await _open_session(
+            client, sessions, arguments.resume_session_id, harness, flow_type
+        )
         print(f"Session {session_id}")
         if endpoint.web_url is not None:
             print(f"Dex Web: {endpoint.web_url}/v1/flows/{session_id}?view=session")
         terminal.start()
         chat = TerminalChat(client, sessions, session_id, terminal, command_name(harness))
-        await chat.run()
+        is_failed = not await chat.run()
     finally:
         with contextlib.suppress(RuntimeError):
             terminal.stop()
@@ -300,11 +311,15 @@ async def _run(
             await local_tools.browser.close()
         await client.close()
         blob_cache.close()
-    return 0
+    return 1 if is_failed else 0
 
 
 def _with_model_override(config: EffectiveConfig, arguments: _Arguments) -> EffectiveConfig:
     return config if arguments.model is None else replace(config, model=arguments.model)
+
+
+def _report_on_standard_error(line: str) -> None:
+    print(line, file=sys.stderr)
 
 
 def _report_ignored_settings(warnings: Sequence[str]) -> None:
@@ -323,8 +338,10 @@ def _read_system_prompt_file(
         raise CommandError(f"cannot read system_prompt_file {path}: {error}") from error
 
 
-def _resolve_server(config: EffectiveConfig, environment: RuntimeEnvironment) -> DexServerEndpoint:
-    return resolve_dex_server(config.dex.server, environment, report=print)
+async def _resolve_server(
+    config: EffectiveConfig, environment: RuntimeEnvironment
+) -> DexServerEndpoint:
+    return await resolve_dex_server(config.dex.server, environment, report=print)
 
 
 def _connectors_mcp_url(config: EffectiveConfig, endpoint: DexServerEndpoint) -> str | None:
@@ -358,9 +375,11 @@ async def _connect_connectors(
         if config.connectors.mcp != AUTO:
             raise CommandFailure(message) from error
         print(f"{message}. Continuing without connector tools until it answers.")
-        return ConnectorsMcpToolSource(url, resolver)
+        return ConnectorsMcpToolSource(
+            url, resolver, is_available=False, report=_report_on_standard_error
+        )
     _report_unauthorized(config, catalog, endpoint.web_url)
-    return ConnectorsMcpToolSource(url, resolver)
+    return ConnectorsMcpToolSource(url, resolver, report=_report_on_standard_error)
 
 
 def _report_unauthorized(
@@ -410,17 +429,29 @@ def _local_tool_source(
 
 
 async def _open_session(
-    sessions: AgentSessionClient, resume_session_id: str | None, harness: AgentHarness
+    client: AsyncClient,
+    sessions: AgentSessionClient,
+    resume_session_id: str | None,
+    harness: AgentHarness,
+    flow_type: str,
 ) -> str:
     if resume_session_id is not None:
         try:
-            snapshot = await sessions.get_agent_snapshot(resume_session_id)
-        except FlowNotActiveOrNotFoundError as error:
+            info = await client.describe_flow(resume_session_id)
+        except FlowNotFoundError as error:
             raise CommandError(
-                f"there is no {command_name(harness)} session {resume_session_id}"
+                f"session {resume_session_id} does not exist; list sessions with "
+                f"{command_name(harness)} sessions"
             ) from error
-        if snapshot.state is None:
-            raise CommandError(f"there is no {command_name(harness)} session {resume_session_id}")
+        if info.flow_type != flow_type:
+            raise CommandError(
+                f"session {resume_session_id} is a {info.flow_type} session, not {flow_type}; "
+                "resume it as the user, with the configuration file and workspace, that started it"
+            )
+        if info.status is not FlowStatus.RUNNING:
+            raise CommandError(
+                f"session {resume_session_id} is {info.status.value}, so it cannot continue"
+            )
         return resume_session_id
     session_id = f"{harness.name}-{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
     await sessions.start_session(session_id)
@@ -437,7 +468,9 @@ async def _list_sessions(
     arguments: _Arguments, environment: RuntimeEnvironment, harness: AgentHarness
 ) -> int:
     loaded = _load_config(arguments, environment, harness)
-    endpoint = _resolve_server(loaded.config, environment)
+    endpoint = await _resolve_server(loaded.config, environment)
+    workspace = environment.expand_path(loaded.config.workspace, loaded.directory)
+    flow_type = session_flow_type(harness.flow_type, loaded.path, workspace)
     blob_cache = open_blob_cache(
         BlobCacheConfig(str(environment.agents_directory / "cache" / "sessions"), _BLOB_CACHE_BYTES)
     )
@@ -448,9 +481,7 @@ async def _list_sessions(
         ClientOptions(server_address=endpoint.address, flow_service_tls=tls),
     )
     try:
-        page = await client.search_flows(
-            f"FlowType = {_quote(harness.flow_type)}", _SESSION_LIST_PAGE_SIZE
-        )
+        page = await client.search_flows(f"FlowType = {_quote(flow_type)}", _SESSION_LIST_PAGE_SIZE)
     finally:
         await client.close()
         blob_cache.close()
@@ -469,7 +500,7 @@ async def _list_connectors(
 ) -> int:
     loaded = _load_config(arguments, environment, harness)
     config = loaded.config
-    endpoint = _resolve_server(config, environment)
+    endpoint = await _resolve_server(config, environment)
     url = _connectors_mcp_url(config, endpoint)
     if url is None:
         raise CommandError("connectors.mcp is auto, which needs dex.server: auto")

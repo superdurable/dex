@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from dex_agents.testing import find_free_ports
@@ -111,3 +114,36 @@ async def test_auto_starts_dexcli_dev_when_none_runs_and_later_commands_reuse_it
         assert "echo: second" in second.stdout
     finally:
         home.close()
+
+
+async def test_a_service_that_only_looks_ready_is_not_taken_for_dexcli_dev(
+    tmp_path: Path,
+) -> None:
+    class LooksReady(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            body = b'{"status": "ready"}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            del format, args
+
+    impostor = ThreadingHTTPServer(("127.0.0.1", 0), LooksReady)
+    threading.Thread(target=impostor.serve_forever, daemon=True).start()
+    (dex_port,) = find_free_ports(1)
+    home = CliHome(
+        tmp_path / "home", dex_port, impostor.server_address[1], tmp_path / "opened-urls.txt"
+    )
+    home.home.mkdir()
+    home.write_config(config_yaml({"connectors": {"enabled": []}}))
+    try:
+        completed = await asyncio.to_thread(home.run, stdin="hello\n")
+    finally:
+        impostor.shutdown()
+        home.close()
+    assert completed.returncode == 1
+    assert "answers, but it is not a dexcli dev" in completed.stderr
+    assert "echo: hello" not in completed.stdout

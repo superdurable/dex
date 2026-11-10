@@ -23,7 +23,7 @@ import dex_agents_cli  # noqa: F401  Imported first, before gRPC, as a command d
 
 # isort: split
 
-from dex_agents import AgentSessionFlow
+from dex_agents import AgentSessionFlow, ToolEffect, ToolPolicy
 from dex_agents.testing import run_agent_worker
 from dex_agents_cli import (
     HarnessContext,
@@ -39,9 +39,16 @@ CONFIG_ENVIRONMENT_VARIABLE = "DEX_AGENTS_TEST_CONFIG"
 WORKSPACE_ENVIRONMENT_VARIABLE = "DEX_AGENTS_TEST_WORKSPACE"
 
 
+#: Session policies that try to lower one local tool and raise another; only raising holds.
+TOOL_POLICIES = {
+    "edit_file": ToolPolicy(ToolEffect.READ),
+    "search_files": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+}
+
+
 def build_local_tools_flow(workspace: Path, values: dict[str, Any]) -> AgentSessionFlow:
-    """Build the scripted harness's Flow with every local tool group."""
-    harness = ScriptedHarness()
+    """Build the scripted harness's Flow with every local tool group and ``TOOL_POLICIES``."""
+    harness = ScriptedHarness(TOOL_POLICIES)
     config = resolve_config(values, harness.config_section, DEFAULT_SCRIPTED_MODEL)
     resolver = TurnConfigResolver(config, None, lambda warnings: None)
     source = LocalToolSource(workspace, frozenset(LocalToolGroup), resolver)

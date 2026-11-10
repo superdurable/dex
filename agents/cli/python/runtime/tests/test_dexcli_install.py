@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""Downloading dexcli from a release: the checksum decides whether it is installed."""
+"""Downloading dexcli: the checksum, the archive's entries, and the installed copy decide."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import platform
 import sys
 import tarfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -31,21 +31,31 @@ from dex_agents_cli.dexcli_install import (
 from dex_agents_cli.environment import RuntimeEnvironment
 
 VERSION = "9.9.9"
+ArchiveEntries = Callable[[tarfile.TarFile], None]
 
 
-def write_release(directory: Path, *, checksum_of: bytes | None = None) -> None:
+def add_file(tar: tarfile.TarFile, name: str, content: bytes) -> None:
+    member = tarfile.TarInfo(name)
+    member.size = len(content)
+    member.mode = 0o644
+    tar.addfile(member, io.BytesIO(content))
+
+
+def release_entries(tar: tarfile.TarFile) -> None:
+    for name in ("dexcli", "dex-server-zd", "README.md"):
+        add_file(tar, name, f"#!/bin/sh\necho {name}\n".encode())
+
+
+def write_release(
+    directory: Path, entries: ArchiveEntries = release_entries, checksum_of: bytes | None = None
+) -> None:
     """Write a fake cli-v<version> release with an archive and checksums.txt."""
     release = directory / f"cli-v{VERSION}"
     release.mkdir(parents=True)
     asset = release_asset_name(VERSION, sys.platform, platform.machine())
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
-        for name in ("dexcli", "dex-server-zd", "README.md"):
-            content = f"#!/bin/sh\necho {name}\n".encode()
-            member = tarfile.TarInfo(name)
-            member.size = len(content)
-            member.mode = 0o644
-            tar.addfile(member, io.BytesIO(content))
+        entries(tar)
     archive = buffer.getvalue()
     (release / asset).write_bytes(archive)
     digest = hashlib.sha256(checksum_of if checksum_of is not None else archive).hexdigest()
@@ -72,19 +82,47 @@ def release_server(tmp_path: Path) -> Iterator[tuple[str, Path]]:
         server.shutdown()
 
 
-def test_a_verified_release_is_installed_in_dex_bin(
+def environment_for(
+    tmp_path: Path, url: str, search_path: tuple[Path, ...] = ()
+) -> RuntimeEnvironment:
+    return RuntimeEnvironment(
+        home=tmp_path / "home",
+        dexcli_version=VERSION,
+        dexcli_release_base_url=url,
+        search_path=search_path,
+    )
+
+
+def test_a_verified_release_is_installed_and_found_again(
     tmp_path: Path, release_server: tuple[str, Path]
 ) -> None:
     url, root = release_server
     write_release(root)
-    environment = RuntimeEnvironment(
-        home=tmp_path / "home", dexcli_version=VERSION, dexcli_release_base_url=url
-    )
+    environment = environment_for(tmp_path, url)
     installed = download_dexcli(environment)
-    assert installed == tmp_path / "home" / ".dex" / "bin" / "dexcli"
+    directory = tmp_path / "home" / ".dex" / "bin" / f"dexcli-{VERSION}"
+    assert installed == directory / "dexcli"
     assert installed.read_text() == "#!/bin/sh\necho dexcli\n"
-    assert (installed.parent / "dex-server-zd").stat().st_mode & 0o111
-    assert sorted(path.name for path in installed.parent.iterdir()) == ["dex-server-zd", "dexcli"]
+    assert (directory / "dex-server-zd").stat().st_mode & 0o111
+    assert sorted(path.name for path in directory.iterdir()) == [
+        "dex-server-zd",
+        "dexcli",
+        "install.json",
+    ]
+    assert sorted(path.name for path in directory.parent.iterdir()) == [f"dexcli-{VERSION}"]
+    assert locate_dexcli(environment) == installed
+
+
+def test_a_changed_installed_copy_is_refused(
+    tmp_path: Path, release_server: tuple[str, Path]
+) -> None:
+    url, root = release_server
+    write_release(root)
+    environment = environment_for(tmp_path, url)
+    installed = download_dexcli(environment)
+    installed.write_text("#!/bin/sh\necho tampered\n")
+    with pytest.raises(DexcliInstallError, match="changed since it was installed"):
+        locate_dexcli(environment)
 
 
 def test_a_checksum_mismatch_installs_nothing(
@@ -92,12 +130,81 @@ def test_a_checksum_mismatch_installs_nothing(
 ) -> None:
     url, root = release_server
     write_release(root, checksum_of=b"something else")
-    environment = RuntimeEnvironment(
-        home=tmp_path / "home", dexcli_version=VERSION, dexcli_release_base_url=url
-    )
+    environment = environment_for(tmp_path, url)
     with pytest.raises(DexcliInstallError, match="but checksums.txt says"):
         download_dexcli(environment)
     assert list((tmp_path / "home" / ".dex" / "bin").iterdir()) == []
+
+
+def absolute_entry(tar: tarfile.TarFile) -> None:
+    release_entries(tar)
+    add_file(tar, "/tmp/dexcli-planted", b"planted")
+
+
+def parent_entry(tar: tarfile.TarFile) -> None:
+    release_entries(tar)
+    add_file(tar, "../planted", b"planted")
+
+
+def symbolic_link_entry(tar: tarfile.TarFile) -> None:
+    add_file(tar, "dex-server-zd", b"#!/bin/sh\n")
+    link = tarfile.TarInfo("dexcli")
+    link.type = tarfile.SYMTYPE
+    link.linkname = "/bin/sh"
+    tar.addfile(link)
+
+
+def hard_link_entry(tar: tarfile.TarFile) -> None:
+    release_entries(tar)
+    link = tarfile.TarInfo("extra")
+    link.type = tarfile.LNKTYPE
+    link.linkname = "dexcli"
+    tar.addfile(link)
+
+
+@pytest.mark.parametrize(
+    ("entries", "message"),
+    [
+        (absolute_entry, "unsafe path"),
+        (parent_entry, "unsafe path"),
+        (symbolic_link_entry, "is a link or a special file"),
+        (hard_link_entry, "is a link or a special file"),
+    ],
+    ids=["absolute-path", "parent-path", "symbolic-link", "hard-link"],
+)
+def test_an_archive_with_an_unsafe_entry_installs_nothing(
+    tmp_path: Path, release_server: tuple[str, Path], entries: ArchiveEntries, message: str
+) -> None:
+    url, root = release_server
+    write_release(root, entries)
+    environment = environment_for(tmp_path, url)
+    with pytest.raises(DexcliInstallError, match=message):
+        download_dexcli(environment)
+    assert list((tmp_path / "home" / ".dex" / "bin").iterdir()) == []
+    assert not (tmp_path / "home" / ".dex" / "planted").exists()
+
+
+def fake_dexcli(directory: Path, version: str) -> Path:
+    directory.mkdir(parents=True)
+    executable = directory / "dexcli"
+    executable.write_text(f'#!/bin/sh\necho "dexcli v{version} (commit test)"\n')
+    executable.chmod(0o755)
+    return executable
+
+
+def test_the_path_search_skips_an_old_dexcli(tmp_path: Path) -> None:
+    fake_dexcli(tmp_path / "old", "9.8.0")
+    current = fake_dexcli(tmp_path / "new", "9.10.0")
+    environment = environment_for(
+        tmp_path, "http://127.0.0.1:1", (tmp_path / "old", tmp_path / "new")
+    )
+    assert locate_dexcli(environment) == current
+
+
+def test_only_an_old_dexcli_on_the_path_means_a_download(tmp_path: Path) -> None:
+    fake_dexcli(tmp_path / "old", "9.9.8")
+    environment = environment_for(tmp_path, "http://127.0.0.1:1", (tmp_path / "old",))
+    assert locate_dexcli(environment) is None
 
 
 def test_dexcli_from_the_environment_wins(tmp_path: Path) -> None:

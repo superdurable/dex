@@ -23,12 +23,10 @@ from dex_agents import (
     ToolEffect,
     ToolExecutionError,
     ToolExecutionResult,
-    ToolPolicy,
     ToolTaskPoll,
     ToolTaskPollOutcome,
 )
 from dex_agents.stepwise import SourceToolDefinition
-from dex_agents_cli.config import EffectiveConfig, is_shell_command_allowed
 from dex_agents_cli.harness import LocalToolGroup
 from dex_agents_cli.local_tools.browser import BrowserSessions
 from dex_agents_cli.local_tools.files import WorkspaceFiles
@@ -38,6 +36,11 @@ from dex_agents_cli.local_tools.shell import (
     run_shell_command,
 )
 from dex_agents_cli.local_tools.web import fetch_web_page
+from dex_agents_cli.tool_policy import (
+    is_local_tool_group_enabled,
+    is_shell_command_approval_required,
+    resolve_turn_tool_policy,
+)
 from dex_agents_cli.turns import TurnConfigResolver, current_turn_config
 
 #: The local tool source's ``source_name``; stored calls are routed by it.
@@ -277,7 +280,8 @@ class LocalToolSource:
         self._last_listing = tuple(
             definition
             for definition in LOCAL_TOOL_DEFINITIONS
-            if definition.group in self._groups and _is_group_enabled(turn_config, definition.group)
+            if definition.group in self._groups
+            and is_local_tool_group_enabled(turn_config, definition.group)
         )
         return self._last_listing
 
@@ -295,18 +299,17 @@ class LocalToolSource:
         turn_config = self._resolver.resolve_turn(turn)
         requires_approval = definition.requires_approval
         if tool_name == SHELL_TOOL_NAME:
-            command = _read_arguments(arguments).get("command")
-            requires_approval = not (
-                isinstance(command, str)
-                and is_shell_command_allowed(command, turn_config.local_tools.shell.allow)
+            command = _shell_command_or_none(arguments)
+            requires_approval = command is None or is_shell_command_approval_required(
+                turn_config, command
             )
-        if tool_name in turn_config.approval.always:
-            requires_approval = True
         return DeferredToolCall(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             arguments=arguments,
-            policy=ToolPolicy(definition.effect, requires_approval=requires_approval),
+            policy=resolve_turn_tool_policy(
+                turn, tool_name, definition.effect, requires_approval, turn_config
+            ),
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -367,17 +370,14 @@ class LocalToolSource:
         raise ToolExecutionError(f"unknown local tool {tool_name}")
 
 
-def _is_group_enabled(turn_config: EffectiveConfig, group: LocalToolGroup) -> bool:
-    local_tools = turn_config.local_tools
-    match group:
-        case LocalToolGroup.FILES:
-            return local_tools.files
-        case LocalToolGroup.SHELL:
-            return local_tools.shell.enabled
-        case LocalToolGroup.WEB_FETCH:
-            return local_tools.web_fetch
-        case LocalToolGroup.BROWSER:
-            return local_tools.browser
+def _shell_command_or_none(arguments: str) -> str | None:
+    """Return a shell call's command; ``None`` for arguments the call itself will refuse."""
+    try:
+        parsed = json.loads(arguments or "{}")
+    except json.JSONDecodeError:
+        return None
+    command = parsed.get("command") if isinstance(parsed, dict) else None
+    return command if isinstance(command, str) else None
 
 
 def _read_arguments(arguments: str) -> dict[str, Any]:

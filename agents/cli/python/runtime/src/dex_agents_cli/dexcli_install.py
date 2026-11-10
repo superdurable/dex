@@ -11,14 +11,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import platform
 import re
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import httpx2
 
@@ -26,12 +28,16 @@ from dex_agents_cli.environment import RuntimeEnvironment
 
 #: The executables a ``dexcli`` release archive holds; ``dexcli dev`` runs both.
 DEXCLI_EXECUTABLES = ("dexcli", "dex-server-zd")
+#: The file in an installed release's directory that records each executable's SHA-256.
+INSTALL_RECORD_NAME = "install.json"
 _DOWNLOAD_TIMEOUT_SECONDS = 300.0
+_VERSION_TIMEOUT_SECONDS = 30.0
 _MAX_EXECUTABLE_BYTES = 512 * 1024 * 1024
+_VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 
 
 class DexcliInstallError(Exception):
-    """Report that ``dexcli`` is not installed and cannot be downloaded."""
+    """Report that ``dexcli`` is not installed, cannot be downloaded, or was changed."""
 
 
 def locate_dexcli(environment: RuntimeEnvironment) -> Path | None:
@@ -41,16 +47,65 @@ def locate_dexcli(environment: RuntimeEnvironment) -> Path | None:
         environment: The machine settings.
 
     Returns:
-        ``DEXCLI``, else ``dexcli`` on ``PATH``, else ``~/.dex/bin/dexcli``,
-        or ``None`` when there is none.
+        ``DEXCLI``; else the downloaded release in ``~/.dex/bin/dexcli-<version>``,
+        after checking both executables against their recorded SHA-256; else
+        the first ``dexcli`` on ``PATH`` whose version is at least the pinned
+        one; else ``None``.
+
+    Raises:
+        DexcliInstallError: If the downloaded release changed since it was installed.
     """
     if environment.dexcli is not None:
         return environment.dexcli
-    on_path = shutil.which("dexcli")
-    if on_path is not None:
-        return Path(on_path)
-    downloaded = environment.bin_directory / "dexcli"
-    return downloaded if downloaded.is_file() and os.access(downloaded, os.X_OK) else None
+    installed = installed_release_directory(environment)
+    if installed.exists():
+        verify_installed_release(installed)
+        return installed / "dexcli"
+    minimum = _parse_version(environment.dexcli_version)
+    for directory in environment.search_path:
+        candidate = directory / "dexcli"
+        if not (candidate.is_file() and os.access(candidate, os.X_OK)):
+            continue
+        version = _read_version(candidate)
+        if minimum is not None and version is not None and version >= minimum:
+            return candidate
+    return None
+
+
+def installed_release_directory(environment: RuntimeEnvironment) -> Path:
+    """Return ``~/.dex/bin/dexcli-<version>``, where the pinned release is installed.
+
+    Args:
+        environment: The machine settings.
+
+    Returns:
+        The directory, which may not exist.
+    """
+    return environment.bin_directory / f"dexcli-{environment.dexcli_version}"
+
+
+def verify_installed_release(directory: Path) -> None:
+    """Check an installed release's executables against the SHA-256 recorded at install.
+
+    Args:
+        directory: The release's directory.
+
+    Raises:
+        DexcliInstallError: If the record is missing or an executable changed.
+    """
+    try:
+        recorded = json.loads((directory / INSTALL_RECORD_NAME).read_text(encoding="utf-8"))
+        digests = {name: str(recorded["sha256"][name]) for name in DEXCLI_EXECUTABLES}
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise DexcliInstallError(
+            f"{directory} has no valid {INSTALL_RECORD_NAME}; delete it to download dexcli again"
+        ) from error
+    for name, digest in digests.items():
+        path = directory / name
+        if path.is_symlink() or not path.is_file() or _sha256(path) != digest:
+            raise DexcliInstallError(
+                f"{path} changed since it was installed; delete {directory} to download it again"
+            )
 
 
 def release_asset_name(version: str, system: str, machine: str) -> str:
@@ -79,11 +134,15 @@ def release_asset_name(version: str, system: str, machine: str) -> str:
 
 
 def download_dexcli(environment: RuntimeEnvironment) -> Path:
-    """Download the pinned ``dexcli`` release, check its SHA-256, and install it in ``~/.dex/bin``.
+    """Download the pinned ``dexcli`` release, check it, and install it in ``~/.dex/bin``.
 
-    The archive's checksum must match its line in the release's
-    ``checksums.txt``. Only ``dexcli`` and ``dex-server-zd`` are extracted,
-    and each is moved into place atomically.
+    The archive's SHA-256 must match its line in the release's
+    ``checksums.txt``. Every archive entry must be a plain relative path
+    without ``..``, a backslash, or a NUL, and every entry must be a regular
+    file or a directory;
+    otherwise nothing is installed. Only ``dexcli`` and ``dex-server-zd`` are
+    extracted, into a private staging directory with their SHA-256 recorded,
+    which then becomes ``~/.dex/bin/dexcli-<version>`` in one rename.
 
     Args:
         environment: The machine settings.
@@ -92,26 +151,40 @@ def download_dexcli(environment: RuntimeEnvironment) -> Path:
         The installed ``dexcli``.
 
     Raises:
-        DexcliInstallError: If the download fails or the checksum does not match.
+        DexcliInstallError: If the download fails or the archive is not trusted.
     """
     version = environment.dexcli_version
     asset = release_asset_name(version, sys.platform, platform.machine())
     base = f"{environment.dexcli_release_base_url.rstrip('/')}/cli-v{version}"
-    target = environment.bin_directory
-    target.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".dexcli-download-", dir=target) as scratch:
-        scratch_path = Path(scratch)
-        checksums = _download(f"{base}/checksums.txt", scratch_path / "checksums.txt")
+    target = installed_release_directory(environment)
+    environment.bin_directory.mkdir(parents=True, exist_ok=True)
+    # mkdtemp creates the staging directory readable only by this user.
+    staging = Path(tempfile.mkdtemp(prefix=".dexcli-staging-", dir=environment.bin_directory))
+    try:
+        checksums = _download(f"{base}/checksums.txt", staging / "checksums.txt")
         expected = _expected_sha256(checksums.read_text(encoding="utf-8"), asset)
-        archive = _download(f"{base}/{asset}", scratch_path / asset)
-        actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+        archive = _download(f"{base}/{asset}", staging / asset)
+        actual = _sha256(archive)
         if actual != expected:
             raise DexcliInstallError(
                 f"{asset} has SHA-256 {actual}, but checksums.txt says {expected}; not installed"
             )
-        extracted = _extract_executables(archive, scratch_path / "extracted")
-        for name in DEXCLI_EXECUTABLES:
-            os.replace(extracted / name, target / name)
+        release = staging / "release"
+        release.mkdir(mode=0o700)
+        digests = _extract_executables(archive, release)
+        record = {
+            "version": version,
+            "archive": asset,
+            "archiveSha256": actual,
+            "sha256": digests,
+        }
+        (release / INSTALL_RECORD_NAME).write_text(json.dumps(record, indent=2), encoding="utf-8")
+        release.chmod(0o755)
+        if target.exists():
+            shutil.rmtree(target)
+        os.replace(release, target)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     return target / "dexcli"
 
 
@@ -139,18 +212,70 @@ def _expected_sha256(checksums: str, asset: str) -> str:
     return match.group(1)
 
 
-def _extract_executables(archive: Path, destination: Path) -> Path:
-    destination.mkdir()
-    with tarfile.open(archive, "r:gz") as tar:
-        members = {member.name.removeprefix("./"): member for member in tar.getmembers()}
-        for name in DEXCLI_EXECUTABLES:
-            member = members.get(name)
-            if member is None or not member.isfile() or member.size > _MAX_EXECUTABLE_BYTES:
-                raise DexcliInstallError(f"the release archive has no regular file {name}")
-            source = tar.extractfile(member)
-            assert source is not None, "a regular tar member always has content"
-            output = destination / name
-            with source, output.open("wb") as file:
-                shutil.copyfileobj(source, file)
-            output.chmod(0o755)
-    return destination
+def _extract_executables(archive: Path, destination: Path) -> dict[str, str]:
+    """Extract the executables after checking every entry; return their SHA-256 by name."""
+    digests: dict[str, str] = {}
+    try:
+        with tarfile.open(archive, "r:gz") as tar:
+            members = tar.getmembers()
+            for member in members:
+                _check_archive_entry(member)
+            by_name = {PurePosixPath(member.name).as_posix(): member for member in members}
+            for name in DEXCLI_EXECUTABLES:
+                executable = by_name.get(name)
+                if (
+                    executable is None
+                    or not executable.isfile()
+                    or executable.size > _MAX_EXECUTABLE_BYTES
+                ):
+                    raise DexcliInstallError(f"the release archive has no regular file {name}")
+                source = tar.extractfile(executable)
+                assert source is not None, "a regular tar member always has content"
+                output = destination / name
+                fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o755)
+                with source, os.fdopen(fd, "wb") as file:
+                    shutil.copyfileobj(source, file)
+                digests[name] = _sha256(output)
+    except tarfile.TarError as error:
+        raise DexcliInstallError(f"the release archive cannot be read: {error}") from error
+    return digests
+
+
+def _check_archive_entry(member: tarfile.TarInfo) -> None:
+    path = PurePosixPath(member.name)
+    is_unsafe_text = "\\" in member.name or "\x00" in member.name
+    if is_unsafe_text or path.is_absolute() or ".." in path.parts:
+        raise DexcliInstallError(f"the release archive has an unsafe path {member.name!r}")
+    if not (member.isfile() or member.isdir()):
+        raise DexcliInstallError(
+            f"the release archive entry {member.name!r} is a link or a special file"
+        )
+
+
+def _read_version(executable: Path) -> tuple[int, int, int] | None:
+    try:
+        completed = subprocess.run(
+            [str(executable), "--version"],
+            capture_output=True,
+            text=True,
+            timeout=_VERSION_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return _parse_version(completed.stdout + completed.stderr)
+
+
+def _parse_version(text: str) -> tuple[int, int, int] | None:
+    match = _VERSION.search(text)
+    if match is None:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

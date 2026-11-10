@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any
 
 import pexpect
@@ -123,11 +124,26 @@ async def test_resume_continues_the_conversation(cli_home: CliHome) -> None:
     assert await wait_for_exit(second) == 0
 
 
+async def test_resume_with_another_workspace_fails_with_a_hint(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    first = cli_home.spawn()
+    session_id = await read_session_id(first)
+    await expect(first, "> ")
+    first.sendeof()
+    assert await wait_for_exit(first) == 0
+    cli_home.write_config(config_yaml({**NO_CONNECTORS, "workspace": str(tmp_path / "other")}))
+    completed = await asyncio.to_thread(cli_home.run, "--resume", session_id)
+    assert completed.returncode == 2
+    assert "with the configuration file and workspace, that started it" in completed.stderr
+
+
 async def test_resume_of_an_unknown_session_fails(cli_home: CliHome) -> None:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
     completed = cli_home.run("--resume", "no-such-session")
     assert completed.returncode == 2
-    assert "there is no dex-agents-scripted session no-such-session" in completed.stderr
+    assert "session no-such-session does not exist" in completed.stderr
 
 
 async def test_sessions_lists_this_agents_sessions(cli_home: CliHome) -> None:
@@ -141,3 +157,42 @@ async def test_sessions_lists_this_agents_sessions(cli_home: CliHome) -> None:
     assert completed.returncode == 0, completed.stderr
     assert session_id in completed.stdout
     assert json.dumps(session_id)[1:-1] in completed.stdout
+
+
+async def test_a_failed_turn_makes_the_command_exit_1(cli_home: CliHome) -> None:
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    completed = await asyncio.to_thread(cli_home.run, stdin="fail\n")
+    assert "[turn failed]" in completed.stdout
+    assert "the scripted model was told to fail" in completed.stdout
+    assert completed.returncode == 1
+
+
+async def test_two_commands_with_other_configs_never_run_each_others_tool_steps(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    first_workspace = tmp_path / "first-workspace"
+    second_workspace = tmp_path / "second-workspace"
+    first_config = tmp_path / "first.yaml"
+    second_config = tmp_path / "second.yaml"
+    first_config.write_text(config_yaml({**NO_CONNECTORS, "workspace": str(first_workspace)}))
+    second_config.write_text(config_yaml({**NO_CONNECTORS, "workspace": str(second_workspace)}))
+    first = cli_home.spawn("--config", str(first_config))
+    second = cli_home.spawn("--config", str(second_config))
+    await read_session_id(first)
+    await read_session_id(second)
+    await expect(first, "> ")
+    await expect(second, "> ")
+    # The second command's Worker polls the same Dex server while the first approves writes.
+    for attempt in range(5):
+        first.sendline(f'call write_file {{"path": "note-{attempt}.txt", "content": "first"}}')
+        await expect(first, "Approve? [y/N, or n <reason>]")
+        first.sendline("y")
+        await expect(first, f"done: write_file=wrote 5 bytes to note-{attempt}.txt")
+    first.sendeof()
+    second.sendeof()
+    assert await wait_for_exit(first) == 0
+    assert await wait_for_exit(second) == 0
+    assert sorted(path.name for path in first_workspace.iterdir()) == [
+        f"note-{attempt}.txt" for attempt in range(5)
+    ]
+    assert list(second_workspace.iterdir()) == []

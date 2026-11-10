@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from dex_agents.testing import find_free_ports
+from dex_agents_cli import session_flow_type
 from tests.conftest import (
     CliHome,
     FakeConnectorsMcp,
@@ -26,6 +27,7 @@ from tests.conftest import (
     session_client,
     wait_for_exit,
 )
+from tests.scripted_harness import SCRIPTED_FLOW_TYPE
 from tests.test_cli_chat import read_session_id
 
 NO_LOCAL_TOOLS = {"files": False, "shell": {"enabled": False}, "web_fetch": False, "browser": False}
@@ -42,7 +44,8 @@ async def test_a_connector_read_runs_at_once_and_an_approved_write_runs_once(
     child.sendline("tools")
     await expect(
         child,
-        "tools: ask_user,gmail_get_message,hackernews_get_top_stories,slack_post_thread_reply",
+        "tools: ask_user,gmail_get_message,hackernews_get_top_stories,misc_untagged,"
+        "slack_post_thread_reply",
     )
     child.sendline("call hackernews_get_top_stories {}")
     await expect(child, "done: hackernews_get_top_stories=1. Durable agents")
@@ -88,7 +91,9 @@ async def test_session_settings_narrow_the_next_turn_and_widening_fails_it(
         "tools: ask_user,edit_file,gmail_get_message,hackernews_get_top_stories,list_directory,"
         "read_file,run_shell_command,search_files,slack_post_thread_reply,write_file",
     )
-    async with session_client(cli_home.address, tmp_path / "client-cache") as sessions:
+    workspace = cli_home.home / "dex-agent-workspace"
+    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
         narrowed = {
             "model": "narrow-model",
             "connectors": {"enabled": ["hackernews"]},
@@ -118,7 +123,8 @@ async def test_session_settings_narrow_the_next_turn_and_widening_fails_it(
         await expect(child, 'widens_connectors at "/connectors/enabled/0"')
         await expect(child, "> ")
     child.sendeof()
-    assert await wait_for_exit(child) == 0
+    # A failed turn makes the command exit with code 1.
+    assert await wait_for_exit(child) == 1
     assert fake_mcp.runs("gmail_get_message") == 0
 
 

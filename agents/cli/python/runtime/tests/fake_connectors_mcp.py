@@ -15,6 +15,7 @@ key>`` to ``mcp-invocations.log`` in ``$FAKE_MCP_STATE_DIR``.
 * ``hackernews_get_top_stories`` (``readOnlyHint``): hackernews/default getTopStories.
 * ``gmail_get_message`` (``readOnlyHint``): gmail/personal getMessage.
 * ``slack_post_thread_reply`` (no hints): slack/support-slack postThreadReply.
+* ``misc_untagged`` (``readOnlyHint``): no connector ``_meta`` at all.
 """
 
 from __future__ import annotations
@@ -75,6 +76,13 @@ def slack_post_thread_reply(thread: str, text: str, context: Context) -> str:
     """Reply in a Slack thread."""
     _record("slack_post_thread_reply", context)
     return f"posted {text!r} in {thread}"
+
+
+@server.tool(annotations=ToolAnnotations(read_only_hint=True))
+def misc_untagged(context: Context) -> str:
+    """A tool without connector metadata, hidden while connectors.enabled is set."""
+    _record("misc_untagged", context)
+    return "untagged"
 
 
 def _record(tool_name: str, context: Context) -> None:

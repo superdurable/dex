@@ -250,9 +250,11 @@ async def wait_for_text(path: Path, text: str, timeout: float = _PROCESS_READY_S
 
 
 @contextlib.asynccontextmanager
-async def session_client(address: str, cache_dir: Path) -> AsyncIterator[AgentSessionClient]:
-    """Open a test-side session client for the scripted harness's Flow type."""
-    flow = build_session_flow_without_tools()
+async def session_client(
+    address: str, cache_dir: Path, flow_type: str
+) -> AsyncIterator[AgentSessionClient]:
+    """Open a test-side session client for one of the scripted harness's Flow types."""
+    flow = build_session_flow_without_tools(flow_type)
     cache_dir.mkdir(parents=True, exist_ok=True)
     blob_cache = open_blob_cache(BlobCacheConfig(str(cache_dir), 64 * 1024 * 1024))
     client = AsyncClient(

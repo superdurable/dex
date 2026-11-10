@@ -11,7 +11,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import os
+import shutil
 import threading
 import uuid
 from collections.abc import AsyncIterator, Iterator
@@ -22,7 +25,13 @@ from typing import Any
 
 import pytest
 
-from dex_agents import AgentInterrupt, AgentSessionClient, AgentSnapshot, MessageRole
+from dex_agents import (
+    AgentInterrupt,
+    AgentSessionClient,
+    AgentSnapshot,
+    MessageRole,
+    ToolEffect,
+)
 from dex_agents.runner import OUTCOME_UNKNOWN_TOOL_RESULT
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
@@ -139,6 +148,140 @@ async def test_paths_outside_the_workspace_are_refused(local_tools_stack: LocalT
     for tool_name, output in outputs[1:]:
         assert "outside the workspace" in output, (tool_name, output)
     assert not (outside / "planted.txt").exists()
+
+
+async def test_hard_links_and_swapped_symbolic_links_never_reach_outside(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    workspace, outside = local_tools_stack.workspace, local_tools_stack.outside
+    sessions = local_tools_stack.sessions
+    (outside / "hard-secret.txt").write_text("hard secret")
+    os.link(outside / "hard-secret.txt", workspace / "hard.txt")
+    (outside / "target.txt").write_text("original")
+    (workspace / "link.txt").symlink_to(outside / "target.txt")
+    swap = workspace / "swap"
+    swap.mkdir()
+    (swap / "note.txt").write_text("inside note")
+    before = await start_turn(sessions, 'call read_file {"path": "swap/note.txt"}')
+    assert tool_outputs(await wait_for_turn_end(sessions, before)) == [("read_file", "inside note")]
+
+    # The directory becomes a link to outside between two calls.
+    shutil.rmtree(swap)
+    swap.symlink_to(outside, target_is_directory=True)
+    (outside / "note.txt").write_text("outside note")
+    calls: list[list[Any]] = [
+        ["read_file", {"path": "hard.txt"}],
+        ["read_file", {"path": "swap/note.txt"}],
+        ["write_file", {"path": "swap/new.txt", "content": "x"}],
+        ["write_file", {"path": "link.txt", "content": "replaced"}],
+    ]
+    session_id = await start_turn(sessions, "calls " + json.dumps(calls))
+    for _ in range(2):
+        interrupt = await wait_for_approval(sessions, session_id, "write_file")
+        assert await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=True)
+    outputs = dict(enumerate(tool_outputs(await wait_for_turn_end(sessions, session_id))))
+    assert "other hard links" in outputs[0][1]
+    assert "outside the workspace" in outputs[1][1]
+    assert "outside the workspace" in outputs[2][1]
+    assert "outside the workspace" in outputs[3][1]
+    assert not (outside / "new.txt").exists()
+    # Nothing is written through a link at the name.
+    assert (outside / "target.txt").read_text() == "original"
+    assert (workspace / "link.txt").is_symlink()
+
+
+async def test_search_files_never_reads_outside_while_a_directory_is_swapped(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    workspace, outside = local_tools_stack.workspace, local_tools_stack.outside
+    sessions = local_tools_stack.sessions
+    (outside / "swapped").mkdir(exist_ok=True)
+    (outside / "swapped" / "leak.txt").write_text("needle outside")
+    racing = workspace / "racing"
+    stop = threading.Event()
+
+    def swap_back_and_forth() -> None:
+        while not stop.is_set():
+            shutil.rmtree(racing, ignore_errors=True)
+            with contextlib.suppress(OSError):
+                racing.unlink()
+            racing.mkdir()
+            (racing / "inside.txt").write_text("needle inside")
+            shutil.rmtree(racing, ignore_errors=True)
+            racing.symlink_to(outside / "swapped", target_is_directory=True)
+            racing.unlink()
+
+    swapper = threading.Thread(target=swap_back_and_forth, daemon=True)
+    swapper.start()
+    try:
+        outputs: list[str] = []
+        for _ in range(5):
+            session_id = await start_turn(
+                sessions, 'call search_files {"pattern": "needle", "path": "."}'
+            )
+            interrupt = await wait_for_approval(sessions, session_id, "search_files")
+            assert await sessions.resolve_interrupt(
+                session_id, interrupt.interrupt_id, approved=True
+            )
+            outputs.extend(
+                output for _, output in tool_outputs(await wait_for_turn_end(sessions, session_id))
+            )
+    finally:
+        stop.set()
+        swapper.join()
+    assert outputs
+    assert not any("needle outside" in output for output in outputs), outputs
+
+
+async def test_a_case_variant_path_never_leaves_the_workspace(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    workspace, outside = local_tools_stack.workspace, local_tools_stack.outside
+    variant = Path(str(workspace).swapcase())
+    if not variant.exists():
+        pytest.skip("the filesystem is case-sensitive, so no case variant names the workspace")
+    (workspace / "Case.txt").write_text("inside case")
+    (outside / "secret.txt").write_text("secret")
+    calls: list[list[Any]] = [
+        ["read_file", {"path": "CASE.TXT"}],
+        ["read_file", {"path": str(variant / "Case.txt")}],
+        ["read_file", {"path": f"{variant}/../outside/secret.txt"}],
+    ]
+    sessions = local_tools_stack.sessions
+    session_id = await start_turn(sessions, "calls " + json.dumps(calls))
+    outputs = tool_outputs(await wait_for_turn_end(sessions, session_id))
+    assert outputs[0] == ("read_file", "inside case")
+    assert outputs[1][1] in ("inside case",) or "outside the workspace" in outputs[1][1]
+    assert "outside the workspace" in outputs[2][1]
+
+
+async def test_a_session_policy_raises_a_local_tool_but_never_lowers_it(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    sessions = local_tools_stack.sessions
+    calls: list[list[Any]] = [
+        ["edit_file", {"path": "policy.txt", "old_text": "a", "new_text": "b"}],
+        ["search_files", {"pattern": "anything"}],
+    ]
+    session_id = await start_turn(sessions, "calls " + json.dumps(calls))
+
+    def both_waiting(snapshot: AgentSnapshot) -> AgentSnapshot | None:
+        return snapshot if len(snapshot.pending_interrupts) == 2 else None
+
+    snapshot = await wait_for_agent_snapshot(
+        sessions, session_id, both_waiting, description="two approvals"
+    )
+    effects = {
+        call.tool_name: (call.effect, call.requires_approval) for call in snapshot.tool_calls
+    }
+    # TOOL_POLICIES lowers edit_file to an unapproved read and raises search_files to a write.
+    assert effects == {
+        "edit_file": (ToolEffect.NON_IDEMPOTENT_WRITE, True),
+        "search_files": (ToolEffect.NON_IDEMPOTENT_WRITE, True),
+    }
+    for interrupt in snapshot.pending_interrupts:
+        assert await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=False)
+    await wait_for_turn_end(sessions, session_id)
 
 
 async def test_a_file_write_waits_for_approval_and_runs_once(

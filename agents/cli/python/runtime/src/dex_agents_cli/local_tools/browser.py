@@ -33,7 +33,10 @@ class BrowserUnavailableError(Exception):
 
 
 class BrowserSessions:
-    """Keep one page per agent session in one headless Chromium, started on first use.
+    """Keep one page per agent session in one headless browser, started on first use.
+
+    The browser is Playwright's own Chromium when it is installed, else the
+    system Chrome, else Chromium that Playwright downloads on first use.
 
     Pages live in this Worker process only. After a Worker restart a session
     has no page until the agent opens one again.
@@ -177,6 +180,7 @@ class BrowserSessions:
             return self._browser
 
     async def _launch(self, playwright: Playwright) -> Browser:
+        """Start Playwright's Chromium, else the system Chrome, else download Chromium first."""
         try:
             return await playwright.chromium.launch(headless=True)
         except PlaywrightError as error:
@@ -184,6 +188,10 @@ class BrowserSessions:
                 raise BrowserUnavailableError(
                     f"cannot start the browser: {error.message}"
                 ) from error
+        try:
+            return await playwright.chromium.launch(headless=True, channel="chrome")
+        except PlaywrightError:
+            _LOGGER.info("no system Chrome; downloading Playwright's headless Chromium")
         await install_browser()
         try:
             return await playwright.chromium.launch(headless=True)

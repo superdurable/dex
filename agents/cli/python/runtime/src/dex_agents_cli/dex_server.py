@@ -10,21 +10,30 @@
 
 from __future__ import annotations
 
-import contextlib
+import asyncio
 import json
 import os
-import socket
+import secrets
 import subprocess
-import time
+import tempfile
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from enum import Enum
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx2
+from dex import (
+    AsyncClient,
+    BlobCacheConfig,
+    ClientOptions,
+    FlowNotFoundError,
+    Registry,
+    open_blob_cache,
+)
 
 from dex_agents_cli.config import AUTO
-from dex_agents_cli.dexcli_install import download_dexcli, locate_dexcli
+from dex_agents_cli.dexcli_install import DexcliInstallError, download_dexcli, locate_dexcli
 from dex_agents_cli.environment import RuntimeEnvironment
 
 #: The line ``dexcli dev`` prints once Dex Server and Dex Web are ready.
@@ -34,10 +43,15 @@ _READY_FIELD_PREFIXES = {
     "dex_address": "Dex Server:",
     "connectors_mcp_url": "Connectors MCP:",
 }
+# The fields Dex Web's /readyz answers with, which identify a dexcli dev's Dex Web.
+_READINESS_FIELDS = frozenset({"status", "definitionRevision", "source", "definitionCount"})
 _START_TIMEOUT_SECONDS = 120.0
+_READINESS_WAIT_SECONDS = 60.0
 _PROBE_TIMEOUT_SECONDS = 2.0
+_FLOW_SERVICE_PROBE_TIMEOUT_SECONDS = 5.0
 _POLL_INTERVAL_SECONDS = 0.2
 _LOG_TAIL_LINES = 20
+_PROBE_BLOB_CACHE_BYTES = 1024 * 1024
 
 
 class DexServerError(Exception):
@@ -72,7 +86,14 @@ class _DevServerState:
     connectors_mcp_url: str | None
 
 
-def resolve_dex_server(
+class _Readiness(Enum):
+    ABSENT = "absent"
+    READY = "ready"
+    STARTING = "starting"
+    UNKNOWN_SERVICE = "unknown_service"
+
+
+async def resolve_dex_server(
     server: str,
     environment: RuntimeEnvironment,
     *,
@@ -80,10 +101,14 @@ def resolve_dex_server(
 ) -> DexServerEndpoint:
     """Find the Dex server of a ``dex.server`` value, starting ``dexcli dev`` when needed.
 
-    ``auto`` reuses the ``dexcli dev`` a command started earlier when it still
-    answers, then one on the default ports, and otherwise starts one in the
-    background. A started one keeps running after the command exits, so other
-    commands and ``--resume`` reuse it.
+    ``auto`` reuses a ``dexcli dev`` on the configured ports only when it
+    identifies itself as one, even when ``~/.dex/agents/dexcli-dev.json``
+    records it: Dex Web's ``/readyz`` answers with its readiness JSON and,
+    within five seconds, the Dex port answers as FlowService, describing an
+    unknown Flow as not found. Something else on those ports is an error, so
+    no other process can stand in for Dex or the connectors MCP server. With nothing there, it
+    starts ``dexcli dev`` in the background, which keeps running after the
+    command exits.
 
     Args:
         server: ``auto`` or a Dex server URL.
@@ -94,56 +119,67 @@ def resolve_dex_server(
         The endpoint.
 
     Raises:
-        DexServerError: If ``dexcli dev`` cannot be found, downloaded, or started.
+        DexServerError: If another service holds the ports, or ``dexcli dev``
+            cannot be found, downloaded, or started.
     """
     if server != AUTO:
         parts = urlsplit(server)
         port = parts.port or (443 if parts.scheme == "https" else 80)
         return DexServerEndpoint(address=f"{parts.hostname}:{port}", is_tls=parts.scheme == "https")
-    reused = _reuse_started_server(environment) or _reuse_default_server(environment)
-    if reused is not None:
-        report(f"Using the running dexcli dev at {reused.address} (Dex Web {reused.web_url}).")
-        return reused
-    return _start_dev_server(environment, report)
-
-
-def _reuse_started_server(environment: RuntimeEnvironment) -> DexServerEndpoint | None:
-    path = environment.dev_server_state_path
-    try:
-        state = _DevServerState(**json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, ValueError, TypeError):
-        return None
-    if not _is_process_alive(state.pid) or not _is_web_ready(state.web_url):
-        return None
+    web_url = f"http://127.0.0.1:{environment.dev_web_port}"
+    address = f"127.0.0.1:{environment.dev_dex_port}"
+    readiness = await _read_readiness(web_url)
+    if readiness is _Readiness.ABSENT:
+        return await _start_dev_server(environment, report)
+    if readiness is _Readiness.STARTING:
+        report(f"Waiting for the dexcli dev at {web_url} to become ready.")
+        readiness = await _wait_for_readiness(web_url)
+    started = _read_started_server(environment, web_url, address)
+    is_identified = readiness is _Readiness.READY and await _is_dex_flow_service(address)
+    if not is_identified:
+        raise DexServerError(
+            f"{web_url} answers, but it is not a dexcli dev with Dex at {address}. Stop that "
+            "service, or choose other ports with DEX_AGENTS_DEX_PORT and DEX_AGENTS_WEB_PORT, "
+            "or set dex.server to a Dex server URL."
+        )
+    report(f"Using the running dexcli dev at {address} (Dex Web {web_url}).")
+    mcp_url = started.connectors_mcp_url if started is not None else None
     return DexServerEndpoint(
-        address=state.dex_address,
-        web_url=state.web_url,
-        connectors_mcp_url=state.connectors_mcp_url or f"{state.web_url}/mcp",
+        address=address, web_url=web_url, connectors_mcp_url=mcp_url or f"{web_url}/mcp"
     )
 
 
-def _reuse_default_server(environment: RuntimeEnvironment) -> DexServerEndpoint | None:
-    web_url = f"http://127.0.0.1:{environment.dev_web_port}"
-    address = f"127.0.0.1:{environment.dev_dex_port}"
-    if not _is_port_open(environment.dev_dex_port) or not _is_web_ready(web_url):
+def _read_started_server(
+    environment: RuntimeEnvironment, web_url: str, address: str
+) -> _DevServerState | None:
+    """Return the recorded ``dexcli dev`` when it still runs on exactly these ports."""
+    try:
+        recorded = json.loads(environment.dev_server_state_path.read_text(encoding="utf-8"))
+        state = _DevServerState(**recorded)
+    except (OSError, ValueError, TypeError):
         return None
-    return DexServerEndpoint(address=address, web_url=web_url, connectors_mcp_url=f"{web_url}/mcp")
+    if state.web_url != web_url or state.dex_address != address:
+        return None
+    return state if _is_process_alive(state.pid) else None
 
 
-def _start_dev_server(
+async def _start_dev_server(
     environment: RuntimeEnvironment, report: Callable[[str], None]
 ) -> DexServerEndpoint:
-    dexcli = locate_dexcli(environment)
-    if dexcli is None:
-        report(f"dexcli is not installed; downloading dexcli {environment.dexcli_version}.")
-        try:
+    try:
+        dexcli = locate_dexcli(environment)
+        if dexcli is None:
+            report(f"dexcli is not installed; downloading dexcli {environment.dexcli_version}.")
             dexcli = download_dexcli(environment)
-        except Exception as error:
-            raise DexServerError(str(error)) from error
-    arguments = [str(dexcli), "dev", "-open=false"]
-    if environment.has_custom_dev_ports:
-        arguments += [f"-dex-port={environment.dev_dex_port}"]
-        arguments += [f"-web-port={environment.dev_web_port}"]
+    except DexcliInstallError as error:
+        raise DexServerError(str(error)) from error
+    arguments = [
+        str(dexcli),
+        "dev",
+        "-open=false",
+        f"-dex-port={environment.dev_dex_port}",
+        f"-web-port={environment.dev_web_port}",
+    ]
     environment.agents_directory.mkdir(parents=True, exist_ok=True)
     log_path = environment.agents_directory / "dexcli-dev.log"
     report(f"Starting dexcli dev in the background (log: {log_path}).")
@@ -159,7 +195,7 @@ def _start_dev_server(
             )
         except OSError as error:
             raise DexServerError(f"cannot run {dexcli}: {error.strerror}") from error
-    ready = _wait_for_ready_output(process, log_path)
+    ready = await _wait_for_ready_output(process, log_path)
     state = _DevServerState(
         pid=process.pid,
         dex_address=ready["dex_address"],
@@ -179,9 +215,12 @@ def _start_dev_server(
     )
 
 
-def _wait_for_ready_output(process: subprocess.Popen[bytes], log_path: Path) -> dict[str, str]:
-    deadline = time.monotonic() + _START_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
+async def _wait_for_ready_output(
+    process: subprocess.Popen[bytes], log_path: Path
+) -> dict[str, str]:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _START_TIMEOUT_SECONDS
+    while loop.time() < deadline:
         text = log_path.read_text(encoding="utf-8", errors="replace")
         if DEXCLI_DEV_READY_LINE in text:
             fields = _parse_ready_fields(text)
@@ -191,7 +230,7 @@ def _wait_for_ready_output(process: subprocess.Popen[bytes], log_path: Path) -> 
             raise DexServerError(
                 f"dexcli dev exited with code {process.returncode}:\n{_tail(log_path)}"
             )
-        time.sleep(_POLL_INTERVAL_SECONDS)
+        await asyncio.sleep(_POLL_INTERVAL_SECONDS)
     process.kill()
     raise DexServerError(
         f"dexcli dev was not ready in {_START_TIMEOUT_SECONDS:.0f}s:\n{_tail(log_path)}"
@@ -208,6 +247,59 @@ def _parse_ready_fields(text: str) -> dict[str, str]:
     return fields
 
 
+async def _read_readiness(web_url: str) -> _Readiness:
+    try:
+        async with httpx2.AsyncClient(timeout=_PROBE_TIMEOUT_SECONDS) as http:
+            response = await http.get(f"{web_url}/readyz")
+    except httpx2.HTTPError:
+        return _Readiness.ABSENT
+    try:
+        body = response.json()
+    except ValueError:
+        return _Readiness.UNKNOWN_SERVICE
+    if response.status_code == 200:
+        is_dex_web = isinstance(body, dict) and _READINESS_FIELDS <= body.keys()
+        return _Readiness.READY if is_dex_web else _Readiness.UNKNOWN_SERVICE
+    # Dex Web answers 503 with a coded error while Dex is starting.
+    is_starting = response.status_code == 503 and isinstance(body, dict)
+    return _Readiness.STARTING if is_starting else _Readiness.UNKNOWN_SERVICE
+
+
+async def _wait_for_readiness(web_url: str) -> _Readiness:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _READINESS_WAIT_SECONDS
+    readiness = _Readiness.STARTING
+    while readiness is _Readiness.STARTING and loop.time() < deadline:
+        await asyncio.sleep(_POLL_INTERVAL_SECONDS)
+        readiness = await _read_readiness(web_url)
+    return readiness
+
+
+async def _is_dex_flow_service(address: str) -> bool:
+    """Report whether a port answers as Dex's FlowService: an unknown Flow is not found."""
+    with tempfile.TemporaryDirectory(prefix="dex-agents-probe-") as cache_directory:
+        blob_cache = open_blob_cache(BlobCacheConfig(cache_directory, _PROBE_BLOB_CACHE_BYTES))
+        client = AsyncClient(
+            Registry([], allow_async_handlers=True),
+            blob_cache,
+            ClientOptions(server_address=address),
+        )
+        probe_flow_id = f"dex-agents-cli-probe-{secrets.token_hex(8)}"
+        try:
+            await asyncio.wait_for(
+                client.describe_flow(probe_flow_id), _FLOW_SERVICE_PROBE_TIMEOUT_SECONDS
+            )
+        except FlowNotFoundError:
+            return True
+        except Exception:
+            # Any other answer means the port is not a Dex server this command can trust.
+            return False
+        finally:
+            await client.close()
+            blob_cache.close()
+        return False
+
+
 def _is_process_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -216,23 +308,6 @@ def _is_process_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
-
-
-def _is_port_open(port: int) -> bool:
-    with (
-        contextlib.suppress(OSError),
-        socket.create_connection(("127.0.0.1", port), timeout=_PROBE_TIMEOUT_SECONDS),
-    ):
-        return True
-    return False
-
-
-def _is_web_ready(web_url: str) -> bool:
-    try:
-        response = httpx2.get(f"{web_url}/readyz", timeout=_PROBE_TIMEOUT_SECONDS)
-    except httpx2.HTTPError:
-        return False
-    return response.status_code == 200
 
 
 def _tail(log_path: Path) -> str:

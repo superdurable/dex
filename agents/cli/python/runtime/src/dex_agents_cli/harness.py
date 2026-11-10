@@ -10,6 +10,10 @@
 
 from __future__ import annotations
 
+import getpass
+import hashlib
+import os
+import socket
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -19,7 +23,9 @@ from typing import Any, Protocol
 from dex_agents import AgentSessionFlow
 from dex_agents.stepwise import ToolSource
 from dex_agents_cli.config import EffectiveConfig
-from dex_agents_cli.turns import ResolvedTurn, TurnConfigResolver
+from dex_agents_cli.turns import ResolvedTurn, TurnConfigResolver, current_turn_config
+
+_FLOW_TYPE_SUFFIX_DIGITS = 12
 
 
 class LocalToolGroup(StrEnum):
@@ -159,3 +165,64 @@ class HarnessContext:
                 the model call fails with ``<code> at "<pointer>"``.
         """
         return self.resolver.resolve(session_settings)
+
+    def current_turn(self) -> ResolvedTurn:
+        """Return the turn whose model call is running, or the file's configuration outside one.
+
+        A harness that replaces local tool groups reads it in its own tool
+        callbacks, such as an approval hook that runs during the model call,
+        with ``is_local_tool_group_enabled`` and ``resolve_turn_tool_policy``.
+
+        Returns:
+            The turn's configuration and instructions.
+        """
+        return current_turn_config() or self.resolver.resolve(None)
+
+
+def session_flow_type(
+    harness_flow_type: str,
+    config_path: Path | None,
+    workspace: Path,
+    *,
+    user: str | None = None,
+) -> str:
+    """Return the Flow type a command registers: the harness's, namespaced by environment.
+
+    Commands with the same harness but another machine, user, configuration
+    file, or workspace register different Flow types against one Dex server.
+    Their Workers then never take each other's tool Steps, so an approved
+    write always runs with the workspace, tools, and connections it was
+    approved under. ``sessions`` and ``--resume`` use the same type.
+
+    The suffix is the first 12 hex digits of the SHA-256 of the UTF-8 text
+    ``"<hostname>\\n<user>\\n<config identity>\\n<workspace>"``: the user is
+    the numeric user ID where the system has one, else the user name; the
+    config identity is the configuration file's real path, or ``defaults``
+    without a file; the workspace is its real path. The file's contents,
+    such as tool settings, do not count, so editing them keeps the sessions.
+
+    Example:
+        >>> session_flow_type("DexAgentsClaudeSdkCliSession", config_path, workspace)
+        'DexAgentsClaudeSdkCliSession-3f9a1c0b7d2e'
+
+    Args:
+        harness_flow_type: The harness's ``flow_type``.
+        config_path: The configuration file, or ``None`` when the command runs on defaults.
+        workspace: The workspace directory.
+        user: The user part; ``None`` uses this process's user.
+
+    Returns:
+        ``<harness_flow_type>-<12 hex digits>``.
+    """
+    config_identity = "defaults" if config_path is None else os.path.realpath(config_path)
+    user_identity = _current_user() if user is None else user
+    text = (
+        f"{socket.gethostname()}\n{user_identity}\n{config_identity}\n{os.path.realpath(workspace)}"
+    )
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return f"{harness_flow_type}-{digest[:_FLOW_TYPE_SUFFIX_DIGITS]}"
+
+
+def _current_user() -> str:
+    get_user_id = getattr(os, "getuid", None)
+    return str(get_user_id()) if get_user_id is not None else getpass.getuser()

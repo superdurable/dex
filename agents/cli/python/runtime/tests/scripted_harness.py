@@ -17,6 +17,7 @@ The last user message picks the reply:
 * ``calls <json list of [tool, arguments]>``: calls several tools in one response.
 * ``ask``: asks the user a question with the ``ask_user`` built-in tool.
 * ``slow``: waits five minutes before answering, so the turn can be cancelled.
+* ``fail``: raises, so the model call fails and, after its retries, the turn.
 * anything else: ``echo: <text>``.
 
 After tool results it answers ``done: <tool>=<output> | ...``.
@@ -30,7 +31,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from dex_agents import AgentSessionFlow, BuiltInTool
+from dex_agents import AgentSessionFlow, BuiltInTool, ToolPolicy
 from dex_agents.stepwise import (
     AgentDefinition,
     InstructionContext,
@@ -64,6 +65,9 @@ class ScriptedHarness:
     default_model = DEFAULT_SCRIPTED_MODEL
     replaced_local_tools: frozenset[LocalToolGroup] = frozenset()
 
+    def __init__(self, tool_policies: Mapping[str, ToolPolicy] | None = None) -> None:
+        self._tool_policies = dict(tool_policies or {})
+
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         models: dict[str, ScriptedModelClient] = {}
 
@@ -84,15 +88,16 @@ class ScriptedHarness:
             resolve_model=resolve_model,
             tool_sources=list(context.tool_sources),
             built_in_tools=frozenset({BuiltInTool.ASK_USER}),
+            tool_policies=self._tool_policies,
         )
         return stepwise_agent_session_flow(definition, flow_type=context.flow_type)
 
 
-def build_session_flow_without_tools() -> AgentSessionFlow:
+def build_session_flow_without_tools(flow_type: str = SCRIPTED_FLOW_TYPE) -> AgentSessionFlow:
     """Build the harness's Flow for a test's Client, which only needs its type and RPCs."""
     config = resolve_config({}, ScriptedHarness.config_section, DEFAULT_SCRIPTED_MODEL)
     context = HarnessContext(
-        flow_type=SCRIPTED_FLOW_TYPE,
+        flow_type=flow_type,
         config=config,
         workspace=Path.cwd(),
         instructions=None,
@@ -145,6 +150,8 @@ def _responder(model_name: str) -> Any:
                 return ScriptedModelReply(
                     tool_calls=[ScriptedToolCall(tool_name="ask_user", arguments=question)]
                 )
+            case "fail":
+                raise RuntimeError("the scripted model was told to fail")
             case "slow":
                 await asyncio.sleep(_SLOW_REPLY_SECONDS)
                 return ScriptedModelReply(text="slow reply")

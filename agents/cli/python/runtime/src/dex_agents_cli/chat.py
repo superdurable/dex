@@ -174,9 +174,15 @@ class TerminalChat:
         self._typeahead: deque[str] = deque()
         self._is_exit_requested = False
         self._is_input_ended = False
+        self._has_failure = False
 
-    async def run(self) -> None:
-        """Chat until the user exits."""
+    async def run(self) -> bool:
+        """Chat until the user exits.
+
+        Returns:
+            ``False`` when a turn or the session failed during the chat, so the
+            command exits with code 1; ``True`` otherwise.
+        """
         self._terminal.write(
             f"Type a message; {EXIT_COMMAND} quits. Ctrl-C cancels a turn, and again exits.\n"
         )
@@ -198,12 +204,14 @@ class TerminalChat:
             f"\nSession {self._session_id} keeps running. Resume it with: "
             f"{self._resume_command} --resume {self._session_id}\n"
         )
+        return not self._has_failure
 
     async def _send(self, text: str) -> None:
         snapshot = await self._sessions.get_agent_snapshot(self._session_id)
         if snapshot.state is None or snapshot.state.status is AgentSessionStatus.FAILED:
             reason = snapshot.state.last_turn_error if snapshot.state else "it has not started"
             self._terminal.write(f"[session failed] {reason}\n")
+            self._has_failure = True
             self._is_exit_requested = True
             return
         tail = await self._event_tail()
@@ -225,6 +233,7 @@ class TerminalChat:
                     return
                 if state.status is AgentSessionStatus.FAILED:
                     self._terminal.write(f"\n[session failed] {state.last_turn_error}\n")
+                    self._has_failure = True
                     self._is_exit_requested = True
                     return
                 if state.turn_count > turn_count_before and state.active_turn_id is None:
@@ -332,6 +341,8 @@ class TerminalChat:
         state = snapshot.state
         if state is not None and state.last_turn_error and not view.is_failure_shown:
             self._terminal.write(f"\n[turn failed] {state.last_turn_error}")
+        if state is not None and state.last_turn_error:
+            self._has_failure = True
         self._terminal.write("\n")
 
     async def _render_events(self, resume_token: str, view: _TurnView) -> None:

@@ -39,8 +39,18 @@ from dex_agents_cli.connectors import (
     ConnectorsMcpToolSource,
     ConnectorToolMetaKeys,
 )
-from dex_agents_cli.harness import AgentHarness, HarnessContext, LocalToolGroup
+from dex_agents_cli.harness import (
+    AgentHarness,
+    HarnessContext,
+    LocalToolGroup,
+    session_flow_type,
+)
 from dex_agents_cli.local_tools import LOCAL_TOOL_SOURCE_NAME, LocalToolSource
+from dex_agents_cli.tool_policy import (
+    is_local_tool_group_enabled,
+    is_shell_command_approval_required,
+    resolve_turn_tool_policy,
+)
 from dex_agents_cli.turns import (
     ResolvedTurn,
     TurnConfigResolver,
@@ -68,10 +78,14 @@ __all__ = [
     "canonical_operation_name",
     "command_name",
     "current_turn_config",
+    "is_local_tool_group_enabled",
     "is_shell_command_allowed",
+    "is_shell_command_approval_required",
     "parse_config_yaml",
     "resolve_config",
     "resolve_turn_config",
+    "resolve_turn_tool_policy",
     "run_agent_cli",
+    "session_flow_type",
     "with_turn_config",
 ]
