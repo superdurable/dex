@@ -1,0 +1,155 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+import { createServer, type IncomingMessage, type Server } from "node:http";
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { z } from "zod";
+
+import { connectionMetaKey, connectorMetaKey, operationMetaKey } from "../../src/index.js";
+
+/** One recorded tool run on the fake server. */
+export interface FakeConnectorRun {
+  readonly toolName: string;
+  readonly arguments: Readonly<Record<string, unknown>>;
+  readonly idempotencyKey: string | undefined;
+}
+
+/**
+ * A stateless Streamable HTTP MCP server in the test process with connector tools that carry the connector,
+ * connection, and operation in `_meta`, like the connectors MCP server.
+ *
+ * - `hackernews_get_top_stories` (hackernews/default, read-only)
+ * - `gmail_get_message` (gmail/personal, read-only)
+ * - `slack_post_thread_reply` (slack/support-slack, a write without hints)
+ */
+export class FakeConnectorsMcpServer {
+  /** Every tool run, in order. */
+  public readonly runs: FakeConnectorRun[] = [];
+  /** When set, every request answers 503 with this reason, as `dexcli dev` does before the server is ready. */
+  public unavailableReason: string | undefined;
+  private server: Server | undefined;
+
+  /**
+   * Starts the server on a free loopback port.
+   * @returns The MCP URL.
+   */
+  public async start(): Promise<string> {
+    this.server = createServer((request, response) => {
+      void (async () => {
+        if (this.unavailableReason !== undefined) {
+          response.writeHead(503, { "content-type": "text/plain" }).end(this.unavailableReason);
+          return;
+        }
+        const server = this.createMcpServer();
+        const transport = new StreamableHTTPServerTransport({});
+        response.on("close", () => {
+          void transport.close();
+          void server.close();
+        });
+        await server.connect(transport);
+        await transport.handleRequest(request, response, await readJsonBody(request));
+      })().catch((error: unknown) => {
+        console.error("fake connectors MCP request failed", error);
+        if (!response.headersSent) {
+          response.writeHead(500).end();
+        }
+      });
+    });
+    const server = this.server;
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("the fake MCP server has no port");
+    }
+    return `http://127.0.0.1:${address.port}/mcp`;
+  }
+
+  /**
+   * Returns the runs of one tool.
+   * @param toolName - The tool.
+   * @returns Its runs.
+   */
+  public runsOf(toolName: string): FakeConnectorRun[] {
+    return this.runs.filter((run) => run.toolName === toolName);
+  }
+
+  /**
+   * Stops the server.
+   * @returns A Promise that resolves after it closed.
+   */
+  public async stop(): Promise<void> {
+    const server = this.server;
+    this.server = undefined;
+    if (server !== undefined) {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  private createMcpServer(): McpServer {
+    const server = new McpServer({ name: "fake-connectors", version: "1.0.0" });
+    const record = (toolName: string, toolArguments: Record<string, unknown>, meta: Record<string, unknown> | undefined) => {
+      const key = meta?.["io.superdurable.dex/idempotencyKey"];
+      this.runs.push({ toolName, arguments: toolArguments, idempotencyKey: typeof key === "string" ? key : undefined });
+    };
+    server.registerTool(
+      "hackernews_get_top_stories",
+      {
+        description: "List the top Hacker News stories.",
+        inputSchema: { limit: z.number().optional() },
+        annotations: { readOnlyHint: true },
+        _meta: identityMeta("hackernews", "default", "getTopStories"),
+      },
+      (toolArguments, extra) => {
+        record("hackernews_get_top_stories", toolArguments, extra._meta);
+        return { content: [{ type: "text", text: "top stories: dex-1, dex-2" }] };
+      },
+    );
+    server.registerTool(
+      "gmail_get_message",
+      {
+        description: "Read one email.",
+        inputSchema: { id: z.string() },
+        annotations: { readOnlyHint: true },
+        _meta: identityMeta("gmail", "personal", "getMessage"),
+      },
+      (toolArguments, extra) => {
+        record("gmail_get_message", toolArguments, extra._meta);
+        return { content: [{ type: "text", text: `message ${toolArguments.id}` }] };
+      },
+    );
+    server.registerTool(
+      "slack_post_thread_reply",
+      {
+        description: "Reply in a Slack thread.",
+        inputSchema: { text: z.string() },
+        _meta: identityMeta("slack", "support-slack", "postThreadReply"),
+      },
+      (toolArguments, extra) => {
+        record("slack_post_thread_reply", toolArguments, extra._meta);
+        return { content: [{ type: "text", text: `posted ${toolArguments.text}` }] };
+      },
+    );
+    return server;
+  }
+}
+
+function identityMeta(connector: string, connection: string, operation: string): Record<string, unknown> {
+  return { [connectorMetaKey]: connector, [connectionMetaKey]: connection, [operationMetaKey]: operation };
+}
+
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(chunk as Buffer);
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  return text === "" ? undefined : JSON.parse(text);
+}
