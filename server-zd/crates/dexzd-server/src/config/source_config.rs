@@ -12,8 +12,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{
-    AttributeStoreConfig, Config, CredentialSource, DevConfig, DevDurabilityMode, LifecycleConfig,
-    ObjectStoreCredentials, ObjectStoreProvider, SearchBackend, StandbyMode,
+    ApplicationS3Config, AttributeStoreConfig, Config, CredentialSource, DevConfig,
+    DevDurabilityMode, LifecycleConfig, ObjectStoreCredentials, ObjectStoreProvider, SearchBackend,
+    StandbyMode,
 };
 use crate::DevCommandOptions;
 
@@ -279,6 +280,7 @@ impl Config {
         if let Some(durability) = options.durability {
             configuration.dev.durability_mode = durability;
         }
+        configuration.dev.application_s3 = application_s3_config(options)?;
         configuration.local_storage.directory = options.data_dir.join("store");
         if !has_lease_duration_override {
             configuration.lease.duration = SINGLE_NODE_LEASE_DURATION;
@@ -371,6 +373,41 @@ impl Config {
         }
         Ok(())
     }
+}
+
+/// Returns the application bucket that the single-node flags request, or none without them.
+///
+/// Fails when the address is not loopback, because the bucket accepts unsigned writes.
+fn application_s3_config(
+    options: &DevCommandOptions,
+) -> Result<Option<ApplicationS3Config>, ConfigError> {
+    let (listen, bucket) = match (
+        options.application_s3_listen,
+        options.application_s3_bucket.as_ref(),
+    ) {
+        (None, None) => return Ok(None),
+        (Some(listen), Some(bucket)) => (listen, bucket),
+        _ => {
+            return Err(ConfigError::Invalid {
+                field: "--application-s3-listen",
+                message: "--application-s3-listen and --application-s3-bucket must be set together"
+                    .to_owned(),
+            });
+        }
+    };
+    if !listen.ip().is_loopback() {
+        return Err(ConfigError::Invalid {
+            field: "--application-s3-listen",
+            message: format!(
+                "{listen} is not a loopback address; the application bucket accepts any credentials, so it serves only loopback"
+            ),
+        });
+    }
+    Ok(Some(ApplicationS3Config {
+        listen,
+        bucket: bucket.clone(),
+        data_directory: options.data_dir.join("application-s3"),
+    }))
 }
 
 /// Returns whether `document` sets the nested key `path`, including to an explicit null.
