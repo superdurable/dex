@@ -300,7 +300,7 @@ func TestStandaloneContextHeartbeatJSONRoundTrip(t *testing.T) {
 		t.Fatalf("first attempt: %v", err)
 	}
 
-	var seed any
+	var seed standaloneCheckpoint
 	if err := json.Unmarshal(persisted, &seed); err != nil {
 		t.Fatalf("decode persisted checkpoint: %v", err)
 	}
@@ -325,6 +325,133 @@ func TestStandaloneContextHeartbeatJSONRoundTrip(t *testing.T) {
 	var mappingError *dex.ValueMappingError
 	if _, err := rawSeed.GetLastHeartbeatValue(&checkpoint); !errors.As(err, &mappingError) {
 		t.Fatalf("raw JSON seed decode error = %v", err)
+	}
+}
+
+// persistHeartbeatAsJSONForTest records value in attempt 1 and returns the JSON a caller would store.
+func persistHeartbeatAsJSONForTest(t *testing.T, value any) []byte {
+	t.Helper()
+	var persisted []byte
+	ctx := newStandaloneContextForTest(t, dex.StandaloneContextOptions{
+		Attempt: 1,
+		OnRecordHeartbeat: func(recorded any) error {
+			encoded, err := json.Marshal(recorded)
+			if err != nil {
+				return err
+			}
+			persisted = encoded
+			return nil
+		},
+	})
+	if err := ctx.RecordHeartbeat(value); err != nil {
+		t.Fatalf("RecordHeartbeat: %v", err)
+	}
+	return persisted
+}
+
+func TestStandaloneContextIntegerHeartbeatJSONRoundTrip(t *testing.T) {
+	persisted := persistHeartbeatAsJSONForTest(t, int32(3))
+	var seed int32
+	if err := json.Unmarshal(persisted, &seed); err != nil {
+		t.Fatalf("decode persisted checkpoint: %v", err)
+	}
+	ctx := newStandaloneContextForTest(t, dex.StandaloneContextOptions{
+		Attempt:            2,
+		LastHeartbeatValue: seed,
+	})
+	var checkpoint int32
+	if found, err := ctx.GetLastHeartbeatValue(&checkpoint); err != nil || !found || checkpoint != 3 {
+		t.Fatalf("checkpoint = %d, %v, %v", checkpoint, found, err)
+	}
+
+	var seedAsAny any
+	if err := json.Unmarshal(persisted, &seedAsAny); err != nil {
+		t.Fatalf("decode persisted checkpoint into any: %v", err)
+	}
+	anySeed := newStandaloneContextForTest(t, dex.StandaloneContextOptions{
+		Attempt:            2,
+		LastHeartbeatValue: seedAsAny,
+	})
+	var mappingError *dex.ValueMappingError
+	if _, err := anySeed.GetLastHeartbeatValue(&checkpoint); !errors.As(err, &mappingError) {
+		t.Fatalf("any seed decode error = %v", err)
+	}
+}
+
+func TestStandaloneContextBytesHeartbeatJSONRoundTrip(t *testing.T) {
+	recorded := []byte{0x00, 0xff, 'd', 'e', 'x'}
+	persisted := persistHeartbeatAsJSONForTest(t, recorded)
+	var seed []byte
+	if err := json.Unmarshal(persisted, &seed); err != nil {
+		t.Fatalf("decode persisted checkpoint: %v", err)
+	}
+	ctx := newStandaloneContextForTest(t, dex.StandaloneContextOptions{
+		Attempt:            2,
+		LastHeartbeatValue: seed,
+	})
+	var checkpoint []byte
+	found, err := ctx.GetLastHeartbeatValue(&checkpoint)
+	if err != nil || !found || string(checkpoint) != string(recorded) {
+		t.Fatalf("checkpoint = %v, %v, %v", checkpoint, found, err)
+	}
+}
+
+func TestStandaloneContextRejectsWritesAfterParentDone(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	hookCalls := 0
+	ctx, err := dex.NewStandaloneContext(parent, dex.StandaloneContextOptions{
+		Attempt: 1,
+		OnRecordHeartbeat: func(any) error {
+			hookCalls++
+			return nil
+		},
+		OnSetStepExecutionLocal: func(string, any) error {
+			hookCalls++
+			return nil
+		},
+		OnRecordEvent: func(string, any) error {
+			hookCalls++
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewStandaloneContext: %v", err)
+	}
+	cancel()
+
+	if err := ctx.RecordHeartbeat(standaloneCheckpoint{State: "stale"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RecordHeartbeat after cancel = %v", err)
+	}
+	if err := ctx.RecordHeartbeat(nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RecordHeartbeat(nil) after cancel = %v", err)
+	}
+	if err := ctx.SetStepExecutionLocal("cursor", "page-3"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("SetStepExecutionLocal after cancel = %v", err)
+	}
+	if err := ctx.RecordEvent("sent", "provider-42"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RecordEvent after cancel = %v", err)
+	}
+	if hookCalls != 0 {
+		t.Fatalf("hooks ran %d times after cancel", hookCalls)
+	}
+
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	expiredContext, err := dex.NewStandaloneContext(expired, dex.StandaloneContextOptions{
+		Attempt: 1,
+		OnRecordHeartbeat: func(any) error {
+			hookCalls++
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewStandaloneContext: %v", err)
+	}
+	if err := expiredContext.RecordHeartbeat("late"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RecordHeartbeat after deadline = %v", err)
+	}
+	if hookCalls != 0 {
+		t.Fatal("heartbeat hook ran after the deadline")
 	}
 }
 
@@ -489,6 +616,11 @@ func TestStandaloneContextRecordEvent(t *testing.T) {
 	if err := ctx.RecordEvent("sent", "provider-43"); err == nil {
 		t.Fatal("duplicate event name was accepted")
 	}
+	var duplicateMappingError *dex.ValueMappingError
+	err := ctx.RecordEvent("sent", math.NaN())
+	if err == nil || errors.As(err, &duplicateMappingError) {
+		t.Fatalf("duplicate name with unencodable payload = %v, want duplicate error", err)
+	}
 	if err := ctx.RecordEvent("", "value"); err == nil {
 		t.Fatal("empty event name was accepted")
 	}
@@ -520,4 +652,15 @@ func TestStandaloneContextRejectsWorkerOnlyOperations(t *testing.T) {
 	if err := commandChannel.Publish(ctx, command{Name: "ship"}); err == nil {
 		t.Fatal("Channel.Publish succeeded without a Worker invocation")
 	}
+}
+
+func TestStandaloneContextChannelSizePanics(t *testing.T) {
+	ctx := newStandaloneContextForTest(t, dex.StandaloneContextOptions{Attempt: 1})
+	defer func() {
+		if recover() == nil {
+			t.Fatal("Channel.Size did not panic without a Worker invocation")
+		}
+	}()
+	size := commandChannel.Size(ctx)
+	t.Fatalf("Channel.Size returned %d", size)
 }

@@ -849,6 +849,11 @@ decoding matches the Worker. Like a Worker attempt, `RecordHeartbeat` and
 caller's `OnRecordHeartbeat` and `OnSetStepExecutionLocal` hooks instead.
 `RecordEvent` keeps the Worker's non-empty and unique-name checks and calls
 `OnRecordEvent`. Hooks run serialized under one mutex on the calling goroutine.
+Under that mutex, each write first rejects a done parent context, so an ended
+attempt never reaches a hook after cancellation is observed. Persisting hooks
+must still write conditionally on `Attempt`, because a write in progress can
+race with the end of its attempt. `RecordEvent` checks a duplicate name before
+encoding, as the Worker does, and rechecks it under the mutex.
 The context does not implement `attributeInvocation`, `channelInvocation`, or
 `streamInvocation`, so those operations return `errInvalidInvocationContext`
 or panic as for any foreign `Context`.

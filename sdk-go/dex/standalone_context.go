@@ -32,6 +32,12 @@ import (
 // time, in call order. A hook must not call RecordHeartbeat, SetStepExecutionLocal, or RecordEvent
 // on the same Context; such a call deadlocks.
 //
+// After the parent context is done, these methods return an error that wraps the parent's error,
+// and they do not call the hook. This check narrows, but cannot close, the race between ending an
+// attempt and a write from that attempt that is already in progress. A hook that persists values
+// must therefore write conditionally on Attempt: it must never let a value from an older attempt
+// replace a value from a newer attempt of the same logical call.
+//
 // See NewStandaloneContext for a complete example.
 //
 // Since 1.41.0.
@@ -66,9 +72,11 @@ type StandaloneContextOptions struct {
 	// when encoding fails.
 	//
 	// Supply the value that OnRecordHeartbeat received during the previous attempt, or a value of
-	// the same Go type. After a JSON round trip, supply the JSON decoded into that Go type or into
-	// any. Never supply the encoded JSON as json.RawMessage or []byte: a byte slice is encoded as
-	// raw bytes, and decoding it into a struct fails.
+	// the same Go type. After a JSON round trip, decode the JSON into the original Go type of the
+	// recorded value, such as the checkpoint struct, int32, or []byte, and supply that value.
+	// Do not decode it into any: JSON numbers become float64 and byte slices become base64
+	// strings, so decoding into the original type later fails. Never supply the encoded JSON as
+	// json.RawMessage or []byte: a byte slice is encoded as raw bytes, not as JSON.
 	LastHeartbeatValue any
 	// StepExecutionLocals are the step-execution locals that Context.GetStepExecutionLocal decodes.
 	// Nil or empty means no locals. Keys must not be empty. NewStandaloneContext encodes each value
@@ -76,20 +84,25 @@ type StandaloneContextOptions struct {
 	// LastHeartbeatValue applies to each value.
 	StepExecutionLocals map[string]any
 
-	// OnRecordHeartbeat is called by Context.RecordHeartbeat after the value encodes successfully.
-	// A nil or typed nil heartbeat, which clears the checkpoint, is passed as nil. RecordHeartbeat
-	// returns only after the hook returns, so the hook can write the checkpoint durably first. A
-	// hook error is wrapped and returned by RecordHeartbeat. Nil validates and encodes heartbeats
-	// but keeps nothing.
+	// OnRecordHeartbeat is called by Context.RecordHeartbeat after the value encodes successfully
+	// and while the parent context is not done. A nil or typed nil heartbeat, which clears the
+	// checkpoint, is passed as nil. RecordHeartbeat returns only after the hook returns, so the hook
+	// can write the checkpoint durably first. A hook error is wrapped and returned by
+	// RecordHeartbeat. Nil validates and encodes heartbeats but keeps nothing.
+	//
+	// A hook that persists the checkpoint must write it only while Attempt is still the current
+	// attempt of the logical call, for example with a compare-and-set on the stored attempt
+	// number. Otherwise a late write from an ended attempt can replace a newer checkpoint.
 	OnRecordHeartbeat func(value any) error
-	// OnSetStepExecutionLocal is called by Context.SetStepExecutionLocal after the key is validated
-	// and the value encodes successfully. A hook error is wrapped and returned by
-	// SetStepExecutionLocal. Nil validates and encodes locals but keeps nothing.
+	// OnSetStepExecutionLocal is called by Context.SetStepExecutionLocal after the key is validated,
+	// the value encodes successfully, and while the parent context is not done. A hook error is
+	// wrapped and returned by SetStepExecutionLocal. Nil validates and encodes locals but keeps
+	// nothing. A persisting hook must write conditionally on Attempt, like OnRecordHeartbeat.
 	OnSetStepExecutionLocal func(key string, value any) error
 	// OnRecordEvent is called by Context.RecordEvent after the name is validated as non-empty and
-	// unique within this Context and the value encodes successfully. A hook error is wrapped and
-	// returned by RecordEvent, and the name stays unused. Nil validates and encodes events but
-	// keeps nothing.
+	// unique within this Context, the value encodes successfully, and while the parent context is
+	// not done. A hook error is wrapped and returned by RecordEvent, and the name stays unused. Nil
+	// validates and encodes events but keeps nothing.
 	OnRecordEvent func(name string, value any) error
 }
 
@@ -111,7 +124,10 @@ type StandaloneContextOptions struct {
 // not change what GetStepExecutionLocal returns. Unlike a Worker, a standalone Context allows both
 // methods in any handler method. RecordEvent rejects an empty or repeated name and calls
 // options.OnRecordEvent. Without the hooks, heartbeats, locals, and events are validated and then
-// discarded. Dex stores nothing durably for a standalone Context.
+// discarded. Dex stores nothing durably for a standalone Context. After parent is done,
+// RecordHeartbeat, SetStepExecutionLocal, and RecordEvent return an error that wraps parent's error
+// and do not call the hooks. See StandaloneContextOptions for why persisting hooks must still write
+// conditionally on Attempt.
 //
 // Methods that need a Worker invocation return fixed results. HasTimerFired, HasTimerFiredByIndex,
 // and WaitForMethodFailed return false. Attribute, Channel, Stream, BufferedTextStream, SubFlowResult,
@@ -124,36 +140,83 @@ type StandaloneContextOptions struct {
 // when LastHeartbeatValue or a local value cannot be encoded; encoding failures are
 // ValueMappingError values.
 //
-//	package toolserver
+//	package invoicetool
 //
 //	import (
 //		"context"
+//		"encoding/json"
 //		"time"
 //
 //		"github.com/superdurable/dex/sdk-go/dex"
 //	)
+//
+//	// SendCheckpoint is the heartbeat checkpoint of SendInvoiceStep.
+//	type SendCheckpoint struct {
+//		State   string
+//		Attempt int32
+//	}
+//
+//	// SendInvoiceStep sends one invoice and skips the send when an earlier attempt finished it.
+//	type SendInvoiceStep struct {
+//		dex.StepDefaultsNoWaitFor[string]
+//	}
+//
+//	func (SendInvoiceStep) Execute(ctx dex.Context, invoiceID string) (*dex.StepDecision, error) {
+//		var previous SendCheckpoint
+//		found, err := ctx.GetLastHeartbeatValue(&previous)
+//		if err != nil {
+//			return nil, err
+//		}
+//		if found && previous.State == "sent" {
+//			return dex.DeadEnd(), nil
+//		}
+//		if err := ctx.RecordHeartbeat(SendCheckpoint{State: "claimed", Attempt: ctx.Attempt()}); err != nil {
+//			return nil, err
+//		}
+//		// Send invoiceID to the billing provider here.
+//		if err := ctx.RecordHeartbeat(SendCheckpoint{State: "sent", Attempt: ctx.Attempt()}); err != nil {
+//			return nil, err
+//		}
+//		return dex.DeadEnd(), nil
+//	}
 //
 //	// CallRecord is the state a tool server keeps for one logical call between attempts.
 //	type CallRecord struct {
 //		RequestKey     string
 //		Attempt        int32
 //		FirstAttemptAt time.Time
-//		Checkpoint     any
+//		CheckpointJSON []byte
 //	}
 //
-//	// RunSendInvoiceAttempt runs one attempt of SendInvoiceStep outside a Worker.
+//	// CallStore persists call records.
+//	type CallStore interface {
+//		// SaveAttempt durably stores record before the attempt runs.
+//		SaveAttempt(record CallRecord) error
+//		// SaveCheckpoint durably stores checkpointJSON only if attempt is still the stored attempt.
+//		SaveCheckpoint(requestKey string, attempt int32, checkpointJSON []byte) error
+//	}
+//
+//	// RunSendInvoiceAttempt runs the next attempt of SendInvoiceStep outside a Worker.
 //	func RunSendInvoiceAttempt(
 //		parent context.Context,
-//		record *CallRecord,
-//		saveCallRecord func(*CallRecord) error,
-//		input InvoiceInput,
+//		store CallStore,
+//		record CallRecord,
+//		invoiceID string,
 //	) (*dex.StepDecision, error) {
 //		record.Attempt++
 //		if record.Attempt == 1 {
 //			record.FirstAttemptAt = time.Now()
 //		}
-//		if err := saveCallRecord(record); err != nil {
+//		if err := store.SaveAttempt(record); err != nil {
 //			return nil, err
+//		}
+//		var lastHeartbeatValue any
+//		if record.CheckpointJSON != nil {
+//			var checkpoint SendCheckpoint
+//			if err := json.Unmarshal(record.CheckpointJSON, &checkpoint); err != nil {
+//				return nil, err
+//			}
+//			lastHeartbeatValue = checkpoint
 //		}
 //		attemptContext, cancel := context.WithTimeout(parent, time.Minute)
 //		defer cancel()
@@ -162,16 +225,23 @@ type StandaloneContextOptions struct {
 //			StepExecutionID:    record.RequestKey,
 //			FirstAttemptAt:     record.FirstAttemptAt,
 //			Attempt:            record.Attempt,
-//			LastHeartbeatValue: record.Checkpoint,
+//			LastHeartbeatValue: lastHeartbeatValue,
 //			OnRecordHeartbeat: func(value any) error {
-//				record.Checkpoint = value
-//				return saveCallRecord(record)
+//				var checkpointJSON []byte
+//				if value != nil {
+//					encoded, err := json.Marshal(value)
+//					if err != nil {
+//						return err
+//					}
+//					checkpointJSON = encoded
+//				}
+//				return store.SaveCheckpoint(record.RequestKey, record.Attempt, checkpointJSON)
 //			},
 //		})
 //		if err != nil {
 //			return nil, err
 //		}
-//		return SendInvoiceStep{}.Execute(ctx, input)
+//		return SendInvoiceStep{}.Execute(ctx, invoiceID)
 //	}
 //
 // Since 1.41.0.
@@ -320,6 +390,9 @@ func (standalone *standaloneContextImpl) RecordHeartbeat(value any) error {
 	}
 	standalone.stagingMu.Lock()
 	defer standalone.stagingMu.Unlock()
+	if err := standalone.requireParentNotDone(); err != nil {
+		return err
+	}
 	if standalone.onRecordHeartbeat == nil {
 		return nil
 	}
@@ -351,6 +424,9 @@ func (standalone *standaloneContextImpl) SetStepExecutionLocal(key string, value
 	}
 	standalone.stagingMu.Lock()
 	defer standalone.stagingMu.Unlock()
+	if err := standalone.requireParentNotDone(); err != nil {
+		return err
+	}
 	if standalone.onSetStepExecutionLocal == nil {
 		return nil
 	}
@@ -381,11 +457,18 @@ func (standalone *standaloneContextImpl) RecordEvent(name string, value any) err
 	if name == "" {
 		return fmt.Errorf("dex: event name must not be empty")
 	}
+	if standalone.hasRecordedEvent(name) {
+		return fmt.Errorf("dex: event %q was already recorded", name)
+	}
 	if _, err := encodeValue(value); err != nil {
 		return err
 	}
 	standalone.stagingMu.Lock()
 	defer standalone.stagingMu.Unlock()
+	if err := standalone.requireParentNotDone(); err != nil {
+		return err
+	}
+	// Recheck: another call may have recorded the name while this one encoded.
 	if _, found := standalone.recordedEventNames[name]; found {
 		return fmt.Errorf("dex: event %q was already recorded", name)
 	}
@@ -395,5 +478,21 @@ func (standalone *standaloneContextImpl) RecordEvent(name string, value any) err
 		}
 	}
 	standalone.recordedEventNames[name] = struct{}{}
+	return nil
+}
+
+func (standalone *standaloneContextImpl) hasRecordedEvent(name string) bool {
+	standalone.stagingMu.Lock()
+	defer standalone.stagingMu.Unlock()
+	_, found := standalone.recordedEventNames[name]
+	return found
+}
+
+// requireParentNotDone rejects writes from an attempt whose parent context has ended.
+// The caller must hold stagingMu.
+func (standalone *standaloneContextImpl) requireParentNotDone() error {
+	if err := standalone.Err(); err != nil {
+		return fmt.Errorf("dex: standalone context attempt has ended: %w", err)
+	}
 	return nil
 }
