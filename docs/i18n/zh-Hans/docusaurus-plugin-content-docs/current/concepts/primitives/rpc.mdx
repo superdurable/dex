@@ -187,7 +187,7 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 <a id="java-和-kotlin"></a>
 <a id="typescript-codec"></a>
 
-Java、Kotlin 和 TypeScript 还有额外的 RPC 规则，见 [RPC stubs and Kotlin](/reference/java/#rpc-stubs-and-kotlin) 和 [RPC codecs](/reference/typescript/#rpc-codecs)。
+Java、Kotlin 和 TypeScript 还有额外的 RPC 规则，见 [RPC stubs and Kotlin](/reference/java/rpc#rpc-stubs-and-kotlin) 和 [RPC codecs](/reference/typescript/rpc#rpc-codecs)。
 
 ## 取消正在运行的 Step {#cancel-running-steps}
 
@@ -212,5 +212,7 @@ RPC 的结果可以按 Step type 取消所在 Flow 中的活跃 Step。外部请
 RPC 会收到普通 Attribute 和 Channel 大小。只有声明之后，它才加载 AttributeMap 条目和待处理的 Channel 消息。这样不用这些大集合的 RPC 就不会带上它们。见 [Selective state loading](/reference/server/runtime-data#load-collection-state) 和 [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances)。
 
 ## 参考
+
+每个 SDK 参考的 [RPC](/reference/python/rpc) 页列出该语言的 API 名称。
 
 [Data primitive semantics](/reference/server/runtime-data#rpcs) 详细说明取消、已关闭 Flow 上的只读 RPC、状态加载、transactional RPC 和 timeout。

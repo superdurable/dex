@@ -213,12 +213,15 @@ Use **allOf** to make the parent wait for all SubFlows to complete.
 Use **anyOf** when the parent does not need to wait for all of them. A SubFlow
 keeps running after **WaitFor** stops waiting. **Execute** can still get the
 SubFlow ID to stop it, or pass the ID to another Step to decide how to handle
-it. See [SubFlow results](/reference/python/flows-and-steps/waits#subflow-results) for combining SubFlows with
+it. See [SubFlow results](/reference/python/waits#subflow-results) for combining SubFlows with
 other conditions.
 
 <a id="subflowoptions-and-subflowreusepolicy"></a>
 
 ## Reference
+
+The [SubFlow](/reference/python/subflow) page of each SDK reference lists the
+API names in that language.
 
 **SubFlowOptions** accept the same options as starting a Flow from a Client,
 plus a reuse policy. See

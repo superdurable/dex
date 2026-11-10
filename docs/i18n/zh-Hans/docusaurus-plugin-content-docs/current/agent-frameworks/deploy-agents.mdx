@@ -147,7 +147,7 @@ runner 工作时，**RunModel**、**CompactContext** 和两种 tool Step 每 20 
 
 一次模型调用必须在 15 分钟内完成。把 provider 或 framework 的请求超时设得比它短，这样慢
 调用会带着 provider 的错误失败，后续 attempt 也还能落在 30 分钟的重试窗口内。Dex 如何发现
-丢失的 attempt，见 [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat)。
+丢失的 attempt，见 [Heartbeat](/reference/python/step-options#heartbeat)。
 
 Claude Agent SDK session 在一个 **RunModel** 中运行整段轮次：多次模型调用和内联 tool call，
 直到 CLI 给出回答或推迟一个 tool call。默认情况下这一段必须在 15 分钟内完成。更长的段需要
@@ -606,7 +606,7 @@ attempt。报告还带有包含这次调用的 session 用量，按 session 计�
 **non_idempotent_write** 和 **unclassified** tool。它应当最多运行一次 tool，并在 tool 可能
 已经运行过时记录 **outcome_unknown**。tool 确定没有运行时，这次调用改为记录 **failed**，模型
 可以再次调用这个 tool。有一种情况会打破“最多运行一次”这一承诺，要提前准备。它源于 Dex 停止任何
-Step attempt 的方式。见[失败与重新投递](/reference/python/flows-and-steps/failure-and-redelivery)。
+Step attempt 的方式。见[失败与重新投递](/reference/python/failure-and-retries#failure-and-redelivery)。
 
 ### 单次尝试的 tool 可能运行两次 {#tool-runs-twice}
 
@@ -626,7 +626,7 @@ session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如 **se
 ### 从未运行的调用也可能记录 outcome_unknown {#never-run-outcome-unknown}
 
 tool Step 失败时，它的 failure route 会从 recovery error 中读取 **attempt_progress**。见
-[失败与重新投递](/reference/python/flows-and-steps/failure-and-redelivery#unknown-outcome)。**CallTool** 和
+[失败与重新投递](/reference/python/failure-and-retries#unknown-outcome)。**CallTool** 和
 **CallSingleAttemptTool** 的处理方式相同：
 
 | **attempt_progress** | 这次调用记录的结果 |
