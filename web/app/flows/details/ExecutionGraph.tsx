@@ -65,8 +65,14 @@ const statusIcons: Record<string, LucideIcon> = {
   Waiting: Hourglass,
 };
 
-/** Step node heights; each WaitFor condition kind beyond the first adds one line. */
-const stepNodeHeight = { executeOnly: 128, withWaitFor: 148, perExtraConditionLine: 18 };
+/**
+ * Step node heights. Each WaitFor condition kind beyond the first adds one spaced line;
+ * each Channel line beyond the first adds one unspaced line.
+ */
+const stepNodeHeight = { executeOnly: 128, withWaitFor: 148, perExtraConditionLine: 18, perExtraChannelLine: 14 };
+
+/** More Channel names collapse into a "+N more" line so the node keeps a bounded height. */
+const maxVisibleChannelNames = 2;
 
 const graphEdgeColor = 'var(--mark)';
 const connectedStepColor = 'var(--ink-dim)';
@@ -95,6 +101,20 @@ function channelNames(condition: Record<string, unknown>): string[] {
   });
 }
 
+/** Splits Channel names into the lines the node shows and the count behind "+N more". */
+function visibleChannelNames(names: string[]): { visible: string[]; hiddenCount: number } {
+  if (names.length <= maxVisibleChannelNames) return { visible: names, hiddenCount: 0 };
+  const visible = names.slice(0, maxVisibleChannelNames);
+  return { visible, hiddenCount: names.length - visible.length };
+}
+
+/** Counts the lines the Channel condition shows: names, "+N more", or one count summary. */
+function channelLineCount(names: string[]): number {
+  if (names.length === 0) return 1;
+  const { visible, hiddenCount } = visibleChannelNames(names);
+  return visible.length + (hiddenCount > 0 ? 1 : 0);
+}
+
 function StatusIcon({ status, size = 14 }: { status: string; size?: number }) {
   const Icon = statusIcons[status] ?? CircleDashed;
   return <Icon aria-hidden="true" size={size} strokeWidth={2.25} />;
@@ -108,11 +128,15 @@ function showsWaitFor(node: StepGraphNode): boolean {
   );
 }
 
-/** Counts the condition kinds a WaitFor method lists, one line each. */
-function conditionLineCount(node: StepGraphNode): number {
+/** Counts the condition kinds a WaitFor method lists and the Channel lines among them. */
+function conditionLineCounts(node: StepGraphNode): { kinds: number; channelLines: number } {
   const condition = waitingCondition(node);
-  return ['timerConditions', 'channelConditions', 'subFlowConditions']
+  const kinds = ['timerConditions', 'channelConditions', 'subFlowConditions']
     .filter((key) => conditionCount(condition, key) > 0).length;
+  const channelLines = conditionCount(condition, 'channelConditions') > 0
+    ? channelLineCount([...new Set(channelNames(condition))])
+    : 0;
+  return { kinds, channelLines };
 }
 
 function skipsWaitFor(node: StepGraphNode): boolean {
@@ -214,6 +238,7 @@ export function StepNodeLabel({
   const subFlowCount = conditionCount(condition, 'subFlowConditions');
   const channels = [...new Set(channelNames(condition))];
   const channelSummary = channels.length > 0 ? channels.join(', ') : `${channelCount} channel${channelCount === 1 ? '' : 's'}`;
+  const shownChannels = visibleChannelNames(channels);
   const showWaitFor = showsWaitFor(node);
   return (
     <div className={`graph-step-label${showWaitFor ? '' : ' graph-step-label--execute-only'}`}>
@@ -254,7 +279,12 @@ export function StepNodeLabel({
                 {channelCount > 0 && (
                   <i title={channelSummary}>
                     <ConditionIcon type="channel" />
-                    <span>{channelSummary}</span>
+                    <span className="graph-condition-names">
+                      {channels.length > 0 ? shownChannels.visible.map((channel) => <span key={channel}>{channel}</span>) : channelSummary}
+                      {shownChannels.hiddenCount > 0 && (
+                        <span className="graph-condition-more">+{shownChannels.hiddenCount} more</span>
+                      )}
+                    </span>
                   </i>
                 )}
                 {subFlowCount > 0 && (
@@ -326,12 +356,16 @@ function GraphNode({ data }: NodeProps<Node<StepNodeData>>) {
 
 const graphNodeTypes: NodeTypes = { graph: GraphNode };
 
-function graphNodeDimensions(node: StepGraphNode): { height: number; width: number } {
+export function graphNodeDimensions(node: StepGraphNode): { height: number; width: number } {
   if (node.kind !== 'step') return { height: 90, width: 220 };
   if (!showsWaitFor(node)) return { height: stepNodeHeight.executeOnly, width: 300 };
-  const extraLines = Math.max(0, conditionLineCount(node) - 1);
+  const { kinds, channelLines } = conditionLineCounts(node);
+  const extraKindLines = Math.max(0, kinds - 1);
+  const extraChannelLines = Math.max(0, channelLines - 1);
   return {
-    height: stepNodeHeight.withWaitFor + extraLines * stepNodeHeight.perExtraConditionLine,
+    height: stepNodeHeight.withWaitFor
+      + extraKindLines * stepNodeHeight.perExtraConditionLine
+      + extraChannelLines * stepNodeHeight.perExtraChannelLine,
     width: 300,
   };
 }

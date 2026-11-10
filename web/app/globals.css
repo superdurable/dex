@@ -3157,6 +3157,11 @@ button.timeline-edge-stub:focus-visible {
   background: transparent;
 }
 
+/* Condition names need the room; Execute keeps only the width of its label. */
+.graph-methods:has(.graph-conditions) {
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
 .graph-methods > .graph-method:only-child {
   grid-column: 1 / -1;
 }
@@ -3198,8 +3203,31 @@ button.timeline-edge-stub:focus-visible {
   outline-offset: -2px;
 }
 
+/* Forced colors drop box shadows; the transparent outline then shows as the ring. */
 .graph-method-waitfor:focus-visible {
+  --graph-method-ring: var(--accent);
+  outline: 2px solid transparent;
   outline-offset: -4px;
+  box-shadow: inset 0 0 0 2px var(--graph-method-ring), var(--graph-method-status-shadow, 0 0 transparent);
+}
+
+/* The clip-path cuts any box ring at the arrow, so the tip draws its own stroke. */
+.graph-method-waitfor::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+  width: 12px;
+  background: var(--graph-method-ring, transparent);
+  content: "";
+  pointer-events: none;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 100' preserveAspectRatio='none'%3E%3Cpolyline points='0,0 12,50 0,100' fill='none' stroke='black' stroke-width='4' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 100' preserveAspectRatio='none'%3E%3Cpolyline points='0,0 12,50 0,100' fill='none' stroke='black' stroke-width='4' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+}
+
+.graph-method-waitfor:focus-visible::after {
+  display: block;
 }
 
 .graph-method:disabled {
@@ -3234,7 +3262,7 @@ button.timeline-edge-stub:focus-visible {
 .graph-method .graph-conditions i {
   display: flex;
   min-width: 0;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   color: var(--clock);
   font-size: 11px;
@@ -3249,6 +3277,16 @@ button.timeline-edge-stub:focus-visible {
   font-size: inherit;
   font-weight: 600;
   text-overflow: ellipsis;
+}
+
+.graph-condition-names {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.graph-conditions .graph-condition-icon {
+  margin-top: 1px;
 }
 
 .graph-condition-icon {
@@ -3514,8 +3552,9 @@ button.timeline-edge-stub:focus-visible {
 }
 
 .graph-method-running {
+  --graph-method-status-shadow: inset 3px 0 0 var(--accent);
   background: var(--accent-subtle);
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: var(--graph-method-status-shadow);
 }
 
 .graph-method-failed {
