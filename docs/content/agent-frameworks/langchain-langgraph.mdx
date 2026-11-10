@@ -1,0 +1,299 @@
+---
+title: LangChain and LangGraph
+sidebar_label: LangChain and LangGraph
+---
+
+# LangChain and LangGraph
+
+LangChain **create_agent** builds a tool-calling agent on LangGraph. The Dex adapter runs a **create_agent** agent or a custom LangGraph graph inside a durable session. It is available for Python.
+
+## When to use it
+
+Use it when your agent already uses LangChain **create_agent** or a LangGraph graph. Keep the graph, its middleware, and its tools, and let Dex own the session.
+
+## How a session runs
+
+**DurableToolCallMiddleware** stops each tool call with a LangGraph interrupt, so no tool runs inside **RunModel**. The **RunModel** Step runs the graph to its next tool calls, usually with one model call, and stores the graph checkpoint.
+
+Each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The tool Step validates the arguments and calls the tool once. The next **RunModel** restores the checkpoint and resumes the graph with the recorded results.
+
+A custom graph builds its tool node with **durable_tool_node** instead of **ToolNode**. Its state must hold the conversation as LangChain messages.
+
+A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
+
+## Install
+
+Install the adapter with its framework. Each adapter brings in the Dex Agents core.
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/langgraph/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-langgraph langchain-openai
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## The example
+
+The example is an order support agent. It has two tools on an in-memory order desk. **look_up_order** reads an order. Its policy is a read, so it runs without approval and retries on failure. **cancel_order** cancels an order that is still processing. Its policy is a non-idempotent write, so it waits for approval and then runs at most once.
+
+The Flow type is **LangChainOrderSupport**. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses).
+
+### Agent and tools
+
+The tools are LangChain tools. A factory builds the agent with **DurableToolCallMiddleware**. Only a Worker calls the factory, so a Client process needs no provider key. The tool policies name each tool.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/langchain_order_support.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_langchain_order_support_flow(
+    order_desk: OrderDesk, model: str | BaseChatModel
+) -> AgentSessionFlow:
+    """Builds the session Flow; ``model`` is a LangChain model name, such as "openai:gpt-5.2"."""
+
+    # The tools are closures, so they call the OrderDesk passed in here.
+    @tool
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @tool
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    # Only a Worker calls the factory, so a Client process needs no provider key.
+    def build_order_support_agent() -> Pregel[Any, Any, Any, Any]:
+        return create_agent(
+            model,
+            tools=[look_up_order, cancel_order],
+            system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
+            middleware=[DurableToolCallMiddleware()],
+        )
+
+    return langchain_agent_session_flow(
+        build_order_support_agent,
+        flow_type=LANGCHAIN_ORDER_SUPPORT_FLOW_TYPE,
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Worker
+
+One Worker serves the session Flows of every harness in the example. Agent session Steps are async, so the Python Registry allows async handlers. Build the same session Flow in every process that starts sessions or calls their RPCs.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+        # Agent session Steps are async, so the Registry allows async handlers.
+        self.registry = Registry(
+            tuple(example.session_flow for example in self.examples), allow_async_handlers=True
+        )
+        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.blob_cache = open_blob_cache(BlobCacheConfig(str(config.blob_cache_dir), 1 << 30))
+        self.worker = AsyncWorker(
+            self.registry,
+            self.blob_cache,
+            WorkerOptions(
+                server_address=config.server_address,
+                pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
+            ),
+        )
+        self.client = AsyncClient(
+            self.registry, self.blob_cache, ClientOptions(server_address=config.server_address)
+        )
+
+# ...
+
+def _new_langchain_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+    order_desk = OrderDesk()
+    model = _langchain_model(config.langchain_model)
+    flow = build_langchain_order_support_flow(order_desk, model)
+    return AgentHarnessExample("langchain", flow, order_desk)
+
+# ...
+
+def _langchain_model(model: str) -> str | BaseChatModel:
+    return LangChainDemoChatModel() if is_demo_model(model) else model
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Session routes
+
+Every harness serves the same HTTP routes. Each route is one call on the session Flow: start a session, send a message, or resolve an approval. Starting a session returns a session token, an HMAC of the session ID under **DEX_AGENT_SESSION_KEY**. Every other route checks it in the **X-Agent-Session-Token** header and answers 403 without it. A real application uses its own sign-in instead.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
+        await sessions.start_session(session_id)
+        session_token = sign_session_id(app_state.config.session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+
+    @blueprint.post("/messages")
+    async def send_user_message() -> Response:
+        body, session_id = await session_request()
+        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
+        return jsonify(accepted=accepted)
+
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Run it locally
+
+Run the example against a local Dex. Render the session graph first. Dex Web reads it when it starts, and needs it to show the session and its approval controls.
+
+### Start Dex and the example
+
+In a first terminal, render the session graph and start Dex:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv sync --locked
+mkdir -p definitions
+uv run --frozen dex-agents-session-graph --flow-type LangChainOrderSupport \
+  --permission order-support.operate --out definitions/langchain-langgraph.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The app serves on **127.0.0.1:8081**. Dex Web is at **http://127.0.0.1:8802**.
+
+Without **DEX_LANGCHAIN_MODEL**, the agent uses **mock/order-support**, a local demo model that needs no key. It calls **look_up_order** for "look up order 1001" and **cancel_order** for "cancel order 1002".
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| **DEX_LANGCHAIN_MODEL** | **mock/order-support** | A LangChain model name, such as **openai:gpt-5.2**. |
+| **OPENAI_API_KEY** | none | The provider key, for an OpenAI model. |
+| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. |
+
+### Call the session
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+base=http://127.0.0.1:8081/products/agent-harnesses/langchain
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
+until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" \
+  -d "{\"session_id\": \"$id\", \"interrupt_id\": \"$interrupt\", \"approved\": true}"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run **cancel_order**. The call waits for approval. It runs only after the approval, and only once. Read the snapshot again to see the agent's answer.
+
+### Approve in Dex Web
+
+Instead of the last command, approve the call in Dex Web. Open the session's run: its Flow ID is the session ID. Select the **Agent session** tab. Choose **Working as** **order-support.operate**, the permission you rendered. Then select **Approve** or **Reject** on the **cancel_order** card. Dex Web calls **resolve_interrupt** for you. See [Show sessions in Dex Web](/agent-frameworks/deploy-agents#dex-web) for production.
+
+## Limits
+
+- A graph whose nodes make several model calls before a tool node makes them all in one **RunModel**. Summarization middleware and a planner node are examples. A retry repeats them all.
+- Provider-run tools repeat when **RunModel** reruns.
+- History is append-only. A graph that edits or removes earlier messages does not change the stored history.
+- Only the message list survives between turns. Other state keys start from their defaults on every turn.
+- Tools run outside the graph. They cannot use **ToolRuntime**, **InjectedState**, or **InjectedStore**, and cannot return a graph **Command**. **InjectedToolCallId** works.
+- The graph may raise no interrupts of its own.
+
+Each model call and each tool call adds a Step round trip. The adapter README lists every limit. See [Durable Agents](/agent-frameworks/deploy-agents#limits) for the server limits.
+
+## Related
+
+- [Agent Frameworks](/agent-frameworks)
+- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Python adapter README](https://github.com/superdurable/dex/tree/main/agents/python/langgraph)

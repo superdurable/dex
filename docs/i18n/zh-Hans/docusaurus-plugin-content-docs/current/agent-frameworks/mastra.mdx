@@ -1,0 +1,242 @@
+---
+title: Mastra
+sidebar_label: Mastra
+---
+
+# Mastra
+
+Mastra 是一个用于 Agent、tool 和 workflow 的 TypeScript framework。Dex adapter 把 Mastra Agent 放进 durable session 中运行。它支持 TypeScript。
+
+## 何时使用 {#when-to-use-it}
+
+Agent 已经用 Mastra 编写时，使用它。保留 Agent、它的 tool 和 model router，由 Dex 管理 session。
+
+## Session 如何运行 {#how-a-session-runs}
+
+Agent 的每个 tool，包括 read tool，都作为 client tool 交给 Mastra。因此 Mastra 在模型调用之后停下，带回 tool call。每个 **RunModel** Step 调用一次模型。
+
+每个 tool call 在自己的 Step 中并行运行 Agent 原本的 tool 一次：read 或 idempotent write 用 **CallTool**，其他写操作用 **CallSingleAttemptTool**。需要审批的调用先在 **AwaitToolApproval** 中等待。下一个 **RunModel** 加入记录下来的结果，然后再次调用模型。
+
+查询订单的 turn 依次运行 **RunModel**、**CallTool**、**ResumeTurn** 和 **RunModel**。
+
+## 安装 {#install}
+
+把 adapter 与它的 framework 一起安装。每个 adapter 都会带上 Dex Agents core。
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/mastra/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Example {#the-example}
+
+这个 example 是一个订单客服 Agent。它在一个内存中的订单系统上有两个 tool。**look_up_order** 读取订单。它的 policy 是 read，因此无需审批就会运行，失败时会重试。**cancel_order** 取消一个仍在处理中的订单。它的 policy 是 non-idempotent write，因此会先等待审批，然后最多运行一次。
+
+Flow type 是 **MastraOrderSupportAgent**（TypeScript）。完整 example 位于 [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses)。
+
+### Agent 与 tool {#agent-and-tools}
+
+Tool 是 Mastra **Agent** 上的 Mastra tool。Tool policy 指定每个 tool。
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/mastra/mastra-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createMastraOrderSupportFlow(orderDesk: OrderDesk, model: MastraModelConfig): AgentSessionFlow {
+  const lookUpOrder = createTool({
+    id: "look_up_order",
+    description: "Look up one order by its order ID and return its items and status.",
+    inputSchema: z.object({ order_id: z.string() }),
+    execute: async ({ order_id }) => orderDesk.describeOrder(order_id),
+  });
+  const cancelOrder = createTool({
+    id: "cancel_order",
+    description: "Cancel one order that has not shipped yet.",
+    inputSchema: z.object({ order_id: z.string(), reason: z.string() }),
+    execute: async ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
+  });
+  const agent = new Agent({
+    id: "order-support",
+    name: "OrderSupport",
+    instructions: orderSupportInstructions,
+    model,
+    tools: { look_up_order: lookUpOrder, cancel_order: cancelOrder },
+  });
+  return createMastraAgentSessionFlow(agent, mastraOrderSupportFlowType, {
+    toolPolicies: {
+      look_up_order: { effect: "read" },
+      cancel_order: { effect: "non_idempotent_write" },
+    },
+  });
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Worker {#worker}
+
+一个 Worker 为 example 中所有 harness 的 session Flow 提供服务。每个启动 session 或调用其 RPC 的进程，都要构建同一个 session Flow。
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One order desk for the four agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk();
+// ...
+const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel());
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Session route {#session-routes}
+
+每个 harness 都提供相同的 HTTP route。每个 route 对应 session Flow 上的一次调用：启动 session、发送消息或处理审批。启动 session 会返回 session token，它是用 **DEX_AGENT_SESSION_KEY** 对 session ID 计算的 HMAC。其他每个 route 都会检查 **X-Agent-Session-Token** header 中的 token，缺少时返回 403。真实的应用会改用自己的登录。
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions", async (request, response) => {
+    const initialMessage = optionalString(requireBody(request), "message");
+    // The server picks the session ID, so a caller cannot name another session.
+    const sessionId = `order-support-${randomUUID()}`;
+    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+  router.get("/sessions/:id/snapshot", async (request, response) => {
+    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
+  });
+  router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const message = { text: requireString(requireBody(request), "text") };
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 在本地运行 {#run-it-locally}
+
+在本地 Dex 上运行这个 example。先渲染 session graph。Dex Web 在启动时读取它，并需要它来显示 session 及其审批控件。
+
+### 启动 Dex 与 example {#start-dex-and-the-example}
+
+在第一个终端中，渲染 session graph 并启动 Dex：
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm install
+mkdir -p definitions
+npx dex-agents-session-graph --flow-type MastraOrderSupportAgent \
+  --permission order-support.operate --out definitions/mastra.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** 会一直在前台运行。在第二个终端中启动 example：
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+OPENAI_API_KEY=... MASTRA_TELEMETRY_DISABLED=1 npm start
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+应用监听 **127.0.0.1:8080**。Dex Web 位于 **127.0.0.1:8802**。
+
+这个 example 没有 demo model。它的 model router 从 Worker 的环境中读取 provider key，例如 **OPENAI_API_KEY**。
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| **DEX_MASTRA_MODEL** | **openai/gpt-5-mini** | Mastra model router ID。 |
+| **OPENAI_API_KEY** | 无；使用默认模型时必填 | Router 使用的 provider key。 |
+| **MASTRA_TELEMETRY_DISABLED** | 未设置 | 设为 **1** 可关闭 Mastra 的 telemetry。 |
+| **DEX_AGENT_SESSION_KEY** | 随机 key | 签发 session token 的 key。 |
+
+### 调用 session {#call-the-session}
+
+启动一个 session，让 Agent 取消订单 1002，然后批准这次调用：
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+base=http://127.0.0.1:8080/products/agent-harnesses/mastra
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
+  -d '{"message": "Please cancel order 1002"}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-Session-Token: $token"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+循环会反复读取 snapshot，直到 Agent 请求运行 **cancel_order**。这次调用会等待审批。它只在批准之后运行，并且只运行一次。再读一次 snapshot 即可看到 Agent 的回答。
+
+### 在 Dex Web 中审批 {#approve-in-dex-web}
+
+也可以不执行最后一条命令，而是在 Dex Web 中审批。打开这个 session 的 run：它的 Flow ID 就是 session ID。选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission **order-support.operate**。然后在 **cancel_order** 卡片上选择 **Approve** 或 **Reject**。Dex Web 会替你调用 **resolve_interrupt**。生产环境的做法参见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
+
+## 限制 {#limits}
+
+- Mastra 自己运行的 tool，例如 sub-agent、workflow 和 Memory tool，无法在 Step 中运行。只有当 **toolPolicies** 把它标记为无需审批的 read 时，adapter 才会把它提供给模型。这时它在 **RunModel** 内运行，并在这个 Step 重跑时重复执行。
+- 不使用 Mastra Memory。不要在 Agent 的默认设置或 scope 中选择 Memory thread。
+- **beforeToolCall** 与 **afterToolCall** hook 只对 Mastra 自己运行的 tool 生效。
+- Tool result 以文本形式交给模型。不会应用 **toModelOutput**。
+- 调用 **suspend()** 的 tool 会失败。请改用 session 的审批。
+- Tool 名称最多 63 个字符，只能包含字母、数字、**_** 和 **-**，并且不能以数字或 **-** 开头。
+
+每次模型调用和每次 tool call 都会增加一次 Step 往返。Adapter README 列出了全部限制。Server 的限制参见 [Durable Agents](/agent-frameworks/deploy-agents#limits)。
+
+## 相关内容 {#related}
+
+- [Agent Framework](/agent-frameworks)
+- [Durable Agents](/agent-frameworks/deploy-agents)
+- [TypeScript adapter README](https://github.com/superdurable/dex/tree/main/agents/typescript/mastra)

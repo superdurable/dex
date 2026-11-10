@@ -1,0 +1,293 @@
+---
+title: Google ADK
+sidebar_label: Google ADK
+---
+
+# Google ADK
+
+Google ADK, the Agent Development Kit, builds agents and multi-agent trees for Gemini and other models. The Dex adapter runs an ADK agent inside a durable session. It is available for Python.
+
+## When to use it
+
+Use it when your agent already uses Google ADK, including sequential, loop, and parallel agents. Keep the agent tree and its tools, and let Dex own the session.
+
+## How a session runs
+
+The adapter adds a plugin to the ADK App. For each tool call, the plugin asks ADK for a confirmation, so ADK pauses before the tool runs. Each **RunModel** Step makes one model call and stores the turn's ADK events.
+
+Each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The tool Step runs the tool once. The next **RunModel** confirms the paused calls, and the plugin returns the recorded results instead of running the tools again.
+
+A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
+
+## Install
+
+Install the adapter with its framework. Each adapter brings in the Dex Agents core.
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/google-adk/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-google-adk
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## The example
+
+The example is an order support agent. It has two tools on an in-memory order desk. **look_up_order** reads an order. Its policy is a read, so it runs without approval and retries on failure. **cancel_order** cancels an order that is still processing. Its policy is a non-idempotent write, so it waits for approval and then runs at most once.
+
+The Flow type is **GoogleADKOrderSupport**. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses).
+
+### Agent and tools
+
+The tools are plain Python functions on an ADK **LlmAgent**. The tool policies name each tool.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/google_adk_order_support.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_google_adk_order_support_flow(
+    order_desk: OrderDesk, model: str | BaseLlm
+) -> AgentSessionFlow:
+    """Builds the session Flow; ``model`` is a Gemini model name, such as "gemini-2.5-flash"."""
+
+    # The tools are closures, so they call the OrderDesk passed in here.
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    agent = LlmAgent(
+        name="order_support",
+        model=model,
+        instruction=ORDER_SUPPORT_INSTRUCTIONS,
+        tools=[look_up_order, cancel_order],
+    )
+    return adk_agent_session_flow(
+        agent,
+        flow_type=GOOGLE_ADK_ORDER_SUPPORT_FLOW_TYPE,
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Worker
+
+One Worker serves the session Flows of every harness in the example. Agent session Steps are async, so the Python Registry allows async handlers. Build the same session Flow in every process that starts sessions or calls their RPCs.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+        # Agent session Steps are async, so the Registry allows async handlers.
+        self.registry = Registry(
+            tuple(example.session_flow for example in self.examples), allow_async_handlers=True
+        )
+        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.blob_cache = open_blob_cache(BlobCacheConfig(str(config.blob_cache_dir), 1 << 30))
+        self.worker = AsyncWorker(
+            self.registry,
+            self.blob_cache,
+            WorkerOptions(
+                server_address=config.server_address,
+                pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
+            ),
+        )
+        self.client = AsyncClient(
+            self.registry, self.blob_cache, ClientOptions(server_address=config.server_address)
+        )
+
+# ...
+
+def _new_google_adk_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+    order_desk = OrderDesk()
+    model = _google_adk_model(config.google_adk_model)
+    flow = build_google_adk_order_support_flow(order_desk, model)
+    return AgentHarnessExample("google-adk", flow, order_desk)
+
+# ...
+
+def _google_adk_model(model: str) -> str | BaseLlm:
+    return GoogleADKDemoModel() if is_demo_model(model) else model
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Session routes
+
+Every harness serves the same HTTP routes. Each route is one call on the session Flow: start a session, send a message, or resolve an approval. Starting a session returns a session token, an HMAC of the session ID under **DEX_AGENT_SESSION_KEY**. Every other route checks it in the **X-Agent-Session-Token** header and answers 403 without it. A real application uses its own sign-in instead.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
+        await sessions.start_session(session_id)
+        session_token = sign_session_id(app_state.config.session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+
+    @blueprint.post("/messages")
+    async def send_user_message() -> Response:
+        body, session_id = await session_request()
+        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
+        return jsonify(accepted=accepted)
+
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Run it locally
+
+Run the example against a local Dex. Render the session graph first. Dex Web reads it when it starts, and needs it to show the session and its approval controls.
+
+### Start Dex and the example
+
+In a first terminal, render the session graph and start Dex:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv sync --locked
+mkdir -p definitions
+uv run --frozen dex-agents-session-graph --flow-type GoogleADKOrderSupport \
+  --permission order-support.operate --out definitions/google-adk.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The app serves on **127.0.0.1:8081**. Dex Web is at **http://127.0.0.1:8802**.
+
+Without **DEX_GOOGLE_ADK_MODEL**, the agent uses **mock/order-support**, a local demo model that needs no key. It calls **look_up_order** for "look up order 1001" and **cancel_order** for "cancel order 1002".
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| **DEX_GOOGLE_ADK_MODEL** | **mock/order-support** | A Gemini model name, such as **gemini-2.5-flash**. |
+| **GOOGLE_API_KEY** | none | The Gemini API key, for a real model. |
+| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. |
+
+### Call the session
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+base=http://127.0.0.1:8081/products/agent-harnesses/google-adk
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
+until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" \
+  -d "{\"session_id\": \"$id\", \"interrupt_id\": \"$interrupt\", \"approved\": true}"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run **cancel_order**. The call waits for approval. It runs only after the approval, and only once. Read the snapshot again to see the agent's answer.
+
+### Approve in Dex Web
+
+Instead of the last command, approve the call in Dex Web. Open the session's run: its Flow ID is the session ID. Select the **Agent session** tab. Choose **Working as** **order-support.operate**, the permission you rendered. Then select **Approve** or **Reject** on the **cancel_order** card. Dex Web calls **resolve_interrupt** for you. See [Show sessions in Dex Web](/agent-frameworks/deploy-agents#dex-web) for production.
+
+## Limits
+
+- The App root must be a **BaseAgent**. ADK **Workflow** roots are not supported.
+- A tool runs outside the ADK run, with a fresh **ToolContext**. Its state and artifact changes are discarded. Pass what it needs as arguments.
+- A tool that asks for a confirmation or a credential inside its Step fails.
+- Agents that continue without tools make their model calls in the same **RunModel**.
+- A **before_tool_callback** runs in the **RunModel** that requests the call, and again if that Step retries.
+- Code executors other than **BuiltInCodeExecutor** are refused. Run such code from a tool instead.
+- **app:** and **user:** state keys live in the Dex session, not across sessions.
+
+Each model call and each tool call adds a Step round trip. The adapter README lists every limit. See [Durable Agents](/agent-frameworks/deploy-agents#limits) for the server limits.
+
+## Related
+
+- [Agent Frameworks](/agent-frameworks)
+- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Python adapter README](https://github.com/superdurable/dex/tree/main/agents/python/google-adk)

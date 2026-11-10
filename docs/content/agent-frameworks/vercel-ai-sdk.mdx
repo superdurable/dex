@@ -1,0 +1,239 @@
+---
+title: Vercel AI SDK
+sidebar_label: Vercel AI SDK
+---
+
+# Vercel AI SDK
+
+The Vercel AI SDK gives TypeScript one API for many model providers, with typed tools. The Dex adapter runs an AI SDK agent definition inside a durable session. It is available for TypeScript.
+
+## When to use it
+
+Use it when your TypeScript application already uses AI SDK models and tools. Keep the model, the tools, and **stopWhen**, and let Dex own the session.
+
+## How a session runs
+
+Every tool reaches the model without its **execute**, so the AI SDK returns the tool calls instead of running them. Each **RunModel** Step makes one model call with **streamText**.
+
+Each tool call runs the tool's original **execute** in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The next **RunModel** adds the recorded results, checks **stopWhen**, and calls the model again.
+
+A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
+
+## Install
+
+Install the adapter with its framework. Each adapter brings in the Dex Agents core.
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/vercel-ai/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai @ai-sdk/openai zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## The example
+
+The example is an order support agent. It has two tools on an in-memory order desk. **look_up_order** reads an order. Its policy is a read, so it runs without approval and retries on failure. **cancel_order** cancels an order that is still processing. Its policy is a non-idempotent write, so it waits for approval and then runs at most once.
+
+The Flow type is **VercelAiOrderSupportAgent**. The full example is under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
+
+### Agent and tools
+
+The definition holds the model, the instructions, AI SDK tools, and the tool policies. Dex decides approval from the policies.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/vercel-ai/vercel-ai-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createVercelAiOrderSupportFlow(orderDesk: OrderDesk, model: LanguageModel): AgentSessionFlow {
+  return createVercelAiAgentSessionFlow(
+    {
+      model,
+      instructions: orderSupportInstructions,
+      tools: {
+        look_up_order: tool({
+          description: "Look up one order by its order ID and return its items and status.",
+          inputSchema: z.object({ order_id: z.string() }),
+          execute: ({ order_id }) => orderDesk.describeOrder(order_id),
+        }),
+        cancel_order: tool({
+          description: "Cancel one order that has not shipped yet.",
+          inputSchema: z.object({ order_id: z.string(), reason: z.string() }),
+          execute: ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
+        }),
+      },
+      toolPolicies: {
+        look_up_order: { effect: "read" },
+        cancel_order: { effect: "non_idempotent_write" },
+      },
+    },
+    vercelAiOrderSupportFlowType,
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Worker
+
+One Worker serves the session Flows of every harness in the example. Build the same session Flow in every process that starts sessions or calls their RPCs.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One order desk for the four agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk();
+// ...
+const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadVercelAiOrderSupportModel());
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Session routes
+
+Every harness serves the same HTTP routes. Each route is one call on the session Flow: start a session, send a message, or resolve an approval. Starting a session returns a session token, an HMAC of the session ID under **DEX_AGENT_SESSION_KEY**. Every other route checks it in the **X-Agent-Session-Token** header and answers 403 without it. A real application uses its own sign-in instead.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions", async (request, response) => {
+    const initialMessage = optionalString(requireBody(request), "message");
+    // The server picks the session ID, so a caller cannot name another session.
+    const sessionId = `order-support-${randomUUID()}`;
+    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+  router.get("/sessions/:id/snapshot", async (request, response) => {
+    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
+  });
+  router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const message = { text: requireString(requireBody(request), "text") };
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Run it locally
+
+Run the example against a local Dex. Render the session graph first. Dex Web reads it when it starts, and needs it to show the session and its approval controls.
+
+### Start Dex and the example
+
+In a first terminal, render the session graph and start Dex:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm install
+mkdir -p definitions
+npx dex-agents-session-graph --flow-type VercelAiOrderSupportAgent \
+  --permission order-support.operate --out definitions/vercel-ai-sdk.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+OPENAI_API_KEY=... npm start
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The app serves on **127.0.0.1:8080**. Dex Web is at **http://127.0.0.1:8802**.
+
+The example has no demo model. It calls OpenAI through **@ai-sdk/openai**, so it needs **OPENAI_API_KEY**.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| **DEX_VERCEL_AI_MODEL** | **gpt-5-mini** | The OpenAI model name. |
+| **OPENAI_API_KEY** | none; required | The OpenAI API key of the Worker. |
+| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. |
+
+### Call the session
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+base=http://127.0.0.1:8080/products/agent-harnesses/vercel-ai
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
+  -d '{"message": "Please cancel order 1002"}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-Session-Token: $token"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run **cancel_order**. The call waits for approval. It runs only after the approval, and only once. Read the snapshot again to see the agent's answer.
+
+### Approve in Dex Web
+
+Instead of the last command, approve the call in Dex Web. Open the session's run: its Flow ID is the session ID. Select the **Agent session** tab. Choose **Working as** **order-support.operate**, the permission you rendered. Then select **Approve** or **Reject** on the **cancel_order** card. Dex Web calls **resolve_interrupt** for you. See [Show sessions in Dex Web](/agent-frameworks/deploy-agents#dex-web) for production.
+
+## Limits
+
+- A crash in **RunModel** reruns that model call and any provider-executed tools in it.
+- A tool's **execute** gets **toolCallId** and **abortSignal**. Its **messages** are empty and its **context** is **undefined**.
+- Approval belongs to Dex. AI SDK **toolApproval** is not exposed, and a **needsApproval** function is rejected. Provider-executed tools never wait for approval.
+- Every tool runs in Dex, so a tool without **execute**, such as a browser-side tool, is rejected.
+- Tool inputs and outputs must survive JSON.
+- **prepareStep**, **activeTools**, **output**, and stream transforms are not exposed.
+
+Each model call and each tool call adds a Step round trip. The adapter README lists every limit. See [Durable Agents](/agent-frameworks/deploy-agents#limits) for the server limits.
+
+## Related
+
+- [Agent Frameworks](/agent-frameworks)
+- [Durable Agents](/agent-frameworks/deploy-agents)
+- [TypeScript adapter README](https://github.com/superdurable/dex/tree/main/agents/typescript/vercel-ai)

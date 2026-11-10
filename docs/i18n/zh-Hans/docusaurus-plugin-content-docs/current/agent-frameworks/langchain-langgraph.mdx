@@ -1,0 +1,299 @@
+---
+title: LangChain 和 LangGraph
+sidebar_label: LangChain and LangGraph
+---
+
+# LangChain 和 LangGraph
+
+LangChain **create_agent** 在 LangGraph 上构建会调用 tool 的 Agent。Dex adapter 把 **create_agent** Agent 或自定义的 LangGraph graph 放进 durable session 中运行。它支持 Python。
+
+## 何时使用 {#when-to-use-it}
+
+Agent 已经用 LangChain **create_agent** 或 LangGraph graph 编写时，使用它。保留 graph、它的 middleware 和 tool，由 Dex 管理 session。
+
+## Session 如何运行 {#how-a-session-runs}
+
+**DurableToolCallMiddleware** 用 LangGraph interrupt 拦下每个 tool call，因此 **RunModel** 内不会运行任何 tool。**RunModel** Step 把 graph 运行到它的 tool call 为止，通常只调用一次模型，并保存 graph checkpoint。
+
+每个 tool call 在自己的 Step 中并行运行：read 或 idempotent write 用 **CallTool**，其他写操作用 **CallSingleAttemptTool**。需要审批的调用先在 **AwaitToolApproval** 中等待。Tool Step 校验参数并调用 tool 一次。下一个 **RunModel** 恢复 checkpoint，并用记录下来的结果继续运行 graph。
+
+自定义 graph 用 **durable_tool_node** 代替 **ToolNode** 构建 tool node。它的 state 必须以 LangChain message 保存对话。
+
+查询订单的 turn 依次运行 **RunModel**、**CallTool**、**ResumeTurn** 和 **RunModel**。
+
+## 安装 {#install}
+
+把 adapter 与它的 framework 一起安装。每个 adapter 都会带上 Dex Agents core。
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/langgraph/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-langgraph langchain-openai
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Example {#the-example}
+
+这个 example 是一个订单客服 Agent。它在一个内存中的订单系统上有两个 tool。**look_up_order** 读取订单。它的 policy 是 read，因此无需审批就会运行，失败时会重试。**cancel_order** 取消一个仍在处理中的订单。它的 policy 是 non-idempotent write，因此会先等待审批，然后最多运行一次。
+
+Flow type 是 **LangChainOrderSupport**（Python）。完整 example 位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。
+
+### Agent 与 tool {#agent-and-tools}
+
+Tool 是 LangChain tool。一个工厂函数用 **DurableToolCallMiddleware** 构建 Agent。只有 Worker 会调用这个工厂函数，因此 Client 进程不需要 provider key。Tool policy 指定每个 tool。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/langchain_order_support.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_langchain_order_support_flow(
+    order_desk: OrderDesk, model: str | BaseChatModel
+) -> AgentSessionFlow:
+    """Builds the session Flow; ``model`` is a LangChain model name, such as "openai:gpt-5.2"."""
+
+    # The tools are closures, so they call the OrderDesk passed in here.
+    @tool
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @tool
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    # Only a Worker calls the factory, so a Client process needs no provider key.
+    def build_order_support_agent() -> Pregel[Any, Any, Any, Any]:
+        return create_agent(
+            model,
+            tools=[look_up_order, cancel_order],
+            system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
+            middleware=[DurableToolCallMiddleware()],
+        )
+
+    return langchain_agent_session_flow(
+        build_order_support_agent,
+        flow_type=LANGCHAIN_ORDER_SUPPORT_FLOW_TYPE,
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Worker {#worker}
+
+一个 Worker 为 example 中所有 harness 的 session Flow 提供服务。Agent session 的 Step 是 async 的，因此 Python Registry 允许 async handler。每个启动 session 或调用其 RPC 的进程，都要构建同一个 session Flow。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+        # Agent session Steps are async, so the Registry allows async handlers.
+        self.registry = Registry(
+            tuple(example.session_flow for example in self.examples), allow_async_handlers=True
+        )
+        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.blob_cache = open_blob_cache(BlobCacheConfig(str(config.blob_cache_dir), 1 << 30))
+        self.worker = AsyncWorker(
+            self.registry,
+            self.blob_cache,
+            WorkerOptions(
+                server_address=config.server_address,
+                pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
+            ),
+        )
+        self.client = AsyncClient(
+            self.registry, self.blob_cache, ClientOptions(server_address=config.server_address)
+        )
+
+# ...
+
+def _new_langchain_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+    order_desk = OrderDesk()
+    model = _langchain_model(config.langchain_model)
+    flow = build_langchain_order_support_flow(order_desk, model)
+    return AgentHarnessExample("langchain", flow, order_desk)
+
+# ...
+
+def _langchain_model(model: str) -> str | BaseChatModel:
+    return LangChainDemoChatModel() if is_demo_model(model) else model
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Session route {#session-routes}
+
+每个 harness 都提供相同的 HTTP route。每个 route 对应 session Flow 上的一次调用：启动 session、发送消息或处理审批。启动 session 会返回 session token，它是用 **DEX_AGENT_SESSION_KEY** 对 session ID 计算的 HMAC。其他每个 route 都会检查 **X-Agent-Session-Token** header 中的 token，缺少时返回 403。真实的应用会改用自己的登录。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
+        await sessions.start_session(session_id)
+        session_token = sign_session_id(app_state.config.session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+
+    @blueprint.post("/messages")
+    async def send_user_message() -> Response:
+        body, session_id = await session_request()
+        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
+        return jsonify(accepted=accepted)
+
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 在本地运行 {#run-it-locally}
+
+在本地 Dex 上运行这个 example。先渲染 session graph。Dex Web 在启动时读取它，并需要它来显示 session 及其审批控件。
+
+### 启动 Dex 与 example {#start-dex-and-the-example}
+
+在第一个终端中，渲染 session graph 并启动 Dex：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv sync --locked
+mkdir -p definitions
+uv run --frozen dex-agents-session-graph --flow-type LangChainOrderSupport \
+  --permission order-support.operate --out definitions/langchain-langgraph.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** 会一直在前台运行。在第二个终端中启动 example：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+应用监听 **127.0.0.1:8081**。Dex Web 位于 **127.0.0.1:8802**。
+
+没有设置 **DEX_LANGCHAIN_MODEL** 时，Agent 使用 **mock/order-support**，这是一个不需要 key 的本地 demo model。收到 "look up order 1001" 时它调用 **look_up_order**，收到 "cancel order 1002" 时它调用 **cancel_order**。
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| **DEX_LANGCHAIN_MODEL** | **mock/order-support** | LangChain 模型名称，例如 **openai:gpt-5.2**。 |
+| **OPENAI_API_KEY** | 无 | Provider key，使用 OpenAI 模型时需要。 |
+| **DEX_AGENT_SESSION_KEY** | 随机 key | 签发 session token 的 key。 |
+
+### 调用 session {#call-the-session}
+
+启动一个 session，让 Agent 取消订单 1002，然后批准这次调用：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+base=http://127.0.0.1:8081/products/agent-harnesses/langchain
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
+until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" \
+  -d "{\"session_id\": \"$id\", \"interrupt_id\": \"$interrupt\", \"approved\": true}"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+循环会反复读取 snapshot，直到 Agent 请求运行 **cancel_order**。这次调用会等待审批。它只在批准之后运行，并且只运行一次。再读一次 snapshot 即可看到 Agent 的回答。
+
+### 在 Dex Web 中审批 {#approve-in-dex-web}
+
+也可以不执行最后一条命令，而是在 Dex Web 中审批。打开这个 session 的 run：它的 Flow ID 就是 session ID。选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission **order-support.operate**。然后在 **cancel_order** 卡片上选择 **Approve** 或 **Reject**。Dex Web 会替你调用 **resolve_interrupt**。生产环境的做法参见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
+
+## 限制 {#limits}
+
+- 如果 graph 的节点在到达 tool node 之前多次调用模型，这些调用都在同一个 **RunModel** 中。例如 summarization middleware 或 planner 节点。重试会把它们全部重复一遍。
+- 由 provider 运行的 tool 会在 **RunModel** 重跑时重复执行。
+- 历史记录只追加。Graph 修改或删除较早的 message，不会改变已保存的历史记录。
+- 只有 message 列表会跨 turn 保留。其他 state key 在每个 turn 都从默认值开始。
+- Tool 在 graph 之外运行。它们不能使用 **ToolRuntime**、**InjectedState** 或 **InjectedStore**，也不能返回 graph **Command**。**InjectedToolCallId** 可以使用。
+- Graph 不能自己抛出 interrupt。
+
+每次模型调用和每次 tool call 都会增加一次 Step 往返。Adapter README 列出了全部限制。Server 的限制参见 [Durable Agents](/agent-frameworks/deploy-agents#limits)。
+
+## 相关内容 {#related}
+
+- [Agent Framework](/agent-frameworks)
+- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Python adapter README](https://github.com/superdurable/dex/tree/main/agents/python/langgraph)
