@@ -1,14 +1,17 @@
 # Dex Core Semantics (Step 0 of the expressiveness proof)
 
-Status: revision 8 (after three adversarial reviews, the owner decisions of
+Status: revision 9 (after three adversarial reviews, the owner decisions of
 2026-11-09 on the review of the Lean statements, the owner decision of
 2026-11-10 on unforgeable handles, and its completion for the environment's
-input, and a wording fix after the review of the safety proof; see
-[Review log](#10-review-log)). The Lean development is in
-`formal/lean/`.
+input, a wording fix after the review of the safety proof, and the failure
+model of Section 11; see [Review log](#10-review-log)). The Lean development
+is in `formal/lean/`. It formalizes revision 8. Revision 9 leaves every
+failure-free rule unchanged.
 
-Base commit: `9b37482ed` on `main`. Every `path:line` below is relative to the
-repository root at that commit.
+Base commit: `9b37482ed` on `main`. Every `path:line` in Sections 0 to 10 is
+relative to the repository root at that commit, except where a citation is
+marked "at `55721e878`". Section 11 and the revision-9 changes in Sections
+1.3, 3.4, 4.4, 4.5, and 7 cite commit `55721e878` on `main`.
 
 ## 0. Purpose and conventions
 
@@ -19,8 +22,10 @@ A later Lean development will use it to state one theorem:
 > translates into a Dex Flow that is trace-equivalent to it, assuming no
 > failures.
 
-Failures, crashes, retries, and redelivery are out of scope. A separate,
-later proposition covers them (see [Future work](#9-future-work)).
+Sections 1 to 10 assume no failures: no crashes, retries, or redelivery.
+Section 11 adds a failure model for a fragment of Dex, and states a second
+theorem: failures change no observable behavior except that external
+effects may repeat (see [Failures](#11-failures)).
 
 [owner, 2026-11-09] The theorem covers **well-formed** L programs only. A
 program is well formed when no run of it, under any input and any schedule,
@@ -98,10 +103,10 @@ Notation:
 | Flow timeout (all policies) and the timeout handler Step | Not derivable from user Steps. FAIL closes the Flow directly as Failed with FLOW_TIMEOUT, CANCEL closes it as Canceled, and HANDLER creates the system Step `sys:timeout_handler-1` (`server-zd/crates/dexzd-apply/src/command_handlers/step_commands.rs:211-301`). SkipTimer has its own Flow-timeout branch (`server-zd/crates/dexzd-apply/src/steps/wait_conditions/timer_skip.rs:38-42`, `timer_skip.rs:61-81`). The theorem's programs and environment set no Flow timeout (`flow_timeout_seconds = 0`), so no Flow timeout timer is ever armed (`server-zd/crates/dexzd-apply/src/command_handlers/flow_start.rs:249-260`). |
 | UpdateFlowConfig | Changes the run's FlowConfig, including the Worker target and Step durability (`server-zd/crates/dexzd-apply/src/command_handlers/client_writes.rs:366-413`, routed at `server-zd/crates/dexzd-apply/src/command_handlers/mod.rs:416-418`). The run config is fixed for the theorem: no UpdateFlowConfig input. |
 | Stream | Not in apply at all. It is in server memory only, lossy by capacity, and a Step write is not rolled back (`docs/content/concepts/primitives/stream.mdx:29-39`). It has no durable semantics to translate into. |
-| Retries, backoff timers, failure policies (`PROCEED_ON_FAILURE`, `PROCEED_TO_CONFIGURED_STEP`), heartbeats, method timeouts, attempt return | Failure handling. Out of scope by the task statement. |
-| Durability SYNC/ASYNC | Changes only what survives a crash. [assumption] In a failure-free run both produce the same committed log, because the speculative overlay is checked byte for byte against the committed outcome (`server-zd/crates/dexzd-engine/src/flow_coordination/registry.rs:326-330`). |
+| Retries, backoff timers, failure policies (`PROCEED_ON_FAILURE`, `PROCEED_TO_CONFIGURED_STEP`), heartbeats, method timeouts, attempt return | Failure handling. Out of scope for Sections 1 to 10. Section 11 adds them for the fragment it covers, under the hypotheses H1 to H4 (Section 11.1). |
+| Durability SYNC/ASYNC | Changes only what survives a crash. [assumption] In a failure-free run both produce the same committed log, because the speculative overlay is checked byte for byte against the committed outcome (`server-zd/crates/dexzd-engine/src/flow_coordination/registry.rs:326-330`). Section 11 covers SYNC only (D2). |
 | Time travel (ResetFlow), history, history offload, search projection, Attribute Sync, hard-delete Attributes, permission mappings, `record_events` | Operations, storage, and projections. Attribute Sync only adds stutter before a natural close (Section 4.9). |
-| Repeated request IDs | Not only a retry concern: apply replays the recorded reply for a repeated request ID with the same content, and rejects one with different content, even without failures (`client_writes.rs:41-65`, `client_writes.rs:138-147`, `client_writes.rs:260-268`, `server-zd/crates/dexzd-apply/src/command_handlers/rpc_committed.rs:58-74`; StartFlow matches its request ID at `flow_start.rs:115`). [assumption] Every modeled input carries a globally fresh request ID, or none. |
+| Repeated request IDs | Not only a retry concern. Two mechanisms exist, and they differ. SetAttributes, DeleteChannelMessage, and RPCs use a per-run request table: apply replays the recorded reply for a repeated request ID with the same content, and rejects one with different content, even without failures (`client_writes.rs:41-65`, `client_writes.rs:138-147`, `client_writes.rs:260-268`, `server-zd/crates/dexzd-apply/src/command_handlers/rpc_committed.rs:58-74`). The table keeps at most a fixed number of entries per run and evicts the oldest; it has no time limit (at `55721e878`: `client_writes.rs:80-95`, `server-zd/crates/dexzd-apply/src/state_access/run_rows.rs:353-376`). StartFlow does not use that table. A StartFlow whose Flow ID already has a run is rejected with ALREADY_EXISTS under the default reuse policy. Only when it sets `ignore_already_started_error` and carries the request ID that started the latest run does it return that run instead, without a commit (at `55721e878`: `flow_start.rs:110-131`). PublishToChannel carries no request ID. [assumption] Every modeled input carries a globally fresh request ID, or none. Section 11.3 adds client retries. |
 | Flow ID reuse policies and run IDs | [assumption] Every L program run starts a fresh Flow ID. SubFlow IDs are the exception; see Open question 13. |
 | Resource limits (`max_value_bytes`, `max_run_state_bytes`, `max_active_step_executions`, `max_child_flow_result_bytes`) | Hitting a limit turns into a rejection or an attempt failure (`server-zd/crates/dexzd-apply/src/command_handlers/mod.rs:226-280`). [assumption] Limits are never hit. |
 | Worker response validation | An invalid response becomes a non-retryable attempt failure. Here it is a well-formedness constraint on user code (Section 2.5). |
@@ -329,7 +334,16 @@ Task   ::= ⟨ f, e, m, input, snap, locals, cr, phase : Started | Running(Fx*, 
   (`server-zd/proto/dexzd/v1/command.proto:39-40`,
   `server-zd/crates/dexzd-apply/src/lib.rs:11-12`). A Flow and its SubFlows can
   be in different partitions, so their timestamps come from different clocks.
-- [assumption] One Flow ID has one run. Run IDs and attempts are elided.
+- [assumption] One Flow ID has one run. Run IDs are elided.
+- [code] The run attempt is not merely elided. Apply checks every run
+  command's `expected_run_attempt` against the run's current attempt and
+  rejects a mismatch (at `55721e878`:
+  `server-zd/crates/dexzd-apply/src/command_handlers/run_cursor.rs:120-130`;
+  a value of 0 skips the check). Only time travel changes the current
+  attempt, and time travel is excluded (Section 1.3). So the current attempt
+  stays 1, the check never fails, and the rules leave it out. The run attempt
+  is a different counter from the attempt number of a Step method, which
+  Section 11.2 adds.
 
 ## 4. Operational semantics
 
@@ -628,8 +642,17 @@ Flow closed.
 `[closed(...)]` when the Flow closes.
 
 Premise: the task is `Returned(⟨E, locals, W⟩)` and `S[e].inv = ⟨W, R, …⟩`
-with the same task. Otherwise the command is ignored and the result is lost
+is the invocation that started this task. Otherwise the command is ignored
+and the result is lost
 (`server-zd/crates/dexzd-apply/src/steps/step_results.rs:857-872`).
+
+The code's fence is more precise than "the same task". It requires the
+Step execution, the method, the method's attempt number, the phase Running,
+and the task ID to match (at `55721e878`: `step_results.rs:83-128`,
+`step_results.rs:857-872`). Without failures, an invocation has one attempt
+and one task, so the two premises select the same results. `Θ` here has no
+attempt number and no Backoff phase. Section 11.2 adds both, and
+[RESULT-STALE] (Section 11.3) states the full fence.
 
 ```text
 release(e) with a finish end;  S[e].inv := ⊥             -- step_results.rs:915-925
@@ -719,6 +742,20 @@ Other facts:
 
 - The timer service never fires before its partition's clock reaches the fire
   time (`timer_service.rs:9-11`).
+- Apply does not enforce the premise `Tm(i) ≤ t_{p(f)}`. It fires every
+  timer the command names that is still armed, whatever its fire time (at
+  `55721e878`: `step_commands.rs:147-207`). The premise is a property of the
+  engine. The timer service proposes only rows whose fire time is at or
+  before the wall clock it read (at `55721e878`: `timer_service.rs:117`,
+  `timer_service.rs:131`, `timer_service.rs:147`). The command's stamp is at
+  least the wall clock at stamping (at `55721e878`:
+  `server-zd/crates/dexzd-engine/src/commit/command_committer.rs:141-144`).
+  Without failures, this rule assumes that the wall clock does not step
+  backward between those two reads. Section 11.1, D6, states this
+  assumption.
+- Retry backoff timers share the timer index with wait timers. Without
+  failures no retry timer is ever armed. Section 11.3 treats a TimersFired
+  that names both kinds.
 - Firing lateness is unbounded. Any other commit may come between a timer
   becoming due and [TIMER-FIRE].
 
@@ -1512,6 +1549,46 @@ the task named; the rest were found on the way or in review.
       Worker target and Step durability mid-run (`client_writes.rs:366-413`).
     - Stance: both excluded from the theorem (Section 1.3).
 
+25. **Facts above that failures change.** (New in revision 9.) Each is
+    stated for failure-free runs above and is correct there. Section 11
+    gives the rule with failures. Citations at `55721e878`.
+    - Item 8 says a Step holds its lock keys "for that one method call". A
+      method call can span several attempts. The keys stay held through every
+      retry and through the Backoff wait between attempts
+      (`server-zd/crates/dexzd-apply/src/steps/invocations.rs:11-12`,
+      `invocations.rs:329-342`). So an RPC on those keys gets ABORTED during
+      the whole wait. The comment on `lock_keys` in `state.proto:439`, "held
+      only while RUNNING", is out of date; the code wins.
+    - Items 9 and 18: a canceled Step whose method was in Backoff leaves its
+      retry timer armed. Cancel and Flow close do not disarm it
+      (`server-zd/crates/dexzd-apply/src/steps/step_decisions.rs:367-412`,
+      `server-zd/crates/dexzd-apply/src/command_handlers/flow_close.rs:307-341`).
+      When it fires, the command commits and does nothing else
+      (`step_results.rs:816-838`, `step_commands.rs:161-170`).
+    - Item 23: the per-run request table is bounded, evicts the oldest
+      entries, and has no time limit (`client_writes.rs:80-95`,
+      `server-zd/crates/dexzd-apply/src/state_access/run_rows.rs:353-376`).
+      A request ID is recognized only within one run. StopFlow has no
+      request ID. A StopFlow without a run ID targets the newest run of its
+      Flow ID when it is proposed
+      (`server-zd/crates/dexzd-engine/src/flow_coordination/client_operations/mod.rs:100-123`,
+      `server-zd/crates/dexzd-engine/src/flow_coordination/read_operations/state_rows.rs:113-129`).
+      So a late retry after Flow ID reuse stops the new run.
+    - Section 4.4 says a Step method is three transitions. A recovered
+      server does not hand a started attempt out again. It commits a
+      failure of that attempt, which no failure-free rule has
+      ([RECOVER-INTERRUPT], Section 11.3).
+    - Heartbeat and method timeouts live in engine memory only. A crash
+      loses them, and recovery fails the attempt instead of restarting the
+      timers
+      (`server-zd/crates/dexzd-engine/src/effects/dispatch/attempt_deadlines.rs:34-54`,
+      `server-zd/crates/dexzd-engine/src/effects/dispatch/method_attempt.rs:638-711`).
+    - The simulation crate `dexzd-simulation` checks that a recovered store
+      equals a twin that never crashed. It is not evidence that retries
+      repeat only external effects, and it does not exercise client retries
+      of PublishToChannel. [assumption, from the plan's survey; not
+      re-verified in revision 9.]
+
 ## 8. Sketch: mapping L onto the core
 
 Not a proof. Each choice names the open questions it depends on.
@@ -1814,11 +1891,34 @@ after exit (18).
 ## 9. Future work
 
 - `server-zd/crates/dexzd-simulation` runs deterministic simulation tests of
-  the engine against simulated object storage, clocks, Workers, and crashes;
-  it is relevant to the later crash-transparency proposition.
+  the engine against simulated object storage, clocks, Workers, and crashes.
+  An optional check for Section 11: export the `fx` and commit events of a
+  simulated run and test that the trace lies in the repetition closure of a
+  failure-free trace.
 - RPC entry points for L, with ABORTED as an observable result [owner].
 - The Lean statement needs the projection of Section 5.3, the two
   equivalences of Sections 5.4 and 5.5, and the fairness assumptions F0 to F6.
+- Failures beyond the fragment of Section 11 (D1):
+  - **SubFlows under failures.** Cross-Flow messages are delivered at least
+    once and deduplicated by the receiver. The model needs rules for
+    outbox redelivery and inbox deduplication
+    (`server-zd/crates/dexzd-engine/src/effects/outbox_delivery.rs:9-11`).
+    This extension is the next one to do.
+  - **RPCs under crashes.** RPC locks and in-flight RPCs live in engine
+    memory, and a crash loses them. A crash before the RPC's commit lets a
+    client retry run the handler again. The RPC request table answers a
+    retry with the same request ID after the commit, until the entry is
+    evicted. The extension needs a hypothesis that a retry comes before
+    eviction (Section 7, item 25). The Go SDK's InvokeRPC mints a new
+    request ID on every call and offers no option to pass one (at
+    `55721e878`: `sdk-go/dex/client.go:1765`, `sdk-go/dex/options.go:553-561`).
+  - **An ASYNC variant.** Under ASYNC a Worker can receive a start that a
+    crash then rolls back, and the same attempt number runs again from a
+    fresh snapshot (D2). A weaker theorem would have to allow different
+    effect lists per attempt.
+  - **StopFlow, SetAttributes, DeleteChannelMessage, and SkipTimer under
+    retries.** They are outside `E_adm`. StopFlow has no request ID and
+    resolves an empty run ID to the newest run (Section 7, item 25).
 
 ## 10. Review log
 
@@ -1918,6 +2018,751 @@ development). It changes no definition.
 | --- | --- | --- |
 | S1 | The rationale of L1 said that any fixed timing model leaves the meaning of a correct program unchanged. The paragraph before it says that different counts can reorder two deadlines and change a `select`. | **Reworded.** The rationale now speaks of the one timing model the theorem adopts, and says that the theorem does not imply equivalence under another cost model. Section 8.1, "Clock and timing model". |
 
+Revision 9 adds the failure model of Section 11 for issue
+[#1514](https://github.com/superdurable/dex/issues/1514), after the owner
+decisions D1 to D8 of 2026-11-10. **The failure-free fragment is unchanged.**
+No failure-free rule changes its premise, effect, or events. So the
+expressiveness proof in `formal/lean/`, which formalizes revision 8, stays
+valid. The changes to Sections 1.3, 3.4, 4.4, and 4.5 are clarifications of
+the code behind unchanged rules. Every new citation is at `55721e878`.
+
+| # | Point | Resolution |
+| --- | --- | --- |
+| F1 | Section 1.3 listed StartFlow among the inputs that the request table deduplicates. | **Clarified.** StartFlow deduplicates through the Flow directory's start request ID, and only with `ignore_already_started_error`; the request table is bounded and per run. Section 1.3. |
+| F2 | Section 3.4 said that run attempts are elided. | **Clarified.** Apply checks `expected_run_attempt` on every run command. Only time travel changes the run attempt, so the check never fails in the theorem's runs. Section 3.4. |
+| F3 | The premise of [STEP-COMPLETE-WAITFOR] said "the same task". | **Clarified.** The code's fence is Step execution, method, attempt number, phase Running, and task ID. It selects the same results without failures. Section 4.4; [RESULT-STALE] in Section 11.3. |
+| F4 | Section 4.5 read as if apply checked that a timer is due. | **Clarified.** Apply fires whatever the command names; the timer service and the command stamp make it due, under the clock assumption D6. Section 4.5. |
+| F5 | Facts of Section 7 that failures change: locks held through Backoff, retry timers left armed after a cancel, the bounded request table, StopFlow's run resolution, the interrupt commit, and timeouts kept only in memory. | **Recorded** as Open question 25. |
+| F6 | The failure model itself. | **Added** as Section 11: decisions, state, rules, events, theorem statements, and the abstraction map. Appendix A, items 42 to 57. Section 9 lists the failures left for later. |
+
+## 11. Failures
+
+Sections 1 to 10 describe runs without failures. This section adds failures
+for the fragment of decision D1, and states the theorem that failures are
+transparent: they change no observable event except that external effects
+may repeat. Every citation in this section is at commit `55721e878`. Paths
+without a directory are under `server-zd/crates/`. The decisions D1 to D8
+are the owner's, of 2026-11-10, for issue
+[#1514](https://github.com/superdurable/dex/issues/1514).
+
+The model is called **DexF** below. It is the system of Sections 3 and 4
+plus the state of Section 11.2 and the rules of Section 11.3. The
+failure-free system of Sections 3 and 4 is called **Dex**.
+
+### 11.1 Scope and decisions
+
+**D1, the fragment.** [owner] The theorem covers the fragment of Dex that the
+Lean model of revision 8 covers: one Flow in one partition, the environment
+`E_adm` of Section 5.3 (extended by client retries in Section 11.3), and no
+RPCs, SubFlows, StopFlow, SetAttributes, DeleteChannelMessage, SkipTimer,
+CancelSteps, GracefulComplete, or Attribute locks (`formal/lean/README.md`,
+"What the Dex model leaves out"). The rules below are written for the
+general Step method, with lock effects where the code has them. Notes say
+where a lock effect matters outside the fragment. RPCs and SubFlows under
+failures are future work (Section 9).
+
+**D2, durability.** [owner] Only SYNC Step methods are covered. ASYNC is
+excluded.
+
+- [code] A SYNC attempt reaches its Worker only after its start commits
+  (`dexzd-engine/src/effects/dispatch/method_attempt.rs:184-192`). An ASYNC
+  attempt is sent at once (`method_attempt.rs:193-196`).
+- [code] So under ASYNC a crash can lose a start that a Worker already
+  received. The same attempt number then runs again and consumes no retry
+  (`docs/reference/server/high-availability.mdx:41-43`). Its new start takes
+  a new snapshot (`dexzd-apply/src/steps/step_results.rs:188-195`), so its
+  effect list may differ. The argument of Section 11.4 then fails. This is
+  the real ASYNC behavior, not a gap in the proof.
+- [assumption] Every invocation's pinned durability is SYNC. The default is
+  SYNC when neither the Step options nor the Flow config set it
+  (`dexzd-apply/src/steps/invocations.rs:93-97`, `invocations.rs:184-206`).
+
+**D3, zombie Workers.** [owner] A Worker attempt can keep running after the
+server has given it up. Such an attempt is a **zombie**. It may emit
+external effects at any later time, also after a newer attempt of the same
+method started.
+
+- [code] A server crash does not reach the Worker process.
+- [code] On a method or heartbeat timeout the engine cancels the dispatch
+  session and fails the attempt
+  (`method_attempt.rs:657-666`). Cancellation is cooperative (Section 4.4,
+  [WORKER-ABANDON]).
+- [code] A process that lost its lease keeps carrying the frames of tasks
+  that Workers already run until it stops
+  (`docs/reference/server/high-availability.mdx:147-154`).
+
+**D4, features that are not transparent.** [owner] Four features change
+observable behavior beyond repeated effects. Each stays in the model, as a
+rule or as part of the syntax. The theorem assumes each one away as an
+explicit hypothesis:
+
+- **H1, no exhaustion.** A run contains no [ATTEMPT-EXHAUSTED] transition
+  (Section 11.3). Exhaustion closes the Flow as Failed, which no
+  failure-free run can do.
+- **H2, no failure policies.** No Step option of the program sets the
+  WaitFor policy ProceedOnFailure or the Execute policy
+  ProceedToConfiguredStep. Both change control flow and the input of a later
+  method (`step_results.rs:377-456`).
+- **H3, user code is insensitive to attempts.** The Step method functions `U`
+  receive a context `Ctx` that includes the attempt-varying fields
+  `ctxA = ⟨attempt, firstAttemptTimestamp, recoveryError,
+  lastHeartbeatValue⟩` (`dexzd-engine/src/effects/method_request.rs:464-479`).
+  H3 says that `U`'s effects and result do not depend on `ctxA`. Hard-delete
+  Attribute values are also re-read on each attempt
+  (`method_attempt.rs:591-613`); Section 1.3 already excludes hard-delete
+  Attributes.
+- **H4, no non-retryable failures.** No attempt failure is non-retryable. A
+  non-retryable failure exhausts at once
+  (`dexzd-apply/src/steps/retry_backoff.rs:78-80`). Section 2.5 already
+  requires well-formed results, and Section 1.3 requires that limits are
+  never hit; together they rule out the invalid-response and size failures.
+
+**D5, finitely many failures.** No system makes progress under infinitely
+many crashes. So the liveness statement assumes that a run has finitely many
+failure transitions (Section 11.5). This is a necessary assumption, not a
+choice.
+
+**D6, wall clock.** [owner] Assumption: **on one node, the wall clock does
+not step backward between the timer service's due check and the stamping of
+the TimersFired command that it proposes.** Why this suffices:
+
+- The timer service reads the wall clock `w₁` and proposes only timers with
+  fire time `≤ w₁` (`dexzd-engine/src/effects/timer_service.rs:117`,
+  `timer_service.rs:131`, `timer_service.rs:147`).
+- The committer stamps the command with `max(w₂, watermark + 1) ≥ w₂`, where
+  `w₂` is the wall clock at stamping
+  (`dexzd-engine/src/commit/command_committer.rs:141-144`).
+- If `w₂ ≥ w₁`, the stamp is at least the fire time. The model's time is the
+  stamp, so the premise `Tm(i) ≤ t_{p(f)}` of [TIMER-FIRE] holds.
+- Both reads happen on one node. So the assumption needs no clock agreement
+  between hosts. After a takeover to another host, stamps still strictly
+  increase, because the new owner seeds its watermark from the largest
+  applied timestamp (`dexzd-engine/src/engine_node/node_start.rs:408`,
+  `command_committer.rs:89-94`).
+- Firing early in physical time, when a host's clock runs ahead of real time,
+  is outside the model. The model speaks only of stamps.
+- Apply does not check that a timer is due (Section 4.5). The owner decided
+  not to change apply and not to open an issue for it.
+
+Late firing needs no assumption: a down period is one large [TICK], and
+Section 4.5 already allows unbounded lateness.
+
+**D7, network failures.** [owner]
+
+- The input word of a run with failures is the sequence of **committed**
+  client requests. A request lost before its commit is invisible to the
+  theorem.
+- PublishToChannel has no request ID (`protos/dex.proto:650-654`). A client
+  that sends it again after a lost response has sent a second request: a
+  second input of the word, with its own `pub` event. This is outside
+  failure transparency. The server is not changed.
+- StartFlow retries are covered: a retry that carries the start's request ID
+  and `ignore_already_started_error` commits nothing and produces no event
+  ([START-RETRY], Section 11.3).
+- Duplicate Worker results are covered by the fence ([RESULT-STALE]).
+- An application that needs exactly-once publication can publish from an RPC
+  handler, because a repeated RPC request ID with the same content returns
+  the recorded reply (`dexzd-apply/src/command_handlers/rpc_committed.rs:58-75`).
+  Three cautions apply, outside this theorem. The caller must reuse one
+  request ID, and the Go SDK's InvokeRPC offers no way to pass one
+  (`sdk-go/dex/client.go:1765`, `sdk-go/dex/options.go:553-561`). A crash
+  before the RPC commits lets the handler run again. An RPC on a locked key
+  gets ABORTED.
+- The per-run request table is bounded and evicts its oldest entries
+  (Section 1.3). The fragment does not use it: StartFlow deduplicates
+  through the Flow directory, and PublishToChannel has no request ID. So the
+  theorem needs no hypothesis about eviction. The RPC extension will need
+  one.
+
+**D8, takeover.** [owner] A standby takeover is in scope. The model treats
+it as [CRASH], then [RECOVER], with an overlap window of the old owner
+(Section 11.3, "Takeover"). Multi-node partition ownership is excluded,
+because it does not exist: "a cluster runs one node"
+(`docs/reference/server/configuration.mdx:60`). The theorem describes one
+partition log with one owner at a time. A crash or a takeover may replace
+the owner.
+
+### 11.2 The state extension
+
+DexF adds four pieces of state to `Σ` of Section 3.4.
+
+```text
+Inv   ::= ⟨ m, ip : P | R | B, a : ℕ⁺, ps, keys, snap : Snap?, tid : TaskId? ⟩
+                                       -- B is Backoff; a is the attempt number
+Task  ::= ⟨ f, e, m, a, tid, input, snap, locals, cr, ctxA,
+            phase : Started | Running(Fx*, Resp) | Returned(Resp),
+            j : ℕ ⟩                    -- j: effects emitted so far (ghost)
+Σ_F   ::= ⟨ τc, P, R, η, N, Z, I, h ⟩
+Z : TaskId ⇀ Task                      -- zombie tasks: Workers the server gave up
+I : set of (e, m, a, tid)              -- interrupted attempts, engine memory
+h : (e, m) ⇀ ℕ                         -- ghost: largest effect index any attempt emitted
+```
+
+- `Inv` extends Section 3.1. `a` is the method's attempt number. In Backoff
+  it is already the next attempt's number. `tid` is the task ID of the
+  running attempt
+  (`server-zd/proto/dexzd/v1/state.proto:419-458`).
+- `snap` may be present while `ip = P` or `ip = B`. That is the **retained
+  snapshot** of a retry. Without failures `snap` is present exactly when
+  `ip = R`.
+- `Tm` (Section 3.2) also holds **retry timers** `retry(e, m, a)`, armed when
+  attempt `a − 1` fails (`step_results.rs:741-756`).
+- `h(e, m)` is a history variable. It is never read by a rule. Under H2 each
+  pair `(e, m)` has at most one invocation in its life, so `h` needs no
+  reset.
+
+**What survives a crash.** The durable point of a commit is its log batch in
+object storage, written with a create-only condition
+(`dexzd-log/src/commit_pipeline.rs:523-578`). Recovery replays the same
+stamped commands through the same applier as live commits
+(`dexzd-engine/src/commit/partition_applier.rs:624-639`). Apply takes its
+time from the command stamp and is not in replay mode
+(`dexzd-apply/src/command_handlers/command_scope.rs:45-56`); replay mode is
+for time travel only (`command_scope.rs:24-25`). So recovery is the same
+function on the same command stream. It is not a special apply mode.
+
+| State | After [CRASH] |
+| --- | --- |
+| Apply state `R`, including `Inv`, locks `L`, timers `Tm`, request tables, and the Flow directory | Kept (in the log; the local store is rebuilt from it) |
+| Clocks `τc` | Kept: stamps keep increasing (D6) |
+| Zombie tasks `Z` | Kept: Workers run outside the server |
+| Tasks `Θ` | Lost; every task moves to `Z` |
+| RPC state `RL`, `Rq`, `Tx` | Lost (outside the fragment) |
+| Timer service memory, its retry delays (`timer_service.rs:123-127`, `timer_service.rs:176-184`) | Lost |
+| Dispatcher memory, method and heartbeat deadlines (`dexzd-engine/src/effects/dispatch/attempt_deadlines.rs:34-54`) | Lost |
+| Interrupted set `I` | Rebuilt by [RECOVER] |
+
+### 11.3 The failure rules
+
+Rules are in the style of Section 4. A failure commit takes the next `seq`
+and stamps a time like any commit (Section 4.1).
+
+**Unchanged rules.** [FLOW-START], [TICK], [PUBLISH], [WORKER-ABANDON], the
+meta-functions of Section 4.2, and the RPC and SubFlow rules keep their
+premises, effects, and events. [STEP-START], [WORKER-EFFECT], the Complete
+rules, and [TIMER-FIRE] are **extended**: each extension is a no-op on the
+states that failure-free runs reach.
+
+**[STEP-START], extended** (commit, `StepAttemptStarted`). Events `τ`.
+
+- Premise as in Section 4.4, with `ip = P` and any attempt number `a`.
+- Effect: `snap := S[e].inv.snap` when it is present, else
+  `snapshot(e, m)` (`step_results.rs:188-195`). Then `ip := R`, and `tid` is
+  a fresh task ID that the engine minted
+  (`dexzd-engine/src/effects/dispatch/attempt_handout.rs:230-235`,
+  `dexzd-apply/src/steps/invocations.rs:249-296`).
+- `Θ[tid] := ⟨f, e, m, a, tid, S[e].in, snap, S[e].loc, S[e].cr, ctxA,
+  Started, 0⟩`.
+- Without failures `snap` is never present at Start, so this is the rule of
+  Section 4.4.
+
+**[WORKER-EFFECT], extended** (Worker) Events `[fx(f, (e, m), x)ʲ]`. As in
+Section 4.4, for a task in `Θ`. The `j`-th effect of a task carries the ghost
+index `j`. The task's counter becomes `j`, and `h(e, m) := max(h(e, m), j)`.
+
+**[ZOMBIE-EFFECT]** (Worker) Events `[fx(f, (e, m), x)ʲ]`. The same rule for a
+task in `Z`. A zombie may also be dropped at any point, as [WORKER-ABANDON]
+drops a canceled task.
+
+**Complete rules, extended** ([STEP-COMPLETE-WAITFOR] and
+[STEP-COMPLETE-EXECUTE], commit, `StepMethodCompleted`). The task may be in
+`Θ` or in `Z`. The premise is the fence of [RESULT-STALE]. The effect is that
+of Section 4.4. The task leaves `Θ` or `Z`. A zombie can pass the fence only
+while its invocation is still running with its task ID: after [CRASH] and
+before its [RECOVER-INTERRUPT]. [decision] The model allows this order. The
+code suggests that it cannot happen, because the old owner's commits all
+precede the new owner's recovery (Takeover, below). Allowing it is a safe
+over-approximation: the commit is an ordinary completion.
+
+**[RESULT-STALE]** (commit, any fenced command) Events `τ`. A
+StepMethodCompleted, StepAttemptFailed, StepAttemptReturned, or
+StepAttemptHeartbeat command applies only when all of these hold:
+
+- the Step execution exists and has a current invocation;
+- its method and attempt number equal the command's;
+- its phase is Running;
+- its task ID equals the command's task ID.
+
+Otherwise apply ignores it and writes nothing (`step_results.rs:83-128`,
+`step_results.rs:857-872`). The outcome is `Ignored`: no write and no new
+`seq` (`step_results.rs:49-54`). A returned Worker task whose command is
+ignored leaves `Θ` or `Z`. This rule subsumes [STEP-COMPLETE-STALE].
+
+- The task ID check is skipped when the command's task ID is empty
+  (`step_results.rs:105-128`). Only logs of older binaries carry an empty
+  task ID. The engine mints every task ID
+  (`attempt_handout.rs:230-235`) and panics before it proposes an empty one
+  (`method_attempt.rs:970-979`). A Worker never supplies the fence: the
+  engine fills it from its own memory, and a Worker frame reaches an attempt
+  only through the stream's current assignment
+  (`dexzd-worker-dispatch/src/worker_registry/worker_protocol.rs:236-241`).
+  [assumption] Every logged fenced command carries a non-empty task ID.
+- Duplicate proposals are stale by this rule. The engine proposes a Step
+  command again only after an `Unavailable` error
+  (`dexzd-engine/src/effects/mod.rs:427-456`). The first commit ends the
+  Running phase, so a second copy is ignored.
+
+**[ATTEMPT-LOST]** (commit, `StepAttemptFailed`) Events `τ`. Nondeterministic.
+Premise: `S[e].inv = ⟨m, ip, a, …⟩` with `ip = R` and task ID `t`, or
+`ip = P` (a failure before any start of this attempt). The retry decision is
+RetryAt (`dexzd-apply/src/steps/retry_backoff.rs:70-121`; its other outcome
+is [ATTEMPT-EXHAUSTED]).
+
+```text
+for k in keys:  if L[k].h = (e,m) then keep it            -- locks retained
+                L[k].ws := L[k].ws without (e,m)
+snap kept, pinned for attempt a+1                          -- invocations.rs:344-373
+ip := B;  a := a + 1;  tid := ⊥
+Tm[retry(e, m, a)] := now + backoff                         -- step_results.rs:349-360
+if t ∈ dom(Θ): Z[t] := Θ[t];  delete Θ[t]                   -- the Worker may continue
+```
+
+Code: `step_results.rs:258-360`, `invocations.rs:314-390`.
+
+- **Sources.** The rule stands for every way the engine fails an attempt: a
+  Worker error (`attempt_deadlines.rs:191-211`), a method timeout (default 2
+  hours) or a heartbeat timeout (default 60 seconds)
+  (`attempt_deadlines.rs:22-23`, `method_attempt.rs:657-666`), a Worker
+  disconnect (`attempt_deadlines.rs:174-180`), a declined reserved slot
+  (`attempt_deadlines.rs:159-165`), a server-side error
+  (`method_attempt.rs:129-154`), a result that arrives after the method
+  deadline (`method_attempt.rs:842-848`), and a task that matching refuses
+  before any start (`attempt_handout.rs:363-364`, `attempt_handout.rs:610-629`).
+- **Over-approximation.** The model does not describe detection. It lets the
+  attempt fail at any time. [decision] This is sound for the safety
+  theorem: the theorem's content is the inclusion of DexF traces in Dex
+  traces plus repetitions, and more DexF runs only make that inclusion
+  harder to prove. Liveness needs only that failures are finitely many (D5).
+- **Heartbeats.** No SDK heartbeats automatically. The Go SDK sends one only
+  when user code calls `RecordHeartbeat` (`sdk-go/dex/invocation.go:176-188`),
+  and the Java SDK documents that "Dex sends no automatic heartbeat"
+  (`sdk-java/src/main/java/io/superdurable/dex/StepOptions.java:203`). Any
+  output frame, heartbeat or Stream write, resets the heartbeat deadline
+  (`method_attempt.rs:692-693`). So a handler that runs longer than the
+  heartbeat timeout without either loses its attempt, with no crash at all.
+- **Before the first start.** A failure of attempt 1 before its start leaves
+  no snapshot and no task: no effect was emitted. It removes the invocation
+  from its lock queues, and [RETRY-FIRE] queues it again at the tail
+  (`invocations.rs:339-340`, `invocations.rs:70-77`). No failure-free run
+  reorders a lock queue. The fragment has no Attribute locks, so the proof
+  is unaffected. Open point for a fragment with locks (Section 11.6).
+
+**[ATTEMPT-EXHAUSTED]** (commit, `StepAttemptFailed`) Events
+`[closed(f, Failed, (type, text), outs)]`. Premise as [ATTEMPT-LOST], with the
+retry decision Exhausted: the failure is non-retryable, the attempt number
+reached the policy's maximum, or the next retry would pass the total
+duration (default 4 hours) (`retry_backoff.rs:78-86`, `retry_backoff.rs:115-119`,
+`retry_backoff.rs:15`). Without a failure policy the Step becomes FAILED and
+the Flow closes as Failed with WORKER_API_FAIL or INTERNAL
+(`step_results.rs:457-468`, `step_results.rs:550-584`). With a policy (H2) the
+Step proceeds instead (`step_results.rs:377-456`). H1 excludes this rule from
+the theorem's runs.
+
+**[ATTEMPT-RETURNED]** (commit, `StepAttemptReturned`) Events `τ`. Premise:
+`ip = R` with task ID `t`, and the fence of [RESULT-STALE]. Effect: `ip := P`,
+`tid := ⊥`. The attempt number, snapshot, locks, and queue position stay
+(`step_results.rs:474-531`). No retry is consumed. If `t ∈ dom(Θ)`, it moves
+to `Z`.
+
+- Sources: the Worker rejects the task as an unknown Step or for capacity,
+  or the frame was not delivered (`attempt_deadlines.rs:151-173`,
+  `method_attempt.rs:257-262`, `method_attempt.rs:331-370`).
+- The protocol says the Worker never ran the attempt. A Worker that rejects
+  after it sent output breaks the protocol
+  (`worker_protocol.rs:294-300`), yet its rejection still reaches the
+  attempt. [decision] The rule does not assume that the task emitted no
+  effect. A task that did is a zombie like any other.
+
+**[ATTEMPT-HEARTBEAT]** (commit, `StepAttemptHeartbeat`) Events `τ`. Premise:
+the fence of [RESULT-STALE]. Effect: store the checkpoint value on the
+invocation (`step_results.rs:211-256`). The engine proposes heartbeats in
+batches, and may lose one (`method_attempt.rs:713-735`). Heartbeats also
+happen in failure-free runs whenever user code records one. Sections 1 to 10
+leave them out (Section 1.3). They change only `lastHeartbeatValue`, which
+H3 makes invisible to `U`.
+
+**[RETRY-FIRE]**, part of [TIMER-FIRE], extended (commit, `TimersFired`).
+Events `τ`, or `[closed(...)]` as in Section 4.5.
+
+- The command names `D`, a non-empty prefix of the run's due timers in index
+  order `(fire time, encoded TimerId)`, as in Section 4.5. Wait timers and
+  retry timers are interleaved in that order
+  (`timer_service.rs:140-156`). Each timer of `D`, in order, is disarmed if
+  armed and then handled (`dexzd-apply/src/command_handlers/step_commands.rs:147-207`):
+  - `wait(e, j)`: as in Section 4.5.
+  - `retry(e, m, a)`: if `S[e].inv = ⟨m, B, a, …⟩`, then `pend` again:
+    `ip := P`, `ps := seq`, and queue on each lock key it does not hold. The
+    retained snapshot stays (`step_results.rs:815-855`,
+    `invocations.rs:57-138`, `invocations.rs:123-125`). Otherwise nothing.
+- **A stale retry timer still commits.** A cancel or a Flow close does not
+  disarm a retry timer (Open question 25). When it fires, `disarm` finds the
+  row, so the command applies, takes a `seq`, and records history, while the
+  handler does nothing (`step_commands.rs:161-170`,
+  `step_commands.rs:194-206`, `step_results.rs:831-838`). In the fragment
+  the only cancel is the Flow close, so a stale retry timer exists only
+  after the close. Its commit is one more progress step after the close.
+- **The prefix holds under failures.** A row enters the timer service's
+  retry delay only after its TimersFired command committed: the proposal
+  returns only after the commit, or fails when the node stops
+  (`timer_service.rs:165-184`, `timer_service.rs:282-286`). A crash empties
+  the retry delays, which only removes skips.
+- **Mapping.** The wait timers of `D` form a prefix of the run's due wait
+  timers, because `D` is a prefix of all due timers in one order. Section
+  11.6 maps the command to [TIMER-FIRE] of that sub-prefix, or to a stutter
+  when it is empty. A retry handler touches neither wait state nor Channels,
+  so its position among the wait timers does not change their effects.
+- D6 is needed for wait timers only. A retry timer that fires early changes
+  timing, which the untimed theorem does not observe.
+
+**[CRASH]** (environment) Events `τ`. Enabled at any time while the server is
+up. Effect: every task of `Θ` moves to `Z`, and the rest of `η` is lost
+(Section 11.2). `R`, `Tm`, `τc`, and `Z` stay. No commit happens until
+[RECOVER].
+
+- A commit is atomic at its log batch: it happened or it did not.
+- [assumption] A log write with an unknown outcome is a crash. The pipeline
+  fails every open proposal and stops (`commit_pipeline.rs:484-493`), and the
+  client path halts the registry (`dexzd-engine/src/flow_coordination/client_operations/mod.rs:326-352`).
+  Replay then decides whether the batch was committed.
+
+**[RECOVER]** (engine) Events `τ`. Enabled while the server is down. It ends
+the down period and runs the partition rebuild
+(`dexzd-engine/src/effects/partition_rebuild.rs:91-160`,
+`node_start.rs:450-467`):
+
+```text
+for each invocation of R:
+  ip = P:  the dispatcher may start it again (F3)
+  ip = B:  nothing; its retry timer is in Tm
+  ip = R with task ID t:  I := I ∪ {(e, m, a, t)}
+the timer service starts again from the committed timer index
+```
+
+- A Running attempt is **not** handed out again: [STEP-START] needs
+  `ip = P`. The server cannot know whether the Worker ran it, because a SYNC
+  frame is sent only after the start commits. So it counts the attempt as
+  failed.
+
+**[RECOVER-INTERRUPT]** (commit, `StepAttemptFailed` of kind
+`STARTED_ATTEMPT_INTERRUPTED`) Events `τ`. Premise: `(e, m, a, t) ∈ I`.
+Effect: remove it from `I`. If the fence of [RESULT-STALE] holds for `t`, the
+effect is that of [ATTEMPT-LOST]: the attempt consumes a retry, keeps its
+snapshot and locks, and goes to Backoff. Otherwise the command is ignored.
+
+- Code: `attempt_handout.rs:663-717` (the kind at `:703`, the fence at
+  `:707`); `dexzd-engine/src/effects/dispatch/dispatch_scheduler.rs:202-218`.
+  The command has no `is_before_start` and no `is_not_run`, so it runs the
+  same `apply_attempt_failed` as any failure, and records the progress
+  NOT_COMPLETED (`invocations.rs:150-161`).
+- **Not atomic.** [RECOVER] reads the state once. Each interrupt is then a
+  separate commit, spawned on its own task. Any transition may come between
+  [RECOVER] and an interrupt, including a cancel of the Step, a Flow close,
+  or a commit of the zombie task's result. The first of these to commit wins
+  through the fence, and the interrupt or the result is ignored.
+- [code] A running attempt with an empty task ID is logged and not failed
+  (`attempt_handout.rs:679-689`). It would then stay Running. The assumption
+  of non-empty task IDs excludes it.
+
+**Takeover.** A standby takeover is [CRASH] of the old owner, then [RECOVER]
+of the new one. The old owner overlaps the new one, but the committed log
+has one writer at a time:
+
+- [code] Each batch is an object at its own `seq`, written create-only
+  (`commit_pipeline.rs:523-567`). The new owner writes an EpochStart batch at
+  the first free `seq`. Replay voids every batch of an older epoch after an
+  EpochStart (`dexzd-engine/src/recovery/log_replay.rs:137-145`,
+  `log_replay.rs:182-220`, `dexzd-log/src/stream_tail_reader.rs:22-61`).
+- So the model places the old owner's [CRASH] at the EpochStart. Its commits
+  before the EpochStart are ordinary commits before [CRASH]. Its commits
+  after it are void and never happened. Two owners never write the same
+  `seq`, and no old-epoch batch counts after the EpochStart.
+- [code] After its lease lapses, the old owner hands Workers no new task. Its
+  open PollWorkerTask streams still carry frames of tasks that Workers run,
+  until it stops (`docs/reference/server/high-availability.mdx:147-154`).
+  These tasks are zombies.
+- [code] A result of such a task cannot reach the new owner. A Worker frame
+  whose task ID is not the stream's current assignment is dropped
+  (`worker_protocol.rs:236-241`), and the new owner never assigned it. If the
+  result did reach apply, the fence would drop it.
+- [code] A cold standby replays the log like a restart. A hot standby has
+  applied the log already and replays only the last batches; it runs no
+  Steps or timers, so it has no `Θ`
+  (`docs/reference/server/high-availability.mdx:82-85`,
+  `high-availability.mdx:107-109`). Both start through the same node start:
+  log replay, watermark seeding, and partition rebuild
+  (`node_start.rs:385-408`, `node_start.rs:459-465`). So a takeover uses the
+  same interrupt kind and the same retry accounting as a restart. The
+  documented "NOT_COMPLETED" (`high-availability.mdx:40-41`) is the recorded
+  attempt progress, not a different failure kind.
+
+**[START-RETRY]** (client, StartFlow) Events `τ`. A StartFlow request for a
+Flow ID that already has a run, with `ignore_already_started_error` set and
+the request ID that started the latest run. Under the default reuse policy
+the start conflicts. Apply returns the latest run as a successful reply,
+writes nothing, and takes no `seq` (`dexzd-apply/src/command_handlers/flow_start.rs:91-125`).
+This holds also after the run closed. The Go SDK documents this retry and
+lets the caller fix the request ID (`sdk-go/dex/client.go:510-512`,
+`client.go:553`, `client.go:745-747`).
+
+- Without `ignore_already_started_error`, or with another request ID, the
+  request is rejected with ALREADY_EXISTS (`flow_start.rs:126-130`). That
+  produces `rejected(...)`, which `E_adm` does not admit.
+- **`E_adm` with retries.** The input word is the sequence of committed
+  requests (D7). Its first StartFlow is the start of Section 5.3, and it is
+  the first request of the word. Any number of [START-RETRY] requests may
+  follow anywhere in the word. Each one is a request of the word that
+  produces no event. The start uses the default reuse policy and sets
+  `ignore_already_started_error`. Section 5.3's "no other StartFlow follows"
+  is relaxed only for these retries.
+- A client's re-sent PublishToChannel is a new request of the word (D7). The
+  rule [PUBLISH] is unchanged.
+
+### 11.4 Observable events under failure
+
+- `fx` carries the ghost index: `fx(f, (e, m), x)ʲ` is the `j`-th effect of
+  some attempt of `(e, m)`. The projection to real labels erases `j`.
+- Every failure transition is `τ`: [CRASH], [RECOVER],
+  [RECOVER-INTERRUPT], [ATTEMPT-LOST], [ATTEMPT-RETURNED],
+  [ATTEMPT-HEARTBEAT], [RESULT-STALE], [START-RETRY], and a [RETRY-FIRE]
+  that fires no wait timer. [ATTEMPT-EXHAUSTED] emits `closed(...)`, and H1
+  excludes it.
+
+**Repeated `fx`, with the ghost index.** An event `fx(f, src, x)ʲ` of a trace
+is **repeated** when an earlier event of the same trace has the same source
+`src` and the same index `j`.
+
+**Repeated `fx`, real labels.** The theorem uses this form. A trace `t` is a
+**repetition** of a trace `u` when `t` is `u` with events inserted, and each
+inserted event equals, in source and label, an event of `u` that comes
+before it in `t`.
+
+**First occurrences come in order 1, 2, 3, ….** For each `(e, m)`:
+
+1. Every attempt of `(e, m)` computes the same effect list `fx⃗(e, m)` and
+   the same response. `U` is a function (Section 2.2). Its arguments are
+   equal across attempts:
+   - the snapshot is retained from the first start on every retry path
+     (Section 11.6, invariant I2);
+   - the Step input does not change while a method is live, and the locals
+     and condition results change only when a method of the Step completes;
+   - `ctxA` may differ, and H3 makes `U` ignore it.
+2. An attempt emits its effects in list order, the `j`-th only after the
+   `(j−1)`-th ([WORKER-EFFECT]).
+3. So when index `j` first appears in the trace, some attempt has emitted
+   indexes `1` to `j − 1` before, and each of them appeared already. The
+   first occurrences are `fx⃗(e, m)[1], fx⃗(e, m)[2], …` in order. They are the
+   events of one virtual task of Dex. Every other `fx` event of `(e, m)` is
+   repeated, and it equals the first occurrence of its index in source and
+   label.
+
+So the real-label form holds with the first occurrences as `u`'s events.
+Two different indexes may carry equal labels. That does not matter: the
+inserted event equals an earlier event of `u`.
+
+### 11.5 Theorem statements
+
+`Tr_free(P)` is the set of projected traces of Dex (Sections 5.4 and 5.5).
+`Tr_fail(P)` is the same for DexF, over runs that satisfy H1 to H4, D2, D6,
+and the non-empty task ID assumption, with inputs from `E_adm` extended by
+[START-RETRY] (Section 11.3).
+
+**Lemma (no failures).** `Tr_free ⊆ Tr_fail`. Every Dex run is a DexF run
+with no failure transition. This is not literally trivial, because DexF
+carries more state: attempt numbers, task IDs, `Z`, `I`, and `h`. The lemma
+must show that the extended rules agree with Dex on states that no failure
+reached.
+
+**Safety.** For every program `P` of the fragment: `t` is a finite trace of
+DexF if and only if `t` is a repetition of some finite trace `u` of Dex for
+the same committed input word.
+
+**Liveness.** Fairness for DexF replaces F2 to F5 of Section 5.5 and adds FF,
+FR, and FI:
+
+- **FF, finitely many failures.** A run has finitely many [CRASH],
+  [ATTEMPT-LOST], and [ATTEMPT-RETURNED] transitions.
+- **FR, the server comes back.** Every [CRASH] is eventually followed by
+  [RECOVER].
+- **FI, interrupts commit.** Every element of `I` eventually takes
+  [RECOVER-INTERRUPT].
+- **F2, timers fire.** A wait timer or retry timer that stays armed and due
+  is eventually fired.
+- **F3, Steps start.** As in Section 5.5, while the server is up.
+- **F4, Workers settle.** Every task of `Θ` eventually becomes `Returned`,
+  leaves `Θ` by a failure rule, or is dropped by [WORKER-ABANDON]. Every
+  zombie task eventually emits all its effects and returns, or is dropped
+  after some prefix of them.
+- **F5, results commit.** Every `Returned` task of `Θ` or `Z` eventually
+  leaves by a Complete rule or by [RESULT-STALE].
+
+Every DexF transition other than [TICK] is a progress step. Markers:
+
+- `✓` needs the root Flow closed and finitely many progress steps. By F4 and
+  F5, every zombie task has settled by then. So a `✓` trace already contains
+  every repeated effect that a zombie emits after the close, and is never a
+  proper prefix of another fair trace.
+- `δ` needs finitely many progress steps and the root Flow RUNNING. A Backoff
+  invocation is not quiescent: its retry timer is armed, and F2 fires it. An
+  element of `I` is not quiescent either (FI). So `δ` also needs no armed
+  timer of either kind, no task in `Θ` or `Z`, an empty `I`, and the server
+  up.
+
+Statement: under FF, FR, FI, F0 to F6 as above, and H1 to H4, for every
+committed admissible word `w`, the fair maximal traces of DexF for `w`, with
+repeated `fx` removed, equal the fair maximal traces of Dex for `w`, markers
+included. By FF there are finitely many attempts and each emits finitely
+many effects, so a fair DexF trace has finitely many repeated events.
+
+**End-to-end corollary.** Compose with the expressiveness theorem (Sections
+5.4 and 5.5): for every well-formed L program `S`, `π(Tr_fail(⟦S⟧))` is the
+set of L traces of `S` with repetitions, under the fairness and hypotheses
+above. On the L side the statement is weaker. `π` drops the source of an
+`fx`. So an inserted `out(x)` is only known to equal some earlier `out(x)`
+with the same value, not to repeat a particular `emit`.
+
+**What the theorem does not say.**
+
+- That an idempotent effect leaves the world unchanged. Idempotent does not
+  mean commutative. A zombie's late `set x = 1` can overwrite a later
+  `set x = 2`, though each call is idempotent. Exactly-once in effect needs
+  more: idempotency keys, commutative effects, or effects fenced by attempt.
+- Anything about physical time. A timer fires no earlier than its fire time
+  in stamps (D6); a host clock that runs ahead can fire it early in real
+  time.
+- Anything about a client that re-sends PublishToChannel after a lost
+  response. That is a second request (D7).
+- Anything about ASYNC Step methods (D2).
+- Anything about runs that exhaust retries, use failure policies, read
+  attempt-varying context, or meet non-retryable failures (H1 to H4).
+- Anything about RPCs, SubFlows, or StopFlow under failures (D1).
+
+### 11.6 The abstraction map α
+
+`α` maps a DexF state to a Dex state. The proof shows that every failure
+transition maps to a stutter, every other transition maps to a Dex
+transition with the same events, and the first occurrence of each `fx` index
+maps to a Dex [WORKER-EFFECT].
+
+**What α forgets.**
+
+- Attempt numbers, task IDs, heartbeat checkpoints, last failures, and retry
+  bookkeeping of every invocation.
+- Every retry timer in `Tm`.
+- `Z`, `I`, the timer service memory, and `h`, after it has used them to
+  build the virtual tasks below.
+
+**Invocations.** For each invocation `(e, m)`:
+
+- `ip = R`, `ip = B`, or `ip = P` with a retained snapshot maps to `ip = R`
+  with that snapshot, and to one **virtual task** in `Θ`. The virtual task has
+  emitted `fx⃗(e, m)[1..h(e, m)]`. It is `Returned` when `h(e, m)` is the length
+  of the list and some attempt has returned.
+- `ip = P` without a snapshot maps to `ip = P`. Such an invocation never
+  started, or failed before its first start, so `h(e, m) = 0`.
+
+This is sound because a retrying invocation looks to apply exactly like a
+running one. It keeps its snapshot from the first start
+(`invocations.rs:344-373`, `invocations.rs:123-125`,
+`step_results.rs:188-195`). It keeps its lock keys through Backoff
+(`invocations.rs:329-342`). Its input, locals, and condition results do not
+change. So Dex has a reachable state with that invocation running.
+
+**Snapshot retention on every path.** The zombie argument of Section 11.4
+rests on this fact. In the fragment, which has no Attribute locks, it is the
+only retained state that does work. Every retry path keeps the snapshot:
+
+| Path | Code | Snapshot |
+| --- | --- | --- |
+| Ordinary failure | `step_results.rs:344-358`, `invocations.rs:344-373` | moved to attempt `a + 1` |
+| Restart interrupt | `attempt_handout.rs:673-717`, then the same `apply_attempt_failed` | moved to attempt `a + 1` |
+| Takeover interrupt | same node start and rebuild as a restart (`node_start.rs:459-465`, `partition_rebuild.rs:141-148`) | moved to attempt `a + 1` |
+| Returned attempt | `step_results.rs:474-531` | kept; attempt number unchanged |
+| Retry timer fires | `invocations.rs:123-125` | kept while the method is the same |
+| Next start | `step_results.rs:188-195` | reused |
+
+A fresh snapshot is taken only on these paths: the first start; a start
+after a failure before any start, which emitted nothing; an ASYNC start lost
+in a crash (D2); and a method switch, which is a new invocation, not a retry
+(`invocations.rs:80-92`).
+
+**`seq`-derived values.** Failure commits take `seq` values and stamps. Dex
+has no such commits. So `R` and `α(R)` are not equal field by field. `Related`
+uses an order-preserving relabeling `ζ` of `seq` values: the `seq` of each
+normal commit maps to its position among the normal commits. The fields
+built from `seq` are:
+
+- the run `seq`, and `sws` (Section 3.1);
+- the enqueue `q = seq · 10⁶ + i` (`dexzd-apply/src/command_handlers/flow_data.rs:79`,
+  `flow_data.rs:540`);
+- `pending_since_seq` of an invocation and of a lock waiter
+  (`invocations.rs:73-76`, `invocations.rs:114`);
+- `created_seq` and `completed_seq` of a Step
+  (`dexzd-apply/src/steps/step_creation.rs:91`,
+  `dexzd-apply/src/steps/step_decisions.rs:401`);
+- value IDs, allocated from the `seq` (`dexzd-apply/src/values/mod.rs:96-98`);
+- `recorded_seq` of a request-table entry (`client_writes.rs:92`).
+
+[assumption, to check in Stage 1] Apply reads these values only to compare
+them: queue order, waiter order, lock order, the cancel order at a close
+(`flow_close.rs:315-318`), and eviction order. Value IDs are compared only
+for equality. If so, `ζ` preserves every apply result.
+
+Other values:
+
+- **Timestamps.** α keeps the stamp of every normal commit. Failure commits
+  use stamps between them, and Dex covers that time with [TICK]. So wait
+  timer fire times are equal on both sides.
+- **Channel message IDs** are UUIDs the engine assigns per result
+  (`dexzd-engine/src/effects/dispatch/worker_result.rs:81-88`). Only one
+  result per invocation commits, so a bijection of IDs suffices. No event of
+  `E_adm` shows them.
+- **Step IDs** are equal. Failure commits never create Steps under H2, so the
+  counters `cnt` are equal.
+
+**Invariants that `Related` needs.** Stage 1 must state them before any
+proof (plan Section 4.2), and the inductiveness fuzz must test them.
+
+- **I1, one committer.** Each invocation commits at most one result. After
+  it, `inv = ⊥`, and every remaining task of that invocation is stale.
+- **I2, one effect list.** Every attempt of `(e, m)`, in `Θ` or `Z`, computes
+  `U` on the same arguments up to `ctxA`. So all attempts have the same effect
+  list and response (H3).
+- **I3, prefixes.** Every task of `(e, m)` has emitted a prefix of
+  `fx⃗(e, m)` of length at most `h(e, m)`, and some task has emitted exactly
+  `h(e, m)` of them. A task that returns has emitted the whole list.
+- **I4, retained state.** A Running, Backoff, or retained-snapshot Pending
+  invocation holds its lock keys, and its snapshot is the snapshot of its
+  first start.
+- **I5, same apply state.** `α(R)` equals the Dex apply state up to `ζ`.
+- **I6, retry timers.** Each armed retry timer belongs to a Backoff
+  invocation with that attempt number, or it is stale and its firing is a
+  no-op.
+- **I7, interrupts.** Each element of `I` names an attempt that ran before
+  the last [CRASH]; its task is in `Z`.
+
+**Transition map.**
+
+| DexF transition | Dex transitions |
+| --- | --- |
+| First [STEP-START] of an invocation | [STEP-START] |
+| A later [STEP-START] (retained snapshot) | stutter |
+| [WORKER-EFFECT] or [ZOMBIE-EFFECT] with `j > h(e, m)` (so `j = h + 1`) | [WORKER-EFFECT] of the virtual task |
+| The same with `j ≤ h(e, m)` | stutter; the event is repeated |
+| Complete rule of a task in `Θ` or `Z` | the Complete rule of the virtual task |
+| [TIMER-FIRE] / [RETRY-FIRE] | [TIMER-FIRE] of the wait-timer sub-prefix, or stutter |
+| Cancel or close of a Step whose attempts are all gone | the same commit, then [WORKER-ABANDON] of the virtual task |
+| [CRASH], [RECOVER], [RECOVER-INTERRUPT], [ATTEMPT-LOST], [ATTEMPT-RETURNED], [ATTEMPT-HEARTBEAT], [RESULT-STALE], [START-RETRY] | stutter |
+
+A canceled invocation's virtual task follows Dex's rules for a canceled task:
+it may keep emitting effects, and it is abandoned once no real task of it is
+left.
+
+**Open point outside the fragment.** A failure before the first start
+moves the invocation to the tail of its lock queues (Section 11.3). No Dex
+run does that. A version of the theorem with Attribute locks needs either
+an argument that the new position is reachable in Dex, or one more
+hypothesis.
+
 ## Appendix A. Assumptions and decisions in one list
 
 1. User code is a total function with output-only external effects (2.2).
@@ -2003,3 +2848,42 @@ development). It changes no definition.
 41. The environment sends plain data only: the program input and every
     external message are literals, and `E_adm` admits only encoded literals
     [owner, completing the decision of 2026-11-10] (5.3, 8.1).
+42. The failure theorem covers the fragment of the Lean model of revision 8:
+    one Flow, `E_adm` with StartFlow retries, no RPCs, SubFlows, StopFlow,
+    or Attribute locks [owner, D1, 2026-11-10] (11.1).
+43. Only SYNC Step methods; every invocation's pinned durability is SYNC
+    [owner, D2, 2026-11-10] (11.1).
+44. Zombie Workers are in the model: an abandoned attempt may keep emitting
+    effects [owner, D3, 2026-11-10] (11.1).
+45. Hypotheses H1 to H4: no exhaustion, no failure policies, user code
+    ignores `ctxA`, no non-retryable failures. The features stay in the
+    model; the theorem assumes them away [owner, D4, 2026-11-10] (11.1).
+46. Liveness assumes finitely many failures (FF), that the server comes back
+    (FR), and that every interrupt commits (FI) (D5, 11.5).
+47. On one node, the wall clock does not step backward between the timer
+    service's due check and the stamping of its TimersFired command [owner,
+    D6, 2026-11-10] (11.1).
+48. The input word under failures is the sequence of committed requests. A
+    re-sent PublishToChannel is a second request. A StartFlow retry carries
+    the start's request ID and `ignore_already_started_error`, under the
+    default reuse policy [owner, D7, 2026-11-10] (11.1, 11.3).
+49. A standby takeover is [CRASH], [RECOVER], and an overlap of the old
+    owner; one owner writes the log at a time; there is no multi-node
+    partition ownership [owner, D8, 2026-11-10] (11.1, 11.3).
+50. Every logged fenced Step command carries a non-empty task ID (11.3).
+51. Failure transitions are nondeterministic and unconditioned, an
+    over-approximation of failure detection [decision] (11.3).
+52. A result of an interrupted task may commit before its interrupt; the
+    model allows both orders [decision] (11.3).
+53. A log write with an unknown outcome is a crash (11.3).
+54. [ATTEMPT-RETURNED] does not assume that the task emitted nothing; such a
+    task is a zombie [decision] (11.3).
+55. Apply reads `seq`-derived values only to compare them, and value IDs
+    only for equality, so `Related` may relabel them by an order-preserving
+    map [assumption, to check in Stage 1] (11.6).
+56. The lock-queue move after a failure before the first start matters only
+    with Attribute locks, which the fragment does not have [decision]
+    (11.3, 11.6).
+57. `dexzd-simulation` does not check that retries repeat only external
+    effects [assumption, from the plan's survey, not re-verified] (7,
+    item 25).
