@@ -72,10 +72,7 @@ export class ToolCatalog {
   private readonly sourceToolsByName: ReadonlyMap<string, ListedSourceTool>;
   private readonly replayOnlyToolNameSet: ReadonlySet<string>;
 
-  /**
-   * @param sourceTools - The tools that the sources listed for this segment; the router refuses their collisions.
-   * @param replayOnlyToolNames - Recorded source tools this listing lacks: served only to replay their records.
-   */
+  // replayOnlyToolNames: recorded source tools this listing lacks, served only to replay their records.
   public constructor(
     customTools: readonly ClaudeCustomTool[],
     public readonly customToolServerName: string,
@@ -175,8 +172,8 @@ export class ToolCatalog {
   }
 
   // The adapter cannot record a tool inside the CLI, so such a tool defers only for approval.
-  // A source tool has no policy here and always runs in the tool Step its source needs.
   public requiresDeferral(policyToolName: string, policy: ResolvedToolPolicy | undefined): boolean {
+    // A source tool has no policy here and always runs in the tool Step its source needs.
     if (policy === undefined) {
       return true;
     }
@@ -300,13 +297,7 @@ export class ToolCallGate {
     return denyPermission(unpermittedToolCallMessage(policyToolName), callId);
   };
 
-  /**
-   * Serves one MCP call of a custom, source, or replay-only tool that this gate permitted.
-   * @param toolName - The tool's bare name.
-   * @param toolUseId - The CLI's tool use ID from the request's `_meta`.
-   * @param runCustomTool - Runs a custom tool inline; `undefined` for a tool that only replays records.
-   * @returns The recorded result of a resumed call, the inline result, or a refusal.
-   */
+  /** Serves one MCP tool call: a resumed call's record, a permitted inline custom tool, or a refusal. */
   public async callServedTool(
     toolName: string,
     toolUseId: string | undefined,

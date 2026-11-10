@@ -220,6 +220,19 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     assert.equal(agent.invocations.count("publish"), 1);
   });
 
+  test("Bash rewritten by an application hook resumes with the approved input", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("real-bash-rewritten");
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}call Bash {"command":"rewrite:hi"}`);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "Bash");
+    assert.equal(interrupt.arguments, '{"command":"echo reviewed hi"}');
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    // The application hook is skipped on resume; the adapter's updatedInput carries the approved command.
+    assert.equal(snapshot.messages.at(-1)?.text, "Bash: reviewed hi");
+  });
+
   test("Bash waits for approval and the resumed CLI runs it", async () => {
     const agent = await startHarness();
     const sessionId = agent.newSessionId("real-bash");

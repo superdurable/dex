@@ -30,11 +30,7 @@ import type { ClaudeCustomTool, ToolCallGate, ToolCatalog } from "./claude-tool-
 const replayOnlyToolDescription = "Not available now: its tool source does not offer it.";
 const emptyObjectJsonSchema: Tool["inputSchema"] = { type: "object", properties: {} };
 
-/**
- * Builds the in-process MCP server that serves custom tools, source tools, and replay-only tools.
- *
- * `createSdkMcpServer` takes only zod schemas, so a source's JSON Schema needs these low-level handlers.
- */
+/** Serves custom, source, and replay-only tools; `createSdkMcpServer` would accept only zod schemas. */
 export function createClaudeToolServer(
   toolCatalog: ToolCatalog,
   toolCallGate: ToolCallGate,

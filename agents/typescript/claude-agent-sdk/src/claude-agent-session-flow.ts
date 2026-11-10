@@ -52,7 +52,15 @@ export interface ClaudeAgentDefinition {
    * Tool sources, such as `ConnectorToolSource` from `@superdurable/dex-agents/connectors`, served from the custom
    * tool server. Every call of a source tool runs in its own tool Step, with the effect, approval, timeout, and
    * retry policy its source gives it; a `toolPolicies` entry for a connector tool changes only its approval. See
-   * {@link ClaudeAgentRunnerOptions.toolSources}. Defaults to none.
+   * {@link ClaudeAgentRunnerOptions.toolSources}, which also has an example. Defaults to none.
+   *
+   * @example
+   * ```ts
+   * const flow = createClaudeAgentSessionFlow(
+   *   { options: buildOptions, toolSources: [new ConnectorToolSource([refundTool])] },
+   *   "SupportAgent",
+   * );
+   * ```
    * @since 0.4.0
    */
   readonly toolSources?: readonly ToolSource[];

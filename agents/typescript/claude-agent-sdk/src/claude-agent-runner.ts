@@ -107,6 +107,9 @@ export interface ClaudeAgentOptionsContext {
  * `--await-initialize` and `--mcp-config` to `extraArgs`; `extraArgs` must not set those, `--resume`,
  * or `--session-id`. A turn segment is one `RunModel` Step: the CLI runs from the turn's prompt or a
  * resumed deferred call until it defers the next call or answers.
+ *
+ * The adapter also wraps each callback of your PreToolUse hooks, so it is skipped for a resumed call that
+ * already has a final record. Changed in 0.4.0: your PreToolUse hooks no longer run for such a call.
  */
 export type ClaudeAgentQueryOptions = Omit<
   Options,
@@ -160,9 +163,30 @@ export interface ClaudeAgentRunnerOptions {
    * its approval. The tool Step runs the call through the source's `executeDeferredToolCall`, with the timeout and
    * retry policy of its `toolCallStepOptions`, and the resumed CLI receives the recorded result. The runner polls
    * no tool tasks, so a call that starts one records `failed` for a `read` tool and `outcome_unknown` otherwise.
+   * A source call that asks the user a question records `failed`.
    *
    * Each source needs a unique, stable `sourceName`: the runner stores it with every call, so the tool Step finds
    * the source on any Worker. Defaults to none.
+   *
+   * @example
+   * ```ts
+   * import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };
+   * import { CreateRefundInputSchema, newProjectConnection } from "@superdurable/connector-stripe";
+   * import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
+   *
+   * const stripe = newProjectConnection(project, "billing-stripe");
+   * const runner = new ClaudeAgentRunner(buildOptions, {
+   *   customTools: [lookupOrder],
+   *   toolSources: [
+   *     new ConnectorToolSource([
+   *       connectorTool(stripe.operations.createRefund(), stripe.reference, {
+   *         manifest,
+   *         inputValidator: CreateRefundInputSchema,
+   *       }),
+   *     ]),
+   *   ],
+   * });
+   * ```
    * @since 0.4.0
    */
   readonly toolSources?: readonly ToolSource[];
@@ -242,7 +266,11 @@ export function currentDeferredToolExecution(): DeferredToolExecution | undefine
  * tool is denied. See {@link ClaudeAgentRunnerOptions.toolSources}.
  *
  * Your PreToolUse hooks do not run for a resumed call that already has a final record: the call passed them when
- * it was deferred, and a later `deny` would hide its recorded result.
+ * it was deferred, and a later `deny` would hide its recorded result. A resumed tool that runs inside the CLI,
+ * such as `Bash`, receives its recorded input, the input that was approved, so a hook's rewrite still applies.
+ *
+ * Changed in 0.4.0: your PreToolUse hooks are skipped for a resumed call with a final record, and an approved tool
+ * that runs inside the CLI resumes with its recorded input.
  *
  * Most applications call {@link createClaudeAgentSessionFlow} instead of constructing the runner.
  *
@@ -463,12 +491,14 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
    *
    * A source that defines `toolCallStepOptions` gives its calls their own options, as `ConnectorToolSource` does
    * from each operation's manifest. Custom tools and tools that run inside the CLI keep the tool Steps' defaults.
-   * The session calls this method whenever it starts a tool Step; an application does not call it.
+   * The session calls this method whenever it starts a tool Step. Applications call it only in tests, to check
+   * the options a source call gets.
    *
    * @example
    * ```ts
+   * const runner = new ClaudeAgentRunner(buildOptions, { toolSources: [ledgerSource] });
    * const options = runner.toolCallStepOptions(record);
-   * const timeoutMs = options?.executeMethodTimeout ?? "the tool Step default";
+   * assert.equal(options?.executeMethodTimeout, 30_000);
    * ```
    * @param toolCall - The record whose tool Step starts.
    * @returns The source's options, or `undefined` for the defaults.

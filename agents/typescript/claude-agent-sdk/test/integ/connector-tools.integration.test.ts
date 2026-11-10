@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-// Connector tools from a ConnectorToolSource: every call runs in its own tool Step. The twin of the Python
-// adapter's tests/test_connector_tools.py.
+// Connector tools served by the adapter; the twin of the Python adapter's tests/test_connector_tools.py.
 
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";

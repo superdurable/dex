@@ -15,7 +15,10 @@ segment, turn, or attempt resumes the Claude session from them on any Worker. Cu
 run in their own Dex Steps; tools that run inside the CLI wait for approval but cannot be recorded.
 See the Claude Agent SDK row of the
 [agent framework adapters plan](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md). Its stored
-formats and its behavior match the Python adapter (`agents/python/claude-agent-sdk`).
+formats and its behavior match the Python adapter (`agents/python/claude-agent-sdk`), with two
+exceptions: a tool source call that asks the user a question records `failed`, and an approved tool
+that runs inside the CLI resumes with its recorded input. See "Tool sources and connector tools" and
+"Limits".
 
 ## Installation
 
@@ -489,7 +492,7 @@ tool turn, a deferred write and its resumed answer, and a segment with a subagen
 provider name mapping. The real-CLI suite covers a `read` tool with a resumed second turn, an approved
 write resumed without a prompt with `permissionMode` unset and with `dontAsk`, a rejected write, two
 writes in one reply, two connector writes in one reply under `dontAsk`, an input-rewriting hook, and
-approved `Bash`. The fake-CLI suites also cover an application hook that denies a resumed call, and a
+approved `Bash`, also with a command that an application hook rewrote. The fake-CLI suites also cover an application hook that denies a resumed call, and a
 `Bash` command that an application hook rewrote and that resumes with the approved input.
 
 `test/integ/connector-tools.integration.test.ts` runs connector tools from a copy of the core tests'

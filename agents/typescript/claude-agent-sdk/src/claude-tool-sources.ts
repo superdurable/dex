@@ -92,10 +92,7 @@ export class ToolSourceRouter {
     return this.toolSources.length > 0;
   }
 
-  /**
-   * Lists every source once, in order. A source that throws or exceeds the timeout lists nothing.
-   * @throws {TypeError} When a listed name repeats a custom tool, a Claude Code tool, or another source's tool.
-   */
+  // A failing or slow source lists nothing; a colliding name throws a TypeError.
   public async listSourceTools(): Promise<ReadonlyMap<string, ListedSourceTool>> {
     const listed = new Map<string, ListedSourceTool>();
     for (const [index, source] of this.toolSources.entries()) {
@@ -111,10 +108,7 @@ export class ToolSourceRouter {
     return readToolSourceEnvelope(toolCall.toolSourceReference) !== undefined;
   }
 
-  /**
-   * Returns the source that built a stored call, or `undefined` for a call no source built.
-   * @throws {RangeError} When the building source is not configured on this Worker.
-   */
+  // Throws a RangeError when the source that built the call is not configured on this Worker.
   public route(toolCall: AgentToolCall): RoutedSourceCall | undefined {
     const envelope = readToolSourceEnvelope(toolCall.toolSourceReference);
     if (envelope === undefined) {
