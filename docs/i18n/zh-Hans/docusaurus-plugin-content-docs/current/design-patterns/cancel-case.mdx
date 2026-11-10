@@ -63,7 +63,7 @@ AwaitUnderwriterDecision.execute
 - 使用 ChannelMap，每个 Step 一个 key。取消 RPC 向每个 key 发布，每个 Step 等待自己的 key。
 - 或者让取消 RPC 向同一个 Channel 为每个等待中的 Step 各发布一条消息。
 
-不要在第一个看到取消消息的 Step 中关闭 Flow。它的 **ForceFail** 会在其他 Step 停止各自子 Flow 之前取消它们。让每个 Step 停止自己的子 Flow，并用 **DeadEnd** 结束自己的分支。所有子 Flow 都停止后再关闭 Flow。例如每个 Step 停止子 Flow 后发布一个信号，由一个汇合 Step 等待每个子 Flow 各一个信号，然后返回 **ForceFail**。
+不要在第一个看到取消消息的 Step 中关闭 Flow。它的 **ForceFail** 会在其他 Step 停止各自子 Flow 之前取消它们。每个持有子 Flow 的 Step 都必须在任何东西关闭 Flow 之前，先停止自己的子 Flow。
 
 ## 示例
 

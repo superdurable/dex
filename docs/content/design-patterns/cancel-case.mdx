@@ -63,7 +63,7 @@ One cancel message satisfies one wait. When several Steps each hold a child at t
 - Use a ChannelMap with one key per Step. The cancel RPC publishes to every key, and each Step waits on its own key.
 - Or have the cancel RPC publish one message per waiting Step to a single Channel.
 
-Do not close the Flow from the first Step that sees a cancel message. Its **ForceFail** cancels the other Steps before they stop their children. Let each Step stop its own child and end its branch with **DeadEnd**. Close the Flow after every child is stopped. For example, each Step publishes a signal after it stops its child, and a join Step waits for one signal per child and then returns **ForceFail**.
+Do not close the Flow from the first Step that sees a cancel message. Its **ForceFail** cancels the other Steps before they stop their children. Every Step that holds a child must stop its own child before anything closes the Flow.
 
 ## Example
 

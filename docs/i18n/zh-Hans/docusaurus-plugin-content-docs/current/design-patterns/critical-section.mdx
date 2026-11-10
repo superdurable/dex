@@ -48,8 +48,8 @@ token 只是一条普通消息。如果某个分支离开这段流程时没有�
 - **Execute 失败。** 用 **ExecuteFailure** 把失败路由到一个发布 token 的 Step。这段流程的每个 Step 都要配置这条路由。在示例中，**EnterContractEdit** 和 **SaveContractEdit** 都会进入 **ReleaseContractEditToken**。
 - **WaitFor 失败。** 如果这段流程中后面的某个 Step 有自己的 **WaitFor**，给它配置继续执行 **Execute** 的 **WaitForFailure** 策略。那个 **Execute** 看到失败后发布 token。
 - **提前退出。** 用业务决定提前离开这段流程的 **Execute**，要在同一个 **Execute** 中发布 token。
-- **进入时被取消。** Dex 可能取消正在等待 token 的 Step，例如由 RPC 或兄弟 Step 的决定发起。如果取消发生在它的等待已经消费 token、但它的 **Execute** 尚未提交时，Dex 会把 token 放回 Channel 的最前面。下一个等待中的分支会拿到它。
-- **在段内被取消。** Dex 取消段内后面的 Step 时不会归还任何东西。发起取消的 RPC 或决定要在同一次提交中发布 token。
+- **进入时被取消。** Dex 可能取消正在等待 token 的 Step，例如由 RPC 或兄弟 Step 的决定发起。如果取消发生在它的等待已经消费 token、但它的 **Execute** 尚未提交时，Dex 会把 token 放回 Channel 的最前面。下一个等待中的分支会拿到它。取消是协作式的，所以下一个分支进入时，被取消的 **Execute** 可能仍在运行。让进入段的 Step 的工作保持幂等，或者不要在它的 **Execute** 运行时取消它。
+- **在段内被取消。** 不要取消这段流程中后面的 Step。被取消的 Step 不会发布任何消息，它的失败路由也不会运行。发起取消的一方也不能替它发布 token。Dex 在提交时才确定要取消哪些 Step，那个 Step 可能已经发布了 token，第二个 token 会破坏互斥。要提前停止一个分支，给它发送一个它会检查的停止请求，例如由 RPC 设置的 Attribute。看到请求的 Step 通过发布 token 的提前退出离开这段流程。
 - **关闭 Flow。** **ForceComplete**、**ForceFail**、Flow timeout 和 Client 的 **StopFlow** 会结束所有分支，不再有分支等待 token。
 
 发布随发起它的方法一起提交，要么全部提交，要么都不提交。失败的 attempt 不会发布 token，所以重试不会产生第二个 token。
@@ -583,6 +583,7 @@ fn leave_contract_edit(
 - 用 Attribute lock 保护多个 Step。
 - 用一个布尔 Attribute（例如 "isEditing"）让 Step 检查并设置。没有任何东西在它上面等待，两个分支也可能同时看到它未被设置。
 - 只在成功路径上归还 token。
+- 取消段内的 Step，或者由取消它的 RPC 代为发布 token。
 - 在旧 token 可能仍然存在时，发布新 token 来“找回”丢失的 token。两个 token 会破坏互斥。
 
 ## 相关内容

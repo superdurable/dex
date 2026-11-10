@@ -47,8 +47,8 @@ The token is an ordinary message. A branch that leaves the section without publi
 - **Execute failure.** Route it with **ExecuteFailure** to a Step that publishes the token. Give every Step of the section that route. In the example, both **EnterContractEdit** and **SaveContractEdit** move to **ReleaseContractEditToken**.
 - **WaitFor failure.** When a later Step of the section has its own **WaitFor**, give it a **WaitForFailure** policy that proceeds to its **Execute**. That **Execute** sees the failure and publishes the token.
 - **Early exit.** An **Execute** that leaves the section with a business decision publishes the token in the same **Execute**.
-- **Cancellation while entering.** Dex can cancel the Step that waits for the token, for example from an RPC or a sibling's decision. When the cancel lands after its wait consumed the token but before its **Execute** committed, Dex returns the token to the front of the Channel. The next waiting branch gets it.
-- **Cancellation inside the section.** Dex returns nothing for a later Step that it cancels. The RPC or decision that cancels it publishes the token in the same commit.
+- **Cancellation while entering.** Dex can cancel the Step that waits for the token, for example from an RPC or a sibling's decision. When the cancel lands after its wait consumed the token but before its **Execute** committed, Dex returns the token to the front of the Channel. The next waiting branch gets it. Cancellation is cooperative, so the canceled **Execute** may still be running when the next branch enters. Keep the entering Step's work idempotent, or do not cancel it while its **Execute** runs.
+- **Cancellation inside the section.** Do not cancel a later Step of the section. A canceled Step publishes nothing, and its failure route does not run. The canceller cannot publish the token for it either. Dex picks the Steps to cancel when it commits, so the Step may already have published the token, and a second token would break mutual exclusion. To stop a branch early, send it a stop request that its Steps check, such as an Attribute an RPC sets. The Step that sees it leaves through an early exit that publishes the token.
 - **Closing the Flow.** **ForceComplete**, **ForceFail**, a Flow timeout, and a Client **StopFlow** end every branch. No branch waits for the token any more.
 
 Publications commit with the method that makes them, or not at all. A failed attempt never publishes a token, so a retry cannot create a second one.
@@ -582,6 +582,7 @@ fn leave_contract_edit(
 - An Attribute lock used to protect several Steps.
 - A boolean Attribute such as "isEditing" that Steps check and set. Nothing waits on it, and two branches can both see it clear.
 - Returning the token only on the success path.
+- Canceling a Step inside the section, or publishing the token from the RPC that cancels it.
 - Publishing a new token to recover from a lost one while the old one may still exist. Two tokens break mutual exclusion.
 
 ## Related
