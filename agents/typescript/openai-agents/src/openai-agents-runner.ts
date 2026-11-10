@@ -50,16 +50,17 @@ import {
   type ListedSourceTool,
   type ModelCallMetadata,
   type ResolvedToolPolicy,
+  type SourceToolDefinition,
   type ToolCallStepOptions,
   type ToolExecutionResult,
   type ToolSource,
 } from "@superdurable/dex-agents";
 
 import {
+  describeReplayOnlyToolRefusal,
   listAgentGraphToolNames,
   readFunctionToolName,
   wrapAgentGraph,
-  type GraphSourceTool,
   type AgentGraphConfiguration,
   type GraphFunctionTool,
   type WrappedAgentGraph,
@@ -100,6 +101,10 @@ const openAIAgentsToolSourceNameKey = "openai_agents_tool_source";
 interface ModelStepAgentGraph {
   readonly agentGraph: WrappedAgentGraph;
   readonly sourceToolsByFunctionToolName: ReadonlyMap<string, ListedSourceTool>;
+  /** The source's name of each replay-only tool, by the name the model sees. */
+  readonly replayOnlySourceToolNames: ReadonlyMap<string, string>;
+  /** The record's tool name of every source tool, listed or replay-only, by the name the model sees. */
+  readonly recordToolNames: ReadonlyMap<string, string>;
 }
 
 /** Settings of {@link OpenAIAgentsRunner}, resolved by `createOpenAIAgentsSessionFlow`. */
@@ -158,14 +163,26 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
         ? readTurnInputItems(turn)
         : await this.restoreRunState(
             turn,
-            agentGraph,
+            modelStepGraph,
             turn.frameworkRunState,
             runContext,
             unreturnedResumedToolCallIds,
           );
-    const modelStepRun = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
+    let modelStepRun = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
       this.streamModelCall(turn, agentGraph, runInput, runContext),
     );
+    // A new call of a replay-only tool stops the run like any gated call; refuse it and continue the run.
+    while (this.refuseReplayOnlyToolCalls(turn, modelStepGraph, modelStepRun.result)) {
+      const refusedRunState = modelStepRun.result.state;
+      const resumedRun = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
+        this.streamModelCall(turn, agentGraph, refusedRunState, runContext),
+      );
+      modelStepRun = {
+        result: resumedRun.result,
+        modelCallAgents: [...modelStepRun.modelCallAgents, ...resumedRun.modelCallAgents.slice(1)],
+        responseIds: [...modelStepRun.responseIds, ...resumedRun.responseIds],
+      };
+    }
     const result = modelStepRun.result;
     const usage = toAgentUsage(result.state.usage);
     const modelCallMetadata = createModelCallMetadata(modelStepRun, this.settings.runConfig.model);
@@ -328,7 +345,12 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
 
   private async wrapModelStepAgentGraph(turn: AgentTurnContext): Promise<ModelStepAgentGraph> {
     if (!this.toolSources.hasToolSources) {
-      return { agentGraph: this.agentGraph, sourceToolsByFunctionToolName: new Map() };
+      return {
+        agentGraph: this.agentGraph,
+        sourceToolsByFunctionToolName: new Map(),
+        replayOnlySourceToolNames: new Map(),
+        recordToolNames: new Map(),
+      };
     }
     const sourceTools = await this.toolSources.listSourceTools();
     // The SDK resumes an interrupted call by tool name, so a call the listing lacks still needs its tool.
@@ -337,23 +359,29 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
         .filter((record) => this.toolSources.isSourceToolCall(record) && !sourceTools.has(record.toolName))
         .map((record) => record.toolName),
     );
-    const graphSourceTools: GraphSourceTool[] = [
-      ...[...sourceTools.values()].map((listed) => ({ definition: listed.tool, isReplayOnly: false })),
+    const graphSourceTools: SourceToolDefinition[] = [
+      ...[...sourceTools.values()].map((listed) => listed.tool),
       ...[...replayOnlyToolNames].map((toolName) => ({
-        definition: { name: toolName, description: "", inputSchema: { type: "object", properties: {} } },
-        isReplayOnly: true,
+        name: toolName,
+        description: "",
+        inputSchema: { type: "object", properties: {} },
       })),
     ];
-    const functionToolNames = this.mapSourceToolNamesToFunctionToolNames(
-      graphSourceTools.map(({ definition }) => definition.name),
-    );
+    const functionToolNames = this.mapSourceToolNamesToFunctionToolNames(graphSourceTools.map(({ name }) => name));
     const sourceToolsByFunctionToolName = new Map<string, ListedSourceTool>();
     for (const listed of sourceTools.values()) {
       sourceToolsByFunctionToolName.set(functionToolNames.get(listed.tool.name) ?? listed.tool.name, listed);
     }
+    const replayOnlySourceToolNames = new Map(
+      [...replayOnlyToolNames].map((toolName) => [functionToolNames.get(toolName) ?? toolName, toolName] as const),
+    );
     return {
       agentGraph: wrapAgentGraph(this.startingAgent, this.settings, graphSourceTools),
       sourceToolsByFunctionToolName,
+      replayOnlySourceToolNames,
+      recordToolNames: new Map(
+        [...functionToolNames].map(([sourceToolName, functionToolName]) => [functionToolName, sourceToolName] as const),
+      ),
     };
   }
 
@@ -382,24 +410,63 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     return functionToolNames;
   }
 
+  /**
+   * Rejects, with the refusal text, every interruption that is a new call of a replay-only tool, so it ends inside
+   * the turn without a Step.
+   * @returns Whether it rejected any, so the run must continue.
+   */
+  private refuseReplayOnlyToolCalls(
+    turn: AgentTurnContext,
+    modelStepGraph: ModelStepAgentGraph,
+    result: AnyStreamedRunResult,
+  ): boolean {
+    let isAnyRefused = false;
+    for (const interruption of result.interruptions) {
+      const functionCall = readInterruptedFunctionCall(interruption);
+      const sourceToolName = modelStepGraph.replayOnlySourceToolNames.get(
+        getToolCallDisplayName(functionCall) ?? functionCall.name,
+      );
+      if (sourceToolName !== undefined && turn.recordedToolCall(functionCall.callId) === undefined) {
+        result.state.reject(interruption, { message: describeReplayOnlyToolRefusal(sourceToolName) });
+        isAnyRefused = true;
+      }
+    }
+    return isAnyRefused;
+  }
+
   private async restoreRunState(
     turn: AgentTurnContext,
-    agentGraph: WrappedAgentGraph,
+    modelStepGraph: ModelStepAgentGraph,
     frameworkRunState: string,
     runContext: RunContext<TContext | undefined>,
     unreturnedResumedToolCallIds: Set<string>,
   ): Promise<AnyRunState> {
     const runState = await RunState.fromStringWithContext(
-      agentGraph.startingAgent,
+      modelStepGraph.agentGraph.startingAgent,
       frameworkRunState,
       runContext,
     );
+    const resumedToolCallIds = new Set<string>();
     for (const interruption of runState.getInterruptions()) {
-      const toolCallId = readInterruptedFunctionCall(interruption).callId;
+      const functionCall = readInterruptedFunctionCall(interruption);
+      const toolCallId = functionCall.callId;
       const record = turn.recordedToolCall(toolCallId);
       if (record === undefined || !isFinalToolCallStatus(record.status)) {
         throw new Error(`turn ${turn.turnId} resumed before tool call ${toolCallId} had a final record`);
       }
+      // A rejected record never reaches the gate, so its name and uniqueness are checked here.
+      const functionToolName = getToolCallDisplayName(functionCall) ?? functionCall.name;
+      const recordToolName = modelStepGraph.recordToolNames.get(functionToolName) ?? functionToolName;
+      if (record.toolName !== recordToolName) {
+        throw new Error(
+          `turn ${turn.turnId} resumed tool call ${toolCallId} of ${recordToolName} with the record of tool ` +
+            record.toolName,
+        );
+      }
+      if (resumedToolCallIds.has(toolCallId)) {
+        throw new Error(`turn ${turn.turnId} resumed tool call ${toolCallId} more than once`);
+      }
+      resumedToolCallIds.add(toolCallId);
       if (record.status === "rejected") {
         runState.reject(interruption, { message: record.rejectionMessage ?? defaultRejectionToolResult });
       } else {

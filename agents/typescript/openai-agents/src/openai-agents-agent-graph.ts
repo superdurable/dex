@@ -54,15 +54,6 @@ export interface WrappedAgentGraph {
   readonly functionTools: ReadonlyMap<string, GraphFunctionTool>;
 }
 
-/**
- * One tool source tool that every agent of a wrapped graph offers. A replay-only tool is one the turn already
- * called but the source no longer lists: it returns recorded results, and a new call of it is denied in the turn.
- */
-export interface GraphSourceTool {
-  readonly definition: SourceToolDefinition;
-  readonly isReplayOnly: boolean;
-}
-
 /** Tool policies, the session default, and the MCP opt-in, as resolved by the factory. */
 export interface AgentGraphConfiguration {
   readonly toolPolicies: Readonly<Record<string, ToolPolicy>>;
@@ -85,7 +76,7 @@ const approvalRequiredPolicy = tool({
  * @param startingAgent - The application's starting agent.
  * @param configuration - Tool policies, the session default, and the MCP opt-in.
  * @param sourceTools - Tool source tools that every agent of the graph offers after its own tools, gated
- * like function tools, or replay-only. They are not in {@link WrappedAgentGraph.functionTools}. Defaults to none.
+ * like function tools. They are not in {@link WrappedAgentGraph.functionTools}. Defaults to none.
  * @returns The wrapped graph and its function tools by qualified name.
  * @throws {TypeError} When the graph has a sandbox agent, an agent used as a tool, a client tool
  * search with an execute function, MCP servers without the opt-in, a local non-function tool that would need a Dex Step, or two different function tools
@@ -94,7 +85,7 @@ const approvalRequiredPolicy = tool({
 export function wrapAgentGraph(
   startingAgent: AnyAgent,
   configuration: AgentGraphConfiguration,
-  sourceTools: readonly GraphSourceTool[] = [],
+  sourceTools: readonly SourceToolDefinition[] = [],
 ): WrappedAgentGraph {
   if (!(startingAgent instanceof Agent)) {
     throw new TypeError("createOpenAIAgentsSessionFlow requires an Agent from @openai/agents");
@@ -277,26 +268,21 @@ export function resolveConfiguredToolPolicy(
 }
 
 // A source tool's body never runs: the gate returns the recorded result of the source's tool Step.
-function createGatedSourceTool({ definition, isReplayOnly }: GraphSourceTool): AnyFunctionTool {
-  const sourceTool = createSourceFunctionTool(definition);
-  if (!isReplayOnly) {
-    return gateFunctionTool(sourceTool, definition.name);
-  }
-  // Only a recorded call stops the run; a new call runs this gate at once and reads the denial.
-  return cloneFunctionTool(sourceTool, {
-    needsApproval: async (_runContext, _input, callId) => isRecordedToolCall(callId),
-    inputGuardrails: [],
-    invoke: async (_runContext, _input, details) =>
-      isRecordedToolCall(details?.toolCall?.callId)
-        ? describeRecordedToolCall(definition.name, details)
-        : `The tool call was not run: its tool source does not offer ${definition.name} now.`,
-  });
+function createGatedSourceTool(definition: SourceToolDefinition): AnyFunctionTool {
+  return gateFunctionTool(createSourceFunctionTool(definition), definition.name);
 }
 
-function isRecordedToolCall(toolCallId: string | undefined): boolean {
-  const modelStep = runningModelStepScope.getStore();
-  return toolCallId !== undefined && modelStep?.turn.recordedToolCall(toolCallId) !== undefined;
+/**
+ * Returns what the model reads for a new call of a replay-only source tool: one the turn already called but its
+ * source no longer lists. The runner rejects such a call with this text inside the turn, so it never runs.
+ *
+ * @param sourceToolName - The tool's name in its source.
+ * @returns The refusal text.
+ */
+export function describeReplayOnlyToolRefusal(sourceToolName: string): string {
+  return `The tool call was not run: its tool source does not offer ${sourceToolName} now.`;
 }
+
 
 function createSourceFunctionTool(definition: SourceToolDefinition): AnyFunctionTool {
   return tool({

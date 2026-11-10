@@ -44,6 +44,12 @@ const lookupTool: SourceToolDefinition = {
   inputSchema: { type: "object", properties: {} },
 };
 
+const fetchTool: SourceToolDefinition = {
+  name: "fetch",
+  description: "Fetch a page.",
+  inputSchema: { type: "object", properties: {} },
+};
+
 /** A source whose listing a test changes between model calls. */
 class ChangingToolSource implements ToolSource {
   public readonly sourceName = "changing";
@@ -117,18 +123,84 @@ describe("replay of tool source calls in the OpenAI Agents runner", () => {
     assert.equal(text, "c1=found | c2=The tool call was not run: its tool source does not offer lookup now.");
   });
 
-  test("a record of another tool under the requested call ID never replays", async () => {
+  test("a new call of a replay-only tool with invalid JSON arguments ends in the turn without a Step", async () => {
     const source = new ChangingToolSource();
-    const { runModelStep, recordOf } = createReplayHarness(source, (input) =>
-      readResults(input).size === 0 ? [functionCall("c1", "lookup")] : [answer("done")],
-    );
+    const { runModelStep, recordOf } = createReplayHarness(source, (input) => {
+      const results = readResults(input);
+      if (!results.has("c1")) {
+        return [functionCall("c1", "lookup")];
+      }
+      if (!results.has("c2")) {
+        return [functionCall("c2", "lookup", "{not json")];
+      }
+      return [answer(`c1=${results.get("c1")} | c2=${results.get("c2")}`)];
+    });
     const first = await runModelStep(null, []);
-    const forged = { ...recordOf(first, "c1", "lookup"), toolName: "other" };
-    await assert.rejects(
-      runModelStep(first.kind === "tool_calls_requested" ? first.frameworkRunState : null, [forged]),
-      /call c1 resumed with the record of tool other/,
+    const record = recordOf(first, "c1", "lookup");
+    source.listing = [];
+    const second = await runModelStep(first.kind === "tool_calls_requested" ? first.frameworkRunState : null, [record]);
+    assert.equal(second.kind, "completed");
+    const text = second.kind === "completed" ? second.newMessages.at(-1)?.text : undefined;
+    // The SDK answers invalid arguments itself before any approval, as for every function tool.
+    assert.equal(text, "c1=found | c2=An error occurred while parsing tool arguments. Please try again with valid JSON.");
+  });
+
+  test("a refused replay-only call next to a listed source call leaves only the listed call to run", async () => {
+    const source = new ChangingToolSource();
+    source.listing = [lookupTool, fetchTool];
+    const { runModelStep, recordOf } = createReplayHarness(source, (input) => {
+      const results = readResults(input);
+      if (!results.has("c1")) {
+        return [functionCall("c1", "lookup")];
+      }
+      if (!results.has("c2")) {
+        return [functionCall("c2", "lookup"), functionCall("c3", "fetch")];
+      }
+      return [answer(`c2=${results.get("c2")} | c3=${results.get("c3")}`)];
+    });
+    const first = await runModelStep(null, []);
+    const lookupRecord = recordOf(first, "c1", "lookup");
+    source.listing = [fetchTool];
+    const second = await runModelStep(
+      first.kind === "tool_calls_requested" ? first.frameworkRunState : null,
+      [lookupRecord],
+    );
+    assert.equal(second.kind, "tool_calls_requested");
+    assert.deepEqual(
+      second.kind === "tool_calls_requested" ? second.toolCalls.map((toolCall) => toolCall.toolCallId) : [],
+      ["c3"],
+    );
+    const fetchRecord = { ...recordOf(second, "c3", "fetch"), deferralOrder: 1 };
+    const third = await runModelStep(
+      second.kind === "tool_calls_requested" ? second.frameworkRunState : null,
+      [lookupRecord, fetchRecord],
+    );
+    assert.equal(third.kind, "completed");
+    assert.equal(
+      third.kind === "completed" ? third.newMessages.at(-1)?.text : undefined,
+      "c2=The tool call was not run: its tool source does not offer lookup now. | c3=found",
     );
   });
+
+  for (const status of ["succeeded", "rejected"] as const) {
+    test(`a ${status} record of another tool under the requested call ID never replays`, async () => {
+      const source = new ChangingToolSource();
+      const { runModelStep, recordOf } = createReplayHarness(source, (input) =>
+        readResults(input).size === 0 ? [functionCall("c1", "lookup")] : [answer("done")],
+      );
+      const first = await runModelStep(null, []);
+      const forged: AgentToolCall = {
+        ...recordOf(first, "c1", "lookup"),
+        toolName: "other",
+        status,
+        ...(status === "rejected" ? { output: null, rejectionMessage: "no" } : {}),
+      };
+      await assert.rejects(
+        runModelStep(first.kind === "tool_calls_requested" ? first.frameworkRunState : null, [forged]),
+        /tool call c1 of lookup with the record of tool other/,
+      );
+    });
+  }
 
   test("a later model call that requests a replayed call ID again fails instead of replaying twice", async () => {
     const source = new ChangingToolSource();
@@ -205,8 +277,8 @@ function createReplayHarness(
   };
 }
 
-function functionCall(callId: string, name: string): protocol.OutputModelItem {
-  return { type: "function_call", id: `fc_${callId}`, callId, name, arguments: "{}", status: "completed" };
+function functionCall(callId: string, name: string, toolArguments = "{}"): protocol.OutputModelItem {
+  return { type: "function_call", id: `fc_${callId}`, callId, name, arguments: toolArguments, status: "completed" };
 }
 
 function answer(text: string): protocol.OutputModelItem {
