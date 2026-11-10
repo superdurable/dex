@@ -128,7 +128,6 @@ export interface FlowServiceTlsOptions {
  * The current Server implements this as a read wait without Request ID deduplication.
  * `requestTimeoutMs` bounds the entire SDK call across transparent transport reattachments.
  * The SDK transparently retries server long-poll timeouts within that budget.
- * The current Server validates internalHandlerTimeoutMs but does not use it to limit a wait.
  * These read waits do not append Flow history events.
  */
 export interface WaitForStepCompletionOptions {
@@ -136,12 +135,6 @@ export interface WaitForStepCompletionOptions {
   readonly requestId?: string;
   /** Total SDK call budget. Omit or use zero to wait indefinitely. */
   readonly requestTimeoutMs?: number;
-  /**
-   * Optional compatibility timeout in milliseconds; the current Server accepts it but does not apply it.
-   * Omit or use zero. A supplied value must be a nonnegative whole number of seconds.
-   * Use requestTimeoutMs to bound the complete caller wait.
-   */
-  readonly internalHandlerTimeoutMs?: number;
 }
 
 /**
@@ -149,7 +142,6 @@ export interface WaitForStepCompletionOptions {
  * The current Server implements this as a read wait without Request ID deduplication.
  * `requestTimeoutMs` bounds the entire SDK call across transparent transport reattachments.
  * The SDK transparently retries server long-poll timeouts within that budget.
- * The current Server validates internalHandlerTimeoutMs but does not use it to limit a wait.
  * These read waits do not append Flow history events.
  */
 export interface WaitForAttributeOptions {
@@ -157,12 +149,6 @@ export interface WaitForAttributeOptions {
   readonly requestId?: string;
   /** Total SDK call budget. Omit or use zero to wait indefinitely. */
   readonly requestTimeoutMs?: number;
-  /**
-   * Optional compatibility timeout in milliseconds; the current Server accepts it but does not apply it.
-   * Omit or use zero. A supplied value must be a nonnegative whole number of seconds.
-   * Use requestTimeoutMs to bound the complete caller wait.
-   */
-  readonly internalHandlerTimeoutMs?: number;
 }
 
 /** Controls which active Steps are included in Flow search indexing. */
@@ -298,10 +284,6 @@ export interface FlowConfig {
    * selected store; projection failures never roll back Flow Attribute writes.
    */
   readonly attributeStoreNames?: readonly string[];
-  /** Positive history-event threshold requesting continue-as-new. */
-  readonly continueAsNewThreshold?: number;
-  /** Positive history page-size budget in bytes for continue-as-new. */
-  readonly continueAsNewPageSizeBytes?: number;
   /** Default durability for later Step handler results. */
   readonly stepDurability?: StepDurability;
   /**
@@ -528,8 +510,7 @@ export type FlowStatus =
   | "failed"
   | "cancelled"
   | "terminated"
-  | "serverSideTimeoutInternalOnly"
-  | "continuedAsNew";
+  | "serverSideTimeoutInternalOnly";
 
 /** Summarizes the current or latest run for one Flow ID. */
 export interface FlowInfo {
@@ -788,10 +769,4 @@ export interface PullWorkerOptions {
    * reset or disconnected tasks can still be treated as possibly run. See Worker.close.
    */
   readonly stopDrainTimeoutMs?: number;
-}
-
-/** Selects whether a visibility search includes earlier internally replaced runs. */
-export interface SearchFlowsOptions {
-  /** Disable default exclusion while retaining every explicit query filter. Defaults to false. */
-  readonly includeContinuedAsNew?: boolean;
 }

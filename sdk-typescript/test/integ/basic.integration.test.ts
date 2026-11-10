@@ -114,12 +114,12 @@ test("model input is serialized and invalid runtime input is rejected", async ()
   });
 });
 
-test("Flow config override survives Continue-As-New", async () => {
+test("Flow config override survives Flow configuration", async () => {
   const flow = new BasicFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("config-override");
     await client.startFlow(flow, id, 0, {
-      configOverride: { continueAsNewThreshold: 1 },
+      configOverride: { historyWindowEvents: 2500 },
     });
     assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 2);
   });

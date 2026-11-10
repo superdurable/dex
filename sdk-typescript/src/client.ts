@@ -101,7 +101,6 @@ import {
   type TimeTravelOptions,
   type SearchFlowEntry,
   type SearchFlowsPage,
-  type SearchFlowsOptions,
   type StartFlowOptions,
   type StepExecutionId,
   type StopFlowOptions,
@@ -866,12 +865,12 @@ export class Client {
       { operation: "describeFlow", flowId, requirement: "existing" },
       (callback) => this.service.getFlowSummary({ flowId: requireName(flowId), runId: "" }, callback),
     );
-    if (response.flowExecutionId === undefined || response.startTime === undefined) {
+    if (response.flowRunId === undefined || response.startTime === undefined) {
       throw new TypeError(`Dex returned an incomplete summary for Flow ${flowId}`);
     }
     return {
-      flowId: response.flowExecutionId.flowId,
-      runId: response.flowExecutionId.runId,
+      flowId: response.flowRunId.flowId,
+      runId: response.flowRunId.runId,
       flowType: response.flowType,
       status: mapFlowStatus(response.flowStatus),
       startedAt: response.startTime,
@@ -1069,7 +1068,6 @@ export class Client {
    * @param query - Dex visibility query; empty uses server defaults.
    * @param pageSize - Non-negative requested maximum result count.
    * @param nextPageToken - Opaque token from the preceding page, or empty first.
-   * @param options - Whether to include earlier internally replaced runs; defaults to exclusion.
    * @returns Server-ordered entries and the next-page token.
    * @throws {@link BlobMessageTooLargeError} when one Indexed Attribute blob alone exceeds a gRPC message size limit.
    */
@@ -1077,7 +1075,6 @@ export class Client {
     query: string,
     pageSize: number,
     nextPageToken = "",
-    options: SearchFlowsOptions = {},
   ): Promise<SearchFlowsPage> {
     if (pageSize < 0) {
       throw new RangeError("search page size must not be negative");
@@ -1086,7 +1083,6 @@ export class Client {
       { operation: "searchFlows", requirement: "none" },
       (callback) => this.service.searchFlows({
         query, pageSize, nextPageToken,
-        includeContinuedAsNew: options.includeContinuedAsNew ?? false,
       }, callback),
     );
     const flows = await Promise.all(
@@ -1192,7 +1188,6 @@ export class Client {
     options: WaitForStepCompletionOptions,
   ): Promise<void> {
     const requestBudget = new ClientRequestBudget(options.requestTimeoutMs);
-    const internalHandlerTimeoutSeconds = seconds32(options.internalHandlerTimeoutMs);
     while (true) {
       await this.negotiateServerProtocolWithinBudget(requestBudget, "waitForStepCompletion", flowId);
       const requestAttempt = requestBudget.nextAttempt("waitForStepCompletion", flowId);
@@ -1205,7 +1200,6 @@ export class Client {
               stepType: stepExecutionId.stepType,
               stepExecutionNumber: String(stepExecutionId.number ?? 1),
               requestTimeoutSeconds: requestAttempt.requestTimeoutSeconds,
-              internalHandlerTimeoutSeconds,
               requestId: options.requestId ?? "",
             };
             if (requestAttempt.deadline === undefined) {
@@ -1335,7 +1329,6 @@ export class Client {
     }
     const encoded = match.encode(attribute.codec);
     const requestBudget = new ClientRequestBudget(options.requestTimeoutMs);
-    const internalHandlerTimeoutSeconds = seconds32(options.internalHandlerTimeoutMs);
     while (true) {
       await this.negotiateServerProtocolWithinBudget(requestBudget, "waitForAttributeMatch", flowId);
       const requestAttempt = requestBudget.nextAttempt("waitForAttributeMatch", flowId);
@@ -1351,7 +1344,6 @@ export class Client {
                 operand: encoded.operand,
               },
               requestTimeoutSeconds: requestAttempt.requestTimeoutSeconds,
-              internalHandlerTimeoutSeconds,
               requestId: options.requestId ?? "",
             };
             if (requestAttempt.deadline === undefined) {
@@ -1404,22 +1396,6 @@ export class Client {
         },
         callback,
       ),
-    );
-  }
-
-  /**
-   * Requests that an active Flow roll its history into a new run.
-   * The Flow ID stays the same; the request returns after Dex accepts it.
-   * @param flowId - Non-empty active Flow ID.
-   */
-  public async triggerContinueAsNew(flowId: string): Promise<void> {
-    await this.unary<Empty>(
-      { operation: "triggerContinueAsNew", flowId, requirement: "active" },
-      (callback) =>
-        this.service.triggerContinueAsNew(
-          { flowId: requireName(flowId), runId: "" },
-          callback,
-        ),
     );
   }
 
@@ -1691,8 +1667,6 @@ function mapFlowConfig(
   return {
     activeStepSearchMode: mapActiveStepSearchMode(config),
     attributeStoreNames: mapAttributeStoreNames(config),
-    continueAsNewThreshold: config?.continueAsNewThreshold,
-    continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     historyWindowEvents: config?.historyWindowEvents,
     offloadHistory: config?.offloadHistory,
     stepDurability:
@@ -1820,8 +1794,6 @@ function mapFlowStatus(status: ProtoFlowStatus): FlowStatus {
       return "terminated";
     case ProtoFlowStatus.FLOW_STATUS_CANCELED:
       return "cancelled";
-    case ProtoFlowStatus.FLOW_STATUS_CONTINUED_AS_NEW:
-      return "continuedAsNew";
     default:
       throw new TypeError(`unsupported Flow status ${status}`);
   }
