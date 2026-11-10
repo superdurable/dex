@@ -231,7 +231,10 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     let modelSteps: RecordedModelStep[] = [];
     if (turn.frameworkRunState !== null) {
       const runState = parseFrameworkRunState(turn.frameworkRunState);
-      const records = runState.requestedToolCallIds.map((toolCallId) => this.readFinalRecord(turn, toolCallId));
+      const requestedToolNames = readRequestedToolNames(turn, runState);
+      const records = runState.requestedToolCallIds.map((toolCallId) =>
+        this.readFinalRecord(turn, toolCallId, requestedToolNames.get(toolCallId)),
+      );
       const recordedResults = await Promise.all(records.map((record) => this.createRecordedToolResult(record)));
       turnMessages = appendToolResultParts(runState.turnMessages, recordedResults);
       modelSteps = addRecordedToolResults(runState.modelSteps, records);
@@ -341,10 +344,20 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     return this.agent.toolSources.toolCallStepOptions(toolCall);
   }
 
-  private readFinalRecord(turn: AgentTurnContext, toolCallId: string): AgentToolCall {
+  private readFinalRecord(
+    turn: AgentTurnContext,
+    toolCallId: string,
+    requestedToolName: string | undefined,
+  ): AgentToolCall {
     const record = turn.recordedToolCall(toolCallId);
     if (record === undefined || !isFinalToolCallStatus(record.status)) {
       throw new Error(`turn ${turn.turnId} resumed without a final record for tool call ${toolCallId}`);
+    }
+    if (record.toolName !== requestedToolName) {
+      throw new Error(
+        `turn ${turn.turnId} resumed tool call ${toolCallId} of ${String(requestedToolName)} with the record of ` +
+          `tool ${record.toolName}`,
+      );
     }
     return record;
   }
@@ -632,6 +645,28 @@ async function isAnyStopConditionMet(
 ): Promise<boolean> {
   const results = await Promise.all(stopConditions.map((stopCondition) => stopCondition({ steps })));
   return results.some((isMet) => isMet);
+}
+
+/** Each requested call's tool name from the run state's tool-call parts; refuses a call requested twice. */
+function readRequestedToolNames(
+  turn: AgentTurnContext,
+  runState: VercelAiFrameworkRunState,
+): ReadonlyMap<string, string> {
+  if (new Set(runState.requestedToolCallIds).size !== runState.requestedToolCallIds.length) {
+    throw new Error(`turn ${turn.turnId} resumed with a tool call requested more than once`);
+  }
+  const toolNames = new Map<string, string>();
+  for (const message of runState.turnMessages) {
+    if (message.role !== "assistant" || typeof message.content === "string") {
+      continue;
+    }
+    for (const part of message.content) {
+      if (part.type === "tool-call") {
+        toolNames.set(part.toolCallId, part.toolName);
+      }
+    }
+  }
+  return toolNames;
 }
 
 function parseFrameworkRunState(text: string): VercelAiFrameworkRunState {

@@ -19,10 +19,14 @@ import { after, afterEach, before, describe, test } from "node:test";
 
 import {
   outcomeUnknownToolResult,
+  resolveToolPolicy,
   toolCallNotRunErrorPrefix,
   toolCallSkippedAfterWriteDetail,
+  type AgentEventWriter,
   type AgentToolCall,
   type AgentToolCallRecord,
+  type AgentTurnContext,
+  type AgentTurnOutcome,
 } from "@superdurable/dex-agents";
 import { connectorTool } from "@superdurable/dex-agents/connectors";
 import {
@@ -325,3 +329,100 @@ describe("connector tools in a Mastra agent session on a Dex engine", () => {
     assert.deepEqual(harness.ledger.sends(), []);
   });
 });
+
+describe("replay of tool source records when a Mastra turn resumes", () => {
+  const stateDirectory = mkdtempSync(join(tmpdir(), "mastra-connector-replay-"));
+  const flow = createConnectorMastraAgentFlow(stateDirectory);
+
+  function runModelStep(frameworkRunState: string | null, records: readonly AgentToolCall[]): Promise<AgentTurnOutcome> {
+    const turn: AgentTurnContext = {
+      flowId: "replay-session",
+      turnId: "turn-1",
+      attempt: 1,
+      messages: [
+        {
+          ...flow.runner.buildUserMessage('calls [["get_balance",{"accountId":"a-1"}]]'),
+          sequence: 1,
+          turnId: "turn-1",
+          createdAt: new Date(0).toISOString(),
+        },
+      ],
+      frameworkRunState,
+      isResuming: frameworkRunState !== null,
+      toolCalls: records,
+      events: silentEvents,
+      cancellationSignal: new AbortController().signal,
+      deadline: undefined,
+      resolveToolPolicy: (toolName, frameworkEffect) => resolveToolPolicy(toolName, {}, "unclassified", frameworkEffect),
+      recordedToolCall: (toolCallId) => records.find((record) => record.toolCallId === toolCallId),
+      heartbeat: async () => undefined,
+    };
+    return flow.runner.runModelStep(turn);
+  }
+
+  async function requestBalance(): Promise<{ readonly frameworkRunState: string; readonly record: AgentToolCall }> {
+    const outcome = await runModelStep(null, []);
+    assert.equal(outcome.kind, "tool_calls_requested");
+    const call = outcome.kind === "tool_calls_requested" ? outcome.toolCalls[0] : undefined;
+    assert.ok(call !== undefined && outcome.kind === "tool_calls_requested");
+    return {
+      frameworkRunState: outcome.frameworkRunState,
+      record: {
+        toolCallId: call.toolCallId,
+        turnId: "turn-1",
+        toolName: call.toolName,
+        arguments: call.arguments,
+        effect: call.policy.effect,
+        requiresApproval: call.policy.requiresApproval,
+        status: "succeeded",
+        output: '{"accountId":"a-1","amount":100}',
+        error: null,
+        rejectionMessage: null,
+        deferralOrder: 0,
+        ...(call.toolSourceReference === undefined ? {} : { toolSourceReference: call.toolSourceReference }),
+      },
+    };
+  }
+
+  test("the recorded result replays to the model", async () => {
+    const { frameworkRunState, record } = await requestBalance();
+    const outcome = await runModelStep(frameworkRunState, [record]);
+    assert.equal(outcome.kind, "completed");
+    assert.equal(
+      outcome.kind === "completed" ? outcome.newMessages.at(-1)?.text : undefined,
+      'get_balance: {"accountId":"a-1","amount":100}',
+    );
+  });
+
+  test("a record of another tool under the requested call ID never replays", async () => {
+    const { frameworkRunState, record } = await requestBalance();
+    await assert.rejects(
+      runModelStep(frameworkRunState, [{ ...record, toolName: "create_payout" }]),
+      /resumed tool call call-0 of get_balance with the record of tool create_payout/,
+    );
+  });
+
+  test("a call requested twice in the run state never replays twice", async () => {
+    const { frameworkRunState, record } = await requestBalance();
+    await assert.rejects(
+      runModelStep(duplicateFirstEntry(frameworkRunState, "pending_tool_calls"), [record]),
+      /resumed with a tool call requested more than once/,
+    );
+  });
+});
+
+const silentEvents: AgentEventWriter = {
+  turnId: "turn-1",
+  attempt: 1,
+  writeEvent: () => undefined,
+  writeTextDelta: () => undefined,
+  writeReasoningDelta: () => undefined,
+  writeToolCallStarted: () => undefined,
+  writeToolCallFinished: () => undefined,
+};
+
+function duplicateFirstEntry(frameworkRunState: string, key: string): string {
+  const runState = JSON.parse(frameworkRunState) as Record<string, unknown[]>;
+  const entries = runState[key] ?? [];
+  return JSON.stringify({ ...runState, [key]: [...entries, entries[0]] });
+}

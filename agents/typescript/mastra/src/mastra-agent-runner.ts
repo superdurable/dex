@@ -563,10 +563,20 @@ function buildRecordedToolResultMessages(
   turn: AgentTurnContext,
   runState: MastraTurnRunState | null,
 ): AIV5Type.ToolModelMessage[] {
-  return (runState?.pendingToolCalls ?? []).map((pendingToolCall) => {
+  const pendingToolCalls = runState?.pendingToolCalls ?? [];
+  if (new Set(pendingToolCalls.map(({ toolCallId }) => toolCallId)).size !== pendingToolCalls.length) {
+    throw new Error(`turn ${turn.turnId} resumed with a tool call requested more than once`);
+  }
+  return pendingToolCalls.map((pendingToolCall) => {
     const record = turn.recordedToolCall(pendingToolCall.toolCallId);
     if (record === undefined || !isFinalToolCallStatus(record.status)) {
       throw new Error(`turn ${turn.turnId} resumed without a final record for ${pendingToolCall.toolCallId}`);
+    }
+    if (record.toolName !== pendingToolCall.toolName) {
+      throw new Error(
+        `turn ${turn.turnId} resumed tool call ${pendingToolCall.toolCallId} of ${pendingToolCall.toolName} with ` +
+          `the record of tool ${record.toolName}`,
+      );
     }
     return buildMastraToolResultMessage(pendingToolCall, describeToolCallOutcome(record));
   });
