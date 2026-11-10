@@ -1,0 +1,6 @@
+name = "DexExpressiveness"
+version = "0.1.0"
+defaultTargets = ["DexExpressiveness"]
+
+[[lean_lib]]
+name = "DexExpressiveness"
