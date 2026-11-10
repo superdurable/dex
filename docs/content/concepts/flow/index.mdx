@@ -6,7 +6,7 @@ slug: /concepts/flow
 
 # Flow
 
-A **Flow** is the top-level primitive in Dex. A Flow type describes one kind
+A **Flow** is the top-level unit of work in Dex. A Flow type describes one kind
 of business process, such as an order, a subscription, or an approval. A Flow
 execution is one instance of it, such as order 42.
 
@@ -31,8 +31,8 @@ into smaller Flows or to fan out work.
   all. See [Step guarantees](/concepts/step#guarantees).
 - With the default SYNC durability, a Step's result is stored durably before
   the next Step starts. It survives Worker crashes and Dex Server restarts.
-- A Step that no Worker takes waits in a durable queue. It runs when a Worker
-  becomes available.
+- When no Worker is free, a Step waits in a durable queue. It runs when a
+  Worker becomes available.
 
 ## What a Flow contains {#implement-a-flow}
 
@@ -189,8 +189,8 @@ impl Flow for ExampleFlow {
 
 ## Identifiers {#identifiers}
 
-The word Flow can mean a Flow definition or a Flow execution. The context tells
-which. These identifiers keep them apart.
+The word Flow can mean a Flow definition or a Flow execution. These
+identifiers keep them apart.
 
 | Identifier | Who sets it | Meaning |
 |----------|-------------|---------|
@@ -200,8 +200,8 @@ which. These identifiers keep them apart.
 | **StepType** | Application (via Step implementation) | Stable name for a Step definition inside the Flow. |
 | **StepExecutionID** | Dex Server | One execution of a Step type, formatted as **StepType-Number**. |
 
-Most SDKs derive the **FlowType** from the native type name unless you override
-it. Keep these names stable while executions are open.
+Most SDKs use the language's type name as the **FlowType** unless you
+override it. Do not change these names while executions are open.
 
 ## Lifecycle {#lifecycle}
 
@@ -210,13 +210,18 @@ input. Dex then runs the start Step on a Worker. Each Step returns a decision
 that moves to the next Steps or closes the Flow. Several Steps can be active
 at the same time.
 
-A Flow closes when a Step completes or fails it, when its timeout fails or
-cancels it, or when a client stops it. A new start with the same Flow ID can
-also close it, when the start uses an ID reuse policy that terminates the
-running Flow. A SubFlow started with **ALWAYS_RESTART** does the same to an
-earlier child. A timeout can instead run a
-handler that decides the outcome. While it runs, clients read and change it through RPCs
-and Channels.
+A Flow closes in one of these ways:
+
+- a Step completes or fails it;
+- its timeout fails or cancels it;
+- a client stops it;
+- a new start with the same Flow ID terminates it. This happens only when the
+  new start uses an ID reuse policy that terminates the running Flow. A SubFlow
+  started with **ALWAYS_RESTART** terminates an earlier child the same way.
+
+Instead of failing or canceling the Flow, a timeout can run a handler that
+decides the outcome. While the Flow runs, clients read and change it through
+RPCs and Channels.
 
 ## Start options and configuration {#start-options}
 
@@ -228,7 +233,7 @@ Two sets of options shape a Flow execution:
   You can update it while the Flow runs.
 
 Start a Flow directly with a stable business Flow ID. Do not read or search
-first to avoid a conflict. To retry one start safely, do three things. Use an
+first to check whether it already exists. To retry one start safely, do three things. Use an
 ID reuse policy that rejects a second run. Send the same request ID on every
 retry. Set the start option that returns the existing run instead of an
 already-started error. Then a retry of a start that already succeeded returns

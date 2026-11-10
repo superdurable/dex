@@ -6,7 +6,7 @@ slug: /concepts/flow
 
 # Flow
 
-**Flow** 是 Dex 最顶层的 primitive。一个 Flow type 描述一类业务流程，比如订单、订阅或审批。一个 Flow execution 是它的一个实例，比如 42 号订单。
+**Flow** 是 Dex 中最顶层的工作单元。一个 Flow type 描述一类业务流程，比如订单、订阅或审批。一个 Flow execution 是它的一个实例，比如 42 号订单。
 
 Dex 负责 Flow 的生命周期和状态。你的代码不需要数据库或任务队列，就能让流程在崩溃和重启之后继续运行。
 
@@ -21,7 +21,7 @@ Dex 负责 Flow 的生命周期和状态。你的代码不需要数据库或任�
 - 一个 Flow ID 同一时间最多只有一个 active run。
 - 一个 Step 方法写入和发布的内容会一次全部生效，或者都不生效。见 [Step 的保证](/concepts/step#guarantees)。
 - 使用默认的 SYNC durability 时，一个 Step 的结果在下一个 Step 开始前已经 durable 存储。Worker 崩溃和 Dex Server 重启都不会丢失它。
-- 没有 Worker 接的 Step 在 durable 队列里等待，有 Worker 可用时再运行。
+- 没有空闲的 Worker 时，Step 在 durable 队列里等待，有 Worker 可用时再运行。
 
 ## Flow 包含什么 {#implement-a-flow}
 
@@ -172,7 +172,7 @@ impl Flow for ExampleFlow {
 
 ## 标识符 {#identifiers}
 
-"Flow" 这个词可以指 Flow 定义，也可以指一次 Flow execution，要看上下文。下面这些标识符把它们区分开。
+"Flow" 这个词可以指 Flow 定义，也可以指一次 Flow execution。下面这些标识符把它们区分开。
 
 | 标识符 | 谁设置 | 含义 |
 |--------|--------|------|
@@ -182,13 +182,20 @@ impl Flow for ExampleFlow {
 | **StepType** | 应用（Step 实现） | Flow 内一个 Step 定义的稳定名称。 |
 | **StepExecutionID** | Dex Server | 某个 Step type 的一次执行，格式为 **StepType-Number**。 |
 
-大多数 SDK 从原生类型名推导 **FlowType**，除非你显式覆盖。还有 execution 在运行时，不要改这些名称。
+大多数 SDK 默认用语言里的类型名作为 **FlowType**，你也可以显式覆盖。还有 execution 在运行时，不要改这些名称。
 
 ## 生命周期 {#lifecycle}
 
 [Client](/concepts/client) 用一个 Flow ID 和 start input 启动 Flow。Dex 随后在 Worker 上运行 start Step。每个 Step 返回一个决定：进入下一个或多个 Step，或者关闭 Flow。同一时间可以有多个 Step 处于 active。
 
-某个 Step 完成 Flow 或让它失败、timeout 让它失败或取消它，或 client 停止它时，Flow 关闭。用同一个 Flow ID 再次启动时，如果这次启动使用的 ID reuse policy 会终止正在运行的 Flow，它也会被关闭。用 **ALWAYS_RESTART** 启动的 SubFlow 对之前的子 Flow 也是这样。timeout 也可以改为运行一个 handler，由它决定结果。Flow 运行期间，client 通过 RPC 和 Channel 读取和修改它。
+Flow 在以下情况下关闭：
+
+- 某个 Step 完成 Flow，或让它失败；
+- 它的 timeout 让它失败或取消它；
+- client 停止它；
+- 用同一个 Flow ID 的新启动终止它。只有新启动使用的 ID reuse policy 会终止正在运行的 Flow 时，才会这样。用 **ALWAYS_RESTART** 启动的 SubFlow 也会这样终止之前的子 Flow。
+
+timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。Flow 运行期间，client 通过 RPC 和 Channel 读取和修改它。
 
 ## Start options 和配置 {#start-options}
 
@@ -197,7 +204,7 @@ impl Flow for ExampleFlow {
 - **StartFlowOptions** 只在启动时生效一次。它设置 Flow timeout、ID reuse policy、start request ID 和 Attribute 初始值。
 - **FlowConfig** 保存运行时设置，比如默认的 Step durability。Flow 运行期间可以更新。
 
-用稳定的业务 Flow ID 直接启动 Flow。不要为了避免冲突先读取或搜索。要安全地重试同一次启动，做三件事：使用拒绝第二个 run 的 ID reuse policy；每次重试都发送同一个 request ID；打开“返回已有 run，而不是报 already-started 错误”的启动选项。这样，重试一个已经成功的启动时，会拿到那个 run。如果 policy 允许再启动一个 run，重试就可能启动第二个 run。
+用稳定的业务 Flow ID 直接启动 Flow。不要先读取或搜索，检查它是否已经存在。要安全地重试同一次启动，做三件事：使用拒绝第二个 run 的 ID reuse policy；每次重试都发送同一个 request ID；打开“返回已有 run，而不是报 already-started 错误”的启动选项。这样，重试一个已经成功的启动时，会拿到那个 run。如果 policy 允许再启动一个 run，重试就可能启动第二个 run。
 
 ## 参考
 
