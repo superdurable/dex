@@ -1,9 +1,10 @@
 # Dex Core Semantics (Step 0 of the expressiveness proof)
 
-Status: revision 7 (after three adversarial reviews, the owner decisions of
+Status: revision 8 (after three adversarial reviews, the owner decisions of
 2026-11-09 on the review of the Lean statements, the owner decision of
 2026-11-10 on unforgeable handles, and its completion for the environment's
-input; see [Review log](#10-review-log)). The Lean development is in
+input, and a wording fix after the review of the safety proof; see
+[Review log](#10-review-log)). The Lean development is in
 `formal/lean/`.
 
 Base commit: `9b37482ed` on `main`. Every `path:line` below is relative to the
@@ -1607,11 +1608,15 @@ does; they are L design decisions for the owner.
   sides, the order of two deadlines can differ once enough steps lie between
   their Arms, and a `select` makes that order observable.
 
-  Rationale [owner]: real programs cannot rely on timing races, so any fixed
-  timing model leaves the meaning of correct programs unchanged. Choosing the
-  model aligned with Dex makes the equivalence exact without narrowing what
-  the theorem covers in practice. It is like counting one time unit per
-  instruction in algorithm analysis.
+  Rationale [owner]: real programs cannot rely on timing races. A program
+  whose outcomes do not depend on the order of two deadlines means the same
+  under this timing model as under any other. The theorem adopts this one
+  model, the one aligned with Dex, which makes the equivalence exact without
+  narrowing what the theorem covers in practice. It is like counting one time
+  unit per instruction in algorithm analysis. The theorem does not say that a
+  program is equivalent to itself under another cost model: as the paragraph
+  above shows, other counts can reorder two deadlines and change the outcome
+  of a `select`.
 - **Timers fire late, in order, by an explicit action.** A timed operation,
   `sleep(d)` or `select` with an `after(d)` branch, takes two actions. *Enter*
   gives it the next **timer number** `n` from one program-wide counter.
@@ -1905,6 +1910,13 @@ input. The proof of the safety theorem found the point (Lean commit
 | # | Point | Decision or resolution |
 | --- | --- | --- |
 | L6 | Forged handles through the input. After L5 no expression could forge a handle, but the program input and every external message were arbitrary L values, and an L value can be a mutex handle. The counterexample of L5 came back with the forged handle as the program input: `locker(h): lock(h); emit(1)` and `main(x): fork locker(x); sleep(0); newMutex(); recv(9)`, started with `x` the handle of the mutex `main` creates. | **Owner decision, completing that of 2026-11-10.** The environment sends plain data only: the start input and every external message are literals (null, Boolean, integer, string), and `E_adm` admits only encoded literals. So a lock handle can only be created by `newMutex` or named by the static-mutex expression, and thread handles are likewise unforgeable. Sections 5.3 and 8.1; Appendix A, item 41. Row K9 is narrowed accordingly: "encoded L values" there now means encoded literals. |
+
+Revision 8 answers the review of the safety proof (Stage 2a of the Lean
+development). It changes no definition.
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| S1 | The rationale of L1 said that any fixed timing model leaves the meaning of a correct program unchanged. The paragraph before it says that different counts can reorder two deadlines and change a `select`. | **Reworded.** The rationale now speaks of the one timing model the theorem adopts, and says that the theorem does not imply equivalence under another cost model. Section 8.1, "Clock and timing model". |
 
 ## Appendix A. Assumptions and decisions in one list
 

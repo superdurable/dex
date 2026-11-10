@@ -28,11 +28,14 @@ The counts, as spec §8.1 tabulates them:
 A shared read happens at begin, an `emit` is issued at begin, and every other
 atomic action happens at complete or at register.
 
-The owner's rationale: real programs cannot rely on timing races, so any fixed
-timing model leaves the meaning of correct programs unchanged. Choosing the
-model aligned with Dex makes the equivalence exact without narrowing what the
-theorem covers in practice. It is like counting one time unit per instruction
-in algorithm analysis.
+The owner's rationale: real programs cannot rely on timing races. A program
+whose outcomes do not depend on the order of two deadlines means the same
+under this timing model as under any other. The theorem adopts this one
+model, the one aligned with Dex, which makes the equivalence exact without
+narrowing what the theorem covers in practice. It is like counting one time
+unit per instruction in algorithm analysis. The theorem does not say that a
+program is equivalent to itself under another cost model: other counts can
+reorder two deadlines and change the outcome of a `select`.
 -/
 
 namespace DexExpressiveness.L
