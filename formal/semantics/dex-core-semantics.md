@@ -2084,7 +2084,7 @@ the code behind unchanged rules. Every new citation is at `55721e878`.
 | F3 | The premise of [STEP-COMPLETE-WAITFOR] said "the same task". | **Clarified.** The code's fence is Step execution, method, attempt number, phase Running, and task ID. It selects the same results without failures. Section 4.4; [RESULT-STALE] in Section 11.3. |
 | F4 | Section 4.5 read as if apply checked that a timer is due. | **Clarified.** Apply fires whatever the command names; the timer service and the command stamp make it due, under the clock assumption D6. Section 4.5. |
 | F5 | Facts of Section 7 that failures change: locks held through Backoff, retry timers left armed after a cancel, the bounded request table, StopFlow's run resolution, the interrupt commit, and timeouts kept only in memory. | **Recorded** as Open question 25. |
-| F6 | The failure model itself. | **Added** as Section 11: decisions, state, rules, events, theorem statements, and the abstraction map. Appendix A, items 42 to 67. Section 9 lists the failures left for later. |
+| F6 | The failure model itself. | **Added** as Section 11: decisions, state, rules, events, theorem statements, and the abstraction map. Appendix A, items 42 to 70. Section 9 lists the failures left for later. |
 | F7 | The plan stated safety as "`t` is a failure trace if and only if `t` is a repetition of a failure-free trace". Not every repetition is reachable: an attempt emits its effects in order from the first. | **Stated as two inclusions.** Forward: erasing repeated `fx` from a DexF trace gives a Dex trace. Backward: every Dex trace is a DexF trace. The end-to-end corollary follows the same shape. Section 11.5; Appendix A, item 58. |
 | F8 | The clarification of Section 4.5 makes explicit that the failure-free [TIMER-FIRE] is faithful to the code only under the clock assumption D6. | **Recorded.** The rule is unchanged, so the Lean proof is unaffected. Appendix A, item 47. |
 
@@ -2136,6 +2136,16 @@ at `55721e878`. The owner also decided OD1 on 2026-11-10.
 | --- | --- | --- |
 | F24 | Retention and purge after the close were not modeled. A close arms a retention timer (`flow_close.rs:400-424`); its TimersFired takes a run `seq` and marks the run purging (`step_commands.rs:156-175`, `:201-206`; `run_purge.rs:73-98`); RunPurge deletes the directory entry and every run row (`run_purge.rs:216-228`). A StartFlow retry after the purge starts a second run. | **Fixed.** Section 1.3 adds the [assumption] that the model keeps a closed run forever; this changes no event under `E_adm`, because a publication is rejected with NOT_FOUND and FLOW_NOT_EXISTS before and after the purge, only the message text differs (`run_cursor.rs:114-119`, `:386-392`; `state_rows.rs:122-126`; `flow_coordination_error.rs:104-110`). Section 11.2 adds a sixth class, post-close housekeeping, mapped to stutters with a ghost copy `Rc` of the purged run. Hypothesis HP bounds [START-RETRY] to before the purge (Section 11.3), and the theorem assumes it (Section 11.5). The input word now includes requests the engine rejects before any proposal (D7). Appendix A, items 65 to 67. |
 | F25 | OD1, which timer rule the failure proof uses. | **Owner decision, 2026-11-10: option A.** Both theorems keep the prefix rule [TIMER-FIRE] of Section 4.5 as an explicit modeling idealization, because no distributed system guarantees the order of timers due at almost the same time. [TIMER-FIRE-SCAN] stays documented as the code's behavior and is used by neither theorem. Section 11.3, Open question 26; Appendix A, items 7 and 60. |
+
+The final review of the whole section found two blockers and two major
+points, all accepted and checked against the code at `55721e878`.
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| F26 | HP said a retry "reaches the server" before RunPurge commits. A RunPurge can be in the log but not yet durable when the retry arrives, and the retry is then ordered after it (`registry.rs:619-635`, `:651-654`). | **Fixed.** HP is a predicate on runs: in the committed log, every [START-RETRY] command is ordered before the RunPurge of its run. It is not a property of the input word. Section 11.3; Appendix A, item 66. |
+| F27 | The word and "run for `w`" still required every request to commit, but after a purge the engine rejects a legal Publish with no log command (`client_operations/mod.rs:286-296`, `state_rows.rs:122-126`). | **Fixed.** One definition, the outcome word: requests in the order of their final outcomes (accepted commit, apply rejection, or engine rejection). New rule [ENGINE-REJECT] with no log entry and no stamp, in the rejected-input class, mapped to Dex's apply rejection with the same event. Sections 11.1, 11.2, 11.3, 11.5, and 11.6; Appendix A, item 48. |
+| F28 | α built a virtual task only for an invocation holding a snapshot. A close clears the invocation and releases the snapshot (`flow_close.rs:323-328`, `step_decisions.rs:373-374`, `invocations.rs:344-381`), while a real task may still emit its first effect. | **Fixed.** A ghost `par` keeps `U`'s arguments from the first start. A canceled invocation keeps a virtual task, built from `par`, `v`, and `h`, while any real task of it is in `Θ` or `Z`; it leaves with the last one. This matches Dex's canceled tasks (Section 4.4, F4, F5). Section 11.6. |
+| F29 | `Σ_F` had no up or down state, yet rules, fairness, and `δ` depend on it. | **Fixed.** `Σ_F` has `up`. Every commit and engine rule needs it; Worker rules and [TICK] do not. [CRASH] and [RECOVER] flip it (`registry.rs:774-778`, `node_start.rs:450-455`). With FF and FR the server is eventually up for good; F3, F5, and `δ` say how they treat a down server. Sections 11.2, 11.3, and 11.5. |
 
 ## 11. Failures
 
@@ -2253,12 +2263,12 @@ Section 4.5 already allows unbounded lateness.
 
 **D7, network failures.** [owner]
 
-- The input word of a run with failures is the sequence of client requests
-  that got a final outcome, in that order: each one either committed,
-  accepted or rejected by apply, or was rejected by the engine before any
-  proposal because its Flow ID has no run (Section 1.3, "Retention and run
-  purge after close"). A request lost before its commit is invisible to the
-  theorem.
+- **The input word under failures.** It is the sequence of client
+  requests, in the order of their final outcomes. A final outcome is one of
+  three: an accepted commit, a rejection by apply, or a rejection by the
+  engine before any proposal ([ENGINE-REJECT], Section 11.3). This
+  definition is used everywhere below, under the name **outcome word**. A
+  request lost before any outcome is invisible to the theorem.
 - PublishToChannel has no request ID (`protos/dex.proto:650-654`). A client
   that sends it again after a lost response has sent a second request: a
   second input of the word, with its own `pub` event. This is outside
@@ -2310,7 +2320,8 @@ Inv   ::= ⟨ m, ip : P | R | B, a : ℕ⁺, ps, keys, snap : Snap?, tid : TaskI
 Task  ::= ⟨ f, e, m, a, tid, input, snap, locals, cr, ctxA,
             phase : Started | Running(Fx*, Resp) | Returned(Resp),
             j : ℕ ⟩                    -- j: effects emitted so far (ghost)
-Σ_F   ::= ⟨ τc, P, R, η, N, Z, I, h, v, ps₀, n, ζ, Rc ⟩
+Σ_F   ::= ⟨ τc, P, R, η, N, Z, I, h, v, ps₀, n, ζ, Rc, par, up ⟩
+up : Bool                              -- the server is serving
 Z : TaskId ⇀ Task                      -- zombie tasks: Workers the server gave up
 I : set of (e, m, a, tid)              -- interrupted attempts, engine memory
 h : (e, m) ⇀ ℕ                         -- ghost: largest effect index any attempt emitted
@@ -2320,8 +2331,20 @@ ps₀ : (e, m) ⇀ ℕ                       -- ghost: ζ(s), s the run seq of t
 n : ℕ                                  -- ghost: number of applied normal commands of the run
 ζ : ℕ ⇀ ℕ                              -- ghost: real seq of each applied normal command ↦ its index
 Rc : FlowId ⇀ Run                      -- ghost: a run as RunPurge found it
+par : (e, m) ⇀ ⟨input, snap, locals, cr⟩  -- ghost: the arguments of U at the first start
 ```
 
+- `up` is whether the server serves. Every commit rule, every engine rule,
+  and [ENGINE-REJECT] require `up`. Worker rules ([WORKER-EFFECT],
+  [ZOMBIE-EFFECT], [WORKER-ABANDON]) and [TICK] do not: Workers and clocks
+  run outside the server. [CRASH] sets `up := false` and [RECOVER] sets
+  `up := true`. The code has the same split: the registry refuses work once
+  halted (`dexzd-engine/src/flow_coordination/registry.rs:774-778`), and a
+  starting node accepts commands only after `start_serving`, before it
+  rebuilds (`dexzd-engine/src/engine_node/node_start.rs:450-455`,
+  `node_start.rs:459-465`). A crash may leave every other component
+  unchanged, for example on a quiescent Flow with `Θ`, `Z`, and `I` empty;
+  `up` is what disables commits then and enables [RECOVER].
 - `Inv` extends Section 3.1. `a` is the method's attempt number. In Backoff
   it is already the next attempt's number. `tid` is the task ID of the
   running attempt
@@ -2331,7 +2354,7 @@ Rc : FlowId ⇀ Run                      -- ghost: a run as RunPurge found it
   `ip = R`.
 - `Tm` (Section 3.2) also holds **retry timers** `retry(e, m, a)`, armed when
   attempt `a − 1` fails (`step_results.rs:741-756`).
-- `h`, `v`, `ps₀`, `n`, `ζ`, and `Rc` are history variables. No rule reads them;
+- `h`, `v`, `ps₀`, `n`, `ζ`, `Rc`, and `par` are history variables. No rule reads them;
   only α does. Under H2 each pair `(e, m)` has at most one invocation in its
   life, so they need no reset.
 - **Command classes.** Every command in the log is a log commit with a
@@ -2354,7 +2377,7 @@ Rc : FlowId ⇀ Run                      -- ghost: a run as RunPurge found it
   | **Normal** | taken | a Dex commit with the same events | FlowStart, ChannelPublish, a first [STEP-START], a Complete rule, a TimersFired that fires a wait timer |
   | **Failure** | taken | stutter | a [STEP-START] that reuses a snapshot, [ATTEMPT-LOST], [RECOVER-INTERRUPT], [ATTEMPT-RETURNED], [ATTEMPT-HEARTBEAT], a TimersFired that fires only retry timers or stale timers |
   | **Bookkeeping** | not taken | stutter | applied, but does not advance `next_run_seq`: see below |
-  | **Rejected client input** | not taken | the Dex rejection of the same request, with the same event `rejected(input, err)` | a request of the word that apply rejects with an error, such as a PublishToChannel after the root Flow closed |
+  | **Rejected client input** | not taken | the Dex rejection of the same request, with the same event `rejected(input, err)` | a request of the word that apply rejects with an error, such as a PublishToChannel after the root Flow closed; also [ENGINE-REJECT] (Section 11.3), which is not a log command at all |
   | **Internal ignored or rejected** | not taken | stutter | [RESULT-STALE], [START-RETRY], a TimersFired whose timers are all gone (`dexzd-apply/src/command_handlers/step_commands.rs:194-196`), a stale StepAttemptQueued |
   | **Post-close housekeeping** | taken by the retention TimersFired; not by RunPurge | stutter, with `Rc` (see below) | the retention TimersFired, RunPurge |
 
@@ -2526,7 +2549,10 @@ index `j`. The task's counter becomes `j`, and `h(e, m) := max(h(e, m), j)`.
 When a task computes `(fx⃗, resp)`, `v(e, m)` becomes `Ran(fx⃗, resp)` unless
 it is already further. When a task becomes `Returned(resp)`, `v(e, m)`
 becomes `Returned(resp)`. The invocation's first `pend` sets
-`ps₀(e, m) := ζ(s)` once (Section 11.2).
+`ps₀(e, m) := ζ(s)` once (Section 11.2). The first [STEP-START] that computes
+a snapshot sets `par(e, m) := ⟨S[e].in, snap, S[e].loc, S[e].cr⟩` once. Every
+later attempt runs `U` on the same arguments up to `ctxA` (Section 11.4), so
+`par` stays valid after a cancel releases the snapshot.
 
 **[ZOMBIE-EFFECT]** (Worker) Events `[fx(f, (e, m), x)ʲ]`. The same rule for a
 task in `Z`. A zombie may also be dropped at any point, as [WORKER-ABANDON]
@@ -2741,10 +2767,9 @@ Events `τ`, or `[closed(...)]` as in Section 4.5.
 - D6 is needed for wait timers only. A retry timer that fires early changes
   timing, which the untimed theorem does not observe.
 
-**[CRASH]** (environment) Events `τ`. Enabled at any time while the server is
-up. Effect: every task of `Θ` moves to `Z`, and the rest of `η` is lost
-(Section 11.2). `R`, `Tm`, `τc`, and `Z` stay. No commit happens until
-[RECOVER].
+**[CRASH]** (environment) Events `τ`. Premise: `up`. Effect: `up := false`;
+every task of `Θ` moves to `Z`, and the rest of `η` is lost (Section 11.2).
+`R`, `Tm`, `τc`, and `Z` stay. No commit happens until [RECOVER].
 
 - A commit is atomic at its log batch: it happened or it did not.
 - [assumption] A log write with an unknown outcome is a crash. The pipeline
@@ -2752,8 +2777,8 @@ up. Effect: every task of `Θ` moves to `Z`, and the rest of `η` is lost
   client path halts the registry (`dexzd-engine/src/flow_coordination/client_operations/mod.rs:326-352`).
   Replay then decides whether the batch was committed.
 
-**[RECOVER]** (engine) Events `τ`. Enabled while the server is down. It ends
-the down period and runs the partition rebuild
+**[RECOVER]** (engine) Events `τ`. Premise: `¬up`. Effect: `up := true`, and
+the partition rebuild runs
 (`dexzd-engine/src/effects/partition_rebuild.rs:91-160`,
 `node_start.rs:450-467`):
 
@@ -2836,12 +2861,18 @@ a second start, and later a second close, which `E_adm` does not admit. A
 retry while the run is only marked purging still finds the directory entry
 and is deduplicated.
 
-- **HP, retries come before the purge.** Hypothesis on the input word: every
-  [START-RETRY] of a word reaches the server before the RunPurge of the run
-  that its request started commits. By default this leaves at least 7 days
-  after the close (Section 1.3). This plays the role that a "retry before
-  eviction" hypothesis plays for the request table. The fragment does not
-  use that table (D7).
+- **HP, retries come before the purge.** A predicate on runs: in the
+  committed log, every [START-RETRY] command is ordered before the RunPurge
+  of the run that its request started. It is a condition on the execution,
+  not a property of the input word. Arriving at the server first is not
+  enough. The registry submits a command to the log before its outcome is
+  durable (`dexzd-engine/src/flow_coordination/registry.rs:619-635`,
+  `registry.rs:651-654`). So a RunPurge can be ahead in the log while it is
+  not yet durable, and a retry that arrives then is ordered after it. Apply
+  then sees an empty directory and starts a second run
+  (`run_purge.rs:216-227`, `flow_start.rs:91-116`, `flow_start.rs:139-155`,
+  `flow_start.rs:305-308`). By default the purge comes at least 7 days after
+  the close (Section 1.3).
 
 - **Log commit versus run `seq`.** The engine always proposes the FlowStart
   and waits for its commit
@@ -2858,8 +2889,7 @@ lets the caller fix the request ID (`sdk-go/dex/client.go:510-512`,
 - Without `ignore_already_started_error`, or with another request ID, the
   request is rejected with ALREADY_EXISTS (`flow_start.rs:126-130`). That
   produces `rejected(...)`, which `E_adm` does not admit.
-- **`E_adm` with retries.** The input word is the sequence of committed
-  requests (D7). Its first StartFlow is the start of Section 5.3, and it is
+- **`E_adm` with retries.** The input word is the outcome word (D7). Its first StartFlow is the start of Section 5.3, and it is
   the first request of the word. Any number of [START-RETRY] requests may
   follow anywhere in the word. Each one is a request of the word that
   produces no event. The start uses the default reuse policy and sets
@@ -2870,6 +2900,18 @@ lets the caller fix the request ID (`sdk-go/dex/client.go:510-512`,
   other request ID stays fresh.
 - A client's re-sent PublishToChannel is a new request of the word (D7). The
   rule [PUBLISH] is unchanged.
+
+**[ENGINE-REJECT]** (engine, client input) Events `[rejected(input, err)]`.
+Premise: the server is up, and the request's Flow ID has no run in the
+Flow directory. In the fragment this happens only after RunPurge (Section
+1.3). Effect: none. There is no log entry and no stamp, so the partition
+clock does not move. The engine resolves the target run while it builds the
+command, and returns NOT_FOUND with FLOW_NOT_EXISTS before anything is
+proposed (`dexzd-engine/src/flow_coordination/client_operations/mod.rs:286-296`,
+`dexzd-engine/src/flow_coordination/read_operations/state_rows.rs:122-126`,
+`dexzd-engine/src/flow_coordination/flow_coordination_error.rs:104-110`). The
+event is the one apply's rejection of the same request produces (Section 1.3),
+and α maps this rule to that Dex rejection.
 
 ### 11.4 Observable events under failure
 
@@ -2918,7 +2960,7 @@ inserted event equals an earlier event of `u`.
 `Tr_free(P)` is the set of projected traces of Dex (Sections 5.4 and 5.5).
 `Tr_fail(P)` is the same for DexF, over runs that satisfy H1 to H4, D2, D6,
 and the non-empty task ID assumption, with inputs from `E_adm` extended by
-[START-RETRY] (Section 11.3) and words that satisfy HP.
+[START-RETRY] (Section 11.3) and runs that satisfy HP.
 
 **Lemma (no failures).** `Tr_free ⊆ Tr_fail`. Every Dex run is a DexF run
 with no failure transition. This is not literally trivial, because DexF
@@ -2926,8 +2968,8 @@ carries more state: attempt numbers, task IDs, `Z`, `I`, and `h`. The lemma
 must show that the extended rules agree with Dex on states that no failure
 reached.
 
-**Word mapping.** A committed DexF word may contain [START-RETRY] requests,
-and a Dex word of `E_adm` does not. For a committed DexF word `w`, write
+**Word mapping.** A DexF outcome word may contain [START-RETRY] requests,
+and a Dex word of `E_adm` does not. For an outcome word `w`, write
 `w↓` for the Dex word obtained by deleting its [START-RETRY] requests. Each
 deleted request produced no event.
 
@@ -2959,13 +3001,20 @@ FR, and FI:
   [RECOVER-INTERRUPT].
 - **F2, timers fire.** A wait timer or retry timer that stays armed and due
   is eventually fired.
-- **F3, Steps start.** As in Section 5.5, while the server is up.
+- **F3, Steps start.** As in Section 5.5: a pending invocation that stays
+  startable while `up` eventually starts.
+- **The server is eventually up for good.** By FF there are finitely many
+  [CRASH] transitions, and by FR each is followed by [RECOVER]. So every
+  fair run has a point after which `up` holds forever. F3, F5, and FI
+  constrain the run only from there; a down period only delays them.
 - **F4, Workers settle.** Every task of `Θ` eventually becomes `Returned`,
   leaves `Θ` by a failure rule, or is dropped by [WORKER-ABANDON]. Every
   zombie task eventually emits all its effects and returns, or is dropped
   after some prefix of them.
 - **F5, results commit.** Every `Returned` task of `Θ` or `Z` eventually
-  leaves by a Complete rule or by [RESULT-STALE].
+  leaves by a Complete rule or by [RESULT-STALE]. The commit needs `up`; a
+  zombie whose result can no longer reach any server is dropped instead
+  (F4).
 
 **Progress steps.** Every DexF transition other than [TICK], [START-RETRY],
 and post-close housekeeping (Section 11.2) is a progress step. [decision] A
@@ -2986,14 +3035,16 @@ Markers:
 - `δ` needs finitely many progress steps and the root Flow RUNNING. A Backoff
   invocation is not quiescent: its retry timer is armed, and F2 fires it. An
   element of `I` is not quiescent either (FI). So `δ` also needs no armed
-  timer of either kind, no task in `Θ` or `Z`, an empty `I`, and the server
-  up.
+  timer of either kind, no task in `Θ` or `Z`, an empty `I`, and `up` from
+  some point on. FF and FR rule out a fair run that stays down forever, so
+  `δ` never stands for a server that is down.
 
 Statement: under FF, FR, FI, F0 to F6 as above, H1 to H4, and HP, for every
-committed admissible word `w`, the set of `erase(t)` over the fair maximal
+admissible outcome word `w`, the set of `erase(t)` over the fair maximal
 traces `t` of DexF for `w` equals the set of fair maximal traces of Dex for
-`w↓`, markers included. A DexF run for `w` commits every request of `w`,
-retries included, and F0 applies to all of them. Its marker is decided by
+`w↓`, markers included. A DexF run **for `w`** gives every request of `w`,
+retries included, its final outcome in the order of `w`: an accepted
+commit, a rejection by apply, or [ENGINE-REJECT]. F0 applies to all of them. Its marker is decided by
 the progress steps defined above, and the Dex marker by Section 5.5 for
 `w↓`. The inclusion from Dex to DexF again comes from the Lemma: a fair Dex
 run for `w↓`, with the retries of `w` inserted where `w` puts them, is a fair
@@ -3047,7 +3098,8 @@ maps to a Dex [WORKER-EFFECT].
   bookkeeping of every invocation.
 - Every retry timer in `Tm`.
 - `Z`, `I`, and the timer service memory.
-- The ghosts `h`, `v`, `ps₀`, `n`, and `ζ`, after it has used them to build the
+- `up`, which Dex does not have.
+- The ghosts `h`, `v`, `ps₀`, `n`, `ζ`, `Rc`, and `par`, after it has used them to build the
   virtual tasks and to restore `ps` below.
 
 **Invocations.** α decides by whether the invocation holds a snapshot, not
@@ -3073,6 +3125,32 @@ by its phase. For each invocation `(e, m)`:
   `ip = P`, and `h(e, m) = 0`. It never started: either it is waiting for its
   first start, or it failed before any start and is in Backoff or pending
   again with `a ≥ 2`. No attempt of it emitted an effect.
+- **An invocation that a cancel or a close ended**, while some real task of
+  `(e, m)` is still in `Θ` or `Z`. The cancel cleared the invocation
+  (`dexzd-apply/src/command_handlers/flow_close.rs:323-328`,
+  `dexzd-apply/src/steps/step_decisions.rs:373-374`), released its
+  snapshot (`invocations.rs:344-373`), and only told the running Worker to
+  stop (`invocations.rs:376-381`). So `R` no longer shows it, yet a real task
+  may still emit, also its first effect. α then keeps a virtual task in `Θ`
+  for `(e, m)`, built from the ghosts alone: its arguments are `par(e, m)`,
+  and its phase comes from `v(e, m)` and `h(e, m)` as above. This is exactly
+  a canceled task of Dex: Section 4.4 keeps such a task in `Θ` until it is
+  dropped by [WORKER-ABANDON], and lets it take [WORKER-EFFECT] steps
+  meanwhile, also after the Flow closed.
+  - The virtual task leaves `Θ` when the last real task of `(e, m)` leaves
+    `Θ` and `Z`. If that task's result is ignored and `v(e, m)` is
+    `Returned`, the Dex step is [STEP-COMPLETE-STALE]; otherwise it is
+    [WORKER-ABANDON].
+  - If no real task of `(e, m)` is left at the cancel commit, as for an
+    invocation in Backoff with no zombie, the virtual task is abandoned right
+    after that commit.
+  - This matches F4 and F5 of Section 5.5. DexF's F4 and F5 make every real
+    task settle, so the virtual task leaves `Θ`: either after all its
+    effects and a stale return, or after a prefix of them.
+- **An invocation whose result committed.** Then `v(e, m)` is `Returned` and
+  `h(e, m)` is the length of `fx⃗(e, m)`. Every effect a remaining zombie
+  emits has an index at most `h(e, m)`, so it is repeated and a stutter. No
+  virtual task is needed.
 
 This is sound because a retrying invocation looks to apply exactly like a
 running one. It keeps its snapshot from the first start
@@ -3209,14 +3287,17 @@ proof (plan Section 4.2), and the inductiveness fuzz must test them.
 | The retry part of [RETRY-FIRE]: `B` to `P`, with or without a snapshot | stutter (`R` to `R`, or `P` to `P`) |
 | [ATTEMPT-LOST] before the first start (`P` to `B`, no snapshot) | stutter (`P` to `P`) |
 | Cancel or close of a Step whose attempts are all gone | the same commit, then [WORKER-ABANDON] of the virtual task |
+| Cancel or close of a Step with a real task left in `Θ` or `Z` | the same commit; the virtual task stays, built from `par`, `v`, and `h` |
+| The last real task of a canceled invocation leaves `Θ` and `Z` | [WORKER-ABANDON], or [STEP-COMPLETE-STALE] when `v` is `Returned` and the result was ignored |
 | A rejected client input of the word, such as a PublishToChannel after the close | the same Dex rejection, with the event `rejected(input, err)` |
+| [ENGINE-REJECT] of a PublishToChannel after RunPurge | Dex's apply rejection of the same request, with the same event |
 | A bookkeeping command, such as StepAttemptQueued | stutter |
 | Post-close housekeeping: the retention TimersFired, RunPurge | stutter; after RunPurge, α reads the run from `Rc` |
 | [CRASH], [RECOVER], [RECOVER-INTERRUPT], [ATTEMPT-LOST], [ATTEMPT-RETURNED], [ATTEMPT-HEARTBEAT], [RESULT-STALE], [START-RETRY] | stutter |
 
 A canceled invocation's virtual task follows Dex's rules for a canceled task:
 it may keep emitting effects, and it is abandoned once no real task of it is
-left.
+left (the canceled-invocation case above).
 
 **Open point outside the fragment.** A failure before the first start
 moves the invocation to the tail of its lock queues (Section 11.3). No Dex
@@ -3328,7 +3409,9 @@ hypothesis.
     service's due check and the stamping of its TimersFired command [owner,
     D6, 2026-11-10] (4.5, 11.1). The failure-free [TIMER-FIRE] rests on it
     too.
-48. The input word under failures is the sequence of committed requests. A
+48. The input word under failures is the outcome word: client requests in
+    the order of their final outcomes (accepted commit, apply rejection, or
+    [ENGINE-REJECT]). A
     re-sent PublishToChannel is a second request. A StartFlow retry carries
     the start's request ID and `ignore_already_started_error`, under the
     default reuse policy; it is the only exception to item 18 [owner, D7,
@@ -3378,8 +3461,16 @@ hypothesis.
     retention or purge. Under `E_adm` this changes no event: a publication
     is rejected with NOT_FOUND and FLOW_NOT_EXISTS before and after the
     purge (1.3).
-66. HP: every [START-RETRY] reaches the server before the RunPurge of the
-    run its request started commits (11.3, 11.5).
+66. HP, a predicate on runs: in the committed log, every [START-RETRY]
+    command is ordered before the RunPurge of the run its request started.
+    It is not a property of the input word (11.3, 11.5).
 67. Post-close housekeeping (the retention TimersFired and RunPurge) and
     [START-RETRY] are not progress steps; F2 does not apply to the retention
     timer [decision] (11.2, 11.5).
+68. [ENGINE-REJECT]: after RunPurge the engine rejects a request with
+    NOT_FOUND before any proposal; it has no log entry and no stamp, and it
+    produces the same event as apply's rejection (11.3).
+69. A canceled invocation keeps a virtual task, built from the ghost `par`
+    and from `v` and `h`, while any real task of it remains (11.6).
+70. `Σ_F` records whether the server is up; commit and engine rules need
+    it, and a fair run is eventually up for good (11.2, 11.5).
