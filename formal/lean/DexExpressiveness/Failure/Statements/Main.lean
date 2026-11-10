@@ -41,7 +41,20 @@ theorem freeFiniteTrace_isFailureFiniteTrace (program : Program σ)
     ∃ failureRequests failureTrace,
       IsFailureFiniteTrace program environment failureRequests failureTrace ∧
       eraseRetries failureRequests = requests ∧ failureTrace.map Obs.toDex = trace := by
-  sorry
+  obtain ⟨dexLabels, dexFinal, isDexExec, isRequests, isAdmissible⟩ := isFree
+  obtain ⟨labels, events, final, isExec, isMapped, isLiftedRequests, hasNoExhaustion,
+    hasNoNonRetryable⟩ :=
+    wpf5_free_exec program ignoresAttemptContext dexLabels (Config.initial σ) trace dexFinal
+      (invariant_initial program) wpf5_shape_initial
+      (by rw [wpf5_abstractConfig_initial program]; exact isDexExec)
+  rw [← isRequests] at isLiftedRequests
+  obtain ⟨isErased, isAdmissibleOutcome⟩ := wpf5_eraseRetries_lift environment requests isAdmissible
+  refine ⟨labels.filterMap Action.requestOf, events,
+    ⟨labels, final, isExec, hasNoExhaustion, hasNoNonRetryable, rfl, ?_⟩, ?_, isMapped⟩
+  · rw [isLiftedRequests]
+    exact isAdmissibleOutcome
+  · rw [isLiftedRequests]
+    exact isErased
 
 /-- **WP-F5, safety, forward** (spec §11.5): "For every program `P` of the
 fragment and every finite DexF trace `t` for an outcome word `w`, `erase(t)`
