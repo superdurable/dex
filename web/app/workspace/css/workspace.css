@@ -283,9 +283,24 @@
 /* ------------------------------ run mode: switcher | canvas | run drawer */
 
 .v2-shell.v2-run {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   height: 100%;
   font-family: var(--font-sans);
+}
+
+.v2-shell.v2-run > .page-breadcrumbs {
+  flex: none;
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ui-hairline);
+}
+
+.v2-shell.v2-run > .v2-run-body,
+.v2-shell.v2-run > .ai-body {
+  flex: 1 1 0;
+  height: auto;
 }
 
 .v2-run-body {

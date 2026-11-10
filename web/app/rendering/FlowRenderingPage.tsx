@@ -7,11 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog, FlowDefinitionEntry } from '@/lib/types';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
 import { ExperimentalBadge } from '../components/ExperimentalBadge';
+import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import { FlowDefinitionDiagnostics } from './FlowDefinitionDiagnostics';
 
 export function FlowRenderingPage() {
@@ -49,10 +49,7 @@ export function FlowRenderingPage() {
 
   return (
     <div className="page-shell flow-rendering-page v1-page">
-      <nav aria-label="Breadcrumb" className="breadcrumbs">
-        <Link to="/v1/flows">Flows</Link><span>/</span>
-        <span>Designs</span>
-      </nav>
+      <PageBreadcrumb pageName="Designs" />
       <section className="flow-rendering-header">
         <div>
           <h1>Designs <ExperimentalBadge className="page-title-badge" /></h1>

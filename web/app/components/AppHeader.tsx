@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { Inbox, PencilRuler, Plug } from 'lucide-react';
 import { readResponseJSON } from '@/lib/http';
 import { usePreferences } from '../providers';
@@ -15,7 +15,7 @@ import type { FlowDefinitionCatalog } from '@/lib/types';
 import { isWorkQueueApplicable } from '../catalog/applicability';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
 import { ExperimentalMenu, type ExperimentalPage } from './ExperimentalMenu';
-import { CONNECTORS_PATH, DESIGNS_PATH, FLOWS_PATH, WORK_QUEUE_PATH } from '../routes';
+import { CONNECTORS_PATH, DESIGNS_PATH, WORK_QUEUE_PATH } from '../routes';
 import { DexMark } from './DexMark';
 import { ThemeToggle } from './ThemeToggle';
 
@@ -116,7 +116,6 @@ export function AppHeader() {
           </span>
       </a>
       <nav className="header-nav" aria-label="Primary navigation">
-        <NavLink className="header-core-link" to={FLOWS_PATH}>Flows</NavLink>
         <span className="header-nav-spacer" />
         <span className="connection-pill" title="Dex server">
             <span className="connection-dot" />

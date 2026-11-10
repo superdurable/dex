@@ -11,6 +11,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { agentInboxPath, sessionRunPath } from '../routes';
 import '../workspace/css/workspace.css';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
+import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import { ACTIVE_STEP_TYPES_FIELD, newFilterRow, type FilterRow } from '../workspace/filters';
 import { flowStatusQueryValue } from '../workspace/runQuery';
 import { useFlowSearch } from '../workspace/useFlowSearch';
@@ -99,6 +100,7 @@ export function AgentInboxWorkspace() {
 
   return (
     <div className="v2-shell v2-run">
+      <PageBreadcrumb pageName={WORK_QUEUE_COPY.appName} />
       <div className="ai-body" data-selected={flowId !== '' ? 'true' : undefined}>
         <aside className="rsw ai-list" aria-label={AGENT_INBOX_COPY.heading}>
           <div className="sq-head">

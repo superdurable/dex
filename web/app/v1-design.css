@@ -372,6 +372,22 @@ body:has(.v1-page) {
   font-size: var(--ui-text-sm);
 }
 
+/* Pages other than a run lead back to Flows in the run breadcrumb's type. */
+.page-breadcrumbs {
+  min-width: 0;
+  margin: 0 0 16px;
+  align-items: baseline;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-md);
+}
+
+.page-breadcrumbs [aria-current='page'] {
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
 .run-identity-copy {
   display: flex;
   gap: 6px;
@@ -2531,17 +2547,6 @@ body:has(.v1-page) {
 
 .header-nav-spacer {
   flex: 1 1 auto;
-}
-
-.header-core-link {
-  padding: 6px 2px;
-  color: var(--ui-ink-3);
-  font-weight: 600;
-}
-
-.header-core-link:hover,
-.header-core-link.active {
-  color: var(--ui-ink);
 }
 
 /* One entry for the experimental pages, opened as a small menu. */

@@ -96,7 +96,7 @@ afterEach(() => {
 });
 
 describe('Dex Web header Designs entry', () => {
-  it('stays hidden while loading and always shows the Flows link', async () => {
+  it('stays hidden while loading', async () => {
     const pendingReads: Array<() => void> = [];
     vi.stubGlobal('fetch', vi.fn((input: string) => new Promise<Response>((resolve) => {
       if (input === '/api/v2/catalog') {
@@ -107,7 +107,6 @@ describe('Dex Web header Designs entry', () => {
     })));
     renderHeader('/v1/flows');
     expect(designsLink()).toBeNull();
-    expect(screen.getByRole('link', { name: 'Flows' }).getAttribute('href')).toBe('/v1/flows');
     await act(async () => { pendingReads.forEach((release) => release()); });
     await waitFor(() => expect(designsLink()).not.toBeNull());
   });
@@ -167,7 +166,7 @@ describe('Dex Web header experimental pages', () => {
     expect(items.map((item) => item.querySelector('b')?.textContent)).toEqual(['Designs', 'Work Queue', 'Connectors']);
     expect(items.every((item) => (item.querySelector('small')?.textContent ?? '').length > 0)).toBe(true);
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
-    expect([...nav.querySelectorAll(':scope > a')].map((link) => link.textContent)).toEqual(['Flows']);
+    expect(nav.querySelectorAll(':scope > a')).toHaveLength(0);
   });
 
   it('offers only Designs without the operator API', async () => {
@@ -219,6 +218,14 @@ describe('Dex Web header logo', () => {
     expect(logo.getAttribute('href')).toBe('https://superdurable.io');
     expect(logo.getAttribute('target')).toBeNull();
     expect(screen.getAllByRole('link', { name: 'Super Durable home' })).toHaveLength(1);
-    expect(screen.getByRole('link', { name: 'Flows' }).getAttribute('href')).toBe('/v1/flows');
+  });
+});
+
+describe('Dex Web header Flows link', () => {
+  it.each(['/v1/flows', '/v1/work-queue', '/v1/rendering', '/v1/connectors'])('is absent on %s, where page breadcrumbs lead back instead', async (path) => {
+    stubOperatorDexWeb({ flows: 1, connectors: 1 });
+    renderHeader(path);
+    await waitFor(() => expect(experimentalMenuButton()).not.toBeNull());
+    expect(screen.queryByRole('link', { name: 'Flows' })).toBeNull();
   });
 });

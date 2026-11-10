@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { readResponseJSON } from '@/lib/http';
 import { useTheme, type Theme } from '../theme';
+import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import '../workspace/css/workspace.css';
 import {
   LIST_WIDTH_DEFAULT,
@@ -263,7 +264,12 @@ export function ConnectorsPage() {
   };
 
   if (error && !catalog) {
-    return <div className="v2-shell v2-run v2-connectors"><p className="v2-empty v2-error" role="alert">{error}</p></div>;
+    return (
+      <div className="v2-shell v2-run v2-connectors">
+        <PageBreadcrumb pageName={CONNECTORS_COPY.heading} />
+        <p className="v2-empty v2-error" role="alert">{error}</p>
+      </div>
+    );
   }
   if (!catalog) return <div className="page-loading">{CONNECTORS_COPY.loading}</div>;
   const setupTabs = selected && session ? connectorSetupTabs(selected, Boolean(session.entrypointUrl)) : [];
@@ -277,6 +283,7 @@ export function ConnectorsPage() {
   return (
     <ConnectorStudioFrameThemeContext.Provider value={theme}>
       <div className="v2-shell v2-run v2-connectors" ref={shellRef} style={paneStyle}>
+        <PageBreadcrumb pageName={CONNECTORS_COPY.heading} />
         <div className="v2-run-body" ref={bodyRef}>
           <aside aria-label={CONNECTORS_COPY.heading} className="rsw" data-collapsed={listPane.isCollapsed ? 'true' : undefined}>
             {listPane.isCollapsed ? (

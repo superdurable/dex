@@ -161,6 +161,15 @@ describe('Work Queue search', () => {
     expect(screen.queryByText('Nothing open on this page.')).toBeNull();
   });
 
+  it('leads back to Flows with a breadcrumb', async () => {
+    stubServer(() => []);
+    renderQueue();
+
+    const breadcrumb = await screen.findByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(breadcrumb).getByRole('link', { name: 'Flows' }).getAttribute('href')).toBe('/v1/flows');
+    expect(breadcrumb.querySelector('[aria-current="page"]')?.textContent).toBe('Work Queue');
+  });
+
   it('keeps its own empty text when no Step filter ran', async () => {
     stubServer(() => []);
     renderQueue();
