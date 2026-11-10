@@ -16,10 +16,16 @@ mock with the mock key; a refused proxy stops anything else.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from dex_agents.testing import wait_for_agent_snapshot
-from tests.claude_test_agent import PERMISSION_MODE_ENVIRONMENT_VARIABLE
+from tests.claude_test_agent import (
+    BASH_OUTPUT_FILE_NAME,
+    ORIGINAL_BASH_COMMAND,
+    PERMISSION_MODE_ENVIRONMENT_VARIABLE,
+    REWRITTEN_BASH_COMMAND,
+)
 from tests.conftest import MOCK_API_KEY, RealClaudeCliHarness
 from tests.fake_claude_cli import CONTINUE_PROMPT
 from tests.fake_ledger import FakeLedgerProvider
@@ -169,6 +175,31 @@ async def test_real_cli_resumes_repeatedly_and_returns_a_rejection_as_plain_text
 
     assert harness.invocations.count("publish") == 3
     assert len(_model_requests(harness)) == 2 * len(rounds)
+    _assert_only_the_mock_was_reached(harness)
+
+
+async def test_real_cli_runs_an_approved_bash_call_with_the_hook_rewritten_input(
+    real_cli_harness: RealClaudeCliHarness,
+) -> None:
+    harness = real_cli_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, f"call Bash {json.dumps({'command': ORIGINAL_BASH_COMMAND})}"
+    )
+    interrupt = await harness.wait_for_pending_interrupt(session_id)
+    assert interrupt.tool_name == "Bash"
+    assert json.loads(interrupt.arguments)["command"] == REWRITTEN_BASH_COMMAND
+    output_file = harness.state_dir / "workspace" / BASH_OUTPUT_FILE_NAME
+    assert not output_file.exists()
+
+    # The resumed CLI skips the rewriting hook, so only the replayed decision carries that input.
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert output_file.read_text() == "rewritten-input\n"
+    assert snapshot.messages[-1].text == "Bash: rewritten-input"
     _assert_only_the_mock_was_reached(harness)
 
 

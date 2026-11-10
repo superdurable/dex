@@ -21,6 +21,9 @@ result keys ``modelUsage`` by the requested model with its provider. A hook deni
 reaches the model as ``PreToolUse:<tool> hook error: <reason>``. With
 ``RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE`` set, a resumed call skips the hooks
 and asks ``can_use_tool``, as the real CLI can when it starts the call early.
+Like the real CLI, a resumed call starts from the model's input, not the input
+the hooks rewrote before the deferral, and ``can_use_tool`` may answer with
+``updatedInput``.
 
 A scripted model reads commands from the last text block of the turn's prompt:
 
@@ -30,6 +33,8 @@ A scripted model reads commands from the last text block of the turn's prompt:
   reply with several tool uses. A refused call that must run alone is
   called again by itself. ``;; pause <gate>`` waits at a gate before
   answering, and ``;; fail`` fails once every tool call has a result.
+  ``;; reuse <tool> <json>`` then calls that tool under the tool use ID of
+  the turn's first call and answers ``reused <tool>: <result>``.
 * ``stall <gate>`` calls ``lookup``, streams text, and waits at a gate.
 * An ``Agent`` tool call runs a subagent: one assistant message, answered by
   ``SUBAGENT_RESPONSE_MODEL_NAME``, with ``parent_tool_use_id`` set to the call
@@ -90,6 +95,7 @@ class ToolRequest:
     request_index: int
     tool_name: str
     tool_input: dict[str, Any]
+    reused_tool_use_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -356,6 +362,8 @@ class ScriptedModel:
         summary = "; ".join(
             f"{request.tool_name}: {results[request.request_index][0]}" for request in requests
         )
+        if after_tools.startswith("reuse "):
+            return _reuse_first_tool_use_id(after_tools, tail)
         if after_tools == "fail":
             raise ScriptedModelFailure("scripted failure after tool calls")
         if after_tools.startswith("pause "):
@@ -507,9 +515,17 @@ class FakeClaudeCli:
     async def _resume_deferred_tool_use(self, pending: ToolUse) -> None:
         transcript = self._require_transcript()
         assistant_entry = transcript.assistant_entry_with_tool_use(pending.tool_use_id)
+        # Like the real CLI, the resumed call starts from the model's input, not the hooks'.
+        model_input = next(
+            block["input"]
+            for block in _content_blocks(assistant_entry)
+            if block.get("type") == "tool_use" and block.get("id") == pending.tool_use_id
+        )
+        pending = ToolUse(pending.tool_use_id, pending.cli_tool_name, model_input)
         if os.environ.get(RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE):
             # The real CLI sometimes starts the resumed call before its hooks exist.
-            is_permitted, message = await self._ask_permission(pending)
+            is_permitted, message, permitted_input = await self._ask_permission(pending)
+            pending = ToolUse(pending.tool_use_id, pending.cli_tool_name, permitted_input)
             if is_permitted:
                 output, is_error = await self._execute_tool(pending)
                 self._append_tool_result(assistant_entry, pending, output, is_error=is_error)
@@ -545,7 +561,8 @@ class FakeClaudeCli:
                 return
             tool_uses = [
                 ToolUse(
-                    f"toolu_{request.request_index}_{uuid.uuid4().hex[:12]}",
+                    request.reused_tool_use_id
+                    or f"toolu_{request.request_index}_{uuid.uuid4().hex[:12]}",
                     self._require_mcp().cli_tool_name(request.tool_name),
                     request.tool_input,
                 )
@@ -600,10 +617,11 @@ class FakeClaudeCli:
             self._append_tool_result(assistant_entry, tool_use, denial, is_error=True)
             return None
         if decision != "allow":
-            is_permitted, message = await self._ask_permission(tool_use)
+            is_permitted, message, permitted_input = await self._ask_permission(tool_use)
             if not is_permitted:
                 self._append_tool_result(assistant_entry, tool_use, message, is_error=True)
                 return None
+            tool_use = ToolUse(tool_use.tool_use_id, tool_use.cli_tool_name, permitted_input)
         output, is_error = await self._execute_tool(tool_use)
         self._append_tool_result(assistant_entry, tool_use, output, is_error=is_error)
         return None
@@ -659,11 +677,13 @@ class FakeClaudeCli:
                 reason = specific.get("permissionDecisionReason")
         return decision, reason, tool_input
 
-    async def _ask_permission(self, tool_use: ToolUse) -> tuple[bool, str]:
+    async def _ask_permission(self, tool_use: ToolUse) -> tuple[bool, str, dict[str, Any]]:
+        """Return whether the call may run, its denial message, and the input to run."""
         if self._arguments.permission_mode == "bypassPermissions":
-            return True, ""
+            return True, "", tool_use.tool_input
         if self._arguments.permission_prompt_tool != "stdio":
-            return False, f"Claude requested permissions to use {tool_use.cli_tool_name}."
+            message = f"Claude requested permissions to use {tool_use.cli_tool_name}."
+            return False, message, tool_use.tool_input
         answer = await self._channel.request(
             {
                 "subtype": "can_use_tool",
@@ -675,8 +695,11 @@ class FakeClaudeCli:
             }
         )
         if answer.get("behavior") == "allow":
-            return True, ""
-        return False, str(answer.get("message", ""))
+            updated_input = answer.get("updatedInput")
+            if not isinstance(updated_input, dict):
+                updated_input = tool_use.tool_input
+            return True, "", updated_input
+        return False, str(answer.get("message", "")), tool_use.tool_input
 
     async def _execute_tool(self, tool_use: ToolUse) -> tuple[str, bool]:
         if tool_use.cli_tool_name.startswith("mcp__"):
@@ -941,6 +964,25 @@ def _parse_tool_requests(script: str) -> list[ToolRequest]:
         _, tool_name, tool_input = call.split(" ", 2)
         requests.append(ToolRequest(request_index, tool_name, json.loads(tool_input)))
     return requests
+
+
+def _reuse_first_tool_use_id(after_tools: str, tail: list[dict[str, Any]]) -> ModelAction:
+    _, tool_name, tool_input = after_tools.split(" ", 2)
+    first_tool_use_id = next(
+        str(block["id"])
+        for entry in tail
+        for block in _content_blocks(entry)
+        if block.get("type") == "tool_use"
+    )
+    results = [
+        str(block.get("content", ""))
+        for entry in tail
+        for block in _content_blocks(entry)
+        if block.get("type") == "tool_result" and block.get("tool_use_id") == first_tool_use_id
+    ]
+    if len(results) < 2:
+        return ToolCalls([ToolRequest(0, tool_name, json.loads(tool_input), first_tool_use_id)])
+    return FinalAnswer(f"reused {tool_name}: {results[-1]}")
 
 
 def _tool_results_by_request(tail: list[dict[str, Any]]) -> dict[int, tuple[str, bool]]:
