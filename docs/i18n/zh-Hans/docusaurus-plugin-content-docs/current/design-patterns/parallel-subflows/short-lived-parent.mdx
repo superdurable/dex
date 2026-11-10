@@ -7,7 +7,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # 高级：短生命周期父 Flow
 
-排空当前工作后完成父 Flow，同时避免与新请求产生竞态。
+处理完排队的请求后完成父 Flow，不会丢掉最后时刻到达的请求。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 

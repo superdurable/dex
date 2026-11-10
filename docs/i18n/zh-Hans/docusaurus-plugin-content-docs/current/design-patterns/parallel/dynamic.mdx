@@ -7,6 +7,8 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # 动态并行 Step
 
+启动同一 Step 类型的一组 execution，数量在运行时决定。
+
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **Init** 在运行时为每个输入项创建一个 **DoWork** movement。Dex 并发运行这些 execution。每个 worker 随机等待一小段时间，模拟耗时不同的工作，也让人看到它们完成的先后不固定。并行数量要到运行时才知道时，使用这个模式。
