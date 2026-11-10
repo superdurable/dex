@@ -6,6 +6,38 @@ for the Dex SDK and framework versions each release supports.
 
 ## Unreleased
 
+### Images
+
+- Python and TypeScript cores: user messages and tool results can carry
+  images. Session state stores only an **AgentImageReference**
+  (`{"type": "image", "uri", "mime_type", "sha256", "size_bytes"}`); the bytes
+  live in a **MediaStore**, one object per image under
+  `<prefix>/sha256/<sha256>`, so uploads are idempotent and a replay reads the
+  same bytes.
+- New fields, all empty by default: **AgentUserMessage.images**,
+  **AgentMessage.images** (display copy), **AgentToolCall.images**,
+  **ToolExecutionResult.images**, and **FrameworkMessage.images**. Every
+  writer now stores `"images": []`; earlier Workers ignore the field, so send
+  images only after every Worker of the Flow type runs 0.5.0.
+- **S3MediaStore** (`dex_agents.s3`, extra `dex-agents[s3]`;
+  `@superdurable/dex-agents/s3`, optional peer `@aws-sdk/client-s3`) keeps
+  images in AWS S3 or an S3-compatible bucket, with credentials from the
+  standard AWS chain. **InMemoryMediaStore** is for tests.
+- PNG, JPEG, GIF, and WebP, detected from the bytes, up to **MAX_IMAGE_BYTES**
+  (`maxImageBytes`, 3,750,000 bytes, 5,000,000 bytes as base64) each, and at
+  most **MAX_IMAGES_PER_MESSAGE** (`maxImagesPerMessage`, 20) per message or
+  tool result. **ImageValidationError** names what is wrong.
+- `send_user_message` returns `false` for invalid images, or for images when
+  the runner does not implement **ImageUserMessageBuilder**
+  (`buildUserMessageWithImages`). No built-in runner implements it yet; image
+  input for Stepwise and the framework adapters comes later.
+- Runners read bytes with **load_images** (`loadImages`) and may choose them
+  with **collect_turn_images** (`collectTurnImages`).
+- Go core: no image input. Its values carry `images`, so a value written by
+  another core round-trips, and `send_user_message` returns `false` for a
+  message with images.
+- Shared cases: `agents/conformance/images.json`.
+
 ### Fixed
 
 - Python and TypeScript Claude Agent SDK adapters: when the Claude Code CLI

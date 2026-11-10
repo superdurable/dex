@@ -611,6 +611,9 @@ export class AgentSessionTransitions {
         toolOutput: frameworkMessage.toolOutput,
         frameworkItem: frameworkMessage.frameworkItem,
         createdAt,
+        ...(frameworkMessage.images === undefined || frameworkMessage.images.length === 0
+          ? {}
+          : { images: frameworkMessage.images }),
       };
       const key = messageSequenceKey(nextMessageSequence);
       if (messageChunkOverheadBytes + agentMessageBytes(message) > this.config.messageChunkMaxBytes) {
@@ -752,7 +755,7 @@ export class AgentSessionTransitions {
       messageSequenceKey(sequence),
       messages.map((message) => message.text).join("\n"),
       () => {
-        const userMessages = messages.map((message) => this.runner.buildUserMessage(message.text));
+        const userMessages = messages.map((message) => this.buildStoredUserMessage(message));
         if (userMessages.some((userMessage) => userMessage.role !== "user")) {
           throw new TypeError("buildUserMessage must return a message with role user");
         }
@@ -776,6 +779,20 @@ export class AgentSessionTransitions {
         return this.goToRunModel(context);
       },
     );
+  }
+
+  /** Builds the stored item of one user message; the session sets its images itself. */
+  private buildStoredUserMessage(message: AgentUserMessage): FrameworkMessage {
+    const images = message.images ?? [];
+    if (images.length === 0) {
+      return this.runner.buildUserMessage(message.text);
+    }
+    // A runner redeployed without image support still stores the images, for display.
+    const built =
+      this.runner.buildUserMessageWithImages === undefined
+        ? this.runner.buildUserMessage(message.text)
+        : this.runner.buildUserMessageWithImages(message.text, images);
+    return { ...built, images };
   }
 
   /**

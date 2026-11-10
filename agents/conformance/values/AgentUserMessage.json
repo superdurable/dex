@@ -6,26 +6,32 @@
     {
       "name": "full",
       "description": "A plan-mode message.",
-      "wire": "{\"plan_mode\":true,\"text\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\"}",
-      "canonical": "{\"plan_mode\":true,\"text\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\"}"
+      "wire": "{\"images\":[],\"plan_mode\":true,\"text\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\"}",
+      "canonical": "{\"images\":[],\"plan_mode\":true,\"text\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\"}"
     },
     {
       "name": "defaults",
       "description": "An ordinary message.",
-      "wire": "{\"plan_mode\":false,\"text\":\"hello\"}",
-      "canonical": "{\"plan_mode\":false,\"text\":\"hello\"}"
+      "wire": "{\"images\":[],\"plan_mode\":false,\"text\":\"hello\"}",
+      "canonical": "{\"images\":[],\"plan_mode\":false,\"text\":\"hello\"}"
+    },
+    {
+      "name": "images",
+      "description": "A message with two images.",
+      "wire": "{\"images\":[{\"mime_type\":\"image/png\",\"sha256\":\"4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\",\"size_bytes\":68,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\"},{\"mime_type\":\"image/jpeg\",\"sha256\":\"a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7\",\"size_bytes\":3750000,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7\"}],\"plan_mode\":false,\"text\":\"What is in these?\"}",
+      "canonical": "{\"images\":[{\"mime_type\":\"image/png\",\"sha256\":\"4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\",\"size_bytes\":68,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\"},{\"mime_type\":\"image/jpeg\",\"sha256\":\"a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7\",\"size_bytes\":3750000,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7\"}],\"plan_mode\":false,\"text\":\"What is in these?\"}"
     },
     {
       "name": "released-0.1.0",
       "description": "As dex-agents 0.1.0 wrote it.",
       "wire": "{\"text\":\"hello\"}",
-      "canonical": "{\"plan_mode\":false,\"text\":\"hello\"}"
+      "canonical": "{\"images\":[],\"plan_mode\":false,\"text\":\"hello\"}"
     },
     {
       "name": "explicit-null-plan-mode",
       "description": "An explicit null plan_mode reads as false.",
       "wire": "{\"text\":\"hello\",\"plan_mode\":null}",
-      "canonical": "{\"plan_mode\":false,\"text\":\"hello\"}"
+      "canonical": "{\"images\":[],\"plan_mode\":false,\"text\":\"hello\"}"
     }
   ]
 }

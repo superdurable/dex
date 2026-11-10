@@ -61,6 +61,7 @@ import {
   type ToolTaskStarted,
   type TurnCompleted,
 } from "./agent-framework-runner.js";
+import { toolResultImages } from "./agent-media.js";
 import { buildPlanExecutionMessage, planningTurnToolRejection, planStatusAfterWrite } from "./agent-plans.js";
 import { agentSessionStartInputCodec, turnFailureRouteInputCodec } from "./agent-session-codecs.js";
 import {
@@ -1100,6 +1101,7 @@ export class ToolCallStep implements Step<string> {
           status: "succeeded",
           output: outcome.output,
           truncatedOutputBytes: outcome.truncatedOutputBytes ?? null,
+          ...toolResultImages(outcome.images),
         };
         toolCallSpan.recordFinished(succeeded);
         transitions.finishToolCall(context, succeeded, events);

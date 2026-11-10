@@ -66,6 +66,25 @@ export {
   type ToolCallsRequested,
 } from "./agent-framework-runner.js";
 export {
+  ImageValidationError,
+  InMemoryMediaStore,
+  MediaStoreError,
+  buildImageReference,
+  collectTurnImages,
+  detectImageMimeType,
+  imageUri,
+  loadImages,
+  maxImageBytes,
+  maxImageUriLength,
+  maxImagesPerMessage,
+  requireStoreImageReference,
+  supportedImageMimeTypes,
+  validateImageReference,
+  validateImageReferences,
+  verifyImageBytes,
+  type MediaStore,
+} from "./agent-media.js";
+export {
   createAgentSessionFlow,
   type AgentSessionFlow,
   type AgentSessionOptions,
@@ -102,6 +121,7 @@ export {
   turnSteeredNoteHeader,
   type AgentEvent,
   type AgentEventType,
+  type AgentImageReference,
   type AgentInterrupt,
   type AgentInterruptKind,
   type AgentInterruptResolution,

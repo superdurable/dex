@@ -14,6 +14,7 @@ import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framewo
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import type {
   AgentEvent,
+  AgentImageReference,
   AgentInterrupt,
   AgentMessagesPage,
   AgentSnapshot,
@@ -97,10 +98,22 @@ export class AgentSessionTestClient {
    * @param sessionId - Session Flow ID.
    * @param text - Message text.
    * @param planMode - Whether the message starts a planning turn. Defaults to `false`.
-   * @returns The RPC result: `false` for blank text, or for a `planMode` message when plan mode is off.
+   * @param images - Images of the message, uploaded first; none by default. The client does not check them, so a
+   * test can send references that the session refuses. Since 0.5.0.
+   * @returns The RPC result: `false` for blank text, for a `planMode` message when plan mode is off, or for images
+   * that the session refuses.
    */
-  public sendUserMessage(sessionId: string, text: string, planMode = false): Promise<boolean> {
-    return this.client.invokeRPC(this.flow.sendUserMessage, sessionId, { text, planMode });
+  public sendUserMessage(
+    sessionId: string,
+    text: string,
+    planMode = false,
+    images: readonly AgentImageReference[] = [],
+  ): Promise<boolean> {
+    return this.client.invokeRPC(this.flow.sendUserMessage, sessionId, {
+      text,
+      planMode,
+      ...(images.length > 0 ? { images } : {}),
+    });
   }
 
   /**

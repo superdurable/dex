@@ -12,10 +12,10 @@ with the M2 additions in
 [agents-m2-stepwise.md](../../docs/design/plan/agents-m2-stepwise.md).
 
 The files are generated from the Python core and checked against the
-TypeScript core, except `connector_tools.json`, which is hand-written and read
-by both cores' connector tool tests, and `cli_config.json`, which is
-hand-written for the CLI runtimes in [`../cli`](../cli). A core passes when it
-passes all four parts below.
+TypeScript core, except `connector_tools.json` and `images.json`, which are
+hand-written and read by both cores' connector tool and image tests, and
+`cli_config.json`, which is hand-written for the CLI runtimes in
+[`../cli`](../cli). A core passes when it passes all four parts below.
 
 | Path | What it fixes |
 | --- | --- |
@@ -27,6 +27,7 @@ passes all four parts below.
 | [`session_graph_renderings.json`](session_graph_renderings.json) | The hash of the graph text each core must render |
 | [`connector_tools.json`](connector_tools.json) | Connector tools: argument checks against `inputSchema`, refused schemas, branch mapping, result text, and truncation. Hand-written, not generated |
 | [`cli_config.json`](cli_config.json) | CLI configuration: YAML parsing, schema errors, URL checks, file defaults, session settings narrowing, operation names, and the shell allow list. Hand-written for the CLI runtimes; see [`../cli/README.md`](../cli/README.md) |
+| [`images.json`](images.json) | Image references: byte checks and the size limit, reference validation and its error texts, list limits, and how S3 and in-memory stores name objects. Hand-written, not generated |
 | [`generate.py`](generate.py) | Writes all of the above from the Python core |
 | [`session_graph.py`](session_graph.py) | Derives the session graph from the Python core's registered Flow and source |
 
