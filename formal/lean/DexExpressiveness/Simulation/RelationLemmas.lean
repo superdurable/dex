@@ -135,6 +135,165 @@ theorem IsSimulationState.holdsAtMostOneEffect {program : Program} {lConfig : L.
   fun task isMember =>
     pendingEffects_length_le_one program task (state.dexInvariant.tasksComputed task isMember)
 
+/-! ## The simulating actions of each case -/
+
+/-- With unique task IDs, the lookup of a task's ID finds the task. -/
+theorem findTask?_of_mem {config : Dex.Config signature} (tasksDistinct : TasksAreDistinct config)
+    {task : Dex.Task signature} (isMember : task ∈ config.tasks) :
+    config.findTask? task.id = some task := by
+  cases foundCase : config.findTask? task.id with
+  | none =>
+    have isRejected := List.find?_eq_none.mp foundCase task isMember
+    simp at isRejected
+  | some found =>
+    rw [eq_of_isFound config task.id task found tasksDistinct isMember rfl foundCase]
+
+/-- The lookup of `stepOfThread` finds the active Step whose input belongs to
+the thread. -/
+theorem RunningRelated.find?_activeStep {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (record : Dex.StepRecord signature) (isRecord : record ∈ run.steps)
+    (isActive : record.phase.isActive = true) :
+    run.steps.find? (fun candidate =>
+      candidate.phase.isActive &&
+        decide (threadOfInput candidate.input = threadOfInput record.input)) = some record := by
+  cases findCase : run.steps.find? (fun candidate =>
+      candidate.phase.isActive &&
+        decide (threadOfInput candidate.input = threadOfInput record.input)) with
+  | none =>
+    have isRejected := List.find?_eq_none.mp findCase record isRecord
+    simp [isActive] at isRejected
+  | some found =>
+    have isFoundMember := List.mem_of_find?_eq_some findCase
+    have holds := List.find?_some findCase
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at holds
+    rw [related.activeStepsHaveDistinctThreads found isFoundMember record isRecord holds.1
+      isActive holds.2]
+
+/-- `stepOfThread` finds the active Step that carries the thread. -/
+theorem RunningRelated.stepOfThread_eq {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run) (hasRun : dexConfig.run = some run)
+    (record : Dex.StepRecord signature) (isRecord : record ∈ run.steps)
+    (isActive : record.phase.isActive = true) :
+    ∃ task, stepOfThread dexConfig (threadOfInput record.input) = some (record, task) := by
+  simp only [stepOfThread, hasRun, related.find?_activeStep record isRecord isActive]
+  split <;> exact ⟨_, rfl⟩
+
+/-- `stepOfThread` finds the active Step that carries the thread, with the
+task that runs its invocation. -/
+theorem RunningRelated.stepOfThread_running {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run) (hasRun : dexConfig.run = some run)
+    (tasksDistinct : TasksAreDistinct dexConfig)
+    (record : Dex.StepRecord signature) (isRecord : record ∈ run.steps)
+    (isActive : record.phase.isActive = true) (method : Dex.Method)
+    (task : Dex.Task signature) (isTask : task ∈ dexConfig.tasks)
+    (hasInvocation : record.invocation = some { method := method, state := .running task.id }) :
+    stepOfThread dexConfig (threadOfInput record.input) = some (record, some task) := by
+  simp only [stepOfThread, hasRun, related.find?_activeStep record isRecord isActive,
+    hasInvocation, findTask?_of_mem tasksDistinct isTask]
+
+/-- The simulating action of a thread that begins an action is the
+[STEP-START] of the Step that carries it. -/
+theorem simulatingActions_begin {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run) (hasRun : dexConfig.run = some run)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    (record : Dex.StepRecord signature) (isRecord : record ∈ run.steps)
+    (isActive : record.phase.isActive = true) (isThread : threadOfInput record.input = tid)
+    (isPending : thread.phase = .bootPending ∨ thread.phase = .ready ∨
+      ∃ outcome, thread.phase = .woken outcome) :
+    simulatingActions program lConfig dexConfig (.thread tid) = [.stepStart record.id] := by
+  subst isThread
+  obtain ⟨task, isStep⟩ := related.stepOfThread_eq hasRun record isRecord isActive
+  simp only [simulatingActions, isFound, isStep]
+  rcases isPending with isPhase | isPhase | ⟨outcome, isPhase⟩ <;> simp [isPhase]
+
+/-- The simulating actions of `out(a)`: the Worker step that runs the handler
+if it has not run, then the [WORKER-EFFECT] of the thread's task. -/
+theorem simulatingActions_deliver {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run) (hasRun : dexConfig.run = some run)
+    (tasksDistinct : TasksAreDistinct dexConfig)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    (record : Dex.StepRecord signature) (isRecord : record ∈ run.steps)
+    (isActive : record.phase.isActive = true) (isThread : threadOfInput record.input = tid)
+    (method : Dex.Method) (task : Dex.Task signature) (isTask : task ∈ dexConfig.tasks)
+    (hasInvocation : record.invocation = some { method := method, state := .running task.id })
+    (effect : Val) (isEmitting : thread.phase = .emitting effect) :
+    simulatingActions program lConfig dexConfig (.thread tid) =
+      runTaskActions task ++ [.workerEffect task.id] := by
+  subst isThread
+  simp only [simulatingActions, isFound, isEmitting,
+    related.stepOfThread_running hasRun tasksDistinct record isRecord isActive method task isTask
+      hasInvocation]
+
+/-- The simulating actions of a thread that completes an action: the Worker
+steps that run and return the handler as far as they have not happened, then
+the Complete of the thread's task. -/
+theorem simulatingActions_complete {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run) (hasRun : dexConfig.run = some run)
+    (tasksDistinct : TasksAreDistinct dexConfig)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    (record : Dex.StepRecord signature) (isRecord : record ∈ run.steps)
+    (isActive : record.phase.isActive = true) (isThread : threadOfInput record.input = tid)
+    (method : Dex.Method) (task : Dex.Task signature) (isTask : task ∈ dexConfig.tasks)
+    (hasInvocation : record.invocation = some { method := method, state := .running task.id })
+    (isCompleting : thread.phase = .bootRunning ∨ (∃ loaded, thread.phase = .running loaded) ∨
+      thread.phase = .emitted ∨ thread.phase = .waitStarted ∨
+      ∃ outcome, thread.phase = .resuming outcome) :
+    simulatingActions program lConfig dexConfig (.thread tid) =
+      returnTaskActions task ++ [.stepComplete task.id] := by
+  subst isThread
+  simp only [simulatingActions, isFound,
+    related.stepOfThread_running hasRun tasksDistinct record isRecord isActive method task isTask
+      hasInvocation]
+  rcases isCompleting with isPhase | ⟨loaded, isPhase⟩ | isPhase | isPhase | ⟨outcome, isPhase⟩ <;>
+    simp [isPhase]
+
+/-- After the close, a late emit is held by a task, and `simulatingActions`
+picks the first task that holds it. -/
+theorem ClosedRelated.exists_lateTask {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (closed : ClosedRelated program lConfig dexConfig run) {index : Nat} {effect : Val}
+    (isLate : lConfig.lateEmits[index]? = some effect) :
+    ∃ task, dexConfig.tasks.find? (fun candidate =>
+        (pendingEffects ⟦program⟧ candidate).contains effect) = some task ∧
+      task ∈ dexConfig.tasks ∧ effect ∈ pendingEffects ⟦program⟧ task := by
+  have isHeld : effect ∈ dexConfig.tasks.flatMap (pendingEffects ⟦program⟧) :=
+    closed.lateEmits.mem_iff.mpr (List.mem_of_getElem? isLate)
+  obtain ⟨holder, isHolder, holdsEffect⟩ := List.mem_flatMap.mp isHeld
+  cases findCase : dexConfig.tasks.find? (fun candidate =>
+      (pendingEffects ⟦program⟧ candidate).contains effect) with
+  | none =>
+    have isRejected := List.find?_eq_none.mp findCase holder isHolder
+    simp [holdsEffect] at isRejected
+  | some task =>
+    exact ⟨task, rfl, List.mem_of_find?_eq_some findCase, by
+      simpa using List.find?_some findCase⟩
+
+/-- The simulating actions of the delivery of a late emit. -/
+theorem simulatingActions_lateDeliver {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {index : Nat} {effect : Val}
+    (isLate : lConfig.lateEmits[index]? = some effect) {task : Dex.Task signature}
+    (isPicked : dexConfig.tasks.find? (fun candidate =>
+      (pendingEffects ⟦program⟧ candidate).contains effect) = some task) :
+    simulatingActions program lConfig dexConfig (.lateDeliver index) =
+      runTaskActions task ++ [.workerEffect task.id] := by
+  simp only [simulatingActions, isLate, isPicked]
+
+/-- The simulating action of the drop of a late emit. -/
+theorem simulatingActions_lateDrop {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {index : Nat} {effect : Val}
+    (isLate : lConfig.lateEmits[index]? = some effect) {task : Dex.Task signature}
+    (isPicked : dexConfig.tasks.find? (fun candidate =>
+      (pendingEffects ⟦program⟧ candidate).contains effect) = some task) :
+    simulatingActions program lConfig dexConfig (.lateDrop index) = [.workerAbandon task.id] := by
+  simp only [simulatingActions, isLate, isPicked]
+
 /-! ## The simulating actions hold the encoded request only -/
 
 /-- The Worker step that runs a handler is no request. -/
