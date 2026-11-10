@@ -239,7 +239,7 @@ func (setup *connectorSetup) putConnectionIfCurrent(
 	if err := setup.doCheckConnectionWriteIsCurrent(ctx, connection.ConnectorID, connection.ConnectionName, expectation); err != nil {
 		return err
 	}
-	if err := setup.store.put(connection, keepCredentialFields); err != nil {
+	if err := setup.store.put(ctx, connection, keepCredentialFields, expectation.storedRevision); err != nil {
 		return err
 	}
 	delete(setup.pendingConnections, key)
@@ -253,6 +253,7 @@ func hasConnectorModule(identity connectorDefinitionIdentity, modulePath string,
 // doCheckConnectionWriteIsCurrent requires connectionsMu. It returns errConnectorConnectionChanged unless the key
 // keeps the generation and the file keeps the record revision that the write was authorized against, and the
 // current Flow definitions and any added connection still name the authorized release.
+// The store checks the record revision again under the connections file lock when it writes.
 func (setup *connectorSetup) doCheckConnectionWriteIsCurrent(
 	ctx context.Context,
 	connectorID string,
@@ -304,14 +305,7 @@ func (setup *connectorSetup) putTriggerBindingIfCurrent(
 	if err := setup.doCheckConnectionWriteIsCurrent(ctx, binding.ConnectorID, binding.ConnectionName, expectation); err != nil {
 		return err
 	}
-	currentBindingRevision, err := setup.store.triggerBindingRevision(binding)
-	if err != nil {
-		return err
-	}
-	if currentBindingRevision != bindingRevision {
-		return errConnectorConnectionChanged
-	}
-	return setup.store.putTriggerBinding(binding)
+	return setup.store.putTriggerBinding(ctx, binding, expectation.storedRevision, bindingRevision)
 }
 
 // deleteConnection deletes the stored record and any added connection for the key while the delete is still
@@ -330,7 +324,7 @@ func (setup *connectorSetup) deleteConnection(
 	key := connectorConnectionKey(connectorID, connectionName)
 	// A write authorized before this delete must not recreate the key, even when the delete fails part way.
 	setup.connectionGenerations[key]++
-	deleted, err := setup.store.delete(connectorID, connectionName)
+	deleted, err := setup.store.delete(ctx, connectorID, connectionName, expectation.storedRevision)
 	if err != nil {
 		return false, err
 	}
