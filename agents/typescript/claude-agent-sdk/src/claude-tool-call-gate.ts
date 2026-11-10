@@ -188,6 +188,16 @@ export class ToolCatalog {
   }
 }
 
+/** A call this gate allowed, which `canUseTool` may confirm once with the same tool, kind, and input. */
+interface PermittedToolCall {
+  readonly toolName: string;
+  /** Whether the in-process server serves the tool, as opposed to a tool inside the CLI. */
+  readonly isServedTool: boolean;
+  /** The input the decision covers: the recorded arguments of a replay, or the input the hook saw. */
+  readonly toolInput: Record<string, unknown>;
+  isConfirmed: boolean;
+}
+
 interface CustomToolCallPlan {
   readonly toolUseId: string;
   /** The bare name of the tool this gate permitted under the tool use ID. */
@@ -199,8 +209,7 @@ interface CustomToolCallPlan {
 export class ToolCallGate {
   private deferralRequest: DeferredToolCall | undefined;
   private deferredSourceTool: ListedSourceTool | undefined;
-  // Tool use ID to the policy name of the tool this gate permitted under it.
-  private readonly permittedToolNames = new Map<string, string>();
+  private readonly permittedToolCalls = new Map<string, PermittedToolCall>();
   private readonly replayedToolUseIds = new Set<string>();
   private readonly runningToolNames = new Map<string, string>();
   private readonly customToolCallPlans = new Map<string, CustomToolCallPlan>();
@@ -266,7 +275,7 @@ export class ToolCallGate {
     const sourceTool = servedToolName === undefined ? undefined : this.toolCatalog.sourceTool(servedToolName);
     const policy = this.resolvePolicy(cliToolName);
     if (!this.toolCatalog.requiresDeferral(policyToolName, policy)) {
-      this.permitInlineToolCall(callId, policyToolName);
+      this.permitInlineToolCall(callId, policyToolName, servedToolName !== undefined, toolInput);
       return preToolUseDecision("allow");
     }
     if (hookInput.agent_id !== undefined && hookInput.agent_id !== "") {
@@ -287,19 +296,25 @@ export class ToolCallGate {
     return preToolUseDecision("defer", "Dex runs this call in its own Step.");
   };
 
-  /** Answers a permission request the CLI sends after the hook did not settle a call. */
-  public readonly decideToolPermission: CanUseTool = async (cliToolName, toolInput, options) => {
+  /**
+   * Answers a permission request the CLI sends after the hook did not settle a call.
+   * An allow carries the input its decision covers, never the CLI's.
+   */
+  public readonly decideToolPermission: CanUseTool = async (cliToolName, _toolInput, options) => {
     const servedToolName = this.toolCatalog.servedToolName(cliToolName);
     const policyToolName = servedToolName ?? cliToolName;
     const callId = options.toolUseID;
     const record = this.turn.recordedToolCall(callId);
-    const permittedToolName = this.permittedToolNames.get(callId);
+    const permitted = this.permittedToolCalls.get(callId);
     // A resumed call can skip the hook when the CLI starts it before the hooks are registered.
-    if (record !== undefined && permittedToolName === undefined) {
+    if (record !== undefined && permitted === undefined) {
       if (this.replayedToolUseIds.has(callId)) {
         return denyPermission(repeatedReplayMessage(policyToolName, callId), callId);
       }
-      return toPermissionResult(this.replayRecordedToolCall(record, servedToolName, policyToolName), toolInput, callId);
+      const replay = toPermissionResult(this.replayRecordedToolCall(record, servedToolName, policyToolName), callId);
+      // This answer is the replay's one decision, so no later request confirms it.
+      this.confirmPermittedToolCall(callId);
+      return replay;
     }
     // The CLI ignores defer for a call with siblings and asks for permission instead.
     if (this.deferralRequest?.toolCallId === callId) {
@@ -307,9 +322,18 @@ export class ToolCallGate {
       this.deferredSourceTool = undefined;
       return denyPermission(soloDeferralRequiredMessage(policyToolName), callId);
     }
-    // The CLI may ask about a call the hook already allowed; the permission covers only that tool.
-    if (permittedToolName === policyToolName) {
-      return { behavior: "allow", updatedInput: toolInput, toolUseID: callId };
+    // The CLI may ask once about a call the hook allowed: same tool and kind, and the input the hook decided on.
+    if (
+      permitted !== undefined &&
+      !permitted.isConfirmed &&
+      permitted.toolName === policyToolName &&
+      permitted.isServedTool === (servedToolName !== undefined)
+    ) {
+      this.confirmPermittedToolCall(callId);
+      return { behavior: "allow", updatedInput: permitted.toolInput, toolUseID: callId };
+    }
+    if (record !== undefined) {
+      return denyPermission(repeatedReplayMessage(policyToolName, callId), callId);
     }
     return denyPermission(unpermittedToolCallMessage(policyToolName), callId);
   };
@@ -388,26 +412,44 @@ export class ToolCallGate {
       );
     }
     // The handler returns a custom or source tool's rejection, so the model sees the text without a hook prefix.
+    // Application hooks are skipped on replay, so every allow carries the recorded, approved input.
+    const recordedInput = recordedToolInput(record);
     if (servedToolName !== undefined) {
       this.planCustomToolCall(record.toolCallId, servedToolName, record);
-      this.permittedToolNames.set(record.toolCallId, servedToolName);
-      return preToolUseDecision("allow");
+      this.permittedToolCalls.set(record.toolCallId, {
+        toolName: servedToolName,
+        isServedTool: true,
+        toolInput: recordedInput,
+        isConfirmed: false,
+      });
+      return preToolUseDecision("allow", undefined, recordedInput);
     }
     if (record.status === "succeeded") {
-      this.permitInlineToolCall(record.toolCallId, record.toolName);
-      // Application hooks are skipped on replay, so the CLI must run the approved input.
-      return preToolUseDecision("allow", undefined, recordedToolInput(record));
+      this.permitInlineToolCall(record.toolCallId, record.toolName, false, recordedInput);
+      return preToolUseDecision("allow", undefined, recordedInput);
     }
     return preToolUseDecision("deny", describeToolCallOutcome(record));
   }
 
-  private permitInlineToolCall(toolUseId: string, policyToolName: string): void {
-    this.permittedToolNames.set(toolUseId, policyToolName);
+  private permitInlineToolCall(
+    toolUseId: string,
+    policyToolName: string,
+    isServedTool: boolean,
+    toolInput: Record<string, unknown>,
+  ): void {
+    this.permittedToolCalls.set(toolUseId, { toolName: policyToolName, isServedTool, toolInput, isConfirmed: false });
     if (this.toolCatalog.customTool(policyToolName) !== undefined) {
       this.planCustomToolCall(toolUseId, policyToolName, undefined);
     }
     this.runningToolNames.set(toolUseId, policyToolName);
     this.turn.events.writeToolCallStarted(toolUseId, policyToolName);
+  }
+
+  private confirmPermittedToolCall(toolUseId: string): void {
+    const permitted = this.permittedToolCalls.get(toolUseId);
+    if (permitted !== undefined) {
+      permitted.isConfirmed = true;
+    }
   }
 
   private planCustomToolCall(
@@ -456,11 +498,12 @@ function requirePolicy(policy: ResolvedToolPolicy | undefined): ResolvedToolPoli
   return policy;
 }
 
-function recordedToolInput(record: AgentToolCall): Record<string, unknown> | undefined {
+function recordedToolInput(record: AgentToolCall): Record<string, unknown> {
   const recorded: unknown = JSON.parse(record.arguments);
-  return typeof recorded === "object" && recorded !== null && !Array.isArray(recorded)
-    ? (recorded as Record<string, unknown>)
-    : undefined;
+  if (typeof recorded !== "object" || recorded === null || Array.isArray(recorded)) {
+    throw new Error(`tool call ${record.toolCallId} recorded arguments that are not a JSON object`);
+  }
+  return recorded as Record<string, unknown>;
 }
 
 function preToolUseDecision(
@@ -478,14 +521,15 @@ function preToolUseDecision(
   };
 }
 
-function toPermissionResult(
-  hookOutput: HookJSONOutput,
-  toolInput: Record<string, unknown>,
-  toolUseId: string,
-): PermissionResult {
+// A replay's allow always names the recorded input, never the input the CLI passed.
+function toPermissionResult(hookOutput: HookJSONOutput, toolUseId: string): PermissionResult {
   const specificOutput = "hookSpecificOutput" in hookOutput ? hookOutput.hookSpecificOutput : undefined;
-  if (specificOutput?.hookEventName === "PreToolUse" && specificOutput.permissionDecision === "allow") {
-    return { behavior: "allow", updatedInput: specificOutput.updatedInput ?? toolInput, toolUseID: toolUseId };
+  if (
+    specificOutput?.hookEventName === "PreToolUse" &&
+    specificOutput.permissionDecision === "allow" &&
+    specificOutput.updatedInput !== undefined
+  ) {
+    return { behavior: "allow", updatedInput: specificOutput.updatedInput, toolUseID: toolUseId };
   }
   const reason =
     specificOutput?.hookEventName === "PreToolUse" ? specificOutput.permissionDecisionReason : undefined;

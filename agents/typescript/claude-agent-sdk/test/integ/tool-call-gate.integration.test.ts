@@ -108,8 +108,13 @@ function decisionOf(output: HookJSONOutput): { readonly decision: unknown; reado
     : { decision: undefined, reason: undefined, updatedInput: undefined };
 }
 
-async function askPermission(fixture: GateFixture, cliToolName: string, toolUseId: string): Promise<PermissionResult> {
-  const permission = await fixture.gate.decideToolPermission(cliToolName, {}, {
+async function askPermission(
+  fixture: GateFixture,
+  cliToolName: string,
+  toolUseId: string,
+  toolInput: Record<string, unknown> = {},
+): Promise<PermissionResult> {
+  const permission = await fixture.gate.decideToolPermission(cliToolName, toolInput, {
     signal: new AbortController().signal,
     toolUseID: toolUseId,
   } as Parameters<ToolCallGate["decideToolPermission"]>[2]);
@@ -141,7 +146,15 @@ describe("the Claude tool call gate", () => {
     assert.equal(mismatched.isError, true);
     // canUseTool, too, allows only the permitted tool under a permitted ID.
     assert.equal((await askPermission(fixture, "Bash", "call-2")).behavior, "deny");
-    assert.equal((await askPermission(fixture, "mcp__tools__read_note", "call-2")).behavior, "allow");
+    // A bare name is a tool inside the CLI, another kind than the served read_note.
+    assert.equal((await askPermission(fixture, "read_note", "call-2")).behavior, "deny");
+    // The hook decided on an empty input; canUseTool answers with it, once.
+    assert.deepEqual(await askPermission(fixture, "mcp__tools__read_note", "call-2", { path: "/etc/passwd" }), {
+      behavior: "allow",
+      updatedInput: {},
+      toolUseID: "call-2",
+    });
+    assert.equal((await askPermission(fixture, "mcp__tools__read_note", "call-2")).behavior, "deny");
     // The mismatched call consumed call-1; the permitted name still runs under call-2.
     const permitted = await callTool(client, "read_note", "call-2");
     assert.notEqual(permitted.isError, true, JSON.stringify(permitted));
@@ -238,15 +251,22 @@ describe("the Claude tool call gate", () => {
     const hookFirst = await createGateFixture([record]);
     const first = decisionOf(await hookFirst.gate.decidePreToolUse(preToolUse("Bash", "call-1"), "call-1"));
     assert.deepEqual([first.decision, first.updatedInput], ["allow", { command: "echo reviewed" }]);
-    // The CLI may consult canUseTool for the call the hook allowed; that is the same decision.
-    assert.equal((await askPermission(hookFirst, "Bash", "call-1")).behavior, "allow");
+    // The CLI may consult canUseTool once for the call the hook allowed; it runs the recorded input.
+    assert.deepEqual(await askPermission(hookFirst, "Bash", "call-1", { command: "rm -rf build" }), {
+      behavior: "allow",
+      updatedInput: { command: "echo reviewed" },
+      toolUseID: "call-1",
+    });
+    assert.equal((await askPermission(hookFirst, "Bash", "call-1", { command: "rm -rf build" })).behavior, "deny");
     const second = decisionOf(await hookFirst.gate.decidePreToolUse(preToolUse("Bash", "call-1"), "call-1"));
     assert.equal(second.decision, "deny");
     assert.match(String(second.reason), /was already resumed in this turn segment/);
 
     const permissionFirst = await createGateFixture([record]);
-    const permission = await askPermission(permissionFirst, "Bash", "call-1");
+    const permission = await askPermission(permissionFirst, "Bash", "call-1", { command: "rm -rf build" });
     assert.deepEqual(permission.behavior === "allow" ? permission.updatedInput : undefined, { command: "echo reviewed" });
+    // The canUseTool answer was the replay's one decision; a repeat cannot swap the input.
+    assert.equal((await askPermission(permissionFirst, "Bash", "call-1", { command: "rm -rf build" })).behavior, "deny");
     const afterPermission = decisionOf(
       await permissionFirst.gate.decidePreToolUse(preToolUse("Bash", "call-1"), "call-1"),
     );
@@ -255,5 +275,21 @@ describe("the Claude tool call gate", () => {
     const rejected = await createGateFixture([{ ...record, status: "rejected", rejectionMessage: "no" }]);
     assert.equal(decisionOf(await rejected.gate.decidePreToolUse(preToolUse("Bash", "call-1"), "call-1")).decision, "deny");
     assert.equal((await askPermission(rejected, "Bash", "call-1")).behavior, "deny");
+  });
+
+  test("a served record replays with its recorded input and only under its own kind", async () => {
+    const record = { ...succeededRecord("call-1", "read_note", { path: "notes/a" }), effect: "read" as const };
+    const fixture = await createGateFixture([record]);
+    const replay = decisionOf(
+      await fixture.gate.decidePreToolUse(preToolUse("mcp__tools__read_note", "call-1", { path: "other" }), "call-1"),
+    );
+    assert.deepEqual([replay.decision, replay.updatedInput], ["allow", { path: "notes/a" }]);
+    // The bare name is a tool inside the CLI; the served record never confirms it.
+    assert.equal((await askPermission(fixture, "read_note", "call-1")).behavior, "deny");
+    assert.deepEqual(await askPermission(fixture, "mcp__tools__read_note", "call-1", { path: "other" }), {
+      behavior: "allow",
+      updatedInput: { path: "notes/a" },
+      toolUseID: "call-1",
+    });
   });
 });
