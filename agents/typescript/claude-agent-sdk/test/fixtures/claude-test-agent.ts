@@ -6,12 +6,26 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { tool, type HookCallbackMatcher, type PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentSessionFlow, ToolPolicy } from "@superdurable/dex-agents";
+import type {
+  AgentSessionFlow,
+  AgentToolCall,
+  AgentTurnContext,
+  DeferredToolCall,
+  DeferredToolExecution,
+  DeferredToolOutcome,
+  ToolCallStepOptions,
+  ToolExecutionResult,
+  ToolPolicy,
+  ToolTaskPoll,
+  ToolTaskPollOutcome,
+} from "@superdurable/dex-agents";
+import { ConnectorToolSource, connectorTool, type ConnectorPackageManifest } from "@superdurable/dex-agents/connectors";
+import type { SourceToolDefinition, ToolSource } from "@superdurable/dex-agents/stepwise";
 import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 import { z } from "zod";
 
@@ -27,11 +41,30 @@ import {
   fakeClaudeInvocationLogName,
   fakeClaudeStateDirectoryVariable,
 } from "./fake-claude-cli-environment.js";
+import {
+  CreatePayoutInputSchema,
+  CreatePayoutOperation,
+  FakeLedgerProvider,
+  GetBalanceInputSchema,
+  GetBalanceOperation,
+  PostNoteInputSchema,
+  PostNoteOperation,
+  fakeLedgerConnection,
+  fakeLedgerManifest,
+} from "./fake-ledger.js";
 
 /** Flow type of the Claude agent under test. */
 export const claudeTestAgentFlowType = "ScriptedClaudeAgent";
 /** Gate at which `slow_write` waits. */
 export const slowWriteGateName = "slow_write";
+/** The amount the application hook gives a `payout_checked` call whose memo is `raise`. */
+export const raisedPayoutAmount = 500;
+/** While this file exists in the state directory, `hiding_note`'s source lists nothing, or throws when it says `raise`. */
+export const hideSourceToolsFileName = "hide-source-tools";
+/** While this file exists in the state directory, an application hook denies every `publish` and `post_note`. */
+export const denyFlagFileName = "deny-publish-and-post-note";
+/** The reason that hook gives. */
+export const applicationHookDenial = "the application hook denies this call";
 
 const fakeClaudeCliPath = fileURLToPath(new URL("./fake-claude-cli.js", import.meta.url));
 
@@ -41,6 +74,8 @@ const testToolPolicies: Readonly<Record<string, ToolPolicy>> = {
   slow_write: { effect: "non_idempotent_write", requiresApproval: false },
   // The fake CLI's subagent tool, which then runs inside the turn.
   Agent: { effect: "read" },
+  // Claims read; a connector tool takes only the approval from it.
+  policy_note: { effect: "read", requiresApproval: true },
 };
 
 /** The test agent's CLI: the fake when `executablePath` is unset, else `environment` is the whole environment. */
@@ -50,6 +85,7 @@ export interface ClaudeTestAgentCli {
   readonly environment?: Readonly<Record<string, string>>;
   readonly model?: string;
   readonly permissionMode?: PermissionMode;
+  readonly allowedTools?: readonly string[];
 }
 
 /** Creates the Claude agent Flow; tests and the Worker child build it identically. */
@@ -72,14 +108,210 @@ export function createClaudeTestAgentFlow(
     ...(cli?.permissionMode === undefined ? {} : { permissionMode: cli.permissionMode }),
     systemPrompt: `You are scripted agent ${context.flowId}.`,
     tools: ["Bash"],
+    ...(cli?.allowedTools === undefined ? {} : { allowedTools: [...cli.allowedTools] }),
     settingSources: [],
-    hooks: { PreToolUse: [reviewPublishedMessageHook] },
+    hooks: {
+      PreToolUse: [
+        reviewPublishedMessageHook,
+        reviewBashCommandHook,
+        raiseCheckedPayoutHook,
+        createDenyWhileFlaggedHook(stateDirectory),
+      ],
+    },
   });
   return createClaudeAgentSessionFlow(
-    { options: buildOptions, customTools: createTestCustomTools(stateDirectory), toolPolicies: testToolPolicies },
+    {
+      options: buildOptions,
+      customTools: createTestCustomTools(stateDirectory),
+      toolPolicies: testToolPolicies,
+      toolSources: [
+        createLedgerToolSource(stateDirectory),
+        new HidingToolSource(stateDirectory),
+        new UnsupportedOutcomeToolSource(),
+      ],
+    },
     cli?.flowType ?? claudeTestAgentFlowType,
     sessionOptions,
   );
+}
+
+/**
+ * The fake ledger Connector's operations as source tools: `get_balance` is a Query; `create_payout` is a
+ * `retry: safe` Mutation without approval and `approved_payout` the same with the manifest's approval;
+ * `payout_checked` needs approval above 50; `post_note` is a single-attempt Mutation and `policy_note` the same
+ * under a session policy that asks for approval and claims `read`.
+ */
+export function createLedgerToolSource(stateDirectory: string): ConnectorToolSource {
+  const provider = new FakeLedgerProvider(stateDirectory);
+  const payouts = new CreatePayoutOperation(provider);
+  const notes = new PostNoteOperation(provider);
+  const manifest = structuredClone(fakeLedgerManifest) as ConnectorPackageManifest;
+  return new ConnectorToolSource([
+    connectorTool(new GetBalanceOperation(provider), fakeLedgerConnection, {
+      manifest,
+      inputValidator: GetBalanceInputSchema,
+      name: "get_balance",
+    }),
+    connectorTool(payouts, fakeLedgerConnection, {
+      manifest,
+      inputValidator: CreatePayoutInputSchema,
+      name: "create_payout",
+      requiresApproval: false,
+    }),
+    connectorTool(payouts, fakeLedgerConnection, {
+      manifest,
+      inputValidator: CreatePayoutInputSchema,
+      name: "approved_payout",
+    }),
+    connectorTool(payouts, fakeLedgerConnection, {
+      manifest,
+      inputValidator: CreatePayoutInputSchema,
+      name: "payout_checked",
+      requiresApproval: (toolArguments) => Number(toolArguments["amount"]) > 50,
+    }),
+    connectorTool(notes, fakeLedgerConnection, { manifest, inputValidator: PostNoteInputSchema, name: "post_note" }),
+    connectorTool(notes, fakeLedgerConnection, { manifest, inputValidator: PostNoteInputSchema, name: "policy_note" }),
+  ]);
+}
+
+/** A dynamic source of `hiding_note`, the single-attempt `postNote`, whose listing a test can empty or break. */
+export class HidingToolSource implements ToolSource {
+  public readonly sourceName = "hiding-ledger";
+  private readonly inner: ConnectorToolSource;
+
+  public constructor(private readonly stateDirectory: string) {
+    const notes = new PostNoteOperation(new FakeLedgerProvider(stateDirectory));
+    const manifest = structuredClone(fakeLedgerManifest) as ConnectorPackageManifest;
+    this.inner = new ConnectorToolSource(
+      [connectorTool(notes, fakeLedgerConnection, { manifest, inputValidator: PostNoteInputSchema, name: "hiding_note" })],
+      { sourceName: this.sourceName },
+    );
+  }
+
+  public async listTools(): Promise<readonly SourceToolDefinition[]> {
+    const hideFile = join(this.stateDirectory, hideSourceToolsFileName);
+    if (existsSync(hideFile)) {
+      if (readFileSync(hideFile, "utf8") === "raise") {
+        throw new Error("the hiding source is down");
+      }
+      return [];
+    }
+    return this.inner.listTools();
+  }
+
+  public deferredToolCall(
+    turn: AgentTurnContext,
+    call: {
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly arguments: string;
+      readonly listedTool: SourceToolDefinition;
+    },
+  ): DeferredToolCall {
+    return this.inner.deferredToolCall(turn, call);
+  }
+
+  public toolCallStepOptions(toolCall: AgentToolCall): ToolCallStepOptions | undefined {
+    return this.inner.toolCallStepOptions(toolCall);
+  }
+
+  public executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
+    return this.inner.executeDeferredToolCall(call);
+  }
+
+  public pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
+    return this.inner.pollToolTask(poll);
+  }
+}
+
+/**
+ * A source whose calls return outcomes this adapter cannot carry: `ask_question` asks the user, and
+ * `start_read_task` and `start_write_task` start a tool task.
+ */
+export class UnsupportedOutcomeToolSource implements ToolSource {
+  public readonly sourceName = "unsupported-outcomes";
+  private readonly definitions: readonly SourceToolDefinition[] = ["ask_question", "start_read_task", "start_write_task"].map(
+    (name) => ({ name, description: `Test tool ${name}`, inputSchema: { type: "object", properties: {} } }),
+  );
+
+  public async listTools(): Promise<readonly SourceToolDefinition[]> {
+    return this.definitions;
+  }
+
+  public deferredToolCall(
+    _turn: AgentTurnContext,
+    call: { readonly toolCallId: string; readonly toolName: string; readonly arguments: string },
+  ): DeferredToolCall {
+    const effect = call.toolName === "start_write_task" ? "non_idempotent_write" : "read";
+    return { ...call, policy: { effect, requiresApproval: false } };
+  }
+
+  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+    if (call.toolCall.toolName === "ask_question") {
+      return { kind: "tool_input_requested", question: "Which account?", continuation: null };
+    }
+    return { kind: "tool_task_started", taskId: `task-${call.toolCall.toolName}`, pollIntervalSeconds: 1 };
+  }
+
+  public async pollToolTask(): Promise<ToolTaskPollOutcome> {
+    throw new Error("the Claude agent adapter never polls a tool task");
+  }
+}
+
+/** An application hook: a `Bash` command `rewrite:<text>` becomes `echo reviewed <text>`. */
+export const reviewBashCommandHook: HookCallbackMatcher = {
+  matcher: "Bash",
+  hooks: [
+    async (hookInput) => {
+      const toolInput = hookInput.hook_event_name === "PreToolUse" ? (hookInput.tool_input as { command?: unknown }) : {};
+      if (typeof toolInput.command !== "string" || !toolInput.command.startsWith("rewrite:")) {
+        return {};
+      }
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          updatedInput: { command: `echo reviewed ${toolInput.command.slice("rewrite:".length)}` },
+        },
+      };
+    },
+  ],
+};
+
+/** An application hook: a `payout_checked` call whose memo is `raise` gets the amount {@link raisedPayoutAmount}. */
+export const raiseCheckedPayoutHook: HookCallbackMatcher = {
+  matcher: "mcp__tools__payout_checked",
+  hooks: [
+    async (hookInput) => {
+      const toolInput = hookInput.hook_event_name === "PreToolUse" ? (hookInput.tool_input as Record<string, unknown>) : {};
+      if (toolInput["memo"] !== "raise") {
+        return {};
+      }
+      return {
+        hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { ...toolInput, amount: raisedPayoutAmount } },
+      };
+    },
+  ],
+};
+
+/** An application hook that denies every `publish` and `post_note` while {@link denyFlagFileName} exists. */
+function createDenyWhileFlaggedHook(stateDirectory: string): HookCallbackMatcher {
+  return {
+    matcher: "mcp__tools__(publish|post_note)",
+    hooks: [
+      async () => {
+        if (!existsSync(join(stateDirectory, denyFlagFileName))) {
+          return {};
+        }
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: applicationHookDenial,
+          },
+        };
+      },
+    ],
+  };
 }
 
 /** An application hook: `publish` input `rewrite:<text>` becomes `reviewed <text>`, `rewrite-invalid` a number. */

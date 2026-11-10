@@ -9,7 +9,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
-  createSdkMcpServer,
   query,
   type HookCallbackMatcher,
   type HookEvent,
@@ -21,20 +20,28 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   ToolExecutionError,
+  ToolOutcomeUnknownError,
   type AgentFrameworkRunner,
+  type AgentToolCall,
   type AgentTurnContext,
   type AgentTurnOutcome,
   type AgentUsage,
   type DeferredToolExecution,
+  type DeferredToolOutcome,
   type FrameworkMessage,
   type ModelCallMetadata,
+  type ToolCallStepOptions,
   type ToolExecutionResult,
 } from "@superdurable/dex-agents";
+import { defaultToolSourceListingTimeoutMs, type ToolSource } from "@superdurable/dex-agents/stepwise";
 import * as zodV3 from "zod/v3";
 import * as zodV4 from "zod/v4";
 
-import { ToolCallGate, ToolCatalog, type ClaudeCustomTool } from "./claude-tool-call-gate.js";
+import { ToolCallGate, ToolCatalog, cliToolNames, type ClaudeCustomTool } from "./claude-tool-call-gate.js";
+import { createClaudeToolServer } from "./claude-tool-server.js";
+import { ToolSourceRouter, withSourceReference } from "./claude-tool-sources.js";
 import {
+  answeredToolUseIds,
   decodeRunState,
   encodeRunState,
   encodeUserPromptItem,
@@ -101,6 +108,9 @@ export interface ClaudeAgentOptionsContext {
  * `--await-initialize` and `--mcp-config` to `extraArgs`; `extraArgs` must not set those, `--resume`,
  * or `--session-id`. A turn segment is one `RunModel` Step: the CLI runs from the turn's prompt or a
  * resumed deferred call until it defers the next call or answers.
+ *
+ * The adapter also wraps each callback of your PreToolUse hooks, so it is skipped for a resumed call that
+ * already has a final record. Changed in 0.4.0: your PreToolUse hooks no longer run for such a call.
  */
 export type ClaudeAgentQueryOptions = Omit<
   Options,
@@ -141,6 +151,52 @@ export interface ClaudeAgentRunnerOptions {
    * {@link defaultCustomToolServerName}.
    */
   readonly customToolServerName?: string;
+  /**
+   * Tool sources, such as `ConnectorToolSource` from `@superdurable/dex-agents/connectors`, whose tools the runner
+   * lists in every `RunModel` attempt and serves from the custom tool server after the custom tools, with each
+   * tool's own name, description, and JSON Schema. The model sees a source tool `create_refund` as
+   * `mcp__tools__create_refund`; policies, interrupts, and records use `create_refund`.
+   *
+   * Every call of a source tool runs in its own tool Step, reads included, because the source needs that Step: a
+   * connector call derives its Call ID from the Step execution ID and keeps its fence in the Step's heartbeat
+   * checkpoint. The source builds each call from the CLI's final input, after your hooks' `updatedInput`, so the
+   * source decides the effect and the approval; a session `toolPolicies` entry for a connector tool changes only
+   * its approval. The tool Step runs the call through the source's `executeDeferredToolCall`, with the timeout and
+   * retry policy of its `toolCallStepOptions`, and the resumed CLI receives the recorded result. The runner polls
+   * no tool tasks, so a call that starts one records `failed` for a `read` tool and `outcome_unknown` otherwise.
+   * A source call that asks the user a question records `failed`.
+   *
+   * Each source needs a unique, stable `sourceName`: the runner stores it with every call, so the tool Step finds
+   * the source on any Worker. Defaults to none.
+   *
+   * @example
+   * ```ts
+   * import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };
+   * import { CreateRefundInputSchema, newProjectConnection } from "@superdurable/connector-stripe";
+   * import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
+   *
+   * const stripe = newProjectConnection(project, "billing-stripe");
+   * const runner = new ClaudeAgentRunner(buildOptions, {
+   *   customTools: [lookupOrder],
+   *   toolSources: [
+   *     new ConnectorToolSource([
+   *       connectorTool(stripe.operations.createRefund(), stripe.reference, {
+   *         manifest,
+   *         inputValidator: CreateRefundInputSchema,
+   *       }),
+   *     ]),
+   *   ],
+   * });
+   * ```
+   * @since 0.4.0
+   */
+  readonly toolSources?: readonly ToolSource[];
+  /**
+   * Milliseconds one `RunModel` attempt waits for each tool source's `listTools`. A source whose listing fails or
+   * takes longer offers no tools in that attempt. Defaults to 10 seconds.
+   * @since 0.4.0
+   */
+  readonly toolSourceListingTimeoutMs?: number;
 }
 
 const adapterOwnedOptionNames = [
@@ -202,13 +258,29 @@ export function currentDeferredToolExecution(): DeferredToolExecution | undefine
  * They defer only when their policy requires approval, run inside the resumed turn after approval, and
  * are at-least-once: a crash during `RunModel` can run them again.
  *
+ * Tool sources, such as `ConnectorToolSource`, add tools that the same in-process server offers under the
+ * source's name, description, and JSON Schema. Every call of a source tool is deferred, reads included, and runs
+ * once in its own tool Step through the source that built it, which picks the effect, the approval, and the tool
+ * Step's timeout and retry policy. Because one deferred call leaves each segment, writes of one reply run one at
+ * a time in the model's order: a later write is denied inside the turn, and the model reads the earlier result
+ * before it calls again. A recorded call whose tool the source no longer lists still replays; a new call of that
+ * tool is denied. See {@link ClaudeAgentRunnerOptions.toolSources}.
+ *
+ * Your PreToolUse hooks do not run for a resumed call that already has a final record: the call passed them when
+ * it was deferred, and a later `deny` would hide its recorded result. A resumed tool that runs inside the CLI,
+ * such as `Bash`, receives its recorded input, the input that was approved, so a hook's rewrite still applies.
+ *
+ * Changed in 0.4.0: your PreToolUse hooks are skipped for a resumed call with a final record, and an approved tool
+ * that runs inside the CLI resumes with its recorded input.
+ *
  * Most applications call {@link createClaudeAgentSessionFlow} instead of constructing the runner.
  *
  * A turn attempt fails with a `TypeError` when the options set an option the adapter owns (see
  * {@link ClaudeAgentQueryOptions}); when `permissionMode` is `"acceptEdits"`, `"auto"`, or
- * `"bypassPermissions"`; when `mcpServers` already uses the custom tool server name; or when an
- * `allowedTools` entry names a tool whose calls must defer. `permissionMode` unset, `"default"`, and
- * `"dontAsk"` all work.
+ * `"bypassPermissions"`; when `mcpServers` already uses the custom tool server name; when an
+ * `allowedTools` entry names a tool whose calls must defer, such as any source tool; or when a source lists a
+ * tool whose name repeats a custom tool, a Claude Code tool, or another source's tool. `permissionMode` unset,
+ * `"default"`, and `"dontAsk"` all work.
  *
  * @example
  * ```ts
@@ -221,14 +293,18 @@ export function currentDeferredToolExecution(): DeferredToolExecution | undefine
  */
 export class ClaudeAgentRunner implements AgentFrameworkRunner {
   private readonly toolCatalog: ToolCatalog;
+  private readonly toolSourceRouter: ToolSourceRouter;
 
   /**
    * Creates a runner for one agent.
    *
    * @param options - The application's Claude Agent SDK options, or a factory that returns them for
    * each turn segment. A factory runs on the Worker for every `RunModel` attempt.
-   * @param runnerOptions - Custom tools and the custom tool server name.
-   * @throws {TypeError} When the server name is invalid or two custom tools share a name.
+   * @param runnerOptions - Custom tools, the custom tool server name, and tool sources.
+   * @throws {TypeError} When the server name is invalid; two custom tools share a name; a tool source lacks a
+   * `ToolSource` method or a non-blank `sourceName`; two sources share a `sourceName`; or a source's
+   * `declaredToolNames` repeat a custom tool, a Claude Code tool, or another source's tool.
+   * @throws {RangeError} When `toolSourceListingTimeoutMs` is not positive.
    */
   public constructor(
     private readonly options: ClaudeAgentQueryOptions | ClaudeAgentOptionsFactory,
@@ -241,6 +317,11 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
       );
     }
     this.toolCatalog = new ToolCatalog(runnerOptions.customTools ?? [], customToolServerName);
+    this.toolSourceRouter = new ToolSourceRouter(
+      runnerOptions.toolSources ?? [],
+      runnerOptions.toolSourceListingTimeoutMs ?? defaultToolSourceListingTimeoutMs,
+      [...cliToolNames, ...this.toolCatalog.customTools.map((customTool) => customTool.name)],
+    );
   }
 
   /**
@@ -277,9 +358,10 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
    * @returns `ToolCallsRequested` with the one call the CLI deferred, and the Claude session ID and the
    * turn's transcript entries so far as run state; otherwise `TurnCompleted` with the turn's transcript
    * entries grouped into messages.
-   * @throws {TypeError} When the options are unsupported.
-   * @throws {Error} When the CLI reported an error result, ended without a result, or its transcript
-   * could not be stored. The session retries the segment.
+   * @throws {TypeError} When the options are unsupported, or a tool source listed a name another tool uses.
+   * @throws {Error} When the CLI reported an error result, ended without a result, deferred a call that the
+   * adapter's PreToolUse hook did not defer, or its transcript could not be stored. The session retries the
+   * segment. Changed in 0.4.0: a deferred call the hook did not defer fails the segment instead of being recorded.
    */
   public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
     const committedTranscript = loadSessionTranscript(turn.messages);
@@ -299,7 +381,8 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     const resumedEntries = [...committedTranscript.entries, ...earlierTurnEntries];
     const resumedSessionId = resumedEntries.length === 0 ? null : sessionId;
     const sessionStore = new TurnSegmentSessionStore(resumedSessionId, resumedEntries);
-    const toolCallGate = new ToolCallGate(turn, this.toolCatalog);
+    const toolCatalog = await this.listSegmentTools(turn);
+    const toolCallGate = new ToolCallGate(turn, toolCatalog, answeredToolUseIds(resumedEntries));
     const observer = new TurnSegmentObserver(turn, toolCallGate);
     const segmentInput = new TurnSegmentInput(promptContent);
     const abortController = new AbortController();
@@ -310,8 +393,9 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     turn.cancellationSignal.addEventListener("abort", abortSegment, { once: true });
     let applicationOptions: ClaudeAgentQueryOptions;
     try {
-      applicationOptions = this.readApplicationOptions(turn, toolCallGate);
+      applicationOptions = this.readApplicationOptions(turn, toolCatalog, toolCallGate);
       const options = this.buildTurnOptions(applicationOptions, {
+        toolCatalog,
         resumedSessionId,
         sessionStore,
         toolCallGate,
@@ -344,7 +428,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     return {
       kind: "completed",
       newMessages: projectTurnEntries(segmentTranscript.sessionId, turnEntries, (cliToolName) =>
-        this.toolCatalog.policyToolName(cliToolName),
+        toolCatalog.policyToolName(cliToolName),
       ),
       usage,
       modelCallMetadata,
@@ -354,20 +438,36 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
   /**
    * Runs one approved or deferred call outside the CLI.
    *
-   * A custom tool runs its handler once, after its arguments are parsed with the tool's input schema.
+   * A call that a tool source built goes to that source, found by the source name stored with the call, with the
+   * source's own reference and the tool Step's live context, heartbeat checkpoint, and attempt. A custom tool runs
+   * its handler once, after its arguments are parsed with the tool's input schema.
    * {@link currentDeferredToolExecution} returns `call` inside the handler, and the handler's `extra`
    * argument carries only `signal`, `requestId`, and `_meta`. A tool that runs inside the CLI is only
    * marked approved here; the resumed turn runs it.
    *
    * @param call - The approved record and its idempotency key.
-   * @returns The custom tool's text output, or {@link approvedCliToolOutput} for a tool that runs inside
-   * the CLI. Non-text content is replaced by a short placeholder.
-   * @throws {ToolExecutionError} When the arguments do not match the input schema, or the custom tool
-   * returned `isError`. The model sees the text.
-   * @throws Any error the handler throws, which fails the Step attempt.
+   * @returns The source's output; the custom tool's text output; or {@link approvedCliToolOutput} for a tool that
+   * runs inside the CLI. Non-text content of a custom tool is replaced by a short placeholder.
+   * @throws {ToolExecutionError} When the arguments do not match the input schema, the custom tool
+   * returned `isError`, or the source threw it. The model sees the text. The runner also throws it when a source
+   * asks the user a question, which this adapter does not support, or starts a tool task for a `read` call.
+   * @throws {ToolOutcomeUnknownError} When the source cannot tell whether the call took effect, or a source starts
+   * a tool task for a write, which this runner cannot poll. The session records `outcome_unknown`.
+   * @throws {RangeError} When a source built the call but no source of that name is configured on this Worker, so
+   * the effect decides the outcome.
+   * @throws Any error the handler or the source throws, which fails the Step attempt.
    */
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
     const record = call.toolCall;
+    // Before the custom tool lookup: a source call must never record the CLI placeholder.
+    const routed = this.toolSourceRouter.route(record);
+    if (routed !== undefined) {
+      const outcome = await routed.source.executeDeferredToolCall({
+        ...call,
+        toolCall: withSourceReference(record, routed.reference),
+      });
+      return requireToolExecutionResult(record, outcome);
+    }
     const customTool = this.toolCatalog.customTool(record.toolName);
     if (customTool === undefined) {
       return { output: approvedCliToolOutput };
@@ -388,12 +488,55 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     return { output: text };
   }
 
-  private readApplicationOptions(turn: AgentTurnContext, toolCallGate: ToolCallGate): ClaudeAgentQueryOptions {
+  /**
+   * Returns a tool source's timeout and retry policy for one call's tool Step.
+   *
+   * A source that defines `toolCallStepOptions` gives its calls their own options, as `ConnectorToolSource` does
+   * from each operation's manifest. Custom tools and tools that run inside the CLI keep the tool Steps' defaults.
+   * The session calls this method whenever it starts a tool Step. Applications call it only in tests, to check
+   * the options a source call gets.
+   *
+   * @example
+   * ```ts
+   * const runner = new ClaudeAgentRunner(buildOptions, { toolSources: [ledgerSource] });
+   * const options = runner.toolCallStepOptions(record);
+   * assert.equal(options?.executeMethodTimeout, 30_000);
+   * ```
+   * @param toolCall - The record whose tool Step starts.
+   * @returns The source's options, or `undefined` for the defaults.
+   * @throws {RangeError} When a source built the call but no source of that name is configured on this Worker. The
+   * session then uses the defaults.
+   * @since 0.4.0
+   */
+  public toolCallStepOptions(toolCall: AgentToolCall): ToolCallStepOptions | undefined {
+    const routed = this.toolSourceRouter.route(toolCall);
+    if (routed === undefined) {
+      return undefined;
+    }
+    return routed.source.toolCallStepOptions?.(withSourceReference(toolCall, routed.reference));
+  }
+
+  // A source's listing may lack a tool the turn already called; its record must still replay.
+  private async listSegmentTools(turn: AgentTurnContext): Promise<ToolCatalog> {
+    if (!this.toolSourceRouter.hasToolSources) {
+      return this.toolCatalog;
+    }
+    const replayOnlyToolNames = turn.toolCalls
+      .filter((toolCall) => this.toolSourceRouter.isSourceCall(toolCall))
+      .map((toolCall) => toolCall.toolName);
+    return this.toolCatalog.withSourceTools(await this.toolSourceRouter.listSourceTools(), replayOnlyToolNames);
+  }
+
+  private readApplicationOptions(
+    turn: AgentTurnContext,
+    toolCatalog: ToolCatalog,
+    toolCallGate: ToolCallGate,
+  ): ClaudeAgentQueryOptions {
     const applicationOptions =
       typeof this.options === "function"
         ? this.options({ flowId: turn.flowId, turnId: turn.turnId, attempt: turn.attempt })
         : this.options;
-    this.validateApplicationOptions(applicationOptions, toolCallGate);
+    this.validateApplicationOptions(applicationOptions, toolCatalog, toolCallGate);
     return applicationOptions;
   }
 
@@ -401,22 +544,23 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     applicationOptions: ClaudeAgentQueryOptions,
     segment: TurnSegmentResources,
   ): Options {
-    const serverName = this.toolCatalog.customToolServerName;
+    const serverName = segment.toolCatalog.customToolServerName;
     const mcpServers: Record<string, McpServerConfig> = { ...applicationOptions.mcpServers };
     const extraArgs: Record<string, string | null> = { ...applicationOptions.extraArgs };
     // A defense: an earlier design saw the CLI resume a deferred call before registering the hooks.
     extraArgs["await-initialize"] = null;
-    const customTools = this.toolCatalog.customTools;
-    if (customTools.length > 0) {
-      mcpServers[serverName] = createSdkMcpServer({
-        name: serverName,
-        tools: customTools.map((customTool) => segment.toolCallGate.gatedCustomTool(customTool)),
-      });
+    if (segment.toolCatalog.hasServedTools) {
+      mcpServers[serverName] = createClaudeToolServer(segment.toolCatalog, segment.toolCallGate);
       // Declared at startup, as the Python SDK does, the server's tools exist when a deferred call resumes.
       extraArgs["mcp-config"] = JSON.stringify({ mcpServers: { [serverName]: { type: "sdk", name: serverName } } });
     }
     const hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = { ...applicationOptions.hooks };
-    hooks.PreToolUse = [...(hooks.PreToolUse ?? []), { hooks: [segment.toolCallGate.decidePreToolUse] }];
+    // A replayed call passed these hooks when it was first decided; a deny now would hide it.
+    const applicationPreToolUseMatchers = (hooks.PreToolUse ?? []).map((matcher) => ({
+      ...matcher,
+      hooks: matcher.hooks.map((callback) => segment.toolCallGate.skipHookOnReplay(callback)),
+    }));
+    hooks.PreToolUse = [...applicationPreToolUseMatchers, { hooks: [segment.toolCallGate.decidePreToolUse] }];
     return {
       ...applicationOptions,
       mcpServers,
@@ -432,6 +576,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
 
   private validateApplicationOptions(
     options: ClaudeAgentQueryOptions,
+    toolCatalog: ToolCatalog,
     toolCallGate: ToolCallGate,
   ): void {
     const optionValues = options as Readonly<Record<string, unknown>>;
@@ -454,18 +599,15 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
         throw new TypeError(`the Claude agent adapter owns the CLI argument --${argumentName}; leave it out of extraArgs`);
       }
     }
-    const serverName = this.toolCatalog.customToolServerName;
-    if (
-      this.toolCatalog.customTools.length > 0 &&
-      options.mcpServers !== undefined &&
-      Object.hasOwn(options.mcpServers, serverName)
-    ) {
+    const serverName = toolCatalog.customToolServerName;
+    if (toolCatalog.hasServedTools && options.mcpServers !== undefined && Object.hasOwn(options.mcpServers, serverName)) {
       throw new TypeError(`mcpServers already has a server named ${JSON.stringify(serverName)}`);
     }
     for (const allowedTool of options.allowedTools ?? []) {
-      const policyToolName = this.toolCatalog.policyToolName(allowedTool.split("(", 1)[0]?.trim() ?? "");
-      const policy = toolCallGate.resolvePolicy(policyToolName);
-      if (this.toolCatalog.requiresDeferral(policyToolName, policy)) {
+      const cliToolName = allowedTool.split("(", 1)[0]?.trim() ?? "";
+      const policyToolName = toolCatalog.policyToolName(cliToolName);
+      const policy = toolCallGate.resolvePolicy(cliToolName);
+      if (toolCatalog.requiresDeferral(policyToolName, policy)) {
         throw new TypeError(
           `allowedTools entry ${JSON.stringify(allowedTool)} would let ${policyToolName} run without ` +
             "its approval or Step; remove it or give the tool a policy that runs inline",
@@ -476,6 +618,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
 }
 
 interface TurnSegmentResources {
+  readonly toolCatalog: ToolCatalog;
   readonly resumedSessionId: string | null;
   readonly sessionStore: TurnSegmentSessionStore;
   readonly toolCallGate: ToolCallGate;
@@ -667,6 +810,21 @@ function parseCustomToolArguments(
     throw new ToolExecutionError(`invalid arguments for ${customTool.name}: ${parsed.error.message}`);
   }
   return parsed.data as Record<string, unknown>;
+}
+
+// The runner has no pollToolTask, so a task is recorded as the session records one without a poller.
+function requireToolExecutionResult(record: AgentToolCall, outcome: DeferredToolOutcome): ToolExecutionResult {
+  if (!("kind" in outcome)) {
+    return outcome;
+  }
+  if (outcome.kind === "tool_input_requested") {
+    throw new ToolExecutionError(`${record.toolName} asked a question, which a Claude agent tool source cannot ask`);
+  }
+  const message = `${record.toolName} started tool task ${outcome.taskId}, which the Claude agent adapter cannot poll`;
+  if (record.effect === "read") {
+    throw new ToolExecutionError(message);
+  }
+  throw new ToolOutcomeUnknownError(message);
 }
 
 function onlyValue(values: ReadonlySet<string>): string | undefined {

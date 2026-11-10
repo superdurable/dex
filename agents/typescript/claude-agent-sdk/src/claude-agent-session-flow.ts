@@ -13,10 +13,13 @@ import {
   type ToolPolicy,
 } from "@superdurable/dex-agents";
 
+import type { ToolSource } from "@superdurable/dex-agents/stepwise";
+
 import {
   ClaudeAgentRunner,
   type ClaudeAgentOptionsFactory,
   type ClaudeAgentQueryOptions,
+  type ClaudeAgentRunnerOptions,
 } from "./claude-agent-runner.js";
 import type { ClaudeCustomTool } from "./claude-tool-call-gate.js";
 
@@ -45,6 +48,27 @@ export interface ClaudeAgentDefinition {
    * custom tool `create_refund` as `mcp__tools__create_refund`.
    */
   readonly customToolServerName?: string;
+  /**
+   * Tool sources, such as `ConnectorToolSource` from `@superdurable/dex-agents/connectors`, served from the custom
+   * tool server. Every call of a source tool runs in its own tool Step, with the effect, approval, timeout, and
+   * retry policy its source gives it; a `toolPolicies` entry for a connector tool changes only its approval. See
+   * {@link ClaudeAgentRunnerOptions.toolSources}, which also has an example. Defaults to none.
+   *
+   * @example
+   * ```ts
+   * const flow = createClaudeAgentSessionFlow(
+   *   { options: buildOptions, toolSources: [new ConnectorToolSource([refundTool])] },
+   *   "SupportAgent",
+   * );
+   * ```
+   * @since 0.4.0
+   */
+  readonly toolSources?: readonly ToolSource[];
+  /**
+   * Milliseconds one `RunModel` attempt waits for each tool source's `listTools`. Defaults to 10 seconds.
+   * @since 0.4.0
+   */
+  readonly toolSourceListingTimeoutMs?: number;
 }
 
 /** Session options of {@link createClaudeAgentSessionFlow}; tool policies belong to the agent definition. */
@@ -65,6 +89,10 @@ export type ClaudeAgentSessionOptions = Omit<AgentSessionOptions, "toolPolicies"
  * `Write`, and `Edit`, run inside the turn and wait for approval first when their policy requires it.
  * The default effect, `unclassified`, requires approval for every tool without a policy or MCP
  * annotation, built-in tools included.
+ *
+ * Tool sources add tools that always run in their own tool Step, reads included. `ConnectorToolSource` offers
+ * reviewed Connector operations this way: each call gets the operation's effect class, approval, Call ID, timeout,
+ * and retry policy from its manifest, as in a Stepwise agent.
  *
  * @example
  * ```ts
@@ -104,8 +132,10 @@ export type ClaudeAgentSessionOptions = Omit<AgentSessionOptions, "toolPolicies"
  * defaults.
  * @returns A new Flow that runs the agent with a {@link ClaudeAgentRunner}.
  * @throws {TypeError} When the custom tool server name is invalid, two custom tools share a name, the
- * Flow type is blank, or an effect is unknown.
- * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive.
+ * Flow type is blank, or an effect is unknown; when a tool source is invalid or two share a `sourceName`; or when
+ * a source's `declaredToolNames` repeat a custom tool, a Claude Code tool, or another source's tool.
+ * @throws {RangeError} When `eventStreamCapacityBytes`, `interruptDeadlineMs`, or `toolSourceListingTimeoutMs` is
+ * not positive.
  */
 export function createClaudeAgentSessionFlow(
   agent: ClaudeAgentDefinition,
@@ -117,6 +147,10 @@ export function createClaudeAgentSessionFlow(
     ...(agent.customToolServerName === undefined
       ? {}
       : { customToolServerName: agent.customToolServerName }),
+    ...(agent.toolSources === undefined ? {} : { toolSources: agent.toolSources }),
+    ...(agent.toolSourceListingTimeoutMs === undefined
+      ? {}
+      : { toolSourceListingTimeoutMs: agent.toolSourceListingTimeoutMs }),
   });
   return createAgentSessionFlow(runner, flowType, {
     ...sessionOptions,
