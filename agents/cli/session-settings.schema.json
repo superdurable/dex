@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dex Agents CLI session settings",
+  "description": "The settings of one session that a Dex Agents CLI command runs: the JSON object that start_session and update_session_settings store, at most 16 KiB. They override the configuration file from the next turn on. model and system_prompt replace the file's values. connectors.enabled may only narrow the file's connections and tools, approval.always only adds tools that need approval, and local_tools may only switch tools off or shrink the shell allow list. An omitted field keeps the file's value; there are no defaults here. Settings that fail this schema or try to widen the file are rejected as a whole, and the turn fails with the error. A session without settings uses the file as it is. Settings are stored in the session, so they never hold secrets.",
+  "$comment": "The $defs shared with config.schema.json must stay identical to it; the tests in agents/cli/tests check them.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "model": {
+      "$ref": "#/$defs/model",
+      "description": "Replaces the file's model."
+    },
+    "system_prompt": {
+      "type": "string",
+      "description": "Replaces the file's system_prompt or system_prompt_file."
+    },
+    "connectors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/connector_entries",
+          "description": "Replaces the file's list, which bounds it. Each entry must fall inside one entry of the file: the same connector, the same connection unless the file's entry names none, and a subset of the file's operations unless the file's entry lists none. When the file omits connectors.enabled, any list narrows it. An empty list: no connector tools."
+        }
+      },
+      "description": "Narrows the file's connectors. connectors.mcp is fixed by the file."
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "always": {
+          "$ref": "#/$defs/tool_names",
+          "description": "More tools whose every call waits for approval, added to the file's approval.always."
+        }
+      },
+      "description": "Tightens the file's approval."
+    },
+    "local_tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Each field may only switch off what the file switches on, or repeat the file's value.",
+      "properties": {
+        "files": {
+          "type": "boolean",
+          "description": "false switches the file tools off; true only repeats the file's true."
+        },
+        "shell": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "false switches shell commands off; true only repeats the file's true."
+            },
+            "allow": {
+              "$ref": "#/$defs/shell_commands",
+              "description": "Replaces the file's allow list. Every command must be in the file's allow list, compared as exact strings."
+            }
+          },
+          "description": "Narrows the file's shell tool."
+        },
+        "web_fetch": {
+          "type": "boolean",
+          "description": "false switches web fetching off; true only repeats the file's true."
+        },
+        "browser": {
+          "type": "boolean",
+          "description": "false switches the browser off; true only repeats the file's true."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A model ID in the harness's own format, such as claude-opus-5-5 or openai/gpt-5-mini. Any non-empty string; the harness checks it."
+    },
+    "single_line_text": {
+      "type": "string",
+      "pattern": "^[^\\x00-\\x1f\\x7f]+(?![\\s\\S])",
+      "description": "Non-empty text without control characters."
+    },
+    "tool_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,128}(?![\\s\\S])",
+      "description": "A tool name: 1 to 128 ASCII letters, digits, underscores, hyphens, or dots."
+    },
+    "tool_names": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/tool_name"
+      }
+    },
+    "operation_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,127}(?![\\s\\S])",
+      "description": "A connector operation: its snake-case name, such as get_message, or its operationId, such as getMessage. Both spellings name the same operation: an operationId is compared in snake case, each ASCII capital letter becoming an underscore and its lowercase letter, with leading underscores removed."
+    },
+    "connector_key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,62}(?:/[^/\\x00-\\x20\\x7f-\\x9f](?:[^/\\x00-\\x1f\\x7f-\\x9f]{0,254}[^/\\x00-\\x20\\x7f-\\x9f])?)?(?![\\s\\S])",
+      "description": "A connector ID, or connector/connection. A connection name has at most 256 characters, no slash, no control character, and no leading or trailing space, as Dex Web requires."
+    },
+    "connector_entry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/connector_key"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/connector_key"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tools"
+            ],
+            "properties": {
+              "tools": {
+                "type": "array",
+                "uniqueItems": true,
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/operation_name"
+                },
+                "description": "The connector operations the agent may call, by snake-case name or operationId. Two entries must not name the same operation."
+              }
+            }
+          }
+        }
+      ]
+    },
+    "connector_entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/connector_entry"
+      }
+    },
+    "shell_commands": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/single_line_text"
+      }
+    }
+  }
+}
