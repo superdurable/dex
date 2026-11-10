@@ -343,26 +343,6 @@ theorem exec_range (run : InfiniteRun State Label)
     exact system.exec_snoc (run.states start) _ _ _ _ _ _ inductionHypothesis
       (system.step_eq_eventsAt run stepsFrom (start + count))
 
-/-- A run of `first ++ second` splits into a run of `first` and a run of
-`second`. -/
-theorem exec_append_inv (state : State) (firstLabels secondLabels : List Label)
-    (events : List Event) (final : State)
-    (isExec : system.exec state (firstLabels ++ secondLabels) = some (events, final)) :
-    ∃ firstEvents middle secondEvents,
-      system.exec state firstLabels = some (firstEvents, middle) ∧
-      system.exec middle secondLabels = some (secondEvents, final) ∧
-      events = firstEvents ++ secondEvents := by
-  induction firstLabels generalizing state events with
-  | nil => exact ⟨[], state, events, rfl, isExec, rfl⟩
-  | cons label laterLabels inductionHypothesis =>
-    obtain ⟨stepEvents, next, laterEvents, isStep, isLater, isEvents⟩ :=
-      system.exec_cons state label (laterLabels ++ secondLabels) events final isExec
-    obtain ⟨firstEvents, middle, secondEvents, isFirst, isSecond, isSplit⟩ :=
-      inductionHypothesis next laterEvents isLater
-    refine ⟨stepEvents ++ firstEvents, middle, secondEvents, ?_, isSecond, ?_⟩
-    · simp [exec, isStep, isFirst]
-    · rw [isEvents, isSplit, List.append_assoc]
-
 /-- A prefix of a finite run is a finite run. -/
 theorem exec_take_of_exec (state : State) (labels : List Label) (events : List Event)
     (final : State) (isExec : system.exec state labels = some (events, final)) (count : Nat) :

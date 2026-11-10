@@ -53,6 +53,21 @@ structure IsFlattenedTo (blockRun : BlockRun State Label Event)
 
 end BlockRun
 
+/-- The boundaries of a flattening are in order. -/
+theorem BlockRun.IsFlattenedTo.boundary_mono {State Label Event : Type}
+    {blockRun : BlockRun State Label Event} {run : InfiniteRun State Label}
+    {boundary : Nat → Nat} (isFlattened : blockRun.IsFlattenedTo run boundary)
+    (first later : Nat) (isLater : first ≤ later) : boundary first ≤ boundary later :=
+  boundary_le_of_le blockRun.blocks boundary isFlattened.nextBoundary isLater
+
+/-- Every position of a flattened run is at or before some boundary. -/
+theorem BlockRun.IsFlattenedTo.exists_boundary_ge {State Label Event : Type}
+    {blockRun : BlockRun State Label Event} {run : InfiniteRun State Label}
+    {boundary : Nat → Nat} (isFlattened : blockRun.IsFlattenedTo run boundary)
+    (isInfinite : blockRun.HasInfinitelyManySteps) (position : Nat) :
+    ∃ index, position ≤ boundary index :=
+  boundary_cofinal blockRun.blocks boundary isFlattened.nextBoundary isInfinite position
+
 namespace TransitionSystem
 
 variable {State Label Event Request Visible : Type}

@@ -363,31 +363,6 @@ theorem wp2_invariant_wake_fired {program : Program} {config : L.Config}
 
 /-! ## The run during [TIMER-FIRE] -/
 
-/-- [TIMER-FIRE] of one timer keeps the status. -/
-theorem wp2_status_fireTimer (run : Dex.Run signature) (timer : Dex.TimerId signature) :
-    (run.fireTimer timer).status = run.status := by
-  unfold Dex.Run.fireTimer
-  split
-  · dsimp only
-    split
-    · rfl
-    · split
-      · split
-        · rfl
-        · rw [(Dex.Run.evalStep_keeps_data _ _).2.1]
-          rfl
-      · rfl
-  · rfl
-
-/-- [TIMER-FIRE] of several timers keeps the status. -/
-theorem wp2_status_foldl_fireTimer (timers : List (Dex.TimerId signature))
-    (run : Dex.Run signature) : (timers.foldl Dex.Run.fireTimer run).status = run.status := by
-  induction timers generalizing run with
-  | nil => rfl
-  | cons timer laterTimers inductionHypothesis =>
-    simp only [List.foldl_cons]
-    rw [inductionHypothesis, wp2_status_fireTimer]
-
 /-- The timers after a fire: the timers of every other Step. -/
 theorem wp2_firedRun_timers (run : Dex.Run signature) (timer : Dex.TimerId signature)
     (waitState : Dex.WaitState signature) (other : Dex.TimerId signature) (fireTime : Nat) :
@@ -812,7 +787,7 @@ theorem wp2_fire_exec (program : Program) (lConfig : L.Config)
     (wp2_runningRelated_firing related hasRun)
     (wp2_sortStable_pairwise _ wp2_isTimerEntryAtMost_total wp2_isTimerEntryAtMost_trans _)
     entriesNodup entriesMem isFired
-  have isStillRunning := (wp2_status_foldl_fireTimer
+  have isStillRunning := (Dex.Run.status_foldl_fireTimer
     (((sortStable Dex.Run.isTimerEntryAtMost
       (run.timers.filter (fun entry => decide (entry.2 ≤ dexConfig.clock)))).map
         (fun entry => entry.1)).take (previous + 1))

@@ -370,4 +370,30 @@ theorem isAdmissibleWord_decode (word : Sequence (Dex.Request signature))
         subst isPublication isExternal isEncoded
         simp [Sequence.map, atPosition, decodeRequest, encodeRequest, Literal.ofVal?_toVal]
 
+/-- Two literals with the same value are equal. -/
+theorem Literal.toVal_injective (first second : Literal)
+    (isEqual : first.toVal = second.toVal) : first = second := by
+  have isFirst := Literal.ofVal?_toVal first
+  rw [isEqual, Literal.ofVal?_toVal] at isFirst
+  exact (Option.some.inj isFirst).symm
+
+/-- Two L requests with the same Dex form are equal. -/
+theorem encodeRequest_injective (first second : L.Request)
+    (isEqual : encodeRequest first = encodeRequest second) : first = second := by
+  cases first with
+  | start firstInput =>
+    cases second with
+    | start secondInput =>
+      simp only [encodeRequest, Dex.Request.startFlow.injEq, DexVal.value.injEq, true_and]
+        at isEqual
+      rw [Literal.toVal_injective firstInput secondInput isEqual]
+    | input secondChan secondValue => simp [encodeRequest] at isEqual
+  | input firstChan firstValue =>
+    cases second with
+    | start secondInput => simp [encodeRequest] at isEqual
+    | input secondChan secondValue =>
+      simp only [encodeRequest, Dex.Request.publish.injEq, Chan.external.injEq,
+        DexVal.value.injEq] at isEqual
+      rw [isEqual.1, Literal.toVal_injective firstValue secondValue isEqual.2]
+
 end DexExpressiveness

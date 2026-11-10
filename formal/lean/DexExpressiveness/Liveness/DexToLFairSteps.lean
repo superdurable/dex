@@ -464,42 +464,6 @@ theorem tasks_step_cases (flow : Dex.FlowDef signature) (config next : Dex.Confi
     · split at isStep <;> cases isStep
       exact Or.inl rfl
 
-/-- Dropping a task leaves no task with its ID. -/
-theorem findTask?_removeTask_self (config : Dex.Config signature) (taskId : Nat) :
-    (config.removeTask taskId).findTask? taskId = none := by
-  unfold Dex.Config.findTask? Dex.Config.removeTask
-  apply List.find?_eq_none.mpr
-  intro candidate isMember
-  have isKept := (List.mem_filter.mp isMember).2
-  simpa using isKept
-
-/-- Dropping a task keeps the lookup of every other task. -/
-theorem findTask?_removeTask_other (config : Dex.Config signature) (taskId other : Nat)
-    (isOther : other ≠ taskId) :
-    (config.removeTask taskId).findTask? other = config.findTask? other := by
-  unfold Dex.Config.findTask? Dex.Config.removeTask
-  simp only [List.find?_filter]
-  apply congrArg (fun predicate => config.tasks.find? predicate)
-  funext candidate
-  by_cases isWanted : candidate.id = other
-  · simp [isWanted, isOther]
-  · simp [isWanted]
-
-/-- The task lookup reads only the task list. -/
-theorem findTask?_congr (config next : Dex.Config signature) (taskId : Nat)
-    (sameTasks : next.tasks = config.tasks) : next.findTask? taskId = config.findTask? taskId := by
-  unfold Dex.Config.findTask?
-  rw [sameTasks]
-
-/-- The task lookup after a phase change. -/
-theorem findTask?_updatePhase (config : Dex.Config signature) (changedId taskId : Nat)
-    (phase : Dex.TaskPhase signature) :
-    (config.updateTask changedId (fun current => { current with phase := phase })).findTask?
-        taskId =
-      (config.findTask? taskId).map (fun task =>
-        if task.id = changedId then { task with phase := phase } else task) :=
-  findTask?_updateTask config changedId taskId _ (fun _ => rfl)
-
 /-- One transition and a task of `Θ`: the task stays, with its ID, Step,
 method, and input, and a `Returned` task stays `Returned`; or the task is
 dropped, and then the transition adds no task. -/

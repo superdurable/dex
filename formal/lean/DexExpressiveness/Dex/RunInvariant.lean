@@ -1171,6 +1171,78 @@ theorem applyEffects_keeps_data (run : Dex.Run σ) (effects : Dex.Effects σ) :
     pubStatus, pubOutputs, writeCounters, writeStatus, writeOutputs]
   exact ⟨rfl, rfl, rfl, rfl⟩
 
+/-- `eval(e)` keeps the status. -/
+theorem status_evalStep (run : Run σ) (step : StepExecId σ) :
+    (run.evalStep step).status = run.status := by
+  rcases evalStep_shape run step with isSame | ⟨chans, consumeFlags, change, _, isEval⟩
+  · rw [isSame]
+  · rw [isEval]
+    exact (consumeMessages_frame chans consumeFlags (run.disarmTimersOf step)).2.2.2.2.1
+
+/-- Evaluating Steps keeps the status. -/
+theorem status_foldl_evalStep (steps : List (StepExecId σ)) (run : Run σ) :
+    (steps.foldl Run.evalStep run).status = run.status := by
+  induction steps generalizing run with
+  | nil => rfl
+  | cons step laterSteps inductionHypothesis =>
+    simp only [List.foldl_cons]
+    rw [inductionHypothesis, status_evalStep]
+
+/-- `wake` keeps the status. -/
+theorem status_wake (run : Run σ) (changed : List σ.Chan) :
+    (run.wake changed).status = run.status :=
+  status_foldl_evalStep _ run
+
+/-- `effects` keeps the status. -/
+theorem status_applyEffects (run : Run σ) (effects : Effects σ) :
+    (run.applyEffects effects).status = run.status := by
+  unfold Run.applyEffects
+  rw [status_wake, (applyPublications_frame _ _).2.2.2.2.1,
+    (applyWrites_frame _ _).2.2.2.2.2.1]
+
+/-- `register` keeps the status. -/
+theorem status_registerWait (run : Run σ) (step : StepExecId σ) (wait : Wait σ) (now : Nat) :
+    (run.registerWait step wait now).status = run.status := by
+  unfold Run.registerWait
+  split
+  · rfl
+  · exact status_evalStep _ step
+
+/-- Firing one timer keeps the status. -/
+theorem status_fireTimer (run : Run σ) (timer : TimerId σ) :
+    (run.fireTimer timer).status = run.status := by
+  unfold Run.fireTimer
+  split
+  · simp only
+    split
+    · rfl
+    · split
+      · split
+        · rfl
+        · exact status_evalStep _ timer.step
+      · rfl
+  · rfl
+
+/-- Firing timers keeps the status. -/
+theorem status_foldl_fireTimer (timers : List (TimerId σ)) (run : Run σ) :
+    (timers.foldl Run.fireTimer run).status = run.status := by
+  induction timers generalizing run with
+  | nil => rfl
+  | cons timer laterTimers inductionHypothesis =>
+    simp only [List.foldl_cons]
+    rw [inductionHypothesis, status_fireTimer]
+
+/-- Taking moves keeps the status. -/
+theorem status_foldl_newStep (moves : List (Move σ)) (origin : Origin σ) (run : Run σ) :
+    (moves.foldl (fun current move =>
+      current.newStep move.stepType move.input move.options origin) run).status = run.status := by
+  induction moves generalizing run with
+  | nil => rfl
+  | cons move laterMoves inductionHypothesis =>
+    simp only [List.foldl_cons]
+    rw [inductionHypothesis]
+    rfl
+
 end Run
 
 end DexExpressiveness.Dex

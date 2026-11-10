@@ -105,40 +105,6 @@ theorem eventually_idle_of_weight (weight : Nat → Nat) (isProgress : Nat → B
 
 /-! ## Requests, events, and the closed status -/
 
-/-- The events of a transition of a run are the events of its step. -/
-theorem TransitionSystem.eventsAt_of_step {State Label Event Request : Type}
-    (system : TransitionSystem State Label Event Request) (run : InfiniteRun State Label)
-    (index : Nat) (events : List Event) (next : State)
-    (isStep : system.step (run.states index) (run.labels index) = some (events, next)) :
-    system.eventsAt run index = events := by
-  simp [TransitionSystem.eventsAt, isStep]
-
-/-- Two literals with the same value are equal. -/
-theorem Literal.toVal_injective (first second : Literal)
-    (isEqual : first.toVal = second.toVal) : first = second := by
-  have isFirst := Literal.ofVal?_toVal first
-  rw [isEqual, Literal.ofVal?_toVal] at isFirst
-  exact (Option.some.inj isFirst).symm
-
-/-- Two L requests with the same Dex form are equal. -/
-theorem encodeRequest_injective (first second : L.Request)
-    (isEqual : encodeRequest first = encodeRequest second) : first = second := by
-  cases first with
-  | start firstInput =>
-    cases second with
-    | start secondInput =>
-      simp only [encodeRequest, Dex.Request.startFlow.injEq, DexVal.value.injEq, true_and]
-        at isEqual
-      rw [Literal.toVal_injective firstInput secondInput isEqual]
-    | input secondChan secondValue => simp [encodeRequest] at isEqual
-  | input firstChan firstValue =>
-    cases second with
-    | start secondInput => simp [encodeRequest] at isEqual
-    | input secondChan secondValue =>
-      simp only [encodeRequest, Dex.Request.publish.injEq, Chan.external.injEq,
-        DexVal.value.injEq] at isEqual
-      rw [isEqual.1, Literal.toVal_injective firstValue secondValue isEqual.2]
-
 /-- Related configurations are closed together (spec §5.5, markers). -/
 theorem Related.isClosed {program : Program} {lConfig : L.Config}
     {dexConfig : Dex.Config signature} (isRelated : Related program lConfig dexConfig) :

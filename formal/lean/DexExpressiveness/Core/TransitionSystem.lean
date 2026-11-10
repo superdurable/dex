@@ -251,6 +251,34 @@ theorem exec_snoc {State Label Event Request : Type}
   system.exec_append state labels [label] events lastEvents middle final isFirst
     (by simp [TransitionSystem.exec, isLast])
 
+/-- A run of `first ++ second` splits into a run of `first` and a run of
+`second`. -/
+theorem exec_append_inv (state : State) (firstLabels secondLabels : List Label)
+    (events : List Event) (final : State)
+    (isExec : system.exec state (firstLabels ++ secondLabels) = some (events, final)) :
+    ∃ firstEvents middle secondEvents,
+      system.exec state firstLabels = some (firstEvents, middle) ∧
+      system.exec middle secondLabels = some (secondEvents, final) ∧
+      events = firstEvents ++ secondEvents := by
+  induction firstLabels generalizing state events with
+  | nil => exact ⟨[], state, events, rfl, isExec, rfl⟩
+  | cons label laterLabels inductionHypothesis =>
+    obtain ⟨stepEvents, next, laterEvents, isStep, isLater, isEvents⟩ :=
+      system.exec_cons state label (laterLabels ++ secondLabels) events final isExec
+    obtain ⟨firstEvents, middle, secondEvents, isFirst, isSecond, isSplit⟩ :=
+      inductionHypothesis next laterEvents isLater
+    refine ⟨stepEvents ++ firstEvents, middle, secondEvents, ?_, isSecond, ?_⟩
+    · simp [exec, isStep, isFirst]
+    · rw [isEvents, isSplit, List.append_assoc]
+
+/-- The events of a transition of a run are the events of its step. -/
+theorem eventsAt_of_step {State Label Event Request : Type}
+    (system : TransitionSystem State Label Event Request) (run : InfiniteRun State Label)
+    (index : Nat) (events : List Event) (next : State)
+    (isStep : system.step (run.states index) (run.labels index) = some (events, next)) :
+    system.eventsAt run index = events := by
+  simp [TransitionSystem.eventsAt, isStep]
+
 end TransitionSystem
 
 end DexExpressiveness

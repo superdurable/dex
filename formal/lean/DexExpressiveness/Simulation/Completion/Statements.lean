@@ -224,18 +224,6 @@ theorem wp3b_applyIntent_events (config : L.Config) (tid : Tid) (result : Statem
 
 /-! ## The status and the outputs of the run after the commit -/
 
-/-- New Steps keep the status. -/
-theorem wp3b_status_foldl_newStep (moves : List (Dex.Move signature))
-    (origin : Dex.Origin signature) (run : Dex.Run signature) :
-    (moves.foldl (fun current move =>
-      current.newStep move.stepType move.input move.options origin) run).status = run.status := by
-  induction moves generalizing run with
-  | nil => rfl
-  | cons move laterMoves inductionHypothesis =>
-    simp only [List.foldl_cons]
-    rw [inductionHypothesis]
-    rfl
-
 /-- A commit whose decision does not close the run keeps it running. -/
 theorem wp3b_completedRun_status (run : Dex.Run signature) (step : Dex.StepExecId signature)
     (response : Dex.ExecuteResponse signature) (isRunning : run.status = .running)
@@ -248,7 +236,7 @@ theorem wp3b_completedRun_status (run : Dex.Run signature) (step : Dex.StepExecI
   unfold Dex.Run.applyDecision
   rcases isNotClosing with isNone | isDeadEnd
   · simp only [isNone]
-    rw [wp3b_status_foldl_newStep]
+    rw [Dex.Run.status_foldl_newStep]
     exact effectStatus
   · simp only [isDeadEnd]
     exact effectStatus

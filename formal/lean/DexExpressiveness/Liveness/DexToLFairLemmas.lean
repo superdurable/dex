@@ -261,16 +261,8 @@ theorem LRunOfDexRun.dexStep (built : LRunOfDexRun program dexRun lBlocks lRun b
 
 /-- Later blocks start later in the L run. -/
 theorem LRunOfDexRun.boundary_mono (built : LRunOfDexRun program dexRun lBlocks lRun boundary)
-    {first second : Nat} (isBefore : first ≤ second) : boundary first ≤ boundary second := by
-  obtain ⟨distance, isSecond⟩ := Nat.exists_eq_add_of_le isBefore
-  subst isSecond
-  clear isBefore
-  induction distance with
-  | zero => exact Nat.le_refl _
-  | succ distance inductionHypothesis =>
-    have isNext := built.isFlattened.nextBoundary (first + distance)
-    have isStep : boundary (first + distance) ≤ boundary (first + distance + 1) := by omega
-    exact Nat.le_trans inductionHypothesis isStep
+    {first second : Nat} (isBefore : first ≤ second) : boundary first ≤ boundary second :=
+  built.isFlattened.boundary_mono first second isBefore
 
 /-- Every position of the L run is the start of a block: a block has at most
 one label, and infinitely many blocks have one. -/

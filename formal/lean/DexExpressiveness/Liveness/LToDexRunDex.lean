@@ -5,41 +5,13 @@ import DexExpressiveness.Dex.Observation
 # Liveness, work package L5: facts about Dex runs alone
 
 Two facts about the restricted Dex system that the Dex run of an L run needs
-(`Liveness/LToDexRun.lean`), and one about finite runs of any system. None
-mentions L or the translation.
-
-- A finite run of `first ++ second` splits at the end of `first`.
+(`Liveness/LToDexRun.lean`). Neither mentions L or the translation.
 
 - A closed run stays closed (spec §5.5: "closed" in the markers `✓` and `δ`
   means closed at some point). No meta-function of spec §4.2 reopens a run.
 - Which tasks are `Returned` after a step: those that were, and the task of
   a [WORKER-EFFECT] return. A Complete removes its task.
 -/
-
-namespace DexExpressiveness
-
-/-- A run of `first ++ second` splits into a run of `first` and a run of
-`second` from where the first ends. The converse of `exec_append`. -/
-theorem TransitionSystem.exec_of_append {State Label Event Request : Type}
-    (system : TransitionSystem State Label Event Request) (state : State)
-    (firstLabels secondLabels : List Label) (events : List Event) (final : State)
-    (isExec : system.exec state (firstLabels ++ secondLabels) = some (events, final)) :
-    ∃ firstEvents middle secondEvents,
-      system.exec state firstLabels = some (firstEvents, middle) ∧
-      system.exec middle secondLabels = some (secondEvents, final) ∧
-      events = firstEvents ++ secondEvents := by
-  induction firstLabels generalizing state events with
-  | nil => exact ⟨[], state, events, rfl, by simpa using isExec, rfl⟩
-  | cons label laterLabels inductionHypothesis =>
-    obtain ⟨stepEvents, next, laterEvents, isStep, isLater, isEvents⟩ :=
-      system.exec_cons state label (laterLabels ++ secondLabels) events final isExec
-    obtain ⟨firstEvents, middle, secondEvents, isFirst, isSecond, isLaterEvents⟩ :=
-      inductionHypothesis next laterEvents isLater
-    refine ⟨stepEvents ++ firstEvents, middle, secondEvents, ?_, isSecond, ?_⟩
-    · simp only [TransitionSystem.exec, isStep, isFirst]
-    · rw [isEvents, isLaterEvents, List.append_assoc]
-
-end DexExpressiveness
 
 namespace DexExpressiveness.Dex
 
@@ -48,78 +20,6 @@ variable {σ : Signature}
 namespace Run
 
 /-! ## The meta-functions keep the status of a closed run -/
-
-/-- `eval(e)` keeps the status. -/
-theorem status_evalStep (run : Run σ) (step : StepExecId σ) :
-    (run.evalStep step).status = run.status := by
-  rcases evalStep_shape run step with isSame | ⟨chans, consumeFlags, change, _, isEval⟩
-  · rw [isSame]
-  · rw [isEval]
-    exact (consumeMessages_frame chans consumeFlags (run.disarmTimersOf step)).2.2.2.2.1
-
-/-- Evaluating Steps keeps the status. -/
-theorem status_foldl_evalStep (steps : List (StepExecId σ)) (run : Run σ) :
-    (steps.foldl Run.evalStep run).status = run.status := by
-  induction steps generalizing run with
-  | nil => rfl
-  | cons step laterSteps inductionHypothesis =>
-    simp only [List.foldl_cons]
-    rw [inductionHypothesis, status_evalStep]
-
-/-- `wake` keeps the status. -/
-theorem status_wake (run : Run σ) (changed : List σ.Chan) :
-    (run.wake changed).status = run.status :=
-  status_foldl_evalStep _ run
-
-/-- `effects` keeps the status. -/
-theorem status_applyEffects (run : Run σ) (effects : Effects σ) :
-    (run.applyEffects effects).status = run.status := by
-  unfold Run.applyEffects
-  rw [status_wake, (applyPublications_frame _ _).2.2.2.2.1,
-    (applyWrites_frame _ _).2.2.2.2.2.1]
-
-/-- `register` keeps the status. -/
-theorem status_registerWait (run : Run σ) (step : StepExecId σ) (wait : Wait σ) (now : Nat) :
-    (run.registerWait step wait now).status = run.status := by
-  unfold Run.registerWait
-  split
-  · rfl
-  · exact status_evalStep _ step
-
-/-- Firing one timer keeps the status. -/
-theorem status_fireTimer (run : Run σ) (timer : TimerId σ) :
-    (run.fireTimer timer).status = run.status := by
-  unfold Run.fireTimer
-  split
-  · simp only
-    split
-    · rfl
-    · split
-      · split
-        · rfl
-        · exact status_evalStep _ timer.step
-      · rfl
-  · rfl
-
-/-- Firing timers keeps the status. -/
-theorem status_foldl_fireTimer (timers : List (TimerId σ)) (run : Run σ) :
-    (timers.foldl Run.fireTimer run).status = run.status := by
-  induction timers generalizing run with
-  | nil => rfl
-  | cons timer laterTimers inductionHypothesis =>
-    simp only [List.foldl_cons]
-    rw [inductionHypothesis, status_fireTimer]
-
-/-- Taking moves keeps the status. -/
-theorem status_foldl_newStep (moves : List (Move σ)) (origin : Origin σ) (run : Run σ) :
-    (moves.foldl (fun current move =>
-      current.newStep move.stepType move.input move.options origin) run).status = run.status := by
-  induction moves generalizing run with
-  | nil => rfl
-  | cons move laterMoves inductionHypothesis =>
-    simp only [List.foldl_cons]
-    rw [inductionHypothesis]
-    rfl
 
 /-- `close` changes nothing in a closed run. -/
 theorem closeRun_of_closed (run : Run σ) (status closedStatus : CloseStatus)

@@ -114,14 +114,14 @@ theorem DexRunOfLRun.workersSettle (built : DexRunOfLRun program lRun dexBlocks 
     (emitsSettle : L.Fairness.EmitsSettle lRun)
     (actionsComplete : L.Fairness.ActionsComplete lRun) :
     Dex.Fairness.WorkersSettle dexRun :=
-  workers_workersSettle built emitsSettle actionsComplete
+  DexRunOfLRun.workersSettle_of_fair built emitsSettle actionsComplete
 
 /-- F5: a task is `Returned` only between the Worker step that returns it and
 the Complete of the same block. -/
 theorem DexRunOfLRun.resultsCommit
     (built : DexRunOfLRun program lRun dexBlocks dexRun boundary) :
     Dex.Fairness.ResultsCommit dexRun :=
-  workers_resultsCommit built
+  DexRunOfLRun.resultsCommit_of_noReturnedTask built
 
 /-- The Dex run built from a fair L run is fair. -/
 theorem DexRunOfLRun.isFair (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)

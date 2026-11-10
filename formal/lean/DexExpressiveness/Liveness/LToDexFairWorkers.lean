@@ -15,150 +15,100 @@ F4 is proved by contradiction. Assume that a task stays in `Θ` and never
 returns from some position on.
 
 - Every Dex step keeps the input of a task that stays in `Θ`, and gives it no
-  effect to emit (`workers_task_of_step`, `workers_task_of_run`). The proof
+  effect to emit (`taskFollows_of_step`, `taskFollows_of_isRun`). The proof
   reads this off every rule, so it needs no block shapes.
 - At a boundary where the Flow runs, the task is current, so its Step carries
   a thread that issued an emit and holds the effect, or that began an action
-  and holds none (`IsSimulationState.workers_thread_of_task`). The thread is
+  and holds none (`IsSimulationState.thread_of_task`). The thread is
   the same at every boundary, because its ID is in the task's input.
 - F5 of L ends a thread's begun action, and the task holds no effect then or
-  later, so the Flow has closed (`workers_false_of_noEffect`). F4 of L ends an
-  issued emit, which gives the same case.
-- After the close the program stays closed (`workers_closed_of_step`), and F4
-  of L empties the late emits (`workers_lateEmits_empty`). A task that is left
+  later, so the Flow has closed
+  (`DexRunOfLRun.not_unsettled_forever_of_noEffect`). F4 of L ends an issued
+  emit, which gives the same case.
+- After the close the program stays closed (`L.step_keeps_closed`), and F4
+  of L empties the late emits (`exists_lateEmits_eq_nil`). A task that is left
   between two blocks then holds an effect (`DexFollowsL.isSettled`), which is
-  a late emit (`workers_false_of_closed`).
+  a late emit (`DexRunOfLRun.not_unsettled_forever_of_closed`).
 
-Nothing here uses `flattening_position` or `flattening_exec_take`.
-`workers_boundary_mono` and `workers_exists_boundary_ge` are facts about
-`BlockRun.IsFlattenedTo` that other packages may also prove.
+Nothing here uses `flattening_position` or `flattening_exec_take`. The order
+of the block boundaries is `BlockRun.IsFlattenedTo.boundary_mono` and
+`BlockRun.IsFlattenedTo.exists_boundary_ge` of `Core/BlockRun.lean`.
 -/
 
 namespace DexExpressiveness
 
 open DexExpressiveness.L DexExpressiveness.Translation
 
-/-! ## Block boundaries -/
-
-/-- The boundaries of a flattening are in order. -/
-theorem workers_boundary_mono {State Label Event : Type}
-    {blockRun : BlockRun State Label Event} {run : InfiniteRun State Label}
-    {boundary : Nat → Nat} (isFlattened : blockRun.IsFlattenedTo run boundary)
-    {first last : Nat} (isOrdered : first ≤ last) : boundary first ≤ boundary last := by
-  obtain ⟨distance, isLast⟩ := Nat.exists_eq_add_of_le isOrdered
-  subst isLast
-  induction distance with
-  | zero => exact Nat.le_refl _
-  | succ distance inductionHypothesis =>
-    have isNext := isFlattened.nextBoundary (first + distance)
-    have isBefore := inductionHypothesis (Nat.le_add_right first distance)
-    rw [← Nat.add_assoc, isNext]
-    omega
-
-/-- Every position of a flattened run is at or before some boundary. -/
-theorem workers_exists_boundary_ge {State Label Event : Type}
-    {blockRun : BlockRun State Label Event} {run : InfiniteRun State Label}
-    {boundary : Nat → Nat} (isFlattened : blockRun.IsFlattenedTo run boundary)
-    (isInfinite : blockRun.HasInfinitelyManySteps) (position : Nat) :
-    ∃ index, position ≤ boundary index := by
-  induction position with
-  | zero => exact ⟨0, Nat.zero_le _⟩
-  | succ position inductionHypothesis =>
-    obtain ⟨index, isBefore⟩ := inductionHypothesis
-    obtain ⟨later, isLater, isNonEmpty⟩ := isInfinite index
-    have isOrdered := workers_boundary_mono isFlattened isLater
-    have isNext := isFlattened.nextBoundary later
-    have isPositive : 0 < (blockRun.blocks later).length := List.length_pos_iff.mpr isNonEmpty
-    exact ⟨later + 1, by omega⟩
-
 /-! ## One task across a Dex step -/
 
 /-- `later` is `task` after some Dex steps that kept it in `Θ`: it has the
 same input, and it holds no effect to emit when `task` held none. -/
-def WorkersTaskFollows (flow : Dex.FlowDef signature) (task later : Dex.Task signature) : Prop :=
+def TaskFollows (flow : Dex.FlowDef signature) (task later : Dex.Task signature) : Prop :=
   later.input = task.input ∧ (pendingEffects flow task = [] → pendingEffects flow later = [])
 
 /-- A task follows itself. -/
-theorem WorkersTaskFollows.refl (flow : Dex.FlowDef signature) (task : Dex.Task signature) :
-    WorkersTaskFollows flow task task :=
+theorem TaskFollows.refl (flow : Dex.FlowDef signature) (task : Dex.Task signature) :
+    TaskFollows flow task task :=
   ⟨rfl, id⟩
 
 /-- Following composes. -/
-theorem WorkersTaskFollows.trans {flow : Dex.FlowDef signature}
-    {task middle later : Dex.Task signature} (first : WorkersTaskFollows flow task middle)
-    (second : WorkersTaskFollows flow middle later) : WorkersTaskFollows flow task later :=
+theorem TaskFollows.trans {flow : Dex.FlowDef signature}
+    {task middle later : Dex.Task signature} (first : TaskFollows flow task middle)
+    (second : TaskFollows flow middle later) : TaskFollows flow task later :=
   ⟨second.1.trans first.1, fun noEffect => second.2 (first.2 noEffect)⟩
 
-/-- The task lookup after a task was removed. -/
-theorem workers_findTask?_removeTask (config : Dex.Config signature) (removed taskId : Nat) :
-    (config.removeTask removed).findTask? taskId =
-      if taskId = removed then none else config.findTask? taskId := by
-  simp only [Dex.Config.findTask?, Dex.Config.removeTask, List.find?_filter]
-  by_cases isRemoved : taskId = removed
-  · subst isRemoved
-    simp only [↓reduceIte]
-    apply List.find?_eq_none.mpr
-    intro candidate _
-    simp
-  · simp only [isRemoved, ↓reduceIte]
-    apply congrArg (fun predicate => config.tasks.find? predicate)
-    funext candidate
-    by_cases isCandidate : candidate.id = taskId
-    · simp [isCandidate, isRemoved]
-    · simp [isCandidate]
-
 /-- A step that keeps `Θ` keeps the task. -/
-theorem workers_task_of_same (flow : Dex.FlowDef signature) (config next : Dex.Config signature)
+theorem taskFollows_of_same_tasks (flow : Dex.FlowDef signature) (config next : Dex.Config signature)
     (taskId : Nat) (task later : Dex.Task signature)
     (isFound : config.findTask? taskId = some task)
     (isLaterFound : next.findTask? taskId = some later) (sameTasks : next.tasks = config.tasks) :
-    WorkersTaskFollows flow task later := by
+    TaskFollows flow task later := by
   have sameLookup : next.findTask? taskId = config.findTask? taskId := by
     simp only [Dex.Config.findTask?, sameTasks]
   rw [sameLookup, isFound] at isLaterFound
   cases isLaterFound
-  exact WorkersTaskFollows.refl flow task
+  exact TaskFollows.refl flow task
 
 /-- A step that removes a task keeps every other task. -/
-theorem workers_task_of_remove (flow : Dex.FlowDef signature)
+theorem taskFollows_of_removeTask (flow : Dex.FlowDef signature)
     (config next : Dex.Config signature) (removed taskId : Nat) (task later : Dex.Task signature)
     (isFound : config.findTask? taskId = some task)
     (isLaterFound : next.findTask? taskId = some later)
     (sameTasks : next.tasks = (config.removeTask removed).tasks) :
-    WorkersTaskFollows flow task later := by
+    TaskFollows flow task later := by
   have sameLookup : next.findTask? taskId = (config.removeTask removed).findTask? taskId := by
     simp only [Dex.Config.findTask?, sameTasks]
-  rw [sameLookup, workers_findTask?_removeTask] at isLaterFound
+  rw [sameLookup, findTask?_removeTask] at isLaterFound
   split at isLaterFound
   · cases isLaterFound
   · rw [isFound] at isLaterFound
     cases isLaterFound
-    exact WorkersTaskFollows.refl flow task
+    exact TaskFollows.refl flow task
 
 /-- A step that adds a task at the end of `Θ` keeps the task. -/
-theorem workers_task_of_append (flow : Dex.FlowDef signature)
+theorem taskFollows_of_append (flow : Dex.FlowDef signature)
     (config next : Dex.Config signature) (added : Dex.Task signature) (taskId : Nat)
     (task later : Dex.Task signature) (isFound : config.findTask? taskId = some task)
     (isLaterFound : next.findTask? taskId = some later)
-    (sameTasks : next.tasks = config.tasks ++ [added]) : WorkersTaskFollows flow task later := by
+    (sameTasks : next.tasks = config.tasks ++ [added]) : TaskFollows flow task later := by
   have sameLookup : next.findTask? taskId = config.findTask? taskId := by
     simp only [Dex.Config.findTask?] at isFound ⊢
     rw [sameTasks, List.find?_append, isFound]
     rfl
   rw [sameLookup, isFound] at isLaterFound
   cases isLaterFound
-  exact WorkersTaskFollows.refl flow task
+  exact TaskFollows.refl flow task
 
 /-- A Worker step that changes the phase of one task keeps the input of every
 task, and gives the changed task no effect when `keepsNoEffect` holds. -/
-theorem workers_task_of_update (flow : Dex.FlowDef signature) (config : Dex.Config signature)
+theorem taskFollows_of_updateTask (flow : Dex.FlowDef signature) (config : Dex.Config signature)
     (changed taskId : Nat) (change : Dex.Task signature → Dex.Task signature)
     (task later : Dex.Task signature) (isFound : config.findTask? taskId = some task)
     (isLaterFound : (config.updateTask changed change).findTask? taskId = some later)
     (keepsId : ∀ current, (change current).id = current.id)
     (keepsInput : ∀ current, (change current).input = current.input)
     (keepsNoEffect : changed = taskId → pendingEffects flow task = [] →
-      pendingEffects flow (change task) = []) : WorkersTaskFollows flow task later := by
+      pendingEffects flow (change task) = []) : TaskFollows flow task later := by
   have hasId := (mem_of_findTask? config taskId task isFound).2
   rw [findTask?_updateTask config changed taskId change keepsId, isFound] at isLaterFound
   simp only [Option.map_some] at isLaterFound
@@ -168,23 +118,23 @@ theorem workers_task_of_update (flow : Dex.FlowDef signature) (config : Dex.Conf
   · simp only [isChanged, ↓reduceIte]
     exact ⟨keepsInput task, keepsNoEffect (isChanged.symm.trans hasId)⟩
   · simp only [isChanged, ↓reduceIte]
-    exact WorkersTaskFollows.refl flow task
+    exact TaskFollows.refl flow task
 
 /-- One Dex step keeps the input of a task that stays in `Θ`, and gives it no
 effect to emit: a Worker step changes the phase of one task, [STEP-START]
 adds a task with a fresh ID at the end, and every other rule keeps `Θ` or
 removes one task. -/
-theorem workers_task_of_step (flow : Dex.FlowDef signature) (config : Dex.Config signature)
+theorem taskFollows_of_step (flow : Dex.FlowDef signature) (config : Dex.Config signature)
     (action : Dex.Action signature) (events : List (Dex.Obs signature))
     (next : Dex.Config signature) (isStep : Dex.step flow config action = some (events, next))
     (taskId : Nat) (task later : Dex.Task signature)
     (isFound : config.findTask? taskId = some task)
-    (isLaterFound : next.findTask? taskId = some later) : WorkersTaskFollows flow task later := by
+    (isLaterFound : next.findTask? taskId = some later) : TaskFollows flow task later := by
   cases action with
   | tick duration =>
     simp only [Dex.step] at isStep
     split at isStep <;> cases isStep
-    exact workers_task_of_same flow config _ taskId task later isFound isLaterFound rfl
+    exact taskFollows_of_same_tasks flow config _ taskId task later isFound isLaterFound rfl
   | request request =>
     cases request with
     | startFlow stepType input =>
@@ -192,17 +142,17 @@ theorem workers_task_of_step (flow : Dex.FlowDef signature) (config : Dex.Config
       split at isStep
       · cases isStep
       · split at isStep <;> cases isStep
-        exact workers_task_of_same flow config _ taskId task later isFound isLaterFound rfl
+        exact taskFollows_of_same_tasks flow config _ taskId task later isFound isLaterFound rfl
     | publish chan value =>
       simp only [Dex.step] at isStep
       split at isStep
       · cases isStep
-        exact workers_task_of_same flow config _ taskId task later isFound isLaterFound rfl
+        exact taskFollows_of_same_tasks flow config _ taskId task later isFound isLaterFound rfl
       · split at isStep
         · cases isStep
-          exact workers_task_of_same flow config _ taskId task later isFound isLaterFound rfl
+          exact taskFollows_of_same_tasks flow config _ taskId task later isFound isLaterFound rfl
         · split at isStep <;> cases isStep
-          exact workers_task_of_same flow config _ taskId task later isFound isLaterFound rfl
+          exact taskFollows_of_same_tasks flow config _ taskId task later isFound isLaterFound rfl
   | stepStart stepId =>
     simp only [Dex.step] at isStep
     split at isStep
@@ -212,7 +162,7 @@ theorem workers_task_of_step (flow : Dex.FlowDef signature) (config : Dex.Config
       · split at isStep
         · split at isStep
           · cases isStep
-            exact workers_task_of_append flow config _ _ taskId task later isFound isLaterFound rfl
+            exact taskFollows_of_append flow config _ _ taskId task later isFound isLaterFound rfl
           · cases isStep
         · cases isStep
   | workerRun changed =>
@@ -222,7 +172,7 @@ theorem workers_task_of_step (flow : Dex.FlowDef signature) (config : Dex.Config
     · rename_i running isRunningFound
       split at isStep <;> cases isStep
       rename_i isStarted
-      refine workers_task_of_update flow config changed taskId _ task later isFound isLaterFound
+      refine taskFollows_of_updateTask flow config changed taskId _ task later isFound isLaterFound
         (fun _ => rfl) (fun _ => rfl) ?_
       intro isChanged noEffect
       subst isChanged
@@ -237,7 +187,7 @@ theorem workers_task_of_step (flow : Dex.FlowDef signature) (config : Dex.Config
     · rename_i running isRunningFound
       split at isStep <;> cases isStep
       rename_i effect laterEffects response isEmitting
-      refine workers_task_of_update flow config changed taskId _ task later isFound isLaterFound
+      refine taskFollows_of_updateTask flow config changed taskId _ task later isFound isLaterFound
         (fun _ => rfl) (fun _ => rfl) ?_
       intro isChanged noEffect
       subst isChanged
@@ -249,7 +199,7 @@ theorem workers_task_of_step (flow : Dex.FlowDef signature) (config : Dex.Config
     split at isStep
     · cases isStep
     · split at isStep <;> cases isStep
-      refine workers_task_of_update flow config changed taskId _ task later isFound isLaterFound
+      refine taskFollows_of_updateTask flow config changed taskId _ task later isFound isLaterFound
         (fun _ => rfl) (fun _ => rfl) ?_
       intro _ _
       rfl
@@ -258,14 +208,14 @@ theorem workers_task_of_step (flow : Dex.FlowDef signature) (config : Dex.Config
     split at isStep
     · cases isStep
     · split at isStep <;> cases isStep
-      exact workers_task_of_remove flow config _ removed taskId task later isFound isLaterFound rfl
+      exact taskFollows_of_removeTask flow config _ removed taskId task later isFound isLaterFound rfl
   | stepCompleteStale removed =>
     simp only [Dex.step] at isStep
     split at isStep
     · cases isStep
     · split at isStep
       · split at isStep <;> cases isStep
-        exact workers_task_of_remove flow config _ removed taskId task later isFound
+        exact taskFollows_of_removeTask flow config _ removed taskId task later isFound
           isLaterFound rfl
       · cases isStep
   | stepComplete removed =>
@@ -273,9 +223,9 @@ theorem workers_task_of_step (flow : Dex.FlowDef signature) (config : Dex.Config
     split at isStep
     · split at isStep
       · split at isStep <;> cases isStep
-        · exact workers_task_of_remove flow config _ removed taskId task later isFound
+        · exact taskFollows_of_removeTask flow config _ removed taskId task later isFound
             isLaterFound rfl
-        · exact workers_task_of_remove flow config _ removed taskId task later isFound
+        · exact taskFollows_of_removeTask flow config _ removed taskId task later isFound
             isLaterFound rfl
       · cases isStep
     · cases isStep
@@ -284,11 +234,11 @@ theorem workers_task_of_step (flow : Dex.FlowDef signature) (config : Dex.Config
     split at isStep
     · cases isStep
     · split at isStep <;> cases isStep
-      exact workers_task_of_same flow config _ taskId task later isFound isLaterFound rfl
+      exact taskFollows_of_same_tasks flow config _ taskId task later isFound isLaterFound rfl
 
 /-- Along a Dex run, a task that stays in `Θ` keeps its input and gets no
 effect to emit. -/
-theorem workers_task_of_run (flow : Dex.FlowDef signature)
+theorem taskFollows_of_isRun (flow : Dex.FlowDef signature)
     (dexRun : InfiniteRun (Dex.Config signature) (Dex.Action signature))
     (isRun : (Dex.system flow).IsRun dexRun) (taskId start : Nat)
     (stays : ∀ position, start ≤ position →
@@ -297,25 +247,25 @@ theorem workers_task_of_run (flow : Dex.FlowDef signature)
     (task later : Dex.Task signature)
     (isFound : (dexRun.states first).findTask? taskId = some task)
     (isLaterFound : (dexRun.states last).findTask? taskId = some later) :
-    WorkersTaskFollows flow task later := by
+    TaskFollows flow task later := by
   obtain ⟨distance, isLast⟩ := Nat.exists_eq_add_of_le isOrdered
   subst isLast
   induction distance generalizing later with
   | zero =>
     rw [Nat.add_zero, isFound] at isLaterFound
     cases isLaterFound
-    exact WorkersTaskFollows.refl flow task
+    exact TaskFollows.refl flow task
   | succ distance inductionHypothesis =>
     obtain ⟨middle, isMiddleFound⟩ := stays (first + distance) (by omega)
     have toMiddle := inductionHypothesis middle (Nat.le_add_right first distance) isMiddleFound
     obtain ⟨events, isStep⟩ := isRun.2 (first + distance)
-    exact toMiddle.trans (workers_task_of_step flow _ _ events _ isStep taskId middle later
+    exact toMiddle.trans (taskFollows_of_step flow _ _ events _ isStep taskId middle later
       isMiddleFound isLaterFound)
 
 /-! ## After the close -/
 
 /-- A closed L program with no thread stays closed. -/
-theorem workers_closed_of_step (program : Program) (config next : L.Config) (label : L.Label)
+theorem L.step_keeps_closed (program : Program) (config next : L.Config) (label : L.Label)
     (events : List Event) (isStep : L.step program config label = some (events, next))
     (isClosed : config.status = .closed) (noThread : config.threads = []) :
     next.status = .closed := by
@@ -354,7 +304,7 @@ theorem workers_closed_of_step (program : Program) (config next : L.Config) (lab
     · cases isStep
 
 /-- F4 of L, applied until no late emit is left. -/
-theorem workers_lateEmits_empty (lRun : InfiniteRun L.Config L.Label)
+theorem exists_lateEmits_eq_nil (lRun : InfiniteRun L.Config L.Label)
     (emitsSettle : L.Fairness.EmitsSettle lRun) (index : Nat) :
     ∃ later, index ≤ later ∧ (lRun.states later).lateEmits = [] := by
   generalize isLength : (lRun.states index).lateEmits.length = count
@@ -373,7 +323,7 @@ theorem workers_lateEmits_empty (lRun : InfiniteRun L.Config L.Label)
 carries a thread. The thread's ID is in the task's input. The thread issued an
 emit and the task holds that effect, or the thread began an action and the
 task holds no effect. -/
-theorem IsSimulationState.workers_thread_of_task {program : Program} {lConfig : L.Config}
+theorem IsSimulationState.thread_of_task {program : Program} {lConfig : L.Config}
     {dexConfig : Dex.Config signature} (state : IsSimulationState program lConfig dexConfig)
     (run : Dex.Run signature) (hasRun : dexConfig.run = some run)
     (isRunning : run.status = .running) (taskId : Nat) (task : Dex.Task signature)
@@ -462,10 +412,10 @@ variable {program : Program} {lRun : InfiniteRun L.Config L.Label}
   {dexRun : InfiniteRun (Dex.Config signature) (Dex.Action signature)} {boundary : Nat → Nat}
 
 /-- F5: no task is `Returned` at the next block boundary. -/
-theorem workers_resultsCommit (built : DexRunOfLRun program lRun dexBlocks dexRun boundary) :
+theorem DexRunOfLRun.resultsCommit_of_noReturnedTask (built : DexRunOfLRun program lRun dexBlocks dexRun boundary) :
     Dex.Fairness.ResultsCommit dexRun := by
   intro taskId start _
-  obtain ⟨index, isAfter⟩ := workers_exists_boundary_ge built.isFlattened built.isInfinite start
+  obtain ⟨index, isAfter⟩ := BlockRun.IsFlattenedTo.exists_boundary_ge built.isFlattened built.isInfinite start
   refine ⟨boundary index, isAfter, ?_⟩
   rintro ⟨task, response, isFound, isReturned⟩
   rw [built.isFlattened.stateAtBoundary index] at isFound
@@ -475,7 +425,7 @@ theorem workers_resultsCommit (built : DexRunOfLRun program lRun dexBlocks dexRu
 /-! ## F4: Workers settle -/
 
 /-- A closed L run stays closed. -/
-theorem workers_closed_of_le (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
+theorem DexRunOfLRun.closed_of_le (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
     {first last : Nat} (isOrdered : first ≤ last)
     (isClosed : (lRun.states first).status = .closed) : (lRun.states last).status = .closed := by
   obtain ⟨distance, isLast⟩ := Nat.exists_eq_add_of_le isOrdered
@@ -485,24 +435,24 @@ theorem workers_closed_of_le (built : DexRunOfLRun program lRun dexBlocks dexRun
   | succ distance inductionHypothesis =>
     have isMiddleClosed := inductionHypothesis (Nat.le_add_right first distance)
     obtain ⟨events, isStep⟩ := built.isLRun.2 (first + distance)
-    exact workers_closed_of_step program _ _ _ events isStep isMiddleClosed
+    exact L.step_keeps_closed program _ _ _ events isStep isMiddleClosed
       ((built.follows.isState (first + distance)).lInvariant.closedHasNoThread isMiddleClosed)
 
 /-- A task cannot stay in `Θ` forever after the close: F4 of L empties the
 late emits, and a task that is left between two blocks holds one. -/
-theorem workers_false_of_closed (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
+theorem DexRunOfLRun.not_unsettled_forever_of_closed (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
     (emitsSettle : L.Fairness.EmitsSettle lRun) (taskId start : Nat)
     (stays : ∀ position, start ≤ position →
       Dex.Fairness.IsTaskUnsettled dexRun taskId position)
     (index : Nat) (isAfter : start ≤ boundary index)
     (isClosed : (lRun.states index).status = .closed) : False := by
-  obtain ⟨later, isLater, isEmpty⟩ := workers_lateEmits_empty lRun emitsSettle index
-  have isLaterClosed := workers_closed_of_le built isLater isClosed
+  obtain ⟨later, isLater, isEmpty⟩ := exists_lateEmits_eq_nil lRun emitsSettle index
+  have isLaterClosed := DexRunOfLRun.closed_of_le built isLater isClosed
   have state := built.follows.isState later
   obtain ⟨run, status, hasRun, isStatus⟩ := state.isRelated.run_of_closed isLaterClosed
   have closedRelated := state.isRelated.closed run status hasRun isStatus
   obtain ⟨task, isFound, _⟩ := stays (boundary later)
-    (Nat.le_trans isAfter (workers_boundary_mono built.isFlattened isLater))
+    (Nat.le_trans isAfter (BlockRun.IsFlattenedTo.boundary_mono built.isFlattened _ _ isLater))
   rw [built.isFlattened.stateAtBoundary later] at isFound
   have isTask := (mem_of_findTask? _ taskId task isFound).1
   have isStale := closedRelated.tasksAreStale task isTask
@@ -522,7 +472,7 @@ theorem workers_false_of_closed (built : DexRunOfLRun program lRun dexBlocks dex
 /-- What a block boundary after `start` looks like when the task stays in `Θ`:
 the program is closed, or the thread of the task's input issued an emit that
 the task holds, or began an action while the task holds no effect. -/
-theorem workers_boundary_cases (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
+theorem DexRunOfLRun.unsettled_boundary_cases (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
     (taskId start : Nat)
     (stays : ∀ position, start ≤ position →
       Dex.Fairness.IsTaskUnsettled dexRun taskId position)
@@ -550,7 +500,7 @@ theorem workers_boundary_cases (built : DexRunOfLRun program lRun dexBlocks dexR
         statusCase)
     | running =>
       obtain ⟨current, isThread, phases⟩ :=
-        state.workers_thread_of_task run runCase statusCase taskId task isBlockFound
+        state.thread_of_task run runCase statusCase taskId task isBlockFound
       refine Or.inr ⟨task, isFound, ?_⟩
       rcases phases with ⟨effect, isEmitting, hasEffect⟩ | ⟨noEffect, isCompleting⟩
       · exact Or.inl ⟨⟨current, effect, isThread, isEmitting⟩, by rw [hasEffect]; simp⟩
@@ -559,7 +509,7 @@ theorem workers_boundary_cases (built : DexRunOfLRun program lRun dexBlocks dexR
 /-- A task cannot stay in `Θ` forever without an effect: F5 of L ends the
 action its thread began, and the task holds no effect at any later boundary,
 so the program has closed. -/
-theorem workers_false_of_noEffect (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
+theorem DexRunOfLRun.not_unsettled_forever_of_noEffect (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
     (emitsSettle : L.Fairness.EmitsSettle lRun)
     (actionsComplete : L.Fairness.ActionsComplete lRun) (taskId start : Nat)
     (stays : ∀ position, start ≤ position →
@@ -572,9 +522,9 @@ theorem workers_false_of_noEffect (built : DexRunOfLRun program lRun dexBlocks d
     intro position isLater
     obtain ⟨found, isFoundLater, _⟩ := stays position isLater
     exact ⟨found, isFoundLater⟩
-  rcases workers_boundary_cases built taskId start stays index isAfter with
+  rcases DexRunOfLRun.unsettled_boundary_cases built taskId start stays index isAfter with
     isClosed | ⟨found, isSameFound, phases⟩
-  · exact workers_false_of_closed built emitsSettle taskId start stays index isAfter isClosed
+  · exact DexRunOfLRun.not_unsettled_forever_of_closed built emitsSettle taskId start stays index isAfter isClosed
   · rw [isFound] at isSameFound
     cases isSameFound
     rcases phases with ⟨_, hasEffect⟩ | ⟨isCompleting, _⟩
@@ -582,21 +532,21 @@ theorem workers_false_of_noEffect (built : DexRunOfLRun program lRun dexBlocks d
     · obtain ⟨later, isLater, isNotCompleting⟩ :=
         actionsComplete (threadOfInput task.input) index isCompleting
       have isLaterAfter : start ≤ boundary later :=
-        Nat.le_trans isAfter (workers_boundary_mono built.isFlattened isLater)
-      rcases workers_boundary_cases built taskId start stays later isLaterAfter with
+        Nat.le_trans isAfter (BlockRun.IsFlattenedTo.boundary_mono built.isFlattened _ _ isLater)
+      rcases DexRunOfLRun.unsettled_boundary_cases built taskId start stays later isLaterAfter with
         isClosed | ⟨laterTask, isLaterFound, laterPhases⟩
-      · exact workers_false_of_closed built emitsSettle taskId start stays later isLaterAfter
+      · exact DexRunOfLRun.not_unsettled_forever_of_closed built emitsSettle taskId start stays later isLaterAfter
           isClosed
-      · have follows := workers_task_of_run ⟦program⟧ dexRun built.isDexRun taskId start
+      · have follows := taskFollows_of_isRun ⟦program⟧ dexRun built.isDexRun taskId start
           staysFound (boundary index) (boundary later) isAfter
-          (workers_boundary_mono built.isFlattened isLater) task laterTask isFound isLaterFound
+          (BlockRun.IsFlattenedTo.boundary_mono built.isFlattened _ _ isLater) task laterTask isFound isLaterFound
         rcases laterPhases with ⟨_, hasEffect⟩ | ⟨isLaterCompleting, _⟩
         · exact hasEffect (follows.2 noEffect)
         · rw [follows.1] at isLaterCompleting
           exact isNotCompleting isLaterCompleting
 
 /-- No task stays in `Θ` forever without returning. -/
-theorem workers_false_of_stays (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
+theorem DexRunOfLRun.not_unsettled_forever (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
     (emitsSettle : L.Fairness.EmitsSettle lRun)
     (actionsComplete : L.Fairness.ActionsComplete lRun) (taskId start : Nat)
     (stays : ∀ position, start ≤ position →
@@ -607,39 +557,39 @@ theorem workers_false_of_stays (built : DexRunOfLRun program lRun dexBlocks dexR
     intro position isLater
     obtain ⟨found, isFoundLater, _⟩ := stays position isLater
     exact ⟨found, isFoundLater⟩
-  obtain ⟨index, isAfter⟩ := workers_exists_boundary_ge built.isFlattened built.isInfinite start
-  rcases workers_boundary_cases built taskId start stays index isAfter with
+  obtain ⟨index, isAfter⟩ := BlockRun.IsFlattenedTo.exists_boundary_ge built.isFlattened built.isInfinite start
+  rcases DexRunOfLRun.unsettled_boundary_cases built taskId start stays index isAfter with
     isClosed | ⟨task, isFound, phases⟩
-  · exact workers_false_of_closed built emitsSettle taskId start stays index isAfter isClosed
+  · exact DexRunOfLRun.not_unsettled_forever_of_closed built emitsSettle taskId start stays index isAfter isClosed
   · rcases phases with ⟨isEmitting, _⟩ | ⟨_, noEffect⟩
     · obtain ⟨later, isLater, isNotEmitting⟩ :=
         emitsSettle.1 (threadOfInput task.input) index isEmitting
       have isLaterAfter : start ≤ boundary later :=
-        Nat.le_trans isAfter (workers_boundary_mono built.isFlattened isLater)
-      rcases workers_boundary_cases built taskId start stays later isLaterAfter with
+        Nat.le_trans isAfter (BlockRun.IsFlattenedTo.boundary_mono built.isFlattened _ _ isLater)
+      rcases DexRunOfLRun.unsettled_boundary_cases built taskId start stays later isLaterAfter with
         isClosed | ⟨laterTask, isLaterFound, laterPhases⟩
-      · exact workers_false_of_closed built emitsSettle taskId start stays later isLaterAfter
+      · exact DexRunOfLRun.not_unsettled_forever_of_closed built emitsSettle taskId start stays later isLaterAfter
           isClosed
-      · have follows := workers_task_of_run ⟦program⟧ dexRun built.isDexRun taskId start
+      · have follows := taskFollows_of_isRun ⟦program⟧ dexRun built.isDexRun taskId start
           staysFound (boundary index) (boundary later) isAfter
-          (workers_boundary_mono built.isFlattened isLater) task laterTask isFound isLaterFound
+          (BlockRun.IsFlattenedTo.boundary_mono built.isFlattened _ _ isLater) task laterTask isFound isLaterFound
         rcases laterPhases with ⟨isLaterEmitting, _⟩ | ⟨_, noLaterEffect⟩
         · rw [follows.1] at isLaterEmitting
           exact isNotEmitting isLaterEmitting
-        · exact workers_false_of_noEffect built emitsSettle actionsComplete taskId start stays
+        · exact DexRunOfLRun.not_unsettled_forever_of_noEffect built emitsSettle actionsComplete taskId start stays
             later isLaterAfter laterTask isLaterFound noLaterEffect
-    · exact workers_false_of_noEffect built emitsSettle actionsComplete taskId start stays index
+    · exact DexRunOfLRun.not_unsettled_forever_of_noEffect built emitsSettle actionsComplete taskId start stays index
         isAfter task isFound noEffect
 
 /-- F4: every task of `Θ` eventually returns or leaves `Θ`. -/
-theorem workers_workersSettle (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
+theorem DexRunOfLRun.workersSettle_of_fair (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
     (emitsSettle : L.Fairness.EmitsSettle lRun)
     (actionsComplete : L.Fairness.ActionsComplete lRun) :
     Dex.Fairness.WorkersSettle dexRun := by
   intro taskId start _
   apply Classical.byContradiction
   intro isNeverSettled
-  exact workers_false_of_stays built emitsSettle actionsComplete taskId start
+  exact DexRunOfLRun.not_unsettled_forever built emitsSettle actionsComplete taskId start
     (fun position isLater => Classical.byContradiction
       (fun isSettled => isNeverSettled ⟨position, isLater, isSettled⟩))
 

@@ -892,6 +892,19 @@ stays 4. Every configuration of a run has distinct task IDs
 that the mirror of `IsSimulationState` accepts, and those have distinct task
 IDs.
 
+The packages proved some helper lemmas more than once. One copy of each is
+kept: `exec_append_inv` and `eventsAt_of_step` in `Core/TransitionSystem.lean`;
+`BlockRun.IsFlattenedTo.boundary_mono` and `.exists_boundary_ge` in
+`Core/BlockRun.lean`; the status of a run under each meta-function
+(`Dex.Run.status_*`) in `Dex/RunInvariant.lean`, also for Stage 2a; the
+lookup of a task after a change of `Θ` (`findTask?_removeTask`,
+`findTask?_updatePhase`) in `Simulation/Frame.lean`; and
+`Literal.toVal_injective` and `encodeRequest_injective` in `Properties.lean`.
+The lemmas of `Liveness/LToDexFairWorkers.lean` lost their `workers_` prefix.
+`Dex.Action.isWorkerStep` (`Liveness/LToDexFairTime.lean`) and
+`Dex.Action.isSilentKind` stay apart: they differ on [WORKER-EFFECT], which
+changes only a task and yet is seen by L.
+
 Work package L4 added one fact about L runs: a configuration of an L run
 that is not closed has no late emit (`L.lateEmits_eq_nil_of_isRun`,
 `Liveness/DexToLFairLate.lean`). `L.Invariant` does not say so, and F4 of L

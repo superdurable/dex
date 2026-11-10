@@ -617,38 +617,6 @@ theorem DexRunOfLRun.run_clock_inside_block
 
 /-! ## Block boundaries -/
 
-/-- The block boundaries are in order. -/
-theorem BlockRun.IsFlattenedTo.boundary_mono {State Label Event : Type}
-    {blockRun : BlockRun State Label Event} {run : InfiniteRun State Label}
-    {boundary : Nat → Nat} (isFlattened : blockRun.IsFlattenedTo run boundary)
-    (first later : Nat) (isLater : first ≤ later) : boundary first ≤ boundary later := by
-  obtain ⟨distance, isDistance⟩ := Nat.exists_eq_add_of_le isLater
-  subst isDistance
-  induction distance with
-  | zero => exact Nat.le_refl _
-  | succ distance inductionHypothesis =>
-    have isNext := isFlattened.nextBoundary (first + distance)
-    have isBelow := inductionHypothesis (Nat.le_add_right _ _)
-    rw [← Nat.add_assoc]
-    omega
-
-/-- Every position of the flattened run is at or before a block boundary:
-infinitely many blocks are not empty, and each moves the boundary on. -/
-theorem BlockRun.IsFlattenedTo.exists_boundary_ge {State Label Event : Type}
-    {blockRun : BlockRun State Label Event} {run : InfiniteRun State Label}
-    {boundary : Nat → Nat} (isFlattened : blockRun.IsFlattenedTo run boundary)
-    (isInfinite : blockRun.HasInfinitelyManySteps) (position : Nat) :
-    ∃ index, position ≤ boundary index := by
-  induction position with
-  | zero => exact ⟨0, Nat.zero_le _⟩
-  | succ position inductionHypothesis =>
-    obtain ⟨index, isBelow⟩ := inductionHypothesis
-    obtain ⟨later, isLater, isNotEmpty⟩ := isInfinite index
-    have isMono := isFlattened.boundary_mono index later isLater
-    have isNext := isFlattened.nextBoundary later
-    have isPositive : 0 < (blockRun.blocks later).length := List.length_pos_iff.mpr isNotEmpty
-    exact ⟨later + 1, by omega⟩
-
 /-- Every position of the Dex run is at or before a block boundary. -/
 theorem DexRunOfLRun.exists_boundary_ge
     (built : DexRunOfLRun program lRun dexBlocks dexRun boundary) (position : Nat) :

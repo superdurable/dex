@@ -214,7 +214,7 @@ theorem DexRunOfLRun.hasMarker {program : Program} {lRun : InfiniteRun L.Config 
       have isBlock := follows.isBlockRun.2 index
       rw [← List.take_append_drop offset (dexBlocks.blocks index)] at isBlock
       obtain ⟨firstEvents, middle, secondEvents, isFirst, isSecond, _⟩ :=
-        (Dex.system ⟦program⟧).exec_of_append _ _ _ _ _ isBlock
+        (Dex.system ⟦program⟧).exec_append_inv _ _ _ _ _ isBlock
       rw [isPrefix] at isFirst
       injection isFirst with isPair
       injection isPair with _ isMiddle
