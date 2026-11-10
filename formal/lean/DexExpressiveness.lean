@@ -68,3 +68,15 @@ import DexExpressiveness.L.LockDisciplineSound
 import DexExpressiveness.Examples.WellFormed
 import DexExpressiveness.Examples.WellFormedSafety
 import DexExpressiveness.Examples.FairRuns
+import DexExpressiveness.Failure.Config
+import DexExpressiveness.Failure.Rules
+import DexExpressiveness.Failure.Repeats
+import DexExpressiveness.Failure.Abstraction
+import DexExpressiveness.Failure.Relation
+import DexExpressiveness.Failure.Observation
+import DexExpressiveness.Failure.Statements
+import DexExpressiveness.Failure.Equality
+import DexExpressiveness.Failure.Check
+import DexExpressiveness.Failure.Examples.Script
+import DexExpressiveness.Failure.Examples.CrashRetryZombie
+import DexExpressiveness.Failure.Examples.Fuzz

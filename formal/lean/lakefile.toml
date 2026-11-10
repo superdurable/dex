@@ -8,3 +8,7 @@ name = "DexExpressiveness"
 [[lean_exe]]
 name = "inductiveness-fuzz"
 root = "InductivenessFuzz"
+
+[[lean_exe]]
+name = "failure-fuzz"
+root = "FailureFuzz"
