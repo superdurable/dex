@@ -6,9 +6,8 @@ slug: /concepts/correctness-and-expressiveness/expressiveness-proof
 
 # Expressiveness proof
 
-Dex has a formal expressiveness result with a machine-checked proof. This
-page explains what it claims, how it was checked, and what it does not cover.
-The full argument is in the paper.
+Dex has a computer-checked proof of what it can express. This page explains
+what the proof says and how it was checked. The full argument is in the paper.
 
 - [Download the paper (PDF)](/papers/dex-expressiveness.pdf)
 - [Formal sources on GitHub](https://github.com/superdurable/dex/tree/main/formal)
@@ -27,35 +26,34 @@ concurrent programming:
 - external effects, such as sending an email;
 - program exit.
 
-The claim is this. Every well-formed program in that language translates
-into a Dex Flow that behaves the same, observed from outside.
+The claim: every program in that language translates into a Dex Flow that
+behaves the same, seen from outside. The paper states the exact conditions.
 
 "Behaves the same" has two parts.
 
-- **The same event sequences.** Every finite sequence of events the program
-  can produce, the Flow can produce. Every one the Flow can produce, the
-  program can produce.
-- **The same outcomes.** Under fair scheduling, the program and the Flow
-  complete, get stuck, or run forever under the same conditions.
+- **The same events.** Any sequence of events the program can produce, the
+  Flow can produce, and the other way around.
+- **The same ending.** The program and the Flow complete, get stuck, or keep
+  running in the same situations.
 
-"Observed from outside" means the inputs, the external effects, and the
-result. The Flow's internal Channels and its Attributes are not observed.
+"Seen from outside" means the inputs, the external effects, and the result.
+The Flow's internal Channels and Attributes do not count.
 
 ## Why it matters to you {#why-it-matters}
 
 Dex has no threads that block, and no locks held across a wait. A Flow is a
 set of Steps that read and write Attributes, publish and consume Channel
-messages, and wait on Timers. You may wonder what that model cannot express.
+messages, and wait on Timers. So you may wonder whether some concurrent logic
+cannot be written as a Flow.
 
-The proof answers for a whole class of programs. Any concurrency structure
-you can write with the constructs above has a Dex Flow equivalent. The paper
-also shows how to build each construct from Steps, Channels, Attributes, and
-Timers.
+The proof answers that. Any concurrent logic you can write with the
+constructs above can also be written as a Flow. The table below shows how
+each construct is built.
 
-The translation is a construction for the proof. It is not a compiler that
-Dex ships. It uses about one Step for each statement, which is not how to model an
-application. Use it to see that a structure is possible. Model your own Flow
-with the [design patterns](/design-patterns).
+The translation is a construction for the proof, not a compiler that Dex
+ships. It uses about one Step for each statement, which is not how to model
+an application. Model your own Flow with the
+[design patterns](/design-patterns).
 
 ## How each construct is built {#how-each-construct-is-built}
 
@@ -81,48 +79,24 @@ across many Steps and waits.
 
 ## How it was checked {#how-it-was-checked}
 
-The result rests on three parts.
+- **A precise description of Dex.** Every rule for how Flows, Steps,
+  Channels, Attributes, and Timers behave is written down, with the server
+  code that implements it. Reviewers checked each rule against the code.
+- **A computer-checked proof.** The proof is written in the Lean 4 proof
+  assistant, which checks every step. No step is skipped or taken on trust.
 
-- **A formal semantics of the Dex core.** It describes how Flows, Steps,
-  Channels, Attributes, and Timers behave. It was written against the server
-  code. Its rules cite the code that implements them. Reviewers checked the
-  rules against that code.
-- **The translation and the theorems.** The paper defines the translation
-  and states the two equalities: same event sequences, and same outcomes
-  under fair scheduling.
-- **A proof in Lean 4.** The Lean kernel checks every step of the proof.
-  No step is left unproved. The proof uses only the three standard axioms of
-  Lean. It depends on the Lean core library only.
+## Failures {#what-it-does-not-cover}
 
-## What it does not cover {#what-it-does-not-cover}
-
-The scope is narrow on purpose. The paper discusses each limit.
-
-- **No failures.** The model has no crashes, retries, or redelivery. That a
-  Flow stays correct under failures is a separate claim. Its proof is future
-  work.
-- **Well-formed programs only.** A program must hold the mutex when it
-  unlocks it or uses its condition variable. Other programs are outside the
-  claim.
-- **A model of the server.** The Dex side is a model reviewed against the
-  server code. It is not extracted from the code.
-- **A restricted environment.** The outside world starts the Flow once and
-  then publishes messages to its external Channels. It makes no RPC calls
-  and never stops the Flow.
-- **One timing model.** Timer order follows a fixed count of steps for each
-  statement. The claim says nothing about another cost model, or about
-  performance.
-- **Fairness is assumed.** The outcome part holds for fair runs. It assumes
-  that Timers fire, that Steps get to run, and that Workers cooperate: every
-  Step method returns, or ends after it is canceled. A Worker that hangs
-  forever is outside that part.
-- **One direction.** Every program has a Flow. The claim does not say that
-  every Flow is such a program.
+This proof assumes no crashes, retries, or redelivery. A second proof will
+show that these failures do not change what a Flow does. Together, the two
+proofs say that a program runs on Dex as if no failure had happened. The
+second proof is tracked in
+[issue 1514](https://github.com/superdurable/dex/issues/1514).
 
 ## Related evidence {#related-evidence}
 
 The [Workflow Patterns evaluation](/concepts/correctness-and-expressiveness/workflow-patterns)
 is complementary evidence. It rates Dex against 43 workflow patterns, each
-with a runnable example and a test against a real server. The patterns
-measure breadth on the running system. The proof covers a whole class of
-programs on a model of the server.
+with a runnable example and a test against a real server. The patterns test
+the real server on common cases. The proof covers every program of the
+language.

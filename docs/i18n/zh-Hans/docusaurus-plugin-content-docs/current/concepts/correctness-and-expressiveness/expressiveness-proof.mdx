@@ -6,7 +6,7 @@ slug: /concepts/correctness-and-expressiveness/expressiveness-proof
 
 # 表达能力证明
 
-Dex 有一个形式化的表达能力结论，并配有机器验证的证明。本页说明它声称什么、如何验证，以及不涵盖什么。完整论证见论文。
+Dex 有一个经计算机检查的证明，说明它能表达什么。本页说明这个证明讲了什么、是怎样检查的。完整论证见论文。
 
 - [下载论文（PDF）](/papers/dex-expressiveness.pdf)
 - [GitHub 上的形式化源码](https://github.com/superdurable/dex/tree/main/formal)
@@ -24,22 +24,22 @@ Dex 有一个形式化的表达能力结论，并配有机器验证的证明。�
 - 外部副作用，例如发送一封邮件；
 - 程序退出。
 
-结论如下：这门语言中每个 well-formed 的程序，都能翻译成一个从外部观察行为相同的 Dex Flow。
+结论：这门语言中的每个程序，都能翻译成一个从外部看行为相同的 Dex Flow。确切的条件见论文。
 
 “行为相同”包含两部分。
 
-- **相同的事件序列。** 程序能产生的每个有限事件序列，Flow 都能产生；Flow 能产生的每一个，程序也能产生。
-- **相同的结局。** 在公平调度下，程序和 Flow 在相同条件下完成、卡住或永远运行。
+- **相同的事件。** 程序能产生的任何事件序列，Flow 都能产生，反过来也一样。
+- **相同的结局。** 程序和 Flow 在相同的情况下完成、卡住或一直运行。
 
-“从外部观察”指输入、外部副作用和结果。Flow 内部的 Channel 和 Attribute 不在观察范围内。
+“从外部看”指输入、外部副作用和结果。Flow 内部的 Channel 和 Attribute 不算在内。
 
 ## 这对你意味着什么 {#why-it-matters}
 
-Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是一组 Step：它们读写 Attribute，发布和消费 Channel 消息，并等待 Timer。你可能会问：这个模型有什么表达不了？
+Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是一组 Step：它们读写 Attribute，发布和消费 Channel 消息，并等待 Timer。所以你可能会担心：有些并发逻辑是不是没法写成 Flow？
 
-这个证明对一整类程序给出了回答。凡是能用上述构件写出的并发结构，都有等价的 Dex Flow。论文还展示了如何用 Step、Channel、Attribute 和 Timer 搭出每个构件。
+这个证明回答了这个问题：凡是能用上面这些构件写出的并发逻辑，都能写成 Flow。下表列出了每个构件是怎样搭出来的。
 
-这个翻译是为证明而做的构造，不是 Dex 附带的编译器。它大致为每条语句使用一个 Step，这不是建模应用的方式。用它来确认某种结构可以实现。建模你自己的 Flow 时，请参考[设计模式](/design-patterns)。
+这个翻译是为证明而做的构造，不是 Dex 附带的编译器。它大致为每条语句使用一个 Step，这不是建模应用的方式。建模你自己的 Flow 时，请参考[设计模式](/design-patterns)。
 
 ## 每个构件如何搭建 {#how-each-construct-is-built}
 
@@ -63,24 +63,13 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 
 ## 如何验证 {#how-it-was-checked}
 
-这个结论建立在三部分之上。
+- **对 Dex 的精确描述。** Flow、Step、Channel、Attribute 和 Timer 的每条行为规则都写了下来，并注明实现它的 server 代码。评审者对照代码逐条检查了这些规则。
+- **经计算机检查的证明。** 证明用 Lean 4 证明助手写成，它检查每一步。没有任何一步被跳过或未经检查就被接受。
 
-- **Dex 核心的形式语义。** 它描述 Flow、Step、Channel、Attribute 和 Timer 的行为。它对照 server 代码写成，其中的规则引用了实现它们的代码。评审者对照代码检查了这些规则。
-- **翻译和定理。** 论文定义了翻译，并给出两个等式：相同的事件序列，以及公平调度下相同的结局。
-- **Lean 4 证明。** Lean 内核检查证明的每一步，没有任何一步未经证明。证明只用到 Lean 的三个标准公理，并且只依赖 Lean 核心库。
+## 故障 {#what-it-does-not-cover}
 
-## 不涵盖的内容 {#what-it-does-not-cover}
-
-范围是有意收窄的。论文逐条讨论了每个限制。
-
-- **没有故障。** 模型中没有崩溃、重试或重新投递。Flow 在故障下仍然正确是另一个命题，其证明是未来的工作。
-- **只针对 well-formed 程序。** 程序在 unlock 一个互斥锁或使用它的条件变量时，必须持有该互斥锁。其他程序不在结论范围内。
-- **server 的模型。** Dex 一侧是对照 server 代码评审过的模型，不是从代码中提取出来的。
-- **受限的环境。** 外部世界启动 Flow 一次，然后向它的外部 Channel 发布消息。它不发起 RPC 调用，也从不停止 Flow。
-- **一种计时模型。** Timer 的顺序按每条语句固定的步数计算。结论不涉及其他代价模型，也不涉及性能。
-- **公平性是假设。** 结局部分对公平运行成立。它假设 Timer 会触发、Step 能得到运行，并且 Worker 是合作的：每个 Step 方法都会返回，或在被取消后结束。永远挂起的 Worker 不在这部分范围内。
-- **单一方向。** 每个程序都有对应的 Flow。结论并不说每个 Flow 都是这样的程序。
+这个证明假设没有崩溃、重试或消息重投。第二个证明将说明这些故障不会改变 Flow 的行为。两个证明合起来就是：程序在 Dex 上运行，就像从来没有出过故障一样。第二个证明在 [issue 1514](https://github.com/superdurable/dex/issues/1514) 中跟进。
 
 ## 相关证据 {#related-evidence}
 
-[Workflow Patterns 评估](/concepts/correctness-and-expressiveness/workflow-patterns)是互补的证据。它按 43 个 workflow 模式为 Dex 评级，每个评级都配有可运行的示例和针对真实 server 的测试。这些模式衡量的是运行中系统的覆盖面；证明则在 server 的模型上覆盖一整类程序。
+[Workflow Patterns 评估](/concepts/correctness-and-expressiveness/workflow-patterns)是互补的证据。它按 43 个 workflow 模式为 Dex 评级，每个评级都配有可运行的示例和针对真实 server 的测试。这些模式在真实 server 上测试常见情形；证明则覆盖这门语言的每个程序。
