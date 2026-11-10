@@ -145,6 +145,17 @@ fi
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
   uv run --frozen "${sync_pytest_args[@]}"
 
+# The agent harness examples have their own project: the OpenAI Agents SDK conflicts with LiteLLM.
+harness_pytest_args=(pytest -vv tests/)
+if ((${#test_args[@]})); then
+  harness_pytest_args+=("${test_args[@]}")
+fi
+(
+  cd "$script_dir/agent-harnesses"
+  DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+    uv run --frozen "${harness_pytest_args[@]}"
+)
+
 if $keep_running; then
   echo ""
   echo "Dex Web:  http://127.0.0.1:${web_port}"

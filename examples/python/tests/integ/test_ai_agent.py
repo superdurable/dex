@@ -435,9 +435,9 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
     await client.wait_for_flow(session_id, WAIT_TIMEOUT)
 
     async def reject_lifecycle_probe(*arguments: object, **keywords: object) -> None:
-        raise AssertionError("snapshot reads must not probe Flow lifecycle")
+        raise AssertionError("snapshot reads must not wait for the Flow to close")
 
-    monkeypatch.setattr(client, "describe_flow", reject_lifecycle_probe)
+    # Dex Agents describes the Flow to report a failed session; a stopped one needs no wait.
     monkeypatch.setattr(client, "wait_for_flow", reject_lifecycle_probe)
     http_client = create_app(app).test_client()
     response = await http_client.get(
