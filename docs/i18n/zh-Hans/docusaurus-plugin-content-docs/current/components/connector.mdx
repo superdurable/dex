@@ -5,11 +5,11 @@ sidebar_label: Connector
 
 # Connector
 
-**Connector** 把 Flow 接到外部服务商，例如邮件、支付或新闻服务。它包含带类型的操作、对服务商事件的接收、授权，以及可选的配置界面。服务商的凭证永远不会进入持久化的 Flow 状态。
+**Connector** 是一种 Dex component，把 Flow 接到外部服务商，例如邮件、支付或新闻服务。它包含带类型的操作、对服务商事件的接收、授权，以及可选的配置界面。服务商的凭证永远不会进入持久化的 Flow 状态。
 
-官方 Connector 与 Dex 分开发布。自己编写对接服务商的代码之前，先查看 [Connector 目录](https://connectors.superdurable.io/)。目录列出每个已发布的 Connector、它的操作和支持的语言，也是每个 Connector 的参考文档。
+官方 Connector 与 Dex 分开发布。自己编写对接服务商的代码之前，先[查找](#查找-connector)有没有这个服务商的 Connector。
 
-## 能力
+## 能力 {#capabilities}
 
 一个 Connector 可以提供五种能力：
 
@@ -21,7 +21,7 @@ sidebar_label: Connector
 
 服务商模块只提供自己需要的能力。你的应用使用它所引入的那个模块版本生成的类型。
 
-## 操作就是 Connector Step
+## 操作就是 Connector Step {#operation-是-connector-step}
 
 每个操作都有一个工厂函数，用来创建 Connector Step。你的应用把当前 Step 的输入映射成服务商的输入，并把每个必需的结果分支连到另一个 Step。服务商调用在 **Execute** 中运行，所以和其他 [Step](/concepts/step) 一样，享有 Dex 的重试、超时、持久性和恢复。
 
@@ -39,7 +39,7 @@ Connector Trigger 是 Flow 之外长期运行的事件源。它保留服务商�
 
 本地 Trigger runner 先保存匹配的事件，再向服务商确认收到。重启后，它会重新投递尚未完成的事件。
 
-## 连接与配置
+## 连接与配置 {#connection-与-configuration}
 
 Flow 定义按名称引用连接，而不是引用凭证。本地开发时，Dex Web 在 **Connectors** 页面列出这些名称。在写入连接、操作或 Trigger 绑定配置之前，它会先确认模块是确切的官方版本。
 
@@ -62,6 +62,10 @@ Go 包就是每个 Connector 的 Go module。Python 包发布在 PyPI，名称�
 ## 与其他组件的关系
 
 你的[应用](/components/application)引入 Connector 包，把它的操作作为 Connector Step 运行。Trigger 把服务商事件变成 Flow 启动或 RPC 调用。
+
+## 查找 Connector
+
+在 [Connector 目录](https://connectors.superdurable.io/)中查看已发布的 Connector、它们的操作和支持的语言。每个 Connector 的参考以目录为准。
 
 ## 在本地配置 Connector
 

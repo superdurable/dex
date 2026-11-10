@@ -5,16 +5,14 @@ sidebar_label: Connector
 
 # Connector
 
-A **Connector** connects a Flow to an external provider, such as an email,
+A **Connector** is a Dex component that connects a Flow to an external provider, such as an email,
 payment, or news service. It packages typed operations, handling of incoming
 provider events, authorization, and optional configuration UI. Provider
 credentials never enter durable Flow state.
 
 Official Connectors are released separately from Dex. Before you write
-provider integration code yourself, check the
-[Connector catalog](https://connectors.superdurable.io/). It lists each
-released Connector, its operations, and its language support, and it is the
-reference for each Connector.
+provider integration code yourself, [find a Connector](#find-a-connector) for
+that provider.
 
 ## Capabilities
 
@@ -121,6 +119,12 @@ to add or modify an official Connector, operation, Trigger, or UI unit.
 Your [application](/components/application) imports a Connector package and
 runs its operations as Connector Steps. A Trigger turns a provider event into a
 Flow start or an RPC call.
+
+## Find a Connector
+
+Browse the [Connector catalog](https://connectors.superdurable.io/). It lists
+each released Connector, its operations, and its language support. The catalog
+is the reference for each Connector.
 
 ## Set up Connectors locally
 
