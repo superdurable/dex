@@ -1,0 +1,41 @@
+[project]
+name = "dex-examples-python-agent-harnesses"
+version = "0.1.0"
+description = "One order support agent on each Python agent framework that Dex Agents supports"
+authors = [{name = "Super Durable"}]
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dex-agents==0.3.0",
+    "dex-agents-claude-agent-sdk==0.3.0",
+    "dex-agents-google-adk==0.3.0",
+    "dex-agents-langgraph==0.3.0",
+    "dex-agents-openai-agents==0.3.0",
+    "dex-agents-pydantic-ai==0.3.0",
+    "dex-python-sdk==1.38.0",
+    "langchain-openai>=1.1,<2",
+    "pydantic-ai-slim[openai]>=2.64,<3",
+    "quart>=0.20.0,<0.21",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.5.1,<2",
+    "pytest>=8.2,<9",
+    "pytest-asyncio>=0.26,<2",
+]
+
+[tool.uv]
+package = false
+required-version = "==0.12.2"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = [
+    "integ: integration tests against a running Dex server",
+]

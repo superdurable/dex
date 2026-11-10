@@ -72,6 +72,12 @@ jobs:
           enable-cache: true
       - name: Install dependencies (PyPI dex-python-sdk)
         run: uv sync --locked
+      - name: Install agent harness example dependencies
+        working-directory: examples/python/agent-harnesses
+        run: uv sync --locked
+      - name: Type-check agent harness examples
+        working-directory: examples/python/agent-harnesses
+        run: uv run --frozen mypy --strict agent_harness_examples tests
       - name: Verify published package
         run: |
           set -euo pipefail

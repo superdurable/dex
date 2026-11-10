@@ -17,11 +17,16 @@
 set -euo pipefail
 
 keep_running=false
+# --agent-harnesses runs only the agent-harnesses tests and passes the other arguments to them.
+only_agent_harnesses=false
 test_args=()
 for arg in "$@"; do
   case "$arg" in
     --keep-running)
       keep_running=true
+      ;;
+    --agent-harnesses)
+      only_agent_harnesses=true
       ;;
     *)
       test_args+=("$arg")
@@ -131,19 +136,35 @@ fi
 
 cd "$script_dir"
 export DEXCLI_PATH="$binary_dir/dexcli"
-pytest_args=(pytest -vv tests/)
-if ((${#test_args[@]})); then
-  pytest_args+=("${test_args[@]}")
-fi
-DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen "${pytest_args[@]}"
+if ! $only_agent_harnesses; then
+  pytest_args=(pytest -vv tests/)
+  if ((${#test_args[@]})); then
+    pytest_args+=("${test_args[@]}")
+  fi
+  DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+    uv run --frozen "${pytest_args[@]}"
 
-sync_pytest_args=(pytest -vv sync-python/sync_tests/integ)
-if ((${#test_args[@]})); then
-  sync_pytest_args+=("${test_args[@]}")
+  sync_pytest_args=(pytest -vv sync-python/sync_tests/integ)
+  if ((${#test_args[@]})); then
+    sync_pytest_args+=("${test_args[@]}")
+  fi
+  DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+    uv run --frozen "${sync_pytest_args[@]}"
 fi
-DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen "${sync_pytest_args[@]}"
+
+# The agent harness examples have their own project: the OpenAI Agents SDK conflicts with LiteLLM.
+# Arguments for the main suites would not match its tests, so they run with no arguments or alone.
+if $only_agent_harnesses || ((${#test_args[@]} == 0)); then
+  harness_pytest_args=(pytest -vv tests/)
+  if ((${#test_args[@]})); then
+    harness_pytest_args+=("${test_args[@]}")
+  fi
+  (
+    cd "$script_dir/agent-harnesses"
+    DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+      uv run --frozen "${harness_pytest_args[@]}"
+  )
+fi
 
 if $keep_running; then
   echo ""

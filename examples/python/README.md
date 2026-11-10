@@ -88,6 +88,7 @@ test scripts already run them separately.
 - [Job posting](./dex_examples/products/job-post)
 - [Deal DSL](./dex_examples/products/deal_dsl)
 - [AI Agent](./ai-agent/) (Python only; a Stepwise agent on Dex Agents with MCP tools, approvals, questions, durable waits, plans, queued messages, Steer, and context compaction; UI assets in [`ai-agent/`](./ai-agent))
+- [Agent harnesses](./agent-harnesses/) (Python only; one order support agent on each of the Claude Agent SDK, OpenAI Agents SDK, Pydantic AI, LangChain, and Google ADK, as durable Dex agent sessions with an approval-gated write; a separate uv project)
 
 ## Patterns
 
