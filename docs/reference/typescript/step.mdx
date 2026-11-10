@@ -1,0 +1,46 @@
+---
+id: step
+title: Step methods
+sidebar_label: Step methods
+---
+
+# Step methods
+
+This page covers what a Step method commits and how its two methods share data in the TypeScript SDK. For the concept, read [Step](/concepts/step).
+
+## Commits {#commit-boundary}
+
+Each **WaitFor** or **Execute** invocation is a separate commit boundary. Dex
+Server stages the Attribute writes and Channel publications from that method,
+then commits them with its **Wait** or **StepDecision** only after the method
+returns successfully. If the method fails, none of those durable changes are
+committed. **WaitFor** and **Execute** do not share a commit. External API
+calls are outside this atomic boundary.
+
+Before its final **Wait** or **StepDecision**, a handler can send
+[heartbeat checkpoints](./step-options.mdx#heartbeat) and any number of best-effort
+[Stream messages](/concepts/primitives/stream). The response stream must end with
+exactly one final result. These progress frames are not part of the method's
+commit, and a Stream Store failure does not fail the Step.
+
+## Step execution local {#step-execution-local}
+
+**SetStepExecutionLocal** stores a value on this **StepExecution** so
+**Execute** can read it with **GetStepExecutionLocal**. Use it when **WaitFor**
+computes something **Execute** needs but a Flow-level **Attribute** is
+overkill. Step input is already passed to both methods. Do not copy input into
+a local.
+
+```typescript
+public waitFor(context: Context, input: number): Wait {
+  context.setStepExecutionLocal("note", `approval:${input}`, stringCodec);
+  return Wait.until(approval.forOne());
+}
+
+public execute(context: Context, _input: number): StepDecision {
+  const note = context.getStepExecutionLocal("note", stringCodec) ?? "";
+  return gracefulComplete(note);
+}
+```
+
+Example: [examples/typescript/src/primitives/step-execution-local/step-execution-local-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/step-execution-local/step-execution-local-flow.ts)
