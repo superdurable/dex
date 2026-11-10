@@ -8,7 +8,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 
 Use Deferred Choice when a Flow waits for one of several events and the first event decides what happens next. The events come from outside the Flow. The Flow cannot pick a branch in advance.
 
-An example is an offer to a customer. The customer can accept it or reject it. If the customer does neither within 3 days, the offer expires. Whichever happens first wins. The other two never happen for this offer.
+An example is an offer to a customer. The customer can accept it or reject it. If the customer does neither within 3 days, the offer expires. Whichever happens first wins. The other two no longer change the chosen branch.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -37,7 +37,7 @@ Only one Condition wins, so only one branch ever starts.
 - When several Channel Conditions are ready at the same time, the first one declared wins. Declare them in business priority order. In the example, an acceptance and a rejection that are both pending select the acceptance.
 - In **Execute**, check **HasTimerFired** for the Timer. Read the Channel results for the responses. A Channel that lost returns no results.
 - The Timer starts when the Step starts waiting. It is durable. It survives Worker and Server restarts, and the wait does not hold a Worker.
-- A response that arrives after the choice still publishes a message. No Step consumes it. When a late response needs an answer, record the outcome in an Attribute. Have the RPC check it before it publishes.
+- A response that arrives after the choice cannot change the chosen branch. While the Flow still runs, the RPC succeeds and publishes a message that no Step consumes. After the Flow closes, Dex rejects the RPC. A caller that needs a definite answer waits for the committed result, such as the Flow result, instead of relying on the RPC call.
 - To test the expiry branch, skip the Timer with the Client **SkipTimer**. Do not shorten the business deadline for tests.
 
 ## Related shapes
@@ -62,7 +62,6 @@ Only one Condition wins, so only one branch ever starts.
 ```python
 # How long the customer has to respond.
 OFFER_EXPIRY = timedelta(days=3)
-
 OFFER_ACCEPTED = Channel("offerAccepted", str)
 OFFER_REJECTED = Channel("offerRejected", str)
 
@@ -129,7 +128,6 @@ func (AwaitOfferResponse) Execute(ctx dex.Context, offerID string) (*dex.StepDec
 ```java
 /** How long the customer has to respond. */
 public static final Duration OFFER_EXPIRY = Duration.ofDays(3);
-
 public static final Channel<String> offerAccepted =
         Channel.define("offerAccepted", String.class);
 public static final Channel<String> offerRejected =
@@ -167,11 +165,12 @@ static final class AwaitOfferResponse implements Step<String> {
 <SdkSnippet lang="typescript">
 
 ```typescript
+/** How long the customer has to respond. */
 export const OFFER_EXPIRY_MS = 3 * 24 * 60 * 60 * 1000;
-
 export const offerAccepted = new Channel("offerAccepted", stringCodec);
 export const offerRejected = new Channel("offerRejected", stringCodec);
 
+/** Waits for whichever event happens first and routes on it. */
 class AwaitOfferResponse implements Step<string> {
   public readonly inputCodec = stringCodec;
 
@@ -205,12 +204,10 @@ class AwaitOfferResponse implements Step<string> {
 ```rust
 /// How long the customer has to respond.
 pub const OFFER_EXPIRY: Duration = Duration::from_secs(3 * 24 * 60 * 60);
-
 pub static OFFER_ACCEPTED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("offerAccepted"));
 pub static OFFER_REJECTED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("offerRejected"));
-
 pub const ACCEPT_CUSTOMER_OFFER: Rpc<String, ()> = Rpc::new("accept_customer_offer");
 pub const REJECT_CUSTOMER_OFFER: Rpc<String, ()> = Rpc::new("reject_customer_offer");
 

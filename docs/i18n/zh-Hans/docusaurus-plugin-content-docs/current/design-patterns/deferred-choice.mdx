@@ -9,7 +9,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 
 当 Flow 等待多个事件中的一个，并由最先发生的事件决定下一步时，使用 Deferred Choice。这些事件来自 Flow 外部，Flow 无法提前选定分支。
 
-例如向客户发出一份报价。客户可以接受，也可以拒绝。如果 3 天内客户都没有回应，报价过期。最先发生的事件胜出，另外两个事件对这份报价不会再发生。
+例如向客户发出一份报价。客户可以接受，也可以拒绝。如果 3 天内客户都没有回应，报价过期。最先发生的事件胜出，另外两个事件不会再改变已选的分支。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -38,7 +38,7 @@ AwaitOfferResponse.execute
 - 多个 Channel Condition 同时就绪时，先声明的胜出。按业务优先级声明它们。在示例中，如果接受和拒绝都已在等待，选中的是接受。
 - 在 **Execute** 中，用 **HasTimerFired** 检查 Timer，读取 Channel 结果判断客户回应。落败的 Channel 没有结果。
 - Timer 从 Step 开始等待时计时。它是 durable 的，能经受 Worker 和 Server 重启，等待期间也不占用 Worker。
-- 选择完成后才到达的回应仍会发布一条消息，但没有 Step 消费它。如果迟到的回应需要答复，把结果记录在 Attribute 中，让 RPC 在发布前先检查它。
+- 选择完成后才到达的回应不会改变已选的分支。Flow 仍在运行时，RPC 会成功，并发布一条没有 Step 消费的消息。Flow 关闭后，Dex 会拒绝这个 RPC。需要确定答复的调用方，应等待已提交的结果（例如 Flow 结果），而不是依赖 RPC 调用本身。
 - 测试过期分支时，用 Client 的 **SkipTimer** 跳过 Timer。不要为了测试缩短业务截止时间。
 
 ## 相关形状
@@ -63,7 +63,6 @@ AwaitOfferResponse.execute
 ```python
 # How long the customer has to respond.
 OFFER_EXPIRY = timedelta(days=3)
-
 OFFER_ACCEPTED = Channel("offerAccepted", str)
 OFFER_REJECTED = Channel("offerRejected", str)
 
@@ -130,7 +129,6 @@ func (AwaitOfferResponse) Execute(ctx dex.Context, offerID string) (*dex.StepDec
 ```java
 /** How long the customer has to respond. */
 public static final Duration OFFER_EXPIRY = Duration.ofDays(3);
-
 public static final Channel<String> offerAccepted =
         Channel.define("offerAccepted", String.class);
 public static final Channel<String> offerRejected =
@@ -168,11 +166,12 @@ static final class AwaitOfferResponse implements Step<String> {
 <SdkSnippet lang="typescript">
 
 ```typescript
+/** How long the customer has to respond. */
 export const OFFER_EXPIRY_MS = 3 * 24 * 60 * 60 * 1000;
-
 export const offerAccepted = new Channel("offerAccepted", stringCodec);
 export const offerRejected = new Channel("offerRejected", stringCodec);
 
+/** Waits for whichever event happens first and routes on it. */
 class AwaitOfferResponse implements Step<string> {
   public readonly inputCodec = stringCodec;
 
@@ -206,12 +205,10 @@ class AwaitOfferResponse implements Step<string> {
 ```rust
 /// How long the customer has to respond.
 pub const OFFER_EXPIRY: Duration = Duration::from_secs(3 * 24 * 60 * 60);
-
 pub static OFFER_ACCEPTED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("offerAccepted"));
 pub static OFFER_REJECTED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("offerRejected"));
-
 pub const ACCEPT_CUSTOMER_OFFER: Rpc<String, ()> = Rpc::new("accept_customer_offer");
 pub const REJECT_CUSTOMER_OFFER: Rpc<String, ()> = Rpc::new("reject_customer_offer");
 

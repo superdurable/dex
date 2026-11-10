@@ -21,7 +21,8 @@ An Attribute lock, such as **ExecuteLockAttributes**, covers one Step method. It
 A Channel holds exactly one message. That message is the token.
 
 - One Step publishes the token once, before any branch enters.
-- The first Step of the section waits for the token with **ForOne**. One message satisfies one wait, so only one branch gets it. The other branches keep waiting.
+- A handoff Step waits for the token with **ForOne**. One message satisfies one wait, so only one branch gets it. The other branches keep waiting.
+- The handoff Step does no protected work. Its **Execute** only moves to the first Step that works.
 - The last Step of the section publishes the token back. One waiting branch consumes it and enters.
 
 ```pseudocode
@@ -30,11 +31,12 @@ StartContractEdits.execute(edits)
     goToMany(for each edit: EnterContractEdit(edit), FinishContractEdits(count))
 
 EnterContractEdit.waitFor   -> Until(ContractEditToken.ForOne())
-EnterContractEdit.execute   -> open the contract and edit it; goTo(SaveContractEdit)
+EnterContractEdit.execute   -> goTo(EditContract)           // handoff only, no protected work
+EditContract.execute        -> edit the contract; goTo(SaveContractEdit)
 SaveContractEdit.execute    -> save the edit; ContractEditToken.publish("contract"); deadEnd()
 
 ReleaseContractEditToken.execute -> ContractEditToken.publish("contract"); deadEnd()
-    // the ExecuteFailure route of EnterContractEdit and SaveContractEdit
+    // the ExecuteFailure route of EnterContractEdit, EditContract, and SaveContractEdit
 ```
 
 Dex does not promise which waiting branch gets the token next. Do not rely on an order of entry.
@@ -44,27 +46,30 @@ Dex does not promise which waiting branch gets the token next. Do not rely on an
 The token is an ordinary message. A branch that leaves the section without publishing it back blocks every other branch forever. List each way out of the section, and publish the token on each one.
 
 - **Normal exit.** The last Step of the section publishes the token.
-- **Execute failure.** Route it with **ExecuteFailure** to a Step that publishes the token. Give every Step of the section that route. In the example, both **EnterContractEdit** and **SaveContractEdit** move to **ReleaseContractEditToken**.
+- **Execute failure.** Route it with **ExecuteFailure** to a Step that publishes the token. Give every Step of the section that route. In the example, **EnterContractEdit**, **EditContract**, and **SaveContractEdit** all move to **ReleaseContractEditToken**.
 - **WaitFor failure.** When a later Step of the section has its own **WaitFor**, give it a **WaitForFailure** policy that proceeds to its **Execute**. That **Execute** sees the failure and publishes the token.
 - **Early exit.** An **Execute** that leaves the section with a business decision publishes the token in the same **Execute**.
-- **Cancellation while entering.** Dex can cancel the Step that waits for the token, for example from an RPC or a sibling's decision. When the cancel lands after its wait consumed the token but before its **Execute** committed, Dex returns the token to the front of the Channel. The next waiting branch gets it. Cancellation is cooperative, so the canceled **Execute** may still be running when the next branch enters. Keep the entering Step's work idempotent, or do not cancel it while its **Execute** runs.
-- **Cancellation inside the section.** Do not cancel a later Step of the section. A canceled Step publishes nothing, and its failure route does not run. The canceller cannot publish the token for it either. Dex picks the Steps to cancel when it commits, so the Step may already have published the token, and a second token would break mutual exclusion. To stop a branch early, send it a stop request that its Steps check, such as an Attribute an RPC sets. The Step that sees it leaves through an early exit that publishes the token.
+- **Cancellation of the handoff.** Canceling the handoff Step is safe, because it does no protected work. When Dex cancels it after its wait consumed the token but before its **Execute** committed, Dex returns the token to the front of the Channel. Another branch enters.
+- **Cancellation inside the section.** Never cancel a Step that does protected work. A canceled Step publishes nothing, and its failure route does not run. The canceller cannot publish the token for it either. Dex picks the Steps to cancel when it commits, so the Step may already have published the token, and a second token would break mutual exclusion. To stop a branch early, send it a stop request that its Steps check, such as an Attribute an RPC sets. The Step that sees it leaves through an early exit that publishes the token.
 - **Closing the Flow.** **ForceComplete**, **ForceFail**, a Flow timeout, and a Client **StopFlow** end every branch. No branch waits for the token any more.
 
 Publications commit with the method that makes them, or not at all. A failed attempt never publishes a token, so a retry cannot create a second one.
 
+Dex cannot fence the external writes of a canceled method. Cancellation is cooperative, so a canceled **Execute** can keep writing after Dex returns its token. The section stays exclusive only if no Step that does protected work is canceled.
+
 ## Rules
 
 - Publish exactly one token. Publish it in the Step that starts the branches, or before.
+- Make the Step that takes the token a pure handoff. Do the protected work in later Steps.
 - Use the token Channel for the token only.
 - Keep the section short. Every other branch waits while one branch is inside.
 - Keep the token value meaningless. Put the protected state in Attributes.
 
 ## Example
 
-**ContractEditFlow** starts with a list of edits, one per reviewer. **StartContractEdits** publishes the token and starts one **EnterContractEdit** per edit, plus the join **FinishContractEdits**. Each edit records when it held the contract. The join completes the Flow with those records, which never overlap.
+**ContractEditFlow** starts with a list of edits, one per reviewer. **StartContractEdits** publishes the token and starts one **EnterContractEdit** per edit, plus the join **FinishContractEdits**. **EnterContractEdit** hands off to **EditContract**, which records when the edit started. The join completes the Flow with every edit's record. The edit intervals never overlap.
 
-An edit can be marked to fail. Its **SaveContractEdit** fails twice, and the failure route **ReleaseContractEditToken** returns the token. The other reviewers still get their turn.
+Flags on an edit simulate the other exits. A failed handoff and an edit whose **SaveContractEdit** fails twice both go to **ReleaseContractEditToken**. A withdrawn edit leaves early from **EditContract**. Each of these returns the token, and the other reviewers still get their turn.
 
 <SdkTabs
   examples={{
@@ -84,22 +89,9 @@ CONTRACT_EDIT_RETRY = RetryPolicy(
 )
 
 
-class StartContractEdits(Step[list[ContractEdit]]):
-    """Publishes the only token and starts one branch per reviewer."""
-
-    def execute(self, context: Context, edits: list[ContractEdit]) -> StepDecision:
-        CONTRACT_EDIT_TOKEN.publish(context, "contract")
-        movements: list[StepMovement[Any]] = [
-            StepMovement.of(EnterContractEdit, edit) for edit in edits
-        ]
-        movements.append(StepMovement.of(FinishContractEdits, len(edits)))
-        return go_to_many(*movements)
-
-
 class EnterContractEdit(Step[ContractEdit]):
-    """Enters the section by consuming the token."""
+    """Takes the token and hands off; it does no protected work, so canceling it is safe."""
 
-    # A failure after the token was consumed routes to the Step that publishes it back.
     def get_step_options(self) -> StepOptions:
         return StepOptions(execute_retry=CONTRACT_EDIT_RETRY).on_execute_failure_proceed_to(
             ReleaseContractEditToken
@@ -108,10 +100,30 @@ class EnterContractEdit(Step[ContractEdit]):
     def wait_for(self, context: Context, edit: ContractEdit) -> Wait:
         return Wait.until(CONTRACT_EDIT_TOKEN.for_one())
 
+    def execute(self, context: Context, edit: ContractEdit) -> StepDecision:
+        if edit.should_fail_handoff:
+            raise ContractEditError("contract handoff failed")
+        return go_to(EditContract, edit)
+
+
+class EditContract(Step[ContractEdit]):
+    """The first Step that works on the contract. Never cancel it."""
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=CONTRACT_EDIT_RETRY).on_execute_failure_proceed_to(
+            ReleaseContractEditToken
+        )
+
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, edit: ContractEdit
     ) -> StepDecision:
         started_edit = replace(edit, started_at_millis=current_time_millis())
+        if started_edit.should_withdraw:
+            CONTRACT_EDIT_FINISHED.publish(
+                context, finish_contract_edit(started_edit, "withdrawn")
+            )
+            CONTRACT_EDIT_TOKEN.publish(context, "contract")
+            return dead_end()
         await asyncio.sleep(CONTRACT_EDIT_SECONDS)
         return go_to(SaveContractEdit, started_edit)
 
@@ -151,32 +163,15 @@ class ReleaseContractEditToken(Step[ContractEdit]):
 var (
 	ContractEditToken    = dex.DefineChannel[string]("contractEditToken")
 	ContractEditFinished = dex.DefineChannel[ContractEditRecord]("contractEditFinished")
+	errContractHandoff   = errors.New("contract handoff failed")
 	errContractEdit      = errors.New("contract edit failed")
 	contractEditRetry    = &dex.RetryPolicy{InitialInterval: time.Second, MaximumAttempts: 2}
 )
 
-// StartContractEdits publishes the only token and starts one branch per reviewer.
-type StartContractEdits struct {
-	dex.StepDefaultsNoWaitFor[[]ContractEdit]
-}
-
-func (StartContractEdits) Execute(ctx dex.Context, edits []ContractEdit) (*dex.StepDecision, error) {
-	if err := ContractEditToken.Publish(ctx, "contract"); err != nil {
-		return nil, err
-	}
-	movements := make([]dex.StepMovement, 0, len(edits)+1)
-	for _, edit := range edits {
-		movements = append(movements, dex.MovementOf(EnterContractEdit{}, edit))
-	}
-	movements = append(movements, dex.MovementOf(FinishContractEdits{}, len(edits)))
-	return dex.GoToMany(movements...), nil
-}
-
-// EnterContractEdit enters the section by consuming the token.
+// EnterContractEdit takes the token and hands off; it does no protected work,
+// so canceling it is safe.
 type EnterContractEdit struct{ dex.StepDefaults }
 
-// GetStepOptions routes an Execute failure after the token was consumed to the
-// Step that publishes it back.
 func (EnterContractEdit) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry:   contractEditRetry,
@@ -189,7 +184,32 @@ func (EnterContractEdit) WaitFor(dex.Context, ContractEdit) (*dex.Wait, error) {
 }
 
 func (EnterContractEdit) Execute(_ dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
+	if edit.ShouldFailHandoff {
+		return nil, errContractHandoff
+	}
+	return dex.GoTo(EditContract{}, edit), nil
+}
+
+// EditContract is the first Step that works on the contract. Never cancel it.
+type EditContract struct {
+	dex.StepDefaultsNoWaitFor[ContractEdit]
+}
+
+func (EditContract) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry:   contractEditRetry,
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(ReleaseContractEditToken{}, nil),
+	}
+}
+
+func (EditContract) Execute(ctx dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
 	edit.StartedAtMillis = time.Now().UnixMilli()
+	if edit.ShouldWithdraw {
+		if err := leaveContractEdit(ctx, edit, "withdrawn"); err != nil {
+			return nil, err
+		}
+		return dex.DeadEnd(), nil
+	}
 	time.Sleep(contractEditDuration)
 	return dex.GoTo(SaveContractEdit{}, edit), nil
 }
@@ -230,12 +250,18 @@ func (ReleaseContractEditToken) Execute(ctx dex.Context, edit ContractEdit) (*de
 }
 
 // leaveContractEdit records the edit and publishes the token for the next reviewer.
+// An edit that never started has an empty interval at its finish time.
 func leaveContractEdit(ctx dex.Context, edit ContractEdit, outcome string) error {
+	finishedAtMillis := time.Now().UnixMilli()
+	startedAtMillis := edit.StartedAtMillis
+	if startedAtMillis == 0 {
+		startedAtMillis = finishedAtMillis
+	}
 	record := ContractEditRecord{
 		Reviewer:         edit.Reviewer,
 		Outcome:          outcome,
-		StartedAtMillis:  edit.StartedAtMillis,
-		FinishedAtMillis: time.Now().UnixMilli(),
+		StartedAtMillis:  startedAtMillis,
+		FinishedAtMillis: finishedAtMillis,
 	}
 	if err := ContractEditFinished.Publish(ctx, record); err != nil {
 		return err
@@ -264,26 +290,7 @@ private static StepOptions contractEditOptions() {
             .build();
 }
 
-/** Publishes the only token and starts one branch per reviewer. */
-static final class StartContractEdits implements Step<ContractEdit[]> {
-    @Override
-    public Class<ContractEdit[]> getInputType() {
-        return ContractEdit[].class;
-    }
-
-    @Override
-    public StepDecision execute(final Context context, final ContractEdit[] edits) {
-        contractEditToken.publish(context, TOKEN);
-        final StepMovement<?>[] movements = new StepMovement<?>[edits.length + 1];
-        for (int index = 0; index < edits.length; index++) {
-            movements[index] = StepMovement.of(EnterContractEdit.class, edits[index]);
-        }
-        movements[edits.length] = StepMovement.of(FinishContractEdits.class, edits.length);
-        return StepDecision.goToMany(movements);
-    }
-}
-
-/** Enters the section by consuming the token. */
+/** Takes the token and hands off; it does no protected work, so canceling it is safe. */
 static final class EnterContractEdit implements Step<ContractEdit> {
     @Override
     public Class<ContractEdit> getInputType() {
@@ -302,8 +309,32 @@ static final class EnterContractEdit implements Step<ContractEdit> {
 
     @Override
     public StepDecision execute(final Context context, final ContractEdit edit) {
-        final ContractEdit started = new ContractEdit(
-                edit.reviewer(), edit.shouldFailEdit(), System.currentTimeMillis());
+        if (edit.shouldFailHandoff()) {
+            throw new IllegalStateException("contract handoff failed");
+        }
+        return StepDecision.goTo(EditContract.class, edit);
+    }
+}
+
+/** The first Step that works on the contract. Never cancel it. */
+static final class EditContract implements Step<ContractEdit> {
+    @Override
+    public Class<ContractEdit> getInputType() {
+        return ContractEdit.class;
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return contractEditOptions();
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final ContractEdit edit) {
+        final ContractEdit started = edit.withStartedAtMillis(System.currentTimeMillis());
+        if (started.shouldWithdraw()) {
+            leaveContractEdit(context, started, "withdrawn");
+            return StepDecision.deadEnd();
+        }
         holdContract();
         return StepDecision.goTo(SaveContractEdit.class, started);
     }
@@ -346,11 +377,17 @@ static final class ReleaseContractEditToken implements Step<ContractEdit> {
     }
 }
 
-/** Records the edit and publishes the token for the next reviewer. */
+/**
+ * Records the edit and publishes the token for the next reviewer. An edit that never started
+ * has an empty interval at its finish time.
+ */
 private static void leaveContractEdit(
         final Context context, final ContractEdit edit, final String outcome) {
+    final long finishedAtMillis = System.currentTimeMillis();
+    final long startedAtMillis =
+            edit.startedAtMillis() == 0 ? finishedAtMillis : edit.startedAtMillis();
     contractEditFinished.publish(context, new ContractEditRecord(
-            edit.reviewer(), outcome, edit.startedAtMillis(), System.currentTimeMillis()));
+            edit.reviewer(), outcome, startedAtMillis, finishedAtMillis));
     contractEditToken.publish(context, TOKEN);
 }
 ```
@@ -365,28 +402,15 @@ export const contractEditFinished = new Channel(
   jsonCodec<ContractEditRecord>({ typeName: "ContractEditRecord" }),
 );
 
-/** Publishes the only token and starts one branch per reviewer. */
-class StartContractEdits implements Step<ContractEdit[]> {
-  public getStepType(): string {
-    return "StartContractEdits";
-  }
-
-  public execute(context: Context, edits: ContractEdit[]): StepDecision {
-    contractEditToken.publish(context, "contract");
-    return goToMany(
-      ...edits.map((edit) => StepMovement.of(EnterContractEdit, edit)),
-      StepMovement.of(FinishContractEdits, edits.length),
-    );
-  }
-}
-
-/** Enters the section by consuming the token. */
+/**
+ * Takes the token and hands off; it does no protected work, so canceling it
+ * is safe.
+ */
 class EnterContractEdit implements Step<ContractEdit> {
   public getStepType(): string {
     return "EnterContractEdit";
   }
 
-  // An Execute failure after the token was consumed must still publish it back.
   public getStepOptions(): StepOptions {
     return {
       executeRetry: { initialIntervalMs: 1_000, maximumAttempts: 2 },
@@ -398,10 +422,35 @@ class EnterContractEdit implements Step<ContractEdit> {
     return Wait.until(contractEditToken.forOne());
   }
 
-  public async execute(_context: Context, edit: ContractEdit): Promise<StepDecision> {
-    const startedAtMillis = Date.now();
+  public execute(_context: Context, edit: ContractEdit): StepDecision {
+    if (edit.shouldFailHandoff) {
+      throw new Error("contract handoff failed");
+    }
+    return goTo(EditContract, edit);
+  }
+}
+
+/** The first Step that works on the contract. Never cancel it. */
+class EditContract implements Step<ContractEdit> {
+  public getStepType(): string {
+    return "EditContract";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: { initialIntervalMs: 1_000, maximumAttempts: 2 },
+      executeFailure: ExecuteFailure.proceedTo(ReleaseContractEditToken),
+    };
+  }
+
+  public async execute(context: Context, edit: ContractEdit): Promise<StepDecision> {
+    const startedEdit = { ...edit, startedAtMillis: Date.now() };
+    if (startedEdit.shouldWithdraw) {
+      leaveContractEdit(context, startedEdit, "withdrawn");
+      return deadEnd();
+    }
     await sleep(CONTRACT_EDIT_DURATION_MS);
-    return goTo(SaveContractEdit, { ...edit, startedAtMillis });
+    return goTo(SaveContractEdit, startedEdit);
   }
 }
 
@@ -440,13 +489,17 @@ class ReleaseContractEditToken implements Step<ContractEdit> {
   }
 }
 
-/** Records the edit and publishes the token for the next reviewer. */
+/**
+ * Records the edit and publishes the token for the next reviewer.
+ * An edit that never started has an empty interval at its finish time.
+ */
 function leaveContractEdit(context: Context, edit: ContractEdit, outcome: string): void {
+  const finishedAtMillis = Date.now();
   contractEditFinished.publish(context, {
     reviewer: edit.reviewer,
     outcome,
-    startedAtMillis: edit.startedAtMillis ?? 0,
-    finishedAtMillis: Date.now(),
+    startedAtMillis: edit.startedAtMillis || finishedAtMillis,
+    finishedAtMillis,
   });
   contractEditToken.publish(context, "contract");
 }
@@ -461,34 +514,14 @@ pub static CONTRACT_EDIT_TOKEN: LazyLock<Channel<String>> =
 pub static CONTRACT_EDIT_FINISHED: LazyLock<Channel<ContractEditRecord>> =
     LazyLock::new(|| Channel::new("contractEditFinished"));
 
-/// Publishes the only token and starts one branch per reviewer.
-#[derive(Default)]
-struct StartContractEdits;
-
-impl Step for StartContractEdits {
-    type Input = Vec<ContractEdit>;
-
-    fn execute(&self, context: &mut Context, edits: Self::Input) -> HandlerResult<StepDecision> {
-        CONTRACT_EDIT_TOKEN.publish(context, CONTRACT_TOKEN.to_string())?;
-        let edit_count = edits.len();
-        let edit_branches = edits
-            .into_iter()
-            .map(|edit| StepMovement::to(&EnterContractEdit, edit));
-        Ok(StepDecision::go_to_many(edit_branches.chain([
-            StepMovement::to(&FinishContractEdits, edit_count),
-        ])))
-    }
-}
-
-/// Enters the section by consuming the token.
+/// Takes the token and hands off; it does no protected work, so canceling
+/// it is safe.
 #[derive(Default)]
 struct EnterContractEdit;
 
 impl Step for EnterContractEdit {
     type Input = ContractEdit;
 
-    /// Routes an Execute failure after the token was consumed to the Step
-    /// that publishes it back.
     fn options(&self) -> StepOptions<Self::Input> {
         contract_edit_options()
     }
@@ -497,12 +530,34 @@ impl Step for EnterContractEdit {
         Ok(Wait::until(CONTRACT_EDIT_TOKEN.for_one()))
     }
 
-    fn execute(
-        &self,
-        _context: &mut Context,
-        mut edit: Self::Input,
-    ) -> HandlerResult<StepDecision> {
+    fn execute(&self, _context: &mut Context, edit: Self::Input) -> HandlerResult<StepDecision> {
+        if edit.should_fail_handoff {
+            return Err(HandlerError::new(
+                "ContractHandoffFailed",
+                "contract handoff failed",
+            ));
+        }
+        Ok(StepDecision::go_to(&EditContract, edit))
+    }
+}
+
+/// The first Step that works on the contract. Never cancel it.
+#[derive(Default)]
+struct EditContract;
+
+impl Step for EditContract {
+    type Input = ContractEdit;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        contract_edit_options()
+    }
+
+    fn execute(&self, context: &mut Context, mut edit: Self::Input) -> HandlerResult<StepDecision> {
         edit.started_at_millis = current_unix_millis()?;
+        if edit.should_withdraw {
+            leave_contract_edit(context, edit, "withdrawn")?;
+            return Ok(StepDecision::dead_end());
+        }
         thread::sleep(CONTRACT_EDIT_DURATION);
         Ok(StepDecision::go_to(&SaveContractEdit, edit))
     }
@@ -556,18 +611,25 @@ fn contract_edit_options() -> StepOptions<ContractEdit> {
 }
 
 /// Records the edit and publishes the token for the next reviewer.
+/// An edit that never started has an empty interval at its finish time.
 fn leave_contract_edit(
     context: &mut Context,
     edit: ContractEdit,
     outcome: &str,
 ) -> HandlerResult<()> {
+    let finished_at_millis = current_unix_millis()?;
+    let started_at_millis = if edit.started_at_millis == 0 {
+        finished_at_millis
+    } else {
+        edit.started_at_millis
+    };
     CONTRACT_EDIT_FINISHED.publish(
         context,
         ContractEditRecord {
             reviewer: edit.reviewer,
             outcome: outcome.to_string(),
-            started_at_millis: edit.started_at_millis,
-            finished_at_millis: current_unix_millis()?,
+            started_at_millis,
+            finished_at_millis,
         },
     )?;
     CONTRACT_EDIT_TOKEN.publish(context, CONTRACT_TOKEN.to_string())
@@ -580,9 +642,10 @@ fn leave_contract_edit(
 ## Anti-patterns
 
 - An Attribute lock used to protect several Steps.
+- Protected work in the Step that waits for the token.
 - A boolean Attribute such as "isEditing" that Steps check and set. Nothing waits on it, and two branches can both see it clear.
 - Returning the token only on the success path.
-- Canceling a Step inside the section, or publishing the token from the RPC that cancels it.
+- Canceling a Step that does protected work, or publishing the token from the RPC that cancels it.
 - Publishing a new token to recover from a lost one while the old one may still exist. Two tokens break mutual exclusion.
 
 ## Related
