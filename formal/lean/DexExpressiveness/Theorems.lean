@@ -11,8 +11,8 @@ failures" (spec §0).
 are defined in `TraceSets.lean`. Each statement is an equality of two sets,
 written as membership in both directions. Each is proved here from its two
 inclusions. The inclusions of safety are proved in `FiniteTraces.lean` from
-the two step simulations of `Simulation.lean`, which are still `sorry`. The
-inclusions of liveness are `sorry` in `Simulation.lean` until Stage 2b.
+the two step simulations of `Simulation.lean`. The inclusions of liveness are
+proved in `Liveness.lean`. Nothing the theorems depend on is `sorry`.
 
 ## Scope: well-formed programs
 

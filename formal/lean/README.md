@@ -20,6 +20,8 @@ revision 8. "Spec" below means that document.
 [propext, Classical.choice, Quot.sound]
 'DexExpressiveness.liveness_of_isWellFormed' depends on axioms:
 [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.expressiveness_of_isWellFormed' depends on axioms:
+[propext, Classical.choice, Quot.sound]
 ```
 
 Safety (Stage 2a) was split into four work packages with fixed statements,
@@ -133,6 +135,7 @@ and `make copyright-check` passes.
 | `DexExpressiveness/Liveness/DexToLFair.lean`, `Liveness/DexToLFairSteps.lean`, `Liveness/DexToLFairLate.lean`, `Liveness/DexToLFairLemmas.lean` | Work package L4, proved: the L run of a fair Dex run is fair. |
 | `DexExpressiveness/Liveness/LToDexRun.lean`, `Liveness/LToDexRunDex.lean`, `Liveness/LToDexRunStep.lean` | Work package L5, proved: the Dex run of an L run, its word, trace, and marker. |
 | `DexExpressiveness/Liveness/LToDexFair.lean`, `Liveness/LToDexFairTime.lean`, `Liveness/LToDexFairWorkers.lean` | Work package L6, proved: the Dex run of a fair L run is fair. |
+| `DexExpressiveness/Liveness/RestingRuns.lean` | Proved: an L run that comes to rest after a finite schedule is a fair maximal run, with marker `✓`, `δ`, or, for refused inputs forever, `∞`. |
 | `DexExpressiveness/Liveness.lean` | Proved from the work packages: the two liveness inclusions, `fairMaximalTrace_dex_to_l` and `fairMaximalTrace_l_to_dex`. |
 | `DexExpressiveness/FiniteTraces.lean` | Proved from the step simulations and the two invariants: the two finite-trace inclusions that give safety. |
 | `DexExpressiveness/Properties.lean` | Proved facts. No `sorry`. |
@@ -204,6 +207,14 @@ How they read against the spec:
 - `safety_of_isWellFormed` is spec §5.4: `π(FinTr_{E_adm}(⟦S⟧)) = FinTr(S)`.
 - `liveness_of_isWellFormed` is spec §5.5:
   `∀ w ∈ E_adm. π(MaxTr^fair_w(⟦S⟧)) = MaxTr^fair_w(S)`.
+- Liveness compares fair runs only. The fairness assumptions F0 to F6 of
+  spec §5.5 are assumptions of the theorem, not guarantees of the engine. In
+  particular F4, "Workers settle", assumes cooperative Workers: every task
+  emits its effects and returns, or is dropped after its invocation was
+  canceled. The Dex server does not guarantee this. A Worker that never
+  returns gives an unfair run, about which the theorem says nothing.
+- Both trace sets of liveness are inhabited: see
+  [Fair maximal traces exist](#fair-maximal-traces-exist).
   The word is quantified in L form and encoded for the Dex side.
   `isAdmissibleWord_encode` and `isAdmissibleWord_decode` (proved) show that
   the encoded admissible L words are exactly the words of `E_adm`.
@@ -504,6 +515,8 @@ All of this is free of `sorry`. `#print axioms` shows only `propext`,
 - `Program.isWellFormed_of_hasStaticLockDiscipline`, and `IsWellFormed` for
   eight example programs (`Examples/WellFormed.lean`); the safety theorem at
   three of them with no hypothesis (`Examples/WellFormedSafety.lean`).
+- Fair maximal traces of example programs for each marker, on the L side and
+  on the Dex side (`Examples/FairRuns.lean`).
 - `safety_of_isWellFormed`: proved, with no `sorry`.
 - `fairMaximalTrace_dex_to_l`, `fairMaximalTrace_l_to_dex`: the two
   inclusions of liveness, from work packages L1 to L6 (`Liveness.lean`).
@@ -565,6 +578,40 @@ So it rejects `unlock`, `wait`, `signal`, and `broadcast` on a created mutex
 (`LockstepChecks.newMutexProgram`), and a program that holds a lock across a
 call and unlocks after it. No program that was expected to be well formed
 turned out not to be.
+
+## Fair maximal traces exist
+
+The trace sets of liveness are defined by the existence of a fair run (spec
+§5.5). Without a fair run of some program, `liveness_of_isWellFormed` would
+compare two empty sets.
+
+`Liveness/RestingRuns.lean` builds fair maximal runs of L. A configuration is
+at rest (`L.Config.isAtRest`) when every thread is blocked without a timer or
+halted, and no late emit is left. An L run that reaches a configuration at
+rest by a finite schedule, and then takes only steps that keep it at rest
+while time diverges, is fair (`IsRestingTail.isLFairMaximalTrace`). Two
+tails are built: clock ticks alone, and clock ticks with inputs that are
+refused after the close.
+
+`Examples/FairRuns.lean` gives the witnesses. Each schedule is checked by
+evaluation in the Lean kernel. Each L trace is also a projected trace of the
+translated Flow, by `liveness_of_isWellFormed` at a well-formed program and
+an admissible word:
+
+| Marker | Program | Word | Trace | L side | Dex side |
+| --- | --- | --- | --- | --- | --- |
+| `✓` | `Mutex.program` | the start | `begin`, both emits, `exit` | `mutexProgram_terminates` | `mutexProgram_terminates_dex` |
+| `δ` | `waitingProgram`: `emit(1); recv(5)` | the start | `begin`, `out(1)` | `waitingProgram_deadlocks` | `waitingProgram_deadlocks_dex` |
+| `δ` | `selfDeadlockProgram`: `lock(m0); emit(1); lock(m0)` | the start | `begin`, `out(1)` | `selfDeadlockProgram_deadlocks` | `selfDeadlockProgram_deadlocks_dex` |
+| `∞` | `Mutex.program` | the start, then one input forever | the `✓` trace, then `refused` forever | `mutexProgram_diverges` | `mutexProgram_diverges_dex` |
+
+The `∞` witness has an infinite word (spec §5.5: "With an infinite `w`,
+every fair run has infinitely many inputs and is `∞`"). There is no witness
+of a program that runs forever on a finite word, such as a loop that emits:
+its configurations never come to rest, and its run is not a finite schedule
+followed by a regular tail. There is also no general lemma that every
+reachable configuration of a well-formed program has a fair maximal
+continuation.
 
 ## Lockstep checks
 
@@ -816,10 +863,11 @@ directions, for fourteen programs. A failure fails the build. All pass.
 
 ### Work packages
 
-All four packages are proved. None changed a model file
+All four packages are proved. None changed a definition of a model file
 (`Dex/Syntax.lean`, `Dex/Config.lean`, `Dex/MetaFunctions.lean`,
 `Dex/Rules.lean`, `L/Syntax.lean`, `L/ThreadLocal.lean`, `L/Semantics.lean`,
-`Translation/*.lean`), `TraceSets.lean`, or `Theorems.lean`.
+`Translation/*.lean`), a definition of `TraceSets.lean`, or a statement of
+`Theorems.lean`.
 
 | Package | Files | Lemmas |
 | --- | --- | --- |
@@ -882,7 +930,13 @@ Two points of the design:
 `Liveness.lean` proves `fairMaximalTrace_dex_to_l` and
 `fairMaximalTrace_l_to_dex` from the statements below. All six packages are
 proved. None changed `Liveness/Statements.lean`, the definitions of
-`Core/BlockRun.lean`, or any file of Stage 2a.
+`Core/BlockRun.lean`, or a definition or a theorem statement of Stage 2a.
+Some files of Stage 2a did change after Stage 2a: `Core/TransitionSystem.lean`
+gained lemmas about finite runs (`exec_append`, `exec_cons`, `exec_snoc`,
+`exec_append_inv`, `eventsAt_of_step`), `Dex/RunInvariant.lean`,
+`Dex/RunLemmas.lean`, `Simulation/Frame.lean`, and `Properties.lean` gained
+shared lemmas, the comment on the timing model in `L/Semantics.lean` was
+reworded (spec revision 8), and `Theorems.lean` imports `Liveness.lean`.
 
 One fixed statement changed while it was proved.
 `silentWeight_lt_of_isSilentKind` (`Liveness/Silent.lean`) now assumes
