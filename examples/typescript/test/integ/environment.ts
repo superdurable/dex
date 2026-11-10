@@ -44,6 +44,10 @@ import { OrderProcessingFlow } from "../../src/products/order-processing/order-p
 import { MyDependencyService } from "../../src/shared/my-dependency-service.js";
 import { subscriptionFlow } from "../../src/products/subscription/subscription-flow.js";
 import { userOnboardingFlow } from "../../src/products/signup/user-signup-flow.js";
+import {
+  cancelCaseOrderProbeFlow,
+  deferredChoiceOrderProbeFlow,
+} from "./condition-order-probe-flows.js";
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
@@ -107,6 +111,8 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     contractEditFlow,
     creditCheckFlow,
     loanApplicationFlow,
+    deferredChoiceOrderProbeFlow,
+    cancelCaseOrderProbeFlow,
   ];
   const registry = new Registry(flows);
   const cacheDirectory = await mkdtemp(join(tmpdir(), "dex-typescript-examples-integ-"));
