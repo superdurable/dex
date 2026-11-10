@@ -45,16 +45,17 @@ theorem reconciled_find_eq (ghost : Ghost σ) (isNormal : Bool) (seq clock : Nat
     · simp [isCurrent]
 
 /-- The Step change of a single-record commit. -/
-def pendInvocation (method : Dex.Method) (record : Dex.StepRecord σ) : Dex.StepRecord σ :=
-  { record with invocation := some { method := method, state := .pending } }
+def setInvocation (method : Dex.Method) (newState : Dex.InvocationState) (record : Dex.StepRecord σ) :
+    Dex.StepRecord σ :=
+  { record with invocation := some { method := method, state := newState } }
 
 /-- The members of the Step table after a single-record change. -/
 theorem mem_singleRecord {steps : List (Dex.StepRecord σ)} {step : Dex.StepExecId σ}
-    {method : Dex.Method} {changed : Dex.StepRecord σ}
+    {method : Dex.Method} {newState : Dex.InvocationState} {changed : Dex.StepRecord σ}
     (isChanged : changed ∈ steps.map (fun record =>
-      if record.id = step then pendInvocation method record else record)) :
+      if record.id = step then setInvocation method newState record else record)) :
     ∃ record, record ∈ steps ∧
-      ((record.id = step ∧ changed = pendInvocation method record) ∨
+      ((record.id = step ∧ changed = setInvocation method newState record) ∨
         (record.id ≠ step ∧ changed = record)) := by
   obtain ⟨record, isRecord, isMapped⟩ := List.mem_map.mp isChanged
   refine ⟨record, isRecord, ?_⟩
@@ -68,20 +69,20 @@ theorem mem_singleRecord {steps : List (Dex.StepRecord σ)} {step : Dex.StepExec
 
 /-- The IDs after a single-record change. -/
 theorem ids_singleRecord (steps : List (Dex.StepRecord σ)) (step : Dex.StepExecId σ)
-    (method : Dex.Method) :
-    (steps.map (fun record => if record.id = step then pendInvocation method record else record)).map
+    (method : Dex.Method) (newState : Dex.InvocationState) :
+    (steps.map (fun record => if record.id = step then setInvocation method newState record else record)).map
       (fun record => record.id) = steps.map (fun record => record.id) := by
   rw [List.map_map]
   apply List.map_congr_left
   intro record _
-  by_cases isStep : record.id = step <;> simp [isStep, pendInvocation]
+  by_cases isStep : record.id = step <;> simp [isStep, setInvocation]
 
 /-- The current keys after a single-record change of an invocation of the
 same method. -/
 theorem currentKeys_singleRecord (base : Dex.Run σ) (newBase : Dex.Run σ) (step : Dex.StepExecId σ)
-    (method : Dex.Method)
+    (method : Dex.Method) (newState : Dex.InvocationState)
     (isSteps : newBase.steps = base.steps.map (fun record =>
-      if record.id = step then pendInvocation method record else record))
+      if record.id = step then setInvocation method newState record else record))
     (sameMethod : ∀ record, record ∈ base.steps → record.id = step →
       ∃ state, record.invocation = some { method := method, state := state })
     (key : InvocationKey σ) : key ∈ currentKeys newBase ↔ key ∈ currentKeys base := by
@@ -91,7 +92,7 @@ theorem currentKeys_singleRecord (base : Dex.Run σ) (newBase : Dex.Run σ) (ste
     obtain ⟨record, isRecord, ⟨isStep, isPended⟩ | ⟨_, isSame⟩⟩ := mem_singleRecord isChanged
     · obtain ⟨state, hasOld⟩ := sameMethod record isRecord isStep
       subst isPended
-      simp only [pendInvocation, Option.some.injEq] at hasInvocation
+      simp only [setInvocation, Option.some.injEq] at hasInvocation
       refine ⟨record, _, isRecord, hasOld, isId, ?_⟩
       rw [← hasInvocation] at isMethod
       exact isMethod
@@ -102,7 +103,7 @@ theorem currentKeys_singleRecord (base : Dex.Run σ) (newBase : Dex.Run σ) (ste
     · obtain ⟨state, hasOld⟩ := sameMethod record isRecord isStep
       rw [hasOld] at hasInvocation
       cases hasInvocation
-      refine ⟨pendInvocation method record, { method := method, state := .pending },
+      refine ⟨setInvocation method newState record, { method := method, state := newState },
         List.mem_map.mpr ⟨record, isRecord, by simp [isStep]⟩, rfl, isId, isMethod⟩
     · exact ⟨record, invocation, List.mem_map.mpr ⟨record, isRecord, by simp [isStep]⟩,
         hasInvocation, isId, isMethod⟩

@@ -45,31 +45,36 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
     (tasksSub : ∀ task, task ∈ pre.tasks → task ∈ config.tasks)
     (interruptsSub : ∀ interrupt, interrupt ∈ pre.interrupts → interrupt ∈ config.interrupts)
     (record : Dex.StepRecord σ) (isRecord : record ∈ run.base.steps)
-    (method : Dex.Method) (oldState : Dex.InvocationState)
+    (method : Dex.Method) (oldState newState : Dex.InvocationState)
     (hasInvocation : record.invocation = some { method := method, state := oldState })
     (tasksKept : ∀ task, task ∈ config.tasks → task ∉ pre.tasks →
       oldState = .running task.base.id)
-    (removedRunning : ∀ taskId, oldState = .running taskId →
+    (removedRunning : ∀ taskId, oldState = .running taskId → newState = .pending →
       ∀ task, task ∈ pre.tasks → task.base.id ≠ taskId)
     (interruptsKept : ∀ interrupt, interrupt ∈ config.interrupts → interrupt ∉ pre.interrupts →
       interrupt.step = record.id)
     (attempt newAttempt : Attempt σ) (isAttempt : run.findAttempt? record.id = some attempt)
     (newMethod : newAttempt.method = method) (newPositive : 1 ≤ newAttempt.number)
     (newSnapshot : newAttempt.snapshot = attempt.snapshot)
+    (keptIfRunning : ∀ taskId, newState = .running taskId →
+      oldState = .running taskId ∧ newAttempt.number = attempt.number ∧
+        newAttempt.isBackoff = attempt.isBackoff ∧ pre.tasks = config.tasks ∧
+        pre.interrupts = config.interrupts)
     (changed : Run σ)
     (changedSteps : changed.base.steps = run.base.steps.map (fun current =>
-      if current.id = record.id then pendInvocation method current else current))
+      if current.id = record.id then setInvocation method newState current else current))
     (changedCounters : changed.base.counters = run.base.counters)
     (changedTimers : changed.base.timers = run.base.timers)
     (changedStatus : changed.base.status = run.base.status)
     (changedSeq : changed.base.seq = run.base.seq + 1)
-    (changedAttempts : changed.attempts = run.attempts.set record.id newAttempt)
+    (changedAttemptSelf : changed.attempts.get? record.id = some newAttempt)
+    (changedAttemptOther : ∀ step, step ≠ record.id → changed.attempts.get? step = run.attempts.get? step)
     (retryFrom : ∀ entry, entry ∈ changed.retryTimers →
       entry ∈ run.retryTimers ∨ (entry.1.step = record.id ∧ entry.1.method = method))
     (retryKept : ∀ timer : RetryTimerId σ, timer.step ≠ record.id →
       run.retryTimers.contains timer = true → changed.retryTimers.contains timer = true)
     (retryNodup : (changed.retryTimers.map (fun entry => entry.1)).Nodup)
-    (newBackoff : newAttempt.isBackoff = true →
+    (newBackoff : newAttempt.isBackoff = true → newState = .pending ∧
       changed.retryTimers.contains
         { step := record.id, method := method, attempt := newAttempt.number } = true)
     (newAhead : ∀ entry, entry ∈ changed.retryTimers → entry.1.step = record.id →
@@ -85,13 +90,13 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
   have idsNodup := runInvariant.stepIdsNodup
   have changedIds : changed.base.steps.map (fun record => record.id) =
       run.base.steps.map (fun record => record.id) := by
-    rw [changedSteps]; exact ids_singleRecord _ _ _
+    rw [changedSteps]; exact ids_singleRecord _ _ _ _
   have changedNodup : (changed.base.steps.map (fun record => record.id)).Nodup := by
     rw [changedIds]; exact idsNodup
   have isOnly : ∀ other, other ∈ run.base.steps → other.id = record.id → other = record :=
     fun other isOther sameId => eq_of_id_eq idsNodup isOther isRecord sameId
   have memChanged : ∀ changedRecord, changedRecord ∈ changed.base.steps →
-      (changedRecord = pendInvocation method record) ∨
+      (changedRecord = setInvocation method newState record) ∨
       (changedRecord ∈ run.base.steps ∧ changedRecord.id ≠ record.id) := by
     intro changedRecord isChanged
     rw [changedSteps] at isChanged
@@ -101,7 +106,7 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
     · right
       rw [isSame]
       exact ⟨isOriginal, isOther⟩
-  have pendedMember : pendInvocation method record ∈ changed.base.steps := by
+  have pendedMember : setInvocation method newState record ∈ changed.base.steps := by
     rw [changedSteps]
     exact List.mem_map.mpr ⟨record, isRecord, by simp⟩
   have otherMember : ∀ other, other ∈ run.base.steps → other.id ≠ record.id →
@@ -110,7 +115,7 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
     rw [changedSteps]
     exact List.mem_map.mpr ⟨other, isOther, by simp [isNotRecord]⟩
   have currentSame : ∀ key, key ∈ currentKeys changed.base ↔ key ∈ currentKeys run.base := by
-    apply currentKeys_singleRecord run.base changed.base record.id method changedSteps
+    apply currentKeys_singleRecord run.base changed.base record.id method newState changedSteps
     intro other isOther sameId
     rw [isOnly other isOther sameId]
     exact ⟨oldState, hasInvocation⟩
@@ -144,7 +149,7 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
     rw [findAttempt?_reconcileAttempts changed other (otherMember other isOther isNotRecord)
       changedNodup]
     unfold reconciledAttempt
-    rw [changedAttempts, AssocList.get?_set_other _ _ _ _ isNotRecord]
+    rw [changedAttemptOther other.id isNotRecord]
     have isMatching := runInvariant.attemptsMatch other isOther
     unfold AttemptMatchesRecord at isMatching
     split
@@ -158,12 +163,12 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
       rw [isFound]
       simp [sameMethod, Run.findAttempt?, isFound]
   have attemptSelf : changed.reconcileAttempts.findAttempt? record.id = some newAttempt := by
-    have isPendedAttempt := findAttempt?_reconcileAttempts changed (pendInvocation method record)
+    have isPendedAttempt := findAttempt?_reconcileAttempts changed (setInvocation method newState record)
       pendedMember changedNodup
-    rw [show (pendInvocation method record).id = record.id from rfl] at isPendedAttempt
+    rw [show (setInvocation method newState record).id = record.id from rfl] at isPendedAttempt
     rw [isPendedAttempt]
     unfold reconciledAttempt
-    simp [pendInvocation, changedAttempts, AssocList.get?_set_self, newMethod]
+    simp [setInvocation, changedAttemptSelf, newMethod]
   have statusRunning : run.base.status = .running := by
     cases isStatus : run.base.status with
     | running => rfl
@@ -222,14 +227,26 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
       isLive
     obtain ⟨current, found, isCurrent, isStep, isFound, hasCurrent, isNumber⟩ :=
       (isFencePassed_iff isRun idsNodup task).mp isOldPassed
-    have isNotRecord : current.id ≠ record.id := by
-      intro sameId
-      rw [isOnly current isCurrent sameId, hasInvocation] at hasCurrent
-      simp only [Option.some.injEq, Dex.Invocation.mk.injEq] at hasCurrent
-      exact removedRunning task.base.id hasCurrent.2 task isTask rfl
     rw [isFencePassed_iff (run := changed.reconcileAttempts) rfl changedNodup task]
-    exact ⟨current, found, otherMember current isCurrent isNotRecord, isStep,
-      by rw [attemptOther current isCurrent isNotRecord]; exact isFound, hasCurrent, isNumber⟩
+    by_cases isRecordId : current.id = record.id
+    · have isSame := isOnly current isCurrent isRecordId
+      rw [isSame, hasInvocation] at hasCurrent
+      simp only [Option.some.injEq, Dex.Invocation.mk.injEq] at hasCurrent
+      rw [isSame, isAttempt] at isFound
+      cases isFound
+      cases hState : newState with
+      | pending =>
+        exact absurd rfl (removedRunning task.base.id hasCurrent.2 hState task isTask)
+      | running runningId =>
+        obtain ⟨isOldRunning, sameNumber, _⟩ := keptIfRunning runningId hState
+        rw [hasCurrent.2] at isOldRunning
+        cases isOldRunning
+        refine ⟨setInvocation method newState record, newAttempt, pendedMember,
+          by rw [← isStep, isSame]; rfl, attemptSelf, ?_, by rw [sameNumber]; exact isNumber⟩
+        rw [hState, hasCurrent.1]
+        rfl
+    · exact ⟨current, found, otherMember current isCurrent isRecordId, isStep,
+        by rw [attemptOther current isCurrent isRecordId]; exact isFound, hasCurrent, isNumber⟩
   · intro after isAfter
     cases isAfter
     exact
@@ -263,7 +280,7 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
               runInvariant.historiesHaveSteps entry isMember
             by_cases isRecordId : original.id = record.id
             · rw [isOnly original isOriginal isRecordId] at isId isExecute
-              exact ⟨pendInvocation method record, pendedMember, isId, isExecute⟩
+              exact ⟨setInvocation method newState record, pendedMember, isId, isExecute⟩
             · exact ⟨original, otherMember original isOriginal isRecordId, isId, isExecute⟩
           · intro changedRecord isChanged
             rcases memChanged changedRecord isChanged with isPended | ⟨isOld, _⟩
@@ -279,7 +296,7 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
           · exact Or.inl (runInvariant.retryTimersHaveHistories entry isOld)
           · right
             rw [isStep, isMethod]
-            exact (mem_currentKeys _ _).mpr ⟨pendInvocation method record, _, pendedMember, rfl,
+            exact (mem_currentKeys _ _).mpr ⟨setInvocation method newState record, _, pendedMember, rfl,
               rfl, rfl⟩
         retryTimersNotAhead := by
           intro entry changedRecord invocation found isEntry isChanged isId hasCurrent isMethod
@@ -289,7 +306,7 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
             have isSelf : changed.reconcileAttempts.findAttempt? record.id = some found := isFound
             rw [attemptSelf] at isSelf
             cases isSelf
-            simp only [pendInvocation, Option.some.injEq] at hasCurrent
+            simp only [setInvocation, Option.some.injEq] at hasCurrent
             rw [← hasCurrent] at isMethod
             exact newAhead entry isEntry isId.symm isMethod.symm
           · have isOldEntry : entry ∈ run.retryTimers := by
@@ -327,19 +344,21 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
             have isMatching := runInvariant.attemptsMatch record isRecord
             unfold AttemptMatchesRecord at isMatching ⊢
             rw [hasInvocation] at isMatching
-            obtain ⟨found, history, isFound, isHistory, isLive, _, _, _, snapshotMatches, _⟩ :=
-              isMatching
+            obtain ⟨found, history, isFound, isHistory, isLive, _, _, oldRunning, snapshotMatches,
+              _⟩ := isMatching
             rw [isAttempt] at isFound
             cases isFound
             refine ⟨newAttempt, history, attemptSelf, ?_, isLive, newMethod, newPositive, ?_, ?_,
               ?_⟩
             · rw [findEq]; exact isHistory
-            · intro _ isRunning
-              cases isRunning
+            · intro runningId isRunning
+              obtain ⟨isOldRunning, _, sameBackoff, _⟩ := keptIfRunning runningId isRunning
+              obtain ⟨notBackoff, hasSnapshot⟩ := oldRunning runningId isOldRunning
+              exact ⟨by rw [sameBackoff]; exact notBackoff, by rw [newSnapshot]; exact hasSnapshot⟩
             · rw [newSnapshot]
               exact snapshotMatches
             · intro backoff
-              exact ⟨rfl, newBackoff backoff⟩
+              exact newBackoff backoff
           · exact attemptMatchesRecord_congr (attemptOther changedRecord isOld isNotRecord) findEq
               (fun timer isStep isContained => retryKept timer (by rw [isStep]; exact isNotRecord)
                 isContained)
@@ -351,7 +370,12 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
           intro changedRecord runningMethod taskId isChanged hasRunning
           rcases memChanged changedRecord isChanged with isPended | ⟨isOld, _⟩
           · rw [isPended] at hasRunning
-            simp [pendInvocation] at hasRunning
+            simp only [setInvocation, Option.some.injEq, Dex.Invocation.mk.injEq] at hasRunning
+            obtain ⟨isOldRunning, _⟩ := keptIfRunning taskId hasRunning.2
+            show taskId < pre.nextTaskId
+            rw [preNextTaskId]
+            exact runInvariant.runningTaskIdsBelow record method taskId isRecord
+              (by rw [hasInvocation, isOldRunning])
           · show taskId < pre.nextTaskId
             rw [preNextTaskId]
             exact runInvariant.runningTaskIdsBelow changedRecord runningMethod taskId isOld
@@ -359,16 +383,44 @@ theorem invariant_singleRecord {program : Program σ} {config : Config σ} {run 
         runningTaskMatches := by
           intro changedRecord runningMethod taskId task isChanged hasRunning isTask isId
           rcases memChanged changedRecord isChanged with isPended | ⟨isOld, isNotRecord⟩
-          · rw [isPended] at hasRunning
-            simp [pendInvocation] at hasRunning
+          · subst isPended
+            simp only [setInvocation, Option.some.injEq, Dex.Invocation.mk.injEq] at hasRunning
+            obtain ⟨isMethodEq, isState⟩ := hasRunning
+            obtain ⟨isOldRunning, sameNumber, _⟩ := keptIfRunning taskId isState
+            obtain ⟨isKey, found, isFound, isNumber⟩ := runInvariant.runningTaskMatches record
+              method taskId task isRecord (by rw [hasInvocation, isOldRunning]) (realSub task isTask)
+              isId
+            rw [isAttempt] at isFound
+            cases isFound
+            refine ⟨by rw [isKey, isMethodEq]; rfl, newAttempt, attemptSelf, ?_⟩
+            rw [sameNumber]
+            exact isNumber
           · rw [attemptOther changedRecord isOld isNotRecord]
             exact runInvariant.runningTaskMatches changedRecord runningMethod taskId task isOld
               hasRunning (realSub task isTask) isId
         runningIsTracked := by
           intro changedRecord runningMethod taskId isChanged hasRunning
           rcases memChanged changedRecord isChanged with isPended | ⟨isOld, isNotRecord⟩
-          · rw [isPended] at hasRunning
-            simp [pendInvocation] at hasRunning
+          · subst isPended
+            simp only [setInvocation, Option.some.injEq, Dex.Invocation.mk.injEq] at hasRunning
+            obtain ⟨isMethodEq, isState⟩ := hasRunning
+            obtain ⟨isOldRunning, sameNumber, _, sameTasks, sameInterrupts⟩ :=
+              keptIfRunning taskId isState
+            subst isMethodEq
+            show _ ∨ pre.isUp = false ∨ _
+            rw [show (setInvocation method newState record).id = record.id from rfl, attemptSelf,
+              sameTasks, sameInterrupts, preUp]
+            rcases runInvariant.runningIsTracked record method taskId isRecord
+                (by rw [hasInvocation, isOldRunning]) with isTask | isDown |
+                ⟨found, isFound, isInterrupt⟩
+            · exact Or.inl isTask
+            · exact Or.inr (Or.inl isDown)
+            · rw [isAttempt] at isFound
+              cases isFound
+              right; right
+              refine ⟨newAttempt, rfl, ?_⟩
+              rw [sameNumber]
+              exact isInterrupt
           · rw [attemptOther changedRecord isOld isNotRecord]
             rcases runInvariant.runningIsTracked changedRecord runningMethod taskId isOld
                 hasRunning with ⟨task, isTask, isId⟩ | isDown | ⟨found, isFound, isInterrupt⟩
