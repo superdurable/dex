@@ -15,7 +15,7 @@ Release state on 2026-11-06:
 
 Agents 0.2.0 needs Dex SDK 1.35.0 and server-zd v0.1.17 or later. This document
 describes only what is built. Unbuilt work is in
-[#1324](https://github.com/superdurable/dex/pull/1324).
+[plan/agents-m3-operate.md](plan/agents-m3-operate.md).
 
 Plans that implement this design, each with "As built" notes:
 
@@ -928,7 +928,7 @@ attempt start at hand-out (#1253), a durable Step queue (#1259), and the `memory
 Stream default (#1275). All are in server-zd v0.1.19; agents 0.2.0 needs v0.1.17
 or later. #1265 is the agents side of the attempt work.
 
-Unbuilt work is planned in [#1324](https://github.com/superdurable/dex/pull/1324).
+Unbuilt work is planned in [plan/agents-m3-operate.md](plan/agents-m3-operate.md).
 
 ## Tests
 
