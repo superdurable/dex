@@ -177,11 +177,11 @@ How they read against the spec:
 | §5.2 Traces | `Core/TransitionSystem.lean`, `Dex/Observation.lean` | `TransitionSystem.exec`, `IsRun`, `eventsAt`, `IsConcatenation`; `Dex.system` |
 | §5.3 `E_adm` | `Dex/Rules.lean`, `Dex/Observation.lean`, `Translation/Projection.lean` | `Dex.Request`, `Dex.Environment`, `IsAdmissibleWord`, `IsAdmissiblePrefix`; `Translation.environment`, `encodeRequest`; `L.IsAdmissibleWord` |
 | §5.3 Projection `π` | `Translation/Projection.lean` | `project` |
-| §5.4 Safety | `Core/TransitionSystem.lean`, `TraceSets.lean`, `Theorems.lean` | `IsFiniteTrace`; `IsProjectedDexFiniteTrace`, `IsLFiniteTrace`; `safety` |
+| §5.4 Safety | `Core/TransitionSystem.lean`, `TraceSets.lean`, `Theorems.lean` | `IsFiniteTrace`; `IsProjectedDexFiniteTrace`, `IsLFiniteTrace`; `safety_of_isWellFormed` |
 | §5.5 Runs for `w`, markers | `Core/TransitionSystem.lean` | `IsRunFor`, `RequestsArrive` (F0), `HasFinitelyManyProgressSteps`, `Marker`, `HasMarker`, `IsFairMaximalTrace` |
 | §5.5 Fairness, Dex | `Dex/Observation.lean` | `Fairness.TimeDiverges` (F1), `TimersFire` (F2), `StepsStart` (F3), `WorkersSettle` (F4), `ResultsCommit` (F5), `MessagesMove` (F6), `Dex.IsFair` |
 | §5.5 Fairness, L | `L/Semantics.lean` | `Fairness.TimeDiverges` (F1), `TimersFire` (F2), `ThreadsBegin` (F3), `EmitsSettle` (F4), `ActionsComplete` (F5), `MessagesMove` (F6), `L.IsFair` |
-| §5.5 Liveness | `TraceSets.lean`, `Theorems.lean` | `IsProjectedDexFairMaximalTrace`, `IsLFairMaximalTrace`; `liveness` |
+| §5.5 Liveness | `TraceSets.lean`, `Theorems.lean` | `IsProjectedDexFairMaximalTrace`, `IsLFairMaximalTrace`; `liveness_of_isWellFormed` |
 | §5.6 Timed variant | not modeled | the theorem is untimed |
 | §6 Atomicity | `Dex/Rules.lean` | one commit is `Config.commit`; a Step method is `.stepStart`, the Worker actions, `.stepComplete` |
 | §8.1 L | `L/Syntax.lean`, `L/ThreadLocal.lean`, `L/Semantics.lean` | see the next table |
@@ -227,7 +227,7 @@ How they read against the spec:
 | 17 | `Dex.Request` has only `startFlow` and `publish`. |
 | 18 | No request IDs. |
 | 19 | `Frame.handler`; `completeStatement` cases `raise`, `tryCatch`. |
-| 20 | `Move.skipWaitFor` is set by the translation (`encodeIntent_moves_agree`, proved). The start Step reads it from its definition. |
+| 20 | `move.options.skipWaitFor` is set by the translation (`encodeIntent_moves_agree`, proved). The start Step reads it from its definition. |
 | 23 | `L/Semantics.lean`. |
 | 24 | `IsRunFor` counts every request label, accepted or rejected. |
 | 25 | `DexVal.exitTag`, `Close.forceFail`; `project`. |
@@ -481,7 +481,7 @@ point carries the load selection of `moveToPoint`.
    The `cvWait`, `signal`, and `broadcast` cases use
    `readWaiters_snapshot_of_cvOperand` to read the waiter list from the
    filtered snapshot.
-5. Lemmas 9 and 10, which give `safety`.
+5. Lemmas 9 and 10, which give `safety_of_isWellFormed`.
 6. Infinite runs: the stuttering construction in both directions, fairness
    and marker transfer, and the limit trace. Then lemmas 11 and 12, which
-   give `liveness`.
+   give `liveness_of_isWellFormed`.
