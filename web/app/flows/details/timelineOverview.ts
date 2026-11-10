@@ -21,8 +21,10 @@ export interface OverviewBucket {
   lastEventIndex: number;
   count: number;
   failed: number;
-  /** Step events that succeeded only after failed attempts. */
+  /** Step events that had failed attempts, whatever their status; a Failed event counts as failed instead. */
   retried: number;
+  /** The retried events with no other status, which the bar draws in the failure color. */
+  retriedNormal: number;
   waiting: number;
   canceled: number;
 }
@@ -37,6 +39,8 @@ export interface OverviewAxis {
   /** The first and last event times in epoch milliseconds, on either axis; null without two valid timestamps. */
   startMs: number | null;
   endMs: number | null;
+  /** Each event's time from monotonicEventTimes, or null without two valid timestamps. */
+  eventTimes: number[] | null;
 }
 
 /** A time axis cannot spread events when one bucket would hold more than this share of them. */
@@ -111,6 +115,7 @@ export function buildOverviewAxis(
       edges: edgesFromPositions(positions),
       startMs: times ? times[0] : null,
       endMs: times ? times[count - 1] : null,
+      eventTimes: times,
     };
   };
   if (!times) return indexAxis();
@@ -128,7 +133,14 @@ export function buildOverviewAxis(
     busiest = Math.max(busiest, next);
   }
   if (count > 1 && busiest > count * maxTimeBucketShare) return indexAxis();
-  const axis: OverviewAxis = { kind: 'time', positions, edges: edgesFromPositions(positions), startMs, endMs };
+  const axis: OverviewAxis = {
+    kind: 'time',
+    positions,
+    edges: edgesFromPositions(positions),
+    startMs,
+    endMs,
+    eventTimes: times,
+  };
   return minEventGap > 0 && minimumPositionGap(axis) < minEventGap ? indexAxis() : axis;
 }
 
@@ -145,6 +157,7 @@ export function bucketOverviewEvents(
     count: 0,
     failed: 0,
     retried: 0,
+    retriedNormal: 0,
     waiting: 0,
     canceled: 0,
   }));
@@ -157,7 +170,10 @@ export function bucketOverviewEvents(
     if (status === 'failed') bucket.failed += 1;
     else if (status === 'waiting') bucket.waiting += 1;
     else if (status === 'canceled') bucket.canceled += 1;
-    else if (retried[index]) bucket.retried += 1;
+    if (status !== 'failed' && retried[index]) {
+      bucket.retried += 1;
+      if (status === 'normal') bucket.retriedNormal += 1;
+    }
   });
   return buckets;
 }

@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TimelineSelectedRelations } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { HorizontalTimeline, horizontalTimelineLayout } from './HorizontalTimeline';
+import { HorizontalTimeline, horizontalTimelineLayout, isSameCalendarDay } from './HorizontalTimeline';
 
 /** Events in view at the 1200 px jsdom fallback width; the label angle sets the slot width. */
 const visibleCount = Math.floor((1200 - horizontalTimelineLayout.labelRunWidth) / horizontalTimelineLayout.slotWidth);
@@ -509,5 +509,125 @@ describe('horizontal Timeline', () => {
     fireEvent.keyDown(screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' }), { key: 'End' });
     expect(option(1000)?.getAttribute('aria-selected')).toBe('true');
     expect(option(1)).toBeNull();
+  });
+
+  it('grabs the brush by a grip outside its edge without jumping, and shows the grab cursor there', () => {
+    render(<Harness pageEvents={events(1000)} />);
+    vi.stubGlobal('PointerEvent', class extends MouseEvent {
+      pointerId = 1;
+    });
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    // Client pixels equal chart pixels at the 1200 px fallback width.
+    overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+    const brushFill = () => document.querySelector('.htl-overview-brush-fill')!;
+    const brushLeft = () => Number(brushFill().getAttribute('x'));
+    const brushRight = () => brushLeft() + Number(brushFill().getAttribute('width'));
+    // Move the brush mid-track first, so a grip press is not clamped into the brush at either end.
+    fireEvent.pointerDown(overview, { button: 0, clientX: 600, pointerId: 1 });
+    fireEvent.pointerUp(overview, { clientX: 600, pointerId: 1 });
+    const viewText = overview.getAttribute('aria-valuetext');
+    const left = brushLeft();
+    const right = brushRight();
+
+    for (const gripX of [left - 3, right + 3]) {
+      fireEvent.pointerMove(overview, { clientX: gripX, pointerId: 1 });
+      expect(overview.classList.contains('is-over-brush')).toBe(true);
+      fireEvent.pointerDown(overview, { button: 0, clientX: gripX, pointerId: 1 });
+      expect(overview.getAttribute('aria-valuetext')).toBe(viewText);
+      fireEvent.pointerMove(overview, { clientX: gripX, pointerId: 1 });
+      expect(brushLeft()).toBeCloseTo(left);
+      fireEvent.pointerMove(overview, { clientX: gripX + 40, pointerId: 1 });
+      expect(brushLeft()).toBeCloseTo(left + 40);
+      fireEvent.pointerMove(overview, { clientX: gripX, pointerId: 1 });
+      fireEvent.pointerUp(overview, { clientX: gripX, pointerId: 1 });
+    }
+    fireEvent.pointerMove(overview, { clientX: left - 20, pointerId: 1 });
+    expect(overview.classList.contains('is-over-brush')).toBe(false);
+  });
+
+  it('never moves a widened brush on press, even when pressed outside the real window', () => {
+    render(<Harness pageEvents={events(1000)} />);
+    vi.stubGlobal('PointerEvent', class extends MouseEvent {
+      pointerId = 1;
+    });
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+    const brushFill = () => document.querySelector('.htl-overview-brush-fill')!;
+    const brushLeft = () => Number(brushFill().getAttribute('x'));
+    fireEvent.pointerDown(overview, { button: 0, clientX: 600, pointerId: 1 });
+    fireEvent.pointerUp(overview, { clientX: 600, pointerId: 1 });
+    // The real window spans about 15 px of the 1180 px plot, so the brush is widened to 24 px.
+    expect(Number(brushFill().getAttribute('width'))).toBe(24);
+    const left = brushLeft();
+    const viewText = overview.getAttribute('aria-valuetext');
+
+    const pressX = left + 1;
+    fireEvent.pointerDown(overview, { button: 0, clientX: pressX, pointerId: 1 });
+    fireEvent.pointerMove(overview, { clientX: pressX, pointerId: 1 });
+    expect(overview.getAttribute('aria-valuetext')).toBe(viewText);
+    expect(brushLeft()).toBeCloseTo(left);
+    fireEvent.pointerMove(overview, { clientX: pressX + 10, pointerId: 1 });
+    expect(brushLeft()).toBeCloseTo(left + 10);
+    fireEvent.pointerUp(overview, { clientX: pressX + 10, pointerId: 1 });
+  });
+
+  it('marks a waiting Step that had a failed attempt as a failure without hiding its status', () => {
+    const pageEvents = events(1000);
+    pageEvents[500] = {
+      ...pageEvents[500],
+      type: 'StepWaitForCompleted',
+      payload: { context: { stepType: 'Charge', stepExecutionId: 'Charge-501', finalAttempt: 2 } },
+    };
+    render(<HorizontalTimeline events={pageEvents} selectedEvent={pageEvents[500]} onSelectEvent={() => {}} />);
+    const failureBars = [...document.querySelectorAll('.htl-bar.has-failure')];
+    expect(failureBars).toHaveLength(1);
+    const [bar] = failureBars;
+    expect(bar.querySelector('.htl-bar-marker.htl-status-failed')).not.toBeNull();
+    // The status color keeps precedence in the bar, and the normal events keep their segment.
+    expect(bar.querySelector('.htl-bar-segment.htl-status-waiting')).not.toBeNull();
+    expect(bar.querySelector('.htl-bar-segment.htl-status-failed')).toBeNull();
+    expect(bar.querySelector('.htl-bar-segment.htl-status-normal')).not.toBeNull();
+    expect(document.querySelector('.htl-overview-summary')?.textContent).toBe('spaced by event order · 1 failure');
+
+    const dot = option(501)?.querySelector('.htl-dot');
+    expect(dot?.classList.contains('htl-status-waiting')).toBe(true);
+    expect(option(501)?.querySelector('.htl-dot-badge-retried')).not.toBeNull();
+    expect(option(501)?.getAttribute('aria-label')).toBe('Waiting for conditions, Charge, still waiting, after a failed attempt, #501');
+  });
+
+  it('compares the axis ends by the day in the selected timezone', () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = 'America/Los_Angeles';
+    try {
+      // Both instants share a UTC day, but 01:00 UTC is still the previous day in Los Angeles.
+      const morning = Date.parse('2026-11-09T01:00:00Z');
+      const evening = Date.parse('2026-11-09T20:00:00Z');
+      expect(isSameCalendarDay(morning, evening, 'UTC')).toBe(true);
+      expect(isSameCalendarDay(morning, evening, 'local')).toBe(false);
+      expect(isSameCalendarDay(Date.parse('2026-11-09T23:30:00Z'), Date.parse('2026-11-10T00:30:00Z'), 'UTC')).toBe(false);
+      expect(isSameCalendarDay(Date.parse('2026-11-09T23:30:00Z'), Date.parse('2026-11-10T00:30:00Z'), 'local')).toBe(true);
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
+  });
+
+  it('gives a bar a clock range from monotonic times, even when its event has no timestamp', () => {
+    const at = (offsetMs: number) => new Date(Date.parse('2026-10-24T17:00:00Z') + offsetMs).toISOString();
+    // Seven events within 300 ms and one 9 s later put the short page on the event-order axis.
+    const pageEvents = events(8).map((event, index) => ({ ...event, eventTime: at(index < 7 ? index * 50 : 9300) }));
+    pageEvents[2] = { ...pageEvents[2], eventTime: '' };
+    render(<HorizontalTimeline events={pageEvents} selectedEvent={null} onSelectEvent={() => {}} />);
+    vi.stubGlobal('PointerEvent', class extends MouseEvent {
+      pointerId = 1;
+    });
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    expect(overview.getAttribute('data-axis')).toBe('index');
+    overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+    // Event #3 sits at the center of the third of eight equal slots.
+    fireEvent.pointerMove(overview, { clientX: 10 + (2.5 / 8) * 1180, pointerId: 1 });
+    const tooltip = document.querySelector('.htl-overview-tooltip');
+    expect(tooltip?.textContent).toContain('#3 · Charge');
+    expect(tooltip?.querySelector('strong')?.textContent).toMatch(/\d{2}:\d{2}:\d{2}/);
   });
 });

@@ -48,6 +48,7 @@ import {
   brushPixelSpan,
   bucketOverviewEvents,
   buildOverviewAxis,
+  eventIndexToRatio,
   hasRetriedFailure,
   minimumPositionGap,
   ratioToEventIndex,
@@ -87,6 +88,8 @@ const overviewMinBarHeight = 3;
 /** A failed, waiting, or canceled share never shrinks below this, however many normal events share its bar. */
 const overviewStatusCapHeight = 5;
 const overviewMinBrushWidth = 24;
+/** The brush grips reach this far outside either brush edge, so pressing one grabs the brush. */
+const overviewBrushGripReach = 6;
 /** Room at both ends, so the first and last bars clear the brush handles. */
 const overviewPlotInset = 10;
 /** On a short page each event gets its own bar; time spacing must leave neighbors this many pixels apart. */
@@ -276,12 +279,19 @@ function EventKindLegend() {
   );
 }
 
-/** How a retried Step event states its failed attempts after the subject. */
-function retriedSpoken(event: FlowHistoryEvent): string {
+/** How a retried Step event states its failed attempts after the subject; only a normal event succeeded. */
+function retriedSpoken(event: FlowHistoryEvent, status: EventStatus): string {
+  if (status !== 'normal') return 'after a failed attempt';
   const finalAttempt = Number(contextOf(event).finalAttempt);
   return Number.isFinite(finalAttempt) && finalAttempt > 1
     ? `succeeded on attempt ${finalAttempt}`
     : 'succeeded after a failed attempt';
+}
+
+/** Reports whether two instants fall on the same calendar day in the viewer's timezone. */
+export function isSameCalendarDay(startMs: number, endMs: number, timezone: TimezonePreference): boolean {
+  if (timezone === 'UTC') return new Date(startMs).toISOString().slice(0, 10) === new Date(endMs).toISOString().slice(0, 10);
+  return new Date(startMs).toDateString() === new Date(endMs).toDateString();
 }
 
 const clockFormatters = new Map<string, Intl.DateTimeFormat>();
@@ -313,8 +323,7 @@ function overviewAxisEnds(
   const lastId = `#${events[events.length - 1].eventId}`;
   if (axis.startMs === null || axis.endMs === null) return [firstId, lastId];
   let ends: [string, string];
-  const isSameDay = new Date(axis.startMs).toDateString() === new Date(axis.endMs).toDateString();
-  if (!isSameDay) {
+  if (!isSameCalendarDay(axis.startMs, axis.endMs, timezone)) {
     ends = [formatDate(new Date(axis.startMs).toISOString(), timezone), formatDate(new Date(axis.endMs).toISOString(), timezone)];
   } else {
     const showsTenths = axis.endMs - axis.startMs < 60_000;
@@ -329,17 +338,15 @@ function overviewBucketTimeRange(
   bucket: OverviewBucket,
   bucketIndex: number,
   bucketCount: number,
-  events: readonly FlowHistoryEvent[],
   timezone: TimezonePreference,
 ): string | null {
-  if (axis.startMs === null || axis.endMs === null) return null;
+  if (axis.startMs === null || axis.endMs === null || axis.eventTimes === null) return null;
   const span = axis.endMs - axis.startMs;
   let from = axis.startMs + (span * bucketIndex) / bucketCount;
   let to = axis.startMs + (span * (bucketIndex + 1)) / bucketCount;
   if (axis.kind === 'index' || bucket.count === 1) {
-    from = Date.parse(events[bucket.firstEventIndex].eventTime ?? '');
-    to = Date.parse(events[bucket.lastEventIndex].eventTime ?? '');
-    if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+    from = axis.eventTimes[bucket.firstEventIndex];
+    to = axis.eventTimes[bucket.lastEventIndex];
   }
   const showsTenths = to - from < 60_000;
   return from === to
@@ -360,7 +367,7 @@ function overviewBucketLines(
   const lastId = events[bucket.lastEventIndex].eventId;
   const ids = firstId === lastId ? `#${firstId}` : `#${firstId} – #${lastId}`;
   const eventCount = `${bucket.count} ${bucket.count === 1 ? 'event' : 'events'}`;
-  const timeRange = overviewBucketTimeRange(axis, bucket, bucketIndex, bucketCount, events, timezone);
+  const timeRange = overviewBucketTimeRange(axis, bucket, bucketIndex, bucketCount, timezone);
   const range = timeRange ?? `Events ${ids}`;
   let detail = timeRange ? `${eventCount} · ${ids}` : eventCount;
   if (bucket.count === 1) detail = `${ids} · ${eventSubject(events[bucket.firstEventIndex])}`;
@@ -379,7 +386,7 @@ function overviewBarSegments(bucket: OverviewBucket, maxCount: number): { tone: 
   const scaled = Math.round((bucket.count / Math.max(1, maxCount)) * (overviewBarAreaHeight - 2));
   let height = Math.max(overviewMinBarHeight, scaled);
   const shares: [Exclude<EventStatus, 'normal'>, number][] = [
-    ['failed', bucket.failed + bucket.retried],
+    ['failed', bucket.failed + bucket.retriedNormal],
     ['waiting', bucket.waiting],
     ['canceled', bucket.canceled],
   ];
@@ -429,8 +436,8 @@ export function HorizontalTimeline({
   const [windowStart, setWindowStart] = useState(maxStart);
   const isAtNewestEnd = useRef(true);
   const isDraggingMinimap = useRef(false);
-  /** Where the drag grabbed the brush, in events from its left edge, so dragging never jumps. */
-  const brushGrabOffset = useRef(0);
+  /** The press: view start, plus its left edge and the pointer in plot pixels. A drag shifts the edge by the pointer delta. */
+  const brushDragOrigin = useRef({ windowStart: 0, pointerX: 0, windowLeftX: 0 });
   const [hoveredBucket, setHoveredBucket] = useState<number | null>(null);
   const [isPointerOverBrush, setIsPointerOverBrush] = useState(false);
   const timezone = useTimezonePreference();
@@ -555,17 +562,17 @@ export function HorizontalTimeline({
     selectIndex(target);
   };
 
-  /** The pointer's position along the plot, between the insets, as a ratio in [0, 1]. */
-  const pointerRatio = (clientX: number) => {
+  /** The pointer's x from the plot's left end in pixels, unclamped, so a grip in the inset still counts. */
+  const pointerPlotX = (clientX: number) => {
     const rect = minimapRef.current?.getBoundingClientRect();
     const width = rect && rect.width > 0 ? rect.width : stripWidth;
-    const chartX = ((clientX - (rect?.left ?? 0)) / width) * stripWidth;
-    return Math.min(1, Math.max(0, (chartX - overviewPlotInset) / plotWidth));
+    return ((clientX - (rect?.left ?? 0)) / width) * stripWidth - overviewPlotInset;
   };
+  const plotXToRatio = (plotXValue: number) => Math.min(1, Math.max(0, plotXValue / plotWidth));
   const brushSpan = () => brushPixelSpan(overviewAxis, windowStart, visibleCount, plotWidth, overviewMinBrushWidth);
-  const isOverBrush = (ratio: number) => {
+  const isOverBrush = (plotXValue: number) => {
     const { left, right } = brushSpan();
-    return ratio * plotWidth >= left && ratio * plotWidth <= right;
+    return plotXValue >= left - overviewBrushGripReach && plotXValue <= right + overviewBrushGripReach;
   };
   /** The bar under the pointer; on a short page, the nearest event's bar within reach. */
   const bucketAtRatio = (ratio: number): number | null => {
@@ -586,24 +593,28 @@ export function HorizontalTimeline({
     isDraggingMinimap.current = true;
     setHoveredBucket(null);
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const ratio = pointerRatio(event.clientX);
-    const pointerIndex = ratioToEventIndex(overviewAxis, ratio);
-    if (isOverBrush(ratio)) {
-      brushGrabOffset.current = Math.min(visibleCount, Math.max(0, pointerIndex - windowStart));
-      return;
+    const pointerX = pointerPlotX(event.clientX);
+    let start = windowStart;
+    if (!isOverBrush(pointerX)) {
+      start = clampStart(ratioToEventIndex(overviewAxis, plotXToRatio(pointerX)) - visibleCount / 2);
+      moveWindow(start);
     }
-    brushGrabOffset.current = visibleCount / 2;
-    moveWindow(pointerIndex - brushGrabOffset.current);
+    // The real window edge, not the widened brush edge, so a press never moves the view.
+    brushDragOrigin.current = { windowStart: start, pointerX, windowLeftX: eventIndexToRatio(overviewAxis, start) * plotWidth };
   };
 
   const handleMinimapPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const ratio = pointerRatio(event.clientX);
+    const pointerX = pointerPlotX(event.clientX);
     if (isDraggingMinimap.current) {
-      moveWindow(ratioToEventIndex(overviewAxis, ratio) - brushGrabOffset.current);
+      const origin = brushDragOrigin.current;
+      // Back at the press point, restore the exact start; the pixel round trip may differ by float noise.
+      moveWindow(pointerX === origin.pointerX
+        ? origin.windowStart
+        : ratioToEventIndex(overviewAxis, plotXToRatio(origin.windowLeftX + pointerX - origin.pointerX)));
       return;
     }
-    setHoveredBucket(bucketAtRatio(ratio));
-    setIsPointerOverBrush(maxStart > 0 && isOverBrush(ratio));
+    setHoveredBucket(bucketAtRatio(plotXToRatio(pointerX)));
+    setIsPointerOverBrush(maxStart > 0 && isOverBrush(pointerX));
   };
 
   const endMinimapDrag = () => {
@@ -835,7 +846,7 @@ export function HorizontalTimeline({
           const KindIcon = eventKinds[kind].icon;
           const subject = eventSubject(event);
           const isSelected = index === selectedIndex;
-          const isRetried = status === 'normal' && retriedFlags[index];
+          const isRetried = status !== 'failed' && retriedFlags[index];
           const classes = [
             'htl-event',
             `kind-${kind}`,
@@ -849,7 +860,7 @@ export function HorizontalTimeline({
                 eventTitle(event),
                 subject !== eventTitle(event) ? subject : '',
                 state.spoken,
-                isRetried ? retriedSpoken(event) : '',
+                isRetried ? retriedSpoken(event, status) : '',
                 `#${event.eventId}`,
               ].filter(Boolean).join(', ')}
               aria-selected={isSelected}

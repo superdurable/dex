@@ -91,13 +91,30 @@ describe('timeline overview axis', () => {
       .toEqual([baseMs, baseMs, baseMs + 50, baseMs + 50, baseMs + 90]);
   });
 
+  it('keeps the monotonic event times on either axis', () => {
+    const events = [eventAt(1, 0), eventAt(2, null), eventAt(3, 50), eventAt(4, 20), eventAt(5, 90)];
+    const expected = [baseMs, baseMs, baseMs + 50, baseMs + 50, baseMs + 90];
+    expect(buildOverviewAxis(events, 1).eventTimes).toEqual(expected);
+    expect(buildOverviewAxis(events, 100).eventTimes).toEqual(expected);
+    expect(buildOverviewAxis([eventAt(1, 0), eventAt(2, null)], 10).eventTimes).toBeNull();
+  });
+
   it('counts each status per bucket and counts retried Steps apart from failed ones', () => {
     const events = Array.from({ length: 6 }, (_, index) => eventAt(index + 1, 0));
     const statuses: EventStatus[] = ['normal', 'failed', 'waiting', 'canceled', 'normal', 'normal'];
-    const retried = [false, true, false, false, true, false];
+    const retried = [false, true, true, false, true, false];
     const [bucket] = bucketOverviewEvents(buildOverviewAxis(events, 1), statuses, retried, 1);
-    // A failed event stays failed even when it carries attempt data.
-    expect(bucket).toMatchObject({ count: 6, failed: 1, retried: 1, waiting: 1, canceled: 1, firstEventIndex: 0, lastEventIndex: 5 });
+    // A failed event stays failed even when it carries attempt data; a waiting one still counts as retried.
+    expect(bucket).toMatchObject({
+      count: 6,
+      failed: 1,
+      retried: 2,
+      retriedNormal: 1,
+      waiting: 1,
+      canceled: 1,
+      firstEventIndex: 0,
+      lastEventIndex: 5,
+    });
   });
 });
 
