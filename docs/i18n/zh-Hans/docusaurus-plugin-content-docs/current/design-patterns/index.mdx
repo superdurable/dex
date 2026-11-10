@@ -15,6 +15,9 @@ slug: /design-patterns
 - [Parallel SubFlows](/design-patterns/parallel-subflows) — 用 SubFlow fan-out、父 Flow 并发上限、分区和 durable 背压处理大规模并行工作。
 - [可中断执行](/design-patterns/interruptible) — 根据 durable 控制消息，优雅地停止或转向长时间工作。
 - [Durable Timer](/design-patterns/durable-timer) — 选择 cron schedule、Reminder 或 inactivity tracker。
+- [Deferred Choice](/design-patterns/deferred-choice) — 同时等待多个事件，按最先发生的那个决定分支。
+- [Critical Section](/design-patterns/critical-section) — 用 Channel 里的一个 token，让并行分支轮流执行一段跨多个 Step 的流程。
+- [连同子 Flow 一起取消](/design-patterns/cancel-case) — Flow 被取消时，停止它启动的子 Flow。
 
 ## 可靠性
 

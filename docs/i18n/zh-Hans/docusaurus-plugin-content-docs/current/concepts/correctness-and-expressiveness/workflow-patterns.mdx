@@ -265,6 +265,8 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **评级**：**+**。**AnyOf** 决定竞争结果，只有一个分支会开始。
 
+**设计模式**：[Deferred Choice](/design-patterns/deferred-choice)。
+
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DeferredChoiceFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 
 ### WCP-17 Interleaved Parallel Routing {#wcp-17}
@@ -304,6 +306,8 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 **Dex 实现**：启动 **SubFlow** 的 Step 用 **AnyOf** 等待子 Flow 或一个取消 **Channel**。收到取消后，它用 **SubFlow.getFlowId** 读取子 Flow 的 ID，用 Client **StopFlow** 停止子 Flow，再返回 **ForceFail**。**ForceFail** 取消其他所有活动 Step。
 
 **评级**：**+/-**。只用 Client **StopFlow** 会让正在运行的 SubFlow 继续运行，所以示例组合了取消 Channel、显式停止和 **ForceFail**。
+
+**设计模式**：[连同子 Flow 一起取消](/design-patterns/cancel-case)。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancelCaseFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs)
 
@@ -494,6 +498,8 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 **Dex 实现**：一个 **Channel** 中只放一条令牌消息。每个区段的第一个 Step 等待令牌，最后一个 Step 把它发布回去。
 
 **评级**：**+/-**。Attribute lock 只覆盖一个 Step 方法，所以由多个 Step 组成的区段用只含一条消息的 Channel 作为令牌。
+
+**设计模式**：[Critical Section](/design-patterns/critical-section)。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CriticalSectionFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 

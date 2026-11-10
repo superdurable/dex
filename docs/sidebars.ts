@@ -113,6 +113,9 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'design-patterns/interruptible',
+        'design-patterns/deferred-choice',
+        'design-patterns/critical-section',
+        'design-patterns/cancel-case',
         {
           type: 'category',
           label: 'Durable Timer',

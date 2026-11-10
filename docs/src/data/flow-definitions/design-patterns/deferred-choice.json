@@ -1,0 +1,398 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/deferred-choice/offer_response_flow.py"
+  },
+  "flow": {
+    "name": "OfferResponseFlow",
+    "startStepId": "step:AwaitOfferResponse",
+    "span": {
+      "startLine": 74,
+      "startColumn": 1,
+      "endLine": 99,
+      "endColumn": 46
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:AwaitOfferResponse",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:AwaitOfferResponse",
+      "phase": "execute",
+      "span": {
+        "startLine": 51,
+        "startColumn": 5,
+        "endLine": 56,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "decision:step:AwaitOfferResponse:53:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitOfferResponse",
+      "condition": "context.has_timer_fired()",
+      "phase": "execute",
+      "span": {
+        "startLine": 53,
+        "startColumn": 20,
+        "endLine": 53,
+        "endColumn": 48
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitOfferResponse:55:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitOfferResponse",
+      "condition": "not (context.has_timer_fired()) and OFFER_ACCEPTED.results(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 55,
+        "startColumn": 20,
+        "endLine": 55,
+        "endColumn": 49
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitOfferResponse:56:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitOfferResponse",
+      "condition": "not (context.has_timer_fired()) and not (OFFER_ACCEPTED.results(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 56,
+        "startColumn": 16,
+        "endLine": 56,
+        "endColumn": 51
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CloseRejectedOffer:66:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:CloseRejectedOffer",
+      "phase": "execute",
+      "span": {
+        "startLine": 66,
+        "startColumn": 16,
+        "endLine": 66,
+        "endColumn": 57
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:ExpireOffer:71:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:ExpireOffer",
+      "phase": "execute",
+      "span": {
+        "startLine": 71,
+        "startColumn": 16,
+        "endLine": 71,
+        "endColumn": 56
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:FulfillOffer:61:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:FulfillOffer",
+      "phase": "execute",
+      "span": {
+        "startLine": 61,
+        "startColumn": 16,
+        "endLine": 61,
+        "endColumn": 58
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "resource:channel:OFFER_ACCEPTED",
+      "kind": "channel",
+      "name": "offerAccepted",
+      "span": {
+        "startLine": 37,
+        "startColumn": 1,
+        "endLine": 37,
+        "endColumn": 47
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:channel:OFFER_REJECTED",
+      "kind": "channel",
+      "name": "offerRejected",
+      "span": {
+        "startLine": 38,
+        "startColumn": 1,
+        "endLine": 38,
+        "endColumn": 47
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:accept_customer_offer",
+      "kind": "rpc",
+      "name": "accept_customer_offer",
+      "span": {
+        "startLine": 92,
+        "startColumn": 5,
+        "endLine": 94,
+        "endColumn": 46
+      }
+    },
+    {
+      "id": "rpc:reject_customer_offer",
+      "kind": "rpc",
+      "name": "reject_customer_offer",
+      "span": {
+        "startLine": 97,
+        "startColumn": 5,
+        "endLine": 99,
+        "endColumn": 46
+      }
+    },
+    {
+      "id": "step:AwaitOfferResponse",
+      "kind": "step",
+      "name": "AwaitOfferResponse",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 84,
+        "startColumn": 36,
+        "endLine": 84,
+        "endColumn": 61
+      }
+    },
+    {
+      "id": "step:CloseRejectedOffer",
+      "kind": "step",
+      "name": "CloseRejectedOffer",
+      "phase": "execute",
+      "span": {
+        "startLine": 85,
+        "startColumn": 33,
+        "endLine": 85,
+        "endColumn": 58
+      }
+    },
+    {
+      "id": "step:ExpireOffer",
+      "kind": "step",
+      "name": "ExpireOffer",
+      "phase": "execute",
+      "span": {
+        "startLine": 85,
+        "startColumn": 60,
+        "endLine": 85,
+        "endColumn": 77
+      }
+    },
+    {
+      "id": "step:FulfillOffer",
+      "kind": "step",
+      "name": "FulfillOffer",
+      "phase": "execute",
+      "span": {
+        "startLine": 85,
+        "startColumn": 13,
+        "endLine": 85,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "wait:AwaitOfferResponse:45:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AwaitOfferResponse",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 45,
+        "startColumn": 16,
+        "endLine": 49,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "offerAccepted.for 1",
+            "resourceId": "resource:channel:OFFER_ACCEPTED",
+            "span": {
+              "startLine": 46,
+              "startColumn": 13,
+              "endLine": 46,
+              "endColumn": 37
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "offerRejected.for 1",
+            "resourceId": "resource:channel:OFFER_REJECTED",
+            "span": {
+              "startLine": 47,
+              "startColumn": 13,
+              "endLine": 47,
+              "endColumn": 37
+            }
+          },
+          {
+            "kind": "timer",
+            "label": "OFFER_EXPIRY timer",
+            "expression": "OFFER_EXPIRY",
+            "span": {
+              "startLine": 48,
+              "startColumn": 13,
+              "endLine": 48,
+              "endColumn": 44
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:AwaitOfferResponse:53:20",
+      "to": "step:ExpireOffer",
+      "label": "go_to",
+      "span": {
+        "startLine": 53,
+        "startColumn": 20,
+        "endLine": 53,
+        "endColumn": 48
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:AwaitOfferResponse:55:20",
+      "to": "step:FulfillOffer",
+      "label": "go_to",
+      "span": {
+        "startLine": 55,
+        "startColumn": 20,
+        "endLine": 55,
+        "endColumn": 49
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:AwaitOfferResponse:56:16",
+      "to": "step:CloseRejectedOffer",
+      "label": "go_to",
+      "span": {
+        "startLine": 56,
+        "startColumn": 16,
+        "endLine": 56,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "resource_read",
+      "from": "resource:channel:OFFER_ACCEPTED",
+      "to": "step:AwaitOfferResponse",
+      "label": "results",
+      "span": {
+        "startLine": 54,
+        "startColumn": 12,
+        "endLine": 54,
+        "endColumn": 43
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "wait_condition",
+      "from": "resource:channel:OFFER_ACCEPTED",
+      "to": "wait:AwaitOfferResponse:45:16:0",
+      "label": "offerAccepted.for 1",
+      "span": {
+        "startLine": 46,
+        "startColumn": 13,
+        "endLine": 46,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "wait_condition",
+      "from": "resource:channel:OFFER_REJECTED",
+      "to": "wait:AwaitOfferResponse:45:16:0",
+      "label": "offerRejected.for 1",
+      "span": {
+        "startLine": 47,
+        "startColumn": 13,
+        "endLine": 47,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_publish",
+      "from": "rpc:accept_customer_offer",
+      "to": "resource:channel:OFFER_ACCEPTED",
+      "label": "publish",
+      "span": {
+        "startLine": 94,
+        "startColumn": 9,
+        "endLine": 94,
+        "endColumn": 46
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_publish",
+      "from": "rpc:reject_customer_offer",
+      "to": "resource:channel:OFFER_REJECTED",
+      "label": "publish",
+      "span": {
+        "startLine": 99,
+        "startColumn": 9,
+        "endLine": 99,
+        "endColumn": 46
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    }
+  ],
+  "diagnostics": []
+}

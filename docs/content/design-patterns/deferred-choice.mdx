@@ -1,0 +1,259 @@
+---
+title: Deferred Choice
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/deferred-choice.json';
+
+# Deferred Choice
+
+Use Deferred Choice when a Flow waits for one of several events and the first event decides what happens next. The events come from outside the Flow. The Flow cannot pick a branch in advance.
+
+An example is an offer to a customer. The customer can accept it or reject it. If the customer does neither within 3 days, the offer expires. Whichever happens first wins. The other two never happen for this offer.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## How it works
+
+One Step waits for every event at once. Its **WaitFor** returns **AnyOf** with one Condition per event. Each customer response is a Channel Condition. The deadline is a Timer.
+
+When the first Condition is satisfied, the Step's **Execute** runs. It checks which Condition won and moves to the matching branch.
+
+```pseudocode
+rpc acceptCustomerOffer(note) -> OfferAccepted.publish(note)
+rpc rejectCustomerOffer(note) -> OfferRejected.publish(note)
+
+AwaitOfferResponse.waitFor -> AnyOf(OfferAccepted.ForOne(), OfferRejected.ForOne(), Timer(3 days))
+AwaitOfferResponse.execute
+    if the Timer fired:            goTo(ExpireOffer)
+    if OfferAccepted has a result: goTo(FulfillOffer)
+    otherwise:                     goTo(CloseRejectedOffer)
+```
+
+Only one Condition wins, so only one branch ever starts.
+
+## Rules
+
+- **AnyOf** consumes a message only from the Condition that wins. A response that lost stays pending in its Channel.
+- When several Channel Conditions are ready at the same time, the first one declared wins. Declare them in business priority order. In the example, an acceptance and a rejection that are both pending select the acceptance.
+- In **Execute**, check **HasTimerFired** for the Timer. Read the Channel results for the responses. A Channel that lost returns no results.
+- The Timer starts when the Step starts waiting. It is durable. It survives Worker and Server restarts, and the wait does not hold a Worker.
+- A response that arrives after the choice still publishes a message. No Step consumes it. When a late response needs an answer, record the outcome in an Attribute. Have the RPC check it before it publishes.
+- To test the expiry branch, skip the Timer with the Client **SkipTimer**. Do not shorten the business deadline for tests.
+
+## Related shapes
+
+- [Reminder](/design-patterns/durable-timer/reminder), [Inactivity tracker](/design-patterns/durable-timer/inactiveness-tracker-timer), and [Inbound Event Loop](/design-patterns/inbound-event-loop) also wait on **AnyOf** of a Timer and a Channel. They loop back to the same Step. Deferred Choice decides once and moves on.
+- [First-Win Parallel Steps](/design-patterns/parallel/first-win) races work that the Flow started itself. Deferred Choice races events from outside.
+
+## Example
+
+**OfferResponseFlow** starts with the offer ID. **AwaitOfferResponse** waits for the **acceptCustomerOffer** RPC, the **rejectCustomerOffer** RPC, or the 3-day Timer. It moves to **FulfillOffer**, **CloseRejectedOffer**, or **ExpireOffer**. Each of those completes the Flow with its outcome.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/deferred-choice/offer_response_flow.py',
+    go: 'examples/go/patterns/deferred-choice/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/deferredchoice/OfferResponseFlow.java',
+    typescript: 'examples/typescript/src/patterns/deferred-choice/offer-response-flow.ts',
+    rust: 'examples/rust/src/control_patterns/deferred_choice/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+# How long the customer has to respond.
+OFFER_EXPIRY = timedelta(days=3)
+
+OFFER_ACCEPTED = Channel("offerAccepted", str)
+OFFER_REJECTED = Channel("offerRejected", str)
+
+
+class AwaitOfferResponse(Step[str]):
+    """Waits for whichever event happens first and routes on it."""
+
+    def wait_for(self, context: Context, offer_id: str) -> Wait:
+        return Wait.any_of(
+            OFFER_ACCEPTED.for_one(),
+            OFFER_REJECTED.for_one(),
+            Timer.by_duration(OFFER_EXPIRY),
+        )
+
+    def execute(self, context: Context, offer_id: str) -> StepDecision:
+        if context.has_timer_fired():
+            return go_to(ExpireOffer, offer_id)
+        if OFFER_ACCEPTED.results(context):
+            return go_to(FulfillOffer, offer_id)
+        return go_to(CloseRejectedOffer, offer_id)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// OfferExpiry is how long the customer has to respond.
+const OfferExpiry = 3 * 24 * time.Hour
+
+var (
+	OfferAccepted = dex.DefineChannel[string]("offerAccepted")
+	OfferRejected = dex.DefineChannel[string]("offerRejected")
+)
+
+// AwaitOfferResponse waits for whichever event happens first and routes on it.
+type AwaitOfferResponse struct{ dex.StepDefaults }
+
+func (AwaitOfferResponse) WaitFor(dex.Context, string) (*dex.Wait, error) {
+	return dex.AnyOf(
+		OfferAccepted.ForOne(),
+		OfferRejected.ForOne(),
+		dex.Timer(OfferExpiry),
+	), nil
+}
+
+func (AwaitOfferResponse) Execute(ctx dex.Context, offerID string) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.GoTo(ExpireOffer{}, offerID), nil
+	}
+	accepted, err := OfferAccepted.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(accepted) > 0 {
+		return dex.GoTo(FulfillOffer{}, offerID), nil
+	}
+	return dex.GoTo(CloseRejectedOffer{}, offerID), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+/** How long the customer has to respond. */
+public static final Duration OFFER_EXPIRY = Duration.ofDays(3);
+
+public static final Channel<String> offerAccepted =
+        Channel.define("offerAccepted", String.class);
+public static final Channel<String> offerRejected =
+        Channel.define("offerRejected", String.class);
+
+/** Waits for whichever event happens first and routes on it. */
+static final class AwaitOfferResponse implements Step<String> {
+    @Override
+    public Class<String> getInputType() {
+        return String.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final String offerId) {
+        return Wait.anyOf(
+                offerAccepted.forOne(),
+                offerRejected.forOne(),
+                Timer.byDuration(OFFER_EXPIRY));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final String offerId) {
+        if (context.hasTimerFired()) {
+            return StepDecision.goTo(ExpireOffer.class, offerId);
+        }
+        if (!offerAccepted.getConditionResults(context).isEmpty()) {
+            return StepDecision.goTo(FulfillOffer.class, offerId);
+        }
+        return StepDecision.goTo(CloseRejectedOffer.class, offerId);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export const OFFER_EXPIRY_MS = 3 * 24 * 60 * 60 * 1000;
+
+export const offerAccepted = new Channel("offerAccepted", stringCodec);
+export const offerRejected = new Channel("offerRejected", stringCodec);
+
+class AwaitOfferResponse implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "AwaitOfferResponse";
+  }
+
+  public waitFor(_context: Context, _offerId: string): Wait {
+    return Wait.anyOf(
+      offerAccepted.forOne(),
+      offerRejected.forOne(),
+      Timer.byDuration(OFFER_EXPIRY_MS),
+    );
+  }
+
+  public execute(context: Context, offerId: string): StepDecision {
+    if (context.hasTimerFired()) {
+      return goTo(ExpireOffer, offerId);
+    }
+    if (offerAccepted.results(context).length > 0) {
+      return goTo(FulfillOffer, offerId);
+    }
+    return goTo(CloseRejectedOffer, offerId);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+/// How long the customer has to respond.
+pub const OFFER_EXPIRY: Duration = Duration::from_secs(3 * 24 * 60 * 60);
+
+pub static OFFER_ACCEPTED: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("offerAccepted"));
+pub static OFFER_REJECTED: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("offerRejected"));
+
+pub const ACCEPT_CUSTOMER_OFFER: Rpc<String, ()> = Rpc::new("accept_customer_offer");
+pub const REJECT_CUSTOMER_OFFER: Rpc<String, ()> = Rpc::new("reject_customer_offer");
+
+/// Waits for whichever event happens first and routes on it.
+#[derive(Default)]
+pub struct AwaitOfferResponse;
+
+impl Step for AwaitOfferResponse {
+    type Input = String;
+
+    fn wait_for(&self, _context: &mut Context, _offer_id: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            OFFER_ACCEPTED.for_one(),
+            OFFER_REJECTED.for_one(),
+            Timer::by_duration(OFFER_EXPIRY),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, offer_id: Self::Input) -> HandlerResult<StepDecision> {
+        if context.has_any_timer_fired() {
+            return Ok(StepDecision::go_to(&ExpireOffer, offer_id));
+        }
+        if !OFFER_ACCEPTED.condition_results(context)?.is_empty() {
+            return Ok(StepDecision::go_to(&FulfillOffer, offer_id));
+        }
+        Ok(StepDecision::go_to(&CloseRejectedOffer, offer_id))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Anti-patterns
+
+- One parallel Step per event, where the first to finish cancels the others. One **AnyOf** wait makes the choice with no race between branches.
+- A Timer loop that checks an Attribute to see whether the customer answered.
+- A separate Flow, cron job, or database job that enforces the deadline.
+- An **Execute** that treats "no acceptance" as "expired". Check the Timer explicitly.
+
+## Related
+
+- [Timer](/concepts/primitives/timer)
+- [Channel](/concepts/primitives/channel)
+- [Durable Timer](/design-patterns/durable-timer)
+- [Workflow Patterns evaluation: WCP-16 Deferred Choice](/concepts/correctness-and-expressiveness/workflow-patterns#wcp-16)

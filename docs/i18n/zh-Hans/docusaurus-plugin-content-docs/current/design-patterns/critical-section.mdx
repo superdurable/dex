@@ -1,0 +1,593 @@
+---
+title: Critical Section
+sidebar_label: Critical Section
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/critical-section.json';
+
+# Critical Section
+
+当同一个 Flow 的多个并行分支必须轮流执行一段由多个 Step 组成的流程时，使用 Critical Section。同一时刻只能有一个分支处在这段流程中。
+
+例如多位审核人编辑同一份合同。每次编辑需要两个 Step：第一个打开合同并修改，第二个保存。两次编辑绝不能交错。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## 为什么不用 Attribute lock
+
+Attribute lock（例如 **ExecuteLockAttributes**）只覆盖一个 Step 方法。它不覆盖 **WaitFor**，也不能跨越多个 Step。受保护的工作能放进一次 **Execute** 时，用 lock。这段流程跨越多个 Step 时，用 token。
+
+## 工作方式
+
+一个 Channel 里恰好只有一条消息，这条消息就是 token。
+
+- 在任何分支进入之前，由一个 Step 发布一次 token。
+- 这段流程的第一个 Step 用 **ForOne** 等待 token。一条消息只满足一个等待，所以只有一个分支能拿到它，其余分支继续等待。
+- 这段流程的最后一个 Step 把 token 发布回去。某个正在等待的分支消费它并进入。
+
+```pseudocode
+StartContractEdits.execute(edits)
+    ContractEditToken.publish("contract")
+    goToMany(for each edit: EnterContractEdit(edit), FinishContractEdits(count))
+
+EnterContractEdit.waitFor   -> Until(ContractEditToken.ForOne())
+EnterContractEdit.execute   -> open the contract and edit it; goTo(SaveContractEdit)
+SaveContractEdit.execute    -> save the edit; ContractEditToken.publish("contract"); deadEnd()
+
+ReleaseContractEditToken.execute -> ContractEditToken.publish("contract"); deadEnd()
+    // the ExecuteFailure route of EnterContractEdit and SaveContractEdit
+```
+
+Dex 不保证下一个拿到 token 的是哪个等待中的分支。不要依赖进入顺序。
+
+## 每个出口都要归还 token
+
+token 只是一条普通消息。如果某个分支离开这段流程时没有把它发布回去，其他所有分支会永远等待。列出离开这段流程的每一种方式，并在每一种方式上发布 token。
+
+- **正常退出。** 这段流程的最后一个 Step 发布 token。
+- **Execute 失败。** 用 **ExecuteFailure** 把失败路由到一个发布 token 的 Step。这段流程的每个 Step 都要配置这条路由。在示例中，**EnterContractEdit** 和 **SaveContractEdit** 都会进入 **ReleaseContractEditToken**。
+- **WaitFor 失败。** 如果这段流程中后面的某个 Step 有自己的 **WaitFor**，给它配置继续执行 **Execute** 的 **WaitForFailure** 策略。那个 **Execute** 看到失败后发布 token。
+- **提前退出。** 用业务决定提前离开这段流程的 **Execute**，要在同一个 **Execute** 中发布 token。
+- **进入时被取消。** Dex 可能取消正在等待 token 的 Step，例如由 RPC 或兄弟 Step 的决定发起。如果取消发生在它的等待已经消费 token、但它的 **Execute** 尚未提交时，Dex 会把 token 放回 Channel 的最前面。下一个等待中的分支会拿到它。
+- **在段内被取消。** Dex 取消段内后面的 Step 时不会归还任何东西。发起取消的 RPC 或决定要在同一次提交中发布 token。
+- **关闭 Flow。** **ForceComplete**、**ForceFail**、Flow timeout 和 Client 的 **StopFlow** 会结束所有分支，不再有分支等待 token。
+
+发布随发起它的方法一起提交，要么全部提交，要么都不提交。失败的 attempt 不会发布 token，所以重试不会产生第二个 token。
+
+## 规则
+
+- 只发布一个 token。在启动各分支的 Step 中发布，或者更早发布。
+- token Channel 只用于 token。
+- 让这段流程尽量短。一个分支在段内时，其余分支都在等待。
+- token 的值没有意义。受保护的状态放在 Attribute 中。
+
+## 示例
+
+**ContractEditFlow** 以一组编辑请求启动，每位审核人一个。**StartContractEdits** 发布 token，为每个编辑请求启动一个 **EnterContractEdit**，并启动汇合 Step **FinishContractEdits**。每次编辑都会记录自己持有合同的时间段。汇合 Step 用这些记录完成 Flow，这些时间段互不重叠。
+
+编辑请求可以被标记为失败。它的 **SaveContractEdit** 会失败两次，然后失败路由 **ReleaseContractEditToken** 归还 token。其他审核人仍能轮到。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/critical-section/contract_edit_flow.py',
+    go: 'examples/go/patterns/critical-section/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/criticalsection/ContractEditFlow.java',
+    typescript: 'examples/typescript/src/patterns/critical-section/contract-edit-flow.ts',
+    rust: 'examples/rust/src/control_patterns/critical_section/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+CONTRACT_EDIT_TOKEN = Channel("contractEditToken", str)
+CONTRACT_EDIT_FINISHED = Channel("contractEditFinished", ContractEditRecord)
+CONTRACT_EDIT_RETRY = RetryPolicy(
+    initial_interval=timedelta(seconds=1), maximum_attempts=2
+)
+
+
+class StartContractEdits(Step[list[ContractEdit]]):
+    """Publishes the only token and starts one branch per reviewer."""
+
+    def execute(self, context: Context, edits: list[ContractEdit]) -> StepDecision:
+        CONTRACT_EDIT_TOKEN.publish(context, "contract")
+        movements: list[StepMovement[Any]] = [
+            StepMovement.of(EnterContractEdit, edit) for edit in edits
+        ]
+        movements.append(StepMovement.of(FinishContractEdits, len(edits)))
+        return go_to_many(*movements)
+
+
+class EnterContractEdit(Step[ContractEdit]):
+    """Enters the section by consuming the token."""
+
+    # A failure after the token was consumed routes to the Step that publishes it back.
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=CONTRACT_EDIT_RETRY).on_execute_failure_proceed_to(
+            ReleaseContractEditToken
+        )
+
+    def wait_for(self, context: Context, edit: ContractEdit) -> Wait:
+        return Wait.until(CONTRACT_EDIT_TOKEN.for_one())
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, edit: ContractEdit
+    ) -> StepDecision:
+        started_edit = replace(edit, started_at_millis=current_time_millis())
+        await asyncio.sleep(CONTRACT_EDIT_SECONDS)
+        return go_to(SaveContractEdit, started_edit)
+
+
+class SaveContractEdit(Step[ContractEdit]):
+    """The last Step of the section; it records the edit and publishes the token back."""
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=CONTRACT_EDIT_RETRY).on_execute_failure_proceed_to(
+            ReleaseContractEditToken
+        )
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, edit: ContractEdit
+    ) -> StepDecision:
+        await asyncio.sleep(CONTRACT_EDIT_SECONDS)
+        if edit.should_fail_edit:
+            raise ContractEditError("contract edit failed")
+        CONTRACT_EDIT_FINISHED.publish(context, finish_contract_edit(edit, "saved"))
+        CONTRACT_EDIT_TOKEN.publish(context, "contract")
+        return dead_end()
+
+
+class ReleaseContractEditToken(Step[ContractEdit]):
+    """The failure exit of the section."""
+
+    def execute(self, context: Context, edit: ContractEdit) -> StepDecision:
+        CONTRACT_EDIT_FINISHED.publish(context, finish_contract_edit(edit, "failed"))
+        CONTRACT_EDIT_TOKEN.publish(context, "contract")
+        return dead_end()
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var (
+	ContractEditToken    = dex.DefineChannel[string]("contractEditToken")
+	ContractEditFinished = dex.DefineChannel[ContractEditRecord]("contractEditFinished")
+	errContractEdit      = errors.New("contract edit failed")
+	contractEditRetry    = &dex.RetryPolicy{InitialInterval: time.Second, MaximumAttempts: 2}
+)
+
+// StartContractEdits publishes the only token and starts one branch per reviewer.
+type StartContractEdits struct {
+	dex.StepDefaultsNoWaitFor[[]ContractEdit]
+}
+
+func (StartContractEdits) Execute(ctx dex.Context, edits []ContractEdit) (*dex.StepDecision, error) {
+	if err := ContractEditToken.Publish(ctx, "contract"); err != nil {
+		return nil, err
+	}
+	movements := make([]dex.StepMovement, 0, len(edits)+1)
+	for _, edit := range edits {
+		movements = append(movements, dex.MovementOf(EnterContractEdit{}, edit))
+	}
+	movements = append(movements, dex.MovementOf(FinishContractEdits{}, len(edits)))
+	return dex.GoToMany(movements...), nil
+}
+
+// EnterContractEdit enters the section by consuming the token.
+type EnterContractEdit struct{ dex.StepDefaults }
+
+// GetStepOptions routes an Execute failure after the token was consumed to the
+// Step that publishes it back.
+func (EnterContractEdit) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry:   contractEditRetry,
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(ReleaseContractEditToken{}, nil),
+	}
+}
+
+func (EnterContractEdit) WaitFor(dex.Context, ContractEdit) (*dex.Wait, error) {
+	return dex.Until(ContractEditToken.ForOne()), nil
+}
+
+func (EnterContractEdit) Execute(_ dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
+	edit.StartedAtMillis = time.Now().UnixMilli()
+	time.Sleep(contractEditDuration)
+	return dex.GoTo(SaveContractEdit{}, edit), nil
+}
+
+// SaveContractEdit is the last Step of the section; it publishes the token back.
+type SaveContractEdit struct {
+	dex.StepDefaultsNoWaitFor[ContractEdit]
+}
+
+func (SaveContractEdit) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry:   contractEditRetry,
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(ReleaseContractEditToken{}, nil),
+	}
+}
+
+func (SaveContractEdit) Execute(ctx dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
+	time.Sleep(contractEditDuration)
+	if edit.ShouldFailEdit {
+		return nil, errContractEdit
+	}
+	if err := leaveContractEdit(ctx, edit, "saved"); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
+}
+
+// ReleaseContractEditToken is the failure exit of the section.
+type ReleaseContractEditToken struct {
+	dex.StepDefaultsNoWaitFor[ContractEdit]
+}
+
+func (ReleaseContractEditToken) Execute(ctx dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
+	if err := leaveContractEdit(ctx, edit, "failed"); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
+}
+
+// leaveContractEdit records the edit and publishes the token for the next reviewer.
+func leaveContractEdit(ctx dex.Context, edit ContractEdit, outcome string) error {
+	record := ContractEditRecord{
+		Reviewer:         edit.Reviewer,
+		Outcome:          outcome,
+		StartedAtMillis:  edit.StartedAtMillis,
+		FinishedAtMillis: time.Now().UnixMilli(),
+	}
+	if err := ContractEditFinished.Publish(ctx, record); err != nil {
+		return err
+	}
+	return ContractEditToken.Publish(ctx, "contract")
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public static final Channel<String> contractEditToken =
+        Channel.define("contractEditToken", String.class);
+public static final Channel<ContractEditRecord> contractEditFinished =
+        Channel.define("contractEditFinished", ContractEditRecord.class);
+
+/** Routes an execute failure after the token was consumed to the Step that returns it. */
+private static StepOptions contractEditOptions() {
+    return StepOptions.newBuilder()
+            .executeRetry(RetryPolicy.newBuilder()
+                    .initialInterval(Duration.ofSeconds(1))
+                    .maximumAttempts(2)
+                    .build())
+            .onExecuteFailureProceedTo(ReleaseContractEditToken.class)
+            .build();
+}
+
+/** Publishes the only token and starts one branch per reviewer. */
+static final class StartContractEdits implements Step<ContractEdit[]> {
+    @Override
+    public Class<ContractEdit[]> getInputType() {
+        return ContractEdit[].class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final ContractEdit[] edits) {
+        contractEditToken.publish(context, TOKEN);
+        final StepMovement<?>[] movements = new StepMovement<?>[edits.length + 1];
+        for (int index = 0; index < edits.length; index++) {
+            movements[index] = StepMovement.of(EnterContractEdit.class, edits[index]);
+        }
+        movements[edits.length] = StepMovement.of(FinishContractEdits.class, edits.length);
+        return StepDecision.goToMany(movements);
+    }
+}
+
+/** Enters the section by consuming the token. */
+static final class EnterContractEdit implements Step<ContractEdit> {
+    @Override
+    public Class<ContractEdit> getInputType() {
+        return ContractEdit.class;
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return contractEditOptions();
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final ContractEdit edit) {
+        return Wait.until(contractEditToken.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final ContractEdit edit) {
+        final ContractEdit started = new ContractEdit(
+                edit.reviewer(), edit.shouldFailEdit(), System.currentTimeMillis());
+        holdContract();
+        return StepDecision.goTo(SaveContractEdit.class, started);
+    }
+}
+
+/** The last Step of the section; it publishes the token back. */
+static final class SaveContractEdit implements Step<ContractEdit> {
+    @Override
+    public Class<ContractEdit> getInputType() {
+        return ContractEdit.class;
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return contractEditOptions();
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final ContractEdit edit) {
+        holdContract();
+        if (edit.shouldFailEdit()) {
+            throw new IllegalStateException("contract edit failed");
+        }
+        leaveContractEdit(context, edit, "saved");
+        return StepDecision.deadEnd();
+    }
+}
+
+/** The failure exit of the section. */
+static final class ReleaseContractEditToken implements Step<ContractEdit> {
+    @Override
+    public Class<ContractEdit> getInputType() {
+        return ContractEdit.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final ContractEdit edit) {
+        leaveContractEdit(context, edit, "failed");
+        return StepDecision.deadEnd();
+    }
+}
+
+/** Records the edit and publishes the token for the next reviewer. */
+private static void leaveContractEdit(
+        final Context context, final ContractEdit edit, final String outcome) {
+    contractEditFinished.publish(context, new ContractEditRecord(
+            edit.reviewer(), outcome, edit.startedAtMillis(), System.currentTimeMillis()));
+    contractEditToken.publish(context, TOKEN);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export const contractEditToken = new Channel("contractEditToken", stringCodec);
+export const contractEditFinished = new Channel(
+  "contractEditFinished",
+  jsonCodec<ContractEditRecord>({ typeName: "ContractEditRecord" }),
+);
+
+/** Publishes the only token and starts one branch per reviewer. */
+class StartContractEdits implements Step<ContractEdit[]> {
+  public getStepType(): string {
+    return "StartContractEdits";
+  }
+
+  public execute(context: Context, edits: ContractEdit[]): StepDecision {
+    contractEditToken.publish(context, "contract");
+    return goToMany(
+      ...edits.map((edit) => StepMovement.of(EnterContractEdit, edit)),
+      StepMovement.of(FinishContractEdits, edits.length),
+    );
+  }
+}
+
+/** Enters the section by consuming the token. */
+class EnterContractEdit implements Step<ContractEdit> {
+  public getStepType(): string {
+    return "EnterContractEdit";
+  }
+
+  // An Execute failure after the token was consumed must still publish it back.
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: { initialIntervalMs: 1_000, maximumAttempts: 2 },
+      executeFailure: ExecuteFailure.proceedTo(ReleaseContractEditToken),
+    };
+  }
+
+  public waitFor(_context: Context, _edit: ContractEdit): Wait {
+    return Wait.until(contractEditToken.forOne());
+  }
+
+  public async execute(_context: Context, edit: ContractEdit): Promise<StepDecision> {
+    const startedAtMillis = Date.now();
+    await sleep(CONTRACT_EDIT_DURATION_MS);
+    return goTo(SaveContractEdit, { ...edit, startedAtMillis });
+  }
+}
+
+/** The last Step of the section; it publishes the token back. */
+class SaveContractEdit implements Step<ContractEdit> {
+  public getStepType(): string {
+    return "SaveContractEdit";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: { initialIntervalMs: 1_000, maximumAttempts: 2 },
+      executeFailure: ExecuteFailure.proceedTo(ReleaseContractEditToken),
+    };
+  }
+
+  public async execute(context: Context, edit: ContractEdit): Promise<StepDecision> {
+    await sleep(CONTRACT_EDIT_DURATION_MS);
+    if (edit.shouldFailEdit) {
+      throw new Error("contract edit failed");
+    }
+    leaveContractEdit(context, edit, "saved");
+    return deadEnd();
+  }
+}
+
+/** The failure exit of the section. */
+class ReleaseContractEditToken implements Step<ContractEdit> {
+  public getStepType(): string {
+    return "ReleaseContractEditToken";
+  }
+
+  public execute(context: Context, edit: ContractEdit): StepDecision {
+    leaveContractEdit(context, edit, "failed");
+    return deadEnd();
+  }
+}
+
+/** Records the edit and publishes the token for the next reviewer. */
+function leaveContractEdit(context: Context, edit: ContractEdit, outcome: string): void {
+  contractEditFinished.publish(context, {
+    reviewer: edit.reviewer,
+    outcome,
+    startedAtMillis: edit.startedAtMillis ?? 0,
+    finishedAtMillis: Date.now(),
+  });
+  contractEditToken.publish(context, "contract");
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+pub static CONTRACT_EDIT_TOKEN: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("contractEditToken"));
+pub static CONTRACT_EDIT_FINISHED: LazyLock<Channel<ContractEditRecord>> =
+    LazyLock::new(|| Channel::new("contractEditFinished"));
+
+/// Publishes the only token and starts one branch per reviewer.
+#[derive(Default)]
+struct StartContractEdits;
+
+impl Step for StartContractEdits {
+    type Input = Vec<ContractEdit>;
+
+    fn execute(&self, context: &mut Context, edits: Self::Input) -> HandlerResult<StepDecision> {
+        CONTRACT_EDIT_TOKEN.publish(context, CONTRACT_TOKEN.to_string())?;
+        let edit_count = edits.len();
+        let edit_branches = edits
+            .into_iter()
+            .map(|edit| StepMovement::to(&EnterContractEdit, edit));
+        Ok(StepDecision::go_to_many(edit_branches.chain([
+            StepMovement::to(&FinishContractEdits, edit_count),
+        ])))
+    }
+}
+
+/// Enters the section by consuming the token.
+#[derive(Default)]
+struct EnterContractEdit;
+
+impl Step for EnterContractEdit {
+    type Input = ContractEdit;
+
+    /// Routes an Execute failure after the token was consumed to the Step
+    /// that publishes it back.
+    fn options(&self) -> StepOptions<Self::Input> {
+        contract_edit_options()
+    }
+
+    fn wait_for(&self, _context: &mut Context, _edit: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(CONTRACT_EDIT_TOKEN.for_one()))
+    }
+
+    fn execute(
+        &self,
+        _context: &mut Context,
+        mut edit: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        edit.started_at_millis = current_unix_millis()?;
+        thread::sleep(CONTRACT_EDIT_DURATION);
+        Ok(StepDecision::go_to(&SaveContractEdit, edit))
+    }
+}
+
+/// The last Step of the section; it publishes the token back.
+#[derive(Default)]
+struct SaveContractEdit;
+
+impl Step for SaveContractEdit {
+    type Input = ContractEdit;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        contract_edit_options()
+    }
+
+    fn execute(&self, context: &mut Context, edit: Self::Input) -> HandlerResult<StepDecision> {
+        thread::sleep(CONTRACT_EDIT_DURATION);
+        if edit.should_fail_edit {
+            return Err(HandlerError::new(
+                "ContractEditFailed",
+                "contract edit failed",
+            ));
+        }
+        leave_contract_edit(context, edit, "saved")?;
+        Ok(StepDecision::dead_end())
+    }
+}
+
+/// The failure exit of the section.
+#[derive(Default)]
+struct ReleaseContractEditToken;
+
+impl Step for ReleaseContractEditToken {
+    type Input = ContractEdit;
+
+    fn execute(&self, context: &mut Context, edit: Self::Input) -> HandlerResult<StepDecision> {
+        leave_contract_edit(context, edit, "failed")?;
+        Ok(StepDecision::dead_end())
+    }
+}
+
+fn contract_edit_options() -> StepOptions<ContractEdit> {
+    StepOptions::new()
+        .execute_retry(
+            RetryPolicy::new()
+                .initial_interval(Duration::from_secs(1))
+                .maximum_attempts(2),
+        )
+        .on_execute_failure_proceed_to(&ReleaseContractEditToken)
+}
+
+/// Records the edit and publishes the token for the next reviewer.
+fn leave_contract_edit(
+    context: &mut Context,
+    edit: ContractEdit,
+    outcome: &str,
+) -> HandlerResult<()> {
+    CONTRACT_EDIT_FINISHED.publish(
+        context,
+        ContractEditRecord {
+            reviewer: edit.reviewer,
+            outcome: outcome.to_string(),
+            started_at_millis: edit.started_at_millis,
+            finished_at_millis: current_unix_millis()?,
+        },
+    )?;
+    CONTRACT_EDIT_TOKEN.publish(context, CONTRACT_TOKEN.to_string())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 反模式
+
+- 用 Attribute lock 保护多个 Step。
+- 用一个布尔 Attribute（例如 "isEditing"）让 Step 检查并设置。没有任何东西在它上面等待，两个分支也可能同时看到它未被设置。
+- 只在成功路径上归还 token。
+- 在旧 token 可能仍然存在时，发布新 token 来“找回”丢失的 token。两个 token 会破坏互斥。
+
+## 相关内容
+
+- [Channel](/concepts/primitives/channel)
+- [Step](/concepts/step)
+- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
+- [Workflow Patterns 评估：WCP-39 Critical Section](/concepts/correctness-and-expressiveness/workflow-patterns#wcp-39)

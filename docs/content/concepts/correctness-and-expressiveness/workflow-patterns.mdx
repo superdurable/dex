@@ -290,6 +290,8 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **Rating:** **+**. **AnyOf** decides the race, and only one branch ever starts.
 
+**Design pattern:** [Deferred Choice](/design-patterns/deferred-choice).
+
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DeferredChoiceFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 
 ### WCP-17 Interleaved Parallel Routing {#wcp-17}
@@ -329,6 +331,8 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 **How Dex implements it.** The Step that starts a **SubFlow** waits with **AnyOf** for the child or a cancel **Channel**. On cancel, it reads the child's Flow ID with **SubFlow.getFlowId**, stops the child with Client **StopFlow**, and returns **ForceFail**. **ForceFail** cancels every other active Step.
 
 **Rating:** **+/-**. Client **StopFlow** alone leaves a running SubFlow alive, so the example composes a cancel Channel, an explicit stop, and **ForceFail**.
+
+**Design pattern:** [Cancel with Child Flows](/design-patterns/cancel-case).
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancelCaseFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs)
 
@@ -519,6 +523,8 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 **How Dex implements it.** A **Channel** holds a single token message. Each section's first Step waits for the token, and its last Step publishes it back.
 
 **Rating:** **+/-**. An Attribute lock covers one Step method only, so a section of several Steps uses a one-message Channel as a token.
+
+**Design pattern:** [Critical Section](/design-patterns/critical-section).
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CriticalSectionFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 

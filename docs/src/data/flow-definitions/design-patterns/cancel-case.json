@@ -1,0 +1,476 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/cancel-case/loan_application_flow.py"
+  },
+  "flow": {
+    "name": "LoanApplicationFlow",
+    "startStepId": "step:RunCreditCheck",
+    "span": {
+      "startLine": 142,
+      "startColumn": 1,
+      "endLine": 174,
+      "endColumn": 55
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:AwaitUnderwriterDecision",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:AwaitUnderwriterDecision",
+      "phase": "execute",
+      "span": {
+        "startLine": 134,
+        "startColumn": 5,
+        "endLine": 139,
+        "endColumn": 67
+      }
+    },
+    {
+      "id": "decision-dispatch:step:RunCreditCheck",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:RunCreditCheck",
+      "phase": "execute",
+      "span": {
+        "startLine": 103,
+        "startColumn": 5,
+        "endLine": 115,
+        "endColumn": 74
+      }
+    },
+    {
+      "id": "decision:step:AwaitUnderwriterDecision:137:20",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:AwaitUnderwriterDecision",
+      "condition": "reasons",
+      "phase": "execute",
+      "span": {
+        "startLine": 137,
+        "startColumn": 20,
+        "endLine": 137,
+        "endColumn": 72
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:AwaitUnderwriterDecision:139:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:AwaitUnderwriterDecision",
+      "condition": "not (reasons)",
+      "phase": "execute",
+      "span": {
+        "startLine": 139,
+        "startColumn": 16,
+        "endLine": 139,
+        "endColumn": 67
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:RunCreditCheck:111:20",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:RunCreditCheck",
+      "condition": "reasons",
+      "phase": "execute",
+      "span": {
+        "startLine": 111,
+        "startColumn": 20,
+        "endLine": 111,
+        "endColumn": 72
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:RunCreditCheck:114:20",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:RunCreditCheck",
+      "condition": "not (reasons) and result.status is not FlowStatus.COMPLETED",
+      "phase": "execute",
+      "span": {
+        "startLine": 114,
+        "startColumn": 20,
+        "endLine": 114,
+        "endColumn": 87
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:RunCreditCheck:115:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunCreditCheck",
+      "condition": "not (reasons) and not (result.status is not FlowStatus.COMPLETED)",
+      "phase": "execute",
+      "span": {
+        "startLine": 115,
+        "startColumn": 16,
+        "endLine": 115,
+        "endColumn": 74
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:attribute:STOPPED_CREDIT_CHECK_FLOW_ID",
+      "kind": "attribute",
+      "name": "stoppedCreditCheckFlowId",
+      "span": {
+        "startLine": 70,
+        "startColumn": 1,
+        "endLine": 70,
+        "endColumn": 74
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:channel:APPLICATION_CANCELED",
+      "kind": "channel",
+      "name": "applicationCanceled",
+      "span": {
+        "startLine": 71,
+        "startColumn": 1,
+        "endLine": 71,
+        "endColumn": 59
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:channel:UNDERWRITER_DECIDED",
+      "kind": "channel",
+      "name": "underwriterDecided",
+      "span": {
+        "startLine": 72,
+        "startColumn": 1,
+        "endLine": 72,
+        "endColumn": 57
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:cancel_application",
+      "kind": "rpc",
+      "name": "cancel_application",
+      "span": {
+        "startLine": 167,
+        "startColumn": 5,
+        "endLine": 169,
+        "endColumn": 54
+      }
+    },
+    {
+      "id": "rpc:decide_application",
+      "kind": "rpc",
+      "name": "decide_application",
+      "span": {
+        "startLine": 172,
+        "startColumn": 5,
+        "endLine": 174,
+        "endColumn": 55
+      }
+    },
+    {
+      "id": "step:AwaitUnderwriterDecision",
+      "kind": "step",
+      "name": "AwaitUnderwriterDecision",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 158,
+        "startColumn": 13,
+        "endLine": 158,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "step:RunCreditCheck",
+      "kind": "step",
+      "name": "RunCreditCheck",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 157,
+        "startColumn": 36,
+        "endLine": 157,
+        "endColumn": 57
+      }
+    },
+    {
+      "id": "subflow:self.credit_check_flow:92",
+      "kind": "subflow",
+      "name": "self.credit_check_flow",
+      "external": true,
+      "span": {
+        "startLine": 92,
+        "startColumn": 13,
+        "endLine": 99,
+        "endColumn": 14
+      }
+    },
+    {
+      "id": "wait:AwaitUnderwriterDecision:132:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AwaitUnderwriterDecision",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 132,
+        "startColumn": 16,
+        "endLine": 132,
+        "endColumn": 90
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "underwriterDecided.for 1",
+            "resourceId": "resource:channel:UNDERWRITER_DECIDED",
+            "span": {
+              "startLine": 132,
+              "startColumn": 28,
+              "endLine": 132,
+              "endColumn": 57
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "applicationCanceled.for 1",
+            "resourceId": "resource:channel:APPLICATION_CANCELED",
+            "span": {
+              "startLine": 132,
+              "startColumn": 59,
+              "endLine": 132,
+              "endColumn": 89
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:RunCreditCheck:91:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:RunCreditCheck",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 91,
+        "startColumn": 16,
+        "endLine": 101,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "subflow",
+            "label": "self.credit_check_flow",
+            "subFlowId": "subflow:self.credit_check_flow:92",
+            "span": {
+              "startLine": 92,
+              "startColumn": 13,
+              "endLine": 99,
+              "endColumn": 14
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "applicationCanceled.for 1",
+            "resourceId": "resource:channel:APPLICATION_CANCELED",
+            "span": {
+              "startLine": 100,
+              "startColumn": 13,
+              "endLine": 100,
+              "endColumn": 43
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:RunCreditCheck:115:16",
+      "to": "step:AwaitUnderwriterDecision",
+      "label": "go_to",
+      "span": {
+        "startLine": 115,
+        "startColumn": 16,
+        "endLine": 115,
+        "endColumn": 74
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "resource_read",
+      "from": "resource:channel:APPLICATION_CANCELED",
+      "to": "step:AwaitUnderwriterDecision",
+      "label": "results",
+      "span": {
+        "startLine": 135,
+        "startColumn": 19,
+        "endLine": 135,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "resource_read",
+      "from": "resource:channel:APPLICATION_CANCELED",
+      "to": "step:RunCreditCheck",
+      "label": "results",
+      "span": {
+        "startLine": 106,
+        "startColumn": 19,
+        "endLine": 106,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "wait_condition",
+      "from": "resource:channel:APPLICATION_CANCELED",
+      "to": "wait:AwaitUnderwriterDecision:132:16:0",
+      "label": "applicationCanceled.for 1",
+      "span": {
+        "startLine": 132,
+        "startColumn": 59,
+        "endLine": 132,
+        "endColumn": 89
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "wait_condition",
+      "from": "resource:channel:APPLICATION_CANCELED",
+      "to": "wait:RunCreditCheck:91:16:0",
+      "label": "applicationCanceled.for 1",
+      "span": {
+        "startLine": 100,
+        "startColumn": 13,
+        "endLine": 100,
+        "endColumn": 43
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "resource_read",
+      "from": "resource:channel:UNDERWRITER_DECIDED",
+      "to": "step:AwaitUnderwriterDecision",
+      "label": "results",
+      "span": {
+        "startLine": 138,
+        "startColumn": 21,
+        "endLine": 138,
+        "endColumn": 57
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "wait_condition",
+      "from": "resource:channel:UNDERWRITER_DECIDED",
+      "to": "wait:AwaitUnderwriterDecision:132:16:0",
+      "label": "underwriterDecided.for 1",
+      "span": {
+        "startLine": 132,
+        "startColumn": 28,
+        "endLine": 132,
+        "endColumn": 57
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_publish",
+      "from": "rpc:cancel_application",
+      "to": "resource:channel:APPLICATION_CANCELED",
+      "label": "publish",
+      "span": {
+        "startLine": 169,
+        "startColumn": 9,
+        "endLine": 169,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_publish",
+      "from": "rpc:decide_application",
+      "to": "resource:channel:UNDERWRITER_DECIDED",
+      "label": "publish",
+      "span": {
+        "startLine": 174,
+        "startColumn": 9,
+        "endLine": 174,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_write",
+      "from": "step:RunCreditCheck",
+      "to": "resource:attribute:STOPPED_CREDIT_CHECK_FLOW_ID",
+      "label": "set",
+      "span": {
+        "startLine": 110,
+        "startColumn": 13,
+        "endLine": 110,
+        "endColumn": 69
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "subflow",
+      "from": "wait:RunCreditCheck:91:16:0",
+      "to": "subflow:self.credit_check_flow:92",
+      "label": "start",
+      "span": {
+        "startLine": 92,
+        "startColumn": 13,
+        "endLine": 99,
+        "endColumn": 14
+      }
+    }
+  ],
+  "diagnostics": []
+}
