@@ -677,6 +677,138 @@ theorem applyIntent (invariant : Invariant program config) {thread : Thread}
       (fun on since isBlocked => by cases isBlocked) trivial
       (fun loaded isPhase => by cases isPhase)
 
+/-- A shared read returns a valid value. -/
+theorem readShared_valid (invariant : Invariant program config) (source : Global) :
+    config.IsValidVal (config.readShared source) := by
+  simp only [Config.readShared]
+  cases isBound : AssocList.get? config.shared source with
+  | none => trivial
+  | some value => exact invariant.handlesExist.2.1 _ (mem_of_get? _ _ _ isBound)
+
+/-- Registering the wait of a blocking statement or timed operation keeps the
+invariant. -/
+theorem registerWait (invariant : Invariant program config) {thread : Thread}
+    (isMember : thread ∈ config.threads) (isPhase : thread.phase = .waitStarted) :
+    Invariant program (config.registerWait thread) := by
+  have isRunning := invariant.status_of_mem isMember
+  have isStarted : config.status ≠ .notStarted := by
+    rw [isRunning]
+    intro isStatus
+    cases isStatus
+  have stateValid := (invariant.handlesExist.1 thread isMember).isValidState
+  have isWaiting : thread.phase = .waitStarted ∨ ∃ on since, thread.phase = .blocked on since :=
+    Or.inl isPhase
+  have received : ∀ chan message laterMessages,
+      config.pendingInput chan = message :: laterMessages →
+      Invariant program
+        ({ config with inputQueues := config.inputQueues.set chan laterMessages }.wakeThread
+          thread.core.tid (.received message)) := by
+    intro chan message laterMessages isPending
+    have pendingValid := invariant.pendingInput_valid chan
+    rw [isPending] at pendingValid
+    exact (invariant.setInputQueue isStarted chan laterMessages
+      (fun later isLater => pendingValid later (List.mem_cons_of_mem _ isLater))).wakeThread
+      isMember (.received message) isWaiting (pendingValid message (List.mem_cons_self ..))
+  simp only [Config.registerWait]
+  split
+  · rename_i number seconds isTimer
+    split
+    · rename_i isChan
+      split
+      · exact invariant.wakeThread isMember .canceled isWaiting trivial
+      · exact invariant.blockThread isMember
+          (.timed number (config.clock + seconds * 1000000) none) trivial
+          ⟨⟨seconds, isTimer⟩, isChan⟩
+    · rename_i chan isChan
+      split
+      · rename_i message laterMessages isPending
+        exact received chan message laterMessages isPending
+      · split
+        · exact invariant.wakeThread isMember .canceled isWaiting trivial
+        · exact invariant.blockThread isMember
+            (.timed number (config.clock + seconds * 1000000) (some chan)) trivial
+            ⟨⟨seconds, isTimer⟩, isChan⟩
+    · exact invariant.wakeThread isMember .invalid isWaiting trivial
+  · rename_i isTimer
+    split
+    · rename_i mutex isRequest
+      split
+      · rename_i isOwner
+        refine (invariant.setMutexOwner isStarted mutex (some thread.core.tid)
+          (contains_of_get? _ _ _ isOwner) ?_).wakeThread isMember .granted isWaiting trivial
+        intro other isOtherMember loaded isOtherPhase isRequired
+        have isHeld := invariant.runningHoldsRequiredMutex other isOtherMember loaded isOtherPhase
+          mutex isRequired
+        rw [isOwner] at isHeld
+        cases isHeld
+      · exact invariant.blockThread isMember (.lock mutex)
+          ((Config.isExistingMutex_of_waitRequest config _ _ stateValid).1 mutex isRequest)
+          ⟨isTimer, isRequest⟩
+    · rename_i chan isRequest
+      split
+      · rename_i message laterMessages isPending
+        exact received chan message laterMessages isPending
+      · split
+        · exact invariant.wakeThread isMember .canceled isWaiting trivial
+        · exact invariant.blockThread isMember (.recv chan) trivial ⟨isTimer, isRequest⟩
+    · rename_i target isRequest
+      split
+      · exact (invariant.eraseJoinable isStarted target).wakeThread isMember .granted isWaiting
+          trivial
+      · split
+        · exact invariant.wakeThread isMember .canceled isWaiting trivial
+        · exact invariant.blockThread isMember (.join target) trivial ⟨isTimer, isRequest⟩
+    · rename_i cv isRequest
+      split
+      · exact (invariant.setCvWakes isStarted
+          (config.cvWakes.erase (cv, thread.core.tid))).wakeThread isMember .granted isWaiting
+          trivial
+      · exact invariant.blockThread isMember (.park cv)
+          ((Config.isExistingMutex_of_waitRequest config _ _ stateValid).2 cv isRequest)
+          ⟨isTimer, isRequest⟩
+    · exact invariant.wakeThread isMember .invalid isWaiting trivial
+
+/-- The arrival of an external message, which is a literal, keeps the invariant. -/
+theorem deliverInput (invariant : Invariant program config)
+    (isStarted : config.status ≠ .notStarted) (chan : ExtChan) (value : Literal) :
+    Invariant program (config.deliverInput chan value.toVal) := by
+  simp only [Config.deliverInput]
+  split
+  · rename_i receiver isEarliest
+    obtain ⟨waiter, isWaiterMember, isTid, on, since, isBlocked⟩ :=
+      Config.earliestBlocked_some isEarliest
+    rw [← isTid]
+    exact invariant.wakeThread isWaiterMember (.received value.toVal)
+      (Or.inr ⟨on, since, isBlocked⟩) (Config.isValidVal_literal config value)
+  · refine invariant.setInputQueue isStarted chan (config.pendingInput chan ++ [value.toVal]) ?_
+    intro message isMessage
+    rcases List.mem_append.mp isMessage with isOld | isNew
+    · exact invariant.pendingInput_valid chan message isOld
+    · rw [List.mem_singleton.mp isNew]
+      exact Config.isValidVal_literal config value
+
+/-- Firing timers keeps the invariant. -/
+theorem fireTimers (count : Nat) :
+    ∀ (config fired : Config), Invariant program config →
+      config.fireTimers count = some fired → Invariant program fired := by
+  induction count with
+  | zero =>
+    intro config fired invariant isFired
+    simp only [Config.fireTimers, Option.some.injEq] at isFired
+    rw [← isFired]
+    exact invariant
+  | succ count inductionHypothesis =>
+    intro config fired invariant isFired
+    simp only [Config.fireTimers] at isFired
+    split at isFired
+    · cases isFired
+    · rename_i tid isLeast
+      obtain ⟨timerThread, isMember, isTid, on, since, isBlocked⟩ :=
+        Config.leastDueTimerThread_some isLeast
+      rw [← isTid] at isFired
+      exact inductionHypothesis _ fired
+        (invariant.wakeThread isMember .fired (Or.inr ⟨on, since, isBlocked⟩) trivial) isFired
+
 end Invariant
 
 end DexExpressiveness.L
