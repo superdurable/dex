@@ -199,6 +199,56 @@ session Flow with an OpenAI Agents SDK runner. A turn with one read tool runs
 never persisted, so use it for process-local dependencies and values derived
 from the session ID, not for state.
 
+## Tool sources
+
+`toolSources` in the session options takes the core's tool sources, such as
+`ConnectorToolSource` from `@superdurable/dex-agents/connectors`, which offers
+reviewed Connector operations. Install `@superdurable/connectors-sdk` and the
+Connector packages.
+
+```ts
+import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };
+import { CreateRefundInputSchema, newProjectConnection } from "@superdurable/connector-stripe";
+import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
+
+const stripe = newProjectConnection(project, "billing-stripe");
+const refunds = new ConnectorToolSource([
+  connectorTool(stripe.operations.createRefund(), stripe.reference, {
+    manifest,
+    inputValidator: CreateRefundInputSchema,
+  }),
+]);
+```
+
+Pass `toolSources: [refunds]` to `createOpenAIAgentsSessionFlow`.
+
+- Every `RunModel` lists each source and wraps the agent graph again, so every
+  agent of the graph offers the listed tools after its own tools, as
+  non-strict function tools with the source's description and JSON Schema.
+- A call of a source tool never runs inside the model call. The source
+  builds the call, so its effect, its approval, and whether it is an ordered
+  write come from the source; a tool's `needsApproval`, input guardrails, and `createContext` do not apply. A
+  `toolPolicies` entry for a connector tool changes only its approval.
+- The call runs once in its own tool Step through the source's
+  `executeDeferredToolCall`, with the tool Step's context, heartbeat
+  checkpoint, and attempt, so a connector call keeps its Call ID and fence.
+  `toolCallStepOptions` gives the Step the operation's timeout and retry
+  policy. Connector writes of one response run one at a time in the model's
+  order, and a write that does not succeed skips the later ones.
+- The runner polls no tool tasks and asks no tool questions: a source call that
+  asks a question records `failed`, and one that starts a task records
+  `failed` for a `read` call and `outcome_unknown` otherwise.
+- Each source needs a unique, stable `sourceName`, stored with every call it
+  builds. A source whose listing throws or takes longer than
+  `toolSourceListingTimeoutMs` (default 10 seconds) offers no tools in that
+  model call.
+- A source tool that the turn already called but the current listing lacks is
+  still offered, so the resumed run receives its recorded result. A new call
+  of it fails in its tool Step and never reaches a source.
+- Definition fails with `TypeError` when a name a source declares repeats a
+  tool or handoff of the graph or another source's tool. A listing that
+  repeats one fails its `RunModel` attempt.
+
 ## Tracing
 
 With the session's `tracing` option, each `RunModel` returns
