@@ -256,7 +256,7 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 
 **GracefulComplete** 结束它自己的分支，并请求 Dex 完成 Flow。一旦没有 active Step，Flow 就完成。在这之前，其他 Step 和 RPC 仍然可以启动新的 Step，这些 Step 也会推迟完成。这个请求一直有效。之后某个分支以 **DeadEnd** 结束，也不会撤回它。
 
-没有待处理的 **GracefulComplete** 时，一个没有 active Step 的 Flow 会继续运行。RPC 仍然可以在里面启动新的 Step。它只会按 [生命周期](/concepts/flow#lifecycle) 里列出的方式关闭。用一个完成类的决定结束最后一个分支。不能无限等待的 Flow，要设置 Flow timeout。
+没有待处理的 **GracefulComplete** 时，一个没有 active Step 的 Flow 会继续运行。RPC 仍然可以在里面启动新的 Step。它只会按[生命周期](/concepts/flow#lifecycle)里列出的方式关闭。用一个完成类的决定结束最后一个分支。不能无限等待的 Flow，要设置 Flow timeout。
 
 Dex 大致按 Step 就绪的顺序启动它们，但不严格保证。不要依赖并行 Step 启动或结束的顺序。顺序重要时，用 Channel 或 Attribute lock。
 
