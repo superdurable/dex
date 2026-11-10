@@ -191,27 +191,50 @@ export async function startSampleServer(): Promise<SampleServer> {
     worker,
     httpServer,
     async close() {
-      await new Promise<void>((resolve, reject) => {
-        httpServer.close((error) => {
-          if (error !== undefined) {
-            reject(error);
-            return;
-          }
-          resolve();
-        });
-      });
-      await Promise.race([
-        (async () => {
-          await client.close();
-          await worker.close();
-          blobCache.close();
-        })(),
-        new Promise<void>((resolve) => {
-          setTimeout(resolve, 3_000);
+      const httpServerCloseErrors = await runCloseSteps([
+        () =>
+          new Promise<void>((resolve, reject) => {
+            httpServer.close((error) => {
+              if (error !== undefined) {
+                reject(error);
+                return;
+              }
+              resolve();
+            });
+          }),
+      ]);
+      const dexCloseErrors = await Promise.race([
+        runCloseSteps([() => client.close(), () => worker.close(), () => blobCache.close()]),
+        new Promise<unknown[]>((resolve) => {
+          setTimeout(() => resolve([]), 3_000);
         }),
       ]);
+      const [firstError, ...laterErrors] = [...httpServerCloseErrors, ...dexCloseErrors];
+      for (const laterError of laterErrors) {
+        console.error("another close step failed", laterError);
+      }
+      if (firstError !== undefined) {
+        throw firstError;
+      }
     },
   };
+}
+
+/**
+ * Runs every close step in order, even after one throws.
+ *
+ * @returns The errors the steps threw, in order; empty when all succeeded.
+ */
+async function runCloseSteps(steps: readonly (() => Promise<void> | void)[]): Promise<unknown[]> {
+  const errors: unknown[] = [];
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  return errors;
 }
 
 function allowCors(
@@ -254,7 +277,12 @@ async function main(): Promise<void> {
     `Dex TypeScript examples listening on http://${env.httpAddress} (pull worker)`,
   );
   const shutdown = async () => {
-    await server.close();
+    try {
+      await server.close();
+    } catch (error) {
+      console.error(error);
+      process.exit(1);
+    }
     process.exit(0);
   };
   process.on("SIGINT", () => {

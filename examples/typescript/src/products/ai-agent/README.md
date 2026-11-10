@@ -16,6 +16,7 @@ HTTP routes and a browser UI. It is the TypeScript counterpart of the
 | Plan mode | `write_todos` drafts a plan in a planning turn; **Execute plan** or **Continue plan** calls `execute_plan` |
 | Tool approvals | MCP tools without a trusted read-only or idempotent annotation wait for approval through `useChat` |
 | MCP tools | `McpToolSource` in `toolSources`, with its resource and prompt tools; each tool call is its own Step |
+| Connector tools | `ConnectorToolSource` in `toolSources` offers the Slack Connector's `postThreadReply` as `slack_post_thread_reply`, which waits for approval; see the [agent harnesses](../agent-harnesses#slack-connector-tools) |
 | Compaction | A compaction policy summarizes older messages before the context window fills |
 | Browser UI | `@superdurable/dex-agents/ui-stream` routes for the AI SDK `useChat` |
 | Snapshot and history | `get_agent_snapshot` and `list_agent_messages` |
@@ -26,6 +27,8 @@ Files:
 - [`ai-agent-config.ts`](./ai-agent-config.ts): Worker configuration and the MCP configuration loader.
 - [`scripted-model.ts`](./scripted-model.ts): the demo model `mock/dex`.
 - [`notes-mcp-server.ts`](./notes-mcp-server.ts): a credential-free demo MCP server over stdio.
+- [`../../shared/slack-connector-tools.ts`](../../shared/slack-connector-tools.ts): the Slack
+  Connector tool, shared with the agent harness examples.
 - [`controller.ts`](./controller.ts): HTTP routes.
 - [`ui/`](./ui): the React page that uses `useChat`.
 
@@ -45,6 +48,7 @@ command, URL, or credential. The names match the Python example.
 | `DEX_AGENT_CONTEXT_TOKENS` | `32000` | Context window for compaction |
 | `DEX_AGENT_MCP_CONFIG` | the demo `notes` server | Path to a YAML file of MCP servers, in the Python example's format |
 | `DEX_AGENT_SESSION_KEY` | random per process | Signs session tokens; a random key ends every token when the process restarts |
+| `DEX_CONNECTOR_CONFIG_FILE` or `DEX_PROJECT_*` | none | The Dex project configuration. With a Slack connection named `support-slack` in it, the agent offers `slack_post_thread_reply`; otherwise the process logs one line and the agent offers no Slack tool. Keep the same configuration on every Worker while sessions wait for approval. See the [agent harnesses](../agent-harnesses#slack-connector-tools) |
 
 The MCP file is the Python example's format, so one file serves both examples:
 
@@ -74,7 +78,7 @@ tools until it is back.
 
 ## Run it
 
-The example installs the published Dex Agents library, `@superdurable/dex-agents` 0.3.0, from npm:
+The example installs the published Dex Agents library, `@superdurable/dex-agents` 0.4.0, from npm:
 
 ```bash
 dexcli dev
@@ -90,7 +94,7 @@ another. The demo model answers with
 
 | Command | Does |
 | --- | --- |
-| `/tool <name> <json>` | Calls a tool, such as `/tool notes__search_notes {"query":"Step"}` (runs at once) or `/tool notes__post_message {"channel":"#general","text":"hi"}` (waits for approval) |
+| `/tool <name> <json>` | Calls a tool, such as `/tool notes__search_notes {"query":"Step"}` (runs at once) or `/tool notes__post_message {"channel":"#general","text":"hi"}` (waits for approval). With the `support-slack` connection, `/tool slack_post_thread_reply {"channelId":"C0123456789","threadTimestamp":"1710000000.000100","text":"hi"}` waits for approval and then posts to Slack |
 | `/ask <question>` | Asks a free-text question |
 | `/choose <question> \| <choice> \| <choice>` | Asks a question with choices |
 | `/wait <seconds> <reason>` | Starts a durable wait |
@@ -140,5 +144,7 @@ that runs the model its start form picked (an unlisted model is 400), an approva
 and its continuation through `/api/chat`, questions with choices, free text, and a decline, a steer
 of a durable wait after deleting a queued message, plan execution, a reconnect with a resume token,
 and the 400, 403, and 409 responses. It also covers a rejected approval, an MCP resource read,
+a Slack thread reply that the Worker posts through the Slack Connector's mock exactly once after
+approval,
 compaction, the MCP configuration loader, a UI stream whose Dex reads fail mid-turn without
 stopping the process, and Worker kills during a model call, a read tool Step, and a durable wait.

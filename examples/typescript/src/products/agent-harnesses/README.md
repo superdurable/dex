@@ -8,10 +8,10 @@ approvals for as long as they take, and after a Worker crash reruns only the Ste
 
 | Harness | Adapter | Flow type | Files |
 | --- | --- | --- | --- |
-| Claude Agent SDK | `@superdurable/dex-agents-claude-agent-sdk` 0.3.0 | `ClaudeAgentSdkOrderSupportAgent` | [`claude-agent-sdk/`](./claude-agent-sdk) |
-| OpenAI Agents SDK | `@superdurable/dex-agents-openai-agents` 0.3.0 | `OpenAIAgentsOrderSupportAgent` | [`openai-agents/`](./openai-agents) |
-| Vercel AI SDK | `@superdurable/dex-agents-vercel-ai` 0.3.0 | `VercelAiOrderSupportAgent` | [`vercel-ai/`](./vercel-ai) |
-| Mastra | `@superdurable/dex-agents-mastra` 0.3.0 | `MastraOrderSupportAgent` | [`mastra/`](./mastra) |
+| Claude Agent SDK | `@superdurable/dex-agents-claude-agent-sdk` 0.4.0 | `ClaudeAgentSdkOrderSupportAgent` | [`claude-agent-sdk/`](./claude-agent-sdk) |
+| OpenAI Agents SDK | `@superdurable/dex-agents-openai-agents` 0.4.0 | `OpenAIAgentsOrderSupportAgent` | [`openai-agents/`](./openai-agents) |
+| Vercel AI SDK | `@superdurable/dex-agents-vercel-ai` 0.4.0 | `VercelAiOrderSupportAgent` | [`vercel-ai/`](./vercel-ai) |
+| Mastra | `@superdurable/dex-agents-mastra` 0.4.0 | `MastraOrderSupportAgent` | [`mastra/`](./mastra) |
 
 Shared by all four:
 
@@ -20,6 +20,9 @@ Shared by all four:
   system instructions.
 - [`order-support/order-support-routes.ts`](./order-support/order-support-routes.ts): the HTTP
   routes, the same for every harness.
+- [`../../shared/slack-connector-tools.ts`](../../shared/slack-connector-tools.ts): the Slack
+  Connector tool, shared with the [AI Agent](../ai-agent) example. See
+  [Slack connector tools](#slack-connector-tools).
 
 The agent, its tools, and its instructions match the Python agent harness examples in
 `examples/python/agent-harnesses`, so docs can show both languages side by side. The Flow types
@@ -36,6 +39,9 @@ differ from the Python ones, so both can run against one Dex Server.
 runs at most once, in its own single-attempt tool Step. A rejected call never runs; the model reads
 the rejection.
 
+With a `support-slack` Slack connection, the agent also has `slack_post_thread_reply`; see
+[Slack connector tools](#slack-connector-tools).
+
 How each harness runs a turn:
 
 - **OpenAI Agents SDK, Vercel AI SDK, Mastra.** Every model call is a `RunModel` Step, and every
@@ -44,6 +50,56 @@ How each harness runs a turn:
 - **Claude Agent SDK.** One `RunModel` Step runs the Claude Code CLI for a turn segment. The read
   tool `look_up_order` runs inside that segment. `cancel_order` ends the segment, waits for
   approval, runs in its own Step, and the next segment resumes the Claude session.
+
+## Slack connector tools
+
+Each agent can also post a reply in a Slack thread through the Slack Connector
+([`@superdurable/connector-slack`](https://www.npmjs.com/package/@superdurable/connector-slack)
+0.2.0). The Connector's operations reach the agent through `ConnectorToolSource` from
+`@superdurable/dex-agents/connectors`, passed to each framework adapter as `toolSources`. The
+wiring is in [`slack-connector-tools.ts`](../../shared/slack-connector-tools.ts); each agent file
+passes `toolSources: createSlackConnectorToolSources(slack)`.
+
+| Tool | Slack operation | What Dex does |
+| --- | --- | --- |
+| `slack_post_thread_reply(channelId, threadTimestamp, text)` | `postThreadReply` | Waits in `AwaitToolApproval`, then runs once in its own tool Step under the Connector's Call ID. |
+
+The Slack manifest decides what an agent may call: only operations marked `agent.exposed` can
+become tools. The Slack Connector exposes only `postThreadReply`, so the agents cannot read a thread
+through it. The manifest does not ask for approval, so the example passes `requiresApproval: true`:
+every post waits for a person to approve it. `connectorTool` takes the package's
+`dex-connector.json` manifest and its `PostThreadReplyInputSchema` validator.
+
+The Slack connection comes from the Dex project configuration, like any Connector connection. At
+startup the example calls `loadFromEnvironment` from `@superdurable/connectors-sdk/projectconfig`
+and opens the connection named `support-slack` with the package's `newProjectConnection`:
+
+- In local development, set `DEX_CONNECTOR_CONFIG_FILE` to the `connections.json` file that Dex Web
+  in `dexcli dev` writes, by default `$HOME/.dex/connectors/connections.json`. It must hold a Slack
+  connection named `support-slack`.
+- In a deployment, the `DEX_PROJECT_*` settings select the project configuration that the hosting
+  platform or operator writes.
+
+The Connector resolves the Slack credentials before each call, so they never enter Flow state. The
+bot credential posts the reply. The user credential is used only when a Worker stopped during a
+post: the Connector reads the thread to learn whether the reply was sent, and without it such a post
+records an unknown outcome. Without a project configuration, or without a `support-slack`
+connection in it, the app logs one line and the agents run without the Slack tool.
+
+A post can wait for approval for a long time, and any Worker may run it after approval. Keep the
+same Connector configuration, with the `support-slack` connection, on every Worker that runs these
+Flow types while sessions wait for approval. A Worker without it offers no Slack tool and cannot
+run an approved post.
+
+Ask the agent to reply in a Slack thread and give it the channel ID and the thread timestamp, such
+as "Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursday." The model
+calls `slack_post_thread_reply`, and the post waits for approval like `cancel_order`. The
+[AI Agent](../ai-agent) example's demo model takes the call directly:
+`/tool slack_post_thread_reply {"channelId":"C0123456789","threadTimestamp":"1710000000.000100","text":"Order 1002 ships on Thursday."}`.
+
+An invalid project configuration stops the process at startup, so a broken Slack setup is never
+silent. Examples are a `connections.json` that is not mode `0600`, `DEX_CONNECTOR_CONFIG_FILE` set
+together with `DEX_PROJECT_*` variables, or an incomplete set of `DEX_PROJECT_*` variables.
 
 ## Configuration
 
@@ -70,6 +126,8 @@ dexcli dev
 cd examples/typescript
 npm install
 ANTHROPIC_API_KEY=... OPENAI_API_KEY=... npm start
+# Optional: also offer slack_post_thread_reply from the support-slack connection.
+DEX_CONNECTOR_CONFIG_FILE=$HOME/.dex/connectors/connections.json ANTHROPIC_API_KEY=... OPENAI_API_KEY=... npm start
 ```
 
 The Claude Agent SDK example authenticates only with `ANTHROPIC_API_KEY`:
@@ -116,9 +174,20 @@ real Dex Server, with no model key. Each runs a turn that calls `look_up_order`,
 order `1002` that is rejected and never runs while the model reads the rejection, one that is
 approved and runs exactly once, and the 403 and 400 responses.
 
+Each also posts a Slack thread reply through the Slack Connector's mock,
+`@superdurable/connector-slack/mock`, with no Slack credentials. The post waits for approval, and the
+mock sees no call before it. After approval the mock sees exactly one call, in the session's Flow,
+with no retry or replay and an idempotency key derived from its Call ID. A second approval answers
+409 and changes nothing.
+
+`test/workflow/slack-connector-tools.test.ts` checks the connection wiring: no tool without a
+project configuration or without a `support-slack` connection, and one tool source from a local
+connections file that has it.
+
 - The scripted models follow the Python demo model's script: "cancel order <id>" calls
   `cancel_order`, other text with "order <id>" calls `look_up_order`, and the answer repeats the
-  tool results.
+  tool results. "reply in Slack thread <channel ID> <thread timestamp>: <text>" calls
+  `slack_post_thread_reply`.
 - The OpenAI Agents SDK test uses a scripted `Model`. The Vercel AI SDK and Mastra tests use a
   scripted AI SDK language model.
 - The Claude Agent SDK test runs the real Claude Code CLI bundled with `@anthropic-ai/claude-agent-sdk`

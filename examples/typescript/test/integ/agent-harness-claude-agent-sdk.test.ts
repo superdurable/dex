@@ -31,7 +31,7 @@ let messagesApi: ScriptedOrderSupportMessagesApi;
 
 registerOrderSupportScenarios({
   harnessName: "Claude Agent SDK",
-  createFlow: async (orderDesk) => {
+  createFlow: async (orderDesk, slack) => {
     messagesApi = await ScriptedOrderSupportMessagesApi.start();
     mkdirSync(join(stateDirectory, "home"), { recursive: true });
     // The real bundled Claude Code CLI, in a closed environment that reaches only the scripted Messages API.
@@ -47,7 +47,7 @@ registerOrderSupportScenarios({
       HTTPS_PROXY: "http://127.0.0.1:9",
       HTTP_PROXY: "http://127.0.0.1:9",
       NO_PROXY: "127.0.0.1,localhost",
-    });
+    }, slack);
   },
   close: async () => {
     // Other Claude credentials in the Worker's environment never reach the CLI.

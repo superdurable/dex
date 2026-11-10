@@ -15,12 +15,14 @@
  */
 
 import { openai } from "@ai-sdk/openai";
+import type { Connection } from "@superdurable/connector-slack";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createVercelAiAgentSessionFlow } from "@superdurable/dex-agents-vercel-ai";
 import { tool, type LanguageModel } from "ai";
 import { z } from "zod";
 
 import { environmentOr } from "../../../config/env.js";
+import { createSlackConnectorToolSources } from "../../../shared/slack-connector-tools.js";
 import { orderSupportInstructions, type OrderDesk } from "../order-support/order-desk.js";
 
 /** Flow type of the Vercel AI SDK order support session. */
@@ -34,8 +36,13 @@ export function loadVercelAiOrderSupportModel(): LanguageModel {
 /**
  * Builds the order support session Flow. Each model call and each tool call is its own Step.
  * look_up_order only reads, so it runs without approval. cancel_order waits for approval and runs at most once.
+ * With a Slack connection, slack_post_thread_reply also waits for approval and runs at most once.
  */
-export function createVercelAiOrderSupportFlow(orderDesk: OrderDesk, model: LanguageModel): AgentSessionFlow {
+export function createVercelAiOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: LanguageModel,
+  slack: Connection | undefined,
+): AgentSessionFlow {
   return createVercelAiAgentSessionFlow(
     {
       model,
@@ -56,6 +63,7 @@ export function createVercelAiOrderSupportFlow(orderDesk: OrderDesk, model: Lang
         look_up_order: { effect: "read" },
         cancel_order: { effect: "non_idempotent_write" },
       },
+      toolSources: createSlackConnectorToolSources(slack),
     },
     vercelAiOrderSupportFlowType,
   );

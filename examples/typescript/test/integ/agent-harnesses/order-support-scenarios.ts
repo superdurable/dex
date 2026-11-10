@@ -21,6 +21,8 @@ import test from "node:test";
 
 import express from "express";
 
+import type { Connection } from "@superdurable/connector-slack";
+import { GeneratedMock, postThreadReplyReplySent } from "@superdurable/connector-slack/mock";
 import type { AgentSessionFlow, AgentSnapshot } from "@superdurable/dex-agents";
 import { AgentSessionTestClient, AgentTestEnvironment, pollUntil } from "@superdurable/dex-agents/testing";
 
@@ -29,7 +31,8 @@ import {
   createOrderSupportRouter,
   orderSupportSessionTokenHeaderName,
 } from "../../../src/products/agent-harnesses/order-support/order-support-routes.js";
-import { scriptedCancelReason, scriptedReplyPrefix } from "./order-support-script.js";
+import { slackConnectionName } from "../../../src/shared/slack-connector-tools.js";
+import { scriptedCancelReason, scriptedReplyPrefix, slackPostThreadReplyToolName } from "./order-support-script.js";
 
 const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
 const waitOptions = { timeoutMs: 90_000 };
@@ -44,10 +47,10 @@ class CancelCountingOrderDesk extends OrderDesk {
   }
 }
 
-/** How a harness test builds its Flow from the order desk its tools use. */
+/** How a harness test builds its Flow from the order desk and the Slack connection its tools use. */
 export interface OrderSupportScenarioSetup {
   readonly harnessName: string;
-  createFlow(orderDesk: OrderDesk): AgentSessionFlow | Promise<AgentSessionFlow>;
+  createFlow(orderDesk: OrderDesk, slack: Connection): AgentSessionFlow | Promise<AgentSessionFlow>;
   close?(): Promise<void>;
 }
 
@@ -58,10 +61,12 @@ interface RouteSession {
 
 /**
  * Registers the scenarios every harness passes through its HTTP routes: a read tool turn, and a
- * cancellation that waits for approval and is rejected and never runs, or is approved and runs once.
+ * cancellation that waits for approval and is rejected and never runs, or is approved and runs once, and a Slack
+ * thread reply through the connector mock that waits for approval and posts once.
  */
 export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup): void {
   let orderDesk: CancelCountingOrderDesk;
+  let slackMock: GeneratedMock;
   let environment: AgentTestEnvironment;
   let sessions: AgentSessionTestClient;
   let server: Server;
@@ -69,7 +74,10 @@ export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup):
 
   test.before(async () => {
     orderDesk = new CancelCountingOrderDesk();
-    const flow = await setup.createFlow(orderDesk);
+    slackMock = new GeneratedMock(slackConnectionName);
+    // Strict with one scripted answer: any other post fails the mock.
+    slackMock.postThreadReply().strict().respond(postThreadReplyReplySent());
+    const flow = await setup.createFlow(orderDesk, slackMock.connection());
     environment = await AgentTestEnvironment.start({ serverAddress, flows: [flow], isWorkerInProcess: true });
     sessions = new AgentSessionTestClient(environment.client, flow);
     const app = express().use(express.json()).use("/agent", createOrderSupportRouter(environment.client, flow, "test-key"));
@@ -84,6 +92,7 @@ export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup):
     await new Promise((resolve) => server.close(resolve));
     await environment.close();
     await setup.close?.();
+    slackMock.assertNoFailures();
   });
 
   test(`${setup.harnessName}: a turn calls the read tool and answers from its result`, async () => {
@@ -132,6 +141,43 @@ export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup):
     assert.equal(orderDesk.cancelCallCount, 1);
   });
 
+  test(`${setup.harnessName}: a Slack thread reply waits for approval and posts once`, async () => {
+    const replyInput = { channelId: "C0123456789", threadTimestamp: "1710000000.000100", text: "Order 1001 has shipped." };
+    const session = await startSession(
+      `Reply in Slack thread ${replyInput.channelId} ${replyInput.threadTimestamp}: ${replyInput.text}`,
+    );
+    const postThreadReply = slackMock.postThreadReply();
+    const interrupt = await waitForApproval(session, slackPostThreadReplyToolName);
+    assert.deepEqual(postThreadReply.calls(), []);
+    // The active turn's record: a non-idempotent write runs once, in its own single-attempt tool Step.
+    const pendingCall = (await sessions.getAgentSnapshot(session.sessionId)).toolCalls.find(
+      (record) => record.toolName === slackPostThreadReplyToolName,
+    );
+    assert.equal(pendingCall?.effect, "non_idempotent_write");
+    assert.equal(pendingCall?.requiresApproval, true);
+
+    assert.equal((await post(session, `interrupts/${interrupt.interrupt_id}/approve`, {})).status, 200);
+    await sessions.waitForCompletedTurns(session.sessionId, 1, waitOptions);
+
+    const calls = postThreadReply.calls();
+    assert.equal(calls.length, 1);
+    const [providerCall] = calls;
+    assert.equal(providerCall?.flowId, session.sessionId);
+    assert.deepEqual(providerCall?.input, replyInput);
+    assert.equal(providerCall?.branch, "sent");
+    assert.equal(providerCall?.retry, undefined);
+    assert.equal(providerCall?.replay, undefined);
+    // Slack deduplicates on a key derived from the Call ID, which the tool Step keeps across attempts.
+    assert.equal(providerCall?.idempotencyKey, postThreadReply.idempotencyKey(providerCall?.callId ?? ""));
+
+    // The model read the sent message, so the call succeeded.
+    const reply = lastAssistantText(await sessions.getAgentSnapshot(session.sessionId));
+    assert.ok(reply.startsWith(scriptedReplyPrefix) && reply.includes('"timestamp":"1710000011.000600"'), reply);
+
+    assert.equal((await post(session, `interrupts/${interrupt.interrupt_id}/approve`, {})).status, 409);
+    assert.equal(postThreadReply.calls().length, 1);
+  });
+
   test(`${setup.harnessName}: session routes refuse a missing or wrong token and an empty message`, async () => {
     const session = await startSession();
     const missingToken = await fetch(`${baseUrl}/sessions/${session.sessionId}/snapshot`);
@@ -169,11 +215,14 @@ export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup):
     return (await response.json()) as Record<string, unknown>;
   }
 
-  function waitForApproval(session: RouteSession): Promise<{ interrupt_id: string; tool_name: string }> {
+  function waitForApproval(
+    session: RouteSession,
+    toolName = "cancel_order",
+  ): Promise<{ interrupt_id: string; tool_name: string }> {
     return pollUntil(async () => {
       const pending = (await getSnapshotJson(session)).pending_interrupts as { interrupt_id: string; tool_name: string }[];
-      return pending.find((interrupt) => interrupt.tool_name === "cancel_order");
-    }, { description: "a pending cancel_order approval", ...waitOptions });
+      return pending.find((interrupt) => interrupt.tool_name === toolName);
+    }, { description: `a pending ${toolName} approval`, ...waitOptions });
   }
 }
 
