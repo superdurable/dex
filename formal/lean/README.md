@@ -10,7 +10,7 @@ The semantics it formalizes is
 [`formal/semantics/dex-core-semantics.md`](../semantics/dex-core-semantics.md),
 revision 8. "Spec" below means that document.
 
-## Status: Stage 2a complete, safety is proved
+## Status: safety is proved; the liveness proof has fixed statements
 
 `safety_of_isWellFormed` is proved with no `sorry`:
 
@@ -22,8 +22,9 @@ revision 8. "Spec" below means that document.
 The proof was split into four work packages with fixed statements; all four
 are proved. See
 [Stage 2a: definitions and work packages](#stage-2a-definitions-and-work-packages).
-The two `sorry` that are left are the liveness inclusions of Stage 2b
-(`Simulation.lean`).
+Stage 2b proves liveness. Its definitions and statements are fixed, and the
+two inclusions of liveness are proved from the statements of six work
+packages, which are `sorry`. See [Stage 2b: liveness](#stage-2b-liveness).
 
 The first version of the fixed definitions was not inductive: the provers
 found configuration pairs that satisfied `IsSimulationState`, were not
@@ -71,6 +72,10 @@ of it.
 # The inductiveness fuzz, compiled, on every example program.
 # Arguments: fuel, sampling period, walk length, seeds.
 lake exe inductiveness-fuzz 120 5 6 2
+
+# The checks of the liveness definitions, compiled. Arguments: fuel, sampling
+# period, walk length (unused), seeds, and the word `liveness`.
+lake exe inductiveness-fuzz 200 4 6 3 liveness
 ```
 
 | Tool | Version |
@@ -92,6 +97,7 @@ and `make copyright-check` passes.
 | --- | --- |
 | `DexExpressiveness/Core/Assoc.lean` | Association-list maps, stable sort. |
 | `DexExpressiveness/Core/TransitionSystem.lean` | Runs, finite traces, fair maximal traces, markers; runs of appended schedules. Shared by both sides. |
+| `DexExpressiveness/Core/BlockRun.lean` | Runs in blocks and their flattening. Fixed definitions; work package L1. |
 | `DexExpressiveness/Dex/Syntax.lean` | Dex abstract syntax (spec §2). |
 | `DexExpressiveness/Dex/Config.lean` | Dex configurations (spec §3). |
 | `DexExpressiveness/Dex/MetaFunctions.lean` | The meta-functions of one commit (spec §4.2). |
@@ -119,10 +125,13 @@ and `make copyright-check` passes.
 | `DexExpressiveness/Simulation/LToDexComplete.lean`, `Simulation/Register.lean`, `Simulation/Completion.lean`, `Simulation/Completion/*.lean` | Work package 3, proved: L to Dex for the registration of a wait (`Register.lean`) and for the completion of an action (`Completion*.lean`). |
 | `DexExpressiveness/Simulation/LToDex.lean` | Proved from packages 2 and 3: `l_step_simulatedByActions` and `l_step_simulated`. |
 | `DexExpressiveness/Simulation/DexToL.lean`, `Simulation/DexToLLemmas.lean`, `Simulation/DexToLObserved.lean` | Work package 4, proved: `dex_step_simulated`. |
-| `DexExpressiveness/Simulation.lean` | The two liveness inclusions (`sorry` until Stage 2b). |
+| `DexExpressiveness/Simulation.lean` | Gathers the step simulations. |
+| `DexExpressiveness/Liveness/Statements.lean` | The fixed definitions of the liveness proof: silent steps, `fairActions`, `LFollowsDex`, `DexFollowsL`. |
+| `DexExpressiveness/Liveness/Silent.lean`, `Liveness/DexToLRun.lean`, `Liveness/DexToLFair.lean`, `Liveness/LToDexRun.lean`, `Liveness/LToDexFair.lean` | Work packages L2 to L6 of the liveness proof. |
+| `DexExpressiveness/Liveness.lean` | Proved from the work packages: the two liveness inclusions. |
 | `DexExpressiveness/FiniteTraces.lean` | Proved from the step simulations and the two invariants: the two finite-trace inclusions that give safety. |
 | `DexExpressiveness/Properties.lean` | Proved facts. No `sorry`. |
-| `DexExpressiveness/Examples/*.lean` | Concrete runs checked in the Lean kernel, lockstep checks, executable checks of `IsSimulationState` (`RelatedCheck.lean`), and the inductiveness fuzz (`Inductiveness.lean`). No `sorry`. |
+| `DexExpressiveness/Examples/*.lean` | Concrete runs checked in the Lean kernel, lockstep checks, executable checks of `IsSimulationState` (`RelatedCheck.lean`), the inductiveness fuzz (`Inductiveness.lean`), and the checks of the liveness definitions (`LivenessChecks.lean`). No `sorry`. |
 | `InductivenessFuzz.lean` | The program `lake exe inductiveness-fuzz`. Test tooling. |
 
 A reviewer who checks the statements against the spec reads, in order:
@@ -492,7 +501,9 @@ All of this is free of `sorry`. `#print axioms` shows only `propext`,
   three of them with no hypothesis (`Examples/WellFormedSafety.lean`).
 - `safety_of_isWellFormed`: proved, with no `sorry`.
 - `liveness_of_isWellFormed`, `expressiveness_of_isWellFormed`: proved from
-  the inclusion lemmas; the two of liveness are `sorry`.
+  the inclusion lemmas. The two inclusions of liveness are proved in
+  `Liveness.lean` from the statements of work packages L1 to L6, which are
+  `sorry`.
 - Examples, end to end on concrete traces, by kernel evaluation:
   - `Examples/Mutex.lean`: a two-thread mutex program. Both of its complete
     traces are finite traces of the L program and projected finite traces of
@@ -571,15 +582,18 @@ load selection from the translation failed `readWaiters_snapshot_of_cvOperand`.
 
 ## The `sorry` inventory
 
-There are 2, both for Stage 2b. The safety proof has none.
+There are 32, all in the liveness proof (Stage 2b). The safety proof has
+none. `liveness_of_isWellFormed` and `expressiveness_of_isWellFormed` depend
+on these and on nothing else unproved.
 
-| Stage | File | Lemma | What it needs |
-| --- | --- | --- | --- |
-| 2b | `Simulation.lean`, line 32 | `fairMaximalTrace_dex_to_l` | Build the L run from the Dex run by dropping handler steps; transfer F0 to F6 and the marker; equal limits of the two traces. |
-| 2b | `Simulation.lean`, line 42 | `fairMaximalTrace_l_to_dex` | Build the Dex run from the L run by inserting handler steps; the same transfers. |
-
-`liveness_of_isWellFormed` and `expressiveness_of_isWellFormed` depend on
-these two and on nothing else unproved.
+| Package | File | Lemmas |
+| --- | --- | --- |
+| L1 | `Core/BlockRun.lean` | `exists_flattening`, `flattening_position`, `flattening_exec_take`, `flattening_isConcatenation_events`, `flattening_isRunFor`, `flattening_hasFinitelyManyProgressSteps`, `isConcatenation_map`, `isConcatenation_of_map` |
+| L2 | `Liveness/Silent.lean` | `silentWeight_lt_of_isSilentKind`, `silentWeight_tick`, `dex_step_labels`, `isAdmissibleAction_of_isRunFor` |
+| L3 | `Liveness/DexToLRun.lean` | `exists_lFollowsDex`, `LFollowsDex.hasInfinitelyManySteps`, `LRunOfDexRun.isRunFor`, `LRunOfDexRun.isConcatenation_events`, `LRunOfDexRun.hasMarker` |
+| L4 | `Liveness/DexToLFair.lean` | `LRunOfDexRun.timeDiverges`, `.timersFire`, `.threadsBegin`, `.emitsSettle`, `.actionsComplete` |
+| L5 | `Liveness/LToDexRun.lean` | `exists_dexFollowsL`, `DexFollowsL.hasInfinitelyManySteps`, `DexRunOfLRun.isRunFor`, `DexRunOfLRun.isConcatenation_events`, `DexRunOfLRun.hasMarker` |
+| L6 | `Liveness/LToDexFair.lean` | `DexRunOfLRun.timeDiverges`, `.timersFire`, `.stepsStart`, `.workersSettle`, `.resultsCommit` |
 
 ## Decided in Stage 2a: handles are unforgeable
 
@@ -839,10 +853,95 @@ and in `Core/TransitionSystem.lean` (`exec_append`, `exec_snoc`). A lemma
 that only one package uses keeps its prefix (`wp2_`, `wp3a_`, `wp3b_`,
 `wp4_`).
 
+## Stage 2b: liveness
+
+Liveness (spec §5.5) is the equality of fair maximal traces with markers.
+Each inclusion builds an infinite run of one side from an infinite run of the
+other with the step simulations of Stage 2a, and then carries over the word,
+the trace, the marker, and the fairness assumptions F1 to F5.
+
+### The fixed definitions
+
+| Definition | Where | What it is |
+| --- | --- | --- |
+| `BlockRun`, `BlockRun.HasInfinitelyManySteps`, `BlockRun.IsFlattenedTo`, `IsBlockRun` | `Core/BlockRun.lean`, lines 23 to 66 | A run given as one finite list of labels per step of the other side, and its flattening into an `InfiniteRun`. |
+| `Dex.Action.isSilentKind`, `Dex.Task.silentWeight`, `Dex.Config.silentWeight` | `Liveness/Statements.lean`, lines 39 to 57 | The Dex steps L may not see (running a handler, returning it, dropping a task), and a number that every one of them lowers. |
+| `cleanupActions`, `fairActions` | `Liveness/Statements.lean`, lines 65 to 78 | `fairActions` is `simulatingActions` followed by the [WORKER-ABANDON] of every canceled task that holds no effect. |
+| `LFollowsDex`, `LRunOfDexRun` | `Liveness/Statements.lean`, lines 84 to 114 | The L run in blocks of length 0 or 1 that simulates a Dex run step by step, and its flattening. |
+| `DexFollowsL`, `DexRunOfLRun` | `Liveness/Statements.lean`, lines 118 to 153 | The Dex run in blocks of `fairActions` that simulates an L run step by step, and its flattening. |
+
+Two points of the design:
+
+- A Dex run can take steps that L does not see. They are all of a silent
+  kind, and each lowers the silent weight, so infinitely many progress steps
+  of the Flow include infinitely many that L sees. This gives the marker `∞`.
+- After the close, the tasks of the canceled Steps stay in `Θ`. L has no step
+  for a task that holds no effect, and F4 says that every task eventually
+  leaves `Θ`. So the Dex run built from an L run abandons these tasks right
+  after the step that left them. Between two blocks no such task and no
+  `Returned` task is left (`DexFollowsL.isSettled`, `noReturnedTask`).
+
+### Work packages
+
+`Liveness.lean` proves `fairMaximalTrace_dex_to_l` and
+`fairMaximalTrace_l_to_dex` from the statements below, so the statements are
+enough. Each package proves the `sorry` of its file and may add lemmas
+there. None may change `Liveness/Statements.lean`, the definitions of
+`Core/BlockRun.lean`, a statement of another package, or any file of Stage
+2a.
+
+| Package | File | Uses | Content |
+| --- | --- | --- | --- |
+| L1 | `Core/BlockRun.lean` | nothing | The flattening exists; it keeps the trace, the attempted requests, and whether the progress steps are finitely many. |
+| L2 | `Liveness/Silent.lean` | Stage 2a | Silent actions lower the silent weight; the L labels of a Dex step are progress steps exactly when the action is one; every action of a run for an admissible word is admissible. |
+| L3 | `Liveness/DexToLRun.lean` | L1, L2 | The L run of a Dex run exists (`dex_step_simulated`), attempts the same word, has the same trace and the same marker. |
+| L4 | `Liveness/DexToLFair.lean` | L1, the definitions | The L run of a fair Dex run is fair, one lemma per assumption. |
+| L5 | `Liveness/LToDexRun.lean` | L1, L2 | The Dex run of an L run exists (`l_step_simulatedByActions` and the cleanup), attempts the same word, has the same trace and the same marker. |
+| L6 | `Liveness/LToDexFair.lean` | L1, the definitions | The Dex run of a fair L run is fair, one lemma per assumption. |
+
+### Tested before proving
+
+`Examples/LivenessChecks.lean` tests the definitions on the configuration
+pairs of pseudo-random lockstep runs, on the pairs of runs in which the Dex
+side takes `fairActions`, and on the changed copies of all of them that the
+mirror of `IsSimulationState` accepts:
+
+1. Fair steps: from a settled pair, `fairActions` of every enabled L label
+   are enabled, have the events of the label, and end in a settled pair that
+   `checkState` accepts.
+2. Fairness correspondence: a thread whose next action has not begun has a
+   pending invocation (F3); a thread that issued an emit or began an action
+   has a task, with an effect exactly when it issued an emit (F4, F5); a due
+   timer is a due timer (F2); after the close a late emit is an effect of a
+   task (F4).
+3. Silent steps: every action of a silent kind lowers the silent weight, a
+   clock tick keeps it, a step with no L label is of a silent kind, and the L
+   labels are progress steps exactly when the action is one.
+4. Quiescence: in a settled pair, L has a step other than a clock tick or a
+   request exactly when the translated Flow has one. The markers `✓` and `δ`
+   compare this.
+
+`lake exe inductiveness-fuzz 200 4 6 3 liveness` checks 1,396,813 pairs,
+1,205,008 of them settled and 408,933 settled after the close, and reports no
+failure. Five `#guard` lines run the checks on few pairs when the file is
+built.
+
+Each check finds a planted fault (`120 5 6 2 liveness`; the fault was removed
+afterwards):
+
+| Check | Planted fault | Failures | Reported as |
+| --- | --- | --- | --- |
+| 1 | `cleanupActions` also abandons the tasks that hold a late emit | 42 | the fair step of the closing thread: `Related.lateEmits` |
+| 2 | the mirror of `PhaseMatchesStep` asks no task of a `waitStarted` thread | 18 | correspondence F3, and F4 and F5 |
+| 3 | a `Started` task weighs 2, like a `Running` one | 4,104 | `workerRun`: the weight does not fall |
+| 4 | `cleanupActions` abandons only `Returned` tasks | 60 | quiescence: L is quiescent, the Flow is not |
+
+The checks found no fault in the definitions. They test facts about one pair
+or one step. They cannot test a statement about an infinite run.
+
 ## Stage 2 outline
 
 1. Done: work packages 1 to 4 above give `safety_of_isWellFormed`.
-2. Stage 2b, liveness: the stuttering construction on infinite runs in both
-   directions (drop or insert the handler steps), the transfer of F0 to F6 and
-   of the marker, and the limit trace. Then `fairMaximalTrace_dex_to_l` and
-   `fairMaximalTrace_l_to_dex` give `liveness_of_isWellFormed`.
+2. Stage 2b, liveness: work packages L1 to L6 above give
+   `fairMaximalTrace_dex_to_l` and `fairMaximalTrace_l_to_dex`, and with them
+   `liveness_of_isWellFormed`.
