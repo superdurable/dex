@@ -245,22 +245,20 @@ func (setup *connectorSetup) putConnectionIfCurrent(
 	return nil
 }
 
-// beginConnectionWriteIfCurrent locks in the global order: connections file lock, connectionsMu, then store.mu.
-// It returns holding both locks for endConnectionWrite, or an error holding neither.
+// beginConnectionWriteIfCurrent locks in order: connections file lock, connectionsMu, then store.mu.
 func (setup *connectorSetup) beginConnectionWriteIfCurrent(
 	ctx context.Context,
 	connectorID string,
 	connectionName string,
 	expectation connectorConnectionWriteExpectation,
 ) (*connectorConnectionsFileLock, error) {
+	snapshot, err := setup.flowDefinitions.Load(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load Flow definitions before writing a Connector connection: %w", err)
+	}
 	fileLock, err := setup.store.lockConnectionsFile(ctx)
 	if err != nil {
 		return nil, err
-	}
-	snapshot, err := setup.flowDefinitions.Load(ctx)
-	if err != nil {
-		fileLock.release()
-		return nil, fmt.Errorf("load Flow definitions before writing a Connector connection: %w", err)
 	}
 	setup.connectionsMu.Lock()
 	if err := setup.doCheckConnectionWriteIsCurrent(snapshot.Response, connectorID, connectionName, expectation); err != nil {

@@ -302,6 +302,7 @@ func TestConnectorConnectionDeleteReturnsBusyWhenTheExternalLockOutlastsTheReque
 	if err != nil {
 		t.Fatal(err)
 	}
+	generationBefore := setup.connectionGeneration("gmail", "support-mail")
 	holder := startConnectionsLockHolderForTest(t, setup.store, nil)
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
@@ -310,6 +311,9 @@ func TestConnectorConnectionDeleteReturnsBusyWhenTheExternalLockOutlastsTheReque
 	mux.ServeHTTP(recorder, request.WithContext(ctx))
 	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), `"CONNECTOR_CONNECTIONS_FILE_BUSY"`) {
 		t.Fatalf("delete status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if generation := setup.connectionGeneration("gmail", "support-mail"); generation != generationBefore {
+		t.Fatalf("generation after a timed out delete = %d, want %d", generation, generationBefore)
 	}
 	holder.release(t)
 	after, err := os.ReadFile(setup.store.path)
