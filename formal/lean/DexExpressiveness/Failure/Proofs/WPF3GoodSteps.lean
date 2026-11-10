@@ -314,4 +314,254 @@ theorem wpf3_runGood_start (ghost ghostAfter : Ghost σ) (run changed : Run σ)
         · exact Or.inr (wpf3_isBeyond_mono isBeyond sourceEvolves.rankGrows)
       · exact absurd isNextId.symm (isNew original isOriginalMember)
 
+/-! ## Worker steps -/
+
+/-- A step that changes one real task, keeps the run and `par`, and keeps or
+grows `h`. -/
+theorem wpf3_good_updateRealTask (program : Program σ) (config next : Config σ)
+    (good : WPF3Good program config) (taskId : Nat) (task : Task σ)
+    (isFound : config.findRealTask? taskId = some task) (change : Task σ → Task σ)
+    (keepsId : ∀ candidate, (change candidate).base.id = candidate.base.id)
+    (isTasks : next.tasks =
+      config.tasks.map (fun candidate => if candidate.base.id = taskId then change candidate
+        else candidate))
+    (isZombies : next.zombies =
+      config.zombies.map (fun candidate => if candidate.base.id = taskId then change candidate
+        else candidate))
+    (sameRun : next.run = config.run) (sameNext : next.nextTaskId = config.nextTaskId)
+    (sameArguments : ∀ key, next.ghost.argumentsOf key = config.ghost.argumentsOf key)
+    (countsGrow : ∀ key, config.ghost.emittedCountOf key ≤ next.ghost.emittedCountOf key)
+    (changedFollows : WPF3TaskFollows program next.ghost (change task)) :
+    WPF3Good program next := by
+  obtain ⟨isMember, isId⟩ := wpf3_mem_of_findRealTask? config taskId task isFound
+  have isRealTasks : next.realTasks = config.realTasks.map (fun candidate =>
+      if candidate.base.id = taskId then change candidate else candidate) := by
+    simp only [Config.realTasks, isTasks, isZombies, List.map_append]
+  have sameIds : next.realTasks.map (fun candidate => candidate.base.id) =
+      config.realTasks.map (fun candidate => candidate.base.id) := by
+    rw [isRealTasks, List.map_map]
+    apply List.map_congr_left
+    intro candidate _
+    simp only [Function.comp_apply]
+    split
+    · exact keepsId candidate
+    · rfl
+  refine ⟨by rw [sameIds]; exact good.realTaskIdsNodup, ?_, ?_, ?_, ?_⟩
+  · intro candidate isCandidate
+    rw [sameNext]
+    rw [isRealTasks] at isCandidate
+    obtain ⟨original, isOriginalMember, isCandidateEq⟩ := List.mem_map.mp isCandidate
+    rw [← isCandidateEq]
+    split
+    · rw [keepsId]; exact good.realTaskIdsBelow original isOriginalMember
+    · exact good.realTaskIdsBelow original isOriginalMember
+  · intro candidate isCandidate
+    rw [isRealTasks] at isCandidate
+    obtain ⟨original, isOriginalMember, isCandidateEq⟩ := List.mem_map.mp isCandidate
+    rw [← isCandidateEq]
+    split
+    · rename_i isOriginalId
+      have isOriginal : original = task := eq_of_nodup_map (fun task => task.base.id)
+        config.realTasks good.realTaskIdsNodup isOriginalMember isMember
+        (isOriginalId.trans isId.symm)
+      rw [isOriginal]
+      exact changedFollows
+    · exact wpf3_taskFollows_mono program config.ghost next.ghost original
+        (good.tasksFollow original isOriginalMember) (sameArguments _) (countsGrow _)
+  · intro isNone key
+    rw [sameArguments]
+    exact good.notStarted (sameRun ▸ isNone) key
+  · intro run isRun
+    exact wpf3_runGood_congr config.ghost next.ghost run (good.runGood run (sameRun ▸ isRun))
+      sameArguments
+
+theorem wpf3_good_workerRun (program : Program σ)
+    (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
+    (good : WPF3Good program config) (taskId : Nat) (isFirstRun : Bool)
+    (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config (.workerRun taskId isFirstRun) = some (events, next)) :
+    WPF3Good program next := by
+  dsimp only [step] at isStep
+  cases isFound : config.findRealTask? taskId with
+  | none => rw [isFound] at isStep; cases isStep
+  | some task =>
+    rw [isFound] at isStep
+    dsimp only at isStep
+    obtain ⟨isMember, _⟩ := wpf3_mem_of_findRealTask? config taskId task isFound
+    obtain ⟨arguments, hasArguments, sameContext, sameInput, sameSnapshot, sameResults,
+      emittedAtMost, startedFacts, _⟩ := good.tasksFollow task isMember
+    have hasHistory : ∃ found, config.ghost.findInvocation? task.key = some found := by
+      unfold Ghost.argumentsOf at hasArguments
+      cases isFoundHistory : config.ghost.findInvocation? task.key with
+      | none => rw [isFoundHistory] at hasArguments; cases hasArguments
+      | some found => exact ⟨found, rfl⟩
+    obtain ⟨found, isFoundHistory⟩ := hasHistory
+    cases isPhase : task.base.phase with
+    | running _ _ => rw [isPhase] at isStep; cases isStep
+    | returned _ => rw [isPhase] at isStep; cases isStep
+    | started =>
+      rw [isPhase, isFoundHistory] at isStep
+      dsimp only at isStep
+      split at isStep
+      · cases isStep
+      obtain ⟨_, isNext⟩ := Prod.mk.inj (Option.some.inj isStep)
+      have isGhostKeeps : WPF3GhostKeeps config.ghost next.ghost := by
+        rw [← isNext]
+        cases isFirstRun
+        · exact wpf3_ghostKeeps_refl _
+        · exact wpf3_ghostKeeps_updateInvocation _ _ _ (fun _ => rfl) (fun _ => rfl)
+      have isCompute := wpf3_task_compute program ignoresAttemptContext task arguments
+        sameContext sameInput sameSnapshot sameResults
+      refine wpf3_good_updateRealTask program config next good taskId task isFound
+        (fun current => { current with
+          base := { current.base with
+            phase := .running (task.base.compute (program task.attemptContext)).1
+              (task.base.compute (program task.attemptContext)).2 } })
+        (fun _ => rfl) (by rw [← isNext]; rfl) (by rw [← isNext]; rfl) (by rw [← isNext]; rfl)
+        (by rw [← isNext]; rfl)
+        (fun key => (isGhostKeeps key).1) (fun key => Nat.le_of_eq (isGhostKeeps key).2.symm) ?_
+      refine ⟨arguments, by rw [(isGhostKeeps _).1]; exact hasArguments, sameContext, sameInput,
+        sameSnapshot, sameResults, by rw [(isGhostKeeps _).2]; exact emittedAtMost,
+        (fun isStarted => by simp at isStarted), ?_⟩
+      intro remaining response isRunning
+      simp only [Dex.TaskPhase.running.injEq] at isRunning
+      rw [← isRunning.1, isCompute, startedFacts isPhase, List.drop_zero]
+      rfl
+
+theorem wpf3_good_workerEffect (program : Program σ) (config : Config σ)
+    (good : WPF3Good program config) (taskId : Nat) (isFirstOccurrence : Bool)
+    (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config (.workerEffect taskId isFirstOccurrence) = some (events, next)) :
+    WPF3Good program next := by
+  dsimp only [step] at isStep
+  cases isFound : config.findRealTask? taskId with
+  | none => rw [isFound] at isStep; cases isStep
+  | some task =>
+    rw [isFound] at isStep
+    dsimp only at isStep
+    obtain ⟨isMember, _⟩ := wpf3_mem_of_findRealTask? config taskId task isFound
+    obtain ⟨arguments, hasArguments, sameContext, sameInput, sameSnapshot, sameResults,
+      emittedAtMost, _, runningFacts⟩ := good.tasksFollow task isMember
+    cases isPhase : task.base.phase with
+    | started => rw [isPhase] at isStep; cases isStep
+    | returned _ => rw [isPhase] at isStep; cases isStep
+    | running remaining response =>
+      cases remaining with
+      | nil => rw [isPhase] at isStep; cases isStep
+      | cons effect laterEffects =>
+        have isRemaining := runningFacts _ _ isPhase
+        rw [isPhase] at isStep
+        dsimp only at isStep
+        split at isStep
+        · cases isStep
+        rename_i isAgree
+        have isFirstEq : isFirstOccurrence =
+            decide (config.ghost.emittedCountOf task.key < task.emittedCount + 1) := by
+          simpa using isAgree
+        obtain ⟨_, isNext⟩ := Prod.mk.inj (Option.some.inj isStep)
+        have hasHistory : ∃ found, config.ghost.findInvocation? task.key = some found := by
+          unfold Ghost.argumentsOf at hasArguments
+          cases isFoundHistory : config.ghost.findInvocation? task.key with
+          | none => rw [isFoundHistory] at hasArguments; cases hasArguments
+          | some found => exact ⟨found, rfl⟩
+        obtain ⟨found, isFoundHistory⟩ := hasHistory
+        have nextArguments : ∀ key, next.ghost.argumentsOf key = config.ghost.argumentsOf key := by
+          intro key
+          rw [← isNext]
+          cases isFirstOccurrence
+          · rfl
+          · exact wpf3_argumentsOf_updateInvocation _ _ _ _ (fun _ => rfl)
+        have nextCount : ∀ key, next.ghost.emittedCountOf key =
+            if isFirstOccurrence && decide (key = task.key) then task.emittedCount + 1
+            else config.ghost.emittedCountOf key := by
+          intro key
+          rw [← isNext]
+          cases isFirstOccurrence
+          · rfl
+          · show (config.ghost.updateInvocation task.key _).emittedCountOf key = _
+            rw [wpf3_emittedCountOf_updateInvocation]
+            by_cases isKey : key = task.key
+            · subst isKey
+              simp [isFoundHistory]
+            · simp [isKey]
+        have countsGrow : ∀ key, config.ghost.emittedCountOf key ≤
+            next.ghost.emittedCountOf key := by
+          intro key
+          rw [nextCount]
+          split
+          · rename_i isFirstAndKey
+            simp only [Bool.and_eq_true, decide_eq_true_eq] at isFirstAndKey
+            obtain ⟨isFirst, isKey⟩ := isFirstAndKey
+            rw [isFirst] at isFirstEq
+            simp only [Bool.true_eq, decide_eq_true_eq] at isFirstEq
+            rw [isKey]; omega
+          · exact Nat.le_refl _
+        refine wpf3_good_updateRealTask program config next good taskId task isFound
+          (fun current => { current with
+            base := { current.base with phase := .running laterEffects response }
+            emittedCount := task.emittedCount + 1 })
+          (fun _ => rfl) (by rw [← isNext]; rfl) (by rw [← isNext]; rfl) (by rw [← isNext]; rfl)
+          (by rw [← isNext]; rfl) nextArguments countsGrow ?_
+        refine ⟨arguments, by rw [nextArguments]; exact hasArguments, sameContext, sameInput,
+          sameSnapshot, sameResults, ?_, (fun isStarted => by simp at isStarted), ?_⟩
+        · show task.emittedCount + 1 ≤ next.ghost.emittedCountOf task.key
+          rw [nextCount]
+          cases isFirstOccurrence
+          · simp only [Bool.false_eq, decide_eq_false_iff_not, Nat.not_lt] at isFirstEq
+            simpa using isFirstEq
+          · simp
+        · intro remaining laterResponse isRunning
+          simp only [Dex.TaskPhase.running.injEq] at isRunning
+          rw [← isRunning.1]
+          show laterEffects = (arguments.compute program.failureFreeFlow task.key).1.drop
+            (task.emittedCount + 1)
+          rw [List.drop_add_one_eq_tail_drop, ← isRemaining]
+          rfl
+
+theorem wpf3_good_workerReturn (program : Program σ) (config : Config σ)
+    (good : WPF3Good program config) (taskId : Nat) (isFirstReturn : Bool)
+    (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config (.workerReturn taskId isFirstReturn) = some (events, next)) :
+    WPF3Good program next := by
+  dsimp only [step] at isStep
+  cases isFound : config.findRealTask? taskId with
+  | none => rw [isFound] at isStep; cases isStep
+  | some task =>
+    rw [isFound] at isStep
+    dsimp only at isStep
+    obtain ⟨isMember, _⟩ := wpf3_mem_of_findRealTask? config taskId task isFound
+    obtain ⟨arguments, hasArguments, sameContext, sameInput, sameSnapshot, sameResults,
+      emittedAtMost, _, _⟩ := good.tasksFollow task isMember
+    have hasHistory : ∃ found, config.ghost.findInvocation? task.key = some found := by
+      unfold Ghost.argumentsOf at hasArguments
+      cases isFoundHistory : config.ghost.findInvocation? task.key with
+      | none => rw [isFoundHistory] at hasArguments; cases hasArguments
+      | some found => exact ⟨found, rfl⟩
+    obtain ⟨found, isFoundHistory⟩ := hasHistory
+    cases isPhase : task.base.phase with
+    | started => rw [isPhase] at isStep; cases isStep
+    | returned _ => rw [isPhase] at isStep; cases isStep
+    | running remaining response =>
+      cases remaining with
+      | cons _ _ => rw [isPhase] at isStep; cases isStep
+      | nil =>
+        rw [isPhase, isFoundHistory] at isStep
+        dsimp only at isStep
+        split at isStep
+        · cases isStep
+        obtain ⟨_, isNext⟩ := Prod.mk.inj (Option.some.inj isStep)
+        have isGhostKeeps : WPF3GhostKeeps config.ghost next.ghost := by
+          rw [← isNext]
+          cases isFirstReturn
+          · exact wpf3_ghostKeeps_refl _
+          · exact wpf3_ghostKeeps_updateInvocation _ _ _ (fun _ => rfl) (fun _ => rfl)
+        refine wpf3_good_updateRealTask program config next good taskId task isFound
+          (fun current => { current with base := { current.base with phase := .returned response } })
+          (fun _ => rfl) (by rw [← isNext]; rfl) (by rw [← isNext]; rfl) (by rw [← isNext]; rfl)
+          (by rw [← isNext]; rfl) (fun key => (isGhostKeeps key).1)
+          (fun key => Nat.le_of_eq (isGhostKeeps key).2.symm) ?_
+        exact ⟨arguments, by rw [(isGhostKeeps _).1]; exact hasArguments, sameContext, sameInput,
+          sameSnapshot, sameResults, by rw [(isGhostKeeps _).2]; exact emittedAtMost,
+          (fun isStarted => by simp at isStarted), (fun _ _ isRunning => by simp at isRunning)⟩
+
 end DexExpressiveness.DexF
