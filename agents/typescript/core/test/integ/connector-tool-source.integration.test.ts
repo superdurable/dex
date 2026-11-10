@@ -33,7 +33,13 @@ import {
 } from "../../src/connectors/index.js";
 import { isProvenNotSent, lowerCamelToSnake, mayHaveDispatched } from "../../src/connectors/connector-tool-source.js";
 import type { AgentToolCall, AgentTurnContext, ToolPolicy } from "../../src/index.js";
-import { ledgerConnection, readFakeLedgerManifest, retriedNoteManifest } from "../fixtures/connector-test-agent.js";
+import {
+  byIdManifest,
+  ledgerConnection,
+  previousByIdToolName,
+  readFakeLedgerManifest,
+  retriedNoteManifest,
+} from "../fixtures/connector-test-agent.js";
 import { conformanceSuiteDirectory } from "../fixtures/conformance-suite.js";
 import {
   CloseAccountInputSchema,
@@ -41,6 +47,7 @@ import {
   CreatePayoutInputSchema,
   CreatePayoutOperation,
   FakeLedgerProvider,
+  GetBalanceByIdOperation,
   GetBalanceInputSchema,
   GetBalanceOperation,
   PostNoteInputSchema,
@@ -60,6 +67,15 @@ interface ConformanceCases {
     readonly outcome: ConnectorBranchOutcome;
   }[];
   readonly toolNameCases: readonly { readonly operationId: string; readonly snakeName: string }[];
+  readonly fenceObservationCases: readonly {
+    readonly name: string;
+    readonly attempt: number;
+    readonly previousCheckpoint: string | null;
+    readonly readsCheckpoint: boolean;
+    readonly savedHeartbeats: readonly unknown[];
+    readonly mayHaveDispatched: boolean;
+    readonly isProvenNotSent: boolean;
+  }[];
   readonly resultCases: readonly { readonly json: string; readonly text: string }[];
   readonly truncationCases: readonly {
     readonly output: string;
@@ -115,6 +131,25 @@ describe("connector tools follow the shared conformance cases", () => {
     }
   });
 
+  test("fence events are observed as the conformance suite says", async () => {
+    const operation = { connectorId: "fake-ledger", operationId: "postNote" };
+    const callId = deriveCallID("session-1", "CallTool-3", operation);
+    const otherCallId = deriveCallID("session-1", "CallTool-4", operation);
+    const bind = (value: string) => value.replaceAll("<callId>", callId).replaceAll("<otherCallId>", otherCallId);
+    for (const testCase of conformance.fenceObservationCases) {
+      const previous = testCase.previousCheckpoint === null ? undefined : bind(testCase.previousCheckpoint);
+      const fenced = fencedCallWithContext(testCase.attempt, previous, new SessionCheckpoints());
+      if (testCase.readsCheckpoint) {
+        fenced.context.hasLastHeartbeatValue();
+      }
+      for (const saved of testCase.savedHeartbeats) {
+        await fenced.context.recordHeartbeat(JSON.parse(bind(JSON.stringify(saved))) as unknown);
+      }
+      assert.equal(mayHaveDispatched(fenced.call, fenced.context), testCase.mayHaveDispatched, testCase.name);
+      assert.equal(isProvenNotSent(fenced.call, fenced.context), testCase.isProvenNotSent, testCase.name);
+    }
+  });
+
   test("result text is the same in every core", () => {
     for (const testCase of conformance.resultCases) {
       assert.equal(formatConnectorResult(testCase.json), testCase.text);
@@ -156,6 +191,14 @@ describe("connector tools come from the manifest", () => {
       assert.equal(tool.retryPolicy.maximumAttempts, 3);
       assert.equal(tool.retryPolicy.totalDurationMs, 3_600_000);
     }
+  });
+
+  test("an explicit name keeps a previous default tool name", () => {
+    const operation = new GetBalanceByIdOperation(provider);
+    const options = { manifest: byIdManifest(), inputValidator: GetBalanceInputSchema };
+    assert.equal(connectorTool(operation, ledgerConnection, options).name, "fake-ledger_get_balance_by_id");
+    const kept = connectorTool(operation, ledgerConnection, { ...options, name: previousByIdToolName });
+    assert.equal(kept.name, "fake-ledger_get_balance_by_i_d");
   });
 
   test("an operation without agent.exposed is refused", () => {
@@ -391,8 +434,8 @@ describe("the Step context the single-dispatch fence uses", () => {
   });
 
   test("only fence checkpoints proving no send keep the manifest listing", async () => {
-    const dispatched = (fenced: FencedCall, previous: string | undefined) =>
-      mayHaveDispatched(fenced.call, fenced.context, previous);
+    const dispatched = (fenced: FencedCall, _previous: string | undefined) =>
+      mayHaveDispatched(fenced.call, fenced.context);
     assert.equal(dispatched(fencedCallWithContext(2, undefined, new SessionCheckpoints()), undefined), false);
 
     const notSent = new SessionCheckpoints();
@@ -427,7 +470,7 @@ describe("the Step context the single-dispatch fence uses", () => {
       ["a claim", claimed.checkpoint, true],
       ["a marker of another call", notSent.checkpoint?.replace(callId, "f".repeat(callId.length)), true],
       ["a malformed marker", '{"callId": 7, "state": "notSent"}', true],
-      ["a checkpoint that is not a marker", '"a task handle"', false],
+      ["a checkpoint that is not a marker", '"a task handle"', true],
       ["no checkpoint", undefined, true],
     ];
     for (const [label, previous, expected] of previousCheckpoints) {

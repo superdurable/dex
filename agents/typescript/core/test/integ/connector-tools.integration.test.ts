@@ -36,6 +36,7 @@ import {
   connectorAgentDroppedToolsVariable,
   connectorAgentMaxResultBytesVariable,
   createConnectorAgentFlow,
+  previousByIdToolName,
 } from "../fixtures/connector-test-agent.js";
 import {
   FakeLedgerProvider,
@@ -233,6 +234,54 @@ describe("connector tools on a Dex engine", () => {
     assert.equal(record?.error, "fake-ledger postNote returned providerRejected: PROVIDER_REJECTION: refused after send");
     assert.deepEqual(await answerLines(sessionId, 1), [`post_note: ${outcomeUnknownToolResult}`]);
     assert.equal(harness.ledger.writes("postNote").length, 1);
+  });
+
+  test("a fenced write that overwrites its claim then is listed rejected stays unknown", async () => {
+    const harness = newHarness();
+    await harness.startWorker();
+    const [, lines] = await runTurn([["post_note", { accountId: "a-1", text: "overwrite-after-send reject-after-send" }]]);
+    // The operation's own checkpoint replaced the claim; the claim still counts.
+    assert.deepEqual(lines, [`post_note: ${outcomeUnknownToolResult}`]);
+    assert.equal(harness.ledger.writes("postNote").length, 1);
+  });
+
+  test("a fenced write that overwrites its claim then retries is never sent again", async () => {
+    const harness = newHarness();
+    await harness.startWorker();
+    const words = "overwrite-after-send retry-after-send";
+    let [, lines] = await runTurn([["post_note", { accountId: "a-1", text: words }]]);
+    // A single attempt: the overwrite proves nothing, so the call is not retry-later.
+    assert.deepEqual(lines, [`post_note: ${outcomeUnknownToolResult}`]);
+    assert.equal(harness.ledger.sends("postNote").length, 1);
+
+    [, lines] = await runTurn([["post_note_retried", { accountId: "a-1", text: words }]]);
+    // In CallTool, attempt 2 reads the overwrite, fails closed, and does not send.
+    assert.deepEqual(lines, [`post_note_retried: ${outcomeUnknownToolResult}`]);
+    assert.equal(harness.ledger.sends("postNote").length, 2);
+  });
+
+  test("a retry whose fence fails closed stays unknown", async () => {
+    const harness = newHarness();
+    await harness.startWorker();
+    const [, lines] = await runTurn([
+      ["post_note_retried", { accountId: "a-1", text: "own-checkpoint-once reject-when-fail-closed" }],
+    ]);
+    // Attempt 2 reads a checkpoint that is not a marker, so an earlier send cannot be ruled out.
+    assert.deepEqual(lines, [`post_note_retried: ${outcomeUnknownToolResult}`]);
+    assert.deepEqual(harness.ledger.sends("postNote"), []);
+  });
+
+  test("an explicit name keeps a previous tool name and resumes its call", async () => {
+    const harness = newHarness();
+    const worker = await harness.startWorker();
+    const sessionId = `connector-${randomUUID()}`;
+    await sessions.startSession(sessionId, calls([[previousByIdToolName, { accountId: "a-1" }]]));
+    await sessions.waitForPendingInterrupt(sessionId);
+    // A new deploy keeps the previous name with name, so the recorded call still finds its tool.
+    await worker.kill();
+    await harness.startWorker();
+    assert.equal(await sessions.resolveInterrupt(sessionId, "call-0", true), true);
+    assert.deepEqual(await answerLines(sessionId, 1), [`${previousByIdToolName}: {"accountId":"a-1","amount":100}`]);
   });
 
   test("arguments that break the schema fail without running the operation", async () => {

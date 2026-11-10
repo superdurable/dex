@@ -31,6 +31,7 @@ from tests.conftest import ScriptedAgentHarness
 from tests.connector_agent import (
     DROPPED_TOOLS_ENVIRONMENT_VARIABLE,
     MAX_RESULT_BYTES_ENVIRONMENT_VARIABLE,
+    PREVIOUS_BY_ID_TOOL_NAME,
 )
 from tests.fake_ledger import SECRET_ENVIRONMENT_VARIABLE, FakeLedgerProvider
 
@@ -201,6 +202,74 @@ async def test_a_fenced_write_listed_rejected_after_its_claim_is_unknown(
     snapshot = await harness.wait_for_turns(session_id, 1)
     assert _answer_lines(snapshot) == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
     assert len(ledger.writes("postNote")) == 1
+
+
+async def test_a_fenced_write_that_overwrites_its_claim_then_is_listed_rejected_stays_unknown(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    _, lines = await _run_turn(
+        harness,
+        ("post_note", {"accountId": "a-1", "text": "overwrite-after-send reject-after-send"}),
+    )
+    # The operation's own checkpoint replaced the claim; the claim still counts.
+    assert lines == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.writes("postNote")) == 1
+
+
+async def test_a_fenced_write_that_overwrites_its_claim_then_retries_is_never_sent_again(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    words = "overwrite-after-send retry-after-send"
+    _, lines = await _run_turn(harness, ("post_note", {"accountId": "a-1", "text": words}))
+    # A single attempt: the overwrite proves nothing, so the call is not retry-later.
+    assert lines == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.sends("postNote")) == 1
+
+    _, lines = await _run_turn(harness, ("post_note_retried", {"accountId": "a-1", "text": words}))
+    # In CallTool, attempt 2 reads the overwrite, fails closed, and does not send.
+    assert lines == [f"post_note_retried: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.sends("postNote")) == 2
+
+
+async def test_a_retry_whose_fence_fails_closed_stays_unknown(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    _, lines = await _run_turn(
+        harness,
+        (
+            "post_note_retried",
+            {"accountId": "a-1", "text": "own-checkpoint-once reject-when-fail-closed"},
+        ),
+    )
+    # Attempt 2 reads a checkpoint that is not a marker, so an earlier send cannot be ruled out.
+    assert lines == [f"post_note_retried: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert ledger.sends("postNote") == []
+
+
+async def test_an_explicit_name_keeps_a_previous_tool_name_and_resumes_its_call(
+    connector_harness: ScriptedAgentHarness,
+) -> None:
+    harness = connector_harness
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, _calls((PREVIOUS_BY_ID_TOOL_NAME, {"accountId": "a-1"}))
+    )
+    await _pending_interrupt(harness, session_id)
+    # A new deploy keeps the previous name with name=, so the recorded call still finds its tool.
+    worker.kill()
+    await harness.stack.start_worker()
+    assert await harness.sessions.resolve_interrupt(session_id, "call-0", approved=True)
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert _answer_lines(snapshot) == [
+        f'{PREVIOUS_BY_ID_TOOL_NAME}: {{"accountId":"a-1","amount":100}}'
+    ]
 
 
 # Schema validation before decoding

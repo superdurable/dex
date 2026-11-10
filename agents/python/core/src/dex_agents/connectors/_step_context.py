@@ -59,7 +59,7 @@ class ConnectorStepContext:
         self._heartbeat = heartbeat
         self._save_checkpoint = save_checkpoint
         # The source reads it on a Retry; a failed save leaves the earlier value.
-        self._saved_heartbeat_value: object | None = None
+        self._saved_heartbeat_values: list[object] = []
         # The source reads it to tell a lost fence checkpoint from an unfenced operation.
         self._has_read_checkpoint = False
 
@@ -128,7 +128,7 @@ class ConnectorStepContext:
         if self._save_checkpoint is None:
             raise RuntimeError("this tool Step cannot save heartbeat checkpoints")
         await self._save_checkpoint(encode_heartbeat_value(value))
-        self._saved_heartbeat_value = value
+        self._saved_heartbeat_values.append(value)
 
 
 def encode_heartbeat_value(value: object) -> str:

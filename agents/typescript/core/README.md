@@ -1475,9 +1475,9 @@ outcome unknown:
 
 | Branch | Record | The model reads |
 | --- | --- | --- |
-| A required (success) branch | `succeeded` | The value as compact JSON, keys sorted |
-| `uncertain`, whatever the listing says | `outcome_unknown` (`ToolOutcomeUnknownError`) | `outcomeUnknownToolResult` |
-| A Mutation's `defect`, whatever the listing says | `outcome_unknown` | The same text |
+| `uncertain`, whatever the listing or the required branches say | `outcome_unknown` (`ToolOutcomeUnknownError`) | `outcomeUnknownToolResult` |
+| A Mutation's `defect`, whatever the listing or the required branches say | `outcome_unknown` | The same text |
+| A required (success) branch other than `defect` | `succeeded` | The value as compact JSON, keys sorted |
 | Any Mutation branch when its fence cannot prove that nothing was sent | `outcome_unknown` | The same text |
 | Listed `rejected` under `agent.branches` | `failed` (`ToolExecutionError`) | `<connector> <operation> returned <branch>: <kind>: <message>` |
 | Listed `unknown`, or a Mutation branch not listed | `outcome_unknown` | `outcomeUnknownToolResult` |
@@ -1489,16 +1489,23 @@ an undeclared branch, and the source cannot tell those apart. A Query's
 `defect` follows its listing.
 
 A Mutation that uses the single-dispatch fence gets one more check, the same
-one the Go Connector SDK makes for Go agent hosts. The source watches the
-fence's heartbeat checkpoints through its Step context. When they cannot prove
-that no request reached the provider, every branch but the success branch
-records outcome unknown, whatever the listing says: this attempt claimed a
-send (with or without a provider ID), or the earlier attempt's checkpoint is a
-malformed marker, belongs to another call, does not allow this attempt a send,
-or is missing on a retry that read it. Known gap: a checkpoint that is not a
-fence marker at all is left to the fence, which fails closed on it itself. A
-Mutation with its own checkpoint, or none, gets no such check and relies on its
-listing.
+one the Go Connector SDK makes for Go agent hosts. The source observes every
+fence marker the attempt saves through its Step context, bound to the call's
+Call ID and attempt. Once the fence claims a send, or records a provider ID,
+the attempt may have sent. Only a later `canResend` marker of the same call and
+attempt, after a claim without a provider ID, lowers that, as the fence's own
+`recordCanResend` does. The operation's own later checkpoints never lower it.
+On a retry that reads the earlier checkpoint, a missing checkpoint, one that is
+not a fence marker, a malformed one, another call's, or one that does not allow
+this attempt a send also means the request may have been sent. While the
+request may have been sent, every branch but the success branch records outcome
+unknown, whatever the listing says, and a Retry is never proof that nothing was
+sent. The core cannot see inside the fence, so it reads the markers instead of
+the fence's own events: a forged `canResend` marker of the same call would
+count. A Mutation that never reads its checkpoint and never saves a fence
+marker gets no such check and relies on its listing.
+`agents/conformance/connector_tools.json` pins these cases in
+`fenceObservationCases`.
 
 A result over `maxResultBytes` (default `defaultConnectorResultMaxBytes`,
 64 KiB of UTF-8 text, set per source or per tool) is cut, followed by

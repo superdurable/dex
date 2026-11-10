@@ -479,6 +479,36 @@
       },
       "mayHaveDispatched": true,
       "outcome": "rejected"
+    },
+    {
+      "kind": "mutation",
+      "branch": "defect",
+      "requiredBranches": [
+        "done",
+        "defect"
+      ],
+      "agentBranches": {},
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "uncertain",
+      "requiredBranches": [
+        "done",
+        "uncertain"
+      ],
+      "agentBranches": {},
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "query",
+      "branch": "defect",
+      "requiredBranches": [
+        "done",
+        "defect"
+      ],
+      "agentBranches": {},
+      "outcome": "failed"
     }
   ],
   "toolNameCases": [
@@ -647,6 +677,310 @@
       "maxResultBytes": 2,
       "expectedOutput": "a\n[Dex] truncated, 4 bytes",
       "truncatedOutputBytes": 4
+    }
+  ],
+  "fenceObservationCases": [
+    {
+      "name": "an operation without the fence",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": false,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "notSent before sending",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "notSent"
+        }
+      ],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": true
+    },
+    {
+      "name": "a claim",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a claim, then a provider ID",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed",
+          "providerId": "note-1"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a claim, then canResend",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "canResend"
+        }
+      ],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": true
+    },
+    {
+      "name": "a claim, then the operation's own checkpoint",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "stage": "after send"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a claim, then a notSent marker",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "notSent"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "canResend after a provider ID",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed",
+          "providerId": "note-1"
+        },
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "canResend"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "canResend of another call",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "callId": "<otherCallId>",
+          "attempt": 1,
+          "state": "canResend"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "notSent, then the operation's own checkpoint",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "notSent"
+        },
+        {
+          "stage": "after send"
+        }
+      ],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": true
+    },
+    {
+      "name": "a retry after notSent",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after canResend",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"canResend\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after notSent, sent not again",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 2,
+          "state": "notSent"
+        }
+      ],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": true
+    },
+    {
+      "name": "a retry after a claim",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"claimed\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after a claim, then notSent",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"claimed\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 2,
+          "state": "notSent"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after the operation's own checkpoint",
+      "attempt": 2,
+      "previousCheckpoint": "{\"stage\":\"after send\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after a checkpoint that is not an object",
+      "attempt": 2,
+      "previousCheckpoint": "\"a task handle\"",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after a malformed marker",
+      "attempt": 2,
+      "previousCheckpoint": "{\"callId\":7,\"state\":\"notSent\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after another call's marker",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<otherCallId>\",\"state\":\"notSent\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after a lost checkpoint",
+      "attempt": 2,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry without the fence and without a checkpoint",
+      "attempt": 2,
+      "previousCheckpoint": null,
+      "readsCheckpoint": false,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a stale marker two attempts back",
+      "attempt": 3,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
     }
   ]
 }

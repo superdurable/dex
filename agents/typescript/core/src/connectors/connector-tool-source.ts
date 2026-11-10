@@ -38,7 +38,12 @@ import type { AgentToolCall, ToolEffect } from "../agent-session-values.js";
 import { serializeJsonWithSpacedSeparators } from "../stepwise/json-schema-validation.js";
 import type { SourceToolDefinition, ToolSource } from "../stepwise/tool-source.js";
 import { checkConnectorInputSchema, compareCodePoints, findConnectorInputViolation } from "./connector-input-schema.js";
-import { ConnectorStepContext, hasReadCheckpoint, readSavedHeartbeatValue } from "./connector-step-context.js";
+import {
+  ConnectorStepContext,
+  hasReadCheckpoint,
+  readPreviousCheckpoint,
+  readSavedHeartbeatValues,
+} from "./connector-step-context.js";
 
 /**
  * Default {@link ConnectorToolSource.sourceName}.
@@ -226,18 +231,18 @@ export interface ConnectorTool {
  * The rules apply in this order. The manifest listing comes after the checks that can only tighten an outcome to
  * `outcome_unknown`:
  *
- * 1. A required branch is `succeeded`.
- * 2. `uncertain` is `outcome_unknown`, whatever `agent.branches` says. It means the write may have happened, so a
- *    listing of it as `rejected` is a manifest error.
- * 3. A Mutation's `defect` is `outcome_unknown`, whatever `agent.branches` says. The Connector SDK selects
- *    `defect` for some attempts that already called the provider, such as an invalid attempt or an undeclared
- *    branch, and a host cannot tell those apart.
+ * 1. `uncertain` is `outcome_unknown`, whatever `agent.branches` says or whether it is declared required. It means
+ *    the write may have happened, so a listing of it as `rejected` is a manifest error.
+ * 2. A Mutation's `defect` is `outcome_unknown`, whatever `agent.branches` says or whether it is declared required.
+ *    The Connector SDK selects `defect` for some attempts that already called the provider, such as an invalid
+ *    attempt or an undeclared branch, and a host cannot tell those apart.
+ * 3. A required branch other than `defect` is `succeeded`.
  * 4. On a Mutation, any other branch is `outcome_unknown` when `mayHaveDispatched` is set: its single-dispatch
  *    fence cannot prove that no request reached the provider.
  * 5. A branch that `agent.branches` lists as `rejected` is `rejected`.
  * 6. A branch that `agent.branches` lists as `unknown` is `outcome_unknown`.
  * 7. Any other optional branch of a Mutation is `outcome_unknown`.
- * 8. Any other optional branch of a Query, including `defect`, is `failed`.
+ * 8. Any other branch of a Query, including `defect`, is `failed`.
  *
  * The rule fails closed: an optional branch of a Mutation that the manifest does not classify is
  * `outcome_unknown`, because the write may have happened.
@@ -252,8 +257,9 @@ export interface ConnectorTool {
  * ```
  * @param options - The operation kind, the selected branch, the required branches, `agent.branches`, and
  * `mayHaveDispatched`: whether the attempt's single-dispatch fence checkpoints leave open that the request reached
- * the provider, because this attempt claimed a send or the earlier attempt's checkpoint is missing, malformed,
- * foreign, or does not allow this attempt a send. {@link ConnectorToolSource} computes it. It defaults to `false`
+ * the provider, because this attempt claimed a send and no canResend followed, or the earlier attempt's checkpoint
+ * is missing, not a fence marker, malformed, foreign, or does not allow this attempt a send.
+ * {@link ConnectorToolSource} computes it. It defaults to `false`
  * and applies only to a Mutation.
  * @returns The outcome to record.
  * @since 0.4.0
@@ -266,13 +272,13 @@ export function classifyConnectorBranch(options: {
   readonly mayHaveDispatched?: boolean;
 }): ConnectorBranchOutcome {
   const { kind, branch, requiredBranches, agentBranches } = options;
-  if (requiredBranches.has(branch)) {
-    return "succeeded";
-  }
-  if (branch === uncertainBranch) {
+  if (branch === uncertainBranch || (kind === "mutation" && branch === defectBranch)) {
     return "outcome_unknown";
   }
-  if (kind === "mutation" && (branch === defectBranch || options.mayHaveDispatched === true)) {
+  if (branch !== defectBranch && requiredBranches.has(branch)) {
+    return "succeeded";
+  }
+  if (kind === "mutation" && options.mayHaveDispatched === true) {
     return "outcome_unknown";
   }
   const listed = Object.hasOwn(agentBranches, branch) ? agentBranches[branch] : undefined;
@@ -624,7 +630,7 @@ export class ConnectorToolSource implements ToolSource {
       branch: result.branch,
       requiredBranches: tool.requiredBranches,
       agentBranches: tool.agentBranches,
-      mayHaveDispatched: mayHaveDispatched(connectorCall, stepContext, call.heartbeatCheckpoint),
+      mayHaveDispatched: mayHaveDispatched(connectorCall, stepContext),
     });
     if (outcome === "succeeded") {
       return boundConnectorResult(encodeResultValue(result.value), tool.maxResultBytes ?? this.maxResultBytes);
@@ -745,31 +751,68 @@ function parseToolArguments(toolName: string, toolArguments: string): Readonly<R
   return values;
 }
 
-/** Reports whether fence checkpoints leave open that the request was sent, as sdkgo does. */
-export function mayHaveDispatched(
-  call: Call,
-  context: ConnectorStepContext,
-  previousCheckpoint: string | undefined,
-): boolean {
-  const saved = readSavedHeartbeatValue(context);
-  if (isFenceMarkerShaped(saved) && saved["state"] === "claimed") {
-    return true;
+/** Reports whether fence events leave open that the request was sent, as sdkgo does. */
+export function mayHaveDispatched(call: Call, context: ConnectorStepContext): boolean {
+  return observeFence(call, context).mayHaveDispatched;
+}
+
+/** Reports whether this attempt's fence recorded proof that the write was not sent. */
+export function isProvenNotSent(call: Call, context: ConnectorStepContext): boolean {
+  return observeFence(call, context).isProvenNotSent;
+}
+
+interface FenceObservation {
+  readonly mayHaveDispatched: boolean;
+  readonly isProvenNotSent: boolean;
+}
+
+function observeFence(call: Call, context: ConnectorStepContext): FenceObservation {
+  // Fold every saved marker, so a later checkpoint cannot erase a claim.
+  let isClaimed = false;
+  let hasProviderId = false;
+  let hasClaimed = false;
+  let hasNotSentProof = false;
+  for (const value of readSavedHeartbeatValues(context)) {
+    if (!isFenceMarker(value) || value["callId"] !== call.id || value["attempt"] !== context.attempt) {
+      continue;
+    }
+    const hasMarkerProviderId = value["providerId"] !== undefined && value["providerId"] !== "";
+    if (value["state"] === "claimed") {
+      isClaimed = true;
+      hasClaimed = true;
+      hasProviderId ||= hasMarkerProviderId;
+      hasNotSentProof = false;
+    } else if (value["state"] === "canResend") {
+      // The fence allows canResend only after its own claim without a provider ID.
+      if (isClaimed && !hasProviderId && !hasMarkerProviderId) {
+        isClaimed = false;
+        hasNotSentProof = true;
+      }
+    } else if (value["state"] === "notSent" && !hasClaimed && !hasMarkerProviderId) {
+      hasNotSentProof = true;
+    }
   }
+  const isPriorDispatchPossible = hasReadCheckpoint(context) && isPriorDispatchPossibleFor(call, context);
+  const isDispatchPossible = isClaimed || isPriorDispatchPossible;
+  return { mayHaveDispatched: isDispatchPossible, isProvenNotSent: hasNotSentProof && !isDispatchPossible };
+}
+
+/** Reports whether the earlier attempt's checkpoint denies this attempt a send. */
+function isPriorDispatchPossibleFor(call: Call, context: ConnectorStepContext): boolean {
+  const previousCheckpoint = readPreviousCheckpoint(context);
   if (previousCheckpoint === undefined) {
     // A lost checkpoint after attempt one may hide an earlier send.
-    return hasReadCheckpoint(context) && context.attempt > 1;
+    return context.attempt > 1;
   }
   let previous: unknown;
   try {
     previous = JSON.parse(previousCheckpoint);
   } catch {
-    return false;
+    return true;
   }
-  if (!isFenceMarkerShaped(previous)) {
-    return false;
-  }
+  // Not a marker or malformed: the fence fails closed, and so does this.
   const isSendAllowed =
-    Object.keys(previous).every((key) => fenceMarkerKeys.has(key)) &&
+    isFenceMarker(previous) &&
     previous["callId"] === call.id &&
     previous["attempt"] === context.attempt - 1 &&
     (previous["state"] === "notSent" || previous["state"] === "canResend") &&
@@ -777,21 +820,16 @@ export function mayHaveDispatched(
   return !isSendAllowed;
 }
 
-function isFenceMarkerShaped(value: unknown): value is Readonly<Record<string, unknown>> {
-  return isRecord(value) && (Object.hasOwn(value, "callId") || Object.hasOwn(value, "state"));
-}
-
-/** Reports whether this attempt's last saved fence marker proves the write was not sent. */
-export function isProvenNotSent(call: Call, context: ConnectorStepContext): boolean {
-  const marker = readSavedHeartbeatValue(context);
-  if (!isRecord(marker)) {
-    return false;
-  }
+function isFenceMarker(value: unknown): value is Readonly<Record<string, unknown>> {
   return (
-    marker["callId"] === call.id &&
-    marker["attempt"] === context.attempt &&
-    (marker["state"] === "notSent" || marker["state"] === "canResend") &&
-    (marker["providerId"] === undefined || marker["providerId"] === "")
+    isRecord(value) &&
+    Object.keys(value).every((key) => fenceMarkerKeys.has(key)) &&
+    typeof value["callId"] === "string" &&
+    typeof value["attempt"] === "number" &&
+    Number.isInteger(value["attempt"]) &&
+    value["attempt"] >= 1 &&
+    (value["state"] === "notSent" || value["state"] === "claimed" || value["state"] === "canResend") &&
+    (value["providerId"] === undefined || typeof value["providerId"] === "string")
   );
 }
 

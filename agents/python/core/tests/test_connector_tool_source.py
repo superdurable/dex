@@ -19,7 +19,7 @@ from typing import Any, cast
 import pytest
 from dex import AsyncContext
 from dex_connectors.sdk import Call, CallID, ConnectionRef, OperationRef, derive_call_id
-from dex_connectors.sdk.singledispatch import DecisionKind, Fence, State
+from dex_connectors.sdk.singledispatch import DecisionKind, Fence, Marker, State
 
 from dex_agents import (
     AgentEventWriter,
@@ -44,11 +44,17 @@ from dex_agents.connectors._source import (
     _lower_camel_to_snake,
     _may_have_dispatched,
 )
-from tests.connector_agent import CONNECTION, read_fake_ledger_manifest
+from tests.connector_agent import (
+    CONNECTION,
+    PREVIOUS_BY_ID_TOOL_NAME,
+    by_id_manifest,
+    read_fake_ledger_manifest,
+)
 from tests.fake_ledger import (
     CloseAccountOperation,
     CreatePayoutOperation,
     FakeLedgerProvider,
+    GetBalanceByIDOperation,
     GetBalanceOperation,
     PostNoteOperation,
 )
@@ -101,6 +107,36 @@ def test_operation_ids_become_snake_case_as_the_conformance_suite_says(
     assert _lower_camel_to_snake(case["operationId"]) == case["snakeName"]
 
 
+@pytest.mark.parametrize(
+    "case", CONFORMANCE["fenceObservationCases"], ids=lambda case: str(case["name"])
+)
+def test_fence_events_are_observed_as_the_conformance_suite_says(case: dict[str, Any]) -> None:
+    operation = OperationRef("fake-ledger", "postNote")
+    call_id = str(derive_call_id("session-1", "CallTool-3", operation))
+    other_call_id = str(derive_call_id("session-1", "CallTool-4", operation))
+
+    def bind(value: str) -> str:
+        return value.replace("<callId>", call_id).replace("<otherCallId>", other_call_id)
+
+    previous = case["previousCheckpoint"]
+    call = _fenced_call(
+        case["attempt"], None if previous is None else bind(previous), _ToolStepHeartbeats()
+    )
+    context = cast(ConnectorStepContext, call.context)
+    if case["readsCheckpoint"]:
+        context.has_last_heartbeat_value()
+    for saved in case["savedHeartbeats"]:
+        bound = json.loads(bind(json.dumps(saved)))
+        try:
+            value: object = Marker.from_wire(bound)
+        except ValueError:
+            value = bound
+        # The fence's markers, or the operation's own value, as heartbeat() stores them.
+        context._saved_heartbeat_values.append(value)
+    assert _may_have_dispatched(call) is case["mayHaveDispatched"]
+    assert _is_proven_not_sent(call) is case["isProvenNotSent"]
+
+
 @pytest.mark.parametrize("case", CONFORMANCE["resultCases"])
 def test_result_text_is_the_same_in_every_core(case: dict[str, Any]) -> None:
     assert format_connector_result(case["json"]) == case["text"]
@@ -136,6 +172,17 @@ def test_each_operation_kind_maps_to_its_effect_class_and_step_options(
         # The connector policy's one-hour window, narrowed to the tool Steps' three attempts.
         assert tool.retry_policy.maximum_attempts == 3
         assert tool.retry_policy.total_duration == timedelta(hours=1)
+
+
+def test_an_explicit_name_keeps_a_previous_default_tool_name(
+    provider: FakeLedgerProvider,
+) -> None:
+    operation = GetBalanceByIDOperation(provider)
+    manifest = by_id_manifest()
+    default = connector_tool(operation, CONNECTION, manifest=manifest)
+    assert default.name == "fake-ledger_get_balance_by_id"
+    kept = connector_tool(operation, CONNECTION, manifest=manifest, name=PREVIOUS_BY_ID_TOOL_NAME)
+    assert kept.name == "fake-ledger_get_balance_by_i_d"
 
 
 def test_an_operation_without_agent_exposed_is_refused(provider: FakeLedgerProvider) -> None:
@@ -479,7 +526,7 @@ async def test_only_fence_checkpoints_proving_no_send_keep_the_manifest_listing(
         "a claim": (claimed.checkpoint, True),
         "a marker of another call": (foreign, True),
         "a malformed marker": ('{"callId": 7, "state": "notSent"}', True),
-        "a checkpoint that is not a marker": ('"a task handle"', False),
+        "a checkpoint that is not a marker": ('"a task handle"', True),
         "no checkpoint": (None, True),
     }
     for label, (previous, expected) in previous_checkpoints.items():

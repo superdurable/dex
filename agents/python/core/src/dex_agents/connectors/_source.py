@@ -136,14 +136,15 @@ def classify_connector_branch(
     The rules apply in this order. The manifest listing comes after the
     checks that can only tighten an outcome to ``OUTCOME_UNKNOWN``:
 
-    1. A required branch is ``SUCCEEDED``.
-    2. ``uncertain`` is ``OUTCOME_UNKNOWN``, whatever ``agent.branches`` says.
-       It means the write may have happened, so a listing of it as
-       ``rejected`` is a manifest error.
-    3. A Mutation's ``defect`` is ``OUTCOME_UNKNOWN``, whatever
-       ``agent.branches`` says. The Connector SDK selects ``defect`` for some
-       attempts that already called the provider, such as an invalid attempt
-       or an undeclared branch, and a host cannot tell those apart.
+    1. ``uncertain`` is ``OUTCOME_UNKNOWN``, whatever ``agent.branches`` says
+       or whether it is declared required. It means the write may have
+       happened, so a listing of it as ``rejected`` is a manifest error.
+    2. A Mutation's ``defect`` is ``OUTCOME_UNKNOWN``, whatever
+       ``agent.branches`` says or whether it is declared required. The
+       Connector SDK selects ``defect`` for some attempts that already called
+       the provider, such as an invalid attempt or an undeclared branch, and a
+       host cannot tell those apart.
+    3. A required branch other than ``defect`` is ``SUCCEEDED``.
     4. On a Mutation, any other branch is ``OUTCOME_UNKNOWN`` when
        ``may_have_dispatched`` is set: its single-dispatch fence cannot prove
        that no request reached the provider.
@@ -151,8 +152,7 @@ def classify_connector_branch(
     6. A branch that ``agent.branches`` lists as ``unknown`` is
        ``OUTCOME_UNKNOWN``.
     7. Any other optional branch of a Mutation is ``OUTCOME_UNKNOWN``.
-    8. Any other optional branch of a Query, including ``defect``, is
-       ``FAILED``.
+    8. Any other branch of a Query, including ``defect``, is ``FAILED``.
 
     The rule fails closed: an optional branch of a Mutation that the manifest
     does not classify is ``OUTCOME_UNKNOWN``, because the write may have
@@ -175,8 +175,9 @@ def classify_connector_branch(
             ``"rejected"`` or ``"unknown"``.
         may_have_dispatched: Whether the attempt's single-dispatch fence
             checkpoints leave open that the request reached the provider: this
-            attempt claimed a send, or the earlier attempt's checkpoint is
-            missing, malformed, foreign, or does not allow this attempt a send.
+            attempt claimed a send and no canResend followed, or the earlier
+            attempt's checkpoint is missing, not a fence marker, malformed,
+            foreign, or does not allow this attempt a send.
             ``ConnectorToolSource`` computes it. It applies only to a Mutation.
 
     Returns:
@@ -189,11 +190,11 @@ def classify_connector_branch(
         Mutation's ``defect``, which is ``OUTCOME_UNKNOWN`` instead of
         ``FAILED``. A Query's ``defect`` follows ``agent.branches``.
     """
-    if branch in required_branches:
-        return ConnectorBranchOutcome.SUCCEEDED
-    if branch == _UNCERTAIN_BRANCH:
+    if branch == _UNCERTAIN_BRANCH or (kind == "mutation" and branch == _DEFECT_BRANCH):
         return ConnectorBranchOutcome.OUTCOME_UNKNOWN
-    if kind == "mutation" and (branch == _DEFECT_BRANCH or may_have_dispatched):
+    if branch != _DEFECT_BRANCH and branch in required_branches:
+        return ConnectorBranchOutcome.SUCCEEDED
+    if kind == "mutation" and may_have_dispatched:
         return ConnectorBranchOutcome.OUTCOME_UNKNOWN
     listed = agent_branches.get(branch)
     if listed == "rejected":
@@ -782,41 +783,68 @@ def _integral_floats_as_ints(value: Any) -> Any:
 
 
 def _is_proven_not_sent(call: Call) -> bool:
-    """Report whether this attempt's last saved fence marker proves the write was not sent."""
-    context = call.context
-    if not isinstance(context, ConnectorStepContext):
-        return False
-    marker = context._saved_heartbeat_value
-    return (
-        isinstance(marker, Marker)
-        and marker.call_id == call.id
-        and marker.attempt == context.attempt
-        and marker.state in (State.NOT_SENT, State.CAN_RESEND)
-        and not marker.provider_id
-    )
+    """Report whether this attempt's fence recorded proof that the write was not sent."""
+    return _observe_fence(call).is_proven_not_sent
 
 
 def _may_have_dispatched(call: Call) -> bool:
-    """Report whether fence checkpoints leave open that the request was sent, as sdkgo does."""
+    """Report whether fence events leave open that the request was sent, as sdkgo does."""
+    return _observe_fence(call).may_have_dispatched
+
+
+@dataclass(frozen=True)
+class _FenceObservation:
+    may_have_dispatched: bool
+    is_proven_not_sent: bool
+
+
+def _observe_fence(call: Call) -> _FenceObservation:
     context = call.context
     if not isinstance(context, ConnectorStepContext):
-        return False
-    saved = context._saved_heartbeat_value
-    if isinstance(saved, Marker) and saved.state is State.CLAIMED:
-        return True
+        return _FenceObservation(may_have_dispatched=False, is_proven_not_sent=False)
+    # Fold every saved marker, so a later checkpoint cannot erase a claim.
+    is_claimed = False
+    has_provider_id = False
+    has_claimed = False
+    has_not_sent_proof = False
+    for value in context._saved_heartbeat_values:
+        if not (
+            isinstance(value, Marker)
+            and value.call_id == call.id
+            and value.attempt == context.attempt
+        ):
+            continue
+        if value.state is State.CLAIMED:
+            is_claimed = has_claimed = True
+            has_provider_id = has_provider_id or bool(value.provider_id)
+            has_not_sent_proof = False
+        elif value.state is State.CAN_RESEND:
+            # The fence allows canResend only after its own claim without a provider ID.
+            if is_claimed and not has_provider_id and not value.provider_id:
+                is_claimed = False
+                has_not_sent_proof = True
+        elif value.state is State.NOT_SENT and not has_claimed and not value.provider_id:
+            has_not_sent_proof = True
+    is_prior_dispatch_possible = context._has_read_checkpoint and _is_prior_dispatch_possible(
+        call, context
+    )
+    may_have_dispatched = is_claimed or is_prior_dispatch_possible
+    return _FenceObservation(
+        may_have_dispatched=may_have_dispatched,
+        is_proven_not_sent=has_not_sent_proof and not may_have_dispatched,
+    )
+
+
+def _is_prior_dispatch_possible(call: Call, context: ConnectorStepContext) -> bool:
+    """Report whether the earlier attempt's checkpoint denies this attempt a send."""
     previous = context._previous_checkpoint
     if previous is None:
         # A lost checkpoint after attempt one may hide an earlier send.
-        return context._has_read_checkpoint and context.attempt > 1
+        return context.attempt > 1
     try:
-        decoded = json.loads(previous)
-    except json.JSONDecodeError:
-        return False
-    if not isinstance(decoded, dict) or not ({"callId", "state"} & decoded.keys()):
-        return False
-    try:
-        marker = Marker.from_wire(decoded)
+        marker = Marker.from_wire(json.loads(previous))
     except ValueError:
+        # Not a marker, malformed, or not JSON: the fence fails closed, and so does this.
         return True
     is_send_allowed = (
         marker.call_id == call.id

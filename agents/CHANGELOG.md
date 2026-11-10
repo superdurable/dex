@@ -10,26 +10,42 @@ for the Dex SDK and framework versions each release supports.
 
 - Breaking, Python and TypeScript cores: a connector tool's default name now
   uses the Connector library's snake case (connectorctl `lowerCamelToSnake`),
-  which also names the Python Step factories. An acronym run stays one word:
-  `listStoryIDs` is `list_story_ids`, not `list_story_i_d_s`, and
-  `getHTTPResponse` is `get_http_response`. Only operation IDs with two or more
-  capitals in a row change; digits alone do not. A call stored under the old
-  name ends as a removed tool's call does, unless the application keeps the old
-  name with `name`. `agents/conformance/connector_tools.json` adds
-  `toolNameCases`.
+  which also names the Python Step factories. An acronym run stays one word.
+  Digits alone change nothing. Old -> new, in both languages:
+  `listStoryIDs` `list_story_i_d_s` -> `list_story_ids`, `getHTTPResponse`
+  `get_h_t_t_p_response` -> `get_http_response`, and `get2FACode`
+  `get2_f_a_code` -> `get2_fa_code`. Only capitals are ASCII now: the old Python
+  name also split before a non-ASCII capital, so `fetchÜberData` changes in
+  Python only, `fetch_über_data` -> `fetchÜber_data`; TypeScript already gave
+  `fetchÜber_data`. The owner authorized this break before launch.
+  Migration: a call stored under the old name finds no tool after the upgrade
+  and ends as a removed tool's call does. To keep a previous name, pass it
+  explicitly, such as `connector_tool(op, ref, name="stories_list_story_i_d_s")`
+  or `connectorTool(op, ref, { ..., name: "stories_list_story_i_d_s" })`; a
+  recorded call then resumes under it. `agents/conformance/connector_tools.json`
+  adds `toolNameCases`.
 - Breaking, Python and TypeScript cores: a Mutation's `defect` now records
   `outcome_unknown` instead of `failed`, whatever `agent.branches` says, and is
   not retried. The Connector SDK selects `defect` for some attempts that already
   called the provider, and the core cannot tell those apart. A Query's `defect`
   now follows `agent.branches`: listed `rejected` it is a rejection, otherwise
-  it still records `failed`. `uncertain` still records `outcome_unknown`.
+  it still records `failed`. `uncertain` still records `outcome_unknown`. Both
+  rules now apply before the required branches, so a `defect` or `uncertain`
+  declared required no longer records `succeeded`.
 - Breaking, Python and TypeScript cores: a Mutation that uses the
   single-dispatch fence records `outcome_unknown` on every branch but the
   success branch when its fence checkpoints cannot prove that no request
   reached the provider, whatever `agent.branches` says. This is the same check
-  the Go Connector SDK makes for agent hosts. `classify_connector_branch`
-  (`classifyConnectorBranch`) takes a new optional `may_have_dispatched`
-  (`mayHaveDispatched`), which the source computes.
+  the Go Connector SDK makes for agent hosts. Once the fence claims a send in
+  an attempt, only its `canResend` marker lowers it, so a later checkpoint of
+  the operation cannot. On a retry, an earlier checkpoint that is missing, not a
+  fence marker, malformed, or another call's counts as a possible send. The same
+  evidence decides a single-attempt write's Retry: `failed` with "not sent; the
+  provider asked to retry later" needs a `notSent` or `canResend` marker and no
+  possible send. `classify_connector_branch` (`classifyConnectorBranch`) takes
+  a new optional `may_have_dispatched` (`mayHaveDispatched`), which the source
+  computes. `agents/conformance/connector_tools.json` adds
+  `fenceObservationCases`.
 
 ### Fixed
 
