@@ -83,9 +83,11 @@ Rules:
 
 - GracefulComplete and ForceComplete can carry output. The Flow result lists each output with its Step type and Step execution ID.
 - Only a COMPLETED Flow keeps these outputs. A Flow that fails, is canceled, is terminated, or times out has no outputs, even after an earlier GracefulComplete carried one. Do not read a partial result from an unsuccessful Flow; keep data that must survive a failure in an Attribute.
-- A Channel stays non-empty for ForceCompleteIfChannelsEmpty while a consumed message's Step has not finished Execute.
+- A Channel stays non-empty for ForceCompleteIfChannelsEmpty while a consumed message's Step has not finished Execute. A message that a canceled Step returned is pending again, so it also keeps the Channel non-empty.
 - A decision can also cancel active Steps: by Step type, or the siblings started by the same parent Step execution. Use cancellation deliberately, for example after a first-winner branch.
 - Dex selects the Steps to cancel after the decision commits. Steps that the same decision starts are never canceled by it, so one decision can cancel a Step type and start a fresh execution of it.
+- A canceled Step whose wait consumed Channel messages before its Execute committed returns them to the front of their Channels, in their original order. Another wait can take them, so a message can reach Execute twice; keep Execute idempotent. Dex drops them only when the Flow close itself cancels the Step: a stop, a timeout, a failure that closes the Flow, or a decision that cancels and closes with ForceComplete or ForceFail. After any other cancellation they stay pending, even in a run that GracefulComplete then closes.
+- A Step that a decision or RPC cancels never takes the Channel messages published in that same commit. The next Steps or other waiting Steps receive them.
 - Cancellation is cooperative. The SDK signals it to the handler, and Dex discards the canceled Step's later result, writes, retries, and recovery routes. A handler that ignores the signal keeps running and its external calls still take effect.
 - A movement can override StepOptions for that one Step execution.
 

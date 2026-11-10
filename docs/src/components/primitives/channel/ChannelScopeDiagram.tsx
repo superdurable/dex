@@ -36,7 +36,7 @@ const EN: Copy = {
   channel: 'CHANNEL',
   channelName: 'requests_queue',
   fifo: 'FIFO queue',
-  consumeOnce: 'each message is consumed once',
+  consumeOnce: 'one wait consumes each message',
   publish: 'publish messages',
   consume: 'consume',
 };
@@ -51,7 +51,7 @@ const ZH: Copy = {
   channel: 'CHANNEL',
   channelName: 'requests_queue',
   fifo: 'FIFO 队列',
-  consumeOnce: '每条消息只消费一次',
+  consumeOnce: '每条消息由一个 wait 消费',
   publish: '发布消息',
   consume: '消费',
 };

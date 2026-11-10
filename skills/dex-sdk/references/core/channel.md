@@ -1,6 +1,6 @@
 # Channel and ChannelMap
 
-A Channel is an ordered, durable, typed message queue scoped to one Flow execution. A Step's WaitFor waits on it. One matching wait consumes each message once.
+A Channel is an ordered, durable, typed message queue scoped to one Flow execution. A Step's WaitFor waits on it. One matching wait consumes each message. A canceled Step returns what it consumed; see [Wait and consume](#wait-and-consume).
 
 Use a Channel for queued intent: commands, approvals, events, and joins. Use Attributes for current state and Streams for best-effort progress.
 
@@ -27,6 +27,11 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 - Only the winning alternative of AnyOf or AnyCombinationOf consumes. See [step.md](step.md#waits-and-conditions).
 - In Execute, check that the Channel result is present before reading it. When another Condition won, nothing was consumed.
 - Consumed messages leave the queue. Publication and consumption remain visible only in the run's recent history window. Pending queue state is not history.
+- A wait consumes when it is satisfied, before Execute runs. If a decision or an RPC cancels the Step before its Execute commits, Dex returns the consumed messages to the front of their Channels or ChannelMap instances, in their original order. Another wait can take them in the same commit.
+- A canceled Execute attempt may already have seen a returned message, so another Step can receive it again. Make message processing idempotent, for example keyed by a business ID in the message.
+- Dex drops the consumed messages instead only when the Flow close itself cancels the Step: a stop, a Flow timeout, a failure that closes the Flow, or a decision that cancels the Step and closes the Flow with ForceComplete or ForceFail.
+- Every other cancellation returns the messages, even when the Flow then closes. A decision that cancels a Step and returns GracefulComplete closes the Flow when no other Step is active, and the returned messages stay pending in the closed run. Drain them before closing when they matter, for example with ForceCompleteIfChannelsEmpty.
+- A Step that a commit cancels never takes that commit's own publications. Waiting Steps take new messages only after the commit's cancellations.
 - A Channel queue is not conversation history. Keep consumed messages in Attributes when the application must show or rebuild them.
 - Plan how externally published messages are drained before the Flow completes. See [patterns.md](patterns.md#drain-channels).
 
@@ -46,7 +51,7 @@ For a durable queue UI, expose a typed read-only RPC that loads the Channel and 
 - Only a pending message can be deleted. Deleting a consumed or already deleted message returns the Channel-message-not-found error.
 - Steps and timeout handlers may delete a pending message in the same result as Attribute writes, publications, and a decision. A known message ID can be deleted without loading the envelope.
 - Deletion is a result side effect, not part of the Step decision. From a Step, deletion of an absent message is best effort and the other effects still apply.
-- Dex applies a successful handler's effects in this order: Attribute writes, then pending-message deletions, then publications, then the decision.
+- Dex applies a successful handler's effects in this order: Attribute writes, then pending-message deletions, then publications, then the decision. Waiting Steps take the publications after the decision's cancellations, so no Step the decision cancels receives them.
 - Editing a message means deleting it and publishing a replacement with a new ID. It does not rewrite history or conversation Attributes.
 
 Move or edit atomically with a transactional RPC:

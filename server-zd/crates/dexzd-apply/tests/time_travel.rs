@@ -4621,3 +4621,132 @@ fn time_travel_replays_a_graceful_completion_that_an_rpc_deferred() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].completed_step_execution_id, "DeciderStep-1");
 }
+
+/// Completes a Step's WaitFor with a wait for exactly `count` messages of `orders`.
+fn wait_for_orders(harness: &mut Harness, step_execution_id: &str, count: i32) {
+    harness.start_attempt(step_execution_id, StepMethod::WaitFor, 1);
+    let outcome = harness.apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
+        invocation: Some(key(step_execution_id, StepMethod::WaitFor)),
+        attempt: 1,
+        response: Some(step_method_completed_command::Response::WaitFor(
+            InvokeWaitForMethodResponse {
+                waiting_condition: Some(WaitingCondition {
+                    waiting_condition_type: WaitingConditionType::AnyCompleted as i32,
+                    channel_conditions: vec![dexzd_protocol::dex::ChannelCondition {
+                        condition_id: "orders".to_owned(),
+                        channel_name: "orders".to_owned(),
+                        at_least: Some(count),
+                        at_most: Some(count),
+                    }],
+                    ..WaitingCondition::default()
+                }),
+                ..InvokeWaitForMethodResponse::default()
+            },
+        )),
+        app_worker_id: "worker-a".to_owned(),
+        ..StepMethodCompletedCommand::default()
+    }));
+    assert!(
+        is_ok(&outcome.reply),
+        "{step_execution_id} WaitFor completes"
+    );
+}
+
+/// Pending message IDs of `orders` in FIFO order.
+fn pending_order_ids(harness: &Harness) -> Vec<String> {
+    harness
+        .attempt_rows()
+        .iter()
+        .filter(|((table, _), _)| *table == RunTable::ChannelMessage as u8)
+        .map(|(_, value)| {
+            dexzd_protocol::dexzd::v1::ChannelMessageRecord::decode(value.as_slice())
+                .expect("Channel message decodes")
+        })
+        .filter(|record| record.channel_name == "orders")
+        .map(|record| record.message_id)
+        .collect()
+}
+
+#[test]
+fn time_travel_rebuilds_messages_requeued_by_a_cancel() {
+    let mut harness = Harness::with_settings(RunSettings {
+        checkpoint_command_threshold: 3,
+        ..settings()
+    });
+    // Pending messages are part of the rows, keyed in FIFO order.
+    let mut recorded: Vec<(u64, i64, AttemptRows, [u8; 16])> = Vec::new();
+    let mut record_point = |harness: &Harness| {
+        let seq = harness.last_seq();
+        let history = harness.history_record(seq).unwrap();
+        assert!(history.is_semantic, "seq {seq} is a semantic point");
+        let command_id = &history.command.as_ref().expect("command").command_id;
+        let hash = current_semantic_point_hash(
+            &harness.context,
+            &harness.state,
+            harness.run(),
+            command_id,
+        )
+        .expect("hash current semantic point")
+        .expect("semantic history point")
+        .state_hash;
+        recorded.push((seq, history.timestamp_micros, harness.attempt_rows(), hash));
+    };
+    harness.start(start_request());
+    wait_for_orders(&mut harness, "ChargeStep-1", 1);
+    record_point(&harness);
+    publish_large(&mut harness, "orders", "m1");
+    publish_large(&mut harness, "orders", "m2");
+    record_point(&harness);
+    assert_eq!(pending_order_ids(&harness), vec!["m2".to_owned()]);
+    // A running Execute attempt pins its snapshot when the RPC cancels it.
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    let response = InvokeWorkerRpcResponse {
+        step_decision: Some(StepDecision {
+            cancel_step_types: vec!["ChargeStep".to_owned()],
+            next_steps: vec![StepMovement {
+                step_type: "ChargeStep".to_owned(),
+                ..StepMovement::default()
+            }],
+            ..StepDecision::default()
+        }),
+        publish_to_channel: vec![ChannelMessage {
+            channel_name: "orders".to_owned(),
+            value: Some(string_value("m3")),
+            message_id: "m3".to_owned(),
+        }],
+        ..InvokeWorkerRpcResponse::default()
+    };
+    commit_rpc(&mut harness, "rpc-requeue", response, false);
+    record_point(&harness);
+    assert_eq!(pending_order_ids(&harness), vec!["m1", "m2", "m3"]);
+    wait_for_orders(&mut harness, "ChargeStep-2", 2);
+    record_point(&harness);
+    assert_eq!(pending_order_ids(&harness), vec!["m3".to_owned()]);
+    assert!(harness.attempt_record(1).checkpoint_seqs.len() > 1);
+    for (seq, timestamp, rows, expected_hash) in recorded {
+        let diagnostic_command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
+            should_restore_running_as_pending: false,
+            request: Some(ResetFlowRequest {
+                run_attempt: 1,
+                ..reset_to_time(timestamp)
+            }),
+        }));
+        let reconstructed_hash =
+            time_travel_target_hash(&harness.context, &harness.state, &diagnostic_command)
+                .expect("hash reconstructed semantic point")
+                .expect("target exists");
+        assert_eq!(
+            reconstructed_hash.state_hash, expected_hash,
+            "state hash at seq {seq}"
+        );
+        harness.travel_to(ResetFlowRequest {
+            run_attempt: 1,
+            ..reset_to_time(timestamp)
+        });
+        assert_eq!(harness.attempt_rows(), rows, "state at seq {seq}");
+    }
+}

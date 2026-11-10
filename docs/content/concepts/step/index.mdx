@@ -239,7 +239,11 @@ Completing decisions can return the Flow output, which a client reads as the
 Flow result. Only a Flow that completes keeps these outputs. If the Flow does
 not complete because it fails, is canceled, is terminated, or times out, its
 result has no outputs.
-A decision can also cancel other active Steps. See the
+A decision can also cancel other active Steps. A canceled Step
+returns the Channel messages its wait consumed, unless the decision also closes
+the Flow with **ForceComplete** or **ForceFail**. A Step
+that the decision cancels never takes the messages the same result publishes.
+See the
 [Parallel Steps](/design-patterns/parallel) and
 [Parallel SubFlows](/design-patterns/parallel-subflows) patterns.
 

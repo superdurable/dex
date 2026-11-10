@@ -219,7 +219,7 @@ impl Step for StepSecond {
 - **ForceFail** 立即让 Flow 失败。
 - **DeadEnd** 结束这个分支，但不关闭 Flow。
 
-完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。只有最终完成的 Flow 才保留这些 output。如果 Flow 没有完成（失败、被取消、被终止或超时），它的 result 不含任何 output。决定还可以取消其他 active Step。见 [Parallel Steps](/design-patterns/parallel) 和 [Parallel SubFlows](/design-patterns/parallel-subflows) 模式。
+完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。只有最终完成的 Flow 才保留这些 output。如果 Flow 没有完成（失败、被取消、被终止或超时），它的 result 不含任何 output。决定还可以取消其他 active Step。被取消的 Step 会放回它的 wait 消费的 Channel 消息，除非这个决定同时用 **ForceComplete** 或 **ForceFail** 关闭 Flow。被这个决定取消的 Step，不会拿到同一个结果发布的消息。见 [Parallel Steps](/design-patterns/parallel) 和 [Parallel SubFlows](/design-patterns/parallel-subflows) 模式。
 
 ## StepOptions {#stepoptions}
 

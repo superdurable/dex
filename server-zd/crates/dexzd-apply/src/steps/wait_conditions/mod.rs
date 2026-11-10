@@ -280,6 +280,52 @@ pub(crate) fn release_condition_results(
     Ok(())
 }
 
+/// Returns a canceled Step's consumed messages to the front of their channels.
+///
+/// Returns the channels that gained messages, in first-requeue order.
+pub(crate) fn requeue_consumed_messages(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    step: &mut StepExecutionRecord,
+) -> Result<Vec<String>, ApplyError> {
+    let mut requeued_channels: Vec<String> = Vec::new();
+    let Some(results) = step.condition_results.as_mut() else {
+        return Ok(requeued_channels);
+    };
+    for channel in &mut results.channel_results {
+        for message in std::mem::take(&mut channel.messages) {
+            if let Some(stored) = &message.value {
+                // Hold before release, so the value never becomes garbage.
+                let pending = ValueHolder::ChannelMessage {
+                    channel_name: message.channel_name.clone(),
+                    enqueued_seq: message.enqueued_seq,
+                };
+                hold_stored_value(transaction, cursor.rows, stored, &pending)?;
+                let claim = ValueHolder::ConditionResult {
+                    step_execution_id: step.step_execution_id.clone(),
+                    channel_name: message.channel_name.clone(),
+                    enqueued_seq: message.enqueued_seq,
+                };
+                release_stored_value(transaction, cursor.rows, stored, &claim, cursor.seq)?;
+            }
+            // The original enqueue seq keeps the message ahead of later ones.
+            cursor.rows.put_channel_message(transaction, &message);
+            let mut meta = cursor
+                .rows
+                .channel_meta(transaction, &message.channel_name)?;
+            meta.pending_count = meta.pending_count.saturating_add(1);
+            meta.claimed_count = meta.claimed_count.saturating_sub(1);
+            cursor
+                .rows
+                .put_channel_meta(transaction, &message.channel_name, &meta);
+            if !requeued_channels.contains(&message.channel_name) {
+                requeued_channels.push(message.channel_name);
+            }
+        }
+    }
+    Ok(requeued_channels)
+}
+
 /// Converts stored condition results to what a Worker's Execute receives: values only (no
 /// message IDs), large values as references of this run.
 pub(crate) fn wire_condition_results(

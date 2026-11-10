@@ -10,9 +10,13 @@
 //! next Steps, then completion of the deciding Step. Matches the Go interpreter's
 //! `checkClosingWorkflow` and graceful completion rules.
 
-use dexzd_protocol::dex::{CloseDecisionType, FlowErrorType, StepCompletionOutput, StepDecision};
+use dexzd_protocol::dex::{
+    CloseDecisionType, FlowErrorType, InvokeExecuteMethodResponse, StepCompletionOutput,
+    StepDecision,
+};
 use dexzd_protocol::dexzd::v1::{
-    StepExecutionPhase, StepExecutionRecord, StoredStepCompletionOutput, StoredValue,
+    HardDeleteObjectReference, StepExecutionPhase, StepExecutionRecord, StoredStepCompletionOutput,
+    StoredValue,
 };
 
 use prost::Message;
@@ -20,37 +24,97 @@ use prost::Message;
 use crate::ApplyError;
 use crate::command_handlers::CommandScope;
 use crate::command_handlers::flow_close::{FlowClosing, close_flow};
+use crate::command_handlers::flow_data::{FlowDataRejection, MethodEffects, apply_method_effects};
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::projections::history_event_links::{HistoryEventIndex, StepEventLink};
+use crate::projections::history_events;
 use crate::state_access::FlowTransaction;
+use crate::steps::wait_conditions::{on_channels_changed, requeue_consumed_messages};
 use crate::steps::{InvocationEnd, NewStepExecution, create_step_execution, end_running_attempt};
 use crate::values::{
     ValueHolder, ValueRejection, flow_result_output_bytes, release_stored_value, store_value,
     stored_value_size,
 };
 
-/// Applies the decision of a finished Execute and completes the Step.
+/// What happens to the messages a canceled Step's wait consumed before its Execute committed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConsumedMessagesOnCancel {
+    /// Return them to the front of their channels, in their original order.
+    Requeue,
+    /// Drop them, because the Flow closes in the same command.
+    Drop,
+}
+
+/// Applies a completed Execute: its data effects, then its decision.
+///
+/// `completed_event` is the Execute's StepExecuteCompleted event, which starts the next Steps.
+///
+/// Returns the rejection the caller applies as a failure of the attempt.
+pub(crate) fn apply_execute_completed(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+    step: &mut StepExecutionRecord,
+    response: &InvokeExecuteMethodResponse,
+    hard_delete_objects: &[HardDeleteObjectReference],
+    completed_event: HistoryEventIndex,
+) -> Result<Result<(), FlowDataRejection>, ApplyError> {
+    let effects = MethodEffects {
+        writes: &response.upsert_attributes,
+        deletions: &response.delete_from_channel,
+        publications: &response.publish_to_channel,
+        locals: &response.upsert_step_exe_locals,
+        permission_mappings: response.action_permission_mappings.as_ref(),
+        hard_delete_objects,
+    };
+    let applied = match apply_method_effects(transaction, cursor, step, &effects, scope)? {
+        Ok(applied) => applied,
+        Err(rejection) => return Ok(Err(rejection)),
+    };
+    history_events::reference_method_completed_values(cursor, completed_event, applied.references);
+    let decided = apply_step_decision(
+        transaction,
+        cursor,
+        scope,
+        step,
+        response.step_decision.as_ref(),
+        completed_event,
+        applied.changed_channels,
+    )?;
+    Ok(decided.map_err(FlowDataRejection::Value))
+}
+
+/// Applies the decision of a finished Execute and completes the Step. Waiting Steps take the
+/// published and requeued messages only after the cancellations, so a canceled Step takes none.
 ///
 /// `deciding_event` is the Execute's StepExecuteCompleted event, which starts the next Steps.
-pub(crate) fn apply_step_decision(
+fn apply_step_decision(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
     step: &mut StepExecutionRecord,
     decision: Option<&StepDecision>,
     deciding_event: HistoryEventIndex,
+    mut changed_channels: Vec<String>,
 ) -> Result<Result<(), ValueRejection>, ApplyError> {
     let decision = decision.cloned().unwrap_or_default();
     finish_step(transaction, cursor, step, StepExecutionPhase::Completed)?;
     if !decision.cancel_step_types.is_empty() || !decision.cancel_sibling_step_types.is_empty() {
-        cancel_steps_by_type(
+        let consumed_messages = if is_unconditional_close(&decision) {
+            ConsumedMessagesOnCancel::Drop
+        } else {
+            ConsumedMessagesOnCancel::Requeue
+        };
+        changed_channels.extend(cancel_steps_by_type(
             transaction,
             cursor,
             &decision.cancel_step_types,
             &decision.cancel_sibling_step_types,
             &step.from_step_execution_id,
-        )?;
+            consumed_messages,
+        )?);
     }
+    on_channels_changed(transaction, cursor, scope.now_micros, &changed_channels)?;
     let mut can_go_next = true;
     if let Some(close) = &decision.close_decision {
         let close_type = CloseDecisionType::try_from(close.close_decision_type)
@@ -172,6 +236,20 @@ pub(crate) fn complete_gracefully_if_ready(
     Ok(())
 }
 
+/// Whether the decision closes the Flow whatever its channels hold, so no Step can take a
+/// requeued message.
+fn is_unconditional_close(decision: &StepDecision) -> bool {
+    decision.close_decision.as_ref().is_some_and(|close| {
+        matches!(
+            CloseDecisionType::try_from(close.close_decision_type),
+            Ok(CloseDecisionType::ForceComplete
+                | CloseDecisionType::ForceFail
+                | CloseDecisionType::Unspecified)
+                | Err(_)
+        )
+    })
+}
+
 fn is_closed(cursor: &RunCursor) -> bool {
     cursor.record.status != dexzd_protocol::dex::FlowStatus::Running as i32
 }
@@ -248,19 +326,31 @@ fn child_flow_result_rejection(cursor: &RunCursor, added: &StoredValue) -> Optio
 
 /// Cancels every active Step of `global_step_types`, and of `sibling_step_types` under
 /// `parent_step_execution_id`.
+///
+/// Returns the channels that regained requeued messages. The caller wakes their waiters only
+/// after every cancellation, so no Step canceled here takes them.
 pub(crate) fn cancel_steps_by_type(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     global_step_types: &[String],
     sibling_step_types: &[String],
     parent_step_execution_id: &str,
-) -> Result<(), ApplyError> {
+    consumed_messages: ConsumedMessagesOnCancel,
+) -> Result<Vec<String>, ApplyError> {
+    let mut requeued_channels = Vec::new();
     for (_, mut other) in cursor.rows.step_executions(transaction)? {
         // Sibling types match only Steps of the same parent, as in the Go Server's selector.
         let is_target = global_step_types.contains(&other.step_type)
             || (sibling_step_types.contains(&other.step_type)
                 && other.from_step_execution_id == parent_step_execution_id);
         if is_target && is_active(&other) {
+            if consumed_messages == ConsumedMessagesOnCancel::Requeue {
+                requeued_channels.extend(requeue_consumed_messages(
+                    transaction,
+                    cursor,
+                    &mut other,
+                )?);
+            }
             finish_step(
                 transaction,
                 cursor,
@@ -269,7 +359,7 @@ pub(crate) fn cancel_steps_by_type(
             )?;
         }
     }
-    Ok(())
+    Ok(requeued_channels)
 }
 
 /// Ends the Step: cancels its running attempt, releases its input, locals, condition results,

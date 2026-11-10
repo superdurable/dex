@@ -3,6 +3,10 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.0.6 - 2026-11-10
+
+- Correct the Channel and Step cancellation rules in `dex-sdk`: a Step canceled after its wait consumed messages, before its Execute committed, returns them to the front of their Channels in their original order. Dex drops them only when the Flow close itself cancels the Step; after any other cancellation they stay pending, even in a run that GracefulComplete then closes. A Step that a commit cancels never takes that commit's own publications.
+
 ## 1.0.5 - 2026-11-09
 
 - Remove the Dex Web v2 product name from `dex-app-builder`. There is one Dex Web. Its Flow Definition Graph features are labeled Experimental, and Start Flow is in the Work Queue list header.

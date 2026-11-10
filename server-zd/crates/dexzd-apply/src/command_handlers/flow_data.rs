@@ -593,17 +593,25 @@ pub(crate) struct MethodEffects<'response> {
     pub(crate) hard_delete_objects: &'response [HardDeleteObjectReference],
 }
 
-/// Applies a method result's data effects to the run and the Step's locals, then lets waiting
-/// Steps react to the changed channels.
+/// The value references and changed channels of applied method effects.
+pub(crate) struct AppliedMethodEffects {
+    pub(crate) references: EffectValueReferences,
+    /// Channels whose waiters the caller wakes once the result's other changes apply.
+    pub(crate) changed_channels: Vec<String>,
+}
+
+/// Applies a method result's data effects to the run and the Step's locals. The caller wakes
+/// the Steps waiting on the changed channels.
 ///
-/// Returns the effect value references, or the rejection the caller must reply with.
+/// Returns the effect value references and changed channels, or the rejection the caller must
+/// reply with.
 pub(crate) fn apply_method_effects(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     step: &mut dexzd_protocol::dexzd::v1::StepExecutionRecord,
     effects: &MethodEffects<'_>,
     scope: &CommandScope<'_>,
-) -> Result<Result<EffectValueReferences, FlowDataRejection>, ApplyError> {
+) -> Result<Result<AppliedMethodEffects, FlowDataRejection>, ApplyError> {
     let attributes = match apply_attribute_writes(
         transaction,
         cursor,
@@ -661,15 +669,12 @@ pub(crate) fn apply_method_effects(
         });
     }
     step.locals.sort_by(|left, right| left.key.cmp(&right.key));
-    crate::steps::wait_conditions::on_channels_changed(
-        transaction,
-        cursor,
-        scope.now_micros,
-        &published.changed_channels,
-    )?;
-    Ok(Ok(EffectValueReferences {
-        attributes,
-        publications: published.value_references,
-        locals,
+    Ok(Ok(AppliedMethodEffects {
+        references: EffectValueReferences {
+            attributes,
+            publications: published.value_references,
+            locals,
+        },
+        changed_channels: published.changed_channels,
     }))
 }
