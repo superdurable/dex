@@ -39,7 +39,7 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 
 这个证明对一整类程序给出了回答。凡是能用上述构件写出的并发结构，都有等价的 Dex Flow。论文还展示了如何用 Step、Channel、Attribute 和 Timer 搭出每个构件。
 
-这个翻译是为证明而做的构造，不是 Dex 附带的编译器。它为每条语句使用一个 Step，这不是建模应用的方式。用它来确认某种结构可以实现。建模你自己的 Flow 时，请参考[设计模式](/design-patterns)。
+这个翻译是为证明而做的构造，不是 Dex 附带的编译器。它大致为每条语句使用一个 Step，这不是建模应用的方式。用它来确认某种结构可以实现。建模你自己的 Flow 时，请参考[设计模式](/design-patterns)。
 
 ## 每个构件如何搭建 {#how-each-construct-is-built}
 
@@ -47,7 +47,7 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 
 | 构件 | Dex 构件 | 相关设计模式 |
 | --- | --- | --- |
-| 线程 | 一串 Step，每条语句一个。线程的位置和局部状态放在 Step 输入中传递。任一时刻，一个线程就是一个活跃的 Step 执行。 | |
+| 线程 | 一串 Step，通常每条语句一个。**wait** 用三个 Step，**sleep** 和带超时的 **select** 会多一个入口 Step。线程的位置和局部状态放在 Step 输入中传递。任一时刻，一个运行中的线程就是一个活跃的 Step 执行。 | |
 | **fork** | **GoToMany** 到父线程的下一个 Step 和子线程的第一个 Step。 | |
 | **join** | 结束的线程向自己的 join Channel 发布一条消息，然后返回 **DeadEnd**。执行 join 的 Step 用 **AnyOf** 等待这个 Channel 和自己的取消 Channel。 | [Await Parallel Steps](/design-patterns/parallel/await) |
 | 互斥锁 | 一个 Channel，在互斥锁空闲时持有一个 token。**lock** 用 **ForOne** 等待这个 token，等待者按开始等待的顺序获得服务。**unlock** 把 token 发布回去。 | [Critical Section](/design-patterns/critical-section) |
@@ -65,7 +65,7 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 
 这个结论建立在三部分之上。
 
-- **Dex 核心的形式语义。** 它描述 Flow、Step、Channel、Attribute 和 Timer 的行为。它对照 server 代码写成，每条规则都引用实现它的代码。评审者对照代码检查了这些规则。
+- **Dex 核心的形式语义。** 它描述 Flow、Step、Channel、Attribute 和 Timer 的行为。它对照 server 代码写成，其中的规则引用了实现它们的代码。评审者对照代码检查了这些规则。
 - **翻译和定理。** 论文定义了翻译，并给出两个等式：相同的事件序列，以及公平调度下相同的结局。
 - **Lean 4 证明。** Lean 内核检查证明的每一步，没有任何一步未经证明。证明只用到 Lean 的三个标准公理，并且只依赖 Lean 核心库。
 

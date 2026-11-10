@@ -53,7 +53,7 @@ also shows how to build each construct from Steps, Channels, Attributes, and
 Timers.
 
 The translation is a construction for the proof. It is not a compiler that
-Dex ships. It uses one Step for each statement, which is not how to model an
+Dex ships. It uses about one Step for each statement, which is not how to model an
 application. Use it to see that a structure is possible. Model your own Flow
 with the [design patterns](/design-patterns).
 
@@ -63,7 +63,7 @@ This table summarizes the translation in the paper.
 
 | Construct | Dex building blocks | Related design pattern |
 | --- | --- | --- |
-| Thread | A chain of Steps, one for each statement. The thread's position and local state travel in the Step input. A thread is one active Step execution at a time. | |
+| Thread | A chain of Steps, usually one for each statement. **wait** takes three Steps, and **sleep** and timed **select** add an entry Step. The thread's position and local state travel in the Step input. A running thread is one active Step execution at a time. | |
 | **fork** | **GoToMany** to the parent's next Step and the child's first Step. | |
 | **join** | The ending thread publishes one message to its join Channel, then returns **DeadEnd**. The joining Step waits with **AnyOf** on that Channel and on its own cancel Channel. | [Await Parallel Steps](/design-patterns/parallel/await) |
 | Mutex | A Channel that holds one token while the mutex is free. **lock** waits for the token with **ForOne**. Waiters are served in the order they started waiting. **unlock** publishes the token back. | [Critical Section](/design-patterns/critical-section) |
@@ -85,7 +85,7 @@ The result rests on three parts.
 
 - **A formal semantics of the Dex core.** It describes how Flows, Steps,
   Channels, Attributes, and Timers behave. It was written against the server
-  code. Each rule cites the code that implements it. Reviewers checked the
+  code. Its rules cite the code that implements them. Reviewers checked the
   rules against that code.
 - **The translation and the theorems.** The paper defines the translation
   and states the two equalities: same event sequences, and same outcomes
