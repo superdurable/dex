@@ -200,7 +200,7 @@ function memoryStorage(): Storage {
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', memoryStorage());
-  // Runs open on the Timeline, which observes its own size.
+  // Runs open on the Timeline; the selected-event connector and the vertical Timeline observe sizes.
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
     unobserve() {}
@@ -315,6 +315,8 @@ describe('Run page experimental tabs', () => {
     renderRun();
     await screen.findByText('Running');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe('true'));
+    // Only loaded history draws an event, so the Timeline really read it.
+    await waitFor(() => expect(document.querySelector('[data-event-id="1"]')).not.toBeNull());
   });
 
   it('opens on the Timeline when no tab is remembered', async () => {
@@ -323,6 +325,8 @@ describe('Run page experimental tabs', () => {
     renderRun();
     await screen.findByText('Running');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Timeline' }).getAttribute('aria-pressed')).toBe('true'));
+    // Only loaded history draws an event, so the Timeline really read it.
+    await waitFor(() => expect(document.querySelector('[data-event-id="1"]')).not.toBeNull());
   });
 
   it('adds Agent session and Actions for a Dex Agents session served by the operator API', async () => {

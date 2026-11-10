@@ -432,6 +432,7 @@ export function HorizontalTimeline({
   );
   const stripRef = useRef<HTMLDivElement>(null);
   const helpId = useId();
+  const overviewHelpId = useId();
   const minimapRef = useRef<HTMLDivElement>(null);
   const [stripWidth, setStripWidth] = useState(fallbackStripWidth);
   const visibleCount = Math.max(1, Math.floor((stripWidth - labelRunWidth) / slotWidth));
@@ -440,7 +441,7 @@ export function HorizontalTimeline({
   const isAtNewestEnd = useRef(true);
   const isDraggingMinimap = useRef(false);
   /** The press: view start, plus its left edge and the pointer in plot pixels. A drag shifts the edge by the pointer delta. */
-  const brushDragOrigin = useRef({ windowStart: 0, pointerX: 0, windowLeftX: 0, hasDragged: false });
+  const brushDragOrigin = useRef({ windowStart: 0, pointerX: 0, windowLeftX: 0, hasDragged: false, isGripPress: false });
   const [hoveredBucket, setHoveredBucket] = useState<number | null>(null);
   const [isPointerOverBrush, setIsPointerOverBrush] = useState(false);
   const timezone = useTimezonePreference();
@@ -604,6 +605,7 @@ export function HorizontalTimeline({
     setHoveredBucket(null);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const pointerX = pointerPlotX(event.clientX);
+    const isGripPress = maxStart > 0 && isOverBrushGrip(pointerX);
     let start = windowStart;
     if (!isOverBrush(pointerX)) {
       start = clampStart(ratioToEventIndex(overviewAxis, plotXToRatio(pointerX)) - visibleCount / 2);
@@ -615,6 +617,7 @@ export function HorizontalTimeline({
       pointerX,
       windowLeftX: eventIndexToRatio(overviewAxis, start) * plotWidth,
       hasDragged: false,
+      isGripPress,
     };
   };
 
@@ -639,9 +642,9 @@ export function HorizontalTimeline({
     isDraggingMinimap.current = false;
   };
 
-  // A press that never became a drag is a click; on a bar it selects that bar's event.
+  // A press that never became a drag is a click; on a bar it selects that bar's event. A grip press only drags.
   const handleMinimapPointerUp = () => {
-    const isClick = isDraggingMinimap.current && !brushDragOrigin.current.hasDragged;
+    const isClick = isDraggingMinimap.current && !brushDragOrigin.current.hasDragged && !brushDragOrigin.current.isGripPress;
     endMinimapDrag();
     if (!isClick) return;
     const bucketIndex = bucketAtRatio(plotXToRatio(brushDragOrigin.current.pointerX));
@@ -662,7 +665,7 @@ export function HorizontalTimeline({
     else if (event.key === 'End') next = maxStart;
     else if (event.key === 'Enter') {
       event.preventDefault();
-      selectIndex(Math.floor(windowStart + visibleCount / 2));
+      selectIndex(Math.min(chronological.length - 1, Math.floor(windowStart + Math.min(visibleCount, chronological.length) / 2)));
       return;
     } else return;
     event.preventDefault();
@@ -719,6 +722,7 @@ export function HorizontalTimeline({
 
       <EventKindLegend />
       <div
+        aria-describedby={overviewHelpId}
         aria-label="Timeline overview"
         aria-valuemax={maxStart}
         aria-valuemin={0}
@@ -854,7 +858,7 @@ export function HorizontalTimeline({
             {hovered.problems.map((problem) => (
               <span className={`htl-overview-tooltip-problem htl-status-${problem.tone}`} key={problem.text}>{problem.text}</span>
             ))}
-            {hoveredSelectionIndex >= 0 && (
+            {hoveredSelectionIndex >= 0 && !isPointerOverBrush && (
               <span className="htl-overview-tooltip-hint">Click to select #{chronological[hoveredSelectionIndex].eventId}</span>
             )}
           </div>
@@ -960,6 +964,9 @@ export function HorizontalTimeline({
 
       <p className="sr-only" id={helpId}>
         Left and Right move the selection; Page Up and Page Down move by a screen.
+      </p>
+      <p className="sr-only" id={overviewHelpId}>
+        Left, Right, Page Up, Page Down, Home, and End move the view; Enter selects the event at the center of the brush.
       </p>
     </div>
   );

@@ -724,5 +724,40 @@ describe('horizontal Timeline', () => {
       fireEvent.keyDown(overview, { key: 'Enter' });
       expect(option(Math.floor(visibleCount / 2) + 1)?.getAttribute('aria-selected')).toBe('true');
     });
+
+    it('selects the middle event with Enter when the whole page fits without a brush', () => {
+      const overview = renderOverview(events(10));
+      expect(document.querySelector('.htl-overview-brush-fill')).toBeNull();
+      fireEvent.keyDown(overview, { key: 'Enter' });
+      expect(option(6)?.getAttribute('aria-selected')).toBe('true');
+      expect(selectedOptions()).toHaveLength(1);
+      const description = document.getElementById(overview.getAttribute('aria-describedby') ?? '');
+      expect(description?.className).toBe('sr-only');
+      expect(description?.textContent).toContain('Enter selects the event at the center of the brush');
+    });
+
+    it('never selects or moves the view on a grip press over a bar released without moving', () => {
+      // 100 events draw one bar each, so every grip sits over a bar.
+      const overview = renderOverview(events(100));
+      const brushFill = () => document.querySelector('.htl-overview-brush-fill')!;
+      // Move the brush mid-track by keyboard, so neither grip is clamped at an end.
+      fireEvent.keyDown(overview, { key: 'Home' });
+      fireEvent.keyDown(overview, { key: 'PageDown' });
+      const left = Number(brushFill().getAttribute('x'));
+      const right = left + Number(brushFill().getAttribute('width'));
+      const viewText = overview.getAttribute('aria-valuetext');
+
+      for (const gripX of [left - 2, right + 2]) {
+        fireEvent.pointerMove(overview, { clientX: gripX, pointerId: 1 });
+        expect(overview.classList.contains('is-over-brush')).toBe(true);
+        expect(document.querySelector('.htl-overview-tooltip')).not.toBeNull();
+        expect(document.querySelector('.htl-overview-tooltip-hint')).toBeNull();
+        fireEvent.pointerDown(overview, { button: 0, clientX: gripX, pointerId: 1 });
+        fireEvent.pointerMove(overview, { clientX: gripX + 2, pointerId: 1 });
+        fireEvent.pointerUp(overview, { clientX: gripX + 2, pointerId: 1 });
+        expect(overview.getAttribute('aria-valuetext')).toBe(viewText);
+        expect(selectedOptions()).toHaveLength(0);
+      }
+    });
   });
 });
