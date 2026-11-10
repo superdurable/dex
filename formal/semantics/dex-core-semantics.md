@@ -1624,6 +1624,8 @@ the task named; the rest were found on the way or in review.
       timer order. A real run in this window has no counterpart in the model.
       The expressiveness theorem does not cover such runs: it speaks about
       the model's runs.
+    - **[owner, 2026-11-10] The server is not changed.** No distributed
+      system guarantees precise timer firing, so the window stays.
     - Stance: the rule of Section 4.5 is **not** changed, because the merged
       Lean proof formalizes revision 8. Section 11.3 states the rule the code
       implements, and the choice for the failure proof is an open owner
@@ -1952,6 +1954,8 @@ after exit (18).
     eviction (Section 7, item 25). The Go SDK's InvokeRPC mints a new
     request ID on every call and offers no option to pass one (at
     `55721e878`: `sdk-go/dex/client.go:1765`, `sdk-go/dex/options.go:553-561`).
+    [owner, 2026-11-10] The SDKs will get an optional caller-supplied request
+    ID ([#1519](https://github.com/superdurable/dex/issues/1519)).
   - **An ASYNC variant.** Under ASYNC a Worker can receive a start that a
     crash then rolls back, and the same attempt number runs again from a
     fresh snapshot (D2). A weaker theorem would have to allow different
@@ -1959,6 +1963,8 @@ after exit (18).
   - **StopFlow, SetAttributes, DeleteChannelMessage, and SkipTimer under
     retries.** They are outside `E_adm`. StopFlow has no request ID and
     resolves an empty run ID to the newest run (Section 7, item 25).
+    [owner, 2026-11-10] The SDKs will accept an optional run ID for
+    StopFlow ([#1520](https://github.com/superdurable/dex/issues/1520)).
 
 ## 10. Review log
 
@@ -2073,7 +2079,7 @@ the code behind unchanged rules. Every new citation is at `55721e878`.
 | F3 | The premise of [STEP-COMPLETE-WAITFOR] said "the same task". | **Clarified.** The code's fence is Step execution, method, attempt number, phase Running, and task ID. It selects the same results without failures. Section 4.4; [RESULT-STALE] in Section 11.3. |
 | F4 | Section 4.5 read as if apply checked that a timer is due. | **Clarified.** Apply fires whatever the command names; the timer service and the command stamp make it due, under the clock assumption D6. Section 4.5. |
 | F5 | Facts of Section 7 that failures change: locks held through Backoff, retry timers left armed after a cancel, the bounded request table, StopFlow's run resolution, the interrupt commit, and timeouts kept only in memory. | **Recorded** as Open question 25. |
-| F6 | The failure model itself. | **Added** as Section 11: decisions, state, rules, events, theorem statements, and the abstraction map. Appendix A, items 42 to 60. Section 9 lists the failures left for later. |
+| F6 | The failure model itself. | **Added** as Section 11: decisions, state, rules, events, theorem statements, and the abstraction map. Appendix A, items 42 to 64. Section 9 lists the failures left for later. |
 | F7 | The plan stated safety as "`t` is a failure trace if and only if `t` is a repetition of a failure-free trace". Not every repetition is reachable: an attempt emits its effects in order from the first. | **Stated as two inclusions.** Forward: erasing repeated `fx` from a DexF trace gives a Dex trace. Backward: every Dex trace is a DexF trace. The end-to-end corollary follows the same shape. Section 11.5; Appendix A, item 58. |
 | F8 | The clarification of Section 4.5 makes explicit that the failure-free [TIMER-FIRE] is faithful to the code only under the clock assumption D6. | **Recorded.** The rule is unchanged, so the Lean proof is unaffected. Appendix A, item 47. |
 
@@ -2107,6 +2113,16 @@ against the code at `55721e878`.
 | --- | --- | --- |
 | F19 | The command classes were incomplete. StepAttemptQueued is applied but never finishes its run cursor, so it takes no run `seq`; "every applied command takes a run `seq`" was false. | **Fixed.** Section 11.2 has four classes: normal, failure, bookkeeping (applied, no run `seq`), and ignored or rejected. A search for handlers that skip `RunCursor::finish` found StepAttemptQueued and eight commands of excluded features; all are listed. Bookkeeping commands leave `n` and `ζ` unchanged and are stutters. |
 | F20 | The `seq` table could not be made exhaustive: it missed Attribute Sync outbox entries, the search index value, and history window fields, and it cited `attribute_sync.rs:151`, which compares an outbox entry's `written_seq`, not the Attribute's. | **Fixed.** The table is inverted. It lists only the `seq`-derived values of the failure-free model and how α restores each. Every other persisted field has no counterpart in the model and is outside α by construction, sound for the same reason as the failure-free model. The completeness claim and the wrong citation are removed. Section 11.6. |
+
+The next re-review found three more points, all accepted and checked against
+the code at `55721e878`. The owner also decided four points on 2026-11-10.
+
+| # | Point | Resolution |
+| --- | --- | --- |
+| F21 | The run `seq` criterion was "writes the run record". HistorySegmentUploaded writes the run record through `reconcile_run_storage` but takes no run `seq` (`segment_upload.rs:46`, `:87`, `:104`; `storage_accounting.rs:30`). A leftover sentence in Section 11.3 said every applied command takes a run `seq`, which StepAttemptQueued contradicts. | **Fixed.** The criterion is whether the command advances the persisted `next_run_seq`. Both sentences are corrected. Sections 11.2 and 11.3. |
+| F22 | Every rejected command was a stutter, which loses `rejected(pub(...), NOT_FOUND)` for a Publish after the close (`client_writes.rs:213-214`, `command_handlers/mod.rs:292-294`). | **Fixed.** A rejected client input of the word maps to the same Dex rejection with the same event. Only internal ignored or rejected commands are silent. [START-RETRY] stays silent: its reply is a success, and `w↓` deletes it. Section 11.2; Appendix A, item 64. |
+| F23 | `ps₀` was described as the raw `seq` of the first pend in some places. `pending_since_seq` stores the raw `seq` (`invocations.rs:114`), and the Dex value is its normal index. | **Fixed.** `ps₀(e, m) := ζ(s)` for the `seq` `s` of the first pend, used in Sections 11.2, 11.3, and 11.6, with the example. |
+| Owner | PublishToChannel gets no request ID. The SDKs get an optional RPC request ID (#1519) and an optional StopFlow run ID (#1520). The server keeps its timer behavior, because no distributed system guarantees precise timer firing. | **Recorded.** Section 11.1 (D7), Section 9, Open question 26; Appendix A, items 61 to 63. OD1 stays open. |
 
 ## 11. Failures
 
@@ -2239,11 +2255,21 @@ Section 4.5 already allows unbounded lateness.
 - An application that needs exactly-once publication can publish from an RPC
   handler, because a repeated RPC request ID with the same content returns
   the recorded reply (`dexzd-apply/src/command_handlers/rpc_committed.rs:58-75`).
-  Three cautions apply, outside this theorem. The caller must reuse one
-  request ID, and the Go SDK's InvokeRPC offers no way to pass one
-  (`sdk-go/dex/client.go:1765`, `sdk-go/dex/options.go:553-561`). A crash
+  [owner, 2026-11-10] This route is **planned, not yet available**. The
+  caller must reuse one request ID, and today the SDKs do not let it pass
+  one: the Go SDK's InvokeRPC mints a new request ID on every call
+  (`sdk-go/dex/client.go:1765`, `sdk-go/dex/options.go:553-561`). The owner
+  decided that the SDKs will get an optional caller-supplied request ID
+  ([#1519](https://github.com/superdurable/dex/issues/1519)). Until it ships,
+  no SDK exposes one. Two more cautions apply, outside this theorem. A crash
   before the RPC commits lets the handler run again. An RPC on a locked key
   gets ABORTED.
+- [owner, 2026-11-10] PublishToChannel will not get a request ID. This
+  confirms the decision above.
+- [owner, 2026-11-10] The SDKs will accept an optional run ID for StopFlow
+  ([#1520](https://github.com/superdurable/dex/issues/1520)), so that a
+  retry can target the run it meant to stop (Open question 25). This is a
+  note only: StopFlow is outside `E_adm`.
 - The per-run request table is bounded and evicts its oldest entries
   (Section 1.3). The fragment does not use it: StartFlow deduplicates
   through the Flow directory, and PublishToChannel has no request ID. So the
@@ -2274,7 +2300,7 @@ I : set of (e, m, a, tid)              -- interrupted attempts, engine memory
 h : (e, m) ⇀ ℕ                         -- ghost: largest effect index any attempt emitted
 v : (e, m) ⇀ NotRun | Ran(Fx*, Resp) | Returned(Resp)
                                        -- ghost: furthest phase any attempt reached
-ps₀ : (e, m) ⇀ ℕ                       -- ghost: ps of the invocation's first pend
+ps₀ : (e, m) ⇀ ℕ                       -- ghost: ζ(s), s the run seq of the invocation's first pend
 n : ℕ                                  -- ghost: number of applied normal commands of the run
 ζ : ℕ ⇀ ℕ                              -- ghost: real seq of each applied normal command ↦ its index
 ```
@@ -2292,25 +2318,50 @@ n : ℕ                                  -- ghost: number of applied normal comm
   only α does. Under H2 each pair `(e, m)` has at most one invocation in its
   life, so they need no reset.
 - **Command classes.** Every command in the log is a log commit with a
-  stamp (Section 11.3). Apply's outcome puts it in one of four classes. Only
-  a command that persists its run cursor takes a run `seq`: the cursor bumps
-  `next_run_seq` in memory when it opens
-  (`dexzd-apply/src/command_handlers/run_cursor.rs:153-156`), and only
-  `RunCursor::finish` writes the run record (`run_cursor.rs:225`).
+  stamp (Section 11.3). Apply's outcome puts it in one of five classes. The
+  criterion for the run `seq` is whether the command **advances the
+  persisted `next_run_seq`**, not whether it writes the run record. A cursor
+  opened with `RunCursor::open` bumps `next_run_seq` in memory
+  (`dexzd-apply/src/command_handlers/run_cursor.rs:153-156`); the bump
+  persists only if the command then writes the run record from that cursor.
+  A cursor opened with `open_without_seq` keeps `next_run_seq`
+  (`run_cursor.rs:91-99`), even when the command writes the run record. For
+  example, HistorySegmentUploaded opens its cursor that way
+  (`dexzd-apply/src/history_offload/segment_upload.rs:46`), changes the
+  record (`:87`), and writes it through `reconcile_run_storage`
+  (`:104`, `dexzd-apply/src/values/storage_accounting.rs:30`), yet takes no
+  run `seq`.
 
   | Class | Run `seq` | α | Commands |
   | --- | --- | --- | --- |
-  | **Normal** | taken | a Dex commit | FlowStart, ChannelPublish, a first [STEP-START], a Complete rule, a TimersFired that fires a wait timer |
+  | **Normal** | taken | a Dex commit with the same events | FlowStart, ChannelPublish, a first [STEP-START], a Complete rule, a TimersFired that fires a wait timer |
   | **Failure** | taken | stutter | a [STEP-START] that reuses a snapshot, [ATTEMPT-LOST], [RECOVER-INTERRUPT], [ATTEMPT-RETURNED], [ATTEMPT-HEARTBEAT], a TimersFired that fires only retry timers or stale timers |
-  | **Bookkeeping** | not taken | stutter | applied, but writes no run row: see below |
-  | **Ignored or rejected** | not taken | stutter | [RESULT-STALE], [START-RETRY], any rejected input |
+  | **Bookkeeping** | not taken | stutter | applied, but does not advance `next_run_seq`: see below |
+  | **Rejected client input** | not taken | the Dex rejection of the same request, with the same event `rejected(input, err)` | a request of the word that apply rejects with an error, such as a PublishToChannel after the root Flow closed |
+  | **Internal ignored or rejected** | not taken | stutter | [RESULT-STALE], [START-RETRY], a TimersFired whose timers are all gone (`dexzd-apply/src/command_handlers/step_commands.rs:194-196`), a stale StepAttemptQueued |
 
-  **Bookkeeping commands** are applied without finishing a run cursor. A
-  search of `dexzd-apply` at `55721e878` for handlers that build their
-  output without `RunCursor::finish` found these:
+  **Rejected client inputs are observable.** A PublishToChannel to a closed
+  run is rejected with NOT_FOUND
+  (`dexzd-apply/src/command_handlers/client_writes.rs:213-214`), and a
+  rejection writes nothing (`command_handlers/mod.rs:292-294`). Sections 4.6
+  and 5.3 give it the event `rejected(pub(f, [(c, v)]), NOT_FOUND)`, which
+  `π` maps to `refused(c, v)`. So it is not a stutter: α maps it to the same
+  Dex transition, with `n` and `ζ` unchanged on both sides.
+
+  **[START-RETRY] stays silent.** It differs from a rejected Publish in two
+  ways. Its reply is a success that returns the existing run
+  (`flow_start.rs:116-124`), not an error, so it is not a rejection in the
+  sense of Section 4.6. And `w↓` deletes it (Section 11.5), so the Dex word
+  has no request for it to match. A rejected Publish stays in `w↓`.
+
+  **Bookkeeping commands** do not advance `next_run_seq`. They were found by
+  searching `dexzd-apply` at `55721e878` for handlers that build their
+  output without `RunCursor::finish`; each was then checked for how it opens
+  its cursor:
   - StepAttemptQueued (`dexzd-apply/src/steps/dispatch_queue.rs:106-164`).
-    It opens a cursor (`:111`) but only writes a DispatchQueue index row
-    (`:150-157`), so after the start `next_run_seq` stays 2. The fragment's
+    It opens a cursor (`:111`) but never writes the run record; it writes
+    only a DispatchQueue index row (`:150-157`). So after the start
+    `next_run_seq` stays 2. The fragment's
     engine proposes it whenever no Worker takes a pending attempt at once
     (`attempt_handout.rs:362`, `attempt_handout.rs:381-392`). It is in the
     fragment, and it is a stutter: dispatch order is nondeterministic in the
@@ -2323,10 +2374,18 @@ n : ℕ                                  -- ghost: number of applied normal comm
     TimeTravelStage (`dexzd-apply/src/history/time_travel/staging.rs:108`),
     ValueRevive (`dexzd-apply/src/history_offload/value_revive.rs:84`),
     HistoryLocalCleanup (`dexzd-apply/src/history/local_cleanup.rs:112`), and
-    RunPurge (`dexzd-apply/src/cross_flow/run_purge.rs:229`). They serve
-    search, history, time travel, and retention, which Section 1.3 excludes.
-    Background work may still propose them during a run of the fragment; each
-    is a stutter.
+    RunPurge (`dexzd-apply/src/cross_flow/run_purge.rs:229`). The search and
+    offload-mode commands are partition commands with no run cursor. The
+    history, time-travel, and revive commands open their cursor with
+    `open_without_seq` (`segment_upload.rs:46`,
+    `dexzd-apply/src/history_offload/segment_expiry.rs:184`,
+    `dexzd-apply/src/history/time_travel/staging.rs:55`,
+    `dexzd-apply/src/history_offload/value_revive.rs:44`,
+    `dexzd-apply/src/history/local_cleanup.rs:92`); some of them still write
+    the run record. RunPurge deletes the run's rows after retention. They
+    serve search, history, time travel, and retention, which Section 1.3
+    excludes. Background work may still propose them during a run of the
+    fragment; each is a stutter.
 
   The routing of these commands is at
   `dexzd-apply/src/command_handlers/mod.rs:116-170`. Step commands and
@@ -2334,8 +2393,19 @@ n : ℕ                                  -- ghost: number of applied normal comm
   (`dexzd-apply/src/command_handlers/step_commands.rs:80-89`,
   `step_commands.rs:201-206`).
 - Every applied normal command with run `seq` `s` sets `n := n + 1` and
-  `ζ[s] := n`. Every command of the other three classes leaves `n` and `ζ`
-  unchanged. So `ζ` is strictly increasing on its domain. It is part of the
+  `ζ[s] := n`. Every command of the other four classes leaves `n` and `ζ`
+  unchanged.
+- `ps₀(e, m) := ζ(s)`, where `s` is the run `seq` of the command whose
+  `pend` first made `(e, m)` pending. That command is always normal: a first
+  pend happens only when a Step is created, when a wait fires, or when a
+  WaitFor completes, and the failure path that pends a new method is
+  excluded by H2. `ps₀` is set in the same command that sets `ζ[s]`, and
+  retries never change it. The code's `pending_since_seq` holds the raw `s`
+  (`invocations.rs:114`). Example: `seq` 1 is the start, 2 the first WaitFor
+  start, 3 a failure, 4 the retry timer, 5 the start that reuses the
+  snapshot, 6 the WaitFor completion that registers an empty wait and pends
+  Execute. Execute's first pend has raw `seq` 6, but its command is the
+  third normal command, so `ps₀ = ζ(6) = 3`. So `ζ` is strictly increasing on its domain. It is part of the
   configuration, because the configuration alone cannot tell which past
   commands were normal: two runs can reach the same `R`, `Θ`, `Z`, `I`, `h`,
   `v`, `ps₀`, and clocks, one through a normal [STEP-START] and one through
@@ -2377,10 +2447,13 @@ function on the same command stream. It is not a special apply mode.
 Rules are in the style of Section 4. Two notions are kept apart below. A
 **log commit** is a command durably in the partition log; it carries a
 stamp, and the stamp advances the partition clock, whether apply accepts the
-command or not (`partition_applier.rs:624-639`). A command that apply
-**applies** also takes the next run `seq`. A command that apply ignores or
-rejects writes no run row and takes no run `seq`. In Dex, a log commit that
-writes nothing is covered by [TICK].
+command or not (`partition_applier.rs:624-639`). A command takes the next
+run `seq` only when it advances the persisted `next_run_seq` (the command
+classes of Section 11.2). Not every applied command does: StepAttemptQueued
+is applied and takes none (`dexzd-apply/src/steps/dispatch_queue.rs:150-163`).
+A command that apply ignores or rejects writes no run row and takes no run
+`seq`. In Dex, a log commit that changes no model state is covered by
+[TICK]; a rejected client input keeps its event (Section 11.2).
 
 **Unchanged rules.** [FLOW-START], [TICK], [PUBLISH], [WORKER-ABANDON], the
 meta-functions of Section 4.2, and the RPC and SubFlow rules keep their
@@ -2406,8 +2479,8 @@ Section 4.4, for a task in `Θ`. The `j`-th effect of a task carries the ghost
 index `j`. The task's counter becomes `j`, and `h(e, m) := max(h(e, m), j)`.
 When a task computes `(fx⃗, resp)`, `v(e, m)` becomes `Ran(fx⃗, resp)` unless
 it is already further. When a task becomes `Returned(resp)`, `v(e, m)`
-becomes `Returned(resp)`. `pend` sets `ps₀(e, m)` once, at the invocation's
-first pend.
+becomes `Returned(resp)`. The invocation's first `pend` sets
+`ps₀(e, m) := ζ(s)` once (Section 11.2).
 
 **[ZOMBIE-EFFECT]** (Worker) Events `[fx(f, (e, m), x)ʲ]`. The same rule for a
 task in `Z`. A zombie may also be dropped at any point, as [WORKER-ABANDON]
@@ -3071,6 +3144,8 @@ proof (plan Section 4.2), and the inductiveness fuzz must test them.
 | The retry part of [RETRY-FIRE]: `B` to `P`, with or without a snapshot | stutter (`R` to `R`, or `P` to `P`) |
 | [ATTEMPT-LOST] before the first start (`P` to `B`, no snapshot) | stutter (`P` to `P`) |
 | Cancel or close of a Step whose attempts are all gone | the same commit, then [WORKER-ABANDON] of the virtual task |
+| A rejected client input of the word, such as a PublishToChannel after the close | the same Dex rejection, with the event `rejected(input, err)` |
+| A bookkeeping command, such as StepAttemptQueued | stutter |
 | [CRASH], [RECOVER], [RECOVER-INTERRUPT], [ATTEMPT-LOST], [ATTEMPT-RETURNED], [ATTEMPT-HEARTBEAT], [RESULT-STALE], [START-RETRY] | stutter |
 
 A canceled invocation's virtual task follows Dex's rules for a canceled task:
@@ -3219,3 +3294,15 @@ hypothesis.
 60. Which timer rule the failure proof uses, the prefix rule of Section 4.5
     or the code's [TIMER-FIRE-SCAN], is an open owner decision (OD1, 11.3;
     Open question 26).
+61. The server keeps its timer behavior: no distributed system guarantees
+    precise timer firing [owner, 2026-11-10] (Open question 26). OD1 stays
+    open.
+62. The SDKs will get an optional caller-supplied RPC request ID (#1519);
+    until it ships, the RPC route to exactly-once publication is not
+    available. PublishToChannel gets no request ID [owner, 2026-11-10]
+    (11.1, D7).
+63. The SDKs will accept an optional run ID for StopFlow (#1520); StopFlow
+    stays outside `E_adm` [owner, 2026-11-10] (11.1, 9).
+64. A rejected client input of the word keeps its event `rejected(input,
+    err)` under α; only internal ignored or rejected commands are silent
+    (11.2).
