@@ -15,7 +15,9 @@ import DexExpressiveness.Failure.Proofs.WPF1NormalSteps
 import DexExpressiveness.Failure.Proofs.WPF6Progress
 import DexExpressiveness.Failure.Proofs.WPF6FrameTasks
 import DexExpressiveness.Failure.Proofs.WPF6FrameAttempts
+import DexExpressiveness.Failure.Proofs.WPF4Invariant
 import DexExpressiveness.Failure.Proofs.WPF3
+
 /-!
 # Proofs of the leaf statements
 
