@@ -27,6 +27,7 @@ import DexExpressiveness.Simulation.LToDexBasicFire
 import DexExpressiveness.Simulation.LToDexBasic
 import DexExpressiveness.Simulation.LToDexComplete
 import DexExpressiveness.Simulation.LToDex
+import DexExpressiveness.Simulation.DexToLLemmas
 import DexExpressiveness.Simulation.DexToL
 import DexExpressiveness.Simulation
 import DexExpressiveness.FiniteTraces

@@ -1,4 +1,4 @@
-import DexExpressiveness.Simulation.RelationLemmas
+import DexExpressiveness.Simulation.LToDexBasicWake
 
 /-!
 # L to Dex: the registration of a wait and the completion of an action
