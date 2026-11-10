@@ -680,19 +680,30 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
 ```
 
 - **One object per image.** The object key is `<prefix>/sha256/<sha256>`, and
-  the reference's `uri` ends in `/sha256/<sha256>`. `put_image` uploads only
-  when the object is missing, so a tool Step that a crash retries, or a client
-  that sends again, writes the same single object, and a replay always reads
-  the bytes the reference was made from. `get_image` checks the SHA-256 and
-  size, and reads only references under its own bucket and prefix.
-- **Types and sizes.** PNG, JPEG, GIF, and WebP, detected from the bytes, up
+  the reference's `uri` ends in `/sha256/<sha256>`. `S3MediaStore.put_image`
+  uploads with `If-None-Match: *` and treats "already exists" as success, so a
+  tool Step that a crash retries, a client that sends again, or two Workers at
+  once write one object. On a service that refuses conditional writes it
+  checks with `HEAD` first; two concurrent uploads may then both write the
+  same content, so deduplication holds for the key and its final content. A
+  replay always reads the bytes the reference was made from: `get_image`
+  reads only references under its own bucket and prefix, refuses an object
+  whose `Content-Length` differs, reads at most one byte past `size_bytes`,
+  and `verify_image_bytes` checks the SHA-256, the size, and that the bytes
+  are a well-formed image of `mime_type`.
+- **Types and sizes.** PNG, JPEG, GIF, and WebP, detected from the bytes with
+  a cheap structural check (PNG signature and `IHDR`; JPEG SOI, a marker, and
+  EOI at the end; GIF header and screen descriptor; WebP RIFF size and a
+  `VP8`, `VP8L`, or `VP8X` chunk), not a full decode, up
   to `MAX_IMAGE_BYTES` (3,750,000 bytes) each. Its base64 text is 5,000,000
   bytes, which fits the per-image limits of Amazon Bedrock (5 MB of base64)
   and the Claude API (10 MB of base64). One message or
   tool result carries at most `MAX_IMAGES_PER_MESSAGE` (20). `put_image`
-  raises `ImageValidationError` for other bytes. `validate_image_references`
-  checks references, and `AgentSessionClient.send_user_message` checks them
-  before it sends.
+  raises `ImageValidationError` for other bytes. A `uri` is at most
+  `MAX_IMAGE_URI_LENGTH` (1024) bytes as UTF-8 in every core, and a store
+  refuses a bucket, prefix, or name that would make longer ones.
+  `validate_image_references` checks references, and
+  `AgentSessionClient.send_user_message` checks them before it sends.
 - **Where they are stored.** `AgentUserMessage.images`, the session copy on
   the stored `AgentMessage.images` for display, `ToolExecutionResult.images`,
   and `AgentToolCall.images`. A runner also keeps the references, never the
@@ -706,19 +717,33 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   items or from `collect_turn_images(turn)`. The session sets the stored
   user message's `images` itself; for a tool result message the runner sets
   `FrameworkMessage.images` from the record. A tool result with an invalid
-  reference fails the tool Step attempt.
+  reference fails the tool Step attempt. The session checks the `images` of
+  every `FrameworkMessage` a runner returns before it stores any: an invalid
+  one fails the model call like any runner error, and one from
+  `build_unfinished_turn_messages` leaves only the turn's note.
 - **Stores.** `S3MediaStore(bucket, prefix, endpoint_url=..., region_name=...,
   force_path_style=...)` or `S3MediaStore.from_store_uri("s3://bucket/prefix")`
   for AWS S3 or any S3-compatible service; `InMemoryMediaStore` for tests in one
-  process. A store of your own implements `MediaStore`: build each reference
-  with `build_image_reference(data, store_uri)`, check reads with
+  process. Credentials come from the standard AWS chain by default; pass
+  `access_key_id` and `secret_access_key` (and `session_token`) only for a
+  bucket whose keys are not secret, such as a local development bucket with
+  fixed loopback keys. The store never logs them or shows them in its `repr`.
+  A store of your own implements `MediaStore`: check its location with
+  `require_short_image_uris`, build each reference with
+  `build_image_reference(data, store_uri)`, and check reads with
   `require_store_image_reference` and `verify_image_bytes`.
 - **Built-in runners.** In this release no built-in runner shows images to a
   model: Stepwise and the framework adapters do not implement
   `ImageUserMessageBuilder`, so their sessions refuse images.
-- Deleting a session deletes no object; expire objects with a bucket
-  lifecycle rule. Send images only after every Worker of the Flow type runs
-  0.5.0: an earlier Worker drops them.
+- **Retention.** Deleting a session deletes no object. A runner reads the
+  images again whenever a model call replays them, so a bucket lifecycle rule
+  must keep each object at least as long as any session that references it
+  can still run a turn or replay its history. When an object is gone, the
+  turn that needs it fails with `MediaStoreError` in `last_turn_error`, after
+  its user message, with nothing else stored; later turns that replay the
+  image fail the same way.
+- Send images only after every Worker of the Flow type runs 0.5.0: an earlier
+  Worker drops them.
 
 ## The runner contract
 

@@ -20,6 +20,12 @@ The model reads one command from the user message:
   test can read the tool call record.
 * ``bad-screenshot`` asks for ``return_invalid_image``, a single-attempt write
   whose result carries an invalid reference.
+* ``bad-answer-images`` answers with an item whose ``images`` are invalid.
+* ``bad-incremental-images`` asks for ``take_screenshot`` and stores an item
+  with invalid ``images`` through ``ToolCallsRequested.new_messages``.
+* ``screenshot-then-fail`` asks for ``take_screenshot``, then fails the second
+  model call; ``build_unfinished_turn_messages`` returns the tool result with
+  invalid ``images``.
 * ``stall <gate>`` waits at that gate, then answers.
 
 Every model call records ``<turn_id>:<model call>:<sha256>:<size>,...`` in
@@ -36,7 +42,7 @@ import os
 import struct
 import zlib
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +79,8 @@ IMAGE_LOADS_LOG_NAME = "image-loads.log"
 UPLOADS_LOG_NAME = "uploads.log"
 MEDIA_DIRECTORY_NAME = "media"
 MODEL_CALL_USAGE = AgentUsage(model_calls=1, input_tokens=10, output_tokens=5)
+S3LOCAL_ACCESS_KEY_ID = "s3local"
+S3LOCAL_SECRET_ACCESS_KEY = "s3local"
 TOOL_POLICIES = {
     "take_screenshot": ToolPolicy(ToolEffect.READ),
     "return_invalid_image": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
@@ -109,7 +117,14 @@ def build_media_store(state_dir: Path) -> MediaStore:
         endpoint_url=endpoint,
         region_name="us-east-1",
         force_path_style=True,
+        access_key_id=S3LOCAL_ACCESS_KEY_ID,
+        secret_access_key=S3LOCAL_SECRET_ACCESS_KEY,
     )
+
+
+def invalid_image(reference: AgentImageReference) -> AgentImageReference:
+    """Return the reference with an unsupported type, which validation refuses."""
+    return AgentImageReference(**{**asdict(reference), "mime_type": "image/bmp"})
 
 
 class ImageRunner:
@@ -144,7 +159,24 @@ class ImageRunner:
             return _answer("stalled")
         if command == "bad-screenshot":
             return _request_tool(turn, command, "return_invalid_image", {})
-        if command == "screenshot" or command.startswith(("screenshot-gate ", "screenshot-hold ")):
+        if command == "bad-answer-images":
+            reference = await self._store.put_image(screenshot_png())
+            answer = _answer("here is a bad image")
+            message = replace(answer.new_messages[0], images=[invalid_image(reference)])
+            return replace(answer, new_messages=[message])
+        if command == "bad-incremental-images":
+            reference = await self._store.put_image(screenshot_png())
+            requested = _request_tool(turn, command, "take_screenshot", {})
+            item = FrameworkMessage(
+                role=MessageRole.ASSISTANT,
+                text="calling",
+                framework_item=json.dumps({"type": "assistant", "text": "calling"}),
+                images=[invalid_image(reference)],
+            )
+            return replace(requested, new_messages=[item])
+        if command in ("screenshot", "screenshot-then-fail") or command.startswith(
+            ("screenshot-gate ", "screenshot-hold ")
+        ):
             arguments = (
                 {"gate": command.split(" ", 1)[1]} if command.startswith("screenshot-gate ") else {}
             )
@@ -179,6 +211,8 @@ class ImageRunner:
         if record is None:
             raise RuntimeError(f"no record for tool call {tool_call_id}")
         await self._load_turn_images(turn, model_call=2, extra=record.images)
+        if command == "screenshot-then-fail":
+            raise RuntimeError("scripted failure after the screenshot")
         if command.startswith("screenshot-hold "):
             gate = FileGate(self._state_dir, command.removeprefix("screenshot-hold "))
             gate.mark_reached()
@@ -216,6 +250,23 @@ class ImageRunner:
             ],
             usage=MODEL_CALL_USAGE,
         )
+
+    def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> list[FrameworkMessage]:
+        if _current_user_text(turn) != "screenshot-then-fail":
+            return []
+        record = turn.recorded_tool_call(f"{turn.turn_id}-call-0")
+        if record is None or not record.images:
+            return []
+        return [
+            FrameworkMessage(
+                role=MessageRole.TOOL,
+                tool_call_id=record.tool_call_id,
+                tool_name=record.tool_name,
+                tool_output=describe_tool_call_outcome(record),
+                framework_item=json.dumps({"type": "tool_result"}),
+                images=[invalid_image(image) for image in record.images],
+            )
+        ]
 
     async def _load_turn_images(
         self, turn: AgentTurnContext, model_call: int, extra: Sequence[AgentImageReference]

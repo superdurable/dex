@@ -15,6 +15,7 @@ s3local`` in ``s3local/``.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -38,6 +39,8 @@ from tests.image_agent import (
     S3_BUCKET_ENVIRONMENT_VARIABLE,
     S3_ENDPOINT_ENVIRONMENT_VARIABLE,
     S3_PREFIX,
+    S3LOCAL_ACCESS_KEY_ID,
+    S3LOCAL_SECRET_ACCESS_KEY,
     STATE_DIR_ENVIRONMENT_VARIABLE,
     build_image_agent_flow,
     screenshot_png,
@@ -46,11 +49,15 @@ from tests.image_agent import (
 S3LOCAL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_S3LOCAL"
 S3LOCAL_READY_LINE = "s3local is serving"
 BUCKET = "agent-media"
-CREDENTIALS = {
-    "AWS_ACCESS_KEY_ID": "s3local",
-    "AWS_SECRET_ACCESS_KEY": "s3local",
-    "AWS_REGION": "us-east-1",
-}
+# The Worker gets no AWS settings: the stores pass these loopback keys explicitly.
+AWS_ENVIRONMENT_VARIABLES = (
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_PROFILE",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+)
 IMAGES: dict[str, Any] = {
     case["name"]: case
     for case in json.loads(
@@ -77,6 +84,8 @@ class S3Local:
             endpoint_url=self.endpoint,
             region_name="us-east-1",
             force_path_style=True,
+            access_key_id=S3LOCAL_ACCESS_KEY_ID,
+            secret_access_key=S3LOCAL_SECRET_ACCESS_KEY,
         )
 
     def keys(self, prefix: str) -> list[str]:
@@ -85,14 +94,14 @@ class S3Local:
 
 
 @pytest.fixture
-def aws_credentials(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    for name, value in CREDENTIALS.items():
-        monkeypatch.setenv(name, value)
+def without_aws_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    for name in AWS_ENVIRONMENT_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
     yield
 
 
 @pytest_asyncio.fixture
-async def s3local(tmp_path: Path, aws_credentials: None) -> AsyncIterator[S3Local]:
+async def s3local(tmp_path: Path, without_aws_settings: None) -> AsyncIterator[S3Local]:
     port = find_free_port()
     process = KillableProcess("s3local", tmp_path / "s3local.log")
     await process.start(
@@ -110,10 +119,12 @@ async def s3local(tmp_path: Path, aws_credentials: None) -> AsyncIterator[S3Loca
     )
     try:
         endpoint = f"http://127.0.0.1:{port}"
-        client = boto3.client(
+        client = boto3.session.Session().client(
             "s3",
             endpoint_url=endpoint,
             region_name="us-east-1",
+            aws_access_key_id=S3LOCAL_ACCESS_KEY_ID,
+            aws_secret_access_key=S3LOCAL_SECRET_ACCESS_KEY,
             config=boto3.session.Config(s3={"addressing_style": "path"}),
         )
         client.create_bucket(Bucket=BUCKET)
@@ -141,6 +152,60 @@ async def test_put_image_writes_one_object_per_image_with_its_content_type(
     with pytest.raises(ImageValidationError, match="not PNG, JPEG, GIF, or WebP"):
         await store.put_image(b"GIF00a")
     assert len(s3local.keys("")) == 1
+
+
+async def test_concurrent_and_repeated_uploads_leave_one_object_version(s3local: S3Local) -> None:
+    s3local.client.put_bucket_versioning(
+        Bucket=BUCKET, VersioningConfiguration={"Status": "Enabled"}
+    )
+    store = s3local.store()
+    other_store = s3local.store()
+
+    references = await asyncio.gather(
+        store.put_image(PNG), other_store.put_image(PNG), store.put_image(PNG)
+    )
+
+    assert len({reference.uri for reference in references}) == 1
+    versions = s3local.client.list_object_versions(Bucket=BUCKET, Prefix=S3_PREFIX)
+    assert [version["Key"] for version in versions.get("Versions", [])] == [
+        store.object_key(references[0].sha256)
+    ]
+
+
+async def test_get_image_refuses_an_oversized_object_without_reading_it_all(
+    s3local: S3Local,
+) -> None:
+    store = s3local.store()
+    reference = await store.put_image(PNG)
+    s3local.client.put_object(
+        Bucket=BUCKET, Key=store.object_key(reference.sha256), Body=PNG + bytes(4_000_000)
+    )
+
+    with pytest.raises(MediaStoreError, match="does not match its sha256 and size"):
+        await store.get_image(reference)
+
+
+async def test_explicit_credentials_come_in_pairs_and_stay_out_of_the_repr(
+    s3local: S3Local,
+) -> None:
+    secret = "never-shown-secret"
+    store = S3MediaStore(
+        BUCKET,
+        S3_PREFIX,
+        endpoint_url=s3local.endpoint,
+        region_name="us-east-1",
+        force_path_style=True,
+        access_key_id="s3local",
+        secret_access_key=secret,
+    )
+
+    assert secret not in repr(store)
+    with pytest.raises(ValueError, match="access_key_id and secret_access_key together"):
+        S3MediaStore(BUCKET, access_key_id="s3local")
+    with pytest.raises(ValueError, match="session_token only with them"):
+        S3MediaStore(BUCKET, session_token="token")
+    # s3local checks no signatures, so this shows the explicit keys replace the missing AWS chain.
+    assert (await store.put_image(PNG)).sha256 == IMAGES["png"]["sha256"]
 
 
 async def test_get_image_reads_only_its_own_prefix_and_exact_bytes(s3local: S3Local) -> None:
@@ -182,7 +247,6 @@ async def test_a_session_keeps_user_and_tool_images_in_s3local_and_replays_them(
         STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir),
         S3_ENDPOINT_ENVIRONMENT_VARIABLE: s3local.endpoint,
         S3_BUCKET_ENVIRONMENT_VARIABLE: BUCKET,
-        **CREDENTIALS,
     }
     flow = build_image_agent_flow(state_dir)
     async with AgentTestStack(

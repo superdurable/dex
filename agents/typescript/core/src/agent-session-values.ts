@@ -243,8 +243,9 @@ export interface FrameworkMessage {
   readonly frameworkItem: string;
   /**
    * Images of the message, for display, such as those of a tool result from {@link AgentToolCall.images}. The
-   * session sets the images of a user message itself, from {@link AgentUserMessage.images}. Wire field: `images`;
-   * a decoded message omits it when there are none.
+   * session sets the images of a user message itself, from {@link AgentUserMessage.images}. The session checks them
+   * with `validateImageReferences` before it stores the message; invalid ones fail the calling Step. Wire field:
+   * `images`; a decoded message omits it when there are none.
    * @since 0.5.0
    */
   readonly images?: readonly AgentImageReference[];

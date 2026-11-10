@@ -12,7 +12,10 @@
 // `screenshot` asks for `take_screenshot`, which uploads a PNG and returns it as a reference; `screenshot-gate <gate>`
 // waits at that gate after the upload on the tool's first attempt; `screenshot-hold <gate>` waits at that gate in the
 // second model call; `bad-screenshot` asks for `return_invalid_image`, a single-attempt write whose result carries an
-// invalid reference; `stall <gate>` waits at that gate, then answers. Every model call records
+// invalid reference; `bad-answer-images` answers with an item whose images are invalid; `bad-incremental-images` stores
+// such an item through `newMessages` while asking for `take_screenshot`; `screenshot-then-fail` fails the second model
+// call, and `buildUnfinishedTurnMessages` returns the tool result with invalid images; `stall <gate>` waits at that
+// gate, then answers. Every model call records
 // `<turnId>:<model call>:<sha256>:<size>,...` in image-loads.log, and every upload records
 // `upload <sha256> attempt <n>` in uploads.log.
 
@@ -132,7 +135,37 @@ export class ImageTestRunner implements AgentFrameworkRunner {
     if (command === "bad-screenshot") {
       return requestTool(turn, command, "return_invalid_image", {});
     }
-    if (command === "screenshot" || command.startsWith("screenshot-gate ") || command.startsWith("screenshot-hold ")) {
+    if (command === "bad-answer-images") {
+      const reference = await this.store.putImage(screenshotPng());
+      return {
+        kind: "completed",
+        usage: modelCallUsage,
+        newMessages: [
+          {
+            ...message("assistant", {
+              text: "here is a bad image",
+              frameworkItem: JSON.stringify({ type: "assistant", text: "here is a bad image" }),
+            }),
+            images: [invalidImage(reference)],
+          },
+        ],
+      };
+    }
+    if (command === "bad-incremental-images") {
+      const reference = await this.store.putImage(screenshotPng());
+      const requested = requestTool(turn, command, "take_screenshot", {});
+      const item: FrameworkMessage = {
+        ...message("assistant", { text: "calling", frameworkItem: JSON.stringify({ type: "assistant", text: "calling" }) }),
+        images: [invalidImage(reference)],
+      };
+      return { ...requested, newMessages: [item] } as AgentTurnOutcome;
+    }
+    if (
+      command === "screenshot" ||
+      command === "screenshot-then-fail" ||
+      command.startsWith("screenshot-gate ") ||
+      command.startsWith("screenshot-hold ")
+    ) {
       const toolArguments = command.startsWith("screenshot-gate ") ? { gate: command.split(" ", 2)[1] } : {};
       return requestTool(turn, command, "take_screenshot", toolArguments);
     }
@@ -144,7 +177,7 @@ export class ImageTestRunner implements AgentFrameworkRunner {
     const toolArguments = JSON.parse(record.arguments) as { readonly gate?: string };
     if (record.toolName === "return_invalid_image") {
       const reference = await this.store.putImage(screenshotPng());
-      return { output: "returned a bad image", images: [{ ...reference, mimeType: "image/bmp" }] };
+      return { output: "returned a bad image", images: [invalidImage(reference)] };
     }
     if (record.toolName !== "take_screenshot") {
       throw new ToolExecutionError(`unknown tool ${record.toolName}`);
@@ -166,6 +199,9 @@ export class ImageTestRunner implements AgentFrameworkRunner {
     }
     const images = record.images ?? [];
     await this.loadTurnImages(turn, 2, images);
+    if (state.command === "screenshot-then-fail") {
+      throw new Error("scripted failure after the screenshot");
+    }
     if (state.command.startsWith("screenshot-hold ")) {
       const gate = new FileGate(this.stateDirectory, state.command.slice("screenshot-hold ".length));
       gate.markReached();
@@ -205,6 +241,27 @@ export class ImageTestRunner implements AgentFrameworkRunner {
     };
   }
 
+  public buildUnfinishedTurnMessages(turn: AgentTurnContext): FrameworkMessage[] {
+    if (currentUserText(turn) !== "screenshot-then-fail") {
+      return [];
+    }
+    const record = turn.recordedToolCall(`${turn.turnId}-call-0`);
+    if (record === undefined || (record.images ?? []).length === 0) {
+      return [];
+    }
+    return [
+      {
+        ...message("tool", {
+          toolCallId: record.toolCallId,
+          toolName: record.toolName,
+          toolOutput: describeToolCallOutcome(record),
+          frameworkItem: JSON.stringify({ type: "tool_result" }),
+        }),
+        images: (record.images ?? []).map(invalidImage),
+      },
+    ];
+  }
+
   private async loadTurnImages(
     turn: AgentTurnContext,
     modelCall: number,
@@ -218,6 +275,11 @@ export class ImageTestRunner implements AgentFrameworkRunner {
 
 export function createImageTestAgentFlow(stateDirectory: string, store: MediaStore): AgentSessionFlow<ImageTestRunner> {
   return createAgentSessionFlow(new ImageTestRunner(stateDirectory, store), imageTestAgentFlowType, { toolPolicies });
+}
+
+/** Returns the reference with an unsupported type, which validation refuses. */
+function invalidImage(reference: AgentImageReference): AgentImageReference {
+  return { ...reference, mimeType: "image/bmp" };
 }
 
 interface RunState {

@@ -40,6 +40,7 @@ from dex_agents import (
     detect_image_mime_type,
     image_uri,
     load_images,
+    require_short_image_uris,
     validate_image_reference,
     validate_image_references,
 )
@@ -48,6 +49,7 @@ from dex_agents.s3 import S3MediaStore
 IMAGES_FILE = Path(__file__).resolve().parents[3] / "conformance" / "images.json"
 SUITE: dict[str, Any] = json.loads(IMAGES_FILE.read_text(encoding="utf-8"))
 REFERENCE_CODEC = CodecRegistry().resolve(AgentImageReference)
+IMAGES_BY_NAME: dict[str, dict[str, Any]] = {case["name"]: case for case in SUITE["images"]}
 
 
 def decode_reference(wire: str) -> AgentImageReference:
@@ -87,9 +89,9 @@ def test_each_image_gets_its_type_hash_size_and_canonical_reference(case: dict[s
 
 
 @pytest.mark.parametrize("case", SUITE["padded_images"], ids=lambda case: case["name"])
-def test_the_size_limit_counts_raw_bytes(case: dict[str, Any]) -> None:
-    signature = base64.b64decode(case["signature_base64"])
-    data = signature + bytes(case["size_bytes"] - len(signature))
+def test_padded_images_are_checked_for_size_then_structure(case: dict[str, Any]) -> None:
+    prefix = base64.b64decode(case["prefix_base64"])
+    data = prefix + bytes(case["size_bytes"] - len(prefix))
     if case["error"] is None:
         assert build_image_reference(data, "memory://conformance").mime_type == case["mime_type"]
     else:
@@ -130,6 +132,36 @@ def test_an_in_memory_store_names_images_under_its_name(case: dict[str, Any]) ->
     store = InMemoryMediaStore(case["name"])
     assert store.store_uri == case["store_uri"]
     assert image_uri(store.store_uri, SUITE["store_locations"]["sha256"]) == case["image_uri"]
+
+
+@pytest.mark.parametrize("case", SUITE["verify_cases"], ids=lambda case: case["name"])
+async def test_a_reference_whose_type_was_changed_fails_on_read(case: dict[str, Any]) -> None:
+    store = InMemoryMediaStore("conformance")
+    reference = await store.put_image(image_bytes(IMAGES_BY_NAME[case["image"]]))
+    relabeled = replace(reference, mime_type=case["reference_mime_type"])
+
+    validate_image_reference(relabeled)
+    with pytest.raises(MediaStoreError) as raised:
+        await store.get_image(relabeled)
+    assert str(raised.value) == case["error"].replace("{uri}", reference.uri)
+
+
+@pytest.mark.parametrize(
+    "case", SUITE["store_locations"]["too_long"], ids=lambda case: case["name"]
+)
+def test_a_store_location_too_long_for_its_image_uris_is_refused(case: dict[str, Any]) -> None:
+    store_uri = case["store_uri"]
+
+    with pytest.raises(ValueError) as raised:
+        require_short_image_uris(store_uri)
+    assert str(raised.value) == case["store_error"]
+    with pytest.raises(ValueError, match="makes image URIs longer than 1024 bytes as UTF-8"):
+        InMemoryMediaStore(store_uri.removeprefix("memory://"))
+    with pytest.raises(ValueError, match="makes image URIs longer than 1024 bytes as UTF-8"):
+        S3MediaStore("agent-media", store_uri.removeprefix("memory://"), region_name="us-east-1")
+    with pytest.raises(ImageValidationError) as built:
+        build_image_reference(image_bytes(IMAGES_BY_NAME["png"]), store_uri)
+    assert str(built.value) == case["build_error"]
 
 
 @pytest.mark.parametrize("case", SUITE["references"]["valid"], ids=lambda case: case["name"])

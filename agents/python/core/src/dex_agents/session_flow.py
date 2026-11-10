@@ -1261,7 +1261,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
     def _build_stored_user_message(self, message: AgentUserMessage) -> FrameworkMessage:
         """Build the stored item of one user message; the session sets its images itself."""
         if not message.images:
-            return self._runner.build_user_message(message.text)
+            return replace(self._runner.build_user_message(message.text), images=())
         images = tuple(message.images)
         if isinstance(self._runner, ImageUserMessageBuilder):
             built = self._runner.build_user_message_with_images(message.text, images)
@@ -3737,6 +3737,7 @@ def _validate_framework_message(message: object) -> None:
     for name in ("text", "tool_call_id", "tool_name", "tool_arguments", "tool_output"):
         if not isinstance(getattr(message, name), str | None):
             raise TypeError(f"FrameworkMessage.{name} must be a str or None")
+    validate_image_references(list(message.images))
 
 
 def _rfc3339(moment: datetime) -> str:
@@ -3835,6 +3836,9 @@ def _append_messages(
     if not messages and not starts_turn:
         AGENT_STATE.set(context, state)
         return state
+    for message in messages:
+        # A runner's images fail the Step here, before any message of the commit is written.
+        validate_image_references(list(message.images))
     stored_index = AGENT_MESSAGE_INDEX.get(context)
     index = stored_index or _EMPTY_MESSAGE_INDEX
     if not starts_turn and state.active_turn_id is not None:

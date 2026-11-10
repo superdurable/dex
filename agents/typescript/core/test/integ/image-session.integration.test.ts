@@ -21,6 +21,7 @@ import {
   imageUri,
   outcomeUnknownToolResult,
   sendAgentUserMessage,
+  turnFailureNoteHeader,
   type AgentImageReference,
 } from "../../src/index.js";
 import {
@@ -58,6 +59,11 @@ function loaded(reference: AgentImageReference): string {
 
 function newSessionId(label: string): string {
   return `image-${label}-${randomUUID()}`;
+}
+
+/** Drops one object from an in-memory store, as an expired bucket object would be gone. */
+function forgetImage(store: InMemoryMediaStore, sha256: string): void {
+  (store as unknown as { readonly images: Map<string, Uint8Array> }).images.delete(sha256);
 }
 
 function sha256Of(data: Uint8Array): string {
@@ -231,6 +237,74 @@ describe("images in a session with an in-process Worker and the in-memory store"
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.deepEqual(snapshot.queuedMessages ?? [], []);
     assert.deepEqual(snapshot.messages, []);
+  });
+
+  test("a model answer with invalid images fails the turn and stores nothing", async () => {
+    const sessionId = newSessionId("bad-answer");
+    await sessions.startSession(sessionId, "bad-answer-images");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    assert.match(snapshot.state?.lastTurnError ?? "", /images\[0\]: image reference mime_type must be one of/);
+    assert.deepEqual(
+      snapshot.messages.map((message) => message.text),
+      ["bad-answer-images"],
+    );
+  });
+
+  test("an incremental item with invalid images fails the model call before any tool", async () => {
+    const sessionId = newSessionId("bad-incremental");
+    const uploadsBefore = new InvocationLog(join(stateDirectory, uploadsLogName)).names().length;
+    await sessions.startSession(sessionId, "bad-incremental-images");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    assert.match(snapshot.state?.lastTurnError ?? "", /images\[0\]: image reference mime_type must be one of/);
+    assert.deepEqual(
+      snapshot.messages.map((message) => message.text),
+      ["bad-incremental-images"],
+    );
+    assert.equal(new InvocationLog(join(stateDirectory, uploadsLogName)).names().length, uploadsBefore);
+  });
+
+  test("unfinished-turn items with invalid images leave only the failure note", async () => {
+    const sessionId = newSessionId("bad-unfinished");
+    await sessions.startSession(sessionId, "screenshot-then-fail");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    assert.match(snapshot.state?.lastTurnError ?? "", /scripted failure after the screenshot/);
+    assert.deepEqual(
+      snapshot.messages.map((message) => message.role),
+      ["user", "user"],
+    );
+    assert.equal(snapshot.messages[1]?.text?.startsWith(turnFailureNoteHeader), true);
+    assert.equal(
+      snapshot.messages.every((message) => message.images === undefined),
+      true,
+    );
+  });
+
+  test("a replay whose image object is gone fails the turn cleanly", async () => {
+    const pngReference = await store.putImage(png);
+    const sessionId = newSessionId("missing-object");
+    await sessions.startSession(sessionId);
+    assert.equal(await sessions.sendUserMessage(sessionId, "describe", false, [pngReference]), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    // A lifecycle rule that expired the object before the session stopped replaying it.
+    forgetImage(store, pngReference.sha256);
+    assert.equal(await sessions.sendUserMessage(sessionId, "describe"), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    assert.match(snapshot.state?.lastTurnError ?? "", new RegExp(`image ${pngReference.uri} is not in the media store`));
+    assert.deepEqual(
+      snapshot.messages.map((message) => message.text),
+      ["describe", "saw 1 images", "describe"],
+    );
+    assert.deepEqual(snapshot.messages[0]?.images, [pngReference]);
+    assert.deepEqual(snapshot.toolCalls, []);
   });
 
   test("a runner without image support refuses images", async () => {

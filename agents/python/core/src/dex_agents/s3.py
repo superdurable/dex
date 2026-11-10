@@ -10,8 +10,10 @@
 
 Install the extra with ``pip install "dex-agents[s3]"``. The store uses
 boto3, which reads credentials from the standard AWS chain: environment
-variables, the shared credentials file, or an instance or task role. Never
-put credentials in session settings or Flow input.
+variables, the shared credentials file, or an instance or task role. Pass
+``access_key_id`` and ``secret_access_key`` only for a bucket whose keys are
+not secret, such as a local development bucket. Never put credentials in
+session settings or Flow input.
 
 Example:
     >>> store = S3MediaStore.from_store_uri("s3://agent-media/sessions")
@@ -37,6 +39,7 @@ except ImportError as error:  # pragma: no cover - exercised by the built-packag
 from dex_agents.media import (
     MediaStoreError,
     build_image_reference,
+    require_short_image_uris,
     require_store_image_reference,
     verify_image_bytes,
 )
@@ -45,14 +48,17 @@ from dex_agents.values import AgentImageReference
 __all__ = ["S3MediaStore"]
 
 _NOT_FOUND_ERROR_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
+# 412 means the object exists; 409 means a concurrent conditional write of it is in flight.
+_ALREADY_EXISTS_ERROR_CODES = frozenset(
+    {"412", "409", "PreconditionFailed", "ConditionalRequestConflict"}
+)
+_CONDITIONAL_WRITE_UNSUPPORTED_ERROR_CODES = frozenset({"501", "NotImplemented"})
 
 
 class _S3Client(Protocol):
     def head_object(self, *, Bucket: str, Key: str) -> Mapping[str, Any]: ...
 
-    def put_object(
-        self, *, Bucket: str, Key: str, Body: bytes, ContentType: str
-    ) -> Mapping[str, Any]: ...
+    def put_object(self, **parameters: Any) -> Mapping[str, Any]: ...
 
     def get_object(self, *, Bucket: str, Key: str) -> Mapping[str, Any]: ...
 
@@ -61,14 +67,22 @@ class S3MediaStore:
     """Keep image bytes in an S3 bucket, one object per distinct image.
 
     The object key is ``<prefix>/sha256/<sha256>``, and a reference's ``uri`` is
-    ``s3://<bucket>/<prefix>/sha256/<sha256>``. ``put_image`` checks whether the
-    object exists and uploads it only when it does not, with the image's
-    ``Content-Type``, so a retried upload writes nothing new. ``get_image``
-    reads only objects under this store's bucket and prefix and checks the
-    bytes against the reference.
+    ``s3://<bucket>/<prefix>/sha256/<sha256>``. ``put_image`` uploads with
+    ``If-None-Match: *`` and the image's ``Content-Type``, and treats "already
+    exists" as success, so concurrent and retried uploads of the same bytes
+    write one object. A service that refuses conditional writes gets a
+    ``HEAD`` first and a plain ``PUT`` when the object is missing; then two
+    concurrent uploads may both write, so deduplication holds for the key and
+    its final content, not for every write. ``get_image`` reads only objects
+    under this store's bucket and prefix, refuses an object whose
+    ``Content-Length`` differs from the reference, reads at most one byte more
+    than ``size_bytes``, and checks the bytes with ``verify_image_bytes``.
 
-    Session deletion does not delete objects. Expire old objects with a bucket
-    lifecycle rule on the prefix.
+    Session deletion does not delete objects. A runner reads a session's images
+    again whenever a model call replays them, so keep every object at least as
+    long as any session that references it can still run a turn or replay its
+    history. A lifecycle rule that expires objects sooner makes those turns
+    fail with ``MediaStoreError``.
 
     Example:
         >>> store = S3MediaStore("agent-media", "sessions")
@@ -87,8 +101,17 @@ class S3MediaStore:
         endpoint_url: str | None = None,
         region_name: str | None = None,
         force_path_style: bool = False,
+        access_key_id: str | None = None,
+        secret_access_key: str | None = None,
+        session_token: str | None = None,
     ) -> None:
         """Create a store; it makes no request until the first upload or read.
+
+        Example:
+            >>> # A local development bucket with fixed loopback credentials.
+            >>> S3MediaStore("agent-media", endpoint_url="http://127.0.0.1:9000",
+            ...              region_name="us-east-1", force_path_style=True,
+            ...              access_key_id="s3local", secret_access_key="s3local")
 
         Args:
             bucket: The bucket name. It must be non-empty and contain no ``/``.
@@ -101,20 +124,48 @@ class S3MediaStore:
                 configuration, such as ``AWS_REGION``.
             force_path_style: Whether to address the bucket in the URL path
                 instead of the host name. Many S3-compatible services need it.
+            access_key_id: Access key ID to sign requests with, or ``None``,
+                the default, for the standard AWS credential chain. Set it
+                together with ``secret_access_key``.
+            secret_access_key: Secret access key for ``access_key_id``. The
+                store never logs it or shows it in its ``repr``.
+            session_token: Session token of temporary credentials, or ``None``.
+                It needs ``access_key_id``.
 
         Raises:
-            ValueError: If ``bucket`` is empty or contains ``/``.
+            ValueError: If ``bucket`` is empty or contains ``/``, if the bucket
+                and prefix make image URIs longer than
+                ``MAX_IMAGE_URI_LENGTH``, or if only one of ``access_key_id``
+                and ``secret_access_key`` is set, or ``session_token`` without
+                them.
         """
         if not bucket or "/" in bucket:
             raise ValueError("S3MediaStore bucket must be non-empty and contain no /")
+        if (access_key_id is None) != (secret_access_key is None) or (
+            session_token is not None and access_key_id is None
+        ):
+            raise ValueError(
+                "S3MediaStore takes access_key_id and secret_access_key together, "
+                "and session_token only with them"
+            )
         self._bucket = bucket
         self._prefix = prefix.strip("/")
         self._store_uri = f"s3://{bucket}/{self._prefix}" if self._prefix else f"s3://{bucket}"
-        self._endpoint_url = endpoint_url
-        self._region_name = region_name
-        self._config = Config(s3={"addressing_style": "path"}) if force_path_style else None
+        require_short_image_uris(self._store_uri)
+        self._client_parameters: dict[str, Any] = {
+            "endpoint_url": endpoint_url,
+            "region_name": region_name,
+            "config": Config(s3={"addressing_style": "path"}) if force_path_style else None,
+            "aws_access_key_id": access_key_id,
+            "aws_secret_access_key": secret_access_key,
+            "aws_session_token": session_token,
+        }
         self._client_lock = threading.Lock()
         self._client: _S3Client | None = None
+        self._supports_conditional_writes = True
+
+    def __repr__(self) -> str:
+        return f"S3MediaStore({self._store_uri!r})"
 
     @classmethod
     def from_store_uri(
@@ -124,6 +175,9 @@ class S3MediaStore:
         endpoint_url: str | None = None,
         region_name: str | None = None,
         force_path_style: bool = False,
+        access_key_id: str | None = None,
+        secret_access_key: str | None = None,
+        session_token: str | None = None,
     ) -> S3MediaStore:
         """Create a store from ``s3://<bucket>`` or ``s3://<bucket>/<prefix>``.
 
@@ -132,13 +186,16 @@ class S3MediaStore:
             endpoint_url: See ``__init__``.
             region_name: See ``__init__``.
             force_path_style: See ``__init__``.
+            access_key_id: See ``__init__``.
+            secret_access_key: See ``__init__``.
+            session_token: See ``__init__``.
 
         Returns:
             The store.
 
         Raises:
             ValueError: If ``store_uri`` does not start with ``s3://`` or names
-                no bucket.
+                no bucket, or for the reasons ``__init__`` gives.
         """
         if not store_uri.startswith("s3://"):
             raise ValueError(f"S3 media store URI must start with s3://, got {store_uri!r}")
@@ -149,6 +206,9 @@ class S3MediaStore:
             endpoint_url=endpoint_url,
             region_name=region_name,
             force_path_style=force_path_style,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+            session_token=session_token,
         )
 
     @property
@@ -181,8 +241,8 @@ class S3MediaStore:
             The reference.
 
         Raises:
-            ImageValidationError: If the bytes are empty, too large, or of
-                another type. Nothing is uploaded.
+            ImageValidationError: If the bytes are not a valid image for
+                ``build_image_reference``. Nothing is uploaded.
             botocore.exceptions.ClientError: If S3 refuses the request, such as
                 for missing credentials or permissions. Retrying is safe.
         """
@@ -198,7 +258,7 @@ class S3MediaStore:
             reference: A reference under this store's bucket and prefix.
 
         Returns:
-            The exact bytes, checked against ``sha256`` and ``size_bytes``.
+            The exact bytes, checked with ``verify_image_bytes``.
 
         Raises:
             ImageValidationError: If the reference's fields are invalid.
@@ -208,9 +268,7 @@ class S3MediaStore:
                 another reason.
         """
         require_store_image_reference(reference, self._store_uri)
-        data = await asyncio.to_thread(
-            self._get_object, self.object_key(reference.sha256), reference.uri
-        )
+        data = await asyncio.to_thread(self._get_object, reference)
         return verify_image_bytes(reference, data)
 
     def _s3_client(self) -> _S3Client:
@@ -218,39 +276,61 @@ class S3MediaStore:
         with self._client_lock:
             if self._client is None:
                 self._client = cast(
-                    _S3Client,
-                    boto3.session.Session().client(
-                        "s3",
-                        endpoint_url=self._endpoint_url,
-                        region_name=self._region_name,
-                        config=self._config,
-                    ),
+                    _S3Client, boto3.session.Session().client("s3", **self._client_parameters)
                 )
             return self._client
 
     def _put_object_if_absent(self, key: str, data: bytes, mime_type: str) -> None:
         client = self._s3_client()
+        parameters: dict[str, Any] = {
+            "Bucket": self._bucket,
+            "Key": key,
+            "Body": data,
+            "ContentType": mime_type,
+        }
+        if self._supports_conditional_writes:
+            try:
+                client.put_object(**parameters, IfNoneMatch="*")
+                return
+            except ClientError as error:
+                if _has_error_code(error, _ALREADY_EXISTS_ERROR_CODES):
+                    return
+                if not _has_error_code(error, _CONDITIONAL_WRITE_UNSUPPORTED_ERROR_CODES):
+                    raise
+                self._supports_conditional_writes = False
         try:
             client.head_object(Bucket=self._bucket, Key=key)
             return
         except ClientError as error:
-            if not _is_not_found(error):
+            if not _has_error_code(error, _NOT_FOUND_ERROR_CODES):
                 raise
-        client.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=mime_type)
+        client.put_object(**parameters)
 
-    def _get_object(self, key: str, uri: str) -> bytes:
+    def _get_object(self, reference: AgentImageReference) -> bytes:
         try:
-            response = self._s3_client().get_object(Bucket=self._bucket, Key=key)
+            response = self._s3_client().get_object(
+                Bucket=self._bucket, Key=self.object_key(reference.sha256)
+            )
         except ClientError as error:
-            if _is_not_found(error):
-                raise MediaStoreError(f"image {uri} is not in the media store") from error
+            if _has_error_code(error, _NOT_FOUND_ERROR_CODES):
+                raise MediaStoreError(f"image {reference.uri} is not in the media store") from error
             raise
         body = response["Body"]
         try:
-            return cast(bytes, body.read())
+            content_length = response.get("ContentLength")
+            if content_length is not None and content_length != reference.size_bytes:
+                raise MediaStoreError(f"image {reference.uri} does not match its sha256 and size")
+            # One byte more than expected tells an oversized body apart without reading all of it.
+            data = cast(bytes, body.read(reference.size_bytes + 1))
         finally:
             body.close()
+        if len(data) > reference.size_bytes:
+            raise MediaStoreError(f"image {reference.uri} does not match its sha256 and size")
+        return data
 
 
-def _is_not_found(error: Any) -> bool:
-    return str(error.response.get("Error", {}).get("Code", "")) in _NOT_FOUND_ERROR_CODES
+def _has_error_code(error: Any, codes: frozenset[str]) -> bool:
+    response = error.response
+    code = str(response.get("Error", {}).get("Code", ""))
+    status = str(response.get("ResponseMetadata", {}).get("HTTPStatusCode", ""))
+    return code in codes or status in codes

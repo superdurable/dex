@@ -31,7 +31,8 @@ export const maxImagesPerMessage = 20;
 export const supportedImageMimeTypes: readonly string[] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 /**
- * Longest {@link AgentImageReference.uri}; S3 object keys are at most 1024 bytes.
+ * Longest {@link AgentImageReference.uri} in bytes as UTF-8, the same unit in every core; S3 object keys are at most
+ * 1024 bytes.
  * @since 0.5.0
  */
 export const maxImageUriLength = 1024;
@@ -39,6 +40,14 @@ export const maxImageUriLength = 1024;
 const sha256Pattern = /^[0-9a-f]{64}$/;
 const imageUriPattern = /^[a-z][a-z0-9+.-]*:\/\/\S+\/sha256\/[0-9a-f]{64}$/;
 const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const pngHeaderChunk = [0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52];
+const webpChunkTypes: readonly string[] = ["VP8 ", "VP8L", "VP8X"];
+const formatNames: Readonly<Record<string, string>> = {
+  "image/png": "PNG",
+  "image/jpeg": "JPEG",
+  "image/gif": "GIF",
+  "image/webp": "WebP",
+};
 
 /**
  * Image bytes or an image reference that Dex agents refuse.
@@ -62,7 +71,7 @@ export class ImageValidationError extends Error {
  * A media store cannot return the bytes of a valid reference.
  *
  * `getImage` throws it when the reference belongs to another store, when the store has no object for it, or when the
- * stored bytes do not match the reference's SHA-256 and size.
+ * stored bytes do not match the reference's SHA-256, size, and type.
  * @since 0.5.0
  */
 export class MediaStoreError extends Error {
@@ -106,7 +115,7 @@ export interface MediaStore {
    * Returns the bytes of one image this store holds.
    *
    * @param reference - A reference that this store's `putImage` returned.
-   * @returns The exact bytes, checked against `sha256` and `sizeBytes`.
+   * @returns The exact bytes, checked with {@link verifyImageBytes} against `sha256`, `sizeBytes`, and `mimeType`.
    * @throws {ImageValidationError} When the reference's fields are invalid.
    * @throws {MediaStoreError} When the reference belongs to another store, the object is missing, or its bytes do
    * not match the reference.
@@ -140,12 +149,14 @@ export class InMemoryMediaStore implements MediaStore {
    * @param name - The location name in `memory://<name>`, `"default"` when omitted. It must be non-empty and contain
    * no `/` or whitespace.
    * @throws {TypeError} When `name` is empty or contains `/` or whitespace.
+   * @throws {RangeError} When `name` makes image URIs longer than {@link maxImageUriLength}.
    */
   public constructor(name = "default") {
     if (name === "" || name.includes("/") || /\s/.test(name)) {
       throw new TypeError("InMemoryMediaStore name must be non-empty, without / or whitespace");
     }
     this.storeUri = `memory://${name}`;
+    requireShortImageUris(this.storeUri);
   }
 
   /** How many distinct images the store holds; uploading the same bytes twice counts once. */
@@ -172,9 +183,10 @@ export class InMemoryMediaStore implements MediaStore {
    * Returns the bytes of one image. See {@link MediaStore.getImage}.
    *
    * @param reference - A reference that this store's `putImage` returned.
-   * @returns The exact bytes.
+   * @returns A copy of the exact bytes; changing it leaves the stored image as it was.
    * @throws {ImageValidationError} When the reference's fields are invalid.
-   * @throws {MediaStoreError} When the reference belongs to another store or the store does not hold the image.
+   * @throws {MediaStoreError} When the reference belongs to another store, the store does not hold the image, or its
+   * bytes do not match.
    */
   public async getImage(reference: AgentImageReference): Promise<Uint8Array> {
     requireStoreImageReference(reference, this.storeUri);
@@ -182,22 +194,39 @@ export class InMemoryMediaStore implements MediaStore {
     if (data === undefined) {
       throw new MediaStoreError(`image ${reference.uri} is not in the media store`);
     }
-    return data;
+    return verifyImageBytes(reference, Uint8Array.from(data));
   }
 }
 
 /**
- * Returns the MIME type of image bytes, read from their signature.
+ * Returns the MIME type of image bytes, read from their structure.
+ *
+ * The signature picks the type, then a cheap structural check must hold; it does not decode the image. PNG needs its
+ * signature followed by the `IHDR` chunk. JPEG needs SOI, a marker right after it, and EOI as the last two bytes. GIF
+ * needs a `GIF87a` or `GIF89a` header and the logical screen descriptor. WebP needs a RIFF size equal to the byte count
+ * minus 8 and a first chunk of `VP8 `, `VP8L`, or `VP8X`.
  *
  * @param data - Image bytes.
  * @returns `"image/png"`, `"image/jpeg"`, `"image/gif"`, or `"image/webp"`.
- * @throws {ImageValidationError} When the bytes are empty or start with no supported signature.
+ * @throws {ImageValidationError} When the bytes are empty, start with no supported signature, or fail the structural
+ * check of their type.
  * @since 0.5.0
  */
 export function detectImageMimeType(data: Uint8Array): string {
   if (data.length === 0) {
     throw new ImageValidationError("image is empty");
   }
+  const mimeType = signatureMimeType(data);
+  if (mimeType === undefined) {
+    throw new ImageValidationError("image is not PNG, JPEG, GIF, or WebP");
+  }
+  if (!isWellFormed(mimeType, data)) {
+    throw new ImageValidationError(`image is not a well-formed ${formatNames[mimeType]}`);
+  }
+  return mimeType;
+}
+
+function signatureMimeType(data: Uint8Array): string | undefined {
   if (startsWithBytes(data, pngSignature)) {
     return "image/png";
   }
@@ -210,7 +239,28 @@ export function detectImageMimeType(data: Uint8Array): string {
   if (startsWithText(data, 0, "RIFF") && startsWithText(data, 8, "WEBP")) {
     return "image/webp";
   }
-  throw new ImageValidationError("image is not PNG, JPEG, GIF, or WebP");
+  return undefined;
+}
+
+function isWellFormed(mimeType: string, data: Uint8Array): boolean {
+  switch (mimeType) {
+    case "image/png":
+      return data.length >= 33 && startsWithBytes(data.subarray(8), pngHeaderChunk);
+    case "image/jpeg": {
+      const marker = data[3] ?? 0;
+      return data.length >= 6 && marker >= 0xc0 && marker <= 0xfe && data.at(-2) === 0xff && data.at(-1) === 0xd9;
+    }
+    case "image/gif":
+      return data.length >= 13;
+    default: {
+      if (data.length < 20) {
+        return false;
+      }
+      const riffSize = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(4, true);
+      const chunkType = String.fromCharCode(...data.subarray(12, 16));
+      return riffSize + 8 === data.length && webpChunkTypes.includes(chunkType);
+    }
+  }
 }
 
 /**
@@ -222,8 +272,9 @@ export function detectImageMimeType(data: Uint8Array): string {
  * @param data - Image bytes.
  * @param storeUri - The store's location, such as `"s3://media/agents"`.
  * @returns The reference, with the detected MIME type, SHA-256, and size.
- * @throws {ImageValidationError} When the bytes are empty, larger than {@link maxImageBytes}, or not PNG, JPEG, GIF,
- * or WebP.
+ * @throws {ImageValidationError} When the bytes are empty, larger than {@link maxImageBytes}, or not a well-formed
+ * PNG, JPEG, GIF, or WebP, or when {@link validateImageReference} refuses the reference, such as for a URI longer than
+ * {@link maxImageUriLength}.
  * @since 0.5.0
  */
 export function buildImageReference(data: Uint8Array, storeUri: string): AgentImageReference {
@@ -232,7 +283,15 @@ export function buildImageReference(data: Uint8Array, storeUri: string): AgentIm
   }
   const mimeType = detectImageMimeType(data);
   const sha256 = createHash("sha256").update(data).digest("hex");
-  return { type: "image", uri: imageUri(storeUri, sha256), mimeType, sha256, sizeBytes: data.length };
+  const reference: AgentImageReference = {
+    type: "image",
+    uri: imageUri(storeUri, sha256),
+    mimeType,
+    sha256,
+    sizeBytes: data.length,
+  };
+  validateImageReference(reference);
+  return reference;
 }
 
 /**
@@ -248,11 +307,29 @@ export function imageUri(storeUri: string, sha256: string): string {
 }
 
 /**
+ * Checks that every image URI of a store fits {@link maxImageUriLength}.
+ *
+ * A {@link MediaStore} implementation calls it in its constructor, so a long location fails at once instead of on the
+ * first upload.
+ *
+ * @param storeUri - The store's location.
+ * @throws {RangeError} When `imageUri(storeUri, sha256)` is longer than {@link maxImageUriLength} bytes as UTF-8.
+ * @since 0.5.0
+ */
+export function requireShortImageUris(storeUri: string): void {
+  if (Buffer.byteLength(imageUri(storeUri, "0".repeat(64)), "utf8") > maxImageUriLength) {
+    throw new RangeError(
+      `media store location ${storeUri} makes image URIs longer than ${maxImageUriLength} bytes as UTF-8`,
+    );
+  }
+}
+
+/**
  * Checks the fields of one image reference.
  *
  * The checks run in order, and the first failure is thrown: `type` is `"image"`; `mimeType` is supported; `sha256` is
  * 64 lowercase hex digits; `sizeBytes` is from 1 to {@link maxImageBytes}; `uri` is at most
- * {@link maxImageUriLength} characters, looks like `<scheme>://<location>/sha256/<sha256>`, and ends with the
+ * {@link maxImageUriLength} bytes as UTF-8, looks like `<scheme>://<location>/sha256/<sha256>`, and ends with the
  * reference's own `sha256`. It does not read the store.
  *
  * @param reference - The reference, such as one decoded from a request.
@@ -274,8 +351,8 @@ export function validateImageReference(reference: AgentImageReference): void {
     throw new ImageValidationError(`image reference size_bytes must be from 1 to ${maxImageBytes}`);
   }
   const uri = reference.uri;
-  if (typeof uri !== "string" || uri.length > maxImageUriLength) {
-    throw new ImageValidationError(`image reference uri must be at most ${maxImageUriLength} characters`);
+  if (typeof uri !== "string" || Buffer.byteLength(uri, "utf8") > maxImageUriLength) {
+    throw new ImageValidationError(`image reference uri must be at most ${maxImageUriLength} bytes as UTF-8`);
   }
   if (!imageUriPattern.test(uri)) {
     throw new ImageValidationError("image reference uri must look like <scheme>://<location>/sha256/<sha256>");
@@ -333,15 +410,30 @@ export function requireStoreImageReference(reference: AgentImageReference, store
 /**
  * Checks bytes read from a store against their reference.
  *
+ * The SHA-256 binds the bytes, and {@link detectImageMimeType} must find the reference's `mimeType` in them, so a
+ * reference whose type was changed after upload fails here.
+ *
  * @param reference - The reference that was read.
  * @param data - The bytes the store returned.
  * @returns `data`, unchanged.
- * @throws {MediaStoreError} When the size or the SHA-256 differs.
+ * @throws {MediaStoreError} When the size or the SHA-256 differs, or when the bytes are not a well-formed image of
+ * `mimeType`.
  * @since 0.5.0
  */
 export function verifyImageBytes(reference: AgentImageReference, data: Uint8Array): Uint8Array {
   if (data.length !== reference.sizeBytes || createHash("sha256").update(data).digest("hex") !== reference.sha256) {
     throw new MediaStoreError(`image ${reference.uri} does not match its sha256 and size`);
+  }
+  let detected: string | undefined;
+  try {
+    detected = detectImageMimeType(data);
+  } catch (error) {
+    if (!(error instanceof ImageValidationError)) {
+      throw error;
+    }
+  }
+  if (detected !== reference.mimeType) {
+    throw new MediaStoreError(`image ${reference.uri} does not hold a well-formed ${reference.mimeType}`);
   }
   return data;
 }

@@ -21,6 +21,7 @@ import {
   imageUri,
   loadImages,
   maxImageBytes,
+  requireShortImageUris,
   maxImageUriLength,
   maxImagesPerMessage,
   supportedImageMimeTypes,
@@ -54,12 +55,18 @@ interface ImageSuite {
   readonly images: readonly ImageCase[];
   readonly padded_images: readonly {
     readonly name: string;
-    readonly signature_base64: string;
+    readonly prefix_base64: string;
     readonly size_bytes: number;
     readonly mime_type: string | null;
     readonly error: string | null;
   }[];
   readonly rejected_images: readonly { readonly name: string; readonly base64: string; readonly error: string }[];
+  readonly verify_cases: readonly {
+    readonly name: string;
+    readonly image: string;
+    readonly reference_mime_type: string;
+    readonly error: string;
+  }[];
   readonly store_locations: {
     readonly sha256: string;
     readonly s3: readonly {
@@ -72,6 +79,12 @@ interface ImageSuite {
     }[];
     readonly s3_store_uris: readonly { readonly store_uri: string; readonly bucket: string; readonly prefix: string }[];
     readonly memory: readonly { readonly name: string; readonly store_uri: string; readonly image_uri: string }[];
+    readonly too_long: readonly {
+      readonly name: string;
+      readonly store_uri: string;
+      readonly store_error: string;
+      readonly build_error: string;
+    }[];
   };
   readonly references: {
     readonly valid: readonly { readonly name: string; readonly wire: string }[];
@@ -124,10 +137,10 @@ describe("image conformance cases", () => {
   }
 
   for (const padded of suite.padded_images) {
-    test(`the size limit counts raw bytes: ${padded.name}`, () => {
-      const signature = bytesOf(padded.signature_base64);
+    test(`padded images are checked for size, then structure: ${padded.name}`, () => {
+      const prefix = bytesOf(padded.prefix_base64);
       const data = new Uint8Array(padded.size_bytes);
-      data.set(signature);
+      data.set(prefix);
       if (padded.error === null) {
         assert.equal(buildImageReference(data, "memory://conformance").mimeType, padded.mime_type);
       } else {
@@ -183,6 +196,36 @@ describe("image conformance cases", () => {
     });
   }
 
+  for (const verify of suite.verify_cases) {
+    test(`a reference whose type was changed fails on read: ${verify.name}`, async () => {
+      const store = new InMemoryMediaStore("conformance");
+      const reference = await store.putImage(bytesOf(imageOf(verify.image).base64));
+      const relabeled = { ...reference, mimeType: verify.reference_mime_type };
+
+      validateImageReference(relabeled);
+      await assert.rejects(store.getImage(relabeled), {
+        name: "MediaStoreError",
+        message: verify.error.replace("{uri}", reference.uri),
+      });
+    });
+  }
+
+  for (const tooLong of suite.store_locations.too_long) {
+    test(`a store location too long for its image URIs is refused: ${tooLong.name}`, () => {
+      assert.throws(() => requireShortImageUris(tooLong.store_uri), {
+        name: "RangeError",
+        message: tooLong.store_error,
+      });
+      const name = tooLong.store_uri.slice("memory://".length);
+      assert.throws(() => new InMemoryMediaStore(name), RangeError);
+      assert.throws(() => new S3MediaStore({ bucket: "agent-media", prefix: name, region: "us-east-1" }), RangeError);
+      assert.throws(() => buildImageReference(bytesOf(imageOf("png").base64), tooLong.store_uri), {
+        name: "ImageValidationError",
+        message: tooLong.build_error,
+      });
+    });
+  }
+
   for (const valid of suite.references.valid) {
     test(`a valid reference passes: ${valid.name}`, () => {
       validateImageReference(decodeReference(valid.wire));
@@ -226,10 +269,21 @@ describe("the in-memory media store", () => {
     assert.equal(store.imageCount, 1);
     assert.deepEqual(await store.getImage(first), png);
     const oversized = new Uint8Array(maxImageBytes + 1);
-    oversized.set(bytesOf(suite.padded_images[0]?.signature_base64 ?? ""));
+    oversized.set(bytesOf(suite.padded_images[0]?.prefix_base64 ?? ""));
     await assert.rejects(store.putImage(oversized), { name: "ImageValidationError", message: /the limit is 3750000/ });
     await assert.rejects(store.putImage(new TextEncoder().encode("<svg/>")), ImageValidationError);
     assert.equal(store.imageCount, 1);
+  });
+
+  test("returns a copy, so changing it leaves the stored image intact", async () => {
+    const store = new InMemoryMediaStore("conformance");
+    const png = bytesOf(imageOf("png").base64);
+    const reference = await store.putImage(png);
+
+    const first = await store.getImage(reference);
+    first.fill(0);
+
+    assert.deepEqual(await store.getImage(reference), png);
   });
 
   test("reads only its own images with their exact bytes", async () => {

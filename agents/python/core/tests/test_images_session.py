@@ -23,6 +23,7 @@ import pytest_asyncio
 
 from dex_agents import (
     OUTCOME_UNKNOWN_TOOL_RESULT,
+    TURN_FAILURE_NOTE_HEADER,
     AgentImageReference,
     AgentUserMessage,
     ImageValidationError,
@@ -259,3 +260,76 @@ async def test_a_runner_without_image_support_refuses_images(
     assert await harness.sessions.send_user_message(session_id, "say hi")
     snapshot = await harness.wait_for_turns(session_id, 1)
     assert [message.images for message in snapshot.messages] == [[], []]
+
+
+async def test_a_model_answer_with_invalid_images_fails_the_turn_and_stores_nothing(
+    image_harness: ImageAgentHarness,
+) -> None:
+    await image_harness.stack.start_worker()
+    session_id = image_harness.new_session_id()
+    await image_harness.sessions.start_session(session_id, "bad-answer-images")
+    snapshot = await image_harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.state is not None
+    assert "images[0]: image reference mime_type must be one of" in (
+        snapshot.state.last_turn_error or ""
+    )
+    assert [message.text for message in snapshot.messages] == ["bad-answer-images"]
+
+
+async def test_an_incremental_item_with_invalid_images_fails_the_model_call_before_any_tool(
+    image_harness: ImageAgentHarness,
+) -> None:
+    await image_harness.stack.start_worker()
+    session_id = image_harness.new_session_id()
+    await image_harness.sessions.start_session(session_id, "bad-incremental-images")
+    snapshot = await image_harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.state is not None
+    assert "images[0]: image reference mime_type must be one of" in (
+        snapshot.state.last_turn_error or ""
+    )
+    assert [message.text for message in snapshot.messages] == ["bad-incremental-images"]
+    assert image_harness.uploads.names() == []
+
+
+async def test_unfinished_turn_items_with_invalid_images_leave_only_the_failure_note(
+    image_harness: ImageAgentHarness,
+) -> None:
+    await image_harness.stack.start_worker()
+    session_id = image_harness.new_session_id()
+    await image_harness.sessions.start_session(session_id, "screenshot-then-fail")
+    snapshot = await image_harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.state is not None
+    assert "scripted failure after the screenshot" in (snapshot.state.last_turn_error or "")
+    assert [message.role for message in snapshot.messages] == [MessageRole.USER, MessageRole.USER]
+    assert (snapshot.messages[1].text or "").startswith(TURN_FAILURE_NOTE_HEADER)
+    assert all(message.images == [] for message in snapshot.messages)
+
+
+async def test_a_replay_whose_image_object_is_gone_fails_the_turn_cleanly(
+    image_harness: ImageAgentHarness,
+) -> None:
+    await image_harness.stack.start_worker()
+    png = await image_harness.media.put_image(PNG)
+    session_id = image_harness.new_session_id()
+    await image_harness.sessions.start_session(session_id)
+    assert await image_harness.sessions.send_user_message(session_id, "describe", images=[png])
+    await image_harness.wait_for_turns(session_id, 1)
+
+    # A lifecycle rule that expired the object before the session stopped replaying it.
+    for path in image_harness.media.image_files:
+        path.unlink()
+    assert await image_harness.sessions.send_user_message(session_id, "describe")
+    snapshot = await image_harness.wait_for_turns(session_id, 2)
+
+    assert snapshot.state is not None
+    assert f"image {png.uri} is not in the media store" in (snapshot.state.last_turn_error or "")
+    assert [message.text for message in snapshot.messages] == [
+        "describe",
+        "saw 1 images",
+        "describe",
+    ]
+    assert snapshot.messages[0].images == [png]
+    assert snapshot.tool_calls == []

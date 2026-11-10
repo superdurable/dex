@@ -6,4 +6,4 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-export { S3MediaStore, type S3MediaStoreOptions } from "./s3-media-store.js";
+export { S3MediaStore, type S3MediaStoreCredentials, type S3MediaStoreOptions } from "./s3-media-store.js";

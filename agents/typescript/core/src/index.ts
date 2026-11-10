@@ -77,6 +77,7 @@ export {
   maxImageBytes,
   maxImageUriLength,
   maxImagesPerMessage,
+  requireShortImageUris,
   requireStoreImageReference,
   supportedImageMimeTypes,
   validateImageReference,

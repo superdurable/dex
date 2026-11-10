@@ -17,10 +17,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
+import { inspect } from "node:util";
+
 import {
   CreateBucketCommand,
   HeadObjectCommand,
+  ListObjectVersionsCommand,
   ListObjectsV2Command,
+  PutBucketVersioningCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -31,6 +35,8 @@ import { readConformanceJson } from "../fixtures/conformance-suite.js";
 
 const s3localBinary = process.env["DEX_AGENTS_S3LOCAL"];
 const bucket = "agent-media";
+// The stores pass these loopback keys explicitly, so no AWS settings are needed.
+const s3localCredentials = { accessKeyId: "s3local", secretAccessKey: "s3local" };
 const prefix = "agent-images";
 const images = new Map(
   readConformanceJson<{
@@ -89,12 +95,13 @@ describe("S3MediaStore against s3local", { skip: s3localBinary === undefined && 
   const stores: S3MediaStore[] = [];
 
   before(async () => {
-    process.env["AWS_ACCESS_KEY_ID"] = "s3local";
-    process.env["AWS_SECRET_ACCESS_KEY"] = "s3local";
+    for (const name of ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE"]) {
+      delete process.env[name];
+    }
     const port = await findFreePort();
     child = await startS3local(s3localBinary as string, port);
     endpoint = `http://127.0.0.1:${port}`;
-    admin = new S3Client({ endpoint, region: "us-east-1", forcePathStyle: true });
+    admin = new S3Client({ endpoint, region: "us-east-1", forcePathStyle: true, credentials: s3localCredentials });
     await admin.send(new CreateBucketCommand({ Bucket: bucket }));
   });
 
@@ -105,7 +112,14 @@ describe("S3MediaStore against s3local", { skip: s3localBinary === undefined && 
   });
 
   function storeAt(storePrefix: string): S3MediaStore {
-    const store = new S3MediaStore({ bucket, prefix: storePrefix, endpoint, region: "us-east-1", forcePathStyle: true });
+    const store = new S3MediaStore({
+      bucket,
+      prefix: storePrefix,
+      endpoint,
+      region: "us-east-1",
+      forcePathStyle: true,
+      credentials: s3localCredentials,
+    });
     stores.push(store);
     return store;
   }
@@ -137,6 +151,57 @@ describe("S3MediaStore against s3local", { skip: s3localBinary === undefined && 
     await assert.rejects(store.putImage(oversized), ImageValidationError);
     await assert.rejects(store.putImage(new TextEncoder().encode("GIF00a")), ImageValidationError);
     assert.equal((await keys("")).length, 1);
+  });
+
+  test("concurrent and repeated uploads leave one object version", async () => {
+    const versionedPrefix = "versioned";
+    await admin.send(
+      new PutBucketVersioningCommand({ Bucket: bucket, VersioningConfiguration: { Status: "Enabled" } }),
+    );
+    const store = storeAt(versionedPrefix);
+    const png = bytesOf("png");
+
+    const references = await Promise.all([store.putImage(png), storeAt(versionedPrefix).putImage(png), store.putImage(png)]);
+
+    assert.equal(new Set(references.map((reference) => reference.uri)).size, 1);
+    const versions = await admin.send(new ListObjectVersionsCommand({ Bucket: bucket, Prefix: versionedPrefix }));
+    assert.deepEqual(
+      (versions.Versions ?? []).map((version) => version.Key),
+      [store.objectKey(references[0]?.sha256 ?? "")],
+    );
+  });
+
+  test("getImage refuses an oversized object without reading it all", async () => {
+    const store = storeAt(prefix);
+    const png = bytesOf("png");
+    const reference = await store.putImage(png);
+    const oversized = new Uint8Array(png.length + 4_000_000);
+    oversized.set(png);
+    await admin.send(new PutObjectCommand({ Bucket: bucket, Key: store.objectKey(reference.sha256), Body: oversized }));
+
+    await assert.rejects(store.getImage(reference), {
+      name: "MediaStoreError",
+      message: /does not match its sha256 and size/,
+    });
+    await admin.send(new PutObjectCommand({ Bucket: bucket, Key: store.objectKey(reference.sha256), Body: png }));
+  });
+
+  test("explicit credentials replace the AWS chain and stay out of the store's inspection", async () => {
+    const secret = "never-shown-secret";
+    const store = new S3MediaStore({
+      bucket,
+      prefix,
+      endpoint,
+      region: "us-east-1",
+      forcePathStyle: true,
+      credentials: { accessKeyId: "s3local", secretAccessKey: secret },
+    });
+    stores.push(store);
+
+    assert.equal(inspect(store, { depth: 1 }).includes(secret), false);
+    assert.equal(JSON.stringify(Object.keys(store)).includes(secret), false);
+    // s3local checks no signatures, so this shows the explicit keys replace the missing AWS chain.
+    assert.equal((await store.putImage(bytesOf("png"))).sha256, images.get("png")?.sha256);
   });
 
   test("getImage reads only its own prefix and exact bytes", async () => {

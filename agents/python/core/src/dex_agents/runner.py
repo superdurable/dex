@@ -270,8 +270,9 @@ class FrameworkMessage:
         tool_output: Tool result text.
         images: Images of the item, for display, such as those of a tool
             result from ``AgentToolCall.images``. The session sets the images of
-            a user message itself, from ``AgentUserMessage.images``. Defaults to
-            none.
+            a user message itself, from ``AgentUserMessage.images``. The session
+            checks them with ``validate_image_references`` before it stores
+            the message; invalid ones fail the calling Step. Defaults to none.
 
             .. versionadded:: 0.5.0
     """

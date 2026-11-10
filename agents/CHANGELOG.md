@@ -54,10 +54,22 @@ for the Dex SDK and framework versions each release supports.
   `@superdurable/dex-agents/s3`, optional peer `@aws-sdk/client-s3`) keeps
   images in AWS S3 or an S3-compatible bucket, with credentials from the
   standard AWS chain. **InMemoryMediaStore** is for tests.
-- PNG, JPEG, GIF, and WebP, detected from the bytes, up to **MAX_IMAGE_BYTES**
-  (`maxImageBytes`, 3,750,000 bytes, 5,000,000 bytes as base64) each, and at
-  most **MAX_IMAGES_PER_MESSAGE** (`maxImagesPerMessage`, 20) per message or
-  tool result. **ImageValidationError** names what is wrong.
+- PNG, JPEG, GIF, and WebP, detected from the bytes with a cheap structural
+  check, up to **MAX_IMAGE_BYTES** (`maxImageBytes`, 3,750,000 bytes,
+  5,000,000 bytes as base64) each, and at most **MAX_IMAGES_PER_MESSAGE**
+  (`maxImagesPerMessage`, 20) per message or tool result. A `uri` is at most
+  **MAX_IMAGE_URI_LENGTH** (`maxImageUriLength`, 1024) bytes as UTF-8.
+  **ImageValidationError** names what is wrong.
+- Reads check the SHA-256, the size, and the type: **verify_image_bytes**
+  (`verifyImageBytes`) refuses bytes that are not a well-formed image of the
+  reference's `mime_type`. **S3MediaStore** uploads with `If-None-Match: *`,
+  refuses an object whose `Content-Length` differs from the reference, and
+  reads at most one byte past `size_bytes`. It takes explicit credentials
+  (`access_key_id` and `secret_access_key`; `credentials`) for a local
+  development bucket, and the standard AWS chain by default.
+- The session checks the images of every `FrameworkMessage` a runner returns
+  before it stores any. Keep each object for as long as sessions can replay
+  it; a missing object fails the turn with **MediaStoreError**.
 - `send_user_message` returns `false` for invalid images, or for images when
   the runner does not implement **ImageUserMessageBuilder**
   (`buildUserMessageWithImages`). No built-in runner implements it yet; image
