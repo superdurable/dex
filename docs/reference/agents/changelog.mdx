@@ -1,0 +1,90 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to the Dex Agents packages, newest first;
+each section covers the changes since the previous release of this component.
+All agents packages share one version line. The
+[agents CHANGELOG](https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md)
+in the repository has the full details of each release, including API names
+and upgrade steps.
+
+## Unreleased {#unreleased}
+
+Not released yet. The next agents release ships these changes.
+
+### Fixed
+
+- Python and TypeScript Claude Agent SDK adapters: when the Claude Code CLI returns an error result, the turn's error now reads "the Claude Code CLI returned an error result (subtype ...)". It used to read "reported success" for an error result whose subtype is **success**, such as a failed login.
+
+## 0.4 {#v0-4}
+
+Released 2026-11-10 as [agents/v0.4.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.4.0).
+
+### Added
+
+- **ConnectorToolSource** in the Python and TypeScript cores offers reviewed Connector operations to an agent as tools. The application names each operation with **connector_tool** (**connectorTool**). Nothing is exposed by default, and an operation whose manifest lacks **agent.exposed** is refused when the agent is defined. Needs Connector SDK 0.9.0. [Reference](/reference/agents/connector-tools).
+- Connector tool calls take their effect class and approval default from the Connector manifest, map the selected branch to **succeeded**, **failed**, or **outcome_unknown**, and cut results at 64 KiB by default. Connector writes of one model response run one at a time, in the model's order; once one does not succeed, the later ones record **failed** with **skipped** set. See [Connectors as tools](/agent-frameworks#connectors-as-tools).
+- Every Python and TypeScript framework adapter takes tool sources, through **tool_sources** (**toolSources**), with a listing timeout of 10 seconds by default. Each call of a source tool runs once in its own tool Step.
+- Tool call contract: **ToolOutcomeUnknownError**, **DeferredToolExecution.context**, **ToolCallStepOptions**, and the **AgentToolCall** fields **ordered_write**, **write_queued**, **skipped**, and **truncated_output_bytes**. Records written by 0.2 decode unchanged.
+
+### Changed
+
+- Claude Agent SDK adapters: an approved Claude Code tool resumes with its recorded arguments, the input that the hooks produced and the approval saw. A recorded call replays only as its own tool, at most once per segment. The application's PreToolUse hooks are not called for a resumed call that already has a final record.
+- TypeScript Mastra: the new **mastraRunToolNames** names the tools Mastra adds itself. With **toolSources** or **mastraRunToolNames**, a **toolPolicies** key no longer allows such a tool by itself.
+- TypeScript Vercel AI SDK: the **toolPolicies** type accepts any string key, so a source tool can have a policy.
+- Python LangGraph: a model tool call without a tool call ID fails the **RunModel** attempt.
+
+## 0.3 {#v0-3}
+
+Released 2026-11-09 as [agents/v0.3.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.3.0).
+
+### Added
+
+- **render_session_flow_graph** (**renderSessionFlowGraph**) and the **dex-agents-session-graph** command render the session Flow graph for Dex Web, with Actions for **resolve_interrupt**, **answer_question**, **steer_user_message**, and **cancel_turn**. [Reference](/reference/agents/dex-web).
+- Compaction in the OpenAI Agents SDK, Pydantic AI, LangChain and LangGraph, Google ADK, Vercel AI SDK, and Mastra adapters. Adapters compact only between turns. [Reference](/reference/agents/session-limits#compaction).
+- **ModelSpendLimit** checks each model call before it runs and reports its usage after. A refused call ends the turn. [Reference](/reference/agents/spend-limits).
+- **run_model_limit** (**runModelLimit**) sets the method timeout and attempts of **RunModel**. [Reference](/reference/agents/workers#long-model-calls).
+- **AgentSessionClient.start_session** and **startAgentSession** make a new session searchable by the Step it waits in. [Reference](/reference/agents/approvals#find-sessions).
+
+### Changed
+
+- Every package requires Dex SDK 1.38.0.
+- A session over the server's state limit fails with the reason: its status becomes **failed**, and new messages raise **AgentSessionFailedError**. Upgrade every reader of a session before the Workers that write **failed**. [Reference](/reference/agents/session-limits#at-the-limit).
+
+## 0.2 {#v0-2}
+
+Released 2026-11-05 as [agents/v0.2.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.2.0).
+
+### Breaking
+
+- Stop every 0.1 Worker of a Flow type before any 0.2 Worker starts. 0.2 moves older messages into **AgentMessageChunks**, which a 0.1 Worker cannot read. [Reference](/reference/agents/upgrades).
+
+### Added
+
+- The built-in agent loop (Stepwise mode), with questions, durable waits, plans and plan mode, MCP tool sources, and a scripted demo model.
+- Steering and turn cancellation: **steer_user_message** and **cancel_turn**.
+- Tool tasks: a tool can start long work and the session polls it in **PollToolTask**.
+- Context compaction with the **CompactContext** Step, and message retention through **retained_message_limit**. [Reference](/reference/agents/session-limits#compaction).
+- Messages are stored in chunks (**AgentMessageChunks**), so storing a message writes only that message.
+- UI stream adapters for the AI SDK **useChat** and plain Server-Sent Events, which resume through the Dex resume token.
+- OpenTelemetry GenAI spans for model calls and tool calls.
+- The Go core, with Stepwise mode and OpenAI and Anthropic model clients.
+- A call whose tool Step never reached a Worker records **failed**, with an error that starts "the tool did not run, so it is safe to call again". [Reference](/reference/agents/failures#never-run-outcome-unknown).
+
+### Changed
+
+- Every package requires Dex SDK 1.35.0.
+- **resolve_interrupt** and **answer_question** can raise **RpcLockConflictError**. **AgentSessionClient** retries it for 5 seconds. [Reference](/reference/agents/approvals#rpc-locks).
+
+## 0.1 {#v0-1}
+
+Released 2026-11-01 as [agents/v0.1.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.1.0).
+
+### Added
+
+- First release. Python packages **dex-agents**, **dex-agents-openai-agents**, **dex-agents-pydantic-ai**, **dex-agents-langgraph**, **dex-agents-google-adk**, and **dex-agents-claude-agent-sdk**. TypeScript packages **@superdurable/dex-agents**, **@superdurable/dex-agents-vercel-ai**, **@superdurable/dex-agents-openai-agents**, **@superdurable/dex-agents-mastra**, and **@superdurable/dex-agents-claude-agent-sdk**. Each model call is one Dex Step and each tool call is its own Step. [Reference](/reference/agents/install).

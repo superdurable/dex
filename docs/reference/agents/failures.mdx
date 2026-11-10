@@ -1,0 +1,125 @@
+---
+title: Crashes and tool call outcomes
+sidebar_label: Crashes
+---
+
+# Crashes and tool call outcomes
+
+A crash repeats at most the one call that was running. This page lists what
+each failure repeats, and how a tool Step's failure decides the call's record.
+[Agent Frameworks](/agent-frameworks#tool-call-outcomes) explains the outcomes
+and how to reconcile **outcome_unknown**.
+
+## Crash matrix {#worker-failures}
+
+Each row of this table is a Step and the moment it is interrupted. The last
+three columns name the integration tests for three failures:
+
+- **Worker kill**: the Worker gets SIGKILL, and a new Worker starts.
+- **Server restart**: the Dex Server node gets SIGKILL and restarts on its data
+  directory. The Worker keeps running.
+- **Takeover**: the active node gets SIGKILL, and a hot standby takes the lease.
+  The Worker keeps running.
+
+Each language names the file that holds the test. **Not tested** means that no
+test covers the cell yet, so its text states the design, not a checked result.
+
+| Step | Interrupted | What happens | Worker kill | Server restart | Takeover |
+| --- | --- | --- | --- | --- | --- |
+| **RunModel** | Before any output reaches Dex | That model call runs again, up to 3 attempts within 30 minutes. Then the turn fails. If tools already ran, a note in the history tells the next turn's model not to repeat them. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **RunModel** | After output reached Dex | The same. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool**, for an idempotent write | Before the first heartbeat reaches Dex | The call runs again with the same idempotency key. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool**, for an idempotent write | While the tool runs | The same. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool**, for a read | While the tool runs | The call runs again. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool** | Every attempt | After the last attempt, a read records **failed** and a write records **outcome_unknown**. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | Not tested |
+| **CallSingleAttemptTool** | Before the first heartbeat reaches Dex | The call records **outcome_unknown** and does not run again. The model sees that the outcome is unknown. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallSingleAttemptTool** | While the tool runs | The same. | [Python][py-kills], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **AwaitToolApproval** | While it waits | Nothing runs again. The wait lives in Dex Server. A later approval runs the tool once. | [Python][py-tools], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **AwaitQuestionAnswer** | While it waits | Nothing runs again. A later answer resumes the turn. | [Python][py-stepwise], [TypeScript][ts-stepwise] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **AwaitTimer** | While it waits | Nothing runs again. The Timer fires once. A Timer that came due during an outage fires when Dex Server is back. | [Python][py-stepwise], [TypeScript][ts-stepwise] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **PollToolTask** | Between two polls | Polling goes on with the same task. No second task starts. | [Python][py-tasks], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **PollToolTask** | During a poll | The poll runs again. No second task starts. | [Python][py-tasks], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CompactContext** | During the summary call | Only the summary call runs again, up to 3 attempts within 30 minutes. The session stores one summary. If every attempt fails, the turn fails, and the next user message compacts again. | [Python][py-compaction], [TypeScript][ts-compaction] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| A wait for a user message | While the session is idle | Nothing runs again. The next message starts a turn. | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| Any Step | Queued, before Dex hands it to a Worker | The Step stays in the queue and uses no attempt. It runs as attempt 1 when a Worker takes it. | [Python][py-stepwise], [TypeScript][ts-stepwise] | [server-zd][zd-queued] | [server-zd][zd-queued] |
+| **CallTool** for a read, **PollToolTask**, **CompactContext** | Before the first heartbeat reaches Dex | By design, the same as the rows above for that Step. | Not tested | Not tested | Not tested |
+| **AwaitToolApproval**, **AwaitQuestionAnswer**, **AwaitTimer** | After the wait ended, while the handler that moves the turn on runs | By design, the handler runs again. The resolved approval, answer, or Timer stays recorded. | Not tested | Not tested | Not tested |
+| Any Step | After the Worker sent the result, before Dex committed it | By design, Dex either commits the result or fails the attempt. A failed attempt follows the row for that Step. | Not tested | Not tested | Not tested |
+| A tool the framework cannot defer | While it runs | The tool runs inside **RunModel** and repeats when **RunModel** runs again. It is at-least-once. | Not tested | Not tested | Not tested |
+| A Claude Agent SDK turn segment | While it runs | Deferred custom tools run in their own **CallTool** or **CallSingleAttemptTool** Steps, as above. Model calls, inline read tools, and CLI tools such as **Bash**, **Write**, **Edit**, and **Task** run inside **RunModel** and repeat when it runs again. They are at-least-once. | [Python][py-claude], [TypeScript][ts-claude] | Not tested | Not tested |
+
+Each adapter package repeats the Worker kill cases for **RunModel** and its tool
+Steps in its own test suite.
+
+A running Worker survives both server failures. It reconnects by itself, and
+Dex fails the attempt that it held, so the row for that Step applies. Workers
+and clients must reach the new active node through an address that follows
+of the failed node are gone. See [Stream backend](#stream-backend).
+
+The takeover tests use a hot standby and SIGKILL. A cold standby and a planned
+step down are covered at the server level: see the
+
+Each adapter package repeats the Worker kill cases for **RunModel** and its tool
+Steps in its own test suite.
+
+A running Worker survives both server failures. It reconnects by itself, and
+Dex fails the attempt that it held, so the row for that Step applies. Workers
+and clients must reach the new active node through an address that follows
+[readiness](/reference/server/high-availability#hot-standby-health). The Streams
+of the failed node are gone. See
+[Stream backend](/reference/agents/event-stream#stream-backend).
+
+The takeover tests use a hot standby and SIGKILL. A cold standby and a planned
+step down are covered at the server level: see the
+[failover tests][zd-failover] and the [drain tests][zd-drain].
+
+A single-attempt tool can still run twice in one narrow case: a cancelled
+attempt that keeps running. See
+[At-most-once has one exception](/agent-frameworks#tool-runs-twice). For
+deploys and the drain timeout, see
+[Graceful stop](/reference/agents/workers#graceful-stop).
+
+## A call that never ran {#never-run-outcome-unknown}
+
+When a tool Step fails, its failure route reads **attempt_progress** from the
+recovery error. See
+[Failure and redelivery](/reference/python/failure-and-retries#unknown-outcome).
+**CallTool** and **CallSingleAttemptTool** use it the same way:
+
+| **attempt_progress** | What the call records |
+| --- | --- |
+| **NOT_STARTED** | No attempt reached a Worker, so the tool did not run. The call records **failed**. Its error starts with "the tool did not run, so it is safe to call again". The model sees a failed tool call and can call the tool again. A call whose tool already asked the user a question ran before, so it follows the next row. |
+| **NOT_COMPLETED**, or **UNSPECIFIED** when the server reported no progress | The tool may have run. A read records **failed**. Any other call records **outcome_unknown**, and the session does not run its tool again. |
+
+To recognize such a call in **get_agent_snapshot** or your own code, compare the
+start of its error with **TOOL_CALL_NOT_RUN_ERROR_PREFIX** in Python,
+**toolCallNotRunErrorPrefix** in TypeScript, or **ToolCallNotRunErrorPrefix** in
+Go.
+
+**NOT_COMPLETED** is conservative, so a call that never ran can still record
+**outcome_unknown**. For example, the server crashed after it recorded the
+attempt start but before the task reached the Worker. Treat that outcome as
+unknown. To check it, see
+[Reconcile outcome_unknown](/agent-frameworks#reconcile-outcome-unknown).
+
+A tool Step that waits in the queue does not fail and uses no attempt. See
+[Keep tool Steps dispatchable](/reference/agents/workers#dispatchable).
+
+[readiness](/reference/server/high-availability#hot-standby-health). The Streams
+[failover tests][zd-failover] and the [drain tests][zd-drain].
+[py-kills]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_worker_kills.py
+[py-tools]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_deferred_tool_calls.py
+[py-stepwise]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_stepwise.py
+[py-tasks]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_tool_tasks.py
+[py-compaction]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_compaction.py
+[py-server]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_server_failures.py
+[py-claude]: https://github.com/superdurable/dex/blob/main/agents/python/claude-agent-sdk/tests/test_worker_kills.py
+[ts-kills]: https://github.com/superdurable/dex/blob/main/agents/typescript/core/test/integ/worker-kill.integration.test.ts
+[ts-stepwise]: https://github.com/superdurable/dex/blob/main/agents/typescript/core/test/integ/stepwise-worker-kill.integration.test.ts
+[ts-compaction]: https://github.com/superdurable/dex/blob/main/agents/typescript/core/test/integ/compaction.integration.test.ts
+[ts-server]: https://github.com/superdurable/dex/blob/main/agents/typescript/core/test/fixtures/server-failure-suite.ts
+[ts-claude]: https://github.com/superdurable/dex/blob/main/agents/typescript/claude-agent-sdk/test/integ/worker-kills.integration.test.ts
+[go-kills]: https://github.com/superdurable/dex/blob/main/agents/go/core/integ/approvals_and_crashes_test.go
+[zd-queued]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/queued_restart.rs
+[zd-drain]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/attempt_drain.rs
+[zd-failover]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/standby_failover.rs

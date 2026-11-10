@@ -29,7 +29,8 @@ export function referenceVersion(component, releaseVersion) {
   if (component === 'server' && /^0\.1\.\d+$/.test(release)) {
     return release;
   }
-  const match = release.match(/^([1-9]\d*)\.(\d+)\.(?:\d+|x)$/);
+  // Before 1.0, as for the agents packages, each 0.N minor is one version.
+  const match = release.match(/^(0|[1-9]\d*)\.(\d+)\.(?:\d+|x)$/);
   if (!match) {
     throw new Error(`Invalid ${component} reference version: ${releaseVersion}`);
   }

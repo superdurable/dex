@@ -9,6 +9,7 @@ const referenceComponents = [
   {component: 'java', label: 'Java SDK'},
   {component: 'typescript', label: 'TypeScript SDK'},
   {component: 'rust', label: 'Rust SDK'},
+  {component: 'agents', label: 'Agents packages'},
 ];
 
 const sidebars: SidebarsConfig = {
