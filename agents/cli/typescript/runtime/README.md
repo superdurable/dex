@@ -44,19 +44,26 @@ command prints the `--resume` line that continues it. The command exits with 1
 when a turn or the session failed during the chat, 2 for invalid arguments or
 configuration, and 0 otherwise.
 
-### Sessions belong to one host and configuration file
+### Sessions belong to one execution environment
 
 The runtime registers the session Flow type `<flowType>-<hash>`. The hash is
 the first 12 hexadecimal digits of the SHA-256 of
-`<host name>\n<configuration identity>` in UTF-8, where the identity is the
-real path of the configuration file, or `defaults` without a file. A Worker
-takes only the Steps of its own Flow type, so an approved write or shell
-command always runs in a process with the workspace and policies it was
-approved under. Editing the file, such as its allow list, keeps the type, so
-`--resume` still works. `--resume` and `sessions` see only the sessions of the
-same host and configuration file. Two processes that run the same
-configuration file share their sessions' Steps; they have the same workspace
-and policies.
+`<host name>\n<user>\n<configuration identity>\n<workspace>` in UTF-8:
+
+- the user is the numeric user ID, or the user name where the platform has
+  none;
+- the configuration identity is the real path of the configuration file, or
+  `defaults` without a file;
+- the workspace is its canonical real path.
+
+A Worker takes only the Steps of its own Flow type, so an approved write or
+shell command always runs as the same user, with the same configuration file
+and workspace it was approved under. Tool settings, such as the shell allow
+list, are not part of the hash, so changing them keeps `--resume` working.
+Changing the workspace, the file, or the user starts a new type: `--resume`
+of an older session then exits with 2 and says to resume it in its original
+environment, and `sessions` lists only the current environment's sessions.
+Two processes in the same environment share their sessions' Steps.
 
 ## The harness interface
 
@@ -133,8 +140,8 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
   - `isShellCommandApprovalRequired(turn, command)`: whether a command waits
     for approval, which is unless the allow list has its exact text;
   - `resolveTurnToolPolicy(turnContext, toolName, effect, requiresApproval, turn)`:
-    the call's policy, with the tool's effect as a floor and the turn's
-    `approval.always`;
+    the call's policy, with the tool's effect and approval as floors and the
+    turn's `approval.always`;
   - `context.currentTurn()`: the running turn's configuration, for callbacks
     that run during the model call.
 
@@ -175,12 +182,18 @@ Each call is one Dex tool Step, recorded in the session.
   through `..`, an absolute path, or a symbolic link, fails. Files open
   without following a final link, and the opened file must still be the one
   the path names, so a link swapped in meanwhile fails. A file with more than
-  one hard link is refused. `write_file` and `edit_file` write a new file in
-  the checked directory and rename it over the target, and never write
-  through a link. This is not a sandbox: an approved shell command, or any
+  one hard link is refused. Searches check every file they open the same way.
+  `write_file` and `edit_file` write a new file in the checked directory and
+  rename it over the target, and never write through a link. After the
+  rename, the target must be the written file inside the workspace, or the
+  call fails loudly. Node has no `openat` or `renameat`, so a directory swapped
+  at the last moment is detected after the write rather than prevented; writes
+  are approved calls. This is not a sandbox: an approved shell command, or any
   other program, can still change the workspace while a call runs.
 - `edit_file` takes `path`, `old_text`, and `new_text`. `old_text` must occur
-  exactly once in the file.
+  exactly once in the file. When the file changed after `edit_file` read it,
+  by identity, size, modification time, or content, the call fails with a
+  conflict and asks to read the file again.
 - Shell commands run with the system shell in `workspace`, in their own
   process group, with a 120-second default timeout. A command whose Worker
   died while it ran records `outcome_unknown` and never runs again.
@@ -190,9 +203,10 @@ Each call is one Dex tool Step, recorded in the session.
   downloads Chromium on first use. Each session has one page in the Worker's
   memory.
 - `approval.always` adds approval to any tool by name.
-- A local tool's effect is a floor. An explicit `ToolPolicy` for it may raise
-  the effect but never lowers it; its `requiresApproval` wins when set, as in
-  `McpToolSource.mergeToolPolicies`.
+- A local tool's effect and approval are floors. An explicit `ToolPolicy` for
+  it may raise the effect, ranked as in `McpToolSource.mergeToolPolicies`, and
+  `requiresApproval: true` adds approval; `requiresApproval: false` cannot
+  remove it.
 
 ## Connectors
 
@@ -225,10 +239,9 @@ opens the Dex Web Connectors page.
 ## The Dex server and dexcli
 
 `dex.server: auto` reuses a `dexcli dev` with Dex Web on port 8802 and Dex on
-8801. It trusts one that a command started, when the recorded process is
-alive on the same ports. Any other server must answer `/readyz` with Dex
-Web's readiness JSON and the Dex FlowService on the Dex port; otherwise the
-command stops and names the port. Without any server, it starts `dexcli dev`
+8801 only when it answers `/readyz` with Dex Web's readiness JSON and the Dex
+FlowService answers on the Dex port; otherwise the command stops and names
+the port. This check also runs for a server that a command started. Without any server, it starts `dexcli dev`
 in the background on those ports. Its output goes to `~/.dex/agents/dexcli-dev.log`,
 and its pid and ports to `~/.dex/agents/dexcli-dev.json`. It keeps running
 after the command exits, so later commands and Dex Web reuse it.
@@ -247,7 +260,7 @@ entry is refused.
 | --- | --- |
 | `DEXCLI` | The `dexcli` executable to use. |
 | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `auto` reuses or starts. |
-| `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. |
+| `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. It must be `https`, or `http` on 127.0.0.1, localhost, or [::1]. |
 
 ## Development
 

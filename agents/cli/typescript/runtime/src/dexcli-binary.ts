@@ -34,7 +34,8 @@ const installRecordName = "install.json";
  * The order is: `DEXCLI`; `~/.dex/bin/dexcli-<version>/dexcli` from an earlier download, after its files match the
  * SHA-256 digests recorded when it was installed; the first `dexcli` on `PATH` whose version is at least
  * {@link pinnedDexcliVersion}; otherwise the pinned release for this platform, downloaded from
- * `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` (GitHub releases by default). The archive must match the release's
+ * `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` (GitHub releases by default), which must be `https`, or `http` on a loopback
+ * host for development. The archive must match the release's
  * `checksums.txt` SHA-256. Only its regular `dexcli` and `dex-server-zd` files are written, into a private
  * staging directory that is renamed into place; an archive with a link, an absolute path, or a `..` entry is
  * refused.
@@ -93,6 +94,7 @@ async function readDexcliVersion(dexcliPath: string): Promise<string | undefined
 }
 
 async function downloadDexcli(environment: CliEnvironment, installDirectory: string, log: (line: string) => void) {
+  requireTrustedDownloadUrl(environment.dexcliDownloadUrl);
   const archiveName = `dexcli_v${pinnedDexcliVersion}_${releasePlatform()}.tar.gz`;
   const releaseUrl = `${environment.dexcliDownloadUrl.replace(/\/+$/, "")}/cli-v${pinnedDexcliVersion}`;
   log(`Downloading dexcli ${pinnedDexcliVersion} to ${installDirectory}; this happens once.`);
@@ -161,6 +163,22 @@ async function verifyInstalledFiles(installDirectory: string): Promise<void> {
     if (record.sha256?.[name] !== sha256Of(await readFile(path))) {
       fail(`has a ${name} that changed since it was installed`);
     }
+  }
+}
+
+/** Requires an `https` download URL, or `http` on a loopback host for development and tests. */
+function requireTrustedDownloadUrl(downloadUrl: string): void {
+  let url: URL;
+  try {
+    url = new URL(downloadUrl);
+  } catch {
+    throw new Error(`DEX_AGENTS_DEXCLI_DOWNLOAD_URL is not a URL: ${downloadUrl}`);
+  }
+  const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback)) {
+    throw new Error(
+      `DEX_AGENTS_DEXCLI_DOWNLOAD_URL must be an https URL, or http on 127.0.0.1, localhost, or [::1]: ${downloadUrl}`,
+    );
   }
 }
 

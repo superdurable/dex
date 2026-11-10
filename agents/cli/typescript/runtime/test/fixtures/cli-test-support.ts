@@ -8,7 +8,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
@@ -198,9 +198,14 @@ export class TestHome {
    * Returns the session Flow type the command uses with this home's configuration.
    * @returns The Flow type.
    */
-  public sessionFlowType(): string {
-    const identity = this.hasConfig() ? realpathSync(this.configPath) : "defaults";
-    return namespaceSessionFlowType(scriptedHarness.flowType, hostname(), identity);
+  public sessionFlowType(workspace = this.workspace): string {
+    mkdirSync(workspace, { recursive: true });
+    return namespaceSessionFlowType(scriptedHarness.flowType, {
+      hostName: hostname(),
+      userId: typeof process.getuid === "function" ? String(process.getuid()) : userInfo().username,
+      configIdentity: this.hasConfig() ? realpathSync(this.configPath) : "defaults",
+      workspace: realpathSync.native(workspace),
+    });
   }
 
   /**

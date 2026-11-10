@@ -7,7 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createServer } from "node:http";
 import { PassThrough } from "node:stream";
 import { after, afterEach, before, describe, test } from "node:test";
@@ -187,6 +188,11 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     try {
       const home = new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 });
       home.writeConfig("connectors: {enabled: []}\n");
+      // A stale record whose pid is alive does not make the impostor trusted.
+      writeFileSync(
+        join(home.directory, ".dex", "agents", "dexcli-dev.json"),
+        JSON.stringify({ pid: process.pid, dexPort, webPort, logPath: "unused" }),
+      );
       const cli = start(home);
       assert.equal(await cli.waitForExit(), 1);
       assert.match(cli.stderr.all, /answers, but it is not a dexcli dev \(127\.0\.0\.1:\d+ does not answer as a Dex server/);

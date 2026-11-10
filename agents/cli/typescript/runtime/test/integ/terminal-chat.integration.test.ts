@@ -254,9 +254,16 @@ describe("terminal chat with connectors and session settings", () => {
 
     const resumeInB = start(homeB, ["--resume", sessionA]);
     assert.equal(await resumeInB.waitForExit(), 2);
-    assert.match(resumeInB.stderr.all, /resume it with the configuration that started it/);
+    assert.match(resumeInB.stderr.all, /with the configuration file and workspace, that started it/);
     const sessionsOfB = start(homeB, ["sessions"]);
     assert.equal(await sessionsOfB.waitForExit(), 0);
     assert.doesNotMatch(sessionsOfB.stdout.all, new RegExp(sessionA));
+
+    const typeBefore = homeA.sessionFlowType();
+    homeA.writeConfig(`${config}workspace: other-workspace\n`);
+    assert.notEqual(homeA.sessionFlowType(join(homeA.directory, ".dex", "agents", "other-workspace")), typeBefore);
+    const resumeWithOtherWorkspace = start(homeA, ["--resume", sessionA]);
+    assert.equal(await resumeWithOtherWorkspace.waitForExit(), 2);
+    assert.match(resumeWithOtherWorkspace.stderr.all, /with the configuration file and workspace, that started it/);
   });
 });

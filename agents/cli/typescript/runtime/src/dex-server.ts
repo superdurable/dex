@@ -69,10 +69,11 @@ export interface StartedDexcliDev {
  * Returns the Dex server of `dex.server`.
  *
  * For a URL, it returns the URL's address. For `auto`, it reuses the `dexcli dev` on `DEX_AGENTS_WEB_PORT` (Dex
- * Web, 8802) and `DEX_AGENTS_DEX_PORT` (Dex, 8801). It trusts one that a command started, when the record's
- * process is alive on the same ports. Any other server must prove it is a `dexcli dev`: its Dex Web `/readyz`
- * answers with Dex Web's readiness JSON and its Dex port answers the Dex FlowService. Otherwise the command stops
- * instead of sending sessions and connector calls to an unknown server. Without any server, it starts
+ * Web, 8802) and `DEX_AGENTS_DEX_PORT` (Dex, 8801) only after it proves it is a `dexcli dev`: its Dex Web
+ * `/readyz` answers with Dex Web's readiness JSON and its Dex port answers the Dex FlowService. Otherwise the
+ * command stops instead of sending sessions and connector calls to an unknown server. The record of a server a
+ * command started only says that it may still be starting and which connectors MCP URL it printed. Without any
+ * server, it starts
  * `dexcli dev` on those ports in the background, with its output in `~/.dex/agents/dexcli-dev.log`, waits until
  * it is ready, and records it in `~/.dex/agents/dexcli-dev.json`. The started server keeps running after the
  * command exits, so later commands and Dex Web reuse it.
@@ -109,9 +110,7 @@ export async function resolveDexServer(
       log(`Waiting for the dexcli dev at ${webUrl} to become ready.`);
     }
     const ready = readiness.state === "ready" ? readiness : await waitForReadiness(webUrl, reuseWaitTimeoutMs);
-    if (!isStartedByCommand) {
-      await requireDexcliDevIdentity(webUrl, serverAddress, ready.body);
-    }
+    await requireDexcliDevIdentity(webUrl, serverAddress, ready.body);
     return {
       serverAddress,
       isTls: false,

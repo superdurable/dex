@@ -90,10 +90,10 @@ export interface AgentHarness {
    * The base Flow type of the command's sessions, such as `DexAgentsClaudeSdkCliSession`. Keep it stable.
    *
    * The runtime registers `<flowType>-<hash>`, from `namespaceSessionFlowType`, where the hash covers the
-   * host name and the configuration file's real path. A Worker then takes only the Steps of sessions that a
-   * command with the same host and configuration file started, so an approved write or shell command runs with
-   * the workspace and policies it was approved under. Processes that share one configuration file share their
-   * sessions' Steps. `--resume` and the `sessions` subcommand see only the sessions of the same configuration.
+   * host name, the user, the configuration file's real path, and the workspace. A Worker then takes only the
+   * Steps of sessions started in the same execution environment, so an approved write or shell command runs
+   * where it was approved. Processes in the same environment share their sessions' Steps. `--resume` and the
+   * `sessions` subcommand see only the sessions of the same environment.
    */
   readonly flowType: string;
   /** The model when the file sets none, or `null` when the command must refuse to run without one. */
@@ -123,7 +123,7 @@ export interface AgentHarness {
  * @since 0.5.0
  */
 export interface HarnessContext {
-  /** The Flow type to build: {@link AgentHarness.flowType} with the host and configuration hash. */
+  /** The Flow type to build: {@link AgentHarness.flowType} with the execution environment hash. */
   readonly flowType: string;
   /** The file's effective configuration, after command-line overrides. */
   readonly config: EffectiveConfig;

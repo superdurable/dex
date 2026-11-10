@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { createHash } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, type FileHandle } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -19,6 +20,12 @@ const maximumSearchFileBytes = 1024 * 1024;
 const maximumListedEntries = 1000;
 const skippedDirectories = new Set([".git", "node_modules"]);
 const noFollowFlag = constants.O_NOFOLLOW ?? 0;
+
+/** What edit_file read: the file's stats and the SHA-256 of its content. */
+interface FileVersion {
+  readonly stats: Stats;
+  readonly sha256: string;
+}
 
 /** A regular file opened inside the workspace, with the path it was checked at. */
 interface OpenedFile {
@@ -38,7 +45,9 @@ interface OpenedFile {
  * Writes go to a new temporary file in the checked directory and replace the target by rename.
  *
  * This is not a sandbox: an approved shell command, or another program, can still change the workspace while a
- * call runs.
+ * call runs. Reads, listings, and searches check each opened file after the open and never return a file outside.
+ * Node has no `openat` or `renameat`, so a write whose directory is swapped at the last moment is detected after
+ * the rename and fails loudly instead of being prevented.
  */
 export class WorkspaceFiles {
   /**
@@ -86,12 +95,14 @@ export class WorkspaceFiles {
     }
     const file = await this.openRegularFile(path);
     let text: string;
+    let readVersion: FileVersion;
     try {
       const read = await readText(file.handle, maximumEditBytes);
       if (read.isCut) {
         throw new ToolExecutionError(`${path} is larger than ${maximumEditBytes} bytes; edit_file does not change it`);
       }
       text = read.text;
+      readVersion = { stats: file.stats, sha256: sha256Of(read.bytes) };
     } finally {
       await file.handle.close();
     }
@@ -103,7 +114,7 @@ export class WorkspaceFiles {
           : `old_text occurs ${occurrences} times in ${path}; include more surrounding text so that it occurs once`,
       );
     }
-    const target = await this.replaceFile(path, text.replace(oldText, () => newText), false);
+    const target = await this.replaceFile(path, text.replace(oldText, () => newText), false, readVersion);
     return `edited ${this.displayPath(target)}: replaced 1 occurrence`;
   }
 
@@ -167,7 +178,7 @@ export class WorkspaceFiles {
     let text: string;
     try {
       const stats = await handle.stat();
-      if (!stats.isFile() || stats.nlink > 1) {
+      if (!stats.isFile() || stats.nlink > 1 || !(await this.isOpenedFileAt(file, stats))) {
         return;
       }
       const buffer = Buffer.alloc(maximumSearchFileBytes);
@@ -209,8 +220,17 @@ export class WorkspaceFiles {
     }
   }
 
-  /** Writes content to a temporary file in the checked directory and renames it over the target. */
-  private async replaceFile(path: string, content: string, isCreatingMissing: boolean): Promise<string> {
+  /**
+   * Writes content to a temporary file in the checked directory and renames it over the target, then checks that
+   * the target is that file, inside the workspace. Node has no `renameat`, so a directory swapped between the last
+   * check and the rename is detected after the write rather than prevented; writes are approved calls.
+   */
+  private async replaceFile(
+    path: string,
+    content: string,
+    isCreatingMissing: boolean,
+    expectedVersion?: FileVersion,
+  ): Promise<string> {
     const candidate = resolve(this.workspace, path);
     if (candidate === this.workspace) {
       throw new ToolExecutionError("the workspace itself is a directory, not a file");
@@ -238,19 +258,68 @@ export class WorkspaceFiles {
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollowFlag,
       existing === undefined ? 0o644 : existing.mode & 0o777,
     );
+    let written: Stats;
     try {
       try {
         await handle.writeFile(content, "utf8");
+        written = await handle.stat();
       } finally {
         await handle.close();
       }
       await this.requireUnchanged(directory, path);
+      if (expectedVersion !== undefined) {
+        await this.requireVersionUnchanged(target, expectedVersion, path);
+      }
       await rename(temporary, target);
     } catch (error: unknown) {
       await rm(temporary, { force: true });
       throw error;
     }
+    if (!(await this.isOpenedFileAt(target, written))) {
+      throw new ToolExecutionError(
+        `${path} changed while it was written: the new content may not be at ${path} inside the workspace; check the workspace`,
+      );
+    }
     return target;
+  }
+
+  /** Checks that a file still has the identity, size, modification time, and content that edit_file read. */
+  private async requireVersionUnchanged(target: string, expected: FileVersion, path: string): Promise<void> {
+    const conflict = (): never => {
+      throw new ToolExecutionError(`${path} changed after edit_file read it; read the file again and retry the edit`);
+    };
+    const current = await lstat(target).catch(() => undefined);
+    if (
+      current === undefined ||
+      current.dev !== expected.stats.dev ||
+      current.ino !== expected.stats.ino ||
+      current.size !== expected.stats.size ||
+      current.mtimeMs !== expected.stats.mtimeMs
+    ) {
+      conflict();
+    }
+    const handle = await open(target, constants.O_RDONLY | noFollowFlag).catch(() => undefined);
+    if (handle === undefined) {
+      return conflict();
+    }
+    try {
+      const read = await readText(handle, maximumEditBytes);
+      if (read.isCut || sha256Of(read.bytes) !== expected.sha256) {
+        conflict();
+      }
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /** Returns whether a path resolves, inside the workspace, to the file whose stats an open handle gave. */
+  private async isOpenedFileAt(path: string, opened: Stats): Promise<boolean> {
+    const real = await realpath(path).catch(() => undefined);
+    if (real === undefined || !this.isInside(real)) {
+      return false;
+    }
+    const current = await lstat(real).catch(() => undefined);
+    return current !== undefined && current.dev === opened.dev && current.ino === opened.ino;
   }
 
   /** Creates missing directories one component at a time, refusing links, and returns the real directory. */
@@ -319,6 +388,11 @@ export class WorkspaceFiles {
     }
   }
 
+  private isInside(candidate: string): boolean {
+    const fromWorkspace = relative(this.workspace, candidate);
+    return fromWorkspace !== ".." && !fromWorkspace.startsWith(`..${sep}`) && !isAbsolute(fromWorkspace);
+  }
+
   private requireInside(candidate: string, path: string): void {
     const fromWorkspace = relative(this.workspace, candidate);
     if (fromWorkspace === "..") {
@@ -334,13 +408,18 @@ export class WorkspaceFiles {
   }
 }
 
-async function readText(handle: FileHandle, maximumBytes: number): Promise<{ text: string; isCut: boolean }> {
+async function readText(
+  handle: FileHandle,
+  maximumBytes: number,
+): Promise<{ text: string; bytes: Buffer; isCut: boolean }> {
   const buffer = Buffer.alloc(maximumBytes + 1);
   const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-  return {
-    text: buffer.subarray(0, Math.min(bytesRead, maximumBytes)).toString("utf8"),
-    isCut: bytesRead > maximumBytes,
-  };
+  const bytes = buffer.subarray(0, Math.min(bytesRead, maximumBytes));
+  return { text: bytes.toString("utf8"), bytes, isCut: bytesRead > maximumBytes };
+}
+
+function sha256Of(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function requireSingleLink(stats: Stats, path: string): void {

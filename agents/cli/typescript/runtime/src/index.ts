@@ -22,7 +22,13 @@ export {
   type LocalToolGroup,
   type ResolvedTurn,
 } from "./agent-harness.js";
-export { namespaceSessionFlowType, processAgentCliIo, runAgentCli, type AgentCliIo } from "./agent-cli.js";
+export {
+  namespaceSessionFlowType,
+  processAgentCliIo,
+  runAgentCli,
+  type AgentCliIo,
+  type SessionEnvironmentIdentity,
+} from "./agent-cli.js";
 export {
   ConfigError,
   canonicalOperationName,

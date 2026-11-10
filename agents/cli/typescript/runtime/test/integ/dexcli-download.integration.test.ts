@@ -138,6 +138,12 @@ describe("dexcli first-run download", () => {
     assert.equal(await resolveDexcliExecutable(environment, () => undefined), join(newDirectory, "dexcli"));
   });
 
+  test("a download URL must be https, or http on a loopback host", async () => {
+    const home = newHome();
+    const environment = readCliEnvironment({ HOME: home, PATH: "", DEX_AGENTS_DEXCLI_DOWNLOAD_URL: "http://mirror.example.com/dex" });
+    await assert.rejects(resolveDexcliExecutable(environment, () => undefined), /must be an https URL, or http on 127\.0\.0\.1/);
+  });
+
   test("DEXCLI wins over every other source", async () => {
     const home = newHome();
     const explicit = join(home, "my-dexcli");

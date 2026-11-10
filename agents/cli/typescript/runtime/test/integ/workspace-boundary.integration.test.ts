@@ -8,13 +8,15 @@
 
 import assert from "node:assert/strict";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import { rename, symlink, unlink } from "node:fs/promises";
+import { setImmediate as setImmediatePromise } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 
 import type { AgentTurnContext, ToolPolicy } from "@superdurable/dex-agents";
 
-import { resolveConfig, resolveTurnToolPolicy } from "../../src/index.js";
+import { namespaceSessionFlowType, resolveConfig, resolveTurnToolPolicy } from "../../src/index.js";
 import { WorkspaceFiles } from "../../src/local-tools/workspace-files.js";
 
 function newWorkspace(): { root: string; workspace: string; files: WorkspaceFiles } {
@@ -72,6 +74,49 @@ describe("the workspace boundary of the file tools", () => {
     await assert.rejects(files.readFile(join(root.toUpperCase(), "OUTSIDE.TXT")), /outside the workspace/);
   });
 
+  test("a search never returns outside content while a directory is swapped concurrently", async () => {
+    const { root, workspace, files } = newWorkspace();
+    writeFileSync(join(root, "outside-dir", "secret.txt"), "outside secret");
+    mkdirSync(join(workspace, "notes"));
+    writeFileSync(join(workspace, "notes", "secret.txt"), "inside note");
+    let isSwapping = true;
+    const swapper = (async () => {
+      while (isSwapping) {
+        await rename(join(workspace, "notes"), join(workspace, "notes-real"));
+        await symlink(join(root, "outside-dir"), join(workspace, "notes"));
+        await setImmediatePromise();
+        await unlink(join(workspace, "notes"));
+        await rename(join(workspace, "notes-real"), join(workspace, "notes"));
+        await setImmediatePromise();
+      }
+    })();
+    try {
+      for (let iteration = 0; iteration < 300; iteration += 1) {
+        const result = await files.searchFiles("secret", ".").catch((error: unknown) => String(error));
+        assert.doesNotMatch(result, /outside secret/, `iteration ${iteration}`);
+        const read = await files.readFile("notes/secret.txt").catch((error: unknown) => String(error));
+        assert.doesNotMatch(read, /outside secret/, `iteration ${iteration}`);
+      }
+    } finally {
+      isSwapping = false;
+      await swapper;
+    }
+  });
+
+  test("edit_file refuses to replace a file that changed after it was read", async () => {
+    const { workspace, files } = newWorkspace();
+    writeFileSync(join(workspace, "draft.txt"), "first version\n");
+    const replaceFile = (files as unknown as { replaceFile: (...parameters: unknown[]) => Promise<string> }).replaceFile.bind(files);
+    (files as unknown as { replaceFile: (...parameters: unknown[]) => Promise<string> }).replaceFile = async (
+      ...parameters: unknown[]
+    ) => {
+      writeFileSync(join(workspace, "draft.txt"), "first version, edited by the user meanwhile\n");
+      return replaceFile(...parameters);
+    };
+    await assert.rejects(files.editFile("draft.txt", "first", "second"), /changed after edit_file read it; read the file again/);
+    assert.equal(readFileSync(join(workspace, "draft.txt"), "utf8"), "first version, edited by the user meanwhile\n");
+  });
+
   test("edit_file replaces exactly one occurrence", async () => {
     const { workspace, files } = newWorkspace();
     writeFileSync(join(workspace, "todo.txt"), "buy milk\nbuy bread\n");
@@ -83,16 +128,34 @@ describe("the workspace boundary of the file tools", () => {
   });
 });
 
+describe("session Flow types", () => {
+  const base = { hostName: "host", userId: "501", configIdentity: "/home/a/.dex/agents/x.yaml", workspace: "/home/a/w" };
+
+  test("the same environment gives the same type, and a changed workspace or user gives another", () => {
+    assert.equal(namespaceSessionFlowType("Agent", base), namespaceSessionFlowType("Agent", { ...base }));
+    assert.match(namespaceSessionFlowType("Agent", base), /^Agent-[0-9a-f]{12}$/);
+    assert.notEqual(namespaceSessionFlowType("Agent", base), namespaceSessionFlowType("Agent", { ...base, workspace: "/home/a/other" }));
+    assert.notEqual(namespaceSessionFlowType("Agent", base), namespaceSessionFlowType("Agent", { ...base, userId: "502" }));
+  });
+
+  test("two homes running on the defaults get different types", () => {
+    const first = { ...base, configIdentity: "defaults", workspace: "/home/a/dex-agent-workspace" };
+    const second = { ...base, userId: "502", configIdentity: "defaults", workspace: "/home/b/dex-agent-workspace" };
+    assert.notEqual(namespaceSessionFlowType("Agent", first), namespaceSessionFlowType("Agent", second));
+    assert.notEqual(namespaceSessionFlowType("Agent", first), namespaceSessionFlowType("Agent", { ...first, userId: "502" }));
+  });
+});
+
 describe("local tool policies", () => {
   const turnConfig = resolveConfig({ approval: { always: ["read_file"] } }, "builtin", "m");
   function turnWith(toolPolicies: Record<string, ToolPolicy>): AgentTurnContext {
     return { toolPolicies } as unknown as AgentTurnContext;
   }
 
-  test("an explicit policy can raise a local tool's effect but never lower it", () => {
+  test("an explicit policy can raise a local tool's effect and approval but never lower them", () => {
     assert.deepEqual(
       resolveTurnToolPolicy(turnWith({ run_shell_command: { effect: "read" } }), "run_shell_command", "non_idempotent_write", false, turnConfig),
-      { effect: "non_idempotent_write", requiresApproval: true },
+      { effect: "non_idempotent_write", requiresApproval: false },
     );
     assert.deepEqual(
       resolveTurnToolPolicy(
@@ -102,11 +165,21 @@ describe("local tool policies", () => {
         true,
         turnConfig,
       ),
-      { effect: "non_idempotent_write", requiresApproval: false },
+      { effect: "non_idempotent_write", requiresApproval: true },
     );
     assert.deepEqual(
       resolveTurnToolPolicy(turnWith({ fetch_web_page: { effect: "non_idempotent_write" } }), "fetch_web_page", "read", false, turnConfig),
-      { effect: "non_idempotent_write", requiresApproval: true },
+      { effect: "non_idempotent_write", requiresApproval: false },
+    );
+    assert.deepEqual(
+      resolveTurnToolPolicy(
+        turnWith({ fetch_web_page: { effect: "read", requiresApproval: true } }),
+        "fetch_web_page",
+        "read",
+        false,
+        turnConfig,
+      ),
+      { effect: "read", requiresApproval: true },
     );
     assert.deepEqual(resolveTurnToolPolicy(turnWith({}), "write_file", "idempotent_write", true, turnConfig), {
       effect: "idempotent_write",

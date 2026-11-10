@@ -9,7 +9,7 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { hostname, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { parseArgs } from "node:util";
@@ -191,7 +191,7 @@ class AgentCliCommand {
       case "connectors":
         return this.listConnectors(effective, server);
       case "sessions":
-        return this.listSessions(loaded, server);
+        return this.listSessions(effective, loaded, server);
       default:
         return this.chat(effective, loaded, server);
     }
@@ -256,7 +256,7 @@ class AgentCliCommand {
       (warnings) => this.log(`Session settings keys ignored: ${warnings.join(", ")}`),
     );
     const workspace = this.prepareWorkspace(effective, loaded);
-    const flowType = this.sessionFlowType(loaded);
+    const flowType = this.sessionFlowType(loaded, workspace);
     const connectorSource = await this.connectConnectors(effective, server, turns, true);
     const offeredGroups = this.offeredLocalToolGroups(effective);
     const toolSources: ToolSource[] = connectorSource === undefined ? [] : [connectorSource];
@@ -304,13 +304,17 @@ class AgentCliCommand {
   }
 
   /**
-   * Returns this command's session Flow type: the harness's Flow type with a hash of the host name and the
-   * configuration file's real path, or "defaults" without a file. So only Workers with the same workspace and
-   * policies take a session's Steps, and editing the file keeps its sessions.
+   * Returns this command's session Flow type: the harness's Flow type with a hash of the host, the user, the
+   * configuration file, and the workspace. So only Workers of the same execution environment take a session's
+   * Steps, and editing tool settings in the file keeps its sessions.
    */
-  private sessionFlowType(loaded: LoadedConfig): string {
-    const configIdentity = loaded.isFromFile ? realpathSync(loaded.configPath) : defaultsConfigIdentity;
-    return namespaceSessionFlowType(this.harness.flowType, hostname(), configIdentity);
+  private sessionFlowType(loaded: LoadedConfig, workspace: string): string {
+    return namespaceSessionFlowType(this.harness.flowType, {
+      hostName: hostname(),
+      userId: currentUserId(),
+      configIdentity: loaded.isFromFile ? realpathSync(loaded.configPath) : defaultsConfigIdentity,
+      workspace,
+    });
   }
 
   private async openSession(
@@ -335,7 +339,7 @@ class AgentCliCommand {
     }
     if (info.flowType !== flowType) {
       throw new UsageError(
-        `session ${resumeSessionId} is a ${info.flowType} session, but this machine and configuration run ${flowType} sessions; resume it with the configuration that started it`,
+        `session ${resumeSessionId} is a ${info.flowType} session, but this user, configuration file, and workspace run ${flowType} sessions; resume it as the user, with the configuration file and workspace, that started it`,
       );
     }
     if (info.status !== "running") {
@@ -444,8 +448,12 @@ class AgentCliCommand {
     return 0;
   }
 
-  private async listSessions(loaded: LoadedConfig, server: DexServerConnection): Promise<number> {
-    const flowType = this.sessionFlowType(loaded);
+  private async listSessions(
+    effective: EffectiveConfig,
+    loaded: LoadedConfig,
+    server: DexServerConnection,
+  ): Promise<number> {
+    const flowType = this.sessionFlowType(loaded, this.prepareWorkspace(effective, loaded));
     const registry = new Registry([]);
     this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
     this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
@@ -497,19 +505,41 @@ class AgentCliCommand {
 const defaultsConfigIdentity = "defaults";
 
 /**
- * Returns the session Flow type of a harness on one host and configuration: `<flowType>-<hash>`, where the hash
- * is the first 12 hexadecimal digits of the SHA-256 of `<host name>\n<configuration identity>` in UTF-8. The
- * configuration identity is the real path of the configuration file, or `defaults` without a file.
+ * The execution environment a session's Steps must run in, as {@link namespaceSessionFlowType} hashes it.
+ *
+ * @since 0.5.0
+ */
+export interface SessionEnvironmentIdentity {
+  /** The host name. */
+  readonly hostName: string;
+  /** The user: the numeric user ID where the platform has one, else the user name. */
+  readonly userId: string;
+  /** The configuration file's real path, or `defaults` without a file. */
+  readonly configIdentity: string;
+  /** The workspace's canonical real path. */
+  readonly workspace: string;
+}
+
+/**
+ * Returns the session Flow type of a harness in one execution environment: `<flowType>-<hash>`, where the hash
+ * is the first 12 hexadecimal digits of the SHA-256 of `<host name>\n<user>\n<configuration identity>\n<workspace>`
+ * in UTF-8. Tool settings, such as the shell allow list, are not part of it, so they can change without breaking
+ * `--resume`.
  *
  * @param harnessFlowType - {@link AgentHarness.flowType}.
- * @param hostName - The host name.
- * @param configIdentity - The configuration file's real path, or `defaults`.
+ * @param identity - The host, user, configuration file, and workspace.
  * @returns The session Flow type.
  * @since 0.5.0
  */
-export function namespaceSessionFlowType(harnessFlowType: string, hostName: string, configIdentity: string): string {
-  const hash = createHash("sha256").update(`${hostName}\n${configIdentity}`, "utf8").digest("hex").slice(0, 12);
+export function namespaceSessionFlowType(harnessFlowType: string, identity: SessionEnvironmentIdentity): string {
+  const hashInput = `${identity.hostName}\n${identity.userId}\n${identity.configIdentity}\n${identity.workspace}`;
+  const hash = createHash("sha256").update(hashInput, "utf8").digest("hex").slice(0, 12);
   return `${harnessFlowType}-${hash}`;
+}
+
+/** Returns the numeric user ID where the platform has one, else the user name. */
+function currentUserId(): string {
+  return typeof process.getuid === "function" ? String(process.getuid()) : userInfo().username;
 }
 
 function parseCommandArguments(argv: readonly string[]): ParsedArguments {
