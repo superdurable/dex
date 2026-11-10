@@ -9,6 +9,12 @@ import DexExpressiveness.Failure.Composite.WPF5BackwardStart
 import DexExpressiveness.Failure.Composite.WPF5BackwardTimer
 import DexExpressiveness.Failure.Composite.WPF5BackwardComplete
 import DexExpressiveness.Failure.Composite.WPF5Free
+import DexExpressiveness.Failure.Composite.WPF6Sequences
+import DexExpressiveness.Failure.Composite.WPF6Abstraction
+import DexExpressiveness.Failure.Composite.WPF6Run
+import DexExpressiveness.Failure.Composite.WPF6Lift
+import DexExpressiveness.Failure.Composite.WPF6Forward
+import DexExpressiveness.Failure.Composite.WPF6Backward
 
 /-!
 # Helper lemmas of the main statements
