@@ -16,11 +16,14 @@ Not released yet. The next minor release, web/v1.42.0, ships these changes.
 
 - **Connectors** can add a named connection that no loaded Flow uses, such as the Slack connection an agent tool opens. **+ Add** picks a Connector from the catalog and names the connection, and the usual authorization panel saves it to **connections.json**. [Reference](/reference/web/local-connector-setup#add-a-connection).
 - **Connectors** lists every saved connection that no loaded Flow uses, and **Delete connection** deletes one. [Reference](/reference/web/local-connector-setup#start-dex-web).
+- **--allowed-hosts** (**DEX_WEB_ALLOWED_HOSTS**) turns on a **Host** check for **/api** requests that stops DNS rebinding. It accepts loopback names, IP addresses, the bind address, and the listed hosts, and refuses any other **Host** with HTTP 403 **HOST_NOT_ALLOWED**. [Reference](/reference/web/dex-web#allowed-hosts).
 
 ### Changed
 
 - The **Experimental** menu offers **Connectors** wherever local Connector setup runs, even with no Flow Definition Graph files or connections. [Reference](/reference/web/dex-web#v1-pages).
 - After an OAuth authorization, **Connectors** selects the connection that was authorized. [Reference](/reference/web/local-connector-setup#configure-an-account).
+- With local Connector setup on, as in **dexcli dev**, the **Host** check is always on. [Reference](/reference/web/dex-web#allowed-hosts).
+- A Connector connection save or OAuth authorization that finishes after its connection was deleted or added again fails with **CONNECTOR_CONNECTION_CHANGED** instead of saving. [Reference](/reference/web/local-connector-setup#add-a-connection).
 - On a phone, **Connectors** stacks the connection list above the selected connection. [Reference](/reference/web/local-connector-setup#start-dex-web).
 
 ## 1.41 {#v1-41}

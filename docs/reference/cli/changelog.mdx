@@ -15,6 +15,11 @@ Not released yet. The next minor release, cli-v1.42.0, ships these changes.
 ### Added
 
 - **dexcli dev** serves a Dex Web **Connectors** page that can add a named connection that no loaded Flow uses, such as the Slack connection an agent tool opens, without **--flow-rendering-dir**. [Reference](/reference/web/local-connector-setup#add-a-connection).
+- **dexcli dev** and **dexcli web** accept **--allowed-hosts**, a comma-separated list of host names that Dex Web **/api** requests may use. [Reference](/reference/web/dex-web#allowed-hosts).
+
+### Changed
+
+- The Dex Web of **dexcli dev** refuses an **/api** request whose **Host** is a DNS name other than a loopback name or an **--allowed-hosts** entry, with HTTP 403 **HOST_NOT_ALLOWED**. This stops DNS rebinding. Pass **--allowed-hosts** when a tunnel or a hosted development environment forwards Dex Web under its own name. [Reference](/reference/web/dex-web#allowed-hosts).
 
 ## 1.41 {#v1-41}
 

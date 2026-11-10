@@ -35,7 +35,9 @@ type webOptions struct {
 	bindAddress            string
 	webPort                int
 	flowRenderingDirectory string
-	shouldOpenBrowser      bool
+	// allowedHosts defaults empty; it is the comma-separated --allowed-hosts value.
+	allowedHosts      string
+	shouldOpenBrowser bool
 }
 
 func (a *App) executeWeb(ctx context.Context, args []string, options options) error {
@@ -54,6 +56,7 @@ func (a *App) executeWeb(ctx context.Context, args []string, options options) er
 		"",
 		"directory containing Flow Definition Graph JSON files",
 	)
+	flags.StringVar(&parsedWebOptions.allowedHosts, "allowed-hosts", "", "comma-separated extra host names that /api requests may use")
 	flags.BoolVar(&parsedWebOptions.shouldOpenBrowser, "open", parsedWebOptions.shouldOpenBrowser, "open Dex Web after startup")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -102,6 +105,7 @@ func (a *App) serveWeb(ctx context.Context, options options, webOptions webOptio
 			Port:                   webOptions.webPort,
 			FlowRenderingDirectory: webOptions.flowRenderingDirectory,
 			ConnectorSetupEnabled:  false,
+			AllowedHosts:           dexweb.SplitAllowedHosts(webOptions.allowedHosts),
 		},
 		client,
 		assets.Files,
@@ -207,6 +211,7 @@ func printWebUsage(output io.Writer) {
 	fmt.Fprintln(output, "  --bind-address address      Dex Web bind address (default 127.0.0.1)")
 	fmt.Fprintln(output, "  --web-port port             Dex Web port (default 8802)")
 	fmt.Fprintln(output, "  --flow-rendering-dir path   directory containing Flow Definition Graph JSON files")
+	fmt.Fprintln(output, "  --allowed-hosts names       comma-separated extra host names that /api requests may use; enables the Host check")
 	fmt.Fprintln(output, "  --open                      open Dex Web in the default browser (default true; --open=false disables)")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "--timeout bounds only the startup checks, not the running Dex Web.")

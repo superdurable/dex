@@ -42,6 +42,12 @@ type Config struct {
 	ConnectorConfigDirectory string
 	// ConnectorReleaseOverrides maps Connector IDs to local release artifact directories for loopback development.
 	ConnectorReleaseOverrides map[string]string
+	// AllowedHosts defaults empty and lists more host names that /api requests may name in their Host header, such
+	// as a reverse proxy's public name; an entry may carry a port, which is ignored. When it has an entry, or when
+	// ConnectorSetupEnabled is true, Dex Web checks the Host of every /api request: loopback names, IP addresses,
+	// BindAddress, and these entries are accepted, and any other Host is refused with HTTP 403, which stops DNS
+	// rebinding. Otherwise every Host is accepted.
+	AllowedHosts []string
 }
 
 type Server struct {
@@ -116,7 +122,7 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	return &Server{
 		cfg: cfg,
 		httpServer: &http.Server{
-			Handler:           protectAPIRequests(mux),
+			Handler:           protectAPIRequests(mux, newRequestHostPolicy(cfg)),
 			ReadTimeout:       30 * time.Second,
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       90 * time.Second,
@@ -126,10 +132,15 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	}, nil
 }
 
-func protectAPIRequests(next http.Handler) http.Handler {
+func protectAPIRequests(next http.Handler, hostPolicy requestHostPolicy) http.Handler {
 	crossOriginProtection := http.NewCrossOriginProtection()
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if !strings.HasPrefix(request.URL.Path, "/api/") ||
+		isAPIRequest := strings.HasPrefix(request.URL.Path, "/api/")
+		if isAPIRequest && !hostPolicy.allows(request.Host) {
+			api.WriteCodedError(response, http.StatusForbidden, "HOST_NOT_ALLOWED", "Dex Web does not accept this Host; add it to the allowed hosts")
+			return
+		}
+		if !isAPIRequest ||
 			request.Method == http.MethodGet || request.Method == http.MethodHead || request.Method == http.MethodOptions {
 			next.ServeHTTP(response, request)
 			return

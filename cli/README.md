@@ -181,6 +181,7 @@ must exist and be reachable before startup.
 ## Application-facing flags
 
 ```text
+--allowed-hosts string             comma-separated extra host names that Dex Web /api requests may use
 --attribute-store-config string    Dex YAML file supplying Attribute Store settings
 --bind-address string              local bind IP (default 127.0.0.1)
 --connector-config-dir string      local Connector config directory (default $HOME/.dex/connectors)

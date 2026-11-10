@@ -110,6 +110,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 			ConnectorSetupEnabled:     true,
 			ConnectorConfigDirectory:  s.cfg.ConnectorConfigDirectory,
 			ConnectorReleaseOverrides: s.cfg.ConnectorReleaseOverrides,
+			AllowedHosts:              dexweb.SplitAllowedHosts(s.cfg.AllowedHosts),
 		},
 		dexpb.NewFlowServiceClient(dexConnection),
 		assets.Files,

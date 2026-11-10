@@ -47,6 +47,7 @@ Kubernetes service-link variables such as **DEX_WEB_PORT**.
 | **--tls-ca-file** | **DEX_WEB_TLS_CA_FILE** | Empty; a PEM file added to the system roots. Requires **--tls**. |
 | **--tls-server-name** | **DEX_WEB_TLS_SERVER_NAME** | Empty; overrides the name checked against the server certificate. Requires **--tls**. |
 | **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** | Empty; a file with the bearer token that Dex Web sends to FlowService. |
+| **--allowed-hosts** | **DEX_WEB_ALLOWED_HOSTS** | Empty; comma-separated host names that **/api** requests may name. Setting it turns on the Host check. Since 1.42. See [Allowed hosts](#allowed-hosts). |
 
 Start Flow always uses pull Workers. Two legacy Worker routing options are deprecated and have no effect: **--start-flow-worker-target-pull** (**DEX_WEB_START_FLOW_WORKER_TARGET_PULL**) and **--start-flow-worker-target-headless** (**DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS**). Dex Web still accepts them and prints a startup warning when one is provided.
 
@@ -77,6 +78,24 @@ authentication-enforcing reverse proxy or gateway, and authorize access by role.
 Do not expose Dex Web or FlowService directly to the public Internet. Audit
 access to production Flow details according to your data-handling policy.
 
+### Allowed hosts {#allowed-hosts}
+
+Since 1.42. Dex Web can check the **Host** header of every **/api** request, so a
+web page cannot reach the API through DNS rebinding. **dexcli dev** always checks
+it. **dex-web** and **dexcli web** check it when **--allowed-hosts** names at least
+one host. With the check on, Dex Web accepts loopback names such as **localhost**
+and **app.localhost**, any IP address, the bind address, and each host in
+**--allowed-hosts**. Any other **Host** gets HTTP 403 with the code
+**HOST_NOT_ALLOWED**. A port in an entry is ignored.
+
+Add the public name when a proxy, a tunnel, or a hosted development environment
+forwards Dex Web under a DNS name:
+
+~~~bash
+dex-web --allowed-hosts dex.example.com
+dexcli dev --allowed-hosts dex-dev.example.com
+~~~
+
 ### The /api requests {#api-requests}
 
 **POST**, **PUT**, **PATCH**, and **DELETE** requests under **/api/**, including
@@ -97,7 +116,7 @@ client that sends no fetch metadata, the **Origin** host must equal the request
 do not override these checks. A client that sends neither **Origin** nor
 **Sec-Fetch-Site**, such as **curl**, is accepted when it sends JSON.
 
-These checks do not stop DNS rebinding. Restrict accepted host names at the
+Without the [Host check](#allowed-hosts), these checks do not stop DNS rebinding. Restrict accepted host names at the
 reverse proxy, and keep direct access to the Dex Web port limited to trusted
 clients. When FlowService fails, the browser sees a generic message and the
 original error goes to the Dex Web log.
@@ -141,8 +160,9 @@ dexcli --server 127.0.0.1:8801 web
 
 Open [http://127.0.0.1:8802](http://127.0.0.1:8802). The command accepts
 **--bind-address** (default **127.0.0.1**), **--web-port** (default **8802**),
-**--flow-rendering-dir**, and **--open** (default true; pass **--open=false** to
-skip the browser). Ctrl+C stops Dex Web, and the server keeps running.
+**--flow-rendering-dir**, **--allowed-hosts** (since 1.42; see
+[Allowed hosts](#allowed-hosts)), and **--open** (default true; pass
+**--open=false** to skip the browser). Ctrl+C stops Dex Web, and the server keeps running.
 
 A running **dexcli dev** also uses ports 8801 and 8802. To run both, choose
 another local tunnel port and another Dex Web port:
