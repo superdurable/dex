@@ -12,7 +12,7 @@ running Flow execution. A web handler, another service, or an operator tool
 calls it through a [Client](/concepts/client).
 
 A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The
-**Worker** runs it, then returns the result to **Dex Server** to persist. **Dex
+**Worker** runs it, then returns the result to **Dex Server**, which saves it. **Dex
 Server** then returns the output to the **Client**.
 
 <RpcRequestDiagram markdownDescription="A Client sends an RPC request to Dex Server, which routes it to the Application Worker. The Worker returns the result through Dex Server to the Client." />
@@ -33,24 +33,25 @@ An RPC handler can do four things:
 <a id="read-only-rpcs-and-terminal-flows"></a>
 
 For a plain read, a Client can skip the RPC. See
-[when a read needs an RPC](/concepts/client#related-primitives).
-See [Read-only RPCs and terminal Flows](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows).
+[when a read needs an RPC](/concepts/client#related-primitives). For RPCs that
+only read, including on closed Flows, see [Read-only RPCs and terminal Flows](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows).
 
 ## Guarantees
 
-Each RPC invocation commits like a Step method: its Attribute writes and Channel
-publications commit with its result, only on success. See
-[Step guarantees](/concepts/step#guarantees).
+Dex saves an RPC like a Step method. It saves the RPC's Attribute writes and
+Channel publications together with its result, and only when the RPC succeeds.
+See [Step guarantees](/concepts/step#guarantees).
 
-An RPC handler reads a snapshot of the Flow. Steps and other RPCs can commit
-between that read and the RPC's own commit. A transactional RPC does not change
-this. When the RPC's change depends on what it read, declare a lock on that
+An RPC handler reads a snapshot of the Flow. Steps and other RPCs can change the
+Flow between that read and the moment Dex saves the RPC's changes. A
+transactional RPC does not change this. When the RPC's change depends on what it read, declare a lock on that
 Attribute in this RPC and in every Step and RPC that writes it. Dex then runs
 them one at a time. If the Flow closes while the handler runs, Dex rejects the
 RPC's changes. The handler's calls to external systems have still happened.
 
-Each RPC call from an SDK is a new request. A retried call can run the handler
-and commit its changes again. Make RPC handlers safe to repeat.
+Each RPC call from an SDK is a new request. If you retry a call, Dex can run the
+handler again and save its changes a second time. Make RPC handlers safe to
+repeat.
 
 <a id="rpc-timeout"></a>
 
@@ -204,8 +205,8 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 <a id="typescript-codecs"></a>
 
 Java, Kotlin, and TypeScript have extra RPC rules. See
-[RPC stubs and Kotlin](/reference/java/#rpc-stubs-and-kotlin) and
-[RPC codecs](/reference/typescript/#rpc-codecs).
+[RPC stubs and Kotlin](/reference/java/rpc#rpc-stubs-and-kotlin) and
+[RPC codecs](/reference/typescript/rpc#rpc-codecs).
 
 ## Cancel running Steps {#cancel-running-steps}
 
@@ -215,7 +216,7 @@ Java, Kotlin, and TypeScript have extra RPC rules. See
 An RPC result can cancel active Steps of its Flow, selected by Step type. Use it
 when a request from outside makes work in progress pointless, such as a user who
 presses Stop while a report or a model call runs. Dex applies the cancellation
-when it commits the RPC. The Step code must check for cancellation and stop. See
+when it saves the RPC's result. The Step code must check for cancellation and stop. See
 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) for the example,
 [Resolve the race from committed state](/reference/server/runtime-data#cancel-race) for a Step that
 finishes first, and [Make the Step stop](/reference/server/runtime-data#cancel-honour) for how each SDK
@@ -225,15 +226,15 @@ delivers cancellation.
 
 <a id="attribute-locks"></a>
 
-Concurrent Steps and RPCs can change the same state. An RPC can take
-[Attribute locks](/concepts/primitives/attribute#locking) to run one at a time with
-them. An RPC that cannot get a lock fails at once, and the caller retries it.
+An RPC can declare [Attribute locks](/concepts/primitives/attribute#locking).
+It then runs one at a time with the Steps and RPCs that declare the same lock.
 See [Locks](/reference/server/runtime-data#attribute-locks) and
 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts).
 
-A **transactional** RPC adds a check when Dex commits it. If a Channel message
-that it deletes is no longer pending, the RPC fails and commits nothing. A
-non-transactional RPC skips the missing deletion and commits the rest. An RPC
+A **transactional** RPC adds a check when Dex saves its result. If a Channel
+message that it deletes is no longer pending, the RPC fails and Dex saves none
+of its changes. A non-transactional RPC skips the missing deletion and Dex saves
+the rest. An RPC
 that holds a lock is always transactional. See
 [Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes).
 
@@ -249,6 +250,9 @@ large collections out of RPCs that do not use them. See
 [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances).
 
 ## Reference
+
+The [RPC](/reference/python/rpc) page of each SDK reference lists the
+API names in that language.
 
 [Data primitive semantics](/reference/server/runtime-data#rpcs) covers
 cancellation, read-only RPCs on closed Flows, state loading, transactional

@@ -6,13 +6,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # Advanced: Back Pressure for High Availability
 
-Use a short **SubmitRequestFlow** when the target parent may reject an overloaded request.
+When a parent may reject requests because it is overloaded, submit each request through a short **SubmitRequestFlow**.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The client starts **SubmitRequestFlow** instead of retrying an RPC in memory. **SubmitStep** partitions the request, calls the selected parent's **SendRequest** RPC, and completes only after the parent accepts it. A false response fails the Step, so the normal Step retry policy durably backs off and tries again. The same retry handles parent-start races: **FlowAlreadyStarted** fails **SubmitStep**, and its next execution invokes the RPC on the active parent. If the submitting process or Worker restarts, Dex preserves the retry.
+The client starts **SubmitRequestFlow** instead of retrying an RPC in memory. **SubmitStep** picks a parent for the request and calls its **SendRequest** RPC. It completes only after the parent accepts the request. If the parent returns false, the Step fails, and the normal Step retry policy tries again after a backoff. The same retry handles a race to start the parent; see [Multiple parents with partitioning](/design-patterns/parallel-subflows/partitioning). Dex keeps retrying even if the submitting process or the Worker restarts.
 
-This separates admission from processing: parent Flows remain bounded, while submissions remain durable and independently retryable.
+Parent Flows stay bounded because they reject requests they cannot take. Each submission keeps retrying on its own until a parent accepts it.
 
 ## Core implementation
 

@@ -9,8 +9,7 @@ slug: /concepts
 
 Dex has a small programming model. A Flow is a durable program. Steps move it
 forward. Primitives hold its state and connect it to the outside world. Your
-application drives Flows through a Client. This page shows how the pieces fit
-together. Each concept has its own page.
+application drives Flows through a Client.
 
 ## Flow and Step
 
@@ -59,12 +58,12 @@ returns a decision that names the next Steps or closes the Flow. Dex retries a
 failed Step.
 
 **Attributes** and **Channels** are the Flow's durable state. Steps and RPCs
-read and write them. Each Step method and RPC commits its state changes with
-its result. See [Step guarantees](/concepts/step#guarantees).
+read and write them. Dex saves the state changes of a Step method or RPC
+together with its result. See [Step guarantees](/concepts/step#guarantees).
 
 Your application uses a **Client** to start Flows, invoke RPCs, read
-Attributes, and wait for changes. RPCs are the write boundary into a running
-Flow. A **Stream** carries live updates back to a UI.
+Attributes, and wait for changes. To change a running Flow, your application
+calls an RPC. A **Stream** carries live updates back to a UI.
 
 ## Components
 

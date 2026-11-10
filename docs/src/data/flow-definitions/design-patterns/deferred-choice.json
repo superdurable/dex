@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "OfferResponseFlow",
     "startStepId": "step:AwaitOfferResponse",
     "span": {
-      "startLine": 74,
+      "startLine": 82,
       "startColumn": 1,
-      "endLine": 99,
+      "endLine": 107,
       "endColumn": 46
     }
   },
@@ -23,27 +23,10 @@
       "parentId": "step:AwaitOfferResponse",
       "phase": "execute",
       "span": {
-        "startLine": 51,
-        "startColumn": 5,
-        "endLine": 56,
-        "endColumn": 51
-      }
-    },
-    {
-      "id": "decision:step:AwaitOfferResponse:53:20",
-      "kind": "decision",
-      "name": "goTo",
-      "parentId": "step:AwaitOfferResponse",
-      "condition": "context.has_timer_fired()",
-      "phase": "execute",
-      "span": {
         "startLine": 53,
-        "startColumn": 20,
-        "endLine": 53,
-        "endColumn": 48
-      },
-      "decision": {
-        "type": "goTo"
+        "startColumn": 5,
+        "endLine": 58,
+        "endColumn": 51
       }
     },
     {
@@ -51,12 +34,29 @@
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitOfferResponse",
-      "condition": "not (context.has_timer_fired()) and OFFER_ACCEPTED.results(context)",
+      "condition": "context.has_timer_fired()",
       "phase": "execute",
       "span": {
         "startLine": 55,
         "startColumn": 20,
         "endLine": 55,
+        "endColumn": 48
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitOfferResponse:57:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitOfferResponse",
+      "condition": "not (context.has_timer_fired()) and OFFER_ACCEPTED.results(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 57,
+        "startColumn": 20,
+        "endLine": 57,
         "endColumn": 49
       },
       "decision": {
@@ -64,16 +64,16 @@
       }
     },
     {
-      "id": "decision:step:AwaitOfferResponse:56:16",
+      "id": "decision:step:AwaitOfferResponse:58:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AwaitOfferResponse",
       "condition": "not (context.has_timer_fired()) and not (OFFER_ACCEPTED.results(context))",
       "phase": "execute",
       "span": {
-        "startLine": 56,
+        "startLine": 58,
         "startColumn": 16,
-        "endLine": 56,
+        "endLine": 58,
         "endColumn": 51
       },
       "decision": {
@@ -81,15 +81,15 @@
       }
     },
     {
-      "id": "decision:step:CloseRejectedOffer:66:16",
+      "id": "decision:step:CloseRejectedOffer:72:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:CloseRejectedOffer",
       "phase": "execute",
       "span": {
-        "startLine": 66,
+        "startLine": 72,
         "startColumn": 16,
-        "endLine": 66,
+        "endLine": 72,
         "endColumn": 57
       },
       "decision": {
@@ -97,15 +97,15 @@
       }
     },
     {
-      "id": "decision:step:ExpireOffer:71:16",
+      "id": "decision:step:ExpireOffer:79:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:ExpireOffer",
       "phase": "execute",
       "span": {
-        "startLine": 71,
+        "startLine": 79,
         "startColumn": 16,
-        "endLine": 71,
+        "endLine": 79,
         "endColumn": 56
       },
       "decision": {
@@ -113,15 +113,15 @@
       }
     },
     {
-      "id": "decision:step:FulfillOffer:61:16",
+      "id": "decision:step:FulfillOffer:65:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:FulfillOffer",
       "phase": "execute",
       "span": {
-        "startLine": 61,
+        "startLine": 65,
         "startColumn": 16,
-        "endLine": 61,
+        "endLine": 65,
         "endColumn": 58
       },
       "decision": {
@@ -161,9 +161,9 @@
       "kind": "rpc",
       "name": "accept_customer_offer",
       "span": {
-        "startLine": 92,
+        "startLine": 100,
         "startColumn": 5,
-        "endLine": 94,
+        "endLine": 102,
         "endColumn": 46
       }
     },
@@ -172,9 +172,9 @@
       "kind": "rpc",
       "name": "reject_customer_offer",
       "span": {
-        "startLine": 97,
+        "startLine": 105,
         "startColumn": 5,
-        "endLine": 99,
+        "endLine": 107,
         "endColumn": 46
       }
     },
@@ -185,10 +185,13 @@
       "phase": "wait_for+execute",
       "start": true,
       "span": {
-        "startLine": 84,
+        "startLine": 92,
         "startColumn": 36,
-        "endLine": 84,
+        "endLine": 92,
         "endColumn": 61
+      },
+      "metadata": {
+        "explanation": "Wait for an accept, a reject, or the offer to expire."
       }
     },
     {
@@ -197,10 +200,13 @@
       "name": "CloseRejectedOffer",
       "phase": "execute",
       "span": {
-        "startLine": 85,
+        "startLine": 93,
         "startColumn": 33,
-        "endLine": 85,
+        "endLine": 93,
         "endColumn": 58
+      },
+      "metadata": {
+        "explanation": "Close the rejected offer."
       }
     },
     {
@@ -209,10 +215,13 @@
       "name": "ExpireOffer",
       "phase": "execute",
       "span": {
-        "startLine": 85,
+        "startLine": 93,
         "startColumn": 60,
-        "endLine": 85,
+        "endLine": 93,
         "endColumn": 77
+      },
+      "metadata": {
+        "explanation": "Close the offer that expired without a response."
       }
     },
     {
@@ -221,22 +230,25 @@
       "name": "FulfillOffer",
       "phase": "execute",
       "span": {
-        "startLine": 85,
+        "startLine": 93,
         "startColumn": 13,
-        "endLine": 85,
+        "endLine": 93,
         "endColumn": 31
+      },
+      "metadata": {
+        "explanation": "Fulfill the accepted offer."
       }
     },
     {
-      "id": "wait:AwaitOfferResponse:45:16:0",
+      "id": "wait:AwaitOfferResponse:47:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:AwaitOfferResponse",
       "phase": "wait_for",
       "span": {
-        "startLine": 45,
+        "startLine": 47,
         "startColumn": 16,
-        "endLine": 49,
+        "endLine": 51,
         "endColumn": 10
       },
       "wait": {
@@ -247,9 +259,9 @@
             "label": "offerAccepted.for 1",
             "resourceId": "resource:channel:OFFER_ACCEPTED",
             "span": {
-              "startLine": 46,
+              "startLine": 48,
               "startColumn": 13,
-              "endLine": 46,
+              "endLine": 48,
               "endColumn": 37
             }
           },
@@ -258,9 +270,9 @@
             "label": "offerRejected.for 1",
             "resourceId": "resource:channel:OFFER_REJECTED",
             "span": {
-              "startLine": 47,
+              "startLine": 49,
               "startColumn": 13,
-              "endLine": 47,
+              "endLine": 49,
               "endColumn": 37
             }
           },
@@ -269,9 +281,9 @@
             "label": "OFFER_EXPIRY timer",
             "expression": "OFFER_EXPIRY",
             "span": {
-              "startLine": 48,
+              "startLine": 50,
               "startColumn": 13,
-              "endLine": 48,
+              "endLine": 50,
               "endColumn": 44
             }
           }
@@ -283,39 +295,39 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:AwaitOfferResponse:53:20",
+      "from": "decision:step:AwaitOfferResponse:55:20",
       "to": "step:ExpireOffer",
       "label": "go_to",
       "span": {
-        "startLine": 53,
+        "startLine": 55,
         "startColumn": 20,
-        "endLine": 53,
+        "endLine": 55,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:AwaitOfferResponse:55:20",
+      "from": "decision:step:AwaitOfferResponse:57:20",
       "to": "step:FulfillOffer",
       "label": "go_to",
       "span": {
-        "startLine": 55,
+        "startLine": 57,
         "startColumn": 20,
-        "endLine": 55,
+        "endLine": 57,
         "endColumn": 49
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:AwaitOfferResponse:56:16",
+      "from": "decision:step:AwaitOfferResponse:58:16",
       "to": "step:CloseRejectedOffer",
       "label": "go_to",
       "span": {
-        "startLine": 56,
+        "startLine": 58,
         "startColumn": 16,
-        "endLine": 56,
+        "endLine": 58,
         "endColumn": 51
       }
     },
@@ -326,9 +338,9 @@
       "to": "step:AwaitOfferResponse",
       "label": "results",
       "span": {
-        "startLine": 54,
+        "startLine": 56,
         "startColumn": 12,
-        "endLine": 54,
+        "endLine": 56,
         "endColumn": 43
       },
       "metadata": {
@@ -339,12 +351,12 @@
       "id": "edge:0005",
       "kind": "wait_condition",
       "from": "resource:channel:OFFER_ACCEPTED",
-      "to": "wait:AwaitOfferResponse:45:16:0",
+      "to": "wait:AwaitOfferResponse:47:16:0",
       "label": "offerAccepted.for 1",
       "span": {
-        "startLine": 46,
+        "startLine": 48,
         "startColumn": 13,
-        "endLine": 46,
+        "endLine": 48,
         "endColumn": 37
       }
     },
@@ -352,12 +364,12 @@
       "id": "edge:0006",
       "kind": "wait_condition",
       "from": "resource:channel:OFFER_REJECTED",
-      "to": "wait:AwaitOfferResponse:45:16:0",
+      "to": "wait:AwaitOfferResponse:47:16:0",
       "label": "offerRejected.for 1",
       "span": {
-        "startLine": 47,
+        "startLine": 49,
         "startColumn": 13,
-        "endLine": 47,
+        "endLine": 49,
         "endColumn": 37
       }
     },
@@ -368,9 +380,9 @@
       "to": "resource:channel:OFFER_ACCEPTED",
       "label": "publish",
       "span": {
-        "startLine": 94,
+        "startLine": 102,
         "startColumn": 9,
-        "endLine": 94,
+        "endLine": 102,
         "endColumn": 46
       },
       "metadata": {
@@ -384,9 +396,9 @@
       "to": "resource:channel:OFFER_REJECTED",
       "label": "publish",
       "span": {
-        "startLine": 99,
+        "startLine": 107,
         "startColumn": 9,
-        "endLine": 99,
+        "endLine": 107,
         "endColumn": 46
       },
       "metadata": {
@@ -394,5 +406,47 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "fulfillment",
+      "label": "Fulfillment",
+      "stepIds": [
+        "step:FulfillOffer"
+      ]
+    },
+    {
+      "id": "rejection",
+      "label": "Rejection",
+      "stepIds": [
+        "step:CloseRejectedOffer"
+      ]
+    },
+    {
+      "id": "expiry",
+      "label": "Expiry",
+      "stepIds": [
+        "step:ExpireOffer"
+      ]
+    },
+    {
+      "id": "offer",
+      "label": "Offer",
+      "stepIds": [
+        "step:AwaitOfferResponse"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

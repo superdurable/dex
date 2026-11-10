@@ -52,6 +52,8 @@ LINKEDIN_POSTING_UPDATES = Channel("LinkedInPostingUpdates", PostingUpdate)
 INDEED_POSTING_UPDATES = Channel("IndeedPostingUpdates", PostingUpdate)
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Start one posting update consumer for each job board."
 class InitStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         return go_to_many(
@@ -60,6 +62,8 @@ class InitStep(Step[None]):
         )
 
 
+# dex:group group-id:linkedin group-label:"LinkedIn"
+# dex:explanation text:"Apply each queued posting update to LinkedIn in order."
 class UpdateLinkedInPosting(Step[None]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
@@ -79,6 +83,8 @@ class UpdateLinkedInPosting(Step[None]):
         return go_to(UpdateLinkedInPosting, None)
 
 
+# dex:group group-id:indeed group-label:"Indeed"
+# dex:explanation text:"Apply each queued posting update to Indeed in order."
 class UpdateIndeedPosting(Step[None]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service

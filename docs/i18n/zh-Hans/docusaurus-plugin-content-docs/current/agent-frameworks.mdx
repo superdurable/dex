@@ -6,7 +6,7 @@ sidebar_label: Agent Framework
 
 # Agent Framework
 
-Dex 把 AI Agent 作为 durable agent session 运行。你可以用 Dex Agents 的内置 agent loop 构建 Agent，也可以保留已经用 agent framework 写好的 Agent。每种选择都运行在同一个 session Flow 上，因此 session 在 Dex 上的行为都相同。
+Dex 把 AI Agent 作为 durable agent session 运行。你可以用 Dex Agents 的内置 agent loop 构建 Agent，也可以保留已经用 agent framework 写好的 Agent。两者都运行在同一个 session Flow 上，所以无论选哪种，session 的行为都相同。
 
 ## Durable agent session {#a-durable-agent-session}
 
@@ -14,24 +14,24 @@ Dex 把 AI Agent 作为 durable agent session 运行。你可以用 Dex Agents �
 
 Session 把对话保存在 Attribute 中。Session 等待下一条用户消息时不占用 Worker，可以等上好几天。
 
-模型调用在 **RunModel** Step 中运行。在大多数 harness 中，每个 **RunModel** Step 调用一次模型，每个 tool call 在自己的 Step 中运行。同一次模型回复中的 tool call 并行运行。它们完成后，session 带着结果回到模型。
+模型调用在 **RunModel** Step 中运行。在大多数 harness 中，每个 **RunModel** Step 调用一次模型，每个 tool call 在自己的 Step 中运行。同一次模型回复中的 tool call 并行运行。它们完成后，session 把结果交给模型。每个 Step 都会增加一次与 Dex 的往返。
 
-崩溃时只会重跑当时正在运行的那个 Step，不会重放整个循环。因此 Agent 代码不需要遵守确定性规则，代码改动会在下一个 Step 生效。在大多数 harness 中，这个 Step 只包含一次模型调用或一次 tool call。
+崩溃时只会重跑当时正在运行的那个 Step，Dex 不会重放整个循环。因此 Agent 代码不需要遵守确定性规则，代码改动会在下一个 Step 生效。
 
-有两个 harness 不同：
+有两个 harness 会把更多工作放进一个 Step：
 
 - **Claude Agent SDK。** Claude Code CLI 在一个 **RunModel** Step 中运行一个 turn segment。Segment 包含模型调用和 read tool call，失败的 segment 会整体重跑。写操作逐个离开 segment，每个都在自己的 Step 中运行，因此它们永远不会并行。
 - **LangChain 和 LangGraph。** 一个 **RunModel** Step 把 graph 运行到下一批 tool call 为止。Graph 在途中可能多次调用模型，重试会把这些调用一起重复。
 
 ## Tool policy 和审批 {#tool-policies-and-approvals}
 
-每个 tool 都有一个 **ToolPolicy**。Policy 标明 tool 是读操作、幂等写操作，还是只能执行一次的写操作。读操作和幂等写操作会重试。其他写操作只尝试一次，因此重试不会悄悄重复它们。
+每个 tool 都有一个 **ToolPolicy**。Policy 标明 tool 是读操作、幂等写操作，还是最多只能执行一次的写操作。Dex 会重试读操作和幂等写操作。其他写操作只尝试一次，因此重试不会重复它们。
 
-需要审批的 tool call 会在自己的 **AwaitToolApproval** Step 中等待，直到有人回复，等多久都可以。审批人可以在你的应用中审批，也可以在 [Dex Web](/reference/web/dex-web#agent-session-view) 中审批。
+需要审批的 tool call 会在自己的 **AwaitToolApproval** Step 中一直等到有人回复，不限时长。审批人可以在你的应用中审批，也可以在 [Dex Web](/reference/web/dex-web#agent-session-view) 中审批。
 
 ## 把 Connector 用作 tool {#connectors-as-tools}
 
-每个 harness 都可以把 [Connector](/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供你指定的 operation，每次调用都在自己的 tool Step 中运行。每个 harness 页面的“连接 Connector”一节展示了接入方式，例如 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop#connect-connectors) 和 [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors)。规则见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+每个 harness 都可以把 [Connector](/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供你指定的 operation。Agent 通过 Python 的 **tool_sources** 或 TypeScript 的 **toolSources** 把它作为 tool source 接收。每次调用都在自己的 tool Step 中运行。每个 harness 页面的“连接 Connector”一节展示了接入方式，例如 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop#connect-connectors) 和 [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors)。Effect class、审批、结果和写操作顺序的规则见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
 
 ## 选择 harness {#choose-a-harness}
 
@@ -57,11 +57,40 @@ Harness 是运行 agent loop 的代码：内置 loop 或某个 framework。下�
 | **look_up_order** | read | 无需审批就会运行，失败时会重试。 |
 | **cancel_order** | non-idempotent write | 先在 **AwaitToolApproval** 中等待，然后最多运行一次。 |
 
-Python 版 Agent 位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。TypeScript 版 Agent 位于 [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses)。每个 harness 提供相同的 HTTP route，因此可以并排试用。
+**cancel_order** 只能取消仍在处理中的订单。
 
-项目配置中有 Slack connection 时，每个 agent 还有 **slack_post_thread_reply**。它是一个 Connector tool，先等待审批，然后只运行一次。
+Python 版 Agent 位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。TypeScript 版 Agent 位于 [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses)。
 
 内置 Agent Loop 页面改用 [AI Agent](/use-cases/ai-agent) example。它展示了 session 的全部功能。
+
+### Session route {#session-routes}
+
+每个 harness 都提供相同的 HTTP route，因此可以并排试用。每个 route 对应 session Flow 上的一次调用：启动 session、发送消息或处理审批。
+
+启动 session 会返回 session token，它是用 **DEX_AGENT_SESSION_KEY** 对 session ID 计算的 HMAC。其他每个 route 都会检查 **X-Agent-Session-Token** header 中的 token，缺少时返回 403。没有设置 **DEX_AGENT_SESSION_KEY** 时，example 会随机选一个 key，因此进程重启后所有 token 都会失效。真实的应用会改用自己的登录。
+
+### 在 Dex Web 中审批 {#approve-in-dex-web}
+
+Example 运行时，你也可以不发 HTTP 请求，改在 Dex Web 中审批：
+
+1. 打开这个 session 的 run。它的 Flow ID 就是 session ID。
+2. 选择 **Agent session** tab。
+3. 把 **Working as** 设为 **order-support.operate**，也就是渲染 session graph 时指定的 permission。
+4. 在 **cancel_order** 卡片上选择 **Approve** 或 **Reject**。Dex Web 会替你调用 **resolve_interrupt**。
+
+只有启动时读到了 session graph，Dex Web 才会显示这个 tab。每个 framework 页面都会在启动 Dex 之前渲染 graph。生产环境的做法见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
+
+### Slack Connector tool {#slack-connector-tool}
+
+项目配置中有 Slack connection **support-slack** 时，每个 example agent 还会得到 **slack_post_thread_reply**。这个 tool 就是 Slack Connector 的 operation **postThreadReply**，agent 用它在 Slack thread 中回复。本地开发时，Worker 从 **DEX_CONNECTOR_CONFIG_FILE** 打开这个 connection；部署后，从 **DEX_PROJECT_\*** 设置打开。两种方式、没有 connection 时会怎样以及 Slack app 需要什么，见 [Connection](/agent-frameworks/deploy-agents#connector-tools-connection)。
+
+每次调用都在自己的 tool Step 中通过 Connector SDK 运行一个 Slack operation。调用保留 Connector 的 Call ID 和幂等键。Operation 如何变成 tool、Dex 如何检查参数，见 [提供哪些 operation](/agent-frameworks/deploy-agents#connector-tools-offered)。
+
+Connector 的 manifest 决定调用能否再次运行。**postThreadReply** 是 Mutation，它的 manifest 没有把它标为可安全重试，所以调用只在 **CallSingleAttemptTool** 中运行一次。Worker 崩溃永远不会让同一条消息发两次。参见 [崩溃](/agent-frameworks/deploy-agents#connector-tools-crashes)。
+
+Slack 的 manifest 没有要求 **postThreadReply** 先经审批。所以 example 传入 Python 的 **requires_approval=True** 或 TypeScript 的 **requiresApproval: true**，每次发帖都在 **AwaitToolApproval** 中等待，直到有人批准。Manifest 和应用如何决定审批，见 [审批](/agent-frameworks/deploy-agents#connector-tools-approval)。
+
+一次模型回复请求多个 Connector 写操作时，它们按顺序逐个运行。见 [写操作顺序](/agent-frameworks/deploy-agents#connector-tools-write-order)。
 
 ## 在生产环境中运行 session {#run-sessions-in-production}
 

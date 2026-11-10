@@ -6,17 +6,17 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # 高级：多父 Flow 分区
 
-将请求路由到多个父 Flow ID，使活跃 SubFlow 总数能够超过单个父 Flow 的并发限制。
+把请求分散到多个父 Flow ID，使正在运行的 SubFlow 总数可以超过单个父 Flow 的并发限制。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-使用稳定的分区键，例如请求 ID 哈希对父 Flow 数量取模。相同键的请求始终到达同一个父 Flow。每个父 Flow 独立执行 Channel 缓冲区和 SubFlow 并发限制，因此增加父 Flow 数量即可提高总容量，而不会让单个 Flow execution 无界增长。
+使用稳定的分区键，例如请求 ID 哈希对父 Flow 数量取模。相同键的请求始终到达同一个父 Flow。每个父 Flow 各自执行 Channel 缓冲区上限和 SubFlow 并发限制。增加父 Flow 就能提高总容量，单个 Flow 也不会无限增长。
 
-改变分区数量或顺序会重新映射键。扩容时如果需要稳定亲和性，请使用带版本的父 Flow 集合或一致性哈希。
+改变父 Flow 的数量或顺序，会让一部分键落到别的父 Flow 上。如果扩容时每个键仍要落到同一个父 Flow，请使用带版本的父 Flow 集合或一致性哈希。
 
 ## 核心实现
 
-提交方先调用目标父 Flow 的 RPC。如果父 Flow 不存在或已不活跃，就以该请求作为初始输入启动父 Flow。如果另一个提交方抢先完成启动，本次启动会失败，并由 **SubmitStep** 重试。下一次执行会在已活跃的父 Flow 上调用 RPC。初始请求不会丢失，因为父 Flow 的 **Init** 会把它发布到 **RequestChannel**。
+**SubmitStep** 先调用目标父 Flow 的 RPC。如果父 Flow 不存在或已不在运行，**SubmitStep** 就以该请求作为初始输入启动它。父 Flow 的 **Init** 会把这个输入发布到 **RequestChannel**，所以请求不会丢失。如果另一个提交方抢先启动了父 Flow，本次启动会以 **FlowAlreadyStarted** 失败，**SubmitStep** 随后重试。下一次执行会在正在运行的父 Flow 上调用 RPC。
 
 <SdkTabs
   examples={{

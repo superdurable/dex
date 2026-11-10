@@ -1,0 +1,383 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Shared look of the concept diagrams: tints, type, and color instead of outlines. */
+
+.root {
+  --cd-accent: var(--section-accent, var(--ifm-color-primary));
+  --cd-wait: var(--accent-product-examples, #92400e);
+  --cd-ink: var(--docs-heading, var(--text));
+  --cd-text: var(--docs-text, var(--text));
+  --cd-subtle: var(--muted-strong);
+  --cd-tile: var(--surface-solid);
+  --cd-on-solid: #ffffff;
+  --cd-raise: 0 1px 2px rgb(0 0 0 / 0.05), 0 10px 24px -14px rgb(0 0 0 / 0.22);
+  --cd-accent-tint: color-mix(in srgb, var(--cd-accent) 10%, var(--surface-solid));
+  --cd-wait-tint: color-mix(in srgb, var(--cd-wait) 10%, var(--surface-solid));
+  --cd-group: color-mix(in srgb, var(--cd-subtle) 7%, transparent);
+  --cd-line: color-mix(in srgb, var(--cd-subtle) 60%, transparent);
+
+  position: relative;
+  z-index: 1;
+  container-type: inline-size;
+  color: var(--cd-text);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  text-align: left;
+}
+
+:global(html[data-theme='dark']) .root {
+  --cd-tile: color-mix(in srgb, #ffffff 5%, var(--surface-solid));
+  --cd-on-solid: #0b0b0c;
+  --cd-raise: 0 1px 2px rgb(0 0 0 / 0.45);
+  --cd-accent-tint: color-mix(in srgb, var(--cd-accent) 15%, var(--surface-solid));
+  --cd-wait-tint: color-mix(in srgb, var(--cd-wait) 13%, var(--surface-solid));
+  --cd-group: color-mix(in srgb, #ffffff 4%, transparent);
+}
+
+/* ---------- Tiles ---------- */
+
+.root .tile {
+  display: flex;
+  min-width: 0;
+  padding: 0.75rem 0.85rem 0.8rem;
+  flex-direction: column;
+  gap: 0.3rem;
+  border-radius: 12px;
+  background: var(--cd-tile);
+  box-shadow: var(--cd-raise);
+}
+
+.root .tile.tileAccent {
+  background: var(--cd-accent-tint);
+  box-shadow: none;
+}
+
+.root .tile.tileWait {
+  background: var(--cd-wait-tint);
+  box-shadow: none;
+}
+
+.root .eyebrow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  color: var(--cd-subtle);
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.root .eyebrowName {
+  color: var(--cd-ink);
+  font-family: var(--ifm-font-family-monospace);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.root .title {
+  color: var(--cd-ink);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.root .title.titleAccent {
+  color: var(--cd-accent);
+}
+
+.root .title.titleWait {
+  color: var(--cd-wait);
+}
+
+.root .detail {
+  margin: 0;
+  color: var(--cd-subtle);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+/* ---------- Code, chips, and badges ---------- */
+
+.root .code {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 0.14rem 0.42rem;
+  align-items: center;
+  align-self: flex-start;
+  gap: 0.3rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--cd-subtle) 11%, transparent);
+  color: var(--cd-ink);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.74rem;
+  font-weight: 550;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
+
+.root .code.codeAccent {
+  background: color-mix(in srgb, var(--cd-accent) 13%, transparent);
+  color: var(--cd-accent);
+}
+
+.root .code.codeWait {
+  background: color-mix(in srgb, var(--cd-wait) 13%, transparent);
+  color: var(--cd-wait);
+}
+
+.root .code svg,
+.root .chip svg {
+  flex: none;
+}
+
+.root .chip {
+  display: inline-flex;
+  padding: 0.16rem 0.52rem;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cd-subtle) 11%, transparent);
+  color: var(--cd-ink);
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.root .chip.chipAccent {
+  background: color-mix(in srgb, var(--cd-accent) 14%, transparent);
+  color: var(--cd-accent);
+}
+
+.root .chip.chipWait {
+  background: color-mix(in srgb, var(--cd-wait) 14%, transparent);
+  color: var(--cd-wait);
+}
+
+.root .chip.chipSolid.chipAccent {
+  background: var(--cd-accent);
+  color: var(--cd-on-solid);
+}
+
+.root .chip.chipSolid.chipWait {
+  background: var(--cd-wait);
+  color: var(--cd-on-solid);
+}
+
+.root .chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.root .badge {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cd-subtle) 12%, var(--surface-solid));
+  color: var(--cd-ink);
+}
+
+.root .badge.badgeSmall {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.root .badge.badgeAccent {
+  background: var(--cd-accent-tint);
+  color: var(--cd-accent);
+}
+
+.root .badge.badgeWait {
+  background: var(--cd-wait-tint);
+  color: var(--cd-wait);
+}
+
+.root .badge.badgeSolid.badgeAccent {
+  background: var(--cd-accent);
+  color: var(--cd-on-solid);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cd-accent) 18%, transparent);
+}
+
+.root .badge.badgeSolid.badgeWait {
+  background: var(--cd-wait);
+  color: var(--cd-on-solid);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cd-wait) 18%, transparent);
+}
+
+/* ---------- Groups ---------- */
+
+.root .group {
+  display: flex;
+  min-width: 0;
+  padding: 0.8rem;
+  flex-direction: column;
+  gap: 0.7rem;
+  border-radius: 16px;
+  background: var(--cd-group);
+}
+
+/* ---------- Arrows ---------- */
+
+.root .arrow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  color: var(--cd-line);
+}
+
+.root .arrowLabel {
+  color: var(--cd-subtle);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.root .arrow.arrowAccent {
+  color: var(--cd-accent);
+}
+
+.root .arrow.arrowWait {
+  color: var(--cd-wait);
+}
+
+.root .arrow.arrowAccent .arrowLabel {
+  color: var(--cd-accent);
+}
+
+.root .arrow.arrowWait .arrowLabel {
+  color: var(--cd-wait);
+}
+
+.root .arrowLine {
+  position: relative;
+  flex: none;
+  background: currentColor;
+}
+
+.root .arrowLine::after {
+  position: absolute;
+  background: currentColor;
+  content: '';
+}
+
+.root .arrowDown,
+.root .arrowUp {
+  flex-direction: column;
+}
+
+.root .arrowDown .arrowLine,
+.root .arrowUp .arrowLine {
+  width: 2px;
+  height: 1.75rem;
+}
+
+.root .arrowDown .arrowLine::after,
+.root .arrowUp .arrowLine::after {
+  left: 50%;
+  width: 10px;
+  height: 7px;
+  transform: translateX(-50%);
+}
+
+.root .arrowDown .arrowLine::after {
+  bottom: -2px;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+
+.root .arrowUp .arrowLine::after {
+  top: -2px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.root .arrowRight,
+.root .arrowLeft {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.root .arrowRight .arrowLine,
+.root .arrowLeft .arrowLine {
+  width: 100%;
+  min-width: 1.5rem;
+  height: 2px;
+}
+
+.root .arrowRight .arrowLine::after,
+.root .arrowLeft .arrowLine::after {
+  top: 50%;
+  width: 7px;
+  height: 10px;
+  transform: translateY(-50%);
+}
+
+.root .arrowRight .arrowLine::after {
+  right: -2px;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+.root .arrowLeft .arrowLine::after {
+  left: -2px;
+  clip-path: polygon(100% 0, 100% 100%, 0 50%);
+}
+
+/* Moving dashes mark the path a diagram is about. */
+.root .arrowFlowing.arrowDown .arrowLine {
+  background: repeating-linear-gradient(to bottom, currentColor 0 6px, transparent 6px 10px);
+  animation: cd-flow-vertical 0.9s linear infinite;
+}
+
+.root .arrowFlowing.arrowUp .arrowLine {
+  background: repeating-linear-gradient(to bottom, currentColor 0 6px, transparent 6px 10px);
+  animation: cd-flow-vertical 0.9s linear infinite reverse;
+}
+
+.root .arrowFlowing.arrowRight .arrowLine {
+  background: repeating-linear-gradient(to right, currentColor 0 6px, transparent 6px 10px);
+  animation: cd-flow-horizontal 0.9s linear infinite;
+}
+
+.root .arrowFlowing.arrowLeft .arrowLine {
+  background: repeating-linear-gradient(to right, currentColor 0 6px, transparent 6px 10px);
+  animation: cd-flow-horizontal 0.9s linear infinite reverse;
+}
+
+@keyframes cd-flow-vertical {
+  from { background-position: 0 0; }
+  to { background-position: 0 10px; }
+}
+
+@keyframes cd-flow-horizontal {
+  from { background-position: 0 0; }
+  to { background-position: 10px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root .arrowFlowing.arrowDown .arrowLine,
+  .root .arrowFlowing.arrowUp .arrowLine,
+  .root .arrowFlowing.arrowRight .arrowLine,
+  .root .arrowFlowing.arrowLeft .arrowLine {
+    animation: none;
+  }
+}

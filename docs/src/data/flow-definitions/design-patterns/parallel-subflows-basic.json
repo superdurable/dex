@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,23 +9,23 @@
     "name": "BasicParentFlow",
     "startStepId": "step:SubFlows",
     "span": {
-      "startLine": 33,
+      "startLine": 35,
       "startColumn": 1,
-      "endLine": 38,
+      "endLine": 40,
       "endColumn": 50
     }
   },
   "nodes": [
     {
-      "id": "decision:step:SubFlows:30:16",
+      "id": "decision:step:SubFlows:32:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:SubFlows",
       "phase": "execute",
       "span": {
-        "startLine": 30,
+        "startLine": 32,
         "startColumn": 16,
-        "endLine": 30,
+        "endLine": 32,
         "endColumn": 35
       },
       "decision": {
@@ -39,34 +39,37 @@
       "phase": "wait_for+execute",
       "start": true,
       "span": {
-        "startLine": 38,
+        "startLine": 40,
         "startColumn": 36,
-        "endLine": 38,
+        "endLine": 40,
         "endColumn": 49
+      },
+      "metadata": {
+        "explanation": "Run one child Flow per request and complete when all finish."
       }
     },
     {
-      "id": "subflow:self.example_subflow:26",
+      "id": "subflow:self.example_subflow:28",
       "kind": "subflow",
       "name": "self.example_subflow",
       "external": true,
       "span": {
-        "startLine": 26,
+        "startLine": 28,
         "startColumn": 15,
-        "endLine": 26,
+        "endLine": 28,
         "endColumn": 57
       }
     },
     {
-      "id": "wait:SubFlows:25:16:0",
+      "id": "wait:SubFlows:27:16:0",
       "kind": "wait",
       "name": "allOf",
       "parentId": "step:SubFlows",
       "phase": "wait_for",
       "span": {
-        "startLine": 25,
+        "startLine": 27,
         "startColumn": 16,
-        "endLine": 27,
+        "endLine": 29,
         "endColumn": 10
       },
       "wait": {
@@ -75,11 +78,11 @@
           {
             "kind": "subflow",
             "label": "self.example_subflow",
-            "subFlowId": "subflow:self.example_subflow:26",
+            "subFlowId": "subflow:self.example_subflow:28",
             "span": {
-              "startLine": 26,
+              "startLine": 28,
               "startColumn": 15,
-              "endLine": 26,
+              "endLine": 28,
               "endColumn": 57
             }
           }
@@ -91,16 +94,37 @@
     {
       "id": "edge:0001",
       "kind": "subflow",
-      "from": "wait:SubFlows:25:16:0",
-      "to": "subflow:self.example_subflow:26",
+      "from": "wait:SubFlows:27:16:0",
+      "to": "subflow:self.example_subflow:28",
       "label": "start",
       "span": {
-        "startLine": 26,
+        "startLine": 28,
         "startColumn": 15,
-        "endLine": 26,
+        "endLine": 28,
         "endColumn": 57
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "child-flows",
+      "label": "Child Flows",
+      "stepIds": [
+        "step:SubFlows"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

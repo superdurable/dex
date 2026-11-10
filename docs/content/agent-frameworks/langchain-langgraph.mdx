@@ -40,7 +40,7 @@ pip install dex-agents-langgraph langchain-openai
 
 ## The example
 
-The example is an order support agent. It has two tools on an in-memory order desk. **look_up_order** reads an order. Its policy is a read, so it runs without approval and retries on failure. **cancel_order** cancels an order that is still processing. Its policy is a non-idempotent write, so it waits for approval and then runs at most once.
+The example is the [order support agent](/agent-frameworks#the-examples) that every framework page uses.
 
 The Flow type is **LangChainOrderSupport**. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses).
 
@@ -146,7 +146,7 @@ def _langchain_model(model: str) -> str | BaseChatModel:
 
 ### Session routes
 
-Every harness serves the same HTTP routes. Each route is one call on the session Flow: start a session, send a message, or resolve an approval. Starting a session returns a session token, an HMAC of the session ID under **DEX_AGENT_SESSION_KEY**. Every other route checks it in the **X-Agent-Session-Token** header and answers 403 without it. A real application uses its own sign-in instead.
+Every harness serves these same routes. [Session routes](/agent-frameworks#session-routes) explains them and the session token.
 
 <SdkTabs
   examples={{
@@ -203,11 +203,9 @@ Every harness serves the same HTTP routes. Each route is one call on the session
 
 ## Run it locally
 
-Run the example against a local Dex. Render the session graph first. Dex Web reads it when it starts, and needs it to show the session and its approval controls.
-
 ### Start Dex and the example
 
-In a first terminal, render the session graph and start Dex:
+In a first terminal, render the session graph, then start Dex. Dex Web reads the graph when it starts, to show the session and its approval controls.
 
 <SdkTabs
   examples={{
@@ -280,17 +278,15 @@ curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
 </SdkSnippet>
 </SdkTabs>
 
-The loop reads the snapshot until the agent asks to run **cancel_order**. The call waits for approval. It runs only after the approval, and only once. Read the snapshot again to see the agent's answer.
+The loop reads the snapshot until the agent asks to run **cancel_order**. That call waits for approval, then runs once. Read the snapshot again to see the agent's answer.
 
 ### Approve in Dex Web
 
-Instead of the last command, approve the call in Dex Web. Open the session's run: its Flow ID is the session ID. Select the **Agent session** tab. Choose **Working as** **order-support.operate**, the permission you rendered. Then select **Approve** or **Reject** on the **cancel_order** card. Dex Web calls **resolve_interrupt** for you. See [Show sessions in Dex Web](/agent-frameworks/deploy-agents#dex-web) for production.
+Instead of the last command, you can approve the call in Dex Web. Follow the steps in [Approve in Dex Web](/agent-frameworks#approve-in-dex-web).
 
 ## Connect Connectors {#connect-connectors}
 
-A Connector tool is a [Connector](/components/connector) operation that the agent calls as a tool. **ConnectorToolSource** offers the operations you name. The agent takes it as a tool source, through **tool_sources**. [Connector tools](/agent-frameworks/deploy-agents#connector-tools) holds the rules for effect classes, approval, outcomes, and write order.
-
-The example offers the Slack Connector operation **postThreadReply** as the tool **slack_post_thread_reply**. With it, the agent replies in a Slack thread.
+The agent can call [Connector](/components/connector) operations as tools, as [Connectors as tools](/agent-frameworks#connectors-as-tools) describes. The example adds the Slack tool **slack_post_thread_reply**, which replies in a Slack thread.
 
 ### Offer the tool {#offer-connector-tools}
 
@@ -387,19 +383,13 @@ The agent passes the tool source next to its own tools:
 
 ### How a call runs {#connector-tool-calls}
 
-Each call of **slack_post_thread_reply** runs one Slack operation in its own tool Step, through the Connector SDK. The call keeps the Connector's Call ID and idempotency key. [Which operations are offered](/agent-frameworks/deploy-agents#connector-tools-offered) covers how the operation becomes a tool and how its arguments are checked.
-
-The Connector's manifest decides the effect class. **postThreadReply** is a Mutation that its manifest does not mark retry-safe, so the call runs once, in **CallSingleAttemptTool**. A Worker crash never sends the post twice. See [Crashes](/agent-frameworks/deploy-agents#connector-tools-crashes).
-
-Slack's manifest does not recommend approval for **postThreadReply**, so the example passes **requires_approval=True**. Every post waits in **AwaitToolApproval** until a person approves it. [Approval](/agent-frameworks/deploy-agents#connector-tools-approval) covers how the manifest and the application decide approval.
+Each call of **slack_post_thread_reply** runs once, in its own **CallSingleAttemptTool** Step, after a person approves it. [The Slack Connector tool](/agent-frameworks#slack-connector-tool) explains why.
 
 **DurableToolCallMiddleware** adds the Connector tools to every model request of a **create_agent** agent, after the agent's own tools. A custom graph binds **get_current_tool_source_tools()** next to its own tools in its model node, and **durable_tool_node** defers their calls like any other. The tool bodies never run inside the graph.
 
-Connector writes of one response run in order; see [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order).
-
 ### Configure the connection {#configure-connector-connection}
 
-The Worker opens the Slack connection **support-slack** from the project configuration: **DEX_CONNECTOR_CONFIG_FILE** in local development, the **DEX_PROJECT_\*** settings when deployed. [Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains both, what happens without the connection, and what the Slack app needs.
+[Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
 
 To try it, start the example with **DEX_CONNECTOR_CONFIG_FILE** set. Then ask the agent to reply in a Slack thread, with the channel ID and the thread timestamp:
 
@@ -418,7 +408,7 @@ The post waits for approval, like **cancel_order**.
 - Tools run outside the graph. They cannot use **ToolRuntime**, **InjectedState**, or **InjectedStore**, and cannot return a graph **Command**. **InjectedToolCallId** works.
 - The graph may raise no interrupts of its own.
 
-Each model call and each tool call adds a Step round trip. The adapter README lists every limit. See [Durable Agents](/agent-frameworks/deploy-agents#limits) for the server limits.
+The adapter README lists every limit. See [Durable Agents](/agent-frameworks/deploy-agents#limits) for the server limits.
 
 ## Related
 

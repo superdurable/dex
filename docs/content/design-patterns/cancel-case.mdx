@@ -11,7 +11,7 @@ Use this pattern when canceling a Flow must also stop the child Flows it started
 
 An example is a loan application that runs its credit check as a child Flow. When the applicant withdraws, the application closes. The credit check must stop too.
 
-A closing parent never stops its children by itself. A SubFlow keeps running when its parent completes, fails, times out, or is stopped. The parent must stop each child before it closes.
+Dex does not stop a SubFlow when its parent closes. The SubFlow keeps running when its parent completes, fails, times out, or is stopped. The parent must stop each child before it closes.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -21,9 +21,9 @@ A closing parent never stops its children by itself. A SubFlow keeps running whe
 - The Step that starts the SubFlow waits with **AnyOf** for the SubFlow or the cancel Channel.
 - When the child finishes first, **Execute** reads its result and moves on.
 - When the cancel message wins, **Execute** reads the child Flow ID with **SubFlowID**. It stops the child with the Client **StopFlow** and closes the parent with **ForceFail**.
-- Every later Step that waits also waits for the cancel Channel. A cancel after the child finished still closes the case.
-- List the cancel condition first in every wait. When the cancel message and another condition are ready at the same time, the first declared condition wins. Listed first, a pending cancel is never swallowed by a normal completion.
-- A cancel that arrives after the last decision was consumed, or after the Flow closed, cannot change the outcome.
+- Every later Step that waits also waits for the cancel Channel. A cancel that arrives after the child finished still closes the case.
+- List the cancel condition first in every wait. When the cancel message and another condition are ready at the same time, the first declared condition wins. A pending cancel then always wins over a normal completion.
+- A cancel that arrives after the last Step consumed its decision message, or after the Flow closed, cannot change the outcome.
 
 ```pseudocode
 rpc cancelApplication(reason) -> ApplicationCanceled.publish(reason)
@@ -559,10 +559,6 @@ impl Step for AwaitUnderwriterDecision {
 
 ## Anti-patterns
 
-- Stopping the parent with the Client **StopFlow** and expecting its children to stop.
-- A child without its own Flow timeout.
-- One cancel message for several Steps that each hold a child.
-- A wait that lists the cancel condition after another condition.
 - A cancel RPC that only sets an Attribute. Nothing wakes the waiting Step.
 
 ## Related

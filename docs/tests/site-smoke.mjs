@@ -256,13 +256,13 @@ assert.match(cloud, /Explore Dex OSS Docs/);
 assert.match(cloud, />Managed Dex Engine <span/);
 assert.doesNotMatch(cloud, /View Dex BYOC/);
 assert.match(cloud, /https:\/\/superdurable\.ai\/dex-engine\//);
-assert.match(cron, /flow-definition-canvas/);
+assert.match(cron, /docs-flow-canvas-placeholder/);
 assert.match(cron, /CronScheduleFlow/);
-assert.match(zhCron, /flow-definition-canvas/);
+assert.match(zhCron, /docs-flow-canvas-placeholder/);
 assert.match(zhCron, /CronScheduleFlow/);
-assert.match(whyDex, /flow-definition-canvas/);
+assert.match(whyDex, /docs-flow-canvas-placeholder/);
 assert.match(whyDex, /OrderProcessingFlow/);
-assert.match(zhWhyDex, /flow-definition-canvas/);
+assert.match(zhWhyDex, /docs-flow-canvas-placeholder/);
 assert.match(zhWhyDex, /OrderProcessingFlow/);
 assert.match(components, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/components\/"/);
 assert.match(referenceLanding, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/reference\/"/);
@@ -309,7 +309,7 @@ assert.match(dexSkills, /dex-app-builder/);
 assert.match(dexSkills, /dex-connector-contributor/);
 assert.match(dexSkills, /primary skill/i);
 assert.match(dexSkills, /Requires a coding workspace/);
-assert.match(dexSkills, /writable repository or project workspace/);
+assert.match(dexSkills, /writable repository or project, file-editing tools, and command execution/);
 assert.match(dexSkills, /https:\/\/github\.com\/superdurable\/dex-skills/);
 
 const englishDexSkillPages = [dexSkills, dexAppBuilder, dexSdk, dexConnectorContributor];
@@ -363,26 +363,26 @@ assert.match(dexSkills, /dex-developer-skill\/dex-sdk/);
 assert.match(dexSkills, /dex-developer-skill\/dex-connector-contributor/);
 assert.match(dexAppBuilder, /primary skill/i);
 assert.match(dexAppBuilder, /Choose the application surface/);
-assert.match(dexAppBuilder, /keep external provider effects in <strong>Execute<\/strong>/);
+assert.match(dexAppBuilder, /call external providers only from <strong>Execute<\/strong>/);
 assert.match(dexSdk, /Version and source authority/);
 assert.match(dexSdk, /Python, Go, Java, TypeScript, and Rust/);
-assert.match(dexSdk, /Diagnosis is read-only by default/);
+assert.match(dexSdk, /the skill only reads by default/);
 assert.match(dexConnectorContributor, /Repository and fork workflow/);
-assert.match(dexConnectorContributor, /Update <strong>connector.yaml<\/strong> before provider implementation/);
-assert.match(dexConnectorContributor, /production handoff waits for an exact released Connector version/);
-assert.match(dexConnectorContributor, /requires a Go implementation/);
+assert.match(dexConnectorContributor, /Update <strong>connector.yaml<\/strong> before writing provider code/);
+assert.match(dexConnectorContributor, /not ready for production until the Connector is released/);
+assert.match(dexConnectorContributor, /needs a Go implementation/);
 assert.match(dexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/blob\/main\/AGENTS\.md/);
 assert.match(zhDexSkills, /使用 AI 构建/);
 assert.match(zhDexSkills, /主要 skill/);
 assert.match(zhDexSkills, /需要代码工作区/);
-assert.match(zhDexSkills, /可写 repository 或 project\s+workspace/);
+assert.match(zhDexSkills, /写入 repository 或项目目录/);
 assert.ok(zhDexSkills.indexOf('dex-app-builder') < zhDexSkills.indexOf('dex-sdk'));
 assert.match(zhDexAppBuilder, /主要 skill/);
 assert.match(zhDexAppBuilder, /选择应用界面/);
-assert.match(zhDexSdk, /Version 与 Source Authority/);
-assert.match(zhDexSdk, /诊断默认是只读的/);
+assert.match(zhDexSdk, /版本与来源/);
+assert.match(zhDexSdk, /skill 默认只读/);
 assert.match(zhDexConnectorContributor, /Repository 与 Fork 工作流/);
-assert.match(zhDexConnectorContributor, /production\s+handoff 必须等待精确发布的 Connector version/);
+assert.match(zhDexConnectorContributor, /在 Connector 以确切版本\s*发布之前，应用不能进入生产/);
 assert.match(zhDexConnectorContributor, /必须有 Go 实现/);
 assert.match(zhDexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/blob\/main\/AGENTS\.md/);
 assert.match(connector, /Dex component/);
@@ -396,7 +396,7 @@ assert.match(zhConnector, /rel="canonical" href="https:\/\/docs\.superdurable\.i
 assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/concepts\/primitives\/subflow\/"/);
 
 await Promise.all([
-  access(join(root, 'intro', 'what-is-durable-execution', 'index.html')),
+  access(join(root, 'intro', 'compared-to-database', 'index.html')),
   access(join(root, 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'quick-start', 'index.html')),
   access(join(root, 'concepts', 'index.html')),
@@ -412,7 +412,7 @@ await Promise.all([
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-app-builder', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-sdk', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html')),
-  access(join(root, 'zh-Hans', 'intro', 'what-is-durable-execution', 'index.html')),
+  access(join(root, 'zh-Hans', 'intro', 'compared-to-database', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'zh-Hans', 'quick-start', 'index.html')),
   access(join(root, 'zh-Hans', 'primitives', 'connector', 'index.html')),

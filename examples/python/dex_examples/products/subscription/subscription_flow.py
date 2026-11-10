@@ -39,6 +39,8 @@ from dex_examples.products.subscription.subscription import Subscription
 SUBSCRIPTION_OVER_KEY = "subscription-over"
 
 
+# dex:group group-id:billing group-label:"Billing"
+# dex:explanation text:"Charge each billing period until the subscription ends."
 class ChargeCurrentBill(Step[None]):
     def __init__(
         self,
@@ -70,6 +72,8 @@ class ChargeCurrentBill(Step[None]):
         return go_to(ChargeCurrentBill, None)
 
 
+# dex:group group-id:billing group-label:"Billing"
+# dex:explanation text:"Wait for the trial period to end."
 class Trial(Step[None]):
     def __init__(
         self,
@@ -94,6 +98,8 @@ class Trial(Step[None]):
         return go_to(ChargeCurrentBill, None)
 
 
+# dex:group group-id:customer-requests group-label:"Customer requests"
+# dex:explanation text:"Wait for a cancel request and end the subscription."
 class Cancel(Step[None]):
     def __init__(
         self,
@@ -114,6 +120,8 @@ class Cancel(Step[None]):
         return force_complete("subscription canceled")
 
 
+# dex:group group-id:customer-requests group-label:"Customer requests"
+# dex:explanation text:"Apply each new charge amount the customer requests."
 class UpdateChargeAmount(Step[None]):
     def __init__(
         self,
@@ -135,6 +143,8 @@ class UpdateChargeAmount(Step[None]):
         return go_to(UpdateChargeAmount, None)
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Store the customer and start the trial, cancel, and charge update paths."
 class Initialize(Step[Customer]):
     def __init__(
         self,

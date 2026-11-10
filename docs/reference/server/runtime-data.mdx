@@ -19,7 +19,7 @@ comments describe each API in its own language.
 
 **StartFlowOptions** can set initial Attributes when the Flow is created.
 Initial values and Flow creation are one operation, so the first Step sees them
-immediately. See [Attributes](/reference/python/flows-and-steps/start-flow-options#attributes) in
+immediately. See [Attributes](/reference/python/start-flow-options#attributes) in
 StartFlowOptions.
 
 Applications use Flow RPCs to write Attributes after a Flow starts. A Client can
@@ -647,8 +647,8 @@ the same locks, so concurrent requests do not lose or duplicate updates.
 ## RPCs {#rpcs}
 
 Language-specific RPC rules are in the SDK references: Java Flow classes and
-[Kotlin](/reference/java/#rpc-stubs-and-kotlin), and
-[TypeScript codecs](/reference/typescript/#rpc-codecs).
+[Kotlin](/reference/java/rpc#rpc-stubs-and-kotlin), and
+[TypeScript codecs](/reference/typescript/rpc#rpc-codecs).
 
 ### Cancel running Steps {#cancel-running-steps}
 
@@ -658,7 +658,7 @@ type: **with_canceling_steps** in Python, **CancelSteps** in Go,
 **cancel_step** in Rust. The selection covers the whole Flow. An RPC has no
 parent Step execution, so it cannot cancel sibling Steps. A Step can cancel
 other Steps the same way from its
-[StepDecision](/reference/python/flows-and-steps/step-decisions#cancellation-on-stepdecision).
+[StepDecision](/reference/python/step-decisions#cancellation-on-stepdecision).
 
 In the example, **GenerateReport** writes a report section by section. The
 **stop_report** RPC cancels it and starts **FinishReportStop**.
@@ -975,7 +975,7 @@ still running, Dex closes the Worker stream that carried it. The handler keeps
 running inside the Worker process until it returns, and its external calls
 still take effect. A canceled attempt may also have done part of its work before
 it stopped. Keep its external effects idempotent. See
-[Failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery).
+[Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery).
 
 ### Read-only RPCs and terminal Flows {#read-only-rpcs-and-terminal-flows}
 

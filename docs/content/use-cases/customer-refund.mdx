@@ -7,29 +7,29 @@ import agenticFlow from '@site/src/data/flow-definitions/customer-refund-agentic
 
 # Customer refund
 
-The Go customer-refund product contains two self-contained Flows. Both publish Flow Definition Graph 2.0 metadata for Dex Web.
+The Go customer-refund example contains two independent Flows. Both publish Flow Definition Graph 2.0 metadata for Dex Web.
 
 ## Deterministic policy
 
-**CustomerRefundFlow** follows seven registered Steps. It verifies that the order exists, applies the 30-day rule, records an idempotency key before calling the payment provider, and preserves declined and unknown provider outcomes.
+**CustomerRefundFlow** runs seven Steps. It checks that the order exists and applies the 30-day rule. It records an idempotency key before it calls the payment provider. When the provider declines the refund, or its result is unknown, the Flow records that outcome as the case status.
 
 <DocsFlowDefinitionGraph graph={deterministicFlow} />
 
-Its Summary shows the charge reference, requested amount, and recommendation. Its Display adds evidence, billing outcome, and an editable operator note. It deliberately declares no Action, so an empty Action list remains a valid contract.
+Its Summary shows the charge reference, requested amount, and recommendation. Its Display adds evidence, billing outcome, and an editable operator note. This Flow declares no Action on purpose. It shows that a Flow with an empty Action list is valid for Dex Web.
 
 ## Agentic review
 
-**AgenticCustomerRefundFlow** gathers evidence through a durable decision loop. A guardrail either binds an automatic effect or opens a keyed manager gate. Intent is recorded before the idempotent billing, subscription, and customer-message effects run.
+**AgenticCustomerRefundFlow** gathers evidence in a loop of Steps. A guardrail then either applies the decision automatically or waits for a manager to approve it. Each manager wait has its own gate key. The Flow records its intent before it runs the billing, subscription, and customer-message effects. These effects are idempotent.
 
 <DocsFlowDefinitionGraph graph={agenticFlow} />
 
-The approval Action has no input and appears as a direct button. The rejection Action asks for a reason. Dex Web supplies its hidden gate key from the Attribute snapshot captured when the detail page opened. The RPC compares that key with the current gate before publishing a verdict.
+The approval Action has no input and appears as a direct button. The rejection Action asks for a reason. Dex Web fills in a hidden gate key. It takes the key from the Attribute values it read when the detail page opened. Before the RPC publishes a verdict, it compares that key with the current gate. If the gate has changed, the RPC returns an error and the operator must refresh the page.
 
-Both Actions also read the current case status. The visibility condition in Flow Definition Graph 2.0 controls whether a button appears; it is not authorization.
+Both Actions also read the current case status. The visibility condition in Flow Definition Graph 2.0 only controls whether a button appears. It does not authorize anyone.
 
 ## Run the examples
 
-The runnable files are linked from the Go example tabs.
+The tab below links to the runnable Go code.
 
 <SdkTabs examples={{go: 'examples/go/products/customer-refund/deterministic/workflow.go'}}>
 <SdkSnippet lang="go">

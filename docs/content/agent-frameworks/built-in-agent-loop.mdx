@@ -412,9 +412,7 @@ Open the session's run in Dex Web and select the **Agent session** tab. Choose *
 
 ## Connect Connectors {#connect-connectors}
 
-A Connector tool is a [Connector](/components/connector) operation that the agent calls as a tool. **ConnectorToolSource** offers the operations you name. The agent takes it as a tool source, through **tool_sources** in Python and **toolSources** in TypeScript. [Connector tools](/agent-frameworks/deploy-agents#connector-tools) holds the rules for effect classes, approval, outcomes, and write order.
-
-The example offers the Slack Connector operation **postThreadReply** as the tool **slack_post_thread_reply**. With it, the agent replies in a Slack thread.
+The agent can call [Connector](/components/connector) operations as tools, as [Connectors as tools](/agent-frameworks#connectors-as-tools) describes. The example adds the Slack tool **slack_post_thread_reply**, which replies in a Slack thread.
 
 ### Offer the tool {#offer-connector-tools}
 
@@ -568,17 +566,11 @@ The agent takes the Slack tool source next to the MCP tool source:
 
 ### How a call runs {#connector-tool-calls}
 
-Each call of **slack_post_thread_reply** runs one Slack operation in its own tool Step, through the Connector SDK. The call keeps the Connector's Call ID and idempotency key. [Which operations are offered](/agent-frameworks/deploy-agents#connector-tools-offered) covers how the operation becomes a tool and how its arguments are checked.
-
-The Connector's manifest decides the effect class. **postThreadReply** is a Mutation that its manifest does not mark retry-safe, so the call runs once, in **CallSingleAttemptTool**. A Worker crash never sends the post twice. See [Crashes](/agent-frameworks/deploy-agents#connector-tools-crashes).
-
-Slack's manifest does not recommend approval for **postThreadReply**, so the example passes **requires_approval=True** in Python and **requiresApproval: true** in TypeScript. Every post waits in **AwaitToolApproval** until a person approves it. [Approval](/agent-frameworks/deploy-agents#connector-tools-approval) covers how the manifest and the application decide approval.
-
-The built-in loop runs each Connector tool call in its own tool Step, like any other tool call. Connector writes of one response run in order; see [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order).
+Each call of **slack_post_thread_reply** runs once, in its own **CallSingleAttemptTool** Step, after a person approves it. [The Slack Connector tool](/agent-frameworks#slack-connector-tool) explains why.
 
 ### Configure the connection {#configure-connector-connection}
 
-The Worker opens the Slack connection **support-slack** from the project configuration: **DEX_CONNECTOR_CONFIG_FILE** in local development, the **DEX_PROJECT_\*** settings when deployed. [Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains both, what happens without the connection, and what the Slack app needs.
+[Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
 
 To try it, start the example with **DEX_CONNECTOR_CONFIG_FILE** set. The demo model calls the tool directly:
 

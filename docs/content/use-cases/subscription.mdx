@@ -20,22 +20,20 @@ The Flow starts with a customer and a subscription plan. The plan supplies a tri
 6. End the subscription after its final billing period and notify the customer.
 7. Return the stored plan through a **Describe** RPC while the Flow is active.
 
-The Flow waits on two durable condition types: Timers for the trial and each billing period, and Channel messages for cancellation and charge updates. A Flow can stay in either wait for days or months; restarting a Worker does not restart the trial or lose a message that was already accepted.
+The Flow waits on Timers for the trial and each billing period. It waits on Channel messages for cancellations and charge updates. A wait can last days or months. A Worker restart does not restart the trial or lose an accepted message.
 
-Potential failures need product decisions:
+Decide how your product handles these failures:
 
-- A welcome email, charge, or final notification can fail after the external provider has already accepted it. Those operations must be idempotent, because a retried Step can call the provider again.
-- A price update must contain exactly one amount. An invalid or unexpected message causes the update Step to fail instead of silently choosing an amount.
-- Cancellation can race with an expiring billing Timer. The payment provider and cancellation policy must be safe for that race, including any refund or entitlement decision.
-- Publishing after cancellation or normal completion cannot reopen the Flow. Clients should treat that as a terminal result and start a new subscription when appropriate.
+- The welcome email, a charge, or the final notification can fail after the provider has already accepted it. Dex then retries the Step, which calls the provider again. Make these calls idempotent.
+- A price update must contain exactly one amount. If the message is invalid, the update Step fails. It does not guess an amount.
+- A cancellation can arrive just as a billing Timer fires. Your payment provider and cancellation policy must handle that case, including any refund or entitlement decision.
+- After the Flow is canceled or completes, publishing a message cannot reopen it. The client should treat the subscription as ended and start a new one if needed.
 
 ## Flow design
 
-This interactive definition graph is generated from the runnable Python Flow.
-
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The initializer fans out into three long-lived branches:
+**Initialize** starts three long-running branches:
 
 **Initialize** → **Trial** → **ChargeCurrentBill** ↻
 
@@ -43,21 +41,15 @@ The initializer fans out into three long-lived branches:
 
 **Initialize** → **UpdateChargeAmount** ↻
 
-**Trial** owns the trial Timer and hands off to the billing loop. **ChargeCurrentBill** increments the durable billing-period Attribute before its next Timer and either charges the period or force-completes once the plan is over. **Cancel** and **UpdateChargeAmount** remain active alongside that path, each waiting for one Channel message at a time.
+**Trial** waits for the trial Timer, then moves to the billing loop. Each **ChargeCurrentBill** execution increments the billing-period Attribute and waits for the period's Timer. When the Timer fires, it charges the period. After the last period, it completes the whole Flow instead. **Cancel** and **UpdateChargeAmount** run alongside this path. Each waits for one Channel message at a time.
 
-This combines several design patterns:
+The billing schedule is a Step that moves back to itself after each period. No process has to stay in memory between charges. The customer, plan, and billing counter live in Attributes, so every branch reads the current values instead of a copy in Worker memory. **Cancel** and the last **ChargeCurrentBill** force-complete the Flow, which also ends the waits in the other branches.
 
-- **Fan-out concurrency** starts billing, cancellation, and price-control responsibilities independently from one initializer.
-- **Durable Timer loop** represents a recurring billing schedule as a self-transition, rather than a process that must remain in memory.
-- **Event-driven control plane** uses Channels for customer-initiated cancellation and operational price changes.
-- **Durable state** keeps the customer and billing counter in Attributes, so each branch reads the current plan rather than retaining mutable Worker memory.
-- **Force completion** makes cancellation and end-of-subscription terminal decisions that stop sibling waits.
-
-The Rust example has the same durable state, billing loop, and control branch. Its public update and cancel RPCs publish commands to its internal Channel, while the other SDK examples publish directly to Channels.
+The Rust example has the same state, billing loop, and control branches, with one difference. Clients update or cancel through RPCs, and each RPC publishes to an internal Channel. In the other SDK examples, clients publish to the Channels directly.
 
 ## Core implementation
 
-Each tab contains the runnable Flow implementation: its signature, Step topology, persistence schema, and read RPC. The linked examples also contain the request model, dependency service, HTTP controller, and end-to-end test.
+Each tab shows the Flow from the runnable example. The linked example also has the request model, dependency service, HTTP controller, and an end-to-end test.
 
 <SdkTabs
   examples={{
@@ -322,9 +314,7 @@ impl Flow for SubscriptionFlow {
 
 ## Demo
 
-The completed Go run below stored the subscription, fanned out to **Trial**, **Cancel**, and **UpdateChargeAmount**, applied a price update, then completed through cancellation. Completed nodes are completed Step executions. Waiting nodes show the durable condition that was still active when cancellation closed the Flow.
-
-Open the image to inspect it at its native resolution.
+In this Go run, the Flow stored the subscription and started **Trial**, **Cancel**, and **UpdateChargeAmount**. It applied a price update, then completed when the subscription was canceled. Completed nodes are finished Step executions. Waiting nodes show what each Step was still waiting for when the cancellation ended the Flow.
 
 <a href="/img/use-cases/subscription-step-execution-graph.jpg" target="_blank" rel="noreferrer">
   <img

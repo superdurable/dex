@@ -7,7 +7,7 @@ slug: /design-patterns/sequentially-chunked-attribute-map
 
 这个模式适合需要保留写入顺序的 append-only 数据，例如 agent messages、subscriber history 或 audit events。
 
-如果使用单个 Attribute，数据会逐渐变成一个大 blob，每次 append 都需要读取并重写完整 value。顺序分块的 **AttributeMap** 把活动写入集限制在固定大小。示例的每个 instance 最多保存 100 个 subscriber。
+如果把这些数据放在单个 Attribute 里，它的 value 会越来越大，每次 append 都要读取并重写整个 value。顺序分块的 **AttributeMap** 把数据拆成多个 chunk，每次 append 只重写一个大小有上限的 chunk。示例的每个 instance 最多保存 100 个 subscriber。
 
 ## 数据布局
 
@@ -17,11 +17,11 @@ slug: /design-patterns/sequentially-chunked-attribute-map
 - **SubscriberChunks[current]** 是唯一可修改的 chunk。
 - Chunk 满后会写入不可变 instance，名称是第一条 sequence 的 20 位补零形式，例如 **00000000000000000101**。
 
-**RegisterSubscriber** 会锁定 state 和 **current** instance。普通调用只重写一个有上限的 chunk。如果 **current** 已有 100 条记录，同一个 commit 会写入 archive chunk、创建新的 **current**，并推进 state。
+**RegisterSubscriber** 会锁定 state 和 **current** instance。大多数调用只重写 **current**。如果 **current** 已有 100 条记录，同一次 RPC 调用会写入 archive chunk、创建新的 **current**，并推进 state。这些写入一起生效。
 
 并发 append 可能收到 lock-conflict 错误。收到后重试，见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。要协调整张 map 的写入，见 [整张 map 的协调锁](/reference/server/runtime-data#whole-map-coordination)。
 
-**GetSubscriberPage** 默认从 **current** 开始，也可以接收 page token。应用 adapter 使用 **RPCInvokeOptions** 只加载目标 instance。每页按 newest-first 返回，并带上更旧一页的 token。
+**GetSubscriberPage** 默认从 **current** 开始，也可以接收 page token。HTTP controller 使用 **RPCInvokeOptions** 只加载目标 instance。每页的记录按从新到旧排列，并带上更旧一页的 token。
 
 <SdkTabs
   examples={{
@@ -116,7 +116,7 @@ client.invoke_rpc_with_options(
 
 Flow 启动后，**current** token 始终有效。空的 **current** 返回空页。Archive token 必须是 20 位十进制数字，并且指向 chunk 边界。格式错误的 token，或格式正确但没有对应 chunk 的 token，都会返回明确错误。
 
-Archive chunk 保持不可变，因此分页稳定，retry 行为也容易推理。如果需要更新旧记录，应选择其他模式或增加独立索引。
+Archive chunk 不会再改变，所以同一页再读一次（例如 retry 时）得到的记录相同。如果需要更新旧记录，请换用其他模式或增加独立索引。
 
 ## HTTP API
 
@@ -126,4 +126,4 @@ POST /patterns/sequentially-chunked-attribute-map/register
 GET  /patterns/sequentially-chunked-attribute-map/subscribers?pageToken=current
 ```
 
-固定 chunk size 是持久化布局的一部分。新版本可以为后续 archive 使用新的大小，但 token traversal 必须同时理解两种布局。
+chunk size 是存储布局的一部分。应用的新版本可以为之后的 archive 使用新的 chunk size，但它的 page token 逻辑必须能读取两种布局。

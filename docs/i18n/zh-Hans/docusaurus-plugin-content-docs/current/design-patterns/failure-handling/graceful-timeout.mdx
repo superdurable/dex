@@ -6,15 +6,15 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/grac
 
 # Graceful Timeout
 
-当整个 Flow 的截止时间需要应用代码处理时，使用 Dex 内置的 graceful timeout。超时属于 Flow execution，而不是与业务 Step 竞争的另一个 Step。
+当应用必须处理整个 Flow 的截止时间时，使用 Flow timeout handler。截止时间属于 Flow，所以不需要另写一个与工作赛跑的 Step。
 
-**FlowGracefulTimeout** 启动 **LongWait**。Flow 截止时间到达后，Dex 运行 **handleTimeout**。Handler response 使用 Execute 语义。
+**FlowGracefulTimeout** 启动 **LongWait**。Flow 截止时间到达后，Dex 运行 **handleTimeout**。这个 handler 的用法和 **Execute** 方法一样。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## 核心实现
 
-完整的 Flow 定义会注册 **LongWait** 和 timeout hook。使用正超时启动 Flow；以下示例显式选择 **HANDLER**，而当 Flow 提供 hook 时它也是默认策略。示例通过 **FlowTimeoutHandlerOptions** 为 hook 设置自己的 attempt timeout 和 retry policy。
+Flow 注册 **LongWait** 和 timeout handler。启动 Flow 时设置一个正的 timeout。示例显式把 timeout policy 设为 **HANDLER**。Flow 定义了 timeout handler 时，**HANDLER** 也是默认值。**FlowTimeoutHandlerOptions** 为 handler 单独设置 attempt timeout 和重试策略。
 
 <SdkTabs examples={{
   python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
@@ -277,9 +277,9 @@ client.start_flow_with_options(
 </SdkSnippet>
 </SdkTabs>
 
-Timeout handler 成功时，Dex 会应用暂存的 write、best-effort Channel deletion、Channel publication 和 decision。如果它耗尽配置的重试，Dex 会让 Flow 失败。
+Timeout handler 成功时，Dex 应用它暂存的写入、best-effort 的 Channel 删除、Channel 发布和 decision。如果 handler 重试用完后仍然失败，Dex 会让 Flow 失败。
 
 ## 相关内容
 
 - [Failure Handling](/design-patterns/failure-handling)
-- [Flow options](/reference/python/flows-and-steps/start-flow-options#timeout-and-timeout-policy)
+- [Flow options](/reference/python/start-flow-options#timeout-and-timeout-policy)

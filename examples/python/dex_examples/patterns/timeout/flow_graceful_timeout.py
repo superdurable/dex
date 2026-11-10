@@ -32,6 +32,8 @@ from dex import (
 SLOW_TASK_DURATION = timedelta(seconds=65)
 
 
+# dex:group group-id:work group-label:"Work"
+# dex:explanation text:"Wait for the slow task and complete if it finishes before the Flow timeout."
 class LongWait(Step[bool]):
     def wait_for(self, context: Context, input: bool) -> Wait:
         if input:
