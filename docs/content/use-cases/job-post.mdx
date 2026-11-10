@@ -127,7 +127,11 @@ class JobPostingFlow(Flow[None]):
         self.title.set(context, input.title or "")
         self.job_description.set(context, input.description or "")
         self.update_version.set(context, version)
-        update = PostingUpdate(version, f"{context.flow_id}:{version}", input)
+        update = PostingUpdate(
+            version,
+            f"{context.flow_id}:{version}",
+            input,
+        )
         self.linkedin_posting_updates.publish(context, update)
         self.indeed_posting_updates.publish(context, update)
         return RPCResult(version)
@@ -165,7 +169,7 @@ type JobPostingFlow struct {
 
 func (flow *JobPostingFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(InitStep{}),
+		dex.DefineStartStep(Init{}),
 		dex.DefineStep(UpdateLinkedInPosting{service: flow.service}),
 		dex.DefineStep(UpdateIndeedPosting{service: flow.service}),
 	}
@@ -184,8 +188,12 @@ func (flow *JobPostingFlow) GetRPCs() []dex.RPCDef {
 func (*JobPostingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{
-			Title, JobDescription, LastUpdateTimeMillis, Notes,
-			UpdateVersion, UpdatePostingLock,
+			Title,
+			JobDescription,
+			LastUpdateTimeMillis,
+			Notes,
+			UpdateVersion,
+			UpdatePostingLock,
 		},
 		Channels: []dex.ChannelDef{LinkedInPostingUpdates, IndeedPostingUpdates},
 	}
@@ -220,7 +228,7 @@ func (*JobPostingFlow) Update(
 	return &dex.RPCResult[int]{Output: version}, nil
 }
 
-func (InitStep) Execute(
+func (Init) Execute(
 	_ dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
@@ -261,8 +269,7 @@ func (step UpdateLinkedInPosting) Execute(
 ```java
 @Component
 public class JobPostingFlow implements Flow<Void> {
-    public final Attribute<Integer> updateVersion =
-            Attribute.define("UpdateVersion", Integer.class);
+    public final Attribute<Integer> updateVersion = Attribute.define("UpdateVersion", Integer.class);
     public final Attribute<Void> updatePostingLock =
             Attribute.define("UpdatePostingLock", Void.class);
     public final Channel<PostingUpdate> linkedInPostingUpdates =
@@ -321,8 +328,8 @@ public class JobPostingFlow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            final PostingUpdate update =
-                    linkedInPostingUpdates.getConditionResults(context).get(0);
+            final List<PostingUpdate> updates = linkedInPostingUpdates.getConditionResults(context);
+            final PostingUpdate update = updates.get(0);
             service.updateExternalSystem(String.format(
                     "update LinkedIn job posting v%d [%s]: %s",
                     update.version,
@@ -382,7 +389,9 @@ export class JobPostingFlow implements Flow {
     };
     this.linkedInPostingUpdates.publish(context, update);
     this.indeedPostingUpdates.publish(context, update);
-    return { output: version };
+    return {
+      output: version,
+    };
   }
 }
 
@@ -426,13 +435,15 @@ pub struct JobPostingFlow {
 }
 
 impl JobPostingFlow {
-    fn update(
+    fn update_job_post(
         &self,
         context: &mut Context,
         replacement: JobPost,
     ) -> HandlerResult<RpcResult<i32>> {
         let version = UPDATE_VERSION.get_required(context)? + 1;
         POST.set(context, replacement.clone())?;
+        TITLE.set(context, replacement.title.clone())?;
+        DESCRIPTION.set(context, replacement.description.clone())?;
         UPDATE_VERSION.set(context, version)?;
         let update = PostingUpdate {
             version,
@@ -457,6 +468,8 @@ impl Flow for JobPostingFlow {
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
             .attribute(&POST)
+            .attribute(&TITLE)
+            .attribute(&DESCRIPTION)
             .attribute(&UPDATE_VERSION)
             .attribute(&UPDATE_POSTING_LOCK)
             .channel(&LINKEDIN_POSTING_UPDATES)
@@ -464,21 +477,18 @@ impl Flow for JobPostingFlow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().function(
-            UPDATE_JOB_POST.lock(UPDATE_POSTING_LOCK.lock()),
-            Self::update,
-        )
+        RpcList::new()
+            .function(
+                UPDATE_JOB_POST.lock(UPDATE_POSTING_LOCK.lock()),
+                Self::update_job_post,
+            )
     }
 }
 
 impl Step for Init {
     type Input = JobPost;
 
-    fn execute(
-        &self,
-        context: &mut Context,
-        input: Self::Input,
-    ) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         POST.set(context, input.clone())?;
         UPDATE_VERSION.set(context, 0)?;
         Ok(StepDecision::go_to_many([
@@ -491,19 +501,11 @@ impl Step for Init {
 impl Step for UpdateLinkedInPosting {
     type Input = ();
 
-    fn wait_for(
-        &self,
-        _context: &mut Context,
-        _input: Self::Input,
-    ) -> HandlerResult<Wait> {
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::until(LINKEDIN_POSTING_UPDATES.for_one()))
     }
 
-    fn execute(
-        &self,
-        context: &mut Context,
-        _input: Self::Input,
-    ) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
         let update = LINKEDIN_POSTING_UPDATES
             .condition_results(context)?
             .into_iter()

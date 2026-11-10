@@ -174,7 +174,10 @@ func (flow *AdvancedShortLiveParentFlow) GetRPCs() []dex.RPCDef {
 }
 
 func (*AdvancedShortLiveParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{CurrSubFlowNum}, Channels: []dex.ChannelDef{RequestChannel}}
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{CurrSubFlowNum},
+		Channels:   []dex.ChannelDef{RequestChannel},
+	}
 }
 
 func (*AdvancedShortLiveParentFlow) SendRequest(ctx dex.Context, request string) (*dex.RPCResult[bool], error) {
@@ -284,7 +287,7 @@ public class AdvancedShortLiveParentFlow implements Flow<ParentInput> {
     public final Channel<String> requestChannel = Channel.define("RequestChannel", String.class);
     public final Attribute<Integer> currSubFlowNum = Attribute.define("CurrSubFlowNum", Integer.class);
 
-    private final Init initStep = new Init();
+    private final InitStep initStep = new InitStep();
     private final HandleRequest handleRequestStep = new HandleRequest();
     private final HandleSubFlow handleSubFlowStep;
 
@@ -311,7 +314,7 @@ public class AdvancedShortLiveParentFlow implements Flow<ParentInput> {
         return RPCResult.of(true);
     }
 
-    final class Init implements Step<ParentInput> {
+    final class InitStep implements Step<ParentInput> {
         @Override
         public Class<ParentInput> getInputType() {
             return ParentInput.class;
@@ -524,7 +527,7 @@ impl Step for ShortLiveHandleSubFlow {
     type Input = String;
 
     fn step_type(&self) -> &'static str {
-        "HandleSubFlow"
+        "HandleSubFlowStep"
     }
 
     fn options(&self) -> StepOptions<Self::Input> {

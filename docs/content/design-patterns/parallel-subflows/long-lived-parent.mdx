@@ -253,7 +253,7 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
     public final Channel<String> requestChannel = Channel.define("RequestChannel", String.class);
     public final Attribute<Boolean> stopped = Attribute.define("Stopped", Boolean.class);
 
-    private final Init initStep = new Init();
+    private final InitStep initStep = new InitStep();
     private final HandleRequest handleRequestStep = new HandleRequest();
     private final HandleSubFlow handleSubFlowStep;
 
@@ -285,7 +285,7 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
         stopped.set(context, true);
     }
 
-    final class Init implements Step<ParentInput> {
+    final class InitStep implements Step<ParentInput> {
         @Override
         public Class<ParentInput> getInputType() {
             return ParentInput.class;
@@ -469,8 +469,8 @@ static REQUEST_CHANNEL: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("RequestChannel"));
 static STOPPED: LazyLock<Attribute<bool>> = LazyLock::new(|| Attribute::new("Stopped"));
 
-pub const SEND_LONG_LIVE_REQUEST: Rpc<String, bool> = Rpc::new("SendLongLiveRequest");
-pub const STOP_LONG_LIVE_FLOW: Rpc<(), ()> = Rpc::new("StopLongLiveFlow");
+pub(super) const SEND_LONG_LIVE_REQUEST: Rpc<String, bool> = Rpc::new("SendLongLiveRequest");
+pub(super) const STOP_LONG_LIVE_FLOW: Rpc<(), ()> = Rpc::new("StopLongLiveFlow");
 
 #[derive(Default)]
 pub struct AdvancedLongLiveParentFlow {
@@ -527,7 +527,7 @@ impl Step for LongLiveInit {
     type Input = ParentInput;
 
     fn step_type(&self) -> &'static str {
-        "Init"
+        "InitStep"
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
@@ -553,7 +553,7 @@ impl Step for LongLiveHandleRequest {
     type Input = ();
 
     fn step_type(&self) -> &'static str {
-        "HandleRequest"
+        "HandleRequestStep"
     }
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
@@ -577,7 +577,7 @@ impl Step for LongLiveHandleSubFlow {
     type Input = String;
 
     fn step_type(&self) -> &'static str {
-        "HandleSubFlow"
+        "HandleSubFlowStep"
     }
 
     fn wait_for(&self, _context: &mut Context, request: String) -> HandlerResult<Wait> {
