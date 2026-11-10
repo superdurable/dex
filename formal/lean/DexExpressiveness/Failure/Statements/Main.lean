@@ -53,7 +53,17 @@ theorem safety_failure_forward (program : Program σ)
     (isTrace : IsFailureFiniteTrace program environment requests trace) :
     IsFreeFiniteTrace program.failureFreeFlow environment (eraseRetries requests)
       (eraseRepeats trace) := by
-  sorry
+  obtain ⟨labels, final, isExec, hasNoExhaustion, _, isRequests, isAdmissible⟩ := isTrace
+  obtain ⟨dexLabels, isDexExec, isDexRequests⟩ :=
+    wpf5_exec_forward program ignoresAttemptContext labels (Config.initial σ) [] trace final
+      (invariant_initial program) ⟨[], rfl⟩ hasNoExhaustion isExec
+  refine ⟨dexLabels, abstractConfig final, ?_, ?_, ?_⟩
+  · rw [← wpf5_abstractConfig_initial program]
+    exact isDexExec
+  · rw [isDexRequests, isRequests]
+    exact wpf5_requests_beforeStart program environment labels (Config.initial σ) trace final rfl
+      isExec (isRequests ▸ isAdmissible)
+  · exact wpf5_isAdmissiblePrefix_eraseRetries environment requests isAdmissible
 
 /-- **WP-F5, safety, the repetition form** (spec §11.5): "Hence `t` is a
 repetition of a finite Dex trace." Stated over DexF runs and under H3: the
@@ -67,7 +77,13 @@ theorem safety_failure_repetition (program : Program σ)
     ∃ freeTrace,
       IsFreeFiniteTrace program.failureFreeFlow environment (eraseRetries requests) freeTrace ∧
       IsRepetition (trace.map Obs.toDex) freeTrace := by
-  sorry
+  refine ⟨eraseRepeats trace,
+    safety_failure_forward program hasNoFailurePolicy isSyncOnly ignoresAttemptContext environment
+      requests trace isTrace, ?_⟩
+  obtain ⟨labels, final, isExec, _⟩ := isTrace
+  have history := effectHistory_of_exec program ignoresAttemptContext labels trace final isExec
+  exact wpf5_isRepetition_eraseRepeats trace
+    (wpf5_effectLabels_consistent program final trace history) [] trace rfl
 
 /-! ## WP-F6: liveness -/
 

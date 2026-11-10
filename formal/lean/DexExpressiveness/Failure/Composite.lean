@@ -1,3 +1,5 @@
+import DexExpressiveness.Failure.Composite.WPF5Forward
+
 /-!
 # Helper lemmas of the main statements
 
