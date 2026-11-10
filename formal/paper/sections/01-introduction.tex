@@ -111,9 +111,12 @@ and Timers.
 The scope is narrow on purpose, and \S\ref{sec:limitations} discusses each
 limit.
 \begin{itemize}
-\item \emph{No failures.} The environment has no crashes, no retries, and no
-  redelivery. That a Flow behaves the same with crashes as without is a
-  separate proposition and is future work.
+\item \emph{Failures are a separate proposition.} The environment has no
+  crashes, no retries, and no redelivery. This split is deliberate. The
+  theorem fixes what a Flow does when nothing fails. A second proposition,
+  in progress, is that crashes, retries, and redelivery do not change it,
+  apart from repeated external effects. Together the two connect a
+  concurrent program to its durable execution.
 \item \emph{A model, not the code.} The Dex side of the theorem is a
   hand-written model of the server, validated by review against the source.
   It is not extracted from the implementation.

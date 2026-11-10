@@ -53,6 +53,16 @@ type V2Definition struct {
 	ConnectorTriggerBindings []V2ConnectorTriggerBinding `json:"connectorTriggerBindings,omitempty"`
 	// RPCLocks is derived from the validated graph's RPC lock edges and is never browser input.
 	RPCLocks map[string]V2RPCLocks `json:"-"`
+	// AgentSession is derived from a validated graph with the Dex Agents session shape; nil otherwise.
+	AgentSession *V2AgentSession `json:"-"`
+}
+
+// V2AgentSession describes the Dex Agents session parts of a Flow Definition Graph.
+type V2AgentSession struct {
+	// StartStepSkipWaitFor is true when the StartAgentSession Start Step has no wait phase.
+	StartStepSkipWaitFor bool
+	// RPCNames are the RPCs the graph declares.
+	RPCNames map[string]bool
 }
 
 // V2RPCLocks describes the Attribute locks one RPC declares, as its Flow Definition Graph records them.
@@ -330,6 +340,7 @@ func RegisterDynamicV2Handlers(
 	mux.HandleFunc("GET /api/v2/display", handler.display)
 	mux.HandleFunc("PATCH /api/v2/display", handler.editDisplay)
 	mux.HandleFunc("POST /api/v2/actions", handler.invokeAction)
+	registerAgentSessionHandlers(mux, handler)
 }
 
 func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request) {

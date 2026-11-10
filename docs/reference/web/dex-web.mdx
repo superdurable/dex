@@ -417,12 +417,20 @@ The header shows the session status, the active turn, and the token usage from *
 | **retrying** | An attempt failed, and the next one starts after a backoff. |
 | **recording the result** | The Step's attempts ended without a result, and a recovery Step is pending. The call may have run. |
 | **done**, **failed** | The tool ran and returned a result or an error. |
-| **outcome unknown** | The call may have run. Check the system it writes to. **Tell the agent** fills the steer box. |
+| **outcome unknown** | The call may have run. Check the system it writes to. **Tell the agent** fills the message box. |
 | **waiting for an earlier write** | Since 1.41.1. A connector write waits for the earlier connector writes of its turn. No Step runs it yet, and its approval is not raised yet. |
 | **skipped** | The tool did not run, so it is safe to call again. Since 1.41.1, a connector write that write ordering skipped says that an earlier write of the turn did not succeed, and Dex Web reads the record's **skipped** field, and the "the tool did not run" error text of older records. |
 | **rejected**, **not run** | A person or a deadline rejected the call, or steering or **cancel_turn** abandoned it. |
 
-The bottom of the tab has a message box with **Steer** and **Stop turn**. **Steer** calls **steer_user_message**. While no turn runs, the button reads **Send** and the message starts the next turn. **Stop turn** calls **cancel_turn** for the active turn.
+The bottom of the tab has a message box. While no turn runs, **Send** calls **send_user_message**, and the message starts the next turn. While a turn runs, the box offers three buttons:
+
+- **Queue** calls **send_user_message**. The message waits and starts the next turn after this one ends.
+- **Steer** calls **steer_user_message**. The turn ends at its next safe Step boundary, and a new turn starts with the message. It appears only when the turn accepts steering.
+- **Stop turn** calls **cancel_turn** for the active turn.
+
+Changed in 1.43: the box sends between turns, and queues while a turn runs, through **send_user_message**. Before 1.43 it called **steer_user_message** for both.
+
+The tab also has **Session settings** and **New session**. See [Session settings](#agent-session-settings) and [New session](#agent-new-session).
 
 ### Read path {#agent-session-read-path}
 
@@ -432,9 +440,47 @@ A session deletes its tool call records when a turn ends, and only the message t
 
 **AgentMessageChunks** holds older messages. The tab loads them only when you select **Show earlier messages**.
 
+### Session settings {#agent-session-settings}
+
+Since 1.43. **Session settings**, under the header, shows the session's settings: the JSON object in the **SessionSettings** Attribute. Its summary names the **model** setting when there is one. The tab reads the Attribute, so it shows the settings while Workers are down.
+
+Open it to edit the JSON and select **Save settings**. Saving calls **update_session_settings** through **POST /api/v2/agent-sessions/settings**:
+
+- The new object replaces every setting. Nothing is merged. **\{\}**, or an empty box, clears them.
+- A running turn keeps the settings it started with. The change applies from the next turn.
+- Dex Web checks the text before it sends it. It must be one JSON object, and its compact JSON must fit in 16 KiB of UTF-8, the limit that the Dex Agents Clients apply. The route checks both again.
+- When **update_session_settings** returns false, the session has not initialized yet, and the panel says so.
+
+Settings are stored in the session, and everyone who can read the session sees them. Never put a secret in them. Put a reference, such as a credential name, that the Worker resolves.
+
+What a setting does is up to the agent. A Worker reads the settings of each turn. For example, an agent that maps **model** to a model client uses the new model from the next turn on.
+
+### New session {#agent-new-session}
+
+Since 1.43. **New session** starts a Dex Agents session. It is on the **Agent session** tab, and in **Work Queue** on a session Flow type, in place of **Start Flow**. The dialog asks for:
+
+| Field | Meaning |
+| --- | --- |
+| **Agent** | The session Flow type. It appears when the catalog has more than one. |
+| **Session ID** | The Flow ID of the session. A random ID is filled in. It cannot contain **/**, **$**, or **:**. |
+| **First message** | Optional. Without one, the session waits in **AwaitUserMessage**. |
+| **model** | Optional. Sets the **model** setting. |
+| **system_prompt** | Optional. Sets the **system_prompt** setting. It takes effect only when the agent reads it. |
+| **Other settings** | Optional. A JSON object with more settings. **model** and **system_prompt** above replace the same keys. |
+
+**Start session** sends **POST /api/v2/agent-sessions/start**. The route starts the Flow at **StartAgentSession** with the session start input, **initial_message** and **session_settings**, the input that **AgentSessionClient.start_session** sends. Like that Client, it makes the session searchable by its waiting Steps, so the [agent inbox](#agent-inbox) finds it. Then the run page opens on the **Agent session** tab.
+
+A session Flow graph declares no **Start Flow** input, so **Start Flow** does not start sessions.
+
 ### Session controls {#agent-session-controls}
 
-Every control is an Action and goes through **POST /api/v2/actions** with its own input. Each approval card sends its own **interrupt_id**, so nobody copies one by hand. Each Action requires the permission the session graph declares. The tab asks you to choose **Working as** that permission, and offers a button for it on narrow screens.
+Approvals, questions, **Steer**, and **Stop turn** are Actions. Each goes through **POST /api/v2/actions** with its own input.
+
+Since 1.43, sending a message and saving settings go through **POST /api/v2/agent-sessions/messages** and **POST /api/v2/agent-sessions/settings**. The session graph declares no Action for **send_user_message** or **update_session_settings**. So these routes apply the checks of **POST /api/v2/actions** themselves: the Flow Definition revision, an open session of that Flow type, and **Working as** the permission that the session's Actions declare. All session Actions declare one permission.
+
+The three routes accept only a Flow type whose graph is a Dex Agents session: it declares the Attributes the tab requires, and its Start Step is **StartAgentSession**. The messages and settings routes also need the graph to declare the RPC they call. Action names alone do not make a Flow type a session.
+
+As with **POST /api/v2/actions**, **Working as** comes from the request and grants nothing. **POST /api/v2/agent-sessions/start**, like **POST /api/v2/start**, checks no permission. Authenticate and authorize callers at the trusted boundary in front of Dex Web. Like every **/api** request that changes state, the three routes accept only same-origin JSON requests. See [The /api requests](#api-requests). Each approval card sends its own **interrupt_id**, so nobody copies one by hand. Each Action requires the permission the session graph declares. The tab asks you to choose **Working as** that permission, and offers a button for it on narrow screens.
 
 A control is disabled, with the reason, when:
 
@@ -450,9 +496,9 @@ When **resolve_interrupt** or **answer_question** returns false, another operato
 
 ### Compatibility {#agent-session-compatibility}
 
-Dex Web shows the **Agent session** tab for a valid Flow Definition Graph 2.0 that declares the Attributes **AgentState**, **AgentMessages**, **AgentToolCalls**, and **PendingInterrupts**. **AgentMessages** and **AgentToolCalls** must be AttributeMaps. The [session graph](/agent-frameworks/deploy-agents#dex-web) that Dex Agents renders declares them.
+Dex Web shows the **Agent session** tab for a valid Flow Definition Graph 2.0 that declares the Attributes **AgentState**, **AgentMessages**, **AgentToolCalls**, and **PendingInterrupts**. **AgentMessages** and **AgentToolCalls** must be AttributeMaps, and the others must not be. Changed in 1.43: the graph's Start Step must also be **StartAgentSession**, the same rule that the session routes apply. The [session graph](/agent-frameworks/deploy-agents#dex-web) that Dex Agents renders declares them.
 
-Dex Web reads the session schema by name. It reads these Attributes: **AgentState**, **AgentMessages**, **AgentMessageChunks**, **AgentMessageIndex**, **AgentToolCalls**, **PendingInterrupts**, and **AgentUsage**. It reads the Step types **CallTool**, **CallSingleAttemptTool**, **PollToolTask**, **RecordToolFailure**, and **RecordToolOutcomeUnknown**, whose input is a tool call ID. It reads the Actions **resolve_interrupt**, **answer_question**, **steer_user_message**, and **cancel_turn**.
+Dex Web reads the session schema by name. It reads these Attributes: **AgentState**, **AgentMessages**, **AgentMessageChunks**, **AgentMessageIndex**, **AgentToolCalls**, **PendingInterrupts**, and **AgentUsage**. It reads the Step types **CallTool**, **CallSingleAttemptTool**, **PollToolTask**, **RecordToolFailure**, and **RecordToolOutcomeUnknown**, whose input is a tool call ID. It reads the Actions **resolve_interrupt**, **answer_question**, **steer_user_message**, and **cancel_turn**. Since 1.43, it also reads the **SessionSettings** Attribute, calls the RPCs **send_user_message** and **update_session_settings**, and starts sessions at the Step type **StartAgentSession**.
 
 The rule for the schema is additive. Dex Agents may add fields, enum values, Steps, and Actions, and Dex Web ignores what it does not know. An unknown status shows as its raw value. Renaming or removing a name above, or changing what a field means, breaks the tab. Such a change needs a matching Dex Web release.
 

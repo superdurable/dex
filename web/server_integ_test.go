@@ -119,6 +119,9 @@ func TestWebServerProtectsUnsafeAPIRequests(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPost, "/api/v2/start"},
+		{http.MethodPost, "/api/v2/agent-sessions/start"},
+		{http.MethodPost, "/api/v2/agent-sessions/messages"},
+		{http.MethodPost, "/api/v2/agent-sessions/settings"},
 		{http.MethodPut, "/api/flows/attributes"},
 		{http.MethodPut, "/api/flows/config/history"},
 		{http.MethodDelete, "/api/flows/channels/messages"},

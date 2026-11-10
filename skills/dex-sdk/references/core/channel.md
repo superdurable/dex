@@ -25,7 +25,7 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 
 - AtMost does not wait by itself. To wait for at least one message and take up to a limit, use AtLeastAtMost with a minimum of 1.
 - When several Steps wait on one Channel, Dex offers new messages to them in the order they started waiting. A Step whose wait needs more messages than are pending is skipped, and a later Step can take them. A Step that starts waiting while enough messages are pending takes them at once, even ahead of earlier waiters that need more.
-- So a ForN or AtLeast wait can be starved while ForOne waits on the same Channel keep taking messages. Give each Channel one kind of consumer; use a ChannelMap instance per consumer when they need different counts.
+- So a ForN or AtLeast wait can wait forever while ForOne waits on the same Channel keep taking messages one at a time. Do not mix waits that need one message with waits that need several on one Channel; use a ChannelMap instance per consumer when they need different counts.
 - Only the winning alternative of AnyOf or AnyCombinationOf consumes. See [step.md](step.md#waits-and-conditions).
 - In Execute, check that the Channel result is present before reading it. When another Condition won, nothing was consumed.
 - Consumed messages leave the queue. Publication and consumption remain visible only in the run's recent history window. Pending queue state is not history.
@@ -33,7 +33,7 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 - A canceled Execute attempt may already have seen a returned message, so another Step can receive it again. Make message processing idempotent, for example keyed by a business ID in the message.
 - Dex drops the consumed messages instead only when the Flow close itself cancels the Step: a StopFlow request, a Flow timeout, a failure that closes the Flow, or a decision that cancels the Step and closes the Flow with ForceComplete or ForceFail.
 - Every other cancellation returns the messages, even when the Flow then closes. A decision that cancels a Step and returns GracefulComplete closes the Flow when no other Step is active, and the returned messages stay pending in the closed run. Drain them before closing when they matter, for example with ForceCompleteIfChannelsEmpty.
-- A Step that a commit cancels never takes that commit's own publications. Waiting Steps take new messages only after the commit's cancellations.
+- When one Step method cancels a Step and publishes messages, the canceled Step never receives those messages. Dex applies the cancellations before it offers the new messages to waiting Steps.
 - The exception is a commit that also closes the Flow at once: ForceComplete, ForceFail, or a ForceCompleteIfChannelsEmpty that closes. A waiting Step can take the commit's publication, and the close then cancels that Step and drops the message. Do not publish work in the same result that force-closes the Flow if the work must survive.
 - A Channel queue is not conversation history. Keep consumed messages in Attributes when the application must show or rebuild them.
 - Plan how externally published messages are drained before the Flow completes. See [patterns.md](patterns.md#drain-channels).

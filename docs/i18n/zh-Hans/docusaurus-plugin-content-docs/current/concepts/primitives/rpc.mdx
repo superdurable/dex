@@ -33,7 +33,7 @@ RPC handler 可以做四件事：
 
 每次 RPC 调用和 Step 方法一样提交：它的 Attribute 写入和 Channel 发布只在成功时与结果一起 commit。见 [Step 的保证](/concepts/step#guarantees)。
 
-RPC handler 读取的是 Flow 的一个快照。在这次读取和 RPC 自己的 commit 之间，Step 和其他 RPC 可以先 commit。transactional RPC 也不改变这一点。RPC 的修改依赖它读到的内容时，要声明和所有写这个值的 Step 和 RPC 相同的 Attribute lock。如果 RPC commit 时 Flow 已经关闭，Dex 会在 handler 运行之后拒绝它的修改。
+RPC handler 读取的是 Flow 的一个快照。在这次读取和 RPC 自己的 commit 之间，Step 和其他 RPC 可以先 commit。transactional RPC 也不改变这一点。RPC 的修改依赖它读到的内容时，在这个 RPC 以及所有写这个 Attribute 的 Step 和 RPC 上，都声明这个 Attribute 的 lock。Dex 会让它们依次执行。如果 handler 运行期间 Flow 关闭了，Dex 会拒绝这个 RPC 的修改。但 handler 对外部系统的调用已经发生了。
 
 SDK 发出的每次 RPC 调用都是一个新请求。重试的调用可能再次运行 handler，并再次 commit 它的修改。RPC handler 要能安全地重复执行。
 

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
   Bot,
   CircleAlert,
@@ -17,25 +17,23 @@ import {
   Layers,
   MessageSquare,
   RotateCw,
-  SendHorizontal,
   ShieldAlert,
   Sparkles,
-  Square,
   UserRound,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
+import { useWebCatalog } from '../catalog/WebCatalogProvider';
 import { isOpenFlowStatusCode } from '../work-queue/liveness';
 import type { SettledOutcome } from './ApprovalCard';
 import { SESSION_COPY } from './copy';
-import { InterruptControls, useSessionActionInvoker, type SessionActionInvoker } from './InterruptControls';
-import {
-  actionBlockedReason,
-  type SessionActionOutcome,
-  type SessionControlContext,
-} from './sessionActions';
+import { InterruptControls, useSessionActionInvoker } from './InterruptControls';
+import type { SessionControlContext } from './sessionActions';
+import { SessionComposer } from './SessionComposer';
 import type { ConversationItem, ToolCallView } from './sessionModel';
+import { sessionActionPermission, sessionRouteBlockedReason, type SessionRouteContext } from './sessionRequests';
 import { SESSION_RPC, type AgentSessionSchema } from './sessionSchema';
+import { SessionSettingsPanel } from './SessionSettingsPanel';
 import { ToolCallCard } from './ToolCallCard';
 import { useAgentSession, type LoadedAgentSession } from './useAgentSession';
 import './session.css';
@@ -58,6 +56,7 @@ export function SessionView({
   onChooseWorkingAs?: (permission: string) => void;
 }) {
   const invoke = useSessionActionInvoker(flowType, flowId, workQueuePermissions);
+  const { catalog } = useWebCatalog();
   const { held, reload, includeChunks, loadEarlierMessages } = useAgentSession(flowId, reloadKey);
   const [steerText, setSteerText] = useState('');
   /** Kept outside the card: the reload that follows removes the card's own controls. */
@@ -86,6 +85,12 @@ export function SessionView({
     isFlowOpen: isOpenFlowStatusCode(session.summary.flowStatusCode),
     workQueuePermissions,
   };
+  const routeContext: SessionRouteContext = {
+    flowType,
+    flowId,
+    workQueuePermissions,
+    definitionRevision: catalog?.definitionRevision ?? '',
+  };
   const tellAgent = (call: ToolCallView) => {
     setSteerText(SESSION_COPY.tellAgentPrefix(call.toolName, call.toolCallId));
     steerRef.current?.focus();
@@ -111,6 +116,7 @@ export function SessionView({
   const { view } = session;
   const neededPermission = sessionPermissionToChoose(schema, workQueuePermissions);
   const permissionHint = neededPermission && onChooseWorkingAs ? SESSION_COPY.chooseWorkingAs(neededPermission) : null;
+  const settingsBlocked = sessionRouteBlockedReason(schema, SESSION_RPC.updateSessionSettings, controlContext);
   return (
     <section className="ses" aria-label={SESSION_COPY.tabSession}>
       <SessionHeader session={session} onReload={reload} />
@@ -136,6 +142,13 @@ export function SessionView({
         </p>
       )}
       {schema.language === 'go' && <SessionNote>{SESSION_COPY.goReduced}</SessionNote>}
+      <SessionSettingsPanel
+        blockedReason={settingsBlocked}
+        isBlockedReasonShownAbove={settingsBlocked === permissionHint}
+        routeContext={routeContext}
+        settings={view.sessionSettings}
+        onSaved={reload}
+      />
       <div className="ses-stream">
         {view.messageIndex && view.messageIndex.firstSequence > 1 && (
           <SessionNote icon={History}>{SESSION_COPY.deletedBefore(view.messageIndex.firstSequence)}</SessionNote>
@@ -158,7 +171,7 @@ export function SessionView({
             now={now}
             previousTurnId={turnOf(view.items[index - 1])}
             renderControls={renderControls}
-            onTellAgent={schema.steerUserMessage ? tellAgent : undefined}
+            onTellAgent={sessionActionPermission(schema) !== null ? tellAgent : undefined}
           />
         ))}
         {view.state?.lastTurnError && (
@@ -168,16 +181,17 @@ export function SessionView({
           </p>
         )}
       </div>
-      <SessionControls
+      <SessionComposer
         context={controlContext}
         hintShownAbove={permissionHint}
         invoke={invoke}
         onActed={reload}
+        routeContext={routeContext}
         schema={schema}
         session={session}
-        steerRef={steerRef}
-        steerText={steerText}
-        setSteerText={setSteerText}
+        setText={setSteerText}
+        text={steerText}
+        textRef={steerRef}
       />
     </section>
   );
@@ -336,103 +350,3 @@ export function messageTextParts(text: string): ReactNode[] {
   });
 }
 
-function SessionControls({
-  schema,
-  session,
-  context,
-  hintShownAbove,
-  invoke,
-  onActed,
-  steerRef,
-  steerText,
-  setSteerText,
-}: {
-  schema: AgentSessionSchema;
-  session: LoadedAgentSession;
-  context: SessionControlContext;
-  /** The Working as hint at the top of the tab, which the composer does not repeat. */
-  hintShownAbove: string | null;
-  invoke: SessionActionInvoker;
-  onActed: () => void;
-  steerRef: RefObject<HTMLTextAreaElement | null>;
-  steerText: string;
-  setSteerText: (text: string) => void;
-}) {
-  const [busy, setBusy] = useState<'' | 'steer' | 'stop'>('');
-  const [message, setMessage] = useState<{ tone: 'note' | 'error'; text: string } | null>(null);
-  const state = session.view.state;
-  const activeTurnId = state?.activeTurnId ?? null;
-  const turnControlReason = activeTurnId !== null && state?.acceptsTurnControl === false ? SESSION_COPY.noTurnControl : null;
-  const steerBlocked = actionBlockedReason(SESSION_RPC.steerUserMessage, schema.steerUserMessage, context) ?? turnControlReason;
-  const stopBlocked = actionBlockedReason(SESSION_RPC.cancelTurn, schema.cancelTurn, context)
-    ?? (activeTurnId === null ? SESSION_COPY.noActiveTurn : turnControlReason);
-
-  const run = async (kind: 'steer' | 'stop', request: () => Promise<SessionActionOutcome>, success: string) => {
-    setBusy(kind);
-    setMessage(null);
-    try {
-      const outcome = await request();
-      if (outcome.kind === 'done') {
-        setMessage({ tone: 'note', text: success });
-        if (kind === 'steer') setSteerText('');
-        onActed();
-      } else if (outcome.kind === 'already_handled') {
-        onActed();
-      } else {
-        setMessage({ tone: 'error', text: outcome.message });
-      }
-    } finally {
-      setBusy('');
-    }
-  };
-
-  return (
-    <footer className="ses-controls">
-      <form
-        className="ses-steer"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!steerText.trim()) return;
-          void run('steer', () => invoke(schema.steerUserMessage, { text: steerText }), SESSION_COPY.steered);
-        }}
-      >
-        <div className="ses-composer" data-disabled={steerBlocked !== null ? 'true' : undefined}>
-          <textarea
-            aria-label={SESSION_COPY.steerLabel}
-            disabled={steerBlocked !== null}
-            placeholder={SESSION_COPY.steerPlaceholder}
-            ref={steerRef}
-            rows={2}
-            value={steerText}
-            onChange={(event) => setSteerText(event.target.value)}
-          />
-          <div className="ses-composer-buttons">
-            <button
-              className="agc-danger"
-              disabled={busy !== '' || stopBlocked !== null}
-              onClick={() => void run(
-                'stop',
-                () => invoke(schema.cancelTurn, activeTurnId === null ? {} : { turn_id: activeTurnId }),
-                SESSION_COPY.stopped,
-              )}
-              type="button"
-            >
-              <Square aria-hidden="true" size={11} strokeWidth={2.6} />
-              {busy === 'stop' ? SESSION_COPY.stopping : SESSION_COPY.stop}
-            </button>
-            <button className="agc-primary" disabled={busy !== '' || steerBlocked !== null || !steerText.trim()} type="submit">
-              <SendHorizontal aria-hidden="true" size={14} strokeWidth={2.2} />
-              {busy === 'steer' ? SESSION_COPY.sending : activeTurnId === null ? SESSION_COPY.send : SESSION_COPY.steer}
-            </button>
-          </div>
-        </div>
-        {steerBlocked === null && activeTurnId === null && <p className="agc-note">{SESSION_COPY.steerIdleNote}</p>}
-        {steerBlocked !== null && steerBlocked !== hintShownAbove && <p className="agc-blocked">{steerBlocked}</p>}
-        {stopBlocked !== null && stopBlocked !== steerBlocked && stopBlocked !== hintShownAbove && (
-          <p className="agc-blocked">{SESSION_COPY.stop}: {stopBlocked}</p>
-        )}
-        {message && <p className={message.tone === 'error' ? 'agc-error' : 'agc-note'} role="status">{message.text}</p>}
-      </form>
-    </footer>
-  );
-}

@@ -45,6 +45,7 @@ function sessionOf(view: Partial<SessionReadView>): LoadedAgentSession {
     view: {
       state: { status: 'waiting_for_user_message', turnCount: 1, activeTurnId: null, lastTurnError: null, acceptsTurnControl: true },
       usage: { modelCalls: 4, inputTokens: 18780, outputTokens: 1331, cachedInputTokens: 17065, reasoningTokens: 0 },
+      sessionSettings: null,
       messageIndex: null,
       pendingInterrupts: [],
       items: [],
@@ -61,7 +62,7 @@ function sessionOf(view: Partial<SessionReadView>): LoadedAgentSession {
   };
 }
 
-const schema = { language: 'python', hasQuestions: true };
+const schema = { language: 'python', hasQuestions: true, rpcNames: ['send_user_message', 'update_session_settings'] };
 
 describe('SessionView', () => {
   it('reads past calls as compact rows under one retention notice', () => {

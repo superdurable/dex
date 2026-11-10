@@ -1,0 +1,26 @@
+# ~/.dex/agents/claude-sdk.yaml: the configuration of dex-agents-claude-sdk.
+# Schema: agents/cli/config.schema.json. Provider keys stay in the environment.
+model: claude-opus-5-5
+system_prompt: |
+  You are my personal assistant. Ask before posting anything.
+# system_prompt_file: ~/notes/assistant-prompt.md
+dex:
+  server: auto              # Reuse the running dexcli dev, or start one. Or a server URL.
+connectors:
+  mcp: auto                 # The connectors MCP server that dexcli dev provides, or a loopback URL.
+  enabled:                  # Omit to allow every authorized connection.
+    - slack/support-slack
+    - hackernews
+    - gmail/personal:
+        tools: [get_message, send_message]
+approval:
+  always: [slack_post_channel_message]   # Wait for approval beyond what the tools require.
+workspace: ~/dex-agent-workspace          # The local tools' only directory, and Claude Code's cwd.
+local_tools:
+  files: true
+  shell:
+    enabled: true
+    allow: ["git status", "ls"]          # These commands run without approval.
+  web_fetch: true
+  browser: true                           # The browser is downloaded on first use.
+claude: {}                                # Options of this harness command.

@@ -33,21 +33,19 @@ live progress that a user can afford to lose.
   Channel, in their original order. Another wait can consume them.
 - A canceled **Execute** may already have seen a returned message. So a message
   can reach **Execute** twice. Make message processing idempotent.
-- Dex drops the consumed messages instead when the Flow close itself cancels
-  the Step. A **StopFlow** request or a Flow timeout does this. So does a decision that closes
-  the Flow with **ForceComplete** or **ForceFail** while it cancels the Step.
-- Any other cancellation returns the messages, even when the Flow then closes,
-  for example by **GracefulComplete**. They stay pending in the closed run.
-- A Step that a commit cancels never takes the messages that commit publishes.
-  The exception is a commit that also closes the Flow at once, with
-  **ForceComplete**, **ForceFail**, or a **ForceCompleteIfChannelsEmpty** that
-  closes. A waiting Step can take a message there, and the close then cancels
-  that Step and drops the message.
+- When a Step is canceled because the Flow closes, Dex drops the messages
+  instead. That happens on a **StopFlow** request, on a Flow timeout, and on a
+  decision that closes the Flow with **ForceComplete** or **ForceFail**.
+- Any other cancellation returns the messages, even when the Flow closes later,
+  for example after **GracefulComplete**. No Step consumes them after the close.
+- When one Step method cancels a Step and publishes messages, the canceled
+  Step never receives those messages.
 - When several Steps wait on one Channel, the Step that started waiting first
   gets the first chance at new messages. A Step whose wait needs more messages
   than are pending is skipped. A later Step can then take them.
-- So a wait for several messages can be starved while waits for one message keep
-  taking them. Give each Channel one kind of consumer.
+- So a Step that waits for several messages can wait forever while other Steps
+  keep taking them one at a time. On one Channel, do not mix Steps that wait for
+  one message with Steps that wait for several.
 - A message can arrive before a Step starts waiting. Dex keeps it until a later
   wait consumes it.
 - A publication commits together with the Step or RPC result that made it.

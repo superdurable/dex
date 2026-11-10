@@ -1,0 +1,2943 @@
+{
+  "description": "Dex Agents CLI configuration behavior every CLI runtime must match: YAML parsing, schema validation, file defaults, session override narrowing, operation names, and the shell allow list. Hand-written; see README.md and agents/cli/README.md.",
+  "schemas": {
+    "config": "agents/cli/config.schema.json",
+    "session_settings": "agents/cli/session-settings.schema.json"
+  },
+  "error_codes": {
+    "yaml": "The file is not one YAML 1.2 document with unique keys. path is always \"\".",
+    "schema": "The value fails the schema. Runtimes may report schema errors in any order. Each schema case has exactly one violation, and a runtime passes it when validation fails and the expected instance location path and keyword are among its validator's errors, nested anyOf errors included.",
+    "invalid_url": "dex.server or connectors.mcp passes the schema but is not a URL a WHATWG URL parser accepts with a port of at most 65535: an IPv4 part that is not 0 or a decimal from 1 to 255 without a leading zero, an invalid IPv6 address, a DNS label starting with xn--, or a port over 65535. path is the field.",
+    "duplicate_tool": "One entry names the same operation twice, in two spellings. path is the entry.",
+    "duplicate_connection": "Two entries cover the same connection. path is the later entry.",
+    "model_required": "Neither the file nor the harness command gives a model.",
+    "widens_connectors": "A session entry is not inside any entry of the file. path is the entry.",
+    "widens_local_tools": "A session switches on what the file switches off, or allows a command the file does not."
+  },
+  "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings. A TypeScript runtime must compare code points: the default Array sort compares UTF-16 code units and puts U+10000 before U+E000.",
+  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then connectors.mcp; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser.",
+  "harness_sections": [
+    "claude",
+    "openai",
+    "pydantic_ai",
+    "langgraph",
+    "google_adk",
+    "vercel_ai",
+    "mastra",
+    "pi",
+    "builtin"
+  ],
+  "yaml_cases": [
+    {
+      "name": "yes-no-on-off-are-strings",
+      "description": "YAML 1.2 core schema: only true and false are booleans.",
+      "text": "local_tools:\n  files: yes\n  web_fetch: off\n",
+      "value": {
+        "local_tools": {
+          "files": "yes",
+          "web_fetch": "off"
+        }
+      }
+    },
+    {
+      "name": "empty-value-is-null",
+      "description": "An empty value is null, which the schema then rejects.",
+      "text": "system_prompt_file:\n",
+      "value": {
+        "system_prompt_file": null
+      }
+    },
+    {
+      "name": "empty-file",
+      "description": "An empty file is null; the runtime reads it as {}.",
+      "text": "",
+      "value": null
+    },
+    {
+      "name": "block-scalar-keeps-final-newline",
+      "description": "A | block keeps one final newline.",
+      "text": "system_prompt: |\n  Line one.\n  Line two.\nmodel: openai/gpt-5-mini\n",
+      "value": {
+        "system_prompt": "Line one.\nLine two.\n",
+        "model": "openai/gpt-5-mini"
+      }
+    },
+    {
+      "name": "duplicate-key",
+      "description": "A key repeated in one mapping is a YAML error, not last-wins.",
+      "text": "model: a\nmodel: b\n",
+      "error": {
+        "code": "yaml",
+        "path": ""
+      }
+    }
+  ],
+  "operation_names": [
+    {
+      "name": "get_message",
+      "canonical": "get_message"
+    },
+    {
+      "name": "getMessage",
+      "canonical": "get_message"
+    },
+    {
+      "name": "postThreadReply",
+      "canonical": "post_thread_reply"
+    },
+    {
+      "name": "GetHTML",
+      "canonical": "get_html"
+    },
+    {
+      "name": "listStoryIDs",
+      "canonical": "list_story_ids"
+    },
+    {
+      "name": "getHTTPResponse",
+      "canonical": "get_http_response"
+    },
+    {
+      "name": "readIDToken",
+      "canonical": "read_id_token"
+    },
+    {
+      "name": "readIDsFromCache",
+      "canonical": "read_ids_from_cache"
+    },
+    {
+      "name": "getAPISettings",
+      "canonical": "get_api_settings"
+    },
+    {
+      "name": "list2Items",
+      "canonical": "list2_items"
+    },
+    {
+      "name": "getV2Items",
+      "canonical": "get_v2_items"
+    },
+    {
+      "name": "getOAuth2Token",
+      "canonical": "get_o_auth2_token"
+    }
+  ],
+  "shell_allow": [
+    {
+      "command": "ls",
+      "allow": [
+        "git status",
+        "ls"
+      ],
+      "is_allowed": true
+    },
+    {
+      "command": "git status",
+      "allow": [
+        "git status",
+        "ls"
+      ],
+      "is_allowed": true
+    },
+    {
+      "command": "ls -la",
+      "allow": [
+        "git status",
+        "ls"
+      ],
+      "is_allowed": false
+    },
+    {
+      "command": "ls ",
+      "allow": [
+        "git status",
+        "ls"
+      ],
+      "is_allowed": false
+    },
+    {
+      "command": "git  status",
+      "allow": [
+        "git status",
+        "ls"
+      ],
+      "is_allowed": false
+    },
+    {
+      "command": "ls; rm -rf build",
+      "allow": [
+        "ls"
+      ],
+      "is_allowed": false
+    },
+    {
+      "command": "ls",
+      "allow": [],
+      "is_allowed": false
+    }
+  ],
+  "config_cases": [
+    {
+      "name": "empty-file-takes-every-default",
+      "description": "An empty file (or {}): every default, and the harness command's default model.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {},
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "empty-yaml-document",
+      "description": "An empty or comments-only file parses to null and means {}.",
+      "harness_section": "openai",
+      "harness_default_model": "gpt-5-mini",
+      "config": null,
+      "effective": {
+        "model": "gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "plan-example",
+      "description": "The documented example; connectors entries in effective form.",
+      "harness_section": "claude",
+      "harness_default_model": null,
+      "config": {
+        "model": "claude-opus-5-5",
+        "system_prompt": "You are my personal assistant. Ask before posting anything.\n",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            "slack/support-slack",
+            "hackernews",
+            {
+              "gmail/personal": {
+                "tools": [
+                  "get_message",
+                  "send_message"
+                ]
+              }
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "claude": {}
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": "You are my personal assistant. Ask before posting anything.\n",
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "provider-model-id-and-own-section",
+      "description": "A <provider>/<model> ID is any non-empty string; the harness's own section becomes harness_options.",
+      "harness_section": "pi",
+      "harness_default_model": null,
+      "config": {
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "pi": {
+          "thinking": "high"
+        }
+      },
+      "effective": {
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {
+          "thinking": "high"
+        }
+      }
+    },
+    {
+      "name": "other-harness-sections-are-ignored",
+      "description": "Only the running harness's section is read; another harness's section is valid and ignored.",
+      "harness_section": "openai",
+      "harness_default_model": "gpt-5-mini",
+      "config": {
+        "openai": {
+          "tracing": false
+        },
+        "claude": {
+          "setting_sources": [
+            "user"
+          ]
+        }
+      },
+      "effective": {
+        "model": "gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {
+          "tracing": false
+        }
+      }
+    },
+    {
+      "name": "addresses-and-paths-as-written",
+      "description": "URLs and paths stay as written: ~ and relative paths are expanded where they are used, not here.",
+      "harness_section": "langgraph",
+      "harness_default_model": "openai:gpt-5-mini",
+      "config": {
+        "system_prompt_file": "prompts/assistant.md",
+        "dex": {
+          "server": "https://dex.example.com:8443/base"
+        },
+        "connectors": {
+          "mcp": "http://127.0.0.1:8899/mcp"
+        },
+        "workspace": "../agent workspace"
+      },
+      "effective": {
+        "model": "openai:gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": "prompts/assistant.md",
+        "dex": {
+          "server": "https://dex.example.com:8443/base"
+        },
+        "connectors": {
+          "mcp": "http://127.0.0.1:8899/mcp",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "../agent workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "loopback-hosts",
+      "description": "connectors.mcp accepts localhost and [::1] too.",
+      "harness_section": "builtin",
+      "harness_default_model": "openai/gpt-5-mini",
+      "config": {
+        "dex": {
+          "server": "http://localhost:7233"
+        },
+        "connectors": {
+          "mcp": "https://[::1]/mcp"
+        }
+      },
+      "effective": {
+        "model": "openai/gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "http://localhost:7233"
+        },
+        "connectors": {
+          "mcp": "https://[::1]/mcp",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "server-host-forms",
+      "description": "dex.server takes a DNS name, an IPv4 address, or a bracketed IPv6 address, with any port up to 65535.",
+      "harness_section": "builtin",
+      "harness_default_model": "openai/gpt-5-mini",
+      "config": {
+        "dex": {
+          "server": "http://[2001:db8::1]:65535/dex"
+        },
+        "connectors": {
+          "mcp": "http://127.0.0.1:65535"
+        }
+      },
+      "effective": {
+        "model": "openai/gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "http://[2001:db8::1]:65535/dex"
+        },
+        "connectors": {
+          "mcp": "http://127.0.0.1:65535",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "server-ipv4-and-numbered-names",
+      "description": "An IPv4 address with every part at most 255.",
+      "harness_section": "builtin",
+      "harness_default_model": "openai/gpt-5-mini",
+      "config": {
+        "dex": {
+          "server": "https://10.0.0.255:7233"
+        }
+      },
+      "effective": {
+        "model": "openai/gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://10.0.0.255:7233"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "server-ipv4-zero-parts",
+      "description": "A part that is exactly 0 is fine.",
+      "harness_section": "builtin",
+      "harness_default_model": "openai/gpt-5-mini",
+      "config": {
+        "dex": {
+          "server": "http://10.0.0.1"
+        }
+      },
+      "effective": {
+        "model": "openai/gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "http://10.0.0.1"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "server-dns-name",
+      "description": "A DNS name with numbered labels.",
+      "harness_section": "builtin",
+      "harness_default_model": "openai/gpt-5-mini",
+      "config": {
+        "dex": {
+          "server": "http://dex-1.2nd.internal:7233"
+        }
+      },
+      "effective": {
+        "model": "openai/gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "http://dex-1.2nd.internal:7233"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "no-connector-tools",
+      "description": "An empty list offers no connector tools; it is not the same as omitting the list.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": []
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": []
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "operation-ids-become-snake-case",
+      "description": "tools may list operationIds; the effective form has snake-case names, in the written order.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            {
+              "gmail/personal": {
+                "tools": [
+                  "sendMessage",
+                  "get_message",
+                  "listThreadMessages"
+                ]
+              }
+            },
+            {
+              "hackernews": {
+                "tools": [
+                  "getTopStories"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "send_message",
+                "get_message",
+                "list_thread_messages"
+              ]
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": [
+                "get_top_stories"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "connection-names-as-dex-web-allows",
+      "description": "A connection name may hold spaces inside, dots, and non-ASCII text.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            "slack/Work Space ✓",
+            "slack/personal.2",
+            "reddit/r"
+          ]
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "Work Space ✓",
+              "tools": null
+            },
+            {
+              "connector": "slack",
+              "connection": "personal.2",
+              "tools": null
+            },
+            {
+              "connector": "reddit",
+              "connection": "r",
+              "tools": null
+            }
+          ]
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "partial-sections-fill-defaults",
+      "description": "Each omitted field inside a section takes its own default.",
+      "harness_section": "google_adk",
+      "harness_default_model": "gemini-2.5-flash",
+      "config": {
+        "local_tools": {
+          "shell": {
+            "enabled": false
+          },
+          "browser": false
+        },
+        "approval": {
+          "always": [
+            "Bash",
+            "mcp__dex__slack_post_thread_reply"
+          ]
+        },
+        "dex": {},
+        "connectors": {}
+      },
+      "effective": {
+        "model": "gemini-2.5-flash",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": [
+            "Bash",
+            "mcp__dex__slack_post_thread_reply"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": false,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "empty-system-prompt",
+      "description": "An empty system_prompt is valid: no instructions.",
+      "harness_section": "vercel_ai",
+      "harness_default_model": "openai/gpt-5-mini",
+      "config": {
+        "system_prompt": ""
+      },
+      "effective": {
+        "model": "openai/gpt-5-mini",
+        "system_prompt": "",
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "not-an-object",
+      "description": "The file must hold a mapping.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": [
+        "model",
+        "x"
+      ],
+      "error": {
+        "code": "schema",
+        "path": "",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "unknown-key",
+      "description": "A misspelled key is an error, not ignored.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "modle": "x"
+      },
+      "error": {
+        "code": "schema",
+        "path": "",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "no-provider-key-field",
+      "description": "There is no field for a provider key; it comes from the environment.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "api_key": "sk-x"
+      },
+      "error": {
+        "code": "schema",
+        "path": "",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "null-value",
+      "description": "null is never valid; omit the field instead.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "system_prompt_file": null
+      },
+      "error": {
+        "code": "schema",
+        "path": "/system_prompt_file",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "both-prompts",
+      "description": "system_prompt and system_prompt_file are mutually exclusive.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "system_prompt": "a",
+        "system_prompt_file": "b.md"
+      },
+      "error": {
+        "code": "schema",
+        "path": "",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "empty-model",
+      "description": "model must not be empty.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "model": ""
+      },
+      "error": {
+        "code": "schema",
+        "path": "/model",
+        "keyword": "minLength"
+      }
+    },
+    {
+      "name": "model-not-string",
+      "description": "model is a string.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "model": 5
+      },
+      "error": {
+        "code": "schema",
+        "path": "/model",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "server-without-scheme",
+      "description": "dex.server is auto or an http(s) URL.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "localhost:7233"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/server",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "server-trailing-newline",
+      "description": "A trailing newline does not match.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://localhost:7233\n"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/server",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "mcp-remote-host",
+      "description": "connectors.mcp must be on a loopback host.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "mcp": "https://mcp.example.com/mcp"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/mcp",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "mcp-loopback-prefix-host",
+      "description": "A host that only starts with 127.0.0.1 is not loopback.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "mcp": "http://127.0.0.1.example.com/mcp"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/mcp",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "mcp-userinfo",
+      "description": "No user info before a loopback host.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "mcp": "http://user:pass@127.0.0.1:8899/mcp"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/mcp",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "server-userinfo",
+      "description": "No user info in dex.server; do not put credentials in the file.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://user:pass@dex.example.com"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/server",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "server-numeric-last-label",
+      "description": "A host whose last label is a number must be a four-part IPv4 address.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://1.2.3/"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/server",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "server-port-six-digits",
+      "description": "A port has at most five digits.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://localhost:123456"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/server",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "mcp-port-out-of-range",
+      "description": "A port over 65535 passes the schema and fails the URL check.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "mcp": "http://localhost:65536/mcp"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/connectors/mcp"
+      }
+    },
+    {
+      "name": "server-port-out-of-range",
+      "description": "A port over 65535 passes the schema and fails the URL check.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://localhost:99999"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "server-ipv4-part-out-of-range",
+      "description": "An IPv4 part over 255 does not parse.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://999.0.0.1:7233"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "server-ipv4-leading-zero-not-octal",
+      "description": "08 has a leading zero and is not octal; a WHATWG parser refuses it.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://08.0.0.1"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "server-ipv4-leading-zero-octal",
+      "description": "010 would mean 8 to a WHATWG parser, so a leading zero is refused.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://010.0.0.1:7233"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "mcp-loopback-ipv4-padded",
+      "description": "connectors.mcp accepts only the literal 127.0.0.1, not another spelling of it.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "mcp": "http://127.000.0.1/mcp"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/mcp",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "server-invalid-ipv6",
+      "description": "A bracketed host must be a valid IPv6 address.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://[1:2]:8080/"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "server-punycode-label",
+      "description": "A DNS label that starts with xn-- is refused: URL parsers check punycode differently.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://xn--a.example.com"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "server-checked-before-mcp",
+      "description": "dex.server is checked before connectors.mcp.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://localhost:70000"
+        },
+        "connectors": {
+          "mcp": "http://localhost:70000"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "connector-uppercase",
+      "description": "A connector ID is lowercase.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            "Slack"
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/enabled/0",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "connection-leading-space",
+      "description": "A connection name does not start or end with a space.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            "slack/ work"
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/enabled/0",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "connection-empty",
+      "description": "connector/ with no connection name is invalid.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            "slack/"
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/enabled/0",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "connection-with-slash",
+      "description": "A connection name has no slash.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            "slack/a/b"
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/enabled/0",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "entry-two-keys",
+      "description": "A map entry has exactly one key.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            {
+              "slack/a": {
+                "tools": [
+                  "x"
+                ]
+              },
+              "slack/b": {
+                "tools": [
+                  "y"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/enabled/0",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "entry-empty-tools",
+      "description": "A tools list is not empty; use the bare entry for every operation.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            {
+              "slack/a": {
+                "tools": []
+              }
+            }
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/enabled/0",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "entry-bad-operation",
+      "description": "An operation name is letters, digits, and underscores.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            {
+              "slack/a": {
+                "tools": [
+                  "post-message"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/enabled/0",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "entry-unknown-option",
+      "description": "A map entry has only tools.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            {
+              "slack/a": {
+                "tools": [
+                  "x"
+                ],
+                "approval": true
+              }
+            }
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/enabled/0",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "entry-repeated-operation",
+      "description": "The same spelling twice.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            {
+              "slack/a": {
+                "tools": [
+                  "x",
+                  "x"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors/enabled/0",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "entry-same-operation-two-spellings",
+      "description": "getMessage and get_message are one operation.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            {
+              "gmail/personal": {
+                "tools": [
+                  "getMessage",
+                  "get_message"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "error": {
+        "code": "duplicate_tool",
+        "path": "/connectors/enabled/0"
+      }
+    },
+    {
+      "name": "connector-and-its-connection",
+      "description": "slack covers slack/work.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            "slack",
+            "slack/work"
+          ]
+        }
+      },
+      "error": {
+        "code": "duplicate_connection",
+        "path": "/connectors/enabled/1"
+      }
+    },
+    {
+      "name": "same-connection-twice",
+      "description": "The same connection in two entries.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "enabled": [
+            "hackernews",
+            {
+              "slack/work": {
+                "tools": [
+                  "x"
+                ]
+              }
+            },
+            "slack/work"
+          ]
+        }
+      },
+      "error": {
+        "code": "duplicate_connection",
+        "path": "/connectors/enabled/2"
+      }
+    },
+    {
+      "name": "approval-repeated",
+      "description": "approval.always has no repeats.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "approval": {
+          "always": [
+            "a",
+            "a"
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/approval/always",
+        "keyword": "uniqueItems"
+      }
+    },
+    {
+      "name": "approval-bad-name",
+      "description": "A tool name has no spaces.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "approval": {
+          "always": [
+            "post message"
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/approval/always/0",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "workspace-empty",
+      "description": "workspace is not empty.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "workspace": ""
+      },
+      "error": {
+        "code": "schema",
+        "path": "/workspace",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "workspace-control-character",
+      "description": "workspace has no control characters.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "workspace": "~/a\nb"
+      },
+      "error": {
+        "code": "schema",
+        "path": "/workspace",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "shell-as-boolean",
+      "description": "shell is an object with enabled and allow.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "local_tools": {
+          "shell": true
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/local_tools/shell",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "switch-as-string",
+      "description": "A switch is a boolean; YAML 1.2 reads yes as a string.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "local_tools": {
+          "files": "yes"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/local_tools/files",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "unknown-local-tool",
+      "description": "local_tools has only files, shell, web_fetch, and browser.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "local_tools": {
+          "network": true
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/local_tools",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "shell-allow-repeated",
+      "description": "The allow list has no repeats.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "local_tools": {
+          "shell": {
+            "allow": [
+              "ls",
+              "ls"
+            ]
+          }
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/local_tools/shell/allow",
+        "keyword": "uniqueItems"
+      }
+    },
+    {
+      "name": "harness-section-not-object",
+      "description": "A harness section is an object.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "claude": "x"
+      },
+      "error": {
+        "code": "schema",
+        "path": "/claude",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "model-required",
+      "description": "No model in the file and no default in the harness command.",
+      "harness_section": "builtin",
+      "harness_default_model": null,
+      "config": {},
+      "error": {
+        "code": "model_required",
+        "path": "/model"
+      }
+    }
+  ],
+  "session_configs": {
+    "bounded": {
+      "model": "claude-opus-5-5",
+      "system_prompt_file": "~/notes/assistant-prompt.md",
+      "connectors": {
+        "enabled": [
+          "slack/support-slack",
+          "hackernews",
+          {
+            "gmail/personal": {
+              "tools": [
+                "get_message",
+                "sendMessage"
+              ]
+            }
+          }
+        ]
+      },
+      "approval": {
+        "always": [
+          "slack_post_channel_message"
+        ]
+      },
+      "local_tools": {
+        "shell": {
+          "allow": [
+            "git status",
+            "ls"
+          ]
+        },
+        "browser": false
+      }
+    },
+    "all_connectors": {
+      "model": "claude-opus-5-5"
+    },
+    "shell_off": {
+      "model": "claude-opus-5-5",
+      "local_tools": {
+        "shell": {
+          "enabled": false,
+          "allow": [
+            "ls"
+          ]
+        }
+      }
+    }
+  },
+  "session_harness": {
+    "harness_section": "claude",
+    "harness_default_model": null
+  },
+  "session_cases": [
+    {
+      "name": "no-settings",
+      "description": "A session without settings (null) runs the file as it is.",
+      "config": "bounded",
+      "session_settings": null,
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "empty-settings",
+      "description": "{} changes nothing.",
+      "config": "bounded",
+      "session_settings": {},
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "replace-model-and-prompt",
+      "description": "model and system_prompt replace the file's; system_prompt replaces system_prompt_file too.",
+      "config": "bounded",
+      "session_settings": {
+        "model": "anthropic/claude-sonnet-5",
+        "system_prompt": "Answer in French."
+      },
+      "turn": {
+        "model": "anthropic/claude-sonnet-5",
+        "system_prompt": "Answer in French.",
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "narrow-connectors-and-operations",
+      "description": "A subset of entries, and a subset of an entry's operations in either spelling.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            "hackernews",
+            {
+              "gmail/personal": {
+                "tools": [
+                  "getMessage"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "narrow-inside-a-bare-connector",
+      "description": "A bare connector entry bounds any of its connections and operations.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            {
+              "hackernews/main": {
+                "tools": [
+                  "get_top_stories"
+                ]
+              }
+            },
+            "slack/support-slack"
+          ]
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "hackernews",
+              "connection": "main",
+              "tools": [
+                "get_top_stories"
+              ]
+            },
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "same-entry-repeated",
+      "description": "Repeating the file's own entry is not a widening.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            {
+              "gmail/personal": {
+                "tools": [
+                  "send_message",
+                  "get_message"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "send_message",
+                "get_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "no-connector-tools",
+      "description": "An empty list switches every connector tool off.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": []
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": []
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "any-list-narrows-an-omitted-list",
+      "description": "When the file omits connectors.enabled, any list narrows it.",
+      "config": "all_connectors",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            "youtube/me",
+            {
+              "reddit": {
+                "tools": [
+                  "listHotPosts"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "youtube",
+              "connection": "me",
+              "tools": null
+            },
+            {
+              "connector": "reddit",
+              "connection": null,
+              "tools": [
+                "list_hot_posts"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "approval-only-adds",
+      "description": "approval.always adds to the file's list, keeping its order and skipping repeats.",
+      "config": "bounded",
+      "session_settings": {
+        "approval": {
+          "always": [
+            "gmail_personal__send_message",
+            "slack_post_channel_message",
+            "Bash"
+          ]
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message",
+            "gmail_personal__send_message",
+            "Bash"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "local-tools-switch-off",
+      "description": "Every local tool may be switched off and the allow list shrunk; false repeats the file's false.",
+      "config": "bounded",
+      "session_settings": {
+        "local_tools": {
+          "files": false,
+          "shell": {
+            "enabled": false,
+            "allow": [
+              "ls"
+            ]
+          },
+          "web_fetch": false,
+          "browser": false
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": false,
+          "shell": {
+            "enabled": false,
+            "allow": [
+              "ls"
+            ]
+          },
+          "web_fetch": false,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "local-tools-repeat-true",
+      "description": "true repeats the file's true and changes nothing; an empty allow list asks for every command.",
+      "config": "bounded",
+      "session_settings": {
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          }
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "shell-allow-subset-when-shell-off",
+      "description": "The allow list may shrink while the file has shell switched off.",
+      "config": "shell_off",
+      "session_settings": {
+        "local_tools": {
+          "shell": {
+            "enabled": false,
+            "allow": []
+          }
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": false,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      },
+      "warnings": []
+    },
+    {
+      "name": "file-only-keys-are-ignored",
+      "description": "workspace, dex, system_prompt_file, and harness sections belong to the file; in settings they are ignored with a warning each.",
+      "config": "bounded",
+      "session_settings": {
+        "workspace": "/",
+        "dex": {
+          "server": "http://localhost:1"
+        },
+        "system_prompt_file": "/etc/passwd",
+        "claude": {}
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": [
+        "/claude",
+        "/dex",
+        "/system_prompt_file",
+        "/workspace"
+      ]
+    },
+    {
+      "name": "other-readers-keys-are-ignored",
+      "description": "Keys another reader of the settings uses are ignored, sorted by key, and escaped as JSON Pointers.",
+      "config": "bounded",
+      "session_settings": {
+        "note": "x",
+        "a/b~c": 1,
+        "Account": null,
+        "model": "gpt-5-mini"
+      },
+      "turn": {
+        "model": "gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": [
+        "/Account",
+        "/a~1b~0c",
+        "/note"
+      ]
+    },
+    {
+      "name": "warnings-sort-by-code-point",
+      "description": "U+E000 sorts before U+10000 by code point, though its UTF-16 code unit is larger.",
+      "config": "bounded",
+      "session_settings": {
+        "𐀀": 1,
+        "": 2,
+        "z": 3
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": [
+        "/z",
+        "/",
+        "/𐀀"
+      ]
+    },
+    {
+      "name": "add-a-connector",
+      "description": "A connector the file does not list.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            "hackernews",
+            "youtube"
+          ]
+        }
+      },
+      "error": {
+        "code": "widens_connectors",
+        "path": "/connectors/enabled/1"
+      }
+    },
+    {
+      "name": "connector-wider-than-connection",
+      "description": "slack covers every Slack connection, more than slack/support-slack.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            "slack"
+          ]
+        }
+      },
+      "error": {
+        "code": "widens_connectors",
+        "path": "/connectors/enabled/0"
+      }
+    },
+    {
+      "name": "other-connection",
+      "description": "A connection the file does not list.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            "slack/other"
+          ]
+        }
+      },
+      "error": {
+        "code": "widens_connectors",
+        "path": "/connectors/enabled/0"
+      }
+    },
+    {
+      "name": "add-an-operation",
+      "description": "An operation outside the file's list.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            {
+              "gmail/personal": {
+                "tools": [
+                  "get_message",
+                  "deleteMessage"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "error": {
+        "code": "widens_connectors",
+        "path": "/connectors/enabled/0"
+      }
+    },
+    {
+      "name": "every-operation-of-a-limited-entry",
+      "description": "A bare entry asks for every operation, more than the file's list.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            "gmail/personal"
+          ]
+        }
+      },
+      "error": {
+        "code": "widens_connectors",
+        "path": "/connectors/enabled/0"
+      }
+    },
+    {
+      "name": "repeated-connection",
+      "description": "Session lists follow the file's duplicate rule.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            "hackernews/a",
+            "hackernews"
+          ]
+        }
+      },
+      "error": {
+        "code": "duplicate_connection",
+        "path": "/connectors/enabled/1"
+      }
+    },
+    {
+      "name": "repeated-operation-two-spellings",
+      "description": "Session lists follow the file's operation rule.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            {
+              "gmail/personal": {
+                "tools": [
+                  "get_message",
+                  "getMessage"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "error": {
+        "code": "duplicate_tool",
+        "path": "/connectors/enabled/0"
+      }
+    },
+    {
+      "name": "switch-on-browser",
+      "description": "The file switches the browser off.",
+      "config": "bounded",
+      "session_settings": {
+        "local_tools": {
+          "browser": true
+        }
+      },
+      "error": {
+        "code": "widens_local_tools",
+        "path": "/local_tools/browser"
+      }
+    },
+    {
+      "name": "switch-on-shell",
+      "description": "The file switches shell off.",
+      "config": "shell_off",
+      "session_settings": {
+        "local_tools": {
+          "shell": {
+            "enabled": true
+          }
+        }
+      },
+      "error": {
+        "code": "widens_local_tools",
+        "path": "/local_tools/shell/enabled"
+      }
+    },
+    {
+      "name": "add-a-shell-command",
+      "description": "A command outside the file's allow list.",
+      "config": "bounded",
+      "session_settings": {
+        "local_tools": {
+          "shell": {
+            "allow": [
+              "ls",
+              "rm -rf build"
+            ]
+          }
+        }
+      },
+      "error": {
+        "code": "widens_local_tools",
+        "path": "/local_tools/shell/allow/1"
+      }
+    },
+    {
+      "name": "shell-command-near-match",
+      "description": "Allow list entries compare as exact strings.",
+      "config": "bounded",
+      "session_settings": {
+        "local_tools": {
+          "shell": {
+            "allow": [
+              "ls "
+            ]
+          }
+        }
+      },
+      "error": {
+        "code": "widens_local_tools",
+        "path": "/local_tools/shell/allow/0"
+      }
+    },
+    {
+      "name": "first-widening-wins",
+      "description": "Connectors are checked before local tools, and local tools in field order.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "enabled": [
+            "youtube"
+          ]
+        },
+        "local_tools": {
+          "browser": true
+        }
+      },
+      "error": {
+        "code": "widens_connectors",
+        "path": "/connectors/enabled/0"
+      }
+    },
+    {
+      "name": "change-mcp",
+      "description": "connectors.mcp is fixed by the file.",
+      "config": "bounded",
+      "session_settings": {
+        "connectors": {
+          "mcp": "http://127.0.0.1:1/mcp"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/connectors",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "unknown-key-with-widening",
+      "description": "An ignored key does not excuse a widening.",
+      "config": "bounded",
+      "session_settings": {
+        "note": "x",
+        "local_tools": {
+          "browser": true
+        }
+      },
+      "error": {
+        "code": "widens_local_tools",
+        "path": "/local_tools/browser"
+      }
+    },
+    {
+      "name": "unknown-key-inside-known-field",
+      "description": "Only top-level keys are ignored; inside a known field an unknown key is an error.",
+      "config": "bounded",
+      "session_settings": {
+        "approval": {
+          "never": [
+            "Bash"
+          ]
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/approval",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
+      "name": "null-model",
+      "description": "null is never valid; omit the field instead.",
+      "config": "bounded",
+      "session_settings": {
+        "model": null
+      },
+      "error": {
+        "code": "schema",
+        "path": "/model",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "not-an-object",
+      "description": "Settings are one JSON object.",
+      "config": "bounded",
+      "session_settings": [
+        "model"
+      ],
+      "error": {
+        "code": "schema",
+        "path": "",
+        "keyword": "type"
+      }
+    }
+  ]
+}

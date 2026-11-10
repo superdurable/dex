@@ -6,10 +6,16 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { V2CatalogEntry } from '@/lib/types';
+import { SESSION_COPY } from '../../agents/copy';
+import { agentSessionFlowTypes, NewSessionDialog } from '../../agents/NewSessionDialog';
 import type { AgentSessionSchema } from '../../agents/sessionSchema';
 import { SessionView } from '../../agents/SessionView';
-import { ChevronDown, UserRound } from 'lucide-react';
+import { useWebCatalog } from '../../catalog/WebCatalogProvider';
+import { sessionRunPath } from '../../routes';
+import { ChevronDown, Plus, UserRound } from 'lucide-react';
 import { SelectedRunPanel } from '../../workspace/SelectedRunPanel';
 import type { useWorkingAs } from '../../workspace/useWorkingAs';
 import '../../workspace/css/workspace.css';
@@ -32,12 +38,37 @@ export function AgentSessionTab({
   schema: AgentSessionSchema;
   workingAs: RunWorkingAs;
 }) {
+  const navigate = useNavigate();
+  const { catalog, definitions, handleDefinitionError } = useWebCatalog();
+  const [isNewSessionOpen, setNewSessionOpen] = useState(false);
+  const flowTypes = agentSessionFlowTypes(catalog, definitions);
   return (
     <section className="v2-shell sv run-experimental xp" aria-label="Agent session">
       <header className="xp-head">
         <h3>Agent session</h3>
-        <WorkingAsBar entry={entry} workingAs={workingAs} />
+        <div className="xp-head-tools">
+          <WorkingAsBar entry={entry} workingAs={workingAs} />
+          {flowTypes.length > 0 && catalog && (
+            <button className="xp-new-session" onClick={() => setNewSessionOpen(true)} type="button">
+              <Plus aria-hidden="true" size={14} strokeWidth={2.2} />
+              {SESSION_COPY.newSession}
+            </button>
+          )}
+        </div>
       </header>
+      {isNewSessionOpen && catalog && (
+        <NewSessionDialog
+          definitionRevision={catalog.definitionRevision}
+          flowTypes={flowTypes}
+          initialFlowType={entry.flowType}
+          onClose={() => setNewSessionOpen(false)}
+          onDefinitionChanged={handleDefinitionError}
+          onStarted={(_flowType, sessionId) => {
+            setNewSessionOpen(false);
+            navigate(sessionRunPath(sessionId));
+          }}
+        />
+      )}
       <SessionView
         key={flowId}
         flowId={flowId}

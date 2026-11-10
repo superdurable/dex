@@ -378,6 +378,81 @@ read older messages until it is empty. The server caps page size at 1000 by
 default. A trimmed anchor returns an empty page, and newer concurrent writes do
 not enter an existing older-page chain.
 
+### Running Step code outside a Worker
+
+`NewStandaloneContext` creates a `Context` for running Step code outside a
+Worker, for example in a tool server or a test. It represents one handler
+attempt. It inherits cancellation, deadlines, and values from its parent
+context, and its metadata methods return the values in
+`StandaloneContextOptions`. `Attempt` is required and must be at least 1.
+
+```go
+var lastHeartbeatValue any
+if record.CheckpointJSON != nil {
+	var checkpoint SendCheckpoint
+	if err := json.Unmarshal(record.CheckpointJSON, &checkpoint); err != nil {
+		return nil, err
+	}
+	lastHeartbeatValue = checkpoint
+}
+ctx, err := dex.NewStandaloneContext(attemptContext, dex.StandaloneContextOptions{
+	FlowID:             "invoice-tool-server",
+	StepExecutionID:    record.RequestKey,
+	FirstAttemptAt:     record.FirstAttemptAt,
+	Attempt:            record.Attempt,
+	LastHeartbeatValue: lastHeartbeatValue,
+	OnRecordHeartbeat: func(value any) error {
+		var checkpointJSON []byte
+		if value != nil {
+			encoded, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			checkpointJSON = encoded
+		}
+		// SaveCheckpoint writes only if record.Attempt is still the stored attempt.
+		return store.SaveCheckpoint(record.RequestKey, record.Attempt, checkpointJSON)
+	},
+})
+if err != nil {
+	return nil, err
+}
+decision, err := SendInvoiceStep{}.Execute(ctx, invoiceID)
+```
+
+The `NewStandaloneContext` API reference has the complete example.
+
+Dex stores nothing for a standalone Context. `GetLastHeartbeatValue` and
+`GetStepExecutionLocal` read only the seeded `LastHeartbeatValue` and
+`StepExecutionLocals`. `RecordHeartbeat`, `SetStepExecutionLocal`, and
+`RecordEvent` validate and encode their value, then call the matching `On*`
+hook before returning, so the caller can persist the value and seed the next
+attempt.
+
+- Decode a value persisted as JSON into its original Go type, such as the
+  checkpoint struct, `int32`, or `[]byte`, before seeding it. Do not decode it
+  into `any`: JSON numbers become `float64` and byte slices become base64
+  strings, so decoding into the original type later fails. Do not seed the JSON
+  itself as `json.RawMessage` or `[]byte`.
+- After the parent context is done, the hooks never run. The three write
+  methods then return an error that wraps the parent's error when the
+  arguments are valid, the value encodes, and the event name is not already
+  recorded; otherwise the validation error comes first. A write already in progress
+  can still race with the end of its attempt, so a persisting hook must write
+  conditionally on `Attempt` and never let an older attempt replace a newer
+  attempt's value.
+- `HasTimerFired`, `HasTimerFiredByIndex`, and `WaitForMethodFailed` return
+  false.
+- Attribute, Channel, Stream, and `BufferedTextStream` operations that return
+  an error return an invalid invocation context error.
+- `SubFlowResult` and `SubFlowID` return errors stating that they require a
+  Dex invocation Context.
+- These methods have no error result and panic on a standalone Context:
+  `Channel.Size`, `ChannelMap.Size`, `ChannelMap.MapSize`,
+  `ChannelMap.AllInstanceKeys`, `AttributeMap.MapSize`, and
+  `AttributeMap.AllInstanceKeys`. Do not call them from Step code that runs
+  outside a Worker.
+
 ### Canceling Step executions
 
 A successful Step can cancel queued or active executions while continuing with
