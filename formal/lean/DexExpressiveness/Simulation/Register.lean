@@ -774,4 +774,191 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
             simp only [Nat.lt_irrefl]
       tasksAreCurrent := tasksAreCurrent }
 
+/-! ## From the Dex run after `register(e, W)` to the simulation -/
+
+/-- What a registration step starts from: a `waitStarted` thread, the Step
+that carries it, and the WaitFor task of that Step. -/
+structure wp3a_Context (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (tid : Tid) (thread : L.Thread)
+    (run : Dex.Run signature) (record : Dex.StepRecord signature)
+    (task : Dex.Task signature) : Prop where
+  /-- The configurations are a simulation state. -/
+  state : IsSimulationState program lConfig dexConfig
+  /-- The thread that steps. -/
+  isFound : lConfig.findThread? tid = some thread
+  /-- It began a wait. -/
+  isWaitStarted : thread.phase = .waitStarted
+  /-- The L step may stamp. -/
+  canStamp : lConfig.canStamp = true
+  /-- The Flow runs. -/
+  hasRun : dexConfig.run = some run
+  /-- The run is not closed. -/
+  isRunning : run.status = .running
+  /-- The Step is in the run. -/
+  isRecord : record ∈ run.steps
+  /-- The Step is active. -/
+  isActive : record.phase.isActive = true
+  /-- The Step carries the thread. -/
+  carries : StepCarriesThread program thread record
+  /-- The task is handed to a Worker. -/
+  isTask : task ∈ dexConfig.tasks
+  /-- The task runs the WaitFor of the Step. -/
+  hasInvocation : record.invocation = some { method := .waitFor, state := .running task.id }
+  /-- The task belongs to the Step. -/
+  hasStep : task.step = record.id
+  /-- The task runs WaitFor. -/
+  isWaitFor : task.method = .waitFor
+  /-- The task has the Step's input. -/
+  hasInput : task.input = record.input
+  /-- The task holds no effect. -/
+  noEffects : pendingEffects ⟦program⟧ task = []
+
+/-- What a registration leaves unchanged in the L configuration, and its stamp. -/
+structure wp3a_LFrame (lConfig lNext : L.Config) (tid : Tid) (newPhase : Phase) : Prop where
+  /-- Only the phase of the thread changes. -/
+  threads : lNext.threads = (lConfig.setPhase tid newPhase).threads
+  /-- The shared variables stay. -/
+  shared : lNext.shared = lConfig.shared
+  /-- The waiter lists stay. -/
+  cvQueues : lNext.cvQueues = lConfig.cvQueues
+  /-- The cancel flags stay. -/
+  cancelFlags : lNext.cancelFlags = lConfig.cancelFlags
+  /-- The timer counter stays. -/
+  timerCounter : lNext.timerCounter = lConfig.timerCounter
+  /-- The clock stays. -/
+  clock : lNext.clock = lConfig.clock
+  /-- The step is stamped. -/
+  lastStampAt : lNext.lastStampAt = some lConfig.clock
+  /-- The status stays. -/
+  status : lNext.status = lConfig.status
+
+/-- Composing two changes of the same Step. -/
+theorem wp3a_map_changeStep (steps : List (Dex.StepRecord signature))
+    (step : Dex.StepExecId signature)
+    (first second : Dex.StepRecord signature → Dex.StepRecord signature)
+    (keepsId : ∀ candidate, (first candidate).id = candidate.id) :
+    (steps.map (wp3a_changeStep step first)).map (wp3a_changeStep step second) =
+      steps.map (wp3a_changeStep step (fun candidate => second (first candidate))) := by
+  rw [List.map_map]
+  apply List.map_congr_left
+  intro candidate _
+  by_cases isChanged : candidate.id = step <;>
+    simp [wp3a_changeStep, isChanged, keepsId]
+
+/-- A registration is simulated, given the run that `register(e, W)` yields
+and its relation to the next L configuration. -/
+theorem wp3a_simulated_of_run {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {tid : Tid} {thread : L.Thread}
+    {run : Dex.Run signature} {record : Dex.StepRecord signature} {task : Dex.Task signature}
+    (context : wp3a_Context program lConfig dexConfig tid thread run record task)
+    (newPhase : Phase) (isNotBoot : wp2_isBootPhase newPhase = false)
+    (isNotHalted : newPhase ≠ .halted) (lNext : L.Config)
+    (frame : wp3a_LFrame lConfig lNext tid newPhase) (newRun : Dex.Run signature)
+    (isNewRun : (wp3a_preparedRun run record.id).registerWait record.id (wp3a_wait thread)
+      dexConfig.clock = newRun)
+    (change : Dex.StepRecord signature → Dex.StepRecord signature)
+    (sameSteps : newRun.steps = run.steps.map (wp3a_changeStep record.id change))
+    (keepsId : ∀ candidate, (change candidate).id = candidate.id)
+    (changeKeeps : (change record).input = record.input ∧
+      (change record).options = record.options ∧ (change record).phase.isActive = true)
+    (sameAttributes : newRun.attributes = run.attributes)
+    (sameCounters : newRun.counters = run.counters)
+    (sameOutputs : newRun.outputs = run.outputs)
+    (isRunningNew : newRun.status = .running)
+    (channels : wp3a_ChannelsRelated lNext run newRun tid newPhase)
+    (timersField : ∀ timer fireTime, newRun.timers.get? timer = some fireTime ↔
+      ∃ owner chan since, owner ∈ lNext.threads ∧
+        owner.phase = .blocked (.timed timer.step.number fireTime chan) since ∧
+        timer.step.stepType = StepType.timed ∧ timer.index = 0)
+    (blockedOrder : ∀ on since, newPhase = .blocked on since →
+      (∀ other, other ∈ lConfig.threads → ∀ otherOn otherSince,
+        other.phase = .blocked otherOn otherSince → otherSince < since) ∧
+      ∃ waitState, (change record).waitState = some waitState ∧
+        ∀ other, other ∈ run.steps → other.phase = .waiting → ∀ otherWait,
+          other.waitState = some otherWait →
+          otherWait.registeredSeq < waitState.registeredSeq)
+    (newMatch : ∀ dexNext, PhaseMatchesStep program lConfig dexNext
+      { thread with phase := newPhase } (change record)) :
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) [] lNext := by
+  have state := context.state
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? context.isFound
+  have related := state.isRelated.running run context.hasRun context.isRunning
+  have idsNodup := (state.dexInvariant.runInvariant run context.hasRun).idsNodup
+  have isResponse := wp3a_compute_waitFor program thread record task context.isWaitStarted
+    (state.lInvariant.phasesFitCode thread isMember) context.carries context.hasStep
+    context.isWaitFor context.hasInput
+  have isExec := wp3a_exec_completeWaitFor program dexConfig state.tasksDistinct task
+    context.isTask (state.dexInvariant.tasksComputed task context.isTask) context.noEffects
+    context.isWaitFor _ isResponse run context.hasRun
+    (related.tasksAreCurrent task context.isTask)
+    (wp2_canCommit_of_canStamp state.isRelated context.canStamp)
+  rw [context.hasStep, wp3a_completedRun_eq, isNewRun] at isExec
+  have hasActions := simulatingActions_complete related context.hasRun state.tasksDistinct
+    context.isFound record context.isRecord context.isActive
+    ((wp2_threadOfInput_of_mem state.lInvariant isMember context.carries).trans hasTid)
+    .waitFor task context.isTask context.hasInvocation
+    (Or.inr (Or.inr (Or.inr (Or.inl context.isWaitStarted))))
+  have statusL := (wp2_run_of_thread state thread isMember).1
+  -- Every other task stays.
+  have taskOfStep : ∀ other, other ∈ dexConfig.tasks → other.id = task.id → other = task :=
+    fun other isOther sameId =>
+      eq_of_nodup_map (fun current => current.id) dexConfig.tasks state.tasksDistinct.1 isOther
+        context.isTask sameId
+  refine ⟨_, _, by rw [hasActions]; exact isExec, ?_, ?_⟩
+  · simp [Dex.Config.closeEvents, context.isRunning, isRunningNew]
+  · exact
+      { clock := frame.clock.trans state.isRelated.clock
+        stamp := frame.lastStampAt.trans (congrArg some state.isRelated.clock)
+        status := by
+          rw [frame.status, statusL]
+          exact isRunningNew
+        notStarted := fun isNone => by cases isNone
+        running := fun after isAfter _ => by
+          cases isAfter
+          refine wp3a_runningRelated_register related state.lInvariant idsNodup context.isFound
+            context.isWaitStarted context.isRecord context.isActive context.carries newPhase
+            isNotBoot isNotHalted frame.threads frame.shared frame.cvQueues frame.cancelFlags
+            frame.timerCounter change sameSteps ⟨keepsId record, changeKeeps⟩ sameAttributes
+            sameCounters sameOutputs channels timersField blockedOrder ?_ (newMatch _) ?_
+          · intro other isOther isOtherStep
+            refine List.mem_filter.mpr ⟨isOther, ?_⟩
+            simp only [Bool.not_eq_eq_eq_not, Bool.not_true, decide_eq_false_iff_not]
+            intro sameId
+            rw [taskOfStep other isOther sameId] at isOtherStep
+            exact isOtherStep context.hasStep
+          · intro other isOther
+            obtain ⟨wasMember, isOtherId⟩ := List.mem_filter.mp isOther
+            simp only [Bool.not_eq_eq_eq_not, Bool.not_true, decide_eq_false_iff_not] at isOtherId
+            have wasCurrent := related.tasksAreCurrent other wasMember
+            unfold Dex.Config.isTaskCurrent at wasCurrent
+            simp only [context.hasRun] at wasCurrent
+            show (wp3a_completedConfig dexConfig task newRun).isTaskCurrent other = true
+            unfold Dex.Config.isTaskCurrent
+            simp only [wp3a_completedConfig]
+            cases foundCase : run.findStep? other.step with
+            | none => simp [foundCase] at wasCurrent
+            | some otherRecord =>
+              simp only [foundCase, decide_eq_true_eq] at wasCurrent
+              obtain ⟨isOtherRecord, otherStepId⟩ := Dex.Run.mem_of_findStep? run _ _ foundCase
+              have isNotRecord : other.step ≠ record.id := by
+                intro sameId
+                have sameRecord : otherRecord = record :=
+                  eq_of_nodup_map (fun candidate => candidate.id) run.steps idsNodup isOtherRecord
+                    context.isRecord (otherStepId.trans sameId)
+                rw [sameRecord, context.hasInvocation] at wasCurrent
+                injection wasCurrent with sameInvocation
+                injection sameInvocation with _ sameState
+                injection sameState with sameTask
+                exact isOtherId sameTask.symm
+              have foundNew : newRun.findStep? other.step = some otherRecord := by
+                unfold Dex.Run.findStep?
+                rw [sameSteps]
+                exact (Dex.find?_map_update_other run.steps record.id other.step change
+                  keepsId isNotRecord).trans foundCase
+              simp [foundNew, wasCurrent]
+        closed := fun after status isAfter isClosed => by
+          cases isAfter
+          rw [isRunningNew] at isClosed
+          cases isClosed }
+
 end DexExpressiveness
