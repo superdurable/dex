@@ -51,7 +51,7 @@ ParentStep.execute(context, input)
 
 - When Dex rejects a child start before the child begins, the parent Step's failure carries the rejection detail. Keep it visible in the recovery route.
 - A child that fails returns its failure as the result. The parent decides the business outcome.
-- A child keeps running when its parent Step is canceled or its parent Flow closes. Dex does not stop it. Stop it explicitly, or give it a Flow timeout as a backstop.
+- A child keeps running when its parent Step is canceled or its parent Flow closes. Dex does not stop it. Stop it explicitly, or set a Flow timeout on the child so it ends on its own.
 - A SubFlow without its own Flow timeout can wait forever when no Worker takes its Steps.
 - Delivery of a child result to the parent is not proof that the parent consumed it or finished later work.
 

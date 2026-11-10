@@ -544,7 +544,7 @@ AwaitUnderwriterDecision.execute -> if canceled: forceFail(...); else gracefulCo
 
 - A closing parent never stops its children. A child keeps running when its parent completes, fails, times out, or is stopped.
 - The recipe works only on the cancel-Channel path. A Client StopFlow on the parent, the parent's Flow timeout, or a ForceFail or ForceComplete from another Step closes the parent and leaves the children running.
-- Give every child its own Flow timeout as a backstop. Clients cancel a case through the cancel RPC, not StopFlow.
+- Set a Flow timeout on every child, so a child that is never stopped still ends. Clients cancel a case through the cancel RPC, not StopFlow.
 - Every later Step that waits also waits on the cancel Channel, so a cancel after the child finished still closes the case.
 - List the cancel condition first in every wait. When the cancel message and another condition are ready at once, the first declared condition wins, so a pending cancel is never swallowed by a normal completion.
 - A cancel that arrives after the last decision was consumed, or after the Flow closed, cannot change the outcome.

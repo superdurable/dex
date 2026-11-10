@@ -27,7 +27,8 @@ into smaller Flows or to fan out work.
 ## Guarantees {#guarantees}
 
 - A Flow ID has at most one active run at a time.
-- See [Step guarantees](/concepts/step#guarantees) for commit boundaries.
+- What one Step method writes and publishes takes effect all at once, or not at
+  all. See [Step guarantees](/concepts/step#guarantees).
 - With the default SYNC durability, a Step's result is stored durably before
   the next Step starts. It survives Worker crashes and Dex Server restarts.
 - A Step that no Worker takes waits in a durable queue. It runs when a Worker
@@ -210,9 +211,10 @@ that moves to the next Steps or closes the Flow. Several Steps can be active
 at the same time.
 
 A Flow closes when a Step completes or fails it, when its timeout fails or
-cancels it, or when a client stops it. Starting the same Flow ID again can also
-close it: an ID reuse policy that terminates a running run does this, and so
-does a SubFlow start with **ALWAYS_RESTART**. A timeout can instead run a
+cancels it, or when a client stops it. A new start with the same Flow ID can
+also close it, when the start uses an ID reuse policy that terminates the
+running Flow. A SubFlow started with **ALWAYS_RESTART** does the same to an
+earlier child. A timeout can instead run a
 handler that decides the outcome. While it runs, clients read and change it through RPCs
 and Channels.
 
@@ -226,11 +228,12 @@ Two sets of options shape a Flow execution:
   You can update it while the Flow runs.
 
 Start a Flow directly with a stable business Flow ID. Do not read or search
-first to avoid a conflict. To retry one start safely, use an ID reuse policy
-that rejects a second run, send the same request ID each time, and set the
-start option that ignores the already-started error. When that request ID
-already started the Flow, Dex returns the existing execution instead of an
-error. A policy that allows another run can start a new run instead.
+first to avoid a conflict. To retry one start safely, do three things. Use an
+ID reuse policy that rejects a second run. Send the same request ID on every
+retry. Set the start option that returns the existing run instead of an
+already-started error. Then a retry of a start that already succeeded returns
+that run. With a policy that allows another run, a retry can start a second
+run instead.
 
 ## Reference
 

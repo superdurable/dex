@@ -56,7 +56,7 @@ AwaitUnderwriterDecision.execute
 - 父 Flow 的 Flow timeout；
 - 父 Flow 中另一个 Step 返回的 **ForceFail** 或 **ForceComplete**。
 
-给每个子 Flow 设置自己的 Flow timeout 作为兜底。示例给信用检查设置了 7 天的 timeout。客户端取消 case 时调用取消 RPC，而不是 **StopFlow**。
+给每个子 Flow 设置 Flow timeout，这样即使没有人停止它，它也会结束。示例给信用检查设置了 7 天的 timeout。客户端取消 case 时调用取消 RPC，而不是 **StopFlow**。
 
 ## 多个子 Flow
 

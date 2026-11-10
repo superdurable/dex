@@ -21,13 +21,14 @@ patterns to compare workflow languages and engines. Each rating comes with a
 runnable example and an integration test.
 
 The [Expressiveness proof](/concepts/correctness-and-expressiveness/expressiveness-proof)
-covers a whole class of programs. Every well-formed program in a small
-concurrent language translates into a Dex Flow that behaves the same. A Lean
-proof checks the claim. The [paper](/papers/dex-expressiveness.pdf) has the
-full argument.
+shows that any program in a small concurrent language, with threads, locks,
+timers, and cancellation, can be written as a Dex Flow that behaves the same.
+A computer checks every step of the proof. The
+[paper](/papers/dex-expressiveness.pdf) has the full argument.
 
 ## Correctness
 
 The [Step guarantees](/concepts/step#guarantees) state what Dex promises when
-a Step method fails or runs again. The expressiveness proof assumes no
-failures. A formal proof of correctness under failures is future work.
+a Step method fails or runs again. A second proof, that crashes, retries, and
+redelivery do not change what a Flow does, is tracked in
+[issue 1514](https://github.com/superdurable/dex/issues/1514).
