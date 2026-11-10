@@ -15,7 +15,7 @@ Run fixed-interval work in one durable Flow.
 The Flow has three Step types:
 
 1. **Init** checks that the interval and the run count are positive, then moves to **WaitForSchedule**.
-2. **WaitForSchedule** waits for the interval Timer, a **Trigger** message, or a **Skip** message. **Skip** counts as one occurrence without running the work, and starts the next interval. The Timer or **Trigger** starts **Run** and the next **WaitForSchedule** at the same time.
+2. **WaitForSchedule** waits for the interval Timer, a **Trigger** message, or a **Skip** message. **Skip** counts as one occurrence without running the work, and starts the next interval. The Timer or **Trigger** starts **Run**. Unless this is the final occurrence, it also starts the next **WaitForSchedule** at the same time.
 3. **Run** does the scheduled work. On the final occurrence, it completes the Flow. Otherwise its branch ends there with a dead end.
 
 To run the work early or skip an occurrence, publish to the **Trigger** or **Skip** Channel with the Client.

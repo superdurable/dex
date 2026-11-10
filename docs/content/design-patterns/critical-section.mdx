@@ -59,7 +59,7 @@ Dex cannot stop a canceled method's calls to external systems. A canceled **Exec
 
 ## Rules
 
-- Publish the token in the Step that starts the branches, or before.
+- Publish exactly one token, in the Step that starts the branches or before. A second token lets two branches into the section at once.
 - Use the token Channel for the token only.
 - Keep the section short. Every other branch waits while one branch is inside.
 - The token's value does not matter. Keep the protected state in Attributes.
