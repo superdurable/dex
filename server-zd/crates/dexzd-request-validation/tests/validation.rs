@@ -144,12 +144,12 @@ fn start_flow_ports_go_request_checks() {
     let mut request = start_request();
     request.flow_start_options = Some(FlowStartOptions {
         flow_config_override: Some(FlowConfig {
-            continue_as_new_threshold: Some(-1),
+            history_window_events: Some(-1),
             ..FlowConfig::default()
         }),
         ..FlowStartOptions::default()
     });
-    cases.push(("negative config", request, "continue_as_new_threshold"));
+    cases.push(("negative config", request, "history_window_events"));
     let mut request = start_request();
     request.flow_start_options = Some(FlowStartOptions {
         attributes: vec![
@@ -902,10 +902,10 @@ fn flow_config_and_wait_match_port_go_invalid_value_table() {
     let invalid_configs = [
         (
             FlowConfig {
-                continue_as_new_page_size_in_bytes: Some(-1),
+                history_window_events: Some(-1),
                 ..FlowConfig::default()
             },
-            "continue_as_new_page_size_in_bytes",
+            "history_window_events",
         ),
         (
             FlowConfig {

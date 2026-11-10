@@ -305,7 +305,6 @@ pub(crate) fn config_update() -> Command {
     Command::FlowConfigUpdate(FlowConfigUpdateCommand {
         request: Some(UpdateFlowConfigRequest {
             flow_config: Some(FlowConfig {
-                continue_as_new_threshold: Some(100),
                 ..FlowConfig::default()
             }),
             ..UpdateFlowConfigRequest::default()

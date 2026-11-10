@@ -336,7 +336,7 @@ async fn stop_flow_on_a_closed_run_is_not_found() {
         .into_inner();
     assert_eq!(
         summary
-            .flow_execution_id
+            .flow_run_id
             .map(|execution| (execution.run_id, summary.flow_status)),
         Some((second_run.run_id, FlowStatus::Canceled as i32))
     );

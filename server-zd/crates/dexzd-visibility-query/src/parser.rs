@@ -350,7 +350,6 @@ impl Parser<'_> {
                     | "Canceled"
                     | "Terminated"
                     | "TimedOut"
-                    | "ContinuedAsNew"
             )
         {
             return Err(QueryError::new(

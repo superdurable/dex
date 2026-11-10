@@ -156,12 +156,6 @@ fn evaluate_predicate(predicate: &Predicate, document: &impl SearchDocument) -> 
     {
         return Some(true);
     }
-    if predicate.field == "ExecutionStatus"
-        && predicate.operator == Operator::Equal
-        && matches!(predicate.literals.first(), Some(Literal::String(value)) if value == "ContinuedAsNew")
-    {
-        return Some(false);
-    }
     let value = value?;
     Some(match predicate.operator {
         Operator::Equal => equals(&value, &predicate.literals[0], predicate.index_type),

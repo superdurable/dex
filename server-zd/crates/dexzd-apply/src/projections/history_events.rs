@@ -9,7 +9,7 @@
 //! History events projected while applying commands (plan section 9.9).
 
 use dexzd_protocol::dex::{
-    AttributeWrite, ChannelMessage, FlowClosedHistoryEvent, FlowExecutionId, FlowInitialStart,
+    AttributeWrite, ChannelMessage, FlowClosedHistoryEvent, FlowRunId, FlowInitialStart,
     FlowStartedOrContinuedHistoryEvent, Kv, PendingStepMethodPhase, RetryPolicy,
     StepCompletionOutput, StepExecuteCompletedEvent, StepExecuteCompletedOutput,
     StepExecuteFailedEvent, StepMethodEventContext, StepMethodEventInput, StepMethodFailedOutput,
@@ -61,7 +61,7 @@ pub(crate) fn record_flow_started(
         attribute_references,
     );
     let event = FlowStartedOrContinuedHistoryEvent {
-        flow_execution_id: Some(FlowExecutionId {
+        flow_run_id: Some(FlowRunId {
             flow_id: request.flow_id.clone(),
             run_id: cursor.run_id().to_string(),
         }),
@@ -98,7 +98,6 @@ pub(crate) fn record_flow_closed(
         results,
         error_type: close.error_type,
         error_message,
-        continued_to_run_id: String::new(),
         sticky_app_worker_id: cursor.record.sticky_app_worker_id.clone(),
     };
     cursor.add_event(flow_history_event::Payload::FlowClosed(event));
