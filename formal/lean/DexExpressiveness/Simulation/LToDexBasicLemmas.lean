@@ -575,4 +575,242 @@ theorem wp2_exec_deliver (program : Program) (config : Dex.Config signature)
   | returned response =>
     simp [phaseCase] at hasEffect
 
+/-! ## [STEP-START] -/
+
+/-- The task that [STEP-START] hands to a Worker. -/
+def wp2_startedTask (config : Dex.Config signature) (run : Dex.Run signature)
+    (record : Dex.StepRecord signature) (method : Dex.Method) : Dex.Task signature :=
+  { id := config.nextTaskId
+    step := record.id
+    method := method
+    context := { stepExecutionId := record.id, fromStepExecutionId := record.origin }
+    input := record.input
+    snapshot := run.snapshot record.options method
+    conditionResults := record.conditionResults
+    phase := .started }
+
+/-- The Step record after [STEP-START]. -/
+def wp2_startedRecord (config : Dex.Config signature) (record : Dex.StepRecord signature)
+    (method : Dex.Method) : Dex.StepRecord signature :=
+  { record with invocation := some { method := method, state := .running config.nextTaskId } }
+
+/-- The run after [STEP-START]. -/
+def wp2_startedRun (config : Dex.Config signature) (run : Dex.Run signature)
+    (record : Dex.StepRecord signature) (method : Dex.Method) : Dex.Run signature :=
+  { run with seq := run.seq + 1 }.updateStep record.id (fun current =>
+    { current with invocation := some { method := method, state := .running config.nextTaskId } })
+
+/-- The configuration after [STEP-START]. -/
+def wp2_startedConfig (config : Dex.Config signature) (run : Dex.Run signature)
+    (record : Dex.StepRecord signature) (method : Dex.Method) : Dex.Config signature :=
+  { config with
+    run := some (wp2_startedRun config run record method)
+    lastCommitAt := some config.clock
+    tasks := config.tasks ++ [wp2_startedTask config run record method]
+    nextTaskId := config.nextTaskId + 1 }
+
+/-- [STEP-START] of a pending invocation, as one explicit action. -/
+theorem wp2_exec_stepStart (flow : Dex.FlowDef signature) (config : Dex.Config signature)
+    (run : Dex.Run signature) (hasRun : config.run = some run) (isRunning : run.status = .running)
+    (record : Dex.StepRecord signature) (isFound : run.findStep? record.id = some record)
+    (method : Dex.Method)
+    (isPending : record.invocation = some { method := method, state := .pending })
+    (canCommit : config.canCommit = true) :
+    (Dex.system flow).exec config [.stepStart record.id] =
+      some ([], wp2_startedConfig config run record method) := by
+  simp [TransitionSystem.exec, Dex.system, Dex.step, hasRun, isFound, isPending, canCommit,
+    Dex.Config.commit, Dex.Config.closeEvents, Dex.Run.updateStep, isRunning,
+    wp2_startedConfig, wp2_startedRun, wp2_startedTask]
+
+/-- The started task runs the started Step. -/
+theorem wp2_hasRunningTask_started (config : Dex.Config signature) (run : Dex.Run signature)
+    (record : Dex.StepRecord signature) (method : Dex.Method)
+    (Holds : Dex.Task signature → Prop)
+    (holds : Holds (wp2_startedTask config run record method)) :
+    HasRunningTask (wp2_startedConfig config run record method)
+      (wp2_startedRecord config record method) method Holds :=
+  ⟨wp2_startedTask config run record method, by simp [wp2_startedConfig], rfl, rfl, rfl, rfl,
+    holds⟩
+
+/-- A running task that satisfies more satisfies less. -/
+theorem wp2_hasRunningTask_imp {config : Dex.Config signature}
+    {record : Dex.StepRecord signature} {method : Dex.Method}
+    {Holds Weaker : Dex.Task signature → Prop} (isWeaker : ∀ task, Holds task → Weaker task)
+    (hasTask : HasRunningTask config record method Holds) :
+    HasRunningTask config record method Weaker := by
+  obtain ⟨task, isMember, hasInvocation, isStep, isMethod, sameInput, holds⟩ := hasTask
+  exact ⟨task, isMember, hasInvocation, isStep, isMethod, sameInput, isWeaker task holds⟩
+
+/-- The begin of an action: after [STEP-START] of the Step that carries the
+thread, the configurations are related again, given the new match of the
+thread with its started Step. -/
+theorem wp2_stepStart_related {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} (state : IsSimulationState program lConfig dexConfig)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    {run : Dex.Run signature} (hasRun : dexConfig.run = some run)
+    (isRunning : run.status = .running)
+    {record : Dex.StepRecord signature} (isRecord : record ∈ run.steps)
+    (isActive : record.phase.isActive = true)
+    (carries : StepCarriesThread program thread record) (method : Dex.Method)
+    (isPending : record.invocation = some { method := method, state := .pending })
+    (newPhase : Phase)
+    (sameBoot : wp2_isBootPhase newPhase = wp2_isBootPhase thread.phase)
+    (wasNotBlocked : ∀ on since, thread.phase ≠ .blocked on since)
+    (isNotBlocked : ∀ on since, newPhase ≠ .blocked on since)
+    (isNotHalted : newPhase ≠ .halted)
+    (keepsCanceled : thread.phase = .woken .canceled ∨ thread.phase = .resuming .canceled →
+      newPhase = .woken .canceled ∨ newPhase = .resuming .canceled)
+    (newMatch : PhaseMatchesStep program lConfig (wp2_startedConfig dexConfig run record method)
+      { thread with phase := newPhase } (wp2_startedRecord dexConfig record method)) :
+    Related program (lConfig.setPhase tid newPhase).stamp
+      (wp2_startedConfig dexConfig run record method) := by
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  obtain ⟨isRunningL, _⟩ := wp2_run_of_thread state thread isMember
+  have related := state.isRelated.running run hasRun isRunning
+  have idsNodup := (state.dexInvariant.runInvariant run hasRun).idsNodup
+  have isFoundRecord : run.findStep? record.id = some record :=
+    Dex.Run.findStep?_of_mem_nodup run record isRecord idsNodup
+  let image : Dex.StepRecord signature → Dex.StepRecord signature := fun candidate =>
+    if candidate.id = record.id then
+      { candidate with
+        invocation := some { method := method, state := .running dexConfig.nextTaskId } }
+    else candidate
+  have frame : RunningRelated program (lConfig.setPhase tid newPhase)
+      (wp2_startedConfig dexConfig run record method)
+      (wp2_startedRun dexConfig run record method) := by
+    refine wp2_runningRelated_setPhase related state.lInvariant idsNodup isFound isRecord
+      isActive carries newPhase sameBoot wasNotBlocked isNotBlocked isNotHalted keepsCanceled
+      image rfl ?_ ?_ rfl rfl rfl rfl rfl ?_ ?_ ?_
+    · intro candidate
+      by_cases isChanged : candidate.id = record.id <;> simp [image, isChanged]
+    · intro candidate isOther
+      simp [image, isOther]
+    · intro task isTask _
+      exact List.mem_append_left _ isTask
+    · have isImage : image record = wp2_startedRecord dexConfig record method := by
+        simp [image, wp2_startedRecord]
+      rw [isImage]
+      exact newMatch
+    · intro task isTask
+      rcases List.mem_append.mp isTask with isOld | isNew
+      · have wasCurrent := related.tasksAreCurrent task isOld
+        simp only [Dex.Config.isTaskCurrent, hasRun] at wasCurrent
+        by_cases sameStep : task.step = record.id
+        · simp [sameStep, isFoundRecord, isPending] at wasCurrent
+        · have sameFind : (wp2_startedRun dexConfig run record method).findStep? task.step =
+              run.findStep? task.step :=
+            Dex.Run.findStep?_updateStep_other _ _ _ _ (fun _ => rfl) sameStep
+          simp only [Dex.Config.isTaskCurrent, wp2_startedConfig, sameFind]
+          exact wasCurrent
+      · have isTaskNew : task = wp2_startedTask dexConfig run record method := by
+          simpa using isNew
+        have isFoundNew : (wp2_startedRun dexConfig run record method).findStep? record.id =
+            some (wp2_startedRecord dexConfig record method) :=
+          Dex.Run.findStep?_updateStep_self _ _ _ record isFoundRecord rfl
+        simp [Dex.Config.isTaskCurrent, wp2_startedConfig, isTaskNew, wp2_startedTask,
+          isFoundNew, wp2_startedRecord]
+  exact
+    { clock := state.isRelated.clock
+      stamp := congrArg some state.isRelated.clock
+      status := by
+        simp only [L.Config.stamp, L.Config.setPhase, L.Config.updateThread, isRunningL,
+          wp2_startedConfig]
+        exact isRunning
+      notStarted := fun hasNoRun => by simp [wp2_startedConfig] at hasNoRun
+      running := fun newRun hasNewRun _ => by
+        obtain rfl : wp2_startedRun dexConfig run record method = newRun :=
+          Option.some.inj hasNewRun
+        exact wp2_runningRelated_stamp frame
+      closed := fun newRun status hasNewRun isClosed => by
+        obtain rfl : wp2_startedRun dexConfig run record method = newRun :=
+          Option.some.inj hasNewRun
+        have isClosedRun : run.status = .closed status := isClosed
+        rw [isRunning] at isClosedRun
+        cases isClosedRun }
+
+/-! ## The external effects of the translated handlers (spec §8.2: "Each
+`emit` is the only effect of its own Execute") -/
+
+/-- No WaitFor of a translated Flow has an external effect. -/
+theorem wp2_compute_waitFor_effects (program : Program) (task : Dex.Task signature)
+    (isWaitFor : task.method = .waitFor) : (task.compute ⟦program⟧).1 = [] := by
+  unfold Dex.Task.compute
+  simp only [isWaitFor]
+  cases task.step.stepType with
+  | start => simp [translate, startStepDef]
+  | point code =>
+    simp only [translate, pointStepDef]
+    split
+    · rename_i waitFor isDefined
+      split at isDefined
+      · cases isDefined
+        dsimp only
+        split <;> rfl
+      · cases isDefined
+    · rfl
+  | timed =>
+    simp only [translate, timedStepDef]
+    split
+    · split <;> rfl
+    · rfl
+
+/-- The Execute of the start Step has no external effect. -/
+theorem wp2_startStep_effects (program : Program) (context : Dex.Context signature)
+    (input : Option DexVal) (snapshot : Dex.Snapshot signature)
+    (results : Option (Dex.ConditionResults signature)) :
+    ((startStepDef program).execute context input snapshot results).1 = [] := by
+  simp only [startStepDef]
+  split <;> rfl
+
+/-- The Execute of the `Timed` Step has no external effect. -/
+theorem wp2_timedStep_effects (context : Dex.Context signature)
+    (input : Option DexVal) (snapshot : Dex.Snapshot signature)
+    (results : Option (Dex.ConditionResults signature)) :
+    (timedStepDef.execute context input snapshot results).1 = [] := by
+  simp only [timedStepDef]
+  split <;> rfl
+
+/-- The Execute of a blocking program point has no external effect. -/
+theorem wp2_pointStep_effects_of_blocking (program : Program) (code : Code)
+    (isBlocking : isBlockingHead code = true) (context : Dex.Context signature)
+    (input : Option DexVal) (snapshot : Dex.Snapshot signature)
+    (results : Option (Dex.ConditionResults signature)) :
+    ((pointStepDef program code).execute context input snapshot results).1 = [] := by
+  simp only [pointStepDef, isBlocking]
+  split <;> rfl
+
+/-- The Execute of a program point that does not block has the effect of an
+`emit` head statement, and no other. -/
+theorem wp2_pointStep_effects (program : Program) (core : ThreadCore) (code : Code)
+    (isNotBlocking : isBlockingHead code = false) (context : Dex.Context signature)
+    (snapshot : Dex.Snapshot signature) (results : Option (Dex.ConditionResults signature)) :
+    ((pointStepDef program code).execute context (some (DexVal.thread core)) snapshot results).1 =
+      match beginKind core code with
+      | .emit effect => [effect]
+      | _ => [] := by
+  simp only [pointStepDef, isNotBlocking]
+  cases beginKind core code <;> rfl
+
+/-- The effects a started Execute task holds are those of its handler. -/
+theorem wp2_pendingEffects_started_execute (program : Program) (config : Dex.Config signature)
+    (run : Dex.Run signature) (record : Dex.StepRecord signature) :
+    pendingEffects ⟦program⟧ (wp2_startedTask config run record .execute) =
+      ((⟦program⟧.stepDef record.id.stepType).execute
+        { stepExecutionId := record.id, fromStepExecutionId := record.origin } record.input
+        (run.snapshot record.options .execute) record.conditionResults).1 := rfl
+
+/-- The Execute snapshot of a Step with the load selection of `moveToPoint`
+holds the waiter list its head statement reads. -/
+theorem wp2_readWaiters_snapshot (run : Dex.Run signature) (core : ThreadCore) (code : Code)
+    (options : Dex.StepOptions signature)
+    (hasSelection : options.executeLoadMaps = executeLoadMaps core code) (cv : CvId)
+    (isOperand : cvOperand core code = some cv) :
+    readWaiters (run.snapshot options .execute) cv =
+      readWaiters { attributes := run.attributes } cv := by
+  unfold readWaiters Dex.Run.snapshot
+  rw [AssocList.get?_filter_of_kept (Dex.Run.isLoadedKey options .execute) run.attributes
+    (Key.cvWaiters cv)
+    (by simp [Dex.Run.isLoadedKey, hasSelection, executeLoadMaps, isOperand,
+      Dex.StepOptions.loadMaps])]
+
 end DexExpressiveness

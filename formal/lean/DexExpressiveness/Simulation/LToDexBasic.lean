@@ -232,7 +232,170 @@ theorem l_thread_begin_simulated (program : Program) (lConfig : L.Config)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByDex program dexConfig (.thread tid) lEvents lNext := by
-  sorry
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  obtain ⟨_, run, hasRun, isRunning⟩ := wp2_run_of_thread state thread isMember
+  have related := state.isRelated.running run hasRun isRunning
+  have idsNodup := (state.dexInvariant.runInvariant run hasRun).idsNodup
+  have fitsCode := state.lInvariant.phasesFitCode thread isMember
+  have wasNotBlocked : ∀ on since, thread.phase ≠ .blocked on since := by
+    intro on since
+    rcases isPending with phaseCase | phaseCase | ⟨outcome, phaseCase⟩ <;> simp [phaseCase]
+  obtain ⟨record, isRecord, isActive, carries, isMatch⟩ :=
+    related.threadsHaveSteps thread isMember (by
+      rcases isPending with phaseCase | phaseCase | ⟨outcome, phaseCase⟩ <;> simp [phaseCase])
+  have isFoundRecord : run.findStep? record.id = some record :=
+    Dex.Run.findStep?_of_mem_nodup run record isRecord idsNodup
+  -- [STEP-START] of the Step that carries the thread simulates the begin.
+  have finish : ∀ (method : Dex.Method) (newPhase : Phase),
+      record.invocation = some { method := method, state := .pending } →
+      lConfig.canStamp = true →
+      wp2_isBootPhase newPhase = wp2_isBootPhase thread.phase →
+      (∀ on since, newPhase ≠ .blocked on since) → newPhase ≠ .halted →
+      (thread.phase = .woken .canceled ∨ thread.phase = .resuming .canceled →
+        newPhase = .woken .canceled ∨ newPhase = .resuming .canceled) →
+      PhaseMatchesStep program lConfig (wp2_startedConfig dexConfig run record method)
+        { thread with phase := newPhase } (wp2_startedRecord dexConfig record method) →
+      IsSimulatedByDex program dexConfig (.thread tid) []
+        (lConfig.setPhase tid newPhase).stamp := by
+    intro method newPhase isPendingInvocation canStamp sameBoot isNotBlocked isNotHalted
+      keepsCanceled newMatch
+    exact ⟨[.stepStart record.id], [], _,
+      wp2_exec_stepStart ⟦program⟧ dexConfig run hasRun isRunning record isFoundRecord method
+        isPendingInvocation (wp2_canCommit_of_canStamp state.isRelated canStamp),
+      rfl, rfl,
+      wp2_stepStart_related state isFound hasRun isRunning isRecord isActive carries method
+        isPendingInvocation newPhase sameBoot wasNotBlocked isNotBlocked isNotHalted
+        keepsCanceled newMatch⟩
+  simp only [L.system, L.step, isFound, stepThread, hasTid] at isStep
+  unfold PhaseMatchesStep at isMatch
+  rw [wp2_stepCarriesThread_iff] at carries
+  rcases isPending with phaseCase | phaseCase | ⟨outcome, phaseCase⟩
+  · -- The start action of `main` begins.
+    simp only [phaseCase] at isStep isMatch
+    simp only [phaseCase, wp2_isBootPhase, ↓reduceIte] at carries
+    obtain ⟨isStart, _⟩ := carries
+    by_cases canStamp : lConfig.canStamp = true
+    · simp only [canStamp, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at isStep
+      obtain ⟨rfl, rfl⟩ := isStep
+      refine finish .execute .bootRunning isMatch canStamp (by rw [phaseCase]; rfl) (by simp)
+        (by simp) (by simp [phaseCase]) ?_
+      unfold PhaseMatchesStep
+      refine wp2_hasRunningTask_started _ _ _ _ _ ?_
+      rw [wp2_pendingEffects_started_execute, isStart]
+      exact wp2_startStep_effects program _ _ _ _
+    · simp [canStamp] at isStep
+  · -- A statement, or the wait of a blocking statement, begins.
+    simp only [phaseCase] at isStep isMatch
+    simp only [phaseCase, wp2_isBootPhase] at carries
+    obtain ⟨noResults, isPendingInvocation⟩ := isMatch
+    by_cases waitsFirst : (thread.timer.isSome || isBlockingHead thread.code) = true
+    · simp only [waitsFirst, ↓reduceIte] at isStep isPendingInvocation
+      by_cases canStamp : lConfig.canStamp = true
+      · simp only [canStamp, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at isStep
+        obtain ⟨rfl, rfl⟩ := isStep
+        refine finish .waitFor .waitStarted isPendingInvocation canStamp (by rw [phaseCase]; rfl)
+          (by simp) (by simp) (by simp [phaseCase]) ?_
+        -- The WaitFor task holds no effect; the relation may or may not ask for it.
+        have hasTask : HasRunningTask (wp2_startedConfig dexConfig run record .waitFor)
+            (wp2_startedRecord dexConfig record .waitFor) .waitFor
+            (fun task => pendingEffects ⟦program⟧ task = []) :=
+          wp2_hasRunningTask_started _ _ _ _ _
+            (wp2_compute_waitFor_effects program _ rfl)
+        unfold PhaseMatchesStep
+        first
+          | exact hasTask
+          | exact wp2_hasRunningTask_imp (fun _ _ => trivial) hasTask
+      · simp [canStamp] at isStep
+    · simp only [waitsFirst] at isStep isPendingInvocation
+      have isNotTimed : thread.timer = none := by
+        cases timerCase : thread.timer with
+        | none => rfl
+        | some timer => simp [timerCase] at waitsFirst
+      have isNotBlocking : isBlockingHead thread.code = false := by
+        cases blockingCase : isBlockingHead thread.code with
+        | false => rfl
+        | true => simp [blockingCase] at waitsFirst
+      simp only [isNotTimed, Bool.false_eq_true, ↓reduceIte] at carries
+      obtain ⟨isPoint, hasInput, hasSelection⟩ := carries
+      -- The effects of the started Execute task.
+      have hasEffects : pendingEffects ⟦program⟧ (wp2_startedTask dexConfig run record .execute) =
+          match beginKind thread.core thread.code with
+          | .emit effect => [effect]
+          | _ => [] := by
+        rw [wp2_pendingEffects_started_execute, isPoint, hasInput]
+        exact wp2_pointStep_effects program thread.core thread.code isNotBlocking _ _ _
+      have hasWaiters : ∀ cv, cvOperand thread.core thread.code = some cv →
+          readWaiters (wp2_startedTask dexConfig run record .execute).snapshot cv =
+            (lConfig.cvQueues.get? cv).getD [] := by
+        intro cv isOperand
+        exact (wp2_readWaiters_snapshot run thread.core thread.code record.options hasSelection
+          cv isOperand).trans (related.cvQueues cv)
+      by_cases holdsMutex : lConfig.holdsRequiredMutex thread = true
+      · simp only [holdsMutex, ↓reduceIte] at isStep
+        cases kindCase : beginKind thread.core thread.code with
+        | plain =>
+          simp only [kindCase] at isStep hasEffects
+          by_cases canStamp : lConfig.canStamp = true
+          · simp only [canStamp, ↓reduceIte] at isStep
+            obtain ⟨rfl, rfl⟩ := isStep
+            refine finish .execute (.running .null) isPendingInvocation canStamp
+              (by rw [phaseCase]; rfl) (by simp) (by simp) (by simp [phaseCase]) ?_
+            unfold PhaseMatchesStep
+            refine wp2_hasRunningTask_started _ _ _ _ _ ⟨hasEffects, noResults, ?_, hasWaiters⟩
+            simp only [kindCase]
+          · simp [canStamp] at isStep
+        | load source =>
+          simp only [kindCase] at isStep hasEffects
+          by_cases canStamp : lConfig.canStamp = true
+          · simp only [canStamp, ↓reduceIte] at isStep
+            obtain ⟨rfl, rfl⟩ := isStep
+            refine finish .execute (.running (lConfig.readShared source)) isPendingInvocation
+              canStamp (by rw [phaseCase]; rfl) (by simp) (by simp) (by simp [phaseCase]) ?_
+            unfold PhaseMatchesStep
+            refine wp2_hasRunningTask_started _ _ _ _ _ ⟨hasEffects, noResults, ?_, hasWaiters⟩
+            simp only [kindCase]
+            exact (readShared_snapshot run record.options .execute source).trans
+              (related.shared source)
+          · simp [canStamp] at isStep
+        | emit effect =>
+          simp only [kindCase] at isStep hasEffects
+          by_cases canStamp : lConfig.canStamp = true
+          · simp only [canStamp, ↓reduceIte] at isStep
+            obtain ⟨rfl, rfl⟩ := isStep
+            refine finish .execute (.emitting effect) isPendingInvocation canStamp
+              (by rw [phaseCase]; rfl) (by simp) (by simp) (by simp [phaseCase]) ?_
+            unfold PhaseMatchesStep
+            exact wp2_hasRunningTask_started _ _ _ _ _ ⟨hasEffects, noResults⟩
+          · simp [canStamp] at isStep
+      · simp [holdsMutex] at isStep
+  · -- The continuation after a decided wait begins.
+    simp only [phaseCase] at isStep isMatch
+    simp only [phaseCase, wp2_isBootPhase] at carries
+    obtain ⟨_, isPendingInvocation, isOutcome⟩ := isMatch
+    by_cases canStamp : lConfig.canStamp = true
+    · simp only [canStamp, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at isStep
+      obtain ⟨rfl, rfl⟩ := isStep
+      refine finish .execute (.resuming outcome) isPendingInvocation canStamp
+        (by rw [phaseCase]; rfl) (by simp) (by simp) (by simp [phaseCase]) ?_
+      have hasEffects :
+          pendingEffects ⟦program⟧ (wp2_startedTask dexConfig run record .execute) = [] := by
+        rw [wp2_pendingEffects_started_execute]
+        cases timerCase : thread.timer with
+        | some timer =>
+          obtain ⟨number, seconds⟩ := timer
+          simp only [timerCase, Bool.false_eq_true, ↓reduceIte] at carries
+          rw [carries.1]
+          exact wp2_timedStep_effects _ _ _ _
+        | none =>
+          simp only [timerCase, Bool.false_eq_true, ↓reduceIte] at carries
+          have isBlocking : isBlockingHead thread.code = true := by
+            unfold L.Thread.PhaseFitsCode at fitsCode
+            simpa [phaseCase, timerCase] using fitsCode
+          rw [carries.1]
+          exact wp2_pointStep_effects_of_blocking program thread.code isBlocking _ _ _ _
+      unfold PhaseMatchesStep
+      exact wp2_hasRunningTask_started _ _ _ _ _ ⟨hasEffects, isOutcome⟩
+    · simp [canStamp] at isStep
 
 /-- The named-sequence form of `l_thread_deliver_simulated`: the task of the
 emit Step runs `wp2_deliverActions` (its handler, if it has not run, then
