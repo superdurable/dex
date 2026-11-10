@@ -250,9 +250,11 @@ invocation and the condition results of the Step that carries the thread,
 and the tasks of every other Step stay. Then `RunningRelated` holds again,
 given the new match of the changed thread with its Step. -/
 
-/-- The frame lemma of a phase change. `image` is the change of the Step
-table; it is the identity outside the Step that carries the thread. -/
-theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
+/-- The frame lemma of a change of one thread's phase and of its Step. `image`
+is the change of the Step table; it is the identity outside the Step that
+carries the thread. The caller proves the timer clause and the new match of
+the thread with its Step. -/
+theorem wp2_runningRelated_changeThread {program : Program} {lConfig : L.Config}
     {dexConfig dexNext : Dex.Config signature} {run newRun : Dex.Run signature}
     (related : RunningRelated program lConfig dexConfig run)
     (lInvariant : L.Invariant program lConfig)
@@ -263,21 +265,22 @@ theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
     (carries : StepCarriesThread program thread record)
     (newPhase : Phase)
     (sameBoot : wp2_isBootPhase newPhase = wp2_isBootPhase thread.phase)
-    (wasNotBlocked : ∀ on since, thread.phase ≠ .blocked on since)
     (isNotBlocked : ∀ on since, newPhase ≠ .blocked on since)
     (isNotHalted : newPhase ≠ .halted)
     (keepsCanceled : thread.phase = .woken .canceled ∨ thread.phase = .resuming .canceled →
       newPhase = .woken .canceled ∨ newPhase = .resuming .canceled)
     (image : Dex.StepRecord signature → Dex.StepRecord signature)
     (sameSteps : newRun.steps = run.steps.map image)
-    (imageKeeps : ∀ candidate, (image candidate).id = candidate.id ∧
+    (imageKeeps : ∀ candidate, candidate ∈ run.steps → (image candidate).id = candidate.id ∧
       (image candidate).input = candidate.input ∧ (image candidate).options = candidate.options ∧
-      (image candidate).phase = candidate.phase ∧
-      (image candidate).waitState = candidate.waitState)
+      (image candidate).phase.isActive = candidate.phase.isActive)
     (imageOther : ∀ candidate, candidate.id ≠ record.id → image candidate = candidate)
     (sameAttributes : newRun.attributes = run.attributes)
-    (sameChannels : newRun.channels = run.channels)
-    (sameTimers : newRun.timers = run.timers)
+    (samePending : ∀ chan, newRun.pendingMessages chan = run.pendingMessages chan)
+    (timersField : ∀ timer fireTime, newRun.timers.get? timer = some fireTime ↔
+      ∃ owner chan since, owner ∈ (lConfig.setPhase tid newPhase).threads ∧
+        owner.phase = .blocked (.timed timer.step.number fireTime chan) since ∧
+        timer.step.stepType = StepType.timed ∧ timer.index = 0)
     (sameCounters : newRun.counters = run.counters)
     (sameOutputs : newRun.outputs = run.outputs)
     (keepsTasks : ∀ task, task ∈ dexConfig.tasks → task.step ≠ record.id → task ∈ dexNext.tasks)
@@ -287,9 +290,6 @@ theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
     RunningRelated program (lConfig.setPhase tid newPhase) dexNext newRun := by
   obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
   have memNew := wp2_mem_setPhase lInvariant isFound newPhase
-  have samePending : ∀ chan, newRun.pendingMessages chan = run.pendingMessages chan := by
-    intro chan
-    simp [Dex.Run.pendingMessages, sameChannels]
   -- A Step of another thread is not the Step of the changed thread.
   have otherStep : ∀ other otherRecord, other ∈ lConfig.threads → other.core.tid ≠ tid →
       otherRecord ∈ run.steps → StepCarriesThread program other otherRecord →
@@ -307,10 +307,10 @@ theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
     rw [sameSteps]
     exact List.mem_map.mpr ⟨candidate, isCandidate, rfl⟩
   have carriesImage : ∀ (other : L.Thread) (candidate : Dex.StepRecord signature),
-      StepCarriesThread program other candidate ↔
-        StepCarriesThread program other (image candidate) := by
-    intro other candidate
-    obtain ⟨sameId, sameInput, sameOptions, _, _⟩ := imageKeeps candidate
+      candidate ∈ run.steps → (StepCarriesThread program other candidate ↔
+        StepCarriesThread program other (image candidate)) := by
+    intro other candidate isCandidate
+    obtain ⟨sameId, sameInput, sameOptions, _⟩ := imageKeeps candidate isCandidate
     exact ⟨wp2_stepCarriesThread_congr sameId sameInput sameOptions,
       wp2_stepCarriesThread_congr sameId.symm sameInput.symm sameOptions.symm⟩
   exact
@@ -361,21 +361,7 @@ theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
       cvWakes := fun cv waiter => by
         rw [samePending]
         exact related.cvWakes cv waiter
-      timers := fun timer fireTime => by
-        rw [sameTimers, related.timers]
-        constructor
-        · rintro ⟨owner, chan, since, isOwner, isBlocked, rest⟩
-          refine ⟨owner, chan, since, (memNew owner).mpr (Or.inl ⟨isOwner, ?_⟩), isBlocked, rest⟩
-          intro isChanged
-          have isThread : owner = thread :=
-            wp2_thread_eq_of_tid lInvariant isOwner isMember (isChanged.trans hasTid.symm)
-          subst isThread
-          exact wasNotBlocked _ _ isBlocked
-        · rintro ⟨owner, chan, since, isOwner, isBlocked, rest⟩
-          rcases (memNew owner).mp isOwner with ⟨isOld, _⟩ | isNew
-          · exact ⟨owner, chan, since, isOld, isBlocked, rest⟩
-          · subst isNew
-            exact (isNotBlocked _ _ isBlocked).elim
+      timers := timersField
       timerCounter := by
         rw [sameCounters]
         exact related.timerCounter
@@ -395,15 +381,15 @@ theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
               otherMatch
         · subst isNew
           refine ⟨image record, imageMem record isRecord, ?_, ?_, ?_⟩
-          · rw [(imageKeeps record).2.2.2.1]
+          · rw [(imageKeeps record isRecord).2.2.2]
             exact isActive
-          · exact (carriesImage _ record).mp (wp2_stepCarriesThread_setPhase newPhase sameBoot carries)
+          · exact (carriesImage _ record isRecord).mp (wp2_stepCarriesThread_setPhase newPhase sameBoot carries)
           · exact wp2_phaseMatchesStep_transfer rfl (fun _ isTask _ => isTask) newMatch
       stepsHaveThreads := fun changed isChanged changedActive => by
         rw [sameSteps] at isChanged
         obtain ⟨candidate, isCandidate, isImage⟩ := List.mem_map.mp isChanged
         subst isImage
-        rw [(imageKeeps candidate).2.2.2.1] at changedActive
+        rw [(imageKeeps candidate isCandidate).2.2.2] at changedActive
         obtain ⟨owner, isOwner, ownerNotHalted, ownerCarries⟩ :=
           related.stepsHaveThreads candidate isCandidate changedActive
         by_cases isChangedThread : owner.core.tid = tid
@@ -411,10 +397,10 @@ theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
             wp2_thread_eq_of_tid lInvariant isOwner isMember (isChangedThread.trans hasTid.symm)
           subst isThread
           exact ⟨_, (memNew _).mpr (Or.inr rfl), isNotHalted,
-            (carriesImage _ candidate).mp
+            (carriesImage _ candidate isCandidate).mp
               (wp2_stepCarriesThread_setPhase newPhase sameBoot ownerCarries)⟩
         · exact ⟨owner, (memNew owner).mpr (Or.inl ⟨isOwner, isChangedThread⟩), ownerNotHalted,
-            (carriesImage owner candidate).mp ownerCarries⟩
+            (carriesImage owner candidate isCandidate).mp ownerCarries⟩
       activeStepsHaveDistinctThreads := fun first isFirst second isSecond firstActive
           secondActive sameThread => by
         rw [sameSteps] at isFirst isSecond
@@ -422,16 +408,16 @@ theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
         obtain ⟨secondOld, isSecondOld, isSecondImage⟩ := List.mem_map.mp isSecond
         subst isFirstImage
         subst isSecondImage
-        rw [(imageKeeps firstOld).2.2.2.1] at firstActive
-        rw [(imageKeeps secondOld).2.2.2.1] at secondActive
-        rw [(imageKeeps firstOld).2.1, (imageKeeps secondOld).2.1] at sameThread
+        rw [(imageKeeps firstOld isFirstOld).2.2.2] at firstActive
+        rw [(imageKeeps secondOld isSecondOld).2.2.2] at secondActive
+        rw [(imageKeeps firstOld isFirstOld).2.1, (imageKeeps secondOld isSecondOld).2.1] at sameThread
         rw [related.activeStepsHaveDistinctThreads firstOld isFirstOld secondOld isSecondOld
           firstActive secondActive sameThread]
       invocationsAreActive := fun changed isChanged hasInvocation => by
         rw [sameSteps] at isChanged
         obtain ⟨candidate, isCandidate, isImage⟩ := List.mem_map.mp isChanged
         subst isImage
-        rw [(imageKeeps candidate).2.2.2.1]
+        rw [(imageKeeps candidate isCandidate).2.2.2]
         by_cases isChangedStep : candidate.id = record.id
         · have sameRecord : candidate = record :=
             eq_of_nodup_map (fun step => step.id) run.steps idsNodup isCandidate isRecord
@@ -449,26 +435,88 @@ theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
         obtain ⟨secondOld, isSecondOld, isSecondImage⟩ := List.mem_map.mp isSecondRecord
         subst isFirstImage
         subst isSecondImage
-        rw [(imageKeeps firstOld).2.2.2.1] at firstActive
-        rw [(imageKeeps secondOld).2.2.2.1] at secondActive
-        rw [(imageKeeps firstOld).2.2.2.2] at firstHasWait
-        rw [(imageKeeps secondOld).2.2.2.2] at secondHasWait
-        have isFirstThread : first ∈ lConfig.threads := by
-          rcases (memNew first).mp isFirst with ⟨isOld, _⟩ | isNew
+        rw [(imageKeeps firstOld isFirstOld).2.2.2] at firstActive
+        rw [(imageKeeps secondOld isSecondOld).2.2.2] at secondActive
+        obtain ⟨isFirstThread, firstTid⟩ : first ∈ lConfig.threads ∧ first.core.tid ≠ tid := by
+          rcases (memNew first).mp isFirst with isOld | isNew
           · exact isOld
           · subst isNew
             exact (isNotBlocked _ _ firstBlocked).elim
-        have isSecondThread : second ∈ lConfig.threads := by
-          rcases (memNew second).mp isSecond with ⟨isOld, _⟩ | isNew
+        obtain ⟨isSecondThread, secondTid⟩ :
+            second ∈ lConfig.threads ∧ second.core.tid ≠ tid := by
+          rcases (memNew second).mp isSecond with isOld | isNew
           · exact isOld
           · subst isNew
             exact (isNotBlocked _ _ secondBlocked).elim
+        rw [imageOther firstOld (otherStep first firstOld isFirstThread firstTid isFirstOld
+          ((carriesImage first firstOld isFirstOld).mpr firstCarries))] at firstHasWait
+        rw [imageOther secondOld (otherStep second secondOld isSecondThread secondTid isSecondOld
+          ((carriesImage second secondOld isSecondOld).mpr secondCarries))] at secondHasWait
         exact related.blockingOrder first second firstOld secondOld firstOn firstSince secondOn
           secondSince firstWait secondWait isFirstThread isSecondThread isFirstOld isSecondOld
-          firstActive secondActive ((carriesImage first firstOld).mpr firstCarries)
-          ((carriesImage second secondOld).mpr secondCarries) firstBlocked secondBlocked
+          firstActive secondActive ((carriesImage first firstOld isFirstOld).mpr firstCarries)
+          ((carriesImage second secondOld isSecondOld).mpr secondCarries) firstBlocked secondBlocked
           firstHasWait secondHasWait
       tasksAreCurrent := tasksAreCurrent }
+
+/-- The frame lemma of a phase change of a thread that is not blocked, before
+or after: the Step keeps its phase and its wait, and the timers stay. -/
+theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
+    {dexConfig dexNext : Dex.Config signature} {run newRun : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (lInvariant : L.Invariant program lConfig)
+    (idsNodup : (run.steps.map (fun candidate => candidate.id)).Nodup)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    {record : Dex.StepRecord signature} (isRecord : record ∈ run.steps)
+    (isActive : record.phase.isActive = true)
+    (carries : StepCarriesThread program thread record)
+    (newPhase : Phase)
+    (sameBoot : wp2_isBootPhase newPhase = wp2_isBootPhase thread.phase)
+    (wasNotBlocked : ∀ on since, thread.phase ≠ .blocked on since)
+    (isNotBlocked : ∀ on since, newPhase ≠ .blocked on since)
+    (isNotHalted : newPhase ≠ .halted)
+    (keepsCanceled : thread.phase = .woken .canceled ∨ thread.phase = .resuming .canceled →
+      newPhase = .woken .canceled ∨ newPhase = .resuming .canceled)
+    (image : Dex.StepRecord signature → Dex.StepRecord signature)
+    (sameSteps : newRun.steps = run.steps.map image)
+    (imageKeeps : ∀ candidate, (image candidate).id = candidate.id ∧
+      (image candidate).input = candidate.input ∧ (image candidate).options = candidate.options ∧
+      (image candidate).phase = candidate.phase ∧
+      (image candidate).waitState = candidate.waitState)
+    (imageOther : ∀ candidate, candidate.id ≠ record.id → image candidate = candidate)
+    (sameAttributes : newRun.attributes = run.attributes)
+    (sameChannels : newRun.channels = run.channels)
+    (sameTimers : newRun.timers = run.timers)
+    (sameCounters : newRun.counters = run.counters)
+    (sameOutputs : newRun.outputs = run.outputs)
+    (keepsTasks : ∀ task, task ∈ dexConfig.tasks → task.step ≠ record.id → task ∈ dexNext.tasks)
+    (newMatch : PhaseMatchesStep program lConfig dexNext { thread with phase := newPhase }
+      (image record))
+    (tasksAreCurrent : ∀ task, task ∈ dexNext.tasks → dexNext.isTaskCurrent task = true) :
+    RunningRelated program (lConfig.setPhase tid newPhase) dexNext newRun := by
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  have memNew := wp2_mem_setPhase lInvariant isFound newPhase
+  refine wp2_runningRelated_changeThread related lInvariant idsNodup isFound isRecord isActive
+    carries newPhase sameBoot isNotBlocked isNotHalted keepsCanceled image sameSteps
+    (fun candidate _ => ⟨(imageKeeps candidate).1, (imageKeeps candidate).2.1,
+      (imageKeeps candidate).2.2.1, by rw [(imageKeeps candidate).2.2.2.1]⟩)
+    imageOther sameAttributes (fun chan => by simp [Dex.Run.pendingMessages, sameChannels]) ?_
+    sameCounters sameOutputs keepsTasks newMatch tasksAreCurrent
+  intro timer fireTime
+  rw [sameTimers, related.timers]
+  constructor
+  · rintro ⟨owner, chan, since, isOwner, isBlocked, rest⟩
+    refine ⟨owner, chan, since, (memNew owner).mpr (Or.inl ⟨isOwner, ?_⟩), isBlocked, rest⟩
+    intro isChanged
+    have isThread : owner = thread :=
+      wp2_thread_eq_of_tid lInvariant isOwner isMember (isChanged.trans hasTid.symm)
+    subst isThread
+    exact wasNotBlocked _ _ isBlocked
+  · rintro ⟨owner, chan, since, isOwner, isBlocked, rest⟩
+    rcases (memNew owner).mp isOwner with ⟨isOld, _⟩ | isNew
+    · exact ⟨owner, chan, since, isOld, isBlocked, rest⟩
+    · subst isNew
+      exact (isNotBlocked _ _ isBlocked).elim
 
 /-! ## Task lookup -/
 
