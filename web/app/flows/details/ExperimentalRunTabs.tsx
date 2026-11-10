@@ -11,9 +11,12 @@ import type { AgentSessionSchema } from '../../agents/sessionSchema';
 import { SessionView } from '../../agents/SessionView';
 import { ChevronDown, UserRound } from 'lucide-react';
 import { SelectedRunPanel } from '../../workspace/SelectedRunPanel';
-import { useWorkingAs } from '../../workspace/useWorkingAs';
+import type { useWorkingAs } from '../../workspace/useWorkingAs';
 import '../../workspace/css/workspace.css';
 import '../../workspace/css/experimental.css';
+
+/** The run page's one Working as choice, shared by Agent session and Actions. */
+export type RunWorkingAs = ReturnType<typeof useWorkingAs>;
 
 /** A Dex Agents session read as one conversation, with its controls. */
 export function AgentSessionTab({
@@ -21,13 +24,14 @@ export function AgentSessionTab({
   flowId,
   reloadKey,
   schema,
+  workingAs,
 }: {
   entry: V2CatalogEntry;
   flowId: string;
   reloadKey: number;
   schema: AgentSessionSchema;
+  workingAs: RunWorkingAs;
 }) {
-  const workingAs = useWorkingAs([entry.definition]);
   return (
     <section className="v2-shell sv run-experimental xp" aria-label="Agent session">
       <header className="xp-head">
@@ -53,13 +57,14 @@ export function RunActionsTab({
   flowId,
   flowStatusCode,
   reloadKey,
+  workingAs,
 }: {
   entry: V2CatalogEntry;
   flowId: string;
   flowStatusCode?: number;
   reloadKey: number;
+  workingAs: RunWorkingAs;
 }) {
-  const workingAs = useWorkingAs([entry.definition]);
   const hasActions = entry.definition.actions.length > 0;
   return (
     <section className="v2-shell sv run-experimental xp" aria-label="Actions">
@@ -82,7 +87,7 @@ export function RunActionsTab({
 }
 
 /** Working as, as a compact pill beside the tab's heading. */
-function WorkingAsBar({ entry, workingAs }: { entry: V2CatalogEntry; workingAs: ReturnType<typeof useWorkingAs> }) {
+function WorkingAsBar({ entry, workingAs }: { entry: V2CatalogEntry; workingAs: RunWorkingAs }) {
   if (workingAs.permissionOptions.length === 0) return null;
   return (
     <label className="xp-working-as" title={entry.flowType}>

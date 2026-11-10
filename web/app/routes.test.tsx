@@ -59,8 +59,14 @@ describe('Dex Web routes', () => {
 
   it.each([
     ['/v2', '/v1/flows'],
+    ['/v2?a=1#top', '/v1/flows?a=1#top'],
     ['/v2/run', '/v1/flows'],
+    ['/v2/run?a=1#top', '/v1/flows?a=1#top'],
     ['/v2/run/Refund%20Flow', flowsOfTypePath('Refund Flow')],
+    [
+      '/v2/run/Refund%20Flow?q=stale&size=20#top',
+      `/v1/flows?${new URLSearchParams({ q: 'FlowType = "Refund Flow"', size: '20' })}#top`,
+    ],
     ['/v2/run/Refund%20Flow/refund%2F42', '/v1/flows/refund%2F42'],
     ['/v2/run/SupportAgent/ses-1?view=session', '/v1/flows/ses-1?view=session'],
     ['/v2/run/Refund%20Flow/refund-42/debug', '/v1/flows/refund-42'],
@@ -71,6 +77,9 @@ describe('Dex Web routes', () => {
     ['/v2/connections', '/v1/connectors'],
     ['/v2/connections/llm/default?a=1#setup', '/v1/connectors/llm/default?a=1#setup'],
     ['/v2/anything-else', '/v1/flows'],
+    ['/v2/anything-else?a=1#top', '/v1/flows?a=1#top'],
+    ['/v2/run/%E0', '/v1/flows'],
+    ['/v2/run/Refund/%E0%A4%A?view=session', '/v1/flows?view=session'],
   ])('maps %s to %s', (from, to) => {
     const url = new URL(from, 'http://dex.test');
     expect(legacyV2RedirectPath({ pathname: url.pathname, search: url.search, hash: url.hash })).toBe(to);
@@ -84,6 +93,7 @@ describe('Dex Web routes', () => {
     ['/v2/connections?oauth=success', '/v1/connectors?oauth=success', 'Connectors page'],
     ['/v1/rendering', '/v1/rendering', 'Designs page'],
     ['/no-such-page', '/v1/flows', 'Flows page'],
+    ['/v2/run/%E0', '/v1/flows', 'Flows page'],
   ])('lands %s on %s', async (entry, landing, page) => {
     renderAt(entry);
     await waitFor(() => expect(location()).toBe(landing));

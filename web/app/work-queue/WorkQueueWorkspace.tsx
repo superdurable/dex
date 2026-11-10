@@ -16,6 +16,7 @@ import {
 } from '../workspace/SplitHandle';
 import { AGENT_INBOX_VIEW, RUN_VIEW_PARAM, runPath, workQueuePath } from '../routes';
 import '../workspace/css/workspace.css';
+import '../workspace/css/experimental.css';
 import { RUN_COPY } from '../workspace/runCopy';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
 import { StartFlowDialog } from '../start/StartFlowDialog';

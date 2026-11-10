@@ -12,6 +12,7 @@ import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog, FlowDefinitionEntry } from '@/lib/types';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
 import { ExperimentalBadge } from '../components/ExperimentalBadge';
+import { FlowDefinitionDiagnostics } from './FlowDefinitionDiagnostics';
 
 export function FlowRenderingPage() {
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
@@ -145,16 +146,7 @@ function DefinitionCanvas({
           ))}
         </p>
       )}
-      {definition.graph.diagnostics.length > 0 && (
-        <div className="flow-definition-diagnostics">
-          {definition.graph.diagnostics.map((diagnostic, index) => (
-            <div className={`flow-definition-diagnostic is-${diagnostic.severity}`} key={`${diagnostic.code}-${index}`}>
-              <b>{diagnostic.code}</b>
-              <span>{diagnostic.message}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <FlowDefinitionDiagnostics definition={definition} />
     </>
   );
 }

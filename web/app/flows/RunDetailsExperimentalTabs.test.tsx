@@ -10,8 +10,8 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlowDefinitionGraph, FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import { WebCatalogProvider } from '@/app/catalog/WebCatalogProvider';
@@ -26,7 +26,9 @@ vi.mock('../design/FlowDesignGraph', () => ({
   ),
 }));
 vi.mock('../agents/SessionView', () => ({
-  SessionView: ({ flowId }: { flowId: string }) => <div data-testid="session-view" data-flow-id={flowId} />,
+  SessionView: ({ flowId, workQueuePermissions }: { flowId: string; workQueuePermissions: string[] }) => (
+    <div data-testid="session-view" data-flow-id={flowId} data-permissions={workQueuePermissions.join(',')} />
+  ),
 }));
 
 const emptyState: FlowState = {
@@ -38,7 +40,7 @@ const emptyState: FlowState = {
   completedSteps: [],
 };
 
-function summaryOf(flowType: string): FlowSummary {
+function summaryOf(flowType: string, overrides: Partial<FlowSummary> = {}): FlowSummary {
   return {
     flowId: 'run-flow',
     runId: 'run-1',
@@ -50,6 +52,7 @@ function summaryOf(flowType: string): FlowSummary {
     startTime: '2026-10-24T17:00:00Z',
     closeTime: null,
     runAttempt: 1,
+    ...overrides,
   };
 }
 
@@ -85,22 +88,39 @@ interface DexWebStub {
   flowType: string;
   definitions: FlowDefinitionEntry[];
   operatorFlows?: { flowType: string; definition: FlowV2Definition }[];
+  /** Overrides the summary of the run on screen, run-1. */
+  summary?: Partial<FlowSummary>;
+  /** The run a summary request without a run ID resolves to. */
+  currentRunId?: string;
+  /** Holds the definitions response until this promise settles. */
+  definitionsReleased?: Promise<void>;
 }
 
 /** Serves one run, its definitions and an optional operator catalog, and records every request path. */
-function stubDexWeb({ flowType, definitions, operatorFlows }: DexWebStub) {
+function stubDexWeb({
+  flowType,
+  definitions,
+  operatorFlows,
+  summary,
+  currentRunId = 'run-1',
+  definitionsReleased,
+}: DexWebStub) {
   const requests: string[] = [];
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
-  vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
     const url = new URL(input, 'http://dex.test');
     requests.push(url.pathname);
     if (url.pathname === '/api/flow-definitions') {
+      await definitionsReleased;
       return json({ configured: true, definitionRevision: 'r1', definitionCount: definitions.length, definitions });
     }
     if (url.pathname === '/api/v2/catalog') {
       return operatorFlows ? json({ enabled: true, definitionRevision: 'r1', flows: operatorFlows }) : json({}, 404);
     }
-    if (url.pathname === '/api/flows/summary') return json(summaryOf(flowType));
+    if (url.pathname === '/api/flows/summary' && !url.searchParams.has('runId')) {
+      return json(summaryOf(flowType, { runId: currentRunId }));
+    }
+    if (url.pathname === '/api/flows/summary') return json(summaryOf(flowType, summary));
     if (url.pathname === '/api/flows/state') return json(emptyState);
     if (url.pathname === '/api/flows/history') {
       return json({
@@ -112,26 +132,53 @@ function stubDexWeb({ flowType, definitions, operatorFlows }: DexWebStub) {
     if (url.pathname === '/api/flows/wait' && url.searchParams.get('nextInternalEventId') === '1') {
       return json({ eventAvailable: true, availableInternalEventId: '1' });
     }
+    // Answers promptly, so a wait loop that should not run shows up as repeated requests.
     if (url.pathname === '/api/flows/wait') {
-      await new Promise<void>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-      });
+      await new Promise((resolveWait) => setTimeout(resolveWait, 5));
+      return json({}, 408);
     }
     return json({ error: `unexpected ${url.pathname}` }, 500);
   }));
   return requests;
 }
 
-function renderRun(entry = '/v1/flows/run-flow/run-1') {
+function LocationProbe() {
+  const location = useLocation();
+  return <output aria-label="location">{`${location.pathname}${location.search}`}</output>;
+}
+
+function NavigateButton({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate(to)} type="button">Navigate</button>;
+}
+
+function renderRun(entry = '/v1/flows/run-flow/run-1', navigateTo = '/v1/flows/run-flow/run-1') {
   render(
     <MemoryRouter initialEntries={[entry]}>
       <PreferencesProvider>
         <WebCatalogProvider>
           <RunDetailsPage breadcrumb={null} flowId="run-flow" runId="run-1" runPath={(runID) => `/v1/flows/run-flow/${runID}`} />
+          <LocationProbe />
+          <NavigateButton to={navigateTo} />
         </WebCatalogProvider>
       </PreferencesProvider>
     </MemoryRouter>,
   );
+}
+
+/** Requests that read the run's history, state, stored values, or wait for new events. */
+function runDataRequests(requests: string[]): string[] {
+  const runDataPaths = new Set(['/api/flows/history', '/api/flows/state', '/api/blobs/load', '/api/flows/wait']);
+  return requests.filter((path) => runDataPaths.has(path));
+}
+
+/** Lets every queued fetch and timer callback run, so work the page started becomes visible. */
+async function settle() {
+  for (let round = 0; round < 5; round += 1) {
+    await act(async () => {
+      await new Promise((resolveRound) => setTimeout(resolveRound, 10));
+    });
+  }
 }
 
 function tabLabels(): string[] {
@@ -171,17 +218,81 @@ describe('Run page experimental tabs', () => {
     expect(design.querySelector('.experimental-badge')?.textContent).toBe('Experimental');
   });
 
-  it('draws only the definition: opening Design reads no history and no stored values', async () => {
+  it('opens a running Flow on Design without reading history, state, stored values or waiting', async () => {
     const requests = stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
-    renderRun();
-    const design = await screen.findByRole('button', { name: /^Design/ });
-    await waitFor(() => expect(requests).toContain('/api/flows/history'));
-    const before = requests.length;
-    fireEvent.click(design);
+    renderRun('/v1/flows/run-flow/run-1?view=design');
     expect((await screen.findByTestId('design-graph')).getAttribute('data-definition')).toBe('order');
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    const opened = requests.slice(before);
-    expect(opened.filter((path) => path === '/api/flows/history' || path === '/api/blobs/load')).toEqual([]);
+    await settle();
+    expect(requests).toContain('/api/flows/summary');
+    expect(runDataRequests(requests)).toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Execution graph' }));
+    await waitFor(() => expect(runDataRequests(requests)).toEqual(expect.arrayContaining([
+      '/api/flows/history',
+      '/api/flows/state',
+      '/api/flows/wait',
+    ])));
+  });
+
+  it('waits for the definitions before reading history when the summary arrives first', async () => {
+    let releaseDefinitions = () => {};
+    const definitionsReleased = new Promise<void>((resolveDefinitions) => { releaseDefinitions = resolveDefinitions; });
+    const requests = stubDexWeb({
+      flowType: 'OrderFlow',
+      definitions: [definitionEntry('order', 'OrderFlow', plainGraph)],
+      definitionsReleased,
+    });
+    renderRun('/v1/flows/run-flow/run-1?view=design');
+    await screen.findByText('Running');
+    await settle();
+    expect(runDataRequests(requests)).toEqual([]);
+
+    releaseDefinitions();
+    expect(await screen.findByTestId('design-graph')).toBeTruthy();
+    await settle();
+    expect(runDataRequests(requests)).toEqual([]);
+  });
+
+  it('stops reading history and waiting while Design is shown', async () => {
+    const requests = stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
+    renderRun('/v1/flows/run-flow/run-1?view=steps');
+    await waitFor(() => expect(requests).toContain('/api/flows/wait'));
+    fireEvent.click(await screen.findByRole('button', { name: /^Design/ }));
+    await screen.findByTestId('design-graph');
+    await settle();
+    const opened = requests.length;
+    await settle();
+    expect(runDataRequests(requests.slice(opened))).toEqual([]);
+  });
+
+  it('shows the matched definition\'s diagnostics under the Design graph', async () => {
+    const graphWithDiagnostics = {
+      ...plainGraph,
+      valid: false,
+      diagnostics: [{ severity: 'error', code: 'FDG_MISSING_START', message: 'The start Step is not declared.' }],
+    } as unknown as FlowDefinitionGraph;
+    stubDexWeb({
+      flowType: 'OrderFlow',
+      definitions: [{ ...definitionEntry('order', 'OrderFlow', graphWithDiagnostics), valid: false }],
+    });
+    renderRun('/v1/flows/run-flow/run-1?view=design');
+    await screen.findByTestId('design-graph');
+    const diagnostics = screen.getByRole('list', { name: 'Definition diagnostics' });
+    expect(diagnostics.textContent).toContain('FDG_MISSING_START');
+    expect(diagnostics.textContent).toContain('The start Step is not declared.');
+  });
+
+  it('keeps the clicked tab in the URL and follows a later view change', async () => {
+    stubDexWeb({ flowType: 'OrderFlow', definitions: [definitionEntry('order', 'OrderFlow', plainGraph)] });
+    renderRun('/v1/flows/run-flow/run-1?runAttempt=1', '/v1/flows/run-flow/run-1?view=overview');
+    fireEvent.click(await screen.findByRole('button', { name: /^Design/ }));
+    await waitFor(() => expect(screen.getByLabelText('location').textContent)
+      .toBe('/v1/flows/run-flow/run-1?runAttempt=1&view=design'));
+    expect(window.localStorage.getItem('dex.run.selected-tab')).toBe('design');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Overview' }).getAttribute('aria-pressed')).toBe('true'));
+    expect(screen.queryByTestId('design-graph')).toBeNull();
   });
 
   it('hides Design when no loaded definition matches the Flow type', async () => {
@@ -220,5 +331,50 @@ describe('Run page experimental tabs', () => {
     await waitFor(() => expect(tabLabels()).toContain('design'));
     expect(tabLabels()).toEqual(['overview', 'steps', 'timeline', 'stream', 'design']);
     expect(screen.queryByTestId('session-view')).toBeNull();
+  });
+
+  it('shares one Working as choice between Agent session and Actions', async () => {
+    const graph = sessionGraph();
+    const flowType = graph.flow.name;
+    stubDexWeb({
+      flowType,
+      definitions: [definitionEntry('session', flowType, graph)],
+      operatorFlows: [{ flowType, definition: graph.v2 as FlowV2Definition }],
+    });
+    renderRun('/v1/flows/run-flow/run-1?view=session');
+    await screen.findByTestId('session-view');
+    const sessionWorkingAs = screen.getByRole('combobox', { name: 'Working as' }) as HTMLSelectElement;
+    const permission = [...sessionWorkingAs.options].map((option) => option.value).find((value) => value !== '');
+    expect(permission).toBeTruthy();
+    fireEvent.change(sessionWorkingAs, { target: { value: permission } });
+    expect(screen.getByTestId('session-view').getAttribute('data-permissions')).toBe(permission);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Actions/ }));
+    await screen.findByRole('region', { name: 'Actions' });
+    expect((screen.getByRole('combobox', { name: 'Working as' }) as HTMLSelectElement).value).toBe(permission);
+  });
+
+  it.each([
+    ['a continued run', { flowStatus: 'Continued as new', flowStatusCode: 7 } as Partial<FlowSummary>, '', 'run-2'],
+    ['an earlier run attempt', { runAttempt: 2 } as Partial<FlowSummary>, '&runAttempt=1', 'run-1'],
+    ['a run its Flow ID no longer resolves to', {} as Partial<FlowSummary>, '', 'run-2'],
+  ])('offers no Agent session or Actions on %s', async (_name, summary, search, currentRunId) => {
+    const graph = sessionGraph();
+    const flowType = graph.flow.name;
+    const requests = stubDexWeb({
+      flowType,
+      summary,
+      currentRunId,
+      definitions: [definitionEntry('session', flowType, graph)],
+      operatorFlows: [{ flowType, definition: graph.v2 as FlowV2Definition }],
+    });
+    renderRun(`/v1/flows/run-flow/run-1?view=actions${search}`);
+    const currentRunLink = await screen.findByRole('link', { name: 'Open the current run' });
+    expect(currentRunLink.getAttribute('href')).toBe('/v1/flows/run-flow?view=actions');
+    expect(tabLabels()).toEqual(['overview', 'steps', 'timeline', 'stream', 'design']);
+    await settle();
+    expect(screen.queryByRole('region', { name: 'Actions' })).toBeNull();
+    expect(screen.queryByTestId('session-view')).toBeNull();
+    expect(requests.filter((path) => path.startsWith('/api/v2/') && path !== '/api/v2/catalog')).toEqual([]);
   });
 });

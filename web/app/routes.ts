@@ -69,15 +69,18 @@ interface RouterLocation {
  *
  * Run pages lose their Flow type, because a v1 run page is keyed by Flow ID alone.
  * The former Deep Dive was the v1 run page already, so it lands there too.
+ * A Flow type search replaces any `q` parameter with the Flow type query.
+ * A path segment that is not valid percent-encoding lands on the Flows page.
  */
 export function legacyV2RedirectPath(location: RouterLocation) {
-  const segments = location.pathname.split('/').filter(Boolean).slice(1).map(decodeURIComponent);
-  const [mode, ...rest] = segments;
   const keep = `${location.search}${location.hash}`;
+  const segments = decodePathSegments(location.pathname.split('/').filter(Boolean).slice(1));
+  if (segments === null) return `${FLOWS_PATH}${keep}`;
+  const [mode, ...rest] = segments;
   if (mode === 'run') {
     const [flowType, flowId, debug, runId] = rest;
-    if (flowType === undefined) return FLOWS_PATH;
-    if (flowId === undefined) return flowsOfTypePath(flowType);
+    if (flowType === undefined) return `${FLOWS_PATH}${keep}`;
+    if (flowId === undefined) return flowsOfTypeWithSearch(flowType, location);
     return `${debug === 'debug' && runId !== undefined ? runPath(flowId, runId) : runPath(flowId)}${keep}`;
   }
   if (mode === 'work-queue') {
@@ -88,5 +91,24 @@ export function legacyV2RedirectPath(location: RouterLocation) {
     const subPath = rest.map(encodeURIComponent).join('/');
     return `${CONNECTORS_PATH}${subPath ? `/${subPath}` : ''}${keep}`;
   }
-  return FLOWS_PATH;
+  return `${FLOWS_PATH}${keep}`;
+}
+
+/** Decodes each path segment, or returns null when one is not valid percent-encoding. */
+function decodePathSegments(segments: string[]): string[] | null {
+  const decoded: string[] = [];
+  for (const segment of segments) {
+    try {
+      decoded.push(decodeURIComponent(segment));
+    } catch {
+      return null;
+    }
+  }
+  return decoded;
+}
+
+function flowsOfTypeWithSearch(flowType: string, location: RouterLocation) {
+  const params = new URLSearchParams(location.search);
+  params.set('q', `FlowType = ${JSON.stringify(flowType)}`);
+  return `${FLOWS_PATH}?${params}${location.hash}`;
 }
