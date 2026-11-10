@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, cast
 
@@ -38,6 +38,7 @@ from dex_agents import (
     ToolPolicy,
     describe_tool_call_outcome,
 )
+from dex_agents_claude_agent_sdk.tool_sources import ListedSourceTool
 
 #: Names of tools that run inside the Claude Code 2.1 CLI. A custom tool may not
 #: use one: records and policies name a custom tool by its own name, so a shared
@@ -99,6 +100,11 @@ SUBAGENT_DEFERRAL_REFUSED_MESSAGE = (
 UNPERMITTED_TOOL_CALL_MESSAGE = (
     "{tool_name} did not run: the session's tool policies do not permit this call."
 )
+ORDERED_WRITE_DEFERRAL_MESSAGE = (
+    "{tool_name} did not run. Writes run one at a time in your order, and an earlier call "
+    "of this reply runs first. Read its result, then call {tool_name} again by itself "
+    "if it should still run."
+)
 BUILT_IN_TOOL_NAME_COLLISION_MESSAGE = (
     "{tool_name} did not run: a custom tool and a Claude Code tool share this name."
 )
@@ -106,11 +112,16 @@ BUILT_IN_TOOL_NAME_COLLISION_MESSAGE = (
 
 class ToolCatalog:
     def __init__(
-        self, custom_tools: Sequence[SdkMcpTool[Any]], custom_tool_server_name: str
+        self,
+        custom_tools: Sequence[SdkMcpTool[Any]],
+        custom_tool_server_name: str,
+        source_tools: Mapping[str, ListedSourceTool] | None = None,
     ) -> None:
         self.custom_tool_server_name = custom_tool_server_name
         self._custom_tool_prefix = f"mcp__{custom_tool_server_name}__"
         self._custom_tools = {custom_tool.name: custom_tool for custom_tool in custom_tools}
+        # Listed per segment; ToolSourceRouter refuses their name collisions.
+        self._source_tools = dict(source_tools or {})
         if len(self._custom_tools) != len(custom_tools):
             raise ValueError("custom tool names must be unique")
         colliding_names = sorted(set(self._custom_tools) & CLAUDE_CODE_BUILT_IN_TOOL_NAMES)
@@ -123,25 +134,46 @@ class ToolCatalog:
             for name, custom_tool in self._custom_tools.items()
         }
 
+    def with_source_tools(self, source_tools: Mapping[str, ListedSourceTool]) -> ToolCatalog:
+        return ToolCatalog(self.custom_tools, self.custom_tool_server_name, source_tools)
+
     @property
     def custom_tools(self) -> list[SdkMcpTool[Any]]:
         return list(self._custom_tools.values())
 
+    @property
+    def source_tools(self) -> list[ListedSourceTool]:
+        return list(self._source_tools.values())
+
+    @property
+    def has_served_tools(self) -> bool:
+        return bool(self._custom_tools or self._source_tools)
+
     def custom_tool(self, custom_tool_name: str) -> SdkMcpTool[Any] | None:
         return self._custom_tools.get(custom_tool_name)
+
+    def source_tool(self, tool_name: str) -> ListedSourceTool | None:
+        return self._source_tools.get(tool_name)
+
+    def is_served_tool_name(self, tool_name: str) -> bool:
+        return tool_name in self._custom_tools or tool_name in self._source_tools
 
     def input_schema(self, custom_tool_name: str) -> dict[str, Any]:
         return self._input_schemas[custom_tool_name]
 
     def custom_tool_name_for(self, cli_tool_name: str) -> str | None:
-        # Classify by the CLI name: only mcp__<server>__<name> is a custom tool.
+        served_tool_name = self.served_tool_name_for(cli_tool_name)
+        return served_tool_name if served_tool_name in self._custom_tools else None
+
+    def served_tool_name_for(self, cli_tool_name: str) -> str | None:
+        # Classify by the CLI name: only mcp__<server>__<name> is a custom or source tool.
         if not cli_tool_name.startswith(self._custom_tool_prefix):
             return None
-        custom_tool_name = cli_tool_name.removeprefix(self._custom_tool_prefix)
-        return custom_tool_name if custom_tool_name in self._custom_tools else None
+        tool_name = cli_tool_name.removeprefix(self._custom_tool_prefix)
+        return tool_name if self.is_served_tool_name(tool_name) else None
 
     def policy_tool_name(self, cli_tool_name: str) -> str:
-        return self.custom_tool_name_for(cli_tool_name) or cli_tool_name
+        return self.served_tool_name_for(cli_tool_name) or cli_tool_name
 
     def framework_effect(self, custom_tool_name: str | None) -> ToolEffect | None:
         custom_tool = None if custom_tool_name is None else self._custom_tools[custom_tool_name]
@@ -154,7 +186,10 @@ class ToolCatalog:
             return ToolEffect.IDEMPOTENT_WRITE
         return None
 
-    def requires_deferral(self, is_custom_tool: bool, policy: ToolPolicy) -> bool:
+    def requires_deferral(self, is_custom_tool: bool, policy: ToolPolicy | None) -> bool:
+        # A source tool has no policy here and always runs in the tool Step its source needs.
+        if policy is None:
+            return True
         # Custom reads run inline: each deferral restarts the CLI for one more model call.
         if is_custom_tool:
             return policy.effect is not ToolEffect.READ or policy.is_approval_required
@@ -180,6 +215,7 @@ class ToolCallGate:
         self._turn = turn
         self._tool_catalog = tool_catalog
         self._segment_deferral: DeferredToolCall | None = None
+        self._segment_deferral_source_tool: ListedSourceTool | None = None
         self._permitted_tool_use_ids: set[str] = set()
         self._running_tool_names: dict[str, str] = {}
         self._custom_tool_call_plans: dict[str, _CustomToolCallPlan] = {}
@@ -189,7 +225,11 @@ class ToolCallGate:
     def segment_deferral(self) -> DeferredToolCall | None:
         return self._segment_deferral
 
-    def resolve_policy(self, cli_tool_name: str) -> ToolPolicy:
+    def resolve_policy(self, cli_tool_name: str) -> ToolPolicy | None:
+        """Return the policy of a custom or CLI tool, or ``None`` for a source tool."""
+        served_tool_name = self._tool_catalog.served_tool_name_for(cli_tool_name)
+        if served_tool_name is not None and self._tool_catalog.source_tool(served_tool_name):
+            return None
         custom_tool_name = self._tool_catalog.custom_tool_name_for(cli_tool_name)
         return self._turn.resolve_tool_policy(
             custom_tool_name or cli_tool_name, self._tool_catalog.framework_effect(custom_tool_name)
@@ -209,16 +249,20 @@ class ToolCallGate:
         call_id = str(fields.get("tool_use_id") or tool_use_id or "")
         if not call_id:
             raise RuntimeError(f"the CLI sent PreToolUse for {cli_tool_name} without a tool_use_id")
-        custom_tool_name = self._tool_catalog.custom_tool_name_for(cli_tool_name)
-        if custom_tool_name is None and self._tool_catalog.custom_tool(cli_tool_name) is not None:
+        served_tool_name = self._tool_catalog.served_tool_name_for(cli_tool_name)
+        if served_tool_name is None and self._tool_catalog.is_served_tool_name(cli_tool_name):
             self.built_in_tool_name_collisions.add(cli_tool_name)
             return _pre_tool_use_decision(
                 "deny", BUILT_IN_TOOL_NAME_COLLISION_MESSAGE.format(tool_name=cli_tool_name)
             )
-        policy_tool_name = custom_tool_name or cli_tool_name
+        policy_tool_name = served_tool_name or cli_tool_name
         record = self._turn.recorded_tool_call(call_id)
         if record is not None:
-            return self._replay_recorded_tool_call(record, custom_tool_name)
+            return self._replay_recorded_tool_call(record, served_tool_name)
+        source_tool = (
+            None if served_tool_name is None else self._tool_catalog.source_tool(served_tool_name)
+        )
+        custom_tool_name = None if source_tool is not None else served_tool_name
         policy = self.resolve_policy(cli_tool_name)
         if not self._tool_catalog.requires_deferral(custom_tool_name is not None, policy):
             self._permit_inline_tool_call(call_id, policy_tool_name, custom_tool_name)
@@ -227,17 +271,27 @@ class ToolCallGate:
             return _pre_tool_use_decision(
                 "deny", SUBAGENT_DEFERRAL_REFUSED_MESSAGE.format(tool_name=policy_tool_name)
             )
+        arguments = json.dumps(tool_input, ensure_ascii=False)
+        deferral = (
+            source_tool.build_deferred_tool_call(self._turn, call_id, arguments)
+            if source_tool is not None
+            else DeferredToolCall(
+                tool_call_id=call_id,
+                tool_name=policy_tool_name,
+                arguments=arguments,
+                policy=_require_policy(policy),
+            )
+        )
         # The CLI resumes only one deferred call, so later ones in the segment must wait.
         if self._segment_deferral is not None:
-            return _pre_tool_use_decision(
-                "deny", ONE_DEFERRAL_PER_REPLY_MESSAGE.format(tool_name=policy_tool_name)
+            message = (
+                ORDERED_WRITE_DEFERRAL_MESSAGE
+                if deferral.ordered
+                else ONE_DEFERRAL_PER_REPLY_MESSAGE
             )
-        self._segment_deferral = DeferredToolCall(
-            tool_call_id=call_id,
-            tool_name=policy_tool_name,
-            arguments=json.dumps(tool_input, ensure_ascii=False),
-            policy=policy,
-        )
+            return _pre_tool_use_decision("deny", message.format(tool_name=policy_tool_name))
+        self._segment_deferral = deferral
+        self._segment_deferral_source_tool = source_tool
         return _pre_tool_use_decision("defer", "The Dex agent session settles this call.")
 
     async def decide_tool_permission(
@@ -251,11 +305,12 @@ class ToolCallGate:
         record = self._turn.recorded_tool_call(call_id)
         # A resumed call can skip the hook if the CLI starts it before the hooks exist.
         if record is not None and call_id not in self._permitted_tool_use_ids:
-            custom_tool_name = self._tool_catalog.custom_tool_name_for(cli_tool_name)
-            return _permission_result(self._replay_recorded_tool_call(record, custom_tool_name))
+            served_tool_name = self._tool_catalog.served_tool_name_for(cli_tool_name)
+            return _permission_result(self._replay_recorded_tool_call(record, served_tool_name))
         # The CLI asks for permission when it ignores a defer, so that call never left the turn.
         if self._segment_deferral is not None and self._segment_deferral.tool_call_id == call_id:
             self._segment_deferral = None
+            self._segment_deferral_source_tool = None
             return PermissionResultDeny(
                 message=ONE_DEFERRAL_PER_REPLY_MESSAGE.format(tool_name=policy_tool_name)
             )
@@ -270,8 +325,9 @@ class ToolCallGate:
         custom_tool_name: str,
         tool_use_id: str | None,
         arguments: dict[str, Any],
-        run_handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]],
+        run_handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None,
     ) -> dict[str, Any]:
+        # A source tool has no run_handler: the server only replays its record.
         plan = None if tool_use_id is None else self._custom_tool_call_plans.pop(tool_use_id, None)
         if plan is None or plan.custom_tool_name != custom_tool_name:
             return _text_tool_result(
@@ -279,6 +335,10 @@ class ToolCallGate:
             )
         if plan.recorded_tool_call is not None:
             return recorded_tool_call_result(plan.recorded_tool_call)
+        if run_handler is None:
+            return _text_tool_result(
+                UNPERMITTED_TOOL_CALL_MESSAGE.format(tool_name=custom_tool_name), is_error=True
+            )
         validation_error = self._tool_catalog.validate_custom_tool_input(
             custom_tool_name, arguments
         )
@@ -305,10 +365,13 @@ class ToolCallGate:
                 f"{requested}"
             )
         # The CLI records the input after every hook's updatedInput; the Step must use it.
-        return replace(
-            self._segment_deferral,
-            arguments=json.dumps(deferred_tool_use.input, ensure_ascii=False),
-        )
+        arguments = json.dumps(deferred_tool_use.input, ensure_ascii=False)
+        if self._segment_deferral_source_tool is not None:
+            # Rebuilt, so the source decides approval from the arguments its Step runs.
+            return self._segment_deferral_source_tool.build_deferred_tool_call(
+                self._turn, deferred_tool_use.id, arguments
+            )
+        return replace(self._segment_deferral, arguments=arguments)
 
     def _replay_recorded_tool_call(
         self, record: AgentToolCall, custom_tool_name: str | None
@@ -335,6 +398,12 @@ class ToolCallGate:
             self._custom_tool_call_plans[tool_use_id] = _CustomToolCallPlan(custom_tool_name, None)
         self._running_tool_names[tool_use_id] = policy_tool_name
         self._turn.events.write_tool_call_started(tool_use_id, policy_tool_name)
+
+
+def _require_policy(policy: ToolPolicy | None) -> ToolPolicy:
+    if policy is None:
+        raise RuntimeError("a custom or Claude Code tool call has no policy")
+    return policy
 
 
 def recorded_tool_call_result(record: AgentToolCall) -> dict[str, Any]:
