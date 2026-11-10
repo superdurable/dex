@@ -774,4 +774,181 @@ theorem WPF2_timerFire (program : Program σ) (config : Config σ)
       · cases isStep
   · cases isStep
 
+theorem WPF2_recoverInterrupt (program : Program σ) (config : Config σ)
+    (invariant : Invariant program config) (interrupt : Interrupt σ) (backoffMicros : Nat)
+    (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config (.recoverInterrupt interrupt (.retryAfter backoffMicros)) =
+      some (events, next)) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  simp only [step] at isStep
+  split at isStep
+  · split at isStep
+    · cases isStep
+      exact ⟨rfl, rfl⟩
+    · rename_i _ _ run isRun
+      split at isStep
+      · rename_i _ _ record attempt isRecord isAttempt
+        split at isStep
+        · rename_i isFenced
+          simp only [Bool.and_eq_true, decide_eq_true_eq] at isFenced
+          refine WPF2_of_some_eq config _ events next isStep ?_
+          exact WPF2_failAttempt program config
+            { config with interrupts := config.interrupts.erase interrupt }
+            ({ config with interrupts := config.interrupts.erase interrupt }.moveToZombies
+              interrupt.taskId) run invariant isRun rfl rfl
+            (fun _ _ _ => WPF2_any_congr_mem _ _ _
+              (WPF2_moveToZombies_members
+                { config with interrupts := config.interrupts.erase interrupt } interrupt.taskId))
+            interrupt.step record attempt interrupt.method _ _ _ _ isRecord isAttempt
+            isFenced.1.1.1 rfl
+        · cases isStep
+          exact ⟨rfl, rfl⟩
+      · cases isStep
+        exact ⟨rfl, rfl⟩
+  · cases isStep
+
+/-- The last part of a [STEP-START] on a retained snapshot: the new real task
+belongs to a live invocation, so no virtual task changes. -/
+theorem WPF2_stepStart_finish (config : Config σ) (committed : List (Obs σ) × Config σ)
+    (task : Task σ) (nextTaskId : Nat)
+    (holds : committed.1 = [] ∧ abstractConfig committed.2 = abstractConfig config ∧
+      committed.2.ghost = config.ghost)
+    (sameTasks : committed.2.tasks = config.tasks)
+    (taskIsLive : ∀ entry, entry ∈ config.ghost.invocations → entry.2.outcome = .canceled →
+      task.key ≠ entry.1) :
+    (committed.1, { committed.2 with
+        tasks := config.tasks ++ [task], nextTaskId := nextTaskId, ghost := committed.2.ghost }).1 =
+        [] ∧
+      abstractConfig (committed.1, { committed.2 with
+        tasks := config.tasks ++ [task], nextTaskId := nextTaskId,
+        ghost := committed.2.ghost }).2 = abstractConfig config := by
+  obtain ⟨noEvents, sameAbstraction, sameGhost⟩ := holds
+  refine ⟨noEvents, ?_⟩
+  rw [← sameAbstraction]
+  refine WPF2_abstractConfig_eq _ _ rfl rfl rfl ?_
+  intro entry isMember isCanceled
+  rw [sameGhost] at isMember
+  have isOther := taskIsLive entry isMember isCanceled
+  simp only [Config.realTasks, List.any_append, sameTasks, List.any_cons, List.any_nil,
+    isOther, decide_false, Bool.or_false]
+
+theorem WPF2_stepStart (program : Program σ) (config : Config σ)
+    (invariant : Invariant program config) (stepId : Dex.StepExecId σ) (events : List (Obs σ))
+    (next : Config σ) (isStep : step program config (.stepStart stepId true) = some (events, next)) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  simp only [step] at isStep
+  split at isStep
+  · split at isStep
+    · cases isStep
+    · rename_i _ _ run isRun
+      split at isStep
+      · rename_i _ _ record attempt isRecord isAttempt
+        split at isStep
+        · rename_i _ method hasInvocation
+          split at isStep
+          · cases isStep
+          · rename_i isValid
+            have hasSnapshot : attempt.snapshot.isSome = true := by
+              revert isValid
+              cases attempt.snapshot.isSome <;> simp
+            simp only [Bool.not_true, ite_true] at isStep
+            refine WPF2_of_some_eq config _ events next isStep ?_
+            have recordMember : record ∈ run.base.steps := List.mem_of_find?_eq_some isRecord
+            have recordId : record.id = stepId := by simpa using List.find?_some isRecord
+            refine WPF2_stepStart_finish config _ _ _ (WPF2_updateStep_stutter program config config
+              run _ stepId record method (.running config.nextTaskId) attempt invariant isRun rfl
+              rfl (fun _ _ _ => rfl) isRecord (by rw [hasInvocation]; rfl) isAttempt rfl ?_ ?_)
+              rfl ?_
+            · intro other isOther
+              exact AssocList.get?_set_other _ _ _ _ isOther
+            · exact ⟨_, AssocList.get?_set_self _ _ _, rfl, by simp [hasSnapshot]⟩
+            · intro entry isMember isCanceled isKey
+              obtain ⟨_, history, _, isHistory, isLive, _⟩ :=
+                WPF2_attempt_of_invariant program config run invariant isRun record recordMember
+                  _ hasInvocation
+              have isEntry := WPF2_get?_of_mem_nodup _ invariant.ghostKeysNodup entry isMember
+              rw [← isKey] at isEntry
+              unfold Ghost.findInvocation? at isHistory
+              rw [recordId] at isHistory
+              have sameHistory : entry.2 = history :=
+                Option.some.inj (isEntry.symm.trans isHistory)
+              rw [sameHistory, isLive] at isCanceled
+              cases isCanceled
+        · cases isStep
+      · cases isStep
+  · cases isStep
+
+/-! ## The statement -/
+
+theorem WPF2_stutter_of_parts (program : Program σ) (config : Config σ) (action : Action σ)
+    (events : List (Obs σ)) (next : Config σ) (noActions : dexActionsOf program config action = [])
+    (parts : events = [] ∧ abstractConfig next = abstractConfig config) :
+    dexActionsOf program config action = [] ∧ eraseStepEvents config events = [] ∧
+      abstractConfig next = abstractConfig config := by
+  obtain ⟨noEvents, sameAbstraction⟩ := parts
+  subst noEvents
+  exact ⟨noActions, rfl, sameAbstraction⟩
+
+/-- **WP-F2.** A failure step other than [ATTEMPT-EXHAUSTED] maps to a stutter. -/
+theorem failureStep_isStutter_proof (program : Program σ)
+    (_ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
+    (invariant : Invariant program config) (action : Action σ)
+    (isFailure : action.simulationKind = .failure) (isNotExhausting : action.isExhausting = false)
+    (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config action = some (events, next)) :
+    dexActionsOf program config action = [] ∧ eraseStepEvents config events = [] ∧
+      abstractConfig next = abstractConfig config := by
+  cases action with
+  | tick _ => simp [Action.simulationKind] at isFailure
+  | request _ => simp [Action.simulationKind] at isFailure
+  | engineReject _ => simp [Action.simulationKind] at isFailure
+  | stepComplete _ => simp [Action.simulationKind] at isFailure
+  | workerRun _ _ => simp [Action.simulationKind] at isFailure
+  | workerEffect _ _ => simp [Action.simulationKind] at isFailure
+  | workerReturn _ _ => simp [Action.simulationKind] at isFailure
+  | workerAbandon _ _ => simp [Action.simulationKind] at isFailure
+  | resultStale _ _ => simp [Action.simulationKind] at isFailure
+  | stepStart stepId isSnapshotReused =>
+    cases isSnapshotReused with
+    | false => simp [Action.simulationKind] at isFailure
+    | true =>
+      exact WPF2_stutter_of_parts program config _ events next rfl
+        (WPF2_stepStart program config invariant stepId events next isStep)
+  | timerFire count isWaitTimerFired =>
+    cases isWaitTimerFired with
+    | true => simp [Action.simulationKind] at isFailure
+    | false =>
+      exact WPF2_stutter_of_parts program config _ events next rfl
+        (WPF2_timerFire program config invariant count events next isStep)
+  | startRetry requestId stepType input =>
+    exact WPF2_stutter_of_parts program config _ events next rfl
+      (WPF2_startRetry program config requestId stepType input events next isStep)
+  | attemptFailed stepId decision =>
+    cases decision with
+    | exhausted _ => simp [Action.isExhausting, RetryDecision.isExhausted] at isNotExhausting
+    | retryAfter backoffMicros =>
+      exact WPF2_stutter_of_parts program config _ events next rfl
+        (WPF2_attemptFailed program config invariant stepId backoffMicros events next isStep)
+  | attemptReturned stepId =>
+    exact WPF2_stutter_of_parts program config _ events next rfl
+      (WPF2_attemptReturned program config invariant stepId events next isStep)
+  | attemptHeartbeat stepId value =>
+    exact WPF2_stutter_of_parts program config _ events next rfl
+      (WPF2_attemptHeartbeat program config invariant stepId value events next isStep)
+  | crash =>
+    exact WPF2_stutter_of_parts program config _ events next rfl
+      (WPF2_crash program config events next isStep)
+  | recover =>
+    exact WPF2_stutter_of_parts program config _ events next rfl
+      (WPF2_recover program config events next isStep)
+  | recoverInterrupt interrupt decision =>
+    cases decision with
+    | exhausted _ => simp [Action.isExhausting, RetryDecision.isExhausted] at isNotExhausting
+    | retryAfter backoffMicros =>
+      exact WPF2_stutter_of_parts program config _ events next rfl
+        (WPF2_recoverInterrupt program config invariant interrupt backoffMicros events next isStep)
+  | internalCommit =>
+    exact WPF2_stutter_of_parts program config _ events next rfl
+      (WPF2_internalCommit program config events next isStep)
+
 end DexExpressiveness.DexF
