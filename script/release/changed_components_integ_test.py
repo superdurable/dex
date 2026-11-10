@@ -200,6 +200,15 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertEqual(values["agents_version"], "0.2.0")
         self.assertEqual(values["go_tag"], "sdk-go/v1.2.3")
 
+    def test_agents_baseline_ignores_newer_tags_of_other_components(self) -> None:
+        self.change("server-zd/Cargo.toml")
+        self.git("tag", "server-zd/v0.1.20")
+        self.change("agents/python/core/pyproject.toml")
+        self.git("tag", "sdk-go/v1.2.2")
+        result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(values["agents_baseline"], "agents/v0.1.0")
+
     def test_agents_version_without_agents_changes_is_skipped(self) -> None:
         self.change("sdk-go/client.go")
         result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
