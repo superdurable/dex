@@ -59,36 +59,47 @@ need to inspect raw JSON.
 ### 1. Select the relevant event
 
 Open the Flow by Flow ID and Run ID, choose **Timeline**, then select the
-Step event that is waiting, completed, or failed. The right-side **Selected
-event** panel identifies the event number and its type.
+Step event that is waiting, completed, or failed. On a wide screen, Timeline
+runs left to right, oldest first. Each event's icon shows its kind, and only
+waiting, failed, and canceled events are colored. The selected event panel
+below the Timeline shows the event's title and its event number.
 
 The event number is the event ID. It stays the same on every page and after
-pruning. **Timeline** shows at most 1,000 events per page and opens on the
-newest page. Use **Older events** and **Newer events** to move between pages.
-Use **Newest** to return to the page that **Live** keeps extending.
+pruning. **Timeline** shows one page of events and opens on the newest page.
+A page holds 1,000 events by default; **Page size** in the **Events** control
+switches it to 100. The **Events** control in the run header pages through events.
+Use **Older page** and **Newer page** to move between pages, and **Oldest
+page** to open the oldest retained page. Use **Latest page** to return to the
+page that **Live** keeps extending.
 
-The **Selected event** panel lists **Related events**: the event's WaitFor, its
-source execution, and the executions it started. Each entry is loaded, on
-another page, pruned, or not on this page. **Not on this page** means Dex Web
-knows the related event exists but cannot locate it, so it offers no jump.
-Select an entry on another page, or its stub at the top or bottom of
-**Timeline**, to load that page and highlight the event.
-**Back** returns to the previous page. Dex Server keeps only a
+The selected event panel lists **Related events**: the event's WaitFor, its
+source execution, and the executions it started. An entry on the current page
+offers **Show #N**, which selects that event. An entry on another page offers
+**Go to #N**, with a hint that it is on an older or newer page; it loads a page
+around the event and highlights it. **Back** returns to the previous page. Dex Server
+keeps only a
 [recent history window](/reference/server/configuration#history-window). A
-pruned related event appears muted with a **pruned** badge. The oldest
-retained page states which event numbers were removed.
+pruned related event reads **Outside the retention window** and offers no
+action. **Not on this page** means Dex Web knows the related event exists but
+cannot locate it, so it offers no jump. The oldest retained page states which
+event numbers were removed.
 
 <img
   src="/img/production/dex-web-timeline-step-input.png"
-  alt="Dex Web Timeline with a WaitForCondition event selected and its Step input visible"
+  alt="Dex Web Timeline with a waiting WaitFor event selected and its Step input visible"
 />
 
 ### 2. Read inputs, Attributes, conditions, and outputs
 
-In **Details**, read **Input** first. The panel shows the Step input, durable
-Attributes, and condition results available at that event. For a completed
-Step, continue to **Output** to inspect the Step decision, the next Step input,
-and resulting Attribute changes.
+Keep **Details** selected and read **Input** first. It shows the Step input and
+the Attributes the method read. For a WaitFor event, **Output** shows the
+WaitFor condition and its results. For a completed Step, **Output** shows the
+Step decision, the next Step input, and resulting Attribute changes. On a wide
+screen, **Input**, **Output**, and
+**Context** sit side by side. Each Step decision target reads as one row, such
+as the next Step type, its input, and its options; **Decision details** expands
+the rest. Attribute rows preview their values, and **Show all** opens a long
+one.
 
 <img
   src="/img/production/dex-web-step-input-output.png"
@@ -98,7 +109,7 @@ and resulting Attribute changes.
 ### 3. Expand a failed Step's stack trace
 
 For a retrying or failed Step, select the failed event from **Timeline** or the
-failed node from **Step graph**. Under **Failure**, compare the attempt, Worker
+failed node from **Execution graph**. Under **Failure**, compare the attempt, Worker
 error type, error detail, and gRPC status. Expand **Stack trace** before asking
 the owning team to investigate.
 
@@ -107,7 +118,7 @@ the owning team to investigate.
   alt="Dex Web failed Step details with Stack trace expanded"
 />
 
-These screenshots use the repository's synthetic Java examples. They contain
+These screenshots use the repository's synthetic Go examples. They contain
 no credentials or production customer records.
 
 ### 4. Save auditable JSON with dexcli

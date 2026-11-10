@@ -36,12 +36,19 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 | **--flow-rendering-dir** | Optional Flow Definition Graph JSON directory. |
 | **--connector-config-dir** | **$HOME/.dex/connectors**; local Connector credentials. |
 | **--connector-release-override** | Repeatable **connector-id=artifact-directory** for a local Connector release. |
+| **--allowed-hosts** | Empty; comma-separated host names that Dex Web **/api** requests may name besides loopback names and IP addresses. Since 1.42. See [Allowed hosts](/reference/web/dex-web#allowed-hosts). |
 
 If a default port is occupied, Dex selects the next available port and prints
 its addresses. An explicitly requested occupied port fails. The state directory
 uses the selected Dex port. Ctrl+C stops Web and the server-zd child process.
 server-zd supports pull Workers. See [Server reference](/reference/server/)
 for storage, durability, and Attribute Store configuration.
+
+A new state directory has 32 partitions. A state directory that dexcli before
+1.37.0 created has 1024 partitions, and server-zd refuses to start on it with
+the default. To keep using it, pass a **--zd-config** file that sets
+**cluster.partitionCount** to 1024. Otherwise delete the state directory. See
+[Partition count](/reference/server/configuration#single-node-partition-count).
 
 The Temporal engine was removed. **--engine temporal**, all
 **--external-temporal-*** and **--temporal-*** flags, **--sqlite-db-filename**,
@@ -109,6 +116,31 @@ There is no flag for a raw token because command arguments can appear in shell
 history and process listings. Without **--tls**, the FlowService connection is
 plaintext gRPC and the token crosses the network unencrypted. Enable TLS or
 protect the network path.
+
+## View a remote server in Dex Web {#web}
+
+**web** serves Dex Web against the existing server given by **--server**. It
+does not start a server. To reach a server whose FlowService port is bound only
+to the remote host's loopback address, open an SSH tunnel in one terminal and
+leave it running:
+
+```bash
+ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+```
+
+In another terminal, start Dex Web:
+
+```bash
+dexcli --server 127.0.0.1:8801 web
+```
+
+Then open [http://127.0.0.1:8802](http://127.0.0.1:8802). Startup fails when **HealthCheck** cannot reach
+the server. **--timeout** bounds only the startup checks. **--open=false** skips
+the browser. A running **dexcli dev** also uses ports 8801 and 8802, so pick
+another tunnel port and **--web-port** to run both. Dex Web has no
+authentication, so keep **--bind-address** on loopback. See
+[View a remote server with dexcli web](/reference/web/dex-web#dexcli-web) for every
+flag.
 
 ## Friendly Flow operations
 

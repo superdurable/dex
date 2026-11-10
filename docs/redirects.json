@@ -1610,5 +1610,69 @@
   {
     "from": "/zh-Hans/reference/cli/1.34.x/",
     "to": "/zh-Hans/reference/cli/"
+  },
+  {
+    "from": "/reference/web/1.32.x/changelog/",
+    "to": "/reference/web/changelog/"
+  },
+  {
+    "from": "/reference/web/1.32.x/debugging/",
+    "to": "/reference/web/debugging/"
+  },
+  {
+    "from": "/reference/web/1.32.x/dex-web/",
+    "to": "/reference/web/dex-web/"
+  },
+  {
+    "from": "/reference/web/1.32.x/flow-visualization/",
+    "to": "/reference/web/flow-visualization/"
+  },
+  {
+    "from": "/reference/web/1.32.x/",
+    "to": "/reference/web/"
+  },
+  {
+    "from": "/reference/web/1.32.x/local-connector-setup/",
+    "to": "/reference/web/local-connector-setup/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.32.x/changelog/",
+    "to": "/zh-Hans/reference/web/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.32.x/debugging/",
+    "to": "/zh-Hans/reference/web/debugging/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.32.x/dex-web/",
+    "to": "/zh-Hans/reference/web/dex-web/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.32.x/flow-visualization/",
+    "to": "/zh-Hans/reference/web/flow-visualization/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.32.x/",
+    "to": "/zh-Hans/reference/web/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.32.x/local-connector-setup/",
+    "to": "/zh-Hans/reference/web/local-connector-setup/"
+  },
+  {
+    "from": "/reference/cli/1.35.x/changelog/",
+    "to": "/reference/cli/changelog/"
+  },
+  {
+    "from": "/reference/cli/1.35.x/",
+    "to": "/reference/cli/"
+  },
+  {
+    "from": "/zh-Hans/reference/cli/1.35.x/changelog/",
+    "to": "/zh-Hans/reference/cli/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/cli/1.35.x/",
+    "to": "/zh-Hans/reference/cli/"
   }
 ]
