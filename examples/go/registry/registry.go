@@ -21,7 +21,10 @@
 package registry
 
 import (
+	cancelcase "github.com/superdurable/dex/examples/go/patterns/cancel-case"
+	criticalsection "github.com/superdurable/dex/examples/go/patterns/critical-section"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
+	deferredchoice "github.com/superdurable/dex/examples/go/patterns/deferred-choice"
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
@@ -113,6 +116,10 @@ var (
 	GracefulTimeout       *timeout.FlowGracefulTimeout
 	ChunkedSubscriber     *sequentiallychunkedattributemap.ChunkedSubscriberFlow
 	CustomerDirectory     *hashpartitionedattributemap.CustomerDirectoryFlow
+	OfferResponse         *deferredchoice.OfferResponseFlow
+	ContractEdit          *criticalsection.ContractEditFlow
+	CreditCheck           *cancelcase.CreditCheckFlow
+	LoanApplication       *cancelcase.LoanApplicationFlow
 	WorkflowPatterns      *workflowpatterns.WorkflowPatternFlows
 
 	Step                 *step.StepFlow
@@ -185,6 +192,10 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	GracefulTimeout = timeout.NewFlowGracefulTimeout()
 	ChunkedSubscriber = sequentiallychunkedattributemap.NewChunkedSubscriberFlow()
 	CustomerDirectory = hashpartitionedattributemap.NewCustomerDirectoryFlow()
+	OfferResponse = deferredchoice.NewOfferResponseFlow()
+	ContractEdit = criticalsection.NewContractEditFlow()
+	CreditCheck = cancelcase.NewCreditCheckFlow()
+	LoanApplication = cancelcase.NewLoanApplicationFlow(getClient, CreditCheck)
 	WorkflowPatterns = workflowpatterns.NewWorkflowPatternFlows(getClient)
 
 	Step = step.NewStepFlow()
@@ -247,6 +258,10 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		GracefulTimeout,
 		ChunkedSubscriber,
 		CustomerDirectory,
+		OfferResponse,
+		ContractEdit,
+		CreditCheck,
+		LoanApplication,
 		Step,
 		ExampleFlow,
 		StepRetry,
