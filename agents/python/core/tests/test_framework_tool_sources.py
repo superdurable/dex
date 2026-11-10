@@ -188,8 +188,26 @@ def test_cached_source_tools_read_each_cache_and_refuse_collisions() -> None:
 async def test_a_recorded_tool_missing_from_the_live_listing_comes_from_the_cache() -> None:
     router = FrameworkToolSourceRouter([_FakeSource("ledger", ["pay"])])
     reference = json.dumps({"dex_tool_source": "ledger", "reference": "own-vanished"})
-    listing = await router.list_source_tools(_turn([_record("vanished", reference)]))
-    assert [tool.name for tool in listing.tools] == ["pay", "vanished"]
+    turn = _turn([_record("vanished", reference)])
+    listing = await router.list_source_tools(turn)
+    assert [tool.name for tool in listing.tools] == ["pay"]
+    assert [tool.name for tool in listing.replay_only_tools] == ["vanished"]
+    assert listing.is_replay_only("vanished") and not listing.has_tool("vanished")
+    # A new call of the vanished tool never becomes a deferred call for its source.
+    with pytest.raises(ValueError, match="offered only to replay"):
+        listing.deferred_tool_call(turn, tool_call_id="c9", tool_name="vanished", arguments="{}")
+    assert listing.not_offered_result("vanished") == (
+        "vanished did not run: its tool source does not offer this tool now."
+    )
+
+
+async def test_a_new_call_under_a_recorded_call_id_is_refused() -> None:
+    router = FrameworkToolSourceRouter([_FakeSource("ledger", ["pay"])])
+    reference = json.dumps({"dex_tool_source": "ledger", "reference": "own-pay"})
+    turn = _turn([_record("pay", reference)])
+    listing = await router.list_source_tools(turn)
+    with pytest.raises(ValueError, match="already recorded"):
+        listing.deferred_tool_call(turn, tool_call_id="c1", tool_name="pay", arguments="{}")
 
 
 async def _heartbeat() -> None:

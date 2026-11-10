@@ -32,6 +32,11 @@ from dex_agents.values import AgentToolCall
 #: Key of the source name in the envelope that a ``FrameworkToolSourceRouter`` stores.
 FRAMEWORK_TOOL_SOURCE_ENVELOPE_KEY = "dex_tool_source"
 
+#: What the model reads for a new call of a tool that its source no longer lists; ``format`` it.
+SOURCE_TOOL_NOT_OFFERED_RESULT = (
+    "{tool_name} did not run: its tool source does not offer this tool now."
+)
+
 _TOOL_SOURCE_REFERENCE_KEY = "reference"
 _TOOL_SOURCE_METHODS = (
     "list_tools",
@@ -53,41 +58,90 @@ class SourceToolListing:
 
     ``FrameworkToolSourceRouter.list_source_tools`` returns it. Offer
     ``tools`` to the model as the framework's native tools, whose bodies
-    never run, and build every call of one of them with
+    never run, and build every new call of one of them with
     ``deferred_tool_call``.
+
+    A tool that this turn already called but that the live listing lacks is
+    in ``replay_only_tools``. Offer it only where the framework needs the
+    tool to resume with the recorded result. A new call of it must not run:
+    answer it inside the framework with ``not_offered_result``, so it never
+    reaches a tool Step under a new Call ID.
 
     .. versionadded:: 0.4.0
     """
 
-    def __init__(self, listed_tools: Mapping[str, _ListedSourceTool], envelope_key: str) -> None:
+    def __init__(
+        self,
+        listed_tools: Mapping[str, _ListedSourceTool],
+        replay_only_tools: Mapping[str, _ListedSourceTool],
+        envelope_key: str,
+    ) -> None:
         """Create a listing; ``FrameworkToolSourceRouter.list_source_tools`` does this.
 
         Args:
-            listed_tools: Each offered tool by name, with the source that listed it.
+            listed_tools: Each tool of the live listing by name, with its source.
+            replay_only_tools: Each tool this turn called that the live listing
+                lacks, from its source's ``cached_tools()``, by name.
             envelope_key: Envelope key of the router that built the listing.
         """
         self._listed_tools = dict(listed_tools)
+        self._replay_only_tools = dict(replay_only_tools)
         self._envelope_key = envelope_key
 
     @property
     def tools(self) -> tuple[SourceToolDefinition, ...]:
-        """Return the tools to offer, in source order and then in each source's order.
+        """Return the tools a new call may use, in source order and then in each source's order.
 
         Returns:
             Each tool's name, description, and JSON Schema of its arguments.
         """
         return tuple(listed.definition for listed in self._listed_tools.values())
 
+    @property
+    def replay_only_tools(self) -> tuple[SourceToolDefinition, ...]:
+        """Return the tools this turn called that the live listing lacks.
+
+        Offer them only when the framework must find the tool to resume a
+        recorded call, as ADK and the OpenAI Agents SDK do.
+
+        Returns:
+            Each tool's definition from its source's ``cached_tools()``.
+        """
+        return tuple(listed.definition for listed in self._replay_only_tools.values())
+
     def has_tool(self, tool_name: str) -> bool:
-        """Report whether a tool name belongs to a source tool of this listing.
+        """Report whether a new call of a tool name goes to a source.
 
         Args:
             tool_name: The tool name the model called.
 
         Returns:
-            ``True`` when this listing offers the tool.
+            ``True`` when the live listing has the tool.
         """
         return tool_name in self._listed_tools
+
+    def is_replay_only(self, tool_name: str) -> bool:
+        """Report whether a tool name is offered only to replay a recorded call.
+
+        Args:
+            tool_name: The tool name the model called.
+
+        Returns:
+            ``True`` when the tool is in ``replay_only_tools``. A new call of it
+            gets ``not_offered_result`` and never runs.
+        """
+        return tool_name in self._replay_only_tools
+
+    def not_offered_result(self, tool_name: str) -> str:
+        """Return the text the model reads for a new call of a replay-only tool.
+
+        Args:
+            tool_name: The tool name the model called.
+
+        Returns:
+            ``SOURCE_TOOL_NOT_OFFERED_RESULT`` for the tool.
+        """
+        return SOURCE_TOOL_NOT_OFFERED_RESULT.format(tool_name=tool_name)
 
     def deferred_tool_call(
         self,
@@ -97,7 +151,7 @@ class SourceToolListing:
         tool_name: str,
         arguments: str,
     ) -> DeferredToolCall | None:
-        """Build the ``DeferredToolCall`` of one model call of a listed tool.
+        """Build the ``DeferredToolCall`` of one new model call of a listed tool.
 
         The source builds the call, so its effect class, approval, ordering,
         and ``tool_source_reference`` come from the source. A session
@@ -108,17 +162,27 @@ class SourceToolListing:
 
         Args:
             turn: The ``RunModel`` context.
-            tool_call_id: Framework tool call ID.
+            tool_call_id: Framework tool call ID. It must not be a call ID this
+                turn already recorded.
             tool_name: The tool name the model called.
             arguments: Tool arguments as JSON text.
 
         Returns:
-            The source's call, or ``None`` when the listing has no such tool,
-            so the adapter builds the call itself.
+            The source's call, or ``None`` when no source lists the tool, so
+            the adapter builds the call itself.
+
+        Raises:
+            ValueError: If the tool is replay-only, or this turn already
+                recorded ``tool_call_id``. A new call under either must never
+                reach a tool Step; answer it inside the framework instead.
         """
+        if tool_name in self._replay_only_tools:
+            raise ValueError(f"tool {tool_name} is offered only to replay its recorded calls")
         listed = self._listed_tools.get(tool_name)
         if listed is None:
             return None
+        if turn.recorded_tool_call(tool_call_id) is not None:
+            raise ValueError(f"tool call ID {tool_call_id} is already recorded in this turn")
         built = listed.source.deferred_tool_call(
             turn,
             tool_call_id=tool_call_id,
@@ -299,10 +363,10 @@ class FrameworkToolSourceRouter:
         Each source's ``list_tools`` gets at most the listing timeout. A
         source whose listing raises or takes longer offers no tools in this
         call, so a down source never fails a turn. A tool that this turn
-        already called through a source but that the live listing lacks is
-        added from that source's ``cached_tools()``, when it has one, so the
-        framework still finds the tool when it resumes with the recorded
-        result.
+        already called through a source but that the live listing lacks goes
+        to ``replay_only_tools``, from that source's ``cached_tools()`` when it
+        has one, so the framework still finds the tool when it resumes with
+        the recorded result. A new call of such a tool is refused.
 
         Args:
             turn: The ``RunModel`` context.
@@ -322,8 +386,9 @@ class FrameworkToolSourceRouter:
             for definition in await self._list_one_source(index, source):
                 _refuse_tool_name(definition.name, reserved, listed)
                 listed[definition.name] = _ListedSourceTool(source, definition)
+        replay_only: dict[str, _ListedSourceTool] = {}
         for record in turn.tool_calls.values():
-            if record.tool_name in listed:
+            if record.tool_name in listed or record.tool_name in replay_only:
                 continue
             envelope = self._read_envelope(record.tool_source_reference)
             recorded_source = None if envelope is None else self._sources_by_name.get(envelope[0])
@@ -331,8 +396,8 @@ class FrameworkToolSourceRouter:
                 None if recorded_source is None else _cached_tool(recorded_source, record.tool_name)
             )
             if recorded_source is not None and cached is not None:
-                listed[cached.name] = _ListedSourceTool(recorded_source, cached)
-        return SourceToolListing(listed, self._envelope_key)
+                replay_only[cached.name] = _ListedSourceTool(recorded_source, cached)
+        return SourceToolListing(listed, replay_only, self._envelope_key)
 
     def is_source_tool_call(self, tool_call: AgentToolCall) -> bool:
         """Report whether a source built a call, so the router runs it.

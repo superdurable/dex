@@ -46,6 +46,7 @@ from dex_agents.compaction import (
 )
 from dex_agents.stepwise.framework_tool_sources import (
     FRAMEWORK_TOOL_SOURCE_ENVELOPE_KEY,
+    SOURCE_TOOL_NOT_OFFERED_RESULT,
     FrameworkToolSourceRouter,
     SourceToolListing,
 )
@@ -107,6 +108,7 @@ __all__ = [
     "MODEL_OUTPUT_ITEM_TYPE",
     "SCRIPTED_MODEL_API",
     "SCRIPTED_MODEL_PROVIDER",
+    "SOURCE_TOOL_NOT_OFFERED_RESULT",
     "TOOL_CALL_LIMIT_REACHED_RESULT",
     "TOOL_RESULT_ITEM_TYPE",
     "USER_TEXT_ITEM_TYPE",
