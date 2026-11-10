@@ -392,7 +392,7 @@ Adapter 给 agent 树中每个 **LlmAgent** 的 tool 加上一个 **SourceToolse
 
 Connection 来自项目配置，和 Dex 应用中的任何 Connector connection 一样。Connector 在每次调用前解析凭证，所以凭证永远不会进入 Flow state。调用只保存 connection 名称。
 
-- **本地开发。** 把 **DEX_CONNECTOR_CONFIG_FILE** 设为本地 Connector 配置的 **connections.json** 文件，默认是 **$HOME/.dex/connectors/connections.json**。其中必须有一个名为 **support-slack** 且已授权的 Slack connection。[Local Connector setup](/reference/web/local-connector-setup) 介绍了这个文件。
+- **本地开发。**把 **DEX_CONNECTOR_CONFIG_FILE** 设为本地 Connector 配置的 **connections.json** 文件，默认是 **$HOME/.dex/connectors/connections.json**。其中必须有一个名为 **support-slack** 且已授权的 Slack connection。[Local Connector setup](/reference/web/local-connector-setup) 介绍了这个文件。
 - **部署后。** **DEX_PROJECT_\*** 设置选择托管平台或运维人员写入的项目配置。
 
 设置 **DEX_CONNECTOR_CONFIG_FILE** 或任何一个 **DEX_PROJECT_\*** 设置，就表示要求使用项目配置。配置不完整或无效时，Worker 在启动时停止。没有项目配置，或项目配置中没有 **support-slack** connection 时，Worker 记录一行日志，agent 在没有 Slack tool 的情况下运行。Worker 在启动时读取配置，所以修改配置后要重启 Worker。

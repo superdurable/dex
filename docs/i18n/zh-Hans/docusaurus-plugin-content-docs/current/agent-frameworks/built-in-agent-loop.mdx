@@ -572,7 +572,7 @@ Agent 把 Slack tool source 和 MCP tool source 放在一起：
 
 Connector 的 manifest 决定 effect class。**postThreadReply** 是 Mutation，它的 manifest 没有把它标为可安全重试，所以调用只在 **CallSingleAttemptTool** 中运行一次。Worker 崩溃永远不会让同一条消息发两次。参见 [崩溃](/agent-frameworks/deploy-agents#connector-tools-crashes)。
 
-Manifest 还会建议调用是否需要审批。Slack 的 manifest 没有建议 **postThreadReply** 需要审批，所以 example 传入 Python 的 **requires_approval=True** 或 TypeScript 的 **requiresApproval: true**。每次发帖都在 **AwaitToolApproval** 中等待，直到有人批准。Connector tool 的 **tool_policies**（**toolPolicies**） 条目只改变它的审批，从不改变它的 effect class。
+Manifest 还会建议调用是否需要审批。Slack 的 manifest 没有建议 **postThreadReply** 需要审批，所以 example 传入 Python 的 **requires_approval=True** 或 TypeScript 的 **requiresApproval: true**。每次发帖都在 **AwaitToolApproval** 中等待，直到有人批准。Connector tool 的 **tool_policies**（**toolPolicies**）条目只改变它的审批，从不改变它的 effect class。
 
 内置 loop 运行 Connector tool 的方式和其他 tool call 相同：每次调用都是独立的 tool Step，同一个模型回复中的读操作并行运行。同一个模型回复中的 Connector 写操作按模型给出的顺序逐个运行。其中一个没有成功时，这个回复中后面的写操作不会运行，并被记录为 skipped。参见 [写操作顺序](/agent-frameworks/deploy-agents#connector-tools-write-order)。
 
@@ -580,7 +580,7 @@ Manifest 还会建议调用是否需要审批。Slack 的 manifest 没有建议 
 
 Connection 来自项目配置，和 Dex 应用中的任何 Connector connection 一样。Connector 在每次调用前解析凭证，所以凭证永远不会进入 Flow state。调用只保存 connection 名称。
 
-- **本地开发。** 把 **DEX_CONNECTOR_CONFIG_FILE** 设为本地 Connector 配置的 **connections.json** 文件，默认是 **$HOME/.dex/connectors/connections.json**。其中必须有一个名为 **support-slack** 且已授权的 Slack connection。[Local Connector setup](/reference/web/local-connector-setup) 介绍了这个文件。
+- **本地开发。**把 **DEX_CONNECTOR_CONFIG_FILE** 设为本地 Connector 配置的 **connections.json** 文件，默认是 **$HOME/.dex/connectors/connections.json**。其中必须有一个名为 **support-slack** 且已授权的 Slack connection。[Local Connector setup](/reference/web/local-connector-setup) 介绍了这个文件。
 - **部署后。** **DEX_PROJECT_\*** 设置选择托管平台或运维人员写入的项目配置。
 
 设置 **DEX_CONNECTOR_CONFIG_FILE** 或任何一个 **DEX_PROJECT_\*** 设置，就表示要求使用项目配置。配置不完整或无效时，Worker 在启动时停止。没有项目配置，或项目配置中没有 **support-slack** connection 时，Worker 记录一行日志，agent 在没有 Slack tool 的情况下运行。Worker 在启动时读取配置，所以修改配置后要重启 Worker。
