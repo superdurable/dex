@@ -15,9 +15,15 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
-from dex_agents import AgentSessionFlow, AgentTurnContext, AgentTurnOutcome
+from dex_agents import (
+    TURN_SESSION_SETTINGS,
+    AgentSessionFlow,
+    AgentTurnContext,
+    AgentTurnOutcome,
+    DeferredToolExecution,
+)
 from dex_agents_cli.config import EffectiveConfig, resolve_turn_config
 
 _CURRENT_TURN: ContextVar[ResolvedTurn] = ContextVar("dex_agents_cli_turn")
@@ -133,13 +139,15 @@ class TurnConfigResolver:
 
 
 def current_turn_config() -> ResolvedTurn | None:
-    """Return the configuration of the turn whose model call is running in this task.
+    """Return the configuration of the turn whose model call or tool Step is running in this task.
 
-    The runtime sets it around every ``run_model_step``, and tasks that the
-    runner starts inherit it, such as tool source listings.
+    The runtime sets it around every ``run_model_step``, from the turn's
+    session settings, and around every ``execute_deferred_tool_call``, from
+    the settings the session recorded for the call's turn. Tasks that these
+    start inherit it, such as tool source listings.
 
     Returns:
-        The turn's configuration, or ``None`` outside a model call.
+        The turn's configuration, or ``None`` outside a model call and a tool Step.
     """
     return _CURRENT_TURN.get(None)
 
@@ -178,8 +186,31 @@ class _TurnConfiguredRunner:
             _CURRENT_TURN.reset(token)
         return outcome
 
-    async def execute_deferred_tool_call(self, call: Any) -> Any:
-        return await self._inner.execute_deferred_tool_call(call)
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> Any:
+        # A tool Step runs with its turn's configuration too, so replacement tools see it.
+        token = _CURRENT_TURN.set(self._resolver.resolve(recorded_turn_settings(call)))
+        try:
+            return await self._inner.execute_deferred_tool_call(call)
+        finally:
+            _CURRENT_TURN.reset(token)
+
+
+def recorded_turn_settings(call: DeferredToolExecution) -> Mapping[str, Any]:
+    """Return the session settings a tool call's turn started with, as the session recorded them.
+
+    Args:
+        call: The tool Step's call.
+
+    Returns:
+        The turn's settings; ``{}`` when the turn started without settings or
+        the Step has no context.
+    """
+    if call.context is None:
+        return {}
+    stored = cast(Any, TURN_SESSION_SETTINGS).get(call.context)
+    if stored is None or stored.turn_id != call.tool_call.turn_id:
+        return {}
+    return cast(Mapping[str, Any], stored.session_settings)
 
 
 def _wrap_runner(inner: Any, resolver: TurnConfigResolver) -> Any:

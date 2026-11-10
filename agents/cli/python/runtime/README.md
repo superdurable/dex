@@ -94,6 +94,13 @@ continues it. New sessions are named `<name>-YYYYMMDD-HHMMSS-<6 hex digits>`.
    trusting it, because that service would stand in for Dex and the connectors
    MCP server.
 
+The readiness JSON is checked by its values: `status` is `"ready"`,
+`definitionRevision` and `source` are strings, and `definitionCount` is an
+integer. These checks tell a `dexcli dev` from an unrelated service, but they
+do not prove who owns the ports: another local user's process that binds them
+first and answers the same way is not detected. Run on a machine you do not
+share, or set `dex.server` and `connectors.mcp` to URLs you trust.
+
 The command finds `dexcli` in this order: `DEXCLI`; the release it downloaded,
 `~/.dex/bin/dexcli-<version>/dexcli`, after checking both executables against
 the SHA-256 recorded when it was installed; the first `dexcli` on `PATH` whose
@@ -106,8 +113,11 @@ Entry names must not contain a backslash or a NUL either. Only `dexcli` and
 `install.json` (`version`, `archive`, `archiveSha256`, and the `sha256` of
 each executable), which then becomes `~/.dex/bin/dexcli-<version>` in one
 rename. A downloaded copy that changed later stops the command; delete its
-directory to download it again. `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` must be an
-https URL, or http on `127.0.0.1`, `localhost`, or `[::1]`.
+directory to download it again. A cached executable must also still be
+executable, and a `dexcli` on `PATH` counts only when `--version` exits with
+code 0. When the command downloads, `DEX_AGENTS_DEXCLI_DOWNLOAD_URL`, and every
+redirect of the checksums and the archive, must be an https URL, or http on
+`127.0.0.1`, `localhost`, or `[::1]`.
 
 Another `dex.server` value is a server URL; the command connects to it and
 starts nothing.
@@ -138,9 +148,15 @@ runtime reads them from the top-level `_meta` keys of each tool, which
 `io.superdurable.connectors/operation` (the operationId) or
 `io.superdurable.connectors/operationName` (its snake-case name); a `tools`
 entry matches either. The runtime never parses tool names. While
-`connectors.enabled` is set, a tool without the connector, connection, and
-operation keys is hidden, and an entry that lists operations also needs
-`operationName`.
+`connectors.enabled` is set, a tool without the connector and connection keys
+is hidden, and an entry that lists operations matches only tools with both
+`operation` and `operationName`.
+
+Each call is checked against its turn again when it is built: a tool whose
+connection or operation the turn does not enable, such as from a listing a
+runner kept, becomes a call that its tool Step refuses with
+`tool <name> is switched off for this session`. The local tools do the same
+for a switched-off group.
 
 At startup the command lists the server once:
 
@@ -176,13 +192,21 @@ temporary file with `O_CREAT|O_EXCL|O_NOFOLLOW` in the checked directory and
 rename it over the name, all through the directory's descriptor, so the write
 lands in the directory that was checked. They refuse a symbolic link at the
 name, check the directory again right before the rename, and afterwards check
-that the name holds exactly the file they wrote. `edit_file` also checks right
-before the rename that the file is the same file with the same content it
-read, and writes nothing otherwise.
+that the name holds exactly the file they wrote. `edit_file` changes files of
+at most 4 MiB (4194304 bytes) and refuses larger ones. Right before the rename
+it checks that the name is the same file, with the same size, modification
+time, and content, as when it read it; otherwise it writes nothing and says to
+read the file again and retry the edit.
 
-These checks cover the file tools only. An approved shell command runs with
-your permissions and can change anything, including the workspace and files
-outside it.
+These checks have limits:
+
+- Another process that moves a directory out of the workspace after the last
+  check and before the rename can make a write land outside. The tool then
+  reports the error, but the file is written. Only OS-level isolation, such as
+  a container, closes this; writes always wait for approval.
+- They cover the file tools only. An approved shell command runs with your
+  permissions and can change anything, including the workspace and files
+  outside it.
 
 | Group | Tool | Effect | Approval |
 | --- | --- | --- | --- |
@@ -200,8 +224,10 @@ outside it.
   records `outcome_unknown` and never runs it again.
 - The browser is headless: Playwright's own Chromium when it is installed,
   else the system Chrome, else Chromium that Playwright downloads the first
-  time a browser tool runs. Each session has one page in the Worker process. Every
-  tool returns the page's URL, title, and accessibility snapshot as text;
+  time a browser tool runs. `browser_navigate` opens only `http` and `https`
+  URLs, so the browser never reads local files. Each session has one page in
+  the Worker process. Every tool returns the page's URL, title, and
+  accessibility snapshot as text;
   there are no screenshots until image support. After a Worker restart a
   session has no page until the agent navigates again.
 - `approval.always` adds approval to any tool by name.
@@ -289,7 +315,7 @@ harness may replace only `FILES` and `SHELL`.
 | `harness_options: Mapping[str, Any]` | The harness's own section, `{}` by default. |
 | `tool_sources: Sequence[ToolSource]` | The connector and local tool sources, which apply each turn's settings themselves. Offer all of them. |
 | `resolve_turn(session_settings) -> ResolvedTurn` | A turn's narrowed configuration with its `model` and `instructions`. Raises `ConfigError` for rejected settings. |
-| `current_turn() -> ResolvedTurn` | The turn whose model call is running, or the file's configuration outside one, for a harness's own tool callbacks. |
+| `current_turn() -> ResolvedTurn` | The turn whose model call or tool Step is running, or the file's configuration outside both. In a tool Step it is the configuration of the turn that made the call, from the settings the session recorded for that turn, so a replacement tool sees the turn's switches, shell allow list, and `approval.always`. |
 
 The returned Flow must use `context.flow_type`, which is namespaced as
 [Sessions and Flow types](#sessions-and-flow-types) describes. The runtime wraps its runner so

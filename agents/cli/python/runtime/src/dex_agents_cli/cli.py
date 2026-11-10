@@ -515,15 +515,12 @@ async def _list_connectors(
     for tool in catalog:
         identity = tool.identity
         where = (
-            f"{identity.connector}/{identity.connection} {identity.operation}"
+            f"{identity.connector}/{identity.connection} {identity.operation or '(no operation)'}"
             if identity
             else "unknown connector"
         )
         is_enabled = config.connectors.enabled is None or (
-            identity is not None
-            and config.connectors.allows_tool(
-                identity.connector, identity.connection, identity.operation
-            )
+            identity is not None and identity.is_enabled_by(config.connectors)
         )
         print(f"  {tool.name}  ({where})  {'enabled' if is_enabled else 'not enabled'}")
     if endpoint.web_url is not None:

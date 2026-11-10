@@ -40,6 +40,8 @@ _MAX_SEARCH_MATCHES = 200
 _MAX_LISTED_ENTRIES = 1000
 _MAX_LINK_HOPS = 40
 _MAX_READ_BYTES = 16 * 1024 * 1024
+#: The largest file ``edit_file`` changes, as in the TypeScript runtime.
+MAX_EDIT_BYTES = 4 * 1024 * 1024
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | getattr(os, "O_NONBLOCK", 0)
 _CREATE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
@@ -120,7 +122,7 @@ class WorkspaceFiles:
         parts = self._parts(path, is_file=True, is_final_link_followed=False)
         if not old_text:
             raise ToolExecutionError("old_text must not be empty")
-        text, read_identity = self._read_text_and_identity(path)
+        text, read_identity = self._read_text_and_identity(path, MAX_EDIT_BYTES)
         count = text.count(old_text)
         if count == 0:
             raise ToolExecutionError(f"old_text does not occur in {path}")
@@ -182,8 +184,13 @@ class WorkspaceFiles:
     def _read_text(self, path: str) -> str:
         return self._read_text_and_identity(path)[0]
 
-    def _read_text_and_identity(self, path: str) -> tuple[str, _FileIdentity]:
-        """Read a file and return its text with the identity and content hash it had."""
+    def _read_text_and_identity(
+        self, path: str, limit: int = _MAX_READ_BYTES
+    ) -> tuple[str, _FileIdentity]:
+        """Read a file and return its text with the identity, size, time, and hash it had.
+
+        With a ``limit`` below the read limit, a larger file is refused rather than cut.
+        """
         parts = self._parts(path, is_file=True)
         with self._open_directory(path, parts[:-1]) as directory_fd:
             try:
@@ -194,11 +201,14 @@ class WorkspaceFiles:
                 raise self._refusal(path, error, parts[-1], directory_fd) from error
         try:
             status = self._check_opened_file(path, file_fd)
-            data = _read_descriptor(file_fd)
+            data = _read_descriptor(file_fd, limit + 1)
         finally:
             os.close(file_fd)
-        identity = _FileIdentity(status.st_dev, status.st_ino, hashlib.sha256(data).hexdigest())
-        return data.decode("utf-8", errors="replace"), identity
+        if limit < _MAX_READ_BYTES and len(data) > limit:
+            raise ToolExecutionError(
+                f"{path} is larger than {limit} bytes; edit_file does not change it"
+            )
+        return data.decode("utf-8", errors="replace"), _identity_of(status, data)
 
     def _read_searched_file(self, name: str, directory_fd: int) -> str | None:
         """Read one file for ``search_files``, or ``None`` for a file it must skip."""
@@ -262,21 +272,18 @@ class WorkspaceFiles:
     def _check_unchanged(
         self, path: str, name: str, directory_fd: int, expected: _FileIdentity
     ) -> None:
+        conflict = f"{path} changed after edit_file read it; read the file again and retry the edit"
         try:
             current_fd = os.open(name, _READ_FLAGS, dir_fd=directory_fd)
         except OSError as error:
-            raise ToolExecutionError(
-                f"{path} changed while it was being edited; nothing was written"
-            ) from error
+            raise ToolExecutionError(conflict) from error
         try:
             status = os.fstat(current_fd)
-            digest = hashlib.sha256(_read_descriptor(current_fd)).hexdigest()
+            data = _read_descriptor(current_fd, expected.size + 1)
         finally:
             os.close(current_fd)
-        if _FileIdentity(status.st_dev, status.st_ino, digest) != expected:
-            raise ToolExecutionError(
-                f"{path} changed while it was being edited; nothing was written"
-            )
+        if _identity_of(status, data) != expected:
+            raise ToolExecutionError(conflict)
 
     def _check_renamed(
         self, path: str, name: str, directory_fd: int, written: os.stat_result
@@ -453,12 +460,24 @@ class WorkspaceFiles:
 class _FileIdentity:
     device: int
     inode: int
+    size: int
+    modified_ns: int
     content_sha256: str
 
 
-def _read_descriptor(file_fd: int) -> bytes:
+def _identity_of(status: os.stat_result, data: bytes) -> _FileIdentity:
+    return _FileIdentity(
+        device=status.st_dev,
+        inode=status.st_ino,
+        size=status.st_size,
+        modified_ns=status.st_mtime_ns,
+        content_sha256=hashlib.sha256(data).hexdigest(),
+    )
+
+
+def _read_descriptor(file_fd: int, limit: int = _MAX_READ_BYTES) -> bytes:
     with os.fdopen(file_fd, "rb", closefd=False) as file:
-        return file.read(_MAX_READ_BYTES)
+        return file.read(limit)
 
 
 def _write_descriptor(file_fd: int, data: bytes) -> None:

@@ -48,7 +48,7 @@ TOOL_POLICIES = {
 
 def build_local_tools_flow(workspace: Path, values: dict[str, Any]) -> AgentSessionFlow:
     """Build the scripted harness's Flow with every local tool group and ``TOOL_POLICIES``."""
-    harness = ScriptedHarness(TOOL_POLICIES)
+    harness = ScriptedHarness(TOOL_POLICIES, has_replacement_shell_tool=True)
     config = resolve_config(values, harness.config_section, DEFAULT_SCRIPTED_MODEL)
     resolver = TurnConfigResolver(config, None, lambda warnings: None)
     source = LocalToolSource(workspace, frozenset(LocalToolGroup), resolver)

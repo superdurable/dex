@@ -54,13 +54,15 @@ class BrowserSessions:
 
         Args:
             session_id: The agent session, which owns one page.
-            url: An ``http``, ``https``, or ``file`` URL.
+            url: An ``http`` or ``https`` URL. Other schemes, such as ``file``,
+                are refused, so the browser never reads local files.
 
         Returns:
             The page's text snapshot.
         """
-        if urlsplit(url).scheme not in ("http", "https", "file"):
-            raise ToolExecutionError(f"{url} is not an http, https, or file URL")
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ToolExecutionError(f"{url} is not an http or https URL")
         page = self._pages.get(session_id)
         if page is None or page.is_closed():
             browser = await self._ensure_browser()

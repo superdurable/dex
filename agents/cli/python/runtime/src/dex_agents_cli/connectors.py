@@ -36,6 +36,7 @@ from dex_agents.mcp import (
 )
 from dex_agents.stepwise import SourceToolDefinition
 from dex_agents_cli.config import ConnectorsConfig
+from dex_agents_cli.tool_policy import disabled_tool_call, raise_if_disabled
 from dex_agents_cli.turns import TurnConfigResolver, current_turn_config
 
 #: The connector source's ``source_name``; stored calls are routed by it.
@@ -81,14 +82,15 @@ class ConnectorToolIdentity:
     Attributes:
         connector: Connector ID, such as ``slack``.
         connection: Connection name.
-        operation: The operationId, such as ``getMessage``.
+        operation: The operationId, such as ``getMessage``, or ``None`` when
+            the server did not send it.
         operation_name: The snake-case operation name, such as ``get_message``,
             or ``None`` when the server did not send it.
     """
 
     connector: str
     connection: str
-    operation: str
+    operation: str | None = None
     operation_name: str | None = None
 
     def is_enabled_by(self, connectors: ConnectorsConfig) -> bool:
@@ -110,9 +112,13 @@ class ConnectorToolIdentity:
                 continue
             if entry.tools is None:
                 return True
-            if self.operation_name is not None and (
-                entry.allows_operation(self.operation_name)
-                or entry.allows_operation(self.operation)
+            if (
+                self.operation is not None
+                and self.operation_name is not None
+                and (
+                    entry.allows_operation(self.operation_name)
+                    or entry.allows_operation(self.operation)
+                )
             ):
                 return True
         return False
@@ -146,12 +152,14 @@ class ConnectorToolDefinition:
         description: Tool description for the model.
         input_schema: JSON Schema of the arguments.
         mcp_tool: The ``McpTool`` that runs the call.
+        identity: Its connector operation, or ``None`` when the server did not say.
     """
 
     name: str
     description: str
     input_schema: Mapping[str, Any] = field(repr=False)
     mcp_tool: McpTool = field(repr=False)
+    identity: ConnectorToolIdentity | None = None
 
 
 async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
@@ -272,6 +280,7 @@ class ConnectorsMcpToolSource:
                 description=tool.description,
                 input_schema=tool.input_schema,
                 mcp_tool=tool,
+                identity=identities.get(tool.mcp_tool_name),
             )
             for tool in mcp_tools
             if _is_enabled(turn_config.connectors, identities.get(tool.mcp_tool_name))
@@ -287,9 +296,16 @@ class ConnectorsMcpToolSource:
         arguments: str,
         listed_tool: SourceToolDefinition,
     ) -> DeferredToolCall:
-        """Build the MCP call under the agent's tool name, adding ``approval.always``."""
+        """Build the MCP call under the agent's tool name, adding ``approval.always``.
+
+        A tool whose connection or operation the turn does not enable becomes
+        a call that its tool Step refuses.
+        """
         if not isinstance(listed_tool, ConnectorToolDefinition):
             raise LookupError(f"{tool_name} was not listed by the connectors MCP server")
+        turn_config = self._resolver.resolve_turn(turn)
+        if not _is_enabled(turn_config.connectors, listed_tool.identity):
+            return disabled_tool_call(tool_call_id, tool_name, arguments)
         mcp_tool = listed_tool.mcp_tool
         built = self._mcp.deferred_tool_call(
             turn,
@@ -299,14 +315,15 @@ class ConnectorsMcpToolSource:
             listed_tool=mcp_tool,
         )
         policy = built.policy
-        if tool_name in self._resolver.resolve_turn(turn).approval.always:
+        if tool_name in turn_config.approval.always:
             policy = ToolPolicy(policy.effect, requires_approval=True)
         return replace(built, tool_name=tool_name, policy=policy)
 
     async def execute_deferred_tool_call(
         self, call: DeferredToolExecution
     ) -> ToolExecutionResult | ToolTaskStarted:
-        """Run one call through ``McpToolSource``."""
+        """Run one call through ``McpToolSource``, refusing one its turn switched off."""
+        raise_if_disabled(call)
         return await self._mcp.execute_deferred_tool_call(call)
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
@@ -332,14 +349,13 @@ def _identity(meta: Mapping[str, Any] | None) -> ConnectorToolIdentity | None:
     connection = meta.get(keys.connection)
     operation = meta.get(keys.operation)
     operation_name = meta.get(keys.operation_name)
-    if not all(isinstance(value, str) and value for value in (connector, connection, operation)):
+    if not all(isinstance(value, str) and value for value in (connector, connection)):
         return None
     assert isinstance(connector, str) and isinstance(connection, str)
-    assert isinstance(operation, str)
     return ConnectorToolIdentity(
         connector=connector,
         connection=connection,
-        operation=operation,
+        operation=operation if isinstance(operation, str) and operation else None,
         operation_name=operation_name
         if isinstance(operation_name, str) and operation_name
         else None,

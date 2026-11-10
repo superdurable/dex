@@ -10,7 +10,16 @@
 
 from __future__ import annotations
 
-from dex_agents import AgentTurnContext, ToolEffect, ToolPolicy
+import json
+
+from dex_agents import (
+    AgentTurnContext,
+    DeferredToolCall,
+    DeferredToolExecution,
+    ToolEffect,
+    ToolExecutionError,
+    ToolPolicy,
+)
 from dex_agents_cli.config import EffectiveConfig, is_shell_command_allowed
 from dex_agents_cli.harness import LocalToolGroup
 
@@ -118,3 +127,53 @@ def is_shell_command_approval_required(turn: EffectiveConfig, command: str) -> b
         ``True`` unless the turn's ``local_tools.shell.allow`` has the command's exact text.
     """
     return not is_shell_command_allowed(command, turn.local_tools.shell.allow)
+
+
+#: Key of the reference a source stores for a call of a tool its turn switched off.
+DISABLED_TOOL_REFERENCE_KEY = "disabled_tool"
+
+
+def disabled_tool_call(tool_call_id: str, tool_name: str, arguments: str) -> DeferredToolCall:
+    """Return a call that its tool Step refuses: the turn switched the tool off.
+
+    A runner can still name a tool the turn does not offer, such as from a
+    listing it kept. The refusal is stored with the call, so the tool Step
+    refuses it on any Worker without running anything.
+
+    Args:
+        tool_call_id: The model's tool call ID.
+        tool_name: The tool name.
+        arguments: The arguments as JSON text.
+
+    Returns:
+        A read call without approval whose reference marks it switched off.
+    """
+    return DeferredToolCall(
+        tool_call_id=tool_call_id,
+        tool_name=tool_name,
+        arguments=arguments,
+        policy=ToolPolicy(ToolEffect.READ, requires_approval=False),
+        tool_source_reference=json.dumps({DISABLED_TOOL_REFERENCE_KEY: tool_name}),
+    )
+
+
+def raise_if_disabled(call: DeferredToolExecution) -> None:
+    """Refuse a call that ``disabled_tool_call`` built.
+
+    Args:
+        call: The tool Step's call.
+
+    Raises:
+        ToolExecutionError: If the call's turn switched its tool off.
+    """
+    reference = call.tool_call.tool_source_reference
+    if reference is None:
+        return
+    try:
+        parsed = json.loads(reference)
+    except json.JSONDecodeError:
+        return
+    if isinstance(parsed, dict) and DISABLED_TOOL_REFERENCE_KEY in parsed:
+        raise ToolExecutionError(
+            f"tool {call.tool_call.tool_name} is switched off for this session"
+        )

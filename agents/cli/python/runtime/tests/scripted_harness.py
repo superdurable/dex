@@ -31,7 +31,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from dex_agents import AgentSessionFlow, BuiltInTool, ToolPolicy
+from dex_agents import AgentSessionFlow, BuiltInTool, ToolEffect, ToolPolicy
 from dex_agents.stepwise import (
     AgentDefinition,
     InstructionContext,
@@ -39,6 +39,7 @@ from dex_agents.stepwise import (
     ScriptedModelClient,
     ScriptedModelReply,
     ScriptedToolCall,
+    function_tool,
     stepwise_agent_session_flow,
 )
 from dex_agents_cli import (
@@ -46,6 +47,7 @@ from dex_agents_cli import (
     HarnessContext,
     LocalToolGroup,
     TurnConfigResolver,
+    is_local_tool_group_enabled,
     resolve_config,
 )
 
@@ -65,8 +67,14 @@ class ScriptedHarness:
     default_model = DEFAULT_SCRIPTED_MODEL
     replaced_local_tools: frozenset[LocalToolGroup] = frozenset()
 
-    def __init__(self, tool_policies: Mapping[str, ToolPolicy] | None = None) -> None:
+    def __init__(
+        self,
+        tool_policies: Mapping[str, ToolPolicy] | None = None,
+        *,
+        has_replacement_shell_tool: bool = False,
+    ) -> None:
         self._tool_policies = dict(tool_policies or {})
+        self._has_replacement_shell_tool = has_replacement_shell_tool
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         models: dict[str, ScriptedModelClient] = {}
@@ -81,8 +89,20 @@ class ScriptedHarness:
             turn = context.resolve_turn(instruction_context.session_settings)
             return turn.instructions or DEFAULT_INSTRUCTIONS
 
+        @function_tool(effect=ToolEffect.READ)
+        async def report_shell_allow() -> str:
+            """Report the shell settings this tool's own Step sees, as a replacement would."""
+            turn = context.current_turn()
+            return json.dumps(
+                {
+                    "shell": is_local_tool_group_enabled(turn, LocalToolGroup.SHELL),
+                    "allow": list(turn.local_tools.shell.allow),
+                }
+            )
+
         definition = AgentDefinition(
             name="scripted",
+            tools=[report_shell_allow] if self._has_replacement_shell_tool else [],
             instructions=instructions,
             model=resolve_model({}),
             resolve_model=resolve_model,

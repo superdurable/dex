@@ -43,8 +43,6 @@ _READY_FIELD_PREFIXES = {
     "dex_address": "Dex Server:",
     "connectors_mcp_url": "Connectors MCP:",
 }
-# The fields Dex Web's /readyz answers with, which identify a dexcli dev's Dex Web.
-_READINESS_FIELDS = frozenset({"status", "definitionRevision", "source", "definitionCount"})
 _START_TIMEOUT_SECONDS = 120.0
 _READINESS_WAIT_SECONDS = 60.0
 _PROBE_TIMEOUT_SECONDS = 2.0
@@ -258,11 +256,23 @@ async def _read_readiness(web_url: str) -> _Readiness:
     except ValueError:
         return _Readiness.UNKNOWN_SERVICE
     if response.status_code == 200:
-        is_dex_web = isinstance(body, dict) and _READINESS_FIELDS <= body.keys()
-        return _Readiness.READY if is_dex_web else _Readiness.UNKNOWN_SERVICE
+        return _Readiness.READY if _is_dex_web_readiness(body) else _Readiness.UNKNOWN_SERVICE
     # Dex Web answers 503 with a coded error while Dex is starting.
     is_starting = response.status_code == 503 and isinstance(body, dict)
     return _Readiness.STARTING if is_starting else _Readiness.UNKNOWN_SERVICE
+
+
+def _is_dex_web_readiness(body: object) -> bool:
+    """Report whether a /readyz body is Dex Web's readiness JSON, by its values' types."""
+    if not isinstance(body, dict) or body.get("status") != "ready":
+        return False
+    count = body.get("definitionCount")
+    return (
+        isinstance(body.get("definitionRevision"), str)
+        and isinstance(body.get("source"), str)
+        and isinstance(count, int)
+        and not isinstance(count, bool)
+    )
 
 
 async def _wait_for_readiness(web_url: str) -> _Readiness:

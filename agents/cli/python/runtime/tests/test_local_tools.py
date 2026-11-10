@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import json
 import os
 import shutil
@@ -19,7 +20,7 @@ import threading
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ from dex_agents import (
     AgentSnapshot,
     MessageRole,
     ToolEffect,
+    ToolExecutionError,
 )
 from dex_agents.runner import OUTCOME_UNKNOWN_TOOL_RESULT
 from dex_agents.testing import (
@@ -83,9 +85,11 @@ async def local_tools_stack(
         yield LocalToolsStack(stack, stack.sessions(flow), workspace, outside)
 
 
-async def start_turn(sessions: AgentSessionClient, message: str) -> str:
+async def start_turn(
+    sessions: AgentSessionClient, message: str, session_settings: dict[str, Any] | None = None
+) -> str:
     session_id = f"local-tools-{uuid.uuid4().hex[:8]}"
-    await sessions.start_session(session_id, message)
+    await sessions.start_session(session_id, message, session_settings=session_settings)
     return session_id
 
 
@@ -281,6 +285,29 @@ async def test_a_case_variant_path_never_leaves_the_workspace(
     assert "outside the workspace" in outputs[2][1]
 
 
+async def test_a_replacement_tool_sees_its_turns_narrowed_settings_in_its_own_step(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    sessions = local_tools_stack.sessions
+    narrowed = await start_turn(
+        sessions,
+        "call report_shell_allow {}",
+        {"local_tools": {"shell": {"allow": ["echo allowed"]}}},
+    )
+    outputs = tool_outputs(await wait_for_turn_end(sessions, narrowed))
+    assert outputs == [("report_shell_allow", '{"shell": true, "allow": ["echo allowed"]}')]
+    switched_off = await start_turn(
+        sessions, "call report_shell_allow {}", {"local_tools": {"shell": {"enabled": False}}}
+    )
+    outputs = tool_outputs(await wait_for_turn_end(sessions, switched_off))
+    assert outputs == [
+        (
+            "report_shell_allow",
+            '{"shell": false, "allow": ["echo allowed", "' + KILLED_COMMAND + '"]}',
+        )
+    ]
+
+
 async def test_a_session_policy_raises_a_local_tool_but_never_lowers_it(
     local_tools_stack: LocalToolsStack,
 ) -> None:
@@ -364,15 +391,19 @@ async def test_a_shell_command_is_not_run_again_after_the_worker_dies_during_it(
 @pytest.fixture(scope="module")
 async def browser_available(tmp_path_factory: pytest.TempPathFactory) -> None:
     """Skip the browser tests only when the headless browser cannot be installed or started."""
-    page = tmp_path_factory.mktemp("browser-probe") / "probe.html"
-    page.write_text("<title>probe</title>")
+    directory = tmp_path_factory.mktemp("browser-probe")
+    (directory / "probe.html").write_text("<title>probe</title>")
+    handler = functools.partial(SimpleHTTPRequestHandler, directory=str(directory))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
     browser = BrowserSessions()
     try:
         # Opening a page downloads the browser only when it is missing.
-        await browser.open_page("probe", page.as_uri())
+        await browser.open_page("probe", f"http://127.0.0.1:{server.server_address[1]}/probe.html")
     except Exception as error:
         pytest.skip(f"Playwright's headless browser is unavailable here: {error}")
     finally:
+        server.shutdown()
         await browser.close()
 
 
@@ -412,6 +443,16 @@ def form_site() -> Iterator[tuple[str, list[str]]]:
         yield f"http://127.0.0.1:{server.server_address[1]}/form", submissions
     finally:
         server.shutdown()
+
+
+async def test_the_browser_refuses_a_file_url(tmp_path: Path) -> None:
+    (tmp_path / "secret.html").write_text("<p>OUTSIDE_SECRET_CANARY</p>")
+    browser = BrowserSessions()
+    try:
+        with pytest.raises(ToolExecutionError, match="is not an http or https URL"):
+            await browser.open_page("session-1", (tmp_path / "secret.html").as_uri())
+    finally:
+        await browser.close()
 
 
 async def test_browser_reads_run_at_once_and_a_form_submit_waits_for_approval(

@@ -167,11 +167,22 @@ class HarnessContext:
         return self.resolver.resolve(session_settings)
 
     def current_turn(self) -> ResolvedTurn:
-        """Return the turn whose model call is running, or the file's configuration outside one.
+        """Return the turn whose model call or tool Step is running, or the file's outside both.
 
-        A harness that replaces local tool groups reads it in its own tool
-        callbacks, such as an approval hook that runs during the model call,
-        with ``is_local_tool_group_enabled`` and ``resolve_turn_tool_policy``.
+        A harness that replaces local tool groups reads it in its own tools:
+        in an approval hook during the model call, and in the tool's own Step,
+        where it is the configuration of the turn that made the call, with
+        that turn's switches, shell allow list, and ``approval.always``. Use it
+        with ``is_local_tool_group_enabled``, ``is_shell_command_approval_required``,
+        and ``resolve_turn_tool_policy``.
+
+        Example:
+            >>> @function_tool(effect=ToolEffect.NON_IDEMPOTENT_WRITE)
+            ... async def run_command(command: str) -> str:
+            ...     turn = context.current_turn()
+            ...     if not is_local_tool_group_enabled(turn, LocalToolGroup.SHELL):
+            ...         raise ToolExecutionError("shell commands are switched off for this session")
+            ...     return await run(command, cwd=context.workspace)
 
         Returns:
             The turn's configuration and instructions.

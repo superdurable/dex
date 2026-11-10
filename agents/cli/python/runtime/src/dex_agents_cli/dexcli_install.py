@@ -21,6 +21,7 @@ import sys
 import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 import httpx2
 
@@ -33,6 +34,8 @@ INSTALL_RECORD_NAME = "install.json"
 _DOWNLOAD_TIMEOUT_SECONDS = 300.0
 _VERSION_TIMEOUT_SECONDS = 30.0
 _MAX_EXECUTABLE_BYTES = 512 * 1024 * 1024
+_MAX_REDIRECTS = 5
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 
 
@@ -102,7 +105,8 @@ def verify_installed_release(directory: Path) -> None:
         ) from error
     for name, digest in digests.items():
         path = directory / name
-        if path.is_symlink() or not path.is_file() or _sha256(path) != digest:
+        is_executable = path.is_file() and os.access(path, os.X_OK)
+        if path.is_symlink() or not is_executable or _sha256(path) != digest:
             raise DexcliInstallError(
                 f"{path} changed since it was installed; delete {directory} to download it again"
             )
@@ -189,19 +193,46 @@ def download_dexcli(environment: RuntimeEnvironment) -> Path:
 
 
 def _download(url: str, destination: Path) -> Path:
+    """Download a URL, checking it and every redirect: https, or http on a loopback host."""
+    current = url
     try:
-        with (
-            httpx2.Client(follow_redirects=True, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as client,
-            client.stream("GET", url) as response,
-        ):
-            if response.status_code != 200:
-                raise DexcliInstallError(f"cannot download {url}: HTTP {response.status_code}")
-            with destination.open("wb") as file:
-                for chunk in response.iter_bytes():
-                    file.write(chunk)
+        with httpx2.Client(follow_redirects=False, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as client:
+            for _ in range(_MAX_REDIRECTS + 1):
+                check_download_url(current)
+                with client.stream("GET", current) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("location", "")
+                        current = str(httpx2.URL(current).join(location))
+                        continue
+                    if response.status_code != 200:
+                        raise DexcliInstallError(
+                            f"cannot download {current}: HTTP {response.status_code}"
+                        )
+                    with destination.open("wb") as file:
+                        for chunk in response.iter_bytes():
+                            file.write(chunk)
+                    return destination
     except httpx2.HTTPError as error:
-        raise DexcliInstallError(f"cannot download {url}: {error}") from error
-    return destination
+        raise DexcliInstallError(f"cannot download {current}: {error}") from error
+    raise DexcliInstallError(f"cannot download {url}: more than {_MAX_REDIRECTS} redirects")
+
+
+def check_download_url(url: str) -> None:
+    """Refuse a download URL that is neither https nor http on a loopback host.
+
+    Args:
+        url: The URL, or a redirect's target.
+
+    Raises:
+        DexcliInstallError: If the URL could be served or changed by another host.
+    """
+    parts = urlsplit(url)
+    is_loopback_http = parts.scheme == "http" and parts.hostname in _LOOPBACK_HOSTS
+    if not parts.hostname or not (parts.scheme == "https" or is_loopback_http):
+        raise DexcliInstallError(
+            f"{url} is not an https URL, or http on 127.0.0.1, localhost, or [::1]; "
+            "dexcli is downloaded only over https"
+        )
 
 
 def _expected_sha256(checksums: str, asset: str) -> str:
@@ -262,6 +293,8 @@ def _read_version(executable: Path) -> tuple[int, int, int] | None:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
         return None
     return _parse_version(completed.stdout + completed.stderr)
 

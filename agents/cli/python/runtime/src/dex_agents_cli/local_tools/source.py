@@ -37,8 +37,10 @@ from dex_agents_cli.local_tools.shell import (
 )
 from dex_agents_cli.local_tools.web import fetch_web_page
 from dex_agents_cli.tool_policy import (
+    disabled_tool_call,
     is_local_tool_group_enabled,
     is_shell_command_approval_required,
+    raise_if_disabled,
     resolve_turn_tool_policy,
 )
 from dex_agents_cli.turns import TurnConfigResolver, current_turn_config
@@ -294,9 +296,19 @@ class LocalToolSource:
         arguments: str,
         listed_tool: SourceToolDefinition,
     ) -> DeferredToolCall:
-        """Build a call with the tool's policy, the turn's allow list, and ``approval.always``."""
-        definition = _DEFINITIONS_BY_NAME[tool_name]
+        """Build a call with the tool's policy, the turn's allow list, and ``approval.always``.
+
+        A tool its turn switches off, or that this source does not offer,
+        becomes a call that its tool Step refuses.
+        """
+        definition = _DEFINITIONS_BY_NAME.get(tool_name)
         turn_config = self._resolver.resolve_turn(turn)
+        if (
+            definition is None
+            or definition.group not in self._groups
+            or not is_local_tool_group_enabled(turn_config, definition.group)
+        ):
+            return disabled_tool_call(tool_call_id, tool_name, arguments)
         requires_approval = definition.requires_approval
         if tool_name == SHELL_TOOL_NAME:
             command = _shell_command_or_none(arguments)
@@ -313,7 +325,8 @@ class LocalToolSource:
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
-        """Run one approved local tool call."""
+        """Run one approved local tool call, refusing one its turn switched off."""
+        raise_if_disabled(call)
         record = call.tool_call
         arguments = _read_arguments(record.arguments)
         output = await self._run(record.tool_name, arguments, call.flow_id)

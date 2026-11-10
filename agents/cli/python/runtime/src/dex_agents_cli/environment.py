@@ -17,7 +17,6 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
 
 #: The ``dexcli`` release a command downloads when none is installed.
 DEXCLI_VERSION = "1.42.0"
@@ -26,7 +25,6 @@ DEXCLI_RELEASE_BASE_URL = "https://github.com/superdurable/dex/releases/download
 #: The ports a running ``dexcli dev`` uses by default.
 DEFAULT_DEV_DEX_PORT = 8801
 DEFAULT_DEV_WEB_PORT = 8802
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 #: A ``dexcli`` executable to use instead of searching ``PATH``.
 DEXCLI_ENVIRONMENT_VARIABLE = "DEXCLI"
@@ -74,8 +72,7 @@ class RuntimeEnvironment:
             The settings.
 
         Raises:
-            ValueError: If a port variable is not a port number, or the download
-                URL is neither https nor http on a loopback host.
+            ValueError: If a port variable is not a port number.
         """
         values = os.environ if environ is None else environ
         dexcli = values.get(DEXCLI_ENVIRONMENT_VARIABLE)
@@ -87,9 +84,8 @@ class RuntimeEnvironment:
             dev_dex_port=_parse_port(dex_port, DEFAULT_DEV_DEX_PORT),
             dev_web_port=_parse_port(web_port, DEFAULT_DEV_WEB_PORT),
             has_custom_dev_ports=bool(dex_port or web_port),
-            dexcli_release_base_url=_check_download_url(
-                values.get(DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE) or DEXCLI_RELEASE_BASE_URL
-            ),
+            dexcli_release_base_url=values.get(DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE)
+            or DEXCLI_RELEASE_BASE_URL,
             search_path=tuple(
                 Path(entry) for entry in values.get("PATH", "").split(os.pathsep) if entry
             ),
@@ -129,17 +125,6 @@ class RuntimeEnvironment:
             return self.home / text[2:]
         path = Path(text)
         return path if path.is_absolute() else relative_to / path
-
-
-def _check_download_url(url: str) -> str:
-    parts = urlsplit(url)
-    is_loopback_http = parts.scheme == "http" and parts.hostname in _LOOPBACK_HOSTS
-    if not (parts.scheme == "https" or is_loopback_http) or not parts.hostname:
-        raise ValueError(
-            f"{DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE} must be an https URL, or http on "
-            f"127.0.0.1, localhost, or [::1]; it is {url!r}"
-        )
-    return url
 
 
 def _parse_port(text: str | None, default: int) -> int:

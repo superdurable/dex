@@ -71,6 +71,15 @@ def release_server(tmp_path: Path) -> Iterator[tuple[str, Path]]:
         def __init__(self, *args: object, **kwargs: object) -> None:
             super().__init__(*args, directory=str(root), **kwargs)  # type: ignore[arg-type]
 
+        def do_GET(self) -> None:
+            served = root / self.path.lstrip("/")
+            if served.is_file() and served.read_bytes() == b"redirect":
+                self.send_response(302)
+                self.send_header("Location", "http://mirror.invalid/checksums.txt")
+                self.end_headers()
+                return
+            super().do_GET()
+
         def log_message(self, format: str, *args: object) -> None:
             del format, args
 
@@ -123,6 +132,32 @@ def test_a_changed_installed_copy_is_refused(
     installed.write_text("#!/bin/sh\necho tampered\n")
     with pytest.raises(DexcliInstallError, match="changed since it was installed"):
         locate_dexcli(environment)
+
+
+def test_an_installed_copy_that_lost_its_execute_bit_is_refused(
+    tmp_path: Path, release_server: tuple[str, Path]
+) -> None:
+    url, root = release_server
+    write_release(root)
+    environment = environment_for(tmp_path, url)
+    installed = download_dexcli(environment)
+    installed.chmod(0o644)
+    with pytest.raises(DexcliInstallError, match="changed since it was installed"):
+        locate_dexcli(environment)
+
+
+def test_a_redirect_to_a_remote_http_url_is_refused(
+    tmp_path: Path, release_server: tuple[str, Path]
+) -> None:
+    url, root = release_server
+    release = root / f"cli-v{VERSION}"
+    release.mkdir(parents=True)
+    # The test server answers this path with a redirect to plain http on another host.
+    (release / "checksums.txt").write_text("redirect")
+    environment = environment_for(tmp_path, url)
+    with pytest.raises(DexcliInstallError, match="is not an https URL"):
+        download_dexcli(environment)
+    assert list((tmp_path / "home" / ".dex" / "bin").iterdir()) == []
 
 
 def test_a_checksum_mismatch_installs_nothing(
@@ -199,6 +234,15 @@ def test_the_path_search_skips_an_old_dexcli(tmp_path: Path) -> None:
         tmp_path, "http://127.0.0.1:1", (tmp_path / "old", tmp_path / "new")
     )
     assert locate_dexcli(environment) == current
+
+
+def test_a_dexcli_whose_version_command_fails_is_skipped(tmp_path: Path) -> None:
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    (broken / "dexcli").write_text('#!/bin/sh\necho "dexcli v9.10.0"\nexit 3\n')
+    (broken / "dexcli").chmod(0o755)
+    environment = environment_for(tmp_path, "http://127.0.0.1:1", (broken,))
+    assert locate_dexcli(environment) is None
 
 
 def test_only_an_old_dexcli_on_the_path_means_a_download(tmp_path: Path) -> None:
