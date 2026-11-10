@@ -20,5 +20,5 @@ import { createScriptedOrderSupportLanguageModel } from "./agent-harnesses/scrip
 
 registerOrderSupportScenarios({
   harnessName: "Vercel AI SDK",
-  createFlow: (orders) => createVercelAiOrderSupportFlow(orders, createScriptedOrderSupportLanguageModel()),
+  createFlow: (orderDesk) => createVercelAiOrderSupportFlow(orderDesk, createScriptedOrderSupportLanguageModel()),
 });

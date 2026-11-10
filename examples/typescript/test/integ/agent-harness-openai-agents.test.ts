@@ -20,5 +20,5 @@ import { ScriptedOrderSupportOpenAIModel } from "./agent-harnesses/scripted-orde
 
 registerOrderSupportScenarios({
   harnessName: "OpenAI Agents SDK",
-  createFlow: (orders) => createOpenAIAgentsOrderSupportFlow(orders, new ScriptedOrderSupportOpenAIModel()),
+  createFlow: (orderDesk) => createOpenAIAgentsOrderSupportFlow(orderDesk, new ScriptedOrderSupportOpenAIModel()),
 });

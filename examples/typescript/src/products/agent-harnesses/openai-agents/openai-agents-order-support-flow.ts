@@ -15,23 +15,13 @@
  */
 
 import { Agent, tool, type Model } from "@openai/agents";
-import {
-  ToolExecutionError,
-  createOpenAIAgentsSessionFlow,
-  getDeferredToolExecution,
-  type AgentSessionFlow,
-} from "@superdurable/dex-agents-openai-agents";
+import { createOpenAIAgentsSessionFlow, type AgentSessionFlow } from "@superdurable/dex-agents-openai-agents";
 import { z } from "zod";
 
 import { environmentOr } from "../../../config/env.js";
-import {
-  OrderNotFoundError,
-  describeRefund,
-  orderSupportInstructions,
-  type OrderService,
-} from "../order-support/order-service.js";
+import { orderSupportInstructions, type OrderDesk } from "../order-support/order-desk.js";
 
-/** Flow type of the OpenAI Agents SDK order-support session. */
+/** Flow type of the OpenAI Agents SDK order support session. */
 export const openAIAgentsOrderSupportFlowType = "OpenAIAgentsOrderSupportAgent";
 
 /**
@@ -43,53 +33,35 @@ export function loadOpenAIAgentsOrderSupportModel(): string {
 }
 
 /**
- * Builds the order-support session Flow from an OpenAI Agents SDK agent. Every model call is a `RunModel` Step and
- * every function tool call is its own Step, so `refund_order` waits for approval and then runs once.
+ * Builds the order support session Flow. Each model call and each tool call is its own Step.
+ * look_up_order only reads, so it runs without approval. cancel_order waits for approval and runs at most once.
  */
-export function createOpenAIAgentsOrderSupportFlow(orders: OrderService, model: string | Model): AgentSessionFlow {
-  const orderInput = z.object({ orderId: z.string().describe("The order ID, such as A-1001") });
-  const lookupOrder = tool({
-    name: "lookup_order",
-    description: "Look up an order's item, amount, and status",
-    parameters: orderInput,
+export function createOpenAIAgentsOrderSupportFlow(orderDesk: OrderDesk, model: string | Model): AgentSessionFlow {
+  const lookUpOrder = tool({
+    name: "look_up_order",
+    description: "Look up one order by its order ID and return its items and status.",
+    parameters: z.object({ order_id: z.string() }),
     // Without errorFunction: null, tool() turns every thrown error into model-visible text.
     errorFunction: null,
-    execute: ({ orderId }) => runOrderTool(() => orders.describeOrder(orderId)),
+    execute: ({ order_id }) => orderDesk.describeOrder(order_id),
   });
-  const refundOrder = tool({
-    name: "refund_order",
-    description: "Refund an order in full",
-    parameters: orderInput,
+  const cancelOrder = tool({
+    name: "cancel_order",
+    description: "Cancel one order that has not shipped yet.",
+    parameters: z.object({ order_id: z.string(), reason: z.string() }),
     errorFunction: null,
-    execute: ({ orderId }) => {
-      // The key is stable across the attempts of this call's tool Step.
-      const idempotencyKey = getDeferredToolExecution()?.idempotencyKey ?? orderId;
-      return runOrderTool(() => describeRefund(orders.refundOrder(orderId, idempotencyKey)));
-    },
+    execute: ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
   });
   const agent = new Agent({
-    name: "Order support",
+    name: "OrderSupport",
     instructions: orderSupportInstructions,
     model,
-    tools: [lookupOrder, refundOrder],
+    tools: [lookUpOrder, cancelOrder],
   });
   return createOpenAIAgentsSessionFlow(agent, openAIAgentsOrderSupportFlowType, {
     toolPolicies: {
-      lookup_order: { effect: "read" },
-      refund_order: { effect: "idempotent_write", requiresApproval: true },
+      look_up_order: { effect: "read" },
+      cancel_order: { effect: "non_idempotent_write" },
     },
-    interruptDeadlineMs: 24 * 60 * 60 * 1000,
   });
-}
-
-/** Reports an unknown order to the model as a failed call instead of retrying it. */
-function runOrderTool(action: () => string): string {
-  try {
-    return action();
-  } catch (error) {
-    if (error instanceof OrderNotFoundError) {
-      throw new ToolExecutionError(error.message);
-    }
-    throw error;
-  }
 }

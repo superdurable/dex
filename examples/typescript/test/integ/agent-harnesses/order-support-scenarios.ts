@@ -24,37 +24,30 @@ import express from "express";
 import type { AgentSessionFlow, AgentSnapshot } from "@superdurable/dex-agents";
 import { AgentSessionTestClient, AgentTestEnvironment, pollUntil } from "@superdurable/dex-agents/testing";
 
-import {
-  OrderService,
-  demoOrders,
-  type Refund,
-} from "../../../src/products/agent-harnesses/order-support/order-service.js";
+import { OrderDesk } from "../../../src/products/agent-harnesses/order-support/order-desk.js";
 import {
   createOrderSupportRouter,
   orderSupportSessionTokenHeaderName,
 } from "../../../src/products/agent-harnesses/order-support/order-support-routes.js";
+import { scriptedCancelReason, scriptedReplyPrefix } from "./order-support-script.js";
 
 const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
 const waitOptions = { timeoutMs: 90_000 };
 
-/** Counts every `refundOrder` call, so a test sees a second run even when the idempotency key repeats. */
-class RefundCountingOrderService extends OrderService {
-  private readonly refundCallCounts = new Map<string, number>();
+/** Counts every `cancelOrder` call, so a test sees a second run even when it changes nothing. */
+class CancelCountingOrderDesk extends OrderDesk {
+  public cancelCallCount = 0;
 
-  public override refundOrder(orderId: string, idempotencyKey: string): Refund {
-    this.refundCallCounts.set(orderId, this.countRefundCalls(orderId) + 1);
-    return super.refundOrder(orderId, idempotencyKey);
-  }
-
-  public countRefundCalls(orderId: string): number {
-    return this.refundCallCounts.get(orderId) ?? 0;
+  public override cancelOrder(orderId: string, reason: string): string {
+    this.cancelCallCount += 1;
+    return super.cancelOrder(orderId, reason);
   }
 }
 
-/** How a harness test builds its Flow from the order store its tools write. */
+/** How a harness test builds its Flow from the order desk its tools use. */
 export interface OrderSupportScenarioSetup {
   readonly harnessName: string;
-  createFlow(orders: OrderService): AgentSessionFlow | Promise<AgentSessionFlow>;
+  createFlow(orderDesk: OrderDesk): AgentSessionFlow | Promise<AgentSessionFlow>;
   close?(): Promise<void>;
 }
 
@@ -64,19 +57,19 @@ interface RouteSession {
 }
 
 /**
- * Registers the scenarios every harness passes through its HTTP routes: a read tool turn, and a refund
- * that waits for approval and runs once, or is rejected and never runs.
+ * Registers the scenarios every harness passes through its HTTP routes: a read tool turn, and a
+ * cancellation that waits for approval and is rejected and never runs, or is approved and runs once.
  */
 export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup): void {
-  let orders: RefundCountingOrderService;
+  let orderDesk: CancelCountingOrderDesk;
   let environment: AgentTestEnvironment;
   let sessions: AgentSessionTestClient;
   let server: Server;
   let baseUrl: string;
 
   test.before(async () => {
-    orders = new RefundCountingOrderService(demoOrders);
-    const flow = await setup.createFlow(orders);
+    orderDesk = new CancelCountingOrderDesk();
+    const flow = await setup.createFlow(orderDesk);
     environment = await AgentTestEnvironment.start({ serverAddress, flows: [flow], isWorkerInProcess: true });
     sessions = new AgentSessionTestClient(environment.client, flow);
     const app = express().use(express.json()).use("/agent", createOrderSupportRouter(environment.client, flow, "test-key"));
@@ -95,41 +88,45 @@ export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup):
 
   test(`${setup.harnessName}: a turn calls the read tool and answers from its result`, async () => {
     const session = await startSession();
-    assert.equal((await post(session, "messages", { text: "lookup A-1001" })).status, 200);
+    assert.equal((await post(session, "messages", { text: "Look up order 1001" })).status, 200);
     await sessions.waitForCompletedTurns(session.sessionId, 1, waitOptions);
 
     const snapshot = await sessions.getAgentSnapshot(session.sessionId);
     assert.equal(snapshot.state?.lastTurnError ?? null, null);
-    assert.equal(lastAssistantText(snapshot), "lookup_order: order A-1001: espresso machine, $249.00, delivered");
+    assert.equal(lastAssistantText(snapshot), `${scriptedReplyPrefix}Order 1001: 2 notebooks, shipped.`);
     const json = await getSnapshotJson(session);
     assert.ok(Array.isArray(json.messages));
   });
 
-  test(`${setup.harnessName}: a refund waits for approval and runs once after it`, async () => {
-    const session = await startSession("refund A-1001");
+  // Runs before the approved cancellation, while order 1002 is still processing.
+  test(`${setup.harnessName}: a rejected cancellation never runs`, async () => {
+    // An approval here would cancel the order, so the rejection is what keeps the count at 0.
+    assert.equal(orderDesk.describeOrder("1002"), "Order 1002: 1 desk lamp, processing.");
+    const session = await startSession("Please cancel order 1002");
     const interrupt = await waitForApproval(session);
-    assert.equal(orders.countRefundCalls("A-1001"), 0);
+    const rejection = await post(session, `interrupts/${interrupt.interrupt_id}/reject`, { reason: "keep the order" });
+    assert.equal(rejection.status, 200);
+    await sessions.waitForCompletedTurns(session.sessionId, 1, waitOptions);
+    assert.equal(orderDesk.cancelCallCount, 0);
+    assert.equal(orderDesk.describeOrder("1002"), "Order 1002: 1 desk lamp, processing.");
+  });
+
+  test(`${setup.harnessName}: a cancellation waits for approval and runs once after it`, async () => {
+    const session = await startSession("Please cancel order 1002");
+    const interrupt = await waitForApproval(session);
+    assert.equal(orderDesk.cancelCallCount, 0);
 
     const approval = await post(session, `interrupts/${interrupt.interrupt_id}/approve`, {});
     assert.equal(approval.status, 200);
     await sessions.waitForCompletedTurns(session.sessionId, 1, waitOptions);
 
     const snapshot = await sessions.getAgentSnapshot(session.sessionId);
-    assert.equal(lastAssistantText(snapshot), "refund_order: refunded order A-1001 as refund-1 for $249.00");
-    assert.equal(orders.countRefundCalls("A-1001"), 1);
-    assert.equal(orders.countRefunds("A-1001"), 1);
-    // The interrupt is resolved, so a second approval is refused.
+    assert.equal(lastAssistantText(snapshot), `${scriptedReplyPrefix}Order 1002 is cancelled: ${scriptedCancelReason}.`);
+    assert.equal(orderDesk.cancelCallCount, 1);
+    assert.deepEqual(orderDesk.cancelledOrderIds, ["1002"]);
+    // The interrupt is resolved, so a second approval is refused and the tool does not run again.
     assert.equal((await post(session, `interrupts/${interrupt.interrupt_id}/approve`, {})).status, 409);
-    assert.equal(orders.countRefundCalls("A-1001"), 1);
-  });
-
-  test(`${setup.harnessName}: a rejected refund never runs`, async () => {
-    const session = await startSession("refund A-1002");
-    const interrupt = await waitForApproval(session);
-    const rejection = await post(session, `interrupts/${interrupt.interrupt_id}/reject`, { reason: "not eligible" });
-    assert.equal(rejection.status, 200);
-    await sessions.waitForCompletedTurns(session.sessionId, 1, waitOptions);
-    assert.equal(orders.countRefundCalls("A-1002"), 0);
+    assert.equal(orderDesk.cancelCallCount, 1);
   });
 
   test(`${setup.harnessName}: session routes refuse a wrong token and a malformed body`, async () => {
@@ -168,8 +165,8 @@ export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup):
   function waitForApproval(session: RouteSession): Promise<{ interrupt_id: string; tool_name: string }> {
     return pollUntil(async () => {
       const pending = (await getSnapshotJson(session)).pending_interrupts as { interrupt_id: string; tool_name: string }[];
-      return pending.find((interrupt) => interrupt.tool_name === "refund_order");
-    }, { description: "a pending refund_order approval", ...waitOptions });
+      return pending.find((interrupt) => interrupt.tool_name === "cancel_order");
+    }, { description: "a pending cancel_order approval", ...waitOptions });
   }
 }
 

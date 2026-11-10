@@ -16,19 +16,14 @@
 
 import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
-import { ToolExecutionError, type AgentSessionFlow } from "@superdurable/dex-agents";
-import { createMastraAgentSessionFlow, idempotencyKeyRequestContextKey } from "@superdurable/dex-agents-mastra";
+import type { AgentSessionFlow } from "@superdurable/dex-agents";
+import { createMastraAgentSessionFlow } from "@superdurable/dex-agents-mastra";
 import { z } from "zod";
 
 import { environmentOr } from "../../../config/env.js";
-import {
-  OrderNotFoundError,
-  describeRefund,
-  orderSupportInstructions,
-  type OrderService,
-} from "../order-support/order-service.js";
+import { orderSupportInstructions, type OrderDesk } from "../order-support/order-desk.js";
 
-/** Flow type of the Mastra order-support session. */
+/** Flow type of the Mastra order support session. */
 export const mastraOrderSupportFlowType = "MastraOrderSupportAgent";
 
 /** The Mastra model of every model call, such as a model router ID or an AI SDK language model. */
@@ -43,51 +38,33 @@ export function loadMastraOrderSupportModel(): MastraOrderSupportModel {
 }
 
 /**
- * Builds the order-support session Flow from a Mastra agent. Every model call is a `RunModel` Step and every tool
- * call is its own Step, so `refund_order` waits for approval and then runs once.
+ * Builds the order support session Flow. Each model call and each tool call is its own Step.
+ * look_up_order only reads, so it runs without approval. cancel_order waits for approval and runs at most once.
  */
-export function createMastraOrderSupportFlow(orders: OrderService, model: MastraOrderSupportModel): AgentSessionFlow {
-  const orderInput = z.object({ orderId: z.string().describe("The order ID, such as A-1001") });
-  const lookupOrder = createTool({
-    id: "lookup_order",
-    description: "Look up an order's item, amount, and status",
-    inputSchema: orderInput,
-    execute: async ({ orderId }) => runOrderTool(() => orders.describeOrder(orderId)),
+export function createMastraOrderSupportFlow(orderDesk: OrderDesk, model: MastraOrderSupportModel): AgentSessionFlow {
+  const lookUpOrder = createTool({
+    id: "look_up_order",
+    description: "Look up one order by its order ID and return its items and status.",
+    inputSchema: z.object({ order_id: z.string() }),
+    execute: async ({ order_id }) => orderDesk.describeOrder(order_id),
   });
-  const refundOrder = createTool({
-    id: "refund_order",
-    description: "Refund an order in full",
-    inputSchema: orderInput,
-    execute: async ({ orderId }, context) => {
-      // The same key on every attempt of this call's tool Step, so a retried refund takes effect once.
-      const idempotencyKey = String(context.requestContext?.get(idempotencyKeyRequestContextKey) ?? orderId);
-      return runOrderTool(() => describeRefund(orders.refundOrder(orderId, idempotencyKey)));
-    },
+  const cancelOrder = createTool({
+    id: "cancel_order",
+    description: "Cancel one order that has not shipped yet.",
+    inputSchema: z.object({ order_id: z.string(), reason: z.string() }),
+    execute: async ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
   });
   const agent = new Agent({
     id: "order-support",
-    name: "Order support",
+    name: "OrderSupport",
     instructions: orderSupportInstructions,
     model,
-    tools: { lookup_order: lookupOrder, refund_order: refundOrder },
+    tools: { look_up_order: lookUpOrder, cancel_order: cancelOrder },
   });
   return createMastraAgentSessionFlow(agent, mastraOrderSupportFlowType, {
     toolPolicies: {
-      lookup_order: { effect: "read" },
-      refund_order: { effect: "idempotent_write", requiresApproval: true },
+      look_up_order: { effect: "read" },
+      cancel_order: { effect: "non_idempotent_write" },
     },
-    interruptDeadlineMs: 24 * 60 * 60 * 1000,
   });
-}
-
-/** Reports an unknown order to the model as a failed call instead of retrying it. */
-function runOrderTool(action: () => string): string {
-  try {
-    return action();
-  } catch (error) {
-    if (error instanceof OrderNotFoundError) {
-      throw new ToolExecutionError(error.message);
-    }
-    throw error;
-  }
 }

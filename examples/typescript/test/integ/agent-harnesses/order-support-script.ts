@@ -14,29 +14,36 @@
  * limitations under the License.
  */
 
-/** What a scripted order-support model does next: call one tool, or answer. */
+/** Prefix of every answer the scripted model gives, as the Python demo model does. */
+export const scriptedReplyPrefix = "Local demo response: ";
+
+/** Reason the scripted model passes to `cancel_order`. */
+export const scriptedCancelReason = "requested by the customer";
+
+/** What a scripted order support model does next: call one tool, or answer. */
 export type OrderSupportScriptedReply =
-  | { readonly kind: "call_tool"; readonly toolName: string; readonly orderId: string }
+  | { readonly kind: "call_tool"; readonly toolName: string; readonly arguments: Readonly<Record<string, string>> }
   | { readonly kind: "answer"; readonly text: string };
 
-const toolNamesByCommand = new Map([
-  ["lookup", "lookup_order"],
-  ["refund", "refund_order"],
-]);
-
 /**
- * The script every harness test model follows. `lookup <id>` and `refund <id>` call a tool.
- * With its result, the model answers `<tool>: <result>`; other text answers `echo: <text>`.
+ * The script every harness test model follows, the same as the Python demo model. "cancel order <id>" calls
+ * cancel_order, other text with "order <id>" calls look_up_order, and tool results become the answer.
  */
-export function decideOrderSupportReply(
-  userText: string,
-  toolResultsByName: ReadonlyMap<string, string>,
-): OrderSupportScriptedReply {
-  const [command = "", orderId = ""] = userText.trim().split(/\s+/);
-  const toolName = toolNamesByCommand.get(command);
-  if (toolName === undefined) {
-    return { kind: "answer", text: `echo: ${userText}` };
+export function decideOrderSupportReply(userText: string, toolOutputs: readonly string[]): OrderSupportScriptedReply {
+  if (toolOutputs.length > 0) {
+    return { kind: "answer", text: scriptedReplyPrefix + toolOutputs.join(" ") };
   }
-  const result = toolResultsByName.get(toolName);
-  return result === undefined ? { kind: "call_tool", toolName, orderId } : { kind: "answer", text: `${toolName}: ${result}` };
+  const cancelMatch = /\bcancel order (\w+)/i.exec(userText);
+  if (cancelMatch !== null) {
+    return {
+      kind: "call_tool",
+      toolName: "cancel_order",
+      arguments: { order_id: cancelMatch[1] ?? "", reason: scriptedCancelReason },
+    };
+  }
+  const orderMatch = /\border (\w+)/i.exec(userText);
+  if (orderMatch !== null) {
+    return { kind: "call_tool", toolName: "look_up_order", arguments: { order_id: orderMatch[1] ?? "" } };
+  }
+  return { kind: "answer", text: `${scriptedReplyPrefix}ask me to look up or cancel an order.` };
 }

@@ -105,25 +105,25 @@ function replyToMessages(messages: readonly JsonObject[], toolNames: readonly st
     return [{ type: "text", text: "ok" }];
   }
   const toolNamesById = new Map<string, string>();
-  const toolResults = new Map<string, string>();
+  const toolOutputs: string[] = [];
   for (const block of messages.slice(commandIndex + 1).flatMap(contentBlocksOf)) {
     if (block.type === "tool_use") {
       toolNamesById.set(String(block.id), bareToolName(String(block.name)));
     } else if (block.type === "tool_result") {
       const toolName = toolNamesById.get(String(block.tool_use_id));
       if (toolName !== undefined) {
-        toolResults.set(toolName, toolResultText(block.content));
+        toolOutputs.push(toolResultText(block.content));
       }
     }
   }
-  const reply = decideOrderSupportReply(userText, toolResults);
+  const reply = decideOrderSupportReply(userText, toolOutputs);
   if (reply.kind === "answer") {
     return [{ type: "text", text: reply.text }];
   }
   // The CLI offers custom tools as mcp__<server>__<tool>.
   const fullToolName = toolNames.find((name) => bareToolName(name) === reply.toolName) ?? reply.toolName;
   const id = `toolu_${randomUUID().replaceAll("-", "").slice(0, 20)}`;
-  return [{ type: "tool_use", id, name: fullToolName, input: { orderId: reply.orderId } }];
+  return [{ type: "tool_use", id, name: fullToolName, input: { ...reply.arguments } }];
 }
 
 function streamMessage(response: ServerResponse, model: string, blocks: readonly ContentBlock[]): void {

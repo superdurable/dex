@@ -28,26 +28,22 @@ let messagesApi: ScriptedOrderSupportMessagesApi;
 
 registerOrderSupportScenarios({
   harnessName: "Claude Agent SDK",
-  createFlow: async (orders) => {
+  createFlow: async (orderDesk) => {
     messagesApi = await ScriptedOrderSupportMessagesApi.start();
     mkdirSync(join(stateDirectory, "home"), { recursive: true });
     // The real bundled Claude Code CLI, in a closed environment that reaches only the scripted Messages API.
-    return createClaudeAgentSdkOrderSupportFlow(orders, {
-      model: "claude-opus-5-5",
-      workspaceRoot: join(stateDirectory, "workspaces"),
-      cliEnvironment: {
-        PATH: "/usr/bin:/bin",
-        HOME: join(stateDirectory, "home"),
-        CLAUDE_CONFIG_DIR: join(stateDirectory, "claude-config"),
-        ANTHROPIC_BASE_URL: messagesApi.baseUrl,
-        ANTHROPIC_API_KEY: "sk-ant-test-not-a-real-key",
-        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-        DISABLE_AUTOUPDATER: "1",
-        // A closed port: any request that bypasses ANTHROPIC_BASE_URL fails instead of reaching the network.
-        HTTPS_PROXY: "http://127.0.0.1:9",
-        HTTP_PROXY: "http://127.0.0.1:9",
-        NO_PROXY: "127.0.0.1,localhost",
-      },
+    return createClaudeAgentSdkOrderSupportFlow(orderDesk, "claude-opus-5-5", {
+      PATH: "/usr/bin:/bin",
+      HOME: join(stateDirectory, "home"),
+      CLAUDE_CONFIG_DIR: join(stateDirectory, "claude-config"),
+      ANTHROPIC_BASE_URL: messagesApi.baseUrl,
+      ANTHROPIC_API_KEY: "sk-ant-test-not-a-real-key",
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      DISABLE_AUTOUPDATER: "1",
+      // A closed port: any request that bypasses ANTHROPIC_BASE_URL fails instead of reaching the network.
+      HTTPS_PROXY: "http://127.0.0.1:9",
+      HTTP_PROXY: "http://127.0.0.1:9",
+      NO_PROXY: "127.0.0.1,localhost",
     });
   },
   close: async () => {

@@ -14,105 +14,70 @@
  * limitations under the License.
  */
 
-import { mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
-import { createClaudeAgentSessionFlow, currentDeferredToolExecution } from "@superdurable/dex-agents-claude-agent-sdk";
+import { createClaudeAgentSessionFlow } from "@superdurable/dex-agents-claude-agent-sdk";
 import { z } from "zod";
 
 import { environmentOr } from "../../../config/env.js";
-import {
-  OrderNotFoundError,
-  describeRefund,
-  orderSupportInstructions,
-  type OrderService,
-} from "../order-support/order-service.js";
+import { orderSupportInstructions, type OrderDesk } from "../order-support/order-desk.js";
 
-/** Flow type of the Claude Agent SDK order-support session. */
+/** Flow type of the Claude Agent SDK order support session. */
 export const claudeAgentSdkOrderSupportFlowType = "ClaudeAgentSdkOrderSupportAgent";
 
-/** Worker configuration of the Claude Agent SDK example, shared by every session. */
-export interface ClaudeAgentSdkOrderSupportConfig {
-  /** Claude model of every turn, such as `claude-opus-5-5`. */
-  readonly model: string;
-  /** Directory under which each session gets its own working directory for the Claude Code CLI. */
-  readonly workspaceRoot: string;
-  /** The whole CLI environment. Unset, the CLI inherits the Worker's, which holds `ANTHROPIC_API_KEY`. */
-  readonly cliEnvironment?: Readonly<Record<string, string>>;
+/** The Claude model from `DEX_CLAUDE_AGENT_SDK_MODEL`. */
+export function loadClaudeAgentSdkOrderSupportModel(): string {
+  return environmentOr("DEX_CLAUDE_AGENT_SDK_MODEL", "claude-opus-5-5");
 }
 
 /**
- * Reads `DEX_CLAUDE_AGENT_MODEL` and `DEX_CLAUDE_AGENT_WORKSPACE`. The Claude Code CLI authenticates with
- * `ANTHROPIC_API_KEY` from the Worker's environment.
+ * Whether the Worker can authenticate the Claude Agent SDK. The example authenticates only with
+ * `ANTHROPIC_API_KEY`, so without it the Claude session Flow is not registered.
  */
-export function loadClaudeAgentSdkOrderSupportConfig(): ClaudeAgentSdkOrderSupportConfig {
-  return {
-    model: environmentOr("DEX_CLAUDE_AGENT_MODEL", "claude-opus-5-5"),
-    workspaceRoot: environmentOr("DEX_CLAUDE_AGENT_WORKSPACE", join(tmpdir(), "dex-claude-agent-sdk-order-support")),
-  };
+export function hasAnthropicApiKey(): boolean {
+  return (process.env.ANTHROPIC_API_KEY ?? "") !== "";
 }
 
 /**
- * Builds the order-support session Flow from Claude Agent SDK options and custom tools. One `RunModel` Step runs the
- * Claude Code CLI for one turn segment; `lookup_order` runs inside it, and `refund_order` waits for approval and then
- * runs once in its own Step.
+ * Builds the order support session Flow. The Claude Code CLI runs each turn, and look_up_order runs inside it.
+ * cancel_order waits for approval, runs at most once in its own Step, and then the Claude session continues.
+ *
+ * @param cliEnvironment - The whole CLI environment; unset, the CLI inherits the Worker's.
  */
 export function createClaudeAgentSdkOrderSupportFlow(
-  orders: OrderService,
-  config: ClaudeAgentSdkOrderSupportConfig,
+  orderDesk: OrderDesk,
+  model: string,
+  cliEnvironment?: Readonly<Record<string, string>>,
 ): AgentSessionFlow {
-  const orderInput = { orderId: z.string().describe("The order ID, such as A-1001") };
-  const lookupOrder = tool(
-    "lookup_order",
-    "Look up an order's item, amount, and status",
-    orderInput,
-    async ({ orderId }) => runOrderTool(() => orders.describeOrder(orderId)),
-    { annotations: { readOnlyHint: true } },
+  const lookUpOrder = tool(
+    "look_up_order",
+    "Look up one order by its order ID and return its items and status.",
+    { order_id: z.string() },
+    async ({ order_id }) => ({ content: [{ type: "text", text: orderDesk.describeOrder(order_id) }] }),
   );
-  const refundOrder = tool("refund_order", "Refund an order in full", orderInput, async ({ orderId }) => {
-    // The key is stable across the attempts of this call's tool Step.
-    const idempotencyKey = currentDeferredToolExecution()?.idempotencyKey ?? orderId;
-    return runOrderTool(() => describeRefund(orders.refundOrder(orderId, idempotencyKey)));
-  });
+  const cancelOrder = tool(
+    "cancel_order",
+    "Cancel one order that has not shipped yet.",
+    { order_id: z.string(), reason: z.string() },
+    async ({ order_id, reason }) => ({ content: [{ type: "text", text: orderDesk.cancelOrder(order_id, reason) }] }),
+  );
   return createClaudeAgentSessionFlow(
     {
-      // A resumed segment must see the same options, so derive them from the session ID only.
-      options: (context) => {
-        const cwd = join(config.workspaceRoot, context.flowId);
-        mkdirSync(cwd, { recursive: true });
-        return {
-          model: config.model,
-          systemPrompt: orderSupportInstructions,
-          // No built-in Claude Code tools: the agent only looks up and refunds orders.
-          tools: [],
-          cwd,
-          // Settings files could approve a tool before the adapter is asked.
-          settingSources: [],
-          ...(config.cliEnvironment === undefined ? {} : { env: { ...config.cliEnvironment } }),
-        };
+      options: {
+        model,
+        systemPrompt: orderSupportInstructions,
+        // No Claude Code built-in tools: the agent uses only the order tools.
+        tools: [],
+        // Settings files could approve a tool before Dex asks for approval.
+        settingSources: [],
+        ...(cliEnvironment === undefined ? {} : { env: { ...cliEnvironment } }),
       },
-      customTools: [lookupOrder, refundOrder],
+      customTools: [lookUpOrder, cancelOrder],
       toolPolicies: {
-        lookup_order: { effect: "read" },
-        refund_order: { effect: "idempotent_write", requiresApproval: true },
+        look_up_order: { effect: "read" },
+        cancel_order: { effect: "non_idempotent_write" },
       },
     },
     claudeAgentSdkOrderSupportFlowType,
-    { interruptDeadlineMs: 24 * 60 * 60 * 1000 },
   );
-}
-
-/** Reports an unknown order to the model as a failed call instead of retrying it. */
-async function runOrderTool(action: () => string): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }> {
-  try {
-    return { content: [{ type: "text", text: action() }] };
-  } catch (error) {
-    if (error instanceof OrderNotFoundError) {
-      return { content: [{ type: "text", text: error.message }], isError: true };
-    }
-    throw error;
-  }
 }

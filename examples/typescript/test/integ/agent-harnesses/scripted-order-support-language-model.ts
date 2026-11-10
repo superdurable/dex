@@ -43,17 +43,17 @@ function replyToPrompt(prompt: LanguageModelV4Prompt): LanguageModelV4StreamPart
   const lastUser = prompt[lastUserIndex];
   const userText =
     lastUser?.role === "user" ? lastUser.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("") : "";
-  const toolResults = new Map<string, string>();
+  const toolOutputs: string[] = [];
   for (const message of prompt.slice(lastUserIndex + 1)) {
     if (message.role === "tool") {
       for (const part of message.content) {
         if (part.type === "tool-result") {
-          toolResults.set(part.toolName, describeToolResultOutput(part.output));
+          toolOutputs.push(describeToolResultOutput(part.output));
         }
       }
     }
   }
-  const reply = decideOrderSupportReply(userText, toolResults);
+  const reply = decideOrderSupportReply(userText, toolOutputs);
   const usage = {
     inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
     outputTokens: { total: 5, text: 5, reasoning: 0 },
@@ -62,7 +62,7 @@ function replyToPrompt(prompt: LanguageModelV4Prompt): LanguageModelV4StreamPart
     const toolCallId = `call-${prompt.filter((message) => message.role === "user").length}-${reply.toolName}`;
     return [
       { type: "stream-start", warnings: [] },
-      { type: "tool-call", toolCallId, toolName: reply.toolName, input: JSON.stringify({ orderId: reply.orderId }) },
+      { type: "tool-call", toolCallId, toolName: reply.toolName, input: JSON.stringify(reply.arguments) },
       { type: "finish", usage, finishReason: { unified: "tool-calls", raw: "tool-calls" } },
     ];
   }

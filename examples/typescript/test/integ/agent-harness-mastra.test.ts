@@ -23,5 +23,5 @@ process.env.MASTRA_TELEMETRY_DISABLED = "1";
 
 registerOrderSupportScenarios({
   harnessName: "Mastra",
-  createFlow: (orders) => createMastraOrderSupportFlow(orders, createScriptedOrderSupportLanguageModel()),
+  createFlow: (orderDesk) => createMastraOrderSupportFlow(orderDesk, createScriptedOrderSupportLanguageModel()),
 });

@@ -74,7 +74,8 @@ import { loadAiAgentConfig } from "./products/ai-agent/ai-agent-config.js";
 import { createAiAgentFlow } from "./products/ai-agent/ai-agent-flow.js";
 import {
   createClaudeAgentSdkOrderSupportFlow,
-  loadClaudeAgentSdkOrderSupportConfig,
+  hasAnthropicApiKey,
+  loadClaudeAgentSdkOrderSupportModel,
 } from "./products/agent-harnesses/claude-agent-sdk/claude-agent-sdk-order-support-flow.js";
 import {
   createMastraOrderSupportFlow,
@@ -84,7 +85,7 @@ import {
   createOpenAIAgentsOrderSupportFlow,
   loadOpenAIAgentsOrderSupportModel,
 } from "./products/agent-harnesses/openai-agents/openai-agents-order-support-flow.js";
-import { createDemoOrderService } from "./products/agent-harnesses/order-support/order-service.js";
+import { OrderDesk } from "./products/agent-harnesses/order-support/order-desk.js";
 import {
   createVercelAiOrderSupportFlow,
   loadVercelAiOrderSupportModel,
@@ -105,18 +106,18 @@ const pollingFlow = new PollingFlow(pollingJobs);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
 const aiAgentConfig = loadAiAgentConfig();
 const aiAgentFlow = createAiAgentFlow(aiAgentConfig);
-// One order store for the four agent harness examples; each harness registers its own session Flow type.
-const orderSupportOrders = createDemoOrderService();
-const claudeAgentSdkOrderSupportFlow = createClaudeAgentSdkOrderSupportFlow(
-  orderSupportOrders,
-  loadClaudeAgentSdkOrderSupportConfig(),
-);
-const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(
-  orderSupportOrders,
-  loadOpenAIAgentsOrderSupportModel(),
-);
-const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderSupportOrders, loadVercelAiOrderSupportModel());
-const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderSupportOrders, loadMastraOrderSupportModel());
+// One order desk for the four agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk();
+// Without the key the Claude Code CLI could fall back to a developer's own login, so skip the harness.
+const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
+  ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel())
+  : undefined;
+if (claudeAgentSdkOrderSupportFlow === undefined) {
+  console.warn("ANTHROPIC_API_KEY is not set, so the Claude Agent SDK order support example is not registered");
+}
+const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(orderDesk, loadOpenAIAgentsOrderSupportModel());
+const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadVercelAiOrderSupportModel());
+const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel());
 
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,
@@ -128,7 +129,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   jobPostingFlow,
   dealDSLFlow,
   aiAgentFlow,
-  claudeAgentSdkOrderSupportFlow,
+  ...(claudeAgentSdkOrderSupportFlow === undefined ? [] : [claudeAgentSdkOrderSupportFlow]),
   openAIAgentsOrderSupportFlow,
   vercelAiOrderSupportFlow,
   mastraOrderSupportFlow,

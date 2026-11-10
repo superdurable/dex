@@ -56,15 +56,15 @@ export class ScriptedOrderSupportOpenAIModel implements Model {
 function replyToInput(input: string | AgentInputItem[]): protocol.OutputModelItem[] {
   const items: AgentInputItem[] = typeof input === "string" ? [{ type: "message", role: "user", content: input }] : input;
   const lastUserIndex = items.map((item) => ("role" in item ? item.role : undefined)).lastIndexOf("user");
-  const toolResults = new Map<string, string>();
+  const toolOutputs: string[] = [];
   for (const item of items.slice(lastUserIndex + 1)) {
     if (item.type === "function_call_result") {
-      toolResults.set(item.name, readFunctionCallOutput(item.output));
+      toolOutputs.push(readFunctionCallOutput(item.output));
     }
   }
   const lastUser = items[lastUserIndex];
   const userText = lastUser === undefined ? "" : readText(lastUser);
-  const reply = decideOrderSupportReply(userText, toolResults);
+  const reply = decideOrderSupportReply(userText, toolOutputs);
   if (reply.kind === "call_tool") {
     const callId = `call_${lastUserIndex}_${reply.toolName}`;
     return [
@@ -73,7 +73,7 @@ function replyToInput(input: string | AgentInputItem[]): protocol.OutputModelIte
         id: `fc_${callId}`,
         callId,
         name: reply.toolName,
-        arguments: JSON.stringify({ orderId: reply.orderId }),
+        arguments: JSON.stringify(reply.arguments),
         status: "completed",
       },
     ];

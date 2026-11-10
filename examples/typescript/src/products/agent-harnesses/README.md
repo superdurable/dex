@@ -15,21 +15,26 @@ approvals for as long as they take, and after a Worker crash reruns only the Ste
 
 Shared by all four:
 
-- [`order-support/order-service.ts`](./order-support/order-service.ts): the domain. An in-memory
-  order store with two orders, `A-1001` and `A-1002`, and the system instructions.
+- [`order-support/order-desk.ts`](./order-support/order-desk.ts): the domain. An in-memory order
+  desk with order `1001` (2 notebooks, shipped) and order `1002` (1 desk lamp, processing), and the
+  system instructions.
 - [`order-support/order-support-routes.ts`](./order-support/order-support-routes.ts): the HTTP
   routes, the same for every harness.
 
+The agent, its tools, and its instructions match the Python agent harness examples in
+`examples/python/agent-harnesses`, so docs can show both languages side by side. The Flow types
+differ from the Python ones, so both can run against one Dex Server.
+
 ## The agent
 
-| Tool | Effect | Approval | What it does |
-| --- | --- | --- | --- |
-| `lookup_order` | `read` | No | Returns the order's item, amount, and status |
-| `refund_order` | `idempotent_write` | Yes | Refunds the order with the call's idempotency key |
+| Tool | Arguments | Effect | Approval | What it does |
+| --- | --- | --- | --- | --- |
+| `look_up_order` | `order_id` | `read` | No | Returns the order's items and status |
+| `cancel_order` | `order_id`, `reason` | `non_idempotent_write` | Yes, by default | Cancels an order that is still processing |
 
-`refund_order` waits in `AwaitToolApproval` until a person approves or rejects it. After approval it
-runs in its own tool Step. Its idempotency key stays the same across the Step's attempts, so a retry
-refunds the order once. An unknown order is a tool failure the model reads, never a retry.
+`cancel_order` waits in `AwaitToolApproval` until a person approves or rejects it. After approval it
+runs at most once, in its own single-attempt tool Step. A rejected call never runs; the model reads
+the rejection.
 
 How each harness runs a turn:
 
@@ -37,7 +42,7 @@ How each harness runs a turn:
   tool call is its own Step. A turn that looks up an order runs `RunModel`, `CallTool`,
   `ResumeTurn`, `RunModel`.
 - **Claude Agent SDK.** One `RunModel` Step runs the Claude Code CLI for a turn segment. The read
-  tool `lookup_order` runs inside that segment. `refund_order` ends the segment, waits for
+  tool `look_up_order` runs inside that segment. `cancel_order` ends the segment, waits for
   approval, runs in its own Step, and the next segment resumes the Claude session.
 
 ## Configuration
@@ -47,14 +52,13 @@ environment and never enters Flow state.
 
 | Harness | Variable | Default | Provider key |
 | --- | --- | --- | --- |
-| Claude Agent SDK | `DEX_CLAUDE_AGENT_MODEL` | `claude-opus-5-5` | `ANTHROPIC_API_KEY` |
+| Claude Agent SDK | `DEX_CLAUDE_AGENT_SDK_MODEL` | `claude-opus-5-5` | `ANTHROPIC_API_KEY` |
 | OpenAI Agents SDK | `DEX_OPENAI_AGENTS_MODEL` | `gpt-5-mini` | `OPENAI_API_KEY` |
 | Vercel AI SDK | `DEX_VERCEL_AI_MODEL` | `gpt-5-mini`, through `@ai-sdk/openai` | `OPENAI_API_KEY` |
 | Mastra | `DEX_MASTRA_MODEL` | `openai/gpt-5-mini`, a Mastra model router ID | The router's key, such as `OPENAI_API_KEY` |
 
-The Claude Agent SDK example also reads `DEX_CLAUDE_AGENT_WORKSPACE`, the directory under which each
-session gets its own working directory. It turns off every built-in Claude Code tool and passes
-`settingSources: []`, so no settings file can approve a tool before the adapter decides.
+The Claude Agent SDK example turns off every built-in Claude Code tool and passes
+`settingSources: []`, so no settings file can approve a tool before Dex asks for approval.
 
 `DEX_AGENT_SESSION_KEY` signs session tokens, as in the [AI Agent](../ai-agent) example. Set
 `MASTRA_TELEMETRY_DISABLED=1` to turn off Mastra's telemetry.
@@ -68,7 +72,10 @@ npm install
 ANTHROPIC_API_KEY=... OPENAI_API_KEY=... npm start
 ```
 
-A harness without its provider key still registers its Flow; only its model calls fail.
+The Claude Agent SDK example authenticates only with `ANTHROPIC_API_KEY`. Without it, the process
+logs one line and does not register the Claude Flow or its routes, so the Claude Code CLI never
+falls back to another login. The other harnesses still register without their keys; only their
+model calls fail.
 
 ## Routes
 
@@ -89,7 +96,7 @@ the request or is closed. Replace the token with your application's authenticati
 
 ```bash
 base=http://localhost:8080/products/agent-harnesses/vercel-ai
-curl -s -X POST $base/sessions -H 'content-type: application/json' -d '{"message":"Please refund order A-1001"}'
+curl -s -X POST $base/sessions -H 'content-type: application/json' -d '{"message":"Please cancel order 1002"}'
 # {"session_id":"order-support-...","session_token":"..."}
 curl -s $base/sessions/$ID/snapshot -H "X-Agent-Session-Token: $TOKEN"
 curl -s -X POST $base/sessions/$ID/interrupts/$INTERRUPT_ID/approve -H "X-Agent-Session-Token: $TOKEN"
@@ -98,10 +105,13 @@ curl -s -X POST $base/sessions/$ID/interrupts/$INTERRUPT_ID/approve -H "X-Agent-
 ## Tests
 
 `test/integ/agent-harness-<harness>.test.ts` drives each harness through these routes against a
-real Dex Server, with no model key. Each runs a turn that calls `lookup_order`, a refund that waits
-for approval and runs once after it, a rejected refund that never runs, and the 403 and 400
-responses.
+real Dex Server, with no model key. Each runs a turn that calls `look_up_order`, a cancellation of
+order `1002` that is rejected and never runs, one that is approved and runs once, and the 403 and
+400 responses.
 
+- The scripted models follow the Python demo model's script: "cancel order <id>" calls
+  `cancel_order`, other text with "order <id>" calls `look_up_order`, and the answer repeats the
+  tool results.
 - The OpenAI Agents SDK test uses a scripted `Model`. The Vercel AI SDK and Mastra tests use a
   scripted AI SDK language model.
 - The Claude Agent SDK test runs the real Claude Code CLI bundled with `@anthropic-ai/claude-agent-sdk`

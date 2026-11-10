@@ -113,10 +113,12 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/products/job-post", createJobPostingRouter(client));
   app.use("/products/ai-agent", createAiAgentRouter(client, aiAgentFlow, loadAiAgentSessionKey(), aiAgentConfig.models));
   const orderSupportSessionKey = loadOrderSupportSessionKey();
-  app.use(
-    "/products/agent-harnesses/claude-agent-sdk",
-    createOrderSupportRouter(client, claudeAgentSdkOrderSupportFlow, orderSupportSessionKey),
-  );
+  if (claudeAgentSdkOrderSupportFlow !== undefined) {
+    app.use(
+      "/products/agent-harnesses/claude-agent-sdk",
+      createOrderSupportRouter(client, claudeAgentSdkOrderSupportFlow, orderSupportSessionKey),
+    );
+  }
   app.use(
     "/products/agent-harnesses/openai-agents",
     createOrderSupportRouter(client, openAIAgentsOrderSupportFlow, orderSupportSessionKey),
