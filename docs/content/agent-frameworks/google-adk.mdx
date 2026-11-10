@@ -378,28 +378,19 @@ The agent passes the tool source next to its own tools:
 
 ### How a call runs {#connector-tool-calls}
 
-Each call of **slack_post_thread_reply** runs one Slack operation in its own tool Step, through the Connector SDK. The call keeps the Connector's Call ID and idempotency key. The model's arguments are checked against the operation's input schema before the call runs.
+Each call of **slack_post_thread_reply** runs one Slack operation in its own tool Step, through the Connector SDK. The call keeps the Connector's Call ID and idempotency key. [Which operations are offered](/agent-frameworks/deploy-agents#connector-tools-offered) covers how the operation becomes a tool and how its arguments are checked.
 
 The Connector's manifest decides the effect class. **postThreadReply** is a Mutation that its manifest does not mark retry-safe, so the call runs once, in **CallSingleAttemptTool**. A Worker crash never sends the post twice. See [Crashes](/agent-frameworks/deploy-agents#connector-tools-crashes).
 
-The manifest also suggests whether a call needs approval. Slack's manifest does not recommend approval for **postThreadReply**, so the example passes **requires_approval=True**. Every post waits in **AwaitToolApproval** until a person approves it. A **tool_policies** entry for a Connector tool changes only its approval, never its effect class.
+Slack's manifest does not recommend approval for **postThreadReply**, so the example passes **requires_approval=True**. Every post waits in **AwaitToolApproval** until a person approves it. [Approval](/agent-frameworks/deploy-agents#connector-tools-approval) covers how the manifest and the application decide approval.
 
 The adapter adds one **SourceToolset** to the tools of every **LlmAgent** in the agent tree. It offers the Connector tools only inside the runner's **RunModel**, so the agents behave as before elsewhere. The agent's **before_tool_callback** chain still sees each call first.
 
-Connector writes of one model response run one at a time, in the model's order. When one does not succeed, the later ones are recorded as skipped. See [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order).
+Connector writes of one response run in order; see [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order).
 
 ### Configure the connection {#configure-connector-connection}
 
-The connection comes from the project configuration, as for any Connector connection of a Dex application. The Connector resolves the credentials before each call, so they never enter Flow state. A call stores only the connection name.
-
-- **Local development.** Set **DEX_CONNECTOR_CONFIG_FILE** to the **connections.json** file of your local Connector configuration, by default **$HOME/.dex/connectors/connections.json**. It must hold an authorized Slack connection named **support-slack**. [Local Connector setup](/reference/web/local-connector-setup) describes the file.
-- **Deployed.** The **DEX_PROJECT_\*** settings select the project configuration that the hosting platform or operator writes.
-
-Setting **DEX_CONNECTOR_CONFIG_FILE** or any **DEX_PROJECT_\*** setting requests a project configuration. An incomplete or invalid one stops the Worker at startup. Without a project configuration, or without a **support-slack** connection in it, the Worker logs one line and the agent runs without the Slack tool. The Worker reads the configuration at startup, so restart it after a change.
-
-Keep the same configuration on every Worker while posts wait for approval. Any Worker may run an approved post, and it needs the same tool and connection.
-
-The Slack app needs the bot scope **chat:write**, and its bot must be a member of the channel. After a Worker stops during a post, the Connector reads the thread back with the user scopes **channels:history** and **groups:history**. That tells it whether the reply was sent. Without them, such a post records an unknown outcome.
+The Worker opens the Slack connection **support-slack** from the project configuration: **DEX_CONNECTOR_CONFIG_FILE** in local development, the **DEX_PROJECT_\*** settings when deployed. [Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains both, what happens without the connection, and what the Slack app needs.
 
 To try it, start the example with **DEX_CONNECTOR_CONFIG_FILE** set. Then ask the agent to reply in a Slack thread, with the channel ID and the thread timestamp:
 
