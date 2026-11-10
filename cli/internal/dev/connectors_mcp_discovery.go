@@ -80,14 +80,18 @@ func discoverConnectorsMCPServer(
 	if err := announcement.validateEndpoint(); err != nil {
 		return announcement, connectorsMCPServerIncompatible, fmt.Sprintf("server at %s: %v", announcement.URL, err)
 	}
-	if filepath.Clean(announcement.ConnectionsFile) != filepath.Clean(cfg.ConnectionsFile) {
+	if !filepath.IsAbs(announcement.ConnectionsFile) ||
+		filepath.Clean(announcement.ConnectionsFile) != filepath.Clean(cfg.ConnectionsFile) {
 		return announcement, connectorsMCPServerIncompatible, fmt.Sprintf(
 			"server at %s reads %s, not %s", announcement.URL, announcement.ConnectionsFile, cfg.ConnectionsFile)
 	}
-	if len(cfg.Connections) > 0 {
-		// server.json does not identify a connection selection, so a selection never reuses another server.
+	wantedDigest, err := connectorsMCPConnectionsConfigDigest(cfg.Connections)
+	if err != nil {
+		return announcement, connectorsMCPServerIncompatible, err.Error()
+	}
+	if !isSameConnectionsConfigDigest(announcement.ConnectionsConfigDigest, wantedDigest) {
 		return announcement, connectorsMCPServerIncompatible, fmt.Sprintf(
-			"server at %s may offer other connections than --connectors-mcp-connection selects", announcement.URL)
+			"server at %s offers another connection selection than --connectors-mcp-connection", announcement.URL)
 	}
 	return announcement, connectorsMCPServerReusable, ""
 }

@@ -36,18 +36,20 @@ var errConnectorsMCPInstanceLocked = errors.New("another Connectors MCP server h
 
 // connectorsMCPAnnouncement is the server's ready or error line, and the content of server.json.
 type connectorsMCPAnnouncement struct {
-	Type            string            `json:"type"`
-	Message         string            `json:"message,omitempty"`
-	URL             string            `json:"url"`
-	HealthURL       string            `json:"healthUrl"`
-	Version         string            `json:"version"`
-	LaunchContract  int               `json:"launchContract"`
-	InstanceID      string            `json:"instanceId"`
-	PID             int               `json:"pid"`
-	StateDir        string            `json:"stateDir"`
-	ConnectionsFile string            `json:"connectionsFile"`
-	Tools           []string          `json:"tools"`
-	Warnings        []json.RawMessage `json:"warnings"`
+	Type            string `json:"type"`
+	Message         string `json:"message,omitempty"`
+	URL             string `json:"url"`
+	HealthURL       string `json:"healthUrl"`
+	Version         string `json:"version"`
+	LaunchContract  int    `json:"launchContract"`
+	InstanceID      string `json:"instanceId"`
+	PID             int    `json:"pid"`
+	StateDir        string `json:"stateDir"`
+	ConnectionsFile string `json:"connectionsFile"`
+	// ConnectionsConfigDigest identifies the connection selection; nil means the server has no selection.
+	ConnectionsConfigDigest *string           `json:"connectionsConfigDigest"`
+	Tools                   []string          `json:"tools"`
+	Warnings                []json.RawMessage `json:"warnings"`
 }
 
 // validateEndpoint checks the untrusted URLs and launch contract of a ready announcement.

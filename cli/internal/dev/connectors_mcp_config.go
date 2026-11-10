@@ -115,6 +115,11 @@ func (c *ConnectorsMCPConfig) resolvePaths(stateDirectory string, connectorConfi
 	if c.ConnectionsFile == "" {
 		c.ConnectionsFile = filepath.Join(absoluteConnectorConfigDirectory, connectorConnectionsFileName)
 	}
+	absoluteConnectionsFile, err := filepath.Abs(c.ConnectionsFile)
+	if err != nil {
+		return fmt.Errorf("resolve connections file: %w", err)
+	}
+	c.ConnectionsFile = absoluteConnectionsFile
 	if c.StateDirectory == "" {
 		c.StateDirectory = connectorsMCPStateDirectory(absoluteStateDirectory, c.ConnectionsFile)
 	}

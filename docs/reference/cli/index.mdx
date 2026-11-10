@@ -74,7 +74,8 @@ the Connectors library releases. dexcli does not compile any Connector in.
 
 1. It reuses a compatible server that already runs for the same state
    directory and **connections.json**. A server is compatible when its process
-   is alive, its **/healthz** answers, and dexcli supports its launch contract.
+   is alive, its **/healthz** answers, dexcli supports its launch contract, and
+   it offers the same **--connectors-mcp-connection** selection, in any order.
 2. Otherwise it runs **--connectors-mcp-binary** when set. Without it, dexcli
    reads the release index at
    **https://connectors.superdurable.io/connectors-mcp/index.json** at most once

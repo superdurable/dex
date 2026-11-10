@@ -10,8 +10,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -102,6 +105,11 @@ func serve(arguments []string) error {
 		"tools":           []string{"fake_echo"},
 		"warnings":        []any{},
 	}
+	digest, err := connectionsConfigDigest(connections)
+	if err != nil {
+		return err
+	}
+	announcement["connectionsConfigDigest"] = digest
 	line, err := json.Marshal(announcement)
 	if err != nil {
 		return err
@@ -176,6 +184,34 @@ func serve(arguments []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return errors.Join(httpServer.Shutdown(shutdownCtx), os.Remove(serverFile))
+}
+
+// connectionsConfigDigest returns nil without a selection, else the sha256 of the canonical selection JSON.
+func connectionsConfigDigest(connections []string) (any, error) {
+	if len(connections) == 0 {
+		return nil, nil
+	}
+	items := make([]map[string]any, 0, len(connections))
+	for _, entry := range connections {
+		connection, toolList, hasTools := strings.Cut(entry, "=")
+		item := map[string]any{"connection": connection, "tools": nil}
+		if hasTools {
+			tools := slices.Compact(slices.Sorted(slices.Values(strings.Split(toolList, ","))))
+			item["tools"] = tools
+		}
+		items = append(items, item)
+	}
+	slices.SortFunc(items, func(left map[string]any, right map[string]any) int {
+		return strings.Compare(left["connection"].(string), right["connection"].(string))
+	})
+	var canonical bytes.Buffer
+	encoder := json.NewEncoder(&canonical)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(map[string]any{"connections": items}); err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(bytes.TrimSuffix(canonical.Bytes(), []byte("\n")))
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func recordStart(arguments []string) {

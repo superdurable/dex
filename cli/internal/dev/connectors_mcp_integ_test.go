@@ -218,6 +218,24 @@ func TestConnectorsMCPManagerReusesRunningServerFromServerJSON(t *testing.T) {
 	require.Len(t, readFakeConnectorsMCPStarts(t, recordDirectory), 2, "dexcli starts its own server when the reused one stops")
 }
 
+func TestConnectorsMCPManagerReusesRunningServerWithSameSelection(t *testing.T) {
+	recordDirectory := t.TempDir()
+	t.Setenv("FAKE_CONNECTORS_MCP_RECORD_DIR", recordDirectory)
+	fakeBinary := buildFakeConnectorsMCP(t)
+	cfg := testConnectorsMCPConfig(t, fakeBinary)
+	cfg.Connections = []string{"slack/work=post_thread_reply,list_thread_messages", "hacker-news-daily/default"}
+	external := startExternalFakeConnectorsMCP(t, fakeBinary, cfg)
+	require.NotNil(t, external.announcement.ConnectionsConfigDigest)
+	// The same selection in another order and tool order has the same digest.
+	cfg.Connections = []string{"hacker-news-daily/default", "slack/work=list_thread_messages,post_thread_reply"}
+	_, proxyServer, logs := startTestConnectorsMCPManager(t, cfg)
+
+	reused := waitForProxiedMCPResult(t, proxyServer.URL, "")
+	require.Equal(t, external.announcement.InstanceID, reused.InstanceID)
+	require.Contains(t, logs.String(), "reusing running server")
+	require.Len(t, readFakeConnectorsMCPStarts(t, recordDirectory), 1, "dexcli started no second server")
+}
+
 func TestConnectorsMCPManagerReportsLockedStateDirectoryWithOtherSelection(t *testing.T) {
 	fakeBinary := buildFakeConnectorsMCP(t)
 	cfg := testConnectorsMCPConfig(t, fakeBinary)
@@ -226,7 +244,7 @@ func TestConnectorsMCPManagerReportsLockedStateDirectoryWithOtherSelection(t *te
 	_, proxyServer, logs := startTestConnectorsMCPManager(t, cfg)
 
 	waitForLog(t, logs, "Connectors MCP: unavailable: another Connectors MCP server holds "+cfg.StateDirectory)
-	require.Contains(t, logs.String(), external.announcement.URL)
+	require.Contains(t, logs.String(), external.announcement.URL+" offers another connection selection")
 	status, body := postMCP(t, proxyServer.URL, nil)
 	require.Equal(t, http.StatusServiceUnavailable, status)
 	require.Contains(t, body, "unavailable")
