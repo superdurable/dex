@@ -159,7 +159,8 @@ applications, such as the image bytes of Dex Agents:
 dex-server-zd dev --data-dir <dir> --application-s3-listen 127.0.0.1:8803 --application-s3-bucket dex-dev-media
 ~~~
 
-The two flags go together. The bucket has its own embedded s3local store in
+The two flags go together. Only these flags configure the bucket; the
+**--config** file has no keys for it. The bucket has its own embedded s3local store in
 **application-s3** in the data directory, and its own address. The server's
 own bucket is not reachable at that address, so applications cannot write into
 it. The bucket is created at startup when it is missing, and its objects stay

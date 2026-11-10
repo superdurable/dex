@@ -138,21 +138,53 @@ impl EmbeddedS3 {
 
     /// Returns the HTTP endpoint of the application bucket, or none when it is not served.
     #[cfg(test)]
-    pub(crate) fn application_endpoint(&self) -> Option<String> {
+    fn application_endpoint(&self) -> Option<String> {
         self.application_server
             .as_ref()
             .map(|server| format!("http://{}", server.local_address()))
     }
 
-    /// Stops accepting requests and waits for in-flight requests.
+    /// Stops both emulators at once: each stops accepting, waits for in-flight requests, and
+    /// closes its store, which flushes relaxed commits to disk.
     ///
-    /// Then it waits while the emulators' stores flush relaxed commits to disk.
+    /// The data directory lock is released only after both stores close. Dropping this future,
+    /// such as at the end of a shutdown budget, does not cancel that work.
     pub(crate) async fn shutdown(self) {
-        if let Some(application_server) = self.application_server {
+        let Self {
+            server,
+            application_server,
+            data_directory_lock,
+            #[cfg(feature = "test-util")]
+            store_for_test,
+        } = self;
+        // The server's accept loop then holds the last reference, so it closes the store.
+        #[cfg(feature = "test-util")]
+        drop(store_for_test);
+        // A spawned task keeps closing, and keeps the lock, after a timed-out caller drops this future.
+        let closing = tokio::spawn(close_emulators_then_unlock(
+            server,
+            application_server,
+            data_directory_lock,
+        ));
+        if let Err(error) = closing.await {
+            tracing::error!(%error, "closing the embedded S3 emulators failed");
+        }
+    }
+}
+
+/// Shuts both emulators down concurrently, then releases the data directory lock.
+async fn close_emulators_then_unlock(
+    server: ServerHandle,
+    application_server: Option<ServerHandle>,
+    data_directory_lock: DataDirectoryLock,
+) {
+    let application_closed = async {
+        if let Some(application_server) = application_server {
             application_server.shutdown().await;
         }
-        self.server.shutdown().await;
-    }
+    };
+    tokio::join!(server.shutdown(), application_closed);
+    drop(data_directory_lock);
 }
 
 /// Opens the store under `root_directory`, creates `bucket`, and serves it on `listen`.
@@ -315,8 +347,9 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use std::net::SocketAddr;
+    use std::time::Duration;
 
-    use s3local::StoreError;
+    use s3local::{Durability, EtagMode, Store, StoreConfig, StoreError};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
 
@@ -420,6 +453,91 @@ mod tests {
         assert_eq!(status, 200);
         assert_eq!(body, b"image bytes");
         restarted.shutdown().await;
+    }
+
+    /// Retries a blocking `attempt` until it succeeds; real threads advance while paused time stands still.
+    async fn retry_blocking_until_ok<T: Send + 'static, E: Send + 'static>(
+        attempt: impl Fn() -> Result<T, E> + Clone + Send + 'static,
+    ) -> Option<T> {
+        for _ in 0..100_000 {
+            let attempt = attempt.clone();
+            if let Ok(value) = tokio::task::spawn_blocking(attempt).await.expect("attempt") {
+                return Some(value);
+            }
+        }
+        None
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_abandoned_shutdown_closes_the_server_store_and_keeps_the_lock_until_both_close() {
+        let directory = tempfile::tempdir().expect("test directory");
+        let data_directory = directory.path().join("data");
+        let mut config = dev_config_with_application_bucket(&data_directory);
+        // Strict stores lock their metadata file, so a reopen succeeds only after a close.
+        config.durability_mode = DevDurabilityMode::Strict;
+        let emulator = EmbeddedS3::start(&config, SERVER_BUCKET)
+            .await
+            .expect("the emulators start");
+        let application_endpoint = emulator
+            .application_endpoint()
+            .expect("the application bucket is served");
+        let address = application_endpoint
+            .trim_start_matches("http://")
+            .to_owned();
+        let mut slow_request = TcpStream::connect(&address).await.expect("connect");
+        let head = format!(
+            "PUT /{APPLICATION_BUCKET}/agents/sha256/slow HTTP/1.1\r\nHost: {address}\r\nContent-Length: 100\r\n\r\npartial"
+        );
+        slow_request
+            .write_all(head.as_bytes())
+            .await
+            .expect("write a partial request");
+        let upload_directory = data_directory.join("application-s3").join("tmp");
+        let has_upload_started = retry_blocking_until_ok(move || {
+            let entries = std::fs::read_dir(&upload_directory).map_err(drop)?;
+            if entries.count() > 0 { Ok(()) } else { Err(()) }
+        })
+        .await;
+        assert!(has_upload_started.is_some(), "the upload is in flight");
+
+        let caller_budget = Duration::from_secs(1);
+        let (abandoned, ()) = tokio::join!(
+            tokio::time::timeout(caller_budget, emulator.shutdown()),
+            tokio::time::advance(caller_budget),
+        );
+        assert!(
+            abandoned.is_err(),
+            "the in-flight upload outlasts the caller's budget"
+        );
+        let server_store_config = StoreConfig {
+            root_directory: config.s3_data_directory.clone(),
+            durability: Durability::Strict,
+            etag_mode: EtagMode::Md5,
+        };
+        let reopened =
+            retry_blocking_until_ok(move || Store::open(&server_store_config).map(drop)).await;
+        assert!(
+            reopened.is_some(),
+            "the server store closes although the caller abandoned shutdown"
+        );
+        let lock_attempt = tokio::task::spawn_blocking({
+            let data_directory = data_directory.clone();
+            move || lock_data_directory(&data_directory)
+        })
+        .await
+        .expect("lock attempt");
+        assert!(
+            lock_attempt.is_err(),
+            "the lock stays held while the application store has an upload in flight"
+        );
+
+        drop(slow_request);
+        let released_lock =
+            retry_blocking_until_ok(move || lock_data_directory(&data_directory)).await;
+        assert!(
+            released_lock.is_some(),
+            "the lock is released once the application store closes"
+        );
     }
 
     #[tokio::test]
