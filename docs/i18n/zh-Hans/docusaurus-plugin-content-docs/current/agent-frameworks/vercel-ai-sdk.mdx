@@ -85,7 +85,7 @@ export function createVercelAiOrderSupportFlow(orderDesk: OrderDesk, model: Lang
 
 ### Worker {#worker}
 
-一个 Worker 为 example 中所有 harness 的 session Flow 提供服务。Agent session 的 Step 是 async 的，因此 Python Registry 允许 async handler。每个启动 session 或调用其 RPC 的进程，都要构建同一个 session Flow。
+一个 Worker 为 example 中所有 harness 的 session Flow 提供服务。每个启动 session 或调用其 RPC 的进程，都要构建同一个 session Flow。
 
 <SdkTabs
   examples={{
