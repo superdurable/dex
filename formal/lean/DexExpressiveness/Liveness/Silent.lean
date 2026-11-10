@@ -1,5 +1,6 @@
 import DexExpressiveness.FiniteTraces
 import DexExpressiveness.Liveness.Statements
+import DexExpressiveness.Liveness.SilentLemmas
 
 /-!
 # Liveness, work package L2: silent Dex steps and the kinds of labels
@@ -23,20 +24,88 @@ namespace DexExpressiveness
 
 open DexExpressiveness.L DexExpressiveness.Translation
 
-/-- An action of a silent kind lowers the silent weight. -/
+/-- An action of a silent kind lowers the silent weight when task IDs are
+unique. Without unique IDs `workerRun` can keep or raise the weight: it
+changes every task with the ID, and a `Returned` one among them gets heavier. -/
 theorem silentWeight_lt_of_isSilentKind (flow : Dex.FlowDef signature)
-    (config : Dex.Config signature) (action : Dex.Action signature)
+    (config : Dex.Config signature) (tasksDistinct : TasksAreDistinct config)
+    (action : Dex.Action signature)
     (events : List (Dex.Obs signature)) (next : Dex.Config signature)
     (isStep : Dex.step flow config action = some (events, next))
     (isSilent : action.isSilentKind = true) : next.silentWeight < config.silentWeight := by
-  sorry
+  cases action with
+  | workerRun taskId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · cases isStep
+    · rename_i task isFound
+      split at isStep
+      · rename_i isStarted
+        resolve_step isStep
+        obtain ⟨isMember, hasId⟩ := mem_of_findTask? config taskId task isFound
+        simp only [Dex.Config.silentWeight, Dex.Config.updateTask]
+        apply sum_map_lt_of_change Dex.Task.silentWeight _ config.tasks ?_ task isMember ?_
+        · intro element isElement
+          by_cases isChanged : element.id = taskId
+          · have isTask := eq_of_isFound config taskId element task tasksDistinct isElement
+              isChanged isFound
+            subst isTask
+            simp [isChanged, Dex.Task.silentWeight, isStarted]
+          · simp [isChanged]
+        · simp [hasId, Dex.Task.silentWeight, isStarted]
+      · cases isStep
+  | workerReturn taskId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · cases isStep
+    · rename_i task isFound
+      split at isStep
+      · rename_i response isRunning
+        resolve_step isStep
+        obtain ⟨isMember, hasId⟩ := mem_of_findTask? config taskId task isFound
+        simp only [Dex.Config.silentWeight, Dex.Config.updateTask]
+        apply sum_map_lt_of_change Dex.Task.silentWeight _ config.tasks ?_ task isMember ?_
+        · intro element _
+          by_cases isChanged : element.id = taskId
+          · have isPositive := element.silentWeight_pos
+            simp only [isChanged, ite_true]
+            simp only [Dex.Task.silentWeight] at isPositive ⊢
+            omega
+          · simp [isChanged]
+        · simp [hasId, Dex.Task.silentWeight, isRunning]
+      · cases isStep
+  | workerAbandon taskId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · cases isStep
+    · rename_i task isFound
+      split at isStep
+      · cases isStep
+      · resolve_step isStep
+        exact silentWeight_removeTask_lt config taskId task isFound
+  | stepCompleteStale taskId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · cases isStep
+    · rename_i task isFound
+      split at isStep
+      · split at isStep
+        · cases isStep
+        · resolve_step isStep
+          exact silentWeight_removeTask_lt config taskId task isFound
+      · cases isStep
+  | _ => cases isSilent
 
 /-- A clock tick keeps the silent weight. -/
 theorem silentWeight_tick (flow : Dex.FlowDef signature) (config : Dex.Config signature)
     (duration : Nat) (events : List (Dex.Obs signature)) (next : Dex.Config signature)
     (isStep : Dex.step flow config (.tick duration) = some (events, next)) :
     next.silentWeight = config.silentWeight := by
-  sorry
+  simp only [Dex.step] at isStep
+  split at isStep
+  · resolve_step isStep
+    rfl
+  · cases isStep
 
 /-- The L labels that simulate one Dex step: they are progress steps exactly
 when the Dex action is one, a clock tick is simulated by a label, a step with
