@@ -44,7 +44,7 @@ type connectorPublicCatalog struct {
 	mu         sync.Mutex
 	entries    []connectorCatalogEntry
 	fetchedAt  time.Time
-	// failure is the last fetch error while no catalog is cached; failedAt is when it happened.
+	// failure is the last fetch error, cleared by a successful fetch; failedAt is when it happened.
 	failure  error
 	failedAt time.Time
 	inFlight *connectorPublicCatalogFetch
@@ -119,8 +119,8 @@ func (setup *connectorSetup) handleListConnectorCatalog(response http.ResponseWr
 	})
 }
 
-// list returns the cached public catalog, refetching it after the TTL. Concurrent callers share one fetch. A failed
-// refetch keeps a cached copy; without one, the error is returned and remembered for connectorPublicCatalogRetryDelay.
+// list returns the cached public catalog, refetching it after the TTL. Concurrent callers share one fetch. After a
+// failed fetch, it returns the cached copy, or else the error, without fetching for connectorPublicCatalogRetryDelay.
 func (catalog *connectorPublicCatalog) list(ctx context.Context) ([]connectorCatalogEntry, error) {
 	catalog.mu.Lock()
 	now := time.Now()
@@ -129,9 +129,12 @@ func (catalog *connectorPublicCatalog) list(ctx context.Context) ([]connectorCat
 		catalog.mu.Unlock()
 		return entries, nil
 	}
-	if catalog.entries == nil && catalog.failure != nil && now.Sub(catalog.failedAt) < connectorPublicCatalogRetryDelay {
-		failure := catalog.failure
+	if catalog.failure != nil && now.Sub(catalog.failedAt) < connectorPublicCatalogRetryDelay {
+		entries, failure := catalog.entries, catalog.failure
 		catalog.mu.Unlock()
+		if entries != nil {
+			return entries, nil
+		}
 		return nil, failure
 	}
 	fetch := catalog.inFlight
@@ -161,11 +164,11 @@ func (catalog *connectorPublicCatalog) runFetch(ctx context.Context, fetch *conn
 		fetch.entries = entries
 		return
 	}
+	catalog.failure, catalog.failedAt = err, time.Now()
 	if catalog.entries != nil {
 		fetch.entries = catalog.entries
 		return
 	}
-	catalog.failure, catalog.failedAt = err, time.Now()
 	fetch.err = err
 }
 
