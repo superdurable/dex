@@ -178,6 +178,20 @@ content changes. A typo, link, or wording-only change needs no bump; its pull
 request description contains a line `skills-release: no bump needed: <reason>`.
 See `skills/CONTRIBUTING.md`.
 
+### Release Versions
+
+Choose the version of each SDK, cli, and web release by what it ships:
+
+- A minor release adds or changes a public API, configuration, flag, wire
+  protocol, or persisted format, or makes a breaking change.
+- A patch release ships anything else: UI improvements, bug fixes,
+  performance work, and docs. Release Dex Web and cli improvements as patches.
+- When the choice is unclear, ask the owner before releasing.
+
+A patch release folds into its minor's change log entry. List it on the
+Released line and mark its items "Since 1.NN.P". Developer reference pages
+mark its changes "Changed in 1.NN.P".
+
 ### Docs Information Placement
 
 Dex knowledge lives in two layers. Each fact has one home.
@@ -234,7 +248,8 @@ build it.
 - When a version leaves the site, redirect each of its URLs to the same page
   in the latest version. If that page no longer exists, redirect to the
   component's reference index. Docs URLs stay permanent.
-- SDKs, cli, and web are versioned by minor release. Until server-zd 1.0, each
+- Each SDK, cli, and web minor version has one reference version. Patch
+  releases update that minor's reference. Until server-zd 1.0, each
   `0.1.N` server-zd release is one version. From 1.0 on, server-zd is
   versioned by minor release.
 
@@ -482,8 +497,9 @@ Do not impose a word limit; prefer a complete paragraph over a terse fragment.
   generated API reference instead of restating them.
 - When a release adds an API or changes its behavior, its doc comment says so
   in the language's idiom. Use the first release of that SDK that ships the
-  change. When that number is not known yet, use the next minor after the
-  newest Dex release tag.
+  change. When that number is not known yet, follow Release Versions:
+  the next minor after the newest Dex release tag for a new or changed
+  API, and the next patch for any other behavior change.
   - Go and Rust: a sentence such as "Since 1.NN.0." or "Changed in 1.NN.0:
     <what changed>."
   - Python: `.. versionadded:: 1.NN.0` or `.. versionchanged:: 1.NN.0`,
