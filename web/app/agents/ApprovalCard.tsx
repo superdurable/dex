@@ -87,7 +87,7 @@ export function ApprovalCard({
             <button className="agc-danger" disabled={disabled} type="submit">
               {busy ? SESSION_COPY.working : SESSION_COPY.confirmReject}
             </button>
-            <button className="v2-ghost" disabled={busy} onClick={() => setRejecting(false)} type="button">
+            <button className="agc-secondary" disabled={busy} onClick={() => setRejecting(false)} type="button">
               {SESSION_COPY.cancel}
             </button>
           </div>
@@ -95,20 +95,20 @@ export function ApprovalCard({
       ) : (
         <div className="agc-buttons">
           <button
-            className="v2-primary"
+            className="agc-primary"
             disabled={disabled}
             onClick={() => void run(() => onResolve(true, ''))}
             type="button"
           >
             {busy ? SESSION_COPY.working : SESSION_COPY.approve}
           </button>
-          <button className="v2-ghost" disabled={disabled} onClick={() => setRejecting(true)} type="button">
+          <button className="agc-danger" disabled={disabled} onClick={() => setRejecting(true)} type="button">
             {SESSION_COPY.reject}
           </button>
         </div>
       )}
       {blockedReason && <p className="agc-blocked">{blockedReason}</p>}
-      {message && <p className={message.tone === 'error' ? 'v2-error' : 'agc-note'} role="status">{message.text}</p>}
+      {message && <p className={message.tone === 'error' ? 'agc-error' : 'agc-note'} role="status">{message.text}</p>}
     </div>
   );
 }
@@ -141,7 +141,7 @@ export function QuestionCard({
         <div className="agc-buttons">
           {interrupt.choices.map((choice) => (
             <button
-              className="v2-ghost"
+              className="agc-choice"
               disabled={busy || answerBlockedReason !== null}
               key={choice}
               onClick={() => void run(() => onAnswer(choice))}
@@ -172,12 +172,12 @@ export function QuestionCard({
         )}
         <div className="agc-buttons">
           {interrupt.allowsFreeText && (
-            <button className="v2-primary" disabled={busy || answerBlockedReason !== null || !answer.trim()} type="submit">
+            <button className="agc-primary" disabled={busy || answerBlockedReason !== null || !answer.trim()} type="submit">
               {busy ? SESSION_COPY.working : SESSION_COPY.answer}
             </button>
           )}
           <button
-            className="v2-ghost"
+            className="agc-secondary"
             disabled={busy || declineBlockedReason !== null}
             onClick={() => void run(onDecline)}
             type="button"
@@ -189,7 +189,7 @@ export function QuestionCard({
       {(answerBlockedReason ?? declineBlockedReason) && (
         <p className="agc-blocked">{answerBlockedReason ?? declineBlockedReason}</p>
       )}
-      {message && <p className={message.tone === 'error' ? 'v2-error' : 'agc-note'} role="status">{message.text}</p>}
+      {message && <p className={message.tone === 'error' ? 'agc-error' : 'agc-note'} role="status">{message.text}</p>}
     </div>
   );
 }

@@ -7,6 +7,24 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
+import {
+  Bot,
+  CircleAlert,
+  CircleDashed,
+  Gauge,
+  History,
+  Info,
+  Layers,
+  MessageSquare,
+  RotateCw,
+  SendHorizontal,
+  ShieldAlert,
+  Sparkles,
+  Square,
+  UserRound,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react';
 import { isOpenFlowStatusCode } from '../work-queue/liveness';
 import type { SettledOutcome } from './ApprovalCard';
 import { SESSION_COPY } from './copy';
@@ -51,11 +69,14 @@ export function SessionView({
     return (
       <section className="ses" aria-label={SESSION_COPY.tabSession}>
         {held.liveness === 'unreachable'
-          ? <p className="ses-error" role="alert">{SESSION_COPY.readFailed(held.reason ?? '')}</p>
+          ? (
+            <p className="ses-error" role="alert">
+              <CircleAlert aria-hidden="true" size={16} />
+              <span>{SESSION_COPY.readFailed(held.reason ?? '')}</span>
+            </p>
+          )
           : <p className="ses-state">{SESSION_COPY.loading}</p>}
-        {held.liveness === 'unreachable' && (
-          <button className="v2-ghost" onClick={reload} type="button">{SESSION_COPY.reload}</button>
-        )}
+        {held.liveness === 'unreachable' && <ReloadButton onReload={reload} />}
       </section>
     );
   }
@@ -93,34 +114,41 @@ export function SessionView({
     <section className="ses" aria-label={SESSION_COPY.tabSession}>
       <SessionHeader session={session} onReload={reload} />
       {held.liveness === 'stale' && (
-        <p className="ses-stale" role="status">{SESSION_COPY.stale} {held.reason}</p>
+        <p className="ses-note" data-kind="stale" role="status">
+          <Info aria-hidden="true" size={13} />
+          <span>{SESSION_COPY.stale} {held.reason}</span>
+        </p>
       )}
       {view.missing.length > 0 && (
         <div className="ses-missing" role="alert">
-          <b>{SESSION_COPY.missingHeading}</b>
+          <b><CircleAlert aria-hidden="true" size={16} />{SESSION_COPY.missingHeading}</b>
           <ul>{view.missing.map((entry) => <li key={entry}>{entry}</li>)}</ul>
         </div>
       )}
       {neededPermission && onChooseWorkingAs && (
-        <p className="ses-note" data-kind="permission">
-          {SESSION_COPY.chooseWorkingAs(neededPermission)}{' '}
-          <button className="v2-ghost ses-workas" onClick={() => onChooseWorkingAs(neededPermission)} type="button">
+        <p className="ses-permission">
+          <ShieldAlert aria-hidden="true" size={15} />
+          <span>{SESSION_COPY.chooseWorkingAs(neededPermission)}</span>
+          <button className="ses-workas" onClick={() => onChooseWorkingAs(neededPermission)} type="button">
             {SESSION_COPY.workAs(neededPermission)}
           </button>
         </p>
       )}
-      {schema.language === 'go' && <p className="ses-note">{SESSION_COPY.goReduced}</p>}
+      {schema.language === 'go' && <SessionNote>{SESSION_COPY.goReduced}</SessionNote>}
       <div className="ses-stream">
         {view.messageIndex && view.messageIndex.firstSequence > 1 && (
-          <p className="ses-note">{SESSION_COPY.deletedBefore(view.messageIndex.firstSequence)}</p>
+          <SessionNote icon={History}>{SESSION_COPY.deletedBefore(view.messageIndex.firstSequence)}</SessionNote>
         )}
         {view.chunkKeys.length > 0 && !includeChunks && (
-          <button className="v2-ghost ses-earlier" onClick={loadEarlierMessages} type="button">
+          <button className="ses-earlier" onClick={loadEarlierMessages} type="button">
+            <History aria-hidden="true" size={14} />
             {SESSION_COPY.earlierMessages(view.chunkKeys.length)}
           </button>
         )}
-        {session.unreadableChunks > 0 && <p className="ses-note">{SESSION_COPY.chunkUnreadable(session.unreadableChunks)}</p>}
-        {view.hasCallsFromMessagesOnly && <p className="ses-note" data-kind="history">{SESSION_COPY.pastCallsNote}</p>}
+        {session.unreadableChunks > 0 && <SessionNote>{SESSION_COPY.chunkUnreadable(session.unreadableChunks)}</SessionNote>}
+        {view.hasCallsFromMessagesOnly && (
+          <SessionNote icon={History} kind="history">{SESSION_COPY.pastCallsNote}</SessionNote>
+        )}
         {view.items.length === 0 && view.missing.length === 0 && <p className="ses-state">{SESSION_COPY.noMessages}</p>}
         {view.items.map((item, index) => (
           <StreamItem
@@ -133,7 +161,10 @@ export function SessionView({
           />
         ))}
         {view.state?.lastTurnError && (
-          <p className="ses-error"><b>{SESSION_COPY.lastTurnError}:</b> {view.state.lastTurnError}</p>
+          <p className="ses-error" role="alert">
+            <CircleAlert aria-hidden="true" size={16} />
+            <span><b>{SESSION_COPY.lastTurnError}</b> {view.state.lastTurnError}</span>
+          </p>
         )}
       </div>
       <SessionControls
@@ -165,26 +196,68 @@ function turnOf(item: ConversationItem | undefined): string | undefined {
   return item.kind === 'message' ? item.message.turnId : item.call.turnId;
 }
 
+/** Each session status as an icon and a tone; running states pulse. */
+const SESSION_STATUS_LOOK: Record<string, { icon: LucideIcon; tone: 'idle' | 'active' | 'danger' }> = {
+  waiting_for_user_message: { icon: MessageSquare, tone: 'idle' },
+  running_model: { icon: Sparkles, tone: 'active' },
+  running_tools: { icon: Wrench, tone: 'active' },
+  compacting_context: { icon: Layers, tone: 'active' },
+  failed: { icon: CircleAlert, tone: 'danger' },
+};
+
 function SessionHeader({ session, onReload }: { session: LoadedAgentSession; onReload: () => void }) {
-  const { state, usage } = session.view;
+  const { state, usage, waitingCalls } = session.view;
+  const look = state ? SESSION_STATUS_LOOK[state.status] ?? { icon: CircleDashed, tone: 'idle' as const } : null;
+  const isEveryWaitAQuestion = waitingCalls.length > 0 && waitingCalls.every((call) => call.state === 'awaiting_answer');
+  const WaitIcon = isEveryWaitAQuestion ? MessageSquare : ShieldAlert;
   return (
     <header className="ses-head">
       <div className="ses-headline">
-        {state && (
-          <span className="ses-status" data-status={state.status}>
+        {state && look && (
+          <span className="ses-status" data-status={state.status} data-tone={look.tone}>
+            <look.icon aria-hidden="true" size={15} strokeWidth={2.2} />
             {SESSION_COPY.sessionStatus[state.status] ?? state.status}
           </span>
         )}
+        {waitingCalls.length > 0 && (
+          <span className="ses-status" data-tone="attention">
+            <WaitIcon aria-hidden="true" size={15} strokeWidth={2.2} />
+            {isEveryWaitAQuestion
+              ? SESSION_COPY.waitingForAnswer(waitingCalls.length)
+              : SESSION_COPY.waitingForApproval(waitingCalls.length)}
+          </span>
+        )}
         {state?.activeTurnId && <span className="ses-turn">{SESSION_COPY.turn(state.activeTurnId)}</span>}
-        <button className="v2-ghost ses-reload" onClick={onReload} type="button">{SESSION_COPY.reload}</button>
+        <ReloadButton onReload={onReload} />
       </div>
       {usage && (
-        <p className="ses-usage">
-          <span className="ses-usage-label">{SESSION_COPY.usageHeading}</span>{' '}
-          {SESSION_COPY.usage(usage.inputTokens, usage.outputTokens, usage.cachedInputTokens, usage.reasoningTokens, usage.modelCalls)}
+        <p className="ses-usage" title={SESSION_COPY.usageHeading}>
+          <Gauge aria-hidden="true" size={13} />
+          <span>
+            {SESSION_COPY.usage(usage.inputTokens, usage.outputTokens, usage.cachedInputTokens, usage.reasoningTokens, usage.modelCalls)}
+          </span>
         </p>
       )}
     </header>
+  );
+}
+
+function ReloadButton({ onReload }: { onReload: () => void }) {
+  return (
+    <button className="ses-reload" onClick={onReload} type="button">
+      <RotateCw aria-hidden="true" size={13} strokeWidth={2.2} />
+      {SESSION_COPY.reload}
+    </button>
+  );
+}
+
+/** A quiet one-line note: secondary to the conversation, never framed. */
+function SessionNote({ children, icon: Icon = Info, kind }: { children: ReactNode; icon?: LucideIcon; kind?: string }) {
+  return (
+    <p className="ses-note" data-kind={kind}>
+      <Icon aria-hidden="true" size={13} />
+      <span>{children}</span>
+    </p>
   );
 }
 
@@ -201,10 +274,17 @@ function StreamItem({
   renderControls: (call: ToolCallView) => ReactNode;
   onTellAgent?: (call: ToolCallView) => void;
 }) {
-  if (item.kind === 'missing') return <p className="ses-gap" role="note">{item.label}</p>;
+  if (item.kind === 'missing') {
+    return (
+      <p className="ses-gap" role="note">
+        <CircleAlert aria-hidden="true" size={14} />
+        <span>{item.label}</span>
+      </p>
+    );
+  }
   const turnId = item.kind === 'message' ? item.message.turnId : item.call.turnId;
   const divider = turnId && turnId !== previousTurnId
-    ? <div className="ses-turnmark" role="separator">{SESSION_COPY.turn(turnId)}</div>
+    ? <div className="ses-turnmark" role="separator"><span>{SESSION_COPY.turn(turnId)}</span></div>
     : null;
   if (item.kind === 'tool') {
     return (
@@ -222,16 +302,36 @@ function StreamItem({
     <>
       {divider}
       <div className="ses-msg" data-role={message.role}>
-        <span className="ses-who">
-          {isUser ? SESSION_COPY.user : SESSION_COPY.assistant}
-          {item.stepExecutionId && (
-            <span className="ses-writer t-mono" title={SESSION_COPY.writtenBy}> · {item.stepExecutionId}</span>
-          )}
+        <span className="ses-avatar" aria-hidden="true">
+          {isUser ? <UserRound size={15} strokeWidth={2} /> : <Bot size={15} strokeWidth={2} />}
         </span>
-        <p className="ses-text">{message.text}</p>
+        <div className="ses-bubble">
+          <span
+            className="ses-who"
+            title={item.stepExecutionId ? `${SESSION_COPY.writtenBy} ${item.stepExecutionId}` : undefined}
+          >
+            {isUser ? SESSION_COPY.user : SESSION_COPY.assistant}
+          </span>
+          <p className="ses-text">{message.text === null ? null : messageTextParts(message.text)}</p>
+        </div>
       </div>
     </>
   );
+}
+
+const INLINE_MARK = /(\*\*[^*\n]+\*\*|`[^`\n]+`)/;
+
+/** Message text with its bold and inline code marks drawn, as React text so nothing is parsed as HTML. */
+export function messageTextParts(text: string): ReactNode[] {
+  return text.split(INLINE_MARK).map((part, index) => {
+    if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={index}>{messageTextParts(part.slice(2, -2))}</strong>;
+    }
+    if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) {
+      return <code className="ses-code" key={index}>{part.slice(1, -1)}</code>;
+    }
+    return part;
+  });
 }
 
 function SessionControls({
@@ -291,8 +391,7 @@ function SessionControls({
           void run('steer', () => invoke(schema.steerUserMessage, { text: steerText }), SESSION_COPY.steered);
         }}
       >
-        <label className="agc-label">
-          <span>{SESSION_COPY.steerLabel}</span>
+        <div className="ses-composer" data-disabled={steerBlocked !== null ? 'true' : undefined}>
           <textarea
             aria-label={SESSION_COPY.steerLabel}
             disabled={steerBlocked !== null}
@@ -302,28 +401,30 @@ function SessionControls({
             value={steerText}
             onChange={(event) => setSteerText(event.target.value)}
           />
-        </label>
-        <div className="agc-buttons">
-          <button className="v2-primary" disabled={busy !== '' || steerBlocked !== null || !steerText.trim()} type="submit">
-            {busy === 'steer' ? SESSION_COPY.sending : activeTurnId === null ? SESSION_COPY.send : SESSION_COPY.steer}
-          </button>
-          <button
-            className="agc-danger"
-            disabled={busy !== '' || stopBlocked !== null}
-            onClick={() => void run(
-              'stop',
-              () => invoke(schema.cancelTurn, activeTurnId === null ? {} : { turn_id: activeTurnId }),
-              SESSION_COPY.stopped,
-            )}
-            type="button"
-          >
-            {busy === 'stop' ? SESSION_COPY.stopping : SESSION_COPY.stop}
-          </button>
+          <div className="ses-composer-buttons">
+            <button
+              className="agc-danger"
+              disabled={busy !== '' || stopBlocked !== null}
+              onClick={() => void run(
+                'stop',
+                () => invoke(schema.cancelTurn, activeTurnId === null ? {} : { turn_id: activeTurnId }),
+                SESSION_COPY.stopped,
+              )}
+              type="button"
+            >
+              <Square aria-hidden="true" size={11} strokeWidth={2.6} />
+              {busy === 'stop' ? SESSION_COPY.stopping : SESSION_COPY.stop}
+            </button>
+            <button className="agc-primary" disabled={busy !== '' || steerBlocked !== null || !steerText.trim()} type="submit">
+              <SendHorizontal aria-hidden="true" size={14} strokeWidth={2.2} />
+              {busy === 'steer' ? SESSION_COPY.sending : activeTurnId === null ? SESSION_COPY.send : SESSION_COPY.steer}
+            </button>
+          </div>
         </div>
         {steerBlocked === null && activeTurnId === null && <p className="agc-note">{SESSION_COPY.steerIdleNote}</p>}
         {steerBlocked !== null && <p className="agc-blocked">{steerBlocked}</p>}
         {stopBlocked !== null && stopBlocked !== steerBlocked && <p className="agc-blocked">{SESSION_COPY.stop}: {stopBlocked}</p>}
-        {message && <p className={message.tone === 'error' ? 'v2-error' : 'agc-note'} role="status">{message.text}</p>}
+        {message && <p className={message.tone === 'error' ? 'agc-error' : 'agc-note'} role="status">{message.text}</p>}
       </form>
     </footer>
   );

@@ -14,7 +14,7 @@ import { ApprovalCard } from './ApprovalCard';
 import { SESSION_COPY } from './copy';
 import type { ToolCallView } from './sessionModel';
 import type { AgentInterruptRecord } from './sessionSchema';
-import { ToolCallCard, toolCallDetail } from './ToolCallCard';
+import { ToolCallCard, toolArgumentSummary, toolCallDetail } from './ToolCallCard';
 
 afterEach(cleanup);
 
@@ -109,10 +109,43 @@ describe('ToolCallCard', () => {
     expect(onTellAgent).toHaveBeenCalled();
   });
 
-  it('says the effect class is not kept for a call read from message text', () => {
-    render(<ToolCallCard call={call({ state: 'returned', effect: null, source: 'messages' })} />);
-    expect(screen.getByText('effect not kept')).toBeTruthy();
-    expect(screen.getByText('From message text only.')).toBeTruthy();
+  it('reads a call from message text as one quiet row with a one-line summary', () => {
+    render(<ToolCallCard call={call({
+      toolCallId: 'toolu_01abc', toolName: 'Read', state: 'returned', effect: null, source: 'messages',
+      argumentsText: '{"file_path":"/tmp/work/team-3/slug.py"}', output: 'def slugify(text): ...',
+    })} />);
+    const card = screen.getByTestId('tool-call-toolu_01abc');
+    const row = card.querySelector('summary') as HTMLElement;
+    expect(row.textContent).toContain('Read');
+    expect(row.textContent).toContain('…/team-3/slug.py');
+    expect(row.textContent).not.toContain('toolu_01abc');
+    expect(row.textContent).not.toContain('returned');
+    expect((card.querySelector('details') as HTMLDetailsElement).open).toBe(false);
+    expect(card.textContent).not.toContain('From message text only.');
+    expect(card.textContent).not.toContain('effect not kept');
+  });
+
+  it('opens a call that waits for approval, with its controls in view', () => {
+    render(
+      <ToolCallCard call={call({ state: 'awaiting_approval' })}>
+        <button type="button">Approve</button>
+      </ToolCallCard>,
+    );
+    const card = screen.getByTestId('tool-call-c1');
+    expect(card.dataset.tone).toBe('attention');
+    expect((card.querySelector('details') as HTMLDetailsElement).open).toBe(true);
+    expect(card.querySelector('summary')?.textContent).toContain('waiting for approval');
+    expect(card.querySelector('details')?.contains(screen.getByRole('button', { name: 'Approve' }))).toBe(false);
+  });
+});
+
+describe('toolArgumentSummary', () => {
+  it('picks the telling argument, or lists the scalar ones', () => {
+    expect(toolArgumentSummary('{"command":"pytest -q","timeout":30}')).toBe('pytest -q');
+    expect(toolArgumentSummary('{"pattern":"*.py","path":"/a/b/c/d"}')).toBe('*.py');
+    expect(toolArgumentSummary('{"amount":24000,"currency":"EUR"}')).toBe('amount: 24000, currency: EUR');
+    expect(toolArgumentSummary('not json')).toBe('not json');
+    expect(toolArgumentSummary('')).toBe('');
   });
 });
 

@@ -36,7 +36,8 @@ export const SESSION_COPY = {
   },
   usageHeading: 'Usage',
   usage(input: number, output: number, cached: number, reasoning: number, calls: number): string {
-    return `${input.toLocaleString()} input · ${output.toLocaleString()} output · ${cached.toLocaleString()} cached · ${reasoning.toLocaleString()} reasoning tokens · ${calls} model ${calls === 1 ? 'call' : 'calls'}`;
+    const reasoningPart = reasoning > 0 ? ` · ${reasoning.toLocaleString()} reasoning` : '';
+    return `${calls} model ${calls === 1 ? 'call' : 'calls'} · ${input.toLocaleString()} input · ${output.toLocaleString()} output · ${cached.toLocaleString()} cached${reasoningPart} tokens`;
   },
   sessionStatus: {
     waiting_for_user_message: 'Waiting for a message',
@@ -45,6 +46,12 @@ export const SESSION_COPY = {
     compacting_context: 'Compacting context',
     failed: 'Failed',
   } as Record<string, string>,
+  waitingForApproval(count: number): string {
+    return count === 1 ? 'Waiting for approval' : `${count} calls waiting for approval`;
+  },
+  waitingForAnswer(count: number): string {
+    return count === 1 ? 'Waiting for an answer' : `${count} questions waiting for an answer`;
+  },
   turn(turnId: string): string {
     return turnId.replace(/^turn-/, 'Turn ');
   },
@@ -93,7 +100,7 @@ export const SESSION_COPY = {
     non_idempotent_write: 'non-idempotent write',
     unclassified: 'unclassified',
   } as Record<string, string>,
-  effectUnknown: 'effect not kept',
+  toolCallId: 'Tool call ID',
   state: {
     awaiting_approval: 'waiting for approval',
     awaiting_answer: 'waiting for an answer',
@@ -147,7 +154,6 @@ export const SESSION_COPY = {
   },
   waitingDetail: 'It waits for a Timer or a remote task.',
   approvedNote: 'Approved.',
-  fromMessages: 'From message text only.',
   noResultDetail: 'The message text keeps no result for this call.',
 
   // Approval and question cards.

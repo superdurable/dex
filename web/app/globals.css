@@ -460,7 +460,8 @@ a {
   min-height: calc(100vh - var(--header-h));
 }
 
-.app-main:has(.v2-shell) {
+/* Only the split workspaces fill the viewport; run tabs and the design graph flow with the page. */
+.app-main:has(.v2-shell.v2-run) {
   height: calc(100vh - var(--header-h));
   min-height: 0;
   overflow: hidden;
