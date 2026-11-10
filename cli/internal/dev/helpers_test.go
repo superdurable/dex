@@ -21,6 +21,7 @@ func testConfig(t *testing.T) *Config {
 		t.Fatal(err)
 	}
 	cfg.StateDirectory = t.TempDir()
+	cfg.ConnectorConfigDirectory = t.TempDir()
 	cfg.OpenBrowser = false
 	// Test servers skip fsync; a config file also works with the released bundled dex-server-zd.
 	cfg.ZDConfigPath = filepath.Join(t.TempDir(), "zd-overrides.yaml")

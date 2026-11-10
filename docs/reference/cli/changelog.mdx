@@ -8,6 +8,16 @@ sidebar_label: Change log
 
 This page lists user-visible changes to dexcli, newest first; each section covers the changes since the previous release of this component.
 
+## 1.43 {#v1-43}
+
+Not released yet. The next minor release, cli-v1.43.0, ships these changes.
+
+### Added
+
+- **dexcli connectors mcp** serves the agent tools of authorized Connector connections as an MCP server over Streamable HTTP on loopback. It compiles in the Slack, Gmail, Hacker News, YouTube, Reddit, and Spotify Connectors and reads the **connections.json** that Dex Web writes. [Reference](/reference/cli/#connectors-mcp).
+- A write called with an idempotency key keeps its single-dispatch state in a local state directory, so a retry with the same key never sends twice. Results report **io.superdurable.dex/outcome** **rejected** or **unknown**. [Reference](/reference/cli/#connectors-mcp-results).
+- **dexcli dev** serves the same endpoint at **/mcp** on the Dex Web port, and accepts **--mcp** and **--mcp-connection**. [Reference](/reference/cli/#start-locally).
+
 ## 1.42 {#v1-42}
 
 Released 2026-11-10 as [cli-v1.42.0](https://github.com/superdurable/dex/releases/tag/cli-v1.42.0).

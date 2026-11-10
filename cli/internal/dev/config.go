@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/superdurable/dex/cli/internal/connectorsmcp"
 )
 
 const (
@@ -46,6 +48,8 @@ var flagOrder = []string{
 	"durability",
 	"engine",
 	"flow-rendering-dir",
+	"mcp",
+	"mcp-connection",
 	"open",
 	"server-log-folder",
 	"web-port",
@@ -87,6 +91,11 @@ type Config struct {
 	ConnectorReleaseOverrides map[string]string
 	// AllowedHosts defaults empty and lists extra host names that Dex Web /api requests may use besides loopback.
 	AllowedHosts string
+	// MCPEnabled defaults true and serves the Connectors MCP endpoint at /mcp on the Dex Web listener when BindAddress
+	// is a loopback address.
+	MCPEnabled bool
+	// MCPConnections defaults empty, which offers each compiled Connector's only authorized connection at /mcp.
+	MCPConnections []connectorsmcp.ConnectionSelector
 	// OpenBrowser defaults true and opens Dex Web after readiness.
 	OpenBrowser bool
 	// ZDStartupTimeout defaults to 60 seconds.
@@ -146,6 +155,13 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"connector-release-override",
 		"local Connector release override as connector-id=artifact-directory (repeatable)",
 	)
+	flags.BoolVar(&cfg.MCPEnabled, "mcp", true, "serve Connector agent tools over MCP at /mcp on the Dex Web port (loopback --bind-address only)")
+	var mcpConnections connectorsmcp.ConnectionSelectorsFlag
+	flags.Var(
+		&mcpConnections,
+		"mcp-connection",
+		"connection /mcp offers as <connectorId>/<connectionName> (repeatable; default each Connector's only connection)",
+	)
 	flags.BoolVar(&cfg.OpenBrowser, "open", true, "open Dex Web after startup")
 	flags.IntVar(&cfg.WebPort, "web-port", cfg.WebPort, "Dex Web port")
 	flags.StringVar(
@@ -165,6 +181,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		return nil, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
 	}
 	cfg.ConnectorReleaseOverrides = connectorReleaseOverrides.values
+	cfg.MCPConnections = mcpConnections.Selectors
 	cfg.explicitLocalFlags = make(map[string]bool)
 	flags.Visit(func(item *flag.Flag) {
 		switch item.Name {
@@ -193,6 +210,7 @@ func defaultConfig() (*Config, error) {
 		StateDirectory:            stateDirectory,
 		ConnectorConfigDirectory:  filepath.Join(stateDirectory, "connectors"),
 		ConnectorReleaseOverrides: make(map[string]string),
+		MCPEnabled:                true,
 		OpenBrowser:               true,
 		ZDStartupTimeout:          defaultZDStartupTimeout,
 		ShutdownTimeout:           10 * time.Second,

@@ -19,6 +19,7 @@ import (
 	"syscall"
 
 	"github.com/superdurable/dex/cli/internal/command"
+	"github.com/superdurable/dex/cli/internal/connectorsmcp"
 	"github.com/superdurable/dex/cli/internal/dev"
 	"github.com/superdurable/dex/cli/internal/update"
 )
@@ -50,6 +51,8 @@ func runWithUpdateNotice(ctx context.Context, args []string, printUpdateNotice f
 	switch args[0] {
 	case "dev":
 		return dev.Execute(ctx, args[1:], os.Stdout, os.Stderr, version)
+	case "connectors":
+		return connectorsmcp.ExecuteConnectors(ctx, args[1:], os.Stdout, os.Stderr, version)
 	case "codec-server":
 		return fmt.Errorf("dexcli codec-server was removed with the Temporal-based Go Server; use cli-v1.26.1 to inspect payloads in legacy Temporal histories")
 	case "version":
@@ -77,6 +80,7 @@ func printUsage(output io.Writer) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Commands:")
 	fmt.Fprintln(output, "  dev       Start a local Dex development environment")
+	fmt.Fprintln(output, "  connectors Serve Connector agent tools over MCP (dexcli connectors mcp)")
 	fmt.Fprintln(output, "  health    Check Dex FlowService health")
 	fmt.Fprintln(output, "  visualize Render a static Flow graph from Go or Python source")
 	fmt.Fprintln(output, "  flow      Search, inspect, watch, stop, or reset Flows")

@@ -1,0 +1,67 @@
+{
+  "connectorId": "hacker-news-daily",
+  "goModuleRelease": "connectors/hackernews/go/v0.23.0",
+  "agentMetadataSource": "superdurable/dex-connectors-library connector/hackernews-agent-tools@b6f191ad8d8696ce2f813b8af5494ddf802f9382",
+  "operations": [
+    {
+      "operationId": "listStoryIDs",
+      "kind": "query",
+      "description": "List current Hacker News story IDs in feed order. Choose feed top, best, new, ask (Ask HN), or show (Show HN), and limit from 1 to 500. Read each returned ID as a Hacker News item for its title and links.",
+      "agent": {
+        "exposed": true,
+        "branches": {
+          "defect": "rejected",
+          "invalidResponse": "rejected",
+          "providerRejected": "rejected"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "ListStoryIDsInput selects one feed snapshot. It does not select a historical time window.",
+        "properties": {
+          "feed": {
+            "description": "Feed is top, best, new, ask, or show. Empty selects top.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Limit bounds returned IDs from 1 through 500. Zero selects 50.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "feed",
+          "limit"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "operationId": "getItem",
+      "kind": "query",
+      "description": "Read one public Hacker News story, comment, job, or poll by its positive item ID. Returns title, author, score, source URL, discussion URL, text as untrusted HTML, and child comment IDs to read next.",
+      "agent": {
+        "exposed": true,
+        "branches": {
+          "defect": "rejected",
+          "invalidResponse": "rejected",
+          "notFound": "rejected",
+          "providerRejected": "rejected"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "GetItemInput identifies one story, comment, job, poll, or poll option.",
+        "properties": {
+          "id": {
+            "description": "ID is a positive Hacker News item ID.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}

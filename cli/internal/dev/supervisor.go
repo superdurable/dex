@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/superdurable/dex/cli/internal/connectorsmcp"
 	"github.com/superdurable/dex/cli/internal/update"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	dexweb "github.com/superdurable/dex/web"
@@ -119,13 +120,25 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 	resources.web = webServer
+	webURL := "http://" + listeners.web.Addr().String()
+	mcpURL := ""
+	var listenerServer interface{ Serve(net.Listener) error } = webServer
+	if s.cfg.MCPEnabled && connectorsmcp.IsLoopbackAddress(s.cfg.BindAddress) {
+		mcpServer, err := newConnectorsMCPServer(s.cfg, s.stderr)
+		if err != nil {
+			return err
+		}
+		mountedServer := newWebListenerServer(webServer, mcpServer.Handler())
+		resources.webListener = mountedServer
+		listenerServer = mountedServer
+		mcpURL = webURL + connectorsmcp.MountPath
+	}
 	componentExits := make(chan componentExit, 2)
-	go func() { componentExits <- componentExit{name: "Dex Web", err: webServer.Serve(listeners.web)} }()
+	go func() { componentExits <- componentExit{name: "Dex Web", err: listenerServer.Serve(listeners.web)} }()
 	go func() {
 		<-process.done
 		componentExits <- componentExit{name: "Dex Server", err: process.Err()}
 	}()
-	webURL := "http://" + listeners.web.Addr().String()
 	if err := waitForComponentHTTP(startupCtx, webURL+"/healthz", componentExits); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -137,7 +150,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		return formatComponentExit(exited, "stopped before readiness")
 	default:
 	}
-	s.printReady(webURL, dexAddress, dataDirectory)
+	s.printReady(webURL, mcpURL, dexAddress, dataDirectory)
 	s.printUpdateNotice(ctx)
 	if s.cfg.OpenBrowser {
 		if err := openBrowser(webURL); err != nil {
@@ -159,11 +172,17 @@ func formatComponentExit(exited componentExit, phase string) error {
 	return fmt.Errorf("%s %s: %w", exited.name, phase, exited.err)
 }
 
-func (s *supervisor) printReady(webURL string, dexAddress string, serverDataDirectory string) {
+func (s *supervisor) printReady(webURL string, mcpURL string, dexAddress string, serverDataDirectory string) {
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Dex development environment is ready")
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintf(s.stdout, "Dex Web:       %s\n", webURL)
+	switch {
+	case mcpURL != "":
+		fmt.Fprintf(s.stdout, "Connectors MCP: %s\n", mcpURL)
+	case s.cfg.MCPEnabled:
+		fmt.Fprintln(s.stdout, "Connectors MCP: off, because --bind-address is not a loopback address")
+	}
 	fmt.Fprintf(s.stdout, "Dex Server:    %s\n", dexAddress)
 	fmt.Fprintf(s.stdout, "State dir:     %s\n", serverDataDirectory)
 	if s.cfg.LogDirectory != "" {

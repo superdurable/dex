@@ -1,0 +1,155 @@
+{
+  "connectorId": "slack",
+  "goModuleRelease": "connectors/slack/go/v1.3.0",
+  "agentMetadataSource": "superdurable/dex-connectors-library connector/slack-agent-tools@b96124f8bd2c0d49eca171c5711d010228c74d92",
+  "operations": [
+    {
+      "operationId": "listThreadMessages",
+      "kind": "query",
+      "description": "Read one page of messages from a Slack channel thread. Supply the channel ID, the parent message timestamp, a page size from 1 through 15, and the cursor from the previous page to continue.",
+      "agent": {
+        "exposed": true,
+        "branches": {
+          "defect": "rejected",
+          "providerRejected": "rejected"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "ListThreadMessagesInput contains the provider request fields for list thread messages.",
+        "properties": {
+          "channelId": {
+            "description": "ChannelID is the Slack channel identifier.",
+            "type": "string"
+          },
+          "cursor": {
+            "description": "Cursor specifies cursor for list thread messages input.",
+            "type": "string"
+          },
+          "pageSize": {
+            "description": "PageSize specifies page size for list thread messages input.",
+            "type": "integer"
+          },
+          "threadTimestamp": {
+            "description": "ThreadTimestamp is the Slack parent message timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channelId",
+          "pageSize",
+          "threadTimestamp"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "operationId": "getThreadReply",
+      "kind": "query",
+      "description": "Read one reply in a Slack channel thread. Supply the channel ID, the parent message timestamp, and the reply's own timestamp.",
+      "agent": {
+        "exposed": true,
+        "branches": {
+          "defect": "rejected",
+          "notFound": "rejected",
+          "providerRejected": "rejected"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "GetThreadReplyInput contains the provider request fields for get thread reply.",
+        "properties": {
+          "channelId": {
+            "description": "ChannelID is the Slack channel identifier.",
+            "type": "string"
+          },
+          "replyTimestamp": {
+            "description": "ReplyTimestamp is the Slack reply message timestamp.",
+            "type": "string"
+          },
+          "threadTimestamp": {
+            "description": "ThreadTimestamp is the Slack parent message timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channelId",
+          "replyTimestamp",
+          "threadTimestamp"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "operationId": "postChannelMessage",
+      "kind": "mutation",
+      "description": "Post one new top-level message to a Slack channel. Supply the channel ID and the message text.",
+      "agent": {
+        "exposed": true,
+        "approval": "recommended",
+        "branches": {
+          "defect": "rejected",
+          "providerRejected": "rejected",
+          "uncertain": "unknown"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "PostChannelMessageInput contains the provider request fields for post channel message.",
+        "properties": {
+          "channelId": {
+            "description": "ChannelID is the Slack channel identifier.",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text specifies text for post channel message input.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channelId",
+          "text"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "operationId": "postThreadReply",
+      "kind": "mutation",
+      "description": "Post one reply to an existing Slack channel thread. Supply the channel ID, the parent message timestamp, and the reply text.",
+      "agent": {
+        "exposed": true,
+        "approval": "recommended",
+        "branches": {
+          "defect": "rejected",
+          "providerRejected": "rejected",
+          "uncertain": "unknown"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "PostThreadReplyInput contains the provider request fields for post thread reply.",
+        "properties": {
+          "channelId": {
+            "description": "ChannelID is the Slack channel identifier.",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text specifies text for post thread reply input.",
+            "type": "string"
+          },
+          "threadTimestamp": {
+            "description": "ThreadTimestamp is the Slack parent message timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channelId",
+          "text",
+          "threadTimestamp"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}

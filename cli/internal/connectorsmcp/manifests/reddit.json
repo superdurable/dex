@@ -1,0 +1,34 @@
+{
+  "connectorId": "reddit",
+  "goModuleRelease": "connectors/reddit/go/v0.1.0",
+  "agentMetadataSource": "superdurable/dex-connectors-library connector/reddit-agent-tools@b034e25adcfeb1f3b676dda035ffb4d9dd3b6dd0",
+  "operations": [
+    {
+      "operationId": "getPost",
+      "kind": "query",
+      "description": "Read one Reddit post's title, subreddit, permalink, and score. Supply the post's full ID, which starts with t3_.",
+      "agent": {
+        "exposed": true,
+        "branches": {
+          "defect": "rejected",
+          "missing": "rejected",
+          "providerRejected": "rejected"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "GetPostInput names a Reddit post by its full t3_ ID.",
+        "properties": {
+          "postId": {
+            "description": "PostID is the full t3_ ID copied from the Reddit post URL or API.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}

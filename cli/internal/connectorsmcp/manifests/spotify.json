@@ -1,0 +1,48 @@
+{
+  "connectorId": "spotify",
+  "goModuleRelease": "connectors/spotify/go/v0.24.0",
+  "agentMetadataSource": "superdurable/dex-connectors-library connector/spotify-agent-tools@8efd87d60b8e33c5dff515b4b84c3c9f2102a529",
+  "operations": [
+    {
+      "operationId": "listPlaylistTracks",
+      "kind": "query",
+      "description": "List one page of tracks from a Spotify playlist the user owns or can access. Supply the 22-character playlist ID; optionally a page size from 1 through 50, a two-letter market code, and the offset from the previous page's nextOffset.",
+      "agent": {
+        "exposed": true,
+        "branches": {
+          "accessDenied": "rejected",
+          "authorizationRevoked": "rejected",
+          "defect": "rejected",
+          "notFound": "rejected",
+          "providerRejected": "rejected"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "ListPlaylistTracksInput selects one bounded page of Spotify playlist tracks.",
+        "properties": {
+          "limit": {
+            "description": "Limit is 1 through 50. Zero selects Spotify's default page size of 20.",
+            "type": "integer"
+          },
+          "market": {
+            "description": "Market is an optional ISO 3166-1 alpha-2 country code. Spotify prefers the authorized user's country.",
+            "type": "string"
+          },
+          "offset": {
+            "description": "Offset is the zero-based playlist item offset.",
+            "type": "integer"
+          },
+          "playlistId": {
+            "description": "PlaylistID is the 22-character Spotify playlist identifier.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "playlistId"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}

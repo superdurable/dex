@@ -37,6 +37,8 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 | **--connector-config-dir** | **$HOME/.dex/connectors**; local Connector credentials. |
 | **--connector-release-override** | Repeatable **connector-id=artifact-directory** for a local Connector release. |
 | **--allowed-hosts** | Empty; comma-separated host names that Dex Web **/api** requests may name besides loopback names and IP addresses. Since 1.42. See [Allowed hosts](/reference/web/dex-web#allowed-hosts). |
+| **--mcp** | **true**; serves the Connectors MCP endpoint at **/mcp** on the Dex Web port. It is served only when **--bind-address** is a loopback address. Since 1.43. See [Serve Connector tools over MCP](#connectors-mcp). |
+| **--mcp-connection** | Repeatable **connectorId/connectionName**; the connections **/mcp** offers. Empty offers each Connector's only connection. Since 1.43. |
 
 If a default port is occupied, Dex selects the next available port and prints
 its addresses. An explicitly requested occupied port fails. The state directory
@@ -56,6 +58,94 @@ The Temporal engine was removed. **--engine temporal**, all
 names server-zd as the only engine. Remove those flags and use **--zd-data-dir**
 and **--zd-config** instead. Start with a new server-zd data directory;
 Temporal SQLite files cannot be used as server-zd state.
+
+## Serve Connector tools over MCP {#connectors-mcp}
+
+Since 1.43. **dexcli connectors mcp** serves the agent-exposed operations of
+authorized Connector connections as MCP tools over Streamable HTTP. **dexcli dev**
+serves the same endpoint at **/mcp** on its Dex Web port, so an agent can use
+**http://127.0.0.1:8802/mcp** while the development environment runs.
+
+```bash
+dexcli connectors mcp --listen 127.0.0.1:8803
+```
+
+| Flag | Default and behavior |
+|---|---|
+| **--listen** | **127.0.0.1:8803**; must be a loopback address. The endpoint is **/mcp** on it. |
+| **--connector-config-dir** | **$HOME/.dex/connectors**; the directory of the **connections.json** that Dex Web writes. |
+| **--state-dir** | **$HOME/.dex/connectors-mcp**; keeps the state of each write that carries an idempotency key. **dexcli dev** uses **connectors-mcp** in its state directory. |
+| **--connection** | Repeatable **connectorId/connectionName**, such as **slack/support-slack**; the connections to offer, at most one per Connector. |
+| **--allowed-hosts** | Empty; comma-separated host names that requests may name besides loopback names and IP addresses. |
+
+### Connectors and tools {#connectors-mcp-tools}
+
+dexcli compiles in these Connectors. A tool exists for each operation whose
+Connector manifest marks it for agents.
+
+| Connector ID | Go module release | Tools |
+|---|---|---|
+| **slack** | connectors/slack/go v1.3.0 | **slack_list_thread_messages**, **slack_get_thread_reply**, **slack_post_channel_message**, **slack_post_thread_reply** |
+| **gmail** | connectors/google/gmail/go v0.25.2 | **gmail_get_message**, **gmail_send_message**, **gmail_reply_to_message** |
+| **hacker-news-daily** | connectors/hackernews/go v0.23.0 | **hacker-news-daily_list_story_i_ds**, **hacker-news-daily_get_item** |
+| **google-youtube** | connectors/google/youtube/go v0.3.0 | **google-youtube_search_videos**, **google-youtube_get_video**, **google-youtube_get_channel**, **google-youtube_list_playlist_items** |
+| **reddit** | connectors/reddit/go v0.1.0 | **reddit_get_post** |
+| **spotify** | connectors/spotify/go v0.24.0 | **spotify_list_playlist_tracks** |
+
+A tool is named **connectorId_operation**, with the operation ID in snake case,
+the same name an agent's in-process Connector tool source uses. Its description
+and input schema come from the manifest. Each tool carries **_meta**:
+
+| Key | Value |
+|---|---|
+| **io.superdurable.dex/effect** | **read** for a Query, **idempotent_write** for a Mutation whose manifest says **agent.retry: safe**, and **non_idempotent_write** for any other Mutation. |
+| **io.superdurable.dex/approval** | **recommended** when the manifest recommends approval; absent otherwise. |
+| **io.superdurable.dex/connector**, **io.superdurable.dex/operation**, **io.superdurable.dex/connection** | The Connector ID, operation ID, and connection name. |
+
+The annotations agree with the effect: **readOnlyHint** is true for **read**, and
+**idempotentHint** is true for **idempotent_write**.
+
+### Connections {#connectors-mcp-connections}
+
+Authorize connections on the Dex Web Connectors page; see
+[Add a connection](/reference/web/local-connector-setup#add-a-connection). The
+server reads **connections.json** again whenever it changes, so a new
+connection needs no restart. Credentials are read for each call, refreshed and
+written back like a Dex application does, and never returned or logged.
+
+Without **--connection**, each compiled Connector with exactly one authorized
+connection is offered. A Connector with several connections offers no tools
+until **--connection** picks one, so a tool name never moves to another account.
+A selected connection that is not authorized is skipped with a warning.
+
+### Idempotency keys and results {#connectors-mcp-results}
+
+A call may carry an idempotency key in **_meta** under
+**io.superdurable.dex/idempotencyKey**. The key is the Step execution ID from
+which the Connector derives its Call ID. For a Mutation, the server keeps the
+single-dispatch checkpoint and the result under the key in the state
+directory. A retry with the same key then returns the stored result, or lets
+the Connector read back an earlier send, and never sends twice. A key reused
+with other arguments is refused without a send. A call without a key keeps no
+state, so the server reports a Connector retry request as the final result.
+
+| Operation result | MCP result |
+|---|---|
+| A required branch, such as **sent** | The value as **structuredContent** and as JSON text. |
+| A branch the manifest's **agent.branches** lists as **rejected**, or a failed Query branch | **isError** true, **_meta** **io.superdurable.dex/outcome** **rejected**. Nothing took effect. |
+| **uncertain**, a branch listed as **unknown**, or any other Mutation branch | **isError** true, **io.superdurable.dex/outcome** **unknown**. The write may have taken effect. |
+| The Connector asks to retry | JSON-RPC error **-32603** whose **data** has **io.superdurable.dex/retryable** true, **io.superdurable.dex/notSent**, and **io.superdurable.dex/retryAfterMs** when known. Repeat the call with the same key. |
+
+Error results also carry **io.superdurable.dex/branch**. A stored result
+returned to a retry carries **io.superdurable.dex/replayed** true.
+
+### Security {#connectors-mcp-security}
+
+Tool calls carry no credentials, so the server listens only on loopback.
+**dexcli dev** serves **/mcp** only when **--bind-address** is a loopback
+address. A request whose **Host** is a DNS name other than a loopback name or an
+**--allowed-hosts** entry gets HTTP 403, which stops DNS rebinding. Cross-origin
+browser requests are refused.
 
 ## Connect to Dex
 

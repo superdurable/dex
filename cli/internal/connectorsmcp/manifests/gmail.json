@@ -1,0 +1,119 @@
+{
+  "connectorId": "gmail",
+  "goModuleRelease": "connectors/google/gmail/go/v0.25.2",
+  "agentMetadataSource": "superdurable/dex-connectors-library connector/google-gmail-agent-tools@475a16e0738ad65d493ae83bd1708130c469f05e",
+  "operations": [
+    {
+      "operationId": "getMessage",
+      "kind": "query",
+      "description": "Read one Gmail message from the connected mailbox by its Gmail message ID, returning its sender, recipients, subject, threading headers, labels, and decoded text and HTML bodies.",
+      "agent": {
+        "exposed": true,
+        "branches": {
+          "defect": "rejected",
+          "invalidResponse": "rejected",
+          "notFound": "rejected",
+          "providerRejected": "rejected"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "GetMessageInput identifies one Gmail message.",
+        "properties": {
+          "messageId": {
+            "description": "MessageID is the provider message identifier.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "operationId": "sendMessage",
+      "kind": "mutation",
+      "description": "Send one new email from the connected Gmail account. Give the recipient email addresses, a one-line subject, and the plain-text body; an HTML body is optional.",
+      "agent": {
+        "exposed": true,
+        "approval": "recommended",
+        "branches": {
+          "defect": "unknown",
+          "providerRejected": "rejected"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "SendMessageInput contains the provider request fields for send message.",
+        "properties": {
+          "htmlBody": {
+            "description": "HTMLBody is the optional HTML message body.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Subject is the message subject.",
+            "type": "string"
+          },
+          "textBody": {
+            "description": "TextBody is the plain-text message body.",
+            "type": "string"
+          },
+          "to": {
+            "description": "To lists recipient addresses.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "subject",
+          "textBody",
+          "to"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "operationId": "replyToMessage",
+      "kind": "mutation",
+      "description": "Reply in its existing Gmail thread to one message in the connected mailbox, addressed to that message's Reply-To or sender. Give the Gmail message ID to answer and the plain-text reply body; an HTML body is optional.",
+      "agent": {
+        "exposed": true,
+        "approval": "recommended",
+        "branches": {
+          "defect": "unknown",
+          "invalidResponse": "rejected",
+          "providerRejected": "rejected"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "ReplyToMessageInput identifies a message and supplies the reply body.",
+        "properties": {
+          "htmlBody": {
+            "description": "HTMLBody is the optional HTML message body.",
+            "type": "string"
+          },
+          "messageId": {
+            "description": "MessageID is the provider message identifier.",
+            "type": "string"
+          },
+          "textBody": {
+            "description": "TextBody is the plain-text message body.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId",
+          "textBody"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}
