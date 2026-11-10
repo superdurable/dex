@@ -16,6 +16,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from agents_release_notes import CHANGELOG_PATH, ReleaseNotesError, extract_version_section
+
 VERSION_PATTERN = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
     r"(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$"
@@ -157,6 +159,15 @@ def tag_exists(tag: str) -> bool:
     return result.returncode == 0
 
 
+def agents_changelog_errors(agents_version: str) -> list[str]:
+    """Returns why the agents release notes cannot be built from the changelog, or no errors."""
+    try:
+        extract_version_section(Path(CHANGELOG_PATH).read_text(encoding="utf-8"), agents_version)
+    except (OSError, ReleaseNotesError) as error:
+        return [f"Agents release notes: {error}"]
+    return []
+
+
 def append_summary(lines: list[str]) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
@@ -167,6 +178,7 @@ def append_summary(lines: list[str]) -> None:
 def write_outputs(output_path: Path, version: str, agents_version: str | None) -> int:
     selections: list[tuple[Component, str | None, bool, str, str]] = []
     collisions: list[str] = []
+    preflight_errors: list[str] = []
 
     for component in COMPONENTS:
         baseline = latest_reachable_tag(component)
@@ -181,6 +193,8 @@ def write_outputs(output_path: Path, version: str, agents_version: str | None) -
         selections.append((component, baseline, selected, target, skip_reason))
         if selected and tag_exists(target):
             collisions.append(target)
+        if selected and component.key == "agents":
+            preflight_errors.extend(agents_changelog_errors(component_version))
 
     summary = ["### Changed-component release plan", "", "| Component | Baseline | Result |", "|---|---|---|"]
     output_lines = [f"version={version}", f"agents_version={agents_version or ''}"]
@@ -201,6 +215,10 @@ def write_outputs(output_path: Path, version: str, agents_version: str | None) -
         print("Target release tags already exist:", file=sys.stderr)
         for collision in collisions:
             print(f"- {collision}", file=sys.stderr)
+        return 1
+    if preflight_errors:
+        for preflight_error in preflight_errors:
+            print(preflight_error, file=sys.stderr)
         return 1
 
     output_path.write_text("\n".join(output_lines) + "\n", encoding="utf-8")

@@ -60,6 +60,10 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
             path = self.repository / relative_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("initial\n", encoding="utf-8")
+        (self.repository / "agents/CHANGELOG.md").write_text(
+            "# Changelog\n\n## 0.2.0 (2026-11-05)\n\n- Two.\n\n## 0.1.0 (2026-11-01)\n\n- One.\n",
+            encoding="utf-8",
+        )
         self.commit("initial")
         for tag in BASELINE_TAGS:
             self.git("tag", tag)
@@ -235,6 +239,13 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         result, _ = self.plan("1.2.3", "--agents-version", "0.2.0")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("agents/v0.2.0", result.stderr)
+
+    def test_missing_agents_changelog_section_fails_preflight(self) -> None:
+        self.change("agents/python/core/pyproject.toml")
+        result, values = self.plan("1.2.3", "--agents-version", "0.3.0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no '## 0.3.0' section", result.stderr)
+        self.assertEqual(values, {})
 
     def test_invalid_agents_version_fails(self) -> None:
         result, _ = self.plan("1.2.3", "--agents-version", "v0.2")
