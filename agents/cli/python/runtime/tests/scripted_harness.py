@@ -92,7 +92,7 @@ class ScriptedHarness:
         @function_tool(effect=ToolEffect.READ)
         async def report_shell_allow() -> str:
             """Report the shell settings this tool's own Step sees, as a replacement would."""
-            turn = context.current_turn()
+            turn = context.resolve_tool_step_permissions()
             return json.dumps(
                 {
                     "shell": is_local_tool_group_enabled(turn, LocalToolGroup.SHELL),

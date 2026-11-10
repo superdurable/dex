@@ -10,17 +10,20 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 import httpx2
 from mcp import Client, Implementation
 
 from dex_agents import (
+    AgentToolCall,
     AgentTurnContext,
     DeferredToolCall,
     DeferredToolExecution,
+    ToolExecutionError,
     ToolExecutionResult,
     ToolPolicy,
     ToolTaskCancellation,
@@ -37,12 +40,18 @@ from dex_agents.mcp import (
 from dex_agents.stepwise import SourceToolDefinition
 from dex_agents_cli.config import ConnectorsConfig
 from dex_agents_cli.tool_policy import disabled_tool_call, raise_if_disabled
-from dex_agents_cli.turns import TurnConfigResolver, current_turn_config
+from dex_agents_cli.turns import (
+    TurnConfigResolver,
+    current_turn_config,
+    recorded_turn_settings,
+)
 
 #: The connector source's ``source_name``; stored calls are routed by it.
 CONNECTORS_TOOL_SOURCE_NAME = "dex_connectors"
 
 _MCP_SERVER_NAME = "connectors"
+_MCP_REFERENCE_KEY = "mcp"
+_IDENTITY_REFERENCE_KEY = "connector_tool"
 _CLIENT_NAME = "dex-agents-cli"
 _CATALOG_TIMEOUT_SECONDS = 15.0
 _CATALOG_REFRESH_SECONDS = 30.0
@@ -317,22 +326,55 @@ class ConnectorsMcpToolSource:
         policy = built.policy
         if tool_name in turn_config.approval.always:
             policy = ToolPolicy(policy.effect, requires_approval=True)
-        return replace(built, tool_name=tool_name, policy=policy)
+        identity = listed_tool.identity
+        reference = {
+            _MCP_REFERENCE_KEY: built.tool_source_reference,
+            _IDENTITY_REFERENCE_KEY: None if identity is None else asdict(identity),
+        }
+        return replace(
+            built, tool_name=tool_name, policy=policy, tool_source_reference=json.dumps(reference)
+        )
 
     async def execute_deferred_tool_call(
         self, call: DeferredToolExecution
     ) -> ToolExecutionResult | ToolTaskStarted:
-        """Run one call through ``McpToolSource``, refusing one its turn switched off."""
+        """Run one call through ``McpToolSource``, after authorizing it again on this Worker.
+
+        The call may run on another Worker than the one that built it, with
+        its own configuration file. Its connection and operation must be
+        enabled for the turn here too; otherwise nothing runs.
+        """
         raise_if_disabled(call)
-        return await self._mcp.execute_deferred_tool_call(call)
+        record, identity = _unwrap_reference(call.tool_call)
+        turn = current_turn_config() or self._resolver.resolve(recorded_turn_settings(call))
+        if not _is_enabled(turn.connectors, identity):
+            raise ToolExecutionError(f"tool {record.tool_name} is switched off for this session")
+        return await self._mcp.execute_deferred_tool_call(replace(call, tool_call=record))
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
         """Poll one MCP task through ``McpToolSource``."""
-        return await self._mcp.poll_tool_task(poll)
+        record, _ = _unwrap_reference(poll.tool_call)
+        return await self._mcp.poll_tool_task(replace(poll, tool_call=record))
 
     async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
         """Cancel one abandoned MCP task through ``McpToolSource``."""
-        await self._mcp.cancel_tool_task(cancellation)
+        record, _ = _unwrap_reference(cancellation.tool_call)
+        await self._mcp.cancel_tool_task(replace(cancellation, tool_call=record))
+
+
+def _unwrap_reference(
+    record: AgentToolCall,
+) -> tuple[AgentToolCall, ConnectorToolIdentity | None]:
+    """Return the record with ``McpToolSource``'s own reference, and the tool's identity."""
+    try:
+        parsed = json.loads(record.tool_source_reference or "null")
+    except json.JSONDecodeError:
+        return record, None
+    if not isinstance(parsed, dict) or _MCP_REFERENCE_KEY not in parsed:
+        return record, None
+    stored = parsed.get(_IDENTITY_REFERENCE_KEY)
+    identity = ConnectorToolIdentity(**stored) if isinstance(stored, dict) else None
+    return replace(record, tool_source_reference=parsed[_MCP_REFERENCE_KEY]), identity
 
 
 def _is_enabled(connectors: ConnectorsConfig, identity: ConnectorToolIdentity | None) -> bool:

@@ -12,13 +12,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import signal
 from pathlib import Path
 from typing import Any
 
 import pexpect
 
-from dex_agents.testing import EXECUTE_COMPLETED_EVENT, read_step_history
-from tests.conftest import CliHome, config_yaml, expect, wait_for_exit
+from dex_agents import AgentSnapshot, MessageRole
+from dex_agents.testing import EXECUTE_COMPLETED_EVENT, read_step_history, wait_for_agent_snapshot
+from dex_agents_cli import session_flow_type
+from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
+from tests.scripted_harness import SCRIPTED_FLOW_TYPE
 
 NO_CONNECTORS: dict[str, Any] = {"connectors": {"enabled": []}}
 
@@ -196,3 +201,48 @@ async def test_two_commands_with_other_configs_never_run_each_others_tool_steps(
         f"note-{attempt}.txt" for attempt in range(5)
     ]
     assert list(second_workspace.iterdir()) == []
+
+
+async def test_a_worker_whose_config_switches_shell_off_refuses_a_shell_step_made_elsewhere(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    workspace = cli_home.home / "dex-agent-workspace"
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    first = cli_home.spawn()
+    session_id = await read_session_id(first)
+    await expect(first, "> ")
+    first.sendline('call run_shell_command {"command": "touch ran.txt"}')
+    await expect(first, "[approval] run_shell_command")
+    # The first command's Worker dies while its shell call waits for approval.
+    os.kill(first.pid, signal.SIGKILL)
+    # The same file and workspace, edited to switch shell commands off, give the same Flow type.
+    cli_home.write_config(
+        config_yaml({**NO_CONNECTORS, "local_tools": {"shell": {"enabled": False}}})
+    )
+    second = cli_home.spawn()
+    await read_session_id(second)
+    await expect(second, "> ")
+    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
+        snapshot = await sessions.get_agent_snapshot(session_id)
+        (interrupt,) = snapshot.pending_interrupts
+        assert await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=True)
+
+        def turn_ended(candidate: AgentSnapshot) -> AgentSnapshot | None:
+            state = candidate.state
+            is_done = state is not None and state.turn_count >= 1 and not state.active_turn_id
+            return candidate if is_done else None
+
+        snapshot = await wait_for_agent_snapshot(
+            sessions, session_id, turn_ended, description="the shell turn"
+        )
+    outputs = [
+        message.tool_output or ""
+        for message in snapshot.messages
+        if message.role is MessageRole.TOOL
+    ]
+    assert len(outputs) == 1
+    assert "tool run_shell_command is switched off for this session" in outputs[0]
+    assert not (workspace / "ran.txt").exists()
+    second.sendeof()
+    assert await wait_for_exit(second) == 0

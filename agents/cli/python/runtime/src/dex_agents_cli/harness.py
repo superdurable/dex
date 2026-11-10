@@ -20,10 +20,15 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
-from dex_agents import AgentSessionFlow
+from dex_agents import AgentSessionFlow, DeferredToolExecution
 from dex_agents.stepwise import ToolSource
 from dex_agents_cli.config import EffectiveConfig
-from dex_agents_cli.turns import ResolvedTurn, TurnConfigResolver, current_turn_config
+from dex_agents_cli.turns import (
+    ResolvedTurn,
+    TurnConfigResolver,
+    current_turn_config,
+    recorded_turn_settings,
+)
 
 _FLOW_TYPE_SUFFIX_DIGITS = 12
 
@@ -188,6 +193,49 @@ class HarnessContext:
             The turn's configuration and instructions.
         """
         return current_turn_config() or self.resolver.resolve(None)
+
+    def resolve_tool_step_permissions(
+        self, call: DeferredToolExecution | None = None
+    ) -> ResolvedTurn:
+        """Return the permissions a replacement tool's own Step must apply.
+
+        They are the configuration of the turn that made the call: this
+        Worker's configuration file narrowed by the session settings that the
+        session recorded for that turn, with its local tool switches, shell
+        allow list, and ``approval.always``. A Worker other than the one that
+        built the call, with another file, applies its own file. Check them in
+        the tool Step before the tool takes any effect, and refuse the call
+        when they switch the tool off.
+
+        Example:
+            >>> @function_tool(effect=ToolEffect.NON_IDEMPOTENT_WRITE)
+            ... async def run_command(command: str) -> str:
+            ...     permissions = context.resolve_tool_step_permissions()
+            ...     if not is_local_tool_group_enabled(permissions, LocalToolGroup.SHELL):
+            ...         raise ToolExecutionError("shell commands are switched off for this session")
+            ...     return await run(command, cwd=context.workspace)
+
+        Args:
+            call: The tool Step's call, for a runner's ``execute_deferred_tool_call``.
+                ``None`` reads the tool Step or model call running in this
+                task, as a Stepwise function tool does.
+
+        Returns:
+            The turn's configuration and instructions.
+
+        Raises:
+            RuntimeError: If no call is given outside a tool Step and a model call.
+            ConfigError: If the recorded settings are rejected.
+        """
+        if call is not None:
+            return self.resolver.resolve(recorded_turn_settings(call))
+        return current_turn_config() or _no_running_turn()
+
+
+def _no_running_turn() -> ResolvedTurn:
+    raise RuntimeError(
+        "resolve_tool_step_permissions needs a tool Step or a model call; pass the call"
+    )
 
 
 def session_flow_type(

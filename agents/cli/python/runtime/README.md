@@ -158,6 +158,14 @@ runner kept, becomes a call that its tool Step refuses with
 `tool <name> is switched off for this session`. The local tools do the same
 for a switched-off group.
 
+The tool Step authorizes the call once more, on the Worker that runs it, with
+that Worker's own configuration file narrowed by the session settings recorded
+for the call's turn. A call may run on another Worker than the one that built
+it, such as a command started later with the same file after the file was
+edited. The tool's group, connection, and operation must be enabled there too,
+and a shell command that was built without approval must still be in that
+allow list; otherwise the call fails and nothing runs.
+
 At startup the command lists the server once:
 
 - An `auto` server that does not answer, such as one answering 503 while it
@@ -315,6 +323,7 @@ harness may replace only `FILES` and `SHELL`.
 | `harness_options: Mapping[str, Any]` | The harness's own section, `{}` by default. |
 | `tool_sources: Sequence[ToolSource]` | The connector and local tool sources, which apply each turn's settings themselves. Offer all of them. |
 | `resolve_turn(session_settings) -> ResolvedTurn` | A turn's narrowed configuration with its `model` and `instructions`. Raises `ConfigError` for rejected settings. |
+| `resolve_tool_step_permissions(call=None) -> ResolvedTurn` | The permissions a replacement tool's own Step applies: this Worker's file narrowed by the session settings recorded for the call's turn. Pass the `DeferredToolExecution` from a runner, or nothing from a Stepwise function tool. Raises `RuntimeError` without a call outside a tool Step and a model call. |
 | `current_turn() -> ResolvedTurn` | The turn whose model call or tool Step is running, or the file's configuration outside both. In a tool Step it is the configuration of the turn that made the call, from the settings the session recorded for that turn, so a replacement tool sees the turn's switches, shell allow list, and `approval.always`. |
 
 The returned Flow must use `context.flow_type`, which is namespaced as

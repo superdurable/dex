@@ -43,7 +43,11 @@ from dex_agents_cli.tool_policy import (
     raise_if_disabled,
     resolve_turn_tool_policy,
 )
-from dex_agents_cli.turns import TurnConfigResolver, current_turn_config
+from dex_agents_cli.turns import (
+    TurnConfigResolver,
+    current_turn_config,
+    recorded_turn_settings,
+)
 
 #: The local tool source's ``source_name``; stored calls are routed by it.
 LOCAL_TOOL_SOURCE_NAME = "dex_local_tools"
@@ -325,9 +329,30 @@ class LocalToolSource:
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
-        """Run one approved local tool call, refusing one its turn switched off."""
+        """Run one approved local tool call, after authorizing it again on this Worker.
+
+        The call may run on another Worker than the one that built it, with
+        its own configuration file. Here the tool's group must be offered and
+        switched on for the turn, and a shell command that was built without
+        approval must still be in the allow list; otherwise nothing runs.
+        """
         raise_if_disabled(call)
         record = call.tool_call
+        turn = current_turn_config() or self._resolver.resolve(recorded_turn_settings(call))
+        definition = _DEFINITIONS_BY_NAME.get(record.tool_name)
+        if (
+            definition is None
+            or definition.group not in self._groups
+            or not is_local_tool_group_enabled(turn, definition.group)
+        ):
+            raise ToolExecutionError(f"tool {record.tool_name} is switched off for this session")
+        if record.tool_name == SHELL_TOOL_NAME and not record.requires_approval:
+            command = _shell_command_or_none(record.arguments)
+            if command is None or is_shell_command_approval_required(turn, command):
+                raise ToolExecutionError(
+                    "the command is no longer in the shell allow list, and it was not approved; "
+                    "it did not run"
+                )
         arguments = _read_arguments(record.arguments)
         output = await self._run(record.tool_name, arguments, call.flow_id)
         return ToolExecutionResult(output=output)
