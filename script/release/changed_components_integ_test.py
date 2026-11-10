@@ -60,6 +60,10 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
             path = self.repository / relative_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("initial\n", encoding="utf-8")
+        (self.repository / "agents/CHANGELOG.md").write_text(
+            "# Changelog\n\n## 0.2.0 (2026-11-05)\n\n- Two.\n\n## 0.1.0 (2026-11-01)\n\n- One.\n",
+            encoding="utf-8",
+        )
         self.commit("initial")
         for tag in BASELINE_TAGS:
             self.git("tag", tag)
@@ -200,6 +204,15 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertEqual(values["agents_version"], "0.2.0")
         self.assertEqual(values["go_tag"], "sdk-go/v1.2.3")
 
+    def test_agents_baseline_ignores_newer_tags_of_other_components(self) -> None:
+        self.change("server-zd/Cargo.toml")
+        self.git("tag", "server-zd/v0.1.20")
+        self.change("agents/python/core/pyproject.toml")
+        self.git("tag", "sdk-go/v1.2.2")
+        result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(values["agents_baseline"], "agents/v0.1.0")
+
     def test_agents_version_without_agents_changes_is_skipped(self) -> None:
         self.change("sdk-go/client.go")
         result, values = self.plan("1.2.3", "--agents-version", "0.2.0")
@@ -226,6 +239,13 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         result, _ = self.plan("1.2.3", "--agents-version", "0.2.0")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("agents/v0.2.0", result.stderr)
+
+    def test_missing_agents_changelog_section_fails_preflight(self) -> None:
+        self.change("agents/python/core/pyproject.toml")
+        result, values = self.plan("1.2.3", "--agents-version", "0.3.0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no '## 0.3.0' section", result.stderr)
+        self.assertEqual(values, {})
 
     def test_invalid_agents_version_fails(self) -> None:
         result, _ = self.plan("1.2.3", "--agents-version", "v0.2")
