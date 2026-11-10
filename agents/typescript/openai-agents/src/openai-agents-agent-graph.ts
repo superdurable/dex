@@ -164,6 +164,17 @@ export function listAgentGraphToolNames(startingAgent: AnyAgent): ReadonlySet<st
 }
 
 /**
+ * Returns the name the model sees for a function tool created with `name`. The SDK replaces every character
+ * other than a letter or digit with `_`, so `fake-ledger_get_balance` becomes `fake_ledger_get_balance`.
+ *
+ * @param name - The name passed to `tool()`.
+ * @returns The SDK's function tool name.
+ */
+export function readFunctionToolName(name: string): string {
+  return createSourceFunctionTool({ name, description: "", inputSchema: {} }).name;
+}
+
+/**
  * Returns the name that tool policies, records, and events use for a function tool.
  *
  * @param functionTool - A function tool, possibly inside a `toolNamespace`.
@@ -258,7 +269,12 @@ export function resolveConfiguredToolPolicy(
 
 // A source tool's body never runs: the gate returns the recorded result of the source's tool Step.
 function createGatedSourceTool(definition: SourceToolDefinition): AnyFunctionTool {
-  const sourceTool = tool({
+  const sourceTool = createSourceFunctionTool(definition);
+  return gateFunctionTool(sourceTool, sourceTool.name);
+}
+
+function createSourceFunctionTool(definition: SourceToolDefinition): AnyFunctionTool {
+  return tool({
     name: definition.name,
     description: definition.description,
     // A source's schema need not meet strict mode, such as a connector input with optional fields.
@@ -269,7 +285,6 @@ function createGatedSourceTool(definition: SourceToolDefinition): AnyFunctionToo
       throw new Error(`tool ${definition.name} of a tool source ran inside the model call`);
     },
   });
-  return gateFunctionTool(sourceTool, definition.name);
 }
 
 function gateFunctionTool(originalTool: AnyFunctionTool, toolName: string): AnyFunctionTool {

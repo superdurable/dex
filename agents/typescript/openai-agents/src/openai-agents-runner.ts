@@ -58,6 +58,7 @@ import {
 
 import {
   listAgentGraphToolNames,
+  readFunctionToolName,
   wrapAgentGraph,
   type AgentGraphConfiguration,
   type GraphFunctionTool,
@@ -97,12 +98,12 @@ const openAIAgentsToolSourceNameKey = "openai_agents_tool_source";
 // A replay-only tool fails in its tool Step without reaching a source, so it needs no approval.
 const replayOnlySourceToolPolicy: ResolvedToolPolicy = { effect: "unclassified", requiresApproval: false };
 
-/** The agent graph of one `RunModel`, with the source tools it offers. */
+/** The agent graph of one `RunModel`, with the source tools it offers by the name the model sees. */
 interface ModelStepAgentGraph {
   readonly agentGraph: WrappedAgentGraph;
-  readonly sourceTools: ReadonlyMap<string, ListedSourceTool>;
+  readonly sourceToolsByFunctionToolName: ReadonlyMap<string, ListedSourceTool>;
   /** Source tools this turn already called that the listing lacks; served only so their results replay. */
-  readonly replayOnlyToolNames: ReadonlySet<string>;
+  readonly replayOnlyFunctionToolNames: ReadonlySet<string>;
 }
 
 /** Settings of {@link OpenAIAgentsRunner}, resolved by `createOpenAIAgentsSessionFlow`. */
@@ -126,6 +127,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
   private readonly agentGraph: WrappedAgentGraph;
   private readonly sdkRunner: Runner;
   private readonly toolSources: ToolSourceRouter;
+  private readonly graphToolNames: ReadonlySet<string>;
   private fixedInputTokens: number | undefined;
 
   public constructor(
@@ -134,14 +136,16 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
   ) {
     this.agentGraph = wrapAgentGraph(startingAgent, settings);
     this.sdkRunner = new Runner(settings.runConfig);
+    this.graphToolNames = listAgentGraphToolNames(this.agentGraph.startingAgent);
     this.toolSources = new ToolSourceRouter(settings.toolSources, {
       sourceNameKey: openAIAgentsToolSourceNameKey,
-      localToolNames: listAgentGraphToolNames(this.agentGraph.startingAgent),
+      localToolNames: this.graphToolNames,
       localToolDescription: "a tool or handoff of the agent graph",
       ...(settings.toolSourceListingTimeoutMs === undefined
         ? {}
         : { listingTimeoutMs: settings.toolSourceListingTimeoutMs }),
     });
+    this.mapSourceToolNamesToFunctionToolNames([...this.toolSources.declaredToolNames()]);
   }
 
   public buildUserMessage(text: string): FrameworkMessage {
@@ -328,7 +332,11 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
 
   private async wrapModelStepAgentGraph(turn: AgentTurnContext): Promise<ModelStepAgentGraph> {
     if (!this.toolSources.hasToolSources) {
-      return { agentGraph: this.agentGraph, sourceTools: new Map(), replayOnlyToolNames: new Set() };
+      return {
+        agentGraph: this.agentGraph,
+        sourceToolsByFunctionToolName: new Map(),
+        replayOnlyFunctionToolNames: new Set(),
+      };
     }
     const sourceTools = await this.toolSources.listSourceTools();
     // The SDK resumes an interrupted call by tool name, so a call the listing lacks still needs its tool.
@@ -345,11 +353,43 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
         inputSchema: { type: "object", properties: {} },
       })),
     ];
+    const functionToolNames = this.mapSourceToolNamesToFunctionToolNames(definitions.map(({ name }) => name));
+    const sourceToolsByFunctionToolName = new Map<string, ListedSourceTool>();
+    for (const listed of sourceTools.values()) {
+      sourceToolsByFunctionToolName.set(functionToolNames.get(listed.tool.name) ?? listed.tool.name, listed);
+    }
     return {
       agentGraph: wrapAgentGraph(this.startingAgent, this.settings, definitions),
-      sourceTools,
-      replayOnlyToolNames,
+      sourceToolsByFunctionToolName,
+      replayOnlyFunctionToolNames: new Set(
+        [...replayOnlyToolNames].map((toolName) => functionToolNames.get(toolName) ?? toolName),
+      ),
     };
+  }
+
+  /** The SDK renames a function tool for the model, so two source names may meet one graph name. */
+  private mapSourceToolNamesToFunctionToolNames(sourceToolNames: readonly string[]): ReadonlyMap<string, string> {
+    const functionToolNames = new Map<string, string>();
+    const sourceToolNamesByFunctionToolName = new Map<string, string>();
+    for (const sourceToolName of sourceToolNames) {
+      const functionToolName = readFunctionToolName(sourceToolName);
+      if (this.graphToolNames.has(functionToolName)) {
+        throw new TypeError(
+          `tool ${sourceToolName} of a tool source becomes function tool ${functionToolName}, the name of a tool ` +
+            "or handoff of the agent graph",
+        );
+      }
+      const otherSourceToolName = sourceToolNamesByFunctionToolName.get(functionToolName);
+      if (otherSourceToolName !== undefined && otherSourceToolName !== sourceToolName) {
+        throw new TypeError(
+          `tools ${otherSourceToolName} and ${sourceToolName} of tool sources both become function tool ` +
+            functionToolName,
+        );
+      }
+      sourceToolNamesByFunctionToolName.set(functionToolName, sourceToolName);
+      functionToolNames.set(sourceToolName, functionToolName);
+    }
+    return functionToolNames;
   }
 
   private async restoreRunState(
@@ -440,7 +480,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
   ): Promise<DeferredToolCall> {
     const functionCall = readInterruptedFunctionCall(interruption);
     const toolName = getToolCallDisplayName(functionCall) ?? functionCall.name;
-    const listedSourceTool = modelStepGraph.sourceTools.get(toolName);
+    const listedSourceTool = modelStepGraph.sourceToolsByFunctionToolName.get(toolName);
     if (listedSourceTool !== undefined) {
       // The source decides the effect, the approval, and the write order; the SDK's needsApproval never applies.
       return this.toolSources.buildDeferredToolCall(turn, listedSourceTool, {
@@ -448,7 +488,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
         arguments: functionCall.arguments,
       });
     }
-    if (modelStepGraph.replayOnlyToolNames.has(toolName)) {
+    if (modelStepGraph.replayOnlyFunctionToolNames.has(toolName)) {
       return {
         toolCallId: functionCall.callId,
         toolName,

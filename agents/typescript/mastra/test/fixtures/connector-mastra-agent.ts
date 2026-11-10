@@ -66,7 +66,10 @@ export function retriedNoteManifest(): ConnectorPackageManifest {
   return manifest as unknown as ConnectorPackageManifest;
 }
 
-/** The ledger tools: a Query, a payout without and with approval, a fenced note, and that note retried. */
+/**
+ * The ledger tools: a Query under a chosen and its default name, a payout without and with approval, a fenced note,
+ * and that note retried.
+ */
 export function createLedgerToolSource(stateDirectory: string, sourceName?: string): ConnectorToolSource {
   const provider = new FakeLedgerProvider(stateDirectory);
   const payouts = new CreatePayoutOperation(provider);
@@ -78,6 +81,11 @@ export function createLedgerToolSource(stateDirectory: string, sourceName?: stri
         manifest,
         inputValidator: GetBalanceInputSchema,
         name: "get_balance",
+      }),
+      // The default name, fake-ledger_get_balance, which the OpenAI Agents SDK renames for the model.
+      connectorTool(new GetBalanceOperation(provider), fakeLedgerConnection, {
+        manifest,
+        inputValidator: GetBalanceInputSchema,
       }),
       connectorTool(payouts, fakeLedgerConnection, {
         manifest,

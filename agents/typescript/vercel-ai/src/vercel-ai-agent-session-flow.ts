@@ -112,6 +112,10 @@ export interface VercelAiAgentDefinition<TOOLS extends ToolSet = ToolSet> {
    * Defaults to none. Keys must name tools in {@link tools}. With {@link toolSources}, a key may also name a tool
    * a source lists; whether such a policy applies is up to the source, and for a `ConnectorToolSource` tool it
    * changes only whether the call waits for approval.
+   *
+   * Changed in 0.4.0: the type accepts any string key, so a source tool can have a policy. Without
+   * {@link toolSources}, a key that names no tool in {@link tools} still throws `TypeError` when the agent is
+   * defined.
    */
   readonly toolPolicies?: { readonly [TOOL_NAME in keyof TOOLS & string]?: ToolPolicy } & {
     readonly [toolName: string]: ToolPolicy | undefined;

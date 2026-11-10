@@ -196,6 +196,16 @@ describe("connector tools in a Mastra agent session on a Dex engine", () => {
     ]);
   });
 
+  test("a tool under its default connector name runs through its source", async () => {
+    const harness = await startHarness();
+    const sessionId = `connector-${randomUUID()}`;
+    await sessions.startSession(sessionId, calls([["fake-ledger_get_balance", { accountId: "a-2" }]], "default-name"));
+    const [record] = await heldRecords(harness, sessionId, "default-name", 1);
+    assert.equal(record?.toolName, "fake-ledger_get_balance");
+    assert.equal(record?.status, "succeeded");
+    assert.deepEqual(await answerLines(sessionId, 1), ['fake-ledger_get_balance: {"accountId":"a-2","amount":100}']);
+  });
+
   test("an approved Mutation runs once after its approval", async () => {
     const harness = await startHarness();
     const sessionId = `connector-${randomUUID()}`;
