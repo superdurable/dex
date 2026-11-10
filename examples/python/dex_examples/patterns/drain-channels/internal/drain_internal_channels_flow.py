@@ -36,6 +36,8 @@ from dex_examples.patterns.drain_channels.internal.mongo_document import (
 )
 
 
+# dex:group group-id:finalize group-label:"Finalize"
+# dex:explanation text:"Publish the final document so the side Step can complete."
 class Finalize(Step[None]):
     def __init__(self, side_step_data: Channel[MongoDocument]) -> None:
         self.side_step_data = side_step_data
@@ -48,6 +50,8 @@ class Finalize(Step[None]):
         return graceful_complete()
 
 
+# dex:group group-id:main-work group-label:"Main work"
+# dex:explanation text:"Process the input, publish its status, and finish after three runs."
 class Main(Step[str]):
     def __init__(
         self,
@@ -83,6 +87,8 @@ class Main(Step[str]):
         return go_to(Finalize, None)
 
 
+# dex:group group-id:side-writes group-label:"Side writes"
+# dex:explanation text:"Write each published document and complete after the final one."
 class Side(Step[None]):
     def __init__(
         self,
@@ -111,6 +117,8 @@ class Side(Step[None]):
         return go_to(Side, None)
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Reset the counter and start the main and side Steps in parallel."
 class Init(Step[str]):
     def __init__(
         self,

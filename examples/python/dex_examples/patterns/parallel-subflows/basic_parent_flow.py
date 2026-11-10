@@ -17,6 +17,8 @@ from dex import Context, Flow, Step, StepDecision, StepList, SubFlow, Wait, grac
 from dex_examples.patterns.parallel_subflows.example_subflow import ExampleSubFlow
 
 
+# dex:group group-id:child-flows group-label:"Child Flows"
+# dex:explanation text:"Run one child Flow per request and complete when all finish."
 class SubFlows(Step[list[str]]):
     def __init__(self, example_subflow: ExampleSubFlow) -> None:
         self.example_subflow = example_subflow

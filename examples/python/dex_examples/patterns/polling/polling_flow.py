@@ -44,6 +44,8 @@ MAX_JOB_WAIT = timedelta(minutes=10)
 JOB_PROGRESS = Stream("JobProgress", JobStatus, 1 << 20)
 
 
+# dex:group group-id:failure group-label:"Failure"
+# dex:explanation text:"Fail the Flow with the reason polling stopped."
 class RecordJobWaitFailure(Step[str]):
     def execute(self, context: Context, job_id: str) -> StepDecision:
         failure = context.recovery_error
@@ -53,6 +55,8 @@ class RecordJobWaitFailure(Step[str]):
         )
 
 
+# dex:group group-id:polling group-label:"Polling"
+# dex:explanation text:"Poll the job with heartbeats until it succeeds or fails."
 class AwaitJob(Step[str]):
     def __init__(self, jobs: FakeJobService) -> None:
         self.jobs = jobs
@@ -90,6 +94,8 @@ class AwaitJob(Step[str]):
         )
 
 
+# dex:group group-id:start-job group-label:"Start job"
+# dex:explanation text:"Start the external job."
 class StartJob(Step[None]):
     def __init__(self, jobs: FakeJobService) -> None:
         self.jobs = jobs

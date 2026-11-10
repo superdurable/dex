@@ -55,9 +55,10 @@ Runnable application samples live under [`examples/`](../examples/); see
 [`examples/README.md`](../examples/README.md) and the playground
 ([`examples/playground/`](../examples/playground/)).
 
-Flow diagrams render checked-in JSON with the shared
-[`flow-definition-renderer`](../packages/flow-definition-renderer). Regenerate
-the JSON after changing a referenced Python Flow:
+Flow diagrams render checked-in Flow Definition Graph 2.0 JSON with Dex Web's
+Design tab canvas ([`web/app/design`](../web/app/design)). Each Step of a
+referenced Flow declares one `dex:group` and one `dex:explanation` directive.
+Regenerate the JSON after changing a referenced Flow:
 
 ```bash
 cd docs

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,23 +9,23 @@
     "name": "FlowGracefulTimeout",
     "startStepId": "step:LongWait",
     "span": {
-      "startLine": 45,
+      "startLine": 47,
       "startColumn": 1,
-      "endLine": 56,
+      "endLine": 58,
       "endColumn": 70
     }
   },
   "nodes": [
     {
-      "id": "decision:step:LongWait:42:16",
+      "id": "decision:step:LongWait:44:16",
       "kind": "decision",
       "name": "forceComplete",
       "parentId": "step:LongWait",
       "phase": "execute",
       "span": {
-        "startLine": 42,
+        "startLine": 44,
         "startColumn": 16,
-        "endLine": 42,
+        "endLine": 44,
         "endColumn": 65
       },
       "decision": {
@@ -33,15 +33,15 @@
       }
     },
     {
-      "id": "decision:timeout_handler:FlowGracefulTimeout:56:16",
+      "id": "decision:timeout_handler:FlowGracefulTimeout:58:16",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "timeout_handler:FlowGracefulTimeout",
       "phase": "execute",
       "span": {
-        "startLine": 56,
+        "startLine": 58,
         "startColumn": 16,
-        "endLine": 56,
+        "endLine": 58,
         "endColumn": 70
       },
       "decision": {
@@ -55,10 +55,13 @@
       "phase": "wait_for+execute",
       "start": true,
       "span": {
-        "startLine": 50,
+        "startLine": 52,
         "startColumn": 36,
-        "endLine": 50,
+        "endLine": 52,
         "endColumn": 55
+      },
+      "metadata": {
+        "explanation": "Wait for the slow task and complete if it finishes before the Flow timeout."
       }
     },
     {
@@ -66,9 +69,9 @@
       "kind": "timeout_handler",
       "name": "handleTimeout",
       "span": {
-        "startLine": 55,
+        "startLine": 57,
         "startColumn": 5,
-        "endLine": 56,
+        "endLine": 58,
         "endColumn": 70
       }
     },
@@ -79,23 +82,23 @@
       "parentId": "step:LongWait",
       "phase": "wait_for",
       "span": {
-        "startLine": 36,
+        "startLine": 38,
         "startColumn": 5,
-        "endLine": 39,
+        "endLine": 41,
         "endColumn": 65
       }
     },
     {
-      "id": "wait:LongWait:38:20:0",
+      "id": "wait:LongWait:40:20:0",
       "kind": "wait",
       "name": "skipWaitImmediately",
       "parentId": "step:LongWait",
       "condition": "input",
       "phase": "wait_for",
       "span": {
-        "startLine": 38,
+        "startLine": 40,
         "startColumn": 20,
-        "endLine": 38,
+        "endLine": 40,
         "endColumn": 43
       },
       "wait": {
@@ -104,16 +107,16 @@
       }
     },
     {
-      "id": "wait:LongWait:39:16:1",
+      "id": "wait:LongWait:41:16:1",
       "kind": "wait",
       "name": "until",
       "parentId": "step:LongWait",
       "condition": "not (input)",
       "phase": "wait_for",
       "span": {
-        "startLine": 39,
+        "startLine": 41,
         "startColumn": 16,
-        "endLine": 39,
+        "endLine": 41,
         "endColumn": 65
       },
       "wait": {
@@ -124,9 +127,9 @@
             "label": "SLOW_TASK_DURATION timer",
             "expression": "SLOW_TASK_DURATION",
             "span": {
-              "startLine": 39,
+              "startLine": 41,
               "startColumn": 27,
-              "endLine": 39,
+              "endLine": 41,
               "endColumn": 64
             }
           }
@@ -135,5 +138,26 @@
     }
   ],
   "edges": [],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "work",
+      "label": "Work",
+      "stepIds": [
+        "step:LongWait"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

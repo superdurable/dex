@@ -71,11 +71,7 @@ describe('layout principles hold across the shipped corpus', () => {
     for (const { name, graph } of NAMED) {
       if ((await scenesOf(graph)).some(({ scene }) => scene.bands.length > 0)) carrying.push(name);
     }
-    expect(carrying).toEqual([
-      'connector-factory.json',
-      'customer-refund-agentic.json',
-      'customer-refund.json',
-    ]);
+    expect(carrying).toEqual(NAMED.map(({ name }) => name));
   });
 
   it('reports the worst metric per principle, so a regression has a number', async () => {

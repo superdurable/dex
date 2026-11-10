@@ -48,6 +48,8 @@ order_status = Attribute(
 seller_ok = Channel[str]("seller-ok", str)
 
 
+# dex:group group-id:payment group-label:"Payment"
+# dex:explanation text:"Charge the customer for the order."
 class Charge(Step[OrderRequest]):
     def __init__(self, service: MyDependencyService, ship: Ship) -> None:
         self.service = service
@@ -67,6 +69,8 @@ class Charge(Step[OrderRequest]):
         return go_to(Ship, input)
 
 
+# dex:group group-id:shipping group-label:"Shipping"
+# dex:explanation text:"Wait for seller approval, remind after 24 hours, then ship the order."
 class Ship(Step[OrderRequest]):
     def __init__(self, service: MyDependencyService, refund: Refund) -> None:
         self.service = service
@@ -107,6 +111,8 @@ class Ship(Step[OrderRequest]):
         return graceful_complete(f"shipped:{input.order_id}")
 
 
+# dex:group group-id:refund group-label:"Refund"
+# dex:explanation text:"Refund the order when shipping keeps failing."
 class Refund(Step[OrderRequest]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service

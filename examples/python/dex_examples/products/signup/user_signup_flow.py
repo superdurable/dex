@@ -35,6 +35,8 @@ from dex_examples.shared.my_dependency_service import MyDependencyService
 from dex_examples.products.signup.signup_form import SignupForm
 
 
+# dex:group group-id:verification group-label:"Verification"
+# dex:explanation text:"Wait for email verification and send a reminder when it is late."
 class VerifyEmail(Step[None]):
     def __init__(
         self,
@@ -72,6 +74,8 @@ class VerifyEmail(Step[None]):
         return go_to(VerifyEmail, None)
 
 
+# dex:group group-id:onboarding-tasks group-label:"Onboarding tasks"
+# dex:explanation text:"Wait for the user to finish task 1 and send a reminder when it is late."
 class AccomplishTask1(Step[None]):
     def __init__(
         self,
@@ -109,6 +113,8 @@ class AccomplishTask1(Step[None]):
         return go_to(AccomplishTask1, None)
 
 
+# dex:group group-id:onboarding-tasks group-label:"Onboarding tasks"
+# dex:explanation text:"Wait for the user to finish task 2, then complete onboarding."
 class AccomplishTask2(Step[None]):
     def __init__(
         self,
@@ -147,6 +153,8 @@ class AccomplishTask2(Step[None]):
         return go_to(AccomplishTask2, None)
 
 
+# dex:group group-id:sign-up group-label:"Sign-up"
+# dex:explanation text:"Store the sign-up form and send the verification email."
 class Submit(Step[SignupForm]):
     def __init__(
         self,

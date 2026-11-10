@@ -34,6 +34,8 @@ from dex_examples.products.money_transfer.transfer_request import TransferReques
 COMPENSATE_RETRY = RetryPolicy(total_duration=timedelta(hours=24))
 
 
+# dex:group group-id:compensation group-label:"Compensation"
+# dex:explanation text:"Undo every transfer change after a Step fails, then fail the Flow."
 class Compensate(Step[TransferRequest]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
@@ -71,6 +73,8 @@ def compensated_step_options(
     )
 
 
+# dex:group group-id:credit group-label:"Credit"
+# dex:explanation text:"Credit the amount to the destination account and complete."
 class Credit(Step[TransferRequest]):
     def __init__(self, service: MyDependencyService, options: StepOptions) -> None:
         self.service = service
@@ -87,6 +91,8 @@ class Credit(Step[TransferRequest]):
         )
 
 
+# dex:group group-id:credit group-label:"Credit"
+# dex:explanation text:"Record a credit memo on the destination account."
 class CreateCreditMemo(Step[TransferRequest]):
     def __init__(
         self,
@@ -106,6 +112,8 @@ class CreateCreditMemo(Step[TransferRequest]):
         return go_to(Credit, input)
 
 
+# dex:group group-id:debit group-label:"Debit"
+# dex:explanation text:"Debit the amount from the source account."
 class Debit(Step[TransferRequest]):
     def __init__(
         self,
@@ -125,6 +133,8 @@ class Debit(Step[TransferRequest]):
         return go_to(CreateCreditMemo, input)
 
 
+# dex:group group-id:debit group-label:"Debit"
+# dex:explanation text:"Record a debit memo on the source account."
 class CreateDebitMemo(Step[TransferRequest]):
     def __init__(
         self,
@@ -144,6 +154,8 @@ class CreateDebitMemo(Step[TransferRequest]):
         return go_to(Debit, input)
 
 
+# dex:group group-id:balance-check group-label:"Balance check"
+# dex:explanation text:"Check that the source account can cover the amount."
 class CheckBalance(Step[TransferRequest]):
     def __init__(
         self,

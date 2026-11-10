@@ -37,6 +37,8 @@ from dex import (
 from dex_examples.patterns.parallel_subflows.example_subflow import ExampleSubFlow
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Start one child Flow Step per request and the half-way wait."
 class WaitForHalfInit(Step[list[str]]):
     def execute(self, context: Context, requests: list[str]) -> StepDecision:
         if not requests:
@@ -47,6 +49,8 @@ class WaitForHalfInit(Step[list[str]]):
         )
 
 
+# dex:group group-id:child-flows group-label:"Child Flows"
+# dex:explanation text:"Run one child Flow, or stop it once half of them finished."
 class SubFlowStep(Step[str]):
     def __init__(
         self,
@@ -76,6 +80,8 @@ class SubFlowStep(Step[str]):
         return graceful_complete()
 
 
+# dex:group group-id:half-done group-label:"Half done"
+# dex:explanation text:"Wait for half of the child Flows, then stop the rest."
 class WaitSubFlows(Step[int]):
     def __init__(
         self, subflow_completed_ch: Channel[bool], all_done_ch: Channel[bool]

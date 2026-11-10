@@ -72,6 +72,8 @@ APPLICATION_CANCELED = Channel("applicationCanceled", str)
 UNDERWRITER_DECIDED = Channel("underwriterDecided", str)
 
 
+# dex:group group-id:credit-check group-label:"Credit check"
+# dex:explanation text:"Run the credit check child Flow, or stop it when the application is canceled."
 class RunCreditCheck(Step[LoanApplication]):
     """Waits for its child Flow or a cancellation, whichever comes first."""
 
@@ -126,6 +128,8 @@ class RunCreditCheck(Step[LoanApplication]):
             return
 
 
+# dex:group group-id:underwriting group-label:"Underwriting"
+# dex:explanation text:"Wait for the underwriter's decision or a cancellation."
 class AwaitUnderwriterDecision(Step[str]):
     """Also waits for the cancel Channel, so a late cancellation still closes the application."""
 

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,23 +9,23 @@
     "name": "DrainingExternalChannelFlow",
     "startStepId": "step:ProcessMessage",
     "span": {
-      "startLine": 71,
+      "startLine": 73,
       "startColumn": 1,
-      "endLine": 90,
+      "endLine": 92,
       "endColumn": 32
     }
   },
   "nodes": [
     {
-      "id": "decision:rpc:publish_external_channel_message:90:16",
+      "id": "decision:rpc:publish_external_channel_message:92:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:publish_external_channel_message",
       "phase": "rpc",
       "span": {
-        "startLine": 90,
+        "startLine": 92,
         "startColumn": 16,
-        "endLine": 90,
+        "endLine": 92,
         "endColumn": 32
       },
       "decision": {
@@ -33,15 +33,15 @@
       }
     },
     {
-      "id": "decision:step:ProcessMessage:64:16",
+      "id": "decision:step:ProcessMessage:66:16",
       "kind": "decision",
       "name": "forceCompleteIfChannelsEmpty",
       "parentId": "step:ProcessMessage",
       "phase": "execute",
       "span": {
-        "startLine": 64,
+        "startLine": 66,
         "startColumn": 16,
-        "endLine": 68,
+        "endLine": 70,
         "endColumn": 10
       },
       "decision": {
@@ -56,9 +56,9 @@
       "kind": "channel",
       "name": "queueChannel",
       "span": {
-        "startLine": 74,
+        "startLine": 76,
         "startColumn": 5,
-        "endLine": 74,
+        "endLine": 76,
         "endColumn": 48
       },
       "resource": {
@@ -70,9 +70,9 @@
       "kind": "rpc",
       "name": "publish_external_channel_message",
       "span": {
-        "startLine": 86,
+        "startLine": 88,
         "startColumn": 5,
-        "endLine": 90,
+        "endLine": 92,
         "endColumn": 32
       }
     },
@@ -83,10 +83,13 @@
       "phase": "wait_for+execute",
       "start": true,
       "span": {
-        "startLine": 80,
+        "startLine": 82,
         "startColumn": 36,
-        "endLine": 80,
+        "endLine": 82,
         "endColumn": 56
+      },
+      "metadata": {
+        "explanation": "Process one queued message, then complete once no message waits."
       }
     },
     {
@@ -96,23 +99,23 @@
       "parentId": "step:ProcessMessage",
       "phase": "wait_for",
       "span": {
-        "startLine": 42,
+        "startLine": 44,
         "startColumn": 5,
-        "endLine": 45,
+        "endLine": 47,
         "endColumn": 39
       }
     },
     {
-      "id": "wait:ProcessMessage:44:20:0",
+      "id": "wait:ProcessMessage:46:20:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:ProcessMessage",
       "condition": "input is None",
       "phase": "wait_for",
       "span": {
-        "startLine": 44,
+        "startLine": 46,
         "startColumn": 20,
-        "endLine": 44,
+        "endLine": 46,
         "endColumn": 60
       },
       "wait": {
@@ -123,9 +126,9 @@
             "label": "queueChannel.for 1",
             "resourceId": "resource:channel:DrainingExternalChannelFlow.queue_channel",
             "span": {
-              "startLine": 44,
+              "startLine": 46,
               "startColumn": 31,
-              "endLine": 44,
+              "endLine": 46,
               "endColumn": 59
             }
           }
@@ -133,16 +136,16 @@
       }
     },
     {
-      "id": "wait:ProcessMessage:45:16:1",
+      "id": "wait:ProcessMessage:47:16:1",
       "kind": "wait",
       "name": "skipWaitImmediately",
       "parentId": "step:ProcessMessage",
       "condition": "not (input is None)",
       "phase": "wait_for",
       "span": {
-        "startLine": 45,
+        "startLine": 47,
         "startColumn": 16,
-        "endLine": 45,
+        "endLine": 47,
         "endColumn": 39
       },
       "wait": {
@@ -155,13 +158,13 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:ProcessMessage:64:16",
+      "from": "decision:step:ProcessMessage:66:16",
       "to": "step:ProcessMessage",
       "label": "fan-out",
       "span": {
-        "startLine": 66,
+        "startLine": 68,
         "startColumn": 13,
-        "endLine": 66,
+        "endLine": 68,
         "endColumn": 50
       }
     },
@@ -172,9 +175,9 @@
       "to": "step:ProcessMessage",
       "label": "results",
       "span": {
-        "startLine": 53,
+        "startLine": 55,
         "startColumn": 22,
-        "endLine": 53,
+        "endLine": 55,
         "endColumn": 57
       },
       "metadata": {
@@ -185,12 +188,12 @@
       "id": "edge:0003",
       "kind": "wait_condition",
       "from": "resource:channel:DrainingExternalChannelFlow.queue_channel",
-      "to": "wait:ProcessMessage:44:20:0",
+      "to": "wait:ProcessMessage:46:20:0",
       "label": "queueChannel.for 1",
       "span": {
-        "startLine": 44,
+        "startLine": 46,
         "startColumn": 31,
-        "endLine": 44,
+        "endLine": 46,
         "endColumn": 59
       }
     },
@@ -201,9 +204,9 @@
       "to": "resource:channel:DrainingExternalChannelFlow.queue_channel",
       "label": "publish",
       "span": {
-        "startLine": 89,
+        "startLine": 91,
         "startColumn": 9,
-        "endLine": 89,
+        "endLine": 91,
         "endColumn": 51
       },
       "metadata": {
@@ -211,5 +214,26 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "messages",
+      "label": "Messages",
+      "stepIds": [
+        "step:ProcessMessage"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

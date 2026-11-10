@@ -39,6 +39,8 @@ from dex_examples.patterns.parallel_subflows.models import (
 )
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Queue the requests and start the request handlers."
 class LongLiveInit(Step[ParentInput]):
     def __init__(
         self,
@@ -61,6 +63,8 @@ class LongLiveInit(Step[ParentInput]):
         )
 
 
+# dex:group group-id:requests group-label:"Requests"
+# dex:explanation text:"Wait for the next queued request."
 class LongLiveHandleRequest(Step[None]):
     def __init__(self, request_channel: Channel[str]) -> None:
         self.request_channel = request_channel
@@ -75,6 +79,8 @@ class LongLiveHandleRequest(Step[None]):
         return go_to(LongLiveHandleSubFlow, self.request_channel.results(context)[0])
 
 
+# dex:group group-id:child-flow group-label:"Child Flow"
+# dex:explanation text:"Run a child Flow for the request, then take the next request."
 class LongLiveHandleSubFlow(Step[str]):
     def __init__(
         self,
