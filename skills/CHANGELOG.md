@@ -3,6 +3,11 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.0.8 - 2026-11-10
+
+- Add a control structure quick reference to `dex-sdk` `patterns.md`. It maps sequence, choice, parallel split, fork and join, several waiters, first result, first external event, mutual exclusion, critical section, task and case cancellation, loops, schedules, and multiple instances to their Dex recipes. Fork and join requires every branch to publish its signal on every exit path, including failure recovery and cancellation.
+- Add three design patterns: Deferred choice (route on the first of several events with AnyOf over Channels and a Timer), Critical section (a one-message Channel token returned on every exit of a multi-Step section), and Cancel with child Flows (stop each child from the cancel-Channel path, with its own Flow timeout as a backstop).
+
 ## 1.0.7 - 2026-11-10
 
 - Add the commit isolation rule to `dex-sdk`: a Step method or RPC commits atomically but reads a snapshot, so a read-modify-write without a shared Attribute lock can lose an update, also in a transactional RPC.
