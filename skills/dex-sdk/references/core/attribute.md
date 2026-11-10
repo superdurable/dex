@@ -39,7 +39,9 @@ Use Attributes for current state. Use Channels for ordered durable messages. Do 
 Attribute locks serialize Steps and RPCs that declare the same lock within one Flow execution. Dex acquires and releases them around the invocation.
 
 - Lock the exact AttributeMap instance when parallel Steps or RPCs read-modify-write the same value. Unrelated instances stay concurrent.
+- Without a lock, a read-modify-write can lose an update. Dex commits a write without checking that the values the handler read are still current.
 - Locks are cooperative. Every writer that must be serialized declares the same lock. A writer that skips it bypasses the protection.
+- Steps waiting for a lock get it in the order they started waiting. Queued Steps never block an RPC: an RPC takes a free lock ahead of them. A steady stream of locked RPCs can therefore delay queued Steps. Keep locked RPCs short.
 - A lock does not load data. A read-modify-write of a dynamic instance selects that instance both as a lock and as a load.
 - An RPC that needs a held lock fails at once with the RPC lock-conflict error. It is not queued. Retry it with bounded backoff and keep it idempotent. The holder can be a Step in retry backoff, because a method keeps its locks until the method call ends.
 - A Step takes its locks when Dex hands its attempt to a Worker. See [step.md](step.md#retry-snapshots-and-locks) for queued and retrying attempts.

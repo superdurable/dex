@@ -27,6 +27,18 @@ child instead of starting a second one. By default, the parent keeps waiting
 for a running child, uses the result of a completed child, and restarts a child
 that ended abnormally.
 
+A later run of the same parent Flow ID derives the same SubFlow ID when it
+creates the same Step execution ID and uses the same condition index. Step
+execution numbers start again in each run, so this is common. Dex then treats
+the start as a repeated start under the reuse policy. With the default policy,
+it reuses the earlier run's running or completed child until Dex deletes that
+child. **ALWAYS_RESTART** starts a fresh child, but it terminates an old child
+that is still running. When both children must keep running, use a different
+parent Flow ID.
+
+A child keeps running when its parent Step is canceled or its parent Flow
+closes. Stop it yourself, or give it a Flow timeout.
+
 ## Start and wait for a SubFlow
 
 The target Flow must be registered on the Worker. Its start Step must accept the

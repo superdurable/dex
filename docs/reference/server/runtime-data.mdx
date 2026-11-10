@@ -5,8 +5,8 @@ sidebar_label: Data primitives
 
 # Data primitive semantics
 
-This page holds the detailed rules for Attributes, RPCs, Channels, Streams, and
-SubFlows: parameters, defaults, limits, errors, and edge cases. The concept
+This page holds the detailed rules for Attributes, RPCs, Channels, Streams,
+Timers, and SubFlows: parameters, defaults, limits, errors, and edge cases. The concept
 pages explain what each primitive is and when to use it:
 [Attribute](/concepts/primitives/attribute), [RPC](/concepts/primitives/rpc),
 [Channel](/concepts/primitives/channel), [Stream](/concepts/primitives/stream),
@@ -1637,6 +1637,19 @@ a standby takes over. Trimming or capacity pressure can also remove or reject
 messages. An operator can set the backend to **disabled**. Client Stream writes
 and reads then fail with **FAILED_PRECONDITION**, and Step writes are dropped
 without failing the Step.
+
+## Timers {#timers}
+
+### Firing time {#timer-firing-time}
+
+Dex sets a Timer's deadline to the server proposal timestamp of the
+**WaitFor** result that declared it, plus its duration in whole seconds.
+
+Except for an explicit **SkipTimer**, Dex never satisfies a Timer condition
+before its deadline. After the deadline, the firing can be late, for example
+while the server is busy or failing over. Until the Timer fires, another
+condition can still satisfy the wait. So in an **AnyOf**, a Channel message
+that commits after the Timer's deadline can still win.
 
 ## SubFlows {#subflows}
 

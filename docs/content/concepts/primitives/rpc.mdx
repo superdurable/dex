@@ -42,6 +42,15 @@ Each RPC invocation commits like a Step method: its Attribute writes and Channel
 publications commit with its result, only on success. See
 [Step guarantees](/concepts/step#guarantees).
 
+An RPC handler reads a snapshot of the Flow. Steps and other RPCs can commit
+between that read and the RPC's own commit. A transactional RPC does not change
+this. When the RPC's change depends on what it read, take the same Attribute
+lock as every Step and RPC that writes that value. If the Flow has closed by the time the RPC
+commits, Dex rejects its changes after the handler ran.
+
+Each RPC call from an SDK is a new request. A retried call can run the handler
+and commit its changes again. Make RPC handlers safe to repeat.
+
 <a id="rpc-timeout"></a>
 
 An RPC runs on a Worker, like a Step. A timeout limits each handler invocation.
