@@ -1440,7 +1440,10 @@ Agents, Pydantic AI, LangGraph, and Google ADK) share
 `RunModel`, refuses a source tool that repeats a framework tool or another
 source's tool, builds each call through its source, and routes the call and
 its tool Step options back to that source. The adapter only offers the listed
-tools as native tools whose bodies never run. The Go core has function tools
+tools as native tools whose bodies never run. A tool the turn already called
+but the live listing lacks is replay-only (`SourceToolListing.replay_only_tools`):
+it may resume its recorded call, and a new call of it is answered inside the
+framework with `SOURCE_TOOL_NOT_OFFERED_RESULT`, never in a tool Step. The Go core has function tools
 only.
 
 ## Browser streams

@@ -218,8 +218,15 @@ flow = openai_agents_session_flow(
 - The runner polls no tool tasks. A source call that starts one records
   `failed` for a `read` call and `outcome_unknown` otherwise. A source whose
   listing fails or takes longer than `tool_source_listing_timeout` offers no
-  tools in that model call, except tools the turn already called, which come
-  from the source's `cached_tools()` so the resumed run still finds them.
+  tools in that model call. A tool the turn already called but the listing
+  lacks is replay-only: the resumed run replays its recorded call from the
+  source's `cached_tools()`, and a new call of it is refused inside the
+  framework (the tool stays offered so the SDK can resume its recorded call,
+  and its body returns the refusal: "<name> did not run: its tool source does
+  not offer this tool now."), so it never reaches a tool Step.
+- A recorded result replays once, for the call that paused, and only under the
+  tool name it was recorded for; a later call that reuses its tool call ID
+  fails the `RunModel` attempt instead of reading that result.
 
 ## How it works
 
@@ -350,6 +357,6 @@ tests' fake ledger Connector (`tests/fake_ledger`): a Query in its tool Step,
 an approved Mutation that runs once, a session policy that changes only
 approval, a `retry: safe` Mutation retried with the same Call ID, `uncertain`
 writes recorded `outcome_unknown`, two writes of one response in the model's
-order, an unknown or rejected write that skips the later write, the
-operation's tool Step options, an unexposed operation, and refused name
-collisions.
+order, an unknown or rejected write that skips the later write, a withdrawn
+tool whose new call is refused, a reused call ID, the operation's tool Step
+options, an unexposed operation, and refused name collisions.
