@@ -58,6 +58,7 @@ type integrationEnvironment struct {
 func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	var client *dex.Client
 	flows := registry.New(service.NewMyService(), func() *dex.Client { return client })
+	flows = append(flows, conditionOrderProbeFlows()...)
 	registry, err := dex.NewRegistry(flows)
 	if err != nil {
 		return nil, err
