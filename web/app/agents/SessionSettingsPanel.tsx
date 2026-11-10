@@ -27,11 +27,7 @@ export function sessionSettingsSummary(settings: Record<string, unknown> | null)
   return keys.join(', ');
 }
 
-/**
- * The session's settings as editable JSON, saved through update_session_settings.
- *
- * The stored value comes from the SessionSettings Attribute, so it reads while Workers are down.
- */
+/** The SessionSettings Attribute as editable JSON, saved through update_session_settings. */
 export function SessionSettingsPanel({
   settings,
   routeContext,

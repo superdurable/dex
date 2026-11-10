@@ -17,12 +17,7 @@ import type { LoadedAgentSession } from './useAgentSession';
 
 type ComposerAction = '' | 'send' | 'steer' | 'stop';
 
-/**
- * The message box under the conversation.
- *
- * Between turns it sends a message, which starts the next turn. While a turn runs it queues a
- * message for the next turn, or steers the running turn when the turn accepts steering.
- */
+/** The message box: Send between turns; Queue, Steer, or Stop while a turn runs. */
 export function SessionComposer({
   schema,
   session,

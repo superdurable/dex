@@ -92,7 +92,7 @@ async function postSessionRoute(
 
 /** The permission the session's Actions require; sending and settings use it too. */
 export function sessionActionPermission(schema: AgentSessionSchema): string | null {
-  const actions = [schema.steerUserMessage, schema.resolveInterrupt, schema.cancelTurn, schema.answerQuestion];
+  const actions = [schema.resolveInterrupt, schema.steerUserMessage, schema.cancelTurn, schema.answerQuestion];
   return actions.find((action) => action !== undefined)?.requiredPermission ?? null;
 }
 
