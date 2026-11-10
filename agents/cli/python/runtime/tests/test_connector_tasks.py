@@ -116,3 +116,34 @@ async def test_a_new_call_of_a_moved_tool_name_is_refused_before_it_is_sent(
     with pytest.raises(ToolExecutionError, match="now runs reddit/other-reddit exportReport"):
         await source.execute_deferred_tool_call(fresh)
     assert fake_mcp.runs(REPORT_TOOL) == 1
+
+
+async def test_a_task_polled_in_the_call_is_checked_because_it_may_be_sent_again(
+    fake_mcp: FakeConnectorsMcp,
+) -> None:
+    # The saved checkpoint has the same shape for a task polled inside the call.
+    source, retried, _ = await start_report_task(fake_mcp)
+    polled_in_call = replace(retried, supports_tool_tasks=False)
+    fake_mcp.stop()
+    # The restarted server lost the task, and the name now runs another connection.
+    await fake_mcp.start({REDDIT_CONNECTION_ENVIRONMENT_VARIABLE: "other-reddit"})
+    with pytest.raises(ToolExecutionError, match="now runs reddit/other-reddit exportReport"):
+        await source.execute_deferred_tool_call(polled_in_call)
+    assert fake_mcp.runs(REPORT_TOOL) == 1
+
+
+async def test_a_worker_that_does_not_enable_the_connector_refuses_even_a_resume(
+    fake_mcp: FakeConnectorsMcp,
+) -> None:
+    _, retried, _ = await start_report_task(fake_mcp)
+    config = resolve_config(
+        {"connectors": {"mcp": fake_mcp.url, "enabled": ["hackernews"]}},
+        "builtin",
+        "scripted-model",
+    )
+    other_worker = ConnectorsMcpToolSource(
+        fake_mcp.url, TurnConfigResolver(config, None, lambda warnings: None)
+    )
+    with pytest.raises(ToolExecutionError, match="is switched off for this session"):
+        await other_worker.execute_deferred_tool_call(retried)
+    assert fake_mcp.runs(REPORT_TOOL) == 1

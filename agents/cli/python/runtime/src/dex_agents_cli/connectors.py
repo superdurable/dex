@@ -362,8 +362,8 @@ class ConnectorsMcpToolSource:
         unwrapped = replace(call, tool_call=record)
         if identity is None:
             return await self._mcp.execute_deferred_tool_call(unwrapped)
-        # A task an earlier attempt started is resumed, never sent again, so it needs no check.
-        if not self._mcp.has_started_tool_task(unwrapped):
+        # Only a resume that can never send tools/call again skips the listing check.
+        if not self._mcp.will_resume_tool_task_without_sending(unwrapped):
             await self._check_binding(record, identity)
         return await self._mcp.execute_deferred_tool_call(
             unwrapped, request_meta=_expected_identity_meta(identity)

@@ -177,8 +177,11 @@ sent. It also sends them in the `tools/call` request's `_meta` as
 still move between the check and the call. The connectors MCP server enforces
 the expected identity in the same step that runs the operation from its release
 that supports these keys; with an older server, the check is the only guard.
-A retried attempt that resumes a task an earlier attempt started sends no new
-`tools/call`, so it skips the check and always recovers the task.
+The connection and operation authorization runs on every attempt. Only the
+listing check is skipped, and only when the core says the attempt resumes a
+task an earlier attempt started and can never send `tools/call` again, so the
+task is recovered even while the server cannot be listed. An attempt that may
+send again lists the server first and fails when it cannot.
 
 At startup the command lists the server once:
 

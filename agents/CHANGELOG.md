@@ -39,9 +39,10 @@ for the Dex SDK and framework versions each release supports.
 - Python core: `McpToolSource.execute_deferred_tool_call` takes
   `request_meta`, more `_meta` entries for the `tools/call` request, such as
   the identity a caller expects the server to check. The idempotency key wins
-  over an entry of the same name. New `McpToolSource.has_started_tool_task`
-  tells whether a call resumes a task an earlier attempt started instead of
-  sending a new `tools/call`.
+  over an entry of the same name. New
+  `McpToolSource.will_resume_tool_task_without_sending` tells whether
+  executing a call resumes a task an earlier attempt started and can never send
+  `tools/call` again.
 
 ### Added
 

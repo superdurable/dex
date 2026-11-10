@@ -889,18 +889,21 @@ class McpToolSource:
             request_meta=request_meta,
         )
 
-    def has_started_tool_task(self, call: DeferredToolExecution) -> bool:
-        """Report whether a call resumes a task an earlier attempt started, without a new call.
+    def will_resume_tool_task_without_sending(self, call: DeferredToolExecution) -> bool:
+        """Report whether executing a call resumes a started task and can never send ``tools/call``.
 
-        ``execute_deferred_tool_call`` reads the task an earlier attempt of
-        the same call saved as its heartbeat checkpoint, and resumes it
-        instead of sending ``tools/call`` again. A caller that checks
-        something before every new ``tools/call``, such as what the tool runs
-        now, skips that check when this returns ``True``, so a started task
-        is always recovered.
+        ``execute_deferred_tool_call`` returns the task an earlier attempt of
+        the same call saved as its heartbeat checkpoint when the session polls
+        tasks and the server uses Streamable HTTP. That path never contacts
+        the server. When a task is polled inside the call instead, such as for
+        a stdio server or a runner without ``poll_tool_task``, the source
+        polls the saved task and sends ``tools/call`` again when the server no
+        longer knows it, so this returns ``False``. A caller that checks
+        something before every ``tools/call`` it may send, such as what the
+        tool runs now, skips that check only when this returns ``True``.
 
         Example:
-            >>> if not tools.has_started_tool_task(call):
+            >>> if not tools.will_resume_tool_task_without_sending(call):
             ...     await check_before_sending(call)
             >>> return await tools.execute_deferred_tool_call(call)
 
@@ -910,10 +913,10 @@ class McpToolSource:
             call: The approved call from the tool Step, as built by ``deferred_tool_call``.
 
         Returns:
-            ``True`` when the call's heartbeat checkpoint names a task of the
-            server and tool on its record, so executing it sends no
-            ``tools/call``; ``False`` otherwise, including for a call whose
-            server this source no longer configures.
+            ``True`` only when the call supports tool tasks, its server uses
+            Streamable HTTP, and its heartbeat checkpoint names a task of the
+            server and tool on its record; ``False`` otherwise, including for
+            a call whose server this source no longer configures.
         """
         record = call.tool_call
         try:
@@ -922,7 +925,13 @@ class McpToolSource:
             return False
         if target is None:
             return False
-        return _task_id_from_checkpoint(call.heartbeat_checkpoint, target) is not None
+        is_task_polled_by_session = call.supports_tool_tasks and isinstance(
+            target.server, McpStreamableHttpServerConfig
+        )
+        return (
+            is_task_polled_by_session
+            and _task_id_from_checkpoint(call.heartbeat_checkpoint, target) is not None
+        )
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
         """Poll one MCP task that ``execute_deferred_tool_call`` started, once.

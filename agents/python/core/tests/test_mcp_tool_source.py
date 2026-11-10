@@ -731,7 +731,7 @@ async def test_request_meta_reaches_the_server_but_never_replaces_the_idempotenc
     assert sent["com.example/expected"] == "work"
 
 
-async def test_has_started_tool_task_names_only_a_checkpoint_of_the_same_server_and_tool(
+async def test_only_a_session_polled_task_with_its_checkpoint_resumes_without_sending(
     mcp_harness: McpAgentHarness,
 ) -> None:
     tools = build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url)
@@ -747,7 +747,7 @@ async def test_has_started_tool_task_names_only_a_checkpoint_of_the_same_server_
         "long_report",
         save_heartbeat_checkpoint=save_heartbeat_checkpoint,
     )
-    assert not tools.has_started_tool_task(first)
+    assert not tools.will_resume_tool_task_without_sending(first)
     assert isinstance(await tools.execute_deferred_tool_call(first), ToolTaskStarted)
     (checkpoint,) = saved_checkpoints
     retried = _deferred_execution(
@@ -757,11 +757,21 @@ async def test_has_started_tool_task_names_only_a_checkpoint_of_the_same_server_
         "long_report",
         heartbeat_checkpoint=checkpoint,
     )
-    assert tools.has_started_tool_task(retried)
+    assert tools.will_resume_tool_task_without_sending(retried)
     other_tool = _deferred_execution(
         "remote__lookup", '{"query": "q22"}', "remote", "lookup", heartbeat_checkpoint=checkpoint
     )
-    assert not tools.has_started_tool_task(other_tool)
+    assert not tools.will_resume_tool_task_without_sending(other_tool)
+    # A task polled inside the call is sent again when the server lost it.
+    polled_in_call = _deferred_execution(
+        "remote__long_report",
+        '{"topic": "q22"}',
+        "remote",
+        "long_report",
+        heartbeat_checkpoint=checkpoint,
+        supports_tool_tasks=False,
+    )
+    assert not tools.will_resume_tool_task_without_sending(polled_in_call)
 
 
 async def test_a_retried_attempt_resumes_its_task_without_calling_the_tool_again(
