@@ -637,6 +637,7 @@ fn is_skippable_rejection(body: &Command, reply: &CommandReply) -> bool {
         Command::ChannelMessageDelete(_) => {
             is_missing_channel_message(error) || is_terminal_cleanup_rejection(error)
         }
+        Command::ChannelPublish(_) => is_terminal_cleanup_rejection(error),
         // A transactional RPC whose deletions no longer hold is skipped as a whole.
         Command::RpcCommitted(rpc) => rpc.is_transactional && is_missing_channel_message(error),
         _ => false,

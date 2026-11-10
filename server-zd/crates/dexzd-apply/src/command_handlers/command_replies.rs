@@ -49,7 +49,7 @@ pub(crate) fn error_reply(
 pub(crate) fn terminal_cleanup_reply() -> CommandReply {
     error_reply(
         grpc_code::FAILED_PRECONDITION,
-        ErrorSubStatus::Uncategorized,
+        ErrorSubStatus::FlowClosing,
         TERMINAL_CLEANUP_MESSAGE,
     )
 }

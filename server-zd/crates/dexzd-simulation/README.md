@@ -495,6 +495,18 @@ the #847 failure before this change. The deterministic tests in
 `FIRST_HOT_STANDBY_SEED` (`1470103552`) pin no regression. The hot standby regression seeds are
 not pinned; they still pass.
 
+### Pending-close publication digest change
+
+A client ChannelPublish while a natural close waits now fails with FAILED_PRECONDITION and
+FLOW_CLOSING and stores nothing (#1458). Before, the message was stored. Seed `3856990760` publishes
+in that window, so the rejected command changes the later commands. With only that rejection
+disabled, every pin keeps its previous digest. Clearing the outputs of a Flow that does not
+complete (#1457) moved no pin. No apply pin moved.
+
+| Engine seed | Previous digest | Pending-close publication digest |
+| --- | --- | --- |
+| `3856990760` | `0x153b7b678ce434545188c8476452f1f6` | `0xfb67f16a9fceb155788e9de4e4cc110e` |
+
 ### Running
 
 ```bash

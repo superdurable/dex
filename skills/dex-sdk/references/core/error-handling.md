@@ -34,7 +34,7 @@ Every SDK maps these server outcomes to typed errors. The language files give th
 | Flow already started | A start hit an existing Flow ID that the reuse policy rejects. | See [start identity](#start-identity-and-duplicate-starts). |
 | Combined missing-or-inactive target | No readable target, or the target is closed for an operation that needs an active Flow. | Interpret by operation. See [closed-Flow races](#closed-flow-races). |
 | Flow not found | No readable run exists. Used by DescribeFlow and the Client Attribute read. | Return the contract's not-found result. |
-| Flow closing | A transactional or locking RPC, a Step-completion or Attribute-match wait, or a Server pending-message delete (from dexcli or FlowService) arrived during Flow close cleanup. The request was not accepted. | Read the terminal state, then decide. |
+| Flow closing | A transactional or locking RPC, a Step-completion or Attribute-match wait, or a Server Channel publish or pending-message delete (from dexcli or FlowService) arrived during Flow close cleanup. The request was not accepted. | Read the terminal state, then decide. |
 | RPC lock conflict | Another Step or RPC holds a required Attribute lock now. | Retry the RPC with bounded backoff. It is contention, not a queue. |
 | Channel message not found | A pending-message delete or transactional move named a message that is no longer pending. | Treat the view as stale. Refresh and let the user choose again. |
 | Request timeout | A Client wait reached its caller-set request timeout. | Not a failure of the Flow. See [waits](client.md#waits). |
@@ -185,7 +185,7 @@ Right: pure Get -> missing/not-active error -> return not found
 
 ### Flow close cleanup rejection
 
-A Flow that closes naturally stays running until pending Attribute Store writes finish or drop and previously admitted transactional or locking RPCs finish. During that cleanup Dex rejects new transactional or locking RPCs, Step-completion and Attribute-match waits, and Server pending-message deletes with the Flow closing error. Match the typed error, not its detail. The rejected request was not accepted. Wait for or read the terminal state before you decide whether another action is needed.
+A Flow that closes naturally stays running until pending Attribute Store writes finish or drop and previously admitted transactional or locking RPCs finish. During that cleanup Dex rejects new transactional or locking RPCs, Step-completion and Attribute-match waits, and Server Channel publishes and pending-message deletes with the Flow closing error. No Step starts during cleanup, so a publish could never be consumed. Client Attribute writes are still accepted. Match the typed error, not its detail. The rejected request was not accepted. Wait for or read the terminal state before you decide whether another action is needed.
 
 ## Ambiguous mutations
 
