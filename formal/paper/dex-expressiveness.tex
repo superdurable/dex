@@ -86,8 +86,9 @@ from \Lang{} into Dex Flows. We prove, in Lean~4, that every well-formed
 \Lang{} program and its translation have the same observable finite traces
 (safety) and the same fair maximal traces with termination, deadlock, and
 divergence markers (liveness), in a failure-free environment. The proof is
-about 38,000 lines of Lean with no dependency beyond the Lean core, has no
-\texttt{sorry}, and uses only the three standard axioms. We also report how
+about 38,000 lines of Lean with no dependency beyond the Lean core, no
+proof in it contains a \texttt{sorry} placeholder, and the theorems depend
+only on the three standard axioms. We also report how
 the proof was engineered: fixed statements proved in parallel work packages,
 six gaps in the simulation invariant that a fuzz of perturbed reachable
 states reproduces on the old definitions and no longer finds on the new

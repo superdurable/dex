@@ -152,12 +152,15 @@ admissible environment and the translation never enable them.}
 \label{tab:rules}
 \end{table}
 
-\paragraph{A Step method is three transitions.}
-This is the central fact of the semantics. A method starts
-(\rulename{STEP-START}, a commit), runs on a Worker
-(\rulename{WORKER-EFFECT}, not a commit), and completes
-(\rulename{STEP-COMPLETE-WAITFOR} or \rulename{STEP-COMPLETE-EXECUTE}, a
-commit). Any other enabled transition can occur between them. The method
+\paragraph{A Step method is not atomic.}
+This is the central fact of the semantics. A Step method is a Start
+commit (\rulename{STEP-START}), then a sequence of Worker transitions,
+then a Complete commit (\rulename{STEP-COMPLETE-WAITFOR} or
+\rulename{STEP-COMPLETE-EXECUTE}). The Worker transitions are the parts of
+\rulename{WORKER-EFFECT}, which the Lean model has as separate actions: one
+\lean{workerRun}, zero or more \lean{workerEffect}, and one
+\lean{workerReturn}. None of them is a commit. Any other enabled
+transition can occur between any two of these. The method
 reads the snapshot taken at Start. Its writes are applied blindly at
 Complete; nothing checks that the values it read are still current. So a
 Step method is \emph{not} a read-modify-write transaction: two Steps that

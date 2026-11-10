@@ -108,11 +108,17 @@ yet; no Step has an invocation, and no timer is armed.
 \paragraph{The invariants.}
 \lean{L.Invariant} (\file{L/Invariant.lean}) holds the facts about \Lang{}
 alone: thread IDs are unique and the next children of a thread are fresh;
-the next mutex a thread creates does not exist yet; every handle a thread
-can reach names an existing mutex (this is where unforgeable handles are
-used); blocking stamps and timer numbers are distinct; each thread's phase
+the next mutex a thread creates does not exist yet; every handle to a
+\emph{created} mutex, or to a condition variable of one, that a thread
+can reach names a mutex that \kw{newMutex} has created (this is where
+unforgeable handles are used);
+blocking stamps and timer numbers are distinct; each thread's phase
 fits its code; a thread that began a statement that requires a mutex holds
-it until the statement completes. On the Dex side,
+it until the statement completes. The invariant does not check a static
+index against the program's number of static mutexes:
+\kw{staticMutex}$(i)$ with $i$ out of range names a mutex that never
+exists, and a \kw{lock} of it blocks forever on both sides. On the Dex
+side,
 \lean{ConfigInvariant} wraps a run invariant (\lean{Dex.Run.Invariant}:
 unique Step IDs, counted Step numbers, injective $\mathit{sws}$, only the
 wait shapes the translation uses, and no pending message on a Channel that

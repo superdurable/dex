@@ -10,7 +10,8 @@ The semantics is written by hand from the server's source and validated by
 review. It is not extracted from the implementation, and no tool checks
 that the server refines it. A mistake in reading the code is a mistake in
 the theorem's meaning. Three things reduce the risk and none removes it.
-Every rule cites the implementing code. Three adversarial reviews checked
+The rules cite the implementing code, except one RPC rule that follows a
+fix not yet merged at the pinned commit. Three adversarial reviews checked
 the rules against that code. And the model's executable form runs the
 examples and the lockstep checks, although only against itself, not against
 a running server. The Lean model is, further, a \emph{restriction} of the
@@ -37,8 +38,9 @@ evidence but is not a proof.
 \paragraph{Fairness is assumed, not provided.}
 Liveness holds for fair runs, and the fairness conditions of
 Table~\ref{tab:fairness} are assumptions about components outside the
-rules. F2 assumes that the timer service eventually fires a due timer. F3
-assumes that the dispatcher eventually starts a pending method. F5 assumes
+rules. F2 assumes that the timer service eventually fires a due timer that
+nothing else disarms. F3 assumes that the dispatcher eventually starts a
+pending method that is not canceled first. F5 assumes
 that the engine eventually commits or drops a returned response. F4 is the
 one most worth stating plainly: it assumes that every Worker task
 eventually settles, by returning or by being abandoned after its invocation

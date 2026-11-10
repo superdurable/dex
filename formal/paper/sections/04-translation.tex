@@ -16,16 +16,24 @@ Flow definition with three kinds of Step types (\lean{StepType}):
 \end{itemize}
 The Step \emph{input} is the thread's state: its thread ID, a counter for
 fresh names, its local variables, and its stack of call frames and
-exception handlers. A \kw{GoTo} passes that state on. So a thread is, at any
-moment, exactly one active Step execution, and the thread's ``program
-counter and stack'' are that Step's type and input.
+exception handlers. A \kw{GoTo} passes that state on. So each live thread
+that has not halted is carried, at any moment, by exactly one active Step
+execution, and the thread's ``program counter and stack'' are that Step's
+type and input. A halted thread has no Step: its last Step decided
+\kw{DeadEnd}.
 
-\paragraph{One Step per statement.}
-Each statement is its own Step. A statement that does not block has no
-\kw{WaitFor}; its \kw{Execute} takes two commits, \rulename{STEP-START} and
-\rulename{STEP-COMPLETE-EXECUTE}. A blocking statement's Step has a
-\kw{WaitFor} that returns the wait, which adds two commits. Sequencing and
-\kw{skip} are not Steps. These commit counts are the stamped actions of
+\paragraph{One Step per program point.}
+A program point normally uses one Step execution. A statement that does
+not block has no \kw{WaitFor}; its \kw{Execute} takes two commits,
+\rulename{STEP-START} and \rulename{STEP-COMPLETE-EXECUTE}. A blocking
+statement's Step has a \kw{WaitFor} that returns the wait, which adds two
+commits. Two kinds of statement use more than one Step execution.
+\kw{wait}$(\mathit{cv}, m)$ expands into three: the release, the wait for
+the signal, and the re-lock. A timed operation, \kw{sleep} or a timed
+\kw{select}, uses an Enter Step at its program point, whose \kw{Execute}
+only moves on, followed by a Step of the shared \lean{timed} type.
+Sequencing and \kw{skip} are not Steps. These commit counts are the
+stamped actions of
 Table~\ref{tab:timing}, and Figure~\ref{fig:lifecycle} shows the
 correspondence for the two shapes.
 

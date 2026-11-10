@@ -10,8 +10,11 @@ informative part.
 The work had three stages.
 
 \emph{Stage 0: the semantics.} The specification was written against the
-server code, with every rule citing the file and lines that implement it,
-and every modeling choice marked as an assumption or a decision. Three
+server code at a pinned commit, with the rules citing the files and lines
+that implement them, and every modeling choice marked as an assumption or
+a decision. There is one deliberate exception: the rule for the commit of
+an RPC follows a fix that was not yet merged at the pinned commit (the
+first defect of \S\ref{sec:server-bugs}), and is marked as doing so. Three
 adversarial reviews checked it against the code. They produced 21 findings;
 one was rejected with an argument from the code (the prefix rule of
 \rulename{TIMER-FIRE}), and the others changed the specification. The
@@ -233,11 +236,15 @@ server surfaced this way, before any Lean was written.
   finding showed the consequence for a token-based mutex: the token is
   gone and the mutex stays locked.
 \end{itemize}
-Both have since been fixed in the server. Neither affects the theorem: the
-translation uses neither graceful completion nor RPCs, and it never cancels
-a Step except by closing the Flow. The second one did shape \Lang{}: it is
-why \Lang{}'s cancellation is cooperative and \kw{lock} is not a
-cancellation point. The
+Both have since been fixed in the server. The first is outside the
+translation, which uses neither graceful completion nor RPCs. For the
+second, the fix changed how the server handles the consumed messages of a
+canceled Step. A translated Flow cancels Steps only by closing, and we
+argue that the changed handling is unobservable there; but the model
+describes the server at the pinned commit, and we have not proved that
+the current server refines it (\S\ref{sec:limitations}). The second defect
+also shaped \Lang{}: it is why \Lang{}'s cancellation is cooperative and
+\kw{lock} is not a cancellation point. The
 specification also records where the product documentation said less than
 the code does; the plainest case is ``a Step method commits atomically'',
 which is true of the writes and not of the read-modify-write
@@ -284,17 +291,11 @@ checked by evaluation. A clean build takes a few minutes at most; the two
 fuzz runs quoted above took about half a minute and two minutes when we
 reran them for this paper.
 
-% TODO(owner): confirm the two statements of the next paragraph before
-% publication. They are inferred from the repository history (92 commits
-% under formal/, author dates 13:39 to 23:11 on one day) and from how the
-% work was organized; no file in the repository states them.
-The proofs were produced by AI coding agents, one per work package, working
-in parallel against the fixed statements, with separate reviews of the
-semantics, of the statements, and of the finished proofs. The semantic
-decisions, rows L1 to L6 of the review log, were made by the author. By
-their author dates, the 92 commits of the development span less than ten
-hours. We report this because it bears on how to read the result. The
-speed comes from parallel packages and from a kernel that needs no trust in
-the prover. The guarantees come from elsewhere: from the kernel for the
-proofs, and from human review for the question the kernel cannot answer,
-which is whether the definitions say what was meant.
+The proofs were produced by AI coding agents working in parallel on the
+work packages with fixed statements, under the author's direction. The
+author made all semantic decisions. By their git author dates, the 92
+commits under \file{formal/} up to the revision described here fall
+between 13:39 and 23:11 on one day: from the first committed draft of the
+specification to the complete proof took a little under ten hours. That
+figure excludes earlier preparation: planning, the Workflow Patterns
+evaluation, and drafting the specification before its first commit.
