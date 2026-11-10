@@ -1,0 +1,75 @@
+---
+title: AgentEvents Stream
+sidebar_label: AgentEvents Stream
+---
+
+# AgentEvents Stream
+
+A session writes live model text, reasoning summaries, tool progress, and
+approval events to the **AgentEvents** [Stream](/concepts/primitives/stream).
+
+## Stream backend {#stream-backend}
+
+**streamStore.backend** defaults to **memory** for both **dexcli dev** and a
+production server, so live events need no extra server configuration. The
+default is equivalent to:
+
+```yaml
+streamStore:
+  backend: memory
+```
+
+Do not set the backend to **disabled** for agents. With **disabled**, Dex drops
+a Step's Stream write without failing the Step. Client writes and Stream reads
+fail with **FAILED_PRECONDITION**.
+
+The memory backend keeps Streams in the memory of the active server-zd process.
+A server-zd cluster has one active process, so a single node needs nothing
+more. A [standby](/reference/server/high-availability#hot-standby) holds no
+Streams. A process starts with empty Streams whenever it becomes active: after
+a restart, a standby takeover, or a
+[step down](/reference/server/high-availability#step-down). A standby answers
+Stream calls with **UNAVAILABLE**, and clients reconnect to the active process.
+
+Losing Stream data never loses a session. The conversation, tool calls, and
+pending approvals live in Attributes. A client that misses events reloads the
+session with the **get_agent_snapshot** RPC and keeps reading the Stream from
+there. After **turn_completed** or **turn_failed**, a client replaces the
+turn's live text with the stored messages. Never treat the Stream as the record
+of what happened.
+
+## Size AgentEvents {#size-agent-events}
+
+**AgentEvents** has one capacity for each Flow type and Stream name. Every
+session of the agent shares it; it is not a per-session budget. The default is
+10 MiB. Set it with **event_stream_capacity_bytes** in the Python
+**AgentSessionOptions** or **eventStreamCapacityBytes** in the TypeScript
+**createAgentSessionFlow** options.
+
+The server charges each message its serialized value, Flow ID, and source, plus
+512 bytes. When usage reaches 90 percent of the capacity, a background trimmer
+removes the oldest messages of all sessions until usage is at 80 percent. If
+trimming falls behind and usage reaches the capacity, the server rejects
+writes. A Step drops a rejected write without failing. Size the capacity so it
+holds the newest turn of every session that a client watches:
+
+```text
+bytes per turn = messages per turn × (average message bytes + 512)
+capacity       ≥ concurrent sessions × bytes per turn ÷ 0.8
+```
+
+Say a turn writes 200 messages of about 300 bytes each, counting the Flow ID
+and source. That is about 162 KB per turn. With 500 sessions streaming at once,
+live events take about 81 MB. Dividing by 0.8 gives about 102 MB, so a capacity
+of 128 MiB keeps the newest turn of every session. The default 10 MiB keeps
+about 50 such turns.
+
+The fixed 512 bytes dominate small text deltas. The Python core writes one
+Stream message for each text delta that a runner writes. The TypeScript core
+merges consecutive deltas for up to 100 ms or 1,024 characters. Expect more
+messages per turn from Python adapters.
+
+One Stream message is at most 100 KiB, set by **streamStore.maxMessageBytes**.
+Dex drops a larger write. The memory backend keeps every Stream in server
+memory, so plan server memory for the sum of the capacities of every agent Flow
+type and other Stream.

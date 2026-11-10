@@ -405,7 +405,7 @@ await Promise.all([
   access(join(root, 'reference', 'cli', 'index.html')),
   access(join(root, 'reference', 'web', 'flow-visualization', 'index.html')),
   access(join(root, 'reference', 'go', 'workers', 'index.html')),
-  access(join(root, 'agent-frameworks', 'deploy-agents', 'index.html')),
+  access(join(root, 'reference', 'agents', 'workers', 'index.html')),
   access(join(root, 'zh-Hans', 'components', 'application', 'index.html')),
   access(join(root, 'zh-Hans', 'reference', 'rust', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html')),
@@ -459,7 +459,7 @@ for (const filePath of htmlIndexFiles) {
     expectedAlternateLanguageLinks(route),
     `${route} has incorrect alternate-language URLs`,
   );
-  const referenceMatch = route.match(/^\/(?:zh-Hans\/)?reference\/(server|cli|web|go|python|java|typescript|rust)\/(?:(\d+\.\d+\.(?:x|\d+))\/)?/);
+  const referenceMatch = route.match(/^\/(?:zh-Hans\/)?reference\/(server|cli|web|go|python|java|typescript|rust|agents)\/(?:(\d+\.\d+\.(?:x|\d+))\/)?/);
   const isArchivedReference = Boolean(referenceMatch?.[2]);
   const selectorMarkers = html.match(/data-reference-version-selector=/g) ?? [];
   assert.equal(selectorMarkers.length, referenceMatch ? 1 : 0, `${route} has an incorrect sidebar version selector`);

@@ -236,7 +236,7 @@ Agent 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调�
 
 ### 提供 tool {#offer-connector-tools}
 
-安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tools](/reference/agents/connector-tools#install)。
 
 Worker 从项目配置中打开 Slack connection **support-slack**。**connectorTool** 把 operation 变成 tool，由 **ConnectorToolSource** 持有。没有这个 connection 时，agent 不会得到 Slack tool。
 
@@ -320,7 +320,7 @@ Adapter 把 Connector tool 作为没有 **execute** 的 client tool 传给 Mastr
 
 ### 配置 connection {#configure-connector-connection}
 
-Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/agent-frameworks/deploy-agents#connector-tools-connection)。
+Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/reference/agents/connector-tools#connector-tools-connection)。
 
 试用时，先设置 **DEX_CONNECTOR_CONFIG_FILE** 再启动 example。然后让 agent 在 Slack thread 中回复，并给出 channel ID 和 thread timestamp：
 
@@ -339,10 +339,10 @@ Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursda
 - 调用 **suspend()** 的 tool 会失败。请改用 session 的审批。
 - Tool 名称最多 63 个字符，只能包含字母、数字、**_** 和 **-**，并且不能以数字或 **-** 开头。
 
-Adapter README 列出了全部限制。Server 的限制参见 [Durable Agents](/agent-frameworks/deploy-agents#limits)。
+Adapter README 列出了全部限制。Server 的限制参见 [Limits for long sessions](/reference/agents/session-limits)。
 
 ## 相关内容 {#related}
 
 - [Agent Framework](/agent-frameworks)
-- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Agents reference](/reference/agents/)
 - [TypeScript adapter README](https://github.com/superdurable/dex/tree/main/agents/typescript/mastra)

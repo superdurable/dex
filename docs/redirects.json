@@ -77,11 +77,11 @@
   },
   {
     "from": "/production/agents",
-    "to": "/agent-frameworks/deploy-agents"
+    "to": "/reference/agents/"
   },
   {
     "from": "/zh-Hans/production/agents",
-    "to": "/zh-Hans/agent-frameworks/deploy-agents"
+    "to": "/zh-Hans/reference/agents/"
   },
   {
     "from": "/references",
@@ -2018,5 +2018,13 @@
   {
     "from": "/zh-Hans/components/connector",
     "to": "/zh-Hans/concepts/connector"
+  },
+  {
+    "from": "/agent-frameworks/deploy-agents",
+    "to": "/reference/agents/"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/deploy-agents",
+    "to": "/zh-Hans/reference/agents/"
   }
 ]

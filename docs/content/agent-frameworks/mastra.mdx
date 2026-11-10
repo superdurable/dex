@@ -236,7 +236,7 @@ The agent can call [Connector](/concepts/connector) operations as tools, as [Con
 
 ### Offer the tool {#offer-connector-tools}
 
-Install **@superdurable/connectors-sdk** and the Connector package, such as **@superdurable/connector-slack**. The install commands are in [Connector tools](/agent-frameworks/deploy-agents#connector-tools).
+Install **@superdurable/connectors-sdk** and the Connector package, such as **@superdurable/connector-slack**. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
 
 The Worker opens the Slack connection **support-slack** from the project configuration. **connectorTool** turns the operation into a tool, and **ConnectorToolSource** holds it. Without the connection, the agent gets no Slack tool.
 
@@ -320,7 +320,7 @@ The adapter passes the Connector tools to Mastra as client tools without **execu
 
 ### Configure the connection {#configure-connector-connection}
 
-[Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
+[Connections](/reference/agents/connector-tools#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
 
 To try it, start the example with **DEX_CONNECTOR_CONFIG_FILE** set. Then ask the agent to reply in a Slack thread, with the channel ID and the thread timestamp:
 
@@ -339,10 +339,10 @@ The post waits for approval, like **cancel_order**.
 - A tool that calls **suspend()** fails. Use the session's approval instead.
 - Tool names must be at most 63 characters of letters, digits, **_**, and **-**, and must not start with a digit or **-**.
 
-The adapter README lists every limit. See [Durable Agents](/agent-frameworks/deploy-agents#limits) for the server limits.
+The adapter README lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
 
 ## Related
 
 - [Agent Frameworks](/agent-frameworks)
-- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Agents reference](/reference/agents/)
 - [TypeScript adapter README](https://github.com/superdurable/dex/tree/main/agents/typescript/mastra)

@@ -30,8 +30,8 @@ Published pages live under [`content/`](content/). Site config:
 `docusaurus.config.ts`, `sidebars.ts`, `src/`.
 
 The Developer Reference lives under [`reference/`](reference/). Each component
-(`server`, `cli`, `web`, `go`, `python`, `java`, `typescript`, `rust`) is its
-own docs plugin instance with the id `reference-<component>`, the route
+(`server`, `cli`, `web`, `go`, `python`, `java`, `typescript`, `rust`, and
+`agents`) is its own docs plugin instance with the id `reference-<component>`, the route
 `/reference/<component>/`, and the sidebar file `reference/sidebars/<component>.ts`.
 The landing page with the compatibility matrix is `content/reference/index.mdx`.
 The reference pages are English only; the `zh-Hans` build serves the English
