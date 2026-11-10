@@ -287,7 +287,7 @@ export interface DeferredToolCall {
    * records later ordered calls as skipped once one does not succeed. `read` calls ignore it. When
    * omitted, the call runs in parallel with the turn's other calls. `ConnectorToolSource` sets it for
    * connector writes.
-   * @since 0.3.0
+   * @since 0.4.0
    */
   readonly ordered?: boolean;
 }
@@ -447,7 +447,7 @@ export interface DeferredToolExecution {
    * Record heartbeats only through {@link heartbeat} and {@link saveHeartbeatCheckpoint}, because a bare
    * `context.recordHeartbeat()` would drop the checkpoint. It is never part of stored state.
    * `ConnectorToolSource` derives the connector Call ID from its Step execution ID.
-   * @since 0.3.0
+   * @since 0.4.0
    */
   readonly context?: AsyncContext;
 }
@@ -459,7 +459,7 @@ export interface ToolExecutionResult {
   /**
    * Size in bytes of the full output when {@link output} is a truncated copy; omit it when the output is
    * whole. The session stores it as {@link AgentToolCall.truncatedOutputBytes}.
-   * @since 0.3.0
+   * @since 0.4.0
    */
   readonly truncatedOutputBytes?: number;
 }
@@ -478,7 +478,7 @@ export interface ToolExecutionResult {
  *   executeRetry: { maximumAttempts: 3, totalDuration: 3_600_000 },
  * };
  * ```
- * @since 0.3.0
+ * @since 0.4.0
  */
 export interface ToolCallStepOptions {
   /** Timeout of each attempt in milliseconds; omit it for the tool Step's default. */
@@ -662,7 +662,7 @@ export type ToolTaskPollOutcome = ToolExecutionResult | ToolInputRequested | Too
  * ```ts
  * throw new ToolOutcomeUnknownError("the provider timed out after receiving the refund");
  * ```
- * @since 0.3.0
+ * @since 0.4.0
  */
 export class ToolOutcomeUnknownError extends Error {
   /**
@@ -875,7 +875,7 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * ```
    * @param toolCall - The record whose tool Step starts.
    * @returns The options, or `undefined` for the defaults.
-   * @since 0.3.0
+   * @since 0.4.0
    */
   toolCallStepOptions?(toolCall: AgentToolCall): ToolCallStepOptions | undefined;
   /**

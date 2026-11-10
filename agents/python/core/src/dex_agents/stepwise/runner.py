@@ -564,6 +564,8 @@ class StepwiseAgentRunner:
         Raises:
             LookupError: If a source built the call but the definition no
                 longer has it. The session then uses the defaults.
+
+        .. versionadded:: 0.4.0
         """
         if tool_call.tool_name in self._tools_by_name:
             return None

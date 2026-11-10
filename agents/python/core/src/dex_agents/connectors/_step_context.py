@@ -42,6 +42,8 @@ class ConnectorStepContext:
         step_execution_id: The tool Step's execution ID, the same on every attempt.
         attempt: The one-based attempt.
         deadline: The attempt's deadline, or ``None``.
+
+    .. versionadded:: 0.4.0
     """
 
     def __init__(

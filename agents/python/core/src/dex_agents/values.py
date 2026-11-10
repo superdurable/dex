@@ -472,19 +472,27 @@ class AgentToolCall:
         ordered_write: Whether the call is a write that runs in the model's
             order after the turn's earlier ordered writes, from
             ``DeferredToolCall.ordered``. ``False`` for every other call.
+
+            .. versionadded:: 0.4.0
         write_queued: Whether the call waits for an earlier ordered write of
             its turn. No Step runs it yet, and its approval is not raised yet.
             ``RunModel`` starts it once every earlier call is final and every
             earlier ordered write succeeded. Otherwise ``RunModel`` records it
             ``FAILED`` with ``skipped`` set. ``ResumeTurn`` does not wait for it.
+
+            .. versionadded:: 0.4.0
         skipped: Whether write ordering skipped the call because an earlier
             ordered write of the turn failed, was rejected, or ended
             ``OUTCOME_UNKNOWN``. The record is ``FAILED``, and its ``error``
             starts with ``TOOL_CALL_NOT_RUN_ERROR_PREFIX``, so a reader that does
             not know this field still sees that the tool did not run.
+
+            .. versionadded:: 0.4.0
         truncated_output_bytes: Size in bytes of the full output when
             ``output`` holds a truncated copy, from
             ``ToolExecutionResult.truncated_output_bytes``, or ``None``.
+
+            .. versionadded:: 0.4.0
     """
 
     tool_call_id: str

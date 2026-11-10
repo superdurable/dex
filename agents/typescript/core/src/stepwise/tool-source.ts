@@ -129,7 +129,7 @@ export interface ToolSource {
    * operation's timeout and retry policy.
    * @param toolCall - The record whose tool Step starts, with this source's own reference.
    * @returns The options, or `undefined`.
-   * @since 0.3.0
+   * @since 0.4.0
    */
   toolCallStepOptions?(toolCall: AgentToolCall): ToolCallStepOptions | undefined;
 }

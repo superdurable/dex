@@ -45,7 +45,7 @@ export interface ConnectorStepHeartbeats {
  * members the fence uses, plus the identities a Call needs; the agent core's conformance tests pin that list.
  *
  * `ConnectorToolSource` builds one per tool Step attempt. Applications do not construct it.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export class ConnectorStepContext {
   /**
