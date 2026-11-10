@@ -12,17 +12,17 @@ Run fixed-interval work in one durable Flow.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The Flow has three Step definitions:
+The Flow has three Step types:
 
-1. **Init** validates a positive interval and run count, then moves to **WaitForSchedule**.
-2. **WaitForSchedule** waits for the interval **Timer**, **Trigger**, or **Skip**. **Skip** consumes an occurrence and starts the next interval. The timer or **Trigger** starts **Run** and the next **WaitForSchedule** occurrence together.
-3. **Run** does the scheduled work. It reaches a dead end unless this is the final occurrence, which completes the Flow.
+1. **Init** checks that the interval and the run count are positive, then moves to **WaitForSchedule**.
+2. **WaitForSchedule** waits for the interval Timer, a **Trigger** message, or a **Skip** message. **Skip** counts as one occurrence without running the work, and starts the next interval. The Timer or **Trigger** starts **Run** and the next **WaitForSchedule** at the same time.
+3. **Run** does the scheduled work. On the final occurrence, it completes the Flow. Otherwise its branch ends there with a dead end.
 
-External code uses the Client to publish the **Trigger** or **Skip** Channel.
+To run the work early or skip an occurrence, publish to the **Trigger** or **Skip** Channel with the Client.
 
 ## Core implementation
 
-Each sample shows the **WaitForSchedule** Step definition and its scheduling decision. The runnable example also includes input types, Flow registration, and the work implementation.
+The snippets show the **WaitForSchedule** Step and its scheduling decision. The runnable example adds the input types, the Flow registration, and the work itself.
 
 <SdkTabs
   examples={{

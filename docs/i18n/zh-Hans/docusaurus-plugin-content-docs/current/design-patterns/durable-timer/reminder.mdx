@@ -7,7 +7,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/remi
 
 # Reminder
 
-**ReminderFlow** 会按 interval 发送提醒，直到接收者 opt-out。**ReminderStep** 等待 interval Timer 或 **OptOut** Channel。Timer 先触发时，Step 发送提醒并跳回自身；**OptOut** 先到达时，Step 完成 Flow。
+**ReminderFlow** 按固定间隔发送提醒，直到接收者退订。**ReminderStep** 等待间隔 Timer 或 **OptOut** Channel。Timer 先触发时，Step 发送提醒并转回自身。**OptOut** 先到达时，Step 完成 Flow。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
