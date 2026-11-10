@@ -63,6 +63,8 @@ and `make copyright-check` passes.
 | `DexExpressiveness/Dex/MetaFunctions.lean` | The meta-functions of one commit (spec §4.2). |
 | `DexExpressiveness/Dex/Rules.lean` | The event alphabet and the transition rules (spec §4.3 to §4.6, §5.1). |
 | `DexExpressiveness/Dex/Observation.lean` | The Dex system, `E_adm`, fairness F1 to F6 (spec §5.2 to §5.5). |
+| `DexExpressiveness/Dex/RunLemmas.lean` | Proved: lookup after update, sorting, and the shape of `eval`. |
+| `DexExpressiveness/Dex/WaitLemmas.lean` | Proved: `wake` serves the earliest waiter; AnyOf and timers at registration. |
 | `DexExpressiveness/L/Syntax.lean` | L syntax and its event alphabet (spec §8.1). |
 | `DexExpressiveness/L/ThreadLocal.lean` | What one statement does to its own thread, and the atomic action it asks for. |
 | `DexExpressiveness/L/Semantics.lean` | L small-step semantics, L fairness, `Program.IsWellFormed` (spec §8.1). |
@@ -445,13 +447,12 @@ load selection from the translation failed `readWaiters_snapshot_of_cvOperand`.
 
 ## The `sorry` inventory
 
-There are 12, all in `DexExpressiveness/Simulation.lean`.
+There are 9, all in `DexExpressiveness/Simulation.lean`. The numbers are
+those of the Stage 1 inventory; numbers 1 to 3 are proved (see
+[Stage 2a progress](#stage-2a-progress)).
 
 | # | Lemma | What it needs |
 | --- | --- | --- |
-| 1 | `Dex.wake_servesEarliestWaiter` | Unfold `wake`, `waitersOn`, `evalStep`; lemmas on `sortStable` (the minimum comes first) and on `find?` after `map`. |
-| 2 | `Dex.registerWait_any_firstChannelWins` | Unfold `registerWait`, `plan`, `consumeMessages`; `armTimers` followed by `disarmTimersOf` is `disarmTimersOf`. |
-| 3 | `Dex.registerWait_timer_blocks` | Unfold `registerWait`, `plan`; `planAnyChannel` is `none` on empty Channels; `get?` after `set`. |
 | 4 | `noWaiterOnNonEmptyChannel` | Induction over admissible runs; each rule that publishes calls `wake`, and `wake` leaves no feasible waiter. |
 | 5 | `registeredSeq_isInjective` | Induction over runs; `seq` increases by one per commit and a commit registers at most one wait. |
 | 6 | `armedTimers_areTimedSteps` | Induction over runs; only `timedStepDef` returns a wait with a timer. |
@@ -469,6 +470,19 @@ strengthens it.
 The count is unchanged by the first review's fixes. Lemmas 7 to 12 now take
 `program.IsWellFormed`. `Related` gained one clause: the Step of a program
 point carries the load selection of `moveToPoint`.
+
+## Stage 2a progress
+
+Stage 2a proves `safety_of_isWellFormed`. Liveness stays `sorry` until
+Stage 2b. No Batteries and no Mathlib so far: the list facts needed are in
+Lean core or are proved in `Dex/RunLemmas.lean`. Proofs use `grind` and
+classical case splits, so `Classical.choice` may appear among the axioms.
+
+| # | Lemma | Status |
+| --- | --- | --- |
+| 1 | `Dex.wake_servesEarliestWaiter` | Proved, `Dex/WaitLemmas.lean`. |
+| 2 | `Dex.registerWait_any_firstChannelWins` | Proved, `Dex/WaitLemmas.lean`. |
+| 3 | `Dex.registerWait_timer_blocks` | Proved, `Dex/WaitLemmas.lean`. |
 
 ## Stage 2 outline
 

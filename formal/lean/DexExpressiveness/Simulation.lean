@@ -1,3 +1,4 @@
+import DexExpressiveness.Dex.WaitLemmas
 import DexExpressiveness.TraceSets
 
 /-!
@@ -27,72 +28,6 @@ step correspondence on pseudo-random schedules.
 namespace DexExpressiveness
 
 open DexExpressiveness.L DexExpressiveness.Translation
-
-/-! ## Dex-side lemmas for the synchronization rows of spec §8.3 -/
-
-namespace Dex
-
-variable {σ : Signature}
-
-/-- Mutex and FIFO wake-up (spec §7 item 4, §8.3 "Mutex"): a message published
-to an empty Channel goes to the earliest ForOne waiter, and the Channel is
-empty again afterwards. -/
-theorem wake_servesEarliestWaiter (run : Run σ) (chan : σ.Chan) (message : σ.Val)
-    (earliest : StepRecord σ) (waitState : WaitState σ)
-    (isMember : earliest ∈ run.steps)
-    (idsAreDistinct : ∀ first, first ∈ run.steps → ∀ second, second ∈ run.steps →
-      first.id = second.id → first = second)
-    (isWaiting : earliest.phase = .waiting)
-    (hasWaitState : earliest.waitState = some waitState)
-    (waitsForOne : waitState.wait = { kind := .all, timerSeconds := [], channels := [chan] })
-    (hasNoTimer : waitState.timersDone = [])
-    (isEmpty : run.pendingMessages chan = [])
-    (isEarliest : ∀ other, other ∈ run.steps → ∀ otherWaitState,
-      other.phase = .waiting → other.waitState = some otherWaitState →
-      chan ∈ otherWaitState.wait.channels → other.id ≠ earliest.id →
-      waitState.registeredSeq < otherWaitState.registeredSeq) :
-    let woken := (run.applyPublications [(chan, message)]).wake [chan]
-    (∃ record results,
-      woken.findStep? earliest.id = some record ∧ record.phase = .execute ∧
-      record.conditionResults = some results ∧ results.channelMessages = [some message]) ∧
-    woken.pendingMessages chan = [] := by
-  sorry
-
-/-- AnyOf at registration (spec §8.3: "at registration the Channel conditions
-decide in declaration order: the operation's own Channel before
-`cancel/self`"): when the first Channel has a pending message, the wait is
-satisfied at once by that message, also when a timer condition is present. -/
-theorem registerWait_any_firstChannelWins (run : Run σ) (step : StepExecId σ)
-    (record : StepRecord σ) (timerSeconds : List Nat) (firstChan : σ.Chan)
-    (laterChans : List σ.Chan) (message : σ.Val) (laterMessages : List σ.Val) (now : Nat)
-    (isFound : run.findStep? step = some record)
-    (hasMessage : run.pendingMessages firstChan = message :: laterMessages) :
-    let registered := run.registerWait step
-      { kind := .any, timerSeconds := timerSeconds, channels := firstChan :: laterChans } now
-    (∃ current results,
-      registered.findStep? step = some current ∧ current.phase = .execute ∧
-      current.conditionResults = some results ∧
-      results.channelMessages = some message :: laterChans.map (fun _ => none)) ∧
-    registered.pendingMessages firstChan = laterMessages ∧
-    registered.timers = run.timers.filter (fun entry => !decide (entry.1.step = step)) := by
-  sorry
-
-/-- Timers are never done when armed (spec §4.2 `register`: "A zero-second
-timer is armed, not completed"; spec §8.1: "A timer is never complete at the
-moment it is armed, even for `d = 0`"): with no pending message, registering
-`AnyOf(Timer(d), ...)` leaves the Step waiting with its timer armed at
-`now + d · 10⁶`. -/
-theorem registerWait_timer_blocks (run : Run σ) (step : StepExecId σ) (record : StepRecord σ)
-    (seconds : Nat) (chans : List σ.Chan) (now : Nat)
-    (isFound : run.findStep? step = some record)
-    (areEmpty : ∀ chan, chan ∈ chans → run.pendingMessages chan = []) :
-    let registered := run.registerWait step
-      { kind := .any, timerSeconds := [seconds], channels := chans } now
-    (∃ current, registered.findStep? step = some current ∧ current.phase = .waiting) ∧
-    registered.timers.get? { step := step, index := 0 } = some (now + seconds * 1000000) := by
-  sorry
-
-end Dex
 
 /-! ## Invariants of translated Flows under the admissible environment -/
 
