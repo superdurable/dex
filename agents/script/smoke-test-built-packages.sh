@@ -383,16 +383,19 @@ smoke_test_typescript() {
     "outDir": "dist",
     "rootDir": ".",
     "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "resolveJsonModule": true
   },
   "include": ["test/**/*.ts"]
 }
 JSON
   # The copied tests read spans from an in-memory exporter, so they need the adapter's OpenTelemetry devDependencies.
+  # Its connector tool tests build a fake Connector package, so they need the Connector SDK devDependency too.
   local test_dependency_specs=()
   while IFS= read -r test_dependency_spec; do
     test_dependency_specs+=("$test_dependency_spec")
-  done < <(locked_package_specs "$agents_dir/typescript/vercel-ai" @opentelemetry/api @opentelemetry/sdk-trace-base)
+  done < <(locked_package_specs "$agents_dir/typescript/vercel-ai" @opentelemetry/api @opentelemetry/sdk-trace-base \
+    @superdurable/connectors-sdk)
   (
     cd "$session_dir"
     npm install --no-audit --no-fund "${test_dependency_specs[@]}"
