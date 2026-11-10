@@ -5,10 +5,9 @@ sidebar_label: Workers
 
 # Rust Workers
 
-This page shows how to start a Rust Worker. It lists the Rust names for the
-Worker settings and diagnostics. The
-[Workers and the task queue](/reference/server/workers) page describes their
-behavior for every SDK.
+This page shows how to start a Rust Worker and lists the Rust names of its
+settings. [Workers and the task queue](/reference/server/workers) describes
+how these settings behave in every SDK.
 
 ## Start a Worker
 
@@ -79,11 +78,14 @@ Example: [examples/rust/src/production/pull_workers.rs](https://github.com/super
 
 ## Readiness
 
-Rust exposes **wait_pull_registered**,
-**pull_registration_state**, and **stop_on_permanent_stream_rejection** in SDK
-1.14.0, with the same readiness semantics. Rust waits can be cancelled by
-dropping the future or bounded with a Tokio timeout. Opt-in fatal rejections
-are returned by **start** after draining.
+**wait_pull_registered** waits until the Worker's slot streams have registered with
+Dex. **pull_registration_state** reports the current registration state. By default,
+a Worker keeps retrying when Dex permanently rejects a slot stream. Set
+**stop_on_permanent_stream_rejection** to stop and drain the Worker instead when a permanent
+rejection leaves a slot kind without registered streams. Since 1.14.0.
+
+Cancel the wait by dropping its future, or bound it with a Tokio timeout. With
+the stop option on, **start** returns the permanent rejection after draining.
 
 A **PullRegistrationError** reports **STEP_AND_RPC** or **RPC_ONLY** as its slot
 kind.
@@ -118,8 +120,8 @@ has no effect.
 The reserve-decline counter, **pull_reserved_rpc_declines()**, is deprecated. It remains for
 source compatibility and always reads zero.
 
-This diagnostics helper exposes registration readiness. Its reserve-decline field
-is always zero. A full Worker stays ready.
+Report registration readiness instead, as this diagnostics helper does. Its reserve-decline field
+is always zero. A Worker with every slot busy stays ready.
 
 ```rust
 pub struct PullGreetingDiagnostics {
