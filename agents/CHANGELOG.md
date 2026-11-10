@@ -4,6 +4,15 @@ All eleven Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## Unreleased
+
+### Fixed
+
+- Python and TypeScript Claude Agent SDK adapters: when the Claude Code CLI
+  returns an error result, the turn's error now reads "the Claude Code CLI
+  returned an error result (subtype ...)". It used to read "reported success"
+  for an error result whose subtype is `success`, such as a failed login.
+
 ## 0.4.0 (2026-11-10)
 
 ### Connector tools

@@ -643,7 +643,8 @@ class _TurnSegmentObserver:
         if self._result.is_error:
             details = "; ".join(self._result.errors or []) or self._result.result
             raise RuntimeError(
-                f"the Claude Code CLI reported {self._result.subtype}: {details or 'no details'}"
+                "the Claude Code CLI returned an error result "
+                f"(subtype {self._result.subtype}): {details or 'no details'}"
             )
         return self._result
 

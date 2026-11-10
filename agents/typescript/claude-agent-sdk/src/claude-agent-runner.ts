@@ -713,7 +713,8 @@ class TurnSegmentObserver {
       const details =
         this.result.subtype === "success" ? this.result.result : this.result.errors.join("; ");
       throw new Error(
-        `the Claude Code CLI reported ${this.result.subtype}: ${details === "" ? "no details" : details}`,
+        `the Claude Code CLI returned an error result (subtype ${this.result.subtype}): ` +
+          (details === "" ? "no details" : details),
       );
     }
     return this.result;
