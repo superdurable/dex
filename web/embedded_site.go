@@ -81,7 +81,18 @@ func (site *EmbeddedSite) ServeTarget(response http.ResponseWriter, request *htt
 	routes := site.pages.newTargetRouteMux(targetRoutes{
 		client: target.FlowServiceClient, flowDefinitions: flowDefinitions, basePath: basePath,
 	})
-	serveUnderBasePath(response, request, basePath, site.protection.wrap(routes))
+	serveUnderBasePath(response, request, basePath, site.protection.wrap(refuseWorkerHealthProbes(routes)))
+}
+
+// refuseWorkerHealthProbes keeps callers from making the host process dial addresses inside its network.
+func refuseWorkerHealthProbes(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v2/worker-health" {
+			api.WriteCodedError(response, http.StatusNotFound, "WORKER_HEALTH_UNAVAILABLE", "Worker health probes are not available in embedded Dex Web")
+			return
+		}
+		next.ServeHTTP(response, request)
+	})
 }
 
 // IsMutatingAPIRequest reports whether a request may change Flows or Connector configuration.

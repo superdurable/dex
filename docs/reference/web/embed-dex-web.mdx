@@ -1,0 +1,219 @@
+---
+title: Embed Dex Web in a Go server
+sidebar_label: Embed in a Go server
+---
+
+# Embed Dex Web in a Go server
+
+Since 1.43. A host application can serve Dex Web from its own Go HTTP server.
+The Go module **github.com/superdurable/dex/web/embedded** returns one
+**http.Handler** that serves Dex Web for many Dex Servers. The host mounts it
+under a path prefix on its own origin, such as **/dex-web/SERVER_ID/**. For each
+request, the handler asks the host which Dex Server the request reaches. The
+host keeps its own sign-in, roles, and pages around Dex Web.
+
+Use [dex-web](/reference/web/dex-web#run-dex-web) instead when one Dex Web per
+Dex Server behind a reverse proxy is enough.
+
+## Install {#install}
+
+~~~bash
+go get github.com/superdurable/dex/web/embedded@v1.43.0
+~~~
+
+Each **web/vX.Y.Z** release publishes the module as
+**web/embedded/vX.Y.Z**. The module contains the built UI, so the host needs no
+Node.js build. It requires Go 1.26 or later and a released
+**github.com/superdurable/dex/sdk-go** version, which its **go.mod** names. Keep
+the host's **sdk-go** requirement at that version or later.
+
+## Mount the handler {#mount}
+
+This host serves two Dex Servers at **/dex-web/server-a/** and
+**/dex-web/server-b/**. It creates one gRPC connection per Dex Server at
+startup, adds each server's credential to its connection, and closes the
+connections at shutdown.
+
+~~~go
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+
+	"github.com/superdurable/dex/sdk-go/gen/dexpb"
+	"github.com/superdurable/dex/web/embedded"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+)
+
+type dexServer struct {
+	client dexpb.FlowServiceClient
+	token  string
+}
+
+func main() {
+	servers := map[string]dexServer{}
+	for serverID, address := range map[string]string{
+		"server-a": "dex-a.internal.example:8801",
+		"server-b": "dex-b.internal.example:8801",
+	} {
+		token := loadToken(serverID)
+		connection, err := grpc.NewClient(address,
+			grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, "")),
+			grpc.WithUnaryInterceptor(bearerToken(token)))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer connection.Close()
+		servers[serverID] = dexServer{client: dexpb.NewFlowServiceClient(connection), token: token}
+	}
+
+	dexWeb, err := embedded.NewDexWebHandler(&embedded.Config{
+		ResolveTarget: func(request *http.Request) (embedded.Target, error) {
+			serverID := request.PathValue("serverID")
+			server, ok := servers[serverID]
+			if !ok {
+				return embedded.Target{}, embedded.ErrTargetNotFound
+			}
+			user := currentUser(request)
+			if !user.canView(serverID) {
+				return embedded.Target{}, embedded.ErrTargetForbidden
+			}
+			if embedded.IsMutatingRequest(request, "/dex-web/"+serverID) && !user.canOperate(serverID) {
+				return embedded.Target{}, embedded.ErrTargetForbidden
+			}
+			return embedded.Target{
+				FlowServiceClient:      server.client,
+				BasePath:               "/dex-web/" + serverID,
+				FlowRenderingDirectory: "/srv/flow-definitions/" + serverID,
+			}, nil
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/dex-web/{serverID}/", requireSignIn(dexWeb))
+	log.Fatal(http.ListenAndServe(":8080", mux))
+}
+
+// bearerToken adds a Dex Server credential to every unary RPC on one connection.
+func bearerToken(token string) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, request, reply any, connection *grpc.ClientConn,
+		invoker grpc.UnaryInvoker, options ...grpc.CallOption) error {
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
+		return invoker(ctx, method, request, reply, connection, options...)
+	}
+}
+~~~
+
+**loadToken**, **currentUser**, and **requireSignIn** stand for the host's own
+credential store, session lookup, and sign-in middleware. Dex Web calls only
+unary FlowService RPCs.
+
+## Targets {#targets}
+
+**ResolveTarget** runs once for every request. It returns a **Target**:
+
+| Field | Meaning |
+| --- | --- |
+| **FlowServiceClient** | Required. The FlowService client of the Dex Server. It must already carry the credential. |
+| **BasePath** | Required. The path prefix of this Dex Server's Dex Web, such as **/dex-web/server-a**. It follows the [base path rules](/reference/web/dex-web#base-path). |
+| **FlowRenderingDirectory** | Optional. A directory of Flow Definition Graph JSON files for this Dex Server, read on every definition request, like **--flow-rendering-dir**. |
+
+The handler serves the pages, assets, **/api** routes, **/healthz**, and
+**/readyz** under **BasePath**. **/readyz** checks only the resolved Dex Server.
+A request outside **BasePath** gets HTTP 404, and so does a path with an empty,
+**.**, or **..** segment. A missing client or an invalid **BasePath** is a host
+error and gets HTTP 500.
+
+Return one of these errors, or an error that wraps one, to choose the response:
+
+| Error | Response |
+| --- | --- |
+| **ErrTargetNotFound** | HTTP 404 **TARGET_NOT_FOUND** |
+| **ErrTargetForbidden** | HTTP 403 **TARGET_FORBIDDEN** |
+| **ErrTargetUnavailable** | HTTP 503 **TARGET_UNAVAILABLE** |
+| Any other error | HTTP 500 **TARGET_RESOLUTION_FAILED** |
+
+The response body never contains the error text. The handler logs an
+unrecognized error through **log/slog**. Set **WriteResolveError** in
+**Config** to write the response yourself, such as a sign-in redirect.
+
+### Credentials {#credentials}
+
+The host owns every client. It creates, caches, and closes them, and the
+handler never closes one or keeps it after the request. Add the credential
+with **grpc.WithPerRPCCredentials** or a client interceptor. Each RPC receives
+a context derived from the HTTP request context, so a credential that depends
+on the signed-in user can read a value that host middleware stored in that
+context. The credential never reaches the browser.
+
+## Security {#security}
+
+The handler does no authentication and no authorization. Anyone whose request
+reaches it acts with the credential of the client that **ResolveTarget**
+returns.
+
+- Authenticate every request before the handler runs.
+- Return a client only for a Dex Server the caller may use.
+- Refuse a mutating request from a read-only caller. **IsMutatingRequest**
+  tells whether a request needs write permission. The table below lists the
+  routes.
+- Mount Dex Web on the host's own origin. A mutating **/api** request must be
+  same-origin, by the browser's **Sec-Fetch-Site** header or, without it, an
+  **Origin** that matches the **Host**. It must also send
+  **Content-Type: application/json**. A cross-site page cannot forge one, even
+  when the host signs users in with cookies. Same-site requests from another
+  origin, such as a sibling subdomain, are refused too.
+- Dex Web shows Flow inputs, outputs, Attributes, and Worker stack traces.
+  Grant viewing only to people who may see that data.
+
+### Mutating routes {#mutating-routes}
+
+Every **GET** route only reads. These routes, relative to **BasePath**, change
+Flows or depend on write access:
+
+| Route | Action |
+| --- | --- |
+| **POST /api/flows/stop** | Stop a run. |
+| **POST /api/flows/time-travel** | Reset a run to an earlier point. |
+| **PUT /api/flows/attributes** | Write an Attribute. |
+| **POST /api/flows/channels/messages** | Publish a Channel message. |
+| **DELETE /api/flows/channels/messages** | Delete a pending Channel message. |
+| **PUT /api/flows/config/history** | Change a run's history window. |
+| **POST /api/v2/start** | Start a Flow. |
+| **PATCH /api/v2/display** | Edit a displayed Attribute. |
+| **POST /api/v2/actions** | Invoke an RPC. |
+
+These **POST** routes only read: **/api/flows/search**, **/api/v2/search**,
+and **/api/blobs/load**. **IsMutatingRequest** treats every other request with
+a method other than **GET**, **HEAD**, or **OPTIONS** as mutating, including
+routes added by later releases.
+
+### Host and framing checks {#host-and-framing}
+
+**Config.AllowedHosts** is empty by default, because the host's ingress owns
+Host checks. With entries, it turns on the [Host check](/reference/web/dex-web#allowed-hosts)
+for **/api** requests, without a bind address.
+
+**Config.FrameAncestors** works like [--frame-ancestors](/reference/web/dex-web#frame-ancestors).
+By default no page may frame Dex Web. Pass **'self'** to let the host's own
+pages show it in a frame.
+
+### What the handler does not do {#limits}
+
+- It keeps no state between Dex Servers. Each request gets its own routes,
+  definition reader, and server engine lookup, and two handlers share nothing.
+- Local Connector configuration is off. Its **/api/v2/connector-** routes
+  return HTTP 404 **CONNECTOR_SETUP_UNAVAILABLE**, and the UI hides
+  **Connectors**.
+- **POST /api/v2/worker-health**, which makes Dex Web dial a Worker address
+  that the request names, returns HTTP 404 **WORKER_HEALTH_UNAVAILABLE**, so a
+  caller cannot probe the host's network. The UI does not use it.
+- It ignores forwarded headers such as **X-Forwarded-Prefix**. The base path
+  comes only from **ResolveTarget**.

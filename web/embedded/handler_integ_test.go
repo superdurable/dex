@@ -318,6 +318,15 @@ func TestHandlerHasNoLocalConnectorConfiguration(t *testing.T) {
 	}
 }
 
+func TestHandlerRefusesWorkerHealthProbes(t *testing.T) {
+	host := newHostApplication(t, &embedded.Config{})
+	headers := map[string]string{"Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"}
+	result := host.send(t, http.MethodPost, "/dex-web/server-a/api/v2/worker-health", `{"workerTargetAddress":"10.0.0.1:22"}`, headers)
+	if result.status != http.StatusNotFound || !strings.Contains(result.body, "WORKER_HEALTH_UNAVAILABLE") {
+		t.Fatalf("worker health probe = %d %s", result.status, result.body)
+	}
+}
+
 func TestHandlerOptionsStayWithTheirHandler(t *testing.T) {
 	framed := newHostApplication(t, &embedded.Config{FrameAncestors: []string{"'self'", "https://host.example"}, AllowedHosts: []string{"host.example"}})
 	plain := newHostApplication(t, &embedded.Config{})

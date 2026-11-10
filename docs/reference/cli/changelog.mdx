@@ -8,6 +8,14 @@ sidebar_label: Change log
 
 This page lists user-visible changes to dexcli, newest first; each section covers the changes since the previous release of this component.
 
+## 1.43 {#v1-43}
+
+Released 2026-11-10 as [cli-v1.43.0](https://github.com/superdurable/dex/releases/tag/cli-v1.43.0).
+
+### Changed
+
+- The Dex Web of **dexcli web** answers its **/api/v2/connector-** routes with HTTP 404 **CONNECTOR_SETUP_UNAVAILABLE**, because it has no local Connector setup. **dexcli web** and **dexcli dev** still serve Dex Web at the root of their port. [Reference](/reference/web/embed-dex-web#limits).
+
 ## 1.42 {#v1-42}
 
 Released 2026-11-10 as [cli-v1.42.0](https://github.com/superdurable/dex/releases/tag/cli-v1.42.0).

@@ -48,6 +48,8 @@ Kubernetes service-link variables such as **DEX_WEB_PORT**.
 | **--tls-server-name** | **DEX_WEB_TLS_SERVER_NAME** | Empty; overrides the name checked against the server certificate. Requires **--tls**. |
 | **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** | Empty; a file with the bearer token that Dex Web sends to FlowService. |
 | **--allowed-hosts** | **DEX_WEB_ALLOWED_HOSTS** | Empty; comma-separated host names that **/api** requests may name. Setting it turns on the Host check. Since 1.42. See [Allowed hosts](#allowed-hosts). |
+| **--base-path** | **DEX_WEB_BASE_PATH** | **/**; the URL path prefix that serves Dex Web, such as **/dex**. Since 1.43. See [Base path](#base-path). |
+| **--frame-ancestors** | **DEX_WEB_FRAME_ANCESTORS** | Empty, which forbids framing; comma- or space-separated CSP sources that may show Dex Web in a frame. Since 1.43. See [Framing](#frame-ancestors). |
 
 Start Flow always uses pull Workers. Two legacy Worker routing options are deprecated and have no effect: **--start-flow-worker-target-pull** (**DEX_WEB_START_FLOW_WORKER_TARGET_PULL**) and **--start-flow-worker-target-headless** (**DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS**). Dex Web still accepts them and prints a startup warning when one is provided.
 
@@ -95,6 +97,53 @@ forwards Dex Web under a DNS name:
 dex-web --allowed-hosts dex.example.com
 dexcli dev --allowed-hosts dex-dev.example.com
 ~~~
+
+### Base path {#base-path}
+
+Since 1.43. **--base-path** serves Dex Web under a URL path prefix, so a reverse
+proxy can forward one path of a larger site to it without rewriting paths:
+
+~~~bash
+dex-web --base-path /dex
+~~~
+
+Dex Web then serves its pages at **/dex/**, its assets at **/dex/assets/**, and
+its API at **/dex/api/**. A page path under the prefix that matches no file
+returns the UI, so links such as **/dex/v1/flows/order-1** open directly. Every
+other path returns HTTP 404, and a **GET** of **/dex** redirects to **/dex/**.
+**/healthz** and **/readyz** stay at the root for probes. The proxy must forward
+the prefix unchanged.
+
+The prefix must start with **/**. A trailing **/** is ignored. Each segment may
+contain only ASCII letters, digits, **.**, **_**, **~**, and **-**, and must not be
+empty, **.**, or **..**. Percent-encoding is rejected, so an encoded separator
+cannot appear in the prefix. An invalid prefix fails startup.
+
+The page tells the browser its prefix in a **dex-web-base-path** meta tag, and
+every page link, API call, redirect, and **?view=** deep link stays under it.
+With local Connector setup, the OAuth redirect URI is
+**http(s)://HOST/PREFIX/api/v2/connector-oauth/callback**, so register that URI
+with the provider.
+
+### Framing {#frame-ancestors}
+
+Since 1.43. By default every page carries
+**Content-Security-Policy: frame-ancestors 'none'** and **X-Frame-Options: DENY**,
+so no site can show Dex Web in a frame. **--frame-ancestors** lists the sites
+that may:
+
+~~~bash
+dex-web --frame-ancestors "'self' https://console.example.com"
+~~~
+
+Each entry is **'self'** or an explicit host source, such as
+**https://console.example.com**, **https://*.example.com**, or
+**https://console.example.com:8443**. A bare asterisk, scheme-only sources such as
+**https:**, **'none'**, and entries with quotes, commas, or semicolons are
+rejected, and startup fails. With a list, Dex Web sends the list as the
+**frame-ancestors** directive and drops **X-Frame-Options**. The list **'self'**
+alone also sends **X-Frame-Options: SAMEORIGIN**. Framing does not change the
+[/api checks](#api-requests): the framed page calls its own origin.
 
 ### The /api requests {#api-requests}
 

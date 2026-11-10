@@ -19,7 +19,8 @@
 //
 // The handler shares no state between Dex Servers. It keeps no client, cache, or readiness result after a
 // request ends, and it never closes a client. The host owns each FlowService client: it creates, caches, and
-// closes them. Local Connector configuration is not available; its /api routes return HTTP 404.
+// closes them. Local Connector configuration and Worker health probes are not available; their /api routes
+// return HTTP 404.
 //
 // Mutating /api requests must be same-origin and must send Content-Type: application/json, which stops
 // cross-site request forgery even when the host authenticates with cookies.

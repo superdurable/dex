@@ -64,6 +64,22 @@ such as `DEX_WEB_PORT` and `DEX_WEB_SERVICE_HOST`.
 | `--tls-ca-file` | `DEX_WEB_TLS_CA_FILE` | empty; system trust roots |
 | `--tls-server-name` | `DEX_WEB_TLS_SERVER_NAME` | empty; verify the target host |
 | `--flow-service-credential-file` | `DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE` | empty; no credential |
+| `--base-path` | `DEX_WEB_BASE_PATH` | `/`; URL path prefix that serves the UI, assets, and `/api/` |
+| `--frame-ancestors` | `DEX_WEB_FRAME_ANCESTORS` | empty; no page may frame Dex Web |
+
+With `--base-path /dex`, Dex Web serves everything under `/dex/` and returns 404
+outside it; `/healthz` and `/readyz` stay at the root. `index.html` is built with
+relative asset URLs, and the server rewrites them and adds a
+`dex-web-base-path` meta tag for each response. Frontend code builds every
+same-origin URL with `webURL` from `lib/basePath.ts`. `--frame-ancestors`
+replaces `frame-ancestors 'none'` and `X-Frame-Options: DENY` with the listed CSP
+sources.
+
+The `embedded` package serves Dex Web for many Dex Servers from a host Go HTTP
+server; see the Developer reference page "Embed Dex Web in a Go server". Each
+`web/vX.Y.Z` release publishes it as the module
+`github.com/superdurable/dex/web/embedded` at tag `web/embedded/vX.Y.Z`, built by
+`script/release/package_embedded_web_module.py`.
 
 TLS encrypts the FlowService gRPC connection and verifies its certificate. A
 custom PEM CA file adds certificates to the system trust roots. CA and server
