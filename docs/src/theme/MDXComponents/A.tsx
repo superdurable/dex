@@ -23,9 +23,20 @@ const apiReferenceLinkPrefix = 'pathname:///api/';
 // Docusaurus copies files linked from Markdown, such as PDFs, here.
 const markdownAssetFilePath = /\/assets\/files\/[^/]+\.[a-z0-9]+$/i;
 
-// Every SDK reference carries this page; docs link to the default SDK's copy.
+// Every SDK reference carries these pages with the same anchors; docs link to the default SDK's copy.
+const sharedSdkReferencePages = [
+  'flow',
+  'start-flow-options',
+  'step',
+  'step-options',
+  'step-decisions',
+  'waits',
+  'failure-and-retries',
+  'workers',
+];
+
 const defaultSdkReferenceLink = new RegExp(
-  `^/reference/${DEFAULT_SDK}/(flows-and-steps)(?=[/#?]|$)`,
+  `^/reference/${DEFAULT_SDK}/(${sharedSdkReferencePages.join('|')})(?=[/#?]|$)`,
 );
 
 const defaultSdkLabel = 'Python';
