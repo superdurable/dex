@@ -5,99 +5,101 @@ sidebar_label: Connector
 
 # Connector
 
-A **Connector** is a Dex component that integrates a Flow with an
-external provider, such as an email, payment, or news service. It packages typed operations, event ingress,
-authorization, and optional configuration UI. Provider credentials stay out of
-durable Flow state.
+A **Connector** connects a Flow to an external provider, such as an email,
+payment, or news service. It packages typed operations, handling of incoming
+provider events, authorization, and optional configuration UI. Provider
+credentials never enter durable Flow state.
 
-Official Connectors are released separately from Dex. Browse the
-[Connector directory](https://connectors.superdurable.io/) before you write
-provider integration code yourself.
+Official Connectors are released separately from Dex. Before you write
+provider integration code yourself, check the
+[Connector catalog](https://connectors.superdurable.io/). It lists each
+released Connector, its operations, and its language support, and it is the
+reference for each Connector.
 
 ## Capabilities
 
 A Connector can expose five capabilities:
 
-- **Auth** authorizes a logical connection and keeps credentials outside the
-  Flow.
-- **Trigger** converts a provider event into a typed event that can start a Flow
-  or invoke a typed RPC.
+- **Auth** authorizes a named connection to the provider.
+- **Trigger** turns a provider event into a typed event. The event can start a
+  Flow or call a typed RPC.
 - **Query** reads provider state from a Connector Step.
-- **Mutation** changes provider state with explicit idempotency and uncertainty
-  handling.
-- **UI** supplies reusable configuration units that Dex Web composes for a Step
-  or Trigger binding.
+- **Mutation** changes provider state. It sends an idempotency key and handles
+  calls whose outcome is unknown.
+- **UI** supplies reusable configuration units. Dex Web combines them into the
+  settings form for a Step or a Trigger binding.
 
-A provider module exposes only the capabilities it needs. Applications use the
-generated types for that exact module release.
+A provider module exposes only the capabilities it needs. Your application uses
+the types generated for the exact module release it imports.
 
 ## Operations are Connector Steps
 
-An operation-specific factory creates a Connector Step. The application maps
-the current Step input to the provider input. It connects each required result
-branch to another Step. The provider call runs in **Execute**, so it gets Dex
-retries, timeouts, durability, and recovery like any other
+Each operation has a factory that creates a Connector Step. Your application
+maps the current Step input to the provider input. It connects each required
+result branch to another Step. The provider call runs in **Execute**, so it
+gets Dex retries, timeouts, durability, and recovery like any other
 [Step](/concepts/step).
 
 A Connector result contains the operation output, a receipt, the selected
-branch, and a safe failure classification when one exists. It does not forward
-the previous Step input. Keep business context in an
-[Attribute](/concepts/primitives/attribute), or pass it through an application Step
-before the Connector.
+branch, and a safe failure classification when one exists. The result does not carry the previous
+Step input forward. Keep business context in an
+[Attribute](/concepts/primitives/attribute), or pass it through an application
+Step before the Connector.
 
-Queries read provider state. Mutations change it with a stable idempotency key
-derived from the Step execution. When a mutation's outcome is unknown, the
-Connector selects an uncertainty branch. The Flow can then query and reconcile
-instead of sending the mutation again blindly.
+A mutation's idempotency key is derived from the Step execution, so it stays
+the same when Dex retries the Step. When a mutation's outcome is unknown, the
+Connector selects an uncertainty branch. The Flow can then query the provider
+and reconcile, instead of sending the mutation again blindly.
 
-Only the happy-path branch must be connected. An optional branch can stay
-unwired. If the Connector selects an unwired branch, the Flow fails, and the
-provider outcome stays visible for recovery.
+Only the happy-path branch must be connected. You can leave optional branches
+unconnected. If the Connector selects an unconnected branch, the Flow fails.
+The provider outcome stays visible for recovery.
 
 ## Triggers start or update Flows
 
 A Connector Trigger is a long-running event source outside the Flow. It keeps
 the provider event ID and occurrence time. It delivers each event at least once
-to a target that the application owns.
+to a target that your application owns.
 
-The application supplies the final filter, resolves the Flow ID, and maps the
+Your application supplies the final filter, resolves the Flow ID, and maps the
 provider event to a typed input. It chooses whether the event starts a Flow or
-invokes a typed [RPC](/concepts/primitives/rpc) on an existing Flow. A Flow start reuses
-the provider event ID as its request identity, so a repeated event does not
-start a second Flow. An RPC target handles duplicates in its own bounded
-state.
+calls a typed [RPC](/concepts/primitives/rpc) on an existing Flow. A Flow start
+uses the provider event ID as its request ID, so a repeated event does not
+start a second Flow. An RPC target handles duplicates itself, in its own
+bounded state.
 
-Local Trigger runners persist a matched event before they acknowledge it to
-the provider. They replay pending deliveries after a restart.
+Local Trigger runners save a matched event before they acknowledge it to the
+provider. After a restart, they deliver the events that were still pending.
 
 ## Connections and configuration
 
-Flow definitions refer to a logical connection name, not to credentials. In
-local development, Dex Web lists those names under **Connectors**. It verifies
-the exact official module release before it writes connection, operation, or
-Trigger-binding configuration.
+Flow definitions refer to a connection by name, not by its credentials. In
+local development, Dex Web lists those names under **Connectors**. Before it
+writes connection, operation, or Trigger-binding configuration, it verifies
+that the module is the exact official release.
 
-An application can also open a connection that no Flow definition names, such
+An application can also use a connection that no Flow definition names, such
 as one an agent tool uses. Add that connection by name on the same page, then
-authorize it as any other.
+authorize it like any other.
 
-A Connector UI runs in an opaque-origin sandboxed iframe. Dex Web runs the provider commands
-that the Connector release declares. Stored credentials never enter the iframe,
-Flow input, Attributes, results, receipts, Streams, logs, or generated
-artifacts.
+A Connector UI runs in a sandboxed iframe with an opaque origin. Dex Web runs
+the provider commands that the Connector release declares. Stored
+credentials never enter the iframe, Flow input, Attributes, results, receipts,
+Streams, logs, or generated artifacts.
 
 ## Languages
 
 Connectors support Go, Python, and TypeScript. Java and Rust do not support
 Connectors yet. Each language package implements only the operations and
 Triggers that the Connector lists for that language. Use the language filter in
-the [Connector directory](https://connectors.superdurable.io/) to see what each
+the [Connector catalog](https://connectors.superdurable.io/) to see what each
 Connector offers.
 
 Go packages are the Go module of each Connector. Python packages are on PyPI as
 **dex-connector-&lt;slug&gt;**. TypeScript packages are on npm as
 **@superdurable/connector-&lt;slug&gt;**. Every Python and TypeScript package
-replays the Go-verified provider scenarios. Runnable examples are under
+is tested against the same provider scenarios that verify the Go package.
+Runnable examples are under
 **connectors/&lt;directory&gt;/&lt;language&gt;/examples/** in the
 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library).
 If you need another language,
@@ -116,19 +118,9 @@ to add or modify an official Connector, operation, Trigger, or UI unit.
 
 ## How it fits with the other components
 
-Official Connectors are released separately from Dex. Your
-[application](/components/application) imports a Connector package.
-It runs the Connector's operations as Connector Steps. A Trigger turns a
-provider event into a Flow start or an RPC call. Credentials stay outside
-durable Flow state.
-
-## Find a Connector
-
-Browse the [Connector catalog](https://connectors.superdurable.io/). It lists the
-released Connectors, their operations, and their language support. The catalog
-is the reference for each Connector. The
-[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
-holds their source and runnable examples.
+Your [application](/components/application) imports a Connector package and
+runs its operations as Connector Steps. A Trigger turns a provider event into a
+Flow start or an RPC call.
 
 ## Set up Connectors locally
 

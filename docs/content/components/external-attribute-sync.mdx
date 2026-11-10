@@ -5,10 +5,8 @@ sidebar_label: External Attribute Sync
 
 # External Attribute Sync
 
-External Attribute Sync projects selected Flow Attribute writes into PostgreSQL
+External Attribute Sync copies selected Flow Attributes into PostgreSQL
 tables that you own. Each destination is called an Attribute Store.
-Dex uses asynchronous, latest-state writes for one Flow at a time. Delivery is
-attempted at least once, so every destination write is idempotent.
 
 PostgreSQL is the only supported Attribute Store. Redis support is tracked in
 [issue 616](https://github.com/superdurable/dex/issues/616).
@@ -54,21 +52,24 @@ attributeStore:
     totalDuration: 1h
 ```
 
-Every store requires **type: postgres**, **tableName**, and a DSN, which is
-**dsn** or an environment variable. server-zd never logs DSNs. **tableName** accepts **table** or **schema.table**.
-Identifiers are parsed and quoted. Attribute values always use driver
+Every store requires **type: postgres**, **tableName**, and a DSN, set in
+**dsn** or in an environment variable. server-zd never logs DSNs.
+**tableName** accepts **table** or **schema.table**. Dex parses and quotes
+table and column names, and always passes Attribute values as driver
 parameters. See
 [Attribute Store sync configuration](/reference/server/attribute-store-sync#attribute-store-configuration)
 for every key and its default.
 
 ## Delivery and retries
 
-Attribute Sync stores latest state, not an event history. A later write may
-repeat after an ambiguous failure. Upserts therefore use the Flow ID as their
-idempotency key.
+Dex writes asynchronously, one Flow at a time. A table row holds the latest
+Attribute values, not an event history. Dex delivers each write at least once.
+A write can repeat after a failure whose outcome is unknown, so Dex upserts
+rows keyed by the Flow ID.
 
-Writes never block a Step, RPC, or SetAttributes commit. Failed writes are
-retried until **syncRetryPolicy.totalDuration**, then dropped with an error log.
+Sync writes never delay a Step, an RPC, or a SetAttributes call. Failed writes
+are retried until **syncRetryPolicy.totalDuration**, then dropped with an error
+log.
 Dex does not automatically replay old Attributes or backfill a newly configured
 store. Filtered writes, missing targets, and retry exhaustion emit error logs.
 
