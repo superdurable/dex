@@ -1734,7 +1734,8 @@ theorem wp3a_registerWait_simulated {program : Program} {lConfig : L.Config}
         · have isNext : lConfig.registerWait thread =
               lConfig.blockThread thread.core.tid
                 (.timed number (lConfig.clock + seconds * 1000000) none) := by
-            simp only [L.Config.registerWait, timerCase, chanCase, isCanceled, Bool.false_eq_true, ↓reduceIte]
+            simp only [L.Config.registerWait, timerCase, chanCase,
+              isCanceled, Bool.false_eq_true, ↓reduceIte]
           rw [isNext]
           exact wp3a_simulated_blocked context (by rw [isWait]; exact Or.inr (Or.inl rfl))
             (by rw [isWait]; simp)
@@ -1779,7 +1780,8 @@ theorem wp3a_registerWait_simulated {program : Program} {lConfig : L.Config}
           by_cases isCanceled : lConfig.cancelFlags.contains thread.core.tid = true
           · have isNext : lConfig.registerWait thread =
                 lConfig.wakeThread thread.core.tid .canceled := by
-              simp only [L.Config.registerWait, timerCase, chanCase, inputCase, isCanceled, ↓reduceIte]
+              simp only [L.Config.registerWait, timerCase, chanCase,
+                inputCase, isCanceled, ↓reduceIte]
             obtain ⟨message, remaining, hasMessage⟩ := cancelPending isCanceled
             rw [isNext]
             exact wp3a_simulated_consumed context (Chan.cancelRequest thread.core.tid) remaining
@@ -1795,7 +1797,8 @@ theorem wp3a_registerWait_simulated {program : Program} {lConfig : L.Config}
           · have isNext : lConfig.registerWait thread =
                 lConfig.blockThread thread.core.tid
                   (.timed number (lConfig.clock + seconds * 1000000) (some chan)) := by
-              simp only [L.Config.registerWait, timerCase, chanCase, inputCase, isCanceled, Bool.false_eq_true, ↓reduceIte]
+              simp only [L.Config.registerWait, timerCase, chanCase, inputCase,
+                isCanceled, Bool.false_eq_true, ↓reduceIte]
             rw [isNext]
             exact wp3a_simulated_blocked context (by rw [isWait]; exact Or.inr (Or.inl rfl))
               (by rw [isWait]; simp)
@@ -1906,7 +1909,8 @@ theorem wp3a_registerWait_simulated {program : Program} {lConfig : L.Config}
           by_cases isCanceled : lConfig.cancelFlags.contains thread.core.tid = true
           · have isNext : lConfig.registerWait thread =
                 lConfig.wakeThread thread.core.tid .canceled := by
-              simp only [L.Config.registerWait, timerCase, requestCase, inputCase, isCanceled, ↓reduceIte]
+              simp only [L.Config.registerWait, timerCase, requestCase,
+                inputCase, isCanceled, ↓reduceIte]
             obtain ⟨message, remaining, hasMessage⟩ := cancelPending isCanceled
             rw [isNext]
             exact wp3a_simulated_consumed context (Chan.cancelRequest thread.core.tid) remaining
@@ -1922,7 +1926,8 @@ theorem wp3a_registerWait_simulated {program : Program} {lConfig : L.Config}
                 message remaining hasMessage sameOthers)
           · have isNext : lConfig.registerWait thread =
                 lConfig.blockThread thread.core.tid (.recv chan) := by
-              simp only [L.Config.registerWait, timerCase, requestCase, inputCase, isCanceled, Bool.false_eq_true, ↓reduceIte]
+              simp only [L.Config.registerWait, timerCase, requestCase, inputCase,
+                isCanceled, Bool.false_eq_true, ↓reduceIte]
             rw [isNext]
             exact wp3a_simulated_blocked context (by rw [isWait]; exact Or.inr (Or.inl rfl))
               (by rw [isWait]; simp)
@@ -1964,7 +1969,8 @@ theorem wp3a_registerWait_simulated {program : Program} {lConfig : L.Config}
           by_cases isCanceled : lConfig.cancelFlags.contains thread.core.tid = true
           · have isNext : lConfig.registerWait thread =
                 lConfig.wakeThread thread.core.tid .canceled := by
-              simp only [L.Config.registerWait, timerCase, requestCase, isJoinable, isCanceled, Bool.false_eq_true, ↓reduceIte]
+              simp only [L.Config.registerWait, timerCase, requestCase, isJoinable,
+                isCanceled, Bool.false_eq_true, ↓reduceIte]
             obtain ⟨message, remaining, hasMessage⟩ := cancelPending isCanceled
             rw [isNext]
             exact wp3a_simulated_consumed context (Chan.cancelRequest thread.core.tid) remaining
@@ -1980,7 +1986,8 @@ theorem wp3a_registerWait_simulated {program : Program} {lConfig : L.Config}
                 message remaining hasMessage sameOthers)
           · have isNext : lConfig.registerWait thread =
                 lConfig.blockThread thread.core.tid (.join target) := by
-              simp only [L.Config.registerWait, timerCase, requestCase, isJoinable, isCanceled, Bool.false_eq_true, ↓reduceIte]
+              simp only [L.Config.registerWait, timerCase, requestCase, isJoinable,
+                isCanceled, Bool.false_eq_true, ↓reduceIte]
             rw [isNext]
             exact wp3a_simulated_blocked context (by rw [isWait]; exact Or.inr (Or.inl rfl))
               (by rw [isWait]; simp)
@@ -2025,7 +2032,8 @@ theorem wp3a_registerWait_simulated {program : Program} {lConfig : L.Config}
                 rfl rfl rfl rfl message remaining pendingCase isPopped sameOthers)
         · have isNext : lConfig.registerWait thread =
               lConfig.blockThread thread.core.tid (.park cv) := by
-            simp only [L.Config.registerWait, timerCase, requestCase, hasWake, Bool.false_eq_true, ↓reduceIte]
+            simp only [L.Config.registerWait, timerCase, requestCase,
+              hasWake, Bool.false_eq_true, ↓reduceIte]
           have isNotCounted : lConfig.cvWakes.count (cv, thread.core.tid) = 0 :=
             List.count_eq_zero.mpr (by simpa using hasWake)
           rw [isNotCounted] at hasWakes

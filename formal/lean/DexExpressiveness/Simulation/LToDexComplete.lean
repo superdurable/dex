@@ -41,7 +41,28 @@ theorem l_thread_register_simulated (program : Program) (lConfig : L.Config)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
-  sorry
+  obtain ⟨isMember, _⟩ := wp2_mem_of_findThread? isFound
+  simp only [L.system, L.step, isFound, stepThread, isWaitStarted] at isStep
+  split at isStep
+  · rename_i canStamp
+    injection isStep with isPair
+    injection isPair with isEvents isNext
+    subst isEvents
+    subst isNext
+    obtain ⟨_, run, hasRun, isRunning⟩ := wp2_run_of_thread state thread isMember
+    obtain ⟨record, isRecord, isActive, carries, phaseMatches⟩ :=
+      (state.isRelated.running run hasRun isRunning).threadsHaveSteps thread isMember
+        (by rw [isWaitStarted]; simp)
+    simp only [PhaseMatchesStep, isWaitStarted] at phaseMatches
+    obtain ⟨_, task, isTask, hasInvocation, hasStep, isWaitFor, hasInput, noEffects⟩ :=
+      phaseMatches
+    exact wp3a_registerWait_simulated
+      { state := state, isFound := isFound, isWaitStarted := isWaitStarted
+        canStamp := canStamp, hasRun := hasRun, isRunning := isRunning, isRecord := isRecord
+        isActive := isActive, carries := carries, isTask := isTask
+        hasInvocation := hasInvocation, hasStep := hasStep, isWaitFor := isWaitFor
+        hasInput := hasInput, noEffects := noEffects }
+  · cases isStep
 
 /-- The end of the program's start action is simulated by
 [STEP-COMPLETE-EXECUTE] of the start Step, which publishes the tokens of the
