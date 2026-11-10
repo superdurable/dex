@@ -1,6 +1,5 @@
 import DexExpressiveness.Failure.Composite.WPF6Lift
-import DexExpressiveness.Failure.Composite.WPF6Sequences
-import DexExpressiveness.Core.BlockRun
+import DexExpressiveness.Failure.Composite.WPF6Forward
 
 /-!
 # WP-F6: liveness, the backward inclusion for words without retries
@@ -175,17 +174,6 @@ theorem wpf6_liftAction_ne_crash (startRequestId : Nat) (dexAction : Dex.Action 
     liftAction startRequestId dexAction ≠ .crash := by
   cases dexAction <;> nofun
 
-/-- [FLOW-START] needs no run. -/
-theorem wpf6bw_step_startFlow_run (program : Program σ) (config : Config σ) (requestId : Nat)
-    (stepType : σ.StepType) (input : σ.Val) (events : List (Obs σ)) (next : Config σ)
-    (isStep :
-      step program config (.request (.startFlow requestId stepType input)) = some (events, next)) :
-    config.run = none := by
-  simp only [step] at isStep
-  cases hasRun : config.run with
-  | some run => simp [hasRun] at isStep
-  | none => rfl
-
 /-! ## The word -/
 
 /-- For a word without retries, `w↓` is the word with request IDs erased. -/
@@ -254,34 +242,8 @@ theorem wpf6_liftWord_eq (environment : Dex.Environment σ) (word : Sequence (Re
 
 /-! ## The trace -/
 
-/-- The position of the first event of transition `index` in the trace. -/
-def wpf6bwEventCount (program : Program σ) (run : InfiniteRun (Config σ) (Action σ))
-    (index : Nat) : Nat :=
-  (concatUpTo ((system program).eventsAt run) index).length
-
-/-- The event at offset `offset` of transition `index` is the trace's event at
-its position. -/
-theorem wpf6bw_trace_at (program : Program σ) (run : InfiniteRun (Config σ) (Action σ))
-    (failureTrace : Sequence (Obs σ))
-    (isTrace : IsConcatenation ((system program).eventsAt run) failureTrace)
-    (index offset : Nat) (event : Obs σ)
-    (isEvent : ((system program).eventsAt run index)[offset]? = some event) :
-    failureTrace (wpf6bwEventCount program run index + offset) = some event := by
-  have isInside : offset < ((system program).eventsAt run index).length := by
-    rcases List.getElem?_eq_some_iff.mp isEvent with ⟨isInside, _⟩
-    exact isInside
-  rw [wpf6_isConcatenation_getElem _ failureTrace isTrace (index + 1)]
-  · show (concatUpTo _ index ++ _)[_]? = _
-    rw [wpf6bwEventCount, List.getElem?_append_right (Nat.le_add_right _ _),
-      Nat.add_sub_cancel_left]
-    exact isEvent
-  · show _ < (concatUpTo _ index ++ _).length
-    rw [List.length_append]
-    unfold wpf6bwEventCount
-    omega
-
 /-- Every position of a finite concatenation lies in one chunk. -/
-theorem wpf6bw_exists_chunk {α : Type} (chunks : Nat → List α) :
+theorem wpf6_exists_chunk {α : Type} (chunks : Nat → List α) :
     ∀ count position, position < (concatUpTo chunks count).length →
       ∃ index offset, index < count ∧ offset < (chunks index).length ∧
         position = (concatUpTo chunks index).length + offset := by
@@ -297,7 +259,7 @@ theorem wpf6bw_exists_chunk {α : Type} (chunks : Nat → List α) :
       exact ⟨count, position - (concatUpTo chunks count).length, by omega, by omega, by omega⟩
 
 /-- A `filterMap` that equals a `map` keeps every element. -/
-theorem wpf6bw_filterMap_eq_map {α β : Type} (transform : α → Option β) (image : α → β) :
+theorem wpf6_filterMap_eq_map {α β : Type} (transform : α → Option β) (image : α → β) :
     ∀ elements : List α, elements.filterMap transform = elements.map image →
       ∀ element, element ∈ elements → transform element ≠ none := by
   intro elements
@@ -320,17 +282,17 @@ theorem wpf6bw_filterMap_eq_map {α β : Type} (transform : α → Option β) (i
       · exact inductionHypothesis isEqual.2 element isLater
 
 /-- An `fx` of a step whose erasure drops nothing is a first occurrence. -/
-theorem wpf6bw_fx_isFirst (config : Config σ) (events : List (Obs σ))
+theorem wpf6_fx_isFirst (config : Config σ) (events : List (Obs σ))
     (isErased : eraseStepEvents config events = events.map Obs.toDex) (stepId : Dex.StepExecId σ)
     (method : Dex.Method) (effect : σ.Fx) (effectIndex : Nat)
     (isMember : Obs.fx stepId method effect effectIndex ∈ events) :
     ¬ effectIndex ≤ config.ghost.emittedCountOf (stepId, method) := by
   intro isAtMost
-  have isKept := wpf6bw_filterMap_eq_map _ Obs.toDex events isErased _ isMember
+  have isKept := wpf6_filterMap_eq_map _ Obs.toDex events isErased _ isMember
   simp [isAtMost] at isKept
 
 /-- No `fx` of the lifted run is repeated. -/
-theorem wpf6bw_not_isRepeatedAt (program : Program σ)
+theorem wpf6_not_isRepeatedAt (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (startRequestId : Nat)
     (dexRun : InfiniteRun (Dex.Config σ) (Dex.Action σ))
     (isDexRun : (Dex.system program.failureFreeFlow).IsRun dexRun)
@@ -352,12 +314,12 @@ theorem wpf6bw_not_isRepeatedAt (program : Program σ)
       exact ⟨count, isInside⟩
     | inr missing => rw [missing.2] at isAt; cases isAt
   obtain ⟨count, isInside⟩ := isInTrace
-  obtain ⟨index, offset, _, isOffset, isSum⟩ := wpf6bw_exists_chunk _ count position isInside
+  obtain ⟨index, offset, _, isOffset, isSum⟩ := wpf6_exists_chunk _ count position isInside
   have isEventAt : ((system program).eventsAt run index)[offset]? =
       some (.fx stepId method effect effectIndex) := by
     have isElement := List.getElem?_eq_getElem isOffset
-    have isTraceAt := wpf6bw_trace_at program run failureTrace isTrace index offset _ isElement
-    rw [← wpf6bwEventCount] at isSum
+    have isTraceAt := wpf6_trace_at program run failureTrace isTrace index offset _ isElement
+    rw [← wpf6EventCount] at isSum
     rw [← isSum, isAt] at isTraceAt
     rw [isElement, isTraceAt]
   have isMember : Obs.fx stepId method effect effectIndex ∈ (system program).eventsAt run index :=
@@ -366,22 +328,17 @@ theorem wpf6bw_not_isRepeatedAt (program : Program σ)
     wpf6_lifted_step program ignoresAttemptContext startRequestId dexRun isDexRun index
   have isEvents := (system program).eventsAt_of_step run index events _ isStep
   rw [isEvents] at isMember isEventAt
-  have isAbove := wpf6bw_fx_isFirst _ events isErased stepId method effect effectIndex isMember
+  have isAbove := wpf6_fx_isFirst _ events isErased stepId method effect effectIndex isMember
   apply isAbove
-  by_cases isBefore : earlier < wpf6bwEventCount program run index
-  · have history := effectHistory_of_exec program ignoresAttemptContext
-      ((List.range index).map run.labels) _ _ (by
-        have isRange := (system program).exec_range run liftedRun.2 0 index
-        simp only [Nat.zero_add] at isRange
-        rw [← liftedRun.1]
-        exact isRange)
+  by_cases isBefore : earlier < wpf6EventCount program run index
+  · have history := wpf6_effectHistory_at program ignoresAttemptContext run liftedRun index
     have isEarlierMember : Obs.fx stepId method firstEffect effectIndex ∈
         concatUpTo ((system program).eventsAt run) index := by
       rw [wpf6_isConcatenation_getElem _ failureTrace isTrace index earlier isBefore] at isFirst
       exact List.mem_iff_getElem?.mpr ⟨earlier, isFirst⟩
     exact (history.1 stepId method firstEffect effectIndex isEarlierMember).2.1
   · exfalso
-    rw [← wpf6bwEventCount] at isSum
+    rw [← wpf6EventCount] at isSum
     obtain ⟨earlierOffset, isEarlierSum⟩ := Nat.exists_eq_add_of_le (Nat.le_of_not_lt isBefore)
     have isEarlierOffset : earlierOffset < offset := by omega
     rw [isEvents] at isOffset
@@ -507,7 +464,7 @@ theorem wpf6_lifted_hypotheses :
           rw [isLabel]
           rfl
         rw [isLifted] at isStep
-        have hadNoRun := wpf6bw_step_startFlow_run program _ _ _ _ events _ isStep
+        have hadNoRun := (wpf6_step_startFlow_run program _ _ _ _ events _ isStep).1
         rw [hadNoRun] at hasRun
         cases hasRun
       | publish chan value =>
@@ -558,7 +515,7 @@ theorem wpf6_lifted_trace (trace : Sequence (Dex.Obs σ))
     exact isDexTrace
   refine ⟨fun position => ((failureTrace position).map Obs.toDex).toList, ?_,
     fun position => ⟨fun isRepeated => absurd isRepeated
-      (wpf6bw_not_isRepeatedAt program ignoresAttemptContext startRequestId dexRun isDexRun
+      (wpf6_not_isRepeatedAt program ignoresAttemptContext startRequestId dexRun isDexRun
         failureTrace isTrace position), fun _ => rfl⟩⟩
   rw [isTraceEq]
   exact wpf6_isConcatenation_pointwise _ (wpf6_isConcatenation_none_succ _ _ isMapped)
