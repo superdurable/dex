@@ -5,12 +5,22 @@ sidebar_label: Compared to Database
 slug: /intro/compared-to-database
 ---
 
+import ArchitectureComparison from '@site/src/components/intro/ArchitectureComparison';
 import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproachDiagram';
+import RequirementChangeComparison from '@site/src/components/intro/RequirementChangeComparison';
+import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-processing.json';
 
 # Compared to Database
 
 Most backends keep their state in a database and build each process around it.
 Below, one order process is built that way, one design at a time, and then as a Dex Flow.
+
+The full order process charges the buyer and ships the item.
+It waits for the seller's approval before shipping and reminds the seller while it waits.
+It refunds the buyer when shipping still fails after an hour.
+These are the parts each design needs for it:
+
+<ArchitectureComparison markdownDescription="Database and queues: 14 parts you build and run. Tables: an orders table with a status column and an approvals table. Queues: charge-requests, ship-requests, refund-requests, retry topics or visibility timeouts, and a dead-letter queue (DLQ). Services and jobs: charge, ship, and refund consumers, a reminder cron job, an approval endpoint, a status polling endpoint, and DLQ inspect and repair tools. They run on a database and a queue broker. Dex: 5 parts you write and run. One Flow with a Charge Step, a Ship Step, a Refund Step, and an approve RPC, and the Workers that host the Flow. They run on Dex Server, which provides retries per Step, durable Timers, waits on Channels, the Client wait API, and Step history with rerun." />
 
 ## What a database does not do
 
@@ -135,12 +145,14 @@ The business also changes over time. The order process often needs to:
 - Wait for seller approval before shipping, or let the seller enter the tracking number by hand.
 - Remind the seller to approve or to enter the tracking number.
 
-Each of these needs a large change to the queue design.
+Each of these adds queues, consumers, tables, or cron jobs to the queue design.
 
 ## The same process as a Dex Flow
 
 In Dex you write only the business logic.
 Dex provides the retries, timers, waits, crash recovery, and the record of each Step.
+
+<ExecutionApproachDiagram approach="dex" markdownDescription="The frontend API starts the Flow and waits for the Charge Step with the Client API. Dex Server records each Step result and the move to the next Step together. It provides retries per Step, durable Timers, waits on Channels, and Step history with rerun. It sends each Step task to one of your Workers, and the Steps call the charge, ship, and refund APIs." />
 
 The charge, approve, and ship process becomes:
 
@@ -152,6 +164,8 @@ The charge, approve, and ship process becomes:
 3. **Refund Step**: refund the buyer.
 4. The frontend calls a built-in Client API that waits until the Charge Step completes, then shows "payment received".
 
+<DocsFlowDefinitionGraph graph={orderProcessingFlow} />
+
 Dex records the inputs, outputs, and errors of every Step.
 Operators can inspect each order and, after a fix, rerun it from an earlier Step (time travel).
 
@@ -159,9 +173,12 @@ Operators can inspect each order and, after a fix, rerun it from an earlier Step
 | --- | --- | --- |
 | Crash between two steps | The buyer can be charged while the item never ships | Dex records each Step result and the move to the next Step together |
 | Several workers | You build row claiming or rely on queue delivery | Dex sends each task to one of your Workers |
-| Retries, backoff, DLQ | You build them for each queue | Each Step declares its retry policy and the Step to move to when retries run out |
-| Reminders and approvals | New queues, schedulers, and tables | The Step waits for a durable timer or the seller's approval |
-| Frontend waits for one step | Poll the database | A Client API waits until the Step completes |
-| Inspect and repair | Build your own tools | Inspect every Step, and rerun from an earlier Step |
+
+### When requirements change
+
+Each new requirement adds parts to the queue design.
+In Dex it adds at most one Step or RPC and changes the Ship Step.
+
+<RequirementChangeComparison markdownDescription="Refund the buyer after an hour of ship failures: database and queues add a refund-requests queue and refund consumers, and the ship consumers record the first failure and give up after an hour. Dex adds a Refund Step, and the Ship Step retries for one hour and then moves to the Refund Step. Wait for the seller's approval before shipping: database and queues add an approvals table and an approval endpoint, and the approval endpoint, not the charge consumer, publishes to ship-requests. Dex adds an approve RPC, and the Ship Step waits for a message on the seller Channel. Remind the seller: database and queues add a reminder cron job that scans the approvals table for orders that still wait. Dex adds no part: the Ship Step also waits for a Timer, and when it fires, the Step sends a reminder and waits again. In total, database and queues add 5 new parts, and Dex adds 2." />
 
 [Why Dex?](/intro/what-is-dex) shows this Flow as Dex code, and the [Quick Start](/quick-start) runs it.

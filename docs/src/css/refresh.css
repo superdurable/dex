@@ -598,20 +598,9 @@ html[data-theme='dark'] {
   background: color-mix(in srgb, var(--accent-product-examples) 9%, var(--surface-solid));
 }
 
-.exec-panel,
-.exec-tags span {
-  border: 0;
-  background: var(--surface-solid);
-}
-
 .exec-app {
   border: 0;
   background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
-}
-
-.exec-problems {
-  border-left: 0;
-  border-radius: 10px;
 }
 
 .flow-graph-panel-body {
