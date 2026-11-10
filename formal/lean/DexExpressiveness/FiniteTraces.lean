@@ -3,10 +3,11 @@ import DexExpressiveness.Simulation
 /-!
 # Safety: the two inclusions of finite traces (spec §5.4)
 
-`finiteTrace_dex_to_l` and `finiteTrace_l_to_dex` are proved here from the two
-step simulations of `Simulation.lean` (`dex_step_simulated`,
-`l_step_simulated`), by induction on the run. Nothing else is assumed: this
-file has no `sorry` of its own.
+`finiteTrace_dex_to_l` and `finiteTrace_l_to_dex` are proved here by
+induction on the run, from the two step simulations (`dex_step_simulated`,
+`l_step_simulated`) and from the fact that every transition keeps the
+invariant of its side (`L.Invariant.step`, `ConfigInvariant.step`). This file
+has no `sorry` of its own.
 
 The inductions carry the shape of the requests still to come. On the Dex side
 a publication before the start is possible (it is rejected), so admissibility
@@ -99,6 +100,30 @@ theorem step_run_isSome (flow : Dex.FlowDef signature) (config : Dex.Config sign
       | (cases isStep; done)
       | (resolve_step isStep
          simp_all [Dex.Config.commit, Dex.Config.updateTask, Dex.Config.removeTask])
+
+/-! ## The states of the induction -/
+
+/-- The initial configurations form a simulation state. -/
+theorem isSimulationState_initial (program : Program) :
+    IsSimulationState program (L.system program).init (Dex.system ⟦program⟧).init :=
+  { isRelated := related_initial program
+    lInvariant := L.Invariant.initial program
+    dexInvariant := ConfigInvariant.initial program
+    tasksDistinct := ⟨List.nodup_nil, fun task isMember => by cases isMember⟩ }
+
+/-- A finite Dex run keeps the Dex invariant and the distinctness of task IDs. -/
+theorem dexInvariants_of_exec (program : Program) (actions : List (Dex.Action signature))
+    (config : Dex.Config signature) (events : List (Dex.Obs signature))
+    (final : Dex.Config signature)
+    (invariant : ConfigInvariant program config) (tasksDistinct : TasksAreDistinct config)
+    (isExec : (Dex.system ⟦program⟧).exec config actions = some (events, final)) :
+    ConfigInvariant program final ∧ TasksAreDistinct final :=
+  TransitionSystem.invariant_of_exec (Dex.system ⟦program⟧)
+    (fun state => ConfigInvariant program state ∧ TasksAreDistinct state)
+    (fun state label stepEvents next holds isStep =>
+      ⟨ConfigInvariant.step program state label stepEvents next holds.1 holds.2 isStep,
+       TasksAreDistinct.step ⟦program⟧ state label stepEvents next holds.2 isStep⟩)
+    actions config events final ⟨invariant, tasksDistinct⟩ isExec
 
 /-! ## Dex to L -/
 
@@ -202,14 +227,14 @@ theorem admissible_step (flow : Dex.FlowDef signature) (config : Dex.Config sign
     exact ⟨trivial, by intro hasRun; exact afterStart (by rw [← isSome]; exact hasRun),
       by intro hasNoRun; exact beforeStart (by rw [← isSome]; exact hasNoRun)⟩
 
-/-- Dex to L, for a run: a Dex run from a configuration related to a
-reachable L configuration, with admissible requests, is simulated by an L run
-with the same projected events. -/
+/-- Dex to L, for a run: a Dex run from a simulation state whose L
+configuration is reachable, with admissible requests, is simulated by an L
+run with the same projected events. -/
 theorem dex_exec_simulated (program : Program) (isWellFormed : program.IsWellFormed)
     (actions : List (Dex.Action signature)) :
     ∀ (lConfig : L.Config) (dexConfig : Dex.Config signature)
       (events : List (Dex.Obs signature)) (dexFinal : Dex.Config signature),
-      Related program lConfig dexConfig → (L.system program).Reachable lConfig →
+      IsSimulationState program lConfig dexConfig → (L.system program).Reachable lConfig →
       AreRequestsAdmissibleFrom dexConfig
         (actions.filterMap (Dex.system ⟦program⟧).requestOf) →
       (Dex.system ⟦program⟧).exec dexConfig actions = some (events, dexFinal) →
@@ -218,22 +243,30 @@ theorem dex_exec_simulated (program : Program) (isWellFormed : program.IsWellFor
         Related program lFinal dexFinal := by
   induction actions with
   | nil =>
-    intro lConfig dexConfig events dexFinal isRelated _ _ isExec
+    intro lConfig dexConfig events dexFinal state _ _ isExec
     simp only [TransitionSystem.exec] at isExec
     cases isExec
-    exact ⟨[], lConfig, rfl, isRelated⟩
+    exact ⟨[], lConfig, rfl, state.isRelated⟩
   | cons action laterActions inductionHypothesis =>
-    intro lConfig dexConfig events dexFinal isRelated isReachable areAdmissible isExec
+    intro lConfig dexConfig events dexFinal state isReachable areAdmissible isExec
     obtain ⟨stepEvents, dexNext, laterEvents, isStep, isLater, isEvents⟩ :=
       (Dex.system ⟦program⟧).exec_cons dexConfig action laterActions events dexFinal isExec
     obtain ⟨isAdmissible, laterAdmissible⟩ :=
       admissible_step ⟦program⟧ dexConfig action laterActions stepEvents dexNext isStep
         areAdmissible
     obtain ⟨stepLabels, lNext, _, isLStep, nextRelated⟩ :=
-      dex_step_simulated program isWellFormed lConfig dexConfig isRelated isReachable action
-        isAdmissible stepEvents dexNext isStep
+      dex_step_simulated program lConfig dexConfig state (isWellFormed lConfig isReachable)
+        action isAdmissible stepEvents dexNext isStep
+    have nextState : IsSimulationState program lNext dexNext :=
+      { isRelated := nextRelated
+        lInvariant := L.Invariant.of_exec program stepLabels lConfig _ lNext state.lInvariant
+          isLStep
+        dexInvariant := ConfigInvariant.step program dexConfig action stepEvents dexNext
+          state.dexInvariant state.tasksDistinct isStep
+        tasksDistinct := TasksAreDistinct.step ⟦program⟧ dexConfig action stepEvents dexNext
+          state.tasksDistinct isStep }
     obtain ⟨laterLabels, lFinal, isLLater, finalRelated⟩ :=
-      inductionHypothesis lNext dexNext laterEvents dexFinal nextRelated
+      inductionHypothesis lNext dexNext laterEvents dexFinal nextState
         (isReachable.exec stepLabels _ isLStep) laterAdmissible isLater
     refine ⟨stepLabels ++ laterLabels, lFinal, ?_, finalRelated⟩
     rw [isEvents, List.filterMap_append]
@@ -247,7 +280,8 @@ theorem finiteTrace_dex_to_l (program : Program) (isWellFormed : program.IsWellF
   obtain ⟨actions, events, final, isExec, isAdmissible, isTrace⟩ := isDexTrace
   obtain ⟨labels, lFinal, isLExec, _⟩ :=
     dex_exec_simulated program isWellFormed actions (L.system program).init
-      (Dex.system ⟦program⟧).init events final (related_initial program) ⟨[], [], rfl⟩
+      (Dex.system ⟦program⟧).init events final (isSimulationState_initial program)
+      ⟨[], [], rfl⟩
       ⟨fun hasRun => by simp [Dex.system, Dex.Config.initial] at hasRun, fun _ => isAdmissible⟩
       isExec
   refine ⟨labels, events.filterMap project, lFinal, isLExec, trivial, ?_⟩
@@ -336,13 +370,13 @@ theorem exec_run_isSome (flow : Dex.FlowDef signature) (actions : List (Dex.Acti
     rw [← nextIsSome]
     exact inductionHypothesis next laterEvents final laterHasNoStart isLater
 
-/-- L to Dex, for a run: an L run from a related configuration is simulated
-by a Dex run with the same projected events, whose requests are the encoded
+/-- L to Dex, for a run: an L run from a simulation state is simulated by a
+Dex run with the same projected events, whose requests are the encoded
 requests of the L run and are admissible. -/
 theorem l_exec_simulated (program : Program) (labels : List L.Label) :
     ∀ (lConfig : L.Config) (dexConfig : Dex.Config signature) (events : List Event)
       (lFinal : L.Config),
-      Related program lConfig dexConfig →
+      IsSimulationState program lConfig dexConfig →
       (L.system program).exec lConfig labels = some (events, lFinal) →
       ∃ actions dexEvents dexFinal,
         (Dex.system ⟦program⟧).exec dexConfig actions = some (dexEvents, dexFinal) ∧
@@ -352,20 +386,29 @@ theorem l_exec_simulated (program : Program) (labels : List L.Label) :
         Related program lFinal dexFinal := by
   induction labels with
   | nil =>
-    intro lConfig dexConfig events lFinal isRelated isExec
+    intro lConfig dexConfig events lFinal state isExec
     simp only [TransitionSystem.exec] at isExec
     cases isExec
     exact ⟨[], [], dexConfig, rfl, rfl,
-      ⟨(fun _ request isMember => by cases isMember), (fun _ => Or.inl rfl)⟩, isRelated⟩
+      ⟨(fun _ request isMember => by cases isMember), (fun _ => Or.inl rfl)⟩, state.isRelated⟩
   | cons label laterLabels inductionHypothesis =>
-    intro lConfig dexConfig events lFinal isRelated isExec
+    intro lConfig dexConfig events lFinal state isExec
+    have isRelated := state.isRelated
     obtain ⟨stepEvents, lNext, laterEvents, isStep, isLater, isEvents⟩ :=
       (L.system program).exec_cons lConfig label laterLabels events lFinal isExec
     obtain ⟨stepActions, stepDexEvents, dexNext, isDexStep, stepProjected, stepRequests,
-      nextRelated⟩ := l_step_simulated program lConfig dexConfig isRelated label stepEvents lNext
+      nextRelated⟩ := l_step_simulated program lConfig dexConfig state label stepEvents lNext
         isStep
+    have nextDexInvariants := dexInvariants_of_exec program stepActions dexConfig stepDexEvents
+      dexNext state.dexInvariant state.tasksDistinct isDexStep
+    have nextState : IsSimulationState program lNext dexNext :=
+      { isRelated := nextRelated
+        lInvariant := L.Invariant.step program lConfig label stepEvents lNext state.lInvariant
+          isStep
+        dexInvariant := nextDexInvariants.1
+        tasksDistinct := nextDexInvariants.2 }
     obtain ⟨laterActions, laterDexEvents, dexFinal, isDexLater, laterProjected, laterAdmissible,
-      finalRelated⟩ := inductionHypothesis lNext dexNext laterEvents lFinal nextRelated isLater
+      finalRelated⟩ := inductionHypothesis lNext dexNext laterEvents lFinal nextState isLater
     refine ⟨stepActions ++ laterActions, stepDexEvents ++ laterDexEvents, dexFinal,
       (Dex.system ⟦program⟧).exec_append dexConfig stepActions laterActions _ _ dexNext dexFinal
         isDexStep isDexLater,
@@ -423,7 +466,7 @@ theorem finiteTrace_l_to_dex (program : Program) (_isWellFormed : program.IsWell
   obtain ⟨labels, events, final, isExec, _, isTrace⟩ := isLTrace
   obtain ⟨actions, dexEvents, dexFinal, isDexExec, isProjected, areAdmissible, _⟩ :=
     l_exec_simulated program labels (L.system program).init (Dex.system ⟦program⟧).init events
-      final (related_initial program) isExec
+      final (isSimulationState_initial program) isExec
   refine ⟨actions, dexEvents, dexFinal, isDexExec,
     areAdmissible.2 (by simp [Dex.system, Dex.Config.initial]), ?_⟩
   rw [isTrace, isProjected]

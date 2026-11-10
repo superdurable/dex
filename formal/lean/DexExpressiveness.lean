@@ -16,6 +16,13 @@ import DexExpressiveness.Translation.Projection
 import DexExpressiveness.Invariants
 import DexExpressiveness.TraceSets
 import DexExpressiveness.Properties
+import DexExpressiveness.L.Invariant
+import DexExpressiveness.L.InvariantStep
+import DexExpressiveness.Simulation.Relation
+import DexExpressiveness.Simulation.LToDexBasic
+import DexExpressiveness.Simulation.LToDexComplete
+import DexExpressiveness.Simulation.LToDex
+import DexExpressiveness.Simulation.DexToL
 import DexExpressiveness.Simulation
 import DexExpressiveness.FiniteTraces
 import DexExpressiveness.Theorems
@@ -26,3 +33,4 @@ import DexExpressiveness.Examples.TimedSelect
 import DexExpressiveness.Examples.TimerOrder
 import DexExpressiveness.Examples.LockstepChecks
 import DexExpressiveness.Examples.ForgedHandleInput
+import DexExpressiveness.Examples.RelatedCheck
