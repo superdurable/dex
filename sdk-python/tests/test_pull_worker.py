@@ -92,7 +92,7 @@ async def _default_flow_and_subflow_config_use_pull_protocol(
     )
     expected_target = pb.WorkerTarget(is_pull_mode=True)
     assert start.flow_config_override.worker_target == expected_target
-    for config in (None, FlowConfig(continue_as_new_threshold=500)):
+    for config in (None, FlowConfig(history_window_events=2500)):
         sub_flow = client._mappings._map_sub_flow_options(
             registry._flow_for_instance(flow), SubFlowOptions(config_override=config)
         )
@@ -137,7 +137,7 @@ async def _default_flow_and_subflow_config_use_pull_protocol(
     "config",
     [
         FlowConfig(),
-        FlowConfig(continue_as_new_threshold=500),
+        FlowConfig(history_window_events=2500),
         FlowConfig(history_window_events=2500),
         FlowConfig(offload_history=False),
         FlowConfig(delete_expired_history_objects=True),
@@ -165,9 +165,6 @@ async def _update_flow_config_leaves_worker_target_unset(
             request = call.call_args.args[1]
             assert isinstance(request, pb.UpdateFlowConfigRequest)
             assert not request.flow_config.HasField("worker_target")
-            if config.continue_as_new_threshold is not None:
-                assert request.flow_config.HasField("continue_as_new_threshold")
-                assert request.flow_config.continue_as_new_threshold == 500
             assert request.flow_config.HasField("history_window_events") == (
                 config.history_window_events is not None
             )

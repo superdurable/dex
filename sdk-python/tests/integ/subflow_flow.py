@@ -128,36 +128,3 @@ class AnySubFlowParent(Flow[int]):
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.start)
-
-
-class _ContinueAsNewSubFlowStep(Step[int]):
-    def __init__(self, completed: Flow[int], delayed: Flow[int]) -> None:
-        self.completed = completed
-        self.delayed = delayed
-        self.options = SubFlowOptions(
-            config_override=FlowConfig(continue_as_new_threshold=100)
-        )
-
-    def wait_for(self, context: Context, input: int) -> Wait:
-        del context
-        return Wait.all_of(
-            SubFlow.run(self.completed, input, self.options),
-            SubFlow.run(self.delayed, 300, self.options),
-        )
-
-    def execute(self, context: Context, input: int) -> StepDecision:
-        del input
-        completed = SubFlow.get_condition_results(context)
-        delayed = SubFlow.get_condition_results(context, 1)
-        return graceful_complete(
-            f"{SubFlow.get_flow_id(context)}|{completed.single_output(int)}|"
-            f"{SubFlow.get_flow_id(context, 1)}|{delayed.status.name}"
-        )
-
-
-class ContinueAsNewSubFlowParent(Flow[int]):
-    def __init__(self, completed: Flow[int], delayed: Flow[int]) -> None:
-        self.start = _ContinueAsNewSubFlowStep(completed, delayed)
-
-    def get_steps(self) -> StepList[int]:
-        return StepList.start_step(self.start)

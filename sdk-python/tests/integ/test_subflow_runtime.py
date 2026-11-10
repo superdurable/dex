@@ -33,7 +33,6 @@ from .shared import unique_id
 from .subflow_flow import (
     AllSubFlowParent,
     AnySubFlowParent,
-    ContinueAsNewSubFlowParent,
     SingleSubFlowParent,
 )
 from .timer_flow import TimerFlow
@@ -129,32 +128,6 @@ def test_subflow_default_reuse_restarts_failed_execution_across_parent_reset() -
         assert environment.client.describe_flow(child_id).run_id != first_run_id
 
 
-@pytest.mark.skip(reason="server-zd never continues a run as new")
-def test_subflow_partial_results_survive_continue_as_new_without_restart() -> None:
-    # C3: server-zd never continues a run as new.
-    completed = BasicFlow()
-    delayed = TimerFlow()
-    parent = ContinueAsNewSubFlowParent(completed, delayed)
-    with DexDevTestEnvironment(parent, completed, delayed) as environment:
-        flow_id = unique_id("sub-flow-can")
-        completed_id = f"SubFlow:{flow_id}-{parent.start.get_step_type()}-1-0"
-        delayed_id = f"SubFlow:{flow_id}-{parent.start.get_step_type()}-1-1"
-        first_parent_run_id = environment.client.start_flow(
-            parent,
-            flow_id,
-            4,
-            StartFlowOptions(config_override=FlowConfig(continue_as_new_threshold=1)),
-        )
-        _await_new_run(environment, flow_id, first_parent_run_id)
-        completed_run_id = environment.client.describe_flow(completed_id).run_id
-        _skip_subflow_timer_when_pending(environment, delayed_id)
-        output = environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(
-            str
-        )
-        assert output.split("|") == [completed_id, "6", delayed_id, "COMPLETED"]
-        assert environment.client.describe_flow(completed_id).run_id == completed_run_id
-
-
 def _assert_running_reuse(policy: SubFlowReusePolicy, expects_restart: bool) -> None:
     child = TimerFlow()
     parent = SingleSubFlowParent(child, policy)
@@ -219,16 +192,3 @@ def _skip_subflow_timer_when_pending(
             if time.monotonic() >= deadline:
                 raise
             time.sleep(0.01)
-
-
-def _await_new_run(
-    environment: DexDevTestEnvironment,
-    flow_id: str,
-    first_run_id: str,
-) -> None:
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        if environment.client.describe_flow(flow_id).run_id != first_run_id:
-            return
-        time.sleep(0.01)
-    raise AssertionError(f"Flow did not continue as new: {flow_id}")

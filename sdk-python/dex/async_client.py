@@ -709,8 +709,8 @@ class AsyncClient:
             ),
         )
         return FlowInfo(
-            response.flow_execution_id.flow_id,
-            response.flow_execution_id.run_id,
+            response.flow_run_id.flow_id,
+            response.flow_run_id.run_id,
             response.flow_type,
             self._map_flow_status(response.flow_status),
             response.start_time.ToDatetime(tzinfo=timezone.utc),
@@ -820,8 +820,6 @@ class AsyncClient:
         query: str,
         page_size: int,
         next_page_token: str = "",
-        *,
-        include_continued_as_new: bool = False,
     ) -> SearchFlowsPage:
         """Return one page of Flow runs matching a visibility query.
 
@@ -829,7 +827,6 @@ class AsyncClient:
             query: A Dex visibility query; an empty string uses server defaults.
             page_size: The non-negative maximum result count requested.
             next_page_token: Opaque token from the preceding page, or ``""`` first.
-            include_continued_as_new: Include earlier runs without overriding query filters.
 
         Returns:
             Server-ordered entries with hydrated indexed Attributes and a next token.
@@ -850,7 +847,6 @@ class AsyncClient:
                     query=query,
                     page_size=page_size,
                     next_page_token=next_page_token,
-                    include_continued_as_new=include_continued_as_new,
                 ),
                 "search_flows",
                 None,
@@ -979,16 +975,13 @@ class AsyncClient:
     ) -> None:
         """Await one Step execution completion or its request timeout expiry.
 
-        The server derives a stable Request ID from the Step execution when none
-        is supplied. Request timeout covers transparent transport reattachments.
-        Internal handler timeout controls Update generation rollover without ending
-        this request.
+        The Server does not read the request ID for this wait. Request timeout
+        covers transparent transport reattachments.
 
         Args:
             flow_id: The non-empty active Flow ID.
             step_execution_id: The Step type and positive execution number.
-            options: The optional Request ID, request timeout, and internal handler
-                timeout controls.
+            options: The optional request ID and request timeout.
 
         Raises:
             ValueError: If the Request ID or request timeout is invalid.
@@ -998,9 +991,6 @@ class AsyncClient:
             RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         request_budget = _ClientRequestBudget(options.request_timeout)
-        internal_handler_timeout_seconds = _duration_seconds32(
-            options.internal_handler_timeout
-        )
         while True:
             await self._negotiate_within_request_budget(
                 request_budget, "wait_for_step_completion", flow_id
@@ -1016,9 +1006,6 @@ class AsyncClient:
                         step_type=step_execution_id.step_type,
                         step_execution_number=str(step_execution_id.number),
                         request_timeout_seconds=request_attempt.request_timeout_seconds,
-                        internal_handler_timeout_seconds=(
-                            internal_handler_timeout_seconds
-                        ),
                         request_id=options.request_id,
                     ),
                     "wait_for_step_completion",
@@ -1047,17 +1034,15 @@ class AsyncClient:
         """Await a singleton Attribute in the current run satisfying ``match``.
 
         The Client returns the value observed by the successful wait. The server
-        derives a stable Request ID from the condition when none is supplied.
-        Request timeout covers transparent transport reattachments. Internal handler
-        timeout controls Update generation rollover without ending this request.
+        does not read the request ID for this wait. Request timeout covers
+        transparent transport reattachments.
         JSON, bytes, and null operands raise ``ValueError`` before transport.
 
         Args:
             flow_id: The non-empty active Flow ID.
             attribute: The registered singleton Attribute to observe.
             match: The scalar predicate to await.
-            options: The optional Request ID, request timeout, and internal handler
-                timeout controls.
+            options: The optional request ID and request timeout.
 
         Returns:
             The current Attribute value that satisfied ``match``.
@@ -1162,9 +1147,6 @@ class AsyncClient:
         )
         encoded_match.key = self._definition_name(attribute, instance)
         request_budget = _ClientRequestBudget(options.request_timeout)
-        internal_handler_timeout_seconds = _duration_seconds32(
-            options.internal_handler_timeout
-        )
         while True:
             await self._negotiate_within_request_budget(
                 request_budget, "wait_for_attribute_match", flow_id
@@ -1182,9 +1164,6 @@ class AsyncClient:
                             match=encoded_match,
                             request_timeout_seconds=(
                                 request_attempt.request_timeout_seconds
-                            ),
-                            internal_handler_timeout_seconds=(
-                                internal_handler_timeout_seconds
                             ),
                             request_id=options.request_id,
                         ),
@@ -1233,27 +1212,6 @@ class AsyncClient:
                 flow_config=self._map_flow_config(config),
             ),
             "update_flow_config",
-            flow_id,
-            "active",
-        )
-
-    async def trigger_continue_as_new(self, flow_id: str) -> None:
-        """Ask an active Flow to roll history into a new run.
-
-        The Flow ID remains stable and the run ID changes when rollover occurs.
-
-        Args:
-            flow_id: The non-empty active Flow ID.
-
-        Raises:
-            FlowNotActiveOrNotFoundError: If the Flow is missing or closed.
-            DexServiceError: If FlowService cannot accept the request.
-            RuntimeError: If the Server reports a protocol range without protocol 4.
-        """
-        await self._call(
-            self._service.TriggerContinueAsNew,
-            pb.TriggerContinueAsNewRequest(flow_id=require_name(flow_id)),
-            "trigger_continue_as_new",
             flow_id,
             "active",
         )
@@ -1466,12 +1424,6 @@ class AsyncClient:
                         pb.ACTIVE_STEP_SEARCH_MODE_DISABLED
                     ),
                 }[config.active_step_search_mode]
-            if config.continue_as_new_threshold is not None:
-                mapped.continue_as_new_threshold = config.continue_as_new_threshold
-            if config.continue_as_new_page_size_bytes is not None:
-                mapped.continue_as_new_page_size_in_bytes = (
-                    config.continue_as_new_page_size_bytes
-                )
             if config.step_durability is not None:
                 mapped.step_durability = {
                     StepDurability.DEFAULT: pb.STEP_DURABILITY_UNSPECIFIED,
@@ -1593,7 +1545,6 @@ class AsyncClient:
             ),
             int(pb.FLOW_STATUS_TERMINATED): FlowStatus.TERMINATED,
             int(pb.FLOW_STATUS_CANCELED): FlowStatus.CANCELED,
-            int(pb.FLOW_STATUS_CONTINUED_AS_NEW): FlowStatus.CONTINUED_AS_NEW,
         }
         try:
             return statuses[status]
