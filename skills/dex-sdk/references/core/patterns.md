@@ -447,24 +447,24 @@ rpc interrupt -> interruptSignal = cancel
 
 ## Control structures
 
-Map each control structure of a process to its Dex recipe. Each row is complete on its own; the sections below give the full rules for the last three recipes.
+Map each control structure of a process to its Dex recipe. Each row states the rule that decides correctness; the sections below add skeletons for the last three recipes.
 
 | Control structure | Dex recipe | Rules |
 | --- | --- | --- |
-| Sequence | Execute returns GoTo to the next Step | Split Steps by recovery boundary, not by line of code. |
+| Sequence | Execute returns GoTo to the next Step | Each Step is one commit. Split Steps by recovery boundary, not by line of code. |
 | Exclusive choice | Execute returns one GoTo, chosen from its input and Attributes | Execute picks exactly one branch. |
-| Parallel split | GoToMany | Each branch is its own Step execution. See [Parallel Steps](#parallel-steps). |
+| Parallel split | GoToMany | Each branch is its own Step execution and runs concurrently. A branch ends with DeadEnd or a closing decision. |
 | Fork and join | GoToMany starts the branches and a join Step; the join waits `Done.ForN(n)` | Start the join with the branches; messages published before it waits still count. Every branch publishes exactly one signal on every exit path: success, early exit, and the failure recovery route. A canceled Step publishes nothing and its failure route does not run, so the join never reaches its count. The canceller cannot publish for it: Dex picks the cancel set at commit time, and the branch may already have published. Cancel the join together with the branches, or do not cancel branches the join counts. |
 | Several waiters for one event | One message per waiter | One message satisfies one wait. It is never copied to other waiting Steps. Use a ChannelMap with one key per waiter and publish to every key, or publish one message per waiter. |
-| First result of internal work | GoToMany, then the winner returns a decision that cancels sibling Steps | See [First-win parallel Steps](#first-win-parallel-steps). |
-| First external event wins | One Step waits `AnyOf` over one Channel per event and a Timer for the deadline | See [Deferred choice](#deferred-choice). |
+| First result of internal work | GoToMany of one Step type; the first to finish returns its result with a decision that cancels its sibling Steps | The sibling selector cancels executions of the same Step type started by the same parent. Losers must be safe to cancel or harmless to finish; cancellation does not undo an external effect. |
+| First external event wins | One Step waits AnyOf over one Channel per event and a Timer for the deadline | Only the winning Condition consumes. When several Channel Conditions are ready at once, the first declared wins. Execute checks the Timer explicitly, then the Channel results, and moves to one branch. |
 | Mutual exclusion inside one Execute | An Execute lock on a shared Attribute | A lock covers one Step method. It never covers a WaitFor or several Steps. |
-| Critical section across Steps | A Channel that holds one token message | See [Critical section](#critical-section). |
-| Cancel one task | An RPC or decision cancels Steps by Step type and starts the replacement Step | See [rpc.md](rpc.md#cancel-running-steps-from-an-rpc). |
-| Cancel the case and its child Flows | The Step that starts the SubFlow waits `AnyOf(SubFlow, cancel Channel)` and stops the child | See [Cancel with child Flows](#cancel-with-child-flows). |
-| Loop | Execute returns GoTo to the same or an earlier Step with the next input | Each iteration is a new Step execution and a new commit. Bound the loop. Keep accumulated results in Attributes or a [sequentially chunked AttributeMap](#sequentially-chunked-attributemap), not in a growing Step input. Wait between iterations with a Timer in WaitFor; poll an external system with [Polling](#polling) instead. |
-| Repeat on a schedule | [Cron schedule](#cron-schedule) | |
-| Multiple instances | GoToMany of one Step type, one execution per item | Bound the fan-out and batch large inputs. Join with ForN when the Flow needs every result. Use [Parallel SubFlows](#parallel-subflows) only for children with their own lifecycle. |
+| Critical section across Steps | A Channel that holds one token message | A handoff Step takes the token with ForOne and does no protected work. The last Step of the section publishes the token back, and so does every other exit: the ExecuteFailure route, an early exit, and a WaitForFailure policy. Never cancel a Step that does protected work. |
+| Cancel one task | An RPC result or a decision cancels Steps by Step type and starts the replacement Step | A canceled Step is not retried, its failure route does not run, and Dex discards its later writes. Dex picks the Steps to cancel at commit time. |
+| Cancel the case and its child Flows | The Step that starts the SubFlow waits AnyOf(cancel Channel, SubFlow) and, on cancel, stops the child with Client StopFlow before ForceFail | List the cancel condition first in every wait. Every later waiting Step also waits for the cancel Channel. A closing parent never stops its children, so give every child its own Flow timeout. |
+| Loop | Execute returns GoTo to the same or an earlier Step with the next input | Each iteration is a new Step execution and a new commit. Bound the loop. Keep accumulated results in Attributes, not in a growing Step input. Wait between iterations with a Timer in WaitFor. Poll an external system inside one Execute instead. |
+| Repeat on a schedule | A scheduler Step waits for a Timer to the next occurrence, then GoToMany starts the run Step and the next scheduler wait together | Starting the next wait with the run keeps a slow run from drifting the schedule. Make each run's external effect idempotent per occurrence. Stop the schedule with a Channel message or a closing decision. |
+| Multiple instances | GoToMany of one Step type, one execution per item | Bound the fan-out and batch large inputs. Join with ForN when the Flow needs every result. Use child Flows only for instances with their own lifecycle. |
 
 ### Deferred choice
 
@@ -484,7 +484,7 @@ AwaitOfferResponse.execute
 - Only the winning Condition consumes. A losing response stays pending in its Channel.
 - When several Channel Conditions are ready at once, the first one declared wins. Declare them in business priority order.
 - Check the Timer explicitly in Execute. Never treat "no Channel result" as "the deadline passed".
-- A response published after the choice stays pending and nothing consumes it. When a late response needs an answer, record the outcome in an Attribute and have the RPC check it before it publishes.
+- A late response cannot change the chosen branch. While the Flow runs, its RPC succeeds and publishes a message that nothing consumes. After the Flow closes, Dex rejects the RPC. A caller that needs a definite answer waits for the committed result, such as the Flow result, instead of relying on the RPC call.
 - Test the deadline branch by skipping the Timer with the Client, not by shortening the business deadline.
 - Anti-patterns: one parallel Step per event that cancels the others; a Timer loop that checks an Attribute; a separate Flow or job that enforces the deadline.
 
@@ -498,26 +498,30 @@ Start.execute(edits)
     goToMany(for each edit: Enter(edit), Join(count))
 
 Enter.waitFor  -> Until(Token.ForOne())             // options: ExecuteFailure -> Release
-Enter.execute  -> first part of the section; goTo(Save, edit)
-Save.execute   -> last part of the section          // options: ExecuteFailure -> Release
-                  Token.publish("contract"); Done.publish(record); deadEnd()
-Release.execute -> Token.publish("contract"); Done.publish(failed record); deadEnd()
+Enter.execute  -> goTo(Edit, edit)                  // handoff only, no protected work
+Edit.execute   -> first protected work; goTo(Save, edit)   // options: ExecuteFailure -> Release
+                  early exit: Done.publish(record); Token.publish("contract"); deadEnd()
+Save.execute   -> last protected work               // options: ExecuteFailure -> Release
+                  Done.publish(record); Token.publish("contract"); deadEnd()
+Release.execute -> Done.publish(failed record); Token.publish("contract"); deadEnd()
 Join.waitFor(count) -> Until(Done.ForN(count))
 ```
 
 - Use an Attribute lock when the protected work fits in one Execute. Use a token when it spans Steps or a WaitFor.
+- The Step that takes the token is a pure handoff. Its Execute does no protected work and only moves to the first working Step.
 - Every exit of the section publishes the token back:
   - the last Step of the section, on success;
-  - an ExecuteFailure route on every Step of the section, to a Step that publishes the token;
+  - an ExecuteFailure route on every Step of the section, including the handoff, to a Step that publishes the token;
   - a WaitForFailure policy that proceeds to Execute on any later Step of the section that has its own WaitFor; that Execute publishes the token;
-  - any Execute that leaves the section early with a business decision;
-- Never cancel a later Step of the section. A canceled Step publishes nothing and its failure route does not run. The canceller cannot publish the token for it: Dex picks the cancel set at commit time, the Step may already have published it, and a second token breaks mutual exclusion. To stop a branch early, set a stop request, such as an Attribute from an RPC, that the section's Steps check; the Step that sees it leaves through an early exit that publishes the token.
-- When Dex cancels the entering Step after its wait consumed the token but before its Execute committed, Dex returns the token to the front of the Channel. Cancellation is cooperative, so the canceled Execute may still run while the next branch enters. Keep the entering Step's work idempotent, or do not cancel it while its Execute runs.
+  - any Execute that leaves the section early with a business decision.
+- Canceling the handoff Step is safe because it does no protected work. When Dex cancels it after its wait consumed the token but before its Execute committed, Dex returns the token to the front of the Channel, and another branch enters.
+- Never cancel a Step that does protected work. A canceled Step publishes nothing and its failure route does not run. The canceller cannot publish the token for it: Dex picks the cancel set at commit time, the Step may already have published it, and a second token breaks mutual exclusion. To stop a branch early, set a stop request, such as an Attribute from an RPC, that the section's Steps check; the Step that sees it leaves through an early exit that publishes the token.
+- Dex cannot fence the external writes of a canceled method. Cancellation is cooperative, so a canceled Execute can keep writing after Dex returns its token. The section stays exclusive only if no Step that does protected work is canceled.
 - Closing the Flow (ForceComplete, ForceFail, a Flow timeout, or Client StopFlow) ends every branch. No token is needed then.
 - Publications commit with the method's result, or not at all. A failed attempt never publishes, so a retry cannot create a second token.
 - Dex does not promise which waiting branch gets the token next.
 - Use the token Channel for nothing else. Keep the token value meaningless and the protected state in Attributes. Keep the section short.
-- Anti-patterns: a boolean Attribute that Steps check and set; returning the token only on success; publishing a replacement token while the old one may still exist.
+- Anti-patterns: protected work in the Step that waits for the token; a boolean Attribute that Steps check and set; returning the token only on success; canceling a Step that does protected work; publishing a replacement token while the old one may still exist.
 
 ### Cancel with child Flows
 
@@ -526,15 +530,15 @@ Stop the child Flows a Flow started when the Flow is canceled, such as a credit 
 ```text
 rpc cancelApplication(reason) -> ApplicationCanceled.publish(reason)
 
-RunCreditCheck.waitFor -> AnyOf(SubFlow(CreditCheckFlow, request, own Flow timeout),
-                                ApplicationCanceled.ForOne())
+RunCreditCheck.waitFor -> AnyOf(ApplicationCanceled.ForOne(),     // cancel first
+                                SubFlow(CreditCheckFlow, request, own Flow timeout))
 RunCreditCheck.execute
     if ApplicationCanceled has a result:
         client.stopFlow(subFlowID())   // not found, not active, or closing counts as stopped
         forceFail("application canceled: " + reason)
     goTo(AwaitUnderwriterDecision, subFlowResult().output)
 
-AwaitUnderwriterDecision.waitFor -> AnyOf(UnderwriterDecided.ForOne(), ApplicationCanceled.ForOne())
+AwaitUnderwriterDecision.waitFor -> AnyOf(ApplicationCanceled.ForOne(), UnderwriterDecided.ForOne())
 AwaitUnderwriterDecision.execute -> if canceled: forceFail(...); else gracefulComplete(decision)
 ```
 
@@ -542,6 +546,8 @@ AwaitUnderwriterDecision.execute -> if canceled: forceFail(...); else gracefulCo
 - The recipe works only on the cancel-Channel path. A Client StopFlow on the parent, the parent's Flow timeout, or a ForceFail or ForceComplete from another Step closes the parent and leaves the children running.
 - Give every child its own Flow timeout as a backstop. Clients cancel a case through the cancel RPC, not StopFlow.
 - Every later Step that waits also waits on the cancel Channel, so a cancel after the child finished still closes the case.
+- List the cancel condition first in every wait. When the cancel message and another condition are ready at once, the first declared condition wins, so a pending cancel is never swallowed by a normal completion.
+- A cancel that arrives after the last decision was consumed, or after the Flow closed, cannot change the outcome.
 - Treat not found, not active, and closing from StopFlow as already stopped. Execute may retry, and the child may finish at the same moment.
 - Inject a Client provider through the Flow constructor. Record the stopped child Flow ID in an Attribute when operators or tests need it.
 - One cancel message satisfies one wait. When several Steps each hold a child, each needs its own message: a ChannelMap key per Step, or one publish per Step.
