@@ -564,4 +564,259 @@ theorem wpf3_good_workerReturn (program : Program σ) (config : Config σ)
           sameSnapshot, sameResults, by rw [(isGhostKeeps _).2]; exact emittedAtMost,
           (fun isStarted => by simp at isStarted), (fun _ _ isRunning => by simp at isRunning)⟩
 
+/-! ## [STEP-START], the configuration -/
+
+theorem wpf3_good_start (program : Program σ) (config next : Config σ)
+    (good : WPF3Good program config) (run : Run σ) (isRun : config.run = some run)
+    (stepId : Dex.StepExecId σ) (record : Dex.StepRecord σ)
+    (isRecord : run.base.findStep? stepId = some record) (method : Dex.Method)
+    (isInvocation : record.invocation = some { method := method, state := .pending })
+    (attempt : Attempt σ) (isAttempt : run.findAttempt? stepId = some attempt)
+    (isMethod : attempt.method = method) (arguments : Arguments σ) (newTask : Task σ)
+    (newTaskFacts : newTask.base.id = config.nextTaskId ∧ newTask.base.step = stepId ∧
+      newTask.base.method = method ∧ newTask.base.context = arguments.context ∧
+      newTask.base.input = arguments.input ∧ newTask.base.snapshot = arguments.snapshot ∧
+      newTask.base.conditionResults = arguments.conditionResults ∧
+      newTask.base.phase = .started ∧ newTask.emittedCount = 0)
+    (isRealTasks : next.realTasks = (config.tasks ++ [newTask]) ++ config.zombies)
+    (isNextTaskId : next.nextTaskId = config.nextTaskId + 1) (changed : Run σ)
+    (isNextRun : next.run = some changed.reconcileAttempts)
+    (isBase : changed.base = (wpf3Bumped run).base.updateStep stepId (fun current =>
+      { current with invocation := some { method := method, state := .running config.nextTaskId } }))
+    (startedAttempt : Attempt σ) (isAttempts : changed.attempts = run.attempts.set stepId startedAttempt)
+    (startedMethod : startedAttempt.method = attempt.method)
+    (startedSnapshot : startedAttempt.snapshot = some arguments.snapshot)
+    (ghostAt : next.ghost.argumentsOf (stepId, method) = some arguments)
+    (ghostElse : ∀ key, key ≠ (stepId, method) →
+      next.ghost.argumentsOf key = config.ghost.argumentsOf key)
+    (sameCounts : ∀ key, next.ghost.emittedCountOf key = config.ghost.emittedCountOf key)
+    (oldTasks : ∀ task, task ∈ config.realTasks → task.key = (stepId, method) →
+      config.ghost.argumentsOf (stepId, method) = some arguments)
+    (sameInput : arguments.input = record.input)
+    (sameResults : arguments.conditionResults = record.conditionResults)
+    (sameContext : arguments.context =
+      { stepExecutionId := stepId, fromStepExecutionId := record.origin }) :
+    WPF3Good program next := by
+  obtain ⟨isNewId, isNewStep, isNewMethod, isNewContext, isNewInput, isNewSnapshot, isNewResults,
+    isNewPhase, isNewCount⟩ := newTaskFacts
+  have isPerm : next.realTasks.Perm (config.realTasks ++ [newTask]) := by
+    rw [isRealTasks]
+    unfold Config.realTasks
+    rw [List.append_assoc, List.append_assoc]
+    exact List.Perm.append_left _ List.perm_append_comm
+  have isFresh : ∀ task, task ∈ config.realTasks → task.base.id ≠ newTask.base.id := by
+    intro task isMember isSame
+    have isBelow := good.realTaskIdsBelow task isMember
+    rw [isSame, isNewId] at isBelow
+    exact Nat.lt_irrefl _ isBelow
+  have argumentsOld : ∀ task, task ∈ config.realTasks →
+      next.ghost.argumentsOf task.key = config.ghost.argumentsOf task.key := by
+    intro task isMember
+    by_cases isKey : task.key = (stepId, method)
+    · rw [isKey, ghostAt, oldTasks task isMember isKey]
+    · exact ghostElse _ isKey
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  · apply wpf3_ids_nodup_of_perm isPerm
+    rw [List.map_append, List.nodup_append]
+    refine ⟨good.realTaskIdsNodup, by simp, ?_⟩
+    intro first isFirst second isSecond isSame
+    obtain ⟨task, isTask, isTaskId⟩ := List.mem_map.mp isFirst
+    simp only [List.map_cons, List.map_nil, List.mem_singleton] at isSecond
+    rw [← isTaskId, isSecond] at isSame
+    exact isFresh task isTask isSame
+  · intro task isMember
+    rw [isNextTaskId]
+    rcases List.mem_append.mp (isPerm.mem_iff.mp isMember) with isOld | isNew
+    · exact Nat.lt_succ_of_lt (good.realTaskIdsBelow task isOld)
+    · rw [List.mem_singleton] at isNew
+      rw [isNew, isNewId]
+      exact Nat.lt_succ_self _
+  · intro task isMember
+    rcases List.mem_append.mp (isPerm.mem_iff.mp isMember) with isOld | isNew
+    · exact wpf3_taskFollows_mono program config.ghost next.ghost task
+        (good.tasksFollow task isOld) (argumentsOld task isOld) (Nat.le_of_eq (sameCounts _).symm)
+    · rw [List.mem_singleton] at isNew
+      subst isNew
+      have isKey : task.key = (stepId, method) := by
+        unfold Task.key; rw [isNewStep, isNewMethod]
+      refine ⟨arguments, by rw [isKey]; exact ghostAt, isNewContext, isNewInput, isNewSnapshot,
+        isNewResults, by rw [isNewCount]; exact Nat.zero_le _, fun _ => isNewCount, ?_⟩
+      intro remaining response isRunning
+      rw [isNewPhase] at isRunning
+      cases isRunning
+  · intro isNone
+    rw [isNextRun] at isNone
+    cases isNone
+  · intro after isAfter
+    rw [isNextRun] at isAfter
+    cases isAfter
+    exact wpf3_runGood_start config.ghost next.ghost run changed (good.runGood run isRun) stepId
+      record isRecord method isInvocation config.nextTaskId attempt startedAttempt isAttempt
+      isMethod arguments isBase isAttempts startedMethod startedSnapshot ghostAt ghostElse
+      sameInput sameResults sameContext
+
+theorem wpf3_commitRun_hasHistory (config : Config σ) (run : Run σ) (isNormal : Bool)
+    (completed : Option (InvocationKey σ)) (inputEvents : List (Obs σ))
+    (change : Run σ → Run σ) (record : Dex.StepRecord σ) (invocation : Dex.Invocation)
+    (isMember : record ∈ (change (wpf3Bumped run)).base.steps)
+    (isInvocation : record.invocation = some invocation) :
+    ((config.commitRun run isNormal completed inputEvents change).2.ghost.findInvocation?
+      (record.id, invocation.method)).isSome = true := by
+  unfold Config.commitRun
+  dsimp only
+  exact (wpf3_reconcile_keeps _ _ _).2 record invocation isMember isInvocation
+
+theorem wpf3_good_stepStart (program : Program σ) (config : Config σ)
+    (good : WPF3Good program config) (stepId : Dex.StepExecId σ) (isSnapshotReused : Bool)
+    (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config (.stepStart stepId isSnapshotReused) = some (events, next)) :
+    WPF3Good program next := by
+  dsimp only [step] at isStep
+  split at isStep
+  · cases isRun : config.run with
+    | none => rw [isRun] at isStep; simp at isStep
+    | some run =>
+      rw [isRun] at isStep
+      dsimp only at isStep
+      cases isRecord : run.base.findStep? stepId with
+      | none => rw [isRecord] at isStep; simp at isStep
+      | some record =>
+        cases isAttempt : run.findAttempt? stepId with
+        | none => rw [isRecord, isAttempt] at isStep; simp at isStep
+        | some attempt =>
+          rw [isRecord, isAttempt] at isStep
+          dsimp only at isStep
+          cases isInvocation : record.invocation with
+          | none => rw [isInvocation] at isStep; simp at isStep
+          | some invocation =>
+            obtain ⟨method, state⟩ := invocation
+            cases state with
+            | running _ => rw [isInvocation] at isStep; simp at isStep
+            | pending =>
+              rw [isInvocation] at isStep
+              dsimp only at isStep
+              split at isStep
+              · cases isStep
+              rename_i isAllowed
+              obtain ⟨_, isMethod, isReusedEq⟩ : attempt.isBackoff = false ∧
+                  attempt.method = method ∧ isSnapshotReused = attempt.snapshot.isSome := by
+                revert isAllowed
+                cases attempt.isBackoff <;> cases isSnapshotReused <;> cases attempt.snapshot <;>
+                  by_cases isSame : attempt.method = method <;> simp [isSame]
+              obtain ⟨_, isNext⟩ := Prod.mk.inj (Option.some.inj isStep)
+              have runGood := good.runGood run isRun
+              obtain ⟨isMember, isId⟩ := Dex.Run.mem_of_findStep? _ _ _ isRecord
+              obtain ⟨found, isFoundAttempt, _, matchesBefore⟩ :=
+                runGood.attemptsMatch record isMember _ isInvocation
+              rw [isId, isAttempt] at isFoundAttempt
+              cases isFoundAttempt
+              let startChange : Run σ → Run σ := fun current =>
+                { (current.setAttempt stepId
+                    { attempt with
+                      snapshot := some (attempt.snapshot.getD
+                        (run.base.snapshot record.options method))
+                      firstAttemptTimestamp :=
+                        some (attempt.context config.clock).firstAttemptTimestamp }) with
+                  base := current.base.updateStep stepId (fun currentRecord =>
+                    { currentRecord with
+                      invocation :=
+                        some { method := method, state := .running config.nextTaskId } }) }
+              let newTask : Task σ :=
+                { base :=
+                    { id := config.nextTaskId, step := stepId, method := method,
+                      context := { stepExecutionId := stepId, fromStepExecutionId := record.origin },
+                      input := record.input,
+                      snapshot := attempt.snapshot.getD (run.base.snapshot record.options method),
+                      conditionResults := record.conditionResults, phase := .started }
+                  attemptContext := attempt.context config.clock
+                  emittedCount := 0 }
+              have isRealTasks : next.realTasks = (config.tasks ++ [newTask]) ++ config.zombies := by
+                subst isNext; rfl
+              have isNextTaskId : next.nextTaskId = config.nextTaskId + 1 := by subst isNext; rfl
+              have isNextRun : next.run = some (startChange (wpf3Bumped run)).reconcileAttempts := by
+                subst isNext; rfl
+              have ghostKeeps := wpf3_commitRun_ghostKeeps config run (!isSnapshotReused) none []
+                startChange
+              cases isSnapshot : attempt.snapshot with
+              | some snapshot =>
+                have isReused : isSnapshotReused = true := by rw [isReusedEq, isSnapshot]; rfl
+                subst isReused
+                rw [isSnapshot] at matchesBefore
+                obtain ⟨arguments, hasArguments, isArgumentsSnapshot, sameInput, sameResults,
+                  sameContext⟩ := matchesBefore
+                rw [isId] at hasArguments sameContext
+                have isGhost : next.ghost =
+                    (config.commitRun run (!true) none [] startChange).2.ghost := by
+                  subst isNext; rfl
+                have isNewSnapshot : attempt.snapshot.getD (run.base.snapshot record.options method) =
+                    arguments.snapshot := by
+                  rw [isSnapshot, isArgumentsSnapshot]; rfl
+                refine wpf3_good_start program config next good run isRun stepId record isRecord
+                  method isInvocation attempt isAttempt isMethod arguments newTask ?_ isRealTasks
+                  isNextTaskId _ isNextRun rfl _ rfl rfl
+                  (by show some _ = _; rw [isNewSnapshot])
+                  (by rw [isGhost, (ghostKeeps _).1]; exact hasArguments)
+                  (fun key _ => by rw [isGhost, (ghostKeeps _).1])
+                  (fun key => by rw [isGhost, (ghostKeeps _).2])
+                  (fun _ _ _ => hasArguments) sameInput sameResults sameContext
+                exact ⟨rfl, rfl, rfl, sameContext.symm, sameInput.symm, isNewSnapshot,
+                  sameResults.symm, rfl, rfl⟩
+              | none =>
+                have isReused : isSnapshotReused = false := by rw [isReusedEq, isSnapshot]; rfl
+                subst isReused
+                rw [isSnapshot] at matchesBefore
+                have hasNoArguments : config.ghost.argumentsOf (stepId, method) = none := by
+                  rw [← isId]; exact matchesBefore
+                let committedGhost := (config.commitRun run (!false) none [] startChange).2.ghost
+                have hasHistory : (committedGhost.findInvocation? (stepId, method)).isSome = true := by
+                  have hasHistoryRecord := wpf3_commitRun_hasHistory config run (!false) none []
+                    startChange
+                    { record with
+                      invocation := some { method := method, state := .running config.nextTaskId } }
+                    { method := method, state := .running config.nextTaskId }
+                    ((Dex.Run.mem_updateStep _ _ _ _).mpr ⟨record, isMember, by rw [if_pos isId]⟩)
+                    rfl
+                  have hasHistoryById : (committedGhost.findInvocation? (record.id, method)).isSome =
+                      true := hasHistoryRecord
+                  rw [isId] at hasHistoryById
+                  exact hasHistoryById
+                let newArguments : Arguments σ :=
+                  { context := { stepExecutionId := stepId, fromStepExecutionId := record.origin },
+                    input := record.input,
+                    snapshot := attempt.snapshot.getD (run.base.snapshot record.options method),
+                    conditionResults := record.conditionResults,
+                    virtualTaskId := committedGhost.nextVirtualTaskId }
+                obtain ⟨freshCounts, freshOthers⟩ := wpf3_freshStartGhost committedGhost
+                  (stepId, method) newArguments (committedGhost.nextVirtualTaskId + 1)
+                have isGhost : next.ghost =
+                    { (committedGhost.updateInvocation (stepId, method) (fun history =>
+                        { history with arguments := some newArguments })) with
+                      nextVirtualTaskId := committedGhost.nextVirtualTaskId + 1 } := by
+                  subst isNext; rfl
+                refine wpf3_good_start program config next good run isRun stepId record isRecord
+                  method isInvocation attempt isAttempt isMethod newArguments newTask
+                  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ isRealTasks isNextTaskId _
+                  isNextRun rfl _ rfl rfl rfl ?_ ?_ ?_ ?_ rfl rfl rfl
+                · rw [isGhost]
+                  show (committedGhost.updateInvocation (stepId, method) _).argumentsOf
+                    (stepId, method) = _
+                  unfold Ghost.argumentsOf
+                  rw [wpf3_findInvocation?_updateInvocation]
+                  simp only [↓reduceIte]
+                  cases isFoundHistory : committedGhost.findInvocation? (stepId, method) with
+                  | none => rw [isFoundHistory] at hasHistory; cases hasHistory
+                  | some history => rfl
+                · intro key isOther
+                  rw [isGhost]
+                  exact (freshOthers key isOther).trans ((ghostKeeps key).1)
+                · intro key
+                  rw [isGhost]
+                  exact (freshCounts key).trans ((ghostKeeps key).2)
+                · intro task isTaskMember isKey
+                  exfalso
+                  obtain ⟨taskArguments, hasTaskArguments, _⟩ := good.tasksFollow task isTaskMember
+                  rw [isKey, hasNoArguments] at hasTaskArguments
+                  cases hasTaskArguments
+  · cases isStep
+
 end DexExpressiveness.DexF
