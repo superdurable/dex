@@ -2273,7 +2273,7 @@ fn sub_flow_start_validation_fails_parent_before_outbox_write() {
         .as_mut()
         .expect("options")
         .flow_config_override = Some(FlowConfig {
-        history_window_events: Some(-1),
+        step_durability: Some(99),
         ..FlowConfig::default()
     });
     let mut invalid_window = base;
@@ -2289,7 +2289,7 @@ fn sub_flow_start_validation_fails_parent_before_outbox_write() {
         (unstable_index, "unstable index"),
         (invalid_timeout_policy, "positive timeout"),
         (invalid_handler_options, "Handler policy"),
-        (invalid_config, "history window"),
+        (invalid_config, "unknown enum value"),
         (invalid_window, "history window must be positive"),
     ] {
         let mut harness = Harness::new();

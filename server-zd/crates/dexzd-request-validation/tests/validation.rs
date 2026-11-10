@@ -144,12 +144,12 @@ fn start_flow_ports_go_request_checks() {
     let mut request = start_request();
     request.flow_start_options = Some(FlowStartOptions {
         flow_config_override: Some(FlowConfig {
-            history_window_events: Some(-1),
+            step_durability: Some(99),
             ..FlowConfig::default()
         }),
         ..FlowStartOptions::default()
     });
-    cases.push(("negative config", request, "history_window_events"));
+    cases.push(("unknown durability", request, "unknown step_durability"));
     let mut request = start_request();
     request.flow_start_options = Some(FlowStartOptions {
         attributes: vec![
@@ -900,13 +900,6 @@ fn step_options_port_go_heartbeat_and_state_selection_table() {
 fn flow_config_and_wait_match_port_go_invalid_value_table() {
     let config = config();
     let invalid_configs = [
-        (
-            FlowConfig {
-                history_window_events: Some(-1),
-                ..FlowConfig::default()
-            },
-            "history_window_events",
-        ),
         (
             FlowConfig {
                 step_durability: Some(99),
