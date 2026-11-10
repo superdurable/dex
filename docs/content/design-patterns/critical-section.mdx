@@ -46,8 +46,8 @@ Dex does not promise which waiting branch gets the token next. Do not rely on an
 The token is an ordinary message. A branch that leaves the section without publishing it back blocks every other branch forever. List each way out of the section, and publish the token on each one.
 
 - **Normal exit.** The last Step of the section publishes the token.
-- **Execute failure.** Route it with **ExecuteFailure** to a Step that publishes the token. Give every Step of the section that route. In the example, **EnterContractEdit**, **EditContract**, and **SaveContractEdit** all move to **ReleaseContractEditToken**.
-- **WaitFor failure.** When a later Step of the section has its own **WaitFor**, give it a **WaitForFailure** policy that proceeds to its **Execute**. That **Execute** sees the failure and publishes the token.
+- **Execute failure.** Route it with **ExecuteFailure** to a Step that publishes the token. Configure that route on every Step of the section. In the example, **EnterContractEdit**, **EditContract**, and **SaveContractEdit** all move to **ReleaseContractEditToken**.
+- **WaitFor failure.** When a later Step of the section has its own **WaitFor**, set its **WaitForFailure** policy to proceed to its **Execute**. That **Execute** sees the failure and publishes the token.
 - **Early exit.** An **Execute** that leaves the section with a business decision publishes the token in the same **Execute**.
 - **Cancellation of the handoff.** Canceling the handoff Step is safe, because it does no protected work. When Dex cancels it after its wait consumed the token but before its **Execute** committed, Dex returns the token to the front of the Channel. Another branch enters.
 - **Cancellation inside the section.** Never cancel a Step that does protected work. A canceled Step publishes nothing, and its failure route does not run. The canceller cannot publish the token for it either. Dex picks the Steps to cancel when it commits, so the Step may already have published the token, and a second token would break mutual exclusion. To stop a branch early, send it a stop request that its Steps check, such as an Attribute an RPC sets. The Step that sees it leaves through an early exit that publishes the token.
@@ -55,7 +55,7 @@ The token is an ordinary message. A branch that leaves the section without publi
 
 Publications commit with the method that makes them, or not at all. A failed attempt never publishes a token, so a retry cannot create a second one.
 
-Dex cannot fence the external writes of a canceled method. Cancellation is cooperative, so a canceled **Execute** can keep writing after Dex returns its token. The section stays exclusive only if no Step that does protected work is canceled.
+Dex cannot stop a canceled method's calls to external systems. Cancellation is cooperative, so a canceled **Execute** can keep writing after Dex returns its token. The section stays exclusive only if no Step that does protected work is canceled.
 
 ## Rules
 
@@ -63,7 +63,7 @@ Dex cannot fence the external writes of a canceled method. Cancellation is coope
 - Make the Step that takes the token a pure handoff. Do the protected work in later Steps.
 - Use the token Channel for the token only.
 - Keep the section short. Every other branch waits while one branch is inside.
-- Keep the token value meaningless. Put the protected state in Attributes.
+- The token's value does not matter. Keep the protected state in Attributes.
 
 ## Example
 

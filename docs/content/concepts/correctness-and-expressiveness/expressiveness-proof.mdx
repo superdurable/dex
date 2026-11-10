@@ -70,7 +70,7 @@ This table summarizes the translation in the paper.
 | Condition variable | An Attribute holds the list of waiting threads. Each waiter has its own Channel. **wait** adds the thread to the list, releases the mutex, waits on its Channel, then takes the mutex again. **signal** removes the first waiter and publishes to its Channel. **broadcast** does this for every waiter. | |
 | **sleep** | One timed Step. Its **WaitFor** returns **AnyOf** with a Timer and the thread's cancel Channel. | |
 | Timed **select** | The same timed Step. It waits with **AnyOf** on a Timer, the input Channel, and the cancel Channel. Only the winning Condition consumes a message. | [Deferred Choice](/design-patterns/deferred-choice) |
-| Cancellation | A message on the cancelled thread's cancel Channel. The thread sees it only at a point where it would block. | |
+| Cancellation | A message on the canceled thread's cancel Channel. The thread sees it only at a point where it would block. | |
 | Exception | The handler stack travels in the Step input. **throw** is a **GoTo** to the handler's Step. | |
 | Exit or failure | **ForceComplete** with the result, or **ForceFail** with the error. | |
 | External effect | An **Execute** whose only effect is that external call. | |
@@ -114,7 +114,7 @@ The scope is narrow on purpose. The paper discusses each limit.
   performance.
 - **Fairness is assumed.** The outcome part holds for fair runs. It assumes
   that Timers fire, that Steps get to run, and that Workers cooperate: every
-  Step method returns, or ends after it is cancelled. A Worker that hangs
+  Step method returns, or ends after it is canceled. A Worker that hangs
   forever is outside that part.
 - **One direction.** Every program has a Flow. The claim does not say that
   every Flow is such a program.

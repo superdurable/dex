@@ -25,11 +25,11 @@ Channel 适合 Step 要等待的事件，例如一次审批、用户回复或新
 - 一条消息由一个 wait 消费。Dex 不会把它复制给其他等待中的 Step。
 - Step 的 wait 消费了消息之后、它的 **Execute** commit 之前，Step 可能被取消。这时 Dex 把这些消息按原来的顺序放回 Channel 的最前面。之后的 wait 可以再消费它们。
 - 被取消的 **Execute** 可能已经看到过放回的消息。所以一条消息可能两次到达 **Execute**。消息处理要做成幂等的。
-- 如果是 Flow 的关闭本身取消了这个 Step，Dex 会丢弃这些已消费的消息，不再放回。**StopFlow** 请求和 Flow timeout 是这种情况。在取消 Step 的同时用 **ForceComplete** 或 **ForceFail** 关闭 Flow 的决定，也是这种情况。
-- 其他取消都会放回消息，即使 Flow 随后关闭，例如通过 **GracefulComplete**。这些消息在关闭的 run 里保持 pending。
-- 一次 commit 取消的 Step，不会拿到这次 commit 发布的消息。例外是同一个 commit 还立即关闭了 Flow：用 **ForceComplete**、**ForceFail**，或者一个确实关闭了 Flow 的 **ForceCompleteIfChannelsEmpty**。这时等待中的 Step 可能拿到消息，随后 Flow 的关闭会取消这个 Step 并丢弃消息。
+- 如果 Step 是因为 Flow 关闭而被取消的，Dex 会丢弃这些消息，不再放回。**StopFlow** 请求、Flow timeout，以及用 **ForceComplete** 或 **ForceFail** 关闭 Flow 的决定，都属于这种情况。
+- 其他取消都会放回消息，即使 Flow 之后关闭，例如在 **GracefulComplete** 之后。Flow 关闭后，不会再有 Step 消费它们。
+- 一个 Step 方法取消某个 Step、同时发布消息时，被取消的 Step 不会收到这些消息。
 - 多个 Step 等待同一个 Channel 时，最先开始等待的 Step 最先有机会拿到新消息。如果一个 Step 的 wait 需要的消息比待处理的多，它会被跳过，之后的 Step 可以拿走这些消息。
-- 所以当等待单条消息的 wait 不断拿走消息时，等待多条消息的 wait 可能一直等不到。每个 Channel 只给一种消费者使用。
+- 所以当其他 Step 一条一条地拿走消息时，等待多条消息的 Step 可能永远等不到。在同一个 Channel 上，不要同时有等待一条消息的 Step 和等待多条消息的 Step。
 - 消息可以在 Step 开始等待之前到达。Dex 会保留它，直到之后的 wait 消费它。
 - 发布和产生它的 Step 或 RPC 结果一起 commit。
 

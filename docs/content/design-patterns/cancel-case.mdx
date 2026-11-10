@@ -56,7 +56,7 @@ This pattern stops children only when the cancellation arrives through the cance
 - the parent's Flow timeout;
 - a **ForceFail** or **ForceComplete** from another Step of the parent.
 
-Give every child its own Flow timeout as a backstop. The example gives the credit check a 7-day timeout. Clients that cancel a case call the cancel RPC, not **StopFlow**.
+Set a Flow timeout on every child, so a child that is never stopped still ends. The example gives the credit check a 7-day timeout. Clients that cancel a case call the cancel RPC, not **StopFlow**.
 
 ## Several children
 

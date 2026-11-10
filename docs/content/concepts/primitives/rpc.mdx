@@ -46,8 +46,8 @@ An RPC handler reads a snapshot of the Flow. Steps and other RPCs can commit
 between that read and the RPC's own commit. A transactional RPC does not change
 this. When the RPC's change depends on what it read, declare a lock on that
 Attribute in this RPC and in every Step and RPC that writes it. Dex then runs
-them one at a time. If the Flow has closed by the time the RPC
-commits, Dex rejects its changes after the handler ran.
+them one at a time. If the Flow closes while the handler runs, Dex rejects the
+RPC's changes. The handler's calls to external systems have still happened.
 
 Each RPC call from an SDK is a new request. A retried call can run the handler
 and commit its changes again. Make RPC handlers safe to repeat.

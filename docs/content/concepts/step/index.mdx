@@ -240,11 +240,10 @@ Flow result. When several completing decisions return an output, the result
 keeps each one. Only a Flow that completes keeps these outputs. If the Flow does
 not complete because it fails, is canceled, is terminated, or times out, its
 result has no outputs.
-A decision can also cancel other active Steps. A canceled Step
-returns the Channel messages its wait consumed, unless the decision also closes
-the Flow with **ForceComplete** or **ForceFail**. A Step
-that the decision cancels never takes the messages the same result publishes,
-unless the decision also closes the Flow at once.
+A decision can also cancel other active Steps. Dex then returns the Channel
+messages that each canceled Step's wait consumed, unless the decision also
+closes the Flow with **ForceComplete** or **ForceFail**. A canceled Step never
+receives the messages that the canceling method publishes.
 See the
 [Parallel Steps](/design-patterns/parallel) and
 [Parallel SubFlows](/design-patterns/parallel-subflows) patterns.
@@ -277,13 +276,14 @@ Each **WaitFor** or **Execute** call is a separate commit. Dex commits its
 Attribute writes and Channel publications together with its result, and only
 when the method succeeds. Calls to external systems are outside this commit.
 
-A commit is atomic, but it is not isolated. A method reads the Flow state that
-was committed when Dex handed it to a Worker. Other Steps and RPCs can commit
-before the method does. Dex does not check that the values the method read are
-still current. So two Steps or RPCs that read and then write the same Attribute
-can overwrite each other's update. To prevent this, have both declare a lock
-on that Attribute. Dex then runs them one at a time. See
-[Attribute locks](/concepts/primitives/attribute#locking).
+A Step method's changes take effect all at once. They are not protected from
+other Steps and RPCs, though. A method reads the Flow state as it was when Dex
+handed the method to a Worker. Other Steps and RPCs can change that state
+before the method's changes take effect. Dex does not check that the values
+the method read are still current. So two Steps or RPCs that read and then
+write the same Attribute can overwrite each other's update. To prevent this,
+have both declare a lock on that Attribute. Dex then runs them one at a time.
+See [Attribute locks](/concepts/primitives/attribute#locking).
 
 <a id="failure-and-redelivery"></a>
 <a id="heartbeats-not-acknowledged"></a>
@@ -302,8 +302,8 @@ When retries run out, the recovery Step learns whether the work certainly did
 not run, or may have run.
 
 Canceling a Step discards everything its current method has not committed: its
-Attribute writes, its Channel publications, and its decision. What its earlier
-methods committed stays. A decision or an RPC never cancels the Steps that it
+Attribute writes, its Channel publications, and its decision. What its
+**WaitFor** already committed stays. A decision or an RPC never cancels the Steps that it
 starts itself. [Channel guarantees](/concepts/primitives/channel#guarantees)
 say what happens to the messages a canceled Step consumed.
 
@@ -312,16 +312,15 @@ and return. Until it does, its code keeps running. Its calls to external
 systems still take effect, even after the Flow has closed.
 
 **GracefulComplete** ends its own branch and asks Dex to complete the Flow. As
-soon as no Step is active, Dex begins to complete the Flow. Pending Attribute
-Sync writes or an admitted transactional RPC can keep the Flow **RUNNING**
-until Dex records the close. Until no Step is active, other Steps and RPCs
+soon as no Step is active, Dex begins to complete the Flow. The Flow can stay
+**RUNNING** briefly while Dex finishes pending Attribute Sync writes and
+transactional RPCs that already started. Until no Step is active, other Steps and RPCs
 can still start new Steps, and those Steps delay completion too. The request
 stays in force. A later branch that ends with **DeadEnd** does not withdraw it.
 
 Without a pending **GracefulComplete**, a Flow with no active Step keeps
-running. An RPC can still start new Steps in it. Dex never closes a Flow
-because no Step is active. End the last branch with a completing decision. Give a Flow that must not wait forever a Flow
-timeout.
+running. An RPC can still start new Steps in it. End the last branch with a
+completing decision. If a Flow must not wait forever, set a Flow timeout.
 
 Dex starts ready Steps roughly in the order they became ready, but not
 strictly. Do not rely on the order in which parallel Steps start or finish.
