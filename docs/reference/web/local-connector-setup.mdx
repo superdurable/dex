@@ -130,6 +130,32 @@ than 15 seconds, the write changes nothing and fails with HTTP 503
 **CONNECTOR_CONNECTIONS_FILE_BUSY**. Try the save again. The lock uses
 **flock** on macOS and Linux. Other platforms take no lock.
 
+Since 1.43, each connection record that Dex Web saves for an authorization
+carries a top-level **authorizationId** field, next to **provider** and
+**authMethodId**. It is a random UUID version 4 string and is not secret. It
+identifies the account behind the credentials. Dex Web generates a new value
+when an authorization completes or the credentials change: when it saves a
+newly added connection, after an OAuth authorization or reauthorization, and
+when an edit changes the stored credentials. Credentials count as changed when
+their JSON values differ. Key order, whitespace, and string escapes do not
+count. An edit that keeps every stored credential keeps the existing value,
+even when it changes the connection's settings. Trigger binding changes and
+saves of other connections leave the record unchanged. A credential write-back
+from the connectors SDK keeps the value.
+
+A tool that must notice when a connection with the same name points somewhere
+else compares two things. A change of **configuration**, such as a workspace ID
+or a base URL, shows in the non-secret **configuration** itself, so
+**authorizationId** does not change for it. A new **authorizationId** shows
+that the connection now holds a different authorization. Records without the
+field stay valid, and Dex Web adds the field to a record only when it saves an
+authorization for it. The Connectors page and its API do not show the value.
+
+Do not downgrade Dex Web to 1.42 or older once 1.43 has written
+**authorizationId**. Older versions reject unknown record fields, so they fail
+to load **connections.json**. To downgrade anyway, first remove every
+**authorizationId** field from the file.
+
 Restarting Dex Web reloads existing connections and cached UI artifacts. It
 does not clear the JSON file. An OAuth flow or Connector UI session that was in
 progress is memory-only and must be started again after a restart.

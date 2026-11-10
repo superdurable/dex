@@ -366,7 +366,7 @@ func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector connection request is invalid")
 		return
 	}
-	if err := setup.putConnectionIfCurrent(request.Context(), connection, body.KeepCredentialFields, snapshot.ConnectionWrite); err != nil {
+	if err := setup.putConnectionIfCurrent(request.Context(), connection, body.KeepCredentialFields, snapshot.ConnectionWrite, false); err != nil {
 		writeConnectorConnectionPutError(response, err, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
 		return
 	}
