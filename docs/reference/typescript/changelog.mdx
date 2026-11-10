@@ -14,7 +14,7 @@ Not released yet. The next minor release, sdk-typescript/v1.41.0, ships these ch
 
 ### Breaking
 
-- Removed **Client.triggerContinueAsNew**, the **continuedAsNew** Flow status, **FlowConfig.continueAsNewThreshold**, **FlowConfig.continueAsNewPageSizeBytes**, **SearchFlowsOptions**, and the fourth **Client.searchFlows** argument. [Reference](/reference/typescript/flows-and-steps/flow-config).
+- Removed **Client.triggerContinueAsNew**, the **continuedAsNew** Flow status, **FlowConfig.continueAsNewThreshold**, **FlowConfig.continueAsNewPageSizeBytes**, **SearchFlowsOptions**, and the fourth **Client.searchFlows** argument. [Reference](/reference/typescript/flow#flow-config).
 - Removed **WaitForStepCompletionOptions.internalHandlerTimeoutMs** and **WaitForAttributeOptions.internalHandlerTimeoutMs**. Request IDs remain accepted but the server does not read them for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
 - Generated bindings rename **FlowExecutionID** to **FlowRunID** and **flowExecutionId** to **flowRunId**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
 
