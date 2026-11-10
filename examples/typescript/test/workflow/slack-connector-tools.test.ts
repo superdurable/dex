@@ -46,6 +46,24 @@ describe("Slack connector tools", () => {
     await assert.rejects(openSlackConnectionFromProject({ DEX_PROJECT_SCOPE: "live" }));
   });
 
+  it("offers no tool when the local connections file does not exist", async () => {
+    const path = join(configurationDirectory, "missing-connections.json");
+    assert.equal(await openSlackConnectionFromProject({ DEX_CONNECTOR_CONFIG_FILE: path }), undefined);
+  });
+
+  it("fails on a local connections file that is not valid JSON", async () => {
+    const path = join(configurationDirectory, "invalid-connections.json");
+    await writeFile(path, "{", { mode: 0o600 });
+    await assert.rejects(openSlackConnectionFromProject({ DEX_CONNECTOR_CONFIG_FILE: path }));
+  });
+
+  it("fails when a missing local connections file and a hosted project are both selected", async () => {
+    const path = join(configurationDirectory, "missing-connections.json");
+    await assert.rejects(
+      openSlackConnectionFromProject({ DEX_CONNECTOR_CONFIG_FILE: path, DEX_PROJECT_ID: "project" }),
+    );
+  });
+
   it("offers no tool when the project has no support-slack connection", async () => {
     const path = await writeLocalConnectionsFile("other-slack.json", "other-slack");
     assert.equal(await openSlackConnectionFromProject({ DEX_CONNECTOR_CONFIG_FILE: path }), undefined);
