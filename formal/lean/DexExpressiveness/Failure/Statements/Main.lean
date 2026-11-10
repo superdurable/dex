@@ -1,0 +1,153 @@
+import DexExpressiveness.Failure.Statements.Leaf
+import DexExpressiveness.Failure.Composite
+import DexExpressiveness.Theorems
+
+/-!
+# Failure transparency: the main statements (spec §11.5, plan §5)
+
+"Failures are transparent: they change no observable event except that
+external effects may repeat" (spec §11). The statements of this file are
+composed from the leaf statements of `Failure/Statements/Leaf.lean`:
+
+| Package | Statements |
+| --- | --- |
+| WP-F5, safety and `Tr_free ⊆ Tr_fail` | `freeFiniteTrace_isFailureFiniteTrace`, `safety_failure_forward`, `safety_failure_repetition` |
+| WP-F6, liveness | `liveness_failure` |
+| WP-F7, the end-to-end corollary | `endToEnd_safety`, `endToEnd_liveness` |
+
+A work package proves its statements in place, here, with helper lemmas in
+new files under `Failure/Composite/`. A helper file may import
+`Failure/Statements/Leaf.lean` but never this file. The package adds one
+import line to `Failure/Composite.lean` per helper file. WP-F7 may use the
+statements of WP-F5 and WP-F6 directly, because they come first in this
+file. No package changes a definition or the text of a statement. If a
+statement is false, it stops and reports a counterexample.
+-/
+
+namespace DexExpressiveness.DexF
+
+variable {σ : Dex.Signature}
+
+/-! ## WP-F5: safety -/
+
+/-- **WP-F5, the Lemma (no failures)** (spec §11.5): `Tr_free ⊆ Tr_fail`.
+"Every Dex run is a DexF run with no failure transition. This is not
+literally trivial, because DexF carries more state." The DexF run gives the
+start the request ID it likes; its trace erases to the Dex trace. -/
+theorem freeFiniteTrace_isFailureFiniteTrace (program : Program σ)
+    (ignoresAttemptContext : IgnoresAttemptContext program) (environment : Dex.Environment σ)
+    (requests : List (Dex.Request σ)) (trace : List (Dex.Obs σ))
+    (isFree : IsFreeFiniteTrace program.failureFreeFlow environment requests trace) :
+    ∃ failureRequests failureTrace,
+      IsFailureFiniteTrace program environment failureRequests failureTrace ∧
+      eraseRetries failureRequests = requests ∧ failureTrace.map Obs.toDex = trace := by
+  sorry
+
+/-- **WP-F5, safety, forward** (spec §11.5): "For every program `P` of the
+fragment and every finite DexF trace `t` for an outcome word `w`, `erase(t)`
+is a finite Dex trace for `w↓`." -/
+theorem safety_failure_forward (program : Program σ)
+    (hasNoFailurePolicy : HasNoFailurePolicy program) (isSyncOnly : IsSyncOnly program)
+    (ignoresAttemptContext : IgnoresAttemptContext program) (environment : Dex.Environment σ)
+    (requests : List (Request σ)) (trace : List (Obs σ))
+    (isTrace : IsFailureFiniteTrace program environment requests trace) :
+    IsFreeFiniteTrace program.failureFreeFlow environment (eraseRetries requests)
+      (eraseRepeats trace) := by
+  sorry
+
+/-- **WP-F5, safety, the repetition form** (spec §11.5): "Hence `t` is a
+repetition of a finite Dex trace." Stated over DexF runs and under H3: the
+inserted events equal earlier ones in label only because every attempt
+computes the same effect list. -/
+theorem safety_failure_repetition (program : Program σ)
+    (hasNoFailurePolicy : HasNoFailurePolicy program) (isSyncOnly : IsSyncOnly program)
+    (ignoresAttemptContext : IgnoresAttemptContext program) (environment : Dex.Environment σ)
+    (requests : List (Request σ)) (trace : List (Obs σ))
+    (isTrace : IsFailureFiniteTrace program environment requests trace) :
+    ∃ freeTrace,
+      IsFreeFiniteTrace program.failureFreeFlow environment (eraseRetries requests) freeTrace ∧
+      IsRepetition (trace.map Obs.toDex) freeTrace := by
+  sorry
+
+/-! ## WP-F6: liveness -/
+
+/-- **WP-F6, liveness** (spec §11.5), as two inclusions.
+
+- **Forward, for every admissible outcome word `w`:** `erase(t)` of every
+  fair maximal DexF trace `t` for `w`, with its marker, is a fair maximal Dex
+  trace for `w↓` with the same marker. The DexF marker is decided by the
+  progress rule of spec §11.5 (`Action.isProgress`).
+- **Backward, for words without retries:** every fair maximal Dex trace for
+  `w↓` is `erase(t)` of a fair maximal DexF trace `t` for `w` with the same
+  marker; the run with no failure gives it.
+
+Spec §11.5 states an equality for every admissible word. The backward
+inclusion is false for words with retries: a deduplicated StartFlow retry
+is a log commit whose stamp strictly advances the partition clock (spec
+§11.3, "Log commit versus run `seq`"), so a word with enough retries between
+two publications forces time past a wait timer's fire time. A failure-free
+run that fires a timer armed later first, because the other is not yet due,
+then has no DexF counterpart for that word. The retries cannot be modeled
+without stamps, because the code stamps them. -/
+theorem liveness_failure (program : Program σ)
+    (hasNoFailurePolicy : HasNoFailurePolicy program) (isSyncOnly : IsSyncOnly program)
+    (ignoresAttemptContext : IgnoresAttemptContext program) (environment : Dex.Environment σ)
+    (word : Sequence (Request σ)) (isAdmissible : IsAdmissibleOutcomeWord environment word)
+    (erasedWord : Sequence (Dex.Request σ)) (isErasure : IsRetryErasure word erasedWord)
+    (trace : Sequence (Dex.Obs σ)) (marker : Marker) :
+    ((∃ failureTrace, IsFailureFairMaximalTrace program word failureTrace marker ∧
+        IsRepeatErasure failureTrace trace) →
+      (Dex.system program.failureFreeFlow).IsFairMaximalTrace Dex.IsFair some erasedWord trace
+        marker) ∧
+    (HasNoRetry word →
+      (Dex.system program.failureFreeFlow).IsFairMaximalTrace Dex.IsFair some erasedWord trace
+        marker →
+      ∃ failureTrace, IsFailureFairMaximalTrace program word failureTrace marker ∧
+        IsRepeatErasure failureTrace trace) := by
+  sorry
+
+/-! ## WP-F7: the end-to-end corollary -/
+
+open DexExpressiveness.L DexExpressiveness.Translation
+
+/-- **WP-F7, end to end, safety** (spec §11.5, "End-to-end corollary"): for
+every well-formed L program `S`, "every L trace of `S` is in
+`π(Tr_fail(⟦S⟧))`", and "every trace in `π(Tr_fail(⟦S⟧))` is an L trace of
+`S` with inserted `out(x)` events, each equal in value to an earlier
+`out(x)`". It composes the failure theorem with `expressiveness_of_isWellFormed`
+(`Theorems.lean`). -/
+theorem endToEnd_safety (program : L.Program) (isWellFormed : program.IsWellFormed) :
+    (∀ lTrace, IsLFiniteTrace program lTrace →
+      ∃ requests failureTrace,
+        IsFailureFiniteTrace (Program.ofFlow ⟦program⟧) environment requests failureTrace ∧
+        failureTrace.filterMap (fun event => project event.toDex) = lTrace) ∧
+    (∀ requests failureTrace,
+      IsFailureFiniteTrace (Program.ofFlow ⟦program⟧) environment requests failureTrace →
+      ∃ lTrace, IsLFiniteTrace program lTrace ∧
+        IsOutRepetition (failureTrace.filterMap (fun event => project event.toDex)) lTrace) := by
+  sorry
+
+/-- **WP-F7, end to end, liveness**: for every well-formed L program `S`,
+every admissible L word, and every admissible outcome word `w` whose `w↓` is
+the encoded L word: `π(erase(t))` of every fair maximal DexF trace `t` of
+`⟦S⟧` for `w`, with its marker, is a fair maximal L trace of `S`; and, when
+`w` has no retry, every fair maximal L trace of `S` is such a `π(erase(t))`.
+It composes `liveness_failure` with `liveness_of_isWellFormed`. The backward
+part needs a word without retries for the reason `liveness_failure` gives. -/
+theorem endToEnd_liveness (program : L.Program) (isWellFormed : program.IsWellFormed)
+    (lWord : Sequence L.Request) (isAdmissible : L.IsAdmissibleWord lWord)
+    (word : Sequence (Request signature))
+    (isAdmissibleOutcome : IsAdmissibleOutcomeWord environment word)
+    (isErasure : IsRetryErasure word (lWord.map encodeRequest))
+    (trace : Sequence L.Event) (marker : Marker) :
+    ((∃ failureTrace,
+        IsFailureFairMaximalTrace (Program.ofFlow ⟦program⟧) word failureTrace marker ∧
+        IsErasedProjection project failureTrace trace) →
+      IsLFairMaximalTrace program lWord trace marker) ∧
+    (HasNoRetry word → IsLFairMaximalTrace program lWord trace marker →
+      ∃ failureTrace,
+        IsFailureFairMaximalTrace (Program.ofFlow ⟦program⟧) word failureTrace marker ∧
+        IsErasedProjection project failureTrace trace) := by
+  sorry
+
+end DexExpressiveness.DexF

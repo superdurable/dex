@@ -15,8 +15,9 @@ revision 8. "Spec" below means that document.
 `safety_of_isWellFormed`, `liveness_of_isWellFormed`, and
 `expressiveness_of_isWellFormed` are proved. No file of the expressiveness
 proof has a `sorry`. The failure-transparency statements of
-`DexExpressiveness/Failure/Statements.lean` end in `sorry` by design: they are
-the fixed statements of the next proof. See
+`DexExpressiveness/Failure/Statements/Leaf.lean` and
+`DexExpressiveness/Failure/Statements/Main.lean` end in `sorry` by design:
+they are the fixed statements of the next proof. See
 [Failure transparency (issue 1514), Stage 1](#failure-transparency-issue-1514-stage-1).
 
 ```text
@@ -1062,7 +1063,10 @@ binary `formal/lean/.lake/build/bin/failure-fuzz` is in `.gitignore` and
 | `Failure/Abstraction.lean` | α (`abstractConfig`, spec §11.6): virtual tasks from `h`, `v`, `par`; `seq` relabeled by `n` and `ζ`; canceled invocations keep a virtual task while a real task remains. | Fixed |
 | `Failure/Relation.lean` | The transition map `dexActionsOf`, `eraseStepEvents`, `IsStepSimulated`, `SimulationKind`, the effect history `HasEffectHistory`, and the invariants I1 to I7 (`Invariant`, `RunInvariant`). | Fixed |
 | `Failure/Observation.lean` | `DexF.system` with the progress rule of spec §11.5; outcome words, `IsAdmissibleOutcomeWord`, `w↓` (`eraseRetries`, `IsRetryErasure`); fairness F1 to F6, FF, FR, FI (`DexF.IsFair`); the hypotheses H1 to H4, SYNC, D6, HP; the trace sets `IsFailureFiniteTrace`, `IsFreeFiniteTrace`, `IsFailureFairMaximalTrace`. | Fixed |
-| `Failure/Statements.lean` | The statements, one group per work package. The only file with `sorry`. | Statements |
+| `Failure/Statements/Leaf.lean` | The step lemmas of WP-F1 to WP-F4 and WP-F6, each in its own section, and `step_simulated`. | Statements |
+| `Failure/Statements/Main.lean` | The safety, liveness, and end-to-end statements of WP-F5 to WP-F7. | Statements |
+| `Failure/Statements.lean` | A re-export of `Failure/Statements/Main.lean`. | Re-export |
+| `Failure/Proofs.lean`, `Failure/Composite.lean` | Empty import aggregators for the proofs of Stage 2; see [Stage 2: work packages](#stage-2-work-packages). | Empty |
 | `Failure/Equality.lean`, `Failure/Check.lean` | Test tooling: decidable equality of configurations; `checkStepSimulated`, the decision of `IsStepSimulated`; `checkInvariant`, the Boolean mirror of `Invariant`, clause by clause. | Tooling |
 | `Failure/Examples/Script.lean`, `Failure/Examples/CrashRetryZombie.lean` | Two DexF runs of `main(x): emit(1); exit(0)`, checked in the kernel: one with a crash, two retries, a zombie effect, an interrupt, a stale result, a zombie drop, and a StartFlow retry; one in which a zombie's result commits before its interrupt, which apply then ignores. | Proved, no `sorry` |
 | `Failure/Examples/Fuzz.lean`, `FailureFuzz.lean` | The inductiveness fuzz and its executable `lake exe failure-fuzz`. | Tooling |
@@ -1070,12 +1074,12 @@ binary `formal/lean/.lake/build/bin/failure-fuzz` is in `.gitignore` and
 
 A reviewer reads, in order: `Failure/Config.lean`, `Failure/Rules.lean`,
 `Failure/Repeats.lean`, `Failure/Abstraction.lean`,
-`Failure/Relation.lean`, `Failure/Observation.lean`, and
-`Failure/Statements.lean`.
+`Failure/Relation.lean`, `Failure/Observation.lean`,
+`Failure/Statements/Leaf.lean`, and `Failure/Statements/Main.lean`.
 
 ### The statements
 
-From `DexExpressiveness/Failure/Statements.lean`. The trace sets:
+From `DexExpressiveness/Failure/Statements/Main.lean`. The trace sets:
 `IsFailureFiniteTrace program environment requests trace` is `Tr_fail` for
 finite traces (a DexF run with H1 and H4, for an admissible outcome-word
 prefix); `IsFreeFiniteTrace flow environment requests trace` is `Tr_free`;
@@ -1262,12 +1266,12 @@ failures (spec §11.3, "Over-approximation").
 
 ### The `sorry` inventory of Stage 1
 
-Twelve, all in `Failure/Statements.lean`: `normalStep_simulated`,
+Twelve. Six in `Failure/Statements/Leaf.lean`: `normalStep_simulated`,
 `failureStep_isStutter`, `workerStep_simulated`, `effectHistory_of_exec`,
-`invariant_step`, `freeFiniteTrace_isFailureFiniteTrace`,
-`safety_failure_forward`, `safety_failure_repetition`,
-`isProgress_eq_dexProgress`, `liveness_failure`, `endToEnd_safety`,
-`endToEnd_liveness`. No other file has a `sorry`.
+`invariant_step`, `isProgress_eq_dexProgress`. Six in
+`Failure/Statements/Main.lean`: `freeFiniteTrace_isFailureFiniteTrace`,
+`safety_failure_forward`, `safety_failure_repetition`, `liveness_failure`,
+`endToEnd_safety`, `endToEnd_liveness`. No other file has a `sorry`.
 
 ### The executable checks and the inductiveness fuzz
 
@@ -1332,6 +1336,47 @@ fault reports 404 failures. Two
 | Closed run with a running invocation | The run is closed, yet `Start-1` is still Running with its returned task in `Θ`. [ATTEMPT-EXHAUSTED] moves the task to `Z`, and `closeRun` leaves a closed run unchanged, so the invocation stays Running with `Θ` and `I` empty while the server is up, which breaks `runningIsTracked`. The second review found it; its extra changes found 51 configurations of this kind. With the mirror of `closedRunIsQuiet` removed, `failure-fuzz 60 5 6 1` reports failures of this kind. | `RunInvariant.closedRunIsQuiet`: a closed run has no active Step and no invocation, as the close cancels every active Step (`flow_close.rs:308-330`) and `finish` takes the invocation (`step_decisions.rs:367-374`). `ReviewProbes.closedRunConfig_isNotInvariant` checks the configuration. Under the clause every rule that needs an invocation is disabled on a closed run, which matches the code: a fenced command for a closed run passes `RunCursor::open` (`run_cursor.rs:101-119`) and fails the invocation fence (`step_results.rs:83-128`), so apply ignores it, as `internalCommit`, `resultStale`, and an ignored `recoverInterrupt` model. A TimersFired on a closed run fires only stale retry timers. The fuzz now closes runs, and adds arbitrary wait timers, duplicate counters, extra WaitFor histories, and retry timers of any attempt. |
 
 The fuzz is evidence, not proof: the work packages prove inductiveness.
+
+### Stage 2: work packages
+
+The seven work packages run in parallel. The layout keeps them free of
+import cycles and of edits to the same lines:
+
+```text
+Failure/Observation.lean            definitions (fixed)
+Failure/Proofs/WPFn*.lean           proofs of leaf statements; import definitions only
+Failure/Proofs.lean                 imports every Failure/Proofs/*.lean (empty today)
+Failure/Statements/Leaf.lean        leaf statements; imports Observation and Proofs
+Failure/Composite/WPFn*.lean        helpers of main statements; may import Leaf, never Main
+Failure/Composite.lean              imports every Failure/Composite/*.lean (empty today)
+Failure/Statements/Main.lean        main statements; imports Leaf, Composite, Theorems
+Failure/Statements.lean             re-export of Main
+```
+
+A leaf package proves `name` as `theorem name_proof` with the same type, in
+its own file under `Failure/Proofs/`. It then adds one import line to
+`Failure/Proofs.lean` and replaces the `sorry` of `name` in
+`Failure/Statements/Leaf.lean` by `exact name_proof ...`. A main package
+proves its statements in place in `Failure/Statements/Main.lean`, with
+helper files under `Failure/Composite/` that it imports from
+`Failure/Composite.lean`. WP-F7 may use the statements of WP-F5 and WP-F6
+directly, because they come first in that file; it can finish only after
+they are proved.
+
+| Package | Statements | Files it may create | Lines it may edit |
+| --- | --- | --- | --- |
+| WP-F1 | `normalStep_simulated` | `Failure/Proofs/WPF1*.lean` | its import lines in `Failure/Proofs.lean`; the body of `normalStep_simulated` in `Failure/Statements/Leaf.lean` |
+| WP-F2 | `failureStep_isStutter` | `Failure/Proofs/WPF2*.lean` | its import lines in `Failure/Proofs.lean`; the body of `failureStep_isStutter` |
+| WP-F3 | `workerStep_simulated`, `effectHistory_of_exec` | `Failure/Proofs/WPF3*.lean` | its import lines in `Failure/Proofs.lean`; the bodies of its two statements |
+| WP-F4 | `invariant_step` | `Failure/Proofs/WPF4*.lean` | its import lines in `Failure/Proofs.lean`; the body of `invariant_step` |
+| WP-F5 | `freeFiniteTrace_isFailureFiniteTrace`, `safety_failure_forward`, `safety_failure_repetition` | `Failure/Composite/WPF5*.lean` | its import lines in `Failure/Composite.lean`; the bodies of its three statements in `Failure/Statements/Main.lean` |
+| WP-F6 | `isProgress_eq_dexProgress`, `liveness_failure` | `Failure/Proofs/WPF6*.lean`, `Failure/Composite/WPF6*.lean` | its import lines in both aggregators; the body of `isProgress_eq_dexProgress` in `Leaf.lean` and of `liveness_failure` in `Main.lean` |
+| WP-F7 | `endToEnd_safety`, `endToEnd_liveness` | `Failure/Composite/WPF7*.lean` | its import lines in `Failure/Composite.lean`; the bodies of its two statements in `Main.lean` |
+
+The rule for every package: **never change a definition or a statement's
+text; if a statement is false, stop and report with a counterexample.** A
+package may add lemmas only in the files it creates. `invariant_initial` and
+`step_simulated` are proved already.
 
 ### Notes for Stage 2
 
