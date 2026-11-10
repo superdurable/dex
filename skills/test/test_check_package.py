@@ -116,8 +116,8 @@ class DexVersionTest(unittest.TestCase):
 class BoundaryTest(unittest.TestCase):
     def test_finds_backend_terms(self):
         for text in (
-            "The Flow uses " + "Continue" + "-As-New.",
-            "Call Continue" + "AsNew.",
+            "The Flow uses Continue - As - New.",
+            "Call Continue__As__New.",
             "Temporal stores the history.",
             "Set the StartToClose timeout.",
             "Cadence is not supported.",
