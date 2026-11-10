@@ -1,4 +1,4 @@
-import DexExpressiveness.Core.TransitionSystem
+import DexExpressiveness.Core.BlockRunFlattening
 
 /-!
 # Runs given in blocks
@@ -12,8 +12,8 @@ step of the first.
 This file defines runs in blocks and their flattening into an `InfiniteRun`,
 and states what the flattening keeps: the trace, the attempted requests, and
 whether the progress steps are finitely many (spec §5.5). The definitions are
-fixed. The lemmas are work package L1 of the liveness proof (Stage 2b); they
-are `sorry` and the README lists them. Nothing here mentions Dex or L.
+fixed. The lemmas are work package L1 of the liveness proof (Stage 2b); their
+proofs use `Core/BlockRunFlattening.lean`. Nothing here mentions Dex or L.
 -/
 
 namespace DexExpressiveness
@@ -71,7 +71,10 @@ def IsBlockRun (blockRun : BlockRun State Label Event) : Prop :=
 theorem exists_flattening (blockRun : BlockRun State Label Event)
     (isBlockRun : system.IsBlockRun blockRun) (isInfinite : blockRun.HasInfinitelyManySteps) :
     ∃ run boundary, system.IsRun run ∧ blockRun.IsFlattenedTo run boundary := by
-  sorry
+  obtain ⟨run, boundary, isRun, startsAtZero, nextBoundary, stateAtBoundary, labelInBlock⟩ :=
+    system.exists_flattened_run blockRun.states blockRun.blocks blockRun.events isBlockRun.1
+      isBlockRun.2 isInfinite
+  exact ⟨run, boundary, isRun, ⟨startsAtZero, nextBoundary, stateAtBoundary, labelInBlock⟩⟩
 
 /-- Every position of the flattened run lies in one block. -/
 theorem flattening_position (blockRun : BlockRun State Label Event)
@@ -79,8 +82,9 @@ theorem flattening_position (blockRun : BlockRun State Label Event)
     (isFlattened : blockRun.IsFlattenedTo run boundary)
     (isInfinite : blockRun.HasInfinitelyManySteps) (position : Nat) :
     ∃ index offset, offset < (blockRun.blocks index).length ∧
-      position = boundary index + offset := by
-  sorry
+      position = boundary index + offset :=
+  exists_block_of_position blockRun.blocks boundary isFlattened.startsAtZero
+    isFlattened.nextBoundary isInfinite position
 
 /-- The state of the flattened run inside a block is the state after the
 labels of the block taken so far. -/
@@ -90,8 +94,9 @@ theorem flattening_exec_take (blockRun : BlockRun State Label Event)
     (isFlattened : blockRun.IsFlattenedTo run boundary) (index offset : Nat)
     (isInside : offset ≤ (blockRun.blocks index).length) :
     ∃ events, system.exec (blockRun.states index) ((blockRun.blocks index).take offset) =
-      some (events, run.states (boundary index + offset)) := by
-  sorry
+      some (events, run.states (boundary index + offset)) :=
+  ⟨_, system.exec_take_of_flattened blockRun.states blockRun.blocks run isRun.2 boundary
+    isFlattened.stateAtBoundary isFlattened.labelInBlock index offset isInside⟩
 
 /-- The flattened run has the trace of the blocks (spec §5.2: "Its trace is
 the concatenation of the event sequences of its transitions"). -/
@@ -104,7 +109,14 @@ theorem flattening_isConcatenation_events (blockRun : BlockRun State Label Event
     IsConcatenation (fun index => (blockRun.events index).filterMap view) sequence ↔
       IsConcatenation (fun position => (system.eventsAt run position).filterMap view)
         sequence := by
-  sorry
+  apply isConcatenation_iff_of_cofinal _ _ boundary
+    (boundary_cofinal blockRun.blocks boundary isFlattened.nextBoundary isInfinite)
+  intro index
+  rw [concatUpTo_filterMap view blockRun.events index,
+    concatUpTo_filterMap view (system.eventsAt run) (boundary index),
+    system.concatUpTo_events_eq blockRun.states blockRun.blocks blockRun.events isBlockRun.2 run
+      isRun.2 boundary isFlattened.startsAtZero isFlattened.nextBoundary
+      isFlattened.stateAtBoundary isFlattened.labelInBlock index]
 
 /-- The flattened run attempts the requests of the blocks (spec §5.5: "A run
 for `w`"). -/
@@ -114,7 +126,14 @@ theorem flattening_isRunFor (blockRun : BlockRun State Label Event)
     (isInfinite : blockRun.HasInfinitelyManySteps) (word : Sequence Request) :
     IsConcatenation (fun index => (blockRun.blocks index).filterMap system.requestOf) word ↔
       system.IsRunFor run word := by
-  sorry
+  show IsConcatenation _ word ↔ IsConcatenation (system.requestsAt run) word
+  apply isConcatenation_iff_of_cofinal _ _ boundary
+    (boundary_cofinal blockRun.blocks boundary isFlattened.nextBoundary isInfinite)
+  intro index
+  rw [concatUpTo_filterMap system.requestOf blockRun.blocks index,
+    concatUpTo_eq_range_map blockRun.blocks boundary isFlattened.startsAtZero
+      isFlattened.nextBoundary run.labels isFlattened.labelInBlock index]
+  exact (concatUpTo_toList_eq_filterMap system.requestOf run.labels (boundary index)).symm
 
 /-- The flattened run has finitely many progress steps exactly when, from
 some block on, no block holds a progress step (spec §5.5). -/
@@ -124,8 +143,10 @@ theorem flattening_hasFinitelyManyProgressSteps (blockRun : BlockRun State Label
     (isInfinite : blockRun.HasInfinitelyManySteps) :
     system.HasFinitelyManyProgressSteps run ↔
       ∃ bound, ∀ index, bound ≤ index → ∀ label, label ∈ blockRun.blocks index →
-        system.isProgress label = false := by
-  sorry
+        system.isProgress label = false :=
+  eventually_labels_iff blockRun.blocks boundary isFlattened.startsAtZero
+    isFlattened.nextBoundary isInfinite run.labels isFlattened.labelInBlock
+    (fun label => system.isProgress label = false)
 
 end TransitionSystem
 
@@ -133,7 +154,22 @@ end TransitionSystem
 theorem isConcatenation_map {α β : Type} (transform : α → β) (chunks : Nat → List α)
     (sequence : Sequence α) (isConcatenation : IsConcatenation chunks sequence) :
     IsConcatenation (fun index => (chunks index).map transform) (sequence.map transform) := by
-  sorry
+  intro position
+  cases isConcatenation position with
+  | inl found =>
+    obtain ⟨count, isInside, isElement⟩ := found
+    refine Or.inl ⟨count, ?_, ?_⟩
+    · rw [concatUpTo_map, List.length_map]
+      exact isInside
+    · rw [concatUpTo_map, List.getElem?_map, ← isElement]
+      rfl
+  | inr missing =>
+    refine Or.inr ⟨fun count => ?_, ?_⟩
+    · rw [concatUpTo_map, List.length_map]
+      exact missing.1 count
+    · show (sequence position).map transform = none
+      rw [missing.2]
+      rfl
 
 /-- An injective map reflects a concatenation. -/
 theorem isConcatenation_of_map {α β : Type} (transform : α → β)
@@ -142,6 +178,18 @@ theorem isConcatenation_of_map {α β : Type} (transform : α → β)
     (isConcatenation :
       IsConcatenation (fun index => (chunks index).map transform) (sequence.map transform)) :
     IsConcatenation chunks sequence := by
-  sorry
+  intro position
+  cases isConcatenation position with
+  | inl found =>
+    obtain ⟨count, isInside, isElement⟩ := found
+    rw [concatUpTo_map, List.length_map] at isInside
+    rw [concatUpTo_map, List.getElem?_map] at isElement
+    exact Or.inl ⟨count, isInside, option_map_injective transform isInjective _ _ isElement⟩
+  | inr missing =>
+    refine Or.inr ⟨fun count => ?_, ?_⟩
+    · have isShort := missing.1 count
+      rw [concatUpTo_map, List.length_map] at isShort
+      exact isShort
+    · exact option_map_injective transform isInjective _ none missing.2
 
 end DexExpressiveness
