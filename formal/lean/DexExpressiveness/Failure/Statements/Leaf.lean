@@ -66,7 +66,8 @@ theorem failureStep_isStutter (program : Program σ)
     (isStep : step program config action = some (events, next)) :
     dexActionsOf program config action = [] ∧ eraseStepEvents config events = [] ∧
       abstractConfig next = abstractConfig config := by
-  sorry
+  exact failureStep_isStutter_proof program ignoresAttemptContext config invariant action isFailure
+    isNotExhausting events next isStep
 
 end FailureStepIsStutter
 
