@@ -72,6 +72,23 @@ import { timerFlow } from "./primitives/timer/timer-flow.js";
 import { waitTypesFlow } from "./primitives/wait-types/wait-types-flow.js";
 import { loadAiAgentConfig } from "./products/ai-agent/ai-agent-config.js";
 import { createAiAgentFlow } from "./products/ai-agent/ai-agent-flow.js";
+import {
+  createClaudeAgentSdkOrderSupportFlow,
+  loadClaudeAgentSdkOrderSupportConfig,
+} from "./products/agent-harnesses/claude-agent-sdk/claude-agent-sdk-order-support-flow.js";
+import {
+  createMastraOrderSupportFlow,
+  loadMastraOrderSupportModel,
+} from "./products/agent-harnesses/mastra/mastra-order-support-flow.js";
+import {
+  createOpenAIAgentsOrderSupportFlow,
+  loadOpenAIAgentsOrderSupportModel,
+} from "./products/agent-harnesses/openai-agents/openai-agents-order-support-flow.js";
+import { createDemoOrderService } from "./products/agent-harnesses/order-support/order-service.js";
+import {
+  createVercelAiOrderSupportFlow,
+  loadVercelAiOrderSupportModel,
+} from "./products/agent-harnesses/vercel-ai/vercel-ai-order-support-flow.js";
 import { engagementFlow } from "./products/engagement/engagement-flow.js";
 import { dealDSLFlow } from "./products/deal-dsl/deal-dsl-flow.js";
 import { jobPostingFlow } from "./products/job-post/job-post-flow.js";
@@ -88,6 +105,18 @@ const pollingFlow = new PollingFlow(pollingJobs);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
 const aiAgentConfig = loadAiAgentConfig();
 const aiAgentFlow = createAiAgentFlow(aiAgentConfig);
+// One order store for the four agent harness examples; each harness registers its own session Flow type.
+const orderSupportOrders = createDemoOrderService();
+const claudeAgentSdkOrderSupportFlow = createClaudeAgentSdkOrderSupportFlow(
+  orderSupportOrders,
+  loadClaudeAgentSdkOrderSupportConfig(),
+);
+const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(
+  orderSupportOrders,
+  loadOpenAIAgentsOrderSupportModel(),
+);
+const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderSupportOrders, loadVercelAiOrderSupportModel());
+const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderSupportOrders, loadMastraOrderSupportModel());
 
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,
@@ -99,6 +128,10 @@ export const allExampleFlows: readonly Flow<any>[] = [
   jobPostingFlow,
   dealDSLFlow,
   aiAgentFlow,
+  claudeAgentSdkOrderSupportFlow,
+  openAIAgentsOrderSupportFlow,
+  vercelAiOrderSupportFlow,
+  mastraOrderSupportFlow,
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
@@ -165,6 +198,10 @@ export {
   dealDSLFlow,
   aiAgentConfig,
   aiAgentFlow,
+  claudeAgentSdkOrderSupportFlow,
+  openAIAgentsOrderSupportFlow,
+  vercelAiOrderSupportFlow,
+  mastraOrderSupportFlow,
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,

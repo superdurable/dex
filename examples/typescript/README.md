@@ -1,10 +1,11 @@
 # Dex TypeScript examples
 
-These examples target [`@superdurable/dex@1.35.0`](https://www.npmjs.com/package/@superdurable/dex).
+These examples target [`@superdurable/dex@1.38.0`](https://www.npmjs.com/package/@superdurable/dex).
 
 The [AI Agent](./src/products/ai-agent) also depends on the Dex Agents library,
-[`@superdurable/dex-agents@0.2.0`](https://www.npmjs.com/package/@superdurable/dex-agents),
-installed from npm.
+[`@superdurable/dex-agents@0.3.0`](https://www.npmjs.com/package/@superdurable/dex-agents),
+installed from npm. The [agent harness examples](./src/products/agent-harnesses) add its adapters for
+the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, and Mastra, also 0.3.0.
 
 The sample process runs one pull Worker and an HTTP controller on port `8080`.
 The Worker needs only an outbound connection to the Dex Server. Step `execute` / `waitFor` / RPC handlers may
@@ -95,6 +96,7 @@ after E2E tests for manual HTTP exploration.
 - [Job posting](./src/products/job-post)
 - [Deal DSL](./src/products/deal-dsl)
 - [AI Agent](./src/products/ai-agent)
+- [Agent harnesses](./src/products/agent-harnesses): one order-support agent per agent framework
 
 ## Patterns
 
