@@ -13,7 +13,6 @@ from datetime import timedelta
 from dex import (
     Context,
     Flow,
-    FlowConfig,
     FlowTimeoutPolicy,
     Step,
     StepDecision,

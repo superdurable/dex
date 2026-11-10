@@ -11,16 +11,13 @@
 import time
 from datetime import timedelta
 
-import pytest
 
 from dex import (
     DexServiceError,
-    FlowConfig,
     FlowNotFoundError,
     FlowStatus,
     TimeTravelOptions,
     TimeTravelType,
-    StartFlowOptions,
     StepExecutionId,
     SubFlowReusePolicy,
     TimerId,

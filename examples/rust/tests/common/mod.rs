@@ -283,10 +283,7 @@ fn is_terminal_flow_closed_failure(payload: &Value) -> bool {
     let status_failed = match payload.get("flowStatus") {
         Some(Value::String(status)) => !matches!(
             status.as_str(),
-            "FLOW_STATUS_COMPLETED"
-                | "FLOW_STATUS_RUNNING"
-                | "FLOW_STATUS_UNSPECIFIED"
-                | ""
+            "FLOW_STATUS_COMPLETED" | "FLOW_STATUS_RUNNING" | "FLOW_STATUS_UNSPECIFIED" | ""
         ),
         Some(Value::Number(status)) => {
             let numeric = status.as_i64().unwrap_or(-1);

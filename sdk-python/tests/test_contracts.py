@@ -1738,9 +1738,7 @@ def test_search_pagination_reaches_transport() -> None:
     client._server_protocol.record_version(4)
     try:
         client.search_flows("WorkflowId = 'flow-1'", 1)
-        client.search_flows(
-            "WorkflowId = 'flow-1'", 1, "next"
-        )
+        client.search_flows("WorkflowId = 'flow-1'", 1, "next")
         assert service.requests[1].query == "WorkflowId = 'flow-1'"
         assert service.requests[1].next_page_token == "next"
     finally:
@@ -1764,9 +1762,7 @@ def test_async_search_pagination_reaches_transport() -> None:
         client._server_protocol.record_version(4)
         try:
             await client.search_flows("WorkflowId = 'flow-1'", 1)
-            await client.search_flows(
-                "WorkflowId = 'flow-1'", 1, "next"
-            )
+            await client.search_flows("WorkflowId = 'flow-1'", 1, "next")
             assert service.requests[1].query == "WorkflowId = 'flow-1'"
             assert service.requests[1].next_page_token == "next"
         finally:
