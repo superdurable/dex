@@ -1,4 +1,14 @@
 import DexExpressiveness.Failure.Composite.WPF7EndToEnd
+import DexExpressiveness.Failure.Composite.WPF5Steps
+import DexExpressiveness.Failure.Composite.WPF5Forward
+import DexExpressiveness.Failure.Composite.WPF5Lookup
+import DexExpressiveness.Failure.Composite.WPF5Backward
+import DexExpressiveness.Failure.Composite.WPF5BackwardWorker
+import DexExpressiveness.Failure.Composite.WPF5BackwardAbandon
+import DexExpressiveness.Failure.Composite.WPF5BackwardStart
+import DexExpressiveness.Failure.Composite.WPF5BackwardTimer
+import DexExpressiveness.Failure.Composite.WPF5BackwardComplete
+import DexExpressiveness.Failure.Composite.WPF5Free
 
 /-!
 # Helper lemmas of the main statements
