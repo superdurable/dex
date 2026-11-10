@@ -391,7 +391,8 @@ func (c *Config) ownedAddresses() map[string]string {
 		"Dex Server": net.JoinHostPort(c.BindAddress, strconv.Itoa(c.DexPort)),
 		"Dex Web":    net.JoinHostPort(c.BindAddress, strconv.Itoa(c.WebPort)),
 	}
-	if c.IsAgentMediaStoreEnabled {
+	// A default media port moves to the next free port instead, so explicit Dex ports stay valid.
+	if c.IsAgentMediaStoreEnabled && c.isExplicit("agent-media-store-port") {
 		addresses["Agent media store"] = c.agentMediaStoreAddress()
 	}
 	return addresses

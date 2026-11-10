@@ -182,8 +182,8 @@ func formatComponentExit(exited componentExit, phase string) error {
 	return fmt.Errorf("%s %s: %w", exited.name, phase, exited.err)
 }
 
-// disableAgentMediaStoreUnlessZDServesIt turns the agent media store off when dex-server-zd predates it, so an older
-// --zd-binary still starts. It returns why the store is off, or an empty string when it is served or not requested.
+// disableAgentMediaStoreUnlessZDServesIt turns the store off for a dex-server-zd that predates it.
+// It returns why the store is off, or an empty string when it is served or not requested.
 func (s *supervisor) disableAgentMediaStoreUnlessZDServesIt(ctx context.Context) string {
 	if !s.cfg.IsAgentMediaStoreEnabled {
 		return ""

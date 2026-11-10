@@ -11,10 +11,12 @@ package dev
 import (
 	"bytes"
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -43,7 +45,7 @@ func TestAgentMediaStoreFlagsDefaultOnAtPort8803(t *testing.T) {
 		t.Fatalf("defaults: enabled=%t port=%d explicit=%t", cfg.IsAgentMediaStoreEnabled, cfg.AgentMediaStorePort,
 			cfg.isExplicit("agent-media-store-port"))
 	}
-	if address := cfg.ownedAddresses()["Agent media store"]; address != "127.0.0.1:8803" {
+	if address := cfg.agentMediaStoreAddress(); address != "127.0.0.1:8803" {
 		t.Fatalf("agent media store address = %q", address)
 	}
 
@@ -66,10 +68,46 @@ func TestAgentMediaStoreFlagsRejectBadPortAndCollision(t *testing.T) {
 		!strings.Contains(err.Error(), "agent-media-store-port must be between 1 and 65535") {
 		t.Fatalf("expected a port range error, got %v", err)
 	}
-	if _, err := parseConfig([]string{"--dex-port", "8803"}, &bytes.Buffer{}); err == nil ||
-		!strings.Contains(err.Error(), "cannot both use 127.0.0.1:8803") {
+	if _, err := parseConfig([]string{"--dex-port", "8801", "--agent-media-store-port", "8801"}, &bytes.Buffer{}); err == nil ||
+		!strings.Contains(err.Error(), "cannot both use 127.0.0.1:8801") {
 		t.Fatalf("expected an address collision error, got %v", err)
 	}
+}
+
+func TestExplicitDexPortOnTheDefaultMediaPortMovesTheMediaStore(t *testing.T) {
+	t.Setenv("DEX_SERVER_ZD_BINARY", writeFakeExecutable(t, t.TempDir(), "dex-server-zd"))
+	dexPort := freeTestPort(t)
+	cfg, err := parseConfig([]string{"--dex-port", strconv.Itoa(dexPort)}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("an explicit Dex port must stay valid: %v", err)
+	}
+	cfg.WebPort = freeTestPort(t)
+	cfg.AgentMediaStorePort = dexPort
+	listeners, err := reserveOwnedListeners(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := listeners.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if cfg.DexPort != dexPort || cfg.AgentMediaStorePort == dexPort || listeners.agentMediaStore == nil {
+		t.Fatalf("Dex port %d, agent media store port %d", cfg.DexPort, cfg.AgentMediaStorePort)
+	}
+}
+
+func freeTestPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return port
 }
 
 func TestZDDevArgumentsServeTheAgentMediaStoreOnlyWithAnAddress(t *testing.T) {

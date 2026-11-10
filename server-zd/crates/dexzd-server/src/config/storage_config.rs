@@ -289,10 +289,7 @@ impl Default for DevConfig {
     }
 }
 
-/// An S3 bucket that `dev` or `local` serves for applications, apart from the server's own object store.
-///
-/// Applications keep their own objects there, such as agent images. The bucket has its own
-/// emulator, data directory, and loopback address, so its clients cannot reach the server's bucket.
+/// An application bucket that `dev` or `local` serves from its own store and loopback address.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApplicationS3Config {
     /// Loopback address of the bucket's plaintext S3 endpoint, from `--application-s3-listen`.

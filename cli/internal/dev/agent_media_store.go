@@ -42,8 +42,8 @@ func agentMediaStoreReadyLine(endpoint string) string {
 	return fmt.Sprintf("Agent media store: %s endpoint=%s", agentMediaStoreURI(), endpoint)
 }
 
-// zdServesApplicationS3 reports whether zdBinary's dev command accepts --application-s3-listen, so an older
-// --zd-binary still starts. It returns an error when the help command cannot run.
+// zdServesApplicationS3 reports whether the dev help of zdBinary lists --application-s3-listen.
+// It returns an error when the help command cannot run.
 func zdServesApplicationS3(ctx context.Context, zdBinary string) (bool, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, zdHelpProbeTimeout)
 	defer cancel()
