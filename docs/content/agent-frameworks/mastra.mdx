@@ -324,7 +324,7 @@ The Connector's manifest decides the effect class. **postThreadReply** is a Muta
 
 The manifest also suggests whether a call needs approval. Slack's manifest does not recommend approval for **postThreadReply**, so the example passes **requiresApproval: true**. Every post waits in **AwaitToolApproval** until a person approves it. A **toolPolicies** entry for a Connector tool changes only its approval, never its effect class.
 
-The adapter passes the Connector tools to Mastra as client tools without **execute**. A call never runs inside the model call. Mastra approval settings do not apply to it; the source decides approval. A **toolPolicies** entry never makes a tool one that Mastra runs itself; only **mastraRunToolNames** does.
+The adapter passes the Connector tools to Mastra as client tools without **execute**. A call never runs inside the model call. Mastra approval settings do not apply to it; the source decides approval. With tool sources, a **toolPolicies** entry never makes a tool one that Mastra runs itself; only **mastraRunToolNames** does.
 
 Connector writes of one model response run one at a time, in the model's order. When one does not succeed, the later ones are recorded as skipped. See [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order).
 

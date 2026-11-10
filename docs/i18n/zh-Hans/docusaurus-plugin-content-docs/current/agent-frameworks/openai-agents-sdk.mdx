@@ -568,7 +568,7 @@ Connector 的 manifest 决定 effect class。**postThreadReply** 是 Mutation，
 
 Manifest 还会建议调用是否需要审批。Slack 的 manifest 没有建议 **postThreadReply** 需要审批，所以 example 传入 Python 的 **requires_approval=True** 或 TypeScript 的 **requiresApproval: true**。每次发帖都在 **AwaitToolApproval** 中等待，直到有人批准。Connector tool 的 **tool_policies**（**toolPolicies**）条目只改变它的审批，从不改变它的 effect class。
 
-Graph 中的每个 agent 都在自己的 tool 之后提供 Connector tool。在 Python 中，adapter 为 source 缓存的 listing（它的 **cached_tools()**）中的每个 tool 构建一个 function tool；**ConnectorToolSource** 会缓存它的整个 listing。在 TypeScript 中，它们是 non-strict function tool。调用从不在 SDK 内运行。Tool 的 **needsApproval** 和 input guardrail 对它不起作用；审批由 source 决定。
+Graph 中的每个 agent 都在自己的 tool 之后提供 Connector tool。在 Python 中，adapter 为 source 缓存的 listing（它的 **cached_tools()**）中的每个 tool 构建一个 function tool；**ConnectorToolSource** 会缓存它的整个 listing。在 TypeScript 中，它们是 non-strict function tool，tool 的 **needsApproval** 和 input guardrail 对它们不起作用。调用从不在 SDK 内运行；审批由 source 决定。
 
 同一个模型回复中的 Connector 写操作按模型给出的顺序逐个运行。其中一个没有成功时，后面的写操作被记录为 skipped。参见 [写操作顺序](/agent-frameworks/deploy-agents#connector-tools-write-order)。
 

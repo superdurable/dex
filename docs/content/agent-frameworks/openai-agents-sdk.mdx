@@ -568,7 +568,7 @@ The Connector's manifest decides the effect class. **postThreadReply** is a Muta
 
 The manifest also suggests whether a call needs approval. Slack's manifest does not recommend approval for **postThreadReply**, so the example passes **requires_approval=True** in Python and **requiresApproval: true** in TypeScript. Every post waits in **AwaitToolApproval** until a person approves it. A **tool_policies** (**toolPolicies**) entry for a Connector tool changes only its approval, never its effect class.
 
-Every agent of the graph offers the Connector tools after its own tools. In Python, the adapter builds a function tool for each tool in the source's cached listing, its **cached_tools()**; **ConnectorToolSource** caches its whole listing. In TypeScript, they are non-strict function tools. A call never runs inside the SDK. A tool's **needsApproval** and input guardrails do not apply to it; the source decides approval.
+Every agent of the graph offers the Connector tools after its own tools. In Python, the adapter builds a function tool for each tool in the source's cached listing, its **cached_tools()**; **ConnectorToolSource** caches its whole listing. In TypeScript, they are non-strict function tools, and a tool's **needsApproval** and input guardrails do not apply to them. A call never runs inside the SDK; the source decides approval.
 
 Connector writes of one model response run one at a time, in the model's order. When one does not succeed, the later ones are recorded as skipped. See [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order).
 

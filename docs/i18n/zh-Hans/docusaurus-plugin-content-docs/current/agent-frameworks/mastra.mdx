@@ -324,7 +324,7 @@ Connector 的 manifest 决定 effect class。**postThreadReply** 是 Mutation，
 
 Manifest 还会建议调用是否需要审批。Slack 的 manifest 没有建议 **postThreadReply** 需要审批，所以 example 传入 **requiresApproval: true**。每次发帖都在 **AwaitToolApproval** 中等待，直到有人批准。Connector tool 的 **toolPolicies** 条目只改变它的审批，从不改变它的 effect class。
 
-Adapter 把 Connector tool 作为没有 **execute** 的 client tool 传给 Mastra。调用从不在模型调用内运行。Mastra 的审批设置对它不起作用；审批由 source 决定。**toolPolicies** 条目从不会让一个 tool 变成由 Mastra 自己运行的 tool；只有 **mastraRunToolNames** 会。
+Adapter 把 Connector tool 作为没有 **execute** 的 client tool 传给 Mastra。调用从不在模型调用内运行。Mastra 的审批设置对它不起作用；审批由 source 决定。使用 tool source 时，**toolPolicies** 条目从不会让一个 tool 变成由 Mastra 自己运行的 tool；只有 **mastraRunToolNames** 会。
 
 同一个模型回复中的 Connector 写操作按模型给出的顺序逐个运行。其中一个没有成功时，后面的写操作被记录为 skipped。参见 [写操作顺序](/agent-frameworks/deploy-agents#connector-tools-write-order)。
 
