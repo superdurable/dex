@@ -12,11 +12,11 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/exec
 
 **ExecuteFailureRecoveryFlow** 从 **FailingStep** 开始。它的 **Execute** 方法可能失败；重试耗尽后，其 **ExecuteFailure** 策略将 Flow 转到 **RecoveryStep**。**RecoveryStep** 执行补偿操作并完成 Flow。
 
-当 Flow 无需人工即可恢复时使用此模式。恢复 Step 应保持幂等，因为它可以独立重试。
+当 Flow 无需人工就能恢复时，使用这个模式。恢复 Step 要做成幂等的，因为 Dex 可能单独重试它。
 
 ## 核心实现
 
-恢复目标定义在失败 Step 的 **ExecuteFailure** 策略中。恢复上下文会提供失败信息。
+**FailingStep** 同时设置自己的重试策略和转到 **RecoveryStep** 的 movement。**RecoveryStep** 收到与 **FailingStep** 相同的输入，可以完成 Flow，也可以让 Flow 失败。
 
 <SdkTabs
   examples={{
