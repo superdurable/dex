@@ -334,7 +334,7 @@ fn with_older_backend_errors(
 /// Returns the run record with the history bytes and row write bytes that the older failure
 /// text gives, and with its own size settled in its state row bytes.
 ///
-/// Panics when the run record does not encode back to the same bytes.
+/// Panics when a differently encoded run record has no FlowConfig.
 fn run_record_with_older_counters(value: &[u8], history_delta: i128, write_delta: i128) -> Vec<u8> {
     let mut record = RunRecord::decode(value).expect("run records decode");
     if record.encode_to_vec() != value {
@@ -376,7 +376,7 @@ fn replace_row(
 
 /// Returns the history row with every category `backend_error` mapped back to its raw text.
 ///
-/// Panics when the row does not encode back to the same bytes, or when a failure disagrees with
+/// Panics when a differently encoded row has no Flow start, or when a failure disagrees with
 /// `applied_failure_raw_text`.
 pub(crate) fn history_with_older_backend_errors(
     key: &[u8],
