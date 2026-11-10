@@ -8,6 +8,17 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Rust SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.41 {#v1-41}
+
+Unreleased.
+
+### Breaking
+
+- Removed **Client::trigger_continue_as_new**, **FlowStatus::ContinuedAsNew**, both **FlowConfig** continue-as-new builders, **SearchFlowsOptions**, and **Client::search_flows_with_options**. Use **Client::search_flows_page** for pagination.
+- Removed **internal_handler_timeout** from both wait option builders. Request IDs remain accepted but the server does not read them for these waits.
+- Generated bindings rename **FlowExecutionId** to **FlowRunId** and **flow_execution_id** to **flow_run_id**. ProtoJSON uses **flowRunId**.
+
+
 ## 1.40 {#v1-40}
 
 Released 2026-11-09 as [sdk-rust/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.40.0).

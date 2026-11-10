@@ -316,7 +316,6 @@ Stream long-polls.
 - The server caps how long each transport attempt waits. When an attempt hits
   the cap, the SDK reattaches automatically with the same Request ID. The cap
   does not reset **RequestTimeout**.
-- **InternalHandlerTimeout** is deprecated. Leave it unset.
 
 <a id="查看-flow"></a>
 
@@ -350,9 +349,6 @@ condition index.
 **UpdateFlowConfig** changes the **FlowConfig** of an active Flow. See
 [Update FlowConfig with a Client](/reference/python/flow#update-flow-config-with-a-client)
 for the merge rules and the fields.
-
-<a id="触发-continue-as-new"></a>
-<a id="trigger-continue-as-new"></a>
 
 ## Time travel {#time-travel}
 

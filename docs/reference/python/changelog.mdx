@@ -8,6 +8,17 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Python SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.41 {#v1-41}
+
+Unreleased.
+
+### Breaking
+
+- Removed **trigger_continue_as_new** on both clients, **FlowStatus.CONTINUED_AS_NEW**, both **FlowConfig** continue-as-new fields, and **include_continued_as_new** from **search_flows**.
+- Removed **internal_handler_timeout** from both wait option types. **request_id** remains accepted but the server does not read it for these waits.
+- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **flow_execution_id** to **flow_run_id**. ProtoJSON uses **flowRunId**.
+
+
 ## 1.40 {#v1-40}
 
 Released 2026-11-09 as [sdk-python/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.40.0).
