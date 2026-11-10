@@ -168,13 +168,13 @@ function persistSidebarWidth(kind: SidebarKind, width: number) {
 }
 
 function storedRunTab(): RunTab {
-  if (typeof window === 'undefined') return 'steps';
+  if (typeof window === 'undefined') return 'timeline';
   try {
     const tab = window.localStorage.getItem(runTabStorageKey);
-    return tab && runTabs.has(tab as RunTab) ? tab as RunTab : 'steps';
+    return tab && runTabs.has(tab as RunTab) ? tab as RunTab : 'timeline';
   } catch (storageError) {
     console.warn('Unable to read the selected run tab preference.', storageError);
-    return 'steps';
+    return 'timeline';
   }
 }
 
@@ -251,11 +251,11 @@ export function RunDetailsPage({
   const hasActionsTab = displayedRunPosition === 'current' && runHasActions;
   const isCurrentRunOnlyTabRequested = displayedRunPosition === 'earlier'
     && ((tab === 'session' && runSessionSchema !== null) || (tab === 'actions' && runHasActions));
-  // A remembered or linked tab that does not apply to this run shows the Execution graph instead.
+  // A remembered or linked tab that does not apply to this run shows the Timeline instead.
   const shownTab: RunTab = (tab === 'design' && !designDefinition)
     || (tab === 'session' && !sessionSchema)
     || (tab === 'actions' && !hasActionsTab)
-    ? 'steps'
+    ? 'timeline'
     : tab;
   // Design draws only the definition: history, state and blobs wait until the reader leaves it.
   const isHoldingRunData = tab === 'design' && (designDefinition !== null || summary === null || !isCatalogReady);
