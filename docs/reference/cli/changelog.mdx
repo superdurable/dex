@@ -12,6 +12,11 @@ This page lists user-visible changes to dexcli, newest first; each section cover
 
 Not released yet. The next minor release, cli-v1.43.0, ships these changes.
 
+### Breaking
+
+- Removed **dexcli flow trigger-continue-as-new** and the **--follow-runs** flag from **dexcli flow watch**.
+- **dexcli flow start --config** and **dexcli flow update-config --config** no longer send **continueAsNewThreshold** or **continueAsNewPageSizeInBytes**. Remove those JSON properties.
+
 ### Added
 
 - The Dex Web of **dexcli dev** and **dexcli web** can start a Dex Agents session, send it messages, and edit its settings from the **Agent session** tab. [Reference](/reference/web/dex-web#agent-new-session).

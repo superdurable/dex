@@ -14,8 +14,8 @@ Unreleased.
 
 ### Breaking
 
-- Removed **Client.triggerContinueAsNew**, **FlowStatus.CONTINUED_AS_NEW**, the two **FlowConfig.Builder** continue-as-new methods, **SearchFlowsOptions**, and the four-argument **Client.searchFlows** overload. Use the three-argument search method.
-- Removed **internalHandlerTimeout** from both wait option builders. Request IDs remain accepted but the server does not read them for these waits.
+- Removed **Client.triggerContinueAsNew**, **FlowStatus.CONTINUED_AS_NEW**, **FlowConfig.Builder.continueAsNewThreshold**, **FlowConfig.Builder.continueAsNewPageSizeBytes**, **SearchFlowsOptions**, and the four-argument **Client.searchFlows** overload. Use the three-argument search method.
+- Removed **WaitForStepCompletionOptions.Builder.internalHandlerTimeout** and **WaitForAttributeOptions.Builder.internalHandlerTimeout**. Request IDs remain accepted but the server does not read them for these waits.
 - Generated bindings rename **FlowExecutionID** to **FlowRunID** and **getFlowExecutionId** to **getFlowRunId**. ProtoJSON uses **flowRunId**.
 
 

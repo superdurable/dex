@@ -14,7 +14,7 @@ Unreleased.
 
 ### Breaking
 
-- Removed **Client::trigger_continue_as_new**, **FlowStatus::ContinuedAsNew**, both **FlowConfig** continue-as-new builders, **SearchFlowsOptions**, and **Client::search_flows_with_options**. Use **Client::search_flows_page** for pagination.
+- Removed **Client::trigger_continue_as_new**, **FlowStatus::ContinuedAsNew**, **FlowConfig::continue_as_new_threshold**, **FlowConfig::continue_as_new_page_size_bytes**, **SearchFlowsOptions**, and **Client::search_flows_with_options**. Use **Client::search_flows_page** for pagination.
 - Removed **internal_handler_timeout** from both wait option builders. Request IDs remain accepted but the server does not read them for these waits.
 - Generated bindings rename **FlowExecutionId** to **FlowRunId** and **flow_execution_id** to **flow_run_id**. ProtoJSON uses **flowRunId**.
 

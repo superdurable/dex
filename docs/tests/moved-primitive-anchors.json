@@ -37,7 +37,6 @@
     "search-flows",
     "skip-a-timer",
     "update-flowconfig",
-    "trigger-continue-as-new",
     "time-travel"
   ],
   "/primitives/client/basic/": [
@@ -203,7 +202,6 @@
     "搜索-flow",
     "skip-a-timer",
     "更新-flowconfig",
-    "触发-continue-as-new",
     "time-travel"
   ],
   "/zh-Hans/primitives/client/basic/": [
