@@ -97,7 +97,12 @@ export function sessionActionPermission(schema: AgentSessionSchema): string | nu
 }
 
 /** Why sending a message or saving settings cannot run now, or null when it can. */
-export function sessionRouteBlockedReason(schema: AgentSessionSchema, context: SessionControlContext): string | null {
+export function sessionRouteBlockedReason(
+  schema: AgentSessionSchema,
+  rpcName: string,
+  context: SessionControlContext,
+): string | null {
+  if (!schema.canStartSession || !schema.rpcNames.includes(rpcName)) return SESSION_COPY.noSessionRPC(rpcName);
   const permission = sessionActionPermission(schema);
   if (permission === null) return SESSION_COPY.noSessionActions;
   if (!context.isFlowOpen) return SESSION_COPY.closed;

@@ -32,7 +32,7 @@ import type { SessionControlContext } from './sessionActions';
 import { SessionComposer } from './SessionComposer';
 import type { ConversationItem, ToolCallView } from './sessionModel';
 import { sessionActionPermission, sessionRouteBlockedReason, type SessionRouteContext } from './sessionRequests';
-import type { AgentSessionSchema } from './sessionSchema';
+import { SESSION_RPC, type AgentSessionSchema } from './sessionSchema';
 import { SessionSettingsPanel } from './SessionSettingsPanel';
 import { ToolCallCard } from './ToolCallCard';
 import { useAgentSession, type LoadedAgentSession } from './useAgentSession';
@@ -116,6 +116,7 @@ export function SessionView({
   const { view } = session;
   const neededPermission = sessionPermissionToChoose(schema, workQueuePermissions);
   const permissionHint = neededPermission && onChooseWorkingAs ? SESSION_COPY.chooseWorkingAs(neededPermission) : null;
+  const settingsBlocked = sessionRouteBlockedReason(schema, SESSION_RPC.updateSessionSettings, controlContext);
   return (
     <section className="ses" aria-label={SESSION_COPY.tabSession}>
       <SessionHeader session={session} onReload={reload} />
@@ -142,8 +143,8 @@ export function SessionView({
       )}
       {schema.language === 'go' && <SessionNote>{SESSION_COPY.goReduced}</SessionNote>}
       <SessionSettingsPanel
-        blockedReason={sessionRouteBlockedReason(schema, controlContext)}
-        isBlockedReasonShownAbove={sessionRouteBlockedReason(schema, controlContext) === permissionHint}
+        blockedReason={settingsBlocked}
+        isBlockedReasonShownAbove={settingsBlocked === permissionHint}
         routeContext={routeContext}
         settings={view.sessionSettings}
         onSaved={reload}

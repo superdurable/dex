@@ -69,7 +69,7 @@ func (h *v2Handler) startAgentSession(response http.ResponseWriter, request *htt
 		return
 	}
 	definition, exists := snapshot.Definitions[body.FlowType]
-	if !exists || agentSessionActionPermission(definition) == "" {
+	if !exists || definition.AgentSession == nil {
 		WriteError(response, http.StatusBadRequest, agentSessionNotDeclaredErrorMessage, nil)
 		return
 	}
@@ -109,7 +109,7 @@ func (h *v2Handler) startAgentSession(response http.ResponseWriter, request *htt
 			Encoding: "json", Payload: payload,
 		}}},
 		RequestId:   uuid.NewString(),
-		StepOptions: &dexpb.StepOptions{SkipWaitFor: true},
+		StepOptions: &dexpb.StepOptions{SkipWaitFor: definition.AgentSession.StartStepSkipWaitFor},
 		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: &dexpb.FlowConfig{
 				WorkerTarget: &dexpb.WorkerTarget{IsPullMode: true},
@@ -187,12 +187,20 @@ func (h *v2Handler) invokeAgentSessionRPC(
 		WriteError(response, http.StatusBadRequest, "flowType and flowId are required", nil)
 		return
 	}
-	requiredPermission := agentSessionActionPermission(definition)
-	if requiredPermission == "" {
+	if definition.AgentSession == nil {
 		WriteError(response, http.StatusBadRequest, agentSessionNotDeclaredErrorMessage, nil)
 		return
 	}
-	if snapshot.Revision != "" && !containsPermission(permissions, requiredPermission) {
+	if !definition.AgentSession.RPCNames[rpcName] {
+		WriteError(response, http.StatusBadRequest, fmt.Sprintf("the session graph declares no RPC %s", rpcName), nil)
+		return
+	}
+	requiredPermission := agentSessionActionPermission(definition)
+	if requiredPermission == "" {
+		WriteError(response, http.StatusBadRequest, "the session graph declares no session Action, so no permission guards it", nil)
+		return
+	}
+	if !containsPermission(permissions, requiredPermission) {
 		WriteError(response, http.StatusForbidden, "Action permission denied", nil)
 		return
 	}
@@ -222,7 +230,7 @@ func (h *v2Handler) invokeAgentSessionRPC(
 	}))
 }
 
-// agentSessionActionPermission returns the session Actions' permission, or "" for a Flow type that is not a session.
+// agentSessionActionPermission returns the permission the session Actions share, or "" when none is declared.
 func agentSessionActionPermission(definition V2Definition) string {
 	for _, rpcName := range agentSessionActionRPCNames {
 		if action, ok := findV2Action(definition.Actions, rpcName); ok {

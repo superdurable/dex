@@ -48,7 +48,7 @@ export function SessionComposer({
   const activeTurnId = state?.activeTurnId ?? null;
   const isTurnRunning = activeTurnId !== null;
   const turnControlReason = isTurnRunning && state?.acceptsTurnControl === false ? SESSION_COPY.noTurnControl : null;
-  const sendBlocked = sessionRouteBlockedReason(schema, context);
+  const sendBlocked = sessionRouteBlockedReason(schema, SESSION_RPC.sendUserMessage, context);
   const steerBlocked = actionBlockedReason(SESSION_RPC.steerUserMessage, schema.steerUserMessage, context) ?? turnControlReason;
   const stopBlocked = actionBlockedReason(SESSION_RPC.cancelTurn, schema.cancelTurn, context)
     ?? (isTurnRunning ? turnControlReason : SESSION_COPY.noActiveTurn);

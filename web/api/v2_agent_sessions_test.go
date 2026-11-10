@@ -198,19 +198,85 @@ func TestAgentSessionRPCReportsAMissingWorker(t *testing.T) {
 	}
 }
 
+func TestAgentSessionRoutesRefuseAFlowThatOnlyReusesSessionActionNames(t *testing.T) {
+	client := &v2TestClient{summaryFlowType: "ImpostorFlow"}
+	client.invokeRPCHandler = func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+		return &dexpb.InvokeRPCResponse{Output: &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: true}}}, nil
+	}
+	impostor := testAgentSessionDefinition()
+	impostor.AgentSession = nil
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"ImpostorFlow": impostor})
+	for path, body := range map[string]string{
+		"/api/v2/agent-sessions/start": `{"flowType":"ImpostorFlow","flowId":"s"}`,
+		"/api/v2/agent-sessions/messages": `{"flowType":"ImpostorFlow","flowId":"s",` +
+			`"workQueuePermissions":["agent.operate"],"text":"hi"}`,
+		"/api/v2/agent-sessions/settings": `{"flowType":"ImpostorFlow","flowId":"s",` +
+			`"workQueuePermissions":["agent.operate"],"sessionSettings":{}}`,
+	} {
+		response := performV2JSON(t, mux, http.MethodPost, path, body)
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "not a Dex Agents session") {
+			t.Fatalf("%s: status = %d body=%q", path, response.Code, response.Body.String())
+		}
+	}
+	if len(client.startRequests) != 0 || len(client.rpcRequests) != 0 {
+		t.Fatalf("StartFlow = %d, InvokeRPC = %d", len(client.startRequests), len(client.rpcRequests))
+	}
+}
+
+func TestAgentSessionRoutesRefuseAnRPCTheSessionGraphDoesNotDeclare(t *testing.T) {
+	client := &v2TestClient{summaryFlowType: "SupportAgent"}
+	session := testAgentSessionDefinition()
+	delete(session.AgentSession.RPCNames, "update_session_settings")
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"SupportAgent": session})
+	response := performV2JSON(t, mux, http.MethodPost, "/api/v2/agent-sessions/settings",
+		`{"flowType":"SupportAgent","flowId":"s","workQueuePermissions":["agent.operate"],"sessionSettings":{}}`)
+	if response.Code != http.StatusBadRequest || len(client.rpcRequests) != 0 {
+		t.Fatalf("status = %d body=%q RPCs=%d", response.Code, response.Body.String(), len(client.rpcRequests))
+	}
+}
+
+func TestAgentSessionRoutesCheckThePermissionWithoutADefinitionRevision(t *testing.T) {
+	client := &v2TestClient{summaryFlowType: "SupportAgent"}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"SupportAgent": testAgentSessionDefinition()})
+	for path, body := range map[string]string{
+		"/api/v2/agent-sessions/messages": `{"flowType":"SupportAgent","flowId":"s","workQueuePermissions":[],"text":"hi"}`,
+		"/api/v2/agent-sessions/settings": `{"flowType":"SupportAgent","flowId":"s","sessionSettings":{}}`,
+	} {
+		response := performV2JSON(t, mux, http.MethodPost, path, body)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("%s: status = %d body=%q", path, response.Code, response.Body.String())
+		}
+	}
+	if len(client.rpcRequests) != 0 {
+		t.Fatalf("InvokeRPC requests = %+v", client.rpcRequests)
+	}
+}
+
+func testAgentSessionDefinition() V2Definition {
+	return V2Definition{
+		Actions: []V2Action{{
+			RPCName: "resolve_interrupt", Label: "Resolve interrupt", RequiredPermission: "agent.operate",
+			Input: V2ActionInput{Kind: "object"},
+		}, {
+			RPCName: "steer_user_message", Label: "Steer turn", RequiredPermission: "agent.operate",
+			Input: V2ActionInput{Kind: "object"},
+		}},
+		AgentSession: &V2AgentSession{
+			StartStepSkipWaitFor: true,
+			RPCNames:             map[string]bool{"send_user_message": true, "update_session_settings": true},
+		},
+	}
+}
+
 func newAgentSessionTestMux(client *v2TestClient) *http.ServeMux {
 	client.summaryFlowType = "SupportAgent"
-	session := V2Definition{Actions: []V2Action{{
-		RPCName: "resolve_interrupt", Label: "Resolve interrupt", RequiredPermission: "agent.operate",
-		Input: V2ActionInput{Kind: "object"},
-	}, {
-		RPCName: "steer_user_message", Label: "Steer turn", RequiredPermission: "agent.operate",
-		Input: V2ActionInput{Kind: "object"},
-	}}}
 	mux := http.NewServeMux()
 	RegisterDynamicV2Handlers(mux, client, func(context.Context) (V2DefinitionSnapshot, error) {
 		return V2DefinitionSnapshot{
-			Definitions: map[string]V2Definition{"SupportAgent": session, "RefundFlow": testV2Definition()},
+			Definitions: map[string]V2Definition{"SupportAgent": testAgentSessionDefinition(), "RefundFlow": testV2Definition()},
 			Revision:    testAgentSessionRevision,
 		}, nil
 	}, V2HandlerConfig{WorkerHealthChecker: healthyV2WorkerHealthChecker})

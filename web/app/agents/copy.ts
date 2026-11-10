@@ -68,6 +68,9 @@ export const SESSION_COPY = {
   runningNote: 'Queue keeps the message for the next turn. Steer ends this turn at its next safe point and starts a new one with it.',
   queued: 'Message queued. It starts the next turn after this one ends.',
   sendRefused: 'The session did not take the message (send_user_message returned false). Reload to see why.',
+  noSessionRPC(rpcName: string): string {
+    return `This Flow's definition is not a Dex Agents session graph with the ${rpcName} RPC.`;
+  },
   noSessionActions: "This Flow's definition declares no session Actions, so Dex Web cannot tell which permission sends messages.",
 
   // Session settings.

@@ -489,6 +489,35 @@ func TestLoadFlowDefinitionsReadsSessionGraphRPCLocks(t *testing.T) {
 	}
 }
 
+func TestLoadFlowDefinitionsMarksOnlyTheSessionGraphAsAnAgentSession(t *testing.T) {
+	template, err := os.ReadFile(filepath.Join("..", "agents", "conformance", "session_graph.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := strings.NewReplacer(`"<flow-type>"`, `"SupportAgent"`, `"<action-permission>"`, `"agent.operate"`).
+		Replace(string(template))
+	definition, err := flowDefinitionFromGraph("support-agent.json", []byte(graph))
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := definition.V2.AgentSession
+	if session == nil || !session.StartStepSkipWaitFor ||
+		!session.RPCNames["send_user_message"] || !session.RPCNames["update_session_settings"] {
+		t.Fatalf("agent session = %+v", session)
+	}
+
+	// Another Start Step means another Flow, even with every session Attribute and Action name.
+	renamed := strings.ReplaceAll(graph, `"StartAgentSession"`, `"StartImpostor"`)
+	renamed = strings.ReplaceAll(renamed, `step:StartAgentSession`, `step:StartImpostor`)
+	impostor, err := flowDefinitionFromGraph("impostor.json", []byte(renamed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if impostor.V2.AgentSession != nil || len(impostor.V2.Actions) != 4 {
+		t.Fatalf("impostor agent session = %+v, actions = %d", impostor.V2.AgentSession, len(impostor.V2.Actions))
+	}
+}
+
 func withV2Graph(definition string, nodes string, edges string) string {
 	definition = strings.Replace(definition, `"nodes":[]`, `"nodes":`+nodes, 1)
 	return strings.Replace(definition, `"edges":[]`, `"edges":`+edges, 1)

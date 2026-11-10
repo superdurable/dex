@@ -62,7 +62,7 @@ function sessionOf(view: Partial<SessionReadView>): LoadedAgentSession {
   };
 }
 
-const schema = { language: 'python', hasQuestions: true };
+const schema = { language: 'python', hasQuestions: true, canStartSession: true, rpcNames: ['send_user_message', 'update_session_settings'] };
 
 describe('SessionView', () => {
   it('reads past calls as compact rows under one retention notice', () => {

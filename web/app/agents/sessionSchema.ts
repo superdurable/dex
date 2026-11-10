@@ -43,6 +43,8 @@ export const SESSION_RPC = {
   answerQuestion: 'answer_question',
   steerUserMessage: 'steer_user_message',
   cancelTurn: 'cancel_turn',
+  sendUserMessage: 'send_user_message',
+  updateSessionSettings: 'update_session_settings',
 } as const;
 
 /** Step types whose input is one tool call ID. */
@@ -66,7 +68,14 @@ export interface AgentSessionSchema {
   cancelTurn?: FlowV2Action;
   /** False for a session Flow without the question Step, such as a Go session. */
   hasQuestions: boolean;
+  /** True when the graph starts at StartAgentSession, the Step the start route uses. */
+  canStartSession: boolean;
+  /** The RPCs the graph declares; sending and settings need theirs. */
+  rpcNames: readonly string[];
 }
+
+/** The session Start Step type, which Dex Web's start route uses. */
+export const SESSION_START_STEP_TYPE = 'StartAgentSession';
 
 /** The session schema a graph declares, or null when the Flow is not a Dex Agents session. */
 export function agentSessionSchema(
@@ -93,6 +102,8 @@ export function agentSessionSchema(
     steerUserMessage: action(SESSION_RPC.steerUserMessage),
     cancelTurn: action(SESSION_RPC.cancelTurn),
     hasQuestions: stepTypes.has(QUESTION_STEP_TYPE),
+    canStartSession: graph.nodes.some((node) => node.kind === 'step' && node.name === SESSION_START_STEP_TYPE && node.start === true),
+    rpcNames: graph.nodes.filter((node) => node.kind === 'rpc').map((node) => node.name),
   };
 }
 

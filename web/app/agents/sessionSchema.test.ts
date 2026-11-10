@@ -9,6 +9,8 @@
 import { readFileSync } from 'node:fs';
 import type { FlowDefinitionGraph } from '@superdurable/flow-definition-renderer';
 import { describe, expect, it } from 'vitest';
+import type { FlowDefinitionCatalog, FlowDefinitionEntry, V2Catalog } from '@/lib/types';
+import { agentSessionFlowTypes } from './NewSessionDialog';
 import {
   agentSessionSchema,
   decodeAgentToolCall,
@@ -32,6 +34,28 @@ describe('agentSessionSchema', () => {
     expect(schema?.steerUserMessage?.rpcName).toBe(SESSION_RPC.steerUserMessage);
     expect(schema?.cancelTurn?.rpcName).toBe(SESSION_RPC.cancelTurn);
     expect(schema?.hasQuestions).toBe(true);
+    expect(schema?.canStartSession).toBe(true);
+    expect(schema?.rpcNames).toEqual(expect.arrayContaining([SESSION_RPC.sendUserMessage, SESSION_RPC.updateSessionSettings]));
+  });
+
+  it('does not offer New session for a graph that starts at another Step', () => {
+    const graph = publishedSessionGraph();
+    const nodes = graph.nodes.map((node) => node.name === 'StartAgentSession' ? { ...node, name: 'StartImpostor' } : node);
+    expect(agentSessionSchema({ ...graph, nodes }, undefined)?.canStartSession).toBe(false);
+
+    const entry = (flowName: string, entryGraph: FlowDefinitionGraph): FlowDefinitionEntry => ({
+      id: flowName, file: `${flowName}.json`, schemaVersion: '2.0', flowName, sourceLanguage: 'python',
+      sourcePath: 'session_flow.py', valid: true, graph: entryGraph,
+    });
+    const catalog: V2Catalog = {
+      enabled: true, definitionRevision: 'r',
+      flows: ['SupportAgent', 'ImpostorAgent'].map((flowType) => ({ flowType, definition: graph.v2! })),
+    };
+    const definitions = {
+      configured: true,
+      definitions: [entry('SupportAgent', graph), entry('ImpostorAgent', { ...graph, nodes })],
+    } as unknown as FlowDefinitionCatalog;
+    expect(agentSessionFlowTypes(catalog, definitions)).toEqual(['SupportAgent']);
   });
 
   it('declares every Attribute the view requires', () => {
