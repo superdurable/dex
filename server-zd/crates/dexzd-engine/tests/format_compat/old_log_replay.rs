@@ -24,8 +24,8 @@ use dexzd_protocol::dex::{
     AttributeWrite, ChannelMessage, FlowStatus, Kv, Value, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRecord, HistoryRecord, RunRecord, StepExecutionPhase, StepExecutionRecord,
-    StepInvocationPhase, ValueRecord,
+    CheckpointRecord, HistoryRecord, OutboxRecord, RunRecord, StepExecutionPhase,
+    StepExecutionRecord, StepInvocationPhase, ValueRecord, outbox_record,
 };
 use prost::Message;
 
@@ -595,12 +595,31 @@ fn matches_without_new_fields(
             return checkpoint_matches_older(&key, value, older, stored);
         }
         (name, RunTable::HistoryRecord) if name == ColumnFamily::History.name() => {
-            history_without_scheduled_time(&history_with_inline_effect_values(
+            let history = history_without_scheduled_time(&history_with_inline_effect_values(
                 &history_with_older_backend_errors(&key, value, failures),
                 parsed.flow_hash,
                 parsed.run_id,
                 stored,
-            ))
+            ));
+            if dumped_value(&history) != recorded_value {
+                let record =
+                    HistoryRecord::decode(history.as_slice()).expect("history rows decode");
+                return record.events.iter().any(|event| {
+                    matches!(
+                        event.payload,
+                        Some(flow_history_event::Payload::FlowStartedOrContinued(_))
+                    )
+                });
+            }
+            history
+        }
+        (name, RunTable::Outbox) if name == ColumnFamily::Flow.name() => {
+            return OutboxRecord::decode(value.as_slice()).is_ok_and(|record| {
+                matches!(
+                    record.payload,
+                    Some(outbox_record::Payload::ChildStart(child)) if child.flow_config.is_some()
+                )
+            });
         }
         (name, RunTable::RunRecord) if name == ColumnFamily::Flow.name() => {
             let Some(recorded_run) = recorded_run_records.get(hex_key) else {

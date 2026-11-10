@@ -24,8 +24,8 @@ use dexzd_protocol::dex::{
     PublishToChannelRequest, ReadStreamRequest, ReadStreamResponse, ResetFlowRequest,
     ResetFlowResponse, SearchFlowsRequest, SearchFlowsResponse, ServerEngine, ServerInfo,
     SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StartFlowResponse, StopFlowRequest,
-    SyncAttributeIndexRequest, SyncAttributeIndexResponse,
-    UpdateFlowConfigRequest, WaitForAttributeRequest, WaitForAttributeResponse, WaitForFlowRequest,
+    SyncAttributeIndexRequest, SyncAttributeIndexResponse, UpdateFlowConfigRequest,
+    WaitForAttributeRequest, WaitForAttributeResponse, WaitForFlowRequest,
     WaitForHistoryEventRequest, WaitForHistoryEventResponse, WaitForStepCompletionRequest,
     WaitForStepCompletionResponse, WriteStreamRequest,
 };

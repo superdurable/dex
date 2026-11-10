@@ -344,12 +344,7 @@ impl Parser<'_> {
             && let Literal::String(value) = &literal
             && !matches!(
                 value.as_str(),
-                "Running"
-                    | "Completed"
-                    | "Failed"
-                    | "Canceled"
-                    | "Terminated"
-                    | "TimedOut"
+                "Running" | "Completed" | "Failed" | "Canceled" | "Terminated" | "TimedOut"
             )
         {
             return Err(QueryError::new(

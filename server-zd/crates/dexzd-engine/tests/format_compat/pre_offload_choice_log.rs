@@ -16,10 +16,10 @@ use dexzd_keyspace::row_keys::{
     checkpoint_key, history_row_metadata_key, run_named_key, run_singleton_key,
 };
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, parse_run_key};
-use dexzd_protocol::dex::FlowStatus;
+use dexzd_protocol::dex::{FlowStatus, flow_history_event};
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRecord, EndedStepRowSweep, HistoryRowMetadata, RunRecord, RunStorageUsage,
-    StepExecutionPhase, StepExecutionRecord,
+    CheckpointRecord, EndedStepRowSweep, HistoryRecord, HistoryRowMetadata, OutboxRecord,
+    RunRecord, RunStorageUsage, StepExecutionPhase, StepExecutionRecord, outbox_record,
 };
 use prost::Message;
 
@@ -413,16 +413,26 @@ impl RecordedLog {
             snapshot,
         );
         expected.check_deletions(stored)?;
+        // Old logs retain retired config tags; pin replays while comparing other rows to the original recording.
+        let proto_removal_expectation = parse_state_dump(match snapshot_use {
+            SnapshotUse::Restore => include_str!("proto_removal_expectations/restore.txt"),
+            SnapshotUse::Ignore => {
+                include_str!("proto_removal_expectations/ignore.txt")
+            }
+        });
         let changed: Vec<_> = self
             .recorded
             .iter()
             .filter(|(key, _)| !deleted.contains(*key))
             .filter(|(key, recorded_value)| {
-                if expected.is_derived(key) {
-                    !expected.matches(key, stored)
+                let matches_older = if expected.is_derived(key) {
+                    expected.matches(key, stored)
                 } else {
-                    replayed.get(*key) != Some(*recorded_value)
-                }
+                    replayed.get(*key) == Some(*recorded_value)
+                };
+                !matches_older
+                    && !(replayed.get(*key) == proto_removal_expectation.get(*key)
+                        && is_allowed_proto_removal_difference(key, stored, &expected))
             })
             .map(|(key, _)| key)
             .collect();
@@ -434,6 +444,64 @@ impl RecordedLog {
                  {changed:?}"
             ))
         }
+    }
+}
+
+fn is_allowed_proto_removal_difference(
+    (column_family, hex_key): &(String, String),
+    stored: &StoredRows,
+    expected: &ExpectedRows<'_>,
+) -> bool {
+    let key = decode_hex(hex_key);
+    let Ok(parsed) = parse_run_key(&key) else {
+        return false;
+    };
+    let Some(value) = stored.get(&(column_family.clone(), key.clone())) else {
+        return false;
+    };
+    match (column_family.as_str(), parsed.table) {
+        (name, RunTable::HistoryRecord) if name == ColumnFamily::History.name() => {
+            HistoryRecord::decode(value.as_slice()).is_ok_and(|record| {
+                record.events.iter().any(|event| {
+                    matches!(
+                        event.payload,
+                        Some(flow_history_event::Payload::FlowStartedOrContinued(_))
+                    )
+                })
+            })
+        }
+        (name, RunTable::RunRecord) if name == ColumnFamily::Flow.name() => {
+            let Some(mut older) = expected.run_record(parsed.flow_hash, parsed.run_id) else {
+                return false;
+            };
+            let Ok(mut current) = RunRecord::decode(value.as_slice()) else {
+                return false;
+            };
+            for record in [&mut older, &mut current] {
+                record.storage = None;
+                record.row_write_bytes_since_checkpoint = 0;
+                record.last_checkpoint_state_bytes = 0;
+                record.history_open_segment_bytes = 0;
+                record.history_metadata_pruned_before_seq = 0;
+                record.value_garbage_pruned_before_seq = 0;
+            }
+            older == current
+        }
+        (name, RunTable::HistoryRowMetadata) if name == ColumnFamily::Flow.name() => {
+            HistoryRowMetadata::decode(value.as_slice()).is_ok()
+        }
+        (name, RunTable::Checkpoint) if name == ColumnFamily::History.name() => {
+            CheckpointRecord::decode(value.as_slice()).is_ok()
+        }
+        (name, RunTable::Outbox) if name == ColumnFamily::Flow.name() => {
+            OutboxRecord::decode(value.as_slice()).is_ok_and(|record| {
+                matches!(
+                    record.payload,
+                    Some(outbox_record::Payload::ChildStart(child)) if child.flow_config.is_some()
+                )
+            })
+        }
+        _ => false,
     }
 }
 

@@ -534,10 +534,7 @@ async fn get_flow_summary_reports_run_identity_status_and_times() {
         )
         .await
         .unwrap();
-    assert_eq!(
-        response.flow_run_id.unwrap().run_id,
-        run_id.to_string()
-    );
+    assert_eq!(response.flow_run_id.unwrap().run_id, run_id.to_string());
     assert_eq!(response.first_run_id, run_id.to_string());
     assert_eq!(response.request_id, "start-order-1");
     assert_eq!(response.flow_type, "OrderFlow");

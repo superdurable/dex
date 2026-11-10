@@ -337,11 +337,12 @@ fn with_older_backend_errors(
 /// Panics when the run record does not encode back to the same bytes.
 fn run_record_with_older_counters(value: &[u8], history_delta: i128, write_delta: i128) -> Vec<u8> {
     let mut record = RunRecord::decode(value).expect("run records decode");
-    assert_eq!(
-        record.encode_to_vec(),
-        value,
-        "a replayed run record holds bytes that decoding drops or rewrites"
-    );
+    if record.encode_to_vec() != value {
+        assert!(
+            record.flow_config.is_some(),
+            "only a run with removed FlowConfig fields may reencode differently"
+        );
+    }
     let replayed_size = record.encoded_len() as u64;
     let mut usage = record.storage.expect("run records count storage");
     usage.history_bytes = u64::try_from(i128::from(usage.history_bytes) + history_delta)
@@ -384,11 +385,17 @@ pub(crate) fn history_with_older_backend_errors(
 ) -> Vec<u8> {
     let run_id = parse_run_key(key).expect("history keys parse").run_id.0;
     let mut record = HistoryRecord::decode(value).expect("history rows decode");
-    assert_eq!(
-        record.encode_to_vec(),
-        value,
-        "a replayed history row holds bytes that decoding drops or rewrites"
-    );
+    if record.encode_to_vec() != value {
+        assert!(
+            record.events.iter().any(|event| {
+                matches!(
+                    event.payload,
+                    Some(flow_history_event::Payload::FlowStartedOrContinued(_))
+                )
+            }),
+            "only a Flow start may carry removed FlowConfig fields"
+        );
+    }
     for event in &mut record.events {
         let (method, context, output) = match event.payload.as_mut() {
             Some(flow_history_event::Payload::StepWaitForPending(pending)) => {

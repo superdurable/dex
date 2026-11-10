@@ -9,7 +9,7 @@
 //! History events projected while applying commands (plan section 9.9).
 
 use dexzd_protocol::dex::{
-    AttributeWrite, ChannelMessage, FlowClosedHistoryEvent, FlowRunId, FlowInitialStart,
+    AttributeWrite, ChannelMessage, FlowClosedHistoryEvent, FlowInitialStart, FlowRunId,
     FlowStartedOrContinuedHistoryEvent, Kv, PendingStepMethodPhase, RetryPolicy,
     StepCompletionOutput, StepExecuteCompletedEvent, StepExecuteCompletedOutput,
     StepExecuteFailedEvent, StepMethodEventContext, StepMethodEventInput, StepMethodFailedOutput,
