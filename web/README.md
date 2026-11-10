@@ -147,17 +147,32 @@ Dex recursively scans JSON files on every definition-dependent request. Generate
 Dex Web restart. Invalid JSON, unsupported schema versions, and source read
 failures return a typed 503 and make `/readyz` fail.
 
-The **v1** header shows the **Flow Rendering** link only while that directory
-holds at least one definition JSON file. It checks the directory again on every
-**v1** page change, so added or removed files show up after the next
-navigation. The logo and the breadcrumb lead back
-to the Flows list. Opening `/v1/rendering` directly without definitions shows an
-empty state that explains how to load them.
+Dex Web is one UI. `/` opens the Flows page at `/v1/flows`, and the header's
+main navigation holds only **Flows**. Pages that may still change sit in one
+**Experimental** header menu: **Designs** (`/v1/rendering`), **Work Queue**
+(`/v1/work-queue`), and **Connectors** (`/v1/connectors`). Each item appears only
+when it applies, and the menu is hidden when none does. **Designs** applies while
+the definitions directory holds at least one JSON file; the header checks the
+directory again on every page change, so added or removed files show up after
+the next navigation. **Work Queue** applies when the operator catalog
+(`/api/v2/catalog`) serves at least one Flow type with a valid Version 2
+definition. **Connectors** applies when local Connector setup is on and the
+loaded Flows use at least one connection. Opening `/v1/rendering` directly
+without definitions shows an empty state that explains how to load them.
 
-Starting Dex with `--flow-rendering-dir` opens **v2** at `/v2`. The top-right
-Version menu returns to **v1**. Without that directory, Dex Web opens **v1** at
-`/v1/flows`. v2 lists current runs for one Flow type on the left and renders
-that type's Flow Definition Graph on the right. A Flow with no Steps renders
+Former `/v2` URLs redirect to the page that does the same job now, keeping
+their query and hash: a former v2 run page and its Deep Dive go to the run page,
+Work Queue and Connectors keep their sub-paths, and anything else goes to the
+Flows page.
+
+The run page adds tabs after **Streams**, each marked Experimental and shown
+only when it applies: **Design** when a loaded definition matches the run's Flow
+type, **Agent session** for a Dex Agents session served by the operator catalog,
+and **Actions** when the run's Version 2 definition declares Actions or Display
+fields. `?view=<tab>` opens a tab directly, such as `?view=session`. **Design**
+draws the Flow Definition Graph only; it reads no history and no stored values.
+
+The design graph draws one card per Step. A Flow with no Steps renders
 one card per RPC. Each card lists the Attributes the RPC reads and writes and
 the Channels it publishes to. Action RPCs show their Action label and required
 permission, and Summary and Display RPCs are marked as views. Run lists omit
@@ -168,16 +183,16 @@ register, so Go Flows need no `GetFlowType` or `GetStepType` override unless
 `dexcli visualize` reports a Flow or Step name diagnostic.
 Duplicate valid Version 2 definitions for one Flow type, such as two
 package-main Flows named `main.Flow`, make the definition source invalid, and
-the error names both files. Invalid analyzer output remains visible on **v1** Flow
-Rendering but does not appear as a **v2** Flow type.
+the error names both files. Invalid analyzer output remains visible on Designs
+but does not appear as an operator catalog Flow type.
 
-The v2 status filter sends each status's ExecutionStatus value, such as
+The Work Queue status filter sends each status's ExecutionStatus value, such as
 `TimedOut`, and shows its label, such as **Timed out**. The server rejects
 the label in a search query.
 
 ### Start Flow
 
-The v2 Run workspace shows **Start Flow** when the selected definition contains
+Work Queue shows **Start Flow** when the selected definition contains
 a `v2.start` schema. The dialog asks for a Flow ID, a Worker target mode, and the generated
 start input. It recursively renders objects, arrays, string-key maps, enums,
 booleans, datetime values, optional fields, and nullable fields. Integer input
@@ -210,7 +225,7 @@ the dialog has no Worker target controls and the catalog has no routing default.
 The catalog reports `serverEngine`: `zd` or `unspecified` when the FlowService
 does not answer `GetServerInfo`.
 
-The v2 Work Queue is available at `/v2/work-queue`. Its **Working as** control
+Work Queue is available at `/v1/work-queue`. Its **Working as** control
 selects one Action permission and filters on the Server-maintained
 `DexWorkQueuePermissions` Search Attribute. The Worker submits the complete
 Action permission mapping only when an invocation writes an Action condition
@@ -225,16 +240,16 @@ A Flow type that offers a requested permission through an Action without a
 condition skips the permission filter, because that Action is offered on every
 active run and never enters the projection.
 
-`/v2/work-queue?view=agents` is the agent mode. It lists Dex Agents sessions
+`/v1/work-queue?view=agents` is the agent mode. It lists Dex Agents sessions
 waiting at `AwaitToolApproval` or `AwaitQuestionAnswer` across every session
 Flow type, grouped by Flow type. Each row reads `PendingInterrupts` through
 `/api/flows/state` and `/api/blobs/load`. The side panel reuses the Session
-tab's read, cards, and Actions from `app/v2/agents/`. See the Dex Web reference, section Agent inbox.
+tab's read, cards, and Actions from `app/agents/`. See the Dex Web reference, section Agent inbox.
 
-The local v2 Connectors page is available at `/v2/connectors` when Dex Web
+The local Connectors page is available at `/v1/connectors` when Dex Web
 runs through loopback-bound `dexcli dev` with a local Flow Definition source.
-`/v2/connections` redirects there and keeps its sub-path, query, and hash.
-The page uses the Run and Work Queue layout: a resizable
+`/v2/connectors` and `/v2/connections` redirect there and keep their sub-path,
+query, and hash. The page uses the Work Queue layout: a resizable
 sidebar lists the named connections, and the selected one's setup fills the
 main panel. The **Local store** zone at the bottom of the main panel shows the
 store directory, the file names inside it, and the launch command, with
@@ -331,7 +346,7 @@ message, and the bundle repaints in place. It also sets the iframe element's
 `color-scheme` to the same theme, because a frame whose scheme differs from its
 element gets an opaque canvas. `themeTokens` is a flat map from `--studio-*` CSS
 custom property names to values. Dex Web reads each value from an allowlisted
-v2 token in `app/v2/css/tokens.css`, resolved from the ramps of the sent theme,
+workspace token in `app/workspace/css/tokens.css`, resolved from the ramps of the sent theme,
 so a Dex Web restyle reaches every bundle without a Connector release. The
 `:root` and `:root[data-theme='dark']` defaults in the stylesheet below match
 those light and dark ramps, and `connectorStudioTheme.test.ts` checks that they
@@ -360,7 +375,7 @@ property.
 
 `stylesheet` is the whole Connector Studio stylesheet: layout, spacing,
 component rules, and the default token values for `light` and `dark`. Its only
-source is `app/v2/connectors/connectorStudio.css`. Dex Web imports that file as
+source is `app/connectors/connectorStudio.css`. Dex Web imports that file as
 text with Vite's `?raw` suffix, removes its comments, and sends the result in
 every ready message along with `theme` and `themeTokens`. A bundle built with
 `sdk/react` replaces its compiled `connectorStudioStyles` with this text and
@@ -583,7 +598,7 @@ DEX_WEB_FLOW_RENDERING_DIRECTORY
 ```
 
 `GET /api/flow-definitions` and `GET /api/v2/catalog` return the active revision
-as `ETag`; the v2 catalog also returns `definitionRevision`. The browser sends
+as `ETag`; the operator catalog also returns `definitionRevision`. The browser sends
 that revision as `X-Dex-Flow-Definition-Revision` for Search, Display, edits,
 and Actions. A stale request receives `409 FLOW_DEFINITION_CHANGED`; the UI
 reloads the catalog, clears stale operation state, and requires Action
@@ -671,7 +686,7 @@ directory into the Go module and ultimately into `dexcli`.
 
 ## Pages
 
-The v2 list compiles typed filter controls into search queries, including
+The Work Queue list compiles typed filter controls into search queries, including
 the built-in `activeStepTypes` filter. `POST /api/v2/search` takes `flowTypes`
 in place of `flowType` to search several Flow types in one query; such a search
 accepts built-in filter fields only. The list loads current-run Summary RPCs
@@ -691,12 +706,12 @@ camera is missing, denied, or blocked. Camera access requires HTTPS or localhost
 an embedding host must also allow camera access through its Permissions Policy.
 Scanning does not grant an Action permission or bypass its condition check.
 
-v1 pages live under `/v1/flows` and `/v1/rendering`. The Flows page builds a search query from **Filters** or takes a hand-written
+Pages live under `/v1`. The Flows page builds a search query from **Filters** or takes a hand-written
 one in **Query**, with pagination,
 saved queries, configurable columns, Indexed Attributes, and timezone
 preferences.
 
-The Flow Rendering page displays the currently active source definition JSON. Its
+The shared definition renderer package, which the docs site still uses and Dex Web no longer draws with, displays one definition JSON. Its
 legend independently filters control flow, WaitFor, RPCs, resources, SubFlows,
 and diagnostics. Control flow, WaitFor, RPCs, Channels, Attributes, SubFlows,
 and diagnostics start visible. Streams start hidden. Flow timeout handlers are
@@ -723,35 +738,26 @@ collapsed Mini Map uses a visible Show Mini Map button.
 Each graph fits the complete definition into the viewport when it first loads
 and after its visible layers change.
 
-Flow Definition Graph 2.0 on **v1** Flow Rendering and on **v2** both render
-with the Control Topology canvas; Flow Rendering draws the definition alone,
-then its diagnostics and child Flow links. Version 1 continues to use the
-original definition renderer on **v1**.
+Designs and the run page's Design tab draw every schema version, 1.0 and 2.0,
+with the same design graph (`app/design/FlowDesignGraph.tsx`); Designs adds
+the diagnostics and child Flow links below it. The design graph uses no
+borders: depth comes from surfaces and shadow, and colour marks who acts.
+Selecting a Step opens its details from the definition alone: explanation,
+phase, who acts, what reaches it, what it waits for, and its paths out.
 
-The **v2** canvas lays out with `elkjs` (pinned, EPL-2.0), loaded only with the
+The design graph lays out with `elkjs` (pinned, EPL-2.0), loaded only with the
 canvas. Each Step is drawn with one line in; every other transition is a ↪ chip
 on the card it leaves. A `dex:group` of two or more Steps is a stage that
 **Collapsed** draws as one card and **Expanded** opens; ⊕ and ⊖ open and close
 one stage in place. Its drawing rules and guardrails are in
-[`app/v2/canvas/views/README.md`](app/v2/canvas/views/README.md).
+[`app/design/canvas/views/README.md`](app/design/canvas/views/README.md).
 
-The **v2** canvas draws nothing until its layout and the selected run have
-loaded, then shows them framed; it never flies in from a default view. A
-focused Step, or the Step the run is at, is framed with the card of every Step
-a transition joins to it, whether drawn as a line or as a ↪ chip. The framing
-never zooms past the cards' drawn size, and never below the readable zoom. It
-widens to Steps two transitions away, or to the whole Flow, while that keeps at
-least 80% of the Step's size. When the joined Steps cannot all fit at the
-readable zoom, the nearest ones that fit stay in view. A new drawing traces in
-from its start: each card swells in as the trace reaches it along the lines,
-and each line draws out of its card. Another run, a stage, **Collapsed**,
-**Expanded** or a new direction moves the cards and the view together in one
-eased motion; while the next run loads, the last one dims in place. Picking the
-open run again frames its Step once more and drops the reader's selection;
-**Collapsed**, **Expanded** and a new direction return to the opening view
-instead, until the run is picked again. A run that
-moves on while open sends a head along the line to its next Step, and the
-"now" ring lands there. Once the reader pans or zooms, the view stays theirs.
+The design graph draws nothing until its layout has settled, then shows it
+framed; it never flies in from a default view. A new drawing traces in from its
+start: each card swells in as the trace reaches it along the lines, and each
+line draws out of its card. A stage, **Collapsed**, **Expanded** or a new
+direction moves the cards and the view together in one eased motion. Once the
+reader pans or zooms, the view stays theirs.
 Reduced-motion settings turn the motion off.
 
 The graph contract, compound layout, React components, and styles live in the
@@ -827,14 +833,11 @@ hints whether that page is older or newer, and a pruned event reads **Outside
 the retention window** without an action. `web/lib/historyRelations.ts` is the
 only reader of the optional retained-history boundary and related event IDs.
 Without them, Dex Web scans the loaded page, and it infers pruning from a gap
-after FlowStart. Overview and the v2 canvas read the newest window, and the
+after FlowStart. Overview reads the newest window, and the
 Execution graph reads the selected page, so Step executions recorded before it
 do not appear there. The Execution graph starts a Step whose source is before
 the page from an
-**Earlier events, not loaded** node, never from Flow start. The v2 canvas says
-how many events it shows, marks per-Step counts as lower bounds, and labels a
-WaitFor before the window as earlier, not loaded. Its Step panel loads the
-run's older windows before any previous run.
+**Earlier events, not loaded** node, never from Flow start.
 
 A continued-as-new run remains on screen until the
 operator follows **Next run**; Dex Web never combines two runs into one graph or timeline.
@@ -881,7 +884,7 @@ Timeline and Execution graph share structured event details for flow, step metho
 and channel events. A Raw JSON tab preserves the complete server payload.
 Below the horizontal Timeline the panel is a container: at 820 px and wider its
 sections sit in two columns, and at 1180 px and wider in up to three, such as
-Input, Output, and Context. The Execution graph sidebar and the v2 panel stay
+Input, Output, and Context. The Execution graph sidebar stays
 one column. A scalar or a flat JSON value of about 80 characters or fewer sits on
 its label's row. A Step decision reads as one row per target with its input,
 named options, and upserted or published names; **Decision details** expands

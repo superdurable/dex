@@ -1,0 +1,721 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/*
+ * The Flow design graph. Content first: no borders, depth from surfaces and shadow,
+ * and colour spent on who acts, so a person, an AI model or the outside world draws the eye.
+ * Selectors start at `html` so they outrank the shared canvas styles in any bundle order.
+ */
+
+/* ---------- palette: dark ---------- */
+html .v2-shell.dg {
+  color-scheme: dark;
+
+  --dg-bg: #0c1016;
+  --dg-dot: rgba(148, 163, 184, 0.09);
+  --dg-surface: #161b24;
+  --dg-surface-raised: #1d2430;
+  --dg-ink-0: #f1f5f9;
+  --dg-ink-1: #cbd5e1;
+  --dg-ink-2: #94a3b8;
+  --dg-ink-3: #64748b;
+  --dg-track: rgba(148, 163, 184, 0.12);
+  --dg-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+  --dg-shadow-lift: 0 2px 4px rgba(0, 0, 0, 0.5), 0 18px 36px -14px rgba(0, 0, 0, 0.8);
+  --dg-focus: #a5b4fc;
+  --dg-edge: #66739a;
+
+  --hue-attention-ink: #fdba74;
+  --hue-attention-fill: #3b2414;
+  --hue-attention-line: #f97316;
+  --hue-door-ink: #67e8f9;
+  --hue-door-fill: #0b3340;
+  --hue-door-line: #06b6d4;
+  --hue-clock-ink: #7dd3fc;
+  --hue-clock-fill: #0c2c46;
+  --hue-clock-line: #0ea5e9;
+  --hue-child-ink: #c4b5fd;
+  --hue-child-fill: #2b1c4d;
+  --hue-child-line: #8b5cf6;
+  --hue-progress-ink: #f0abfc;
+  --hue-progress-fill: #3a1243;
+  --hue-progress-line: #d946ef;
+  --hue-success-ink: #6ee7b7;
+  --hue-success-fill: #073424;
+  --hue-success-line: #10b981;
+  --hue-danger-ink: #fca5a5;
+  --hue-danger-fill: #3a1518;
+  --hue-danger-line: #f87171;
+  --dg-app-ink: #a5b4fc;
+  --dg-app-fill: #1f1d4d;
+  --dg-machine-ink: #a5b4fc;
+  --dg-machine-fill: #1f2442;
+  --dg-band-0: rgba(129, 140, 248, 0.08);
+  --dg-band-1: rgba(56, 189, 248, 0.07);
+}
+
+/* ---------- palette: light ---------- */
+html[data-theme='light'] .v2-shell.dg {
+  color-scheme: light;
+
+  --dg-bg: #f4f6fb;
+  --dg-dot: rgba(30, 41, 59, 0.08);
+  --dg-surface: #ffffff;
+  --dg-surface-raised: #ffffff;
+  --dg-ink-0: #0f172a;
+  --dg-ink-1: #334155;
+  --dg-ink-2: #64748b;
+  --dg-ink-3: #94a3b8;
+  --dg-track: rgba(15, 23, 42, 0.06);
+  --dg-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 6px 18px -8px rgba(15, 23, 42, 0.14);
+  --dg-shadow-lift: 0 2px 4px rgba(15, 23, 42, 0.08), 0 16px 32px -12px rgba(15, 23, 42, 0.22);
+  --dg-focus: #6366f1;
+  --dg-edge: #8c96bd;
+
+  --hue-attention-ink: #c2410c;
+  --hue-attention-fill: #fff3e8;
+  --hue-attention-line: #f97316;
+  --hue-door-ink: #0e7490;
+  --hue-door-fill: #e3f8fb;
+  --hue-door-line: #06b6d4;
+  --hue-clock-ink: #0369a1;
+  --hue-clock-fill: #e6f4fe;
+  --hue-clock-line: #0ea5e9;
+  --hue-child-ink: #6d28d9;
+  --hue-child-fill: #f3ecff;
+  --hue-child-line: #8b5cf6;
+  --hue-progress-ink: #a21caf;
+  --hue-progress-fill: #fbecfd;
+  --hue-progress-line: #d946ef;
+  --hue-success-ink: #047857;
+  --hue-success-fill: #ddf7ec;
+  --hue-success-line: #10b981;
+  --hue-danger-ink: #b91c1c;
+  --hue-danger-fill: #fdeaea;
+  --hue-danger-line: #ef4444;
+  --dg-app-ink: #4338ca;
+  --dg-app-fill: #eef0ff;
+  --dg-machine-ink: #5b6bd6;
+  --dg-machine-fill: #eceffd;
+  --dg-band-0: rgba(99, 102, 241, 0.07);
+  --dg-band-1: rgba(14, 165, 233, 0.07);
+}
+
+/* ---------- the shared canvas tokens, mapped onto the palette ---------- */
+html .v2-shell.dg {
+  --p-bg: var(--dg-bg);
+  --p-surface-1: var(--dg-surface);
+  --p-surface-2: var(--dg-surface);
+  --p-surface-3: var(--dg-surface-raised);
+  --p-line: transparent;
+  --p-line-soft: transparent;
+  --p-ink-0: var(--dg-ink-0);
+  --p-ink-1: var(--dg-ink-1);
+  --p-ink-2: var(--dg-ink-2);
+  --p-ink-3: var(--dg-ink-3);
+  --p-edge-control: var(--dg-edge);
+  --p-edge-failure: var(--hue-danger-line);
+  --band-0: var(--dg-track);
+  --band-1: var(--dg-track);
+  --color-focus: var(--dg-focus);
+
+  position: relative;
+  display: flex;
+  height: min(76vh, 900px);
+  min-height: 560px;
+  overflow: hidden;
+  border-radius: 20px;
+  background-color: var(--dg-bg);
+  background-image: radial-gradient(var(--dg-dot) 1px, transparent 1.2px);
+  background-size: 22px 22px;
+  color: var(--dg-ink-0);
+  font-family: inherit;
+}
+
+.dg .dg-canvas {
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+}
+
+.dg .pstage-pane .react-flow__pane,
+.dg .pstage-pane .react-flow__renderer,
+.dg .react-flow {
+  background: transparent;
+}
+
+.dg-empty {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+  color: var(--muted);
+}
+
+/* ---------- toolbar: two segmented switches floating over the drawing ---------- */
+.dg .dg-toolbar {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.dg .dg-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dg-surface) 82%, transparent);
+  box-shadow: var(--dg-shadow);
+  backdrop-filter: blur(10px);
+}
+
+.dg .dg-segment-label {
+  padding: 0 8px 0 10px;
+  color: var(--dg-ink-3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dg .dg-segment button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dg-ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.dg .dg-segment button:hover {
+  color: var(--dg-ink-0);
+}
+
+.dg .dg-segment button[aria-pressed='true'],
+.dg .dg-segment button[aria-checked='true'] {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #ffffff;
+  box-shadow: 0 4px 12px -4px rgba(99, 102, 241, 0.6);
+}
+
+.dg .dg-segment button:focus-visible {
+  outline: 2px solid var(--dg-focus);
+  outline-offset: 2px;
+}
+
+/* ---------- Step cards: surfaces, no borders ---------- */
+.dg .pcard,
+.dg .pstage-card {
+  border: 0;
+  background: var(--dg-surface);
+  box-shadow: var(--dg-shadow);
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+
+.dg .pcard {
+  border-radius: 16px;
+}
+
+.dg .pcard:hover,
+.dg .pstage-card:hover,
+.dg .pcard[data-hover='true'],
+.dg .pcard[data-ref='true'] {
+  box-shadow: var(--dg-shadow-lift);
+}
+
+/* A person or the outside world must act: the warm focal point of the drawing. */
+.dg .pcard[data-actor='external'],
+.dg .pstage-card[data-actor='external'] {
+  background: linear-gradient(180deg, var(--hue-attention-fill), var(--dg-surface) 85%);
+  box-shadow: var(--dg-shadow), inset 3px 0 0 var(--hue-attention-line);
+}
+
+.dg .pcard[data-actor='unknown'] {
+  box-shadow: var(--dg-shadow), inset 3px 0 0 color-mix(in srgb, var(--hue-attention-line) 55%, transparent);
+}
+
+
+.dg .pcard[data-detour='true'] {
+  border: 0;
+  background: var(--hue-danger-fill);
+  box-shadow: var(--dg-shadow), inset 3px 0 0 var(--hue-danger-line);
+}
+
+.dg .pcard[data-selected='true'],
+.dg .pstage-card[data-selected='true'] {
+  box-shadow: 0 0 0 2px var(--dg-focus), var(--dg-shadow-lift);
+}
+
+.dg .pcard-title {
+  color: var(--dg-ink-0);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.dg .pcard-sub {
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+/* Tones: each actor has an ink, a wash and a solid. */
+.dg [data-tone='attention'] {
+  --tone-ink: var(--hue-attention-ink);
+  --tone-fill: var(--hue-attention-fill);
+  --tone-solid: linear-gradient(135deg, #fb923c, #f97316);
+}
+
+.dg [data-tone='door'] {
+  --tone-ink: var(--hue-door-ink);
+  --tone-fill: var(--hue-door-fill);
+  --tone-solid: linear-gradient(135deg, #22d3ee, #0891b2);
+}
+
+.dg [data-tone='clock'] {
+  --tone-ink: var(--hue-clock-ink);
+  --tone-fill: var(--hue-clock-fill);
+  --tone-solid: linear-gradient(135deg, #38bdf8, #0284c7);
+}
+
+.dg [data-tone='child'] {
+  --tone-ink: var(--hue-child-ink);
+  --tone-fill: var(--hue-child-fill);
+  --tone-solid: linear-gradient(135deg, #a78bfa, #7c3aed);
+}
+
+.dg [data-tone='accent'] {
+  --tone-ink: var(--hue-progress-ink);
+  --tone-fill: var(--hue-progress-fill);
+  --tone-solid: linear-gradient(135deg, #e879f9, #8b5cf6);
+}
+
+.dg [data-tone='app'] {
+  --tone-ink: var(--dg-app-ink);
+  --tone-fill: var(--dg-app-fill);
+  --tone-solid: linear-gradient(135deg, #818cf8, #4f46e5);
+}
+
+.dg [data-tone='machine'] {
+  --tone-ink: var(--dg-machine-ink);
+  --tone-fill: var(--dg-machine-fill);
+  --tone-solid: var(--dg-machine-fill);
+}
+
+.dg .pcard-tile {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--tone-solid);
+  color: #ffffff;
+  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--tone-ink) 70%, transparent);
+}
+
+/* Work the Flow does by itself stays quiet, so the colour lands on everyone else. */
+.dg .pcard-tile[data-tone='machine'] {
+  color: var(--dg-machine-ink);
+  box-shadow: none;
+}
+
+.dg .pcard-tile .pglyph {
+  width: 19px;
+  height: 19px;
+  stroke-width: 2;
+}
+
+/* ---------- chips on a card ---------- */
+.dg .pdock {
+  height: 20px;
+  padding: 0 8px;
+  background: var(--dg-track);
+  color: var(--dg-ink-1);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.dg button.pdock:hover {
+  outline: 0;
+  background: color-mix(in srgb, var(--dg-focus) 18%, transparent);
+  color: var(--dg-ink-0);
+}
+
+.dg .pdock[data-chip='answer'] {
+  background: var(--hue-attention-fill);
+  color: var(--hue-attention-ink);
+}
+
+.dg .pdock[data-chip='entry'] {
+  background: var(--hue-door-fill);
+  color: var(--hue-door-ink);
+}
+
+.dg .pdock[data-chip='child'] {
+  background: var(--hue-child-fill);
+  color: var(--hue-child-ink);
+}
+
+.dg .pdock[data-chip='role'],
+.dg .pdock[data-chip='fork'] {
+  background: var(--hue-progress-fill);
+  color: var(--hue-progress-ink);
+}
+
+.dg .pdock[data-chip='ends'] {
+  background: var(--hue-success-fill);
+  color: var(--hue-success-ink);
+}
+
+.dg .pdock[data-chip='failJump'] {
+  background: var(--hue-danger-fill);
+  color: var(--hue-danger-ink);
+}
+
+/* Where the Flow begins: a bright tag on the card's top edge. */
+.dg .pcard-start {
+  top: -10px;
+  gap: 4px;
+  padding: 1px 9px 1px 7px;
+  border: 0;
+  background: linear-gradient(135deg, #34d399, #059669);
+  color: #ffffff;
+  box-shadow: 0 4px 10px -4px rgba(5, 150, 105, 0.7);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.dg .pcard-failures {
+  border: 0;
+  background: var(--hue-danger-fill);
+  color: var(--hue-danger-ink);
+}
+
+/* ---------- closed stages: a stack of cards, drawn with shadow alone ---------- */
+.dg .pstage-card {
+  border-radius: 18px;
+  box-shadow:
+    var(--dg-shadow),
+    6px 6px 0 -1px color-mix(in srgb, var(--dg-surface) 70%, var(--dg-bg)),
+    12px 12px 0 -2px color-mix(in srgb, var(--dg-surface) 40%, var(--dg-bg));
+}
+
+.dg .pstage-title {
+  color: var(--dg-ink-0);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.dg .pstage-count {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--dg-track);
+  color: var(--dg-ink-2);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.dg .pstage-open {
+  color: var(--dg-focus);
+}
+
+.dg .pstage-facts {
+  color: var(--dg-ink-2);
+  font-weight: 500;
+}
+
+/* ---------- open stages: a soft wash and a typographic label ---------- */
+.dg .pband-group {
+  border: 0;
+  border-radius: 22px;
+}
+
+.dg .pband-group[data-hue='0'],
+.dg .pband-group[data-hue='2'],
+.dg .pband-group[data-hue='4'] {
+  background: var(--dg-band-0);
+}
+
+.dg .pband-group[data-hue='1'],
+.dg .pband-group[data-hue='3'],
+.dg .pband-group[data-hue='5'] {
+  background: var(--dg-band-1);
+}
+
+.dg .pband-group[data-selected='true'] {
+  border: 0;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--dg-focus) 55%, transparent);
+}
+
+.dg .pband-group > .pband-label {
+  top: 8px;
+  left: 12px;
+  overflow: hidden;
+  max-width: calc(100% - 52px);
+  color: var(--dg-ink-1);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dg .pband-group > .pband-label[role='button']:hover {
+  color: var(--dg-focus);
+}
+
+.dg .pband-close {
+  color: var(--dg-ink-3);
+}
+
+/* ---------- lines ---------- */
+.dg .pedge-control .react-flow__edge-path {
+  stroke: var(--dg-edge);
+  opacity: calc(0.85 * var(--edge-boost));
+}
+
+.dg .pstage-pane .react-flow__edge.pedge-lit .react-flow__edge-path,
+.dg .pstage-pane .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--dg-focus);
+}
+
+/* ---------- zoom controls ---------- */
+.dg .react-flow__controls {
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: var(--dg-shadow);
+}
+
+.dg .react-flow__controls-button {
+  border: 0;
+  background: var(--dg-surface);
+  color: var(--dg-ink-1);
+  fill: currentColor;
+}
+
+.dg .react-flow__controls-button:hover {
+  background: var(--dg-track);
+}
+
+/* ---------- legend ---------- */
+.dg .plegend-card {
+  border: 0;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--dg-surface) 90%, transparent);
+  box-shadow: var(--dg-shadow);
+}
+
+.dg .plegend-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dg-ink-2);
+  font-weight: 600;
+}
+
+.dg .plegend-card:not([data-open='true']) .plegend-toggle {
+  padding: 6px 12px;
+  color: var(--dg-ink-2);
+}
+
+/* ---------- Step details, beside the drawing ---------- */
+.dg .dg-panel {
+  display: flex;
+  width: min(380px, 42%);
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  padding: 22px 22px 28px;
+  background: var(--dg-surface);
+}
+
+.dg .dg-panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.dg .dg-panel-title {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.dg .dg-panel-title h3 {
+  margin: 0;
+  color: var(--dg-ink-0);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.dg .dg-panel-title code {
+  color: var(--dg-ink-3);
+  font-size: 11.5px;
+}
+
+.dg .dg-panel-close {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dg-track);
+  color: var(--dg-ink-2);
+  cursor: pointer;
+}
+
+.dg .dg-panel-close:hover {
+  color: var(--dg-ink-0);
+}
+
+.dg .dg-panel-purpose {
+  margin: 0;
+  color: var(--dg-ink-0);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.dg .dg-panel-purpose.is-missing {
+  color: var(--dg-ink-3);
+  font-style: italic;
+}
+
+.dg .dg-panel-facts {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.dg .dg-panel-facts > div {
+  display: grid;
+  gap: 2px;
+}
+
+.dg .dg-panel-facts dt,
+.dg .dg-panel-paths h4 {
+  margin: 0;
+  color: var(--dg-ink-3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dg .dg-panel-facts dd {
+  margin: 0;
+  color: var(--dg-ink-1);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.dg .dg-panel-paths ol {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dg .dg-panel-paths li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px 10px 14px;
+  border-radius: 12px;
+  background: var(--dg-track);
+  box-shadow: inset 3px 0 0 var(--dg-focus);
+}
+
+.dg .dg-panel-paths li[data-tone='end'] {
+  box-shadow: inset 3px 0 0 var(--hue-success-line);
+}
+
+.dg .dg-panel-paths li[data-tone='fail'] {
+  box-shadow: inset 3px 0 0 var(--hue-danger-line);
+}
+
+.dg .dg-path-when {
+  color: var(--dg-ink-2);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.dg .dg-path-then {
+  color: var(--dg-ink-0);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dg .dg-panel-connector {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--dg-app-fill);
+  color: var(--dg-app-ink);
+}
+
+.dg .dg-panel-connector > div {
+  display: grid;
+  gap: 2px;
+  font-size: 12.5px;
+}
+
+.dg .dg-panel-connector b {
+  color: var(--dg-ink-0);
+}
+
+.dg .dg-panel-connector span {
+  color: var(--dg-ink-2);
+}
+
+.dg .dg-panel-connector a {
+  margin-top: 4px;
+  color: var(--dg-app-ink);
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  html .v2-shell.dg {
+    height: 72vh;
+    min-height: 460px;
+  }
+
+  .dg .dg-panel {
+    position: absolute;
+    inset: auto 0 0;
+    width: auto;
+    max-height: 60%;
+    border-radius: 20px 20px 0 0;
+  }
+
+  .dg .dg-segment-label {
+    display: none;
+  }
+}

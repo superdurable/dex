@@ -8,6 +8,22 @@ sidebar_label: Change log
 
 This page lists user-visible changes to dexcli, newest first; each section covers the changes since the previous release of this component.
 
+## 1.41 {#v1-41}
+
+Released 2026-11-09 as [cli-v1.41.0](https://github.com/superdurable/dex/releases/tag/cli-v1.41.0).
+
+### Breaking
+
+- **dexcli web** and **dexcli dev** serve a Dex Web with one UI. The **v2** pages are removed, and every **/v2** URL redirects to its **/v1** equivalent. [Reference](/reference/web/dex-web#v1-pages).
+
+### Added
+
+- **dexcli web** and **dexcli dev** serve the Dex Web **Design** tab and the **Experimental** menu with **Designs**, **Work Queue**, and **Connectors**. [Reference](/reference/web/dex-web#run-tabs).
+
+### Changed
+
+- **dexcli visualize** opens the **Designs** page, which was called **Flow Rendering**. [Reference](/reference/web/flow-visualization).
+
 ## 1.40 {#v1-40}
 
 Released 2026-11-09 as [cli-v1.40.0](https://github.com/superdurable/dex/releases/tag/cli-v1.40.0). Patch releases [cli-v1.40.1](https://github.com/superdurable/dex/releases/tag/cli-v1.40.1) and [cli-v1.40.2](https://github.com/superdurable/dex/releases/tag/cli-v1.40.2) followed the same day.

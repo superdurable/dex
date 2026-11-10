@@ -102,7 +102,7 @@ func TestRootMountIgnoresForwardedHeadersWithRealDex(t *testing.T) {
 		}
 		return response, string(body)
 	}
-	for _, path := range []string{"/", "/v1/flows", "/v2", "/v2/work-queue", "/v2/connectors", "/v2/debug"} {
+	for _, path := range []string{"/", "/v1/flows", "/v1/work-queue", "/v1/connectors", "/v2", "/v2/work-queue", "/v2/connectors", "/v2/debug"} {
 		response, body := request(path)
 		if !strings.Contains(body, `src="/assets/`) || strings.Contains(body, "__DEX_WEB_CONFIG__") ||
 			strings.Contains(body, "ignored-mount") || strings.Contains(body, "untrusted.invalid") {

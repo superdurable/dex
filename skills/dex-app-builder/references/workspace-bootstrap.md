@@ -17,7 +17,7 @@ its declared build, generation, and run commands instead of inventing parallel
 ones. Change a dependency only when the user asks or a recorded compatibility
 rule requires it. Explain the verification consequence first.
 
-If the existing backend is not Go, FDG 2.0, Dex Web v2 management metadata,
+If the existing backend is not Go, FDG 2.0, Dex Web management metadata,
 and the application Connector integration that App Builder relies on are
 unavailable. Stop before implementation. Ask whether to add a Go backend or to
 continue as an explicitly requested standalone `dex-sdk` project without those
@@ -54,7 +54,7 @@ Never fall back to an unreleased dependency.
 TypeScript is limited to an optional frontend and its generated client. Do not
 start a TypeScript, Node, or other non-Go Dex backend for an App Builder
 product. Route an explicitly requested non-Go Dex application through
-`dex-sdk`, and say that the Go-only Dex Web v2 metadata is then unavailable.
+`dex-sdk`, and say that the Go-only Dex Web metadata is then unavailable.
 A Python or TypeScript application may use an official Connector where the
 catalog lists its language.
 

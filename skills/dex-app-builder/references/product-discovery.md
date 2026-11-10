@@ -45,7 +45,7 @@ TypeScript, Node, or another SDK language as an equivalent default.
 
 Only an explicit user request can replace the Go backend for a new
 application. Before you accept it, explain that App Builder, strict FDG 2.0,
-and Dex Web v2 management metadata require Go. A non-Go backend becomes a
+and Dex Web management metadata require Go. A non-Go backend becomes a
 standalone `dex-sdk` project. Python and TypeScript projects may use official
 Connectors where the catalog lists their language. Java and Rust have no
 Connector SDK.
@@ -195,13 +195,13 @@ failure, and reconciliation design. "We may need it later" is not evidence.
 
 ## Management UI capability mapping
 
-Process products usually need a management interface. Design it through Dex
-Web v2 first. For each management operation, define its indexed Attributes,
+Process products usually need a management interface. Design it through
+Dex Web first. For each management operation, define its indexed Attributes,
 Summary RPC fields, Display RPC fields, Action RPC input and metadata,
 condition, and permission. Only then decide whether a custom surface is
 needed.
 
-| Management need | Dex Web v2 capability |
+| Management need | Dex Web capability |
 | --- | --- |
 | List and filter business records | Model each record as a Run. Expose search criteria as indexed Attributes and extra list fields from the Summary RPC. |
 | Inspect one record | Return detail fields and UI slots from the Display RPC. |
@@ -211,7 +211,7 @@ needed.
 | Inspect progress and failures | Use the Run timeline, Step graph, execution details, and recovery information. |
 
 Record this mapping as a discovery artifact. Keep each fully covered need in
-Dex Web v2, even when another need requires Custom UI. For an uncovered need,
+Dex Web, even when another need requires Custom UI. For an uncovered need,
 name the exact missing interaction and its user. A general wish for an admin
 portal, dashboard, management backend, or branded shell is not a capability
 gap.
@@ -226,7 +226,7 @@ designed. [UI workflow](ui-workflow.md) has the two modes.
   application needs no frontend of its own. Still confirm what supplies
   authentication, role-to-permission mapping, tenant isolation, and the
   trusted reverse proxy in front of a deployed Dex Web.
-- **Custom UI** only for a recorded Dex Web v2 gap, such as a participant
+- **Custom UI** only for a recorded Dex Web gap, such as a participant
   journey, a different navigation model, domain visualization, or a complex
   interaction Dex Web lacks. Record which requirement forces it.
 
@@ -273,7 +273,7 @@ Before code, provide:
    gate for any proposed SubFlow;
 4. the management UI capability mapping, with the proposed Summary, Display,
    Action, indexed Attribute, Work Queue, and permission contracts;
-5. the **No custom UI** or **Custom UI** mode and any recorded Dex Web v2 gap;
+5. the **No custom UI** or **Custom UI** mode and any recorded Dex Web gap;
 6. the proposed Flow, Step, state, message, Timer, RPC, and Connector
    boundaries;
 7. the storage matrix and any evidence-backed external-store gap;

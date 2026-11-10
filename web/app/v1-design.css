@@ -372,6 +372,22 @@ body:has(.v1-page) {
   font-size: var(--ui-text-sm);
 }
 
+/* Pages other than a run lead back to Flows in the run breadcrumb's type. */
+.page-breadcrumbs {
+  min-width: 0;
+  margin: 0 0 16px;
+  align-items: baseline;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-md);
+}
+
+.page-breadcrumbs [aria-current='page'] {
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
 .run-identity-copy {
   display: flex;
   gap: 6px;
@@ -2452,4 +2468,242 @@ body:has(.v1-page) {
   .v1-page .run-sidebar .semantic-event > :last-child:nth-child(odd) {
     grid-column: auto;
   }
+}
+
+
+/* --------------------------------------------------------- experimental */
+
+/* A small tag for a page, tab or link that may still change. */
+.experimental-badge {
+  --experimental-ink: #7c3aed;
+  --experimental-wash: rgba(124, 58, 237, 0.1);
+
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--experimental-wash);
+  color: var(--experimental-ink);
+  font-size: 9px;
+  font-variant-caps: all-small-caps;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 13px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .experimental-badge {
+  --experimental-ink: #c4b5fd;
+  --experimental-wash: rgba(167, 139, 250, 0.16);
+}
+
+/* On a tab or a header link the tag sits above the label's top-right corner, so the label stays one word. */
+.run-tabs button[data-tab],
+.header-experimental-link {
+  position: relative;
+}
+
+.run-tabs button .experimental-badge,
+.header-experimental-link .experimental-badge {
+  position: absolute;
+  top: -5px;
+  right: 2px;
+  padding: 0 5px;
+  font-size: 8.5px;
+  line-height: 12px;
+  pointer-events: none;
+}
+
+.header-experimental-link .experimental-badge {
+  top: -11px;
+  right: -14px;
+}
+
+.v1-page .run-tabs {
+  padding-top: 6px;
+}
+
+.run-content--design,
+.run-content--experimental {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.run-experimental {
+  height: auto;
+  padding: 18px 20px;
+  border-radius: 18px;
+}
+
+.run-experimental-bar {
+  margin-bottom: 12px;
+}
+
+.run-experimental-hint {
+  margin: 0 0 12px;
+  color: var(--ui-ink-3);
+  font-size: 13px;
+}
+
+
+/* ------------------------------------------------------------ header nav */
+
+.app-header .header-nav {
+  flex: 1 1 auto;
+  margin-left: 36px;
+}
+
+.header-nav-spacer {
+  flex: 1 1 auto;
+}
+
+/* One entry for the experimental pages, opened as a small menu. */
+.experimental-menu {
+  position: relative;
+}
+
+.experimental-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px 7px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-ink-3);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.experimental-menu-button:hover,
+.experimental-menu-button[aria-expanded='true'] {
+  background: rgba(124, 58, 237, 0.08);
+  color: #6d28d9;
+}
+
+.experimental-menu-button[data-active='true'] {
+  background: rgba(124, 58, 237, 0.12);
+  color: #6d28d9;
+}
+
+[data-theme='dark'] .experimental-menu-button:hover,
+[data-theme='dark'] .experimental-menu-button[aria-expanded='true'],
+[data-theme='dark'] .experimental-menu-button[data-active='true'] {
+  background: rgba(167, 139, 250, 0.14);
+  color: #c4b5fd;
+}
+
+.experimental-menu-chevron {
+  opacity: 0.6;
+  transition: transform 140ms ease;
+}
+
+.experimental-menu-button[aria-expanded='true'] .experimental-menu-chevron {
+  transform: rotate(180deg);
+}
+
+.experimental-menu-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 40;
+  display: grid;
+  width: 300px;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 16px;
+  background: var(--ui-surface-raised);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08), 0 22px 44px -18px rgba(15, 23, 42, 0.35);
+}
+
+[data-theme='dark'] .experimental-menu-popover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5), 0 22px 44px -18px rgba(0, 0, 0, 0.8);
+}
+
+.experimental-menu-note {
+  margin: 4px 10px 8px;
+  color: var(--ui-ink-3);
+  font-size: 11.5px;
+}
+
+.experimental-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 11px;
+  color: var(--ui-ink);
+  text-decoration: none;
+}
+
+.experimental-menu-item:hover,
+.experimental-menu-item:focus-visible,
+.experimental-menu-item[aria-current='page'] {
+  background: var(--ui-chip);
+}
+
+.experimental-menu-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
+  color: #ffffff;
+}
+
+.experimental-menu-words {
+  display: grid;
+  gap: 1px;
+}
+
+.experimental-menu-words b {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.experimental-menu-words small {
+  color: var(--ui-ink-3);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* A phone keeps every header entry: the brand drops its maker line and Experimental shows its icon. */
+@media (max-width: 760px) {
+  .app-header .header-nav {
+    min-width: 0;
+    margin-left: 12px;
+  }
+
+  .header-brand {
+    gap: 8px;
+  }
+
+  .brand-name > span,
+  .experimental-menu-label {
+    display: none;
+  }
+
+  .experimental-menu-button {
+    gap: 3px;
+    padding: 7px 8px;
+  }
+
+  .experimental-menu-popover {
+    position: fixed;
+    top: calc(var(--header-h) + 6px);
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100dvh - var(--header-h) - 18px);
+    overflow-y: auto;
+  }
+}
+
+.page-title-badge {
+  margin-left: 8px;
+  font-size: 11px;
+  vertical-align: 0.5em;
 }

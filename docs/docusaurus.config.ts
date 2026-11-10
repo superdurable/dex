@@ -217,7 +217,8 @@ const config: Config = {
           symlinks: false,
           // Dex Web's Flow canvas is compiled from its source and shares the docs' React and libraries.
           alias: {
-            '@dex-web-v2': fileURLToPath(new URL('../web/app/v2', import.meta.url)),
+            '@dex-web-design': fileURLToPath(new URL('../web/app/design', import.meta.url)),
+            '@dex-web-workspace': fileURLToPath(new URL('../web/app/workspace', import.meta.url)),
             ...Object.fromEntries(
               ['react', 'react-dom', '@xyflow/react', 'elkjs'].map((name) => [
                 name,
@@ -233,7 +234,8 @@ const config: Config = {
               test: /\.[jt]sx?$/,
               include: [
                 fileURLToPath(new URL('./node_modules/@superdurable/flow-definition-renderer/src', import.meta.url)),
-                fileURLToPath(new URL('../web/app/v2', import.meta.url)),
+                fileURLToPath(new URL('../web/app/design', import.meta.url)),
+                fileURLToPath(new URL('../web/app/workspace', import.meta.url)),
               ],
             },
           ],

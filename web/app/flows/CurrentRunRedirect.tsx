@@ -7,12 +7,14 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
 
 export function CurrentRunRedirect({ flowId }: { flowId: string }) {
   const navigate = useNavigate();
+  // A linked tab, such as ?view=session, survives resolving the current run.
+  const { search, hash } = useLocation();
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -22,7 +24,7 @@ export function CurrentRunRedirect({ flowId }: { flowId: string }) {
     })
       .then(async (response) => {
         const data = await readResponseJSON<FlowSummary>(response);
-        navigate(`/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(data.runId)}`, {
+        navigate(`/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(data.runId)}${search}${hash}`, {
           replace: true,
         });
       })
@@ -31,7 +33,7 @@ export function CurrentRunRedirect({ flowId }: { flowId: string }) {
         setError(lookupError instanceof Error ? lookupError.message : 'Flow lookup failed');
       });
     return () => controller.abort();
-  }, [flowId, navigate]);
+  }, [flowId, hash, navigate, search]);
 
   if (error) {
     return (
