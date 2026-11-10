@@ -87,11 +87,12 @@ across many Steps and waits.
 
 ## Failures {#what-it-does-not-cover}
 
-This proof assumes no crashes, retries, or redelivery. A second proof will
-show that these failures do not change what a Flow does. Together, the two
-proofs say that a program runs on Dex as if no failure had happened. The
-second proof is tracked in
-[issue 1514](https://github.com/superdurable/dex/issues/1514).
+This proof assumes no crashes, retries, or redelivery. The
+[Failure transparency proof](/concepts/correctness-and-expressiveness/failure-transparency-proof)
+adds them. It shows that these failures do not change what a Flow does, except
+that external effects may repeat. Together, the two proofs say that a program
+runs on Dex as if no failure had happened, apart from those repeats. Both
+proofs hold under the assumptions that their pages list.
 
 ## Related evidence {#related-evidence}
 

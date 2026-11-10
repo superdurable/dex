@@ -48,6 +48,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'concepts/correctness-and-expressiveness/workflow-patterns',
             'concepts/correctness-and-expressiveness/expressiveness-proof',
+            'concepts/correctness-and-expressiveness/failure-transparency-proof',
           ],
         },
       ],

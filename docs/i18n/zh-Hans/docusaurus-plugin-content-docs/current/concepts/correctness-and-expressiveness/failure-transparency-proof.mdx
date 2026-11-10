@@ -1,0 +1,88 @@
+---
+title: Failure transparency proof
+sidebar_label: Failure transparency proof
+slug: /concepts/correctness-and-expressiveness/failure-transparency-proof
+---
+
+# 故障透明性证明
+
+Dex 有一个经计算机检查的证明：故障不会改变 Flow 的行为。唯一的例外是外部副作用可能重复。本页说明这个证明讲了什么、依赖哪些假设，以及它对你的代码意味着什么。完整论证见论文。
+
+- [下载论文（PDF）](/papers/dex-expressiveness.pdf)
+- [GitHub 上的形式化源码](https://github.com/superdurable/dex/tree/main/formal)
+
+## 结论 {#the-claim}
+
+这个证明覆盖以下故障：
+
+- server 崩溃，然后从持久日志恢复；
+- 备用 server 接管；
+- Step 方法的一次 attempt 失败，例如 Worker 报错、超时或 Worker 断开，然后 Dex 重试；
+- Dex 已经放弃某次 attempt，Worker 却还在继续运行它；
+- Worker 的结果到达两次，或在它的 attempt 被替换之后才到达；
+- 客户端再次发送同一个 **StartFlow** 请求。
+
+结论：取一个 Flow 带有这些故障的任意一次运行，去掉其中每个重复的外部副作用。剩下的，就是同一个 Flow 在没有任何故障时也可能有的一次运行。它有相同的事件和相同的结局。
+
+重复的副作用从来不是新的。它是同一个 Step 方法先前某个副作用的精确副本。
+
+[表达能力证明](/concepts/correctness-and-expressiveness/expressiveness-proof)覆盖没有故障的运行。两个证明可以组合。那个证明中的小型并发语言写的程序，在 Dex 上运行就像从来没有出过故障一样，只是它的外部副作用可能重复。
+
+## 为什么重复仍然简单 {#why-repeats-stay-simple}
+
+一个 Step 方法可能分几次 attempt 运行。每次 attempt 读到的状态都相同：Dex 在第一次 attempt 时取状态快照，之后每次重试都复用它。所以，只要你的代码不关心自己是第几次 attempt，每次 attempt 都会以相同的顺序算出相同的外部副作用。
+
+一次 attempt 依次产生它的副作用。所以旧的 attempt 只能重复某次 attempt 已经产生过的副作用。它不能产生新的副作用，也不能换一种顺序产生。
+
+## 这对你的代码意味着什么 {#what-it-means-for-you}
+
+要预期重复。重试可能重复外部副作用。多次 attempt 在时间上可能重叠。旧的 attempt 可能在较新的 attempt 结束之后仍在运行，甚至在 Flow 关闭之后仍在运行。
+
+只做到幂等还不够。幂等的调用连续运行两次，结果不变。但重复可能来得很晚，在一次较新的写入之后才到。比如，旧的 attempt 把状态设为 "packed"，而下一个 Step 已经把它设为 "shipped"。迟到的调用又把它设回 "packed"。每次调用都是幂等的，结果却是错的。
+
+改用下面的一种做法：
+
+- **幂等键（idempotency key）。** 用 Flow ID 和 StepExecutionID 派生它，每次 attempt 共用这两个值。外部系统就会忽略迟到的重复。[Step 的保证](/concepts/step#guarantees)说明了怎样为副作用设置键。
+- **可交换的副作用。** 例如向一个集合添加元素。这样顺序就无关紧要。
+- **按 attempt 设防（fence）。** 外部系统拒绝来自较旧 attempt 的调用。这需要读取 attempt 编号，所以不满足下面关于 attempt 上下文的假设，不在证明范围内。但它仍能挡住迟到的写入。
+
+**PublishToChannel** 请求没有 request ID。如果响应丢失、客户端再次发送这个请求，Flow 就会收到两次消息。证明把这当作第二个请求，而不是一次故障。要做到只发布一次，客户端可以调用一个 RPC，并传入自己选定的 request ID；这要等 SDK 支持传入该 ID，在 [issue 1519](https://github.com/superdurable/dex/issues/1519) 中跟进。在此之前，请给每条消息加上你自己的 ID，并让 Flow 忽略重复的消息。
+
+不带 run ID 的 **StopFlow** 请求会停止该 Flow ID 最新的一次运行。如果 Flow ID 被复用，迟到的重试可能停掉新的运行。等 SDK 支持 run ID 后，请传入它。这在 [issue 1520](https://github.com/superdurable/dex/issues/1520) 中跟进。
+
+要安全地重试 **StartFlow**，请发送相同的 request ID，并要求返回已有的运行。见[启动选项](/concepts/flow#start-options)。在保留期结束、Dex 删除已关闭的运行之前，证明都覆盖这类重试。此后的重试会启动一次新的运行。
+
+## 证明依赖的假设 {#what-the-proof-assumes}
+
+证明在以下条件下成立。超出这些条件，一次运行可能与任何无故障的运行都不同。
+
+- **与表达能力证明相同的范围。** 一个 Flow 启动一次，并接收 Channel 消息。故障下的 RPC、SubFlow、**StopFlow** 和 Attribute 锁不在覆盖范围内。
+- **只覆盖 SYNC 方法。** **ASYNC** 方法可能在 server 崩溃时丢失它的启动。它随后会在新的快照上再次运行，所以副作用可能不同。
+- **重试不会用完。** 重试用完时 Flow 会失败，而没有故障时这不会发生。server 长时间停机可能耗尽重试时间。
+- **没有失败策略。** 失败后继续执行的策略会改变接下来运行什么。
+- **代码不关心自己是第几次 attempt。** 副作用和结果不能依赖 attempt 编号、第一次 attempt 的时间、上一次错误或上一次心跳值。从心跳检查点恢复的代码不在证明范围内。
+- **没有不可重试的错误。** 不可重试的错误会立即结束重试。
+- **故障最终会停止。** 关于运行如何结束的证明假设故障只有有限多次，还假设每次崩溃后 server 都会恢复。
+- **单个 server 上时钟不回退。** server 先检查某个 Timer 是否到期，然后给触发它的命令打时间戳。在这两步之间，它的时钟不能回退。
+- **几乎同时到期的 Timer。** 证明假设到期的 Timer 按到期时间的顺序触发。在一个很短的窗口内，真实的 server 可能先触发一个 Timer，而另一个更早到期的 Timer 仍在等待。两个证明都不覆盖这个窗口。
+- **同一时刻只有一个 server。** 备用 server 接管在覆盖范围内。多个 server 同时拥有同一批 Flow 则不在范围内。
+
+## 证明没有说什么 {#what-it-does-not-say}
+
+- 它不会让外部副作用只发生一次。这是你的代码的职责，上一节说明了做法。
+- 它不涉及真实时间。按 server 的时间戳，Timer 绝不会提前触发。但时钟走快的 server 仍可能提前触发它。
+- 它不涉及再次发送 **PublishToChannel** 的客户端。
+- 它没有说任何重复模式都可能出现。它说的是：每次有故障的运行，都是一次无故障的运行加上重复；它还说，每次无故障的运行仍然都可能发生。
+- 关于运行如何结束，反方向只对没有 **StartFlow** 重试的运行得到证明。一次重试会推进 server 的时钟，所以可能改变哪个 Timer 先到期。
+
+## 如何验证 {#how-it-was-checked}
+
+- **对故障的精确描述。** 每条故障规则都写了下来，并注明实现它的 server 代码。评审者对照代码逐条检查了这些规则。
+- **经计算机检查的证明。** 证明用 Lean 4 证明助手写成，它检查每一步。
+- **先测试，再证明。** 一个 fuzzer 遍历了随机的运行，其中有崩溃、重试和迟到的 attempt。它在每一步都检查论证是否成立。带有一次崩溃、两次重试和一个迟到的重复副作用的示例运行，也由证明助手检查。
+
+## 相关页面 {#related-pages}
+
+- [Correctness and expressiveness](/concepts/correctness-and-expressiveness)
+- [表达能力证明](/concepts/correctness-and-expressiveness/expressiveness-proof)
+- [Step 的保证](/concepts/step#guarantees)

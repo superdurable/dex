@@ -68,7 +68,7 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 
 ## 故障 {#what-it-does-not-cover}
 
-这个证明假设没有崩溃、重试或消息重投。第二个证明将说明这些故障不会改变 Flow 的行为。两个证明合起来就是：程序在 Dex 上运行，就像从来没有出过故障一样。第二个证明在 [issue 1514](https://github.com/superdurable/dex/issues/1514) 中跟进。
+这个证明假设没有崩溃、重试或消息重投。[故障透明性证明](/concepts/correctness-and-expressiveness/failure-transparency-proof)加入了这些故障。它说明这些故障不会改变 Flow 的行为，只是外部副作用可能重复。两个证明合起来就是：程序在 Dex 上运行，就像从来没有出过故障一样，只是会有这些重复。两个证明都在各自页面列出的假设下成立。
 
 ## 相关证据 {#related-evidence}
 

@@ -29,6 +29,19 @@ A computer checks every step of the proof. The
 ## Correctness
 
 The [Step guarantees](/concepts/step#guarantees) state what Dex promises when
-a Step method fails or runs again. A second proof, that crashes, retries, and
-redelivery do not change what a Flow does, is tracked in
-[issue 1514](https://github.com/superdurable/dex/issues/1514).
+a Step method fails or runs again.
+
+The [Failure transparency proof](/concepts/correctness-and-expressiveness/failure-transparency-proof)
+shows that failures do not change what a Flow does, except that external
+effects may repeat. It covers server crashes, standby takeovers, retries,
+Workers that keep running after Dex gave up on them, and duplicate results. It
+holds under stated assumptions. For example, it covers **SYNC** methods only, and
+retries must not run out. A computer checks every step of this proof too. The
+same [paper](/papers/dex-expressiveness.pdf) has the full argument.
+
+Together, the two proofs say that a program in the small concurrent language
+runs on Dex as if no failure had happened, except that its external effects
+may repeat. Repeats can overlap and come late, so an idempotent effect alone
+is not enough.
+[What this means for your code](/concepts/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)
+explains what to do instead.
