@@ -1,16 +1,22 @@
 import DexExpressiveness.Simulation.LToDex
 import DexExpressiveness.Simulation.DexToLLemmas
+import DexExpressiveness.Simulation.DexToLObserved
 
 /-!
 # Dex to L: every Dex step is simulated by the L program
 
-Work package 4 of the safety proof. `dex_step_simulated` is `sorry`; the
-README lists it. `dex_step_simulated_of_observed` reduces it to the steps of
-`IsObservedWhileRunning`: every other enabled step is proved simulated in
-`Simulation/DexToLLemmas.lean` (a tick, the handler steps, the stale drops,
-and every step after the close).
+Work package 4 of the safety proof. `dex_step_simulated` is proved here from
+two parts. This file has no `sorry` of its own; the proof depends on the L
+to Dex lemmas through `l_step_simulatedByActions`.
 
-The plan for the steps of `IsObservedWhileRunning` uses the L to Dex lemmas
+- `dex_step_simulated_of_observed` reduces it to the steps of
+  `IsObservedWhileRunning`: every other enabled step is proved simulated in
+  `Simulation/DexToLLemmas.lean` (a tick, the handler steps, the stale drops,
+  and every step after the close).
+- `Simulation/DexToLObserved.lean` proves the steps of
+  `IsObservedWhileRunning`, one lemma per kind of step.
+
+The steps of `IsObservedWhileRunning` use the L to Dex lemmas
 and determinism instead of a second case analysis of the relation. Each of
 these Dex actions has one L label that it simulates: the start of the Flow,
 and, while the Flow runs, a publication, [STEP-START], [WORKER-EFFECT], a
@@ -165,6 +171,39 @@ theorem dex_step_simulated (program : Program) (lConfig : L.Config)
     (dexEvents : List (Dex.Obs signature)) (dexNext : Dex.Config signature)
     (isStep : (Dex.system ⟦program⟧).step dexConfig action = some (dexEvents, dexNext)) :
     IsSimulatedByL program lConfig dexEvents dexNext := by
-  sorry
+  apply dex_step_simulated_of_observed program lConfig dexConfig state action isAdmissible
+    dexEvents dexNext isStep
+  intro isObserved
+  cases action with
+  | request request =>
+    cases request with
+    | startFlow stepType input =>
+      exact dex_startFlow_simulated program lConfig dexConfig state stepType input isAdmissible
+        _ _ isStep
+    | publish chan message =>
+      obtain ⟨run, hasRun, isRunning⟩ := isObserved
+      exact dex_publish_running_simulated program lConfig dexConfig state run hasRun isRunning
+        chan message isAdmissible _ _ isStep
+  | stepStart stepId =>
+    obtain ⟨run, hasRun, isRunning⟩ := isObserved
+    exact dex_stepStart_simulated program lConfig dexConfig state breaksNoRequirement run hasRun
+      isRunning stepId _ _ isStep
+  | workerEffect taskId =>
+    obtain ⟨run, hasRun, isRunning⟩ := isObserved
+    exact dex_workerEffect_running_simulated program lConfig dexConfig state run hasRun isRunning
+      taskId _ _ isStep
+  | stepComplete taskId =>
+    obtain ⟨run, hasRun, isRunning⟩ := isObserved
+    exact dex_stepComplete_simulated program lConfig dexConfig state run hasRun isRunning taskId
+      _ _ isStep
+  | timerFire count =>
+    obtain ⟨run, hasRun, isRunning⟩ := isObserved
+    exact dex_timerFire_simulated program lConfig dexConfig state run hasRun isRunning count _ _
+      isStep
+  | tick duration => cases isObserved
+  | workerRun taskId => cases isObserved
+  | workerReturn taskId => cases isObserved
+  | workerAbandon taskId => cases isObserved
+  | stepCompleteStale taskId => cases isObserved
 
 end DexExpressiveness
