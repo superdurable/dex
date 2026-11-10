@@ -221,7 +221,7 @@ impl Step for StepSecond {
 
 完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。多个完成类的决定都返回 output 时，result 会保留每一个。只有最终完成的 Flow 才保留这些 output。如果 Flow 没有完成（失败、被取消、被终止或超时），它的 result 不含任何 output。
 
-决定还可以取消其他 active Step。被取消的 Step 已经消费的 Channel 消息会怎样，见 [Channel 的保证](/concepts/primitives/channel#保证)。另见 [Parallel Steps](/design-patterns/parallel) 和 [Parallel SubFlows](/design-patterns/parallel-subflows) 模式。
+决定还可以取消其他 active Step。见 [Parallel Steps](/design-patterns/parallel) 和 [Parallel SubFlows](/design-patterns/parallel-subflows) 模式。
 
 ## StepOptions {#stepoptions}
 

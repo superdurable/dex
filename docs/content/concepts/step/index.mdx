@@ -241,9 +241,7 @@ keeps each one. Only a Flow that completes keeps these outputs. If the Flow does
 not complete because it fails, is canceled, is terminated, or times out, its
 result has no outputs.
 
-A decision can also cancel other active Steps.
-[Channel guarantees](/concepts/primitives/channel#guarantees) say what happens
-to the Channel messages that a canceled Step consumed. See the
+A decision can also cancel other active Steps. See the
 [Parallel Steps](/design-patterns/parallel) and
 [Parallel SubFlows](/design-patterns/parallel-subflows) patterns.
 

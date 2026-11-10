@@ -34,7 +34,7 @@ live progress that a user can afford to lose.
 - When a Step is canceled because the Flow closes, Dex drops the messages
   instead. That happens on a **StopFlow** request, on a Flow timeout, and on a
   decision that closes the Flow with **ForceComplete** or **ForceFail**.
-- Any other cancellation returns the messages, even when the Flow closes later,
+- Any other cancellation puts the messages back, even when the Flow closes later,
   for example after **GracefulComplete**. No Step consumes them after the close.
 - When one Step method cancels a Step and publishes messages, the canceled
   Step never receives those messages.
