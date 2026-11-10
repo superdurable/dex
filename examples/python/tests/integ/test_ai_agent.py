@@ -24,7 +24,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from dex import AsyncClient
+from dex import AsyncClient, FlowInfo
 from dex_agents import (
     AgentSessionClient,
     InterruptKind,
@@ -437,7 +437,15 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
     async def reject_lifecycle_probe(*arguments: object, **keywords: object) -> None:
         raise AssertionError("snapshot reads must not wait for the Flow to close")
 
-    # Dex Agents describes the Flow to report a failed session; a stopped one needs no wait.
+    # Dex Agents describes the Flow once to report a failed session; a stopped one needs no wait.
+    described_flow_ids: list[str] = []
+    describe_flow = client.describe_flow
+
+    async def record_describe_flow(flow_id: str) -> FlowInfo:
+        described_flow_ids.append(flow_id)
+        return await describe_flow(flow_id)
+
+    monkeypatch.setattr(client, "describe_flow", record_describe_flow)
     monkeypatch.setattr(client, "wait_for_flow", reject_lifecycle_probe)
     http_client = create_app(app).test_client()
     response = await http_client.get(
@@ -449,6 +457,7 @@ async def test_ai_agent_queues_messages_and_steers_at_a_safe_boundary(
     payload = await response.get_json()
     assert payload["snapshot"]["messages"]
     assert payload["snapshot"]["state"] is not None
+    assert described_flow_ids == [session_id]
     missing_session_id = new_flow_id("missing-ai-agent")
     missing_response = await http_client.get(
         "/products/ai-agent/snapshot",
