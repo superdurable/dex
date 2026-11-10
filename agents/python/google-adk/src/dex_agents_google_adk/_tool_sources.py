@@ -57,7 +57,11 @@ class SourceToolset(BaseToolset):
         active = _ACTIVE_SOURCE_TOOLS.get()
         if active is None or active[0] is not self._router:
             return []
-        return [SourceTool(definition) for definition in active[1].tools]
+        listing = active[1]
+        # Replay-only tools stay offered: ADK resumes a confirmed call only with a known tool.
+        return [
+            SourceTool(definition) for definition in (*listing.tools, *listing.replay_only_tools)
+        ]
 
     async def close(self) -> None:
         return None

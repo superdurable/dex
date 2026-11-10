@@ -9,7 +9,11 @@
 """An ADK agent whose tool source offers the fake ledger Connector's operations.
 
 The model reads ``calls <json>`` from the latest user message, a JSON list of
-``[tool_name, arguments]`` pairs, and calls them in one response. It calls
+``[tool_name, arguments]`` pairs, and calls them in one response. More lists
+joined with `` then `` are later responses; a third item in a pair sets the
+call ID. ``hiding_note`` comes from a second source whose listing a test can
+empty or break by writing ``withdrawn`` into the state directory. A second
+agent, ``colliding``, has a toolset that lists ``get_balance`` at run time. It calls
 only tools declared in its request; any other name makes it answer
 ``unbound <name>``. Once results arrive it answers one ``<tool_name>:
 <result>`` line per result. A ``hold:<gate>`` word before ``calls`` makes that
@@ -30,12 +34,27 @@ from pathlib import Path
 from typing import Any
 
 from google.adk.agents import LlmAgent
+from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
+from google.adk.tools import BaseTool, FunctionTool
+from google.adk.tools.base_toolset import BaseToolset
 from google.genai import types
 
-from dex_agents import AgentSessionFlow, ToolEffect, ToolPolicy
+from dex_agents import (
+    AgentSessionFlow,
+    AgentToolCall,
+    AgentTurnContext,
+    DeferredToolCall,
+    DeferredToolExecution,
+    ToolCallStepOptions,
+    ToolEffect,
+    ToolExecutionResult,
+    ToolPolicy,
+    ToolTaskPoll,
+    ToolTaskPollOutcome,
+)
 from dex_agents.connectors import ConnectorToolSource, connector_tool
 from dex_agents.testing import FileGate
 from dex_agents_google_adk import adk_agent_session_flow
@@ -49,6 +68,8 @@ from tests.fake_ledger import (
 )
 
 CONNECTOR_AGENT_FLOW_TYPE = "AdkConnectorAgent"
+COLLIDING_CONNECTOR_AGENT_FLOW_TYPE = "AdkCollidingConnectorAgent"
+WITHDRAWN_FILE_NAME = "withdrawn"
 CONNECTOR_TOOL_POLICIES = {
     "lookup": ToolPolicy(ToolEffect.READ),
     "policy_note": ToolPolicy(ToolEffect.READ, requires_approval=True),
@@ -75,28 +96,37 @@ class ConnectorScriptedModel(BaseLlm):
         if prompt.startswith("hold:"):
             hold_word, prompt = prompt.split(" ", 1)
             hold = hold_word.removeprefix("hold:")
-        results = [
-            f"{response.name}: {_describe_response(response.response or {})}"
-            for content in contents[prompt_index + 1 :]
-            for part in content.parts or []
-            if (response := part.function_response) is not None
-        ]
-        if results:
-            if hold is not None:
-                gate = FileGate(Path(self.state_dir), hold)
-                gate.mark_reached()
-                await gate.wait_for_release()
-            yield _text_response("\n".join(results))
-            return
+        later = contents[prompt_index + 1 :]
         if not prompt.startswith("calls "):
             yield _text_response(f"said: {prompt}")
             return
-        requested: list[Any] = json.loads(prompt.removeprefix("calls "))
-        unbound = [name for name, _ in requested if name not in llm_request.tools_dict]
-        if unbound:
-            yield _text_response(f"unbound {', '.join(unbound)}")
+        rounds = prompt.removeprefix("calls ").split(" then ")
+        finished_rounds = sum(
+            1
+            for content in later
+            if content.role == "model" and any(part.function_call for part in content.parts or [])
+        )
+        if finished_rounds < len(rounds):
+            requested: list[list[Any]] = json.loads(rounds[finished_rounds])
+            unbound = [
+                request[0] for request in requested if request[0] not in llm_request.tools_dict
+            ]
+            if unbound:
+                yield _text_response(f"unbound {', '.join(unbound)}")
+                return
+            yield _function_call_response(requested)
             return
-        yield _function_call_response(requested)
+        if hold is not None:
+            gate = FileGate(Path(self.state_dir), hold)
+            gate.mark_reached()
+            await gate.wait_for_release()
+        results = [
+            f"{response.name}: {_describe_response(response.response or {})}"
+            for content in later
+            for part in content.parts or []
+            if (response := part.function_response) is not None
+        ]
+        yield _text_response("\n".join(results))
 
 
 def lookup(query: str) -> str:
@@ -121,6 +151,62 @@ def build_connector_source(state_dir: Path) -> ConnectorToolSource:
     )
 
 
+class WithdrawingToolSource:
+    """A source whose live listing a test empties or breaks, as a dynamic source might."""
+
+    def __init__(self, inner: ConnectorToolSource, state_dir: Path) -> None:
+        self._inner = inner
+        self._withdrawn_path = state_dir / WITHDRAWN_FILE_NAME
+
+    @property
+    def source_name(self) -> str:
+        return self._inner.source_name
+
+    async def list_tools(self) -> Sequence[Any]:
+        withdrawn = self._withdrawn_path.read_text() if self._withdrawn_path.exists() else ""
+        if withdrawn == "raise":
+            raise ConnectionError("the source is down")
+        return [] if withdrawn == "empty" else await self._inner.list_tools()
+
+    def cached_tools(self) -> Sequence[Any]:
+        return self._inner.cached_tools()
+
+    def deferred_tool_call(self, turn: AgentTurnContext, **call: Any) -> DeferredToolCall:
+        return self._inner.deferred_tool_call(turn, **call)
+
+    def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        return self._inner.tool_call_step_options(tool_call)
+
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
+        return await self._inner.execute_deferred_tool_call(call)
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        return await self._inner.poll_tool_task(poll)
+
+
+def build_withdrawing_source(state_dir: Path) -> WithdrawingToolSource:
+    notes = PostNoteOperation(FakeLedgerProvider(state_dir))
+    inner = ConnectorToolSource(
+        [connector_tool(notes, LEDGER_CONNECTION, name="hiding_note")], source_name="hiding"
+    )
+    return WithdrawingToolSource(inner, state_dir)
+
+
+class RuntimeBalanceToolset(BaseToolset):
+    """A toolset that lists ``get_balance`` only at run time, as an MCP server might."""
+
+    async def get_tools(self, readonly_context: ReadonlyContext | None = None) -> list[BaseTool]:
+        return [FunctionTool(get_balance)]
+
+    async def close(self) -> None:
+        return None
+
+
+def get_balance(account_id: str) -> str:
+    """Read a balance from another system."""
+    return f"toolset balance of {account_id}"
+
+
 def build_connector_agent(state_dir: Path) -> LlmAgent:
     return LlmAgent(
         name="connector",
@@ -130,26 +216,46 @@ def build_connector_agent(state_dir: Path) -> LlmAgent:
     )
 
 
-def build_connector_agent_flow(state_dir: Path) -> AgentSessionFlow:
-    return adk_agent_session_flow(
-        build_connector_agent(state_dir),
-        flow_type=CONNECTOR_AGENT_FLOW_TYPE,
-        tool_policies=CONNECTOR_TOOL_POLICIES,
-        tool_sources=[build_connector_source(state_dir)],
+def build_connector_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
+    colliding_agent = LlmAgent(
+        name="colliding",
+        model=ConnectorScriptedModel(state_dir=str(state_dir)),
+        instruction="You are a scripted test agent.",
+        tools=[lookup, RuntimeBalanceToolset()],
     )
+    return [
+        adk_agent_session_flow(
+            build_connector_agent(state_dir),
+            flow_type=CONNECTOR_AGENT_FLOW_TYPE,
+            tool_policies=CONNECTOR_TOOL_POLICIES,
+            tool_sources=[build_connector_source(state_dir), build_withdrawing_source(state_dir)],
+        ),
+        adk_agent_session_flow(
+            colliding_agent,
+            flow_type=COLLIDING_CONNECTOR_AGENT_FLOW_TYPE,
+            tool_sources=[build_connector_source(state_dir)],
+        ),
+    ]
 
 
-def build_connector_agent_flow_from_environment() -> AgentSessionFlow:
-    return build_connector_agent_flow(Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]))
+def build_connector_agent_flows_from_environment() -> list[AgentSessionFlow]:
+    return build_connector_agent_flows(Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]))
 
 
-def _function_call_response(requests: Sequence[tuple[str, dict[str, Any]]]) -> LlmResponse:
+def _function_call_response(requests: Sequence[list[Any]]) -> LlmResponse:
+    # ADK names a call without an ID itself; a third item sets the ID.
     return LlmResponse(
         content=types.Content(
             role="model",
             parts=[
-                types.Part(function_call=types.FunctionCall(name=name, args=arguments))
-                for name, arguments in requests
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name=request[0],
+                        args=request[1],
+                        id=str(request[2]) if len(request) > 2 else None,
+                    )
+                )
+                for request in requests
             ],
         ),
         finish_reason=types.FinishReason.STOP,

@@ -343,7 +343,13 @@ class AdkAgentRunner:
             )
         )
         source_tools = await self._tool_sources.list_source_tools(turn)
-        deferral_plugin = ToolDeferralPlugin(turn, turn.flow_id, self._root_agent, source_tools)
+        deferral_plugin = ToolDeferralPlugin(
+            turn,
+            turn.flow_id,
+            self._root_agent,
+            source_tools,
+            () if suspended is None else suspended.confirmation_request_ids.keys(),
+        )
         live_events = _LiveAdkEventWriter(turn.events, deferral_plugin.control_tool_names)
         runner = Runner(
             app=self._app.model_copy(

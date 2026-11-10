@@ -9,7 +9,7 @@
 """The Worker child process that serves the connector tool agent."""
 
 from dex_agents.testing import run_agent_worker
-from tests.connector_agent import build_connector_agent_flow_from_environment
+from tests.connector_agent import build_connector_agent_flows_from_environment
 
 if __name__ == "__main__":
-    run_agent_worker([build_connector_agent_flow_from_environment()])
+    run_agent_worker(build_connector_agent_flows_from_environment())
