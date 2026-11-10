@@ -236,8 +236,9 @@ A decision can also close the Flow or end a branch:
 - **DeadEnd** ends this branch without closing the Flow.
 
 Completing decisions can return the Flow output, which a client reads as the
-Flow result. Only a Flow that completes keeps these outputs. If the Flow then
-fails, is canceled, is terminated, or times out, its result has no outputs.
+Flow result. Only a Flow that completes keeps these outputs. If the Flow does
+not complete because it fails, is canceled, is terminated, or times out, its
+result has no outputs.
 A decision can also cancel other active Steps. See the
 [Parallel Steps](/design-patterns/parallel) and
 [Parallel SubFlows](/design-patterns/parallel-subflows) patterns.
