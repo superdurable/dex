@@ -188,8 +188,8 @@ html .v2-shell.dg {
   gap: 10px;
 }
 
-/* A narrow canvas stacks the corner under the toolbar, so the two never overlap. */
-@container dg-canvas (max-width: 720px) {
+/* A narrow canvas stacks the corner under the toolbar, so they never overlap, even with the legend open. */
+@container dg-canvas (max-width: 840px) {
   .dg .dg-overlay {
     flex-direction: column;
     align-items: stretch;

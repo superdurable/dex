@@ -90,32 +90,7 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
     <div className="v2-shell dg" data-panel={selectedStep ? 'true' : undefined}>
       <div className="pcanvas dg-canvas">
         <ArrowDefs />
-        <Stage
-          key={definition.file}
-          isSettled={stages.isSettled}
-          dimUnrelated={selectedId !== null}
-          scene={scene}
-          direction={direction}
-          onOpenStage={openStage}
-          onCloseStage={closeStage}
-          cue={stages.cue}
-          selectedId={selectedId}
-          selectedGroupId={selectedGroupId}
-          onSelectGroup={(id) => {
-            setSelectedGroupId(id);
-            setSelectedId(null);
-          }}
-          onSelect={(id) => {
-            setSelectedId(id);
-            // Selecting a Step that can fail draws its detour; selecting inside the detour keeps it.
-            if (id === null || !isFailureHandling(flow, id)) setDetourFor(id !== null && hasDetour(flow, id) ? id : null);
-            setSelectedGroupId(null);
-          }}
-          fitKey={`${definition.file}|${stages.view}`}
-          handleRef={viewportRef}
-          showsZoomControls={false}
-        />
-        {/* Overlays on the canvas, not scene nodes: they stay readable and in view at any zoom or width. */}
+        {/* Overlays on the canvas, not scene nodes: they stay readable at any zoom. Placed first so tab order reaches them before Step cards. */}
         <div className="dg-overlay">
           <DesignToolbar
             stages={stages.hasStages ? stages.state : null}
@@ -167,6 +142,31 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
             </div>
           </div>
         </div>
+        <Stage
+          key={definition.file}
+          isSettled={stages.isSettled}
+          dimUnrelated={selectedId !== null}
+          scene={scene}
+          direction={direction}
+          onOpenStage={openStage}
+          onCloseStage={closeStage}
+          cue={stages.cue}
+          selectedId={selectedId}
+          selectedGroupId={selectedGroupId}
+          onSelectGroup={(id) => {
+            setSelectedGroupId(id);
+            setSelectedId(null);
+          }}
+          onSelect={(id) => {
+            setSelectedId(id);
+            // Selecting a Step that can fail draws its detour; selecting inside the detour keeps it.
+            if (id === null || !isFailureHandling(flow, id)) setDetourFor(id !== null && hasDetour(flow, id) ? id : null);
+            setSelectedGroupId(null);
+          }}
+          fitKey={`${definition.file}|${stages.view}`}
+          handleRef={viewportRef}
+          showsZoomControls={false}
+        />
         <p className="sr-only" aria-live="polite">{stages.cue?.message}</p>
         <p className="sr-only" aria-live="polite">{detourFor ? detourMessage(flow, detourFor) : ''}</p>
       </div>
