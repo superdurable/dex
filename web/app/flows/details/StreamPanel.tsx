@@ -26,6 +26,7 @@ import {
   trimStreamEntries,
 } from './StreamOutput';
 import type { StreamEntriesState, StreamListeningStatus } from './StreamOutput';
+import { webURL } from '@/lib/basePath';
 
 interface StreamPanelProps {
   flowId: string;
@@ -78,7 +79,7 @@ export async function listenToStream({
       streamName,
       resumeToken,
     });
-    const response = await fetcher(`/api/flows/stream?${params}`, {
+    const response = await fetcher(webURL(`/api/flows/stream?${params}`), {
       cache: 'no-store',
       signal,
     });

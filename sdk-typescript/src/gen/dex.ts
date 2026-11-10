@@ -174,8 +174,6 @@ export enum FlowStatus {
   FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY = 4,
   FLOW_STATUS_TERMINATED = 5,
   FLOW_STATUS_CANCELED = 6,
-  /** FLOW_STATUS_CONTINUED_AS_NEW - Deprecated: Dex does not continue Flows as new and never returns this status. */
-  FLOW_STATUS_CONTINUED_AS_NEW = 7,
   UNRECOGNIZED = -1,
 }
 
@@ -709,21 +707,7 @@ export interface FlowStartOptions {
 }
 
 export interface FlowConfig {
-  activeStepSearchMode?:
-    | ActiveStepSearchMode
-    | undefined;
-  /**
-   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-   * value in the Flow configuration, and otherwise ignores it.
-   */
-  continueAsNewThreshold?:
-    | number
-    | undefined;
-  /**
-   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-   * value in the Flow configuration, and otherwise ignores it.
-   */
-  continueAsNewPageSizeInBytes?: number | undefined;
+  activeStepSearchMode?: ActiveStepSearchMode | undefined;
   stepDurability?: StepDurability | undefined;
   workerTarget:
     | WorkerTarget
@@ -988,8 +972,6 @@ export interface SearchFlowsRequest {
   query: string;
   pageSize: number;
   nextPageToken: string;
-  /** Deprecated: Dex does not continue Flows as new and ignores this field. */
-  includeContinuedAsNew: boolean;
 }
 
 export interface SearchFlowsResponse {
@@ -1019,7 +1001,7 @@ export interface SyncAttributeIndexRequest_AttributeIndexesEntry {
 export interface SyncAttributeIndexResponse {
 }
 
-export interface FlowExecutionID {
+export interface FlowRunID {
   flowId: string;
   runId: string;
 }
@@ -1030,8 +1012,8 @@ export interface GetFlowSummaryRequest {
 }
 
 export interface GetFlowSummaryResponse {
-  flowExecutionId:
-    | FlowExecutionID
+  flowRunId:
+    | FlowRunID
     | undefined;
   /** Always equals run_id. */
   firstRunId: string;
@@ -1142,15 +1124,13 @@ export interface TimeTravelForkHistoryEvent {
 }
 
 export interface FlowStartedOrContinuedHistoryEvent {
-  flowExecutionId: FlowExecutionID | undefined;
+  flowRunId: FlowRunID | undefined;
   flowType: string;
   flowConfig: FlowConfig | undefined;
   flowTimeout: Duration | undefined;
   flowTimeoutPolicy: FlowTimeoutPolicy;
   timeoutHandlerOptions: FlowTimeoutHandlerOptions | undefined;
-  startOrContinue: { $case: "initialStart"; value: FlowInitialStart } | //
-  /** Deprecated: Dex does not continue Flows as new and never sets this. */
-  { $case: "continuedStart"; value: FlowContinuedStart } | undefined;
+  startOrContinue: { $case: "initialStart"; value: FlowInitialStart } | undefined;
 }
 
 export interface FlowInitialStart {
@@ -1160,29 +1140,11 @@ export interface FlowInitialStart {
   initialAttributes: KV[];
 }
 
-/** Deprecated: Dex does not continue Flows as new and never records this start. */
-export interface FlowContinuedStart {
-  previousRunId: string;
-  stepsToStart: StepMovement[];
-  stepsToResume: StepExecutionResumeInfo[];
-  pendingChannelMessages: { [key: string]: ChannelValues };
-  attributes: KV[];
-  completedSteps: StepCompletionOutput[];
-  stickyAppWorkerId: string;
-}
-
-export interface FlowContinuedStart_PendingChannelMessagesEntry {
-  key: string;
-  value: ChannelValues | undefined;
-}
-
 export interface FlowClosedHistoryEvent {
   flowStatus: FlowStatus;
   results: StepCompletionOutput[];
   errorType: FlowErrorType;
   errorMessage: string;
-  /** Deprecated: Dex does not continue Flows as new and never sets this. */
-  continuedToRunId: string;
   stickyAppWorkerId: string;
 }
 
@@ -1575,9 +1537,7 @@ export interface WaitForStepCompletionRequest {
    * Zero waits indefinitely.
    */
   requestTimeoutSeconds: number;
-  /** Deprecated: Dex rejects a negative value and otherwise ignores this field. */
-  internalHandlerTimeoutSeconds: number;
-  /** Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}. */
+  /** Optional request identifier. The Server does not read it for this wait. */
   requestId: string;
 }
 
@@ -1594,9 +1554,7 @@ export interface WaitForAttributeRequest {
    * Zero waits indefinitely.
    */
   requestTimeoutSeconds: number;
-  /** Deprecated: Dex rejects a negative value and otherwise ignores this field. */
-  internalHandlerTimeoutSeconds: number;
-  /** Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}. */
+  /** Optional request identifier. The Server does not read it for this wait. */
   requestId: string;
 }
 
@@ -1608,12 +1566,6 @@ export interface AttributeMatch {
   key: string;
   operator: AttributeMatchOperator;
   operand: Value | undefined;
-}
-
-/** Deprecated: TriggerContinueAsNew always returns UNIMPLEMENTED. */
-export interface TriggerContinueAsNewRequest {
-  flowId: string;
-  runId: string;
 }
 
 export interface HealthInfo {
@@ -4614,8 +4566,6 @@ export const FlowStartOptions: MessageFns<FlowStartOptions> = {
 function createBaseFlowConfig(): FlowConfig {
   return {
     activeStepSearchMode: undefined,
-    continueAsNewThreshold: undefined,
-    continueAsNewPageSizeInBytes: undefined,
     stepDurability: undefined,
     workerTarget: undefined,
     attributeStoreNames: undefined,
@@ -4629,12 +4579,6 @@ export const FlowConfig: MessageFns<FlowConfig> = {
   encode(message: FlowConfig, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.activeStepSearchMode !== undefined) {
       writer.uint32(8).int32(message.activeStepSearchMode);
-    }
-    if (message.continueAsNewThreshold !== undefined) {
-      writer.uint32(16).int32(message.continueAsNewThreshold);
-    }
-    if (message.continueAsNewPageSizeInBytes !== undefined) {
-      writer.uint32(24).int32(message.continueAsNewPageSizeInBytes);
     }
     if (message.stepDurability !== undefined) {
       writer.uint32(32).int32(message.stepDurability);
@@ -4670,22 +4614,6 @@ export const FlowConfig: MessageFns<FlowConfig> = {
           }
 
           message.activeStepSearchMode = reader.int32() as any;
-          continue;
-        }
-        case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.continueAsNewThreshold = reader.int32();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.continueAsNewPageSizeInBytes = reader.int32();
           continue;
         }
         case 4: {
@@ -4751,8 +4679,6 @@ export const FlowConfig: MessageFns<FlowConfig> = {
   fromPartial<I extends Exact<DeepPartial<FlowConfig>, I>>(object: I): FlowConfig {
     const message = createBaseFlowConfig();
     message.activeStepSearchMode = object.activeStepSearchMode ?? undefined;
-    message.continueAsNewThreshold = object.continueAsNewThreshold ?? undefined;
-    message.continueAsNewPageSizeInBytes = object.continueAsNewPageSizeInBytes ?? undefined;
     message.stepDurability = object.stepDurability ?? undefined;
     message.workerTarget = (object.workerTarget !== undefined && object.workerTarget !== null)
       ? WorkerTarget.fromPartial(object.workerTarget)
@@ -6725,7 +6651,7 @@ export const FlowResult: MessageFns<FlowResult> = {
 };
 
 function createBaseSearchFlowsRequest(): SearchFlowsRequest {
-  return { query: "", pageSize: 0, nextPageToken: "", includeContinuedAsNew: false };
+  return { query: "", pageSize: 0, nextPageToken: "" };
 }
 
 export const SearchFlowsRequest: MessageFns<SearchFlowsRequest> = {
@@ -6738,9 +6664,6 @@ export const SearchFlowsRequest: MessageFns<SearchFlowsRequest> = {
     }
     if (message.nextPageToken !== "") {
       writer.uint32(26).string(message.nextPageToken);
-    }
-    if (message.includeContinuedAsNew !== false) {
-      writer.uint32(32).bool(message.includeContinuedAsNew);
     }
     return writer;
   },
@@ -6776,14 +6699,6 @@ export const SearchFlowsRequest: MessageFns<SearchFlowsRequest> = {
           message.nextPageToken = reader.string();
           continue;
         }
-        case 4: {
-          if (tag !== 32) {
-            break;
-          }
-
-          message.includeContinuedAsNew = reader.bool();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -6801,7 +6716,6 @@ export const SearchFlowsRequest: MessageFns<SearchFlowsRequest> = {
     message.query = object.query ?? "";
     message.pageSize = object.pageSize ?? 0;
     message.nextPageToken = object.nextPageToken ?? "";
-    message.includeContinuedAsNew = object.includeContinuedAsNew ?? false;
     return message;
   },
 };
@@ -7147,12 +7061,12 @@ export const SyncAttributeIndexResponse: MessageFns<SyncAttributeIndexResponse> 
   },
 };
 
-function createBaseFlowExecutionID(): FlowExecutionID {
+function createBaseFlowRunID(): FlowRunID {
   return { flowId: "", runId: "" };
 }
 
-export const FlowExecutionID: MessageFns<FlowExecutionID> = {
-  encode(message: FlowExecutionID, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const FlowRunID: MessageFns<FlowRunID> = {
+  encode(message: FlowRunID, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.flowId !== "") {
       writer.uint32(10).string(message.flowId);
     }
@@ -7162,10 +7076,10 @@ export const FlowExecutionID: MessageFns<FlowExecutionID> = {
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): FlowExecutionID {
+  decode(input: BinaryReader | Uint8Array, length?: number): FlowRunID {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseFlowExecutionID();
+    const message = createBaseFlowRunID();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -7194,11 +7108,11 @@ export const FlowExecutionID: MessageFns<FlowExecutionID> = {
     return message;
   },
 
-  create<I extends Exact<DeepPartial<FlowExecutionID>, I>>(base?: I): FlowExecutionID {
-    return FlowExecutionID.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<FlowRunID>, I>>(base?: I): FlowRunID {
+    return FlowRunID.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<FlowExecutionID>, I>>(object: I): FlowExecutionID {
-    const message = createBaseFlowExecutionID();
+  fromPartial<I extends Exact<DeepPartial<FlowRunID>, I>>(object: I): FlowRunID {
+    const message = createBaseFlowRunID();
     message.flowId = object.flowId ?? "";
     message.runId = object.runId ?? "";
     return message;
@@ -7265,7 +7179,7 @@ export const GetFlowSummaryRequest: MessageFns<GetFlowSummaryRequest> = {
 
 function createBaseGetFlowSummaryResponse(): GetFlowSummaryResponse {
   return {
-    flowExecutionId: undefined,
+    flowRunId: undefined,
     firstRunId: "",
     requestId: "",
     flowType: "",
@@ -7278,8 +7192,8 @@ function createBaseGetFlowSummaryResponse(): GetFlowSummaryResponse {
 
 export const GetFlowSummaryResponse: MessageFns<GetFlowSummaryResponse> = {
   encode(message: GetFlowSummaryResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.flowExecutionId !== undefined) {
-      FlowExecutionID.encode(message.flowExecutionId, writer.uint32(10).fork()).join();
+    if (message.flowRunId !== undefined) {
+      FlowRunID.encode(message.flowRunId, writer.uint32(10).fork()).join();
     }
     if (message.firstRunId !== "") {
       writer.uint32(18).string(message.firstRunId);
@@ -7317,7 +7231,7 @@ export const GetFlowSummaryResponse: MessageFns<GetFlowSummaryResponse> = {
             break;
           }
 
-          message.flowExecutionId = FlowExecutionID.decode(reader, reader.uint32());
+          message.flowRunId = FlowRunID.decode(reader, reader.uint32());
           continue;
         }
         case 2: {
@@ -7390,8 +7304,8 @@ export const GetFlowSummaryResponse: MessageFns<GetFlowSummaryResponse> = {
   },
   fromPartial<I extends Exact<DeepPartial<GetFlowSummaryResponse>, I>>(object: I): GetFlowSummaryResponse {
     const message = createBaseGetFlowSummaryResponse();
-    message.flowExecutionId = (object.flowExecutionId !== undefined && object.flowExecutionId !== null)
-      ? FlowExecutionID.fromPartial(object.flowExecutionId)
+    message.flowRunId = (object.flowRunId !== undefined && object.flowRunId !== null)
+      ? FlowRunID.fromPartial(object.flowRunId)
       : undefined;
     message.firstRunId = object.firstRunId ?? "";
     message.requestId = object.requestId ?? "";
@@ -8115,7 +8029,7 @@ export const TimeTravelForkHistoryEvent: MessageFns<TimeTravelForkHistoryEvent> 
 
 function createBaseFlowStartedOrContinuedHistoryEvent(): FlowStartedOrContinuedHistoryEvent {
   return {
-    flowExecutionId: undefined,
+    flowRunId: undefined,
     flowType: "",
     flowConfig: undefined,
     flowTimeout: undefined,
@@ -8127,8 +8041,8 @@ function createBaseFlowStartedOrContinuedHistoryEvent(): FlowStartedOrContinuedH
 
 export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinuedHistoryEvent> = {
   encode(message: FlowStartedOrContinuedHistoryEvent, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.flowExecutionId !== undefined) {
-      FlowExecutionID.encode(message.flowExecutionId, writer.uint32(10).fork()).join();
+    if (message.flowRunId !== undefined) {
+      FlowRunID.encode(message.flowRunId, writer.uint32(10).fork()).join();
     }
     if (message.flowType !== "") {
       writer.uint32(18).string(message.flowType);
@@ -8149,9 +8063,6 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
       case "initialStart":
         FlowInitialStart.encode(message.startOrContinue.value, writer.uint32(82).fork()).join();
         break;
-      case "continuedStart":
-        FlowContinuedStart.encode(message.startOrContinue.value, writer.uint32(90).fork()).join();
-        break;
     }
     return writer;
   },
@@ -8168,7 +8079,7 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
             break;
           }
 
-          message.flowExecutionId = FlowExecutionID.decode(reader, reader.uint32());
+          message.flowRunId = FlowRunID.decode(reader, reader.uint32());
           continue;
         }
         case 2: {
@@ -8219,17 +8130,6 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
           message.startOrContinue = { $case: "initialStart", value: FlowInitialStart.decode(reader, reader.uint32()) };
           continue;
         }
-        case 11: {
-          if (tag !== 90) {
-            break;
-          }
-
-          message.startOrContinue = {
-            $case: "continuedStart",
-            value: FlowContinuedStart.decode(reader, reader.uint32()),
-          };
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8248,8 +8148,8 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
     object: I,
   ): FlowStartedOrContinuedHistoryEvent {
     const message = createBaseFlowStartedOrContinuedHistoryEvent();
-    message.flowExecutionId = (object.flowExecutionId !== undefined && object.flowExecutionId !== null)
-      ? FlowExecutionID.fromPartial(object.flowExecutionId)
+    message.flowRunId = (object.flowRunId !== undefined && object.flowRunId !== null)
+      ? FlowRunID.fromPartial(object.flowRunId)
       : undefined;
     message.flowType = object.flowType ?? "";
     message.flowConfig = (object.flowConfig !== undefined && object.flowConfig !== null)
@@ -8269,15 +8169,6 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
           message.startOrContinue = {
             $case: "initialStart",
             value: FlowInitialStart.fromPartial(object.startOrContinue.value),
-          };
-        }
-        break;
-      }
-      case "continuedStart": {
-        if (object.startOrContinue?.value !== undefined && object.startOrContinue?.value !== null) {
-          message.startOrContinue = {
-            $case: "continuedStart",
-            value: FlowContinuedStart.fromPartial(object.startOrContinue.value),
           };
         }
         break;
@@ -8373,216 +8264,8 @@ export const FlowInitialStart: MessageFns<FlowInitialStart> = {
   },
 };
 
-function createBaseFlowContinuedStart(): FlowContinuedStart {
-  return {
-    previousRunId: "",
-    stepsToStart: [],
-    stepsToResume: [],
-    pendingChannelMessages: {},
-    attributes: [],
-    completedSteps: [],
-    stickyAppWorkerId: "",
-  };
-}
-
-export const FlowContinuedStart: MessageFns<FlowContinuedStart> = {
-  encode(message: FlowContinuedStart, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.previousRunId !== "") {
-      writer.uint32(10).string(message.previousRunId);
-    }
-    for (const v of message.stepsToStart) {
-      StepMovement.encode(v!, writer.uint32(18).fork()).join();
-    }
-    for (const v of message.stepsToResume) {
-      StepExecutionResumeInfo.encode(v!, writer.uint32(26).fork()).join();
-    }
-    globalThis.Object.entries(message.pendingChannelMessages).forEach(([key, value]: [string, ChannelValues]) => {
-      FlowContinuedStart_PendingChannelMessagesEntry.encode({ key: key as any, value }, writer.uint32(34).fork())
-        .join();
-    });
-    for (const v of message.attributes) {
-      KV.encode(v!, writer.uint32(42).fork()).join();
-    }
-    for (const v of message.completedSteps) {
-      StepCompletionOutput.encode(v!, writer.uint32(50).fork()).join();
-    }
-    if (message.stickyAppWorkerId !== "") {
-      writer.uint32(58).string(message.stickyAppWorkerId);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): FlowContinuedStart {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseFlowContinuedStart();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.previousRunId = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.stepsToStart.push(StepMovement.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.stepsToResume.push(StepExecutionResumeInfo.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          const entry4 = FlowContinuedStart_PendingChannelMessagesEntry.decode(reader, reader.uint32());
-          if (entry4.value !== undefined) {
-            message.pendingChannelMessages[entry4.key] = entry4.value;
-          }
-          continue;
-        }
-        case 5: {
-          if (tag !== 42) {
-            break;
-          }
-
-          message.attributes.push(KV.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 6: {
-          if (tag !== 50) {
-            break;
-          }
-
-          message.completedSteps.push(StepCompletionOutput.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 7: {
-          if (tag !== 58) {
-            break;
-          }
-
-          message.stickyAppWorkerId = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  create<I extends Exact<DeepPartial<FlowContinuedStart>, I>>(base?: I): FlowContinuedStart {
-    return FlowContinuedStart.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<FlowContinuedStart>, I>>(object: I): FlowContinuedStart {
-    const message = createBaseFlowContinuedStart();
-    message.previousRunId = object.previousRunId ?? "";
-    message.stepsToStart = object.stepsToStart?.map((e) => StepMovement.fromPartial(e)) || [];
-    message.stepsToResume = object.stepsToResume?.map((e) => StepExecutionResumeInfo.fromPartial(e)) || [];
-    message.pendingChannelMessages =
-      (globalThis.Object.entries(object.pendingChannelMessages ?? {}) as [string, ChannelValues][]).reduce(
-        (acc: { [key: string]: ChannelValues }, [key, value]: [string, ChannelValues]) => {
-          if (value !== undefined) {
-            acc[key] = ChannelValues.fromPartial(value);
-          }
-          return acc;
-        },
-        {},
-      );
-    message.attributes = object.attributes?.map((e) => KV.fromPartial(e)) || [];
-    message.completedSteps = object.completedSteps?.map((e) => StepCompletionOutput.fromPartial(e)) || [];
-    message.stickyAppWorkerId = object.stickyAppWorkerId ?? "";
-    return message;
-  },
-};
-
-function createBaseFlowContinuedStart_PendingChannelMessagesEntry(): FlowContinuedStart_PendingChannelMessagesEntry {
-  return { key: "", value: undefined };
-}
-
-export const FlowContinuedStart_PendingChannelMessagesEntry: MessageFns<
-  FlowContinuedStart_PendingChannelMessagesEntry
-> = {
-  encode(
-    message: FlowContinuedStart_PendingChannelMessagesEntry,
-    writer: BinaryWriter = new BinaryWriter(),
-  ): BinaryWriter {
-    if (message.key !== "") {
-      writer.uint32(10).string(message.key);
-    }
-    if (message.value !== undefined) {
-      ChannelValues.encode(message.value, writer.uint32(18).fork()).join();
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): FlowContinuedStart_PendingChannelMessagesEntry {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseFlowContinuedStart_PendingChannelMessagesEntry();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.key = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.value = ChannelValues.decode(reader, reader.uint32());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  create<I extends Exact<DeepPartial<FlowContinuedStart_PendingChannelMessagesEntry>, I>>(
-    base?: I,
-  ): FlowContinuedStart_PendingChannelMessagesEntry {
-    return FlowContinuedStart_PendingChannelMessagesEntry.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<FlowContinuedStart_PendingChannelMessagesEntry>, I>>(
-    object: I,
-  ): FlowContinuedStart_PendingChannelMessagesEntry {
-    const message = createBaseFlowContinuedStart_PendingChannelMessagesEntry();
-    message.key = object.key ?? "";
-    message.value = (object.value !== undefined && object.value !== null)
-      ? ChannelValues.fromPartial(object.value)
-      : undefined;
-    return message;
-  },
-};
-
 function createBaseFlowClosedHistoryEvent(): FlowClosedHistoryEvent {
-  return { flowStatus: 0, results: [], errorType: 0, errorMessage: "", continuedToRunId: "", stickyAppWorkerId: "" };
+  return { flowStatus: 0, results: [], errorType: 0, errorMessage: "", stickyAppWorkerId: "" };
 }
 
 export const FlowClosedHistoryEvent: MessageFns<FlowClosedHistoryEvent> = {
@@ -8598,9 +8281,6 @@ export const FlowClosedHistoryEvent: MessageFns<FlowClosedHistoryEvent> = {
     }
     if (message.errorMessage !== "") {
       writer.uint32(34).string(message.errorMessage);
-    }
-    if (message.continuedToRunId !== "") {
-      writer.uint32(42).string(message.continuedToRunId);
     }
     if (message.stickyAppWorkerId !== "") {
       writer.uint32(50).string(message.stickyAppWorkerId);
@@ -8647,14 +8327,6 @@ export const FlowClosedHistoryEvent: MessageFns<FlowClosedHistoryEvent> = {
           message.errorMessage = reader.string();
           continue;
         }
-        case 5: {
-          if (tag !== 42) {
-            break;
-          }
-
-          message.continuedToRunId = reader.string();
-          continue;
-        }
         case 6: {
           if (tag !== 50) {
             break;
@@ -8681,7 +8353,6 @@ export const FlowClosedHistoryEvent: MessageFns<FlowClosedHistoryEvent> = {
     message.results = object.results?.map((e) => StepCompletionOutput.fromPartial(e)) || [];
     message.errorType = object.errorType ?? 0;
     message.errorMessage = object.errorMessage ?? "";
-    message.continuedToRunId = object.continuedToRunId ?? "";
     message.stickyAppWorkerId = object.stickyAppWorkerId ?? "";
     return message;
   },
@@ -11554,14 +11225,7 @@ export const UpdateFlowConfigRequest: MessageFns<UpdateFlowConfigRequest> = {
 };
 
 function createBaseWaitForStepCompletionRequest(): WaitForStepCompletionRequest {
-  return {
-    flowId: "",
-    stepType: "",
-    stepExecutionNumber: "",
-    requestTimeoutSeconds: 0,
-    internalHandlerTimeoutSeconds: 0,
-    requestId: "",
-  };
+  return { flowId: "", stepType: "", stepExecutionNumber: "", requestTimeoutSeconds: 0, requestId: "" };
 }
 
 export const WaitForStepCompletionRequest: MessageFns<WaitForStepCompletionRequest> = {
@@ -11577,9 +11241,6 @@ export const WaitForStepCompletionRequest: MessageFns<WaitForStepCompletionReque
     }
     if (message.requestTimeoutSeconds !== 0) {
       writer.uint32(32).int32(message.requestTimeoutSeconds);
-    }
-    if (message.internalHandlerTimeoutSeconds !== 0) {
-      writer.uint32(40).int32(message.internalHandlerTimeoutSeconds);
     }
     if (message.requestId !== "") {
       writer.uint32(50).string(message.requestId);
@@ -11626,14 +11287,6 @@ export const WaitForStepCompletionRequest: MessageFns<WaitForStepCompletionReque
           message.requestTimeoutSeconds = reader.int32();
           continue;
         }
-        case 5: {
-          if (tag !== 40) {
-            break;
-          }
-
-          message.internalHandlerTimeoutSeconds = reader.int32();
-          continue;
-        }
         case 6: {
           if (tag !== 50) {
             break;
@@ -11660,7 +11313,6 @@ export const WaitForStepCompletionRequest: MessageFns<WaitForStepCompletionReque
     message.stepType = object.stepType ?? "";
     message.stepExecutionNumber = object.stepExecutionNumber ?? "";
     message.requestTimeoutSeconds = object.requestTimeoutSeconds ?? 0;
-    message.internalHandlerTimeoutSeconds = object.internalHandlerTimeoutSeconds ?? 0;
     message.requestId = object.requestId ?? "";
     return message;
   },
@@ -11701,7 +11353,7 @@ export const WaitForStepCompletionResponse: MessageFns<WaitForStepCompletionResp
 };
 
 function createBaseWaitForAttributeRequest(): WaitForAttributeRequest {
-  return { flowId: "", match: undefined, requestTimeoutSeconds: 0, internalHandlerTimeoutSeconds: 0, requestId: "" };
+  return { flowId: "", match: undefined, requestTimeoutSeconds: 0, requestId: "" };
 }
 
 export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
@@ -11714,9 +11366,6 @@ export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
     }
     if (message.requestTimeoutSeconds !== 0) {
       writer.uint32(24).int32(message.requestTimeoutSeconds);
-    }
-    if (message.internalHandlerTimeoutSeconds !== 0) {
-      writer.uint32(32).int32(message.internalHandlerTimeoutSeconds);
     }
     if (message.requestId !== "") {
       writer.uint32(42).string(message.requestId);
@@ -11755,14 +11404,6 @@ export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
           message.requestTimeoutSeconds = reader.int32();
           continue;
         }
-        case 4: {
-          if (tag !== 32) {
-            break;
-          }
-
-          message.internalHandlerTimeoutSeconds = reader.int32();
-          continue;
-        }
         case 5: {
           if (tag !== 42) {
             break;
@@ -11790,7 +11431,6 @@ export const WaitForAttributeRequest: MessageFns<WaitForAttributeRequest> = {
       ? AttributeMatch.fromPartial(object.match)
       : undefined;
     message.requestTimeoutSeconds = object.requestTimeoutSeconds ?? 0;
-    message.internalHandlerTimeoutSeconds = object.internalHandlerTimeoutSeconds ?? 0;
     message.requestId = object.requestId ?? "";
     return message;
   },
@@ -11912,64 +11552,6 @@ export const AttributeMatch: MessageFns<AttributeMatch> = {
     message.operand = (object.operand !== undefined && object.operand !== null)
       ? Value.fromPartial(object.operand)
       : undefined;
-    return message;
-  },
-};
-
-function createBaseTriggerContinueAsNewRequest(): TriggerContinueAsNewRequest {
-  return { flowId: "", runId: "" };
-}
-
-export const TriggerContinueAsNewRequest: MessageFns<TriggerContinueAsNewRequest> = {
-  encode(message: TriggerContinueAsNewRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.flowId !== "") {
-      writer.uint32(10).string(message.flowId);
-    }
-    if (message.runId !== "") {
-      writer.uint32(18).string(message.runId);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): TriggerContinueAsNewRequest {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseTriggerContinueAsNewRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.flowId = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.runId = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  create<I extends Exact<DeepPartial<TriggerContinueAsNewRequest>, I>>(base?: I): TriggerContinueAsNewRequest {
-    return TriggerContinueAsNewRequest.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<TriggerContinueAsNewRequest>, I>>(object: I): TriggerContinueAsNewRequest {
-    const message = createBaseTriggerContinueAsNewRequest();
-    message.flowId = object.flowId ?? "";
-    message.runId = object.runId ?? "";
     return message;
   },
 };
@@ -16538,17 +16120,6 @@ export const FlowServiceService = {
       Buffer.from(WaitForAttributeResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): WaitForAttributeResponse => WaitForAttributeResponse.decode(value),
   },
-  /** Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED. */
-  triggerContinueAsNew: {
-    path: "/dex.FlowService/TriggerContinueAsNew" as const,
-    requestStream: false as const,
-    responseStream: false as const,
-    requestSerialize: (value: TriggerContinueAsNewRequest): Buffer =>
-      Buffer.from(TriggerContinueAsNewRequest.encode(value).finish()),
-    requestDeserialize: (value: Buffer): TriggerContinueAsNewRequest => TriggerContinueAsNewRequest.decode(value),
-    responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
-    responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
-  },
   healthCheck: {
     path: "/dex.FlowService/HealthCheck" as const,
     requestStream: false as const,
@@ -16587,8 +16158,6 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   updateFlowConfig: handleUnaryCall<UpdateFlowConfigRequest, Empty>;
   waitForStepCompletion: handleUnaryCall<WaitForStepCompletionRequest, WaitForStepCompletionResponse>;
   waitForAttribute: handleUnaryCall<WaitForAttributeRequest, WaitForAttributeResponse>;
-  /** Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED. */
-  triggerContinueAsNew: handleUnaryCall<TriggerContinueAsNewRequest, Empty>;
   healthCheck: handleUnaryCall<Empty, HealthInfo>;
 }
 
@@ -16962,22 +16531,6 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: WaitForAttributeResponse) => void,
-  ): ClientUnaryCall;
-  /** Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED. */
-  triggerContinueAsNew(
-    request: TriggerContinueAsNewRequest,
-    callback: (error: ServiceError | null, response: Empty) => void,
-  ): ClientUnaryCall;
-  triggerContinueAsNew(
-    request: TriggerContinueAsNewRequest,
-    metadata: Metadata,
-    callback: (error: ServiceError | null, response: Empty) => void,
-  ): ClientUnaryCall;
-  triggerContinueAsNew(
-    request: TriggerContinueAsNewRequest,
-    metadata: Metadata,
-    options: Partial<CallOptions>,
-    callback: (error: ServiceError | null, response: Empty) => void,
   ): ClientUnaryCall;
   healthCheck(request: Empty, callback: (error: ServiceError | null, response: HealthInfo) => void): ClientUnaryCall;
   healthCheck(

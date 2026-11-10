@@ -8,6 +8,16 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Go SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.41 {#v1-41}
+
+Not released yet. The next minor release, sdk-go/v1.41.0, ships these changes.
+
+### Breaking
+
+- Removed **Client.TriggerContinueAsNew**, **FlowContinuedAsNew**, **FlowConfig.ContinueAsNewThreshold**, **FlowConfig.ContinueAsNewPageSizeBytes**, **SearchFlowsOptions**, **Client.SearchFlowsWithOptions**, and **IncludeContinuedAsNew**. Use **Client.SearchFlows** for run searches. [Reference](/reference/go/flow#flow-config).
+- Removed **WaitForStepCompletionOptions.InternalHandlerTimeout** and **WaitForAttributeOptions.InternalHandlerTimeout**. **RequestID** remains accepted but the server does not read it for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **FlowExecutionId** to **FlowRunId** on response and history messages. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
+
 ## 1.40 {#v1-40}
 
 Released 2026-11-09 as [sdk-go/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.40.0). Patch release [sdk-go/v1.40.2](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.40.2) followed the same day.

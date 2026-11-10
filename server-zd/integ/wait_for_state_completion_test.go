@@ -48,7 +48,7 @@ func TestWaitForStateCompletionTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWaitForStateCompletionInvalidArgs(t)
 		smallWaitForFastTest()
-		// These cover Temporal Update handlers, Update counters, and Continue-As-New (C3).
+		// These cover Temporal Update handlers, Update counters.
 
 		continue
 
@@ -493,16 +493,6 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 		StepExecutionNumber:   "1",
 		RequestTimeoutSeconds: -1,
 		RequestId:             uuid.NewString(),
-	})
-	require.Error(t, err)
-	require.Equal(t, codes.InvalidArgument, status.Code(err))
-
-	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
-		FlowId:                        flowId,
-		StepType:                      wait_for_state_completion.State2,
-		StepExecutionNumber:           "1",
-		InternalHandlerTimeoutSeconds: -1,
-		RequestId:                     uuid.NewString(),
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))

@@ -289,7 +289,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     },
     getFlowSummary(_call, callback) {
       callback(null, {
-        flowExecutionId: { flowId: "failed", runId: "run-failed" },
+        flowRunId: { flowId: "failed", runId: "run-failed" },
         firstRunId: "run-failed",
         runAttempt: 0,
         requestId: "request-failed",
@@ -339,9 +339,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
   });
   try {
     await client.searchFlows("WorkflowId = 'flow-1'", 1);
-    assert.equal(requests.search?.includeContinuedAsNew, false);
-    await client.searchFlows("WorkflowId = 'flow-1'", 1, "next", { includeContinuedAsNew: true });
-    assert.equal(requests.search?.includeContinuedAsNew, true);
+    await client.searchFlows("WorkflowId = 'flow-1'", 1, "next");
     assert.equal(requests.search?.nextPageToken, "next");
     assert.equal(requests.search?.query, "WorkflowId = 'flow-1'");
     assert.equal(await client.startFlow(flow, "flow-1", { message: "hello" }, {
@@ -454,11 +452,10 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     await client.waitForStepCompletion(
       "flow-1",
       { stepType: "Start" },
-      { requestTimeoutMs: 1_000, internalHandlerTimeoutMs: 3_000 },
+      { requestTimeoutMs: 1_000 },
     );
     assert.equal(requests.waitForStepCompletion.at(-1)?.requestId, "");
     assert.equal(requests.waitForStepCompletion.at(-1)?.requestTimeoutSeconds, 1);
-    assert.equal(requests.waitForStepCompletion.at(-1)?.internalHandlerTimeoutSeconds, 3);
     assert.deepEqual(requests.start?.flowStartOptions?.flowConfigOverride?.workerTarget, { isPullMode: true });
     await client.updateFlowConfig("flow-1", {});
     assert.ok(requests.updateFlowConfig?.flowConfig);
@@ -472,10 +469,9 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
       await client.updateFlowConfig("flow-1", { activeStepSearchMode: mode });
       assert.equal(requests.updateFlowConfig.flowConfig.activeStepSearchMode, wireMode);
     }
-    await client.updateFlowConfig("flow-1", { continueAsNewThreshold: 123 });
+    await client.updateFlowConfig("flow-1", { historyWindowEvents: 2500 });
     assert.equal(requests.updateFlowConfig.flowConfig.workerTarget, undefined);
-    assert.equal(requests.updateFlowConfig.flowConfig.continueAsNewThreshold, 123);
-    assert.equal(requests.updateFlowConfig.flowConfig.historyWindowEvents, undefined);
+    assert.equal(requests.updateFlowConfig.flowConfig.historyWindowEvents, 2500);
     assert.equal(requests.updateFlowConfig.flowConfig.deleteExpiredHistoryObjects, undefined);
     for (const shouldDelete of [true, false]) {
       await client.updateFlowConfig("flow-1", { deleteExpiredHistoryObjects: shouldDelete });

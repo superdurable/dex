@@ -186,10 +186,10 @@ func doTestSubFlowCondition(
 	})
 	require.NoError(t, err)
 	if shouldRestart {
-		require.NotEqual(t, firstChild.GetFlowExecutionId().GetRunId(), secondChild.GetFlowExecutionId().GetRunId())
+		require.NotEqual(t, firstChild.GetFlowRunId().GetRunId(), secondChild.GetFlowRunId().GetRunId())
 		require.Equal(t, subFlowChildRequestID(resetResponse.GetRunId(), 2), secondChild.GetRequestId())
 	} else {
-		require.Equal(t, firstChild.GetFlowExecutionId().GetRunId(), secondChild.GetFlowExecutionId().GetRunId())
+		require.Equal(t, firstChild.GetFlowRunId().GetRunId(), secondChild.GetFlowRunId().GetRunId())
 		require.Equal(t, firstChild.GetRequestId(), secondChild.GetRequestId())
 	}
 	require.Equal(t, []subFlowObservation{

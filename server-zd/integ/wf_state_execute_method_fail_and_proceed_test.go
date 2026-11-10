@@ -33,7 +33,7 @@ func TestStateExecuteMethodFailAndProceedTemporal(t *testing.T) {
 		doTestStateExecuteMethodFailAndProceed(
 			t,
 
-			minimumContinueAsNewSyncDurabilityConfig(),
+			syncDurabilityConfig(),
 			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
 		)
 		smallWaitForFastTest()

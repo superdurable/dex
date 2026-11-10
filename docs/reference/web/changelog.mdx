@@ -12,15 +12,26 @@ This page lists user-visible changes to Dex Web, newest first; each section cove
 
 Not released yet. The next minor release, web/v1.43.0, ships these changes.
 
+### Breaking
+
+- The **/api/flows/search** request no longer forwards **includeContinuedAsNew**. Run lists no longer offer **Continued as new** as a status. [Reference](/reference/web/dex-web#v1-pages).
+
 ### Added
 
+- **--base-path** (**DEX_WEB_BASE_PATH**) serves the pages, assets, and **/api** routes under a URL path prefix, such as **/dex**. Requests outside the prefix get HTTP 404, and **/healthz** and **/readyz** stay at the root. [Reference](/reference/web/dex-web#base-path).
+- **--frame-ancestors** (**DEX_WEB_FRAME_ANCESTORS**) lists the sites that may show Dex Web in a frame. By default no site may. Every response carries the framing headers. [Reference](/reference/web/dex-web#frame-ancestors).
+- Under a base path, recent and saved Flow searches are stored per base path, so Dex Webs on one origin keep them apart. [Reference](/reference/web/embed-dex-web#browser-storage).
+- The Go module **github.com/superdurable/dex/web/embedded** serves Dex Web for many Dex Servers from a host application's own Go HTTP server, under a path prefix chosen per request. Each **web/vX.Y.Z** release publishes it as **web/embedded/vX.Y.Z**. [Reference](/reference/web/embed-dex-web).
 - The **Agent session** tab has **Session settings**, which shows the session's settings as JSON and saves an edit through **update_session_settings**. The change applies from the next turn. [Reference](/reference/web/dex-web#agent-session-settings).
 - **New session** starts a Dex Agents session with a session ID, a first message, and the **model**, **system_prompt**, and other settings. It is on the **Agent session** tab, and in **Work Queue** on a session Flow type. [Reference](/reference/web/dex-web#agent-new-session).
 - **POST /api/v2/agent-sessions/start**, **/messages**, and **/settings** start a session, call **send_user_message**, and call **update_session_settings**. [Reference](/reference/web/dex-web#agent-session-controls).
+- Each connection record in **connections.json** gets a top-level **authorizationId**, a random non-secret UUID. Dex Web replaces it whenever an authorization completes: adding a connection, an OAuth authorization, or an edit that changes the stored credentials. It identifies the account behind the credentials; a change of **configuration** shows in the configuration itself. Other edits and credential write-backs keep it, and records without it stay valid. Dex Web 1.42 and older reject unknown record fields and fail to load a file that has **authorizationId**, so do not downgrade, or remove the field first. [Reference](/reference/web/local-connector-setup#choose-the-storage-directory).
 
 ### Changed
 
 - The Flow design graph on the **Design** tab and on **Designs** opens left to right. **Direction** still switches it to top to bottom. [Reference](/reference/web/dex-web#flow-canvas).
+- Without local Connector setup, the **/api/v2/connector-** routes return HTTP 404 with the code **CONNECTOR_SETUP_UNAVAILABLE**. [Reference](/reference/web/embed-dex-web#limits).
+- Connector UI files send **frame-ancestors**, **sandbox allow-scripts**, and **X-Content-Type-Options: nosniff**. A file with an unknown extension is sent as **application/octet-stream**. [Reference](/reference/web/dex-web#frame-ancestors).
 - The **Agent session** message box sends between turns through **send_user_message**. While a turn runs, **Queue** keeps the message for the next turn and **Steer** steers the running turn. [Reference](/reference/web/dex-web#agent-session-view).
 - Writes to **connections.json** hold an exclusive lock on **connections.json.lock**, which the connectors Go SDK also takes when it writes back a refreshed credential. Dex Web checks a save against the file as read inside the lock, and a write that waits more than 15 seconds fails with HTTP 503 **CONNECTOR_CONNECTIONS_FILE_BUSY**. An OAuth callback that fails with **CONNECTOR_CONNECTION_CHANGED** says to start the authorization again. [Reference](/reference/web/local-connector-setup#choose-the-storage-directory).
 

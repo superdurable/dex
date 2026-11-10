@@ -9,7 +9,6 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,7 +17,6 @@ import (
 	"mime"
 	"net"
 	"net/http"
-	"path"
 	"strings"
 	"time"
 
@@ -48,6 +46,17 @@ type Config struct {
 	// BindAddress, and these entries are accepted, and any other Host is refused with HTTP 403, which stops DNS
 	// rebinding. Otherwise every Host is accepted.
 	AllowedHosts []string
+	// BasePath defaults to "/" and is the URL path prefix that serves the pages, assets, and /api routes, such as
+	// "/dex". An empty value means "/". ValidateBasePath lists the accepted form. Requests outside the prefix get
+	// HTTP 404, except /healthz and /readyz, which also stay at the root for probes.
+	BasePath string
+	// FrameAncestors defaults empty, which sends "frame-ancestors 'none'" and "X-Frame-Options: DENY" with every
+	// response, including redirects and errors, so no page may frame Dex Web. Each entry is a CSP source that may
+	// frame it, such as 'self' or https://host.example; ValidateFrameAncestors lists the accepted form. A non-empty
+	// list replaces the CSP sources and drops X-Frame-Options, except that the list 'self' alone sends
+	// "X-Frame-Options: SAMEORIGIN". Connector configuration UI assets, which Dex Web frames, send no
+	// X-Frame-Options.
+	FrameAncestors []string
 }
 
 type Server struct {
@@ -90,39 +99,27 @@ func NewFlowRenderingServer(cfg *Config, graph []byte, assets fs.FS) (*Server, e
 }
 
 func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDefinitions FlowDefinitionProvider) (*Server, error) {
+	basePath, err := ValidateBasePath(cfg.BasePath)
+	if err != nil {
+		return nil, err
+	}
+	pages, err := newSitePages(assets, cfg.FrameAncestors)
+	if err != nil {
+		return nil, err
+	}
 	connectorSetup, err := newConnectorSetup(cfg, flowDefinitions)
 	if err != nil {
 		return nil, err
 	}
-	assetRoot, err := fs.Sub(assets, "dist")
-	if err != nil {
-		panic(fmt.Sprintf("open embedded Web assets: %v", err))
-	}
-	mux := http.NewServeMux()
-	if client != nil {
-		api.RegisterHandlers(mux, client)
-		api.RegisterDynamicV2Handlers(mux, client, api.V2DefinitionLoader(func(ctx context.Context) (api.V2DefinitionSnapshot, error) {
-			snapshot, loadErr := flowDefinitions.Load(ctx)
-			if loadErr != nil {
-				return api.V2DefinitionSnapshot{}, loadErr
-			}
-			return api.V2DefinitionSnapshot{
-				Definitions: snapshot.V2Definitions,
-				Revision:    snapshot.DefinitionRevision,
-			}, nil
-		}), api.V2HandlerConfig{})
-	}
-	mux.HandleFunc("GET /api/flow-definitions", serveFlowDefinitions(flowDefinitions))
-	if connectorSetup != nil {
-		connectorSetup.registerHandlers(mux)
-	}
-	mux.HandleFunc("GET /readyz", readinessHandler(client, flowDefinitions))
-	mux.Handle("/", spaHandler(assetRoot))
+	routes := pages.newTargetRouteMux(targetRoutes{
+		client: client, flowDefinitions: flowDefinitions, connectorSetup: connectorSetup, basePath: basePath,
+	})
+	protectedRoutes := newAPIRequestProtection(newRequestHostPolicy(cfg)).wrap(routes)
 	requestBaseContext, cancelRequestContexts := context.WithCancel(context.Background())
 	return &Server{
 		cfg: cfg,
 		httpServer: &http.Server{
-			Handler:           protectAPIRequests(mux, newRequestHostPolicy(cfg)),
+			Handler:           newStandaloneBasePathHandler(basePath, pages.framePolicy, protectedRoutes),
 			ReadTimeout:       30 * time.Second,
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       90 * time.Second,
@@ -132,11 +129,69 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	}, nil
 }
 
-func protectAPIRequests(next http.Handler, hostPolicy requestHostPolicy) http.Handler {
-	crossOriginProtection := http.NewCrossOriginProtection()
+// newStandaloneBasePathHandler serves next under basePath and keeps the probes at the root for orchestrators.
+// Every response, including redirects and 404s outside basePath, carries the framing headers.
+func newStandaloneBasePathHandler(basePath string, framing framePolicy, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		framing.apply(response.Header())
+		if basePath != "/" && (request.URL.Path == "/healthz" || request.URL.Path == "/readyz") {
+			next.ServeHTTP(response, request)
+			return
+		}
+		serveUnderBasePath(response, request, basePath, next)
+	})
+}
+
+// targetRoutes is everything the routes of one Dex Web need: one FlowService client and its definitions.
+type targetRoutes struct {
+	// client is nil for a Flow rendering server, which has no FlowService.
+	client          dexpb.FlowServiceClient
+	flowDefinitions FlowDefinitionProvider
+	// connectorSetup is nil when local Connector setup is disabled.
+	connectorSetup *connectorSetup
+	basePath       string
+}
+
+// newTargetRouteMux registers the API, probe, and page routes; paths are relative to the base path.
+func (pages *sitePages) newTargetRouteMux(routes targetRoutes) *http.ServeMux {
+	mux := http.NewServeMux()
+	if routes.client != nil {
+		api.RegisterHandlers(mux, routes.client)
+		api.RegisterDynamicV2Handlers(mux, routes.client, api.V2DefinitionLoader(func(ctx context.Context) (api.V2DefinitionSnapshot, error) {
+			snapshot, loadErr := routes.flowDefinitions.Load(ctx)
+			if loadErr != nil {
+				return api.V2DefinitionSnapshot{}, loadErr
+			}
+			return api.V2DefinitionSnapshot{
+				Definitions: snapshot.V2Definitions,
+				Revision:    snapshot.DefinitionRevision,
+			}, nil
+		}), api.V2HandlerConfig{})
+	}
+	mux.HandleFunc("GET /api/flow-definitions", serveFlowDefinitions(routes.flowDefinitions))
+	if routes.connectorSetup != nil {
+		routes.connectorSetup.registerHandlers(mux)
+	}
+	mux.HandleFunc("GET /readyz", readinessHandler(routes.client, routes.flowDefinitions))
+	mux.Handle("/", pages.spaHandler(routes.basePath, routes.connectorSetup != nil))
+	return mux
+}
+
+// apiRequestProtection guards /api routes against DNS rebinding and cross-origin writes.
+type apiRequestProtection struct {
+	crossOriginProtection *http.CrossOriginProtection
+	hostPolicy            requestHostPolicy
+}
+
+func newAPIRequestProtection(hostPolicy requestHostPolicy) apiRequestProtection {
+	return apiRequestProtection{crossOriginProtection: http.NewCrossOriginProtection(), hostPolicy: hostPolicy}
+}
+
+// wrap checks requests whose path, relative to the base path, starts with /api/.
+func (protection apiRequestProtection) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		isAPIRequest := strings.HasPrefix(request.URL.Path, "/api/")
-		if isAPIRequest && !hostPolicy.allows(request.Host) {
+		if isAPIRequest && !protection.hostPolicy.allows(request.Host) {
 			api.WriteCodedError(response, http.StatusForbidden, "HOST_NOT_ALLOWED", "Dex Web does not accept this Host; add it to the allowed hosts")
 			return
 		}
@@ -145,7 +200,7 @@ func protectAPIRequests(next http.Handler, hostPolicy requestHostPolicy) http.Ha
 			next.ServeHTTP(response, request)
 			return
 		}
-		if err := crossOriginProtection.Check(request); err != nil {
+		if err := protection.crossOriginProtection.Check(request); err != nil {
 			api.WriteError(response, http.StatusForbidden, "API requests must be same-origin", nil)
 			return
 		}
@@ -186,39 +241,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) Handler() http.Handler {
 	return s.httpServer.Handler
-}
-
-func spaHandler(assets fs.FS) http.Handler {
-	files := http.FileServer(http.FS(assets))
-	index, err := fs.ReadFile(assets, "index.html")
-	if err != nil {
-		panic(fmt.Sprintf("read embedded Web index: %v", err))
-	}
-	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet && request.Method != http.MethodHead {
-			response.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		requestPath := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
-		if requestPath == "." || requestPath == "" {
-			serveIndex(response, request, index)
-			return
-		}
-		file, err := assets.Open(requestPath)
-		if err == nil {
-			if closeErr := file.Close(); closeErr != nil {
-				http.Error(response, closeErr.Error(), http.StatusInternalServerError)
-				return
-			}
-			files.ServeHTTP(response, request)
-			return
-		}
-		if strings.HasPrefix(request.URL.Path, "/api/") {
-			api.WriteError(response, http.StatusNotFound, "API route not found", nil)
-			return
-		}
-		serveIndex(response, request, index)
-	})
 }
 
 type staticFlowDefinitionProvider struct {
@@ -310,11 +332,4 @@ func writeWebJSON(response http.ResponseWriter, statusCode int, value interface{
 	if err := json.NewEncoder(response).Encode(value); err != nil {
 		panic(fmt.Sprintf("encode HTTP response: %v", err))
 	}
-}
-
-func serveIndex(response http.ResponseWriter, request *http.Request, index []byte) {
-	response.Header().Set("Cache-Control", "no-store")
-	response.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
-	response.Header().Set("X-Frame-Options", "DENY")
-	http.ServeContent(response, request, "index.html", time.Time{}, bytes.NewReader(index))
 }

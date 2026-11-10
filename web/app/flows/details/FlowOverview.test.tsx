@@ -313,8 +313,6 @@ describe('redesigned Overview', () => {
     const state: FlowState = {
       ...emptyState,
       flowConfig: {
-        continueAsNewThreshold: 100,
-        continueAsNewPageSizeInBytes: 2048,
         deleteExpiredHistoryObjects: true,
         stepDurability: 1,
       },
@@ -322,19 +320,19 @@ describe('redesigned Overview', () => {
     render(<FlowOverview summary={runningSummary} events={[]} state={state} />);
     fireEvent.click(screen.getByRole('button', { name: /Flow config/ }));
     expect(screen.getByText('stepDurability')).toBeTruthy();
-    expect(document.body.textContent).not.toMatch(/continueAsNew|deleteExpiredHistoryObjects/);
+    expect(document.body.textContent).not.toMatch(/deleteExpiredHistoryObjects/);
     fireEvent.click(screen.getByRole('button', { name: 'Raw JSON' }));
-    expect(document.body.textContent).not.toMatch(/continueAsNew|deleteExpiredHistoryObjects/);
+    expect(document.body.textContent).not.toMatch(/deleteExpiredHistoryObjects/);
   });
 
   it('shows the first run ID only when it differs from the run ID', () => {
     const sameRun = renderToStaticMarkup(<FlowOverview summary={runningSummary} events={[]} state={emptyState} />);
     expect(sameRun).not.toContain('First run ID');
-    const continuedRun = renderToStaticMarkup(
+    const laterRun = renderToStaticMarkup(
       <FlowOverview summary={{ ...runningSummary, firstRunId: 'run-0' }} events={[]} state={emptyState} />,
     );
-    expect(continuedRun).toContain('First run ID');
-    expect(continuedRun).toContain('run-0');
+    expect(laterRun).toContain('First run ID');
+    expect(laterRun).toContain('run-0');
   });
 
   it('truncates a long Attribute value behind Show all', () => {

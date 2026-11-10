@@ -27,11 +27,11 @@ func (s *runAttemptFlowService) GetFlowSummary(
 	*dexpb.GetFlowSummaryRequest,
 ) (*dexpb.GetFlowSummaryResponse, error) {
 	return &dexpb.GetFlowSummaryResponse{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: "order-1", RunId: "run-1"},
-		FirstRunId:      "run-1",
-		FlowType:        "OrderFlow",
-		FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
-		RunAttempt:      3,
+		FlowRunId:  &dexpb.FlowRunID{FlowId: "order-1", RunId: "run-1"},
+		FirstRunId: "run-1",
+		FlowType:   "OrderFlow",
+		FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+		RunAttempt: 3,
 	}, nil
 }
 

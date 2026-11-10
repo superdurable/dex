@@ -67,7 +67,7 @@ uv run --frozen pyright tests/integ
 | Locking RPC contention | `RpcLockConflictError` |
 | Long-poll expiry | `LongPollTimeoutError` |
 | Terminal Flow result | `FlowResult` for every terminal status |
-| Durable SubFlow condition | Identity, all/any, reuse, reset, and continue-as-new |
+| Durable SubFlow condition | Identity, all/any, reuse and reset |
 
 Local contract tests also cover malformed rich details, registration failures,
 value mapping, and invalid Step results.

@@ -61,7 +61,7 @@ one-to-one Java suite.
 | Locking RPC contention | `RpcLockConflict` |
 | Long-poll expiry | `LongPollTimeout` |
 | Terminal Flow result | `FlowResult` for every terminal status |
-| Durable SubFlow condition | Identity, all/any, reuse, reset, and continue-as-new |
+| Durable SubFlow condition | Identity, all/any, reuse and reset |
 
 Local contract tests also cover malformed rich details, fallible registration,
 invalid Step-result worker metadata, user-owned Condition IDs, and map

@@ -20,8 +20,6 @@ use crate::StepDurability;
 pub struct FlowConfig {
     pub(crate) active_step_search_mode: Option<ActiveStepSearchMode>,
     pub(crate) attribute_store_names: Option<Vec<String>>,
-    pub(crate) continue_as_new_threshold: Option<u32>,
-    pub(crate) continue_as_new_page_size_bytes: Option<u32>,
     pub(crate) step_durability: Option<StepDurability>,
     pub(crate) history_window_events: Option<u32>,
     pub(crate) offload_history: Option<bool>,
@@ -48,18 +46,6 @@ impl FlowConfig {
     #[must_use]
     pub fn attribute_store_names(mut self, values: Vec<String>) -> Self {
         self.attribute_store_names = Some(values);
-        self
-    }
-
-    /// Sets the event-count threshold that triggers Continue-As-New.
-    pub fn continue_as_new_threshold(mut self, value: u32) -> Self {
-        self.continue_as_new_threshold = Some(value);
-        self
-    }
-
-    /// Sets the maximum history page size, in bytes, carried into Continue-As-New.
-    pub fn continue_as_new_page_size_bytes(mut self, value: u32) -> Self {
-        self.continue_as_new_page_size_bytes = Some(value);
         self
     }
 

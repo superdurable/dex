@@ -10,6 +10,7 @@ import type { FlowV2Action } from '@superdurable/flow-definition-renderer';
 import { DexAPIError, definitionRevisionHeaders, readResponseJSON } from '@/lib/http';
 import { SESSION_COPY } from './copy';
 import { SESSION_RPC } from './sessionSchema';
+import { webURL } from '@/lib/basePath';
 
 export type SessionActionOutcome =
   | { kind: 'done' }
@@ -63,7 +64,7 @@ export async function invokeSessionAction(
 }
 
 async function postSessionAction(request: SessionActionRequest, fetcher: typeof fetch): Promise<unknown> {
-  const response = await fetcher('/api/v2/actions', {
+  const response = await fetcher(webURL('/api/v2/actions'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

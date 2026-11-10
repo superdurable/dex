@@ -16,6 +16,7 @@ import {
   type StartInputDraft,
   type StartInputError,
 } from './startInput';
+import { webURL } from '@/lib/basePath';
 
 interface StartFlowResult {
   flowId: string;
@@ -79,7 +80,7 @@ export function StartFlowDialog({
       const headers = {
         'Content-Type': 'application/json', ...definitionRevisionHeaders(definitionRevision),
       };
-      const result = await fetch('/api/v2/start', {
+      const result = await fetch(webURL('/api/v2/start'), {
         method: 'POST',
         headers, body, signal: controller.signal,
       }).then((response) => readResponseJSON<StartFlowResult>(response));

@@ -11,8 +11,8 @@
 use std::time::Duration;
 
 use dex_sdk::{
-    Context, Flow, FlowConfig, FlowTimeoutPolicy, HandlerError, HandlerResult, Step, StepDecision,
-    StepList, SubFlow, SubFlowOptions, SubFlowReusePolicy, Timer, Wait,
+    Context, Flow, FlowTimeoutPolicy, HandlerError, HandlerResult, Step, StepDecision, StepList,
+    SubFlow, SubFlowOptions, SubFlowReusePolicy, Timer, Wait,
 };
 
 use crate::basic_abnormal_exit_workflow::BasicAbnormalExitWorkflow;
@@ -246,53 +246,6 @@ impl Step for AbnormalSubFlowStep {
             "{}|{:?}",
             SubFlow::flow_id(context)?,
             result.status()
-        )))
-    }
-}
-
-pub(crate) struct ContinueAsNewSubFlowParent {
-    pub(crate) start: ContinueAsNewSubFlowStep,
-}
-
-impl ContinueAsNewSubFlowParent {
-    pub(crate) fn new() -> Self {
-        Self {
-            start: ContinueAsNewSubFlowStep,
-        }
-    }
-}
-
-impl Flow for ContinueAsNewSubFlowParent {
-    type StartInput = i32;
-
-    fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.start)
-    }
-}
-
-pub(crate) struct ContinueAsNewSubFlowStep;
-
-impl Step for ContinueAsNewSubFlowStep {
-    type Input = i32;
-
-    fn wait_for(&self, _context: &mut Context, input: i32) -> HandlerResult<Wait> {
-        let options =
-            SubFlowOptions::new().config_override(FlowConfig::new().continue_as_new_threshold(100));
-        Ok(Wait::all_of([
-            sub_flow_with_options(&BasicWorkflow::new(), input, options.clone())?,
-            sub_flow_with_options(&TimerWorkflow::new(), 300, options)?,
-        ]))
-    }
-
-    fn execute(&self, context: &mut Context, _input: i32) -> HandlerResult<StepDecision> {
-        let completed = SubFlow::condition_result(context)?;
-        let delayed = SubFlow::condition_result_at(context, 1)?;
-        Ok(StepDecision::graceful_complete(format!(
-            "{}|{}|{}|{:?}",
-            SubFlow::flow_id(context)?,
-            completed.single_output::<i32>().map_err(handler_error)?,
-            SubFlow::flow_id_at(context, 1)?,
-            delayed.status()
         )))
     }
 }

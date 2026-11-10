@@ -213,7 +213,7 @@ dexcli health
 dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder --input '{"order":123}' --yes
 dexcli flow search --query 'ExecutionStatus = "Running"'
 dexcli flow inspect order-123 --all-history
-dexcli flow watch order-123 --follow-runs
+dexcli flow watch order-123
 ```
 
 JSON is the default and stable machine-readable output. Use `--output table`
@@ -643,7 +643,7 @@ dexcli flow state FLOW_ID [--run-id RUN_ID]
 dexcli flow history FLOW_ID [--run-id RUN_ID] [--start-event-id N]
                     [--page-size N] [--page-token BASE64] [--all]
 dexcli flow inspect FLOW_ID [--run-id RUN_ID] [--all-history]
-dexcli flow watch FLOW_ID [--run-id RUN_ID] [--from-event-id N] [--follow-runs]
+dexcli flow watch FLOW_ID [--run-id RUN_ID] [--from-event-id N]
 dexcli flow stop FLOW_ID [--run-id RUN_ID]
                  [--type cancel|terminate|fail] [--reason TEXT] --yes
 dexcli flow skip-timer FLOW_ID --step-type TYPE [--execution N]
@@ -657,10 +657,8 @@ dexcli flow time-travel FLOW_ID [--run-id RUN_ID]
 ```
 
 With the default JSON output, `watch` writes one object per line and exits when
-the run becomes terminal.
-`--follow-runs` keeps watching the Flow's current run when it changes. Stop and
-time travel operate on the current run by default; pass `--run-id` to target an
-exact run. All mutating Flow commands require `--yes`, including in
+the run becomes terminal. Stop and time travel operate on the current run by
+default; pass `--run-id` to target an exact run. All mutating Flow commands require `--yes`, including in
 non-interactive use.
 `--step-method` is required with `--type step-execution-id` and invalid for other types.
 

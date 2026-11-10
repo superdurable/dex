@@ -86,7 +86,7 @@ export function createFlowResult(
   errorType?: FlowErrorTypeValue,
   errorMessage?: string,
 ): FlowResult {
-  const isTerminal = status !== "running" && status !== "continuedAsNew";
+  const isTerminal = status !== "running";
   return Object.freeze({
     status,
     errorType,
@@ -127,7 +127,6 @@ function mapStatus(status: ProtoFlowStatus): FlowStatus {
       "serverSideTimeoutInternalOnly",
     [ProtoFlowStatus.FLOW_STATUS_TERMINATED]: "terminated",
     [ProtoFlowStatus.FLOW_STATUS_CANCELED]: "cancelled",
-    [ProtoFlowStatus.FLOW_STATUS_CONTINUED_AS_NEW]: "continuedAsNew",
   };
   const mapped = values[status];
   if (mapped === undefined) throw new TypeError(`unsupported Flow status ${status}`);

@@ -34,6 +34,8 @@ type commandConfig struct {
 	credentialFile string
 	// allowedHosts defaults empty; it is the comma-separated list behind web.AllowedHosts.
 	allowedHosts string
+	// frameAncestors defaults empty; it is the comma- or space-separated list behind web.FrameAncestors.
+	frameAncestors string
 	// shouldPrintVersion defaults false and exits after printing the build version when enabled.
 	shouldPrintVersion bool
 }
@@ -57,6 +59,8 @@ func parseCommandConfig(arguments []string, output io.Writer) (*commandConfig, e
 	flags.StringVar(&cfg.tlsCAFile, "tls-ca-file", "", "additional PEM CA certificates (requires TLS)")
 	flags.StringVar(&cfg.tlsServerName, "tls-server-name", "", "TLS server name override (requires TLS)")
 	flags.StringVar(&cfg.credentialFile, "flow-service-credential-file", "", "rotating bearer token file")
+	flags.StringVar(&cfg.web.BasePath, "base-path", "/", "URL path prefix that serves Dex Web, such as /dex")
+	flags.StringVar(&cfg.frameAncestors, "frame-ancestors", "", "comma-separated CSP sources that may frame Dex Web, such as 'self' or https://host.example")
 	flags.StringVar(&cfg.allowedHosts, "allowed-hosts", "", "comma-separated extra host names that /api requests may use; enables the Host check")
 	flags.BoolVar(&cfg.shouldPrintVersion, "version", false, "print version and exit")
 	environmentDefaults := &commandEnvironmentDefaults{flags: flags}
@@ -81,6 +85,15 @@ func parseCommandConfig(arguments []string, output io.Writer) (*commandConfig, e
 		return cfg, nil
 	}
 	cfg.web.AllowedHosts = web.SplitAllowedHosts(cfg.allowedHosts)
+	basePath, err := web.ValidateBasePath(cfg.web.BasePath)
+	if err != nil {
+		return nil, err
+	}
+	cfg.web.BasePath = basePath
+	cfg.web.FrameAncestors = web.SplitFrameAncestors(cfg.frameAncestors)
+	if err := web.ValidateFrameAncestors(cfg.web.FrameAncestors); err != nil {
+		return nil, err
+	}
 	if cfg.web.Port < 1 || cfg.web.Port > 65535 {
 		return nil, fmt.Errorf("port must be between 1 and 65535: %s", strconv.Itoa(cfg.web.Port))
 	}
@@ -109,6 +122,8 @@ func (defaults *commandEnvironmentDefaults) applyDefault(option *flag.Flag) {
 		"tls-server-name":                   "DEX_WEB_TLS_SERVER_NAME",
 		"flow-service-credential-file":      "DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE",
 		"allowed-hosts":                     "DEX_WEB_ALLOWED_HOSTS",
+		"base-path":                         "DEX_WEB_BASE_PATH",
+		"frame-ancestors":                   "DEX_WEB_FRAME_ANCESTORS",
 	}[option.Name]
 	if value, exists := os.LookupEnv(environmentName); exists {
 		if err := defaults.flags.Set(option.Name, value); err != nil {

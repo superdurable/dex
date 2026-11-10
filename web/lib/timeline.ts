@@ -327,7 +327,6 @@ function findLineageSourceEvent(
   if (exactSource) return exactSource;
   const latestSource = lastEventBefore(index.stepEventsByExecution.get(sourceExecutionId) ?? [], target.eventId);
   if (latestSource) return latestSource;
-  if (flowStart && hasContinuedStart(flowStart)) return flowStart;
   return undefined;
 }
 
@@ -537,9 +536,7 @@ function stepType(event: FlowHistoryEvent): string {
 }
 
 function lineageSourceLabel(event: FlowHistoryEvent): string {
-  if (event.type === 'FlowStartedOrContinued') {
-    return hasContinuedStart(event) ? 'Flow continued' : 'Flow start';
-  }
+  if (event.type === 'FlowStartedOrContinued') return 'Flow start';
   if (event.type === 'RpcExecutionCompleted') {
     return `RPC ${String(event.payload.rpcName || '')}`.trim();
   }
@@ -552,10 +549,6 @@ function sourceExecutionLabel(sourceExecutionId: string): string {
   if (sourceExecutionId === '__start__') return 'Flow start';
   if (sourceExecutionId.startsWith('__rpc/')) return `RPC ${sourceExecutionId.slice('__rpc/'.length)}`;
   return `${sourceExecutionId} decision`;
-}
-
-function hasContinuedStart(event: FlowHistoryEvent): boolean {
-  return Object.keys(record(event.payload.continuedStart)).length > 0;
 }
 
 function record(value: unknown): Record<string, unknown> {

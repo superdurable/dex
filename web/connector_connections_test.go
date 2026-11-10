@@ -222,6 +222,49 @@ func TestConnectorConnectionsAPIStoresSeveralAuthMethodsKeepsAndDropsTheirFields
 	}
 }
 
+func TestConnectorConnectionsAPIRotatesAuthorizationIDOnlyWhenCredentialsChange(t *testing.T) {
+	setup, mux := connectorLLMTestSetup(t, t.TempDir())
+	recorder := putConnectorLLMTestConnection(t, setup, mux, `["anthropic","openai"]`,
+		`{"anthropicWorkspaceId":"ws_1"}`, `{"anthropic_api_key":"anthropic-secret","openai_api_key":"openai-secret"}`, `[]`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("add status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	added := requireConnectorTestAuthorizationID(t, setup.store, "llm", "default")
+
+	recorder = putConnectorLLMTestConnection(t, setup, mux, `["anthropic","openai"]`,
+		`{"anthropicWorkspaceId":"ws_2","model":"anthropic/claude-sonnet-5"}`, `{}`, `["anthropic_api_key","openai_api_key"]`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("configuration edit status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := requireConnectorTestAuthorizationID(t, setup.store, "llm", "default"); got != added {
+		t.Fatalf("authorizationId after a configuration edit = %q, want %q", got, added)
+	}
+
+	recorder = putConnectorLLMTestConnection(t, setup, mux, `["anthropic","openai"]`,
+		`{"anthropicWorkspaceId":"ws_2"}`, `{"openai_api_key":"another-account-secret"}`, `["anthropic_api_key"]`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("credential edit status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	edited := requireConnectorTestAuthorizationID(t, setup.store, "llm", "default")
+	if edited == added {
+		t.Fatal("a credential edit kept the authorizationId")
+	}
+
+	recorder = putConnectorLLMTestConnection(t, setup, mux, `["openai"]`, `{}`, `{}`, `["openai_api_key"]`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("provider removal status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := requireConnectorTestAuthorizationID(t, setup.store, "llm", "default"); got == edited {
+		t.Fatal("removing a provider's credentials kept the authorizationId")
+	}
+
+	listRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(listRecorder, httptest.NewRequest(http.MethodGet, "/api/v2/connector-connections", nil))
+	if strings.Contains(listRecorder.Body.String(), "authorizationId") {
+		t.Fatalf("connection list exposes authorizationId: %s", listRecorder.Body.String())
+	}
+}
+
 func TestConnectorConnectionsAPIRejectsInvalidAuthMethodSelectionsAndKeptFields(t *testing.T) {
 	setup, mux := connectorLLMTestSetup(t, t.TempDir())
 	recorder := putConnectorLLMTestConnection(t, setup, mux, `["anthropic","openai"]`,

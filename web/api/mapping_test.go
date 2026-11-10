@@ -54,8 +54,8 @@ func TestMapChannelExternalDeleteHistoryEvent(t *testing.T) {
 
 func TestMapSummaryReportsRunAttempt(t *testing.T) {
 	summary := mapSummary(&dexpb.GetFlowSummaryResponse{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: "flow-1", RunId: "run-1"},
-		RunAttempt:      3,
+		FlowRunId:  &dexpb.FlowRunID{FlowId: "flow-1", RunId: "run-1"},
+		RunAttempt: 3,
 	})
 	if summary.RunAttempt != 3 || summary.RunID != "run-1" {
 		t.Fatalf("summary: %#v", summary)

@@ -30,7 +30,7 @@ func TestInterStateWorkflowTemporal(t *testing.T) {
 		doTestInterStateWorkflow(
 			t,
 
-			minimumContinueAsNewAsyncDurabilityConfig(),
+			asyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

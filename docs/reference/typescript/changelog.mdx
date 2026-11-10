@@ -8,6 +8,16 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the TypeScript SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.41 {#v1-41}
+
+Not released yet. The next minor release, sdk-typescript/v1.41.0, ships these changes.
+
+### Breaking
+
+- Removed **Client.triggerContinueAsNew**, the **continuedAsNew** Flow status, **FlowConfig.continueAsNewThreshold**, **FlowConfig.continueAsNewPageSizeBytes**, **SearchFlowsOptions**, and the fourth **Client.searchFlows** argument. [Reference](/reference/typescript/flow#flow-config).
+- Removed **WaitForStepCompletionOptions.internalHandlerTimeoutMs** and **WaitForAttributeOptions.internalHandlerTimeoutMs**. Request IDs remain accepted but the server does not read them for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **flowExecutionId** to **flowRunId**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
+
 ## 1.40 {#v1-40}
 
 Released 2026-11-09 as [sdk-typescript/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.40.0).

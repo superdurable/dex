@@ -337,7 +337,6 @@ def _is_terminal_flow_closed_failure(payload: dict[str, Any]) -> bool:
     if isinstance(status, str):
         if status in {
             "FLOW_STATUS_COMPLETED",
-            "FLOW_STATUS_CONTINUED_AS_NEW",
             "FLOW_STATUS_RUNNING",
             "FLOW_STATUS_UNSPECIFIED",
             "",

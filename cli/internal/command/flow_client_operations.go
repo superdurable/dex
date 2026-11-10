@@ -26,13 +26,11 @@ import (
 )
 
 type flowConfigInput struct {
-	ActiveStepSearchMode         *string         `json:"activeStepSearchMode"`
-	ContinueAsNewThreshold       *int32          `json:"continueAsNewThreshold"`
-	ContinueAsNewPageSizeInBytes *int32          `json:"continueAsNewPageSizeInBytes"`
-	StepDurability               *string         `json:"stepDurability"`
-	WorkerTarget                 json.RawMessage `json:"workerTarget"`
-	AttributeStoreNames          *[]string       `json:"attributeStoreNames"`
-	HistoryWindowEvents          *int32          `json:"historyWindowEvents"`
+	ActiveStepSearchMode *string         `json:"activeStepSearchMode"`
+	StepDurability       *string         `json:"stepDurability"`
+	WorkerTarget         json.RawMessage `json:"workerTarget"`
+	AttributeStoreNames  *[]string       `json:"attributeStoreNames"`
+	HistoryWindowEvents  *int32          `json:"historyWindowEvents"`
 	// Accepted for compatibility and never sent; runs started on server-zd 0.1.23 or later ignore it.
 	DeleteExpiredHistoryObjects *bool `json:"deleteExpiredHistoryObjects"`
 	OffloadHistory              *bool `json:"offloadHistory"`
@@ -238,28 +236,6 @@ func executeUpdateConfig(c *flowCommand, ctx context.Context, args []string, opt
 			return newOperationError("flow update-config", callErr)
 		}
 		return writeOutput(c.stdout, options.output, map[string]any{"flowId": flowID, "updated": true})
-	})
-}
-
-func executeTriggerContinueAsNew(c *flowCommand, ctx context.Context, args []string, options options) error {
-	flags := newFlagSet("dexcli flow trigger-continue-as-new", c.stderr)
-	yes := flags.Bool("yes", false, "confirm the operation")
-	addCommonFlags(flags, &options)
-	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow trigger-continue-as-new FLOW_ID --yes"); done || err != nil {
-		return err
-	}
-	flowID, err := oneFlowID(flags, "flow trigger-continue-as-new")
-	if err != nil {
-		return err
-	}
-	if !*yes {
-		return newConfirmationError("flow trigger-continue-as-new")
-	}
-	return withFlowService(ctx, options, func(callCtx context.Context, client *flowService) error {
-		if _, callErr := client.service.TriggerContinueAsNew(callCtx, &dexpb.TriggerContinueAsNewRequest{FlowId: flowID}); callErr != nil {
-			return newOperationError("flow trigger-continue-as-new", callErr)
-		}
-		return writeOutput(c.stdout, options.output, map[string]any{"flowId": flowID, "requested": true})
 	})
 }
 
@@ -473,10 +449,8 @@ func parseFlowConfig(reader io.Reader, source string) (*dexpb.FlowConfig, error)
 		return nil, fmt.Errorf("invalid config JSON: %w", err)
 	}
 	config := &dexpb.FlowConfig{
-		ContinueAsNewThreshold:       input.ContinueAsNewThreshold,
-		ContinueAsNewPageSizeInBytes: input.ContinueAsNewPageSizeInBytes,
-		HistoryWindowEvents:          input.HistoryWindowEvents,
-		OffloadHistory:               input.OffloadHistory,
+		HistoryWindowEvents: input.HistoryWindowEvents,
+		OffloadHistory:      input.OffloadHistory,
 	}
 	if input.AttributeStoreNames != nil {
 		config.AttributeStoreNames = &dexpb.AttributeStoreNames{Names: *input.AttributeStoreNames}

@@ -75,6 +75,7 @@ import { useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
 import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
 import { useWorkingAs } from '../workspace/useWorkingAs';
 import { RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
+import { webURL } from '@/lib/basePath';
 
 type RunTab = 'overview' | 'steps' | 'timeline' | 'stream' | 'design' | 'session' | 'actions';
 
@@ -228,18 +229,12 @@ export function RunDetailsPage({
   const workingAs = useWorkingAs(workingAsDefinitions);
   const [currentRunOfFlow, setCurrentRunOfFlow] = useState<CurrentRunOfFlow | null>(null);
   const history = runHistory.newest?.events ?? noHistoryEvents;
-  const continuedToRunId = useMemo(() => {
-    const closed = [...history].reverse().find((event) => event.type === 'FlowClosed');
-    const nextRunId = closed?.payload.continuedToRunId;
-    return typeof nextRunId === 'string' ? nextRunId : '';
-  }, [history]);
   const isViewingEarlierRunAttempt = summary !== null
     && requestedRunAttempt > 0
     && requestedRunAttempt < positiveRunAttempt(summary.runAttempt);
   const displayedRunPosition = displayedRunPositionOf(
     summary,
     isViewingEarlierRunAttempt,
-    continuedToRunId,
     currentRunOfFlow,
     flowId,
     runId,
@@ -298,8 +293,8 @@ export function RunDetailsPage({
   const followedRunAttempt = useRef(0);
   const loadedRunDataRequest = useRef(0);
 
-  const summaryURL = `/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
-  const stateURL = `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
+  const summaryURL = webURL(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`);
+  const stateURL = webURL(`/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`);
   const addDataWarning = useCallback((warning: string) => {
     setDataWarnings((current) => current.includes(warning) ? current : [...current, warning]);
   }, []);
@@ -398,7 +393,7 @@ export function RunDetailsPage({
     setDeletingChannelMessage(messageId);
     setError('');
     try {
-      await readResponseJSON(await fetch('/api/flows/channels/messages', {
+      await readResponseJSON(await fetch(webURL('/api/flows/channels/messages'), {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ flowId, runId, channelName, messageId }),
@@ -512,7 +507,7 @@ export function RunDetailsPage({
   useEffect(() => {
     if (!needsCurrentRun || summaryStatusCode === undefined) return undefined;
     const controller = new AbortController();
-    void fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, { cache: 'no-store', signal: controller.signal })
+    void fetch(webURL(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`), { cache: 'no-store', signal: controller.signal })
       .then((response) => readResponseJSON<FlowSummary>(response))
       .then((current) => setCurrentRunOfFlow({ flowId, runId: current.runId }))
       .catch((lookupError: unknown) => {
@@ -550,7 +545,7 @@ export function RunDetailsPage({
       runId,
       nextInternalEventId: String(nextInternalEventId),
     });
-    void fetch(`/api/flows/wait?${params}`, { cache: 'no-store', signal: controller.signal })
+    void fetch(webURL(`/api/flows/wait?${params}`), { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         if (generation !== waitGeneration.current) return;
         if (response.status === 408) {
@@ -861,11 +856,6 @@ export function RunDetailsPage({
             </div>
           </div>
           <div className="run-actions">
-            {continuedToRunId && (
-              <Link className="button primary" to={runPath(continuedToRunId)}>
-                Next run
-              </Link>
-            )}
             <label
               className={`live-toggle${autoRefresh && summary && !terminalStatuses.has(summary.flowStatusCode) ? ' is-on' : ''}`}
             >
@@ -1173,20 +1163,19 @@ export function RunDetailsPage({
 }
 
 /**
- * Returns 'earlier' when the run on screen is not the Flow's current run: a continued run, an
+ * Returns 'earlier' when the run on screen is not the Flow's current run: an
  * earlier run attempt, or a run other than the one its Flow ID resolves to. Returns 'current'
  * when the resolved current run is this run, and 'unknown' while that is still loading.
  */
 function displayedRunPositionOf(
   summary: FlowSummary | null,
   isViewingEarlierRunAttempt: boolean,
-  continuedToRunId: string,
   currentRunOfFlow: CurrentRunOfFlow | null,
   flowId: string,
   runId: string,
 ): DisplayedRunPosition {
   if (!summary) return 'unknown';
-  if (summary.flowStatus === 'Continued as new' || isViewingEarlierRunAttempt || continuedToRunId !== '') return 'earlier';
+  if (isViewingEarlierRunAttempt) return 'earlier';
   if (currentRunOfFlow?.flowId !== flowId) return 'unknown';
   return currentRunOfFlow.runId === runId ? 'current' : 'earlier';
 }

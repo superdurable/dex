@@ -15,10 +15,9 @@ type errorResponse struct {
 }
 
 type searchFlowsRequest struct {
-	IncludeContinuedAsNew bool   `json:"includeContinuedAsNew"`
-	Query                 string `json:"query"`
-	PageSize              int32  `json:"pageSize"`
-	NextPageToken         string `json:"nextPageToken"`
+	Query         string `json:"query"`
+	PageSize      int32  `json:"pageSize"`
+	NextPageToken string `json:"nextPageToken"`
 }
 
 type searchFlowsResponse struct {

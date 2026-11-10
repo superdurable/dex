@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use dexzd_keyspace::row_keys::channel_name_prefix;
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, TenantId, run_key};
 use dexzd_protocol::dex::{
-    ChannelMessage, EncodedObject, FlowExecutionId, GetAttributesRequest, GetAttributesResponse,
+    ChannelMessage, EncodedObject, FlowRunId, GetAttributesRequest, GetAttributesResponse,
     GetChannelMessagesRequest, GetChannelMessagesResponse, GetFlowStateRequest,
     GetFlowStateResponse, GetFlowSummaryRequest, GetFlowSummaryResponse, Kv, Value, value,
 };
@@ -143,7 +143,7 @@ impl FlowCoordinatorRegistry {
         let run_id_text = run.run_id.to_string();
         let record = run.record;
         Ok(GetFlowSummaryResponse {
-            flow_execution_id: Some(FlowExecutionId {
+            flow_run_id: Some(FlowRunId {
                 flow_id: request.flow_id,
                 run_id: run_id_text.clone(),
             }),

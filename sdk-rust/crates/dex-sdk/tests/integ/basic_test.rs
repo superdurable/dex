@@ -188,7 +188,7 @@ fn test_workflow_config_override() {
     let workflow = BasicWorkflow::new();
     let flow_id = flow_id("config-override");
     let options =
-        StartFlowOptions::new().config_override(FlowConfig::new().continue_as_new_threshold(1));
+        StartFlowOptions::new().config_override(FlowConfig::new().history_window_events(2_500));
     environment
         .client
         .start_flow_with_options(&workflow, &flow_id, 0, options)

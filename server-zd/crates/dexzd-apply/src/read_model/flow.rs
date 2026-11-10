@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, TenantId, flow_directory_key};
 use dexzd_protocol::dex::{
     ActiveStepExecutionState, ActiveStepPhase, ChannelMessage, ChannelValues, ConditionStatus,
-    FlowExecutionId, FlowResult, FlowStatus, GetChannelMessagesResponse, GetFlowStateResponse,
+    FlowResult, FlowRunId, FlowStatus, GetChannelMessagesResponse, GetFlowStateResponse,
     GetFlowSummaryResponse, InternalTimerStatus, Kv, StepCompletionOutput,
     StepExecutionCompletedConditions, StepMethodInvocationPhase, StepMethodInvocationState,
     StepMethodPendingReason, StepMovement, SubFlowConditionState, TimerInfo, WaitingConditionState,
@@ -80,7 +80,7 @@ pub fn get_flow_summary(
     let view = RunView::open(reader, flow_hash, run_id)?;
     let record = &view.record;
     Ok(GetFlowSummaryResponse {
-        flow_execution_id: Some(FlowExecutionId {
+        flow_run_id: Some(FlowRunId {
             flow_id: record.flow_id.clone(),
             run_id: run_id.to_string(),
         }),

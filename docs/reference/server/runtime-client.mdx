@@ -316,7 +316,6 @@ Stream long-polls.
 - The server caps how long each transport attempt waits. When an attempt hits
   the cap, the SDK reattaches automatically with the same Request ID. The cap
   does not reset **RequestTimeout**.
-- **InternalHandlerTimeout** is deprecated. Leave it unset.
 
 <a id="查看-flow"></a>
 
@@ -353,6 +352,9 @@ for the merge rules and the fields.
 
 <a id="触发-continue-as-new"></a>
 <a id="trigger-continue-as-new"></a>
+
+**TriggerContinueAsNew** was removed in server-zd 0.1.26. See the
+[change log](/reference/server/changelog#v0-1-26).
 
 ## Time travel {#time-travel}
 

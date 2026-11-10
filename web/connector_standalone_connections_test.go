@@ -258,26 +258,26 @@ func TestStandaloneConnectionSaveIsRefusedAfterAConcurrentReleaseChange(t *testi
 	connection := testLocalConnectorConnection("slack", "support-slack", "xoxb-stale", nil)
 	connection.ModulePath, connection.ModuleVersion = standaloneSlackTestModulePath, "v1.3.0"
 	ctx := context.Background()
-	if err := setup.putConnectionIfCurrent(ctx, connection, nil, staleWrite); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, staleWrite, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("stale save err = %v", err)
 	}
 	connection.ModuleVersion = "v1.4.0"
-	if err := setup.putConnectionIfCurrent(ctx, connection, nil, staleWrite); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, staleWrite, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("stale save with the new release err = %v", err)
 	}
 	currentWrite := standaloneTestWriteExpectation(t, setup)
 	connection.ModuleVersion = "v1.3.0"
-	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("save of another release than the added one err = %v", err)
 	}
 	connection.ModuleVersion = "v1.4.0"
-	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite); err != nil {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite, false); err != nil {
 		t.Fatalf("current save err = %v", err)
 	}
 	if stored := getConnectorTestConnection(t, setup, "slack", "support-slack"); stored.ModuleVersion != "v1.4.0" {
 		t.Fatalf("stored = %+v", stored)
 	}
-	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("a save that expects no record must not replace one: err = %v", err)
 	}
 }
@@ -387,10 +387,10 @@ func TestConnectionSavesAndDeletesAreCompareAndSetOnTheStoredRecord(t *testing.T
 	secondSave := connectionTestWriteExpectation(t, setup, "slack", "workspace")
 	first := testLocalConnectorConnection("slack", "workspace", "xoxb-from-first-save", nil)
 	second := testLocalConnectorConnection("slack", "workspace", "xoxb-from-second-save", nil)
-	if err := setup.putConnectionIfCurrent(ctx, first, nil, firstSave); err != nil {
+	if err := setup.putConnectionIfCurrent(ctx, first, nil, firstSave, false); err != nil {
 		t.Fatalf("first same-release save err = %v", err)
 	}
-	if err := setup.putConnectionIfCurrent(ctx, second, nil, secondSave); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, second, nil, secondSave, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("second same-release save err = %v", err)
 	}
 	if stored := getConnectorTestConnection(t, setup, "slack", "workspace"); string(stored.Credentials["access_token"]) != `"xoxb-from-first-save"` {
@@ -398,7 +398,7 @@ func TestConnectionSavesAndDeletesAreCompareAndSetOnTheStoredRecord(t *testing.T
 	}
 
 	deleteBeforeSave := connectionTestWriteExpectation(t, setup, "slack", "workspace")
-	if err := setup.putConnectionIfCurrent(ctx, second, nil, connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
+	if err := setup.putConnectionIfCurrent(ctx, second, nil, connectionTestWriteExpectation(t, setup, "slack", "workspace"), false); err != nil {
 		t.Fatal(err)
 	}
 	if deleted, err := setup.deleteConnection(context.Background(), "slack", "workspace", deleteBeforeSave); deleted || !errors.Is(err, errConnectorConnectionChanged) {
@@ -412,7 +412,7 @@ func TestConnectionSavesAndDeletesAreCompareAndSetOnTheStoredRecord(t *testing.T
 	if _, err := setup.deleteConnection(context.Background(), "slack", "workspace", connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
 		t.Fatal(err)
 	}
-	if err := setup.putConnectionIfCurrent(ctx, first, nil, saveBeforeDelete); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, first, nil, saveBeforeDelete, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("save authorized before a delete err = %v", err)
 	}
 	if _, isStored, err := setup.store.get("slack", "workspace"); err != nil || isStored {

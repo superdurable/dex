@@ -25,7 +25,7 @@ func TestFlowForceFailTemporal(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestFlowForceFail(t, nil)
 		smallWaitForFastTest()
-		doTestFlowForceFail(t, minimumContinueAsNewSyncDurabilityConfig())
+		doTestFlowForceFail(t, syncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

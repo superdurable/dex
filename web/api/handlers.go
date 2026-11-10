@@ -220,10 +220,9 @@ func (h *handler) searchFlows(response http.ResponseWriter, request *http.Reques
 		body.PageSize = 50
 	}
 	result, err := h.client.SearchFlows(request.Context(), &dexpb.SearchFlowsRequest{
-		IncludeContinuedAsNew: body.IncludeContinuedAsNew,
-		Query:                 body.Query,
-		PageSize:              body.PageSize,
-		NextPageToken:         body.NextPageToken,
+		Query:         body.Query,
+		PageSize:      body.PageSize,
+		NextPageToken: body.NextPageToken,
 	})
 	if err != nil {
 		writeGRPCError(response, err, "SearchFlows")

@@ -16,7 +16,9 @@ use std::sync::Arc;
 
 use dexzd_apply::read_model::{StepCompletionState, step_completion_state};
 use dexzd_apply::{FlowStateReader, StateReadError, StateRow};
-use dexzd_engine::{CommandApplier, DeterministicCommandApplier, SystemEngineIdSource};
+use dexzd_engine::{
+    CommandApplier, CommittedStateView, DeterministicCommandApplier, SystemEngineIdSource,
+};
 use dexzd_keyspace::row_keys::{history_record_key, value_row_key};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueReference, parse_run_key};
 use dexzd_protocol::dex::flow_started_or_continued_history_event::StartOrContinue;
@@ -34,6 +36,9 @@ use crate::format_decoding::decode_objects;
 use crate::golden_replay::{RESTART_DELAY_MICROS, SnapshotUse, forget_snapshots};
 use crate::older_backend_error::{
     AppliedFailures, StepRowRecordingApplier, history_with_older_backend_errors,
+};
+use crate::removed_flow_config_fields::{
+    LoggedRemovedFields, removed_fields_in, with_kept_removed_fields,
 };
 use crate::scripted_clock::ScriptedClock;
 use crate::state_dump::{StateDump, dump_committed_state, dumped_value, hex, parse_state_dump};
@@ -595,18 +600,22 @@ fn matches_without_new_fields(
             return checkpoint_matches_older(&key, value, older, stored);
         }
         (name, RunTable::HistoryRecord) if name == ColumnFamily::History.name() => {
-            history_without_scheduled_time(&history_with_inline_effect_values(
+            let history = history_without_scheduled_time(&history_with_inline_effect_values(
                 &history_with_older_backend_errors(&key, value, failures),
                 parsed.flow_hash,
                 parsed.run_id,
                 stored,
-            ))
+            ));
+            with_kept_removed_fields(RunTable::HistoryRecord, value, &history)
         }
         (name, RunTable::RunRecord) if name == ColumnFamily::Flow.name() => {
             let Some(recorded_run) = recorded_run_records.get(hex_key) else {
                 return false;
             };
-            return run_record_without_storage(recorded_run) == run_record_without_storage(value);
+            // Decoding drops the removed FlowConfig fields, so they are compared on their own.
+            return run_record_without_storage(recorded_run) == run_record_without_storage(value)
+                && removed_fields_in(RunTable::RunRecord, recorded_run)
+                    == removed_fields_in(RunTable::RunRecord, value);
         }
         (name, RunTable::HistoryRowMetadata) if name == ColumnFamily::Flow.name() => {
             return true;
@@ -808,14 +817,21 @@ async fn replay(directory: &std::path::Path, snapshot_use: SnapshotUse) -> (Stat
     replay_with_checks(directory, snapshot_use, true).await
 }
 
-/// Replays as `replay` does and also returns the attempt failures that the replay applied.
+/// Replays as `replay` does, with the removed FlowConfig fields that the log recorded restored,
+/// and also returns the attempt failures that the replay applied.
 async fn replay_with_applied_failures(
     directory: &std::path::Path,
     snapshot_use: SnapshotUse,
 ) -> (StateDump, StoredRows, AppliedFailures) {
     let applier = Arc::new(StepRowRecordingApplier::default());
-    let (replayed, stored) =
+    let (mut replayed, mut stored) =
         replay_with_applier(directory, snapshot_use, true, applier.clone()).await;
+    let logged = LoggedRemovedFields::read(directory);
+    assert!(
+        logged.holds_removed_fields(),
+        "the frozen log holds the removed fields"
+    );
+    logged.restore(&mut replayed, &mut stored);
     (replayed, stored, applier.applied_failures())
 }
 
@@ -886,7 +902,17 @@ pub(crate) async fn replay_with_applier(
         .committed_view()
         .expect("open a committed view");
     let state = dump_committed_state(view).await;
-    let stored = tokio::task::spawn_blocking(move || {
+    let stored = stored_rows(row_view).await;
+    engine
+        .shutdown()
+        .await
+        .expect("the node releases its lease");
+    (state, stored)
+}
+
+/// Returns the committed Flow, History, and Value rows of `row_view`.
+pub(crate) async fn stored_rows(row_view: CommittedStateView) -> StoredRows {
+    tokio::task::spawn_blocking(move || {
         let mut stored = StoredRows::new();
         for column_family in [
             ColumnFamily::Flow,
@@ -903,10 +929,5 @@ pub(crate) async fn replay_with_applier(
         stored
     })
     .await
-    .expect("the scan task completes");
-    engine
-        .shutdown()
-        .await
-        .expect("the node releases its lease");
-    (state, stored)
+    .expect("the scan task completes")
 }

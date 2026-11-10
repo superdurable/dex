@@ -5,6 +5,7 @@ const sidebars: SidebarsConfig = {
     {type: 'link', label: '← Developer Reference', href: '/reference/'},
     'index',
     'dex-web',
+    'embed-dex-web',
     'flow-visualization',
     'local-connector-setup',
     'debugging',

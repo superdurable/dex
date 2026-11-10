@@ -13,6 +13,8 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // Relative asset URLs let the Go server mount Dex Web under any base path; it rewrites index.html per request.
+  base: './',
   plugins: [react()],
   resolve: {
     preserveSymlinks: true,

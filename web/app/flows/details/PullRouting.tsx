@@ -23,8 +23,7 @@ export function flowRoutingData(state: FlowState | null, events: FlowHistoryEven
     && typeof asData(asData(event.payload.context).pullRouting).servedByAppWorkerId === 'string');
   const stickyWorkerID = state?.stickyAppWorkerId
     ?? closed?.payload.stickyAppWorkerId
-    ?? asData(asData(lastServed?.payload.context).pullRouting).servedByAppWorkerId
-    ?? asData(start?.payload.continuedStart).stickyAppWorkerId;
+    ?? asData(asData(lastServed?.payload.context).pullRouting).servedByAppWorkerId;
   return {
     workerTarget: asData(config.workerTarget),
     stickyAppWorkerId: typeof stickyWorkerID === 'string' ? stickyWorkerID : undefined,

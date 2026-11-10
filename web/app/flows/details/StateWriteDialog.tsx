@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
+import { webURL } from '@/lib/basePath';
 
 export type StateWriteKind = 'attribute' | 'channel';
 
@@ -59,7 +60,7 @@ const copyByKind = {
       'Writes one Attribute of this run. The value replaces the current value. The Flow sees it on its next read.',
     submit: 'Set attribute',
     submitting: 'Setting…',
-    url: '/api/flows/attributes',
+    url: webURL('/api/flows/attributes'),
     method: 'PUT',
   },
   channel: {
@@ -69,7 +70,7 @@ const copyByKind = {
       'Publishes one message to a Channel of this run. A waiting Step consumes it like any other published message.',
     submit: 'Publish message',
     submitting: 'Publishing…',
-    url: '/api/flows/channels/messages',
+    url: webURL('/api/flows/channels/messages'),
     method: 'POST',
   },
 } as const;

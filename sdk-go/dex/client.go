@@ -349,8 +349,6 @@ const (
 	FlowTerminated
 	// FlowCanceled means the Flow completed cooperative cancellation.
 	FlowCanceled
-	// FlowContinuedAsNew means history rolled into a successor run.
-	FlowContinuedAsNew
 )
 
 // String returns the Flow status name.
@@ -368,8 +366,6 @@ func (status FlowStatus) String() string {
 		return "terminated"
 	case FlowCanceled:
 		return "canceled"
-	case FlowContinuedAsNew:
-		return "continued as new"
 	default:
 		return fmt.Sprintf("unknown status %d", status)
 	}
@@ -421,7 +417,7 @@ type FlowResult struct {
 
 // IsTerminal reports whether the result can no longer execute in its observed run.
 func (result FlowResult) IsTerminal() bool {
-	return result.Status != FlowRunning && result.Status != FlowContinuedAsNew
+	return result.Status != FlowRunning
 }
 
 // DecodeSingleOutput decodes the output when exactly one completion exists.
@@ -867,17 +863,6 @@ func (client *Client) SearchFlows(
 	pageSize int32,
 	nextPageToken string,
 ) (SearchFlowsPage, error) {
-	return client.SearchFlowsWithOptions(ctx, query, pageSize, nextPageToken, SearchFlowsOptions{})
-}
-
-// SearchFlowsWithOptions searches Flow runs, optionally including earlier runs replaced during history maintenance.
-func (client *Client) SearchFlowsWithOptions(
-	ctx context.Context,
-	query string,
-	pageSize int32,
-	nextPageToken string,
-	options SearchFlowsOptions,
-) (SearchFlowsPage, error) {
 	if err := client.validateCall(ctx); err != nil {
 		return SearchFlowsPage{}, err
 	}
@@ -885,7 +870,6 @@ func (client *Client) SearchFlowsWithOptions(
 	if err != nil {
 		return SearchFlowsPage{}, err
 	}
-	request.IncludeContinuedAsNew = options.IncludeContinuedAsNew
 	response, err := client.service.SearchFlows(ctx, request)
 	if err != nil {
 		return SearchFlowsPage{}, translateRPCError(err, "SearchFlows", "", flowTargetNone)
@@ -1045,10 +1029,10 @@ func (client *Client) UpdateFlowConfig(
 //
 // stepExecution identifies the Step type and execution number; nil means execution
 // one. A nil error means the requested execution completed, but this method does not return its output.
-// When options.RequestID is empty, the server derives a stable RequestID from the Step execution.
+// The Server does not read options.RequestID for this wait.
 // RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
 // across transparent transport reattachments. A positive
-// value returns RequestTimeoutError. InternalHandlerTimeout is deprecated and ignored by the current Server.
+// value returns RequestTimeoutError.
 // All long-poll waits on one Flow share one cap: WaitForFlow, Step completion, Attribute, and history waits.
 // The cap defaults to 1,000 (limits.maxLongPollWaitersPerFlow). Each Server node also caps
 // all its long-poll waits at 100,000 by default (limits.maxLongPollWaitersPerNode).
@@ -1075,10 +1059,6 @@ func (client *Client) WaitForStepCompletion(
 	if err != nil {
 		return err
 	}
-	internalHandlerTimeoutSeconds, err := exactDurationSeconds32(options.InternalHandlerTimeout)
-	if err != nil {
-		return err
-	}
 	if err := client.negotiateProtocolWithinRequestBudget(ctx, requestBudget, "WaitForStepCompletion", flowID); err != nil {
 		return err
 	}
@@ -1094,12 +1074,11 @@ func (client *Client) WaitForStepCompletion(
 		_, err = client.service.WaitForStepCompletion(
 			requestCtx,
 			&dexpb.WaitForStepCompletionRequest{
-				FlowId:                        flowID,
-				StepType:                      stepExecution.StepType,
-				StepExecutionNumber:           strconv.FormatInt(int64(executionNumber), 10),
-				RequestTimeoutSeconds:         remainingRequestTimeoutSeconds,
-				InternalHandlerTimeoutSeconds: internalHandlerTimeoutSeconds,
-				RequestId:                     options.RequestID,
+				FlowId:                flowID,
+				StepType:              stepExecution.StepType,
+				StepExecutionNumber:   strconv.FormatInt(int64(executionNumber), 10),
+				RequestTimeoutSeconds: remainingRequestTimeoutSeconds,
+				RequestId:             options.RequestID,
 			},
 		)
 		cancelRequest()
@@ -1119,25 +1098,6 @@ func (client *Client) WaitForStepCompletion(
 			return translated
 		}
 	}
-}
-
-// TriggerContinueAsNew asks an active Flow to roll its history into a new run.
-//
-// The request returns after the server accepts it and does not wait for the rollover.
-// The Flow ID is preserved while the run ID changes. Empty identifiers, inactive
-// Flows, context cancellation, transport failures, and server failures return errors.
-func (client *Client) TriggerContinueAsNew(
-	ctx context.Context,
-	flowID string,
-) error {
-	if err := client.validateFlowCall(ctx, flowID); err != nil {
-		return err
-	}
-	_, err := client.service.TriggerContinueAsNew(
-		ctx,
-		&dexpb.TriggerContinueAsNewRequest{FlowId: flowID},
-	)
-	return translateRPCError(err, "TriggerContinueAsNew", flowID, flowTargetActive)
 }
 
 // HealthCheck returns the responding Dex server's current health condition.
@@ -1355,11 +1315,11 @@ func streamMessagesPageTarget(
 //
 // match must contain an operand matching the registered Attribute type. The
 // matched current value is decoded into valuePtr before this method returns.
-// valuePtr must be a non-nil pointer of the registered type. When options.RequestID is empty, the
-// server derives one from the Attribute condition.
+// valuePtr must be a non-nil pointer of the registered type.
+// The Server does not read options.RequestID for this wait.
 // RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
 // across transparent transport reattachments. A positive
-// value returns RequestTimeoutError. InternalHandlerTimeout is deprecated and ignored by the current Server.
+// value returns RequestTimeoutError.
 // All long-poll waits on one Flow share one cap: WaitForFlow, Step completion, Attribute, and history waits.
 // The cap defaults to 1,000 (limits.maxLongPollWaitersPerFlow). Each Server node also caps
 // all its long-poll waits at 100,000 by default (limits.maxLongPollWaitersPerNode).
@@ -1390,8 +1350,8 @@ func (client *Client) WaitForAttributeMatch(
 //
 // instance identifies the map entry. Slash is prohibited because it is reserved.
 // The matched current value is decoded into valuePtr. The match operand and
-// valuePtr must use the registered AttributeMap value type. options has the same required RequestID,
-// wait-budget, and error behavior as WaitForAttributeMatch.
+// valuePtr must use the registered AttributeMap value type. options has the same RequestID,
+// wait-budget, wait-cap, and error behavior as WaitForAttributeMatch.
 func (client *Client) WaitForAttributeMapInstanceMatch(
 	ctx context.Context,
 	flowID string,
@@ -1457,10 +1417,6 @@ func (client *Client) waitForAttributeMatch(
 	if err != nil {
 		return err
 	}
-	internalHandlerTimeoutSeconds, err := exactDurationSeconds32(options.InternalHandlerTimeout)
-	if err != nil {
-		return err
-	}
 	if err := client.negotiateProtocolWithinRequestBudget(ctx, requestBudget, "WaitForAttribute", flowID); err != nil {
 		return err
 	}
@@ -1480,9 +1436,8 @@ func (client *Client) waitForAttributeMatch(
 				Operator: match.attributeMatchOperator(),
 				Operand:  encoded,
 			},
-			RequestTimeoutSeconds:         remainingRequestTimeoutSeconds,
-			InternalHandlerTimeoutSeconds: internalHandlerTimeoutSeconds,
-			RequestId:                     options.RequestID,
+			RequestTimeoutSeconds: remainingRequestTimeoutSeconds,
+			RequestId:             options.RequestID,
 		})
 		cancelRequest()
 		if waitErr == nil {

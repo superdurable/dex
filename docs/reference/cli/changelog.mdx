@@ -12,10 +12,21 @@ This page lists user-visible changes to dexcli, newest first; each section cover
 
 Not released yet. The next minor release, cli-v1.43.0, ships these changes.
 
+### Breaking
+
+- Removed **dexcli flow trigger-continue-as-new** and the **--follow-runs** flag from **dexcli flow watch**. **dexcli flow watch** stops when the watched run closes. [Reference](/reference/cli/#friendly-flow-operations).
+- **dexcli flow start --config** and **dexcli flow update-config --config** ignore **continueAsNewThreshold** and **continueAsNewPageSizeInBytes** and no longer send them. Remove those JSON properties. [Reference](/reference/cli/#friendly-flow-operations).
+- **dexcli api** response JSON uses **flowRunId** instead of **flowExecutionId**. **dexcli api call** rejects a request that still names a removed field, such as **includeContinuedAsNew** or **continueAsNewThreshold** in a **FlowConfig**. [Reference](/reference/cli/#complete-public-api-access).
+- History output from **dexcli flow history**, **dexcli flow inspect**, **dexcli flow watch**, and **dexcli api** no longer contains **continuedStart** or **continuedToRunId**. Flow status is never **FLOW_STATUS_CONTINUED_AS_NEW**. [Reference](/reference/cli/#complete-public-api-access).
+
 ### Added
 
 - The Dex Web of **dexcli dev** and **dexcli web** can start a Dex Agents session, send it messages, and edit its settings from the **Agent session** tab. [Reference](/reference/web/dex-web#agent-new-session).
 - **dexcli dev** finds or starts the Dex Connectors MCP server and serves its agent tools at **/mcp** on the Dex Web port. It downloads and verifies a compatible release, and restarts the server when it stops. New flags: **--connectors-mcp**, **--connectors-mcp-version**, **--connectors-mcp-binary**, and **--connectors-mcp-connection**. [Reference](/reference/cli/#connectors-mcp).
+
+### Changed
+
+- The Dex Web of **dexcli web** answers its **/api/v2/connector-** routes with HTTP 404 **CONNECTOR_SETUP_UNAVAILABLE**, because it has no local Connector setup. **dexcli web** and **dexcli dev** still serve Dex Web at the root of their port. [Reference](/reference/web/embed-dex-web#limits).
 
 ## 1.42 {#v1-42}
 
