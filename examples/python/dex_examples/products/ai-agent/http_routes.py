@@ -25,7 +25,7 @@ from typing import Any
 
 from dex import ChannelMessageNotFoundError, FlowNotActiveOrNotFoundError, RpcLockConflictError
 from dex_agents import BUILT_IN_TOOL_DEFINITIONS, AgentSessionClient
-from dex_agents.mcp import McpToolListingError
+from dex_agents.mcp import McpToolListingError, McpToolSource
 from dex_agents.stepwise import StepwiseAgentRunner
 from dex_agents.ui_stream import AGENT_EVENT_STREAM_HEADERS, InvalidAgentEventResumeTokenError
 from dex_agents.ui_stream import read_agent_event_stream_snapshot, stream_agent_event_frames
@@ -84,7 +84,8 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         assert isinstance(runner, StepwiseAgentRunner)
         try:
             sources = runner.definition.tool_sources
-            mcp_tools = [tool for source in sources for tool in await source.list_tools()]
+            mcp_sources = [source for source in sources if isinstance(source, McpToolSource)]
+            mcp_tools = [tool for source in mcp_sources for tool in await source.list_tools()]
         except McpToolListingError:
             mcp_tools = []
         return jsonify(

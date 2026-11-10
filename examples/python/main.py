@@ -31,12 +31,15 @@ from dex_examples.patterns.cron.cron_schedule_flow import (
     Interval,
     IntervalUnit,
 )
+from dex_examples.products.ai_agent.slack_connector_tools import (
+    new_slack_connection_from_environment,
+)
 
 
 async def main() -> None:
     load_dotenv(Path(__file__).resolve().parents[1] / ".env")
     config = ExamplesConfig.from_env()
-    app_state = ExampleApp(config)
+    app_state = ExampleApp(config, new_slack_connection_from_environment())
     try:
         await app_state.start_worker()
         await start_cron_schedule(app_state)

@@ -28,6 +28,7 @@ from dex import (
     WorkerOptions,
     open_blob_cache,
 )
+from dex_connectors import slack
 
 from dex_examples.config import ExamplesConfig
 from dex_examples.patterns.cancel_case.credit_check_flow import CreditCheckFlow
@@ -155,8 +156,12 @@ from dex_examples.shared.worker_options import (
 
 
 class ExampleApp:
-    def __init__(self, config: ExamplesConfig) -> None:
+    def __init__(
+        self, config: ExamplesConfig, ai_agent_slack_connection: slack.Connection | None = None
+    ) -> None:
+        """Builds every example; ``ai_agent_slack_connection`` gives the AI Agent Slack tools."""
         self.config = config
+        self.ai_agent_slack_connection = ai_agent_slack_connection
         self._client: AsyncClient | None = None
         client_provider: Callable[[], AsyncClient] = self.require_client
 
@@ -242,6 +247,7 @@ class ExampleApp:
             config.agent_system_prompt,
             config.agent_context_tokens,
             self.ai_agent_mcp_servers,
+            ai_agent_slack_connection,
         )
 
         flows: list[Flow[Any]] = [
@@ -355,7 +361,7 @@ class ExampleApp:
             raise
 
     async def close(self) -> None:
-        """Closes the Client, Worker, Worker task, and BlobCache.
+        """Closes the Client, Worker, Worker task, BlobCache, and Slack connection.
 
         Every close step runs even when an earlier step fails. A later call
         retries only the steps that have not completed. A failed Worker task is
@@ -384,6 +390,12 @@ class ExampleApp:
             try:
                 self.blob_cache.close()
                 self._is_blob_cache_closed = True
+            except Exception as error:
+                close_errors.append(error)
+        if self.ai_agent_slack_connection is not None:
+            try:
+                await self.ai_agent_slack_connection.aclose()
+                self.ai_agent_slack_connection = None
             except Exception as error:
                 close_errors.append(error)
         _raise_first_close_error(close_errors)

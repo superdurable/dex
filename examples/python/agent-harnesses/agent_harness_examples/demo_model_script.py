@@ -17,6 +17,8 @@
 The demo model needs no provider key. It reads the turn's user message and the
 tool results the turn already has, so a retried model call gets the same reply:
 
+* "reply in Slack thread <channel ID> <thread timestamp>: <text>" calls
+  slack_post_thread_reply, the Slack Connector tool.
 * "cancel order <id>" calls cancel_order.
 * Any other text with "order <id>" calls look_up_order.
 * After the tool results arrive, it answers with them.
@@ -31,9 +33,13 @@ from dataclasses import dataclass
 DEMO_MODEL = "mock/order-support"
 DEMO_MODEL_PREFIX = "mock/"
 DEMO_REPLY_PREFIX = "Local demo response: "
+SLACK_POST_THREAD_REPLY_TOOL = "slack_post_thread_reply"
 DEMO_CANCEL_REASON = "requested by the customer"
 DEMO_USAGE_TEXT = (
     DEMO_REPLY_PREFIX + "ask me to look up or cancel an order, such as 'Look up order 1001'."
+)
+_SLACK_THREAD_REPLY_PATTERN = re.compile(
+    r"\breply in slack thread (\S+) (\S+?): (.+)", re.IGNORECASE | re.DOTALL
 )
 _CANCEL_ORDER_PATTERN = re.compile(r"\bcancel order (\w+)", re.IGNORECASE)
 _ORDER_PATTERN = re.compile(r"\border (\w+)", re.IGNORECASE)
@@ -53,6 +59,10 @@ def plan_demo_reply(user_text: str, tool_outputs: Sequence[str]) -> DemoToolRequ
     """Returns the tool call to request, or the answer text once the turn has tool results."""
     if tool_outputs:
         return DEMO_REPLY_PREFIX + " ".join(tool_outputs)
+    if reply_match := _SLACK_THREAD_REPLY_PATTERN.search(user_text):
+        channel_id, thread_timestamp, text = reply_match.groups()
+        arguments = {"channelId": channel_id, "threadTimestamp": thread_timestamp, "text": text}
+        return DemoToolRequest(SLACK_POST_THREAD_REPLY_TOOL, arguments)
     if cancel_match := _CANCEL_ORDER_PATTERN.search(user_text):
         arguments = {"order_id": cancel_match.group(1), "reason": DEMO_CANCEL_REASON}
         return DemoToolRequest("cancel_order", arguments)

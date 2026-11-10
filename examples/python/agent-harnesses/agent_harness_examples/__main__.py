@@ -21,11 +21,12 @@ import asyncio
 from agent_harness_examples.app import AgentHarnessExamplesApp
 from agent_harness_examples.config import AgentHarnessExamplesConfig
 from agent_harness_examples.http_app import create_app
+from agent_harness_examples.slack_connector_tools import new_slack_connection_from_environment
 
 
 async def main() -> None:
     config = AgentHarnessExamplesConfig.from_env()
-    app_state = AgentHarnessExamplesApp(config)
+    app_state = AgentHarnessExamplesApp(config, new_slack_connection_from_environment())
     try:
         await app_state.start_worker()
         host, _, port = config.http_address.rpartition(":")

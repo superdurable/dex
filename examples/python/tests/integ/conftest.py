@@ -33,9 +33,11 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from dex import AsyncClient, DexServiceError, FlowNotFoundError, FlowStatus
+from dex_connectors.slack import slackmock
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import ExamplesConfig
+from dex_examples.products.ai_agent.slack_connector_tools import SLACK_CONNECTION_NAME
 from tests.integ.ai_agent_processes import write_agent_mcp_config
 
 DEFAULT_SERVER_ADDRESS = "127.0.0.1:8801"
@@ -52,9 +54,16 @@ def server_address() -> str:
     return os.environ.get("DEX_FLOW_SERVICE_ADDRESS", DEFAULT_SERVER_ADDRESS)
 
 
+@pytest.fixture(scope="session")
+def slack_mock() -> slackmock.Mock:
+    """The Slack connector's mock for the AI Agent; it records every call and never reaches Slack."""
+    return slackmock.Mock(connection_name=SLACK_CONNECTION_NAME)
+
+
 @pytest_asyncio.fixture(scope="session")
 async def example_app(
     tmp_path_factory: pytest.TempPathFactory,
+    slack_mock: slackmock.Mock,
 ) -> AsyncIterator[ExampleApp]:
     """Boots one ExampleApp with every Flow on outbound pull streams."""
     config = ExamplesConfig(
@@ -63,7 +72,7 @@ async def example_app(
         blob_cache_dir=tmp_path_factory.mktemp("dex-examples-blob-cache"),
         agent_mcp_config=_agent_mcp_config(tmp_path_factory),
     )
-    app = ExampleApp(config)
+    app = ExampleApp(config, slack_mock.connection())
     try:
         # Pull registration fails without a server, so probe first to keep the skip.
         is_server_ready = await server_is_ready(app.client)

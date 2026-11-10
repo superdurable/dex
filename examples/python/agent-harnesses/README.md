@@ -30,6 +30,44 @@ leaves the Claude Agent SDK agent out and serves the other four. The agent passe
 environment that clears every other Claude sign-in setting, such as
 `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_USE_BEDROCK`, so only the API key signs in.
 
+## Slack connector tools
+
+Each agent can also post a reply in a Slack thread through the Slack
+Connector (`dex-connector-slack`). The Connector's operations reach the agent
+through `ConnectorToolSource`, passed to each framework adapter as
+`tool_sources`. The wiring is in
+[`slack_connector_tools.py`](agent_harness_examples/slack_connector_tools.py);
+each agent file passes `tool_sources=build_slack_tool_sources(slack_connection)`.
+
+| Tool | Slack operation | What Dex does |
+| --- | --- | --- |
+| `slack_post_thread_reply(channelId, threadTimestamp, text)` | `postThreadReply` | Waits in `AwaitToolApproval`, then runs once in its own tool Step under the Connector's Call ID. |
+
+The Slack manifest decides what an agent may call: only operations marked
+`agent.exposed` can become tools. The Slack Connector exposes only
+`postThreadReply`, so the agents cannot read a thread through it. The manifest
+does not ask for approval, so the example passes `requires_approval=True`:
+every post waits for a person to approve it.
+
+Set the Slack app's tokens in the Worker's environment:
+
+```bash
+export SLACK_BOT_TOKEN=xoxb-...   # posts the reply
+export SLACK_USER_TOKEN=xoxp-...  # optional: reads the thread back to confirm a post
+```
+
+The bot needs the `chat:write` scope and must be a member of the channel. The
+user token needs `channels:history` (or `groups:history` for a private
+channel). The Connector uses it only when a Worker stopped during a post: it
+reads the thread to learn whether the reply was sent. Without it, such a post
+records an unknown outcome instead. The Connector reads both tokens each time
+it calls Slack, so they never enter Flow state. Without `SLACK_BOT_TOKEN`, the
+app logs one line and the agents run without the Slack tool.
+
+With the demo model, send `Reply in Slack thread <channel ID> <thread
+timestamp>: <text>`, such as `Reply in Slack thread C0123456789
+1710000000.000100: Order 1002 ships on Thursday.`
+
 ## Why a separate project
 
 The OpenAI Agents SDK needs `openai` 3, and the LiteLLM release that the
@@ -78,8 +116,11 @@ curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" | jq 
 The tests start one app against a running Dex server and drive each agent
 through the HTTP routes: a turn that reads an order, a cancellation that runs
 nothing before approval and exactly once after it, and a rejected cancellation
-of another order that never runs. No test needs
-a model key. The four in-process frameworks use the demo model. The Claude
+of another order that never runs. A Slack thread reply runs against the Slack
+Connector's mock (`slackmock`): it posts nothing before approval, posts once
+after it, and its Call ID comes from its `CallSingleAttemptTool` Step. The test
+reads the Flow history with `dexcli` (`DEXCLI_PATH`, `DEXCLI`, or `PATH`). No
+test needs a model key or a Slack token. The four in-process frameworks use the demo model. The Claude
 Agent SDK test runs the real bundled Claude Code CLI against a local Messages
 API stub, with a dummy `ANTHROPIC_API_KEY` and a temporary `HOME`.
 

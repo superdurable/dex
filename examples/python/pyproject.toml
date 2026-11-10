@@ -7,7 +7,9 @@ license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "dex-agents[litellm,mcp]==0.3.0",
+    "dex-agents[connectors,litellm,mcp]==0.4.0",
+    # Moves to PyPI (dex-connector-slack==0.2.0) once the release is published there.
+    "dex-connector-slack @ https://github.com/superdurable/dex-connectors-library/releases/download/connectors%2Fslack%2Fpython%2Fv0.2.0/dex_connector_slack-0.2.0-py3-none-any.whl#sha256=df82651d748d69bdf906b71fc965098e408d40e86f28b3b27ff493240cfaf320",
     "dex-python-sdk==1.38.0",
     "flask>=3.0,<4",
     "mcp>=2.3,<3",
