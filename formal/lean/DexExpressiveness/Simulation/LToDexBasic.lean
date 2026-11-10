@@ -1,4 +1,4 @@
-import DexExpressiveness.Simulation.Relation
+import DexExpressiveness.Simulation.LToDexBasicLemmas
 
 /-!
 # L to Dex: ticks, requests, timer fires, late emits, and the begin of an action
@@ -80,7 +80,108 @@ theorem l_start_simulated (program : Program) (lConfig : L.Config)
     (input : Literal) (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.request (.start input)) = some (lEvents, lNext)) :
     IsSimulatedByDex program dexConfig (.request (.start input)) lEvents lNext := by
-  sorry
+  simp only [L.system, L.step] at isStep
+  split at isStep
+  · rename_i isNotStarted
+    split at isStep
+    · rename_i canStamp
+      injection isStep with isPair
+      injection isPair with isEvents isNext
+      subst isEvents
+      subst isNext
+      have hasNoRun : dexConfig.run = none := by
+        have isStatus := state.isRelated.status
+        cases hasRun : dexConfig.run with
+        | none => rfl
+        | some run => simp [isNotStarted, hasRun] at isStatus
+      have hasNoTask : dexConfig.tasks = [] := state.isRelated.notStarted hasNoRun
+      have canCommit := wp2_canCommit_of_canStamp state.isRelated canStamp
+      obtain ⟨noThread, noShared, noMutex, noQueue, noWake, noInput, noFlag, noJoinable,
+        noTimer⟩ := state.lInvariant.notStartedIsInitial isNotStarted
+      let startRecord : Dex.StepRecord signature :=
+        { id := { stepType := StepType.start, number := 1 }
+          input := some (DexVal.value input.toVal)
+          options := { skipWaitFor := true }
+          origin := .flowStart
+          phase := .execute
+          invocation := some { method := .execute, state := .pending }
+          waitState := none
+          conditionResults := none }
+      let startedRun : Dex.Run signature :=
+        { status := .running, outputs := [], steps := [startRecord]
+          counters := [(StepType.start, 1)], attributes := [], channels := [], timers := []
+          seq := 1 }
+      refine ⟨[.request (.startFlow StepType.start (DexVal.value input.toVal))],
+        [Dex.Obs.start StepType.start (DexVal.value input.toVal)],
+        { dexConfig with run := some startedRun, lastCommitAt := some dexConfig.clock },
+        ?_, rfl, rfl, ?_⟩
+      · simp [TransitionSystem.exec, Dex.system, Dex.step, hasNoRun, canCommit,
+          Dex.Config.commit, Dex.Config.closeEvents, Dex.Run.newStep, Dex.Run.empty,
+          AssocList.get?, AssocList.set, translate, startStepDef, startedRun, startRecord]
+      · refine
+          { clock := state.isRelated.clock
+            stamp := by simp [L.Config.stamp, L.Config.begun, state.isRelated.clock]
+            status := by simp [L.Config.stamp, L.Config.begun, startedRun]
+            notStarted := fun hasRun => by cases hasRun
+            running := ?_
+            closed := fun run status hasRun isClosed => by
+              cases hasRun
+              cases isClosed }
+        intro run hasRun _
+        cases hasRun
+        exact
+          { shared := fun name => by
+              simp [readShared, L.Config.readShared, L.Config.stamp, L.Config.begun, noShared,
+                AssocList.get?, startedRun]
+            cvQueues := fun cv => by
+              simp [readWaiters, L.Config.stamp, L.Config.begun, noQueue, AssocList.get?,
+                startedRun]
+            inputQueues := fun chan => by
+              simp [Dex.Run.pendingMessages, L.Config.pendingInput, L.Config.stamp,
+                L.Config.begun, noInput, AssocList.get?, startedRun]
+            mutexTokens := fun areBooted => by
+              have isBooted := (areBooted _ (List.mem_singleton.mpr rfl)).1
+              simp at isBooted
+            joinTokens := fun thread => by
+              simp [Dex.Run.pendingMessages, L.Config.stamp, L.Config.begun, noJoinable,
+                AssocList.get?, startedRun]
+            cancelRequestsAreFlags := fun thread isPending => by
+              simp [Dex.Run.pendingMessages, AssocList.get?, startedRun] at isPending
+            cancelFlagsAreRequests := fun thread isFlagged => by
+              simp [L.Config.stamp, L.Config.begun, noFlag] at isFlagged
+            cvWakes := fun cv waiter => by
+              simp [Dex.Run.pendingMessages, L.Config.stamp, L.Config.begun, noWake,
+                AssocList.get?, startedRun]
+            timers := fun timer fireTime => by
+              simp [L.Config.stamp, L.Config.begun, AssocList.get?, startedRun]
+            timerCounter := by
+              simp [L.Config.stamp, L.Config.begun, noTimer, AssocList.get?, startedRun]
+            outputsEmpty := rfl
+            threadsHaveSteps := fun thread isMember _ => by
+              simp only [L.Config.stamp, L.Config.begun, List.mem_singleton] at isMember
+              subst isMember
+              exact ⟨startRecord, List.mem_singleton.mpr rfl, rfl,
+                ⟨rfl, input.toVal, rfl, rfl⟩, rfl⟩
+            stepsHaveThreads := fun record isMember _ => by
+              simp only [startedRun, List.mem_singleton] at isMember
+              subst isMember
+              exact ⟨_, List.mem_singleton.mpr rfl, by simp, ⟨rfl, input.toVal, rfl, rfl⟩⟩
+            activeStepsHaveDistinctThreads := fun first isFirst second isSecond _ _ _ => by
+              simp only [startedRun, List.mem_singleton] at isFirst isSecond
+              rw [isFirst, isSecond]
+            invocationsAreActive := fun record isMember _ => by
+              simp only [startedRun, List.mem_singleton] at isMember
+              subst isMember
+              rfl
+            blockingOrder := fun first second firstRecord secondRecord firstOn firstSince
+                secondOn secondSince firstWait secondWait isFirst _ _ _ _ _ _ _ isBlocked => by
+              simp only [L.Config.stamp, L.Config.begun, List.mem_singleton] at isFirst
+              subst isFirst
+              cases isBlocked
+            tasksAreCurrent := fun task isMember => by
+              simp [hasNoTask] at isMember }
+    · cases isStep
+  · cases isStep
 
 /-- `in(c, v)` and `refused(c, v)` are simulated by [PUBLISH] and its rejection. -/
 theorem l_input_simulated (program : Program) (lConfig : L.Config)
