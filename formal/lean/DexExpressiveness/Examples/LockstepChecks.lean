@@ -134,6 +134,14 @@ def lateEmitProgram : Program :=
     mainBody := block [.fork 1 0 [], .exit (.lit .null)]
     staticMutexCount := 0 }
 
+/-- `exit` while two other threads' emits of the same value are issued: each
+`out(8)` happens before the exit, after it, or never. -/
+def twoLateEmitsProgram : Program :=
+  { procs := [(0, { params := [], body := .emit (int 8) })]
+    mainParam := 0
+    mainBody := block [.fork 1 0 [], .fork 2 0 [], .exit (.lit .null)]
+    staticMutexCount := 0 }
+
 /-- A created mutex, locked twice in a row with an unlock between, then `fail`. -/
 def newMutexProgram : Program :=
   { procs := []
@@ -167,6 +175,7 @@ def typeErrorProgram : Program :=
 #guard lockstepMismatches signalProgram requests 700 12 == []
 #guard lockstepMismatches selectRaceProgram requests 800 24 == []
 #guard lockstepMismatches lateEmitProgram requests 200 16 == []
+#guard lockstepMismatches twoLateEmitsProgram requests 200 16 == []
 #guard lockstepMismatches newMutexProgram requests 200 4 == []
 #guard lockstepMismatches cancelProgram requests 300 8 == []
 #guard lockstepMismatches typeErrorProgram requests 200 4 == []

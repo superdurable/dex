@@ -4,25 +4,28 @@ import DexExpressiveness.Simulation.LToDexComplete
 /-!
 # L to Dex: every L step is simulated by the translated Flow
 
-`l_step_simulated` is proved here from the case lemmas of
+`l_step_simulatedByActions` is proved here from the case lemmas of
 `Simulation/LToDexBasic.lean` and `Simulation/LToDexComplete.lean`, by cases
-on the label and on the phase of the stepping thread. This file has no
-`sorry` of its own.
+on the label and on the phase of the stepping thread. It names the Dex
+actions (`simulatingActions`). `l_step_simulated` is its corollary without
+the names, which `FiniteTraces.lean` uses. This file has no `sorry` of its
+own.
 -/
 
 namespace DexExpressiveness
 
 open DexExpressiveness.L DexExpressiveness.Translation
 
-/-- L to Dex: every L step from related configurations that satisfy their
-invariants is simulated by a finite sequence of Dex actions with the same
-projected events, and the results are related. Well-formedness is not needed
-here: L gives no action to a thread that would break a mutex requirement. -/
-theorem l_step_simulated (program : Program) (lConfig : L.Config)
+/-- L to Dex, with the Dex actions named: every L step from related
+configurations that satisfy their invariants is simulated by the actions of
+`simulatingActions`, with the same projected events, and the results are
+related. Well-formedness is not needed here: L gives no action to a thread
+that would break a mutex requirement. -/
+theorem l_step_simulatedByActions (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (label : L.Label) (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig label = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig label lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig label lEvents lNext := by
   cases label with
   | tick duration => exact l_tick_simulated program lConfig dexConfig state duration _ _ isStep
   | request request =>
@@ -69,5 +72,16 @@ theorem l_step_simulated (program : Program) (lConfig : L.Config)
       | blocked on since =>
         simp [L.system, L.step, foundCase, stepThread, phaseCase] at isStep
       | halted => simp [L.system, L.step, foundCase, stepThread, phaseCase] at isStep
+
+/-- L to Dex: every L step from related configurations that satisfy their
+invariants is simulated by a finite sequence of Dex actions with the same
+projected events, and the results are related. -/
+theorem l_step_simulated (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    (label : L.Label) (lEvents : List Event) (lNext : L.Config)
+    (isStep : (L.system program).step lConfig label = some (lEvents, lNext)) :
+    IsSimulatedByDex program dexConfig label lEvents lNext :=
+  (l_step_simulatedByActions program lConfig dexConfig state label lEvents lNext
+    isStep).isSimulatedByDex
 
 end DexExpressiveness

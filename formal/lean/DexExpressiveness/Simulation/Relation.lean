@@ -10,23 +10,26 @@ configuration of `⟦program⟧`. It holds only the clauses that mention both
 sides. The facts about one side alone are separate:
 
 - `L.Invariant` (`L/Invariant.lean`) for the L configuration;
-- `ConfigInvariant` and `TasksAreDistinct` (`Invariants.lean`) for the Dex
-  configuration.
+- `ConfigInvariant`, `TasksAreDistinct`, and `TimersAreDistinct`
+  (`Invariants.lean`) for the Dex configuration.
 
 The correspondence is step for step. L takes exactly one clock-stamped action
 per Dex commit of the translated program (spec §8.1 "Clock and timing
 model"), so:
 
 - every L label is simulated by one Dex commit or Worker effect, preceded by
-  the Worker steps that run and return the handler (`IsSimulatedByDex`);
+  the Worker steps that run and return the handler (`simulatingActions`,
+  `IsSimulatedByActions`);
 - every Dex action is simulated by one L label, except running and returning
   a handler, which L does not see (`IsSimulatedByL`).
 
 The definitions of this file are fixed. The proofs of the step simulations
 are in `Simulation/*.lean`; they may add lemmas but may not change these
-definitions. `Examples/Lockstep.lean` tests the step correspondence, and
-`Examples/RelatedCheck.lean` tests `Related` and `L.Invariant` themselves, on
-pseudo-random schedules.
+definitions. `Examples/Lockstep.lean` tests the step correspondence on
+pseudo-random schedules. `Examples/RelatedCheck.lean` tests `Related` and the
+invariants on the configuration pairs those schedules reach, and
+`Examples/Inductiveness.lean` tests that they are inductive, on changed
+copies of those pairs.
 -/
 
 namespace DexExpressiveness
@@ -98,19 +101,27 @@ def decodeOutcome (thread : L.Thread) (results : Option (Dex.ConditionResults si
 
 /-- The phase of a thread matches the state of the Step that carries it and
 of that Step's task (spec §8.2: issue at [STEP-START], `out(a)` at
-[WORKER-EFFECT], continuation at [STEP-COMPLETE-EXECUTE]). -/
+[WORKER-EFFECT], continuation at [STEP-COMPLETE-EXECUTE]). Every case fixes
+the Step's phase `φ`: the Step waits (`WT`) exactly while its thread is
+blocked, so a publication wakes a Step exactly when it wakes the thread. A
+WaitFor task holds no effect, because a WaitFor emits none. -/
 def PhaseMatchesStep (program : Program) (lConfig : L.Config) (config : Dex.Config signature)
     (thread : L.Thread) (record : Dex.StepRecord signature) : Prop :=
   let waitsFirst : Bool := thread.timer.isSome || isBlockingHead thread.code
   match thread.phase with
-  | .bootPending => record.invocation = some { method := .execute, state := .pending }
+  | .bootPending =>
+    record.phase = .execute ∧
+    record.invocation = some { method := .execute, state := .pending }
   | .bootRunning =>
+    record.phase = .execute ∧
     HasRunningTask config record .execute (fun task => pendingEffects ⟦program⟧ task = [])
   | .ready =>
+    record.phase = (if waitsFirst then .waitFor else .execute) ∧
     record.conditionResults = none ∧
     record.invocation =
       some { method := if waitsFirst then .waitFor else .execute, state := .pending }
   | .running loaded =>
+    record.phase = .execute ∧
     HasRunningTask config record .execute (fun task =>
       pendingEffects ⟦program⟧ task = [] ∧ task.conditionResults = none ∧
       (match beginKind thread.core thread.code with
@@ -122,12 +133,16 @@ def PhaseMatchesStep (program : Program) (lConfig : L.Config) (config : Dex.Conf
       ∀ cv, cvOperand thread.core thread.code = some cv →
         readWaiters task.snapshot cv = (lConfig.cvQueues.get? cv).getD [])
   | .emitting effect =>
+    record.phase = .execute ∧
     HasRunningTask config record .execute (fun task =>
       pendingEffects ⟦program⟧ task = [effect] ∧ task.conditionResults = none)
   | .emitted =>
+    record.phase = .execute ∧
     HasRunningTask config record .execute (fun task =>
       pendingEffects ⟦program⟧ task = [] ∧ task.conditionResults = none)
-  | .waitStarted => HasRunningTask config record .waitFor (fun _ => True)
+  | .waitStarted =>
+    record.phase = .waitFor ∧
+    HasRunningTask config record .waitFor (fun task => pendingEffects ⟦program⟧ task = [])
   | .blocked on _ =>
     record.phase = .waiting ∧ record.invocation = none ∧
     ∃ waitState, record.waitState = some waitState ∧
@@ -140,6 +155,7 @@ def PhaseMatchesStep (program : Program) (lConfig : L.Config) (config : Dex.Conf
     record.invocation = some { method := .execute, state := .pending } ∧
     decodeOutcome thread record.conditionResults = outcome
   | .resuming outcome =>
+    record.phase = .execute ∧
     HasRunningTask config record .execute (fun task =>
       pendingEffects ⟦program⟧ task = [] ∧ decodeOutcome thread task.conditionResults = outcome)
   | .halted => False
@@ -163,18 +179,32 @@ structure RunningRelated (program : Program) (lConfig : L.Config)
       thread.phase ≠ .bootPending ∧ thread.phase ≠ .bootRunning) →
     ∀ mutex, (run.pendingMessages (Chan.mutexToken mutex)).length =
       if lConfig.mutexOwners.get? mutex = some none then 1 else 0
+  /-- While `main` boots, the mutexes are the statically known ones, all
+  unlocked, and no token is published yet (spec §8.2: "The start Step
+  publishes one token to each statically known mutex Channel before it starts
+  `main`"). With this, the start Step's Complete establishes `mutexTokens`. -/
+  mutexesBeforeBoot : ∀ thread, thread ∈ lConfig.threads →
+      thread.phase = .bootPending ∨ thread.phase = .bootRunning →
+    lConfig.mutexOwners =
+      (List.range program.staticMutexCount).map (fun index => (MutexId.static index, none)) ∧
+    ∀ mutex, run.pendingMessages (Chan.mutexToken mutex) = []
   /-- `join/t` holds one message exactly while `t` is ended and not joined. -/
   joinTokens : ∀ thread, (run.pendingMessages (Chan.joinDone thread)).length =
     if lConfig.joinable.contains thread then 1 else 0
   /-- A pending cancel request means the flag is set. -/
   cancelRequestsAreFlags : ∀ thread,
     run.pendingMessages (Chan.cancelRequest thread) ≠ [] → lConfig.cancelFlags.contains thread = true
-  /-- A set flag is a pending cancel request, unless the thread is gone or has observed it. -/
+  /-- A set flag is a pending cancel request, unless its thread has observed
+  the request, or has observed it and ended. An ended thread is not a child
+  that a live thread can still fork, so no thread starts with a flag and no
+  request. -/
   cancelFlagsAreRequests : ∀ thread, lConfig.cancelFlags.contains thread = true →
     run.pendingMessages (Chan.cancelRequest thread) ≠ [] ∨
-    lConfig.findThread? thread = none ∨
-    ∃ current, lConfig.findThread? thread = some current ∧
-      (current.phase = .woken .canceled ∨ current.phase = .resuming .canceled)
+    (∃ current, lConfig.findThread? thread = some current ∧
+      (current.phase = .woken .canceled ∨ current.phase = .resuming .canceled)) ∨
+    (lConfig.findThread? thread = none ∧
+      ∀ live, live ∈ lConfig.threads → ∀ index, live.core.freshCounter ≤ index →
+        ¬ (live.core.tid ++ [index]) <+: thread)
   /-- `cv/w` holds the wakes of a waiter that has not parked yet. -/
   cvWakes : ∀ cv waiter, (run.pendingMessages (Chan.cvWake cv waiter)).length =
     lConfig.cvWakes.count (cv, waiter)
@@ -281,6 +311,97 @@ def IsAdmissibleAction (config : Dex.Config signature) : Dex.Action signature �
       chan = Chan.external externalChan ∧ message = DexVal.value literal.toVal
   | _ => True
 
+/-! ## The Dex actions that simulate an L label -/
+
+/-- The Worker step that runs the handler of a task, if it has not run. -/
+def runTaskActions (task : Dex.Task signature) : List (Dex.Action signature) :=
+  match task.phase with
+  | .started => [.workerRun task.id]
+  | _ => []
+
+/-- The Worker steps that bring a task with no effect left to `Returned`. -/
+def returnTaskActions (task : Dex.Task signature) : List (Dex.Action signature) :=
+  match task.phase with
+  | .started => [.workerRun task.id, .workerReturn task.id]
+  | .running _ _ => [.workerReturn task.id]
+  | .returned _ => []
+
+/-- The active Step that carries a thread in the Dex run, with its running
+task, if any. -/
+def stepOfThread (config : Dex.Config signature) (thread : Tid) :
+    Option (Dex.StepRecord signature × Option (Dex.Task signature)) :=
+  match config.run with
+  | none => none
+  | some run =>
+    match run.steps.find? (fun record =>
+        record.phase.isActive && decide (threadOfInput record.input = thread)) with
+    | none => none
+    | some record =>
+      match record.invocation with
+      | some { method := _, state := .running taskId } => some (record, config.findTask? taskId)
+      | _ => some (record, none)
+
+/-- The Dex actions that simulate one L label, as a function of both
+configurations before the step (spec §8.1 "Clock and timing model", §8.2):
+
+- a tick, a request, and a batch of `fire` actions are one Dex action each;
+- a thread that begins an action is the [STEP-START] of its Step;
+- `out(a)` is the [WORKER-EFFECT] of the thread's task, after the Worker step
+  that runs the handler if it has not run;
+- a thread that completes an action is the Complete of its task, after the
+  Worker steps that run and return the handler if they have not happened;
+- a late emit is the [WORKER-EFFECT] or the [WORKER-ABANDON] of the first
+  task that still holds the effect.
+
+The list is empty when the configurations do not fit, which `Related` rules
+out. -/
+def simulatingActions (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) : L.Label → List (Dex.Action signature)
+  | .tick duration => [.tick duration]
+  | .request request => [.request (encodeRequest request)]
+  | .fire count => [.timerFire count]
+  | .thread thread =>
+    match lConfig.findThread? thread, stepOfThread dexConfig thread with
+    | some current, some (record, task) =>
+      match current.phase, task with
+      | .bootPending, _ => [.stepStart record.id]
+      | .ready, _ => [.stepStart record.id]
+      | .woken _, _ => [.stepStart record.id]
+      | .emitting _, some running => runTaskActions running ++ [.workerEffect running.id]
+      | _, some running => returnTaskActions running ++ [.stepComplete running.id]
+      | _, none => []
+    | _, _ => []
+  | .lateDeliver index =>
+    match lConfig.lateEmits[index]? with
+    | none => []
+    | some effect =>
+      match dexConfig.tasks.find? (fun task => (pendingEffects ⟦program⟧ task).contains effect) with
+      | some task => runTaskActions task ++ [.workerEffect task.id]
+      | none => []
+  | .lateDrop index =>
+    match lConfig.lateEmits[index]? with
+    | none => []
+    | some effect =>
+      match dexConfig.tasks.find? (fun task => (pendingEffects ⟦program⟧ task).contains effect) with
+      | some task => [.workerAbandon task.id]
+      | none => []
+
+/-- The L step `lConfig --label--> lNext` with events `lEvents` is simulated
+by exactly the Dex actions `simulatingActions` names: they are enabled from
+`dexConfig`, have the same projected events, and end in a configuration
+related to `lNext`. The step lemmas of `Simulation/LToDex*.lean` prove this
+form. It names the Dex configuration the step ends in, which `Dex.step`
+determines, so the Dex-to-L direction can reuse a lemma whenever its Dex
+action is the whole list. -/
+def IsSimulatedByActions (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (label : L.Label) (lEvents : List Event)
+    (lNext : L.Config) : Prop :=
+  ∃ dexEvents dexNext,
+    (Dex.system ⟦program⟧).exec dexConfig (simulatingActions program lConfig dexConfig label) =
+      some (dexEvents, dexNext) ∧
+    dexEvents.filterMap project = lEvents ∧
+    Related program lNext dexNext
+
 /-- The L step `lConfig --label--> lNext` with events `lEvents` is simulated
 by the translated Flow from `dexConfig`: a finite sequence of Dex actions has
 the same projected events, its only request is the encoded request of the
@@ -305,7 +426,7 @@ def IsSimulatedByL (program : Program) (lConfig : L.Config)
     Related program lNext dexNext
 
 /-- The hypotheses that every step simulation lemma takes: the two
-configurations are related, and each satisfies the invariant of its side. -/
+configurations are related, and each satisfies the invariants of its side. -/
 structure IsSimulationState (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) : Prop where
   /-- The configurations are related. -/
@@ -316,5 +437,7 @@ structure IsSimulationState (program : Program) (lConfig : L.Config)
   dexInvariant : ConfigInvariant program dexConfig
   /-- Task IDs are unique. -/
   tasksDistinct : TasksAreDistinct dexConfig
+  /-- Armed timers have distinct IDs. -/
+  timersDistinct : TimersAreDistinct dexConfig
 
 end DexExpressiveness

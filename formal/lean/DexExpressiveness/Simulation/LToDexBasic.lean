@@ -1,10 +1,11 @@
-import DexExpressiveness.Simulation.Relation
+import DexExpressiveness.Simulation.RelationLemmas
 
 /-!
 # L to Dex: ticks, requests, timer fires, late emits, and the begin of an action
 
 Work package 2 of the safety proof. Each lemma shows that one kind of L step
-is simulated by the translated Flow (`IsSimulatedByDex`):
+is simulated by exactly the Dex actions that `simulatingActions` names
+(`IsSimulatedByActions`):
 
 | L step | Dex actions |
 | --- | --- |
@@ -18,8 +19,10 @@ is simulated by the translated Flow (`IsSimulatedByDex`):
 | `thread t` from `emitting` | `workerRun` if needed, then `workerEffect` of that Step's task |
 
 `l_tick_simulated` is proved. The others are `sorry`; the README lists them.
-The proofs may add lemmas to this file. They may not change
-`Simulation/Relation.lean`, `L/Invariant.lean`, or any model file.
+The proofs may add lemmas to this file and to
+`Simulation/RelationLemmas.lean`. They may not change
+`Simulation/Relation.lean`, `L/Invariant.lean`, `Invariants.lean`, or any
+model file.
 -/
 
 namespace DexExpressiveness
@@ -31,7 +34,7 @@ theorem l_tick_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (duration : Nat) (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.tick duration) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.tick duration) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.tick duration) lEvents lNext := by
   simp only [L.system, L.step] at isStep
   split at isStep
   · rename_i isPositive
@@ -39,9 +42,8 @@ theorem l_tick_simulated (program : Program) (lConfig : L.Config)
     injection isPair with isEvents isNext
     subst isEvents
     subst isNext
-    refine ⟨[.tick duration], [], { dexConfig with clock := dexConfig.clock + duration }, ?_,
-      rfl, rfl, ?_⟩
-    · simp [TransitionSystem.exec, Dex.system, Dex.step, isPositive]
+    refine ⟨[], { dexConfig with clock := dexConfig.clock + duration }, ?_, rfl, ?_⟩
+    · simp [simulatingActions, TransitionSystem.exec, Dex.system, Dex.step, isPositive]
     · exact
         { clock := by simp [state.isRelated.clock]
           stamp := state.isRelated.stamp
@@ -53,6 +55,7 @@ theorem l_tick_simulated (program : Program) (lConfig : L.Config)
               cvQueues := related.cvQueues
               inputQueues := related.inputQueues
               mutexTokens := related.mutexTokens
+              mutexesBeforeBoot := related.mutexesBeforeBoot
               joinTokens := related.joinTokens
               cancelRequestsAreFlags := related.cancelRequestsAreFlags
               cancelFlagsAreRequests := related.cancelFlagsAreRequests
@@ -79,7 +82,7 @@ theorem l_start_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (input : Literal) (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.request (.start input)) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.request (.start input)) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.request (.start input)) lEvents lNext := by
   sorry
 
 /-- `in(c, v)` and `refused(c, v)` are simulated by [PUBLISH] and its rejection. -/
@@ -88,7 +91,7 @@ theorem l_input_simulated (program : Program) (lConfig : L.Config)
     (chan : ExtChan) (value : Literal) (lEvents : List Event) (lNext : L.Config)
     (isStep :
       (L.system program).step lConfig (.request (.input chan value)) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.request (.input chan value)) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.request (.input chan value)) lEvents lNext := by
   sorry
 
 /-- A batch of `fire` actions is simulated by one [TIMER-FIRE] of the same
@@ -98,7 +101,7 @@ theorem l_fire_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (count : Nat) (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.fire count) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.fire count) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.fire count) lEvents lNext := by
   sorry
 
 /-- The delivery of a late emit is simulated by the [WORKER-EFFECT] of a
@@ -107,7 +110,7 @@ theorem l_lateDeliver_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (index : Nat) (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.lateDeliver index) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.lateDeliver index) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.lateDeliver index) lEvents lNext := by
   sorry
 
 /-- The drop of a late emit is simulated by [WORKER-ABANDON]. -/
@@ -115,7 +118,7 @@ theorem l_lateDrop_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (index : Nat) (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.lateDrop index) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.lateDrop index) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.lateDrop index) lEvents lNext := by
   sorry
 
 /-- The begin of an action is simulated by [STEP-START] of the Step that
@@ -130,7 +133,7 @@ theorem l_thread_begin_simulated (program : Program) (lConfig : L.Config)
       ∃ outcome, thread.phase = .woken outcome)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.thread tid) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
   sorry
 
 /-- `out(a)` is simulated by [WORKER-EFFECT] of the emit Step's task. -/
@@ -140,7 +143,7 @@ theorem l_thread_deliver_simulated (program : Program) (lConfig : L.Config)
     (effect : Val) (isEmitting : thread.phase = .emitting effect)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.thread tid) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
   sorry
 
 end DexExpressiveness

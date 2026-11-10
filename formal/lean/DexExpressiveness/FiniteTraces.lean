@@ -109,21 +109,26 @@ theorem isSimulationState_initial (program : Program) :
   { isRelated := related_initial program
     lInvariant := L.Invariant.initial program
     dexInvariant := ConfigInvariant.initial program
-    tasksDistinct := ⟨List.nodup_nil, fun task isMember => by cases isMember⟩ }
+    tasksDistinct := ⟨List.nodup_nil, fun task isMember => by cases isMember⟩
+    timersDistinct := TimersAreDistinct.initial ⟦program⟧ }
 
-/-- A finite Dex run keeps the Dex invariant and the distinctness of task IDs. -/
+/-- A finite Dex run keeps the Dex invariant, the distinctness of task IDs,
+and the distinctness of timer IDs. -/
 theorem dexInvariants_of_exec (program : Program) (actions : List (Dex.Action signature))
     (config : Dex.Config signature) (events : List (Dex.Obs signature))
     (final : Dex.Config signature)
     (invariant : ConfigInvariant program config) (tasksDistinct : TasksAreDistinct config)
+    (timersDistinct : TimersAreDistinct config)
     (isExec : (Dex.system ⟦program⟧).exec config actions = some (events, final)) :
-    ConfigInvariant program final ∧ TasksAreDistinct final :=
+    ConfigInvariant program final ∧ TasksAreDistinct final ∧ TimersAreDistinct final :=
   TransitionSystem.invariant_of_exec (Dex.system ⟦program⟧)
-    (fun state => ConfigInvariant program state ∧ TasksAreDistinct state)
+    (fun state => ConfigInvariant program state ∧ TasksAreDistinct state ∧
+      TimersAreDistinct state)
     (fun state label stepEvents next holds isStep =>
-      ⟨ConfigInvariant.step program state label stepEvents next holds.1 holds.2 isStep,
-       TasksAreDistinct.step ⟦program⟧ state label stepEvents next holds.2 isStep⟩)
-    actions config events final ⟨invariant, tasksDistinct⟩ isExec
+      ⟨ConfigInvariant.step program state label stepEvents next holds.1 holds.2.1 isStep,
+       TasksAreDistinct.step ⟦program⟧ state label stepEvents next holds.2.1 isStep,
+       TimersAreDistinct.step ⟦program⟧ state label stepEvents next holds.2.2 isStep⟩)
+    actions config events final ⟨invariant, tasksDistinct, timersDistinct⟩ isExec
 
 /-! ## Dex to L -/
 
@@ -264,7 +269,9 @@ theorem dex_exec_simulated (program : Program) (isWellFormed : program.IsWellFor
         dexInvariant := ConfigInvariant.step program dexConfig action stepEvents dexNext
           state.dexInvariant state.tasksDistinct isStep
         tasksDistinct := TasksAreDistinct.step ⟦program⟧ dexConfig action stepEvents dexNext
-          state.tasksDistinct isStep }
+          state.tasksDistinct isStep
+        timersDistinct := TimersAreDistinct.step ⟦program⟧ dexConfig action stepEvents dexNext
+          state.timersDistinct isStep }
     obtain ⟨laterLabels, lFinal, isLLater, finalRelated⟩ :=
       inductionHypothesis lNext dexNext laterEvents dexFinal nextState
         (isReachable.exec stepLabels _ isLStep) laterAdmissible isLater
@@ -400,13 +407,14 @@ theorem l_exec_simulated (program : Program) (labels : List L.Label) :
       nextRelated⟩ := l_step_simulated program lConfig dexConfig state label stepEvents lNext
         isStep
     have nextDexInvariants := dexInvariants_of_exec program stepActions dexConfig stepDexEvents
-      dexNext state.dexInvariant state.tasksDistinct isDexStep
+      dexNext state.dexInvariant state.tasksDistinct state.timersDistinct isDexStep
     have nextState : IsSimulationState program lNext dexNext :=
       { isRelated := nextRelated
         lInvariant := L.Invariant.step program lConfig label stepEvents lNext state.lInvariant
           isStep
         dexInvariant := nextDexInvariants.1
-        tasksDistinct := nextDexInvariants.2 }
+        tasksDistinct := nextDexInvariants.2.1
+        timersDistinct := nextDexInvariants.2.2 }
     obtain ⟨laterActions, laterDexEvents, dexFinal, isDexLater, laterProjected, laterAdmissible,
       finalRelated⟩ := inductionHypothesis lNext dexNext laterEvents lFinal nextState isLater
     refine ⟨stepActions ++ laterActions, stepDexEvents ++ laterDexEvents, dexFinal,

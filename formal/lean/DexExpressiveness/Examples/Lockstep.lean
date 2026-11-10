@@ -1,4 +1,4 @@
-import DexExpressiveness.Simulation
+import DexExpressiveness.Simulation.Relation
 import DexExpressiveness.Examples.Schedule
 
 /-!
@@ -11,78 +11,19 @@ step, that
 - the L events equal the projection `π` of the Dex events, and
 - the L clock stamp equals the Dex commit timestamp.
 
-`dexActionsFor` turns one L label into the Dex actions that are meant to
-simulate it, and `lLabelsFor` turns one Dex action into the L labels that are
-meant to simulate it. They are the step correspondence that the simulation
-lemmas of `Simulation.lean` state. Running them on pseudo-random schedules
-tests that correspondence before anyone proves it.
+`simulatingActions` (`Simulation/Relation.lean`) turns one L label into the
+Dex actions that simulate it; the step lemmas of `Simulation/LToDex*.lean`
+are stated with it. `lLabelsFor` turns one Dex action into the L labels that
+are meant to simulate it. Running them on pseudo-random schedules tests the
+step correspondence before anyone proves it.
+
+This file imports `Simulation/Relation.lean` only, not the proofs, so that a
+change to a proof does not rerun the checks.
 -/
 
 namespace DexExpressiveness.Examples
 
 open DexExpressiveness DexExpressiveness.L DexExpressiveness.Translation
-
-/-- The Worker steps that bring a task to the point where it has emitted
-nothing more and can return: run the handler if it has not run. -/
-def runIfStarted (task : Dex.Task signature) : List (Dex.Action signature) :=
-  match task.phase with
-  | .started => [.workerRun task.id]
-  | _ => []
-
-/-- The Worker steps that bring a task to `Returned`, for a task with no
-effect left to emit. -/
-def returnTask (task : Dex.Task signature) : List (Dex.Action signature) :=
-  match task.phase with
-  | .started => [.workerRun task.id, .workerReturn task.id]
-  | .running _ _ => [.workerReturn task.id]
-  | .returned _ => []
-
-/-- The active Step of a thread in the Dex run, with its running task, if any. -/
-def stepOfThread (config : Dex.Config signature) (thread : Tid) :
-    Option (Dex.StepRecord signature × Option (Dex.Task signature)) :=
-  match config.run with
-  | none => none
-  | some run =>
-    match run.steps.find? (fun record =>
-        record.phase.isActive && decide (threadOfInput record.input = thread)) with
-    | none => none
-    | some record =>
-      match record.invocation with
-      | some { method := _, state := .running taskId } => some (record, config.findTask? taskId)
-      | _ => some (record, none)
-
-/-- The Dex actions that simulate one L label, given both configurations
-before the step. -/
-def dexActionsFor (program : Program) (lConfig : L.Config) (dexConfig : Dex.Config signature) :
-    L.Label → List (Dex.Action signature)
-  | .tick duration => [.tick duration]
-  | .request request => [.request (encodeRequest request)]
-  | .fire count => [.timerFire count]
-  | .thread thread =>
-    match lConfig.findThread? thread, stepOfThread dexConfig thread with
-    | some current, some (record, task) =>
-      match current.phase, task with
-      | .bootPending, _ => [.stepStart record.id]
-      | .ready, _ => [.stepStart record.id]
-      | .woken _, _ => [.stepStart record.id]
-      | .emitting _, some running => runIfStarted running ++ [.workerEffect running.id]
-      | _, some running => returnTask running ++ [.stepComplete running.id]
-      | _, none => []
-    | _, _ => []
-  | .lateDeliver index =>
-    match lConfig.lateEmits[index]? with
-    | none => []
-    | some effect =>
-      match dexConfig.tasks.find? (fun task => (pendingEffects ⟦program⟧ task).contains effect) with
-      | some task => runIfStarted task ++ [.workerEffect task.id]
-      | none => []
-  | .lateDrop index =>
-    match lConfig.lateEmits[index]? with
-    | none => []
-    | some effect =>
-      match dexConfig.tasks.find? (fun task => (pendingEffects ⟦program⟧ task).contains effect) with
-      | some task => [.workerAbandon task.id]
-      | none => []
 
 /-- The L labels that simulate one Dex action, given both configurations
 before the step. Running and returning a handler have no L counterpart. -/
@@ -133,7 +74,7 @@ def simulateLSchedule (program : Program) :
     List L.Label → L.Config × Dex.Config signature → List (Dex.Action signature)
   | [], _ => []
   | label :: laterLabels, state =>
-    let actions := dexActionsFor program state.1 state.2 label
+    let actions := simulatingActions program state.1 state.2 label
     match (L.system program).step state.1 label,
         (Dex.system ⟦program⟧).exec state.2 actions with
     | some (_, lNext), some (_, dexNext) =>
@@ -166,7 +107,7 @@ def checkAligned (context : String) (lResult : Option (List Event × L.Config))
 def stepFromL (program : Program) (state : L.Config × Dex.Config signature) (label : L.Label) :
     Lockstep :=
   checkAligned "L-driven step" ((L.system program).exec state.1 [label])
-    ((Dex.system ⟦program⟧).exec state.2 (dexActionsFor program state.1 state.2 label))
+    ((Dex.system ⟦program⟧).exec state.2 (simulatingActions program state.1 state.2 label))
 
 /-- Run one Dex action on the Dex side and its simulating labels on the L side. -/
 def stepFromDex (program : Program) (state : L.Config × Dex.Config signature)

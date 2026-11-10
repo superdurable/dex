@@ -1,13 +1,13 @@
-import DexExpressiveness.Simulation.Relation
+import DexExpressiveness.Simulation.RelationLemmas
 
 /-!
 # L to Dex: the registration of a wait and the completion of an action
 
 Work package 3 of the safety proof, the largest. Each lemma shows that one
-kind of L thread step is simulated by the translated Flow: the Worker steps
-that run and return the handler (`workerRun`, `workerReturn`, as far as they
-have not happened), then one [STEP-COMPLETE-WAITFOR] or
-[STEP-COMPLETE-EXECUTE].
+kind of L thread step is simulated by exactly the Dex actions that
+`simulatingActions` names (`IsSimulatedByActions`): the Worker steps that run
+and return the handler (`workerRun`, `workerReturn`, as far as they have not
+happened), then one [STEP-COMPLETE-WAITFOR] or [STEP-COMPLETE-EXECUTE].
 
 | L thread phase | L action | Dex commit |
 | --- | --- | --- |
@@ -21,8 +21,9 @@ mapping table of spec §8.3 (`encodeIntent`). The package can be split in two:
 `l_thread_register_simulated`, and the three completion lemmas.
 
 Every lemma here is `sorry`; the README lists them. The proofs may add lemmas
-to this file. They may not change `Simulation/Relation.lean`,
-`L/Invariant.lean`, or any model file.
+to this file and to `Simulation/RelationLemmas.lean`. They may not change
+`Simulation/Relation.lean`, `L/Invariant.lean`, `Invariants.lean`, or any
+model file.
 -/
 
 namespace DexExpressiveness
@@ -38,7 +39,7 @@ theorem l_thread_register_simulated (program : Program) (lConfig : L.Config)
     (isWaitStarted : thread.phase = .waitStarted)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.thread tid) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
   sorry
 
 /-- The end of the program's start action is simulated by
@@ -50,7 +51,7 @@ theorem l_thread_boot_simulated (program : Program) (lConfig : L.Config)
     (isBootRunning : thread.phase = .bootRunning)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.thread tid) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
   sorry
 
 /-- The completion of a statement is simulated by [STEP-COMPLETE-EXECUTE]:
@@ -62,7 +63,7 @@ theorem l_thread_complete_simulated (program : Program) (lConfig : L.Config)
     (isCompleting : (∃ loaded, thread.phase = .running loaded) ∨ thread.phase = .emitted)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.thread tid) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
   sorry
 
 /-- The completion of the continuation of a wait is simulated by
@@ -73,7 +74,7 @@ theorem l_thread_resume_simulated (program : Program) (lConfig : L.Config)
     (outcome : WakeOutcome) (isResuming : thread.phase = .resuming outcome)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
-    IsSimulatedByDex program dexConfig (.thread tid) lEvents lNext := by
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
   sorry
 
 end DexExpressiveness

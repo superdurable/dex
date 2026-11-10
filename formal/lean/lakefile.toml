@@ -4,3 +4,7 @@ defaultTargets = ["DexExpressiveness"]
 
 [[lean_lib]]
 name = "DexExpressiveness"
+
+[[lean_exe]]
+name = "inductiveness-fuzz"
+root = "InductivenessFuzz"

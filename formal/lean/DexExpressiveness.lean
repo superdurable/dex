@@ -8,6 +8,7 @@ import DexExpressiveness.Dex.Observation
 import DexExpressiveness.Dex.RunLemmas
 import DexExpressiveness.Dex.WaitLemmas
 import DexExpressiveness.Dex.RunInvariant
+import DexExpressiveness.Dex.TimerLemmas
 import DexExpressiveness.L.Syntax
 import DexExpressiveness.L.ThreadLocal
 import DexExpressiveness.L.Semantics
@@ -19,6 +20,7 @@ import DexExpressiveness.Properties
 import DexExpressiveness.L.Invariant
 import DexExpressiveness.L.InvariantStep
 import DexExpressiveness.Simulation.Relation
+import DexExpressiveness.Simulation.RelationLemmas
 import DexExpressiveness.Simulation.LToDexBasic
 import DexExpressiveness.Simulation.LToDexComplete
 import DexExpressiveness.Simulation.LToDex
@@ -34,3 +36,4 @@ import DexExpressiveness.Examples.TimerOrder
 import DexExpressiveness.Examples.LockstepChecks
 import DexExpressiveness.Examples.ForgedHandleInput
 import DexExpressiveness.Examples.RelatedCheck
+import DexExpressiveness.Examples.Inductiveness

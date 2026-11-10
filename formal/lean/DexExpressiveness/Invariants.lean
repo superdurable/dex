@@ -1,4 +1,4 @@
-import DexExpressiveness.Dex.RunInvariant
+import DexExpressiveness.Dex.TimerLemmas
 import DexExpressiveness.Dex.Observation
 import DexExpressiveness.Translation.Projection
 
@@ -7,8 +7,14 @@ import DexExpressiveness.Translation.Projection
 
 Every configuration that a finite run of a translated Flow reaches satisfies
 `ConfigInvariant`: its run satisfies `Dex.Run.Invariant` with "every armed
-timer is the index-0 timer of a `Timed` Step", and every response a task
-holds is the one its handler computes.
+timer is the index-0 timer of a `Timed` Step", every response a task holds is
+the one its handler computes, and the effects a task still holds are the last
+of those its handler computes. A handler of a translated Flow computes at most
+one effect, and none in WaitFor (`translate_compute_effects`), so a task holds
+at most one effect.
+
+Two more invariants are separate predicates: task IDs are unique
+(`TasksAreDistinct`), and armed timers have distinct IDs (`TimersAreDistinct`).
 
 The three invariants that the FIFO arguments of spec §8.3 rest on follow:
 `noWaiterOnNonEmptyChannel` (spec §7 item 4), `registeredSeq_isInjective`
@@ -51,11 +57,15 @@ arms (spec §8.2). -/
 def IsTimedTimer (timer : Dex.TimerId signature) : Prop :=
   timer.step.stepType = StepType.timed ∧ timer.index = 0
 
-/-- The response a task holds is the one its handler computes. -/
+/-- The response a task holds is the one its handler computes, and the
+effects it still holds are the last of those its handler computes (spec §4.4
+[WORKER-EFFECT]: "Each step of this rule emits the head of `fx⃗`"). -/
 def IsTaskComputed (program : Program) (task : Dex.Task signature) : Prop :=
   match task.phase with
   | .started => True
-  | .running _ response => response = (task.compute ⟦program⟧).2
+  | .running remainingEffects response =>
+    response = (task.compute ⟦program⟧).2 ∧
+    ∃ emittedEffects, (task.compute ⟦program⟧).1 = emittedEffects ++ remainingEffects
   | .returned response => response = (task.compute ⟦program⟧).2
 
 /-- The invariant of the configurations of a translated Flow. -/
@@ -130,6 +140,83 @@ theorem translate_compute_waitFor (program : Program) (task : Dex.Task signature
       subst isResponse
       exact ⟨Or.inl rfl, fun index isBelow => by simp [Dex.Wait.empty] at isBelow⟩
   · simp at isComputed
+
+/-- A WaitFor of a translated Flow emits no effect. -/
+theorem translate_waitFor_effects (program : Program) (stepType : StepType)
+    (waitFor : Dex.WaitForFn signature)
+    (isDefined : (⟦program⟧.stepDef stepType).waitFor = some waitFor)
+    (context : Dex.Context signature) (input : Option DexVal)
+    (snapshot : Dex.Snapshot signature) : (waitFor context input snapshot).1 = [] := by
+  cases stepType with
+  | start => simp [translate, startStepDef] at isDefined
+  | point code =>
+    simp only [translate, pointStepDef] at isDefined
+    split at isDefined
+    · cases isDefined
+      dsimp only
+      split <;> rfl
+    · cases isDefined
+  | timed =>
+    simp only [translate, timedStepDef] at isDefined
+    cases isDefined
+    dsimp only
+    split
+    · split <;> rfl
+    · rfl
+
+/-- An Execute of a translated Flow emits at most one effect (spec §8.2:
+"Each `emit` is the only effect of its own Execute"). -/
+theorem translate_execute_effects (program : Program) (stepType : StepType)
+    (context : Dex.Context signature) (input : Option DexVal)
+    (snapshot : Dex.Snapshot signature)
+    (results : Option (Dex.ConditionResults signature)) :
+    ((⟦program⟧.stepDef stepType).execute context input snapshot results).1.length ≤ 1 := by
+  cases stepType with
+  | start =>
+    simp only [translate, startStepDef]
+    split <;> simp
+  | point code =>
+    simp only [translate, pointStepDef]
+    split
+    · split
+      · simp
+      · split <;> simp
+    · simp
+  | timed =>
+    simp only [translate, timedStepDef]
+    split <;> simp
+
+/-- The handler of a task of a translated Flow computes at most one effect,
+and none for WaitFor. -/
+theorem translate_compute_effects (program : Program) (task : Dex.Task signature) :
+    (task.compute ⟦program⟧).1.length ≤ 1 ∧
+    (task.method = .waitFor → (task.compute ⟦program⟧).1 = []) := by
+  unfold Dex.Task.compute
+  split
+  · split
+    · rename_i waitFor isDefined
+      have hasNoEffect := translate_waitFor_effects program task.step.stepType waitFor isDefined
+        task.context task.input task.snapshot
+      simp [hasNoEffect]
+    · simp
+  · rename_i isMethod
+    refine ⟨translate_execute_effects program _ _ _ _ _, fun isWaitFor => ?_⟩
+    rw [isMethod] at isWaitFor
+    cases isWaitFor
+
+/-- A task of a translated Flow holds at most one effect that it has not
+emitted, and a WaitFor task holds none. -/
+theorem IsTaskComputed.remainingEffects {program : Program} {task : Dex.Task signature}
+    (isComputed : IsTaskComputed program task) (remainingEffects : List Val)
+    (response : Dex.Response signature)
+    (isPhase : task.phase = .running remainingEffects response) :
+    remainingEffects.length ≤ 1 ∧ (task.method = .waitFor → remainingEffects = []) := by
+  simp only [IsTaskComputed, isPhase] at isComputed
+  obtain ⟨_, emittedEffects, isEmitted⟩ := isComputed
+  obtain ⟨isShort, isEmptyForWaitFor⟩ := translate_compute_effects program task
+  rw [isEmitted] at isShort isEmptyForWaitFor
+  refine ⟨by simp only [List.length_append] at isShort; omega, fun isWaitFor => ?_⟩
+  exact (List.append_eq_nil_iff.mp (isEmptyForWaitFor isWaitFor)).2
 
 /-- A task of the task list after an update is an old task or the changed one. -/
 theorem mem_updateTask (config : Dex.Config signature) (taskId : Nat)
@@ -406,7 +493,7 @@ theorem ConfigInvariant.step (program : Program) (config : Dex.Config signature)
               isFound
           subst isSame
           simp only [IsTaskComputed]
-          rfl
+          exact ⟨rfl, [], rfl⟩
         · rw [if_neg isChanged] at isTask
           subst isTask
           exact invariant.tasksComputed task isOriginalMember
@@ -431,7 +518,11 @@ theorem ConfigInvariant.step (program : Program) (config : Dex.Config signature)
               isFound
           subst isSame
           simp only [IsTaskComputed, isPhase] at wasComputed
-          exact wasComputed
+          obtain ⟨isResponse, emittedEffects, isEmitted⟩ := wasComputed
+          simp only [IsTaskComputed]
+          exact ⟨isResponse, emittedEffects ++ [effect], by
+            rw [List.append_assoc]
+            exact isEmitted⟩
         · rw [if_neg isChanged] at isTask
           subst isTask
           exact wasComputed
@@ -456,7 +547,7 @@ theorem ConfigInvariant.step (program : Program) (config : Dex.Config signature)
               isFound
           subst isSame
           simp only [IsTaskComputed, isPhase] at wasComputed
-          exact wasComputed
+          exact wasComputed.1
         · rw [if_neg isChanged] at isTask
           subst isTask
           exact wasComputed
@@ -571,6 +662,162 @@ theorem ConfigInvariant.of_exec (program : Program) (actions : List (Dex.Action 
     actions _ events config
     ⟨ConfigInvariant.initial program, List.nodup_nil, fun task isMember => by cases isMember⟩
     isExec
+
+/-! ## Armed timers have distinct IDs -/
+
+/-- The armed timers of the run, if any, have distinct IDs: `Tm` is a finite
+map (spec §3.2). `Related.timers` reads the first binding of a timer ID and
+`Due_f` reads every binding, so the simulation needs this. -/
+def TimersAreDistinct (config : Dex.Config signature) : Prop :=
+  ∀ run, config.run = some run → run.HasDistinctTimers
+
+/-- Every transition keeps the timer IDs distinct. -/
+theorem TimersAreDistinct.step (flow : Dex.FlowDef signature) (config : Dex.Config signature)
+    (action : Dex.Action signature) (events : List (Dex.Obs signature))
+    (next : Dex.Config signature) (timersDistinct : TimersAreDistinct config)
+    (isStep : Dex.step flow config action = some (events, next)) : TimersAreDistinct next := by
+  cases action with
+  | tick duration =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · resolve_step isStep
+      exact timersDistinct
+    · resolve_step isStep
+  | request request =>
+    cases request with
+    | startFlow stepType input =>
+      simp only [Dex.step] at isStep
+      split at isStep
+      · resolve_step isStep
+      · split at isStep
+        · resolve_step isStep
+          resolve_run
+          exact List.nodup_nil
+        · resolve_step isStep
+    | publish chan value =>
+      simp only [Dex.step] at isStep
+      split at isStep
+      · resolve_step isStep
+        exact timersDistinct
+      · rename_i run hasRun
+        split at isStep
+        · resolve_step isStep
+          exact timersDistinct
+        · split at isStep
+          · resolve_step isStep
+            resolve_run
+            exact (timersDistinct run hasRun).of_sublist
+              (Dex.Run.timers_applyEffects_sublist ({ run with seq := run.seq + 1 })
+                { publications := [(chan, value)] })
+          · resolve_step isStep
+  | stepStart stepId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · resolve_step isStep
+    · rename_i run hasRun
+      split at isStep
+      · resolve_step isStep
+      · split at isStep
+        · split at isStep
+          · resolve_step isStep
+            resolve_run
+            exact timersDistinct run hasRun
+          · resolve_step isStep
+        · resolve_step isStep
+  | workerRun taskId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · resolve_step isStep
+    · split at isStep
+      · resolve_step isStep
+        exact timersDistinct
+      · resolve_step isStep
+  | workerEffect taskId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · resolve_step isStep
+    · split at isStep
+      · resolve_step isStep
+        exact timersDistinct
+      · resolve_step isStep
+  | workerReturn taskId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · resolve_step isStep
+    · split at isStep
+      · resolve_step isStep
+        exact timersDistinct
+      · resolve_step isStep
+  | workerAbandon taskId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · resolve_step isStep
+    · split at isStep
+      · resolve_step isStep
+      · resolve_step isStep
+        exact timersDistinct
+  | stepCompleteStale taskId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · resolve_step isStep
+    · split at isStep
+      · split at isStep
+        · resolve_step isStep
+        · resolve_step isStep
+          exact timersDistinct
+      · resolve_step isStep
+  | stepComplete taskId =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · rename_i run task hasRun isFound
+      split at isStep
+      · split at isStep
+        · rename_i response isMethod isPhase
+          resolve_step isStep
+          resolve_run
+          have afterEffects : (((({ run with seq := run.seq + 1 } : Dex.Run signature).updateStep
+              task.step (fun record => { record with invocation := none })).applyEffects
+              response.effects)).HasDistinctTimers :=
+            (timersDistinct run hasRun).of_sublist (Dex.Run.timers_applyEffects_sublist _ _)
+          exact afterEffects.registerWait _ _ _
+        · rename_i response isMethod isPhase
+          resolve_step isStep
+          resolve_run
+          exact (timersDistinct run hasRun).of_sublist
+            ((Dex.Run.timers_applyDecision_sublist _ _ _).trans
+              (Dex.Run.timers_applyEffects_sublist
+                (({ run with seq := run.seq + 1 } : Dex.Run signature).updateStep task.step
+                  (fun record => { record with invocation := none })) response.effects))
+        · resolve_step isStep
+      · resolve_step isStep
+    · resolve_step isStep
+  | timerFire count =>
+    simp only [Dex.step] at isStep
+    split at isStep
+    · resolve_step isStep
+    · rename_i run hasRun
+      split at isStep
+      · resolve_step isStep
+        resolve_run
+        exact (timersDistinct run hasRun).of_sublist
+          (Dex.Run.timers_foldl_fireTimer_sublist _ ({ run with seq := run.seq + 1 }))
+      · resolve_step isStep
+
+/-- The initial configuration has no timer. -/
+theorem TimersAreDistinct.initial (flow : Dex.FlowDef signature) :
+    TimersAreDistinct (Dex.system flow).init :=
+  fun run hasRun => by simp [Dex.system, Dex.Config.initial] at hasRun
+
+/-- Every configuration that a finite run reaches has distinct timer IDs. -/
+theorem TimersAreDistinct.of_exec (flow : Dex.FlowDef signature)
+    (actions : List (Dex.Action signature)) (events : List (Dex.Obs signature))
+    (config : Dex.Config signature)
+    (isExec : (Dex.system flow).exec (Dex.system flow).init actions = some (events, config)) :
+    TimersAreDistinct config :=
+  TransitionSystem.invariant_of_exec (Dex.system flow) TimersAreDistinct
+    (fun state label stepEvents next holds isStep =>
+      TimersAreDistinct.step flow state label stepEvents next holds isStep)
+    actions _ events config (TimersAreDistinct.initial flow) isExec
 
 /-- A Dex configuration of `⟦program⟧` that a finite run with admissible
 requests reaches (spec §5.3, §5.4). -/

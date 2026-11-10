@@ -43,3 +43,4 @@ web/dex-web
 docs/.cache/
 # Lean build output of the formal development
 formal/lean/.lake/
+formal/lean/.lake/build/bin/inductiveness-fuzz

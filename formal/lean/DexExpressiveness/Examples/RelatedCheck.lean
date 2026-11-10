@@ -2,20 +2,27 @@ import DexExpressiveness.Examples.LockstepChecks
 import DexExpressiveness.Examples.ForgedHandleInput
 
 /-!
-# Executable checks of `L.Invariant` and `Related` on pseudo-random runs
+# Executable checks of the simulation state on pseudo-random runs
 
-This file is test tooling, not part of the theorem. `checkLInvariant` and
-`checkRelated` are Boolean mirrors of `L.Invariant` (`L/Invariant.lean`) and
-`Related` (`Simulation/Relation.lean`). They return the names of the clauses
-that fail. The clauses that quantify over every name are checked for the
-names that occur on either side.
+This file is test tooling, not part of the theorem. `checkLInvariant`,
+`checkRelated`, and `checkDexInvariant` are Boolean mirrors of `L.Invariant`
+(`L/Invariant.lean`), `Related` (`Simulation/Relation.lean`), and
+`ConfigInvariant`, `TasksAreDistinct`, and `TimersAreDistinct`
+(`Invariants.lean`). Together they mirror `IsSimulationState`. They return
+the names of the clauses that fail. The clauses that quantify over every name
+are checked for the names that occur on either side.
+
+A mirror must accept exactly what its clause accepts on the checked names. A
+stricter mirror hides gaps from `Examples/Inductiveness.lean`: the `timers`
+mirror once checked every binding of the timer list, where `Related.timers`
+reads only the first binding of a timer ID.
 
 Each `#guard` runs an L program and its translated Flow in lockstep
-(`Examples/Lockstep.lean`), in both directions, and checks both predicates in
+(`Examples/Lockstep.lean`), in both directions, and checks the predicates in
 every configuration pair the run reaches. A failure means that a clause is
 wrong for a reachable pair, so the step simulations could not be proved with
-it. Passing does not prove that the relation is inductive: that is what the
-work packages prove.
+it. Passing does not show that the predicates are inductive:
+`Examples/Inductiveness.lean` tests that, and the work packages prove it.
 -/
 
 namespace DexExpressiveness.Examples
@@ -224,15 +231,19 @@ def phaseMatchesStep (program : Program) (lConfig : L.Config) (config : Dex.Conf
   let waitsFirst : Bool := thread.timer.isSome || isBlockingHead thread.code
   let hasNoEffect : Dex.Task signature → Bool := fun task =>
     (pendingEffects ⟦program⟧ task).isEmpty
+  let isExecutePhase : Bool := decide (record.phase = .execute)
   match thread.phase with
   | .bootPending =>
+    isExecutePhase &&
     decide (record.invocation = some { method := .execute, state := .pending })
-  | .bootRunning => hasRunningTask config record .execute hasNoEffect
+  | .bootRunning => isExecutePhase && hasRunningTask config record .execute hasNoEffect
   | .ready =>
+    decide (record.phase = (if waitsFirst then .waitFor else .execute)) &&
     record.conditionResults.isNone &&
     decide (record.invocation =
       some { method := if waitsFirst then .waitFor else .execute, state := .pending })
   | .running loaded =>
+    isExecutePhase &&
     hasRunningTask config record .execute (fun task =>
       hasNoEffect task && task.conditionResults.isNone &&
       (match beginKind thread.core thread.code with
@@ -242,12 +253,15 @@ def phaseMatchesStep (program : Program) (lConfig : L.Config) (config : Dex.Conf
         | some cv => readWaiters task.snapshot cv == (lConfig.cvQueues.get? cv).getD []
         | none => true))
   | .emitting effect =>
+    isExecutePhase &&
     hasRunningTask config record .execute (fun task =>
       pendingEffects ⟦program⟧ task == [effect] && task.conditionResults.isNone)
   | .emitted =>
+    isExecutePhase &&
     hasRunningTask config record .execute (fun task =>
       hasNoEffect task && task.conditionResults.isNone)
-  | .waitStarted => hasRunningTask config record .waitFor (fun _ => true)
+  | .waitStarted =>
+    decide (record.phase = .waitFor) && hasRunningTask config record .waitFor hasNoEffect
   | .blocked on _ =>
     decide (record.phase = .waiting) && record.invocation.isNone &&
     (match record.waitState with
@@ -262,6 +276,7 @@ def phaseMatchesStep (program : Program) (lConfig : L.Config) (config : Dex.Conf
     decide (record.invocation = some { method := .execute, state := .pending }) &&
     decide (decodeOutcome thread record.conditionResults = outcome)
   | .resuming outcome =>
+    isExecutePhase &&
     hasRunningTask config record .execute (fun task =>
       hasNoEffect task && decide (decodeOutcome thread task.conditionResults = outcome))
   | .halted => false
@@ -321,6 +336,10 @@ def checkRunningRelated (program : Program) (lConfig : L.Config)
   failsUnless "mutexTokens" (!hasBooted || mutexes.all (fun mutex =>
     (run.pendingMessages (Chan.mutexToken mutex)).length ==
       (if lConfig.mutexOwners.get? mutex = some none then 1 else 0))) ++
+  failsUnless "mutexesBeforeBoot" (hasBooted ||
+    (decide (lConfig.mutexOwners =
+        (List.range program.staticMutexCount).map (fun index => (MutexId.static index, none))) &&
+      mutexes.all (fun mutex => (run.pendingMessages (Chan.mutexToken mutex)).isEmpty))) ++
   failsUnless "joinTokens" (joinedThreads.all (fun thread =>
     (run.pendingMessages (Chan.joinDone thread)).length ==
       (if lConfig.joinable.contains thread then 1 else 0))) ++
@@ -330,18 +349,23 @@ def checkRunningRelated (program : Program) (lConfig : L.Config)
   failsUnless "cancelFlagsAreRequests" (lConfig.cancelFlags.all (fun thread =>
     !(run.pendingMessages (Chan.cancelRequest thread)).isEmpty ||
     (match lConfig.findThread? thread with
-      | none => true
+      | none =>
+        threads.all (fun live => isFreshFor live.core.tid live.core.freshCounter thread)
       | some current =>
         decide (current.phase = .woken .canceled) || decide (current.phase = .resuming .canceled)))) ++
   failsUnless "cvWakes" (wakes.all (fun wake =>
     (run.pendingMessages (Chan.cvWake wake.1 wake.2)).length == lConfig.cvWakes.count wake)) ++
   failsUnless "timers" (run.timers.all (fun entry =>
-      decide (entry.1.step.stepType = StepType.timed) && entry.1.index == 0 &&
-      threads.any (fun thread =>
-        match thread.phase with
-        | .blocked (.timed number deadline _) _ =>
-          number == entry.1.step.number && deadline == entry.2
-        | _ => false)) &&
+      -- Only the first binding of a key counts, as in `AssocList.get?`.
+      match run.timers.get? entry.1 with
+      | none => true
+      | some fireTime =>
+        decide (entry.1.step.stepType = StepType.timed) && entry.1.index == 0 &&
+        threads.any (fun thread =>
+          match thread.phase with
+          | .blocked (.timed number deadline _) _ =>
+            number == entry.1.step.number && deadline == fireTime
+          | _ => false)) &&
     threads.all (fun thread =>
       match thread.phase with
       | .blocked (.timed number deadline _) _ =>
@@ -384,10 +408,71 @@ def checkRelated (program : Program) (lConfig : L.Config) (dexConfig : Dex.Confi
       failsUnless "noTimer" run.timers.isEmpty
     | _, _ => ["status"])
 
-/-- The clauses of `L.Invariant` and `Related` that fail in a configuration pair. -/
+/-! ## `ConfigInvariant`, `TasksAreDistinct`, and `TimersAreDistinct` -/
+
+/-- Mirror of `Dex.IsSupportedWait`. -/
+def isSupportedWait (wait : Dex.Wait signature) : Bool :=
+  wait.hasNoCondition || decide (wait.kind = .any) ||
+  (decide (wait.kind = .all) && wait.timerSeconds.isEmpty && wait.channels.length == 1)
+
+/-- The waiting Steps of a run with their wait states: mirror of `Dex.Run.IsWaiting`. -/
+def waitersOf (run : Dex.Run signature) :
+    List (Dex.StepRecord signature × Dex.WaitState signature) :=
+  run.steps.filterMap (fun record =>
+    match record.phase, record.waitState with
+    | .waiting, some waitState => some (record, waitState)
+    | _, _ => none)
+
+/-- Mirror of `IsTaskComputed`, without the equality of responses. A response
+has no decidable equality here; every change that the fuzz of
+`Examples/Inductiveness.lean` makes to a task keeps the computed response. -/
+def isTaskComputed (program : Program) (task : Dex.Task signature) : Bool :=
+  match task.phase with
+  | .running remainingEffects _ => remainingEffects.isSuffixOf (task.compute ⟦program⟧).1
+  | _ => true
+
+/-- The names of the clauses of `ConfigInvariant`, `TasksAreDistinct`, and
+`TimersAreDistinct` that fail. -/
+def checkDexInvariant (program : Program) (config : Dex.Config signature) : List String :=
+  (match config.run with
+    | none => []
+    | some run =>
+      let waiters := waitersOf run
+      failsUnless "idsNodup" (decide (run.steps.map (fun record => record.id)).Nodup) ++
+      failsUnless "numbersCounted" (run.steps.all (fun record =>
+        decide (record.id.number ≤ (run.counters.get? record.id.stepType).getD 0))) ++
+      failsUnless "waitsSupported" (waiters.all (fun waiter =>
+        isSupportedWait waiter.2.wait && !waiter.2.timersDone.any id &&
+        waiter.2.timersDone.length == waiter.2.wait.timerSeconds.length &&
+        decide (waiter.2.registeredSeq < run.seq + 1))) ++
+      failsUnless "seqInjective" (waiters.all (fun first => waiters.all (fun second =>
+        first.2.registeredSeq != second.2.registeredSeq || decide (first.1.id = second.1.id)))) ++
+      failsUnless "timersAllowed" (run.timers.all (fun entry =>
+        decide (entry.1.step.stepType = StepType.timed) && entry.1.index == 0)) ++
+      failsUnless "waitersQuiet" (waiters.all (fun waiter =>
+        waiter.2.wait.channels.all (fun chan => (run.pendingMessages chan).isEmpty)))) ++
+  failsUnless "tasksComputed" (config.tasks.all (isTaskComputed program)) ++
+  failsUnless "tasksDistinct" (decide (config.tasks.map (fun task => task.id)).Nodup &&
+    config.tasks.all (fun task => decide (task.id < config.nextTaskId))) ++
+  failsUnless "timersDistinct" (match config.run with
+    | none => true
+    | some run => decide (run.timers.map (fun entry => entry.1)).Nodup)
+
+/-- Mirror of `L.BreaksMutexRequirement`. -/
+def breaksMutexRequirement (config : L.Config) : Bool :=
+  config.threads.any (fun thread =>
+    decide (thread.phase = .ready) && thread.timer.isNone &&
+    (match requiredMutex thread.core thread.code with
+      | some mutex => decide (config.mutexOwners.get? mutex ≠ some (some thread.core.tid))
+      | none => false))
+
+/-- The clauses of `IsSimulationState` that fail in a configuration pair:
+those of `L.Invariant`, `Related`, `ConfigInvariant`, `TasksAreDistinct`, and
+`TimersAreDistinct`. -/
 def checkState (program : Program) (state : L.Config × Dex.Config signature) : List String :=
   (checkLInvariant program state.1).map (fun name => "L.Invariant." ++ name) ++
-  (checkRelated program state.1 state.2).map (fun name => "Related." ++ name)
+  (checkRelated program state.1 state.2).map (fun name => "Related." ++ name) ++
+  (checkDexInvariant program state.2).map (fun name => "ConfigInvariant." ++ name)
 
 /-- Drive both sides from pseudo-random L labels and check every state.
 Returns the first failure, if any. -/
@@ -464,6 +549,8 @@ open DexExpressiveness.Examples.LockstepChecks in
 #guard relatedFailures selectRaceProgram requests 800 10 == []
 open DexExpressiveness.Examples.LockstepChecks in
 #guard relatedFailures lateEmitProgram requests 200 8 == []
+open DexExpressiveness.Examples.LockstepChecks in
+#guard relatedFailures twoLateEmitsProgram requests 200 8 == []
 open DexExpressiveness.Examples.LockstepChecks in
 #guard relatedFailures newMutexProgram requests 200 3 == []
 open DexExpressiveness.Examples.LockstepChecks in
