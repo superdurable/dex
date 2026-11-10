@@ -31,7 +31,7 @@ Session 把对话保存在 Attribute 中。Session 等待下一条用户消息�
 
 ## 把 Connector 用作 tool {#connectors-as-tools}
 
-每个 harness 都可以把 [Connector](/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供你指定的 operation。Agent 通过 Python 的 **tool_sources** 或 TypeScript 的 **toolSources** 把它作为 tool source 接收。每次调用都在自己的 tool Step 中运行。每个 harness 页面的“连接 Connector”一节展示了接入方式，例如 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop#connect-connectors) 和 [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors)。Effect class、审批、结果和写操作顺序的规则见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+每个 harness 都可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供你指定的 operation。Agent 通过 Python 的 **tool_sources** 或 TypeScript 的 **toolSources** 把它作为 tool source 接收。每次调用都在自己的 tool Step 中运行。每个 harness 页面的“连接 Connector”一节展示了接入方式，例如 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop#connect-connectors) 和 [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors)。Effect class、审批、结果和写操作顺序的规则见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
 
 ## 选择 harness {#choose-a-harness}
 
