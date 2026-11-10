@@ -24,8 +24,8 @@ use dexzd_protocol::dex::{
     AttributeWrite, ChannelMessage, FlowStatus, Kv, Value, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRecord, HistoryRecord, OutboxRecord, RunRecord, StepExecutionPhase,
-    StepExecutionRecord, StepInvocationPhase, ValueRecord, outbox_record,
+    CheckpointRecord, HistoryRecord, RunRecord, StepExecutionPhase, StepExecutionRecord,
+    StepInvocationPhase, ValueRecord,
 };
 use prost::Message;
 
@@ -34,6 +34,9 @@ use crate::format_decoding::decode_objects;
 use crate::golden_replay::{RESTART_DELAY_MICROS, SnapshotUse, forget_snapshots};
 use crate::older_backend_error::{
     AppliedFailures, StepRowRecordingApplier, history_with_older_backend_errors,
+};
+use crate::removed_flow_config_fields::{
+    LoggedRemovedFields, removed_fields_in, with_kept_removed_fields,
 };
 use crate::scripted_clock::ScriptedClock;
 use crate::state_dump::{StateDump, dump_committed_state, dumped_value, hex, parse_state_dump};
@@ -601,31 +604,16 @@ fn matches_without_new_fields(
                 parsed.run_id,
                 stored,
             ));
-            if dumped_value(&history) != recorded_value {
-                let record =
-                    HistoryRecord::decode(history.as_slice()).expect("history rows decode");
-                return record.events.iter().any(|event| {
-                    matches!(
-                        event.payload,
-                        Some(flow_history_event::Payload::FlowStartedOrContinued(_))
-                    )
-                });
-            }
-            history
-        }
-        (name, RunTable::Outbox) if name == ColumnFamily::Flow.name() => {
-            return OutboxRecord::decode(value.as_slice()).is_ok_and(|record| {
-                matches!(
-                    record.payload,
-                    Some(outbox_record::Payload::ChildStart(child)) if child.flow_config.is_some()
-                )
-            });
+            with_kept_removed_fields(RunTable::HistoryRecord, value, &history)
         }
         (name, RunTable::RunRecord) if name == ColumnFamily::Flow.name() => {
             let Some(recorded_run) = recorded_run_records.get(hex_key) else {
                 return false;
             };
-            return run_record_without_storage(recorded_run) == run_record_without_storage(value);
+            // Decoding drops the removed FlowConfig fields, so they are compared on their own.
+            return run_record_without_storage(recorded_run) == run_record_without_storage(value)
+                && removed_fields_in(RunTable::RunRecord, recorded_run)
+                    == removed_fields_in(RunTable::RunRecord, value);
         }
         (name, RunTable::HistoryRowMetadata) if name == ColumnFamily::Flow.name() => {
             return true;
@@ -827,14 +815,16 @@ async fn replay(directory: &std::path::Path, snapshot_use: SnapshotUse) -> (Stat
     replay_with_checks(directory, snapshot_use, true).await
 }
 
-/// Replays as `replay` does and also returns the attempt failures that the replay applied.
+/// Replays as `replay` does, with the removed FlowConfig fields that the log recorded restored,
+/// and also returns the attempt failures that the replay applied.
 async fn replay_with_applied_failures(
     directory: &std::path::Path,
     snapshot_use: SnapshotUse,
 ) -> (StateDump, StoredRows, AppliedFailures) {
     let applier = Arc::new(StepRowRecordingApplier::default());
-    let (replayed, stored) =
+    let (mut replayed, mut stored) =
         replay_with_applier(directory, snapshot_use, true, applier.clone()).await;
+    LoggedRemovedFields::read(directory).restore(&mut replayed, &mut stored);
     (replayed, stored, applier.applied_failures())
 }
 

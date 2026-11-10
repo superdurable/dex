@@ -16,10 +16,10 @@ use dexzd_keyspace::row_keys::{
     checkpoint_key, history_row_metadata_key, run_named_key, run_singleton_key,
 };
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, parse_run_key};
-use dexzd_protocol::dex::{FlowStatus, flow_history_event};
+use dexzd_protocol::dex::FlowStatus;
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRecord, EndedStepRowSweep, HistoryRecord, HistoryRowMetadata, OutboxRecord,
-    RunRecord, RunStorageUsage, StepExecutionPhase, StepExecutionRecord, outbox_record,
+    CheckpointRecord, EndedStepRowSweep, HistoryRowMetadata, RunRecord, RunStorageUsage,
+    StepExecutionPhase, StepExecutionRecord,
 };
 use prost::Message;
 
@@ -30,6 +30,10 @@ use crate::old_log_replay::{
     is_expected_deletion, read_pinned_rows, replay_with_checks,
 };
 use crate::older_backend_error::replay_with_older_backend_errors;
+use crate::removed_flow_config_fields::{
+    RemovedFlowConfigFields, history_paths, removed_fields_in, run_record_paths, with_fields,
+    with_kept_removed_fields,
+};
 use crate::state_dump::{StateDump, dumped_value, hex, parse_state_dump};
 use crate::testdata_tree::{OBJECTS_DIRECTORY, STATE_DUMP_FILE, read_files, testdata_root};
 
@@ -77,7 +81,8 @@ async fn an_older_staged_time_travel_passes_the_debug_replay_checks() {
 /// recorded state row for row, except for what later apply changes compute from recorded rows:
 /// the rows of ended Steps that apply deletes since #1429, the checkpoints and byte counters
 /// without them, and the prune cursors that apply maintains since #1427.
-/// Failure text is compared as the recording binary wrote it; see `older_backend_error`.
+/// Failure text is compared as the recording binary wrote it; see `older_backend_error`. So are
+/// the FlowConfig fields that #1072 removed; see `removed_flow_config_fields`.
 #[tokio::test]
 async fn the_log_recorded_before_runs_chose_offload_replays_to_its_recorded_state() {
     let directory = testdata_root().join(OFFLOAD_CHOICE_LOG_DIRECTORY);
@@ -187,7 +192,11 @@ async fn the_offload_choice_comparison_rejects_stale_derived_values() {
             0
         };
         *counter(&mut record) = recorded_counter + cursor_bytes;
-        let value = record.encode_to_vec();
+        let value = with_kept_removed_fields(
+            RunTable::RunRecord,
+            &stored[&stored_key],
+            &record.encode_to_vec(),
+        );
         let mut case_replayed = replayed.clone();
         let mut case_stored = stored.clone();
         case_replayed.insert(
@@ -216,7 +225,11 @@ async fn the_offload_choice_comparison_rejects_stale_derived_values() {
         .as_mut()
         .expect("storage")
         .state_row_bytes -= sweep_bytes;
-    let unswept_value = unswept_record.encode_to_vec();
+    let unswept_value = with_kept_removed_fields(
+        RunTable::RunRecord,
+        swept_value,
+        &unswept_record.encode_to_vec(),
+    );
     let mut unswept = (replayed.clone(), stored.clone());
     unswept.0.insert(
         (swept_key.0.clone(), hex(&swept_key.1)),
@@ -257,6 +270,70 @@ async fn the_offload_choice_comparison_rejects_stale_derived_values() {
                 .is_err(),
             "the comparison accepts a replay with {case}"
         );
+    }
+}
+
+/// The comparison must reject a replay whose removed FlowConfig fields differ from the logged
+/// ones: another value in a run record, or none in the history row of a Flow start.
+#[tokio::test]
+async fn the_offload_choice_comparison_rejects_other_removed_flow_config_fields() {
+    let directory = testdata_root().join(OFFLOAD_CHOICE_LOG_DIRECTORY);
+    let log = read_recorded_log();
+    let (replayed, stored) =
+        replay_with_older_backend_errors(&directory, SnapshotUse::Ignore).await;
+    log.compare(&replayed, &stored, SnapshotUse::Ignore)
+        .expect("the unchanged replay matches");
+    let other_fields = RemovedFlowConfigFields {
+        continue_as_new_threshold: Some(99),
+        continue_as_new_page_size_in_bytes: None,
+    };
+    let (run_record_key, run_record) = stored
+        .iter()
+        .find(|((column_family, key), value)| {
+            column_family == ColumnFamily::Flow.name()
+                && parse_run_key(key).is_ok_and(|parsed| parsed.table == RunTable::RunRecord)
+                && !removed_fields_in(RunTable::RunRecord, value)
+                    .iter()
+                    .all(|fields| *fields == RemovedFlowConfigFields::default())
+        })
+        .expect("a run record holds the removed fields");
+    let other_record = with_fields(run_record, run_record_paths(), other_fields);
+    assert_eq!(
+        other_record.len(),
+        run_record.len(),
+        "only the value differs"
+    );
+    let (history_key, history_row) = stored
+        .iter()
+        .find(|((column_family, key), value)| {
+            column_family == ColumnFamily::History.name()
+                && parse_run_key(key).is_ok_and(|parsed| parsed.table == RunTable::HistoryRecord)
+                && removed_fields_in(RunTable::HistoryRecord, value)
+                    .iter()
+                    .any(|fields| *fields != RemovedFlowConfigFields::default())
+        })
+        .expect("the history row of a Flow start holds the removed fields");
+    let without_fields = with_fields(
+        history_row,
+        history_paths(),
+        RemovedFlowConfigFields::default(),
+    );
+    for (case, row_key, value) in [
+        ("another removed field value", run_record_key, other_record),
+        (
+            "a Flow start without the removed fields",
+            history_key,
+            without_fields,
+        ),
+    ] {
+        let mut case_replayed = replayed.clone();
+        let mut case_stored = stored.clone();
+        case_replayed.insert((row_key.0.clone(), hex(&row_key.1)), dumped_value(&value));
+        case_stored.insert(row_key.clone(), value);
+        let error = log
+            .compare(&case_replayed, &case_stored, SnapshotUse::Ignore)
+            .expect_err(case);
+        assert!(error.contains(&hex(&row_key.1)), "{case}: {error}");
     }
 }
 
@@ -343,7 +420,11 @@ fn replay_keeping_row(
     record.value_garbage_pruned_before_seq = replayed_record.value_garbage_pruned_before_seq;
     let cursor_bytes = (record.encoded_len() - size_without_cursors) as u64;
     record.storage.as_mut().expect("storage").state_row_bytes += cursor_bytes;
-    let record_value = record.encode_to_vec();
+    let record_value = with_kept_removed_fields(
+        RunTable::RunRecord,
+        &stored[&record_key],
+        &record.encode_to_vec(),
+    );
     case_replayed.insert(
         (record_key.0.clone(), hex(&record_key.1)),
         dumped_value(&record_value),
@@ -413,26 +494,16 @@ impl RecordedLog {
             snapshot,
         );
         expected.check_deletions(stored)?;
-        // Old logs retain retired config tags; pin replays while comparing other rows to the original recording.
-        let proto_removal_expectation = parse_state_dump(match snapshot_use {
-            SnapshotUse::Restore => include_str!("proto_removal_expectations/restore.txt"),
-            SnapshotUse::Ignore => {
-                include_str!("proto_removal_expectations/ignore.txt")
-            }
-        });
         let changed: Vec<_> = self
             .recorded
             .iter()
             .filter(|(key, _)| !deleted.contains(*key))
             .filter(|(key, recorded_value)| {
-                let matches_older = if expected.is_derived(key) {
-                    expected.matches(key, stored)
+                if expected.is_derived(key) {
+                    !expected.matches(key, stored)
                 } else {
-                    replayed.get(*key) == Some(*recorded_value)
-                };
-                !matches_older
-                    && !(replayed.get(*key) == proto_removal_expectation.get(*key)
-                        && is_allowed_proto_removal_difference(key, stored, &expected))
+                    replayed.get(*key) != Some(*recorded_value)
+                }
             })
             .map(|(key, _)| key)
             .collect();
@@ -444,64 +515,6 @@ impl RecordedLog {
                  {changed:?}"
             ))
         }
-    }
-}
-
-fn is_allowed_proto_removal_difference(
-    (column_family, hex_key): &(String, String),
-    stored: &StoredRows,
-    expected: &ExpectedRows<'_>,
-) -> bool {
-    let key = decode_hex(hex_key);
-    let Ok(parsed) = parse_run_key(&key) else {
-        return false;
-    };
-    let Some(value) = stored.get(&(column_family.clone(), key.clone())) else {
-        return false;
-    };
-    match (column_family.as_str(), parsed.table) {
-        (name, RunTable::HistoryRecord) if name == ColumnFamily::History.name() => {
-            HistoryRecord::decode(value.as_slice()).is_ok_and(|record| {
-                record.events.iter().any(|event| {
-                    matches!(
-                        event.payload,
-                        Some(flow_history_event::Payload::FlowStartedOrContinued(_))
-                    )
-                })
-            })
-        }
-        (name, RunTable::RunRecord) if name == ColumnFamily::Flow.name() => {
-            let Some(mut older) = expected.run_record(parsed.flow_hash, parsed.run_id) else {
-                return false;
-            };
-            let Ok(mut current) = RunRecord::decode(value.as_slice()) else {
-                return false;
-            };
-            for record in [&mut older, &mut current] {
-                record.storage = None;
-                record.row_write_bytes_since_checkpoint = 0;
-                record.last_checkpoint_state_bytes = 0;
-                record.history_open_segment_bytes = 0;
-                record.history_metadata_pruned_before_seq = 0;
-                record.value_garbage_pruned_before_seq = 0;
-            }
-            older == current
-        }
-        (name, RunTable::HistoryRowMetadata) if name == ColumnFamily::Flow.name() => {
-            HistoryRowMetadata::decode(value.as_slice()).is_ok()
-        }
-        (name, RunTable::Checkpoint) if name == ColumnFamily::History.name() => {
-            CheckpointRecord::decode(value.as_slice()).is_ok()
-        }
-        (name, RunTable::Outbox) if name == ColumnFamily::Flow.name() => {
-            OutboxRecord::decode(value.as_slice()).is_ok_and(|record| {
-                matches!(
-                    record.payload,
-                    Some(outbox_record::Payload::ChildStart(child)) if child.flow_config.is_some()
-                )
-            })
-        }
-        _ => false,
     }
 }
 
@@ -672,7 +685,8 @@ impl<'rows> ExpectedRows<'rows> {
                 let Some(expected) = self.run_record(parsed.flow_hash, parsed.run_id) else {
                     return false;
                 };
-                without_prune_cursors(replayed) == expected.encode_to_vec()
+                without_prune_cursors(replayed)
+                    == self.with_recorded_removed_fields(&key, &expected.encode_to_vec())
             }
             _ => false,
         }
@@ -804,13 +818,22 @@ impl<'rows> ExpectedRows<'rows> {
         // The record's own row counts in its state row bytes; repeat until its size settles.
         for _ in 0..4 {
             record.storage = Some(usage);
-            let own_bytes = (record_key.len() + record.encoded_len()) as u64;
+            let own_value = self.with_recorded_removed_fields(&record_key, &record.encode_to_vec());
+            let own_bytes = (record_key.len() + own_value.len()) as u64;
             if usage.state_row_bytes == other_state_bytes + own_bytes {
                 return Some(record);
             }
             usage.state_row_bytes = other_state_bytes + own_bytes;
         }
         None
+    }
+
+    /// Returns the encoded run record with the removed FlowConfig fields of the recorded one,
+    /// which decoding drops.
+    fn with_recorded_removed_fields(&self, record_key: &[u8], encoded: &[u8]) -> Vec<u8> {
+        let recorded_value =
+            &self.recorded_rows[&(ColumnFamily::Flow.name().to_owned(), hex(record_key))];
+        with_kept_removed_fields(RunTable::RunRecord, recorded_value, encoded)
     }
 
     /// Whether a replayed command reached the run: every run of a full replay, and after a
@@ -933,13 +956,14 @@ fn is_deletable_by_sweep(step: &StepExecutionRecord) -> bool {
 /// Clears RunRecord fields 76 and 77 of a replayed run record and the bytes they add to the
 /// record's own size in its state row bytes.
 ///
-/// Panics when the run record does not encode back to the same bytes, so that unknown or
-/// noncanonical fields cannot hide behind the rewrite.
+/// Panics when the run record does not encode back to the same bytes, apart from the removed
+/// FlowConfig fields that it keeps, so that unknown or noncanonical fields cannot hide behind
+/// the rewrite.
 fn without_prune_cursors(value: &[u8]) -> Vec<u8> {
     // Apply maintains these prune cursors since #1427; the recording binary had neither field.
     let mut record = RunRecord::decode(value).expect("run records decode");
     assert_eq!(
-        record.encode_to_vec(),
+        with_kept_removed_fields(RunTable::RunRecord, value, &record.encode_to_vec()),
         value,
         "a replayed run record holds bytes that decoding drops or rewrites"
     );
@@ -950,7 +974,7 @@ fn without_prune_cursors(value: &[u8]) -> Vec<u8> {
     if let Some(storage) = record.storage.as_mut() {
         storage.state_row_bytes -= cursor_bytes;
     }
-    record.encode_to_vec()
+    with_kept_removed_fields(RunTable::RunRecord, value, &record.encode_to_vec())
 }
 
 #[test]
