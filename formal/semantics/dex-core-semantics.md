@@ -1,7 +1,8 @@
 # Dex Core Semantics (Step 0 of the expressiveness proof)
 
-Status: draft for owner review, revision 4 (after three adversarial reviews;
-see [Review log](#10-review-log)). No Lean yet.
+Status: revision 5 (after three adversarial reviews, and the owner decisions
+of 2026-11-09 on the review of the Lean statements; see
+[Review log](#10-review-log)). The Lean development is in `formal/lean/`.
 
 Base commit: `9b37482ed` on `main`. Every `path:line` below is relative to the
 repository root at that commit.
@@ -11,11 +12,20 @@ repository root at that commit.
 This document fixes the formal semantics of the Dex core programming model.
 A later Lean development will use it to state one theorem:
 
-> Every program of a small concurrent imperative language **L** translates into
-> a Dex Flow that is trace-equivalent to it, assuming no failures.
+> Every well-formed program of a small concurrent imperative language **L**
+> translates into a Dex Flow that is trace-equivalent to it, assuming no
+> failures.
 
 Failures, crashes, retries, and redelivery are out of scope. A separate,
 later proposition covers them (see [Future work](#9-future-work)).
+
+[owner, 2026-11-09] The theorem covers **well-formed** L programs only. A
+program is well formed when no run of it, under any input and any schedule,
+has a thread that calls `wait`, `signal`, or `broadcast` without holding the
+condition variable's mutex, or calls `unlock` on a mutex it does not hold
+(Section 8.1). A program that can do either is outside the theorem's domain,
+as a program with a data race is outside a theorem about data-race-free
+programs.
 
 Sources of truth, in order:
 
@@ -1004,6 +1014,8 @@ weak trace equality of finite traces under the projection:
 where `FinTr_{E_adm}` takes the finite traces of runs whose inputs are drawn
 from `E_adm`, `π` is applied event by event with `ε` erased, and `FinTr(S)` is
 L's set of finite traces over `Obs_L`. [decision] Untimed by default.
+[owner, 2026-11-09] `S` ranges over well-formed L programs (Sections 0 and
+8.1).
 
 Finite-trace equality alone cannot tell a Flow that ends with DeadEnd and stays
 RUNNING from one whose close is never scheduled by an unfair scheduler. The
@@ -1068,6 +1080,9 @@ for every admissible input word:
 \forall w \in E_{adm}.\;\;
 \pi\big(\mathrm{MaxTr}^{fair}_{w}(⟦S⟧)\big) \;=\; \mathrm{MaxTr}^{fair}_{w}(S)
 ```
+
+[owner, 2026-11-09] As in Section 5.4, `S` ranges over well-formed L programs
+(Sections 0 and 8.1).
 
 L must define the same three outcomes (normal exit or failure, deadlock, and
 divergence) the same way: relative to the input word, counting its own
@@ -1486,6 +1501,14 @@ does; they are L design decisions for the owner.
   `broadcast(cv)` require `m` held; `signal` wakes the head of the queue,
   `broadcast` wakes all. No spurious wakeups. A woken thread re-locks `m`
   (FIFO with other lockers). `wait` is not a cancellation point. (Items 1, 4.)
+- **Well-formed programs.** [owner, 2026-11-09] The requirements above define
+  the theorem's domain. A program is **well formed** when no run of it, under
+  any input and any schedule, has a thread about to call `wait(cv, m)`,
+  `signal(cv)`, or `broadcast(cv)` without holding `m`, or about to call
+  `unlock(m)` on a mutex it does not hold. L gives no behavior to a program
+  that is not well formed, and the theorem does not cover it. This is a
+  property of the source program under L's semantics, like data-race freedom;
+  the translation plays no part in it.
 - **Cancellation is cooperative and deferred.** `cancel(t)` sets `t`'s flag.
   `t` observes it at a cancellation point (`sleep`, `recv`, `select`, `join`)
   only if that point would block; `t` then ends without releasing anything it
@@ -1504,10 +1527,43 @@ does; they are L design decisions for the owner.
 - **External input.** Each external channel is a FIFO queue. Threads blocked
   in `recv(c)` on it are served in FIFO order of blocking. Input that arrives
   after exit is `refused`. (Items 4, 21.)
-- **Clock.** L has an internal clock in microseconds. It advances by idle
-  ticks, and it strictly increases between any two L actions, as Dex commit
-  timestamps strictly increase within a partition (`command.proto:39-40`). A
-  translated program uses no SubFlows, so it lives in one partition.
+- **Clock and timing model.** [owner, 2026-11-09] L has an internal clock in
+  microseconds. It advances by idle ticks. L has a **fixed timing model**:
+  each kind of statement takes a fixed number of **stamped actions**, and the
+  clock strictly increases between any two stamped actions, as Dex commit
+  timestamps strictly increase within a partition (`command.proto:39-40`).
+  The counts are the numbers of Dex commits of the translation (Section 8.2),
+  so an L run and its Dex run can carry the same timestamps. A translated
+  program uses no SubFlows, so it lives in one partition.
+
+  | L step | Stamped actions | Where its atomic action happens |
+  | --- | --- | --- |
+  | `begin(v)` | 1, then 2 more before `main`'s first statement | — |
+  | `seq`, `skip` | 0 | — |
+  | A statement that does not block: local assignment, shared read, shared write, `if`, each test of `while`, call, return, `fork`, new mutex, `unlock`, `signal`, `broadcast`, `emit`, `throw`, entering `try`, `cancel`, `exit`, `fail`. Also the end of a `try` body and the end of a procedure body. | 2: begin, complete | A shared read at begin. An `emit` is issued at begin. Every other atomic action at complete. |
+  | A blocking statement: `lock`, `recv`, `join` | 4: begin the wait, register the wait, begin the continuation, complete it | At register |
+  | `wait(cv, m)` | 10: 2 to release `m` and join `cv`'s queue, 4 to wait for the signal, 4 to re-lock `m` | At the first complete, and at the two registers |
+  | `sleep(d)`, `select` with `after(d)` | 6: 2 for Enter, then 4 as a blocking statement, whose register is Arm | Enter at the first complete; Arm at register |
+  | `in(c, v)` while the program runs | 1 | — |
+  | `fire` | 1 for a batch of `k ≥ 1` consecutive `fire` actions | — |
+  | `out(a)`; the delivery or drop of an issued emit after the end; `refused(c, v)` | 0 | — |
+
+  A thread that observes its cancel flag ends at the complete of that
+  statement's continuation. A statement that halts its thread (see Halting)
+  takes the actions of its first part: 4 for `lock`, `recv`, and `join`, 2
+  for any other statement.
+
+  Why a fixed model is needed: a deadline is the Arm timestamp plus whole
+  seconds. Two runs can carry the same deadlines only if the same number of
+  stamped steps lies between any two Arms. With different counts on the two
+  sides, the order of two deadlines can differ once enough steps lie between
+  their Arms, and a `select` makes that order observable.
+
+  Rationale [owner]: real programs cannot rely on timing races, so any fixed
+  timing model leaves the meaning of correct programs unchanged. Choosing the
+  model aligned with Dex makes the equivalence exact without narrowing what
+  the theorem covers in practice. It is like counting one time unit per
+  instruction in algorithm analysis.
 - **Timers fire late, in order, by an explicit action.** A timed operation,
   `sleep(d)` or `select` with an `after(d)` branch, takes two actions. *Enter*
   gives it the next **timer number** `n` from one program-wide counter.
@@ -1520,6 +1576,9 @@ does; they are L design decisions for the owner.
     timers of one program fire in deadline order, and timers with equal
     deadlines fire in timer-number order. A later-due timer never fires while
     an earlier-due one is still armed and due.
+  - shares its clock stamp with the `fire` actions that follow it with
+    nothing in between (the timing model above), as one [TIMER-FIRE] commit
+    fires a prefix of the due timers.
   A timer is never complete at the moment it is armed, even for `d = 0`. A
   blocked timed operation is decided by whichever happens first: its `fire`,
   the arrival of its message, or a cancel; the loser's timer is disarmed. So a
@@ -1533,6 +1592,15 @@ does; they are L design decisions for the owner.
   exactly `(deadline, n)` for translated programs. Durations are whole
   seconds. (Item 12.)
 - Each thread is joined at most once.
+- **Halting.** [owner, 2026-11-09] L has no static types. A statement whose
+  operand has the wrong type halts its thread: a non-Boolean condition, a
+  `lock` of a value that is not a mutex, a call of an unknown procedure or
+  with the wrong number of arguments, a negative duration, and the like. An
+  uncaught exception whose value is a string `s` fails the program with
+  `fail(s)`, in any thread; an uncaught exception with a non-string value
+  halts its thread. A halted thread takes no further action. It does not end,
+  so it is never joinable, and it releases nothing it holds. In Dex its Step
+  decides DeadEnd and publishes nothing.
 
 ### 8.2 General scheme
 
@@ -1540,10 +1608,26 @@ Compile each L thread to continuation-passing Steps.
 
 - A program point is a Step type. Thread-local variables, the thread ID, and
   the call stack are the Step input, passed by GoTo.
+- **One Step per statement.** [owner, 2026-11-09] Each L statement is its own
+  Step, whose Execute takes two commits ([STEP-START] and
+  [STEP-COMPLETE-EXECUTE]). A blocking statement's Step has a WaitFor, which
+  adds two commits. `seq` and `skip` are not Steps. `sleep` and `select` run a
+  Step whose Execute only GoTos `Timed`, and then the `Timed` Step.
+  `wait(cv, m)` runs three Steps: the release, the wait for the signal, and
+  the re-lock. The start Step runs before `main`'s first statement. These
+  commit counts are L's timing model (Section 8.1).
 - Shared variables are Attributes. Each Step method performs **at most one**
   shared access: a read is taken from the Execute snapshot at Start; a write
   is committed at Complete. So a read linearizes at [STEP-START] and a write
   at [STEP-COMPLETE-EXECUTE]. No Attribute locks are used. (Item 1.)
+- The waiter list of a condition variable is the AttributeMap instance
+  `waiters/cv`. A snapshot holds an AttributeMap instance only when the Step
+  selects it (Section 4.2, `snapshot`). So the Step of a `wait(cv, m)`,
+  `signal(cv)`, or `broadcast(cv)` declares the exact instance `waiters/cv`
+  in its Execute load selection (`execute_load_attribute_map_instances`,
+  `protos/dex.proto:472`). The Step that moves to it sets that option; it
+  knows `cv` from the thread state it passes on. Shared variables are plain
+  Attributes, with keys without `/`, and need no selection.
 - Each `emit` is the only effect of its own Execute. The issue is
   [STEP-START], `out(a)` is [WORKER-EFFECT], and the thread continues at
   [STEP-COMPLETE-EXECUTE].
@@ -1569,11 +1653,17 @@ Compile each L thread to continuation-passing Steps.
     fits one varint byte, and the byte order is exactly numeric order on `n`.
     [assumption, from the protobuf encoding rules] So for equal fire times
     Dex's order is timer-number order, as in L.
+  - [owner, 2026-11-09] The model idealizes Step numbers and timer numbers as
+    unbounded natural numbers, ordered numerically. The real limit is fewer
+    than 2³² Step executions of one type per run. The numeric timer-ID order
+    is exact within that limit, and the theorem says nothing about a run that
+    exceeds it.
   - [TIMER-FIRE] fires a non-empty prefix of the due timers in that order
     (Section 4.5), processing them one after another in one commit. L's
     one-at-a-time `fire` of the least due timer produces the same states:
     a prefix of size `k` is `k` consecutive `fire` actions with nothing in
-    between, and each L `fire` is a prefix of size 1.
+    between, and each L `fire` is a prefix of size 1. The `k` actions share
+    one clock stamp, as the prefix is one commit (Section 8.1, timing model).
 - The translation never uses CancelSteps, CancelSiblingSteps, GracefulComplete,
   RPCs, SubFlows, or Attribute locks. The only Step cancellation is the Flow
   close, after which nothing observable happens except effects already in
@@ -1585,20 +1675,20 @@ Compile each L thread to continuation-passing Steps.
 
 | L construct | Dex mapping | Depends on |
 | --- | --- | --- |
-| Sequence, `if` | Code inside one Execute, or GoTo between blocks. | — |
+| Sequence, `if` | `seq` and `skip` are not Steps. `if` is a Step that GoTos the first Step of the taken branch. (Section 8.2, one Step per statement.) | — |
 | `while` | A Step that GoTos itself or the loop exit. | — |
 | Shared read / write | One Execute per access: read from the snapshot, or write one Attribute. | 1 |
 | Call and recursion | Push the return point on an explicit stack in the Step input. No SubFlow. | — |
 | `fork t` | GoToMany: the parent's continuation and `t`'s first Step, with a fresh thread ID derived from the parent's ID and a counter in the input. | — |
 | `join(t)` | `t`'s last Step publishes to the Channel `join/t` and decides DE. The joiner waits `AnyOf(join/t.ForOne(), cancel/self.ForOne())`. | 4, 5 |
 | `exit(v)` / return of `main` | FC(`{"exit": enc(v)}`): a tagged value, never null, so `collect` keeps it (Section 5.3). | 10, 15 |
-| `fail(s)` / uncaught exception | FF(s) with `s` a string; the close message is `s` (Section 5.3). | 15 |
+| `fail(s)` / uncaught exception with a string value `s` | FF(s) with `s` a string; the close message is `s` (Section 5.3). An uncaught exception with any other value halts its thread (Section 8.1, Halting). | 15 |
 | Thread end | DE. | 10 |
 | `lock(m)` | WaitFor `Until(m.ForOne())`: a ForOne waiter on `m`'s token Channel. FIFO by registration. | 4, 6 |
 | `unlock(m)` | Execute publishes one token to `m`. | — |
 | New mutex | Execute publishes the first token. | — |
-| `wait(cv, m)` | One Execute, under `m`: append the waiter ID `w` to the Attribute `waiters/cv` and publish `m`'s token. Then a Step that waits `Until(cv/w.ForOne())` on the per-waiter Channel instance `cv/w`, then `lock(m)` again. | 1, 4 |
-| `signal(cv)` | One Execute, under `m`: if `waiters/cv` is not empty, remove its head `h` and publish to `cv/h`. | 1 |
+| `wait(cv, m)` | One Execute, under `m`: append the waiter ID `w` to the Attribute `waiters/cv` and publish `m`'s token. Its Step selects `waiters/cv` in its Execute load selection (Section 8.2). Then a Step that waits `Until(cv/w.ForOne())` on the per-waiter Channel instance `cv/w`, then `lock(m)` again. | 1, 4 |
+| `signal(cv)` | One Execute, under `m`: if `waiters/cv` is not empty, remove its head `h` and publish to `cv/h`. Its Step selects `waiters/cv` as `wait` does. | 1 |
 | `broadcast(cv)` | As `signal`, for every waiter in order. | 1 |
 | `sleep(d)` | GoTo a `Timed` Step (Enter); its WaitFor returns `AnyOf(Timer(d), cancel/self.ForOne())` (Arm). | 12 |
 | `select { recv(c) → s₁ \| after(d) → s₂ }` | GoTo a `Timed` Step; its WaitFor returns `AnyOf(Timer(d), c.ForOne(), cancel/self.ForOne())`. Only the winner consumes. A `select` without `after` uses an ordinary Step. | 5, 12 |
@@ -1692,6 +1782,19 @@ checked against the code:
 | R3-2 | Independent late `fire` actions in L let a later-due timer fire before an earlier-due one, which Dex's ordered prefix forbids. | Confirmed (`timer_service.rs:140-155`, `row_keys.rs:303-314`, `wait_conditions/mod.rs:166-188`). L's `fire` now fires only the least due timer in the order `(deadline, timer number)`, the timer number coming from a program-wide counter at Enter, and L's clock strictly increases between actions (8.1). The translation runs every timed operation in one Step type `Timed` with one timer at index 0, so the timer number is the Step number, the deadline is the fire time, and the encoded-TimerId tie-break is numeric order on the Step number; a Dex prefix of size `k` equals `k` consecutive L `fire` actions (8.2). |
 | R3-3 | The revision-2 log row still says "F1 to F6". | Fixed: that row now notes that revision 3 added F0, so the current list is F0 to F6. |
 
+Revision 5 records the owner decisions of 2026-11-09 on the review of the
+Lean statements (`formal/lean/`, commit `cc123891a`), and the two model
+findings of that review.
+
+| # | Point | Decision or resolution |
+| --- | --- | --- |
+| L1 | Cost model. L's clock "strictly increases between any two L actions", but the spec did not fix how many actions a statement takes. Trace equality then fails for long runs: the order of two deadlines depends on the number of stamped steps between their Arms. One [TIMER-FIRE] commit of `k` timers also needed `k` clock values in L. | **Owner decision, 2026-11-09.** L has a fixed timing model, aligned with the Dex commits of the translation, and a batched `fire` shares one stamp. Section 8.1 tabulates the counts and gives the rationale: real programs cannot rely on timing races, so a fixed timing model leaves the meaning of correct programs unchanged. Section 8.2 fixes one Step per statement, and the "Sequence, `if`" row of Section 8.3 follows it. Appendix A, item 29. |
+| L2 | Well-formed programs. The spec stated "`wait(cv, m)` requires `m` held" and the like without a behavior for a program that breaks it; `unlock` of a mutex not held was not covered. | **Owner decision, 2026-11-09.** The theorem covers well-formed programs only. Stated in Sections 0, 5.4, 5.5, and 8.1; Appendix A, item 28. The analogy is a theorem about data-race-free programs. |
+| L3 | Unbounded counters. The numeric timer-ID order holds for Step numbers below 2³². | **Owner decision, 2026-11-09.** Step numbers and timer numbers are idealized as unbounded natural numbers. The real limit is fewer than 2³² Step executions of one type per run; the order is exact within it. Section 8.2; Appendix A, item 27. |
+| L4 | Uncaught exceptions with a non-string value, and dynamic type errors, had no stated behavior. | **Owner decision, 2026-11-09.** Each halts its thread. Section 8.1, Halting; Section 8.3, `fail` row; Appendix A, item 30. |
+| R4-1 | The Lean model loaded every Attribute into a snapshot, but `snapshot` (Section 4.2) excludes keys with `/` unless `loadMaps` selects them, and the translation reads `waiters/cv`. | Confirmed (`attempt_snapshot.rs:145-158`). The Lean model now applies the selection, and the translation declares the exact instance `waiters/cv` in the Execute options of the Steps that read it. Sections 8.2 and 8.3 say so. |
+| R4-2 | The Lean syntax of L exposed the runtime-only `park` as a source statement. | Fixed in Lean: source statements and runtime instructions are separate types, so the theorem ranges over programs built from the constructs of Section 8.1 only. No spec change. |
+
 ## Appendix A. Assumptions and decisions in one list
 
 1. User code is a total function with output-only external effects (2.2).
@@ -1727,7 +1830,8 @@ checked against the code:
 23. L adopts the semantics of Section 8.1 (FIFO mutex and condition variable,
     cooperative cancellation, asynchronous emit, exit stops all threads,
     explicit late timer `fire` of the least due timer in `(deadline, timer
-    number)` order, a clock that strictly increases between actions).
+    number)` order, a clock that strictly increases between stamped actions,
+    item 29).
 24. An admissible input word is a sequence of attempted requests, accepted or
     rejected, each exactly once and in order; it begins with the unique start,
     and every later request is a publication to an external Channel (5.3).
@@ -1736,3 +1840,15 @@ checked against the code:
 26. Every timed L operation runs in the single Step type `Timed`, with one
     timer at index 0, so Dex's TimerId tie-break is numeric order on the Step
     number; derived from the protobuf encoding rules (8.2).
+27. Step numbers and timer numbers are unbounded natural numbers in the
+    model. The real limit is fewer than 2³² Step executions of one type per
+    run; the numeric timer-ID order is exact within that limit [owner] (8.2).
+28. The theorem covers well-formed L programs only: no thread calls `wait`,
+    `signal`, or `broadcast` without holding the mutex, or `unlock` on a
+    mutex it does not hold [owner] (0, 5.4, 5.5, 8.1).
+29. L has a fixed timing model: each kind of statement takes a fixed number
+    of stamped actions, equal to the number of Dex commits of its
+    translation, and a batch of consecutive `fire` actions shares one stamp
+    [owner] (8.1, 8.2).
+30. A dynamic type error halts its thread, and so does an uncaught exception
+    with a non-string value [owner] (8.1).
