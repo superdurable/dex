@@ -187,6 +187,7 @@ Run the example against a local Dex. Render the session graph first. Dex Web rea
 ```bash
 cd examples/python/agent-harnesses
 uv sync --locked
+mkdir -p definitions
 uv run --frozen dex-agents-session-graph --flow-type PydanticAIOrderSupport \
   --permission order-support.operate --out definitions/pydantic-ai.json
 dexcli dev --flow-rendering-dir ./definitions
@@ -225,10 +226,8 @@ id=$(echo "$session" | jq -r .session_id)
 token=$(echo "$session" | jq -r .session_token)
 curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
   -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
-curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
-  | jq .snapshot.pending_interrupts
-interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
-  | jq -r '.snapshot.pending_interrupts[0].interrupt_id')
+until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
 curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
   -H "X-Agent-Session-Token: $token" \
   -d "{\"session_id\": \"$id\", \"interrupt_id\": \"$interrupt\", \"approved\": true}"
@@ -237,7 +236,7 @@ curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
 </SdkSnippet>
 </SdkTabs>
 
-The model call takes a moment. If **pending_interrupts** is empty, read the snapshot again. **cancel_order** runs only after the approval, and only once. Read the snapshot again to see the agent's answer.
+The loop reads the snapshot until the agent asks to run **cancel_order**. The call waits for approval. It runs only after the approval, and only once. Read the snapshot again to see the agent's answer.
 
 ### Approve in Dex Web
 

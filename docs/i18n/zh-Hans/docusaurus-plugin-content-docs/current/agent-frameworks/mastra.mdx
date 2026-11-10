@@ -155,6 +155,7 @@ const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastr
 ```bash
 cd examples/typescript
 npm install
+mkdir -p definitions
 npx dex-agents-session-graph --flow-type MastraOrderSupportAgent \
   --permission order-support.operate --out definitions/mastra.json
 dexcli dev --flow-rendering-dir ./definitions
@@ -193,16 +194,15 @@ session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
   -d '{"message": "Please cancel order 1002"}')
 id=$(echo "$session" | jq -r .session_id)
 token=$(echo "$session" | jq -r .session_token)
-curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" | jq .pending_interrupts
-interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
-  | jq -r '.pending_interrupts[0].interrupt_id')
+until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
 curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-Session-Token: $token"
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-模型调用需要一点时间。如果 **pending_interrupts** 为空，请再读一次 snapshot。**cancel_order** 只在批准之后运行，并且只运行一次。再读一次 snapshot 即可看到 Agent 的回答。
+循环会反复读取 snapshot，直到 Agent 请求运行 **cancel_order**。这次调用会等待审批。它只在批准之后运行，并且只运行一次。再读一次 snapshot 即可看到 Agent 的回答。
 
 ### 在 Dex Web 中审批 {#approve-in-dex-web}
 

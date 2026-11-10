@@ -389,12 +389,13 @@ The example page has its own approval buttons. To approve from Dex Web instead, 
 Dex Web needs the session graph to show the **Agent session** tab and its controls. Render it once for the Flow type, then point **dexcli dev** at the directory:
 
 ```bash
+mkdir -p definitions
 dex-agents-session-graph --flow-type AIAgentSession --permission ai-agent.operate \
   --out definitions/ai-agent.json
 dexcli dev --flow-rendering-dir ./definitions
 ```
 
-Both the Python and the TypeScript package install **dex-agents-session-graph**. From **examples/typescript**, run it with **npx**.
+Both the Python and the TypeScript package install **dex-agents-session-graph**. From **examples/python**, run it with **uv run --frozen**. From **examples/typescript**, run it with **npx**.
 
 Open the session's run in Dex Web and select the **Agent session** tab. Choose **Working as** the permission you rendered, such as **ai-agent.operate**. Then select **Approve** or **Reject** on the tool call card. See [Show sessions in Dex Web](/agent-frameworks/deploy-agents#dex-web) for production.
 

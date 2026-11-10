@@ -389,12 +389,13 @@ Example 页面有自己的审批按钮。如果想在 Dex Web 中审批，请按
 Dex Web 需要 session graph 才能显示 **Agent session** tab 及其控件。为 Flow type 渲染一次 graph，然后让 **dexcli dev** 指向这个目录：
 
 ```bash
+mkdir -p definitions
 dex-agents-session-graph --flow-type AIAgentSession --permission ai-agent.operate \
   --out definitions/ai-agent.json
 dexcli dev --flow-rendering-dir ./definitions
 ```
 
-Python 与 TypeScript package 都会安装 **dex-agents-session-graph**。在 **examples/typescript** 中，用 **npx** 运行它。
+Python 与 TypeScript package 都会安装 **dex-agents-session-graph**。在 **examples/python** 中，用 **uv run --frozen** 运行它。在 **examples/typescript** 中，用 **npx** 运行它。
 
 在 Dex Web 中打开这个 session 的 run，选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission，例如 **ai-agent.operate**。然后在 tool call 卡片上选择 **Approve** 或 **Reject**。生产环境的做法参见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
 

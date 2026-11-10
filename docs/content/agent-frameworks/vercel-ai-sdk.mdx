@@ -153,6 +153,7 @@ Run the example against a local Dex. Render the session graph first. Dex Web rea
 ```bash
 cd examples/typescript
 npm install
+mkdir -p definitions
 npx dex-agents-session-graph --flow-type VercelAiOrderSupportAgent \
   --permission order-support.operate --out definitions/vercel-ai-sdk.json
 dexcli dev --flow-rendering-dir ./definitions
@@ -190,16 +191,15 @@ session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
   -d '{"message": "Please cancel order 1002"}')
 id=$(echo "$session" | jq -r .session_id)
 token=$(echo "$session" | jq -r .session_token)
-curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" | jq .pending_interrupts
-interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
-  | jq -r '.pending_interrupts[0].interrupt_id')
+until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
 curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-Session-Token: $token"
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-The model call takes a moment. If **pending_interrupts** is empty, read the snapshot again. **cancel_order** runs only after the approval, and only once. Read the snapshot again to see the agent's answer.
+The loop reads the snapshot until the agent asks to run **cancel_order**. The call waits for approval. It runs only after the approval, and only once. Read the snapshot again to see the agent's answer.
 
 ### Approve in Dex Web
 
