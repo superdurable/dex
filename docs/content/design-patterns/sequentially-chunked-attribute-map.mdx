@@ -7,7 +7,7 @@ slug: /design-patterns/sequentially-chunked-attribute-map
 
 Use this pattern for append-only data that must retain insertion order, such as agent messages, subscriber history, or audit events.
 
-A single Attribute grows into one large blob. Every append then reads and rewrites the entire value. A sequentially chunked **AttributeMap** keeps the active write set bounded. The sample stores at most 100 subscribers in one instance.
+If you keep this data in a single Attribute, the value keeps growing. Every append then reads and rewrites the whole value. A sequentially chunked **AttributeMap** splits the data into chunks, so an append rewrites only one chunk of bounded size. The sample stores at most 100 subscribers in one instance.
 
 ## Data layout
 
@@ -17,11 +17,11 @@ A single Attribute grows into one large blob. Every append then reads and rewrit
 - **SubscriberChunks[current]** is the only mutable chunk.
 - A full chunk moves to an immutable instance named by its zero-padded first sequence, such as **00000000000000000101**.
 
-**RegisterSubscriber** locks the state and **current** instance. Most calls rewrite one bounded chunk. When **current** already contains 100 records, the same commit writes the archived chunk, creates the next **current** chunk, and advances the state.
+**RegisterSubscriber** locks the state and the **current** instance. Most calls rewrite only **current**. When **current** already holds 100 records, the same RPC call writes the archived chunk, starts a new **current** chunk, and advances the state. These writes take effect together.
 
 Concurrent appends can receive a lock-conflict error. Retry after it; see [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/reference/server/runtime-data#whole-map-coordination).
 
-**GetSubscriberPage** starts at **current** unless the caller supplies a page token. The application adapter uses **RPCInvokeOptions** to load only that instance. Pages return newest-first records plus the next older token.
+**GetSubscriberPage** starts at **current** unless the caller supplies a page token. The HTTP controller uses **RPCInvokeOptions** to load only that instance. Each page returns its records newest first, plus the token of the next older page.
 
 <SdkTabs
   examples={{
@@ -116,7 +116,7 @@ client.invoke_rpc_with_options(
 
 The **current** token is always valid after the Flow starts. An empty **current** returns an empty page. Archive tokens must contain exactly 20 decimal digits and identify a chunk boundary. A malformed token or a valid-looking token without a stored chunk returns an explicit error.
 
-Archived chunks are immutable. This keeps pagination stable and makes retry behavior easy to reason about. Updating older records requires a different pattern or a separate index.
+Archived chunks never change, so a page read again, such as on a retry, returns the same records. To update older records, use a different pattern or a separate index.
 
 ## HTTP API
 
@@ -126,4 +126,4 @@ POST /patterns/sequentially-chunked-attribute-map/register
 GET  /patterns/sequentially-chunked-attribute-map/subscribers?pageToken=current
 ```
 
-The fixed chunk size is part of the persisted layout. A later version can use a new chunk size for new archives, but its token traversal must understand both layouts.
+The chunk size is part of the stored layout. A later version of the application can use a new chunk size for new archives. Its page-token logic must then read both layouts.
