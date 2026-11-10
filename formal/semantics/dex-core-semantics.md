@@ -108,6 +108,7 @@ Notation:
 | Time travel (ResetFlow), history, history offload, search projection, Attribute Sync, hard-delete Attributes, permission mappings, `record_events` | Operations, storage, and projections. Attribute Sync only adds stutter before a natural close (Section 4.9). |
 | Repeated request IDs | Not only a retry concern. Two mechanisms exist, and they differ. SetAttributes, DeleteChannelMessage, and RPCs use a per-run request table: apply replays the recorded reply for a repeated request ID with the same content, and rejects one with different content, even without failures (`client_writes.rs:41-65`, `client_writes.rs:138-147`, `client_writes.rs:260-268`, `server-zd/crates/dexzd-apply/src/command_handlers/rpc_committed.rs:58-74`). The table keeps at most a fixed number of entries per run and evicts the oldest; it has no time limit (at `55721e878`: `client_writes.rs:80-95`, `server-zd/crates/dexzd-apply/src/state_access/run_rows.rs:353-376`). StartFlow does not use that table. A StartFlow whose Flow ID already has a run is rejected with ALREADY_EXISTS under the default reuse policy. Only when it sets `ignore_already_started_error` and carries the request ID that started the latest run does it return that run instead. That StartFlow is still a log entry, but it writes no run row and takes no run `seq` (at `55721e878`: `flow_start.rs:110-131`; Section 11.3, [START-RETRY]). PublishToChannel carries no request ID. [assumption] Every modeled input carries a globally fresh request ID, or none. Section 11.3 adds client retries. |
 | Flow ID reuse policies and run IDs | [assumption] Every L program run starts a fresh Flow ID. SubFlow IDs are the exception; see Open question 13. |
+| Retention and run purge after close | (Added in revision 9; citations at `55721e878`.) Closing a run arms a retention timer, by default 7 days after the close (`server-zd/crates/dexzd-apply/src/command_handlers/flow_close.rs:400-424`, `server-zd/crates/dexzd-engine/src/flow_coordination/flow_coordination_config.rs:111`). When it fires, the run is marked purging (`server-zd/crates/dexzd-apply/src/cross_flow/run_purge.rs:73-98`), and a later RunPurge command removes the run from the Flow directory and deletes all its rows (`run_purge.rs:216-228`). [assumption] The model keeps a closed run in `R` forever and has no rule for either step. This changes no event under `E_adm`. The only later inputs of `E_adm` are publications. While the run is purging, apply rejects one with NOT_FOUND and FLOW_NOT_EXISTS (`run_cursor.rs:114-119`, `run_cursor.rs:386-392`), as for any closed run (`client_writes.rs:213-214`). After the purge the engine finds no run and rejects it with the same code and sub-status before any command is proposed (`server-zd/crates/dexzd-engine/src/flow_coordination/read_operations/state_rows.rs:122-126`, `server-zd/crates/dexzd-engine/src/flow_coordination/flow_coordination_error.rs:104-110`). Only the message text differs, and the model's event `rejected(pub(f, [(c, v)]), NOT_FOUND)` does not carry it. The purge also frees the Flow ID, but `E_adm` has only one start. |
 | Resource limits (`max_value_bytes`, `max_run_state_bytes`, `max_active_step_executions`, `max_child_flow_result_bytes`) | Hitting a limit turns into a rejection or an attempt failure (`server-zd/crates/dexzd-apply/src/command_handlers/mod.rs:226-280`). [assumption] Limits are never hit. |
 | Worker response validation | An invalid response becomes a non-retryable attempt failure. Here it is a well-formedness constraint on user code (Section 2.5). |
 
@@ -1626,10 +1627,14 @@ the task named; the rest were found on the way or in review.
       the model's runs.
     - **[owner, 2026-11-10] The server is not changed.** No distributed
       system guarantees precise timer firing, so the window stays.
-    - Stance: the rule of Section 4.5 is **not** changed, because the merged
-      Lean proof formalizes revision 8. Section 11.3 states the rule the code
-      implements, and the choice for the failure proof is an open owner
-      decision (Section 11.3, OD1).
+    - **[owner, 2026-11-10] OD1, option A.** Both the expressiveness proof
+      and the failure proof keep the prefix rule [TIMER-FIRE] of Section 4.5,
+      as an explicit modeling idealization. Reason: no distributed system
+      guarantees the order of timers due at almost the same time. So neither
+      theorem covers a run in which such timers fire out of due order.
+    - Stance: the rule of Section 4.5 is **not** changed. Section 11.3 keeps
+      [TIMER-FIRE-SCAN] as the documented code behavior; neither theorem
+      uses it.
 
 ## 8. Sketch: mapping L onto the core
 
@@ -2079,7 +2084,7 @@ the code behind unchanged rules. Every new citation is at `55721e878`.
 | F3 | The premise of [STEP-COMPLETE-WAITFOR] said "the same task". | **Clarified.** The code's fence is Step execution, method, attempt number, phase Running, and task ID. It selects the same results without failures. Section 4.4; [RESULT-STALE] in Section 11.3. |
 | F4 | Section 4.5 read as if apply checked that a timer is due. | **Clarified.** Apply fires whatever the command names; the timer service and the command stamp make it due, under the clock assumption D6. Section 4.5. |
 | F5 | Facts of Section 7 that failures change: locks held through Backoff, retry timers left armed after a cancel, the bounded request table, StopFlow's run resolution, the interrupt commit, and timeouts kept only in memory. | **Recorded** as Open question 25. |
-| F6 | The failure model itself. | **Added** as Section 11: decisions, state, rules, events, theorem statements, and the abstraction map. Appendix A, items 42 to 64. Section 9 lists the failures left for later. |
+| F6 | The failure model itself. | **Added** as Section 11: decisions, state, rules, events, theorem statements, and the abstraction map. Appendix A, items 42 to 67. Section 9 lists the failures left for later. |
 | F7 | The plan stated safety as "`t` is a failure trace if and only if `t` is a repetition of a failure-free trace". Not every repetition is reachable: an attempt emits its effects in order from the first. | **Stated as two inclusions.** Forward: erasing repeated `fx` from a DexF trace gives a Dex trace. Backward: every Dex trace is a DexF trace. The end-to-end corollary follows the same shape. Section 11.5; Appendix A, item 58. |
 | F8 | The clarification of Section 4.5 makes explicit that the failure-free [TIMER-FIRE] is faithful to the code only under the clock assumption D6. | **Recorded.** The rule is unchanged, so the Lean proof is unaffected. Appendix A, item 47. |
 
@@ -2123,6 +2128,14 @@ the code at `55721e878`. The owner also decided four points on 2026-11-10.
 | F22 | Every rejected command was a stutter, which loses `rejected(pub(...), NOT_FOUND)` for a Publish after the close (`client_writes.rs:213-214`, `command_handlers/mod.rs:292-294`). | **Fixed.** A rejected client input of the word maps to the same Dex rejection with the same event. Only internal ignored or rejected commands are silent. [START-RETRY] stays silent: its reply is a success, and `w↓` deletes it. Section 11.2; Appendix A, item 64. |
 | F23 | `ps₀` was described as the raw `seq` of the first pend in some places. `pending_since_seq` stores the raw `seq` (`invocations.rs:114`), and the Dex value is its normal index. | **Fixed.** `ps₀(e, m) := ζ(s)` for the `seq` `s` of the first pend, used in Sections 11.2, 11.3, and 11.6, with the example. |
 | Owner | PublishToChannel gets no request ID. The SDKs get an optional RPC request ID (#1519) and an optional StopFlow run ID (#1520). The server keeps its timer behavior, because no distributed system guarantees precise timer firing. | **Recorded.** Section 11.1 (D7), Section 9, Open question 26; Appendix A, items 61 to 63. OD1 stays open. |
+
+The next re-review found one blocker, accepted and checked against the code
+at `55721e878`. The owner also decided OD1 on 2026-11-10.
+
+| # | Point | Resolution |
+| --- | --- | --- |
+| F24 | Retention and purge after the close were not modeled. A close arms a retention timer (`flow_close.rs:400-424`); its TimersFired takes a run `seq` and marks the run purging (`step_commands.rs:156-175`, `:201-206`; `run_purge.rs:73-98`); RunPurge deletes the directory entry and every run row (`run_purge.rs:216-228`). A StartFlow retry after the purge starts a second run. | **Fixed.** Section 1.3 adds the [assumption] that the model keeps a closed run forever; this changes no event under `E_adm`, because a publication is rejected with NOT_FOUND and FLOW_NOT_EXISTS before and after the purge, only the message text differs (`run_cursor.rs:114-119`, `:386-392`; `state_rows.rs:122-126`; `flow_coordination_error.rs:104-110`). Section 11.2 adds a sixth class, post-close housekeeping, mapped to stutters with a ghost copy `Rc` of the purged run. Hypothesis HP bounds [START-RETRY] to before the purge (Section 11.3), and the theorem assumes it (Section 11.5). The input word now includes requests the engine rejects before any proposal (D7). Appendix A, items 65 to 67. |
+| F25 | OD1, which timer rule the failure proof uses. | **Owner decision, 2026-11-10: option A.** Both theorems keep the prefix rule [TIMER-FIRE] of Section 4.5 as an explicit modeling idealization, because no distributed system guarantees the order of timers due at almost the same time. [TIMER-FIRE-SCAN] stays documented as the code's behavior and is used by neither theorem. Section 11.3, Open question 26; Appendix A, items 7 and 60. |
 
 ## 11. Failures
 
@@ -2240,8 +2253,11 @@ Section 4.5 already allows unbounded lateness.
 
 **D7, network failures.** [owner]
 
-- The input word of a run with failures is the sequence of **committed**
-  client requests. A request lost before its commit is invisible to the
+- The input word of a run with failures is the sequence of client requests
+  that got a final outcome, in that order: each one either committed,
+  accepted or rejected by apply, or was rejected by the engine before any
+  proposal because its Flow ID has no run (Section 1.3, "Retention and run
+  purge after close"). A request lost before its commit is invisible to the
   theorem.
 - PublishToChannel has no request ID (`protos/dex.proto:650-654`). A client
   that sends it again after a lost response has sent a second request: a
@@ -2294,7 +2310,7 @@ Inv   ::= ⟨ m, ip : P | R | B, a : ℕ⁺, ps, keys, snap : Snap?, tid : TaskI
 Task  ::= ⟨ f, e, m, a, tid, input, snap, locals, cr, ctxA,
             phase : Started | Running(Fx*, Resp) | Returned(Resp),
             j : ℕ ⟩                    -- j: effects emitted so far (ghost)
-Σ_F   ::= ⟨ τc, P, R, η, N, Z, I, h, v, ps₀, n, ζ ⟩
+Σ_F   ::= ⟨ τc, P, R, η, N, Z, I, h, v, ps₀, n, ζ, Rc ⟩
 Z : TaskId ⇀ Task                      -- zombie tasks: Workers the server gave up
 I : set of (e, m, a, tid)              -- interrupted attempts, engine memory
 h : (e, m) ⇀ ℕ                         -- ghost: largest effect index any attempt emitted
@@ -2303,6 +2319,7 @@ v : (e, m) ⇀ NotRun | Ran(Fx*, Resp) | Returned(Resp)
 ps₀ : (e, m) ⇀ ℕ                       -- ghost: ζ(s), s the run seq of the invocation's first pend
 n : ℕ                                  -- ghost: number of applied normal commands of the run
 ζ : ℕ ⇀ ℕ                              -- ghost: real seq of each applied normal command ↦ its index
+Rc : FlowId ⇀ Run                      -- ghost: a run as RunPurge found it
 ```
 
 - `Inv` extends Section 3.1. `a` is the method's attempt number. In Backoff
@@ -2314,11 +2331,11 @@ n : ℕ                                  -- ghost: number of applied normal comm
   `ip = R`.
 - `Tm` (Section 3.2) also holds **retry timers** `retry(e, m, a)`, armed when
   attempt `a − 1` fails (`step_results.rs:741-756`).
-- `h`, `v`, `ps₀`, `n`, and `ζ` are history variables. No rule reads them;
+- `h`, `v`, `ps₀`, `n`, `ζ`, and `Rc` are history variables. No rule reads them;
   only α does. Under H2 each pair `(e, m)` has at most one invocation in its
   life, so they need no reset.
 - **Command classes.** Every command in the log is a log commit with a
-  stamp (Section 11.3). Apply's outcome puts it in one of five classes. The
+  stamp (Section 11.3). Apply's outcome puts it in one of six classes. The
   criterion for the run `seq` is whether the command **advances the
   persisted `next_run_seq`**, not whether it writes the run record. A cursor
   opened with `RunCursor::open` bumps `next_run_seq` in memory
@@ -2339,6 +2356,7 @@ n : ℕ                                  -- ghost: number of applied normal comm
   | **Bookkeeping** | not taken | stutter | applied, but does not advance `next_run_seq`: see below |
   | **Rejected client input** | not taken | the Dex rejection of the same request, with the same event `rejected(input, err)` | a request of the word that apply rejects with an error, such as a PublishToChannel after the root Flow closed |
   | **Internal ignored or rejected** | not taken | stutter | [RESULT-STALE], [START-RETRY], a TimersFired whose timers are all gone (`dexzd-apply/src/command_handlers/step_commands.rs:194-196`), a stale StepAttemptQueued |
+  | **Post-close housekeeping** | taken by the retention TimersFired; not by RunPurge | stutter, with `Rc` (see below) | the retention TimersFired, RunPurge |
 
   **Rejected client inputs are observable.** A PublishToChannel to a closed
   run is rejected with NOT_FOUND
@@ -2373,19 +2391,47 @@ n : ℕ                                  -- ghost: number of applied normal comm
     HistorySegmentObjectsDeleted (`dexzd-apply/src/history_offload/segment_expiry.rs:230`),
     TimeTravelStage (`dexzd-apply/src/history/time_travel/staging.rs:108`),
     ValueRevive (`dexzd-apply/src/history_offload/value_revive.rs:84`),
-    HistoryLocalCleanup (`dexzd-apply/src/history/local_cleanup.rs:112`), and
-    RunPurge (`dexzd-apply/src/cross_flow/run_purge.rs:229`). The search and
-    offload-mode commands are partition commands with no run cursor. The
-    history, time-travel, and revive commands open their cursor with
-    `open_without_seq` (`segment_upload.rs:46`,
+    and HistoryLocalCleanup (`dexzd-apply/src/history/local_cleanup.rs:112`).
+    The search and offload-mode commands are partition commands with no run
+    cursor. The history, time-travel, and revive commands open their cursor
+    with `open_without_seq` (`segment_upload.rs:46`,
     `dexzd-apply/src/history_offload/segment_expiry.rs:184`,
     `dexzd-apply/src/history/time_travel/staging.rs:55`,
     `dexzd-apply/src/history_offload/value_revive.rs:44`,
     `dexzd-apply/src/history/local_cleanup.rs:92`); some of them still write
-    the run record. RunPurge deletes the run's rows after retention. They
-    serve search, history, time travel, and retention, which Section 1.3
-    excludes. Background work may still propose them during a run of the
-    fragment; each is a stutter.
+    the run record. They serve search, history, and time travel, which
+    Section 1.3 excludes. Background work may still propose them during a run
+    of the fragment; each is a stutter.
+  - RunPurge is not here: it is post-close housekeeping (below).
+
+  **Post-close housekeeping.** In the fragment the engine proposes two run
+  commands only after the root Flow closed. A search of the effects that a
+  close emits found no others: the only other close effect,
+  `PendingCloseHeldByRpcs` (`dexzd-apply/src/command_handlers/flow_close.rs:304`),
+  needs a pending close, which `E_adm` never sets (Section 4.9).
+  - **The retention TimersFired.** Every close arms a retention timer
+    (`flow_close.rs:400-424`). The timer service proposes it like any timer
+    (`dexzd-engine/src/effects/timer_service.rs:253-287`). Apply skips the
+    run-attempt check for it, marks the run purging, and asks for a purge
+    (`step_commands.rs:156-175`, `dexzd-apply/src/cross_flow/run_purge.rs:73-98`),
+    or postpones the timer while outbox entries or sealed history segments
+    remain (`run_purge.rs:79-84`, `run_purge.rs:237-252`). It finishes its
+    cursor, so it **takes a run `seq`** (`step_commands.rs:201-206`). It can
+    share a command only with retry timers left after the close, because the
+    close disarmed every wait timer (Section 4.2, `finish`).
+  - **RunPurge.** The engine proposes it after it deleted the run's objects
+    (`dexzd-engine/src/effects/object_deletions.rs:110-136`). It removes the
+    run from the Flow directory and deletes every run row
+    (`run_purge.rs:216-228`). It takes no run `seq`: the run is gone.
+
+  Both map to stutters. That is sound only because nothing in the fragment
+  reads the closed run afterwards, except two inputs. A publication is
+  rejected with the same event before and after the purge (Section 1.3,
+  "Retention and run purge after close"). A StartFlow retry is deduplicated
+  only before RunPurge commits, and hypothesis HP (Section 11.3,
+  [START-RETRY]) excludes a later one. To keep α a function of the
+  configuration, `Σ_F` keeps a ghost copy `Rc(f)` of the run as RunPurge
+  found it, and α uses `Rc(f)` for `R(f)` after the purge.
 
   The routing of these commands is at
   `dexzd-apply/src/command_handlers/mod.rs:116-170`. Step commands and
@@ -2393,7 +2439,7 @@ n : ℕ                                  -- ghost: number of applied normal comm
   (`dexzd-apply/src/command_handlers/step_commands.rs:80-89`,
   `step_commands.rs:201-206`).
 - Every applied normal command with run `seq` `s` sets `n := n + 1` and
-  `ζ[s] := n`. Every command of the other four classes leaves `n` and `ζ`
+  `ζ[s] := n`. Every command of the other five classes leaves `n` and `ζ`
   unchanged.
 - `ps₀(e, m) := ζ(s)`, where `s` is the run `seq` of the command whose
   `pend` first made `(e, m)` pending. That command is always normal: a first
@@ -2669,8 +2715,11 @@ Events `τ`, or `[closed(...)]` as in Section 4.5.
   Between `ρ'` and the apply, other commands of the run may apply. They may
   disarm timers of `D`, which are then skipped, and they may arm timers due
   before members of `D`, which are then not fired by this command.
-- **OD1, open owner decision: which timer rule the failure proof uses.**
-  Not decided here.
+- **OD1, which timer rule the failure proof uses. Decided [owner,
+  2026-11-10]: option A.** Both theorems use the prefix rule [TIMER-FIRE] of
+  Section 4.5 as an explicit modeling idealization. [TIMER-FIRE-SCAN] stays
+  documented as the code's behavior and is used by neither theorem. The
+  options as they were put:
   - **Option A, keep the prefix rule of Section 4.5 on both sides.** The
     failure theorem then composes with the expressiveness theorem as it
     stands. Cost: like that theorem, it says nothing about real runs in the
@@ -2682,13 +2731,11 @@ Events `τ`, or `[closed(...)]` as in Section 4.5.
     first, Section 8.1) would no longer match. Under failures nothing else
     changes: the mapping below works for either rule, because it compares
     DexF with a Dex that uses the same rule.
-  - Until the owner decides, the rules of Section 11 refer to "the timer
-    rule", meaning whichever one OD1 picks.
-- **Mapping.** Under either rule, the wait timers of `D` keep the property
-  that `D` has as a whole: they form a prefix of the due wait timers (of the
-  current state for Option A, of `ρ'` for Option B), because one index
-  order covers both kinds. Section 11.6 maps the command to the timer rule's
-  firing of that sub-list, or to a stutter when it is empty. A retry handler
+  - "The timer rule" in Section 11 therefore means [TIMER-FIRE].
+- **Mapping.** The wait timers of `D` form a prefix of the current due wait
+  timers, because `D` is a prefix of all due timers and one index order
+  covers both kinds. Section 11.6 maps the command to [TIMER-FIRE] of that
+  sub-list, or to a stutter when it is empty. A retry handler
   touches neither wait state nor Channels, so its position among the wait
   timers does not change their effects.
 - D6 is needed for wait timers only. A retry timer that fires early changes
@@ -2780,7 +2827,21 @@ Flow ID that already has a run, with `ignore_already_started_error` set and
 the request ID that started the latest run. Under the default reuse policy
 the start conflicts. Apply returns the latest run as a successful reply
 (`dexzd-apply/src/command_handlers/flow_start.rs:91-125`). This holds also
-after the run closed, and any number of times.
+after the run closed, and any number of times, **but only while the Flow
+directory still holds that run**. RunPurge removes the run from the
+directory (`run_purge.rs:216-220`). A StartFlow after that finds no run, so
+the conflict check passes (`flow_start.rs:91-99`) and the request creates and
+starts a new run (`flow_start.rs:139-190`, `flow_start.rs:305-308`). That is
+a second start, and later a second close, which `E_adm` does not admit. A
+retry while the run is only marked purging still finds the directory entry
+and is deduplicated.
+
+- **HP, retries come before the purge.** Hypothesis on the input word: every
+  [START-RETRY] of a word reaches the server before the RunPurge of the run
+  that its request started commits. By default this leaves at least 7 days
+  after the close (Section 1.3). This plays the role that a "retry before
+  eviction" hypothesis plays for the request table. The fragment does not
+  use that table (D7).
 
 - **Log commit versus run `seq`.** The engine always proposes the FlowStart
   and waits for its commit
@@ -2857,7 +2918,7 @@ inserted event equals an earlier event of `u`.
 `Tr_free(P)` is the set of projected traces of Dex (Sections 5.4 and 5.5).
 `Tr_fail(P)` is the same for DexF, over runs that satisfy H1 to H4, D2, D6,
 and the non-empty task ID assumption, with inputs from `E_adm` extended by
-[START-RETRY] (Section 11.3).
+[START-RETRY] (Section 11.3) and words that satisfy HP.
 
 **Lemma (no failures).** `Tr_free ⊆ Tr_fail`. Every Dex run is a DexF run
 with no failure transition. This is not literally trivial, because DexF
@@ -2906,10 +2967,12 @@ FR, and FI:
 - **F5, results commit.** Every `Returned` task of `Θ` or `Z` eventually
   leaves by a Complete rule or by [RESULT-STALE].
 
-**Progress steps.** Every DexF transition other than [TICK] and
-[START-RETRY] is a progress step. [decision] A [START-RETRY] counts like
-[TICK]: it writes no run state, emits no event, and only advances the
-partition clock. Without this, a word made of the start and infinitely many
+**Progress steps.** Every DexF transition other than [TICK], [START-RETRY],
+and post-close housekeeping (Section 11.2) is a progress step. [decision] A
+[START-RETRY] counts like [TICK]: it writes no run state, emits no event, and
+only advances the partition clock. [decision] Post-close housekeeping counts
+the same way: it emits no event and changes nothing the model reads after
+the close, and F2 does not apply to the retention timer. Without this, a word made of the start and infinitely many
 legal retries (`flow_start.rs:99-124` answers each one, also after the
 close) would give `∞` in DexF where Dex, for `w↓`, gives `δ` or `✓`. The
 alternative, counting retries among the finitely many failures of FF,
@@ -2926,7 +2989,7 @@ Markers:
   timer of either kind, no task in `Θ` or `Z`, an empty `I`, and the server
   up.
 
-Statement: under FF, FR, FI, F0 to F6 as above, and H1 to H4, for every
+Statement: under FF, FR, FI, F0 to F6 as above, H1 to H4, and HP, for every
 committed admissible word `w`, the set of `erase(t)` over the fair maximal
 traces `t` of DexF for `w` equals the set of fair maximal traces of Dex for
 `w↓`, markers included. A DexF run for `w` commits every request of `w`,
@@ -2961,6 +3024,8 @@ earlier `out(x)` with the same value, not to repeat a particular `emit`.
   time.
 - Anything about a client that re-sends PublishToChannel after a lost
   response. That is a second request (D7).
+- Anything about a StartFlow retry that arrives after the run was purged.
+  It starts a new run (HP).
 - Anything about ASYNC Step methods (D2).
 - Anything about runs that exhaust retries, use failure policies, read
   attempt-varying context, or meet non-retryable failures (H1 to H4). A
@@ -3140,12 +3205,13 @@ proof (plan Section 4.2), and the inductiveness fuzz must test them.
 | [WORKER-EFFECT] or [ZOMBIE-EFFECT] with `j > h(e, m)` (so `j = h + 1`) | [WORKER-EFFECT] of the virtual task |
 | The same with `j ≤ h(e, m)` | stutter; the event is repeated |
 | Complete rule of a task in `Θ` or `Z` | the Complete rule of the virtual task |
-| [TIMER-FIRE] / [RETRY-FIRE] | the timer rule of OD1 on the wait-timer sub-list, or stutter |
+| [TIMER-FIRE] / [RETRY-FIRE] | [TIMER-FIRE] on the wait-timer sub-list (OD1), or stutter |
 | The retry part of [RETRY-FIRE]: `B` to `P`, with or without a snapshot | stutter (`R` to `R`, or `P` to `P`) |
 | [ATTEMPT-LOST] before the first start (`P` to `B`, no snapshot) | stutter (`P` to `P`) |
 | Cancel or close of a Step whose attempts are all gone | the same commit, then [WORKER-ABANDON] of the virtual task |
 | A rejected client input of the word, such as a PublishToChannel after the close | the same Dex rejection, with the event `rejected(input, err)` |
 | A bookkeeping command, such as StepAttemptQueued | stutter |
+| Post-close housekeeping: the retention TimersFired, RunPurge | stutter; after RunPurge, α reads the run from `Rc` |
 | [CRASH], [RECOVER], [RECOVER-INTERRUPT], [ATTEMPT-LOST], [ATTEMPT-RETURNED], [ATTEMPT-HEARTBEAT], [RESULT-STALE], [START-RETRY] | stutter |
 
 A canceled invocation's virtual task follows Dex's rules for a canceled task:
@@ -3170,7 +3236,8 @@ hypothesis.
 7. [TIMER-FIRE] fires a non-empty prefix of the due timers; exact for
    failure-free runs (4.5). **False in one window**: a command applied
    before TimersFired can arm an earlier-due timer that the scan did not
-   see. See Open question 26.
+   see. See Open question 26. [owner, 2026-11-10] Kept as an explicit
+   modeling idealization by both theorems (OD1, option A).
 8. Fusing RPC lock acquisition and snapshot preserves traces (4.7).
 9. Cross-Flow delivery is exactly once, in any order, after any delay (4.8).
 10. Different Flows interleave arbitrarily (6.2).
@@ -3291,12 +3358,13 @@ hypothesis.
     trace [decision] (11.5).
 59. A [START-RETRY] is not a progress step: like [TICK], it only advances
     the partition clock [decision] (11.5).
-60. Which timer rule the failure proof uses, the prefix rule of Section 4.5
-    or the code's [TIMER-FIRE-SCAN], is an open owner decision (OD1, 11.3;
-    Open question 26).
+60. Both theorems use the prefix rule [TIMER-FIRE] of Section 4.5 as an
+    explicit modeling idealization; the code's [TIMER-FIRE-SCAN] is
+    documented and used by neither. They do not cover runs where timers due
+    at almost the same time fire out of due order [owner, 2026-11-10, OD1
+    option A] (11.3; Open question 26).
 61. The server keeps its timer behavior: no distributed system guarantees
-    precise timer firing [owner, 2026-11-10] (Open question 26). OD1 stays
-    open.
+    precise timer firing [owner, 2026-11-10] (Open question 26).
 62. The SDKs will get an optional caller-supplied RPC request ID (#1519);
     until it ships, the RPC route to exactly-once publication is not
     available. PublishToChannel gets no request ID [owner, 2026-11-10]
@@ -3306,3 +3374,12 @@ hypothesis.
 64. A rejected client input of the word keeps its event `rejected(input,
     err)` under α; only internal ignored or rejected commands are silent
     (11.2).
+65. The model keeps a closed run in `R` forever and has no rule for
+    retention or purge. Under `E_adm` this changes no event: a publication
+    is rejected with NOT_FOUND and FLOW_NOT_EXISTS before and after the
+    purge (1.3).
+66. HP: every [START-RETRY] reaches the server before the RunPurge of the
+    run its request started commits (11.3, 11.5).
+67. Post-close housekeeping (the retention TimersFired and RunPurge) and
+    [START-RETRY] are not progress steps; F2 does not apply to the retention
+    timer [decision] (11.2, 11.5).
