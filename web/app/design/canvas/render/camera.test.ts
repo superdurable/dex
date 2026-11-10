@@ -117,6 +117,37 @@ describe('pane height for the whole drawing', () => {
   });
 });
 
+describe('opening on the whole drawing without a floor', () => {
+  it('opens a drawing too large to read whole on its start by default, and on the whole of it without a floor', async () => {
+    const { scene } = await expanded();
+    const drawing = drawingRect(scene);
+    const paneWidth = 520;
+    const room = cameraRoom(paneWidth, 400, null, 60);
+    expect(openingView(scene, room, 'tb', 1).scope).toBe('start');
+    const opened = openingView(scene, room, 'tb', 1, 0);
+    const fit = Math.min(room.width / drawing.w, room.height / drawing.h);
+    expect(fit).toBeLessThan(OPEN_FLOOR);
+    expect(opened.scope).toBe('whole');
+    expect(opened.view.zoom).toBeCloseTo(fit, 6);
+  });
+
+  it('sizes the pane for the unfloored width fit, so the whole drawing opens in it', async () => {
+    const { scene } = await expanded();
+    const drawing = drawingRect(scene);
+    const paneWidth = 520;
+    const insetTopPx = 60;
+    const widthFit = cameraRoom(paneWidth, 1, null).width / drawing.w;
+    expect(widthFit).toBeLessThan(OPEN_FLOOR);
+    const paneHeight = paneHeightForWholeDrawing(scene, paneWidth, 1, insetTopPx, 0);
+    expect(paneHeight).toBeLessThan(paneHeightForWholeDrawing(scene, paneWidth, 1, insetTopPx));
+    const opened = openingView(scene, cameraRoom(paneWidth, paneHeight, null, insetTopPx), 'tb', 1, 0);
+    expect(opened.scope).toBe('whole');
+    expect(opened.view.zoom).toBeCloseTo(widthFit, 6);
+    expect(drawing.y * opened.view.zoom + opened.view.y).toBeGreaterThanOrEqual(insetTopPx - 0.5);
+    expect((drawing.y + drawing.h) * opened.view.zoom + opened.view.y).toBeLessThanOrEqual(paneHeight + 0.5);
+  });
+});
+
 /** The drawing's bounds with the camera's 40-unit frame margin, as `openingView` frames them. */
 function drawingRect(scene: Scene): { x: number; y: number; w: number; h: number } {
   const rects = [...scene.boxes, ...scene.bands];

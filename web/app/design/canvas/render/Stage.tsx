@@ -52,7 +52,16 @@ import {
   type FramingNeighbours,
 } from './camera'
 import { useCamera, useRunTravel, useSettledDrawing } from './useCamera'
-import { chromeCompensation, edgeContrastBoost, FIT_MAX_ZOOM, fitOptions, MAX_ZOOM, MIN_ZOOM, OPEN_FLOOR } from './zoom'
+import {
+  chromeCompensation,
+  edgeContrastBoost,
+  FIT_MAX_ZOOM,
+  fitOptions,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  OPEN_FLOOR,
+  WHOLE_DRAWING_MIN_ZOOM,
+} from './zoom'
 import '@xyflow/react/dist/style.css'
 
 /**
@@ -278,6 +287,8 @@ type StageProps = {
   targetNeighbours?: FramingNeighbours
   /** Largest zoom for opening on, or fitting, the whole drawing. Defaults to `FIT_MAX_ZOOM`. */
   wholeMaxZoom?: number
+  /** Opens on, fits, and zooms out to the whole drawing, however small. */
+  opensWholeDrawing?: boolean
 }
 
 function Inner({
@@ -305,6 +316,7 @@ function Inner({
   isSettled = true,
   targetNeighbours,
   wholeMaxZoom = FIT_MAX_ZOOM,
+  opensWholeDrawing = false,
   scene: latestScene,
   nowNodeId: latestNowNodeId = null,
 }: StageProps): JSX.Element {
@@ -313,6 +325,8 @@ function Inner({
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null)
   // Hold the last settled drawing, so a run still loading never draws half-way states.
   const { scene, nowNodeId } = useSettledDrawing(isSettled, latestScene, latestNowNodeId)
+  const openFloor = opensWholeDrawing ? 0 : OPEN_FLOOR
+  const minZoom = opensWholeDrawing ? WHOLE_DRAWING_MIN_ZOOM : MIN_ZOOM
 
   useEffect(() => {
     if (selectedId !== null) setSelectedLinkId(null)
@@ -322,10 +336,10 @@ function Inner({
     const el = paneRef.current?.querySelector<HTMLElement>('.react-flow') ?? paneRef.current
     void rf.fitView({
       ...fitOptions(insetRightPx, el?.clientWidth ?? 0, wholeMaxZoom, insetTopPx, el?.clientHeight ?? 0),
-      minZoom: MIN_ZOOM,
+      minZoom,
       ...cameraMotion(),
     })
-  }, [insetRightPx, insetTopPx, rf, wholeMaxZoom])
+  }, [insetRightPx, insetTopPx, minZoom, rf, wholeMaxZoom])
   // After the view opens, a resize with a selection only pans that selection back into view.
   const keepSelectionInView = useRef<() => boolean>(() => false)
   const camera = useCamera({
@@ -340,6 +354,7 @@ function Inner({
     insetRightPx,
     insetTopPx,
     wholeMaxZoom,
+    openFloor,
     fitWhole,
     keepSelectionInView: () => keepSelectionInView.current(),
   })
@@ -610,7 +625,7 @@ function Inner({
         edges={edges}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
-        minZoom={MIN_ZOOM}
+        minZoom={minZoom}
         maxZoom={MAX_ZOOM}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -646,7 +661,7 @@ function Inner({
             showInteractive={false}
             fitViewOptions={{
               ...fitOptions(insetRightPx, paneRef.current?.clientWidth ?? 0, wholeMaxZoom, insetTopPx, paneRef.current?.clientHeight ?? 0),
-              minZoom: MIN_ZOOM,
+              minZoom,
               ...cameraMotion(),
             }}
             onFitView={() => setOwner('fit')}

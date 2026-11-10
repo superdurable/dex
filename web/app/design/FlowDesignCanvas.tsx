@@ -28,7 +28,7 @@ import { paneHeightForWholeDrawing } from './canvas/render/camera';
 import { TileView } from './canvas/render/CardParts';
 import { Stage } from './canvas/render/Stage';
 import type { CanvasViewportHandle } from './canvas/render/viewport';
-import { FIT_MAX_ZOOM } from './canvas/render/zoom';
+import { FIT_MAX_ZOOM, OPEN_FLOOR } from './canvas/render/zoom';
 import { useStageScene } from './canvas/useStageScene';
 import { detourMessage, hasDetour, isFailureHandling, withDetours } from './canvas/views/failureDetours';
 import { stageId } from './canvas/views/stageCard';
@@ -53,6 +53,7 @@ export function FlowDesignCanvas({
   connectorSettingsLink,
   wholeMaxZoom,
   onPreferredHeight,
+  opensWholeFlow = false,
 }: {
   graph: FlowDefinitionGraph;
   /** Identifies the definition; a new key redraws and refits the canvas. */
@@ -63,6 +64,8 @@ export function FlowDesignCanvas({
   wholeMaxZoom?: number;
   /** Receives the height, in pixels, that opens on the whole Flow below the toolbar, per view and width. */
   onPreferredHeight?: (heightPx: number) => void;
+  /** Opens on, fits, and zooms out to the whole Flow however small, instead of opening a large one on its start. */
+  opensWholeFlow?: boolean;
 }) {
   const [direction, setDirection] = useState<Direction>('lr');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -104,6 +107,7 @@ export function FlowDesignCanvas({
     isPanelOpen: selectedStep !== null,
     wholeMaxZoom: wholeMaxZoom ?? FIT_MAX_ZOOM,
     onPreferredHeight,
+    opensWholeFlow,
   });
 
   if (flow.steps.length === 0 && flow.entries.length === 0) {
@@ -192,6 +196,7 @@ export function FlowDesignCanvas({
           handleRef={viewportRef}
           showsZoomControls={false}
           wholeMaxZoom={wholeMaxZoom}
+          opensWholeDrawing={opensWholeFlow}
           insetTopPx={overlayInsetTopPx}
         />
         <p className="sr-only" aria-live="polite">{stages.cue?.message}</p>
@@ -224,6 +229,7 @@ function useReportPreferredCanvasHeight({
   isPanelOpen,
   wholeMaxZoom,
   onPreferredHeight,
+  opensWholeFlow,
 }: {
   shellRef: RefObject<HTMLDivElement | null>;
   /** Changes with the definition, the direction, and Collapsed or Expanded. */
@@ -233,6 +239,7 @@ function useReportPreferredCanvasHeight({
   isPanelOpen: boolean;
   wholeMaxZoom: number;
   onPreferredHeight: ((heightPx: number) => void) | undefined;
+  opensWholeFlow: boolean;
 }): { overlayInsetTopPx: number | null } {
   const [sizedView, setSizedView] = useState<{ viewKey: string; scene: Scene } | null>(null);
   const [overlayInsetTopPx, setOverlayInsetTopPx] = useState<number | null>(null);
@@ -256,7 +263,13 @@ function useReportPreferredCanvasHeight({
       );
       const insetTop = overlayBottom - paneBox.top + OVERLAY_GAP_PX;
       setOverlayInsetTopPx(insetTop);
-      const paneHeight = paneHeightForWholeDrawing(sizedView.scene, pane.clientWidth, wholeMaxZoom, insetTop);
+      const paneHeight = paneHeightForWholeDrawing(
+        sizedView.scene,
+        pane.clientWidth,
+        wholeMaxZoom,
+        insetTop,
+        opensWholeFlow ? 0 : OPEN_FLOOR,
+      );
       onPreferredHeight(Math.ceil(paneBox.top - shellBox.top + paneHeight + shellBox.bottom - paneBox.bottom));
     };
     measureAndReportHeight();
@@ -281,7 +294,7 @@ function useReportPreferredCanvasHeight({
       shellObserver.disconnect();
       toolbarObserver.disconnect();
     };
-  }, [isPanelOpen, onPreferredHeight, shellRef, sizedView, wholeMaxZoom]);
+  }, [isPanelOpen, onPreferredHeight, opensWholeFlow, shellRef, sizedView, wholeMaxZoom]);
   return { overlayInsetTopPx: onPreferredHeight === undefined ? null : overlayInsetTopPx };
 }
 

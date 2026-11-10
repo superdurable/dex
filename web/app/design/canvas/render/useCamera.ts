@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { Direction, Scene } from '../views/types'
+import { OPEN_FLOOR } from './zoom'
 import {
   boxShowing,
   cameraMotion,
@@ -52,6 +53,7 @@ export function useCamera({
   insetRightPx,
   insetTopPx = null,
   wholeMaxZoom,
+  openFloor = OPEN_FLOOR,
   fitWhole,
   keepSelectionInView,
   onFramed,
@@ -71,6 +73,8 @@ export function useCamera({
   /** Pixels at the pane's top that the host's overlays cover. */
   insetTopPx?: number | null
   wholeMaxZoom: number
+  /** The zoom below which the view opens on the start instead of the whole drawing. */
+  openFloor?: number
   fitWhole: () => void
   /** Pans a reader's selection into view; false when there is none. */
   keepSelectionInView: () => boolean
@@ -124,9 +128,9 @@ export function useCamera({
     const room = cameraRoom(el.clientWidth, el.clientHeight, inset, insetTop)
     return (
       (target === null ? null : focusView(shown, target, joined, room, wholeMaxZoom)) ??
-      openingView(shown, room, reading, wholeMaxZoom)
+      openingView(shown, room, reading, wholeMaxZoom, openFloor)
     )
-  }, [flowElement, wholeMaxZoom])
+  }, [flowElement, openFloor, wholeMaxZoom])
 
   useEffect(() => {
     if (isEntered || isSettled) return undefined
