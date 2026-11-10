@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "UserOnboardingFlow",
     "startStepId": "step:Submit",
     "span": {
-      "startLine": 169,
+      "startLine": 177,
       "startColumn": 1,
-      "endLine": 228,
+      "endLine": 236,
       "endColumn": 48
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "rpc:accomplish_task_1",
       "phase": "rpc",
       "span": {
-        "startLine": 217,
+        "startLine": 225,
         "startColumn": 5,
-        "endLine": 221,
+        "endLine": 229,
         "endColumn": 48
       }
     },
@@ -36,9 +36,9 @@
       "parentId": "rpc:accomplish_task_2",
       "phase": "rpc",
       "span": {
-        "startLine": 224,
+        "startLine": 232,
         "startColumn": 5,
-        "endLine": 228,
+        "endLine": 236,
         "endColumn": 48
       }
     },
@@ -49,9 +49,9 @@
       "parentId": "rpc:verify",
       "phase": "rpc",
       "span": {
-        "startLine": 210,
+        "startLine": 218,
         "startColumn": 5,
-        "endLine": 214,
+        "endLine": 222,
         "endColumn": 37
       }
     },
@@ -62,9 +62,9 @@
       "parentId": "step:AccomplishTask1",
       "phase": "execute",
       "span": {
-        "startLine": 95,
+        "startLine": 99,
         "startColumn": 5,
-        "endLine": 109,
+        "endLine": 113,
         "endColumn": 44
       }
     },
@@ -75,9 +75,9 @@
       "parentId": "step:AccomplishTask2",
       "phase": "execute",
       "span": {
-        "startLine": 132,
+        "startLine": 138,
         "startColumn": 5,
-        "endLine": 147,
+        "endLine": 153,
         "endColumn": 44
       }
     },
@@ -88,23 +88,23 @@
       "parentId": "step:VerifyEmail",
       "phase": "execute",
       "span": {
-        "startLine": 58,
+        "startLine": 60,
         "startColumn": 5,
-        "endLine": 72,
+        "endLine": 74,
         "endColumn": 40
       }
     },
     {
-      "id": "decision:rpc:accomplish_task_1:219:20",
+      "id": "decision:rpc:accomplish_task_1:227:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:accomplish_task_1",
       "condition": "self.status.get(context) != 'waiting_for_task_1'",
       "phase": "rpc",
       "span": {
-        "startLine": 219,
+        "startLine": 227,
         "startColumn": 20,
-        "endLine": 219,
+        "endLine": 227,
         "endColumn": 54
       },
       "decision": {
@@ -112,16 +112,16 @@
       }
     },
     {
-      "id": "decision:rpc:accomplish_task_1:221:16",
+      "id": "decision:rpc:accomplish_task_1:229:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:accomplish_task_1",
       "condition": "not (self.status.get(context) != 'waiting_for_task_1')",
       "phase": "rpc",
       "span": {
-        "startLine": 221,
+        "startLine": 229,
         "startColumn": 16,
-        "endLine": 221,
+        "endLine": 229,
         "endColumn": 48
       },
       "decision": {
@@ -129,16 +129,16 @@
       }
     },
     {
-      "id": "decision:rpc:accomplish_task_2:226:20",
+      "id": "decision:rpc:accomplish_task_2:234:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:accomplish_task_2",
       "condition": "self.status.get(context) != 'waiting_for_task_2'",
       "phase": "rpc",
       "span": {
-        "startLine": 226,
+        "startLine": 234,
         "startColumn": 20,
-        "endLine": 226,
+        "endLine": 234,
         "endColumn": 54
       },
       "decision": {
@@ -146,16 +146,16 @@
       }
     },
     {
-      "id": "decision:rpc:accomplish_task_2:228:16",
+      "id": "decision:rpc:accomplish_task_2:236:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:accomplish_task_2",
       "condition": "not (self.status.get(context) != 'waiting_for_task_2')",
       "phase": "rpc",
       "span": {
-        "startLine": 228,
+        "startLine": 236,
         "startColumn": 16,
-        "endLine": 228,
+        "endLine": 236,
         "endColumn": 48
       },
       "decision": {
@@ -163,16 +163,16 @@
       }
     },
     {
-      "id": "decision:rpc:verify:212:20",
+      "id": "decision:rpc:verify:220:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:verify",
       "condition": "self.status.get(context) != 'waiting_for_verification'",
       "phase": "rpc",
       "span": {
-        "startLine": 212,
+        "startLine": 220,
         "startColumn": 20,
-        "endLine": 212,
+        "endLine": 220,
         "endColumn": 49
       },
       "decision": {
@@ -180,16 +180,16 @@
       }
     },
     {
-      "id": "decision:rpc:verify:214:16",
+      "id": "decision:rpc:verify:222:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:verify",
       "condition": "not (self.status.get(context) != 'waiting_for_verification')",
       "phase": "rpc",
       "span": {
-        "startLine": 214,
+        "startLine": 222,
         "startColumn": 16,
-        "endLine": 214,
+        "endLine": 222,
         "endColumn": 37
       },
       "decision": {
@@ -197,16 +197,16 @@
       }
     },
     {
-      "id": "decision:step:AccomplishTask1:103:20",
+      "id": "decision:step:AccomplishTask1:107:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AccomplishTask1",
       "condition": "self.task_1_completed.results(context)",
       "phase": "execute",
       "span": {
-        "startLine": 103,
+        "startLine": 107,
         "startColumn": 20,
-        "endLine": 103,
+        "endLine": 107,
         "endColumn": 48
       },
       "decision": {
@@ -214,16 +214,16 @@
       }
     },
     {
-      "id": "decision:step:AccomplishTask1:109:16",
+      "id": "decision:step:AccomplishTask1:113:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AccomplishTask1",
       "condition": "not (self.task_1_completed.results(context))",
       "phase": "execute",
       "span": {
-        "startLine": 109,
+        "startLine": 113,
         "startColumn": 16,
-        "endLine": 109,
+        "endLine": 113,
         "endColumn": 44
       },
       "decision": {
@@ -231,16 +231,16 @@
       }
     },
     {
-      "id": "decision:step:AccomplishTask2:141:20",
+      "id": "decision:step:AccomplishTask2:147:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:AccomplishTask2",
       "condition": "self.task_2_completed.results(context)",
       "phase": "execute",
       "span": {
-        "startLine": 141,
+        "startLine": 147,
         "startColumn": 20,
-        "endLine": 141,
+        "endLine": 147,
         "endColumn": 61
       },
       "decision": {
@@ -248,16 +248,16 @@
       }
     },
     {
-      "id": "decision:step:AccomplishTask2:147:16",
+      "id": "decision:step:AccomplishTask2:153:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:AccomplishTask2",
       "condition": "not (self.task_2_completed.results(context))",
       "phase": "execute",
       "span": {
-        "startLine": 147,
+        "startLine": 153,
         "startColumn": 16,
-        "endLine": 147,
+        "endLine": 153,
         "endColumn": 44
       },
       "decision": {
@@ -265,15 +265,15 @@
       }
     },
     {
-      "id": "decision:step:Submit:166:16",
+      "id": "decision:step:Submit:174:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:Submit",
       "phase": "execute",
       "span": {
-        "startLine": 166,
+        "startLine": 174,
         "startColumn": 16,
-        "endLine": 166,
+        "endLine": 174,
         "endColumn": 40
       },
       "decision": {
@@ -281,16 +281,16 @@
       }
     },
     {
-      "id": "decision:step:VerifyEmail:66:20",
+      "id": "decision:step:VerifyEmail:68:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:VerifyEmail",
       "condition": "self.verify_email.results(context)",
       "phase": "execute",
       "span": {
-        "startLine": 66,
+        "startLine": 68,
         "startColumn": 20,
-        "endLine": 66,
+        "endLine": 68,
         "endColumn": 48
       },
       "decision": {
@@ -298,16 +298,16 @@
       }
     },
     {
-      "id": "decision:step:VerifyEmail:72:16",
+      "id": "decision:step:VerifyEmail:74:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:VerifyEmail",
       "condition": "not (self.verify_email.results(context))",
       "phase": "execute",
       "span": {
-        "startLine": 72,
+        "startLine": 74,
         "startColumn": 16,
-        "endLine": 72,
+        "endLine": 74,
         "endColumn": 40
       },
       "decision": {
@@ -319,9 +319,9 @@
       "kind": "attribute",
       "name": "Form",
       "span": {
-        "startLine": 170,
+        "startLine": 178,
         "startColumn": 5,
-        "endLine": 170,
+        "endLine": 178,
         "endColumn": 41
       },
       "resource": {
@@ -333,9 +333,9 @@
       "kind": "attribute",
       "name": "Status",
       "span": {
-        "startLine": 171,
+        "startLine": 179,
         "startColumn": 5,
-        "endLine": 171,
+        "endLine": 179,
         "endColumn": 38
       },
       "resource": {
@@ -347,9 +347,9 @@
       "kind": "channel",
       "name": "Task1Completed",
       "span": {
-        "startLine": 173,
+        "startLine": 181,
         "startColumn": 5,
-        "endLine": 173,
+        "endLine": 181,
         "endColumn": 67
       },
       "resource": {
@@ -361,9 +361,9 @@
       "kind": "channel",
       "name": "Task2Completed",
       "span": {
-        "startLine": 174,
+        "startLine": 182,
         "startColumn": 5,
-        "endLine": 174,
+        "endLine": 182,
         "endColumn": 67
       },
       "resource": {
@@ -375,9 +375,9 @@
       "kind": "channel",
       "name": "VerifyEmail",
       "span": {
-        "startLine": 172,
+        "startLine": 180,
         "startColumn": 5,
-        "endLine": 172,
+        "endLine": 180,
         "endColumn": 60
       },
       "resource": {
@@ -389,9 +389,9 @@
       "kind": "rpc",
       "name": "accomplish_task_1",
       "span": {
-        "startLine": 217,
+        "startLine": 225,
         "startColumn": 5,
-        "endLine": 221,
+        "endLine": 229,
         "endColumn": 48
       }
     },
@@ -400,9 +400,9 @@
       "kind": "rpc",
       "name": "accomplish_task_2",
       "span": {
-        "startLine": 224,
+        "startLine": 232,
         "startColumn": 5,
-        "endLine": 228,
+        "endLine": 236,
         "endColumn": 48
       }
     },
@@ -411,9 +411,9 @@
       "kind": "rpc",
       "name": "verify",
       "span": {
-        "startLine": 210,
+        "startLine": 218,
         "startColumn": 5,
-        "endLine": 214,
+        "endLine": 222,
         "endColumn": 37
       }
     },
@@ -423,10 +423,13 @@
       "name": "AccomplishTask1",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 196,
+        "startLine": 204,
         "startColumn": 13,
-        "endLine": 196,
+        "endLine": 204,
         "endColumn": 29
+      },
+      "metadata": {
+        "explanation": "Wait for the user to finish task 1 and send a reminder when it is late."
       }
     },
     {
@@ -435,10 +438,13 @@
       "name": "AccomplishTask2",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 197,
+        "startLine": 205,
         "startColumn": 13,
-        "endLine": 197,
+        "endLine": 205,
         "endColumn": 29
+      },
+      "metadata": {
+        "explanation": "Wait for the user to finish task 2, then complete onboarding."
       }
     },
     {
@@ -448,10 +454,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 194,
+        "startLine": 202,
         "startColumn": 36,
-        "endLine": 194,
+        "endLine": 202,
         "endColumn": 47
+      },
+      "metadata": {
+        "explanation": "Store the sign-up form and send the verification email."
       }
     },
     {
@@ -460,22 +469,25 @@
       "name": "VerifyEmail",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 195,
+        "startLine": 203,
         "startColumn": 13,
-        "endLine": 195,
+        "endLine": 203,
         "endColumn": 29
+      },
+      "metadata": {
+        "explanation": "Wait for email verification and send a reminder when it is late."
       }
     },
     {
-      "id": "wait:AccomplishTask1:90:16:0",
+      "id": "wait:AccomplishTask1:94:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:AccomplishTask1",
       "phase": "wait_for",
       "span": {
-        "startLine": 90,
+        "startLine": 94,
         "startColumn": 16,
-        "endLine": 93,
+        "endLine": 97,
         "endColumn": 10
       },
       "wait": {
@@ -486,9 +498,9 @@
             "label": "24 seconds timer",
             "expression": "timedelta(seconds=24)",
             "span": {
-              "startLine": 91,
+              "startLine": 95,
               "startColumn": 13,
-              "endLine": 91,
+              "endLine": 95,
               "endColumn": 53
             }
           },
@@ -497,9 +509,9 @@
             "label": "Task1Completed.for 1",
             "resourceId": "resource:channel:UserOnboardingFlow.task_1_completed",
             "span": {
-              "startLine": 92,
+              "startLine": 96,
               "startColumn": 13,
-              "endLine": 92,
+              "endLine": 96,
               "endColumn": 44
             }
           }
@@ -507,15 +519,15 @@
       }
     },
     {
-      "id": "wait:AccomplishTask2:127:16:0",
+      "id": "wait:AccomplishTask2:133:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:AccomplishTask2",
       "phase": "wait_for",
       "span": {
-        "startLine": 127,
+        "startLine": 133,
         "startColumn": 16,
-        "endLine": 130,
+        "endLine": 136,
         "endColumn": 10
       },
       "wait": {
@@ -526,9 +538,9 @@
             "label": "24 seconds timer",
             "expression": "timedelta(seconds=24)",
             "span": {
-              "startLine": 128,
+              "startLine": 134,
               "startColumn": 13,
-              "endLine": 128,
+              "endLine": 134,
               "endColumn": 53
             }
           },
@@ -537,9 +549,9 @@
             "label": "Task2Completed.for 1",
             "resourceId": "resource:channel:UserOnboardingFlow.task_2_completed",
             "span": {
-              "startLine": 129,
+              "startLine": 135,
               "startColumn": 13,
-              "endLine": 129,
+              "endLine": 135,
               "endColumn": 44
             }
           }
@@ -547,15 +559,15 @@
       }
     },
     {
-      "id": "wait:VerifyEmail:53:16:0",
+      "id": "wait:VerifyEmail:55:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:VerifyEmail",
       "phase": "wait_for",
       "span": {
-        "startLine": 53,
+        "startLine": 55,
         "startColumn": 16,
-        "endLine": 56,
+        "endLine": 58,
         "endColumn": 10
       },
       "wait": {
@@ -566,9 +578,9 @@
             "label": "24 seconds timer",
             "expression": "timedelta(seconds=24)",
             "span": {
-              "startLine": 54,
+              "startLine": 56,
               "startColumn": 13,
-              "endLine": 54,
+              "endLine": 56,
               "endColumn": 53
             }
           },
@@ -577,9 +589,9 @@
             "label": "VerifyEmail.for 1",
             "resourceId": "resource:channel:UserOnboardingFlow.verify_email",
             "span": {
-              "startLine": 55,
+              "startLine": 57,
               "startColumn": 13,
-              "endLine": 55,
+              "endLine": 57,
               "endColumn": 40
             }
           }
@@ -591,78 +603,78 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:AccomplishTask1:103:20",
+      "from": "decision:step:AccomplishTask1:107:20",
       "to": "step:AccomplishTask2",
       "label": "go_to",
       "span": {
-        "startLine": 103,
+        "startLine": 107,
         "startColumn": 20,
-        "endLine": 103,
+        "endLine": 107,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:AccomplishTask1:109:16",
+      "from": "decision:step:AccomplishTask1:113:16",
       "to": "step:AccomplishTask1",
       "label": "go_to",
       "span": {
-        "startLine": 109,
+        "startLine": 113,
         "startColumn": 16,
-        "endLine": 109,
+        "endLine": 113,
         "endColumn": 44
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:AccomplishTask2:147:16",
+      "from": "decision:step:AccomplishTask2:153:16",
       "to": "step:AccomplishTask2",
       "label": "go_to",
       "span": {
-        "startLine": 147,
+        "startLine": 153,
         "startColumn": 16,
-        "endLine": 147,
+        "endLine": 153,
         "endColumn": 44
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:Submit:166:16",
+      "from": "decision:step:Submit:174:16",
       "to": "step:VerifyEmail",
       "label": "go_to",
       "span": {
-        "startLine": 166,
+        "startLine": 174,
         "startColumn": 16,
-        "endLine": 166,
+        "endLine": 174,
         "endColumn": 40
       }
     },
     {
       "id": "edge:0005",
       "kind": "transition",
-      "from": "decision:step:VerifyEmail:66:20",
+      "from": "decision:step:VerifyEmail:68:20",
       "to": "step:AccomplishTask1",
       "label": "go_to",
       "span": {
-        "startLine": 66,
+        "startLine": 68,
         "startColumn": 20,
-        "endLine": 66,
+        "endLine": 68,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0006",
       "kind": "transition",
-      "from": "decision:step:VerifyEmail:72:16",
+      "from": "decision:step:VerifyEmail:74:16",
       "to": "step:VerifyEmail",
       "label": "go_to",
       "span": {
-        "startLine": 72,
+        "startLine": 74,
         "startColumn": 16,
-        "endLine": 72,
+        "endLine": 74,
         "endColumn": 40
       }
     },
@@ -673,9 +685,9 @@
       "to": "step:AccomplishTask1",
       "label": "get",
       "span": {
-        "startLine": 96,
+        "startLine": 100,
         "startColumn": 23,
-        "endLine": 96,
+        "endLine": 100,
         "endColumn": 45
       },
       "metadata": {
@@ -689,9 +701,9 @@
       "to": "step:AccomplishTask2",
       "label": "get",
       "span": {
-        "startLine": 133,
+        "startLine": 139,
         "startColumn": 23,
-        "endLine": 133,
+        "endLine": 139,
         "endColumn": 45
       },
       "metadata": {
@@ -705,9 +717,9 @@
       "to": "step:VerifyEmail",
       "label": "get",
       "span": {
-        "startLine": 59,
+        "startLine": 61,
         "startColumn": 23,
-        "endLine": 59,
+        "endLine": 61,
         "endColumn": 45
       },
       "metadata": {
@@ -721,9 +733,9 @@
       "to": "rpc:accomplish_task_1",
       "label": "get",
       "span": {
-        "startLine": 218,
+        "startLine": 226,
         "startColumn": 12,
-        "endLine": 218,
+        "endLine": 226,
         "endColumn": 36
       },
       "metadata": {
@@ -737,9 +749,9 @@
       "to": "rpc:accomplish_task_2",
       "label": "get",
       "span": {
-        "startLine": 225,
+        "startLine": 233,
         "startColumn": 12,
-        "endLine": 225,
+        "endLine": 233,
         "endColumn": 36
       },
       "metadata": {
@@ -753,9 +765,9 @@
       "to": "rpc:verify",
       "label": "get",
       "span": {
-        "startLine": 211,
+        "startLine": 219,
         "startColumn": 12,
-        "endLine": 211,
+        "endLine": 219,
         "endColumn": 36
       },
       "metadata": {
@@ -769,9 +781,9 @@
       "to": "step:AccomplishTask1",
       "label": "results",
       "span": {
-        "startLine": 97,
+        "startLine": 101,
         "startColumn": 12,
-        "endLine": 97,
+        "endLine": 101,
         "endColumn": 50
       },
       "metadata": {
@@ -782,12 +794,12 @@
       "id": "edge:0014",
       "kind": "wait_condition",
       "from": "resource:channel:UserOnboardingFlow.task_1_completed",
-      "to": "wait:AccomplishTask1:90:16:0",
+      "to": "wait:AccomplishTask1:94:16:0",
       "label": "Task1Completed.for 1",
       "span": {
-        "startLine": 92,
+        "startLine": 96,
         "startColumn": 13,
-        "endLine": 92,
+        "endLine": 96,
         "endColumn": 44
       }
     },
@@ -798,9 +810,9 @@
       "to": "step:AccomplishTask2",
       "label": "results",
       "span": {
-        "startLine": 134,
+        "startLine": 140,
         "startColumn": 12,
-        "endLine": 134,
+        "endLine": 140,
         "endColumn": 50
       },
       "metadata": {
@@ -811,12 +823,12 @@
       "id": "edge:0016",
       "kind": "wait_condition",
       "from": "resource:channel:UserOnboardingFlow.task_2_completed",
-      "to": "wait:AccomplishTask2:127:16:0",
+      "to": "wait:AccomplishTask2:133:16:0",
       "label": "Task2Completed.for 1",
       "span": {
-        "startLine": 129,
+        "startLine": 135,
         "startColumn": 13,
-        "endLine": 129,
+        "endLine": 135,
         "endColumn": 44
       }
     },
@@ -827,9 +839,9 @@
       "to": "step:VerifyEmail",
       "label": "results",
       "span": {
-        "startLine": 60,
+        "startLine": 62,
         "startColumn": 12,
-        "endLine": 60,
+        "endLine": 62,
         "endColumn": 46
       },
       "metadata": {
@@ -840,12 +852,12 @@
       "id": "edge:0018",
       "kind": "wait_condition",
       "from": "resource:channel:UserOnboardingFlow.verify_email",
-      "to": "wait:VerifyEmail:53:16:0",
+      "to": "wait:VerifyEmail:55:16:0",
       "label": "VerifyEmail.for 1",
       "span": {
-        "startLine": 55,
+        "startLine": 57,
         "startColumn": 13,
-        "endLine": 55,
+        "endLine": 57,
         "endColumn": 40
       }
     },
@@ -856,9 +868,9 @@
       "to": "resource:channel:UserOnboardingFlow.task_1_completed",
       "label": "publish",
       "span": {
-        "startLine": 220,
+        "startLine": 228,
         "startColumn": 9,
-        "endLine": 220,
+        "endLine": 228,
         "endColumn": 53
       },
       "metadata": {
@@ -872,9 +884,9 @@
       "to": "resource:channel:UserOnboardingFlow.task_2_completed",
       "label": "publish",
       "span": {
-        "startLine": 227,
+        "startLine": 235,
         "startColumn": 9,
-        "endLine": 227,
+        "endLine": 235,
         "endColumn": 53
       },
       "metadata": {
@@ -888,9 +900,9 @@
       "to": "resource:channel:UserOnboardingFlow.verify_email",
       "label": "publish",
       "span": {
-        "startLine": 213,
+        "startLine": 221,
         "startColumn": 9,
-        "endLine": 213,
+        "endLine": 221,
         "endColumn": 49
       },
       "metadata": {
@@ -904,9 +916,9 @@
       "to": "resource:attribute:UserOnboardingFlow.status",
       "label": "set",
       "span": {
-        "startLine": 89,
+        "startLine": 93,
         "startColumn": 9,
-        "endLine": 89,
+        "endLine": 93,
         "endColumn": 55
       },
       "metadata": {
@@ -920,9 +932,9 @@
       "to": "resource:attribute:UserOnboardingFlow.status",
       "label": "set",
       "span": {
-        "startLine": 135,
+        "startLine": 141,
         "startColumn": 13,
-        "endLine": 135,
+        "endLine": 141,
         "endColumn": 50
       },
       "metadata": {
@@ -936,9 +948,9 @@
       "to": "resource:attribute:UserOnboardingFlow.status",
       "label": "set",
       "span": {
-        "startLine": 126,
+        "startLine": 132,
         "startColumn": 9,
-        "endLine": 126,
+        "endLine": 132,
         "endColumn": 55
       },
       "metadata": {
@@ -952,9 +964,9 @@
       "to": "resource:attribute:UserOnboardingFlow.form",
       "label": "set",
       "span": {
-        "startLine": 164,
+        "startLine": 172,
         "startColumn": 9,
-        "endLine": 164,
+        "endLine": 172,
         "endColumn": 38
       },
       "metadata": {
@@ -968,9 +980,9 @@
       "to": "resource:attribute:UserOnboardingFlow.status",
       "label": "set",
       "span": {
-        "startLine": 52,
+        "startLine": 54,
         "startColumn": 9,
-        "endLine": 52,
+        "endLine": 54,
         "endColumn": 61
       },
       "metadata": {
@@ -978,5 +990,41 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "verification",
+      "label": "Verification",
+      "stepIds": [
+        "step:VerifyEmail"
+      ]
+    },
+    {
+      "id": "onboarding-tasks",
+      "label": "Onboarding tasks",
+      "stepIds": [
+        "step:AccomplishTask1",
+        "step:AccomplishTask2"
+      ]
+    },
+    {
+      "id": "sign-up",
+      "label": "Sign-up",
+      "stepIds": [
+        "step:Submit"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

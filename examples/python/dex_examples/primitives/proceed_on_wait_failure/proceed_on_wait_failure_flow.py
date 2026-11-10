@@ -31,11 +31,15 @@ from dex import (
 )
 
 
+# dex:group group-id:finish group-label:"Finish"
+# dex:explanation text:"Complete the Flow with the recovered value."
 class Finish(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return graceful_complete(input)
 
 
+# dex:group group-id:wait group-label:"Wait"
+# dex:explanation text:"Run Execute after WaitFor fails and pass a recovered value on."
 class FailingWait(Step[str]):
     def __init__(self, finish: Finish) -> None:
         self.finish = finish

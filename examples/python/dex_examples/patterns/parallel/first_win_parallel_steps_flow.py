@@ -29,6 +29,8 @@ from dex import (
 )
 
 
+# dex:group group-id:parallel-work group-label:"Parallel work"
+# dex:explanation text:"Do the work; the first to finish completes the Flow and cancels the rest."
 class DoWork(Step[int]):
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, input: int
@@ -37,6 +39,8 @@ class DoWork(Step[int]):
         return graceful_complete(input).with_canceling_sibling_steps(DoWork)
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Start several work Steps in parallel."
 class InitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         return go_to_many(

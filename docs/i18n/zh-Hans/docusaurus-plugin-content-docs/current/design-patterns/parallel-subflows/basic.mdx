@@ -10,7 +10,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**SubFlows.WaitFor** 为每个请求创建一个 SubFlow 条件，并用 **allOf** 组合。只有所有子 Flow 都结束后，父 Flow 才会继续。当不需要部分完成或取消时，这是最简单的父子 fan-out。
+**SubFlowsStep.WaitFor** 为每个请求创建一个 SubFlow 条件，并用 **allOf** 组合。只有所有子 Flow 都结束后，父 Flow 才会继续。不需要部分完成或取消时，使用这种形状。
 
 ## 核心实现
 

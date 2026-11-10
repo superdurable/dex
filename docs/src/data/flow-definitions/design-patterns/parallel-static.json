@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,23 +9,23 @@
     "name": "StaticParallelStepsFlow",
     "startStepId": "step:InitStep",
     "span": {
-      "startLine": 46,
+      "startLine": 52,
       "startColumn": 1,
-      "endLine": 56,
+      "endLine": 62,
       "endColumn": 38
     }
   },
   "nodes": [
     {
-      "id": "decision:step:InitStep:40:16",
+      "id": "decision:step:InitStep:46:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:InitStep",
       "phase": "execute",
       "span": {
-        "startLine": 40,
+        "startLine": 46,
         "startColumn": 16,
-        "endLine": 43,
+        "endLine": 49,
         "endColumn": 10
       },
       "decision": {
@@ -33,15 +33,15 @@
       }
     },
     {
-      "id": "decision:step:WorkA:30:16",
+      "id": "decision:step:WorkA:32:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:WorkA",
       "phase": "execute",
       "span": {
-        "startLine": 30,
+        "startLine": 32,
         "startColumn": 16,
-        "endLine": 30,
+        "endLine": 32,
         "endColumn": 47
       },
       "decision": {
@@ -49,15 +49,15 @@
       }
     },
     {
-      "id": "decision:step:WorkB:35:16",
+      "id": "decision:step:WorkB:39:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:WorkB",
       "phase": "execute",
       "span": {
-        "startLine": 35,
+        "startLine": 39,
         "startColumn": 16,
-        "endLine": 35,
+        "endLine": 39,
         "endColumn": 47
       },
       "decision": {
@@ -71,10 +71,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 53,
+        "startLine": 59,
         "startColumn": 36,
-        "endLine": 53,
+        "endLine": 59,
         "endColumn": 45
+      },
+      "metadata": {
+        "explanation": "Start work A and work B in parallel."
       }
     },
     {
@@ -83,10 +86,13 @@
       "name": "WorkA",
       "phase": "execute",
       "span": {
-        "startLine": 53,
+        "startLine": 59,
         "startColumn": 59,
-        "endLine": 53,
+        "endLine": 59,
         "endColumn": 70
+      },
+      "metadata": {
+        "explanation": "Do work A."
       }
     },
     {
@@ -95,10 +101,13 @@
       "name": "WorkB",
       "phase": "execute",
       "span": {
-        "startLine": 53,
+        "startLine": 59,
         "startColumn": 72,
-        "endLine": 53,
+        "endLine": 59,
         "endColumn": 83
+      },
+      "metadata": {
+        "explanation": "Do work B."
       }
     }
   ],
@@ -106,29 +115,64 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:InitStep:40:16",
+      "from": "decision:step:InitStep:46:16",
       "to": "step:WorkA",
       "label": "fan-out",
       "span": {
-        "startLine": 41,
+        "startLine": 47,
         "startColumn": 13,
-        "endLine": 41,
+        "endLine": 47,
         "endColumn": 42
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:InitStep:40:16",
+      "from": "decision:step:InitStep:46:16",
       "to": "step:WorkB",
       "label": "fan-out",
       "span": {
-        "startLine": 42,
+        "startLine": 48,
         "startColumn": 13,
-        "endLine": 42,
+        "endLine": 48,
         "endColumn": 42
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "work-a",
+      "label": "Work A",
+      "stepIds": [
+        "step:WorkA"
+      ]
+    },
+    {
+      "id": "work-b",
+      "label": "Work B",
+      "stepIds": [
+        "step:WorkB"
+      ]
+    },
+    {
+      "id": "setup",
+      "label": "Setup",
+      "stepIds": [
+        "step:InitStep"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

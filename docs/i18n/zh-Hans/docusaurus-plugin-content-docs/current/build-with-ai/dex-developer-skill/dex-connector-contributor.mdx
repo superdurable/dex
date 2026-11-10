@@ -7,14 +7,15 @@ slug: /build-with-ai/dex-developer-skill/dex-connector-contributor
 
 # Dex Connector Contributor
 
-Dex Connector Contributor 是一个专用 sub-skill，用于在官方
+Dex Connector Contributor 是一个专用 sub-skill。它为官方
 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
-中创建、验证并提交一个便于 review 的 capability。
+添加一项能力，完成测试，再以一个便于 review 的 pull request 提交到上游。
 
 :::note 语言要求
 
-新的官方 Connector 必须有 Go 实现。Go 实现是经过验证的参考实现。Python 和 TypeScript
-package 是可选的，可以只实现部分 capability，并且必须重放 Go 录制的 conformance 场景。
+每个新的官方 Connector 都必须有 Go 实现。Go 实现是经过测试的参考实现。Python 和
+TypeScript package 是可选的，可以只实现部分能力，但必须通过从 Go 实现录制的
+conformance 场景。
 
 应用可以在 Go、Python 和 TypeScript 中使用已发布的 Connector。Java 和 Rust 暂不支持
 Connector。详细规则见该库的 [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blob/main/AGENTS.md) 和
@@ -26,74 +27,74 @@ Connector。详细规则见该库的 [AGENTS.md](https://github.com/superdurable
 
 <DexSkillHostTabs skill="dex-connector-contributor" />
 
-仅使用已发布 Connector 的应用应使用 [Dex App Builder](./dex-app-builder.mdx) 或
-[Dex SDK](./dex-sdk.mdx)。
+如果你的应用只是使用已发布的 Connector，请改用 [Dex App Builder](./dex-app-builder.mdx)
+或 [Dex SDK](./dex-sdk.mdx)。
 
-## 范围与 Source 要求
+## 范围与来源要求
 
-该 skill 只在官方 Connector library 中工作。它以 provider 的公开文档 API 或官方
-SDK 为起点，并验证 auth scope、rate limit、idempotency support、pagination、event
-acknowledgement 和 failure behavior。
+这个 skill 只在官方 Connector 库中工作。它以 provider 公开文档中的 API 或官方 SDK 为
+起点，检查 provider 的认证 scope、限流、幂等支持、分页、事件确认和失败行为。
 
-它不会抓取 private endpoint、复制 browser credential、reverse-engineer 内部 protocol，
-也不会声称支持 provider 未公开的能力。
+它不会抓取私有接口、复制浏览器凭据、逆向分析内部协议，也不会声称支持 provider 没有公开
+文档的能力。
 
 ## Repository 与 Fork 工作流
 
-该流程会先查找并验证用户的 **superdurable/dex-connectors-library** GitHub fork。如果
-fork 不存在，它会先询问许可并打开 GitHub fork 页面。用户完成 **Create fork** 后，
-agent 才会 clone 并开始开发。
+skill 会先查找并检查你的 **superdurable/dex-connectors-library** GitHub fork。如果你
+还没有 fork，它会征求你的同意，然后打开 GitHub 的 fork 页面。你点击 **Create fork**
+之后，agent 才会 clone 这个 fork 并开始工作。
 
-本地 checkout 使用用户 fork 作为 **origin**、官方 repository 作为 **upstream**，并
-基于最新 **upstream/main** 创建隔离的 **codex/** branch。无关 working-tree change
-会被保留。
+在本地 clone 中，你的 fork 是 **origin**，官方 repository 是 **upstream**。agent 在
+自己的 **codex/** branch 上工作，这个 branch 基于最新的 **upstream/main** 创建。与本次
+工作无关的本地改动会保持原样。
 
 ## 贡献工作流
 
-该 skill 按以下顺序执行：
+skill 按以下顺序工作：
 
-1. 确认 provider capability 及其公开 contract。
-2. 在 provider implementation 前更新 **connector.yaml**。
-3. 运行 code generation，确保 Config、Credentials、definition、branch、operation
-   factory、UI constant 和 default 继续由 manifest 生成。
-4. 实现 provider adapter 和 provider-facing test。
-5. 在需要时增加 Trigger 和 configuration UI behavior。
-6. 在 Connector module 内增加或扩展可运行示例。
-7. 运行完整 verification matrix，并检查 registry 或 catalog drift。
-8. 提交一个干净的 module-scoped change，push 用户 fork，打开 ready-for-review upstream
-   pull request，并持续监控 required CI。
+1. 确认 provider 的能力和它公开的 contract。
+2. 先更新 **connector.yaml**，再写 provider 代码。
+3. 运行代码生成。Config、Credentials、definition、branch、operation factory、UI 常量
+   和默认值都由 manifest 生成，不手写。
+4. 实现 provider adapter，以及调用 provider 的测试。
+5. 需要时加入 Trigger 和 configuration UI 的行为。
+6. 在 Connector module 内新增或扩展一个可运行示例。
+7. 运行所有必需的检查，并确认 registry 和 catalog 与代码一致。
+8. 提交一个只涉及本 module 的干净改动，推送到你的 fork，向上游打开一个可直接 review 的
+   pull request，并跟踪必需的 CI。
 
 ## Durability 与 Security 边界
 
-- provider call 只在 Connector Step **Execute** 中执行。
-- RPC 负责路由或修改 Dex state，不调用 provider。
-- provider mutation 保持 idempotent，并对 unknown outcome 先 query 后 reconcile。
-- credential 和 raw secret 不进入 Flow input、Attribute、Result、receipt、Stream、log、
-  fixture、generated value 或 release artifact。
-- 每个 module pin 精确发布的 Dex Go SDK version，不提交 branch、SHA、pseudo-version
-  或本地 replacement。
-- 每个 pull request 发布一个 Connector module；只有真正的 repository-wide mechanical
-  change 才能例外。
+- provider 调用只在 Connector Step 的 **Execute** 方法中执行。
+- RPC 只负责转发请求或修改 Dex 状态，从不调用 provider。
+- 会修改 provider 数据的调用都是幂等的。如果这类调用的结果未知，Connector 会先向
+  provider 查询实际发生了什么。
+- 凭据和原始 secret 绝不会进入 Flow 输入、Attribute、Result、receipt、Stream、日志、
+  测试 fixture、生成的值或 release 产物。
+- 每个 module 都固定依赖一个确切发布的 Dex Go SDK 版本，绝不提交 branch、SHA、
+  pseudo-version 或本地替换。
+- 每个 pull request 只发布一个 Connector module。唯一的例外是必须改动整个 repository
+  的机械性修改。
 
-如果 Connector 暴露了 Dex SDK contract gap，可以在本地一起验证 SDK 和 Connector，
-但 SDK change 必须先发布，Connector pull request 才能使用它。
+Connector 可能需要 Dex SDK 尚未提供的功能。这时可以在本地同时测试 SDK 改动和 Connector，
+但 SDK 改动必须先发布，Connector 的 pull request 才能使用它。
 
 ## 示例与验证 Gate
 
-新 Connector 或重要 capability 通常需要 module 内的可运行示例。包含 Trigger 时，示例
-应展示真实 provider event 交付到 typed Flow start 或 RPC target，并覆盖 duplicate
-delivery 和 restart recovery。不包含 Trigger 时，应生成有效 FDG 2.0，并通过 Dex Web
-的 **Start Flow** 运行。
+新的 Connector 或重要能力通常要附带一个可在本地运行的示例。如果 Connector 有 Trigger，
+示例要展示真实的 provider 事件启动 typed Flow 或调用 RPC，并展示重复事件和重启都能正确
+处理。没有 Trigger 时，示例要生成有效的 FDG 2.0 图，并能通过 Dex Web 的
+**Start Flow** 按钮运行。
 
-在 module-isolated race test 和 vet、generated-code check、catalog check、真实 Dex
-integration、current-version compatibility、相关 UI test/build 和 repository check 全部
-通过前，贡献不能视为完成。有 credential 时运行安全的 live-provider test；否则 pull
-request 必须写明尚未验证的具体 live behavior。
+只有以下检查全部通过，贡献才算完成：单独针对该 module 的 race test 和 vet、生成代码
+检查、catalog 检查、与真实 Dex server 的集成、与当前版本的兼容性、相关的 UI 测试和
+构建，以及 repository 检查。有凭据时，还会针对真实 provider 运行安全的测试；否则 pull
+request 必须写明哪些真实行为没有测试。
 
 ## 与 App Builder 的关系
 
-只有确认所需官方 Connector capability 缺失或有缺陷后，App Builder 才会路由到这里。
-贡献接受 review 时，应用可以使用未提交的 local workspace override，但 production
-handoff 必须等待精确发布的 Connector version。
+只有确认应用需要的官方 Connector 能力缺失或有问题后，App Builder 才会把工作交给这个
+skill。贡献还在 review 时，应用可以使用一个不提交的本地覆盖。在 Connector 以确切版本
+发布之前，应用不能进入生产。
 
 返回 [Dex Skills 总览与安装](../dex-developer-skill.mdx)。

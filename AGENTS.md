@@ -62,13 +62,12 @@ only when a section genuinely doesn't apply.
   added or changed, run `cd docs && npm run generate:flow-definitions`. Review
   and commit the affected JSON under `docs/src/data/flow-definitions/` in the
   same change, even when the MDX import is unchanged.
-- Design-pattern Step graph PNGs must remain responsive. Set only a percentage
-  `max-width`, never a fixed width or height. Choose each maximum so its Flow type
-  name renders at the same size as `DrainInternalChannelFlow` in
-  `drain-internal-channel.png`, and keep the image centered. Use an HTML `img`
-  with its `/img/design-patterns/` path so Docusaurus cannot inline the PNG as a
-  data URL, then match its stable filename fragment in `docs/src/css/custom.css`.
-  Apply this rule when adding or replacing a Step graph.
+- Draw every Flow design diagram in docs with `DocsFlowDefinitionGraph`. It
+  renders Flow Definition Graph 2.0 JSON the way Dex Web's Design tab does.
+  Generate that JSON from a runnable file under `examples/` by adding the source
+  to `docs/scripts/generate-flow-definitions.sh`. Do not add Step graph images
+  or hand-written definitions. Every Step in such a source declares one
+  `dex:group` and one `dex:explanation` directive.
 
 ### UI/UX
 
@@ -210,7 +209,7 @@ fact an agent needs to write correct code. Do not cut one only to be shorter.
 | --- | --- | --- |
 | Behavior, parameters, defaults, units, errors, and examples of one API | SDK doc comments, published as the generated API reference | Docs and skills link to it; they do not restate it |
 | Primitive concepts, relations, and mental model | Docs Concepts and skills | Change both in one pull request |
-| Components (Application, server, cli, web, connector, external Attribute sync): what each is and how they work together | Docs Components and skills | Change both in one pull request |
+| Components (Application, server, cli, web): what each is and how they work together | Docs Components and skills | Change both in one pull request |
 | Design patterns | Docs Design patterns (narrative, diagram, example) and skills (when to use, steps, code skeleton) | Change both in one pull request; code comes from `examples/` |
 | Configuration, flags, metrics, limits, edge cases, version differences | Docs Developer reference (versioned) | Skills link to it |
 

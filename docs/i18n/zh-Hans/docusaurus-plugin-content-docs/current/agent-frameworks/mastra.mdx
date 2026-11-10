@@ -38,7 +38,7 @@ npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex
 
 ## Example {#the-example}
 
-这个 example 是一个订单客服 Agent。它在一个内存中的订单系统上有两个 tool。**look_up_order** 读取订单。它的 policy 是 read，因此无需审批就会运行，失败时会重试。**cancel_order** 取消一个仍在处理中的订单。它的 policy 是 non-idempotent write，因此会先等待审批，然后最多运行一次。
+这个 example 就是每个 framework 页面共用的[订单客服 Agent](/agent-frameworks#the-examples)。
 
 Flow type 是 **MastraOrderSupportAgent**（TypeScript）。完整 example 位于 [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses)。
 
@@ -115,7 +115,7 @@ const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastr
 
 ### Session route {#session-routes}
 
-每个 harness 都提供相同的 HTTP route。每个 route 对应 session Flow 上的一次调用：启动 session、发送消息或处理审批。启动 session 会返回 session token，它是用 **DEX_AGENT_SESSION_KEY** 对 session ID 计算的 HMAC。其他每个 route 都会检查 **X-Agent-Session-Token** header 中的 token，缺少时返回 403。真实的应用会改用自己的登录。
+每个 harness 都提供这同一组 route。这些 route 和 session token 的说明见 [Session route](/agent-frameworks#session-routes)。
 
 <SdkTabs
   examples={{
@@ -151,11 +151,9 @@ const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastr
 
 ## 在本地运行 {#run-it-locally}
 
-在本地 Dex 上运行这个 example。先渲染 session graph。Dex Web 在启动时读取它，并需要它来显示 session 及其审批控件。
-
 ### 启动 Dex 与 example {#start-dex-and-the-example}
 
-在第一个终端中，渲染 session graph 并启动 Dex：
+在第一个终端中，先渲染 session graph，再启动 Dex。Dex Web 启动时读取这个 graph，用它显示 session 和审批控件。
 
 <SdkTabs
   examples={{
@@ -226,17 +224,15 @@ curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-S
 </SdkSnippet>
 </SdkTabs>
 
-循环会反复读取 snapshot，直到 Agent 请求运行 **cancel_order**。这次调用会等待审批。它只在批准之后运行，并且只运行一次。再读一次 snapshot 即可看到 Agent 的回答。
+循环会反复读取 snapshot，直到 Agent 请求运行 **cancel_order**。这次调用先等待审批，批准后只运行一次。再读一次 snapshot 即可看到 Agent 的回答。
 
 ### 在 Dex Web 中审批 {#approve-in-dex-web}
 
-也可以不执行最后一条命令，而是在 Dex Web 中审批。打开这个 session 的 run：它的 Flow ID 就是 session ID。选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission **order-support.operate**。然后在 **cancel_order** 卡片上选择 **Approve** 或 **Reject**。Dex Web 会替你调用 **resolve_interrupt**。生产环境的做法参见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
+也可以不执行最后一条命令，改在 Dex Web 中审批，步骤见 [在 Dex Web 中审批](/agent-frameworks#approve-in-dex-web)。
 
 ## 连接 Connector {#connect-connectors}
 
-Connector tool 是 agent 当作 tool 调用的 [Connector](/components/connector) operation。**ConnectorToolSource** 提供你指定的 operation。Agent 通过 **toolSources** 把它作为 tool source 接收。Effect class、审批、结果和写操作顺序的规则见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
-
-Example 把 Slack Connector 的 operation **postThreadReply** 作为 tool **slack_post_thread_reply** 提供。Agent 用它在 Slack thread 中回复。
+Agent 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks#connectors-as-tools)。这个 example 加入了 Slack tool **slack_post_thread_reply**，用来在 Slack thread 中回复。
 
 ### 提供 tool {#offer-connector-tools}
 
@@ -318,19 +314,13 @@ Agent 把 tool source 和自己的 tool 一起传入：
 
 ### 调用如何运行 {#connector-tool-calls}
 
-每次调用 **slack_post_thread_reply** 都在自己的 tool Step 中通过 Connector SDK 运行一个 Slack operation。调用保留 Connector 的 Call ID 和幂等键。Operation 如何变成 tool、参数如何检查，见 [提供哪些 operation](/agent-frameworks/deploy-agents#connector-tools-offered)。
-
-Connector 的 manifest 决定 effect class。**postThreadReply** 是 Mutation，它的 manifest 没有把它标为可安全重试，所以调用只在 **CallSingleAttemptTool** 中运行一次。Worker 崩溃永远不会让同一条消息发两次。参见 [崩溃](/agent-frameworks/deploy-agents#connector-tools-crashes)。
-
-Slack 的 manifest 没有建议 **postThreadReply** 需要审批，所以 example 传入 **requiresApproval: true**。每次发帖都在 **AwaitToolApproval** 中等待，直到有人批准。Manifest 和应用如何决定审批，见 [审批](/agent-frameworks/deploy-agents#connector-tools-approval)。
+每次调用 **slack_post_thread_reply** 都要先经人批准，然后在自己的 **CallSingleAttemptTool** Step 中只运行一次。原因见 [Slack Connector tool](/agent-frameworks#slack-connector-tool)。
 
 Adapter 把 Connector tool 作为没有 **execute** 的 client tool 传给 Mastra。调用从不在模型调用内运行。Mastra 的审批设置对它不起作用；审批由 source 决定。使用 tool source 时，**toolPolicies** 条目从不会让一个 tool 变成由 Mastra 自己运行的 tool；只有 **mastraRunToolNames** 会。
 
-同一个回复中的 Connector 写操作按顺序运行，见 [写操作顺序](/agent-frameworks/deploy-agents#connector-tools-write-order)。
-
 ### 配置 connection {#configure-connector-connection}
 
-Worker 从项目配置中打开 Slack connection **support-slack**：本地开发时用 **DEX_CONNECTOR_CONFIG_FILE**，部署后用 **DEX_PROJECT_\*** 设置。两种方式、没有 connection 时会怎样以及 Slack app 需要什么，见 [Connection](/agent-frameworks/deploy-agents#connector-tools-connection)。
+Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/agent-frameworks/deploy-agents#connector-tools-connection)。
 
 试用时，先设置 **DEX_CONNECTOR_CONFIG_FILE** 再启动 example。然后让 agent 在 Slack thread 中回复，并给出 channel ID 和 thread timestamp：
 
@@ -349,7 +339,7 @@ Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursda
 - 调用 **suspend()** 的 tool 会失败。请改用 session 的审批。
 - Tool 名称最多 63 个字符，只能包含字母、数字、**_** 和 **-**，并且不能以数字或 **-** 开头。
 
-每次模型调用和每次 tool call 都会增加一次 Step 往返。Adapter README 列出了全部限制。Server 的限制参见 [Durable Agents](/agent-frameworks/deploy-agents#limits)。
+Adapter README 列出了全部限制。Server 的限制参见 [Durable Agents](/agent-frameworks/deploy-agents#limits)。
 
 ## 相关内容 {#related}
 

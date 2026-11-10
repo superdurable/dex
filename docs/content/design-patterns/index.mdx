@@ -7,32 +7,32 @@ slug: /design-patterns
 
 # Design Patterns
 
-Reusable Flow shapes from the Dex examples. Each pattern page explains the problem and the approach, and links to multi-language code.
+Each pattern solves a common problem with a reusable Flow shape. Every page links to runnable code in each SDK language.
 
 ## Flow control
 
-- [Parallel Steps](/design-patterns/parallel) — Choose static, dynamic, await-all, or first-win concurrent Step coordination.
-- [Parallel SubFlows](/design-patterns/parallel-subflows) — Fan out work to SubFlows, bound parent concurrency, partition across parents, and add durable back pressure.
-- [Interruptible execution](/design-patterns/interruptible) — Stop or redirect long work gracefully based on durable control signals.
-- [Durable Timer](/design-patterns/durable-timer) — Choose cron schedules, reminders, or an inactivity tracker.
-- [Deferred Choice](/design-patterns/deferred-choice) — Wait for several events and route on whichever happens first.
-- [Critical Section](/design-patterns/critical-section) — Let parallel branches take turns on a sequence of Steps with a Channel token.
+- [Parallel Steps](/design-patterns/parallel) — Run Steps concurrently: a fixed or dynamic set, waiting for all of them or for the first.
+- [Parallel SubFlows](/design-patterns/parallel-subflows) — Fan out work to SubFlows, limit how many a parent runs at once, spread them across several parents, and add durable back pressure.
+- [Interruptible execution](/design-patterns/interruptible) — Stop long-running work cleanly when a user asks for it.
+- [Durable Timer](/design-patterns/durable-timer) — Run work on a schedule, send reminders, or act after a period of inactivity.
+- [Deferred Choice](/design-patterns/deferred-choice) — Wait for several events and take the branch of whichever happens first.
+- [Critical Section](/design-patterns/critical-section) — Let parallel branches take turns on a sequence of Steps by passing a token through a Channel.
 - [Cancel with Child Flows](/design-patterns/cancel-case) — Stop the child Flows a Flow started when the Flow is canceled.
 
 ## Reliability
 
-- [Failure Handling](/design-patterns/failure-handling) — Recover from execute or wait failures, escalate to an operator, or enforce a business deadline.
+- [Failure Handling](/design-patterns/failure-handling) — Recover from **Execute** or **WaitFor** failures, escalate to an operator, or enforce a business deadline.
 - [Polling](/design-patterns/polling) — Wait for an external system in one long-running Step.
 
 ## Messaging
 
-- [Drain Channels](/design-patterns/drain-channels) — Finish a Flow after its internal or external Channel messages are processed.
-- [Responsive Update](/design-patterns/responsive-update) — Return at a Step boundary, wait for durable state, or stream incremental updates.
+- [Drain Channels](/design-patterns/drain-channels) — Finish a Flow only after its Channel messages are processed.
+- [Responsive Update](/design-patterns/responsive-update) — Let a caller wait for one Step, an Attribute value, or a stream of updates instead of the whole Flow.
 - [Inbound Event Loop](/design-patterns/inbound-event-loop) — Take inbound messages until a resolution arrives or the conversation goes quiet.
 
 ## Data
 
 - [AttributeMap Partitioning](/design-patterns/attribute-map-partitioning) — Split a growing collection into bounded chunks or hash partitions.
-- [Entity Flow with SQL Projection](/design-patterns/entity-store) — Project durable per-entity Flow Attributes into an application-owned SQL table.
+- [Entity Flow with SQL Projection](/design-patterns/entity-store) — Keep one Flow per entity and copy its Attributes into your own SQL table for queries.
 
 Full samples live under **examples/**. Try the HTTP samples from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).

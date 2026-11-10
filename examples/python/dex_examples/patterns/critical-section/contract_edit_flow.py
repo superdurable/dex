@@ -85,6 +85,8 @@ CONTRACT_EDIT_RETRY = RetryPolicy(
 )
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Start one edit path per contract edit and the Step that awaits them."
 class StartContractEdits(Step[list[ContractEdit]]):
     """Publishes the only token and starts one branch per reviewer."""
 
@@ -97,6 +99,8 @@ class StartContractEdits(Step[list[ContractEdit]]):
         return go_to_many(*movements)
 
 
+# dex:group group-id:enter-section group-label:"Enter section"
+# dex:explanation text:"Wait for the contract edit token to enter the section."
 class EnterContractEdit(Step[ContractEdit]):
     """Takes the token and hands off; it does no protected work, so canceling it is safe."""
 
@@ -114,6 +118,8 @@ class EnterContractEdit(Step[ContractEdit]):
         return go_to(EditContract, edit)
 
 
+# dex:group group-id:edit-in-section group-label:"Edit in section"
+# dex:explanation text:"Apply the edit while holding the token."
 class EditContract(Step[ContractEdit]):
     """The first Step that works on the contract. Never cancel it."""
 
@@ -136,6 +142,8 @@ class EditContract(Step[ContractEdit]):
         return go_to(SaveContractEdit, started_edit)
 
 
+# dex:group group-id:leave-section group-label:"Leave section"
+# dex:explanation text:"Save the edit, report it, and release the token."
 class SaveContractEdit(Step[ContractEdit]):
     """The last Step of the section; it records the edit and publishes the token back."""
 
@@ -155,6 +163,8 @@ class SaveContractEdit(Step[ContractEdit]):
         return dead_end()
 
 
+# dex:group group-id:failure-exit group-label:"Failure exit"
+# dex:explanation text:"Report the failed edit and release the token."
 class ReleaseContractEditToken(Step[ContractEdit]):
     """The failure exit of the section."""
 
@@ -164,6 +174,8 @@ class ReleaseContractEditToken(Step[ContractEdit]):
         return dead_end()
 
 
+# dex:group group-id:finish group-label:"Finish"
+# dex:explanation text:"Wait for every edit to report, then complete with the results."
 class FinishContractEdits(Step[int]):
     """Joins the branches after every reviewer leaves the section."""
 

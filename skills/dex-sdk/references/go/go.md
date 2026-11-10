@@ -167,10 +167,10 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
   - A generic Flow or Step type has no default name. It must return one
     compile-time string.
   - A production Flow or Step whose Go type you rename keeps its durable
-    identity. Return the exact type string that running executions already
+    identity. Return the exact type string that open Flow runs already
     use. Read it from the deployed registration or real runs.
-- Prove a rename by resuming an execution started on the old code. A new
-  execution proves nothing.
+- Prove a rename by resuming a Flow run started on the old code. A new
+  Flow run proves nothing.
 
 ## Types and payloads
 

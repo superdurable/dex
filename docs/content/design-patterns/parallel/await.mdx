@@ -10,11 +10,9 @@ Wait for every dynamically started Step before finishing the Flow.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** starts **DoWork** executions and **AwaitStep** together. Each worker sleeps for a random short duration, then publishes one message to **CompleteCh**. **AwaitStep** uses **WaitFor** for the required number of messages, then completes only after every branch has finished. Channel messages are durable, so completions published before **AwaitStep** begins waiting still count.
+**Init** starts the **DoWork** executions and **AwaitStep** together. Each worker sleeps for a random short time, then publishes one message to **CompleteCh**. In **WaitFor**, **AwaitStep** waits for exactly one message per worker, so it completes only after every worker has finished. Channel messages are durable, so a message published before **AwaitStep** starts waiting still counts.
 
 ## Core implementation
-
-The coordinator starts alongside the workers. It waits for exactly one completion message per worker.
 
 <SdkTabs
   examples={{

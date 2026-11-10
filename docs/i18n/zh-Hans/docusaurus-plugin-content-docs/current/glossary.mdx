@@ -1,0 +1,86 @@
+---
+id: glossary
+title: 术语表
+sidebar_label: Glossary
+slug: /glossary
+---
+
+# 术语表
+
+Dex 术语的简短定义。请使用这些术语，不要用旧的 Workflow 和 State 叫法。
+
+#### [Attribute](/concepts/primitives/attribute)
+
+Flow 上一个 durable、有类型的变量。可以为它建索引，用于搜索。
+
+#### [Channel](/concepts/primitives/channel)
+
+durable 的消息管道。它把消息从 Flow 外部送进来，或者在同一条 Flow 的各部分之间传递。
+
+#### [Condition](/concepts/step#waitfor-and-execute)
+
+Step 要等待的东西，由 WaitFor 返回：一个 Timer、一个 Channel，或它们的组合。
+
+#### [dexcli](/quick-start)
+
+用 Homebrew 安装的 Dex CLI。它在本机运行 server-zd 和 Dex Web。
+
+#### [Execute](/concepts/step#waitfor-and-execute)
+
+Step 的一个方法。WaitFor 的条件满足后运行；Step 没有 WaitFor 时直接运行。
+
+#### [Flow](/concepts/flow)
+
+最外层的 durable 程序，包含 Step、Attribute、Channel 和 RPC。
+
+#### [Flow ID](/concepts/flow#identifiers)
+
+你的应用为一次 Flow run 指定的 ID。
+
+#### [GetAttributes](/reference/server/runtime-client#read-attributes)
+
+一个 Client API，从 Flow 外部读取已提交的 Attribute 值，不需要 Worker。
+
+#### [InvokeRPC](/concepts/primitives/rpc)
+
+一个 Client API，调用 Worker 上某个 Flow 的 RPC handler。
+
+#### [Locking](/concepts/primitives/attribute#locking)
+
+让访问同一组 Attribute 的 Step 和 RPC 逐个运行。
+
+#### [Movement](/concepts/step#stepdecision-movements)
+
+转到另一个 Step，或者让 Flow 完成或失败的决定。
+
+#### [Time Travel](/components/application)
+
+修复问题后，让一次 Flow run 从之前的某个 Step 重新开始。这次 run 保留原来的 Run ID。
+
+#### [RPC](/concepts/primitives/rpc)
+
+Worker 上的 handler，供外部读写一条正在运行的 Flow。
+
+#### [Run ID](/concepts/flow#identifiers)
+
+引擎为同一个 Flow ID 的每次 run 分配的 ID。
+
+#### [Step](/concepts/step)
+
+durable 控制流的基本单元，包含可选的 WaitFor 和一个 Execute。
+
+#### [Step execution](/reference/server/runtime-client#wait-for-a-step)
+
+某个 Step type 的一次运行，用 **step_type** 加一个序号标识。
+
+#### [Timer](/concepts/primitives/timer)
+
+durable 的 sleep 条件。它触发后，正在等待的 Step 继续运行。
+
+#### [WaitFor](/concepts/step#waitfor-and-execute)
+
+Step 的一个方法，在 Execute 之前登记要等待的 durable Condition。
+
+#### [Worker](/components/application)
+
+托管 Flow 定义的进程，运行 WaitFor、Execute 和 RPC handler。

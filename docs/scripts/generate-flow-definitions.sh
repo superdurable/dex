@@ -10,17 +10,11 @@ GOWORK=off go -C cli build -trimpath -o dexcli ./cmd/dexcli
 generate_flow_definition() {
   local source_path="$1"
   local output_path="$2"
-  if [[ -n "${DEX_FLOW_PYTHON:-}" ]]; then
-    ./cli/dexcli visualize "${source_path}" --python "${DEX_FLOW_PYTHON}" --json --out "docs/src/data/flow-definitions/${output_path}"
-  else
-    ./cli/dexcli visualize "${source_path}" --json --out "docs/src/data/flow-definitions/${output_path}"
+  local arguments=("${source_path}" --schema-version 2.0 --json --out "docs/src/data/flow-definitions/${output_path}")
+  if [[ -n "${DEX_FLOW_PYTHON:-}" && "${source_path}" == *.py ]]; then
+    arguments+=(--python "${DEX_FLOW_PYTHON}")
   fi
-}
-
-generate_flow_definition_v2() {
-  local source_path="$1"
-  local output_path="$2"
-  ./cli/dexcli visualize "${source_path}" --schema-version 2.0 --json --out "docs/src/data/flow-definitions/${output_path}"
+  ./cli/dexcli visualize "${arguments[@]}"
 }
 
 generate_flow_definition examples/python/dex_examples/products/deal_dsl/deal_dsl_flow.py deal-dsl
@@ -30,9 +24,9 @@ generate_flow_definition examples/python/dex_examples/products/microservices/orc
 generate_flow_definition examples/python/dex_examples/products/money-transfer/money_transfer_flow.py money-transfer
 generate_flow_definition examples/python/dex_examples/products/subscription/subscription_flow.py subscription
 generate_flow_definition examples/python/dex_examples/products/signup/user_signup_flow.py user-onboarding-process
-generate_flow_definition_v2 examples/go/products/customer-refund/deterministic/workflow.go customer-refund
-generate_flow_definition_v2 examples/go/products/customer-refund/agentic/workflow.go customer-refund-agentic
-generate_flow_definition_v2 examples/go/products/connector-factory/workflow.go connector-factory
+generate_flow_definition examples/go/products/customer-refund/deterministic/workflow.go customer-refund
+generate_flow_definition examples/go/products/customer-refund/agentic/workflow.go customer-refund-agentic
+generate_flow_definition examples/go/products/connector-factory/workflow.go connector-factory
 
 generate_flow_definition examples/python/dex_examples/products/order-processing/order_processing_flow.py intro/order-processing
 

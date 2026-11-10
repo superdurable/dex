@@ -6,7 +6,7 @@ slug: /design-patterns/attribute-map-partitioning
 
 # AttributeMap Partitioning
 
-A single Attribute grows into one large value, and every write rewrites it. Both patterns split data into bounded **AttributeMap** instances so that a read or write touches only one instance.
+A growing collection kept in one Attribute becomes one large value, and every write rewrites all of it. Both patterns split the data into bounded **AttributeMap** instances. Each read or write then touches only one instance.
 
 - [Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map) — Append ordered history into bounded, immutable chunks.
 - [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map) — Look up and update structured records through a stable business key.

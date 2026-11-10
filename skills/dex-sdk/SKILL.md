@@ -23,9 +23,9 @@ If the user explicitly invokes this skill, stay in it.
 
 ## Mental model
 
-A **Flow** is one durable business execution with a stable Flow ID. It is a graph of **Steps**. Each Step has **WaitFor**, which returns the Conditions to wait on, and **Execute**, which does the work and returns a decision: the next Steps, or how the Flow closes. Each method call is one commit boundary. Dex persists every committed change and retries failed methods, so the Flow survives Worker and Server restarts.
+A **Flow** is one durable run of a business process, with a stable Flow ID. It is a graph of **Steps**. Each Step has **WaitFor**, which returns the Conditions to wait on, and **Execute**, which does the work and returns a decision: the next Steps, or how the Flow closes. Each method call is one commit boundary. Dex persists every committed change and retries failed methods, so the Flow survives Worker and Server restarts.
 
-| Primitive | What it is | Key rule |
+| Concept | What it is | Key rule |
 | --- | --- | --- |
 | [Flow](references/core/flow.md) | durable execution with identity, schema, and RPCs | one Flow per business lifecycle; name it after the domain |
 | [Step](references/core/step.md) | WaitFor plus Execute; options set durability, timeouts, retries, loads, locks | split Steps by recovery boundary; external effects idempotent |
@@ -36,8 +36,9 @@ A **Flow** is one durable business execution with a stable Flow ID. It is a grap
 | [Timer](references/core/timer.md) | durable delay Condition | business delays and deadlines; never for polling |
 | [SubFlow](references/core/subflow.md) | child Flow started from WaitFor | not in a first design; pass the evolution gate |
 | [Client](references/core/client.md) | the application's boundary to Dex | start, invoke, read, wait; no direct state write |
+| [Connector](references/core/connector.md) | released provider integration: ready-made Connector Steps (Query or Mutation) and Triggers | use released official modules only; credentials never enter Flow state |
 
-Components include [Connector](references/core/connector.md), a released provider integration that supplies Connector Steps and Triggers; credentials never enter Flow state. Other Components: [application (Worker and Client)](references/core/application.md), [server](references/core/server.md), [dexcli and local development](references/core/cli.md), [Dex Web](references/core/web.md), [External Attribute Sync](references/core/external-attribute-sync.md).
+The Components are the processes that run this model: [application (Worker and Client)](references/core/application.md), [server](references/core/server.md), [dexcli and local development](references/core/cli.md), [Dex Web](references/core/web.md).
 
 Choose the mechanism:
 
@@ -89,7 +90,7 @@ Rules:
 | New application, wiring, Workers, deployment rollouts | [application.md](references/core/application.md) |
 | Flow boundary, start options, Flow timeout | [flow.md](references/core/flow.md) |
 | Step graph, waits, decisions, durability, retries, heartbeats, locks | [step.md](references/core/step.md) |
-| State, maps, indexes, search, hard-delete secrets | [attribute.md](references/core/attribute.md) |
+| State, maps, indexes, search, hard-delete secrets, SQL projection of Attributes (Attribute Store sync) | [attribute.md](references/core/attribute.md) |
 | Queues, approvals, moving pending messages | [channel.md](references/core/channel.md) |
 | RPC design, transactions, cancellation from an RPC | [rpc.md](references/core/rpc.md) |
 | Progress, LLM token streaming | [stream.md](references/core/stream.md) |
@@ -99,7 +100,6 @@ Rules:
 | Client calls, reads, waits, lifecycle APIs | [client.md](references/core/client.md) |
 | Errors, recovery types, diagnosis, operator recovery | [error-handling.md](references/core/error-handling.md) |
 | Large values, BlobCache, whether to add a database | [data-handling.md](references/core/data-handling.md) |
-| SQL projection of Attributes | [external-attribute-sync.md](references/core/external-attribute-sync.md) |
 | Pattern choice and skeletons, durable AI agents | [patterns.md](references/core/patterns.md) |
 | Integration tests | [testing.md](references/core/testing.md) |
 | Server behavior, search backends, deployment | [server.md](references/core/server.md) |
@@ -121,7 +121,7 @@ For non-trivial work, run the [design review](references/core/self-check.md#desi
 - **Start first.** Call StartFlow first with stable identity. Do not read before or after a successful start to guard duplicates. See [error-handling.md](references/core/error-handling.md#start-first-reconcile-only-after-an-error).
 - **Typed failures.** Keep typed Dex errors until domain policy can tell a business rejection, a closed-Flow race, a retryable failure, and a local defect apart.
 - **Terminal reads.** Read retained state with a Client Attribute read or a query-only RPC. Never decode Step outputs from history for a business read.
-- **Open Flows.** Keep stable names compatible with running executions. See [application.md](references/core/application.md#versioning-flow-code).
+- **Open Flows.** Keep stable names compatible with open Flow runs. See [application.md](references/core/application.md#versioning-flow-code).
 
 ## Complete the vertical slice
 

@@ -55,7 +55,7 @@ Details are in the [Server search reference](https://docs.superdurable.io/refere
 - Dex Web is a separate process. See [web.md](web.md).
 - Public API authentication is off by default. When enabled, every Client, Worker, Web, and CLI call carries a bearer credential. See [application.md](application.md#credentials-and-transport).
 - The API is plaintext gRPC. Terminate TLS in front of it.
-- External Attribute Sync is a Server feature. See [external-attribute-sync.md](external-attribute-sync.md).
+- Attribute Store sync is a Server feature that an Attribute opts into. See [attribute.md](attribute.md#attribute-store-sync).
 
 Configuration, high availability, object storage, authentication, Worker dispatch, metrics, and upgrades are in the [Server reference](https://docs.superdurable.io/reference/server/). Read the version of the reference that matches the deployed Server.
 

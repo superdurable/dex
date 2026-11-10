@@ -7,13 +7,15 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # 首个获胜的并行 Step
 
+采用最先完成的并发 Step，并取消其余的 sibling。
+
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** 启动多个 **DoWork** execution。每个 worker 随机等待一小段时间，从而形成真正的竞速。最先返回 decision 的 execution 会取消同类的 sibling execution。Flow 保留第一个结果，并停止已经无法影响结果的工作。
+**Init** 启动多个 **DoWork** execution。每个 execution 随机等待一小段时间，所以任何一个都可能最先完成。最先返回 decision 的 execution 会取消其他 **DoWork** sibling execution。Flow 保留第一个结果，并停止已经无法改变结果的工作。
 
 ## 核心实现
 
-取消选择器只匹配同一 Step 类型的 sibling execution，不会影响无关分支。
+取消选择器只取消同一 Step 类型的 sibling execution。其他分支继续运行。
 
 <SdkTabs
   examples={{

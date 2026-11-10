@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,23 +9,23 @@
     "name": "SubmitRequestFlow",
     "startStepId": "step:SubmitStep",
     "span": {
-      "startLine": 89,
+      "startLine": 91,
       "startColumn": 1,
-      "endLine": 98,
+      "endLine": 100,
       "endColumn": 48
     }
   },
   "nodes": [
     {
-      "id": "decision:step:SubmitStep:60:16",
+      "id": "decision:step:SubmitStep:62:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:SubmitStep",
       "phase": "execute",
       "span": {
-        "startLine": 60,
+        "startLine": 62,
         "startColumn": 16,
-        "endLine": 60,
+        "endLine": 62,
         "endColumn": 44
       },
       "decision": {
@@ -39,13 +39,37 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 98,
+        "startLine": 100,
         "startColumn": 36,
-        "endLine": 98,
+        "endLine": 100,
         "endColumn": 47
+      },
+      "metadata": {
+        "explanation": "Pick a parent Flow by partition and queue the request on it."
       }
     }
   ],
   "edges": [],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "submit",
+      "label": "Submit",
+      "stepIds": [
+        "step:SubmitStep"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

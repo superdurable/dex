@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "OrchestrationFlow",
     "startStepId": "step:CallAPI1",
     "span": {
-      "startLine": 110,
+      "startLine": 118,
       "startColumn": 1,
-      "endLine": 143,
+      "endLine": 151,
       "endColumn": 49
     }
   },
@@ -23,22 +23,22 @@
       "parentId": "step:CallAPI3",
       "phase": "execute",
       "span": {
-        "startLine": 70,
+        "startLine": 74,
         "startColumn": 5,
-        "endLine": 75,
+        "endLine": 79,
         "endColumn": 40
       }
     },
     {
-      "id": "decision:rpc:get_data:143:16",
+      "id": "decision:rpc:get_data:151:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:get_data",
       "phase": "rpc",
       "span": {
-        "startLine": 143,
+        "startLine": 151,
         "startColumn": 16,
-        "endLine": 143,
+        "endLine": 151,
         "endColumn": 49
       },
       "decision": {
@@ -46,15 +46,15 @@
       }
     },
     {
-      "id": "decision:rpc:swap:135:16",
+      "id": "decision:rpc:swap:143:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:swap",
       "phase": "rpc",
       "span": {
-        "startLine": 135,
+        "startLine": 143,
         "startColumn": 16,
-        "endLine": 135,
+        "endLine": 143,
         "endColumn": 35
       },
       "decision": {
@@ -62,15 +62,15 @@
       }
     },
     {
-      "id": "decision:step:CallAPI1:104:16",
+      "id": "decision:step:CallAPI1:112:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:CallAPI1",
       "phase": "execute",
       "span": {
-        "startLine": 104,
+        "startLine": 112,
         "startColumn": 16,
-        "endLine": 107,
+        "endLine": 115,
         "endColumn": 10
       },
       "decision": {
@@ -78,15 +78,15 @@
       }
     },
     {
-      "id": "decision:step:CallAPI2:85:16",
+      "id": "decision:step:CallAPI2:91:16",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:CallAPI2",
       "phase": "execute",
       "span": {
-        "startLine": 85,
+        "startLine": 91,
         "startColumn": 16,
-        "endLine": 85,
+        "endLine": 91,
         "endColumn": 26
       },
       "decision": {
@@ -94,16 +94,16 @@
       }
     },
     {
-      "id": "decision:step:CallAPI3:74:20",
+      "id": "decision:step:CallAPI3:78:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:CallAPI3",
       "condition": "context.has_timer_fired()",
       "phase": "execute",
       "span": {
-        "startLine": 74,
+        "startLine": 78,
         "startColumn": 20,
-        "endLine": 74,
+        "endLine": 78,
         "endColumn": 41
       },
       "decision": {
@@ -111,16 +111,16 @@
       }
     },
     {
-      "id": "decision:step:CallAPI3:75:16",
+      "id": "decision:step:CallAPI3:79:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:CallAPI3",
       "condition": "not (context.has_timer_fired())",
       "phase": "execute",
       "span": {
-        "startLine": 75,
+        "startLine": 79,
         "startColumn": 16,
-        "endLine": 75,
+        "endLine": 79,
         "endColumn": 40
       },
       "decision": {
@@ -128,15 +128,15 @@
       }
     },
     {
-      "id": "decision:step:CallAPI4:48:16",
+      "id": "decision:step:CallAPI4:50:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:CallAPI4",
       "phase": "execute",
       "span": {
-        "startLine": 48,
+        "startLine": 50,
         "startColumn": 16,
-        "endLine": 48,
+        "endLine": 50,
         "endColumn": 40
       },
       "decision": {
@@ -148,9 +148,9 @@
       "kind": "attribute",
       "name": "data",
       "span": {
-        "startLine": 111,
+        "startLine": 119,
         "startColumn": 5,
-        "endLine": 111,
+        "endLine": 119,
         "endColumn": 34
       },
       "resource": {
@@ -162,9 +162,9 @@
       "kind": "channel",
       "name": "Ready",
       "span": {
-        "startLine": 112,
+        "startLine": 120,
         "startColumn": 5,
-        "endLine": 112,
+        "endLine": 120,
         "endColumn": 47
       },
       "resource": {
@@ -176,9 +176,9 @@
       "kind": "rpc",
       "name": "get_data",
       "span": {
-        "startLine": 142,
+        "startLine": 150,
         "startColumn": 5,
-        "endLine": 143,
+        "endLine": 151,
         "endColumn": 49
       }
     },
@@ -187,9 +187,9 @@
       "kind": "rpc",
       "name": "signal_ready",
       "span": {
-        "startLine": 138,
+        "startLine": 146,
         "startColumn": 5,
-        "endLine": 139,
+        "endLine": 147,
         "endColumn": 42
       }
     },
@@ -198,9 +198,9 @@
       "kind": "rpc",
       "name": "swap",
       "span": {
-        "startLine": 132,
+        "startLine": 140,
         "startColumn": 5,
-        "endLine": 135,
+        "endLine": 143,
         "endColumn": 35
       }
     },
@@ -211,10 +211,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 122,
+        "startLine": 130,
         "startColumn": 36,
-        "endLine": 122,
+        "endLine": 130,
         "endColumn": 50
+      },
+      "metadata": {
+        "explanation": "Call API 1, store its data, and call APIs 2 and 3 in parallel."
       }
     },
     {
@@ -223,10 +226,13 @@
       "name": "CallAPI2",
       "phase": "execute",
       "span": {
-        "startLine": 123,
+        "startLine": 131,
         "startColumn": 13,
-        "endLine": 123,
+        "endLine": 131,
         "endColumn": 27
+      },
+      "metadata": {
+        "explanation": "Call API 2 with the stored data."
       }
     },
     {
@@ -235,10 +241,13 @@
       "name": "CallAPI3",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 124,
+        "startLine": 132,
         "startColumn": 13,
-        "endLine": 124,
+        "endLine": 132,
         "endColumn": 27
+      },
+      "metadata": {
+        "explanation": "Wait for the ready signal or 24 hours, then call API 3."
       }
     },
     {
@@ -247,22 +256,25 @@
       "name": "CallAPI4",
       "phase": "execute",
       "span": {
-        "startLine": 125,
+        "startLine": 133,
         "startColumn": 13,
-        "endLine": 125,
+        "endLine": 133,
         "endColumn": 27
+      },
+      "metadata": {
+        "explanation": "Call API 4 when the ready signal did not arrive in time."
       }
     },
     {
-      "id": "wait:CallAPI3:65:16:0",
+      "id": "wait:CallAPI3:69:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:CallAPI3",
       "phase": "wait_for",
       "span": {
-        "startLine": 65,
+        "startLine": 69,
         "startColumn": 16,
-        "endLine": 68,
+        "endLine": 72,
         "endColumn": 10
       },
       "wait": {
@@ -273,9 +285,9 @@
             "label": "24 hours timer",
             "expression": "timedelta(hours=24)",
             "span": {
-              "startLine": 66,
+              "startLine": 70,
               "startColumn": 13,
-              "endLine": 66,
+              "endLine": 70,
               "endColumn": 51
             }
           },
@@ -284,9 +296,9 @@
             "label": "Ready.for 1",
             "resourceId": "resource:channel:OrchestrationFlow.ready",
             "span": {
-              "startLine": 67,
+              "startLine": 71,
               "startColumn": 13,
-              "endLine": 67,
+              "endLine": 71,
               "endColumn": 33
             }
           }
@@ -298,39 +310,39 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:CallAPI1:104:16",
+      "from": "decision:step:CallAPI1:112:16",
       "to": "step:CallAPI2",
       "label": "fan-out",
       "span": {
-        "startLine": 105,
+        "startLine": 113,
         "startColumn": 13,
-        "endLine": 105,
+        "endLine": 113,
         "endColumn": 44
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:CallAPI1:104:16",
+      "from": "decision:step:CallAPI1:112:16",
       "to": "step:CallAPI3",
       "label": "fan-out",
       "span": {
-        "startLine": 106,
+        "startLine": 114,
         "startColumn": 13,
-        "endLine": 106,
+        "endLine": 114,
         "endColumn": 44
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:CallAPI3:74:20",
+      "from": "decision:step:CallAPI3:78:20",
       "to": "step:CallAPI4",
       "label": "go_to",
       "span": {
-        "startLine": 74,
+        "startLine": 78,
         "startColumn": 20,
-        "endLine": 74,
+        "endLine": 78,
         "endColumn": 41
       }
     },
@@ -341,9 +353,9 @@
       "to": "rpc:get_data",
       "label": "get",
       "span": {
-        "startLine": 143,
+        "startLine": 151,
         "startColumn": 26,
-        "endLine": 143,
+        "endLine": 151,
         "endColumn": 48
       },
       "metadata": {
@@ -357,9 +369,9 @@
       "to": "rpc:swap",
       "label": "get",
       "span": {
-        "startLine": 133,
+        "startLine": 141,
         "startColumn": 20,
-        "endLine": 133,
+        "endLine": 141,
         "endColumn": 42
       },
       "metadata": {
@@ -373,9 +385,9 @@
       "to": "step:CallAPI2",
       "label": "get",
       "span": {
-        "startLine": 84,
+        "startLine": 90,
         "startColumn": 32,
-        "endLine": 84,
+        "endLine": 90,
         "endColumn": 54
       },
       "metadata": {
@@ -389,9 +401,9 @@
       "to": "step:CallAPI3",
       "label": "get",
       "span": {
-        "startLine": 71,
+        "startLine": 75,
         "startColumn": 17,
-        "endLine": 71,
+        "endLine": 75,
         "endColumn": 39
       },
       "metadata": {
@@ -405,9 +417,9 @@
       "to": "step:CallAPI4",
       "label": "get",
       "span": {
-        "startLine": 46,
+        "startLine": 48,
         "startColumn": 17,
-        "endLine": 46,
+        "endLine": 48,
         "endColumn": 39
       },
       "metadata": {
@@ -418,12 +430,12 @@
       "id": "edge:0009",
       "kind": "wait_condition",
       "from": "resource:channel:OrchestrationFlow.ready",
-      "to": "wait:CallAPI3:65:16:0",
+      "to": "wait:CallAPI3:69:16:0",
       "label": "Ready.for 1",
       "span": {
-        "startLine": 67,
+        "startLine": 71,
         "startColumn": 13,
-        "endLine": 67,
+        "endLine": 71,
         "endColumn": 33
       }
     },
@@ -434,9 +446,9 @@
       "to": "resource:channel:OrchestrationFlow.ready",
       "label": "publish",
       "span": {
-        "startLine": 139,
+        "startLine": 147,
         "startColumn": 9,
-        "endLine": 139,
+        "endLine": 147,
         "endColumn": 42
       },
       "metadata": {
@@ -450,9 +462,9 @@
       "to": "resource:attribute:OrchestrationFlow.data",
       "label": "set",
       "span": {
-        "startLine": 134,
+        "startLine": 142,
         "startColumn": 9,
-        "endLine": 134,
+        "endLine": 142,
         "endColumn": 41
       },
       "metadata": {
@@ -466,9 +478,9 @@
       "to": "resource:attribute:OrchestrationFlow.data",
       "label": "set",
       "span": {
-        "startLine": 103,
+        "startLine": 111,
         "startColumn": 9,
-        "endLine": 103,
+        "endLine": 111,
         "endColumn": 38
       },
       "metadata": {
@@ -476,5 +488,41 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "parallel-calls",
+      "label": "Parallel calls",
+      "stepIds": [
+        "step:CallAPI2",
+        "step:CallAPI3"
+      ]
+    },
+    {
+      "id": "follow-up",
+      "label": "Follow-up",
+      "stepIds": [
+        "step:CallAPI4"
+      ]
+    },
+    {
+      "id": "start",
+      "label": "Start",
+      "stepIds": [
+        "step:CallAPI1"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

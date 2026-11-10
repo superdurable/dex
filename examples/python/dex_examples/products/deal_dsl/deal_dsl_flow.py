@@ -149,6 +149,8 @@ class ActionStepInput:
     action_index: int
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Load the deal definition and enter its initial state."
 class InitializeDeal(Step[DealStart]):
     def __init__(self, flow: "DealDSLFlow") -> None:
         self.flow = flow
@@ -164,6 +166,8 @@ class InitializeDeal(Step[DealStart]):
         return go_to(WaitForDealCondition, StateStepInput(definition.initial_state))
 
 
+# dex:group group-id:deal-state group-label:"Deal state"
+# dex:explanation text:"Wait for the state's precondition, then run its actions or evaluate its transition."
 class WaitForDealCondition(Step[StateStepInput]):
     def __init__(self, flow: "DealDSLFlow") -> None:
         self.flow = flow
@@ -186,6 +190,8 @@ class WaitForDealCondition(Step[StateStepInput]):
         return go_to(EvaluateDealTransition, input)
 
 
+# dex:group group-id:actions group-label:"Actions"
+# dex:explanation text:"Run one action of the current state, then the next action or the transition."
 class ExecuteDealAction(Step[ActionStepInput]):
     def __init__(self, flow: "DealDSLFlow") -> None:
         self.flow = flow
@@ -201,6 +207,8 @@ class ExecuteDealAction(Step[ActionStepInput]):
         return go_to(EvaluateDealTransition, StateStepInput(state.name))
 
 
+# dex:group group-id:transition group-label:"Transition"
+# dex:explanation text:"Wait for the transition condition, then enter the next state or complete."
 class EvaluateDealTransition(Step[StateStepInput]):
     def __init__(self, flow: "DealDSLFlow") -> None:
         self.flow = flow

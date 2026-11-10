@@ -6,34 +6,34 @@ sidebar_label: Agent Frameworks
 
 # Agent Frameworks
 
-Dex runs an AI agent as a durable agent session. You can build the agent with the built-in agent loop of Dex Agents. You can also keep an agent that you already wrote with an agent framework. Every choice runs on the same session Flow, so a session behaves the same way on Dex.
+Dex runs an AI agent as a durable agent session. You can build the agent with the built-in agent loop of Dex Agents, or keep an agent that you already wrote with an agent framework. Both run on the same session Flow, so sessions behave the same either way.
 
-## A durable agent session
+## A durable agent session {#a-durable-agent-session}
 
 One Flow execution is one agent session. The Flow ID is the session ID. Dex Agents builds the session Flow: the **dex-agents** package in Python and **@superdurable/dex-agents** in TypeScript. A framework adapter adds one agent framework to it.
 
 The session stores the conversation in Attributes. A session waits for the next user message without holding a Worker. It can wait for days.
 
-Model calls run in a **RunModel** Step. In most harnesses, each **RunModel** Step makes one model call, and each tool call runs in its own Step. The tool calls of one model response run in parallel. When they finish, the session goes back to the model with their results.
+Model calls run in a **RunModel** Step. In most harnesses, each **RunModel** Step makes one model call, and each tool call runs in its own Step. The tool calls of one model response run in parallel. When they finish, the session sends their results to the model. Each Step adds a round trip to Dex.
 
-A crash repeats only the Step that was running. Nothing replays the loop. So the agent code needs no determinism rules, and a code change takes effect at the next Step. In most harnesses, that Step holds one model call or one tool call.
+A crash repeats only the Step that was running. Dex does not replay the loop. So the agent code needs no determinism rules, and a code change takes effect at the next Step.
 
-Two harnesses differ:
+Two harnesses group more work into one Step:
 
 - **Claude Agent SDK.** The Claude Code CLI runs a turn segment in one **RunModel** Step. The segment holds the model calls and the read tool calls, and a failed segment reruns as a whole. Writes leave the segment one at a time, each in its own Step, so they never run in parallel.
 - **LangChain and LangGraph.** One **RunModel** Step runs the graph to its next tool calls. A graph can make several model calls on the way, and a retry repeats them together.
 
-## Tool policies and approvals
+## Tool policies and approvals {#tool-policies-and-approvals}
 
-Each tool gets a **ToolPolicy**. The policy marks the tool as a read, an idempotent write, or a write that must run once. Reads and idempotent writes retry. Other writes get a single attempt, so a retry never repeats them silently.
+Each tool gets a **ToolPolicy**. The policy marks the tool as a read, an idempotent write, or a write that must run at most once. Dex retries reads and idempotent writes. Other writes get a single attempt, so a retry never repeats them.
 
-A tool call that needs approval waits in its own **AwaitToolApproval** Step. It waits until someone answers, for as long as it takes. A person approves it from your application or from [Dex Web](/reference/web/dex-web#agent-session-view).
+A tool call that needs approval waits in its own **AwaitToolApproval** Step until someone answers, however long that takes. A person approves it from your application or from [Dex Web](/reference/web/dex-web#agent-session-view).
 
 ## Connectors as tools {#connectors-as-tools}
 
-Every harness can call [Connector](/components/connector) operations as tools. **ConnectorToolSource** offers the operations you name, and each call runs in its own tool Step. Each harness page shows the wiring in its Connect Connectors section, such as [Built-in agent loop](/agent-frameworks/built-in-agent-loop#connect-connectors) and [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors). [Connector tools](/agent-frameworks/deploy-agents#connector-tools) holds the rules.
+Every harness can call [Connector](/concepts/connector) operations as tools. **ConnectorToolSource** offers the operations you name. The agent takes it as a tool source, through **tool_sources** in Python and **toolSources** in TypeScript. Each call runs in its own tool Step. Each harness page shows the wiring in its Connect Connectors section, such as [Built-in agent loop](/agent-frameworks/built-in-agent-loop#connect-connectors) and [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors). [Connector tools](/agent-frameworks/deploy-agents#connector-tools) holds the rules for effect classes, approval, outcomes, and write order.
 
-## Choose a harness
+## Choose a harness {#choose-a-harness}
 
 A harness is the code that runs the agent loop: the built-in loop or a framework. Each page below has an install command, a runnable example, and the steps to run it locally.
 
@@ -48,7 +48,7 @@ A harness is the code that runs the agent loop: the built-in loop or a framework
 | [Vercel AI SDK](/agent-frameworks/vercel-ai-sdk) | TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You have AI SDK tools and models in a TypeScript application. |
 | [Mastra](/agent-frameworks/mastra) | TypeScript | One model call per **RunModel** Step. Each agent tool call is its own Step. | You have a Mastra agent. |
 
-## The examples
+## The examples {#the-examples}
 
 Every framework page uses the same order support agent. It has two tools on an in-memory order desk:
 
@@ -57,17 +57,46 @@ Every framework page uses the same order support agent. It has two tools on an i
 | **look_up_order** | read | Runs without approval and retries on failure. |
 | **cancel_order** | non-idempotent write | Waits in **AwaitToolApproval**, then runs at most once. |
 
-The Python agents are under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses). The TypeScript agents are under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses). Each harness serves the same HTTP routes, so you can try them side by side.
+**cancel_order** cancels an order only while it is still processing.
 
-With a Slack connection in the project configuration, each agent also has **slack_post_thread_reply**, a Connector tool that waits for approval and then runs once.
+The Python agents are under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses). The TypeScript agents are under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
 
 The built-in agent loop page uses the [AI Agent](/use-cases/ai-agent) example instead. It shows every session feature.
 
-## Run sessions in production
+### Session routes {#session-routes}
+
+Every harness serves the same HTTP routes, so you can try them side by side. Each route is one call on the session Flow: start a session, send a message, or resolve an approval.
+
+Starting a session returns a session token: an HMAC of the session ID under **DEX_AGENT_SESSION_KEY**. Every other route checks the token in the **X-Agent-Session-Token** header and answers 403 without it. Without **DEX_AGENT_SESSION_KEY**, the example picks a random key, so a restart ends every token. A real application uses its own sign-in instead.
+
+### Approve in Dex Web {#approve-in-dex-web}
+
+While an example runs, you can approve a call in Dex Web instead of with an HTTP request:
+
+1. Open the session's run. Its Flow ID is the session ID.
+2. Select the **Agent session** tab.
+3. Set **Working as** to **order-support.operate**, the permission you rendered into the session graph.
+4. Select **Approve** or **Reject** on the **cancel_order** card. Dex Web calls **resolve_interrupt** for you.
+
+Dex Web shows this tab only when it started with the session graph. Each framework page renders the graph before it starts Dex. For production, see [Show sessions in Dex Web](/agent-frameworks/deploy-agents#dex-web).
+
+### The Slack Connector tool {#slack-connector-tool}
+
+When the project configuration has the Slack connection **support-slack**, each example agent also gets **slack_post_thread_reply**. This tool is the Slack Connector operation **postThreadReply**, and the agent uses it to reply in a Slack thread. The Worker opens the connection from **DEX_CONNECTOR_CONFIG_FILE** in local development, or from the **DEX_PROJECT_\*** settings when deployed. [Connections](/agent-frameworks/deploy-agents#connector-tools-connection) covers both, what happens without the connection, and what the Slack app needs.
+
+Each call runs one Slack operation in its own tool Step, through the Connector SDK. The call keeps the Connector's Call ID and idempotency key. [Which operations are offered](/agent-frameworks/deploy-agents#connector-tools-offered) covers how an operation becomes a tool and how Dex checks its arguments.
+
+The Connector's manifest decides whether a call can run again. **postThreadReply** is a Mutation that its manifest does not mark retry-safe, so the call runs once, in **CallSingleAttemptTool**. A Worker crash never sends the post twice. See [Crashes](/agent-frameworks/deploy-agents#connector-tools-crashes).
+
+Slack's manifest does not ask for approval of **postThreadReply**. So the example passes **requires_approval=True** in Python and **requiresApproval: true** in TypeScript, and every post waits in **AwaitToolApproval** until a person approves it. [Approval](/agent-frameworks/deploy-agents#connector-tools-approval) covers how the manifest and the application decide approval.
+
+When one model response asks for several Connector writes, they run one at a time, in order. See [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order).
+
+## Run sessions in production {#run-sessions-in-production}
 
 [Durable Agents](/agent-frameworks/deploy-agents) covers the Stream backend, sizing, limits, approvals and deadlines, Dex Web, and upgrades.
 
-## Related
+## Related {#related}
 
 - [AI Agent](/use-cases/ai-agent)
 - [Step](/concepts/step)

@@ -7,7 +7,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inac
 
 # Inactiveness Tracker Timer
 
-当一个动作只应在一段时间没有活动后才发生时，使用这个模式。**InactivenessTrackerFlow** 从 **TrackerStep** 开始，等待 Timer 或 **Active** Channel。活动先到达时，**TrackerStep** 跳回自身并开始一个新的 Timer；Timer 先触发时，Flow 跳转到 **ProcessInactiveness**。
+当一个动作只应在一段时间没有活动后才发生时，使用这个模式。**InactivenessTrackerFlow** 从 **TrackerStep** 开始，等待 Timer 或 **Active** Channel。如果活动先到达，**TrackerStep** 转回自身，从而开始一个新的 Timer。如果 Timer 先触发，Flow 转到 **ProcessInactiveness**。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 

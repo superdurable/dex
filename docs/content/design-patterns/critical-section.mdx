@@ -18,11 +18,11 @@ An Attribute lock, such as **ExecuteLockAttributes**, covers one Step method. It
 
 ## How it works
 
-A Channel holds exactly one message. That message is the token.
+A dedicated Channel holds exactly one message. That message is the token.
 
 - One Step publishes the token once, before any branch enters.
 - A handoff Step waits for the token with **ForOne**. One message satisfies one wait, so only one branch gets it. The other branches keep waiting.
-- The handoff Step does no protected work. Its **Execute** only moves to the first Step that works.
+- The handoff Step does no protected work. Its **Execute** only moves to the first Step that does.
 - The last Step of the section publishes the token back. One waiting branch consumes it and enters.
 
 ```pseudocode
@@ -49,18 +49,17 @@ The token is an ordinary message. A branch that leaves the section without publi
 - **Execute failure.** Route it with **ExecuteFailure** to a Step that publishes the token. Configure that route on every Step of the section. In the example, **EnterContractEdit**, **EditContract**, and **SaveContractEdit** all move to **ReleaseContractEditToken**.
 - **WaitFor failure.** When a later Step of the section has its own **WaitFor**, set its **WaitForFailure** policy to proceed to its **Execute**. That **Execute** sees the failure and publishes the token.
 - **Early exit.** An **Execute** that leaves the section with a business decision publishes the token in the same **Execute**.
-- **Cancellation of the handoff.** Canceling the handoff Step is safe, because it does no protected work. When Dex cancels it after its wait consumed the token but before its **Execute** committed, Dex returns the token to the front of the Channel. Another branch enters.
-- **Cancellation inside the section.** Never cancel a Step that does protected work. A canceled Step publishes nothing, and its failure route does not run. The canceller cannot publish the token for it either. Dex picks the Steps to cancel when it commits, so the Step may already have published the token, and a second token would break mutual exclusion. To stop a branch early, send it a stop request that its Steps check, such as an Attribute an RPC sets. The Step that sees it leaves through an early exit that publishes the token.
+- **Cancellation of the handoff.** Canceling the handoff Step is safe, because it does no protected work. If Dex cancels it after its wait consumed the token but before Dex saved its **Execute** result, Dex returns the token to the front of the Channel. Another branch enters.
+- **Cancellation inside the section.** Never cancel a Step that does protected work. A canceled Step publishes nothing, and its failure route does not run. The Step or RPC that cancels it cannot publish the token for it either. Dex decides which Steps to cancel only when it saves the result that cancels them. By then the canceled Step may already have published the token, and a second token would let two branches into the section at once. To stop a branch early, send it a stop request that its Steps check, such as an Attribute that an RPC sets. The Step that sees the request leaves through an early exit that publishes the token.
 - **Closing the Flow.** **ForceComplete**, **ForceFail**, a Flow timeout, and a Client **StopFlow** end every branch. No branch waits for the token any more.
 
-Publications commit with the method that makes them, or not at all. A failed attempt never publishes a token, so a retry cannot create a second one.
+Dex saves a method's Channel publications together with its result, or not at all. A failed attempt publishes nothing, so a retry cannot create a second token.
 
-Dex cannot stop a canceled method's calls to external systems. Cancellation is cooperative, so a canceled **Execute** can keep writing after Dex returns its token. The section stays exclusive only if no Step that does protected work is canceled.
+Dex cannot stop a canceled method's calls to external systems. A canceled **Execute** can keep running and writing after Dex has returned its token. This is another reason never to cancel a Step that does protected work.
 
 ## Rules
 
-- Publish exactly one token. Publish it in the Step that starts the branches, or before.
-- Make the Step that takes the token a pure handoff. Do the protected work in later Steps.
+- Publish exactly one token, in the Step that starts the branches or before. A second token lets two branches into the section at once.
 - Use the token Channel for the token only.
 - Keep the section short. Every other branch waits while one branch is inside.
 - The token's value does not matter. Keep the protected state in Attributes.
@@ -641,16 +640,12 @@ fn leave_contract_edit(
 
 ## Anti-patterns
 
-- An Attribute lock used to protect several Steps.
-- Protected work in the Step that waits for the token.
 - A boolean Attribute such as "isEditing" that Steps check and set. Nothing waits on it, and two branches can both see it clear.
-- Returning the token only on the success path.
-- Canceling a Step that does protected work, or publishing the token from the RPC that cancels it.
-- Publishing a new token to recover from a lost one while the old one may still exist. Two tokens break mutual exclusion.
+- Publishing a new token to recover from a lost one while the old one may still exist. Two tokens let two branches into the section at once.
 
 ## Related
 
 - [Channel](/concepts/primitives/channel)
 - [Step](/concepts/step)
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
-- [Workflow Patterns evaluation: WCP-39 Critical Section](/concepts/correctness-and-expressiveness/workflow-patterns#wcp-39)
+- [Workflow Patterns evaluation: WCP-39 Critical Section](/correctness-and-expressiveness/workflow-patterns#wcp-39)

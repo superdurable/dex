@@ -88,7 +88,7 @@ precedence.
 - **Design before code.** Define each Flow's identity, lifecycle, Steps,
   typed RPCs, every primitive, selective loads, locks, retention, retries,
   and uncertain-effect handling in the application before coding. Keep open
-  executions compatible across deploys.
+  Flow runs compatible across deploys.
 - **Credentials stay outside.** Keep them out of code, Flow state, logs, and
   definitions. Locally, Dex Web configures Connector connections. A Go
   application reads them through the Connector SDK's `sdkgo/projectconfig`.

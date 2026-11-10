@@ -7,80 +7,80 @@ slug: /glossary
 
 # Glossary
 
-Short Dex vocabulary. Prefer these terms over legacy Workflow/State names.
+Short definitions of Dex terms. Use these terms, not the older Workflow and State names.
 
 #### [Attribute](/concepts/primitives/attribute)
 
-Durable typed variable on a Flow (optionally indexed for search).
+A durable, typed variable on a Flow. You can index it for search.
 
 #### [Channel](/concepts/primitives/channel)
 
-Durable message pipe for external or internal communication.
+A durable message pipe. It carries messages from outside a Flow, or between parts of one Flow.
 
 #### [Condition](/concepts/step#waitfor-and-execute)
 
-A wait unit (timer, channel, combinations) returned from WaitFor.
+What a Step waits for, returned from WaitFor: a Timer, a Channel, or a combination of them.
 
 #### [dexcli](/quick-start)
 
-Homebrew-installed CLI that runs local server-zd + Dex Web.
+The Dex CLI, installed with Homebrew. It runs server-zd and Dex Web on your machine.
 
 #### [Execute](/concepts/step#waitfor-and-execute)
 
-Step method that runs after WaitFor completes (or immediately if there is no wait).
+The Step method that runs after the WaitFor condition is met, or right away when the Step has no WaitFor.
 
 #### [Flow](/concepts/flow)
 
-Top-level durable program: Steps, Attributes, Channels, and RPCs.
+The top-level durable program. It contains Steps, Attributes, Channels, and RPCs.
 
 #### [Flow ID](/concepts/flow#identifiers)
 
-Application-assigned identity for a Flow execution.
+The ID that your application assigns to a Flow run.
 
 #### [GetAttributes](/reference/server/runtime-client#read-attributes)
 
-Client API to read committed Attribute values from outside a Flow, without a Worker.
+A Client API that reads committed Attribute values from outside a Flow. It does not need a Worker.
 
 #### [InvokeRPC](/concepts/primitives/rpc)
 
-Client API to call a Flow RPC handler on the Worker.
+A Client API that calls a Flow's RPC handler on the Worker.
 
 #### [Locking](/concepts/primitives/attribute#locking)
 
-Serializing access to Attributes for Steps/RPCs.
+Making Steps and RPCs that access the same Attributes run one at a time.
 
 #### [Movement](/concepts/step#stepdecision-movements)
 
-Decision to go to another Step (or complete/fail).
+A decision to go to another Step, or to complete or fail the Flow.
 
 #### [Time Travel](/components/application)
 
-Create a new Flow execution from an earlier Step after a fix.
+Restarting a Flow run from an earlier Step, after a fix. The run keeps its Run ID.
 
 #### [RPC](/concepts/primitives/rpc)
 
-Worker handler for external read/write against a running Flow.
+A Worker handler that reads or writes a running Flow from outside.
 
 #### [Run ID](/concepts/flow#identifiers)
 
-Engine-assigned ID for a backend run attempt within a Flow execution.
+The ID that the engine assigns to each run of a Flow ID.
 
 #### [Step](/concepts/step)
 
-Unit of durable control flow with optional WaitFor + Execute.
+The unit of durable control flow. It has an optional WaitFor and an Execute.
 
 #### [Step execution](/reference/server/runtime-client#wait-for-a-step)
 
-One invocation instance of a Step type (**step_type** + number).
+One run of a Step type, identified by **step_type** and a number.
 
 #### [Timer](/concepts/primitives/timer)
 
-Durable sleep condition that resumes a waiting Step.
+A durable sleep condition. When it fires, the waiting Step resumes.
 
 #### [WaitFor](/concepts/step#waitfor-and-execute)
 
-Step method that registers durable wait Conditions before Execute.
+The Step method that registers the durable Conditions to wait for before Execute.
 
 #### [Worker](/components/application)
 
-Process hosting Flow definitions and handling WaitFor/Execute/RPC.
+The process that hosts Flow definitions and runs WaitFor, Execute, and RPC handlers.

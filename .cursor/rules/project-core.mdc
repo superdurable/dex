@@ -94,7 +94,7 @@ fact an agent needs to write correct code. Do not cut one only to be shorter.
 | --- | --- | --- |
 | Behavior, parameters, defaults, units, errors, and examples of one API | SDK doc comments, published as the generated API reference | Docs and skills link to it; they do not restate it |
 | Primitive concepts, relations, and mental model | Docs Concepts and skills | Change both in one pull request |
-| Components (Application, server, cli, web, connector, external Attribute sync): what each is and how they work together | Docs Components and skills | Change both in one pull request |
+| Components (Application, server, cli, web): what each is and how they work together | Docs Components and skills | Change both in one pull request |
 | Design patterns | Docs Design patterns (narrative, diagram, example) and skills (when to use, steps, code skeleton) | Change both in one pull request; code comes from `examples/` |
 | Configuration, flags, metrics, limits, edge cases, version differences | Docs Developer reference (versioned) | Skills link to it |
 
