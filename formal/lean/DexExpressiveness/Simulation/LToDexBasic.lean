@@ -1,4 +1,4 @@
-import DexExpressiveness.Simulation.LToDexBasicLemmas
+import DexExpressiveness.Simulation.LToDexBasicWake
 
 /-!
 # L to Dex: ticks, requests, timer fires, late emits, and the begin of an action
@@ -182,6 +182,346 @@ theorem l_start_simulated (program : Program) (lConfig : L.Config)
               simp [hasNoTask] at isMember }
     · cases isStep
   · cases isStep
+
+/-- The Flow of a running program runs. -/
+theorem wp2_run_of_running {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} (isRelated : Related program lConfig dexConfig)
+    (isRunningL : lConfig.status = .running) :
+    ∃ run, dexConfig.run = some run ∧ run.status = .running := by
+  have isStatus := isRelated.status
+  cases runCase : dexConfig.run with
+  | none => simp [isRunningL, runCase] at isStatus
+  | some run =>
+    simp only [isRunningL, runCase] at isStatus
+    exact ⟨run, rfl, isStatus⟩
+
+/-- [PUBLISH] to a running Flow, as one explicit action. -/
+theorem wp2_exec_publish (flow : Dex.FlowDef signature) (config : Dex.Config signature)
+    (run : Dex.Run signature) (hasRun : config.run = some run) (isRunning : run.status = .running)
+    (canCommit : config.canCommit = true) (chan : Chan) (message : DexVal)
+    (newRun : Dex.Run signature)
+    (isWake : (({ run with seq := run.seq + 1 } : Dex.Run signature).applyPublications
+      [(chan, message)]).wake [chan] = newRun)
+    (isStillRunning : newRun.status = .running) :
+    (Dex.system flow).exec config [.request (.publish chan message)] =
+      some ([Dex.Obs.pub chan message],
+        { config with run := some newRun, lastCommitAt := some config.clock }) := by
+  obtain ⟨status, outputs, steps, counters, attributes, channels, timers, seq⟩ := run
+  simp only at isRunning
+  subst isRunning
+  subst isWake
+  simp [TransitionSystem.exec, Dex.system, Dex.step, hasRun, canCommit, Dex.Config.commit,
+    Dex.Config.closeEvents, isStillRunning]
+
+/-- The named-sequence form of `in(c, v)` while the program runs, under the
+hypothesis that a waiting Step has no invocation: one [PUBLISH], and the
+result is related.
+
+The hypothesis is not part of `IsSimulationState` at the base commit of this
+package, and `l_input_simulated` is false without it. -/
+theorem wp2_input_exec_running (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    (waitingHasNoInvocation : ∀ run, dexConfig.run = some run → ∀ record, record ∈ run.steps →
+      record.phase = .waiting → record.invocation = none)
+    (chan : ExtChan) (value : Literal) (isRunningL : lConfig.status = .running)
+    (canStamp : lConfig.canStamp = true) :
+    ∃ dexNext,
+      (Dex.system ⟦program⟧).exec dexConfig
+        [.request (.publish (Chan.external chan) (DexVal.value value.toVal))] =
+        some ([Dex.Obs.pub (Chan.external chan) (DexVal.value value.toVal)], dexNext) ∧
+      Related program (lConfig.deliverInput chan value.toVal).stamp dexNext := by
+  obtain ⟨run, hasRun, isRunning⟩ := wp2_run_of_running state.isRelated isRunningL
+  have related := state.isRelated.running run hasRun isRunning
+  have invariant := state.dexInvariant.runInvariant run hasRun
+  have canCommit := wp2_canCommit_of_canStamp state.isRelated canStamp
+  have noInvocation := waitingHasNoInvocation run hasRun
+  -- What the wait of a waiting Step looks like.
+  have waitOfWaiting : ∀ record, record ∈ run.steps → ∀ waitState, record.phase = .waiting →
+      record.waitState = some waitState →
+      ∃ thread on since, thread ∈ lConfig.threads ∧ thread.phase = .blocked on since ∧
+        StepCarriesThread program thread record ∧
+        waitState.wait.kind = (expectedWaitShape thread.core.tid on).1 ∧
+        waitState.wait.timerSeconds.length = (expectedWaitShape thread.core.tid on).2.1 ∧
+        waitState.wait.channels = (expectedWaitShape thread.core.tid on).2.2 ∧
+        waitState.timersDone = waitState.wait.timerSeconds.map (fun _ => false) := by
+    intro record isRecord waitState isWaiting hasWait
+    obtain ⟨thread, on, since, isMember, isBlocked, carries, isMatch⟩ :=
+      wp2_blocked_of_waiting state hasRun isRunning noInvocation record isRecord isWaiting
+    unfold PhaseMatchesStep at isMatch
+    simp only [isBlocked] at isMatch
+    obtain ⟨_, _, found, hasFound, isKind, hasLength, hasChannels, hasTimersDone⟩ := isMatch
+    obtain rfl : found = waitState := Option.some.inj (hasFound.symm.trans hasWait)
+    exact ⟨thread, on, since, isMember, isBlocked, carries, isKind, hasLength, hasChannels,
+      hasTimersDone⟩
+  -- From the relation of the runs to the relation of the configurations.
+  have finish : ∀ (lNext : L.Config) (newRun : Dex.Run signature),
+      lNext.clock = lConfig.clock → lNext.status = .running →
+      (({ run with seq := run.seq + 1 } : Dex.Run signature).applyPublications
+        [(Chan.external chan, DexVal.value value.toVal)]).wake [Chan.external chan] = newRun →
+      newRun.status = .running →
+      RunningRelated program lNext
+        { dexConfig with run := some newRun, lastCommitAt := some dexConfig.clock } newRun →
+      ∃ dexNext,
+        (Dex.system ⟦program⟧).exec dexConfig
+          [.request (.publish (Chan.external chan) (DexVal.value value.toVal))] =
+          some ([Dex.Obs.pub (Chan.external chan) (DexVal.value value.toVal)], dexNext) ∧
+        Related program lNext.stamp dexNext := by
+    intro lNext newRun sameClock isRunningNext isWake isStillRunning newRelated
+    refine ⟨_, wp2_exec_publish ⟦program⟧ dexConfig run hasRun isRunning canCommit _ _ newRun
+      isWake isStillRunning, ?_⟩
+    exact
+      { clock := sameClock.trans state.isRelated.clock
+        stamp := congrArg some (sameClock.trans state.isRelated.clock)
+        status := by
+          simp only [L.Config.stamp, isRunningNext]
+          exact isStillRunning
+        notStarted := fun hasNoRun => by simp at hasNoRun
+        running := fun otherRun hasOtherRun _ => by
+          obtain rfl : newRun = otherRun := Option.some.inj hasOtherRun
+          exact wp2_runningRelated_stamp newRelated
+        closed := fun otherRun status hasOtherRun isClosed => by
+          obtain rfl : newRun = otherRun := Option.some.inj hasOtherRun
+          rw [isStillRunning] at isClosed
+          cases isClosed }
+  rw [wp2_deliverInput_eq]
+  by_cases hasReceiver : ∃ thread on since, thread ∈ lConfig.threads ∧
+      thread.phase = .blocked on since ∧ wp2_isReceiveOn chan on = true
+  · -- The earliest receiver takes the message.
+    obtain ⟨anyThread, anyOn, anySince, isAny, isAnyBlocked, isAnyWanted⟩ := hasReceiver
+    obtain ⟨thread, on, since, isMember, isBlocked, isWanted, isEarliest⟩ :=
+      wp2_exists_earliest lConfig (wp2_isReceiveOn chan) anyThread isAny anyOn anySince
+        isAnyBlocked isAnyWanted
+    rw [wp2_earliestBlocked_eq_some lConfig state.lInvariant (wp2_isReceiveOn chan) thread
+      isMember on since isBlocked isWanted isEarliest]
+    have isFound := wp2_findThread?_of_mem state.lInvariant isMember
+    obtain ⟨record, isRecord, isActive, carries, isMatch⟩ :=
+      related.threadsHaveSteps thread isMember (by simp [isBlocked])
+    unfold PhaseMatchesStep at isMatch
+    simp only [isBlocked] at isMatch
+    obtain ⟨isWaiting, hasNoInvocation, waitState, hasWait, isKind, hasLength, hasChannels,
+      hasTimersDone⟩ := isMatch
+    obtain ⟨isAnyKind, isShape⟩ := wp2_shape_of_isReceiveOn thread.core.tid chan on isWanted
+    rw [isAnyKind] at isKind
+    rw [isShape] at hasChannels
+    have wasEmpty : run.pendingMessages (Chan.external chan) = [] :=
+      invariant.waitersQuiet record waitState ⟨isRecord, isWaiting, hasWait⟩ _
+        (by rw [hasChannels]; simp)
+    -- The Step of the earliest receiver has the least `sws` among the waiters.
+    have isEarliestStep : ∀ other, other ∈ run.steps → ∀ otherWait, other.phase = .waiting →
+        other.waitState = some otherWait → Chan.external chan ∈ otherWait.wait.channels →
+        other = record ∨ waitState.registeredSeq < otherWait.registeredSeq := by
+      intro other isOther otherWait isOtherWaiting hasOtherWait isNamed
+      obtain ⟨owner, ownerOn, ownerSince, isOwner, isOwnerBlocked, ownerCarries, _, _,
+        hasOwnerChannels, _⟩ := waitOfWaiting other isOther otherWait isOtherWaiting hasOtherWait
+      rw [hasOwnerChannels] at isNamed
+      have isOwnerWanted := wp2_isReceiveOn_of_mem owner.core.tid chan ownerOn isNamed
+      have otherActive : other.phase.isActive = true := by rw [isOtherWaiting]; rfl
+      by_cases isThread : owner = thread
+      · subst isThread
+        exact Or.inl (related.activeStepsHaveDistinctThreads other isOther record isRecord
+          otherActive isActive
+          ((wp2_threadOfInput_of_mem state.lInvariant isOwner ownerCarries).trans
+            (wp2_threadOfInput_of_mem state.lInvariant isOwner carries).symm))
+      · have isAtMost := isEarliest owner isOwner ownerOn ownerSince isOwnerBlocked isOwnerWanted
+        have isNotSame : since ≠ ownerSince := by
+          intro sameSince
+          subst sameSince
+          exact isThread (state.lInvariant.sinceInjective owner isOwner thread isMember ownerOn
+            on since isOwnerBlocked isBlocked)
+        exact Or.inr ((related.blockingOrder thread owner record other on since ownerOn
+          ownerSince waitState otherWait isMember isOwner isRecord isOther isActive otherActive
+          carries ownerCarries isBlocked isOwnerBlocked hasWait hasOtherWait).mp (by omega))
+    have isWake := wp2_publish_wake_received run invariant record isRecord isWaiting waitState
+      hasWait isKind (Chan.external chan) [Chan.cancelRequest thread.core.tid] hasChannels
+      (DexVal.value value.toVal) isEarliestStep
+    refine finish (lConfig.setPhase thread.core.tid (.woken (.received value.toVal))) _ rfl
+      isRunningL isWake isRunning ?_
+    let image : Dex.StepRecord signature → Dex.StepRecord signature := fun candidate =>
+      if candidate.id = record.id then
+        { candidate with
+          conditionResults := some
+            { timersDone := waitState.timersDone
+              channelMessages := some (DexVal.value value.toVal) ::
+                [Chan.cancelRequest thread.core.tid].map (fun _ => none) }
+          phase := .execute
+          invocation := some { method := .execute, state := .pending } }
+      else candidate
+    refine wp2_runningRelated_changeThread related state.lInvariant invariant.idsNodup isFound
+      isRecord isActive carries (.woken (.received value.toVal)) (by rw [isBlocked]; rfl)
+      (by simp) (by simp) (by simp [isBlocked]) image rfl ?_ ?_ rfl
+      (wp2_receivedRun_pending run record waitState _ _ _ wasEmpty) ?_ rfl rfl
+      (fun task isTask _ => isTask) ?_ ?_
+    · intro candidate isCandidate
+      by_cases isChanged : candidate.id = record.id
+      · have sameRecord : candidate = record :=
+          eq_of_nodup_map (fun step => step.id) run.steps invariant.idsNodup isCandidate isRecord
+            isChanged
+        subst sameRecord
+        refine ⟨by simp [image], by simp [image], by simp [image], ?_⟩
+        simp only [image, ↓reduceIte]
+        rw [isActive]
+        rfl
+      · simp [image, isChanged]
+    · intro candidate isOther
+      simp [image, isOther]
+    · apply wp2_timers_of_wake related state.lInvariant isFound carries isBlocked
+      intro timer fireTime
+      by_cases isRecordTimer : timer.step = record.id
+      · have isDisarmed := wp2_get?_filter_of_rejected
+          (fun (key : Dex.TimerId signature) => !decide (key.step = record.id)) run.timers timer
+          (by simp [isRecordTimer])
+        constructor
+        · intro isArmed
+          have isNone : (none : Option Nat) = some fireTime := isDisarmed.symm.trans isArmed
+          cases isNone
+        · intro isArmed
+          exact absurd isRecordTimer isArmed.2
+      · have isKept := AssocList.get?_filter_of_kept
+          (fun (key : Dex.TimerId signature) => !decide (key.step = record.id)) run.timers timer
+          (by simp [isRecordTimer])
+        constructor
+        · intro isArmed
+          exact ⟨isKept.symm.trans isArmed, isRecordTimer⟩
+        · intro isArmed
+          exact isKept.trans isArmed.1
+    · -- The woken thread matches its Step: the wait was decided by the message.
+      have isImage : image record =
+          { record with
+            conditionResults := some
+              { timersDone := waitState.timersDone
+                channelMessages := [some (DexVal.value value.toVal), none] }
+            phase := .execute
+            invocation := some { method := .execute, state := .pending } } := by
+        simp [image]
+      rw [isImage]
+      unfold PhaseMatchesStep
+      refine ⟨rfl, rfl, ?_⟩
+      unfold decodeOutcome
+      cases on with
+      | recv wanted =>
+        have fitsCode := state.lInvariant.phasesFitCode thread isMember
+        unfold L.Thread.PhaseFitsCode at fitsCode
+        simp only [isBlocked, BlockedOn.toWaitRequest?] at fitsCode
+        obtain ⟨hasNoTimer, hasRequest⟩ := fitsCode
+        have isReceiveCode : ∃ target receiveChan rest,
+            thread.code = .source (.recv target receiveChan) :: rest := by
+          cases codeCase : thread.code with
+          | nil => simp [codeCase, waitRequest] at hasRequest
+          | cons head rest =>
+            cases head with
+            | park cv => simp [codeCase, waitRequest] at hasRequest
+            | relock mutex => simp [codeCase, waitRequest] at hasRequest
+            | source statement =>
+              cases statement <;> simp [codeCase, waitRequest] at hasRequest
+              case recv target receiveChan => exact ⟨target, receiveChan, rest, rfl⟩
+              all_goals (split at hasRequest <;> simp at hasRequest)
+        obtain ⟨target, receiveChan, rest, isCode⟩ := isReceiveCode
+        simp [hasNoTimer, isCode, decodeBlockedOutcome, decodeMessage]
+      | timed number deadline optionalChan =>
+        obtain ⟨⟨seconds, hasTimer⟩, hasTimedChan⟩ :=
+          wp2_timer_of_blocked_timed state.lInvariant isMember isBlocked
+        cases optionalChan with
+        | none => simp [wp2_isReceiveOn] at isWanted
+        | some wanted =>
+          have hasOneTimer : waitState.wait.timerSeconds.length = 1 := hasLength
+          obtain ⟨timerSeconds, isOneTimer⟩ := List.length_eq_one_iff.mp hasOneTimer
+          have isNotDone : waitState.timersDone = [false] := by
+            rw [hasTimersDone, isOneTimer]
+            rfl
+          simp [hasTimer, decodeTimedOutcome, isNotDone, hasTimedChan, decodeMessage]
+      | lock mutex => simp [wp2_isReceiveOn] at isWanted
+      | join joined => simp [wp2_isReceiveOn] at isWanted
+      | park cv => simp [wp2_isReceiveOn] at isWanted
+    · intro task isTask
+      have wasCurrent := related.tasksAreCurrent task isTask
+      simp only [Dex.Config.isTaskCurrent, hasRun] at wasCurrent
+      by_cases sameStep : task.step = record.id
+      · rw [sameStep, Dex.Run.findStep?_of_mem_nodup run record isRecord invariant.idsNodup]
+          at wasCurrent
+        simp [hasNoInvocation] at wasCurrent
+      · have sameFind : (wp2_receivedRun run record waitState (Chan.external chan)
+            [Chan.cancelRequest thread.core.tid] (DexVal.value value.toVal)).findStep? task.step =
+            run.findStep? task.step :=
+          Dex.Run.findStep?_updateStep_other _ _ _ _ (fun _ => rfl) sameStep
+        simp only [Dex.Config.isTaskCurrent, sameFind]
+        exact wasCurrent
+  · -- No thread receives on the channel: the message is queued.
+    have noneBlocked : ∀ thread, thread ∈ lConfig.threads → ∀ on since,
+        thread.phase = .blocked on since → wp2_isReceiveOn chan on = false := by
+      intro thread isMember on since isBlocked
+      cases wantedCase : wp2_isReceiveOn chan on with
+      | false => rfl
+      | true => exact absurd ⟨thread, on, since, isMember, isBlocked, wantedCase⟩ hasReceiver
+    rw [wp2_earliestBlocked_eq_none lConfig (wp2_isReceiveOn chan) noneBlocked]
+    have isWake : (({ run with seq := run.seq + 1 } : Dex.Run signature).applyPublications
+        [(Chan.external chan, DexVal.value value.toVal)]).wake [Chan.external chan] =
+        ({ run with seq := run.seq + 1 } : Dex.Run signature).setPendingMessages
+          (Chan.external chan)
+          (run.pendingMessages (Chan.external chan) ++ [DexVal.value value.toVal]) := by
+      have isPublished : ({ run with seq := run.seq + 1 } : Dex.Run signature).applyPublications
+          [(Chan.external chan, DexVal.value value.toVal)] =
+          ({ run with seq := run.seq + 1 } : Dex.Run signature).setPendingMessages
+            (Chan.external chan)
+            (run.pendingMessages (Chan.external chan) ++ [DexVal.value value.toVal]) := rfl
+      rw [isPublished]
+      apply wp2_wake_of_no_waiter
+      intro record isRecord waitState isWaiting hasWait named isNamed isChanged
+      have isChan : named = Chan.external chan := by simpa using isChanged
+      subst isChan
+      obtain ⟨owner, ownerOn, ownerSince, isOwner, isOwnerBlocked, _, _, _, hasOwnerChannels, _⟩ :=
+        waitOfWaiting record isRecord waitState isWaiting hasWait
+      rw [hasOwnerChannels] at isNamed
+      have isOwnerWanted := wp2_isReceiveOn_of_mem owner.core.tid chan ownerOn isNamed
+      rw [noneBlocked owner isOwner ownerOn ownerSince isOwnerBlocked] at isOwnerWanted
+      cases isOwnerWanted
+    refine finish _ _ rfl isRunningL isWake isRunning ?_
+    refine wp2_runningRelated_queueInput related chan value.toVal rfl rfl rfl rfl rfl ?_ ?_ rfl ?_
+    · simp [Dex.Run.pendingMessages, Dex.Run.setPendingMessages, AssocList.get?_set_self]
+    · intro other isOther
+      simp [Dex.Run.pendingMessages, Dex.Run.setPendingMessages,
+        AssocList.get?_set_other _ _ _ _ isOther]
+    · intro task isTask
+      have wasCurrent := related.tasksAreCurrent task isTask
+      simp only [Dex.Config.isTaskCurrent, hasRun] at wasCurrent
+      simp only [Dex.Config.isTaskCurrent]
+      exact wasCurrent
+
+/-- `refused(c, v)` after the close: a rejected publication, which changes nothing. -/
+theorem wp2_input_exec_closed (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    (chan : ExtChan) (value : Literal) (isClosed : lConfig.status = .closed) :
+    (Dex.system ⟦program⟧).exec dexConfig
+      [.request (.publish (Chan.external chan) (DexVal.value value.toVal))] =
+      some ([Dex.Obs.rejectedPub (Chan.external chan) (DexVal.value value.toVal)], dexConfig) := by
+  obtain ⟨run, status, hasRun, isClosedRun⟩ := wp2_run_of_closed state.isRelated isClosed
+  simp [TransitionSystem.exec, Dex.system, Dex.step, hasRun, isClosedRun]
+
+/-- `l_input_simulated` under the hypothesis that a waiting Step has no invocation. -/
+theorem wp2_input_simulated_of_waitingHasNoInvocation (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    (waitingHasNoInvocation : ∀ run, dexConfig.run = some run → ∀ record, record ∈ run.steps →
+      record.phase = .waiting → record.invocation = none)
+    (chan : ExtChan) (value : Literal) (lEvents : List Event) (lNext : L.Config)
+    (isStep :
+      (L.system program).step lConfig (.request (.input chan value)) = some (lEvents, lNext)) :
+    IsSimulatedByDex program dexConfig (.request (.input chan value)) lEvents lNext := by
+  simp only [L.system, L.step] at isStep
+  cases statusCase : lConfig.status with
+  | notStarted => simp [statusCase] at isStep
+  | closed =>
+    simp only [statusCase, Option.some.injEq, Prod.mk.injEq] at isStep
+    obtain ⟨rfl, rfl⟩ := isStep
+    exact ⟨_, _, _, wp2_input_exec_closed program lConfig dexConfig state chan value statusCase,
+      rfl, rfl, state.isRelated⟩
+  | running =>
+    simp only [statusCase] at isStep
+    by_cases canStamp : lConfig.canStamp = true
+    · simp only [canStamp, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at isStep
+      obtain ⟨rfl, rfl⟩ := isStep
+      obtain ⟨dexNext, isExec, isRelated⟩ := wp2_input_exec_running program lConfig dexConfig
+        state waitingHasNoInvocation chan value statusCase canStamp
+      exact ⟨_, _, dexNext, isExec, rfl, rfl, isRelated⟩
+    · simp [canStamp] at isStep
 
 /-- `in(c, v)` and `refused(c, v)` are simulated by [PUBLISH] and its rejection. -/
 theorem l_input_simulated (program : Program) (lConfig : L.Config)
