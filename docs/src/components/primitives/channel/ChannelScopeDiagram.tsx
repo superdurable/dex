@@ -175,9 +175,13 @@ const css = String.raw`
   }
   @media (max-width: 760px) {
     .channel-execution-main {
-      grid-template-columns: minmax(8rem, 1fr) 3.8rem minmax(10rem, 1.1fr);
+      grid-template-columns: minmax(0, 1.3fr) 2.7rem minmax(0, 1fr);
       grid-template-rows: auto auto auto;
     }
+    .channel-execution-frame { padding: 0.55rem; }
+    .channel-execution-arrow { font-size: 0.56rem; }
+    .channel-execution-queue-box { padding: 0.55rem 0.35rem; }
+    .channel-execution-queue strong { font-size: 0.7rem; overflow-wrap: anywhere; }
     .channel-execution-queue { grid-column: 3; grid-row: 1 / span 3; }
     .channel-execution-consume-arrow { grid-column: 2; grid-row: 3; }
     .channel-execution-consumer { grid-column: 1; grid-row: 3; }

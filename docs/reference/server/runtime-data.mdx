@@ -1367,7 +1367,7 @@ Another Step can then receive the same message. Make message processing
 idempotent, for example by a business ID in the message.
 
 Dex drops the consumed messages instead when the Flow close itself cancels the
-Step: a stop, a Flow timeout, a failure that closes the Flow, or a
+Step: a **StopFlow** request, a Flow timeout, a failure that closes the Flow, or a
 **StepDecision** that cancels the Step and closes the Flow with
 **ForceComplete** or **ForceFail**. Every other cancellation returns the
 messages, even when the Flow closes in the same commit. For example, a
@@ -1423,8 +1423,12 @@ applies successful handler effects in this order: Attribute writes, best-effort
 Channel deletions, then Channel publications, followed by the Step decision.
 **StepDecision** describes only control flow; it does not contain deletions.
 Waiting Steps take the publications after the decision's cancellations, so a
-Step that the decision cancels never takes them. Changed in 0.1.26: waiting
-Steps took the publications before the cancellations.
+Step that the decision cancels never takes them. A decision that also closes
+the Flow at once, with **ForceComplete**, **ForceFail**, or a
+**ForceCompleteIfChannelsEmpty** that closes, is the exception: a waiting Step
+can take a publication, and the close then cancels that Step and drops the
+message. Changed in 0.1.26: waiting Steps took the publications before the
+cancellations.
 
 An RPC can combine deletion with other durable writes. The move example in
 [Transactional RPCs](#transactional-reads-and-writes) loads **QueuedMessages**,

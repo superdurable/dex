@@ -92,7 +92,8 @@ A canceled Step returns the Channel messages its wait consumed before its
 **Execute** committed. They go back to the front of their Channels, in their
 original order, unless the decision also closes the Flow with **ForceComplete**
 or **ForceFail**. A Step that the decision cancels never
-takes the messages the same result publishes. See
+takes the messages the same result publishes, unless the decision also closes
+the Flow at once. See
 [Canceled Steps return consumed messages](/reference/server/runtime-data#canceled-step-messages).
 
 ```go

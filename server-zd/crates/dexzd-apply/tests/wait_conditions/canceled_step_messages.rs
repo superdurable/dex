@@ -361,6 +361,42 @@ fn a_decision_that_cancels_and_force_completes_drops_consumed_messages() {
 }
 
 #[test]
+fn a_force_close_drops_a_publication_that_a_waiter_took_in_the_same_commit() {
+    let closes = [
+        close_decision(CloseDecisionType::ForceComplete, &[]),
+        close_decision(CloseDecisionType::ForceCompleteOnChannelsEmpty, &["other"]),
+    ];
+    for close in closes {
+        let mut harness = Harness::new();
+        harness.start_steps(&["Worker", "Controller"]);
+        harness.wait_on("Worker-1", exactly_one("work"), Vec::new());
+        harness.run_to_execute("Controller-1");
+        let outcome = harness.complete_execute_publishing(
+            "Controller-1",
+            StepDecision {
+                close_decision: Some(close.clone()),
+                ..StepDecision::default()
+            },
+            vec![message("work", "m1")],
+        );
+        let close_type = close.close_decision_type;
+        assert_eq!(
+            harness.run_record().status,
+            FlowStatus::Completed as i32,
+            "{close_type}"
+        );
+        assert_eq!(
+            pending_executes(&outcome),
+            vec!["Worker-1".to_owned()],
+            "{close_type}: the waiter took the message before the close"
+        );
+        assert!(harness.is_canceled("Worker-1"), "{close_type}");
+        assert!(harness.pending_texts("work").is_empty(), "{close_type}");
+        assert_eq!(harness.counts("work"), (0, 0), "{close_type}");
+    }
+}
+
+#[test]
 fn a_graceful_close_after_a_requeueing_cancel_leaves_the_messages_pending() {
     let mut harness = Harness::new();
     harness.start_steps(&["WaitStep", "ControlStep"]);

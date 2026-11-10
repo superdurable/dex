@@ -242,7 +242,8 @@ result has no outputs.
 A decision can also cancel other active Steps. A canceled Step
 returns the Channel messages its wait consumed, unless the decision also closes
 the Flow with **ForceComplete** or **ForceFail**. A Step
-that the decision cancels never takes the messages the same result publishes.
+that the decision cancels never takes the messages the same result publishes,
+unless the decision also closes the Flow at once.
 See the
 [Parallel Steps](/design-patterns/parallel) and
 [Parallel SubFlows](/design-patterns/parallel-subflows) patterns.

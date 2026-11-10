@@ -29,9 +29,10 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 - Consumed messages leave the queue. Publication and consumption remain visible only in the run's recent history window. Pending queue state is not history.
 - A wait consumes when it is satisfied, before Execute runs. If a decision or an RPC cancels the Step before its Execute commits, Dex returns the consumed messages to the front of their Channels or ChannelMap instances, in their original order. Another wait can take them in the same commit.
 - A canceled Execute attempt may already have seen a returned message, so another Step can receive it again. Make message processing idempotent, for example keyed by a business ID in the message.
-- Dex drops the consumed messages instead only when the Flow close itself cancels the Step: a stop, a Flow timeout, a failure that closes the Flow, or a decision that cancels the Step and closes the Flow with ForceComplete or ForceFail.
+- Dex drops the consumed messages instead only when the Flow close itself cancels the Step: a StopFlow request, a Flow timeout, a failure that closes the Flow, or a decision that cancels the Step and closes the Flow with ForceComplete or ForceFail.
 - Every other cancellation returns the messages, even when the Flow then closes. A decision that cancels a Step and returns GracefulComplete closes the Flow when no other Step is active, and the returned messages stay pending in the closed run. Drain them before closing when they matter, for example with ForceCompleteIfChannelsEmpty.
 - A Step that a commit cancels never takes that commit's own publications. Waiting Steps take new messages only after the commit's cancellations.
+- The exception is a commit that also closes the Flow at once: ForceComplete, ForceFail, or a ForceCompleteIfChannelsEmpty that closes. A waiting Step can take the commit's publication, and the close then cancels that Step and drops the message. Do not publish work in the same result that force-closes the Flow if the work must survive.
 - A Channel queue is not conversation history. Keep consumed messages in Attributes when the application must show or rebuild them.
 - Plan how externally published messages are drained before the Flow completes. See [patterns.md](patterns.md#drain-channels).
 
