@@ -102,7 +102,7 @@ theorem effectHistory_of_exec (program : Program σ)
     (events : List (Obs σ)) (config : Config σ)
     (isExec : (system program).exec (system program).init labels = some (events, config)) :
     HasEffectHistory program config events := by
-  sorry
+  exact effectHistory_of_exec_proof program ignoresAttemptContext labels events config isExec
 
 end EffectHistoryOfExec
 

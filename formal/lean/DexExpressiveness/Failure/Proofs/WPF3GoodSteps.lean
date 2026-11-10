@@ -819,4 +819,63 @@ theorem wpf3_good_stepStart (program : Program σ) (config : Config σ)
                   cases hasTaskArguments
   · cases isStep
 
+/-! ## Failures of an attempt -/
+
+theorem wpf3_good_failAttempt (program : Program σ) (committing : Config σ)
+    (good : WPF3Good program committing) (run : Run σ) (isRun : committing.run = some run)
+    (stepId : Dex.StepExecId σ) (record : Dex.StepRecord σ)
+    (isRecord : run.base.findStep? stepId = some record) (method : Dex.Method)
+    (state : Dex.InvocationState)
+    (isInvocation : record.invocation = some { method := method, state := state })
+    (attempt : Attempt σ) (isAttempt : run.findAttempt? stepId = some attempt)
+    (cause : FailureCause) (lostTaskId : Option Nat) (decision : RetryDecision) :
+    WPF3Good program
+      (committing.failAttempt run stepId method attempt cause lostTaskId decision).2 := by
+  have runGood := good.runGood run isRun
+  have currentMethod := wpf3_currentMethod run.base runGood.shape stepId record isRecord _
+    isInvocation
+  have movedGood : WPF3Good program (match lostTaskId with
+      | some taskId => committing.moveToZombies taskId
+      | none => committing) := by
+    cases lostTaskId with
+    | some taskId => exact wpf3_good_moveToZombies program committing good taskId
+    | none => exact good
+  have movedRunGood : WPF3RunGood (match lostTaskId with
+      | some taskId => committing.moveToZombies taskId
+      | none => committing).ghost run := by
+    cases lostTaskId <;> exact runGood
+  unfold Config.failAttempt
+  cases decision with
+  | retryAfter backoffMicros =>
+    dsimp only
+    refine wpf3_good_commitRun program _ movedGood run movedRunGood false none [] _ ?_ ?_
+    · exact wpf3_evolution_trans (wpf3_evolution_bump run runGood.shape)
+        (wpf3_evolution_setInvocation _ stepId (wpf3_evolution_bump run runGood.shape).2 method
+          .pending currentMethod)
+    · exact wpf3_attemptsEvolve_set run.attempts stepId attempt _ isAttempt rfl rfl
+  | exhausted _ =>
+    dsimp only
+    refine wpf3_good_commitRun program _ movedGood run movedRunGood false none [] _ ?_
+      (WPF3AttemptsEvolve.refl _)
+    exact wpf3_evolution_trans (wpf3_evolution_bump run runGood.shape)
+      (wpf3_evolution_closeRun _ _ (wpf3_evolution_bump run runGood.shape).2)
+
+/-- The fence of a started-attempt command finds the running invocation. -/
+theorem wpf3_fence_facts (config : Config σ) (run : Run σ) (isRun : config.run = some run)
+    (task : Task σ) (isFence : config.isFencePassed task = true) :
+    ∃ record, run.base.findStep? task.base.step = some record ∧
+      record.invocation = some { method := task.base.method, state := .running task.base.id } := by
+  unfold Config.isFencePassed at isFence
+  rw [isRun] at isFence
+  dsimp only at isFence
+  cases isRecordCase : run.base.findStep? task.base.step with
+  | none => rw [isRecordCase] at isFence; simp at isFence
+  | some record =>
+    cases isAttemptCase : run.findAttempt? task.base.step with
+    | none => rw [isRecordCase, isAttemptCase] at isFence; simp at isFence
+    | some attempt =>
+      rw [isRecordCase, isAttemptCase] at isFence
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at isFence
+      exact ⟨record, rfl, isFence.1⟩
+
 end DexExpressiveness.DexF
