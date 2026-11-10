@@ -99,15 +99,24 @@ framework range it was tested against.
 | 0.2.0 | `@superdurable/dex@1.35.0` | `@superdurable/dex-agents-openai-agents` | `@openai/agents@^0.21.0` | 0.21.0 |
 | 0.2.0 | `@superdurable/dex@1.35.0` | `@superdurable/dex-agents-mastra` | `@mastra/core@^1.81.0` | 1.81.0 |
 | 0.2.0 | `@superdurable/dex@1.35.0` | `@superdurable/dex-agents-claude-agent-sdk` | `@anthropic-ai/claude-agent-sdk@^0.3.316` | 0.3.316 |
-| Unreleased | `dex-python-sdk==1.38.0` | `dex-agents-openai-agents` | `openai-agents>=0.24,<0.25` | 0.24.0 |
-| Unreleased | `dex-python-sdk==1.38.0` | `dex-agents-pydantic-ai` | `pydantic-ai-slim>=2.64,<3` | 2.64.0 |
-| Unreleased | `dex-python-sdk==1.38.0` | `dex-agents-langgraph` | `langchain>=1.4.7,<2`, `langchain-core>=1.7.3,<2`, `langgraph>=1.2.19,<2` | 1.4.7, 1.7.3, 1.2.19 |
-| Unreleased | `dex-python-sdk==1.38.0` | `dex-agents-google-adk` | `google-adk>=2.13,<3` | 2.13.0 |
-| Unreleased | `dex-python-sdk==1.38.0` | `dex-agents-claude-agent-sdk` | `claude-agent-sdk>=0.2.176,<0.3` | 0.2.176 |
-| Unreleased | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-vercel-ai` | `ai@^7.0.159` | 7.0.159 |
-| Unreleased | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-openai-agents` | `@openai/agents@^0.21.0` | 0.21.0 |
-| Unreleased | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-mastra` | `@mastra/core@^1.81.0` | 1.81.0 |
-| Unreleased | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-claude-agent-sdk` | `@anthropic-ai/claude-agent-sdk@^0.3.316` | 0.3.316 |
+| 0.3.0 | `dex-python-sdk==1.38.0` | `dex-agents-openai-agents` | `openai-agents>=0.24,<0.25` | 0.24.0 |
+| 0.3.0 | `dex-python-sdk==1.38.0` | `dex-agents-pydantic-ai` | `pydantic-ai-slim>=2.64,<3` | 2.64.0 |
+| 0.3.0 | `dex-python-sdk==1.38.0` | `dex-agents-langgraph` | `langchain>=1.4.7,<2`, `langchain-core>=1.7.3,<2`, `langgraph>=1.2.19,<2` | 1.4.7, 1.7.3, 1.2.19 |
+| 0.3.0 | `dex-python-sdk==1.38.0` | `dex-agents-google-adk` | `google-adk>=2.13,<3` | 2.13.0 |
+| 0.3.0 | `dex-python-sdk==1.38.0` | `dex-agents-claude-agent-sdk` | `claude-agent-sdk>=0.2.176,<0.3` | 0.2.176 |
+| 0.3.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-vercel-ai` | `ai@^7.0.159` | 7.0.159 |
+| 0.3.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-openai-agents` | `@openai/agents@^0.21.0` | 0.21.0 |
+| 0.3.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-mastra` | `@mastra/core@^1.81.0` | 1.81.0 |
+| 0.3.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-claude-agent-sdk` | `@anthropic-ai/claude-agent-sdk@^0.3.316` | 0.3.316 |
+| 0.4.0 | `dex-python-sdk==1.38.0` | `dex-agents-openai-agents` | `openai-agents>=0.24,<0.25` | 0.24.0 |
+| 0.4.0 | `dex-python-sdk==1.38.0` | `dex-agents-pydantic-ai` | `pydantic-ai-slim>=2.64,<3` | 2.64.0 |
+| 0.4.0 | `dex-python-sdk==1.38.0` | `dex-agents-langgraph` | `langchain>=1.4.7,<2`, `langchain-core>=1.7.3,<2`, `langgraph>=1.2.19,<2` | 1.4.7, 1.7.3, 1.2.19 |
+| 0.4.0 | `dex-python-sdk==1.38.0` | `dex-agents-google-adk` | `google-adk>=2.13,<3` | 2.13.0 |
+| 0.4.0 | `dex-python-sdk==1.38.0` | `dex-agents-claude-agent-sdk` | `claude-agent-sdk>=0.2.176,<0.3` | 0.2.176 |
+| 0.4.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-vercel-ai` | `ai@^7.0.159` | 7.0.159 |
+| 0.4.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-openai-agents` | `@openai/agents@^0.21.0` | 0.21.0 |
+| 0.4.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-mastra` | `@mastra/core@^1.81.0` | 1.81.0 |
+| 0.4.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-claude-agent-sdk` | `@anthropic-ai/claude-agent-sdk@^0.3.316` | 0.3.316 |
 
 A Python adapter requires `dex-agents==<same version>`. An npm adapter
 peer-depends on `@superdurable/dex-agents@^<same version>`. Add a row for
@@ -118,7 +127,8 @@ every release. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 with protocol 4: server-zd v0.1.17 or later. Upgrade the server before the
 Workers.
 
-The Unreleased line uses Dex SDK v1.38.0 in every language, including the Go
+0.3.0 (released 2026-11-09 as `agents/v0.3.0`) and 0.4.0 (released 2026-11-10
+as `agents/v0.4.0`) use Dex SDK v1.38.0 in every language, including the Go
 core (`github.com/superdurable/dex/sdk-go` `v1.38.0`). That SDK also needs a
 Dex Server with protocol 4: server-zd v0.1.17 or later. Upgrade the server
 before the Workers.

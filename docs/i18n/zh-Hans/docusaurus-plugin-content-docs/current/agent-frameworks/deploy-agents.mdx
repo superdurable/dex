@@ -37,13 +37,14 @@ npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superd
 如果要自己编写 runner，只安装核心包：
 
 ```bash
-pip install dex-agents==0.2.0
-npm i @superdurable/dex-agents@0.2.0 @superdurable/dex@1.35.0
+pip install dex-agents
+npm i @superdurable/dex-agents @superdurable/dex
 ```
 
 所有 agents 包共用一条版本线。Python adapter 要求同一版本的核心包，npm adapter 以
 peer 依赖的方式依赖它。每个版本都固定了它支持的 Dex SDK，以及测试过的 framework 版本范围，
 见[兼容性表](https://github.com/superdurable/dex/blob/main/agents/README.md#versions-and-compatibility)。
+不指定版本时，pip 和 npm 会安装最新的 agents 版本，以及它固定的 Dex SDK。
 这些包还没到 1.0，minor 版本可能改变 API。在 lockfile 中固定确切版本，升级前先读
 [changelog](https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md)。
 
@@ -228,9 +229,9 @@ session 不会自己结束。完成后用 **StopFlow** 停止它。已停止的 
 
 ### 压缩与存储上限 {#compaction}
 
-压缩从 agents 0.2.0 包开始提供，用来让模型输入保持在上下文窗口之内。在
+压缩用来让模型输入保持在上下文窗口之内。在
 **AgentSessionOptions** 中，或者在 Stepwise agent 的定义中设置 **compaction**，并给出模型的
-上下文窗口 token 数。runner 必须支持压缩。Stepwise 支持。从 agents 0.3.0 包开始，OpenAI Agents
+上下文窗口 token 数。runner 必须支持压缩。Stepwise 支持，OpenAI Agents
 SDK、Pydantic AI、LangChain 与 LangGraph、Google ADK、Vercel AI SDK 和 Mastra 的 adapter 也支持。
 当一次模型调用的输入将达到窗口的 85% 时，session 会先运行一个 **CompactContext** Step。它用
 一次模型调用把较早的消息折叠成一份摘要，下一次模型调用收到的是这份摘要和最新的消息。如果
@@ -256,7 +257,7 @@ framework adapter 的压缩方式不同，因为模型输入由框架构建：
   所以 retention 从不删除它们。
 
 只有在该 Flow 类型的每个 Worker 都运行带有 **CompactContext** Step 的版本之后，才启用压缩。
-读取 session 快照的客户端也需要 agents 0.2.0：0.1.0 客户端无法读取压缩期间快照中的
+读取 session 快照的客户端也要先升级：较早版本的客户端无法读取压缩期间快照中的
 **compacting_context** 状态。
 
 压缩也限定了 session 的存储。当最早的 chunk 中每条消息都已被摘要，且它之后至少还保存着
@@ -325,7 +326,8 @@ npm i @superdurable/dex-agents @superdurable/connectors-sdk @superdurable/connec
 pip install "dex-connector-<name> @ git+https://github.com/superdurable/dex-connectors-library@<tag>#subdirectory=connectors/<name>/python"
 ```
 
-固定你测试过的版本。Connector tool 需要 **dex-connector.json** 带有 agent 元数据的 Connector 包，分析导入这些包的 Flow 需要 Dex CLI 1.38.0 或更高版本。
+固定你测试过的版本。Connector tool 需要 **dex-connector.json** 带有 agent 元数据的 Connector 包，分析导入这些包的 Flow 需要能读取这些元数据的 Dex CLI；
+[CLI changelog](/reference/cli/changelog) 写明了是哪个版本。
 
 ### 提供哪些 operation {#connector-tools-offered}
 
@@ -422,7 +424,7 @@ Python 的 **AgentSessionClient.start_session** 和 TypeScript 的 **startAgentS
 可以在启动选项中改用别的模式。直接调用 **start_flow** 或 **startFlow** 不会设置它，服务器默认值
 会让这个 session 留在搜索之外。作为 SubFlow 启动的 session 继承父 Flow 的模式。
 
-要为已经在运行的 session 打开搜索，比如在 0.2.0 上启动的 session，对这个 session 调用
+要为已经在运行的 session 打开搜索，比如由较早版本启动的 session，对这个 session 调用
 **UpdateFlowConfig**。在 Python 中，调用 **update_flow_config**，把 **active_step_search_mode**
 设为 **AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE**。在 TypeScript 中，调用 **updateFlowConfig**，把
 **activeStepSearchMode** 设为 **agentSessionActiveStepSearchMode**。运维人员也可以运行
@@ -679,20 +681,24 @@ session 的两个 Step 可能运行在不同版本上。
 - 在一轮的各个 Step 之间，**FrameworkRunState** 保存 framework 序列化的状态。新 Worker 上的
   framework 版本必须能恢复它。保持在 adapter 固定的 framework 版本范围内，并且同时升级
   adapter 和 framework。
-- 先升级 session 的所有读取方，再升级会写入状态 **failed** 的 Worker。agents 0.2.0 及更早版本的 Worker 和 client 无法解码这个状态，所以它们对已失败 session 调用 **get_agent_snapshot** 时会报错。只有已失败的 session 受影响。
-- **从 agents 0.1.0 升级时：先停止该 Flow type 的所有 0.1.0 Worker，再启动任何 0.2.0
-  Worker。** 不要让两者同时运行。0.1.0 的 session 把每条消息都保存在 **AgentMessages** 中。
-  0.2.0 Worker 一旦在其中保存消息，就会把较早的消息移入 **AgentMessageChunks**，每个 Step 移动
-  少量 chunk。此后如果 0.1.0 Worker 运行这个 session 的 Step，这一轮会失败，因为它读不到被移走
-  的消息。
+- 滚动部署前，阅读当前所用版本之后每个版本的
+  [changelog](https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md)条目。它们写明了每个版本需要的升级顺序。
+- 先升级 session 的所有读取方，再升级会写入状态 **failed** 的 Worker。没有这个状态的较早版本的
+  Worker 和 client 无法解码它，所以它们对已失败 session 调用 **get_agent_snapshot** 时会报错。
+  只有已失败的 session 受影响。
+- **有些升级不能让新旧版本同时运行。** changelog 这样写明时，先停止该 Flow type 所有运行较早版本的
+  Worker，再启动任何运行较新版本的 Worker。把消息存入 **AgentMessageChunks** 的版本就是一例。
+  较早的 session 把每条消息都保存在 **AgentMessages** 中。较新的 Worker 一旦在其中保存消息，
+  就会把较早的消息移入 **AgentMessageChunks**，每个 Step 移动少量 chunk。此后如果较早的 Worker
+  运行这个 session 的 Step，这一轮会失败，因为它读不到被移走的消息。
 
 通用规则见 [Flow 代码版本控制](/components/application#versioning-flow-code)。
 
 ### 滚动部署期间的 session settings {#session-settings-rollout}
 
-只有在该 Flow type 的每个 Worker 都运行 agents 0.2.0 之后，才用 session settings 启动
-session，或调用 **update_session_settings**。0.1.0 的 Worker 会丢弃它启动的 session 的
-settings，也不会写入或读取一轮所保留的 settings 副本。由 0.1.0 Worker 启动的一轮没有
+只有在该 Flow type 的每个 Worker 都运行支持 session settings 的版本之后，才用 session settings
+启动 session，或调用 **update_session_settings**。较早版本的 Worker 会丢弃它启动的 session 的
+settings，也不会写入或读取一轮所保留的 settings 副本。由较早版本的 Worker 启动的一轮没有
 settings，所以它的部分模型调用可能使用 Worker 的默认模型。
 
 ## 凭证 {#credentials}

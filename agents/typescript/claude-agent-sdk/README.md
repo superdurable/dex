@@ -44,6 +44,14 @@ SDK program does. Connector tools also need `@superdurable/connectors-sdk`
 0.9.0, the optional peer of `@superdurable/dex-agents/connectors`, and each
 Connector package the agent uses.
 
+Every segment after the first resumes the Claude session from a temporary config directory that the
+Claude Agent SDK prepares. The SDK copies the credentials file of the Worker's config directory
+there. It copies a Claude Code login kept in the macOS Keychain only when `CLAUDE_CONFIG_DIR` is
+unset and no credential, such as `ANTHROPIC_API_KEY`, is set in the environment or in the options'
+`env`. A macOS Worker that sets `CLAUDE_CONFIG_DIR` and uses a Keychain login therefore runs its
+first segment and fails every resumed segment with "Not logged in". Give such a Worker environment
+credentials, such as `ANTHROPIC_API_KEY`, or leave `CLAUDE_CONFIG_DIR` unset.
+
 Develop the package inside this repository with `./ci.sh`. There
 `@superdurable/dex-agents` is a `file:../core` devDependency, and the
 package's `.npmrc` sets `install-links=true` so npm copies the built core
@@ -201,6 +209,11 @@ only `signal`, `requestId`, and `_meta`, and `currentDeferredToolExecution()` re
 the idempotency key. A result with `isError: true` records `failed`, and the model sees its text. A
 thrown error fails the Step attempt: an `idempotent_write` call retries, and once its attempts run
 out, or at once for a single-attempt call, the session records `outcome_unknown`.
+
+An inline `read` call runs inside `RunModel`, not in a tool Step. An error thrown by its handler does
+not fail `RunModel`: the custom tool server turns it into an MCP error result, and the model reads its
+text. An inline `read` tool therefore cannot ask for a `RunModel` retry. Retry transient failures
+inside the handler before it throws.
 
 ## Tool sources and connector tools
 
@@ -438,8 +451,9 @@ session and sends the failed prompt, the note, and its own prompt as three text 
   later PreToolUse for the same ID is denied and never replaces that decision.
 - On the first turn of a session Claude Code also writes its usual local transcript under
   `CLAUDE_CONFIG_DIR` (`~/.claude` by default). The adapter never reads it; set `CLAUDE_CONFIG_DIR`
-  in `env` to choose where it goes. Later segments run in a temporary directory that the SDK removes,
-  unless the Worker dies first.
+  in `env` to choose where it goes. With a macOS Keychain login, a custom `CLAUDE_CONFIG_DIR` breaks
+  resume; see [Installation](#installation). Later segments run in a temporary directory that the SDK
+  removes, unless the Worker dies first.
 - Dex compaction is not available. Claude Code keeps its own transcript and compacts it inside the CLI,
   so the adapter has no summary to put in the model input, and `createAgentSessionFlow` throws for a
   `compaction` policy. The stored transcript keeps every entry, Claude Code's compaction entries included,
