@@ -29,6 +29,13 @@ func TestSkipStartFlowTemporal(t *testing.T) {
 	}
 }
 
+func TestSkipStartFlowTemporalSyncDurability(t *testing.T) {
+	for i := 0; i < *repeatIntegTest; i++ {
+		doTestSkipStartFlow(t, syncDurabilityConfig())
+		smallWaitForFastTest()
+	}
+}
+
 func doTestSkipStartFlow(
 	t *testing.T,
 	flowConfig *dexpb.FlowConfig,

@@ -34,6 +34,13 @@ func TestPersistenceWorkflowTemporal(t *testing.T) {
 	}
 }
 
+func TestPersistenceWorkflowTemporalAsyncDurability(t *testing.T) {
+	for i := 0; i < *repeatIntegTest; i++ {
+		doTestPersistenceWorkflow(t, asyncDurabilityConfig())
+		smallWaitForFastTest()
+	}
+}
+
 func doTestPersistenceWorkflow(
 	t *testing.T,
 	flowConfig *dexpb.FlowConfig,

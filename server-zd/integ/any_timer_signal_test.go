@@ -36,6 +36,20 @@ func TestGreedyAnyTimerSignalFlowTemporal(t *testing.T) {
 	}
 }
 
+func TestAnyTimerSignalFlowTemporalAsyncDurability(t *testing.T) {
+	for i := 0; i < *repeatIntegTest; i++ {
+		doTestAnyTimerSignalFlow(t, asyncDurabilityConfig())
+		smallWaitForFastTest()
+	}
+}
+
+func TestGreedyAnyTimerSignalFlowTemporalSyncDurability(t *testing.T) {
+	for i := 0; i < *repeatIntegTest; i++ {
+		doTestAnyTimerSignalFlow(t, syncDurabilityConfig())
+		smallWaitForFastTest()
+	}
+}
+
 func doTestAnyTimerSignalFlow(
 	t *testing.T,
 	flowConfig *dexpb.FlowConfig,
