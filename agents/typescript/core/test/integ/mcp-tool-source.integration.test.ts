@@ -41,6 +41,7 @@ import {
   mcpToolOutcomeUnknown,
   mcpToolProgressEventType,
   type McpStdioServerConfig,
+  type McpTool,
   type McpStreamableHttpServerConfig,
 } from "../../src/mcp/index.js";
 import {
@@ -657,6 +658,18 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     assert.equal(listed.get("remote__send_payment")?.isApprovalRecommended, true);
     assert.deepEqual(tools.toolPolicies()["remote__send_payment"], { effect: "idempotent_write", requiresApproval: true });
     assert.deepEqual(tools.toolPolicies()["remote__post_note"], { effect: "non_idempotent_write", requiresApproval: false });
+    // An application policy never lowers a declared effect, and keeps a recommended approval.
+    const merged = tools.mergeToolPolicies({
+      remote__post_note: { effect: "read" },
+      remote__send_payment: { effect: "read" },
+      remote__lookup: { effect: "non_idempotent_write" },
+      local_only: { effect: "read" },
+    });
+    assert.deepEqual(merged["remote__post_note"], { effect: "non_idempotent_write", requiresApproval: false });
+    assert.deepEqual(merged["remote__send_payment"], { effect: "idempotent_write", requiresApproval: true });
+    assert.deepEqual(merged["remote__get_balance"], { effect: "read", requiresApproval: false });
+    assert.deepEqual(merged["remote__lookup"], { effect: "non_idempotent_write" });
+    assert.deepEqual(merged["local_only"], { effect: "read" });
 
     await startWorker();
     const sessionId = `mcp-dex-declared-${randomUUID()}`;
@@ -910,12 +923,21 @@ describe("Dex MCP conventions match the conformance suite", () => {
         resolveToolPolicy: (toolName: string, frameworkEffect?: ToolEffect) =>
           resolveToolPolicy(toolName, toolPolicies, "unclassified", frameworkEffect),
       } as unknown as AgentTurnContext;
-      const call = new McpToolSource([]).deferredToolCall(turn, {
+      const source = new McpToolSource([]);
+      const call = source.deferredToolCall(turn, {
         toolCallId: "call-1",
         toolName: tool.name,
         arguments: "{}",
         listedTool: tool,
       });
+      // A framework adapter resolves the tool against the merged policies instead.
+      (source as unknown as { tools: Map<string, McpTool> }).tools = new Map([[tool.name, tool]]);
+      const wholeTurnPolicy = resolveToolPolicy(
+        tool.name,
+        source.mergeToolPolicies(toolPolicies),
+        "unclassified",
+        tool.frameworkEffect,
+      );
 
       const { expected } = testCase;
       assert.equal(tool.frameworkEffect ?? null, expected.frameworkEffect);
@@ -923,6 +945,7 @@ describe("Dex MCP conventions match the conformance suite", () => {
       assert.equal(tool.isApprovalRecommended === true, expected.isApprovalRecommended);
       assert.deepEqual(call.policy, expected.policy);
       assert.equal(call.ordered === true, expected.ordered);
+      assert.deepEqual(wholeTurnPolicy, expected.policy);
     });
   }
 

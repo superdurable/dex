@@ -1337,9 +1337,10 @@ manifest declares an operation for `ConnectorToolSource`:
 - The policy's `requires_approval`, when set, wins. When it is `None`, a call
   waits for approval when the tool recommends it or the policy's effect asks
   for approval by default, as `NON_IDEMPOTENT_WRITE` does.
-- A framework adapter reads `tools.tool_policies()` merged with your own
-  policies, and there your policy replaces the declaration, so keep it at
-  least as conservative as the declared effect.
+- A framework adapter gets the same rule from
+  `tools.merge_tool_policies(your_policies)`. Do not spread your policies
+  after `tools.tool_policies()`: yours would replace the declaration and
+  could lower its effect.
 - `approval` without `effect` is ignored. An `effect` value outside the three
   above gives the tool the session's `default_tool_effect` and ignores its
   annotations, with a warning log.
@@ -1409,7 +1410,7 @@ The runner above is the core's runner-agnostic path. A framework adapter uses
 the source when it accepts tools defined by a JSON Schema: wrap each `McpTool`
 as a framework tool whose function calls `tools.call_tool(name, arguments,
 idempotency_key=...)` with the key from the adapter's tool context, and pass
-`{**tools.tool_policies(), **your_policies}` as the adapter's `tool_policies`.
+`tools.merge_tool_policies(your_policies)` as the adapter's `tool_policies`.
 No adapter package changes for this.
 
 | Adapter | Schema-only tool | Key inside the tool |

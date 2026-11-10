@@ -617,16 +617,14 @@ export class McpToolSource {
   /**
    * Returns a {@link ToolPolicy} for every listed tool whose server declares an effect.
    *
-   * Use it with a framework adapter that offers the MCP tools as its own tools: pass it in the
-   * adapter's `toolPolicies` and spread your own policies after it, so yours win. A tool with a
-   * {@link McpTool.dexEffect} gets that effect and requires approval exactly when
-   * {@link McpTool.isApprovalRecommended}; a policy you spread after it replaces both. Unlike in
-   * {@link deferredToolCall}, such a policy can lower the declared effect, so keep yours at least as
-   * conservative as {@link McpTool.dexEffect}.
+   * A tool with a {@link McpTool.dexEffect} gets that effect and requires approval exactly when
+   * {@link McpTool.isApprovalRecommended}. To give a framework adapter these policies together with your own,
+   * use {@link mergeToolPolicies}. Do not spread your policies after these: yours would then replace a
+   * declaration and could lower its effect.
    * @example
    * ```ts
    * await tools.listTools();
-   * const toolPolicies = { ...tools.toolPolicies(), files__delete: { effect: "non_idempotent_write" } };
+   * const declaredPolicies = tools.toolPolicies();
    * ```
    * @returns Policies by {@link McpTool.name}: the declared approval for a tool with a
    * {@link McpTool.dexEffect}, else the effect's default approval.
@@ -642,6 +640,54 @@ export class McpToolSource {
         policies[tool.name] = { effect: tool.dexEffect, requiresApproval: tool.isApprovalRecommended === true };
       } else if (tool.frameworkEffect !== undefined) {
         policies[tool.name] = { effect: tool.frameworkEffect };
+      }
+    }
+    return policies;
+  }
+
+  /**
+   * Returns the application's tool policies merged with what the listed servers declare.
+   *
+   * Use it with a framework adapter that offers the MCP tools as its own tools: pass the result as the
+   * adapter's `toolPolicies`, so every call gets the policy {@link deferredToolCall} would give it.
+   *
+   * For a tool with a {@link McpTool.dexEffect}, your policy may keep or raise its safety but never lowers
+   * it. The tool gets the more conservative of `dexEffect` and your policy's effect, ranked `read`,
+   * `idempotent_write`, `non_idempotent_write`, then `unclassified`. Your `requiresApproval`, when set, wins,
+   * so `false` turns off a recommended approval. When you leave it out, the tool requires approval when
+   * {@link McpTool.isApprovalRecommended} is `true` or your policy's effect requires approval by default.
+   *
+   * For any other tool, your policy wins over its annotation effect, as before. Policies for tools that no
+   * listed server offers pass through unchanged.
+   * @example
+   * ```ts
+   * await tools.listTools();
+   * const toolPolicies = tools.mergeToolPolicies({
+   *   files__delete: { effect: "non_idempotent_write" },
+   *   lookup_order: { effect: "read" },
+   * });
+   * ```
+   * @param applicationPolicies - Your policies by tool name, keyed by {@link McpTool.name} for MCP tools.
+   * @returns A new record with every entry of `applicationPolicies` and of {@link toolPolicies}. A tool with
+   * a {@link McpTool.dexEffect} gets the combined policy, with `requiresApproval` set.
+   * @throws {RangeError} When {@link listTools} has not run.
+   * @since 0.5.0
+   */
+  public mergeToolPolicies(applicationPolicies: Readonly<Record<string, ToolPolicy>>): Record<string, ToolPolicy> {
+    if (this.tools === undefined) {
+      throw new RangeError("call listTools before merging MCP tool policies");
+    }
+    const policies: Record<string, ToolPolicy> = { ...this.toolPolicies(), ...applicationPolicies };
+    for (const tool of this.tools.values()) {
+      if (tool.dexEffect !== undefined) {
+        const applicationPolicy = Object.hasOwn(applicationPolicies, tool.name)
+          ? applicationPolicies[tool.name]
+          : undefined;
+        policies[tool.name] = combineDeclaredToolPolicy(
+          tool.dexEffect,
+          tool.isApprovalRecommended === true,
+          applicationPolicy,
+        );
       }
     }
     return policies;

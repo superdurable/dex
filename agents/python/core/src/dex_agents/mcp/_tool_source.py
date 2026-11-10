@@ -636,18 +636,15 @@ class McpToolSource:
     def tool_policies(self) -> dict[str, ToolPolicy]:
         """Return a ``ToolPolicy`` for every listed tool whose server declares an effect.
 
-        Use it with a framework adapter that offers the MCP tools as its own
-        tools: pass it in the adapter's ``tool_policies`` and put your own
-        policies after it, so yours win. A tool with a ``dex_effect`` gets that
-        effect and requires approval exactly when ``is_approval_recommended``;
-        a policy you put after it replaces both. Unlike in
-        ``deferred_tool_call``, such a policy can lower the declared effect,
-        so keep yours at least as conservative as ``dex_effect``.
+        A tool with a ``dex_effect`` gets that effect and requires approval
+        exactly when ``is_approval_recommended``. To give a framework adapter
+        these policies together with your own, use ``merge_tool_policies``.
+        Do not put your policies after these in one dict: yours would then
+        replace a declaration and could lower its effect.
 
         Example:
             >>> await tools.list_tools()
-            >>> tool_policies = {**tools.tool_policies(), "files__delete": ToolPolicy(
-            ...     ToolEffect.NON_IDEMPOTENT_WRITE)}
+            >>> declared_policies = tools.tool_policies()
 
         Returns:
             Policies by ``McpTool.name``: the declared approval for a tool
@@ -664,6 +661,61 @@ class McpToolSource:
                 policies[tool.name] = ToolPolicy(tool.dex_effect, tool.is_approval_recommended)
             elif tool.framework_effect is not None:
                 policies[tool.name] = ToolPolicy(tool.framework_effect)
+        return policies
+
+    def merge_tool_policies(
+        self, application_policies: Mapping[str, ToolPolicy]
+    ) -> dict[str, ToolPolicy]:
+        """Return the application's tool policies merged with what the listed servers declare.
+
+        Use it with a framework adapter that offers the MCP tools as its own
+        tools: pass the result as the adapter's ``tool_policies``, so every
+        call gets the policy ``deferred_tool_call`` would give it.
+
+        For a tool with a ``dex_effect``, your policy may keep or raise its
+        safety but never lowers it. The tool gets the more conservative of
+        ``dex_effect`` and your policy's effect, ranked ``READ``,
+        ``IDEMPOTENT_WRITE``, ``NON_IDEMPOTENT_WRITE``, then ``UNCLASSIFIED``.
+        Your ``requires_approval``, when set, wins, so ``False`` turns off a
+        recommended approval. When it is ``None``, the tool requires approval
+        when ``is_approval_recommended`` is ``True`` or your policy's effect
+        requires approval by default.
+
+        For any other tool, your policy wins over its annotation effect, as
+        before. Policies for tools that no listed server offers pass through
+        unchanged.
+
+        Example:
+            >>> await tools.list_tools()
+            >>> tool_policies = tools.merge_tool_policies({
+            ...     "files__delete": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+            ...     "lookup_order": ToolPolicy(ToolEffect.READ),
+            ... })
+
+        .. versionadded:: 0.5.0
+
+        Args:
+            application_policies: Your policies by tool name, keyed by
+                ``McpTool.name`` for MCP tools.
+
+        Returns:
+            A new dict with every entry of ``application_policies`` and of
+            ``tool_policies``. A tool with a ``dex_effect`` gets the combined
+            policy, with ``requires_approval`` set.
+
+        Raises:
+            LookupError: If ``list_tools`` has not run.
+        """
+        if self._tools is None:
+            raise LookupError("call list_tools before merging MCP tool policies")
+        policies = {**self.tool_policies(), **application_policies}
+        for tool in self._tools.values():
+            if tool.dex_effect is not None:
+                policies[tool.name] = _combine_declared_tool_policy(
+                    tool.dex_effect,
+                    tool.is_approval_recommended,
+                    application_policies.get(tool.name),
+                )
         return policies
 
     def deferred_tool_call(

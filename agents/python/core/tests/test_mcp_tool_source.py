@@ -1427,12 +1427,21 @@ def test_dex_tool_definitions_map_as_the_conformance_suite_says(case: dict[str, 
             )
         }
     )
-    call = McpToolSource([]).deferred_tool_call(
+    source = McpToolSource([])
+    call = source.deferred_tool_call(
         _dex_turn(tool_policies),
         tool_call_id="call-1",
         tool_name=tool.name,
         arguments="{}",
         listed_tool=tool,
+    )
+    # A framework adapter resolves the tool against the merged policies instead.
+    source._tools = {tool.name: tool}
+    whole_turn_policy = resolve_tool_policy(
+        tool.name,
+        source.merge_tool_policies(tool_policies),
+        ToolEffect.UNCLASSIFIED,
+        tool.framework_effect,
     )
 
     expected = case["expected"]
@@ -1442,6 +1451,9 @@ def test_dex_tool_definitions_map_as_the_conformance_suite_says(case: dict[str, 
     assert call.policy.effect == expected["policy"]["effect"]
     assert call.policy.is_approval_required is expected["policy"]["requiresApproval"]
     assert call.ordered is expected["ordered"]
+    assert whole_turn_policy == ToolPolicy(
+        ToolEffect(expected["policy"]["effect"]), expected["policy"]["requiresApproval"]
+    )
 
 
 @pytest.mark.parametrize("case", DEX_CONVENTIONS["resultCases"], ids=lambda case: str(case["name"]))
@@ -1473,6 +1485,20 @@ async def test_dex_meta_declares_effect_and_approval_and_a_policy_only_raises_sa
     assert tools.tool_policies()["remote__post_note"] == ToolPolicy(
         ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False
     )
+    # An application policy never lowers a declared effect, and keeps a recommended approval.
+    merged = tools.merge_tool_policies(
+        {
+            "remote__post_note": ToolPolicy(ToolEffect.READ),
+            "remote__send_payment": ToolPolicy(ToolEffect.READ),
+            "remote__lookup": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+            "local_only": ToolPolicy(ToolEffect.READ),
+        }
+    )
+    assert merged["remote__post_note"] == ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, False)
+    assert merged["remote__send_payment"] == ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, True)
+    assert merged["remote__get_balance"] == ToolPolicy(ToolEffect.READ, False)
+    assert merged["remote__lookup"] == ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE)
+    assert merged["local_only"] == ToolPolicy(ToolEffect.READ)
 
     await mcp_harness.stack.start_worker()
     session_id = mcp_harness.new_session_id()

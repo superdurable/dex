@@ -1,5 +1,5 @@
 {
-  "description": "Dex MCP conventions every core's McpToolSource must match: the _meta keys, how a tool definition's keys pick its effect, approval, and order, and how a result's or an error's outcome key is recorded. Hand-written; see README.md.",
+  "description": "Dex MCP conventions every core's McpToolSource must match: the _meta keys, how a tool definition's keys pick its effect, approval, and order, and how a result's or an error's outcome key is recorded. Each definition case's sessionPolicy is the application's policy, and its expected policy holds both for deferred_tool_call and for a framework adapter that resolves the tool against merge_tool_policies. Hand-written; see README.md.",
   "metaKeys": {
     "idempotencyKey": "io.superdurable.dex/idempotencyKey",
     "toolEffect": "io.superdurable.dex/effect",
@@ -114,6 +114,32 @@
         "frameworkEffect": "non_idempotent_write",
         "dexEffect": "non_idempotent_write",
         "isApprovalRecommended": true,
+        "policy": {
+          "effect": "non_idempotent_write",
+          "requiresApproval": false
+        },
+        "ordered": true
+      }
+    },
+    {
+      "name": "a read session policy never lowers a declared non-idempotent write without approval",
+      "tool": {
+        "name": "post_note",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "non_idempotent_write"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": {
+        "effect": "read"
+      },
+      "expected": {
+        "frameworkEffect": "non_idempotent_write",
+        "dexEffect": "non_idempotent_write",
+        "isApprovalRecommended": false,
         "policy": {
           "effect": "non_idempotent_write",
           "requiresApproval": false
