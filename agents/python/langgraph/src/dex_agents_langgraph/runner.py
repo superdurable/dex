@@ -16,12 +16,14 @@ import json
 import threading
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, TypeAlias
 from uuid import UUID, uuid4
 
 from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
     AgentFrameworkRunner,
+    AgentToolCall,
     AgentTurnContext,
     AgentTurnOutcome,
     AgentUsage,
@@ -29,9 +31,11 @@ from dex_agents import (
     ContextSummaryResult,
     DeferredToolCall,
     DeferredToolExecution,
+    DeferredToolOutcome,
     FrameworkMessage,
     ModelCallMetadata,
     ToolCallsRequested,
+    ToolCallStepOptions,
     ToolExecutionError,
     ToolExecutionResult,
     TurnCompleted,
@@ -41,6 +45,12 @@ from dex_agents import (
     estimate_stored_input_tokens,
     estimate_text_tokens,
     select_turn_boundary_cutoff,
+)
+from dex_agents.stepwise import (
+    DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    FrameworkToolSourceRouter,
+    SourceToolListing,
+    ToolSource,
 )
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
@@ -83,6 +93,7 @@ from dex_agents_langgraph.tool_deferral import (
     _recorded_outcomes_resume_value,
     _RecordedToolCallOutcome,
     _RunModelBinding,
+    _source_tool_as_langchain_tool,
 )
 
 #: A compiled LangGraph graph, as ``create_agent`` and ``StateGraph.compile`` return it.
@@ -119,7 +130,7 @@ _GEN_AI_PROVIDER_NAMES = {
 }
 
 
-class LangGraphAgentRunner(AgentFrameworkRunner):
+class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     """Run a LangChain agent or a LangGraph graph inside an agent session Flow.
 
     Most applications build the Flow with ``langchain_agent_session_flow`` or
@@ -154,6 +165,16 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
     The runner keeps no session state between calls. It builds the graph from
     a factory once, on first use, and shares it across sessions.
 
+    Tool sources, such as ``ConnectorToolSource``, add tools that the runner
+    lists in every ``RunModel``. ``DurableToolCallMiddleware`` adds them to
+    every model request of a ``create_agent`` agent; a custom graph binds
+    ``get_current_tool_source_tools()`` in its model node. Their bodies never
+    run: every call is deferred and runs once in its own tool Step through
+    the source that built it. The source picks the effect class, the
+    approval, the write ordering, and the tool Step's timeout and retry
+    policy. The runner polls no tool tasks, so a source call that starts one
+    records ``FAILED`` for a ``READ`` call and ``OUTCOME_UNKNOWN`` otherwise.
+
     The runner implements ``ContextCompactionRunner``. With a ``summary_model``
     and ``AgentSessionOptions.compaction``, the session compacts at turn
     boundaries: the summary enters as the first message of the graph input. A
@@ -179,6 +200,8 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
         messages_key: str = "messages",
         checkpoint_serializer: SerializerProtocol | None = None,
         summary_model: BaseChatModel | None = None,
+        tool_sources: Sequence[ToolSource] = (),
+        tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     ) -> None:
         """Create a runner for one compiled graph.
 
@@ -206,12 +229,32 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
                 fail.
 
                 .. versionadded:: 0.3.0
+            tool_sources: Tool sources, such as ``ConnectorToolSource``, whose
+                tools every ``RunModel`` lists and offers to the model. Each
+                source has a unique ``source_name``, which the runner stores
+                with every call it builds, so the tool Step reaches that
+                source on any Worker. A ``tool_policies`` entry for a
+                connector tool changes only its approval. Defaults to none.
+
+                .. versionadded:: 0.4.0
+            tool_source_listing_timeout: How long one ``RunModel`` waits for
+                each source's ``list_tools``. A source that fails or takes
+                longer offers no tools in that model call. Defaults to 10
+                seconds.
+
+                .. versionadded:: 0.4.0
 
         Raises:
-            TypeError: If ``graph`` is neither a compiled graph nor callable.
+            TypeError: If ``graph`` is neither a compiled graph nor callable,
+                or a tool source lacks a ``ToolSource`` method or a non-blank
+                ``source_name``.
             ValueError: If a compiled ``graph`` has no ``messages_key`` channel,
                 uses a ``DeltaChannel``, or has two tool nodes whose different
-                tools share a name that ``tools`` does not settle.
+                tools share a name that ``tools`` does not settle; if two tool
+                sources share a ``source_name``; if a source's
+                ``declared_tool_names`` repeat a tool of ``tools``, a tool of a
+                compiled ``graph``, or another source's tool; or if
+                ``tool_source_listing_timeout`` is not positive.
         """
         if not isinstance(graph, Pregel) and not callable(graph):
             raise TypeError("graph must be a compiled LangGraph graph or a function returning one")
@@ -225,6 +268,15 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
             _inspect_compiled_graph(graph, messages_key, self._explicit_tools)
             if isinstance(graph, Pregel)
             else None
+        )
+        self._tool_sources = FrameworkToolSourceRouter(
+            tool_sources,
+            reserved_tool_names=set(
+                self._explicit_tools
+                if self._loaded_graph is None
+                else self._loaded_graph.tools_by_name
+            ),
+            listing_timeout=tool_source_listing_timeout,
         )
 
     def build_user_message(self, text: str) -> FrameworkMessage:
@@ -260,9 +312,14 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
                 resume a recorded tool call, raised an interrupt that is not a
                 deferred tool call, or paused at a static ``interrupt_before`` or
                 ``interrupt_after`` node.
-            ValueError: If the stored history or run state cannot be read.
+            ValueError: If the stored history or run state cannot be read, or a
+                tool source listed a name that a tool of the graph or another
+                source's tool uses.
         """
         loaded_graph = await self._load_graph()
+        source_tools = await self._tool_sources.list_source_tools(
+            turn, reserved_tool_names=loaded_graph.tools_by_name.keys()
+        )
         history = framework_messages_to_langchain_messages(turn.messages)
         if turn.context_summary is not None:
             # A fixed ID keeps the summary out of the turn's new messages, resumed calls too.
@@ -290,7 +347,12 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
             "configurable": {"thread_id": thread_id},
             "callbacks": [turn_callbacks],
         }
-        binding = _RunModelBinding(turn=turn, tools_by_name=loaded_graph.tools_by_name)
+        binding = _RunModelBinding(
+            turn=turn,
+            tools_by_name=loaded_graph.tools_by_name,
+            source_tools=[_source_tool_as_langchain_tool(tool) for tool in source_tools.tools],
+            source_tool_listing=source_tools,
+        )
         with _bind_run_model(binding):
             async for streamed in graph.astream(
                 graph_input,
@@ -312,7 +374,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
         model_call_metadata = turn_callbacks.model_call_metadata()
         if snapshot.interrupts:
             return await self._request_tool_calls(
-                saver, thread_id, snapshot, usage, model_call_metadata
+                turn, source_tools, saver, thread_id, snapshot, usage, model_call_metadata
             )
         if snapshot.next:
             raise RuntimeError(
@@ -415,8 +477,12 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
             ),
         )
 
-    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
         """Run one tool call once, in its own Step, with the tool's own ``ainvoke``.
+
+        A call that a tool source built goes to that source instead, found by
+        the source name stored with the call, with the source's own reference
+        and the tool Step's live context.
 
         The arguments are first validated against the tool's
         ``tool_call_schema``. The tool then receives a ``ToolCall`` with the
@@ -431,11 +497,16 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
 
         Returns:
             The tool's output text. Content that is not a string is JSON text.
+            For a source call, the source's outcome.
 
         Raises:
             ToolExecutionError: The graph has no such tool, the arguments do not
                 match the tool's schema, the tool raised ``ToolException``, or
-                it returned an error ``ToolMessage``.
+                it returned an error ``ToolMessage``; or the source raised it.
+            ToolOutcomeUnknownError: The source cannot tell whether the call
+                took effect. The session records ``OUTCOME_UNKNOWN``.
+            LookupError: A source built the call, but no source of that name
+                is configured on this Worker, so the effect class decides.
             TypeError: The tool returned something other than a
                 ``ToolMessage``, such as a graph ``Command``.
             Exception: Any other exception from the tool, including a
@@ -444,8 +515,10 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
                 ``FAILED`` for a ``READ`` call and ``OUTCOME_UNKNOWN`` for a
                 write, because the write may have taken effect.
         """
-        loaded_graph = await self._load_graph()
         record = call.tool_call
+        if self._tool_sources.is_source_tool_call(record):
+            return await self._tool_sources.execute_deferred_tool_call(call)
+        loaded_graph = await self._load_graph()
         tool = loaded_graph.tools_by_name.get(record.tool_name)
         if tool is None:
             raise ToolExecutionError(f"the agent has no tool named {record.tool_name}")
@@ -471,6 +544,29 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
             raise ToolExecutionError(output)
         return ToolExecutionResult(output=output)
 
+    def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        """Return a tool source's options for one call's tool Step.
+
+        A source that defines ``tool_call_step_options(tool_call)`` gives its
+        calls their own timeout and retry policy, as ``ConnectorToolSource``
+        does from each operation's manifest. The graph's own tools keep the
+        tool Steps' defaults.
+
+        .. versionadded:: 0.4.0
+
+        Args:
+            tool_call: The record whose tool Step starts.
+
+        Returns:
+            The source's options, or ``None`` for the defaults.
+
+        Raises:
+            LookupError: If a source built the call but no source of that name
+                is configured on this Worker. The session then uses the
+                defaults.
+        """
+        return self._tool_sources.tool_call_step_options(tool_call)
+
     async def _load_graph(self) -> _LoadedGraph:
         if self._loaded_graph is not None:
             return self._loaded_graph
@@ -488,6 +584,8 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
 
     async def _request_tool_calls(
         self,
+        turn: AgentTurnContext,
+        source_tools: SourceToolListing,
         saver: TurnCheckpointSaver,
         thread_id: str,
         snapshot: StateSnapshot,
@@ -520,7 +618,14 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
                 saver, thread_id, pending_interrupts
             ),
             tool_calls=[
-                DeferredToolCall(
+                # The source builds its calls, so its effect class and write ordering apply.
+                source_tools.deferred_tool_call(
+                    turn,
+                    tool_call_id=request.tool_call_id,
+                    tool_name=request.tool_name,
+                    arguments=request.arguments,
+                )
+                or DeferredToolCall(
                     tool_call_id=request.tool_call_id,
                     tool_name=request.tool_name,
                     arguments=request.arguments,
@@ -715,6 +820,7 @@ def _resume_values(
             outcomes.append(
                 _RecordedToolCallOutcome(
                     tool_call_id=tool_call_id,
+                    tool_name=record.tool_name,
                     status=record.status,
                     output=describe_tool_call_outcome(record),
                 )

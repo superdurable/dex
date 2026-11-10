@@ -184,6 +184,64 @@ response that calls a control tool together with other tools fails the turn
 before any tool runs, because ADK would apply the control tool before the
 other results exist.
 
+## Tool sources and connector tools
+
+`tool_sources` takes the core's tool sources, such as `ConnectorToolSource`,
+which offers reviewed Connector operations (install `dex-agents[connectors]`).
+See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks/deploy-agents.mdx#connector-tools)
+for what the manifest decides.
+
+```python
+from dex_agents.connectors import ConnectorToolSource, connector_tool
+
+stripe = new_project_connection(project, "billing-stripe")
+flow = adk_agent_session_flow(
+    agent,
+    flow_type="SupportAgent",
+    tool_sources=[
+        ConnectorToolSource([
+            connector_tool(stripe.operations.create_refund(), stripe.reference),
+        ]),
+    ],
+)
+```
+
+- ADK resumes a confirmed call only with one of the agent's own tools, so
+  the runner adds one toolset to the `tools` of every `LlmAgent` of the tree
+  when it is built. Each `RunModel` lists every source, and the toolset offers
+  that listing, with the source's name, description, and JSON Schema. Outside
+  the runner's `RunModel` it lists nothing, so the agents behave as before.
+  The agent's `before_tool_callback` chain still sees each call first.
+- Every call of a source tool defers, reads included, and runs once in its own
+  tool Step through the source's `execute_deferred_tool_call`, never inside
+  the framework. A connector call derives its Call ID from the Step execution
+  ID and keeps its fence marker in the Step's heartbeat checkpoint.
+- The source builds each call, so it decides the effect class, the approval,
+  and whether the call is an ordered write; `tool_call_step_options` gives the
+  tool Step the operation's timeout and retry policy. A `tool_policies` entry
+  for a connector tool changes only its approval.
+- Writes of one model response run one at a time in the model's order, as in a
+  Stepwise agent. Once one does not succeed, the later ones record `failed`
+  with `skipped`.
+- Definition fails with `ValueError` when two sources share a `source_name`,
+  or a source's `declared_tool_names` repeat a tool, an agent name, or an ADK
+  control tool of the tree, or another source's tool. The same names listed at
+  run time fail that `RunModel` attempt.
+- The runner polls no tool tasks. A source call that starts one records
+  `failed` for a `read` call and `outcome_unknown` otherwise. A source whose
+  listing fails or takes longer than `tool_source_listing_timeout` offers no
+  tools in that model call. A tool the turn already called but the listing
+  lacks is replay-only: the resumed run replays its recorded call from the
+  source's `cached_tools()`, and a new call of it is refused inside the
+  framework (the tool stays offered so ADK can resume its recorded call, and
+  the plugin answers the refusal: "<name> did not run: its tool source does
+  not offer this tool now."), so it never reaches a tool Step.
+- A recorded result replays once, for the call that paused, and only under the
+  tool name it was recorded for; a later call that reuses its tool call ID
+  fails the `RunModel` attempt instead of reading that result. A tool that a
+  toolset, such as an MCP server, lists at run time under a source tool's name
+  fails the `RunModel` attempt before the model is called.
+
 ## How a tool call runs
 
 The adapter adds a plugin, after the App's own plugins, to a copy of the App
@@ -314,6 +372,16 @@ engines. It reads `DEXCLI`. The tests use real ADK agents, driven by scripted
 each turn's Step history with `dex_agents.testing.read_step_history`. A Worker
 child runs in its own process group, so a test can SIGKILL it during
 `RunModel` or a tool Step.
+
+`tests/test_connector_tools.py` runs connector tools from a copy of the core
+tests' fake ledger Connector (`tests/fake_ledger`): a Query in its tool Step,
+an approved Mutation that runs once, a session policy that changes only
+approval, a `retry: safe` Mutation retried with the same Call ID, `uncertain`
+writes recorded `outcome_unknown`, two writes of one response in the model's
+order, an unknown or rejected write that skips the later write, a withdrawn
+tool whose new call is refused, a reused call ID, the operation's tool Step
+options, an unexposed operation, refused name collisions, and a run-time
+toolset name collision.
 
 ## Compaction
 

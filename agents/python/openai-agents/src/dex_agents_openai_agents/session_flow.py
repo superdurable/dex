@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from typing import Any
 
@@ -27,6 +27,7 @@ from dex_agents import (
     ToolEffect,
     ToolPolicy,
 )
+from dex_agents.stepwise import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
 from dex_agents_openai_agents.runner import OpenAIAgentsRunner
 
 
@@ -47,6 +48,8 @@ def openai_agents_session_flow(
     compaction: CompactionPolicy | None = None,
     retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT,
     summary_model: str | Model | None = None,
+    tool_sources: Sequence[ToolSource] = (),
+    tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
 ) -> AgentSessionFlow:
     """Build the durable Step-mode agent session Flow for one OpenAI Agents SDK agent.
 
@@ -63,6 +66,11 @@ def openai_agents_session_flow(
     setting requires approval. Policies are keyed by the tool's qualified name,
     which is ``FunctionTool.qualified_name``: the tool name, or
     ``"<namespace>.<name>"`` for a namespaced tool.
+
+    Tool sources add tools that always run in their own tool Step, reads
+    included. ``ConnectorToolSource`` offers reviewed Connector operations
+    this way: each call gets the operation's effect class, approval, Call ID,
+    timeout, and retry policy from its manifest, as in a Stepwise agent.
 
     Example:
         >>> @function_tool
@@ -90,7 +98,8 @@ def openai_agents_session_flow(
         tool_policies: Policies by qualified tool name. They override MCP
             annotations on converted MCP function tools and
             ``default_tool_effect``. Every name must be a function tool or an
-            accepted at-least-once tool of the agent graph. Defaults to none.
+            accepted at-least-once tool of the agent graph, or a tool of a
+            tool source. Defaults to none.
         default_tool_effect: Effect for tools without a policy. Defaults to
             ``UNCLASSIFIED``: one attempt, after approval.
         interrupt_deadline: How long an approval may stay pending before the
@@ -121,6 +130,16 @@ def openai_agents_session_flow(
         summary_model: Model of the summary call. ``None`` uses the agent's model.
 
             .. versionadded:: 0.3.0
+        tool_sources: Tool sources, such as ``ConnectorToolSource``, whose
+            tools every agent of the graph offers. See ``OpenAIAgentsRunner``.
+            A ``tool_policies`` entry for a connector tool changes only its
+            approval. Defaults to none.
+
+            .. versionadded:: 0.4.0
+        tool_source_listing_timeout: How long one ``RunModel`` waits for each
+            source's ``list_tools``. Defaults to 10 seconds.
+
+            .. versionadded:: 0.4.0
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with ``OpenAIAgentsRunner``.
@@ -131,7 +150,10 @@ def openai_agents_session_flow(
             known target agent, an agent tool's nested agent has a tool that
             needs approval, a policy names an unknown tool, or the graph has a
             tool the SDK cannot gate and ``allow_at_least_once_tools`` is
-            ``False``.
+            ``False``, or a tool source is invalid as ``OpenAIAgentsRunner``
+            describes.
+        TypeError: If a tool source lacks a ``ToolSource`` method or a
+            non-blank ``source_name``.
     """
     options = AgentSessionOptions(
         tool_policies=dict(tool_policies or {}),
@@ -150,6 +172,8 @@ def openai_agents_session_flow(
         hooks=hooks,
         allow_at_least_once_tools=allow_at_least_once_tools,
         summary_model=summary_model,
+        tool_sources=tool_sources,
+        tool_source_listing_timeout=tool_source_listing_timeout,
     )
     runner.validate_tool_policies(options.tool_policies)
     return AgentSessionFlow(runner, flow_type=flow_type, options=options)

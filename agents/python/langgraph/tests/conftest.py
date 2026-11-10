@@ -34,6 +34,14 @@ from dex_agents.testing import (
     wait_for_agent_snapshot,
 )
 
+from tests.connector_agent import (
+    CONNECTOR_CREATE_AGENT_FLOW_TYPE,
+    CONNECTOR_STATE_GRAPH_FLOW_TYPE,
+    build_connector_agent_flows,
+)
+from tests.fake_ledger import (
+    STATE_DIR_ENVIRONMENT_VARIABLE as LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE,
+)
 from tests.scripted_agents import (
     CREATE_AGENT_FLOW_TYPE,
     INVOCATION_LOG_NAME,
@@ -47,6 +55,9 @@ PACKAGE_DIR = Path(__file__).resolve().parents[1]
 WORKER_MODULE = "tests.scripted_worker"
 #: Both ways to build an agent; tests parametrized over it run once per way.
 AGENT_FLOW_TYPES = [CREATE_AGENT_FLOW_TYPE, STATE_GRAPH_FLOW_TYPE]
+CONNECTOR_WORKER_MODULE = "tests.connector_worker"
+#: Both ways to offer tool source tools; connector tests run once per way.
+CONNECTOR_FLOW_TYPES = [CONNECTOR_CREATE_AGENT_FLOW_TYPE, CONNECTOR_STATE_GRAPH_FLOW_TYPE]
 
 
 @dataclass
@@ -151,5 +162,30 @@ async def harness(tmp_path: Path, agent_flow_type: str) -> AsyncIterator[Scripte
         WORKER_MODULE,
         worker_cwd=PACKAGE_DIR,
         worker_env={STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
+    ) as stack:
+        yield ScriptedAgentHarness(stack, flow, stack.sessions(flow), state_dir)
+
+
+@pytest.fixture
+def connector_flow_type() -> str:
+    """Selects the connector agent under test; tests parametrize it with CONNECTOR_FLOW_TYPES."""
+    return CONNECTOR_CREATE_AGENT_FLOW_TYPE
+
+
+@pytest_asyncio.fixture
+async def connector_harness(
+    tmp_path: Path, connector_flow_type: str
+) -> AsyncIterator[ScriptedAgentHarness]:
+    """Starts a private engine for the agents whose tool source offers fake ledger operations."""
+    state_dir = tmp_path / "ledger-state"
+    state_dir.mkdir()
+    flows = build_connector_agent_flows(state_dir)
+    flow = next(flow for flow in flows if flow.get_flow_type() == connector_flow_type)
+    async with AgentTestStack(
+        tmp_path,
+        flows,
+        CONNECTOR_WORKER_MODULE,
+        worker_cwd=PACKAGE_DIR,
+        worker_env={LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
     ) as stack:
         yield ScriptedAgentHarness(stack, flow, stack.sessions(flow), state_dir)

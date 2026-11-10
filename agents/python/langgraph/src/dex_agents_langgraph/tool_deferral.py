@@ -18,10 +18,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dex_agents import AgentTurnContext, ToolCallStatus, ToolEffect, ToolPolicy
-from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import AnyMessage, ToolCall, ToolMessage
+from dex_agents.stepwise import SourceToolDefinition, SourceToolListing
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain_core.messages import AIMessage, AnyMessage, ToolCall, ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
@@ -36,6 +37,8 @@ _DEFERRED_TOOL_CALLS_INTERRUPT_TYPE = "dex_deferred_tool_calls"
 
 #: The callable a ``wrap_tool_call`` hook receives to run the tool.
 ToolCallExecutor = Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
+
+_ModelCallResult = ModelResponse[Any] | AIMessage
 
 
 class DurableToolCallMiddleware(AgentMiddleware):
@@ -53,6 +56,11 @@ class DurableToolCallMiddleware(AgentMiddleware):
     Put it first in ``middleware`` so it is the outermost tool wrapper.
     Middleware listed before it see every tool call. Middleware listed after it
     never see a call inside a session, because the tool runs outside the graph.
+
+    Inside a session it also adds the tools of the session's tool sources,
+    such as ``ConnectorToolSource``, to every model request, after the
+    agent's own tools, so the model can call them. Their calls are deferred
+    like any other call and run through their source in their own Step.
 
     The middleware works only while an agent session runs the graph. Invoking
     the agent outside a session raises ``RuntimeError`` on the first tool call,
@@ -97,6 +105,48 @@ class DurableToolCallMiddleware(AgentMiddleware):
             RuntimeError: If no agent session runs the graph.
         """
         return await awrap_durable_tool_call(request, handler)
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], _ModelCallResult],
+    ) -> _ModelCallResult:
+        """Add the session's tool source tools to one model request.
+
+        ``create_agent`` calls this hook for every model call; applications do
+        not call it. Outside a session the request passes unchanged.
+
+        .. versionadded:: 0.4.0
+
+        Args:
+            request: The model request.
+            handler: Runs the model, or the next wrapper.
+
+        Returns:
+            What ``handler`` returns.
+        """
+        return handler(_with_source_tools(request))
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], Awaitable[_ModelCallResult]],
+    ) -> _ModelCallResult:
+        """Add the session's tool source tools to one model request.
+
+        ``create_agent`` calls this hook for every model call; applications do
+        not call it. Outside a session the request passes unchanged.
+
+        .. versionadded:: 0.4.0
+
+        Args:
+            request: The model request.
+            handler: Runs the model, or the next wrapper.
+
+        Returns:
+            What ``handler`` returns.
+        """
+        return await handler(_with_source_tools(request))
 
 
 async def awrap_durable_tool_call(
@@ -238,6 +288,35 @@ def durable_tool_node(
     return DurableToolNode(tools, **tool_node_options)
 
 
+def get_current_tool_source_tools() -> list[BaseTool]:
+    """Return the tools that the session's tool sources offer to the current model call.
+
+    Call it in the model node of a custom graph and bind the tools next to the
+    graph's own, so the model can call them. ``DurableToolCallMiddleware``
+    adds them to a ``create_agent`` agent by itself. Each tool has the
+    source's name, description, and JSON Schema. Its body never runs: a
+    ``durable_tool_node`` defers every call, and the session runs it through
+    its source in its own Step.
+
+    .. versionadded:: 0.4.0
+
+    Example:
+        >>> async def call_model(state: MessagesState) -> dict[str, list[AIMessage]]:
+        ...     tools = [search_orders, *get_current_tool_source_tools()]
+        ...     reply = await model.bind_tools(tools).ainvoke(state["messages"])
+        ...     return {"messages": [reply]}
+
+    Returns:
+        The tools of the ``RunModel`` that runs the graph, in the order the
+        sources list them; empty outside a session, in a tool Step, and when
+        the session has no tool sources.
+    """
+    binding = _ACTIVE_TOOL_BINDING.get()
+    if not isinstance(binding, _RunModelBinding):
+        return []
+    return list(binding.source_tools)
+
+
 def tool_effect_from_metadata(tool: BaseTool) -> ToolEffect | None:
     """Return the effect a tool's metadata declares, as MCP annotations do.
 
@@ -299,6 +378,8 @@ def get_tool_call_idempotency_key(config: RunnableConfig) -> str | None:
 class _RunModelBinding:
     turn: AgentTurnContext
     tools_by_name: Mapping[str, BaseTool]
+    source_tools: Sequence[BaseTool] = ()
+    source_tool_listing: SourceToolListing | None = None
     resumed_tool_call_ids: set[str] = field(default_factory=set)
 
 
@@ -323,6 +404,7 @@ class _DeferredToolCallRequest:
 @dataclass(frozen=True, kw_only=True)
 class _RecordedToolCallOutcome:
     tool_call_id: str
+    tool_name: str
     status: ToolCallStatus
     output: str
 
@@ -372,7 +454,11 @@ def _recorded_outcomes_resume_value(
 ) -> dict[str, Any]:
     return {
         "results": {
-            outcome.tool_call_id: {"status": str(outcome.status), "output": outcome.output}
+            outcome.tool_call_id: {
+                "tool_name": outcome.tool_name,
+                "status": str(outcome.status),
+                "output": outcome.output,
+            }
             for outcome in outcomes
         }
     }
@@ -385,6 +471,7 @@ def _recorded_outcomes_from_resume_value(value: object) -> dict[str, _RecordedTo
     return {
         str(tool_call_id): _RecordedToolCallOutcome(
             tool_call_id=str(tool_call_id),
+            tool_name=str(result["tool_name"]),
             status=ToolCallStatus(result["status"]),
             output=str(result["output"]),
         )
@@ -398,8 +485,17 @@ def _defer_tool_calls(
     request_tool: BaseTool | None,
     node_tools_by_name: Mapping[str, BaseTool] | None = None,
 ) -> list[ToolMessage]:
-    requests = [
-        _DeferredToolCallRequest(
+    for tool_call in tool_calls:
+        if not tool_call["id"]:
+            # The session records and runs each call by its ID, so it cannot guess one.
+            raise RuntimeError(
+                f"the model called tool {tool_call['name']} without a tool call ID; a Dex "
+                "agent session needs one to record the call"
+            )
+    # One entry per call, in model order: a refusal text, or the request that is deferred.
+    entries: list[str | _DeferredToolCallRequest] = [
+        _source_tool_refusal(binding, tool_call["id"] or "", tool_call["name"])
+        or _DeferredToolCallRequest(
             tool_call_id=tool_call["id"] or "",
             tool_name=tool_call["name"],
             arguments=json.dumps(tool_call["args"], ensure_ascii=False, default=to_jsonable_python),
@@ -414,18 +510,62 @@ def _defer_tool_calls(
         )
         for tool_call in tool_calls
     ]
+    requests = [entry for entry in entries if isinstance(entry, _DeferredToolCallRequest)]
     # No side effect may precede interrupt(): LangGraph reruns this node from its start.
-    recorded = _recorded_outcomes_from_resume_value(
-        interrupt(_deferred_tool_calls_interrupt_value(requests))
+    recorded = (
+        _recorded_outcomes_from_resume_value(
+            interrupt(_deferred_tool_calls_interrupt_value(requests))
+        )
+        if requests
+        else {}
     )
     tool_messages: list[ToolMessage] = []
-    for request in requests:
-        outcome = recorded.get(request.tool_call_id)
-        if outcome is None:
-            raise RuntimeError(f"tool call {request.tool_call_id} resumed without its result")
-        binding.resumed_tool_call_ids.add(request.tool_call_id)
-        tool_messages.append(outcome.to_tool_message(request.tool_name))
+    for tool_call, entry in zip(tool_calls, entries, strict=True):
+        if isinstance(entry, _DeferredToolCallRequest):
+            tool_messages.append(_recorded_tool_message(binding, entry, recorded))
+        else:
+            tool_messages.append(
+                ToolMessage(
+                    content=entry,
+                    tool_call_id=tool_call["id"] or "",
+                    name=tool_call["name"],
+                    status="error",
+                )
+            )
     return tool_messages
+
+
+def _source_tool_refusal(
+    binding: _RunModelBinding, tool_call_id: str, tool_name: str
+) -> str | None:
+    """Return the refusal of a new call of a tool its source no longer lists, else ``None``."""
+    listing = binding.source_tool_listing
+    if listing is None or binding.turn.recorded_tool_call(tool_call_id) is not None:
+        return None
+    return listing.not_offered_result(tool_name) if listing.is_replay_only(tool_name) else None
+
+
+def _recorded_tool_message(
+    binding: _RunModelBinding,
+    request: _DeferredToolCallRequest,
+    recorded: Mapping[str, _RecordedToolCallOutcome],
+) -> ToolMessage:
+    """Replay a resumed call's record once, and only for the tool the record names."""
+    outcome = recorded.get(request.tool_call_id)
+    if outcome is None:
+        raise RuntimeError(f"tool call {request.tool_call_id} resumed without its result")
+    if outcome.tool_name != request.tool_name:
+        raise RuntimeError(
+            f"tool call {request.tool_call_id} is recorded for {outcome.tool_name}, "
+            f"not {request.tool_name}"
+        )
+    if request.tool_call_id in binding.resumed_tool_call_ids:
+        raise RuntimeError(
+            f"tool call {request.tool_call_id} already replayed its recorded result in this "
+            "model call"
+        )
+    binding.resumed_tool_call_ids.add(request.tool_call_id)
+    return outcome.to_tool_message(request.tool_name)
 
 
 def _resolve_deferred_tool_policy(
@@ -438,6 +578,32 @@ def _resolve_deferred_tool_policy(
         return ToolPolicy(ToolEffect.READ, requires_approval=False)
     framework_effect = None if tool is None else tool_effect_from_metadata(tool)
     return binding.turn.resolve_tool_policy(tool_name, framework_effect)
+
+
+def _with_source_tools(request: ModelRequest[Any]) -> ModelRequest[Any]:
+    binding = _ACTIVE_TOOL_BINDING.get()
+    if not isinstance(binding, _RunModelBinding) or not binding.source_tools:
+        return request
+    return request.override(tools=[*request.tools, *binding.source_tools])
+
+
+def _source_tool_as_langchain_tool(definition: SourceToolDefinition) -> BaseTool:
+    # The model sees the source's schema; the body never runs, because every call defers.
+    return StructuredTool(
+        name=definition.name,
+        description=definition.description,
+        args_schema=dict(definition.input_schema),
+        func=_refuse_inline_source_tool_call,
+        coroutine=_refuse_inline_source_tool_call_async,
+    )
+
+
+def _refuse_inline_source_tool_call(**arguments: Any) -> str:
+    raise RuntimeError("a tool source's tool runs only in its own Dex tool Step")
+
+
+async def _refuse_inline_source_tool_call_async(**arguments: Any) -> str:
+    raise RuntimeError("a tool source's tool runs only in its own Dex tool Step")
 
 
 @contextlib.contextmanager

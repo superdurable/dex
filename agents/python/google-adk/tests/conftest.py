@@ -32,6 +32,10 @@ from dex_agents.testing import (
     StepHistoryEntry,
     wait_for_agent_snapshot,
 )
+from tests.connector_agent import CONNECTOR_AGENT_FLOW_TYPE, build_connector_agent_flows
+from tests.fake_ledger import (
+    STATE_DIR_ENVIRONMENT_VARIABLE as LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE,
+)
 from tests.scripted_adk_agent import (
     INVOCATION_LOG_NAME,
     STATE_DIR_ENVIRONMENT_VARIABLE,
@@ -42,6 +46,7 @@ from tests.scripted_adk_topologies import build_topology_flows
 
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
 WORKER_MODULE = "tests.adk_worker"
+CONNECTOR_WORKER_MODULE = "tests.connector_worker"
 
 
 @dataclass
@@ -134,5 +139,22 @@ async def harness(tmp_path: Path) -> AsyncIterator[AdkAgentHarness]:
         WORKER_MODULE,
         worker_cwd=PACKAGE_DIR,
         worker_env={STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
+    ) as stack:
+        yield AdkAgentHarness(stack, flows, flow, stack.sessions(flow), state_dir)
+
+
+@pytest_asyncio.fixture
+async def connector_harness(tmp_path: Path) -> AsyncIterator[AdkAgentHarness]:
+    """Starts a private engine for the agent whose tool source offers fake ledger operations."""
+    state_dir = tmp_path / "ledger-state"
+    state_dir.mkdir()
+    flows = {flow.get_flow_type(): flow for flow in build_connector_agent_flows(state_dir)}
+    flow = flows[CONNECTOR_AGENT_FLOW_TYPE]
+    async with AgentTestStack(
+        tmp_path,
+        list(flows.values()),
+        CONNECTOR_WORKER_MODULE,
+        worker_cwd=PACKAGE_DIR,
+        worker_env={LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
     ) as stack:
         yield AdkAgentHarness(stack, flows, flow, stack.sessions(flow), state_dir)

@@ -14,13 +14,14 @@ import copy
 import dataclasses
 import json
 import weakref
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, cast
 
 from agents import (
     Agent,
+    AgentBase,
     CodeInterpreterTool,
     FileSearchTool,
     FunctionTool,
@@ -49,6 +50,7 @@ from dex_agents import (
     ToolPolicy,
     describe_tool_call_outcome,
 )
+from dex_agents.stepwise import SourceToolDefinition, SourceToolListing
 
 PROVIDER_HOSTED_TOOL_TYPES = (
     FileSearchTool,
@@ -94,9 +96,32 @@ class ActiveTurn:
     """The model call whose framework run is in progress in the current task."""
 
     turn: AgentTurnContext
+    source_tools: SourceToolListing | None = None
+    # Call IDs of the restored RunState's interruptions; each replays its record once.
+    paused_call_ids: set[str] = field(default_factory=set)
     application_approval_call_ids: set[str] = field(default_factory=set)
     evaluated_call_ids: set[str] = field(default_factory=set)
     tools_by_call_id: dict[str, DeferrableFunctionTool] = field(default_factory=dict)
+
+    def take_paused_record(self, tool_call_id: str, tool_name: str) -> AgentToolCall:
+        """Return the record of a paused call the first time the SDK resumes it.
+
+        Raises:
+            RuntimeError: If the call was not paused in the restored RunState, was
+                already replayed in this model call, or its record names another tool.
+        """
+        record = self.turn.recorded_tool_call(tool_call_id)
+        if tool_call_id not in self.paused_call_ids or record is None:
+            raise RuntimeError(
+                f"tool call {tool_call_id} of {tool_name} is not a paused call of this turn; "
+                "a call ID may replay its recorded result only once, for the call that paused"
+            )
+        if record.tool_name != tool_name:
+            raise RuntimeError(
+                f"tool call {tool_call_id} is recorded for {record.tool_name}, not {tool_name}"
+            )
+        self.paused_call_ids.remove(tool_call_id)
+        return record
 
     def resolve_tool_call_policy(
         self, tool: DeferrableFunctionTool, tool_call_id: str
@@ -128,7 +153,37 @@ class DeferrableAgentGraph:
         self._tools_by_original_id: dict[int, DeferrableFunctionTool] = {}
         self.tools_by_qualified_name: dict[str, DeferrableFunctionTool] = {}
         self.at_least_once_tool_names: set[str] = set()
+        self.source_tool_names: set[str] = set()
         self.starting_agent = self._clone_agent(starting_agent)
+
+    @property
+    def framework_tool_names(self) -> set[str]:
+        """Every tool name the copied graph offers: function tools, handoffs, and others."""
+        names = set(self.tools_by_qualified_name) | self.at_least_once_tool_names
+        names.update(tool.name for tool in self.tools_by_qualified_name.values())
+        for clone in self._agent_clones.values():
+            names.update(_handoff_tool_name(handoff) for handoff in clone.handoffs)
+        return names
+
+    def install_source_tools(self, definitions: Sequence[SourceToolDefinition]) -> None:
+        """Offer tool source tools on every copied agent; each model call enables its listing.
+
+        Call it only from the runner's constructor, before any run snapshots the tools.
+        """
+        source_tools = [_build_source_function_tool(definition) for definition in definitions]
+        for clone in self._agent_clones.values():
+            clone.tools = [*clone.tools, *source_tools]
+        self.source_tool_names.update(definition.name for definition in definitions)
+
+    def is_source_tool_interruption(self, item: ToolApprovalItem) -> bool:
+        """Report whether a copied agent stopped for one of its tool source tools."""
+        owner_tool_names = self._tool_names_by_clone_id.get(id(get_public_agent(item.agent)))
+        return (
+            owner_tool_names is not None
+            and item.tool_name in self.source_tool_names
+            and item.tool_namespace is None
+            and bool(item.call_id)
+        )
 
     def find_interrupted_tool(
         self, active_turn: ActiveTurn, item: ToolApprovalItem
@@ -158,14 +213,21 @@ class DeferrableAgentGraph:
     def agents(self) -> list[Agent[Any]]:
         return list(self._agent_clones.values())
 
-    def validate_tool_policies(self, tool_policies: Mapping[str, ToolPolicy]) -> None:
-        known_names = set(self.tools_by_qualified_name) | self.at_least_once_tool_names
+    def validate_tool_policies(
+        self, tool_policies: Mapping[str, ToolPolicy], source_tool_names: Collection[str]
+    ) -> None:
+        known_names = (
+            set(self.tools_by_qualified_name)
+            | self.at_least_once_tool_names
+            | self.source_tool_names
+            | set(source_tool_names)
+        )
         for tool_name in tool_policies:
             if tool_name not in known_names:
                 raise ValueError(
                     f"tool_policies names {tool_name!r}, which is not a function tool of this "
-                    "agent graph; tools listed at run time, such as MCP server tools, take no "
-                    "policy"
+                    "agent graph or a tool source's tool; tools listed at run time, such as MCP "
+                    "server tools, take no policy"
                 )
 
     def find_handoff_target_clone(self, agent: Any) -> Agent[Any]:
@@ -329,13 +391,9 @@ class _RecordedToolResult:
         self._tool = tool
 
     async def __call__(self, context: ToolContext[Any], arguments: str) -> Any:
-        active_turn = require_active_turn()
-        record = active_turn.turn.recorded_tool_call(context.tool_call_id)
-        if record is None:
-            raise RuntimeError(
-                f"tool call {context.tool_call_id} of {self._tool.qualified_name} has no Dex "
-                "record; the adapter never runs a function tool inside RunModel"
-            )
+        record = require_active_turn().take_paused_record(
+            context.tool_call_id, self._tool.qualified_name
+        )
         return _build_recorded_tool_result(self._tool, record, context)
 
 
@@ -348,6 +406,86 @@ def _build_recorded_tool_result(
         # Only successful outputs match the tool's output schema.
         setattr(context, _SDK_HANDLED_FAILURE_ATTRIBUTE, True)
     return describe_tool_call_outcome(record)
+
+
+class _StopForSourceToolStep:
+    """Stop the SDK before every new call of a listed tool source tool; its source decides.
+
+    A new call of a replay-only tool does not stop: its body answers the refusal.
+    """
+
+    def __init__(self, tool_name: str) -> None:
+        self._tool_name = tool_name
+
+    async def __call__(
+        self,
+        run_context: RunContextWrapper[Any],
+        arguments: dict[str, Any],
+        tool_call_id: str,
+    ) -> bool:
+        active_turn = require_active_turn()
+        source_tools = active_turn.source_tools
+        is_new_replay_only_call = (
+            source_tools is not None
+            and source_tools.is_replay_only(self._tool_name)
+            and tool_call_id not in active_turn.paused_call_ids
+        )
+        return not is_new_replay_only_call
+
+
+class _RecordedSourceToolResult:
+    """Return the Dex result of a tool source call when the SDK resumes; never run it."""
+
+    def __init__(self, tool_name: str) -> None:
+        self._tool_name = tool_name
+
+    async def __call__(self, context: ToolContext[Any], arguments: str) -> Any:
+        active_turn = require_active_turn()
+        source_tools = active_turn.source_tools
+        is_new_replay_only_call = (
+            source_tools is not None
+            and source_tools.is_replay_only(self._tool_name)
+            and context.tool_call_id not in active_turn.paused_call_ids
+            and active_turn.turn.recorded_tool_call(context.tool_call_id) is None
+        )
+        if is_new_replay_only_call and source_tools is not None:
+            # Its source no longer lists the tool; the model reads why, and nothing runs.
+            return source_tools.not_offered_result(self._tool_name)
+        record = active_turn.take_paused_record(context.tool_call_id, self._tool_name)
+        return describe_tool_call_outcome(record)
+
+
+class _SourceToolEnabled:
+    """Offer a tool source tool only to a model call whose listing has it."""
+
+    def __init__(self, tool_name: str) -> None:
+        self._tool_name = tool_name
+
+    def __call__(self, run_context: RunContextWrapper[Any], agent: AgentBase[Any]) -> bool:
+        active_turn = ACTIVE_TURN.get()
+        source_tools = None if active_turn is None else active_turn.source_tools
+        # A replay-only tool stays offered, so the SDK finds it to resume a recorded call.
+        return source_tools is not None and (
+            source_tools.has_tool(self._tool_name) or source_tools.is_replay_only(self._tool_name)
+        )
+
+
+def _build_source_function_tool(definition: SourceToolDefinition) -> FunctionTool:
+    return FunctionTool(
+        name=definition.name,
+        description=definition.description,
+        params_json_schema=dict(definition.input_schema),
+        on_invoke_tool=_RecordedSourceToolResult(definition.name),
+        strict_json_schema=False,
+        is_enabled=_SourceToolEnabled(definition.name),
+        needs_approval=_StopForSourceToolStep(definition.name),
+    )
+
+
+def _handoff_tool_name(handoff: Agent[Any] | Handoff[Any, Any]) -> str:
+    if isinstance(handoff, Handoff):
+        return handoff.tool_name
+    return Handoff.default_tool_name(handoff)
 
 
 class _HandoffTargetMapper:

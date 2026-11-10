@@ -27,8 +27,10 @@ from pydantic_ai import (
     ModelResponse,
     RunContext,
     RunUsage,
+    Tool,
     ToolApproved,
     ToolCallPart,
+    ToolDefinition,
     ToolDenied,
     ToolFailed,
     ToolReturn,
@@ -41,6 +43,7 @@ from pydantic_ai.capabilities import ReinjectSystemPrompt
 from pydantic_ai.messages import UserContent
 from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.output import OutputSpec
+from pydantic_ai.toolsets import AbstractToolset, ExternalToolset, FunctionToolset
 
 from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
@@ -59,10 +62,12 @@ from dex_agents import (
     ContextSummaryResult,
     DeferredToolCall,
     DeferredToolExecution,
+    DeferredToolOutcome,
     FrameworkMessage,
     ModelCallMetadata,
     ToolCallsRequested,
     ToolCallStatus,
+    ToolCallStepOptions,
     ToolEffect,
     ToolExecutionError,
     ToolExecutionResult,
@@ -74,6 +79,12 @@ from dex_agents import (
     estimate_stored_input_tokens,
     estimate_text_tokens,
     select_turn_boundary_cutoff,
+)
+from dex_agents.stepwise import (
+    DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    FrameworkToolSourceRouter,
+    SourceToolListing,
+    ToolSource,
 )
 from dex_agents_pydantic_ai._capability import DexModelStepCapability, DexToolStepCapability
 from dex_agents_pydantic_ai._history import (
@@ -121,7 +132,7 @@ def deferred_tool_idempotency_key(ctx: RunContext[Any]) -> str | None:
     return key if isinstance(key, str) else None
 
 
-class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
+class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentDepsT]):
     """Run one Pydantic AI agent inside the durable Dex agent session Flow, in Step mode.
 
     The runner implements ``AgentFrameworkRunner`` for Pydantic AI. Most
@@ -142,6 +153,16 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
     agent itself: argument validation, the agent's capabilities and hooks,
     dependencies, and toolset lifecycles such as MCP connections all apply.
     The model is not called in a tool Step.
+
+    Tool sources, such as ``ConnectorToolSource``, add tools that the runner
+    lists in every ``RunModel`` and offers as external tools of that run, with
+    the source's name, description, and JSON Schema. Pydantic AI never runs
+    an external tool, so every call of a source tool, reads included, ends
+    the run and runs once in its own tool Step through the source that built
+    it. The source picks the effect class, the approval, the write ordering,
+    and the tool Step's timeout and retry policy. The runner polls no tool
+    tasks, so a source call that starts one records ``FAILED`` for a ``READ``
+    call and ``OUTCOME_UNKNOWN`` otherwise.
 
     The runner implements ``ContextCompactionRunner``. Set
     ``AgentSessionOptions.compaction`` to compact at turn boundaries: the
@@ -164,6 +185,8 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
         deps_factory: Callable[[str], AgentDepsT] | None = None,
         model: Model | KnownModelName | str | None = None,
         summary_model: Model | KnownModelName | str | None = None,
+        tool_sources: Sequence[ToolSource] = (),
+        tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     ) -> None:
         """Create a runner for one agent.
 
@@ -186,18 +209,43 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
                 ``None`` uses ``model``, else the agent's model.
 
                 .. versionadded:: 0.3.0
+            tool_sources: Tool sources, such as ``ConnectorToolSource``, whose
+                tools every ``RunModel`` lists and offers as external tools.
+                Each source has a unique ``source_name``, which the runner
+                stores with every call it builds, so the tool Step reaches
+                that source on any Worker. A ``tool_policies`` entry for a
+                connector tool changes only its approval. Defaults to none.
+
+                .. versionadded:: 0.4.0
+            tool_source_listing_timeout: How long one ``RunModel`` waits for
+                each source's ``list_tools``. A source that fails or takes
+                longer offers no tools in that model call. Defaults to 10
+                seconds.
+
+                .. versionadded:: 0.4.0
 
         Raises:
             ValueError: If the agent has output validators and its
                 ``output_type`` does not list ``DeferredToolRequests``. Pydantic AI
                 refuses a run-level ``output_type`` for such an agent; list
                 ``DeferredToolRequests`` in the agent's ``output_type`` instead.
+                Also if two tool sources share a ``source_name``, a source's
+                ``declared_tool_names`` repeat a function tool of the agent or
+                another source's tool, or ``tool_source_listing_timeout`` is not
+                positive.
+            TypeError: If a tool source lacks a ``ToolSource`` method or a
+                non-blank ``source_name``.
         """
         self._agent = agent
         self._deps_factory = deps_factory
         self._model = model
         self._summary_model = summary_model
         self._run_output_type = _run_output_type_with_deferred_tool_requests(agent)
+        self._tool_sources = FrameworkToolSourceRouter(
+            tool_sources,
+            reserved_tool_names=_function_tool_names(agent),
+            listing_timeout=tool_source_listing_timeout,
+        )
 
     @property
     def agent(self) -> AbstractAgent[AgentDepsT, Any]:
@@ -239,17 +287,26 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
             Exception: Any model or Pydantic AI error fails the attempt.
             RuntimeError: Pydantic AI answered a tool call the session never
                 ran, such as one dropped beside a final result.
+            ValueError: A tool source listed a name that another source
+                lists. Pydantic AI raises ``UserError`` for a name that one
+                of the agent's own toolsets also has.
         """
         prior_history = rebuild_earlier_turn_history(turn.messages, turn.turn_id)
         if turn.context_summary is not None:
             note = build_context_summary_note(turn.context_summary)
             prior_history.insert(0, ModelRequest(parts=[UserPromptPart(note)]))
         user_prompt = read_turn_user_prompt(turn.messages, turn.turn_id)
-        capability = DexModelStepCapability(turn=turn)
+        source_tools = await self._tool_sources.list_source_tools(turn)
+        capability = DexModelStepCapability(
+            turn=turn,
+            replay_only_tool_names=frozenset(tool.name for tool in source_tools.replay_only_tools),
+        )
         earlier_turn_messages: Sequence[ModelMessage] = ()
         recorded_tool_call_ids: Sequence[str] = ()
         if turn.framework_run_state is None:
-            result = await self._run_model_call(turn, capability, user_prompt, prior_history, None)
+            result = await self._run_model_call(
+                turn, capability, source_tools, user_prompt, prior_history, None
+            )
         else:
             pending = PendingToolCallsState.from_json(turn.framework_run_state)
             earlier_turn_messages = pending.turn_messages
@@ -257,6 +314,7 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
             result = await self._run_model_call(
                 turn,
                 capability,
+                source_tools,
                 None,
                 [*prior_history, *earlier_turn_messages],
                 _recorded_deferred_tool_results(turn, pending),
@@ -265,7 +323,9 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
         turn_messages = [*earlier_turn_messages, *new_messages]
         usage = _agent_usage(result.usage)
         if isinstance(result.output, DeferredToolRequests):
-            tool_calls = _requested_tool_calls(result.output, turn_messages, capability)
+            tool_calls = _requested_tool_calls(
+                turn, result.output, turn_messages, capability, source_tools
+            )
             return ToolCallsRequested(
                 framework_run_state=PendingToolCallsState(
                     turn_messages=turn_messages,
@@ -378,8 +438,12 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
             ),
         )
 
-    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
         """Run one tool call through the agent, without a model call.
+
+        A call that a tool source built goes to that source, found by the
+        source name stored with the call, with the source's own reference and
+        the tool Step's live context; the agent does not run.
 
         The runner starts an agent run whose history holds only the tool call
         and stops it once the tool returns. An approved call runs with
@@ -391,12 +455,18 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
             call: The approved record and its idempotency key.
 
         Returns:
-            The tool's return value as the text the model sees.
+            The tool's return value as the text the model sees, or the
+            source's outcome.
 
         Raises:
             ToolExecutionError: The tool raised ``ModelRetry`` or ``ToolFailed``,
                 ran out of its own retries, is unknown or external, or asked for
-                approval while it ran. The model sees the message.
+                approval while it ran; or the source raised it. The model sees
+                the message.
+            ToolOutcomeUnknownError: The source cannot tell whether the call
+                took effect. The session records ``OUTCOME_UNKNOWN``.
+            LookupError: A source built the call, but no source of that name
+                is configured on this Worker, so the effect class decides.
             RuntimeError: The tool raised ``CallDeferred`` while it ran, so its
                 work may have taken effect.
             UnexpectedModelBehavior: The tool body raised it, such as from a
@@ -406,6 +476,8 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
                 and ``OUTCOME_UNKNOWN`` for a write.
         """
         record = call.tool_call
+        if self._tool_sources.is_source_tool_call(record):
+            return await self._tool_sources.execute_deferred_tool_call(call)
         tool_call = ToolCallPart(record.tool_name, record.arguments, record.tool_call_id)
         approval = (
             DeferredToolResults(approvals={record.tool_call_id: ToolApproved()})
@@ -449,10 +521,34 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
             raise ToolExecutionError(tool_return.model_response_str(wrap_if_error=False))
         return ToolExecutionResult(output=tool_return.model_response_str())
 
+    def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        """Return a tool source's options for one call's tool Step.
+
+        A source that defines ``tool_call_step_options(tool_call)`` gives its
+        calls their own timeout and retry policy, as ``ConnectorToolSource``
+        does from each operation's manifest. The agent's own tools keep the
+        tool Steps' defaults.
+
+        .. versionadded:: 0.4.0
+
+        Args:
+            tool_call: The record whose tool Step starts.
+
+        Returns:
+            The source's options, or ``None`` for the defaults.
+
+        Raises:
+            LookupError: If a source built the call but no source of that name
+                is configured on this Worker. The session then uses the
+                defaults.
+        """
+        return self._tool_sources.tool_call_step_options(tool_call)
+
     async def _run_model_call(
         self,
         turn: AgentTurnContext,
         capability: DexModelStepCapability,
+        source_tools: SourceToolListing,
         user_prompt: str | Sequence[UserContent] | None,
         message_history: Sequence[ModelMessage],
         deferred_tool_results: DeferredToolResults | None,
@@ -465,6 +561,7 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
             deps=self._create_deps(turn.flow_id),
             model=self._model,
             conversation_id=turn.flow_id,
+            toolsets=_source_toolsets(source_tools) or None,
             # Restores system prompts when no replayed turn holds them, as after failed first turns.
             capabilities=[
                 capability,
@@ -490,6 +587,8 @@ def pydantic_ai_session_flow(
     compaction: CompactionPolicy | None = None,
     retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT,
     summary_model: Model | KnownModelName | str | None = None,
+    tool_sources: Sequence[ToolSource] = (),
+    tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
 ) -> AgentSessionFlow:
     """Build the durable agent session Flow for one Pydantic AI agent.
 
@@ -508,6 +607,11 @@ def pydantic_ai_session_flow(
     ``idempotentHint`` are ``IDEMPOTENT_WRITE``, and Pydantic AI's tool search
     is ``READ``. A tool declared with Pydantic AI's ``requires_approval=True``
     always waits for approval.
+
+    Tool sources add tools that always run in their own tool Step, reads
+    included. ``ConnectorToolSource`` offers reviewed Connector operations
+    this way: each call gets the operation's effect class, approval, Call ID,
+    timeout, and retry policy from its manifest, as in a Stepwise agent.
 
     Example:
         >>> agent = Agent("openai:gpt-5.2", instructions="Help with orders.")
@@ -557,6 +661,16 @@ def pydantic_ai_session_flow(
             the agent's model.
 
             .. versionadded:: 0.3.0
+        tool_sources: Tool sources, such as ``ConnectorToolSource``, offered as
+            external tools of every model call. See ``PydanticAIRunner``. A
+            ``tool_policies`` entry for a connector tool changes only its
+            approval. Defaults to none.
+
+            .. versionadded:: 0.4.0
+        tool_source_listing_timeout: How long one ``RunModel`` waits for each
+            source's ``list_tools``. Defaults to 10 seconds.
+
+            .. versionadded:: 0.4.0
 
     Returns:
         An ``AgentSessionFlow`` backed by a ``PydanticAIRunner``.
@@ -564,10 +678,18 @@ def pydantic_ai_session_flow(
     Raises:
         ValueError: If ``flow_type`` is blank, an option is not positive, the
             agent has output validators without ``DeferredToolRequests`` in
-            its ``output_type``, or ``compaction`` is set and no model is.
+            its ``output_type``, ``compaction`` is set and no model is, or a
+            tool source is invalid as ``PydanticAIRunner`` describes.
+        TypeError: If a tool source lacks a ``ToolSource`` method or a
+            non-blank ``source_name``.
     """
     runner = PydanticAIRunner(
-        agent, deps_factory=deps_factory, model=model, summary_model=summary_model
+        agent,
+        deps_factory=deps_factory,
+        model=model,
+        summary_model=summary_model,
+        tool_sources=tool_sources,
+        tool_source_listing_timeout=tool_source_listing_timeout,
     )
     if compaction is not None and runner.summary_model is None:
         raise ValueError("compaction needs a model: pass summary_model or model")
@@ -610,6 +732,58 @@ def _estimate_agent_prompt_tokens(agent: AbstractAgent[Any, Any]) -> int:
                     )
                 )
     return sum(map(estimate_text_tokens, parts))
+
+
+def _function_tool_names(agent: AbstractAgent[Any, Any]) -> set[str]:
+    names: set[str] = set()
+    for toolset in agent.toolsets:
+        tools = getattr(toolset, "tools", None)
+        # Only a FunctionToolset lists its tools before a run.
+        if isinstance(tools, Mapping):
+            names.update(str(name) for name in tools)
+    return names
+
+
+def _source_toolsets(source_tools: SourceToolListing) -> list[AbstractToolset[Any]]:
+    toolsets: list[AbstractToolset[Any]] = []
+    if source_tools.tools:
+        # External tools never run, so the run ends and the call reaches its tool Step.
+        toolsets.append(
+            ExternalToolset(
+                [
+                    ToolDefinition(
+                        name=tool.name,
+                        description=tool.description,
+                        parameters_json_schema=dict(tool.input_schema),
+                    )
+                    for tool in source_tools.tools
+                ]
+            )
+        )
+    if source_tools.replay_only_tools:
+        # A recorded call replays its supplied result; a new call reads the refusal, never a Step.
+        toolsets.append(
+            FunctionToolset(
+                [
+                    Tool.from_schema(
+                        _SourceToolRefusal(source_tools.not_offered_result(tool.name)),
+                        name=tool.name,
+                        description=tool.description,
+                        json_schema=dict(tool.input_schema),
+                    )
+                    for tool in source_tools.replay_only_tools
+                ]
+            )
+        )
+    return toolsets
+
+
+class _SourceToolRefusal:
+    def __init__(self, refusal: str) -> None:
+        self._refusal = refusal
+
+    def __call__(self, **arguments: Any) -> str:
+        return self._refusal
 
 
 def _run_output_type_with_deferred_tool_requests(
@@ -674,9 +848,11 @@ def _parse_structured_output(output: str) -> Any:
 
 
 def _requested_tool_calls(
+    turn: AgentTurnContext,
     requests: DeferredToolRequests,
     turn_messages: Sequence[ModelMessage],
     capability: DexModelStepCapability,
+    source_tools: SourceToolListing,
 ) -> list[DeferredToolCall]:
     response = next(
         message for message in reversed(turn_messages) if isinstance(message, ModelResponse)
@@ -689,6 +865,15 @@ def _requested_tool_calls(
     )
     tool_calls: list[DeferredToolCall] = []
     for part in requested_parts:
+        source_call = source_tools.deferred_tool_call(
+            turn,
+            tool_call_id=part.tool_call_id,
+            tool_name=part.tool_name,
+            arguments=part.args_as_json_str(),
+        )
+        if source_call is not None:
+            tool_calls.append(source_call)
+            continue
         policy = capability.resolve_tool_policy(part.tool_name)
         # Pydantic AI asked for approval, such as for requires_approval=True, so Dex asks too.
         if part.tool_call_id in approval_ids and not policy.is_approval_required:
@@ -718,6 +903,7 @@ def _require_every_tool_result_recorded(
                 isinstance(part, ToolReturnPart)
                 and part.outcome == "success"
                 and part.tool_name in capability.tool_definitions
+                and part.tool_name not in capability.replay_only_tool_names
                 and part.tool_call_id not in recorded_ids
             ):
                 raise RuntimeError(

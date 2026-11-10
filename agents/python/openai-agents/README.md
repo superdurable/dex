@@ -172,6 +172,62 @@ When a turn fails after tool calls finished, the session stores a turn-failure
 note through `build_user_message`. The runner stores it as a user input item,
 so the next turn's model sees which calls already ran.
 
+## Tool sources and connector tools
+
+`tool_sources` takes the core's tool sources, such as `ConnectorToolSource`,
+which offers reviewed Connector operations (install `dex-agents[connectors]`).
+See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks/deploy-agents.mdx#connector-tools)
+for what the manifest decides.
+
+```python
+from dex_agents.connectors import ConnectorToolSource, connector_tool
+
+stripe = new_project_connection(project, "billing-stripe")
+flow = openai_agents_session_flow(
+    agent,
+    flow_type="SupportAgent",
+    tool_sources=[
+        ConnectorToolSource([
+            connector_tool(stripe.operations.create_refund(), stripe.reference),
+        ]),
+    ],
+)
+```
+
+- The SDK fixes an agent's tools, so the runner adds a gated function tool to
+  every copied agent for each tool of a source's `cached_tools()`, with the
+  source's name, description, and JSON Schema. A source without
+  `cached_tools` offers nothing; `ConnectorToolSource` caches its whole
+  listing. Each `RunModel` lists every source, and a model call offers only
+  the tools its listing has. `validate_tool_policies` accepts source tools.
+- Every call of a source tool defers, reads included, and runs once in its own
+  tool Step through the source's `execute_deferred_tool_call`, never inside
+  the framework. A connector call derives its Call ID from the Step execution
+  ID and keeps its fence marker in the Step's heartbeat checkpoint.
+- The source builds each call, so it decides the effect class, the approval,
+  and whether the call is an ordered write; `tool_call_step_options` gives the
+  tool Step the operation's timeout and retry policy. A `tool_policies` entry
+  for a connector tool changes only its approval.
+- Writes of one model response run one at a time in the model's order, as in a
+  Stepwise agent. Once one does not succeed, the later ones record `failed`
+  with `skipped`.
+- Definition fails with `ValueError` when two sources share a `source_name`,
+  or a source's `declared_tool_names` repeat a function tool, a handoff, or an
+  accepted at-least-once tool, or another source's tool. The same names listed
+  at run time fail that `RunModel` attempt.
+- The runner polls no tool tasks. A source call that starts one records
+  `failed` for a `read` call and `outcome_unknown` otherwise. A source whose
+  listing fails or takes longer than `tool_source_listing_timeout` offers no
+  tools in that model call. A tool the turn already called but the listing
+  lacks is replay-only: the resumed run replays its recorded call from the
+  source's `cached_tools()`, and a new call of it is refused inside the
+  framework (the tool stays offered so the SDK can resume its recorded call,
+  and its body returns the refusal: "<name> did not run: its tool source does
+  not offer this tool now."), so it never reaches a tool Step.
+- A recorded result replays once, for the call that paused, and only under the
+  tool name it was recorded for; a later call that reuses its tool call ID
+  fails the `RunModel` attempt instead of reading that result.
+
 ## How it works
 
 - History: each stored `AgentMessage` holds one item of
@@ -295,3 +351,12 @@ derives every response from its input, so no model key is needed and a
 retried `RunModel` gets the same response. It streams through
 `agents.testing`'s `ScriptedModel` and records every model call, so tests
 count them. The Worker runs as a child process that the tests SIGKILL.
+
+`tests/test_connector_tools.py` runs connector tools from a copy of the core
+tests' fake ledger Connector (`tests/fake_ledger`): a Query in its tool Step,
+an approved Mutation that runs once, a session policy that changes only
+approval, a `retry: safe` Mutation retried with the same Call ID, `uncertain`
+writes recorded `outcome_unknown`, two writes of one response in the model's
+order, an unknown or rejected write that skips the later write, a withdrawn
+tool whose new call is refused, a reused call ID, the operation's tool Step
+options, an unexposed operation, and refused name collisions.

@@ -121,9 +121,24 @@ PY
   echo "== Python session: dex-agents-pydantic-ai against dexcli dev --engine zd"
   local session_dir="$work_dir/python-pydantic-ai"
   cp -R "$agents_dir/python/pydantic-ai/tests" "$session_dir/tests"
+  # The dev group names dex-agents[connectors] by its source path; install that extra from the built wheels instead.
+  uv pip install --quiet --python "$session_dir/.venv" --find-links "$dist_dir/python" \
+    --constraint "$session_dir/constraints.txt" "dex-agents[connectors]==$release_version"
   uv export --quiet --project "$agents_dir/python/pydantic-ai" --frozen --only-group dev --no-hashes \
-    --output-file "$session_dir/test-requirements.txt"
+    --no-emit-package dex-agents --output-file "$session_dir/test-requirements.txt"
   uv pip install --quiet --python "$session_dir/.venv" --requirement "$session_dir/test-requirements.txt"
+  (cd "$session_dir" && .venv/bin/python - <<'PY'
+import importlib
+from pathlib import Path
+
+venv = Path(".venv").resolve()
+for module_name in ("dex_agents", "dex_agents.connectors", "dex_agents_pydantic_ai"):
+    module = importlib.import_module(module_name)
+    if venv not in Path(module.__file__).resolve().parents:
+        raise SystemExit(f"{module_name} imported from {module.__file__}, not the installed wheel")
+print("the session tests import dex-agents[connectors] and the adapter from the built wheels")
+PY
+  )
   cat >"$session_dir/pytest.ini" <<'INI'
 [pytest]
 asyncio_mode = auto

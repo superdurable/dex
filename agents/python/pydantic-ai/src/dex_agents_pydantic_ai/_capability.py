@@ -66,6 +66,8 @@ class RecordedModelCall:
 @dataclass
 class DexModelStepCapability(AbstractCapability[Any]):
     turn: AgentTurnContext
+    # Source tools offered only to replay recorded calls; their refusal body runs in the run.
+    replay_only_tool_names: frozenset[str] = frozenset()
     tool_definitions: dict[str, ToolDefinition] = field(default_factory=dict)
     recorded_model_calls: list[RecordedModelCall] = field(default_factory=list)
 
@@ -87,7 +89,9 @@ class DexModelStepCapability(AbstractCapability[Any]):
         return tool_definition is not None and tool_definition.tool_kind is not None
 
     def get_wrapper_toolset(self, toolset: AbstractToolset[Any]) -> AbstractToolset[Any]:
-        return ExternalFunctionToolsToolset(toolset, self.tool_definitions)
+        return ExternalFunctionToolsToolset(
+            toolset, self.tool_definitions, self.replay_only_tool_names
+        )
 
     def model_call_metadata(self) -> ModelCallMetadata | None:
         calls = self.recorded_model_calls
@@ -156,6 +160,7 @@ class DexModelStepCapability(AbstractCapability[Any]):
 @dataclass
 class ExternalFunctionToolsToolset(WrapperToolset[Any]):
     tool_definitions: dict[str, ToolDefinition]
+    replay_only_tool_names: frozenset[str] = frozenset()
 
     async def get_tools(self, ctx: RunContext[Any]) -> dict[str, ToolsetTool[Any]]:
         tools = await super().get_tools(ctx)
@@ -163,7 +168,7 @@ class ExternalFunctionToolsToolset(WrapperToolset[Any]):
         # External tools are never executed, so the run ends right after the model call.
         return {
             name: replace(tool, tool_def=replace(tool.tool_def, kind="external"))
-            if tool.tool_def.kind == "function"
+            if tool.tool_def.kind == "function" and name not in self.replay_only_tool_names
             else tool
             for name, tool in tools.items()
         }

@@ -62,7 +62,8 @@ class ToolSource(Protocol):
     raises or takes longer offers no tools in that model call, so a down
     server never fails a turn; cache the listing per Worker and keep it
     cheap, as ``McpToolSource`` does. A planning turn and a turn past its
-    model call limit list nothing.
+    model call limit list nothing. Framework adapters that take
+    ``tool_sources`` serve them through ``FrameworkToolSourceRouter``.
 
     When the model calls a listed tool, the runner returns the source's
     ``deferred_tool_call``, so the source picks the policy, the effect class,
