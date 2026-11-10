@@ -77,11 +77,11 @@
   },
   {
     "from": "/production/agents",
-    "to": "/agent-frameworks/deploy-agents"
+    "to": "/reference/agents/"
   },
   {
     "from": "/zh-Hans/production/agents",
-    "to": "/zh-Hans/agent-frameworks/deploy-agents"
+    "to": "/zh-Hans/reference/agents/"
   },
   {
     "from": "/references",
@@ -397,11 +397,11 @@
   },
   {
     "from": "/primitives/connector",
-    "to": "/components/connector"
+    "to": "/concepts/connector"
   },
   {
     "from": "/zh-Hans/primitives/connector",
-    "to": "/zh-Hans/components/connector"
+    "to": "/zh-Hans/concepts/connector"
   },
   {
     "from": "/reference/server/runtime-steps",
@@ -517,11 +517,11 @@
   },
   {
     "from": "/primitives/components/connector",
-    "to": "/components/connector"
+    "to": "/concepts/connector"
   },
   {
     "from": "/primitives/components/external-attribute-sync",
-    "to": "/components/external-attribute-sync"
+    "to": "/concepts/primitives/attribute"
   },
   {
     "from": "/zh-Hans/primitives/components/application",
@@ -541,11 +541,11 @@
   },
   {
     "from": "/zh-Hans/primitives/components/connector",
-    "to": "/zh-Hans/components/connector"
+    "to": "/zh-Hans/concepts/connector"
   },
   {
     "from": "/zh-Hans/primitives/components/external-attribute-sync",
-    "to": "/zh-Hans/components/external-attribute-sync"
+    "to": "/zh-Hans/concepts/primitives/attribute"
   },
   {
     "from": "/reference/go/1.29.x/changelog/",
@@ -1978,5 +1978,53 @@
   {
     "from": "/zh-Hans/reference/rust/flows-and-steps/failure-and-redelivery",
     "to": "/zh-Hans/reference/rust/failure-and-retries"
+  },
+  {
+    "from": "/concepts/correctness-and-expressiveness",
+    "to": "/correctness-and-expressiveness"
+  },
+  {
+    "from": "/zh-Hans/concepts/correctness-and-expressiveness",
+    "to": "/zh-Hans/correctness-and-expressiveness"
+  },
+  {
+    "from": "/concepts/correctness-and-expressiveness/expressiveness-proof",
+    "to": "/correctness-and-expressiveness/expressiveness-proof"
+  },
+  {
+    "from": "/zh-Hans/concepts/correctness-and-expressiveness/expressiveness-proof",
+    "to": "/zh-Hans/correctness-and-expressiveness/expressiveness-proof"
+  },
+  {
+    "from": "/concepts/correctness-and-expressiveness/workflow-patterns",
+    "to": "/correctness-and-expressiveness/workflow-patterns"
+  },
+  {
+    "from": "/zh-Hans/concepts/correctness-and-expressiveness/workflow-patterns",
+    "to": "/zh-Hans/correctness-and-expressiveness/workflow-patterns"
+  },
+  {
+    "from": "/components/external-attribute-sync",
+    "to": "/concepts/primitives/attribute"
+  },
+  {
+    "from": "/zh-Hans/components/external-attribute-sync",
+    "to": "/zh-Hans/concepts/primitives/attribute"
+  },
+  {
+    "from": "/components/connector",
+    "to": "/concepts/connector"
+  },
+  {
+    "from": "/zh-Hans/components/connector",
+    "to": "/zh-Hans/concepts/connector"
+  },
+  {
+    "from": "/agent-frameworks/deploy-agents",
+    "to": "/reference/agents/"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/deploy-agents",
+    "to": "/zh-Hans/reference/agents/"
   }
 ]

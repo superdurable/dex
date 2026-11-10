@@ -8,11 +8,11 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 # Channel
 
 A **Channel** is a durable first-in, first-out (FIFO) queue inside one Flow
-execution. Steps and RPCs publish typed messages to it. A Step consumes messages
+run. Steps and RPCs publish typed messages to it. A Step consumes messages
 by waiting on the Channel in **WaitFor**. Messages never move between Flow
-executions.
+runs.
 
-<ChannelScopeDiagram markdownDescription="A Flow execution owns a FIFO Channel shared by its Steps and RPCs. Publishers add messages, and one waiting consumer Step consumes each message." />
+<ChannelScopeDiagram markdownDescription="A Flow run owns a FIFO Channel shared by its Steps and RPCs. Publishers add messages, and one waiting consumer Step consumes each message." />
 
 ## When to use a Channel
 

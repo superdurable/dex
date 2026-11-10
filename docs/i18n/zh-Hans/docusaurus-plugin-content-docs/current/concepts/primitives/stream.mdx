@@ -33,7 +33,7 @@ Stream 用 durability 换取速度：
 - Stream 写入失败永远不会让 Step 失败。
 - 读取方按 Dex 保存的顺序看到消息。
 
-容量由同一 Flow type 和 Stream name 下的所有 Flow execution 共享，不是每个 Flow ID 的限制。见 [Write semantics](/reference/server/runtime-data#stream-write-semantics)、[Capacity and trimming](/reference/server/runtime-data#stream-capacity) 和 [Best-effort storage](/reference/server/runtime-data#stream-storage)。
+容量由同一 Flow type 和 Stream name 下的所有 Flow run 共享，不是每个 Flow ID 的限制。见 [Write semantics](/reference/server/runtime-data#stream-write-semantics)、[Capacity and trimming](/reference/server/runtime-data#stream-capacity) 和 [Best-effort storage](/reference/server/runtime-data#stream-storage)。
 
 <a id="定义并注册-stream"></a>
 

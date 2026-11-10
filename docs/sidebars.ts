@@ -9,6 +9,7 @@ const referenceComponents = [
   {component: 'java', label: 'Java SDK'},
   {component: 'typescript', label: 'TypeScript SDK'},
   {component: 'rust', label: 'Rust SDK'},
+  {component: 'agents', label: 'Agents packages'},
 ];
 
 const sidebars: SidebarsConfig = {
@@ -41,15 +42,17 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'concepts/client',
-        {
-          type: 'category',
-          label: 'Correctness and Expressiveness',
-          link: {type: 'doc', id: 'concepts/correctness-and-expressiveness/index'},
-          items: [
-            'concepts/correctness-and-expressiveness/expressiveness-proof',
-            'concepts/correctness-and-expressiveness/workflow-patterns',
-          ],
-        },
+        'concepts/connector',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Correctness and Expressiveness',
+      customProps: {section: 'correctness'},
+      link: {type: 'doc', id: 'correctness-and-expressiveness/index'},
+      items: [
+        'correctness-and-expressiveness/expressiveness-proof',
+        'correctness-and-expressiveness/workflow-patterns',
       ],
     },
     {
@@ -62,8 +65,6 @@ const sidebars: SidebarsConfig = {
         'components/server',
         'components/cli',
         'components/web',
-        'components/connector',
-        'components/external-attribute-sync',
       ],
     },
     {
@@ -72,15 +73,20 @@ const sidebars: SidebarsConfig = {
       customProps: {section: 'agent-frameworks'},
       link: {type: 'doc', id: 'agent-frameworks'},
       items: [
-        'agent-frameworks/built-in-agent-loop',
-        'agent-frameworks/claude-agent-sdk',
-        'agent-frameworks/openai-agents-sdk',
-        'agent-frameworks/pydantic-ai',
-        'agent-frameworks/langchain-langgraph',
-        'agent-frameworks/google-adk',
-        'agent-frameworks/vercel-ai-sdk',
-        'agent-frameworks/mastra',
-        'agent-frameworks/deploy-agents',
+        {
+          type: 'category',
+          label: 'Frameworks',
+          items: [
+            'agent-frameworks/built-in-agent-loop',
+            'agent-frameworks/claude-agent-sdk',
+            'agent-frameworks/openai-agents-sdk',
+            'agent-frameworks/pydantic-ai',
+            'agent-frameworks/langchain-langgraph',
+            'agent-frameworks/google-adk',
+            'agent-frameworks/vercel-ai-sdk',
+            'agent-frameworks/mastra',
+          ],
+        },
       ],
     },
     {

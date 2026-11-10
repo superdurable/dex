@@ -40,7 +40,7 @@ type Copy = {
 };
 
 const EN: Copy = {
-  execution: 'Flow execution',
+  execution: 'Flow run',
   publisherStep: 'ExampleStepA',
   publisherRPC: 'ExampleRpc',
   consumerStep: 'ExampleStepB',
@@ -55,7 +55,7 @@ const EN: Copy = {
 };
 
 const ZH: Copy = {
-  execution: 'Flow execution',
+  execution: 'Flow run',
   publisherStep: 'ExampleStepA',
   publisherRPC: 'ExampleRpc',
   consumerStep: 'ExampleStepB',

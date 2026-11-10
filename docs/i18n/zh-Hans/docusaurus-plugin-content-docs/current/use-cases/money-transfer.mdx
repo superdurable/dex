@@ -96,6 +96,12 @@ class MoneyTransferFlow(Flow[TransferRequest]):
 
 ```python
 class Compensate(Step[TransferRequest]):
+    def __init__(self, service: MyDependencyService) -> None:
+        self.service = service
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=COMPENSATE_RETRY)
+
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
         self.service.undo_credit(input.to_account, input.amount)
         self.service.undo_create_credit_memo(
@@ -130,12 +136,12 @@ func NewMoneyTransferFlow(applicationService service.MyService) *MoneyTransferFl
 
 func (flow *MoneyTransferFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(checkBalanceStep{service: flow.service}),
-		dex.DefineStep(createDebitMemoStep{service: flow.service}),
-		dex.DefineStep(debitStep{service: flow.service}),
-		dex.DefineStep(createCreditMemoStep{service: flow.service}),
+		dex.DefineStartStep(checkBalance{service: flow.service}),
+		dex.DefineStep(createDebitMemo{service: flow.service}),
+		dex.DefineStep(debit{service: flow.service}),
+		dex.DefineStep(createCreditMemo{service: flow.service}),
 		dex.DefineStep(creditStep{service: flow.service}),
-		dex.DefineStep(compensateStep{service: flow.service}),
+		dex.DefineStep(compensate{service: flow.service}),
 	}
 }
 
@@ -147,7 +153,7 @@ func compensatedStepOptions(totalDuration time.Duration) *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{TotalDuration: totalDuration},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
-			compensateStep{},
+			compensate{},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{TotalDuration: 24 * time.Hour},
 			},
@@ -157,10 +163,12 @@ func compensatedStepOptions(totalDuration time.Duration) *dex.StepOptions {
 ```
 
 ```go
-func (step compensateStep) Execute(
+func (step compensate) Execute(
 	_ dex.Context,
 	request TransferRequest,
 ) (*dex.StepDecision, error) {
+	// NOTE: to improve, we can use Dex data attributes to track whether each step has been attempted to execute
+	// and check a flag to see if we should undo it or not
 	if err := step.service.UndoCredit(request.ToAccount, request.Amount); err != nil {
 		return nil, err
 	}
@@ -237,6 +245,20 @@ public class MoneyTransferFlow implements Flow<TransferRequest> {
 ```java
 final class Compensate implements Step<TransferRequest> {
     @Override
+    public Class<TransferRequest> getInputType() {
+        return TransferRequest.class;
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder()
+                        .totalDuration(Duration.ofHours(24))
+                        .build())
+                .build();
+    }
+
+    @Override
     public StepDecision execute(final Context context, final TransferRequest request) {
         service.undoCredit(request.toAccount, request.amount);
         service.undoCreateCreditMemo(request.toAccount, request.amount, request.notes);
@@ -296,6 +318,16 @@ export class MoneyTransferFlow implements Flow<TransferRequest> {
 
 ```typescript
 class Compensate implements Step<TransferRequest> {
+  public constructor(private readonly flow: MoneyTransferFlow) {}
+
+  public getStepType(): string {
+    return "Compensate";
+  }
+
+  public getStepOptions(): StepOptions {
+    return { executeRetry: { totalDurationMs: DAY_MS } };
+  }
+
   public execute(_context: Context, request: TransferRequest): StepDecision {
     this.flow.service.undoCredit(request.toAccount, request.amount);
     this.flow.service.undoCreateCreditMemo(request.toAccount, request.amount, request.notes);
@@ -355,6 +387,16 @@ impl Step for Compensate {
             "transfer failed; effects compensated",
         ))
     }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_retry(transfer_retry())
+    }
+}
+
+fn transfer_retry() -> RetryPolicy {
+    RetryPolicy::new()
+        .initial_interval(Duration::from_secs(1))
+        .maximum_attempts(3)
 }
 ```
 

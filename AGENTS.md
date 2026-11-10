@@ -209,7 +209,7 @@ fact an agent needs to write correct code. Do not cut one only to be shorter.
 | --- | --- | --- |
 | Behavior, parameters, defaults, units, errors, and examples of one API | SDK doc comments, published as the generated API reference | Docs and skills link to it; they do not restate it |
 | Primitive concepts, relations, and mental model | Docs Concepts and skills | Change both in one pull request |
-| Components (Application, server, cli, web, connector, external Attribute sync): what each is and how they work together | Docs Components and skills | Change both in one pull request |
+| Components (Application, server, cli, web): what each is and how they work together | Docs Components and skills | Change both in one pull request |
 | Design patterns | Docs Design patterns (narrative, diagram, example) and skills (when to use, steps, code skeleton) | Change both in one pull request; code comes from `examples/` |
 | Configuration, flags, metrics, limits, edge cases, version differences | Docs Developer reference (versioned) | Skills link to it |
 
@@ -237,7 +237,7 @@ This is the target layout. Phases P2 and P4 of the docs and skills cleanup
 build it.
 
 - Each component has its own versioned reference: the Go, Python, Java,
-  TypeScript, and Rust SDKs, the server, cli, and web.
+  TypeScript, and Rust SDKs, the server, cli, web, and the agents packages.
 - The left sidebar of each reference has a version selector. It defaults to
   the latest version.
 - Only the current version is edited by hand. Each minor release snapshots it
@@ -247,8 +247,9 @@ build it.
 - When a version leaves the site, redirect each of its URLs to the same page
   in the latest version. If that page no longer exists, redirect to the
   component's reference index. Docs URLs stay permanent.
-- Each SDK, cli, and web minor version has one reference version. Patch
-  releases update that minor's reference. Until server-zd 1.0, each
+- Each SDK, cli, web, and agents minor version has one reference version.
+  Patch releases update that minor's reference. Before agents 1.0, each
+  `0.N` agents minor is one version. Until server-zd 1.0, each
   `0.1.N` server-zd release is one version. From 1.0 on, server-zd is
   versioned by minor release.
 

@@ -24,6 +24,8 @@ async fn metrics_listener_is_off_by_default() {
         config: None,
         attribute_store_config: None,
         durability: Some(crate::config::DevDurabilityMode::ProcessCrashSafe),
+        application_s3_listen: None,
+        application_s3_bucket: None,
     })
     .await
     .expect("dev server starts");

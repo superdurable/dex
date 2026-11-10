@@ -1,0 +1,68 @@
+---
+title: Show sessions in Dex Web
+sidebar_label: Dex Web
+---
+
+# Show sessions in Dex Web {#dex-web}
+
+[Dex Web](/reference/web/dex-web) draws a Flow and offers its Actions from a
+Flow Definition Graph. **dexcli visualize** cannot read the session Flow,
+because the Flow lives in the agents package and each application chooses its
+Flow type. The Python and TypeScript packages ship the session graph instead.
+
+## Render the session graph {#render-the-graph}
+
+Render the graph once for each agent, with the agent's Flow type and the
+permission its Actions require:
+
+```bash
+dex-agents-session-graph --flow-type SupportAgent --permission support-agent.operate \
+  --out definitions/support-agent.json
+```
+
+Both packages install the **dex-agents-session-graph** command, and both write
+the same bytes. In code, call **render_session_flow_graph** in Python or
+**renderSessionFlowGraph** in TypeScript. Point Dex Web at the directory:
+
+```bash
+dex-web --flow-rendering-dir ./definitions
+```
+
+On a development machine, **dexcli dev --flow-rendering-dir ./definitions**
+does the same. Render the files in the build or deployment step that ships the
+Workers, and mount the directory into Dex Web. Workers publish nothing. Dex Web
+reads the directory when it starts, so restart it after a file changes. Render
+the files again after you upgrade the agents packages.
+
+## What Dex Web shows {#what-dex-web-shows}
+
+The graph shows every session Step, its wait conditions, the RPCs, and the
+Channels between them. It leaves out Attribute reads and writes. Dex Web offers
+four Actions: **resolve_interrupt**, **answer_question**, **steer_user_message**,
+and **cancel_turn**. Each takes its request fields as input, such as the
+interrupt ID and the decision, and requires the permission you chose. The
+Actions have no condition, because each RPC checks the session state itself.
+Dex Web offers all four while the session runs, and an RPC that does not apply
+returns false. Read the interrupt ID from **PendingInterrupts** in the run's
+state, or from the session snapshot.
+
+The run page of a session also has an **Agent session** tab. It shows the
+conversation with each tool call where the agent made it, one approval card for
+each pending call, and a message box with **Steer** and **Stop turn**. The tab
+reads the session's Attributes directly, so it still shows the session while its
+Workers are down. It can also edit the session's settings and start a new
+session with a first message and settings. See
+[Agent session view](/reference/web/dex-web#agent-session-view).
+
+The session declares no Summary or Display fields, so Dex Web shows a session
+without calling a Worker. Actions still need a Worker.
+
+Dex Web shows an Action form only to a user **Working as** its permission.
+The session Actions have no condition, so **Working as** hides no session of
+the agent. It lists every session whose Flow type offers the permission.
+
+The agent mode of Work Queue lists the sessions that wait for a person, grouped
+by agent, and answers them in its side panel. See
+[Agent inbox](/reference/web/dex-web#agent-inbox). A session appears there only
+while its Flow searches by active Step type, which **start_session** turns on.
+See [Find sessions that need a person](/reference/agents/approvals#find-sessions).

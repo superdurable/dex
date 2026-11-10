@@ -36,6 +36,13 @@ Primitives are the building blocks a Flow uses. Each one belongs to a Flow.
 The [Client](/concepts/client) is the API your application uses outside a
 Worker. Use it to start, call, read, wait for, and operate Flows.
 
+## Connector
+
+A [Connector](/concepts/connector) connects a Flow to an external provider,
+such as an email or payment service. It gives your Flow ready-made Steps that
+call the provider, and Triggers that start or update Flows from provider
+events.
+
 ## How they fit together
 
 ```text
@@ -81,7 +88,7 @@ processes that run it:
   Primitives build on them.
 - [Design patterns](/design-patterns) show how to combine these concepts for
   common problems.
-- [Correctness and expressiveness](/concepts/correctness-and-expressiveness)
+- [Correctness and expressiveness](/correctness-and-expressiveness)
   shows what Dex can express and how it stays correct.
 - The [Developer reference](/reference) holds parameters, defaults, limits,
   and version details.

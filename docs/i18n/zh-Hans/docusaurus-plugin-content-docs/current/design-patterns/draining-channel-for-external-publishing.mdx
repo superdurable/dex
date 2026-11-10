@@ -390,7 +390,7 @@ impl Step for DrainChannel {
 
 ## Controller
 
-Controller 先对正在运行的 Flow 调用发布 RPC。如果 Dex 报告 Flow 没有在运行，Controller 用相同的 Flow ID 启动一次新的 Flow execution，并把消息作为启动输入。其他错误直接返回给调用方。
+Controller 先对正在运行的 Flow 调用发布 RPC。如果 Dex 报告 Flow 没有在运行，Controller 用相同的 Flow ID 启动一次新的 Flow run，并把消息作为启动输入。其他错误直接返回给调用方。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/controller.py', go: 'examples/go/patterns/drain-channels/external-publishing/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/DrainChannelsController.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/controller.ts', rust: 'examples/rust/src/patterns/drain_channels/controller.rs'}}>
 <SdkSnippet lang="python">

@@ -59,7 +59,7 @@ func StartOrder(ctx context.Context, client *dex.Client, flow *OrderApprovalFlow
   `*dex.FlowAlreadyStartedError`.
 - A nil `RequestID` makes the SDK generate a new one for each call. A pointer
   to an empty string is invalid.
-- `IDReusePolicy: dex.IDReuseDisallow` prevents a second execution after the
+- `IDReusePolicy: dex.IDReuseDisallow` prevents a second run after the
   first one closes.
 - Wait for a required business milestone with `WaitForAttributeMatch` or
   `WaitForStepCompletion` under a deadline.

@@ -5,10 +5,9 @@ sidebar_label: Workers
 
 # Python Workers
 
-This page shows how to start a Python Worker. It lists the Python names for the
-Worker settings and diagnostics. The
-[Workers and the task queue](/reference/server/workers) page describes their
-behavior for every SDK.
+This page shows how to start a Python Worker and lists the Python names of its
+settings. [Workers and the task queue](/reference/server/workers) describes
+how these settings behave in every SDK.
 
 ## Start a Worker
 
@@ -61,11 +60,14 @@ Example: [examples/python/dex_examples/production/pull_workers.py](https://githu
 
 ## Readiness
 
-Python provides **wait_pull_registered(timeout)**
-and **pull_registration_state()** on both Worker and AsyncWorker in SDK 1.14.0;
-await the AsyncWorker wait. Python's
-**stop_on_permanent_stream_rejection** provides the same opt-in shutdown
-behavior as Go.
+**wait_pull_registered(timeout)** waits until the Worker's slot streams have registered with
+Dex. **pull_registration_state()** reports the current registration state. By default,
+a Worker keeps retrying when Dex permanently rejects a slot stream. Set
+**stop_on_permanent_stream_rejection** to stop and drain the Worker instead when a permanent
+rejection leaves a slot kind without registered streams. Since 1.14.0.
+
+**Worker** and **AsyncWorker** both have these methods. Await the
+**AsyncWorker** wait.
 
 A **PullRegistrationError** reports **STEP_AND_RPC** or **RPC_ONLY** as its slot
 kind.
@@ -97,7 +99,7 @@ has no effect.
 The reserve-decline counter, **pull_reserved_rpc_declines**, is deprecated. It remains for
 source compatibility and always reads zero.
 
-This diagnostics helper exposes registration readiness. A full Worker stays ready.
+Report registration readiness instead, as this diagnostics helper does. A Worker with every slot busy stays ready.
 
 ```python
 @dataclass(frozen=True)

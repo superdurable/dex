@@ -435,11 +435,11 @@ curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-S
 
 ## 连接 Connector {#connect-connectors}
 
-Agent 可以把 [Connector](/components/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks#connectors-as-tools)。这个 example 加入了 Slack tool **slack_post_thread_reply**，用来在 Slack thread 中回复。
+Agent 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks#connectors-as-tools)。这个 example 加入了 Slack tool **slack_post_thread_reply**，用来在 Slack thread 中回复。
 
 ### 提供 tool {#offer-connector-tools}
 
-在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tools](/reference/agents/connector-tools#install)。
 
 Worker 从项目配置中打开 Slack connection **support-slack**。Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 把 operation 变成 tool，由 **ConnectorToolSource** 持有。没有这个 connection 时，agent 不会得到 Slack tool。
 
@@ -593,11 +593,11 @@ Agent 把 tool source 和自己的 tool 一起传入：
 
 在 Claude Agent SDK 中，Connector tool call 从不在 CLI 内运行，读操作也一样。每次调用都会结束当前 segment，并在自己的 tool Step 中运行，因为 Connector 需要这个 Step 来得到它的 Call ID。之后恢复的 CLI 拿到记录下来的结果。CLI 看到的 tool 名是 **mcp__tools__slack_post_thread_reply**；tool policy、审批和记录使用 **slack_post_thread_reply**。
 
-同一次回复中后面的写操作会在 turn 内被拒绝，不留下记录，见 [写操作顺序](/agent-frameworks/deploy-agents#connector-tools-write-order)。不要把 Connector tool 列进 **allowed_tools**（**allowedTools**）：它的调用必须离开 CLI，所以这样的条目会让 **RunModel** 这次尝试失败。
+同一次回复中后面的写操作会在 turn 内被拒绝，不留下记录，见 [写操作顺序](/agent-frameworks#connector-tools-write-order)。不要把 Connector tool 列进 **allowed_tools**（**allowedTools**）：它的调用必须离开 CLI，所以这样的条目会让 **RunModel** 这次尝试失败。
 
 ### 配置 connection {#configure-connector-connection}
 
-Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/agent-frameworks/deploy-agents#connector-tools-connection)。
+Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/reference/agents/connector-tools#connector-tools-connection)。
 
 试用时，先设置 **DEX_CONNECTOR_CONFIG_FILE** 再启动 example。然后让 agent 在 Slack thread 中回复，并给出 channel ID 和 thread timestamp：
 
@@ -616,11 +616,11 @@ Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursda
 - 记录下来的 tool result 只保留文本。
 - Subagent 中的写操作调用会被拒绝。模型会被要求从主对话中调用它。
 
-Adapter README 列出了全部限制。Server 的限制参见 [Durable Agents](/agent-frameworks/deploy-agents#limits)。
+Adapter README 列出了全部限制。Server 的限制参见 [Limits for long sessions](/reference/agents/session-limits)。
 
 ## 相关内容 {#related}
 
 - [Agent Framework](/agent-frameworks)
-- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Agents reference](/reference/agents/)
 - [Python adapter README](https://github.com/superdurable/dex/tree/main/agents/python/claude-agent-sdk)
 - [TypeScript adapter README](https://github.com/superdurable/dex/tree/main/agents/typescript/claude-agent-sdk)

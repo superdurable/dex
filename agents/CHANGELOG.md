@@ -83,6 +83,47 @@ for the Dex SDK and framework versions each release supports.
   message with images.
 - Shared cases: `agents/conformance/images.json`.
 
+### Changed
+
+- Breaking, Python and TypeScript cores: a connector tool's default name now
+  uses the Connector library's snake case (connectorctl `lowerCamelToSnake`),
+  which also names the Python Step factories. An acronym run stays one word.
+  Digits alone change nothing. Old -> new, in both languages:
+  `listStoryIDs` `list_story_i_d_s` -> `list_story_ids`, `getHTTPResponse`
+  `get_h_t_t_p_response` -> `get_http_response`, and `get2FACode`
+  `get2_f_a_code` -> `get2_fa_code`. Only capitals are ASCII now: the old Python
+  name also split before a non-ASCII capital, so `fetchÜberData` changes in
+  Python only, `fetch_über_data` -> `fetchÜber_data`; TypeScript already gave
+  `fetchÜber_data`. The owner authorized this break before launch.
+  Migration: a call stored under the old name finds no tool after the upgrade
+  and ends as a removed tool's call does. To keep a previous name, pass it
+  explicitly, such as `connector_tool(op, ref, name="stories_list_story_i_d_s")`
+  or `connectorTool(op, ref, { ..., name: "stories_list_story_i_d_s" })`; a
+  recorded call then resumes under it. `agents/conformance/connector_tools.json`
+  adds `toolNameCases`.
+- Breaking, Python and TypeScript cores: a Mutation's `defect` now records
+  `outcome_unknown` instead of `failed`, whatever `agent.branches` says, and is
+  not retried. The Connector SDK selects `defect` for some attempts that already
+  called the provider, and the core cannot tell those apart. A Query's `defect`
+  now follows `agent.branches`: listed `rejected` it is a rejection, otherwise
+  it still records `failed`. `uncertain` still records `outcome_unknown`. Both
+  rules now apply before the required branches, so a `defect` or `uncertain`
+  declared required no longer records `succeeded`.
+- Breaking, Python and TypeScript cores: a Mutation that uses the
+  single-dispatch fence records `outcome_unknown` on every branch but the
+  success branch when its fence checkpoints cannot prove that no request
+  reached the provider, whatever `agent.branches` says. This is the same check
+  the Go Connector SDK makes for agent hosts. Once the fence claims a send in
+  an attempt, only its `canResend` marker lowers it, so a later checkpoint of
+  the operation cannot. On a retry, an earlier checkpoint that is missing, not a
+  fence marker, malformed, or another call's counts as a possible send. The same
+  evidence decides a single-attempt write's Retry: `failed` with "not sent; the
+  provider asked to retry later" needs a `notSent` or `canResend` marker and no
+  possible send. `classify_connector_branch` (`classifyConnectorBranch`) takes
+  a new optional `may_have_dispatched` (`mayHaveDispatched`), which the source
+  computes. `agents/conformance/connector_tools.json` adds
+  `fenceObservationCases`.
+
 ### Fixed
 
 - Python and TypeScript Claude Agent SDK adapters: when the Claude Code CLI
@@ -128,7 +169,7 @@ for the Dex SDK and framework versions each release supports.
   Tool sources in framework adapters.
 - Go core: no connector tools. Its **AgentToolCall** carries the four new fields, so a
   record written by another core round-trips.
-- See [Connector tools](../docs/content/agent-frameworks/deploy-agents.mdx#connector-tools).
+- See [Connector tools](../docs/content/agent-frameworks.mdx#connectors-as-tools).
 
 ### Tool call contract additions
 
@@ -212,7 +253,7 @@ for the Dex SDK and framework versions each release supports.
   `tool_source_reference` under an adapter key. The Python Step-mode adapters
   use the new key `dex_tool_source`. Keep each `source_name` stable across
   deploys, because stored calls are routed by it.
-- See [Connector tools](../docs/content/agent-frameworks/deploy-agents.mdx#connector-tools).
+- See [Connector tools](../docs/content/agent-frameworks.mdx#connectors-as-tools).
 
 ### Claude Agent SDK: replay of recorded tool calls
 
@@ -277,7 +318,7 @@ for the Dex SDK and framework versions each release supports.
 - Dex Web needs a release that accepts Actions without a condition and calls no
   RPC for a view without fields.
 - Go core: no graph. It registers only part of the session Flow.
-- See [Show sessions in Dex Web](../docs/content/agent-frameworks/deploy-agents.mdx).
+- See [Show sessions in Dex Web](../docs/reference/agents/dex-web.mdx).
 
 ### Compaction in framework adapters
 
@@ -311,7 +352,7 @@ for the Dex SDK and framework versions each release supports.
   `ContextWindowModelScript` and `ContextWindowSessionScenario`.
 - No stored value changes. The conformance suite adds the summary prompt texts.
 - Go core: unchanged.
-- See [Compaction and the storage bound](../docs/content/agent-frameworks/deploy-agents.mdx#compaction).
+- See [Compaction and the storage bound](../docs/reference/agents/session-limits.mdx#compaction).
 
 ### Spend limits
 
@@ -332,7 +373,7 @@ for the Dex SDK and framework versions each release supports.
   ends.
 - No stored value changes. The conformance suite adds the refusal prefix.
 - Go core: unchanged. It does not check spend limits.
-- See [Spend limits](../docs/content/agent-frameworks/deploy-agents.mdx).
+- See [Spend limits](../docs/reference/agents/spend-limits.mdx).
 
 ### A configurable RunModel limit
 
@@ -367,7 +408,7 @@ for the Dex SDK and framework versions each release supports.
   start stays out of this search. So do sessions started on 0.2.0, until
   `UpdateFlowConfig` turns it on. No stored value changes.
 - Go core: unchanged.
-- See [Find sessions that need a person](../docs/content/agent-frameworks/deploy-agents.mdx).
+- See [Find sessions that need a person](../docs/reference/agents/approvals.mdx#find-sessions).
 
 ### A session at the state limit fails, with the reason
 
@@ -402,7 +443,7 @@ for the Dex SDK and framework versions each release supports.
   `AgentSnapshot.queued_messages` until retention deletes the session.
 - Go core: reads `failed` and keeps its behavior. It does not end a session at
   the limit yet.
-- See [Upgrade agent code while sessions wait](../docs/content/agent-frameworks/deploy-agents.mdx)
+- See [Upgrade agent code while sessions wait](../docs/reference/agents/upgrades.mdx)
   for the order of a rolling deploy.
 
 ## 0.2.0 (2026-11-05)

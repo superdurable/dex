@@ -50,6 +50,7 @@ export function useCamera({
   targetId,
   targetNeighbours = NO_FRAMING_NEIGHBOURS,
   insetRightPx,
+  insetTopPx = null,
   wholeMaxZoom,
   fitWhole,
   keepSelectionInView,
@@ -67,6 +68,8 @@ export function useCamera({
   targetId: string | null
   targetNeighbours?: FramingNeighbours
   insetRightPx: number | null | undefined
+  /** Pixels at the pane's top that the host's overlays cover. */
+  insetTopPx?: number | null
   wholeMaxZoom: number
   fitWhole: () => void
   /** Pans a reader's selection into view; false when there is none. */
@@ -88,6 +91,7 @@ export function useCamera({
     targetId,
     targetNeighbours,
     insetRightPx,
+    insetTopPx,
     fitWhole,
     keepSelectionInView,
     onFramed,
@@ -100,6 +104,7 @@ export function useCamera({
       targetId,
       targetNeighbours,
       insetRightPx,
+      insetTopPx,
       fitWhole,
       keepSelectionInView,
       onFramed,
@@ -115,8 +120,8 @@ export function useCamera({
   const frame = useCallback((): { view: CameraView; scope: FramingScope } | null => {
     const el = flowElement()
     if (el === null || el.clientWidth < 8 || el.clientHeight < 8) return null
-    const { scene: shown, direction: reading, targetId: target, targetNeighbours: joined, insetRightPx: inset } = latest.current
-    const room = cameraRoom(el.clientWidth, el.clientHeight, inset)
+    const { scene: shown, direction: reading, targetId: target, targetNeighbours: joined, insetRightPx: inset, insetTopPx: insetTop } = latest.current
+    const room = cameraRoom(el.clientWidth, el.clientHeight, inset, insetTop)
     return (
       (target === null ? null : focusView(shown, target, joined, room, wholeMaxZoom)) ??
       openingView(shown, room, reading, wholeMaxZoom)

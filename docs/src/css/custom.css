@@ -629,12 +629,36 @@ summary:focus-visible {
   box-shadow: 0 24px 80px rgba(20, 45, 24, 0.28);
 }
 
+/* The canvas takes the height its Flow needs (`--docs-flow-canvas-height`), within these bounds. */
+.docs-flow-definition-graph {
+  --docs-flow-canvas-min-height: 280px;
+  --docs-flow-canvas-max-height: max(520px, min(72vh, 760px));
+}
+
 /* Dex Web's Design tab canvas; its colours follow the page theme through `.v2-shell.dg`. */
 html .docs-flow-canvas > .v2-shell.dg,
+html .docs-flow-canvas > .dg-empty,
 .docs-flow-canvas-placeholder {
-  height: min(72vh, 760px);
-  min-height: 520px;
+  height: clamp(
+    var(--docs-flow-canvas-min-height),
+    var(--docs-flow-canvas-height, var(--docs-flow-canvas-max-height)),
+    var(--docs-flow-canvas-max-height)
+  );
+  min-height: 0;
   border-radius: 12px;
+}
+
+/* Dex Web's live-region announcements; the docs site does not load Dex Web's global `.sr-only`. */
+.docs-flow-canvas .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 html .docs-flow-definition-graph.is-expanded .docs-flow-canvas > .v2-shell.dg {
@@ -642,11 +666,11 @@ html .docs-flow-definition-graph.is-expanded .docs-flow-canvas > .v2-shell.dg {
   min-height: 0;
 }
 
+/* A narrow screen opens the Step panel as a bottom sheet over 60% of the canvas; keep it readable. */
 @media (max-width: 760px) {
-  html .docs-flow-canvas > .v2-shell.dg,
-  .docs-flow-canvas-placeholder {
-    height: 70vh;
-    min-height: 440px;
+  .docs-flow-definition-graph {
+    --docs-flow-canvas-min-height: 380px;
+    --docs-flow-canvas-max-height: max(440px, 70vh);
   }
 }
 

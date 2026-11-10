@@ -24,6 +24,7 @@ An operation-specific factory creates a Connector Step. The application maps the
 - The provider call runs in Execute and inherits Dex retry, timeout, durability, and recovery.
 - The result holds the operation output, a receipt, the selected branch, and a safe failure classification. It does not carry the previous Step input. Persist business context in an Attribute, or pass it through an application Step first.
 - A Mutation uses a stable idempotency key derived from the Step execution.
+- Each operation has an effect class. A Query is a read and changes nothing when repeated. A Mutation the Connector marks safe to repeat is an idempotent write: a repeat with the same idempotency key makes no second effect. Every other Mutation is a non-idempotent write and can make a second effect when repeated.
 - When a Mutation's outcome is unknown, the Connector selects an uncertainty branch. Wire it to a Step that queries and reconciles. Never resend blindly.
 - Only the happy-path branch must be wired. Selecting an unwired optional branch fails the Flow, which keeps the provider outcome visible for recovery.
 - Use the operation-specific generated factories and a static connection name on every operation config.

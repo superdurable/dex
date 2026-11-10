@@ -6,7 +6,7 @@ slug: /concepts/primitives/attribute
 
 # Attribute
 
-An **Attribute** is durable data that belongs to one Flow execution. Steps and
+An **Attribute** is durable data that belongs to one Flow run. Steps and
 RPCs read and write it. Dex stores it with the Flow, so you do not need a
 database for intermediate state.
 
@@ -328,7 +328,7 @@ See [when a read needs an RPC](/concepts/client#related-primitives) and
 To set values when the Flow starts, see [Initial values](/reference/server/runtime-data#initial-attribute-values).
 
 An indexed Attribute can be used in **SearchFlows** queries to find Flow
-executions. The example above indexes the status Attribute. See
+runs. The example above indexes the status Attribute. See
 [Indexes](/reference/server/runtime-data#attribute-indexes) for index types,
 index keys, and AttributeMap indexes.
 
@@ -434,13 +434,46 @@ See
 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)
 for the requirements and their consequences.
 
+<a id="how-it-fits-with-the-other-components"></a>
+<a id="configuration"></a>
+<a id="delivery-and-retries"></a>
+<a id="attribute-store-local-development"></a>
+
 ## Keep data after the Flow {#attribute-store-projection}
 
-Attribute Sync copies selected Attributes to a PostgreSQL table that you own.
-The table keeps the data after Dex deletes the Flow, and you can index it for
-your own queries. Dex writes the latest values asynchronously. See
-[External Attribute Sync](/components/external-attribute-sync) and
-the [Entity Store](/design-patterns/entity-store) pattern.
+Attribute Store sync copies selected Attributes to PostgreSQL tables that you
+own. Each destination is called an **Attribute Store**. The tables keep the data
+after Dex deletes the Flow. Your application and your reports query them with
+SQL, and you can index them for your own queries.
+
+To sync an Attribute:
+
+1. Create the table before the server starts. Dex never creates, migrates, or
+   backfills a table.
+2. Configure the store in the server configuration.
+3. Mark the Attribute or AttributeMap with **syncToAttributeStore**.
+4. List the store name in the Flow's **FlowConfig** when you start the Flow.
+
+What to expect:
+
+- The Flow stays the source of truth. A table row holds the latest values, not
+  a history. Do not make Flow decisions from the table.
+- Dex writes in the background. A write never delays a Step, an RPC, or a
+  SetAttributes call. Writes for the same Flow ID keep their order.
+- When a write fails, Dex retries it for a limited time. It then drops the
+  write and logs an error. Dex does not replay old values or fill a newly
+  configured store.
+- When a Flow completes or fails on its own, it stays running until its
+  pending writes are written or dropped. StopFlow does not wait.
+- Deleting an Attribute writes NULL to its column. Dex does not delete the row
+  when the Flow closes.
+- A store can split the Flow ID into several key columns, and can write each
+  AttributeMap instance as a row of its own table.
+
+The [Attribute Store sync](/reference/server/attribute-store-sync) reference
+covers configuration, table requirements, row keys, AttributeMap tables,
+retries, metrics, and local development. The
+[Entity Store](/design-patterns/entity-store) pattern shows a complete example.
 
 ## Reference
 

@@ -6,8 +6,8 @@ sidebar_label: Overview
 
 # Components
 
-A Dex application runs on a small set of components. Your code is one of them.
-Dex provides the rest.
+A Dex application runs on four components: your application, the server, the
+CLI, and Web. You write the application. Dex provides the rest.
 
 | Component | What it does |
 | --- | --- |
@@ -15,8 +15,6 @@ Dex provides the rest.
 | [Server](/components/server) | server-zd stores Flow state and hands work to Workers. |
 | [CLI](/components/cli) | **dexcli** runs a local Dex and operates Flows from a shell. |
 | [Web](/components/web) | Dex Web is the operator UI for inspecting and acting on Flows. |
-| [Connector](/components/connector) | Connectors are released integrations that a Flow calls. Dex Web sets them up locally. |
-| [External Attribute Sync](/components/external-attribute-sync) | server-zd copies selected Attributes into PostgreSQL tables. |
 
 ## How they fit together
 
@@ -24,13 +22,14 @@ Dex provides the rest.
 Client  ──▶ server-zd ◀── Worker
 Dex Web ──▶     │
 dexcli  ──▶     ├──▶ object storage
-                └──▶ PostgreSQL (Attribute Sync)
+                └──▶ PostgreSQL (Attribute Store sync)
 ```
 
 Workers, Clients, Dex Web, and **dexcli** all connect to the server's API port.
 A Worker opens outbound streams to the server and never listens for calls. The
 server keeps Flow state in object storage. It can also write selected Attributes
-to PostgreSQL for your own queries.
+to PostgreSQL for your own queries. See
+[Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection).
 
 ## Local and production
 

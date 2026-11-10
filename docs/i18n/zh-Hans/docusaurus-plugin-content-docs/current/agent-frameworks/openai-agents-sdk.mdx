@@ -408,11 +408,11 @@ curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-S
 
 ## 连接 Connector {#connect-connectors}
 
-Agent 可以把 [Connector](/components/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks#connectors-as-tools)。这个 example 加入了 Slack tool **slack_post_thread_reply**，用来在 Slack thread 中回复。
+Agent 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks#connectors-as-tools)。这个 example 加入了 Slack tool **slack_post_thread_reply**，用来在 Slack thread 中回复。
 
 ### 提供 tool {#offer-connector-tools}
 
-在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tools](/reference/agents/connector-tools#install)。
 
 Worker 从项目配置中打开 Slack connection **support-slack**。Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 把 operation 变成 tool，由 **ConnectorToolSource** 持有。没有这个 connection 时，agent 不会得到 Slack tool。
 
@@ -564,7 +564,7 @@ Graph 中的每个 agent 都在自己的 tool 之后提供 Connector tool。在 
 
 ### 配置 connection {#configure-connector-connection}
 
-Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/agent-frameworks/deploy-agents#connector-tools-connection)。
+Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/reference/agents/connector-tools#connector-tools-connection)。
 
 试用时，先设置 **DEX_CONNECTOR_CONFIG_FILE** 再启动 example。然后让 agent 在 Slack thread 中回复，并给出 channel ID 和 thread timestamp：
 
@@ -582,11 +582,11 @@ Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursda
 - Session 就是历史记录。不要使用 server 管理的 conversation state 或 SDK session。
 - 在 Python 中，作为 tool 使用的 Agent 会在一个 tool Step 中运行整个嵌套 run。TypeScript 会拒绝它；请改用 handoff。
 
-Adapter README 列出了全部限制。Server 的限制参见 [Durable Agents](/agent-frameworks/deploy-agents#limits)。
+Adapter README 列出了全部限制。Server 的限制参见 [Limits for long sessions](/reference/agents/session-limits)。
 
 ## 相关内容 {#related}
 
 - [Agent Framework](/agent-frameworks)
-- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Agents reference](/reference/agents/)
 - [Python adapter README](https://github.com/superdurable/dex/tree/main/agents/python/openai-agents)
 - [TypeScript adapter README](https://github.com/superdurable/dex/tree/main/agents/typescript/openai-agents)

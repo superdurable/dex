@@ -22,9 +22,10 @@ them in the [Go SDK API reference](./index.mdx#api-reference).
 | Read the next message | **Client.ReadStream**, with the **ResumeToken** of the last **StreamMessage** | [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) |
 | List retained messages, newest first | **Client.ListStreamMessages**, into a **StreamMessagesPage** | [List messages](/reference/server/runtime-data#stream-listing) |
 
-**Stream.Write** sends the message right away from **WaitFor** or
-**Execute**. Its error covers only local validation, encoding, and transport.
-An RPC handler cannot write a Stream.
+**Stream.Write** works in **WaitFor**, **Execute**, and the Flow timeout
+handler. An RPC handler cannot write a Stream. **Stream.Write** sends the
+message right away. Its error covers only local validation, encoding, and
+transport.
 
 ## Example {#example}
 

@@ -19,7 +19,7 @@ Start with Dex as the durable system of record for every fact the Flow model can
 - Data shared by several processes does not by itself need a database. Give shared facts one stable domain or entity Flow owner and expose typed operations on it. Do not turn an arbitrary process Flow into a global database, and do not copy one authoritative fact into several process Flows.
 - Do not add a database, cache, ORM, outbox, or shadow read model for hypothetical flexibility.
 - An external store needs a confirmed requirement Dex cannot reasonably meet: complex or ad-hoc secondary indexes, full-text or vector search, sustained high-contention writes to one hot record that cannot accept Attribute-lock serialization, relational joins or transactions across independently owned records, or large analytical scans. Record the operation, scale, consistency need, and the Dex alternative you evaluated.
-- When Dex can stay authoritative and only the query shape is missing, prefer an [Attribute Store projection](external-attribute-sync.md) over application dual writes.
+- When Dex can stay authoritative and only the query shape is missing, prefer an [Attribute Store projection](attribute.md#attribute-store-sync) over application dual writes.
 - When an external store must own a fact, define that boundary explicitly. Keep the Flow's Attributes to process state, durable references, and recovery facts.
 - One fact never has two ambiguous authorities. Name the source of truth for each fact and define synchronization, failure, and reconciliation.
 - Large size alone does not require a separate store.
@@ -82,7 +82,7 @@ Old chunks keep their references and stay warm. A new chunk causes only its own 
 
 ## External queries
 
-When data needs relational queries, independent pagination, cross-Flow access, analytics, or a different retention lifecycle, first consider Attribute Store sync. See [external-attribute-sync.md](external-attribute-sync.md).
+When data needs relational queries, independent pagination, cross-Flow access, analytics, or a different retention lifecycle, first consider Attribute Store sync. See [attribute.md](attribute.md#attribute-store-sync).
 
 Attribute Store sync targets PostgreSQL only. For Elasticsearch or a vector database, choose one:
 

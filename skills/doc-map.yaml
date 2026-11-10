@@ -49,7 +49,7 @@ mappings:
 
   - skill: dex-sdk/references/core/connector.md
     docs:
-      - docs/content/components/connector.mdx
+      - docs/content/concepts/connector.mdx
 
   - skill: dex-sdk/references/core/client.md
     docs:
@@ -71,10 +71,6 @@ mappings:
   - skill: dex-sdk/references/core/web.md
     docs:
       - docs/content/components/web.mdx
-
-  - skill: dex-sdk/references/core/external-attribute-sync.md
-    docs:
-      - docs/content/components/external-attribute-sync.mdx
 
   - skill: dex-sdk/references/core/patterns.md
     docs:
@@ -124,7 +120,7 @@ mappings:
 
   - skill: dex-app-builder/references/connector-architecture.md
     docs:
-      - docs/content/components/connector.mdx
+      - docs/content/concepts/connector.mdx
 
   - skill: dex-app-builder/references/dex-web-v2.md
     docs:
@@ -170,5 +166,3 @@ unmapped:
   - skills/dex-connector-contributor/SKILL.md
   # The Concepts overview; dex-sdk/SKILL.md holds the agent mental model.
   - docs/content/concepts/index.mdx
-  # Expressiveness evidence for human readers; no agent rule changes.
-  - docs/content/concepts/correctness-and-expressiveness/*.mdx
