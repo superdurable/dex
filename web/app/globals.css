@@ -1424,16 +1424,43 @@ pre {
 
 .stream-form > div {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .stream-form input {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 180px;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--paper);
+}
+
+.stream-choice {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 220px;
+  align-items: center;
+}
+
+.stream-choice > svg {
+  position: absolute;
+  left: 10px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.stream-choice select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px 8px 32px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: inherit;
+  background: var(--paper);
+  text-overflow: ellipsis;
 }
 
 .stream-empty {

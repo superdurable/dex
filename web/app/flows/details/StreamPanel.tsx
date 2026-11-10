@@ -8,16 +8,38 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { Waves } from 'lucide-react';
 import { hydrateBlobs } from '@/lib/blobs';
 import { formatDate } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
-import type { StreamMessage } from '@/lib/types';
+import type { FlowDefinitionEntry, StreamMessage } from '@/lib/types';
 import { StructuredValue } from '../../components/StructuredValue';
 import { usePreferences } from '../../providers';
 
 interface StreamPanelProps {
   flowId: string;
   flowType: string;
+  definition?: FlowDefinitionEntry | null;
+}
+
+/** A Stream declared in a Flow Definition Graph. */
+export interface DefinedStream {
+  name: string;
+  valueType: string;
+}
+
+const OTHER_STREAM_CHOICE = '\u0000other';
+
+/** The Streams a loaded definition declares, in graph order and without duplicate names. */
+export function definedStreamsOf(definition: FlowDefinitionEntry | null | undefined): DefinedStream[] {
+  const streams: DefinedStream[] = [];
+  const seenNames = new Set<string>();
+  for (const node of definition?.graph.nodes ?? []) {
+    if (node.kind !== 'stream' || !node.name || seenNames.has(node.name)) continue;
+    seenNames.add(node.name);
+    streams.push({ name: node.name, valueType: node.resource?.valueType ?? '' });
+  }
+  return streams;
 }
 
 interface StreamListenerOptions {
@@ -59,8 +81,13 @@ export async function listenToStream({
   }
 }
 
-export function StreamPanel({ flowId, flowType }: StreamPanelProps) {
+export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) {
   const { timezone } = usePreferences();
+  const definedStreams = definedStreamsOf(definition);
+  const hasDefinedStreams = definedStreams.length > 0;
+  const [pickedStreamChoice, setPickedStreamChoice] = useState<string | null>(null);
+  const streamChoice = pickedStreamChoice ?? (definedStreams.length === 1 ? definedStreams[0].name : '');
+  const isTypingStreamName = !hasDefinedStreams || streamChoice === OTHER_STREAM_CHOICE;
   const [streamName, setStreamName] = useState('');
   const [activeStreamName, setActiveStreamName] = useState('');
   const [messages, setMessages] = useState<StreamMessage[]>([]);
@@ -110,9 +137,9 @@ export function StreamPanel({ flowId, flowType }: StreamPanelProps) {
 
   const startListening = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const nextStreamName = streamName.trim();
+    const nextStreamName = isTypingStreamName ? streamName.trim() : streamChoice;
     if (!nextStreamName) {
-      setError('Enter a Stream name.');
+      setError(isTypingStreamName ? 'Enter a Stream name.' : 'Choose a Stream.');
       return;
     }
     blobCache.current.clear();
@@ -136,15 +163,41 @@ export function StreamPanel({ flowId, flowType }: StreamPanelProps) {
       </div>
 
       <form className="stream-form" onSubmit={startListening}>
-        <label htmlFor="stream-name">Stream name</label>
+        <label htmlFor={hasDefinedStreams ? 'stream-choice' : 'stream-name'}>Stream name</label>
         <div>
-          <input
-            id="stream-name"
-            name="streamName"
-            onChange={(event) => setStreamName(event.target.value)}
-            placeholder="a defined stream name"
-            value={streamName}
-          />
+          {hasDefinedStreams && (
+            <span className="stream-choice">
+              <Waves aria-hidden="true" size={15} />
+              <select
+                id="stream-choice"
+                name="streamChoice"
+                onChange={(event) => {
+                  setPickedStreamChoice(event.target.value);
+                  setError('');
+                }}
+                value={streamChoice}
+              >
+                {streamChoice === '' && <option disabled value="">Choose a Stream…</option>}
+                {definedStreams.map((stream) => (
+                  <option key={stream.name} value={stream.name}>
+                    {stream.valueType ? `${stream.name} · ${stream.valueType}` : stream.name}
+                  </option>
+                ))}
+                <option value={OTHER_STREAM_CHOICE}>Other name…</option>
+              </select>
+            </span>
+          )}
+          {isTypingStreamName && (
+            <input
+              aria-label={hasDefinedStreams ? 'Other Stream name' : undefined}
+              autoFocus={hasDefinedStreams}
+              id="stream-name"
+              name="streamName"
+              onChange={(event) => setStreamName(event.target.value)}
+              placeholder="a defined stream name"
+              value={streamName}
+            />
+          )}
           <button className="button primary" type="submit">
             {activeStreamName ? 'Restart listening' : 'Start listening'}
           </button>

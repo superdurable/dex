@@ -1698,16 +1698,20 @@ body:has(.v1-page) {
   font-size: var(--ui-text-sm);
 }
 
-.v1-page :is(.stream-form input, .filter-row input, .filter-row select, .advanced-query textarea, .modal input, .modal select, .modal textarea, .history-settings-form input, .history-settings-form select) {
+.v1-page :is(.stream-form input, .stream-choice select, .filter-row input, .filter-row select, .advanced-query textarea, .modal input, .modal select, .modal textarea, .history-settings-form input, .history-settings-form select) {
   border: 1px solid transparent;
   border-radius: var(--ui-radius-control);
   background: var(--ui-chip);
 }
 
-.v1-page :is(.stream-form input, .filter-row input, .filter-row select, .advanced-query textarea, .modal input, .modal select, .modal textarea, .history-settings-form input, .history-settings-form select):focus {
+.v1-page :is(.stream-form input, .stream-choice select, .filter-row input, .filter-row select, .advanced-query textarea, .modal input, .modal select, .modal textarea, .history-settings-form input, .history-settings-form select):focus {
   border-color: var(--tone-accent);
   background: var(--ui-surface);
   box-shadow: var(--focus-ring);
+}
+
+.v1-page .stream-choice > svg {
+  color: var(--ui-ink-3);
 }
 
 .v1-page .stream-empty {
