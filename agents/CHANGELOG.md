@@ -62,7 +62,9 @@ for the Dex SDK and framework versions each release supports.
   **ImageValidationError** names what is wrong.
 - Reads check the SHA-256, the size, and the type: **verify_image_bytes**
   (`verifyImageBytes`) refuses bytes that are not a well-formed image of the
-  reference's `mime_type`. **S3MediaStore** uploads with `If-None-Match: *`,
+  reference's `mime_type`. **S3MediaStore** uploads with `If-None-Match: *`
+  (412 means stored; a 409 conflict retries, then needs a `HEAD` that finds
+  the object),
   refuses an object whose `Content-Length` differs from the reference, and
   reads at most one byte past `size_bytes`. It takes explicit credentials
   (`access_key_id` and `secret_access_key`; `credentials`) for a local

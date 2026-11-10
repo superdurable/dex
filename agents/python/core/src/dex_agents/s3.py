@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from collections.abc import Mapping
 from typing import Any, Protocol, cast
 
@@ -48,10 +49,11 @@ from dex_agents.values import AgentImageReference
 __all__ = ["S3MediaStore"]
 
 _NOT_FOUND_ERROR_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
-# 412 means the object exists; 409 means a concurrent conditional write of it is in flight.
-_ALREADY_EXISTS_ERROR_CODES = frozenset(
-    {"412", "409", "PreconditionFailed", "ConditionalRequestConflict"}
-)
+_ALREADY_EXISTS_ERROR_CODES = frozenset({"412", "PreconditionFailed"})
+# A concurrent write or delete of the key; S3 asks the caller to retry the upload.
+_CONDITIONAL_WRITE_CONFLICT_ERROR_CODES = frozenset({"409", "ConditionalRequestConflict"})
+# Seconds before each retry of a conditional PUT that S3 answered with 409.
+_CONDITIONAL_WRITE_CONFLICT_RETRY_DELAYS = (0.1, 0.4)
 _CONDITIONAL_WRITE_UNSUPPORTED_ERROR_CODES = frozenset({"501", "NotImplemented"})
 
 
@@ -69,8 +71,11 @@ class S3MediaStore:
     The object key is ``<prefix>/sha256/<sha256>``, and a reference's ``uri`` is
     ``s3://<bucket>/<prefix>/sha256/<sha256>``. ``put_image`` uploads with
     ``If-None-Match: *`` and the image's ``Content-Type``, and treats "already
-    exists" as success, so concurrent and retried uploads of the same bytes
-    write one object. A service that refuses conditional writes gets a
+    exists" (412) as success, so concurrent and retried uploads of the same
+    bytes write one object. A 409 conflict, from a concurrent write or delete of
+    the key, retries the upload twice with a short backoff; if every attempt
+    conflicts, a ``HEAD`` must find the object with the image's size, or
+    ``put_image`` raises ``MediaStoreError``. A service that refuses conditional writes gets a
     ``HEAD`` first and a plain ``PUT`` when the object is missing; then two
     concurrent uploads may both write, so deduplication holds for the key and
     its final content, not for every write. ``get_image`` reads only objects
@@ -243,12 +248,13 @@ class S3MediaStore:
         Raises:
             ImageValidationError: If the bytes are not a valid image for
                 ``build_image_reference``. Nothing is uploaded.
+            MediaStoreError: If every conditional upload conflicted and the
+                object is still missing, or has another size. Retrying is safe.
             botocore.exceptions.ClientError: If S3 refuses the request, such as
                 for missing credentials or permissions. Retrying is safe.
         """
         reference = build_image_reference(data, self._store_uri)
-        key = self.object_key(reference.sha256)
-        await asyncio.to_thread(self._put_object_if_absent, key, bytes(data), reference.mime_type)
+        await asyncio.to_thread(self._put_object_if_absent, reference, bytes(data))
         return reference
 
     async def get_image(self, reference: AgentImageReference) -> bytes:
@@ -280,31 +286,49 @@ class S3MediaStore:
                 )
             return self._client
 
-    def _put_object_if_absent(self, key: str, data: bytes, mime_type: str) -> None:
+    def _put_object_if_absent(self, reference: AgentImageReference, data: bytes) -> None:
         client = self._s3_client()
+        key = self.object_key(reference.sha256)
         parameters: dict[str, Any] = {
             "Bucket": self._bucket,
             "Key": key,
             "Body": data,
-            "ContentType": mime_type,
+            "ContentType": reference.mime_type,
         }
         if self._supports_conditional_writes:
-            try:
-                client.put_object(**parameters, IfNoneMatch="*")
-                return
-            except ClientError as error:
-                if _has_error_code(error, _ALREADY_EXISTS_ERROR_CODES):
+            for retry_delay in (*_CONDITIONAL_WRITE_CONFLICT_RETRY_DELAYS, None):
+                try:
+                    client.put_object(**parameters, IfNoneMatch="*")
                     return
-                if not _has_error_code(error, _CONDITIONAL_WRITE_UNSUPPORTED_ERROR_CODES):
-                    raise
-                self._supports_conditional_writes = False
+                except ClientError as error:
+                    if _has_error_code(error, _ALREADY_EXISTS_ERROR_CODES):
+                        return
+                    if _has_error_code(error, _CONDITIONAL_WRITE_UNSUPPORTED_ERROR_CODES):
+                        self._supports_conditional_writes = False
+                        break
+                    if not _has_error_code(error, _CONDITIONAL_WRITE_CONFLICT_ERROR_CODES):
+                        raise
+                if retry_delay is None:
+                    # Every attempt conflicted: return only a reference whose object exists.
+                    if self._stored_size(key) != reference.size_bytes:
+                        raise MediaStoreError(
+                            f"image {reference.uri} was not stored: every upload conflicted "
+                            "with another write"
+                        )
+                    return
+                time.sleep(retry_delay)
+        if self._stored_size(key) is None:
+            client.put_object(**parameters)
+
+    def _stored_size(self, key: str) -> int | None:
+        """Return the size of the object at ``key``, or ``None`` when there is none."""
         try:
-            client.head_object(Bucket=self._bucket, Key=key)
-            return
+            response = self._s3_client().head_object(Bucket=self._bucket, Key=key)
         except ClientError as error:
-            if not _has_error_code(error, _NOT_FOUND_ERROR_CODES):
-                raise
-        client.put_object(**parameters)
+            if _has_error_code(error, _NOT_FOUND_ERROR_CODES):
+                return None
+            raise
+        return int(response.get("ContentLength", -1))
 
     def _get_object(self, reference: AgentImageReference) -> bytes:
         try:

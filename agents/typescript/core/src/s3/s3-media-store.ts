@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { setTimeout as delay } from "node:timers/promises";
+
 import {
   GetObjectCommand,
   HeadObjectCommand,
@@ -25,13 +27,11 @@ import {
 import type { AgentImageReference } from "../agent-session-values.js";
 
 const notFoundErrorCodes: ReadonlySet<string> = new Set(["NotFound", "NoSuchKey", "404"]);
-// 412 means the object exists; 409 means a concurrent conditional write of it is in flight.
-const alreadyExistsErrorCodes: ReadonlySet<string> = new Set([
-  "PreconditionFailed",
-  "ConditionalRequestConflict",
-  "412",
-  "409",
-]);
+const alreadyExistsErrorCodes: ReadonlySet<string> = new Set(["PreconditionFailed", "412"]);
+// A concurrent write or delete of the key; S3 asks the caller to retry the upload.
+const conditionalWriteConflictErrorCodes: ReadonlySet<string> = new Set(["ConditionalRequestConflict", "409"]);
+// Milliseconds before each retry of a conditional PUT that S3 answered with 409.
+const conditionalWriteConflictRetryDelaysMs: readonly number[] = [100, 400];
 const conditionalWriteUnsupportedErrorCodes: ReadonlySet<string> = new Set(["NotImplemented", "501"]);
 
 /**
@@ -76,8 +76,10 @@ export interface S3MediaStoreOptions {
  * Keeps image bytes in an S3 bucket, one object per distinct image.
  *
  * The object key is `<prefix>/sha256/<sha256>`, and a reference's `uri` is `s3://<bucket>/<prefix>/sha256/<sha256>`.
- * `putImage` uploads with `If-None-Match: *` and the image's `Content-Type`, and treats "already exists" as success, so
- * concurrent and retried uploads of the same bytes write one object. A service that refuses conditional writes gets a
+ * `putImage` uploads with `If-None-Match: *` and the image's `Content-Type`, and treats "already exists" (412) as
+ * success, so concurrent and retried uploads of the same bytes write one object. A 409 conflict, from a concurrent write
+ * or delete of the key, retries the upload twice with a short backoff; if every attempt conflicts, a `HEAD` must find
+ * the object with the image's size, or `putImage` throws `MediaStoreError`. A service that refuses conditional writes gets a
  * `HEAD` first and a plain `PUT` when the object is missing; then two concurrent uploads may both write, so
  * deduplication holds for the key and its final content, not for every write. `getImage` reads only objects under
  * this store's bucket and prefix, refuses an object whose `Content-Length` differs from the reference, reads at most
@@ -180,6 +182,8 @@ export class S3MediaStore implements MediaStore {
    * @param data - PNG, JPEG, GIF, or WebP bytes, at most `maxImageBytes`.
    * @returns The reference.
    * @throws {ImageValidationError} When the bytes are not a valid image for `buildImageReference`. Nothing is uploaded.
+   * @throws {MediaStoreError} When every conditional upload conflicted and the object is still missing, or has another
+   * size. Retrying is safe.
    * @throws {S3ServiceException} When S3 refuses the request, such as for missing credentials or permissions.
    * Retrying is safe.
    */
@@ -192,20 +196,33 @@ export class S3MediaStore implements MediaStore {
       ContentType: reference.mimeType,
     };
     if (this.supportsConditionalWrites) {
-      try {
-        await this.client.send(new PutObjectCommand({ ...input, IfNoneMatch: "*" }));
-        return reference;
-      } catch (error) {
-        if (hasErrorCode(error, alreadyExistsErrorCodes)) {
+      for (const retryDelayMs of [...conditionalWriteConflictRetryDelaysMs, undefined]) {
+        try {
+          await this.client.send(new PutObjectCommand({ ...input, IfNoneMatch: "*" }));
+          return reference;
+        } catch (error) {
+          if (hasErrorCode(error, alreadyExistsErrorCodes)) {
+            return reference;
+          }
+          if (hasErrorCode(error, conditionalWriteUnsupportedErrorCodes)) {
+            this.supportsConditionalWrites = false;
+            break;
+          }
+          if (!hasErrorCode(error, conditionalWriteConflictErrorCodes)) {
+            throw error;
+          }
+        }
+        if (retryDelayMs === undefined) {
+          // Every attempt conflicted: return only a reference whose object exists.
+          if ((await this.storedSize(input.Key)) !== reference.sizeBytes) {
+            throw new MediaStoreError(`image ${reference.uri} was not stored: every upload conflicted with another write`);
+          }
           return reference;
         }
-        if (!hasErrorCode(error, conditionalWriteUnsupportedErrorCodes)) {
-          throw error;
-        }
-        this.supportsConditionalWrites = false;
+        await delay(retryDelayMs);
       }
     }
-    if (!(await this.hasObject(input.Key))) {
+    if ((await this.storedSize(input.Key)) === undefined) {
       await this.client.send(new PutObjectCommand(input));
     }
     return reference;
@@ -257,13 +274,14 @@ export class S3MediaStore implements MediaStore {
     this.client.destroy();
   }
 
-  private async hasObject(key: string): Promise<boolean> {
+  /** Returns the size of the object at `key`, or `undefined` when there is none. */
+  private async storedSize(key: string): Promise<number | undefined> {
     try {
-      await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
-      return true;
+      const response = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      return response.ContentLength ?? -1;
     } catch (error) {
       if (hasErrorCode(error, notFoundErrorCodes)) {
-        return false;
+        return undefined;
       }
       throw error;
     }

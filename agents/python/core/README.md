@@ -681,9 +681,11 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
 
 - **One object per image.** The object key is `<prefix>/sha256/<sha256>`, and
   the reference's `uri` ends in `/sha256/<sha256>`. `S3MediaStore.put_image`
-  uploads with `If-None-Match: *` and treats "already exists" as success, so a
-  tool Step that a crash retries, a client that sends again, or two Workers at
-  once write one object. On a service that refuses conditional writes it
+  uploads with `If-None-Match: *` and treats "already exists" (412) as
+  success, so a tool Step that a crash retries, a client that sends again, or
+  two Workers at once write one object. A 409 conflict retries the upload
+  twice; when every attempt conflicts, a `HEAD` must find the object with the
+  image's size, or `put_image` raises `MediaStoreError`. On a service that refuses conditional writes it
   checks with `HEAD` first; two concurrent uploads may then both write the
   same content, so deduplication holds for the key and its final content. A
   replay always reads the bytes the reference was made from: `get_image`
