@@ -14,7 +14,7 @@ by waiting on the Channel in **WaitFor**.
 A Channel is scoped to one Flow execution. Messages never cross between Flow
 executions.
 
-<ChannelScopeDiagram markdownDescription="A Flow execution owns a FIFO Channel shared by its Steps and RPCs. Publishers add messages, and a waiting consumer Step consumes each message once." />
+<ChannelScopeDiagram markdownDescription="A Flow execution owns a FIFO Channel shared by its Steps and RPCs. Publishers add messages, and one waiting consumer Step consumes each message." />
 
 ## When to use a Channel
 
@@ -27,8 +27,22 @@ live progress that a user can afford to lose.
 
 - Dex stores every message durably with the Flow.
 - Messages stay in arrival order.
-- One wait consumes a message, once. Dex does not copy it to other waiting
-  Steps.
+- One wait consumes a message. Dex does not copy it to other waiting Steps.
+- A Step can be canceled after its wait consumed messages but before its
+  **Execute** commits. Then Dex returns the messages to the front of their
+  Channel, in their original order. Another wait can consume them.
+- A canceled **Execute** may already have seen a returned message. So a message
+  can reach **Execute** twice. Make message processing idempotent.
+- Dex drops the consumed messages instead when the Flow close itself cancels
+  the Step. A **StopFlow** request or a Flow timeout does this. So does a decision that closes
+  the Flow with **ForceComplete** or **ForceFail** while it cancels the Step.
+- Any other cancellation returns the messages, even when the Flow then closes,
+  for example by **GracefulComplete**. They stay pending in the closed run.
+- A Step that a commit cancels never takes the messages that commit publishes.
+  The exception is a commit that also closes the Flow at once, with
+  **ForceComplete**, **ForceFail**, or a **ForceCompleteIfChannelsEmpty** that
+  closes. A waiting Step can take a message there, and the close then cancels
+  that Step and drops the message.
 - A message can arrive before a Step starts waiting. Dex keeps it until a later
   wait consumes it.
 - A publication commits together with the Step or RPC result that made it.

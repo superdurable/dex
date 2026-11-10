@@ -35,8 +35,8 @@ use crate::projections::history_event_links::StepEventLink;
 use crate::projections::history_events::reference_effect_values;
 use crate::state_access::FlowTransaction;
 use crate::steps::{
-    NewStepExecution, cancel_steps_by_type, complete_gracefully_if_ready, create_step_execution,
-    wait_conditions,
+    ConsumedMessagesOnCancel, NewStepExecution, cancel_steps_by_type, complete_gracefully_if_ready,
+    create_step_execution, wait_conditions,
 };
 use crate::values::{
     ValueHolder, ValueRejection, complete_worker_value, is_run_over_state_budget, store_value,
@@ -120,17 +120,12 @@ pub(crate) fn apply_rpc_committed(
             Ok(published) => published,
             Err(rejection) => return Ok(reject_value(rejection)),
         };
-    wait_conditions::on_channels_changed(
-        transaction,
-        &mut cursor,
-        scope.now_micros,
-        &published.changed_channels,
-    )?;
     let effect_references = EffectValueReferences {
         attributes: attribute_references,
         publications: published.value_references,
         ..EffectValueReferences::default()
     };
+    let mut changed_channels = published.changed_channels;
     // InvokeRPC admits no transactional call during cleanup; earlier ones commit, as in Go.
     // As in the Go Server, an RPC result starts no Step during terminal cleanup.
     let mut started_step_execution_ids = Vec::new();
@@ -138,13 +133,14 @@ pub(crate) fn apply_rpc_committed(
         && !is_terminal_cleanup_in_progress(&cursor)
     {
         if !decision.cancel_step_types.is_empty() {
-            cancel_steps_by_type(
+            changed_channels.extend(cancel_steps_by_type(
                 transaction,
                 &mut cursor,
                 &decision.cancel_step_types,
                 &[],
                 "",
-            )?;
+                ConsumedMessagesOnCancel::Requeue,
+            )?);
         }
         let source = format!("__rpc/{}", request.rpc_name);
         for movement in &decision.next_steps {
@@ -161,6 +157,13 @@ pub(crate) fn apply_rpc_committed(
             }
         }
     }
+    // After the cancellations, so a canceled Step takes none; new Steps do not wait yet.
+    wait_conditions::on_channels_changed(
+        transaction,
+        &mut cursor,
+        scope.now_micros,
+        &changed_channels,
+    )?;
     if is_transactional && !command.app_worker_id.is_empty() {
         cursor.record.sticky_app_worker_id = command.app_worker_id.clone();
     }

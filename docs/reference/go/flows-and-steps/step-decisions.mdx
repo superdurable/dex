@@ -88,6 +88,14 @@ An RPC can also cancel Steps by type. See
 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). For how a
 running attempt observes cancellation, see [Cancellation](./step-options.mdx#cancellation).
 
+A canceled Step returns the Channel messages its wait consumed before its
+**Execute** committed. They go back to the front of their Channels, in their
+original order, unless the decision also closes the Flow with **ForceComplete**
+or **ForceFail**. A Step that the decision cancels never
+takes the messages the same result publishes, unless the decision also closes
+the Flow at once. See
+[Canceled Steps return consumed messages](/reference/server/runtime-data#canceled-step-messages).
+
 ```go
 func (winnerStep) Execute(_ dex.Context, quote Quote) (*dex.StepDecision, error) {
 	return dex.GoTo(recordQuote{}, quote).
@@ -102,8 +110,9 @@ Example: [examples/go/primitives/step-decision/workflow.go](https://github.com/s
 **ForceCompleteIfChannelsEmpty** atomically checks whether all named Channels
 are empty. A Channel with queued messages is non-empty. After a message is
 consumed and committed to a Step, that Channel remains non-empty until the Step
-finishes processing **Execute**. If every named Channel is empty, it completes
-the Flow. Otherwise, it goes to other Steps.
+finishes processing **Execute**. A message that a canceled Step returned is
+pending again, so its Channel is non-empty too. If every named Channel is
+empty, it completes the Flow. Otherwise, it goes to other Steps.
 
 Use it to drain Channels and complete the Flow, so the Flow can stay short. See
 [Drain External Channel](/design-patterns/draining-channel-for-external-publishing)

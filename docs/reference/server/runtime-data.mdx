@@ -760,13 +760,18 @@ Attribute writes and Channel publications first, then cancels, then starts the
 RPC's next Steps. All of it commits together, or none of it does. The RPC's own
 next Steps are not canceled, even when they have a selected Step type. A
 selected Step that has already finished is skipped, and so is a type with no
-active Step.
+active Step. Waiting Steps take the RPC's publications only after the
+cancellation, so a canceled Step never takes them. Changed in 0.1.26: a waiting
+Step could consume a publication of the same RPC and then be canceled, which
+lost the message.
 
 Cancellation ends every active Step of a selected type: one that waits, one that
 waits for a retry, and one whose attempt runs on a Worker. For a running
 attempt, Dex sends a cancellation to that Worker. A canceled Step is not
 retried, and its failure route does not run. Dex discards anything the canceled
-attempt returns later, including its StepDecision and Attribute writes.
+attempt returns later, including its StepDecision and Attribute writes. Channel
+messages that the Step's wait consumed return to their Channels. See
+[Canceled Steps return consumed messages](#canceled-step-messages).
 
 #### Resolve the race from committed state {#cancel-race}
 
@@ -1349,6 +1354,30 @@ surrounding Wait completes, it consumes up to the limit from the queue at that
 time. To wait for at least one message and consume up to a limit, use
 **AtLeastAtMost** with a lower bound of 1.
 
+### Canceled Steps return consumed messages {#canceled-step-messages}
+
+A wait consumes its messages when it is satisfied, before **Execute** runs. A
+**StepDecision** or an RPC can cancel the Step before its **Execute** commits.
+Then Dex returns those messages to the front of their Channels or ChannelMap
+instances, in their original order, and they are pending again. A waiting Step
+can consume them in the same commit.
+
+A canceled **Execute** attempt may already have received a returned message.
+Another Step can then receive the same message. Make message processing
+idempotent, for example by a business ID in the message.
+
+Dex drops the consumed messages instead when the Flow close itself cancels the
+Step: a **StopFlow** request, a Flow timeout, a failure that closes the Flow, or a
+**StepDecision** that cancels the Step and closes the Flow with
+**ForceComplete** or **ForceFail**. Every other cancellation returns the
+messages, even when the Flow closes in the same commit. For example, a
+**StepDecision** that cancels the Step and returns **GracefulComplete** closes
+the Flow when no other Step is active, and the returned messages stay pending
+in the closed run. **ForceCompleteIfChannelsEmpty** counts the returned
+messages as pending, so the Channel is not empty.
+
+Changed in 0.1.26: Dex dropped the consumed messages of every canceled Step.
+
 ### Pending messages {#manage-pending-messages}
 
 Dex assigns a UUIDv7 message ID when it accepts each publication. A Step or RPC
@@ -1367,7 +1396,9 @@ Deleting a message that is no longer pending depends on the caller:
 Pending messages are queue state, not Flow history. After a Step consumes a
 message, it disappears from the Channel even though the publication and
 consumption remain observable in recent
-[Flow history](/reference/server/configuration#history-window).
+[Flow history](/reference/server/configuration#history-window). It returns only
+when the Step is canceled before its **Execute** commits. See
+[Canceled Steps return consumed messages](#canceled-step-messages).
 
 Every Step method, timeout handler, and RPC always receives Channel size
 metadata. It must explicitly load pending messages before reading their IDs or
@@ -1391,6 +1422,13 @@ A Step or timeout handler can stage deletion with its other side effects. Dex
 applies successful handler effects in this order: Attribute writes, best-effort
 Channel deletions, then Channel publications, followed by the Step decision.
 **StepDecision** describes only control flow; it does not contain deletions.
+Waiting Steps take the publications after the decision's cancellations, so a
+Step that the decision cancels never takes them. A decision that also closes
+the Flow at once, with **ForceComplete**, **ForceFail**, or a
+**ForceCompleteIfChannelsEmpty** that closes, is the exception: a waiting Step
+can take a publication, and the close then cancels that Step and drops the
+message. Changed in 0.1.26: waiting Steps took the publications before the
+cancellations.
 
 An RPC can combine deletion with other durable writes. The move example in
 [Transactional RPCs](#transactional-reads-and-writes) loads **QueuedMessages**,

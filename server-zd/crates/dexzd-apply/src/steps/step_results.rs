@@ -35,7 +35,7 @@ use crate::state_access::FlowTransaction;
 use crate::steps::attempt_snapshot::compute_attempt_snapshot;
 use crate::steps::invocations::{can_take_locks, release_heartbeat_checkpoint};
 use crate::steps::{
-    InvocationEnd, NewStepExecution, RetryDecision, apply_step_decision, create_step_execution,
+    InvocationEnd, NewStepExecution, RetryDecision, apply_execute_completed, create_step_execution,
     decide_retry, end_running_attempt, ended_attempt_progress, finish_step,
     make_invocation_pending, merge_furthest_attempt_progress, method_retry_policy,
     retry_started_at_micros, start_attempt, wait_conditions,
@@ -933,17 +933,28 @@ pub(crate) fn apply_method_completed(
                 permission_mappings: response.action_permission_mappings.as_ref(),
                 hard_delete_objects: &command.hard_delete_objects,
             };
-            let references = match crate::command_handlers::flow_data::apply_method_effects(
+            let applied = match crate::command_handlers::flow_data::apply_method_effects(
                 transaction,
                 cursor,
                 &mut step,
                 &effects,
                 scope,
             )? {
-                Ok(references) => references,
+                Ok(applied) => applied,
                 Err(rejection) => return Ok(rejection.into()),
             };
-            history_events::reference_method_completed_values(cursor, completed_event, references);
+            history_events::reference_method_completed_values(
+                cursor,
+                completed_event,
+                applied.references,
+            );
+            // Publications reach earlier waiters before this Step's own wait.
+            wait_conditions::on_channels_changed(
+                transaction,
+                cursor,
+                scope.now_micros,
+                &applied.changed_channels,
+            )?;
             step.wait_for_pull_routing = command.pull_routing.clone();
             cursor.link_step_event(
                 completed_event,
@@ -958,33 +969,19 @@ pub(crate) fn apply_method_completed(
             )?
         }
         step_method_completed_command::Response::Execute(response) => {
-            let effects = crate::command_handlers::flow_data::MethodEffects {
-                writes: &response.upsert_attributes,
-                deletions: &response.delete_from_channel,
-                publications: &response.publish_to_channel,
-                locals: &response.upsert_step_exe_locals,
-                permission_mappings: response.action_permission_mappings.as_ref(),
-                hard_delete_objects: &command.hard_delete_objects,
-            };
-            let references = match crate::command_handlers::flow_data::apply_method_effects(
-                transaction,
-                cursor,
-                &mut step,
-                &effects,
-                scope,
-            )? {
-                Ok(references) => references,
-                Err(rejection) => return Ok(rejection.into()),
-            };
-            history_events::reference_method_completed_values(cursor, completed_event, references);
-            apply_step_decision(
+            let decided = apply_execute_completed(
                 transaction,
                 cursor,
                 scope,
                 &mut step,
-                response.step_decision.as_ref(),
+                response,
+                &command.hard_delete_objects,
                 completed_event,
-            )?
+            )?;
+            if let Err(rejection) = decided {
+                return Ok(rejection.into());
+            }
+            Ok(())
         }
     };
     if let Err(rejection) = outcome {

@@ -37,6 +37,9 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
+#[path = "wait_conditions/canceled_step_messages.rs"]
+mod canceled_step_messages;
+
 const SECOND: i64 = 1_000_000;
 const INVALID_ARGUMENT: i32 = 3;
 
