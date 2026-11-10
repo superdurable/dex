@@ -779,23 +779,49 @@
   font-size: 12px;
   font-weight: 600;
 }
+/* Rows share the list grid through subgrid, so swatches and labels align across rows. */
 .plegend-list {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  column-gap: 10px;
+  row-gap: 3px;
+  align-items: center;
   margin: 0 0 8px;
   padding: 0;
   list-style: none;
 }
+/* Card chips are text samples; they share one column sized to the widest sample. */
+.plegend-list[data-swatch='chip'] {
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+}
 .plegend-list li {
-  display: flex;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 7px;
-  padding: 1.5px 0;
+  padding: 2px 0;
   font-size: 13px;
+  line-height: 1.35;
+}
+.plegend-swatch {
+  display: flex;
+  grid-column: 1;
+  min-height: 22px;
+  align-items: center;
+  justify-content: center;
+}
+.plegend-list[data-swatch='chip'] .plegend-swatch {
+  justify-content: flex-start;
 }
 .plegend-text {
+  grid-column: 2;
+  min-width: 0;
   color: var(--p-ink-1);
+  overflow-wrap: break-word;
 }
 .plegend-count {
-  margin-left: auto;
+  grid-column: 3;
+  justify-self: end;
   color: var(--p-ink-3);
   font-family: var(--p-mono);
   font-size: 12px;
@@ -804,7 +830,7 @@
 /* The swatch mirrors the edge exactly: same colour, same dash, same relative weight. */
 .plegend-line {
   flex: 0 0 auto;
-  width: 18px;
+  width: 20px;
   height: 0;
   border-top: 2px solid var(--p-edge-control);
 }
@@ -3847,7 +3873,6 @@ button.pdock:focus-visible {
 }
 .plegend-tile {
   display: flex;
-  width: 24px;
   flex: 0 0 auto;
 }
 .plegend-tile .pcard-tile {
@@ -3862,12 +3887,19 @@ button.pdock:focus-visible {
 .plegend-tile .pcard-monogram {
   font-size: 8.5px;
 }
+/* A stage card in miniature: a stacked card with the ⊕ that opens it. */
 .plegend-stage {
-  width: 16px;
-  height: 12px;
+  display: grid;
+  width: 20px;
+  height: 16px;
   flex: 0 0 auto;
+  place-items: center;
   border: 1px solid var(--p-line);
   border-radius: 4px;
+  background: var(--p-surface-1);
+  color: var(--p-ink-2);
+  font-size: 12px;
+  line-height: 1;
   box-shadow:
     2px 2px 0 -1px var(--p-surface-2),
     2px 2px 0 0 var(--p-line);

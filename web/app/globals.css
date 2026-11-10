@@ -270,6 +270,34 @@ a {
   background: var(--paper);
 }
 
+/* A quiet text link: no border, muted until hovered. */
+.header-nav > a.header-docs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.header-nav > a.header-docs-link:hover {
+  color: var(--accent);
+}
+
+.header-nav > a.header-docs-link:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+[data-theme='dark'] .header-nav > a.header-docs-link {
+  color: var(--muted);
+}
+
+[data-theme='dark'] .header-nav > a.header-docs-link:hover {
+  color: var(--accent);
+}
+
 .connection-dot {
   width: 7px;
   height: 7px;
@@ -3426,6 +3454,7 @@ button.timeline-edge-stub:focus-visible {
   }
 
   .connection-label,
+  .header-docs-label,
   .timezone-control > span {
     display: none;
   }

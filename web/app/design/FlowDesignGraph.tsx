@@ -111,31 +111,30 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
             if (id === null || !isFailureHandling(flow, id)) setDetourFor(id !== null && hasDetour(flow, id) ? id : null);
             setSelectedGroupId(null);
           }}
-          legend={() => (
-            <div className="plegend-card dg-legend" data-open={legendOpen ? 'true' : undefined}>
-              <button
-                type="button"
-                className="plegend-toggle"
-                onClick={() => setLegendOpen((open) => !open)}
-                aria-expanded={legendOpen}
-              >
-                <BookOpen aria-hidden="true" size={14} strokeWidth={2} />
-                Legend
-              </button>
-              {legendOpen ? (
-                <>
-                  <Legend scene={scene} flow={flow} />
-                  {scene.notes.length > 0 ? (
-                    <div className="plegend-notes">
-                      {scene.notes.map((note) => <p key={note}>{note}</p>)}
-                    </div>
-                  ) : null}
-                </>
-              ) : null}
-            </div>
-          )}
           fitKey={`${definition.file}|${stages.view}`}
         />
+        {/* An overlay on the canvas, not a scene node: it stays readable and in view at any zoom or width. */}
+        <div className="plegend-card dg-legend" data-open={legendOpen ? 'true' : undefined}>
+          <button
+            type="button"
+            className="plegend-toggle"
+            onClick={() => setLegendOpen((open) => !open)}
+            aria-expanded={legendOpen}
+          >
+            <BookOpen aria-hidden="true" size={14} strokeWidth={2} />
+            Legend
+          </button>
+          {legendOpen ? (
+            <div className="dg-legend-body">
+              <Legend scene={scene} flow={flow} />
+              {scene.notes.length > 0 ? (
+                <div className="plegend-notes">
+                  {scene.notes.map((note) => <p key={note}>{note}</p>)}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         <p className="sr-only" aria-live="polite">{stages.cue?.message}</p>
         <p className="sr-only" aria-live="polite">{detourFor ? detourMessage(flow, detourFor) : ''}</p>
       </div>

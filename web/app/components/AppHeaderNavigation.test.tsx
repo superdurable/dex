@@ -95,6 +95,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('Dex Web header Docs link', () => {
+  it('opens the Dex documentation in a new tab', async () => {
+    const dex = stubDexWeb([0]);
+    renderHeader('/v1/flows');
+    await waitFor(() => expect(dex.readCount()).toBeGreaterThan(0));
+    const link = screen.getByRole('link', { name: 'Dex documentation' });
+    expect(link.getAttribute('href')).toBe('https://docs.superdurable.io/');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.textContent).toBe('Docs');
+  });
+});
+
 describe('Dex Web header Designs entry', () => {
   it('stays hidden while loading', async () => {
     const pendingReads: Array<() => void> = [];
@@ -166,7 +179,7 @@ describe('Dex Web header experimental pages', () => {
     expect(items.map((item) => item.querySelector('b')?.textContent)).toEqual(['Designs', 'Work Queue', 'Connectors']);
     expect(items.every((item) => (item.querySelector('small')?.textContent ?? '').length > 0)).toBe(true);
     const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
-    expect(nav.querySelectorAll(':scope > a')).toHaveLength(0);
+    expect(nav.querySelectorAll(':scope > a:not(.header-docs-link)')).toHaveLength(0);
   });
 
   it('offers only Designs without the operator API', async () => {
