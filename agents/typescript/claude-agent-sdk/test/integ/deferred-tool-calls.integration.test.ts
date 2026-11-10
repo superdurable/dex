@@ -208,6 +208,34 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
     assert.equal(agent.invocations.count("publish"), 1);
   });
 
+  test("a call reusing an ID answered before a Worker restart is denied after it", async () => {
+    harness = await ClaudeAgentTestHarness.start(engine, false);
+    const agent = harness;
+    const firstWorker = await agent.startWorker();
+    const sessionId = agent.newSessionId("reuse-after-restart");
+    await agent.sessions.startSession(
+      sessionId,
+      'call Bash {"command":"echo hi"} && call publish {"message":"p"} ;; reuse Bash {"command":"echo again"}',
+    );
+    const bash = await agent.waitForNewInterrupt(sessionId, "Bash");
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, bash.interruptId, true), true);
+    const publish = await agent.waitForNewInterrupt(sessionId, "publish", [bash.interruptId]);
+
+    // The new Worker rebuilds the answered IDs from the stored run state alone.
+    await firstWorker.kill();
+    await agent.startWorker();
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, publish.interruptId, true), true);
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      `reused Bash: PreToolUse:Bash hook error: Bash did not run: the recorded call ${bash.toolCallId} ` +
+        "was already resumed in an earlier turn segment.",
+    );
+    assert.equal(agent.invocations.count("Bash"), 1);
+    assert.equal(agent.invocations.count("publish"), 1);
+  });
+
   test("a deferred call whose rewritten input fails the tool's schema is recorded failed and never runs", async () => {
     const agent = await startHarness();
     const sessionId = agent.newSessionId("invalid-input");
