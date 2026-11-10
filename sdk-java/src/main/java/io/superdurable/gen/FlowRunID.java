@@ -6,17 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * <pre>
- * Deprecated: TriggerContinueAsNew always returns UNIMPLEMENTED.
- * </pre>
- *
- * Protobuf type {@code dex.TriggerContinueAsNewRequest}
+ * Protobuf type {@code dex.FlowRunID}
  */
 @com.google.protobuf.Generated
-public final class TriggerContinueAsNewRequest extends
+public final class FlowRunID extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.TriggerContinueAsNewRequest)
-    TriggerContinueAsNewRequestOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.FlowRunID)
+    FlowRunIDOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -25,33 +21,33 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "TriggerContinueAsNewRequest");
+      "FlowRunID");
   }
-  // Use TriggerContinueAsNewRequest.newBuilder() to construct.
-  private TriggerContinueAsNewRequest(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use FlowRunID.newBuilder() to construct.
+  private FlowRunID(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private TriggerContinueAsNewRequest() {
+  private FlowRunID() {
     flowId_ = "";
     runId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_TriggerContinueAsNewRequest_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_FlowRunID_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_TriggerContinueAsNewRequest_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_FlowRunID_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_TriggerContinueAsNewRequest_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_FlowRunID_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.TriggerContinueAsNewRequest.class, io.superdurable.gen.TriggerContinueAsNewRequest.Builder.class);
+            io.superdurable.gen.FlowRunID.class, io.superdurable.gen.FlowRunID.Builder.class);
   }
 
   public static final int FLOW_ID_FIELD_NUMBER = 1;
@@ -181,10 +177,10 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.TriggerContinueAsNewRequest)) {
+    if (!(obj instanceof io.superdurable.gen.FlowRunID)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.TriggerContinueAsNewRequest other = (io.superdurable.gen.TriggerContinueAsNewRequest) obj;
+    io.superdurable.gen.FlowRunID other = (io.superdurable.gen.FlowRunID) obj;
 
     if (!getFlowId()
         .equals(other.getFlowId())) return false;
@@ -210,44 +206,44 @@ private static final long serialVersionUID = 0L;
     return hash;
   }
 
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseFrom(
+  public static io.superdurable.gen.FlowRunID parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseFrom(
+  public static io.superdurable.gen.FlowRunID parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseFrom(
+  public static io.superdurable.gen.FlowRunID parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseFrom(
+  public static io.superdurable.gen.FlowRunID parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseFrom(byte[] data)
+  public static io.superdurable.gen.FlowRunID parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseFrom(
+  public static io.superdurable.gen.FlowRunID parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.FlowRunID parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseFrom(
+  public static io.superdurable.gen.FlowRunID parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -255,26 +251,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.FlowRunID parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseDelimitedFrom(
+  public static io.superdurable.gen.FlowRunID parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseFrom(
+  public static io.superdurable.gen.FlowRunID parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.TriggerContinueAsNewRequest parseFrom(
+  public static io.superdurable.gen.FlowRunID parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -287,7 +283,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.TriggerContinueAsNewRequest prototype) {
+  public static Builder newBuilder(io.superdurable.gen.FlowRunID prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -303,30 +299,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * <pre>
-   * Deprecated: TriggerContinueAsNew always returns UNIMPLEMENTED.
-   * </pre>
-   *
-   * Protobuf type {@code dex.TriggerContinueAsNewRequest}
+   * Protobuf type {@code dex.FlowRunID}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.TriggerContinueAsNewRequest)
-      io.superdurable.gen.TriggerContinueAsNewRequestOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.FlowRunID)
+      io.superdurable.gen.FlowRunIDOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_TriggerContinueAsNewRequest_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_FlowRunID_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_TriggerContinueAsNewRequest_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_FlowRunID_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.TriggerContinueAsNewRequest.class, io.superdurable.gen.TriggerContinueAsNewRequest.Builder.class);
+              io.superdurable.gen.FlowRunID.class, io.superdurable.gen.FlowRunID.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.TriggerContinueAsNewRequest.newBuilder()
+    // Construct using io.superdurable.gen.FlowRunID.newBuilder()
     private Builder() {
 
     }
@@ -348,17 +340,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_TriggerContinueAsNewRequest_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_FlowRunID_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.TriggerContinueAsNewRequest getDefaultInstanceForType() {
-      return io.superdurable.gen.TriggerContinueAsNewRequest.getDefaultInstance();
+    public io.superdurable.gen.FlowRunID getDefaultInstanceForType() {
+      return io.superdurable.gen.FlowRunID.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.TriggerContinueAsNewRequest build() {
-      io.superdurable.gen.TriggerContinueAsNewRequest result = buildPartial();
+    public io.superdurable.gen.FlowRunID build() {
+      io.superdurable.gen.FlowRunID result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -366,14 +358,14 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.TriggerContinueAsNewRequest buildPartial() {
-      io.superdurable.gen.TriggerContinueAsNewRequest result = new io.superdurable.gen.TriggerContinueAsNewRequest(this);
+    public io.superdurable.gen.FlowRunID buildPartial() {
+      io.superdurable.gen.FlowRunID result = new io.superdurable.gen.FlowRunID(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(io.superdurable.gen.TriggerContinueAsNewRequest result) {
+    private void buildPartial0(io.superdurable.gen.FlowRunID result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.flowId_ = flowId_;
@@ -385,16 +377,16 @@ private static final long serialVersionUID = 0L;
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.TriggerContinueAsNewRequest) {
-        return mergeFrom((io.superdurable.gen.TriggerContinueAsNewRequest)other);
+      if (other instanceof io.superdurable.gen.FlowRunID) {
+        return mergeFrom((io.superdurable.gen.FlowRunID)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.TriggerContinueAsNewRequest other) {
-      if (other == io.superdurable.gen.TriggerContinueAsNewRequest.getDefaultInstance()) return this;
+    public Builder mergeFrom(io.superdurable.gen.FlowRunID other) {
+      if (other == io.superdurable.gen.FlowRunID.getDefaultInstance()) return this;
       if (!other.getFlowId().isEmpty()) {
         flowId_ = other.flowId_;
         bitField0_ |= 0x00000001;
@@ -602,23 +594,23 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.TriggerContinueAsNewRequest)
+    // @@protoc_insertion_point(builder_scope:dex.FlowRunID)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.TriggerContinueAsNewRequest)
-  private static final io.superdurable.gen.TriggerContinueAsNewRequest DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.FlowRunID)
+  private static final io.superdurable.gen.FlowRunID DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.TriggerContinueAsNewRequest();
+    DEFAULT_INSTANCE = new io.superdurable.gen.FlowRunID();
   }
 
-  public static io.superdurable.gen.TriggerContinueAsNewRequest getDefaultInstance() {
+  public static io.superdurable.gen.FlowRunID getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<TriggerContinueAsNewRequest>
-      PARSER = new com.google.protobuf.AbstractParser<TriggerContinueAsNewRequest>() {
+  private static final com.google.protobuf.Parser<FlowRunID>
+      PARSER = new com.google.protobuf.AbstractParser<FlowRunID>() {
     @java.lang.Override
-    public TriggerContinueAsNewRequest parsePartialFrom(
+    public FlowRunID parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -637,17 +629,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<TriggerContinueAsNewRequest> parser() {
+  public static com.google.protobuf.Parser<FlowRunID> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<TriggerContinueAsNewRequest> getParserForType() {
+  public com.google.protobuf.Parser<FlowRunID> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.TriggerContinueAsNewRequest getDefaultInstanceForType() {
+  public io.superdurable.gen.FlowRunID getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

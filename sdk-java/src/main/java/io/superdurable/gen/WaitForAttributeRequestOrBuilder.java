@@ -50,17 +50,7 @@ public interface WaitForAttributeRequestOrBuilder extends
 
   /**
    * <pre>
-   * Deprecated: Dex rejects a negative value and otherwise ignores this field.
-   * </pre>
-   *
-   * <code>int32 internal_handler_timeout_seconds = 4;</code>
-   * @return The internalHandlerTimeoutSeconds.
-   */
-  int getInternalHandlerTimeoutSeconds();
-
-  /**
-   * <pre>
-   * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+   * Optional request identifier. The Server does not read it for this wait.
    * </pre>
    *
    * <code>string request_id = 5;</code>
@@ -69,7 +59,7 @@ public interface WaitForAttributeRequestOrBuilder extends
   java.lang.String getRequestId();
   /**
    * <pre>
-   * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+   * Optional request identifier. The Server does not read it for this wait.
    * </pre>
    *
    * <code>string request_id = 5;</code>

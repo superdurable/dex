@@ -53,7 +53,6 @@ const (
 	FlowService_UpdateFlowConfig_FullMethodName      = "/dex.FlowService/UpdateFlowConfig"
 	FlowService_WaitForStepCompletion_FullMethodName = "/dex.FlowService/WaitForStepCompletion"
 	FlowService_WaitForAttribute_FullMethodName      = "/dex.FlowService/WaitForAttribute"
-	FlowService_TriggerContinueAsNew_FullMethodName  = "/dex.FlowService/TriggerContinueAsNew"
 	FlowService_HealthCheck_FullMethodName           = "/dex.FlowService/HealthCheck"
 )
 
@@ -89,8 +88,6 @@ type FlowServiceClient interface {
 	UpdateFlowConfig(ctx context.Context, in *UpdateFlowConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	WaitForStepCompletion(ctx context.Context, in *WaitForStepCompletionRequest, opts ...grpc.CallOption) (*WaitForStepCompletionResponse, error)
 	WaitForAttribute(ctx context.Context, in *WaitForAttributeRequest, opts ...grpc.CallOption) (*WaitForAttributeResponse, error)
-	// Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
-	TriggerContinueAsNew(ctx context.Context, in *TriggerContinueAsNewRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	HealthCheck(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HealthInfo, error)
 }
 
@@ -352,16 +349,6 @@ func (c *flowServiceClient) WaitForAttribute(ctx context.Context, in *WaitForAtt
 	return out, nil
 }
 
-func (c *flowServiceClient) TriggerContinueAsNew(ctx context.Context, in *TriggerContinueAsNewRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, FlowService_TriggerContinueAsNew_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *flowServiceClient) HealthCheck(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HealthInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HealthInfo)
@@ -404,8 +391,6 @@ type FlowServiceServer interface {
 	UpdateFlowConfig(context.Context, *UpdateFlowConfigRequest) (*emptypb.Empty, error)
 	WaitForStepCompletion(context.Context, *WaitForStepCompletionRequest) (*WaitForStepCompletionResponse, error)
 	WaitForAttribute(context.Context, *WaitForAttributeRequest) (*WaitForAttributeResponse, error)
-	// Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
-	TriggerContinueAsNew(context.Context, *TriggerContinueAsNewRequest) (*emptypb.Empty, error)
 	HealthCheck(context.Context, *emptypb.Empty) (*HealthInfo, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
@@ -491,9 +476,6 @@ func (UnimplementedFlowServiceServer) WaitForStepCompletion(context.Context, *Wa
 }
 func (UnimplementedFlowServiceServer) WaitForAttribute(context.Context, *WaitForAttributeRequest) (*WaitForAttributeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method WaitForAttribute not implemented")
-}
-func (UnimplementedFlowServiceServer) TriggerContinueAsNew(context.Context, *TriggerContinueAsNewRequest) (*emptypb.Empty, error) {
-	return nil, status.Error(codes.Unimplemented, "method TriggerContinueAsNew not implemented")
 }
 func (UnimplementedFlowServiceServer) HealthCheck(context.Context, *emptypb.Empty) (*HealthInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method HealthCheck not implemented")
@@ -969,24 +951,6 @@ func _FlowService_WaitForAttribute_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FlowService_TriggerContinueAsNew_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TriggerContinueAsNewRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FlowServiceServer).TriggerContinueAsNew(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: FlowService_TriggerContinueAsNew_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FlowServiceServer).TriggerContinueAsNew(ctx, req.(*TriggerContinueAsNewRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _FlowService_HealthCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
@@ -1111,10 +1075,6 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "WaitForAttribute",
 			Handler:    _FlowService_WaitForAttribute_Handler,
-		},
-		{
-			MethodName: "TriggerContinueAsNew",
-			Handler:    _FlowService_TriggerContinueAsNew_Handler,
 		},
 		{
 			MethodName: "HealthCheck",

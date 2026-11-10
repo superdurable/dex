@@ -6,8 +6,8 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface TriggerContinueAsNewRequestOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.TriggerContinueAsNewRequest)
+public interface FlowRunIDOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.FlowRunID)
     com.google.protobuf.MessageOrBuilder {
 
   /**
