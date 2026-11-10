@@ -36,6 +36,7 @@ def build_google_adk_order_support_flow(
 ) -> AgentSessionFlow:
     """Builds the session Flow; ``model`` is a Gemini model name, such as "gemini-2.5-flash"."""
 
+    # The tools are closures, so they call the OrderDesk passed in here.
     def look_up_order(order_id: str) -> str:
         """Look up one order by its order ID and return its items and status."""
         return order_desk.describe_order(order_id)

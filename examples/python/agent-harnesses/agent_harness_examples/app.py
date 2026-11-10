@@ -72,13 +72,18 @@ class AgentHarnessExample:
 class AgentHarnessExamplesApp:
     def __init__(self, config: AgentHarnessExamplesConfig) -> None:
         self.config = config
-        self.examples = (
-            _new_claude_agent_sdk_example(config),
+        examples = [
             _new_openai_agents_example(config),
             _new_pydantic_ai_example(config),
             _new_langchain_example(config),
             _new_google_adk_example(config),
-        )
+        ]
+        if config.has_anthropic_api_key:
+            examples.insert(0, _new_claude_agent_sdk_example(config))
+        else:
+            # Without a key, the Claude Code CLI could fall back to a developer's own login.
+            _logger.warning("ANTHROPIC_API_KEY is not set; the Claude Agent SDK agent is off")
+        self.examples = tuple(examples)
 
         # Agent session Steps are async, so the Registry allows async handlers.
         self.registry = Registry(
@@ -110,7 +115,7 @@ class AgentHarnessExamplesApp:
         if self._worker_task is not None:
             try:
                 await asyncio.wait_for(self._worker_task, timeout=10)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except asyncio.TimeoutError:
                 self._worker_task.cancel()
             except Exception:
                 _logger.exception("Worker task failed")

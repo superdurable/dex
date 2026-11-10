@@ -37,14 +37,16 @@ class Order:
 
 
 class OrderDesk:
-    """An in-memory order system that records every cancellation it performs."""
+    """An in-memory order system that records every cancel_order call it receives."""
 
     def __init__(self) -> None:
         self._orders = {
             "1001": Order("1001", "2 notebooks", "shipped"),
             "1002": Order("1002", "1 desk lamp", "processing"),
+            "1003": Order("1003", "3 pens", "processing"),
         }
-        self.cancelled_order_ids: list[str] = []
+        # The order ID of every cancel_order call, including calls that change nothing.
+        self.cancel_order_calls: list[str] = []
 
     def describe_order(self, order_id: str) -> str:
         order = self._orders.get(order_id)
@@ -53,11 +55,11 @@ class OrderDesk:
         return f"Order {order.order_id}: {order.items}, {order.status}."
 
     def cancel_order(self, order_id: str, reason: str) -> str:
+        self.cancel_order_calls.append(order_id)
         order = self._orders.get(order_id)
         if order is None:
             return f"Order {order_id} does not exist."
         if order.status != "processing":
             return f"Order {order_id} is {order.status} and cannot be cancelled."
         order.status = "cancelled"
-        self.cancelled_order_ids.append(order_id)
         return f"Order {order_id} is cancelled: {reason}."

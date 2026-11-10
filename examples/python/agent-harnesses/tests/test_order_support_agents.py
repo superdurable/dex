@@ -62,6 +62,9 @@ def claude_messages_api(
         "HTTPS_PROXY": UNREACHABLE_PROXY,
         "HTTP_PROXY": UNREACHABLE_PROXY,
         "NO_PROXY": "127.0.0.1,localhost",
+        # Other sign-ins the example must override, so only the API key reaches the stub.
+        "ANTHROPIC_AUTH_TOKEN": "sk-ant-other-sign-in",
+        "CLAUDE_CODE_USE_BEDROCK": "1",
     }
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
@@ -94,7 +97,7 @@ async def test_order_support_agent_reads_and_cancels_after_approval(
     await routes.send_user_message(session_id, "Please cancel order 1002")
     interrupt = await _wait_for_pending_interrupt(sessions, session_id)
     assert interrupt.tool_name == "cancel_order"
-    assert example.order_desk.cancelled_order_ids == []
+    assert example.order_desk.cancel_order_calls.count("1002") == 0
     snapshot_json = await routes.get_agent_snapshot(session_id)
     assert interrupt.interrupt_id in str(snapshot_json)
 
@@ -103,13 +106,15 @@ async def test_order_support_agent_reads_and_cancels_after_approval(
     assert second_turn.messages[-1].text == (
         DEMO_REPLY_PREFIX + "Order 1002 is cancelled: requested by the customer."
     )
-    assert example.order_desk.cancelled_order_ids == ["1002"]
+    assert example.order_desk.cancel_order_calls.count("1002") == 1
+    assert example.order_desk.describe_order("1002") == "Order 1002: 1 desk lamp, cancelled."
     assert _tool_outputs(second_turn, "cancel_order") == [
         "Order 1002 is cancelled: requested by the customer."
     ]
 
     if stub is not None:
         assert {recorded.api_key for recorded in stub.requests} == {STUB_API_KEY}
+        assert {recorded.authorization for recorded in stub.requests} == {None}
         assert any(recorded.path.startswith("/v1/messages") for recorded in stub.requests)
 
 
@@ -123,14 +128,16 @@ async def test_order_support_agent_never_runs_a_rejected_cancellation(
     sessions = AgentSessionClient(app.client, example.session_flow)
     routes = _SessionRoutes(create_app(app).test_client(), harness_name)
     session_id = await routes.start_session()
-    cancelled_before = list(example.order_desk.cancelled_order_ids)
 
-    await routes.send_user_message(session_id, "Cancel order 1002")
+    await routes.send_user_message(session_id, "Cancel order 1003")
     interrupt = await _wait_for_pending_interrupt(sessions, session_id)
+    assert interrupt.tool_name == "cancel_order"
     await routes.resolve_interrupt(session_id, interrupt.interrupt_id, approved=False)
-    await _wait_for_idle_turn(sessions, session_id, 1)
-    assert example.order_desk.cancelled_order_ids == cancelled_before
-
+    turn = await _wait_for_idle_turn(sessions, session_id, 1)
+    assert example.order_desk.cancel_order_calls.count("1003") == 0
+    assert example.order_desk.describe_order("1003") == "Order 1003: 3 pens, processing."
+    outputs = _tool_outputs(turn, "cancel_order")
+    assert not any("is cancelled" in output for output in outputs), outputs
 
 class _SessionRoutes:
     def __init__(self, http: QuartTestClient, harness_name: str) -> None:

@@ -25,7 +25,10 @@ Except for the Claude Agent SDK, each model variable defaults to
 `look_up_order` for "look up order 1001" and `cancel_order` for "cancel order
 1002", then answers with the tool results. The Claude Agent SDK runs the
 Claude Code CLI, which calls the Anthropic API, so its agent needs
-`ANTHROPIC_API_KEY` in the Worker's environment.
+`ANTHROPIC_API_KEY` in the Worker's environment. Without that key, the app
+leaves the Claude Agent SDK agent out and serves the other four. The agent passes the CLI an
+environment that clears every other Claude sign-in setting, such as
+`ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_USE_BEDROCK`, so only the API key signs in.
 
 ## Why a separate project
 
@@ -74,7 +77,8 @@ curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" | jq 
 
 The tests start one app against a running Dex server and drive each agent
 through the HTTP routes: a turn that reads an order, a cancellation that runs
-once after approval, and a rejected cancellation that never runs. No test needs
+nothing before approval and exactly once after it, and a rejected cancellation
+of another order that never runs. No test needs
 a model key. The four in-process frameworks use the demo model. The Claude
 Agent SDK test runs the real bundled Claude Code CLI against a local Messages
 API stub, with a dummy `ANTHROPIC_API_KEY` and a temporary `HOME`.
@@ -84,4 +88,6 @@ DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:8801 uv run --frozen pytest -vv tests/
 uv run --frozen mypy --strict agent_harness_examples tests
 ```
 
-`../run-integ-tests.sh` runs them with the other Python example tests.
+`../run-integ-tests.sh` runs them with the other Python example tests when it
+gets no test arguments. `../run-integ-tests.sh --agent-harnesses [pytest args]`
+runs only these tests.

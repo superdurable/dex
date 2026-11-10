@@ -46,6 +46,8 @@ async def app(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[AgentHa
         server_address=os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801"),
         http_address="127.0.0.1:0",
         blob_cache_dir=tmp_path_factory.mktemp("dex-agent-harness-blob-cache"),
+        # The Claude Agent SDK test points the CLI at a local stub with a dummy key.
+        has_anthropic_api_key=True,
     )
     app_state = AgentHarnessExamplesApp(config)
     try:

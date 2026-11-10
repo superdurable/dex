@@ -40,6 +40,7 @@ def build_langchain_order_support_flow(
 ) -> AgentSessionFlow:
     """Builds the session Flow; ``model`` is a LangChain model name, such as "openai:gpt-5.2"."""
 
+    # The tools are closures, so they call the OrderDesk passed in here.
     @tool
     def look_up_order(order_id: str) -> str:
         """Look up one order by its order ID and return its items and status."""

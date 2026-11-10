@@ -36,6 +36,7 @@ STUB_USAGE = {"input_tokens": 10, "output_tokens": 5}
 class RecordedRequest:
     path: str
     api_key: str | None
+    authorization: str | None
 
 
 @dataclass
@@ -58,7 +59,9 @@ class ClaudeMessagesApiStub:
             def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(length) or b"{}")
-                stub.requests.append(RecordedRequest(self.path, self.headers.get("x-api-key")))
+                stub.requests.append(RecordedRequest(
+                    self.path, self.headers.get("x-api-key"), self.headers.get("authorization")
+                ))
                 if self.path.split("?", 1)[0] != "/v1/messages":
                     self._send_json(404, {"type": "error", "error": {"type": "not_found_error"}})
                     return
@@ -69,7 +72,9 @@ class ClaudeMessagesApiStub:
                     self._send_json(200, message)
 
             def do_GET(self) -> None:
-                stub.requests.append(RecordedRequest(self.path, self.headers.get("x-api-key")))
+                stub.requests.append(RecordedRequest(
+                    self.path, self.headers.get("x-api-key"), self.headers.get("authorization")
+                ))
                 self._send_json(404, {"type": "error", "error": {"type": "not_found_error"}})
 
             def log_message(self, format: str, *args: Any) -> None:

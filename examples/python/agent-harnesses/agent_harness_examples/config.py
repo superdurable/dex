@@ -35,6 +35,8 @@ class AgentHarnessExamplesConfig:
     blob_cache_dir: Path
     # Each model name is in its framework's own syntax; a "mock/" name is the local demo model.
     claude_agent_sdk_model: str = DEFAULT_CLAUDE_MODEL
+    # Whether ANTHROPIC_API_KEY is set; the Claude Agent SDK agent is registered only then.
+    has_anthropic_api_key: bool = False
     openai_agents_model: str = DEMO_MODEL
     pydantic_ai_model: str = DEMO_MODEL
     langchain_model: str = DEMO_MODEL
@@ -53,6 +55,7 @@ class AgentHarnessExamplesConfig:
             claude_agent_sdk_model=os.environ.get(
                 "DEX_CLAUDE_AGENT_SDK_MODEL", DEFAULT_CLAUDE_MODEL
             ),
+            has_anthropic_api_key=bool(os.environ.get("ANTHROPIC_API_KEY")),
             openai_agents_model=os.environ.get("DEX_OPENAI_AGENTS_MODEL", DEMO_MODEL),
             pydantic_ai_model=os.environ.get("DEX_PYDANTIC_AI_MODEL", DEMO_MODEL),
             langchain_model=os.environ.get("DEX_LANGCHAIN_MODEL", DEMO_MODEL),

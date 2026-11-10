@@ -35,6 +35,7 @@ def build_openai_agents_order_support_flow(
 ) -> AgentSessionFlow:
     """Builds the session Flow; ``model`` is an OpenAI model name, such as "gpt-5.2"."""
 
+    # The tools are closures, so they call the OrderDesk passed in here.
     @function_tool
     def look_up_order(order_id: str) -> str:
         """Look up one order by its order ID and return its items and status."""

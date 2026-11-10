@@ -38,6 +38,7 @@ def build_pydantic_ai_order_support_flow(
     # The model is resolved at the first run, so a Client process needs no provider key.
     agent = Agent(model, instructions=ORDER_SUPPORT_INSTRUCTIONS, defer_model_check=True)
 
+    # The tools are closures, so they call the OrderDesk passed in here.
     @agent.tool_plain
     def look_up_order(order_id: str) -> str:
         """Look up one order by its order ID and return its items and status."""
