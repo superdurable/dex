@@ -29,6 +29,10 @@ Session 把对话保存在 Attribute 中。Session 等待下一条用户消息�
 
 需要审批的 tool call 会在自己的 **AwaitToolApproval** Step 中等待，直到有人回复，等多久都可以。审批人可以在你的应用中审批，也可以在 [Dex Web](/reference/web/dex-web#agent-session-view) 中审批。
 
+## 把 Connector 用作 tool {#connectors-as-tools}
+
+每个 harness 都可以把 [Connector](/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供你指定的 operation，每次调用都在自己的 tool Step 中运行。每个 harness 页面的“连接 Connector”一节展示了接入方式，例如 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop#connect-connectors) 和 [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors)。规则见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+
 ## 选择 harness {#choose-a-harness}
 
 Harness 是运行 agent loop 的代码：内置 loop 或某个 framework。下面每个页面都有安装命令、可运行的 example 以及在本地运行它的步骤。
@@ -54,6 +58,8 @@ Harness 是运行 agent loop 的代码：内置 loop 或某个 framework。下�
 | **cancel_order** | non-idempotent write | 先在 **AwaitToolApproval** 中等待，然后最多运行一次。 |
 
 Python 版 Agent 位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。TypeScript 版 Agent 位于 [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses)。每个 harness 提供相同的 HTTP route，因此可以并排试用。
+
+项目配置中有 Slack connection 时，每个 agent 还有 **slack_post_thread_reply**。它是一个 Connector tool，先等待审批，然后只运行一次。
 
 内置 Agent Loop 页面改用 [AI Agent](/use-cases/ai-agent) example。它展示了 session 的全部功能。
 

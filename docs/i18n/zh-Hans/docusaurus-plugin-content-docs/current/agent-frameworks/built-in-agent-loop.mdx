@@ -85,18 +85,23 @@ def build_ai_agent_session_flow(
     system_prompt: str,
     context_window_tokens: int,
     mcp_servers: Sequence[McpServerConfig],
+    slack_connection: slack.Connection | None,
 ) -> AgentSessionFlow:
-    """Builds the agent; ``models`` are the allowed model names, and the first is the default."""
+    """Builds the agent; ``models`` are the allowed model names, and the first is the default.
+
+    ``slack_connection`` None leaves out the Slack connector tools.
+    """
     clients = {model: _model_client(model) for model in models}
+    mcp_tool_sources = (
+        [McpToolSource(mcp_servers, resource_and_prompt_tools_enabled=True)] if mcp_servers else []
+    )
     definition = AgentDefinition(
         name="ai-agent",
         instructions=system_prompt,
         model=clients[models[0]],
         # Settings hold only a model name; an unknown one gets the default, never a new client.
         resolve_model=lambda settings: clients.get(str(settings.get("model")), clients[models[0]]),
-        tool_sources=[McpToolSource(mcp_servers, resource_and_prompt_tools_enabled=True)]
-        if mcp_servers
-        else [],
+        tool_sources=[*mcp_tool_sources, *build_slack_tool_sources(slack_connection)],
         built_in_tools=frozenset(BuiltInTool),
         plan_mode_enabled=True,
         compaction=CompactionPolicy(context_window_tokens=context_window_tokens),
@@ -108,7 +113,7 @@ def build_ai_agent_session_flow(
 <SdkSnippet lang="typescript">
 
 ```typescript
-export function createAiAgentFlow(config: AiAgentConfig): AiAgentFlow {
+export function createAiAgentFlow(config: AiAgentConfig, slack: Connection | undefined): AiAgentFlow {
   const clients = new Map(config.models.map((model) => [model, createModelClient(model)]));
   const defaultClient = clients.get(config.models[0]!)!;
   return createStepwiseAgentSessionFlow(
@@ -119,7 +124,10 @@ export function createAiAgentFlow(config: AiAgentConfig): AiAgentFlow {
       // Settings hold only a model name; an unknown one gets the default, never a new client.
       resolveModel: (settings) => clients.get(String(settings.model)) ?? defaultClient,
       // Each MCP tool's annotations pick its effect, and so whether it waits for approval.
-      toolSources: [new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true })],
+      toolSources: [
+        new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true }),
+        ...createSlackConnectorToolSources(slack),
+      ],
       builtInTools: ["ask_user", "durable_wait", "write_todos"],
       planModeEnabled: true,
       compaction: { contextWindowTokens: config.contextWindowTokens },
@@ -152,6 +160,7 @@ Worker 把 session Flow 与应用的其他 Flow 一起注册。Agent session 的
             config.agent_system_prompt,
             config.agent_context_tokens,
             self.ai_agent_mcp_servers,
+            ai_agent_slack_connection,
         )
         # ...
         self.registry = Registry(tuple(flows), allow_async_handlers=True)
@@ -161,8 +170,10 @@ Worker 把 session Flow 与应用的其他 Flow 一起注册。Agent session 的
 <SdkSnippet lang="typescript">
 
 ```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
 const aiAgentConfig = loadAiAgentConfig();
-const aiAgentFlow = createAiAgentFlow(aiAgentConfig);
+const aiAgentFlow = createAiAgentFlow(aiAgentConfig, slack);
 ```
 
 </SdkSnippet>
@@ -398,6 +409,193 @@ dexcli dev --flow-rendering-dir ./definitions
 Python 与 TypeScript package 都会安装 **dex-agents-session-graph**。在 **examples/python** 中，用 **uv run --frozen** 运行它。在 **examples/typescript** 中，用 **npx** 运行它。
 
 在 Dex Web 中打开这个 session 的 run，选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission，例如 **ai-agent.operate**。然后在 tool call 卡片上选择 **Approve** 或 **Reject**。生产环境的做法参见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
+
+## 连接 Connector {#connect-connectors}
+
+Connector tool 是 agent 当作 tool 调用的 [Connector](/components/connector) operation。**ConnectorToolSource** 提供你指定的 operation。Agent 通过 Python 的 **tool_sources** 或 TypeScript 的 **toolSources** 把它作为 tool source 接收。Effect class、审批、结果和写操作顺序的规则见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+
+Example 把 Slack Connector 的 operation **postThreadReply** 作为 tool **slack_post_thread_reply** 提供。Agent 用它在 Slack thread 中回复。
+
+### 提供 tool {#offer-connector-tools}
+
+在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+
+Worker 从项目配置中打开 Slack connection **support-slack**。Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 把 operation 变成 tool，由 **ConnectorToolSource** 持有。没有这个 connection 时，agent 不会得到 Slack tool。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/slack_connector_tools.py',
+    typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
+    """Returns the Slack tool source, or no source when Slack is not configured."""
+    if connection is None:
+        return []
+    return [
+        ConnectorToolSource([
+            # The manifest does not ask for approval; this agent asks before every post.
+            connector_tool(
+                connection.post_thread_reply(), connection.reference, requires_approval=True
+            ),
+        ]),
+    ]
+
+# ...
+
+async def open_slack_project_connection(
+    environment: Mapping[str, str] = os.environ,
+) -> SlackProjectConnection | None:
+    # ...
+    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
+    try:
+        project = await load_from_environment(environment)
+    except FileNotFoundError:
+        _log_slack_not_set_up("the connector configuration file does not exist")
+        return None
+    # ...
+    try:
+        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
+    except BaseException:
+        await project.close()
+        raise
+    return SlackProjectConnection(project, connection)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export async function openSlackConnectionFromProject(
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<Connection | undefined> {
+  // ...
+  const project = await loadFromEnvironment(environment);
+  // ...
+  return newProjectConnection(project, slackConnectionName);
+}
+
+// ...
+
+export function createSlackConnectorToolSources(slack: Connection | undefined): ToolSource[] {
+  if (slack === undefined) {
+    return [];
+  }
+  return [
+    new ConnectorToolSource([
+      connectorTool(slack.operations.postThreadReply(), slack.reference, {
+        manifest,
+        inputValidator: PostThreadReplyInputSchema,
+        // The manifest does not ask for approval; this agent asks before every post.
+        requiresApproval: true,
+      }),
+    ]),
+  ];
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Worker 在启动时打开一次 connection，每个 agent 都使用它：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/main.py',
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+async def main() -> None:
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    config = ExamplesConfig.from_env()
+    slack_setup = await open_slack_project_connection()
+    try:
+        app_state = ExampleApp(config, slack_setup.connection if slack_setup else None)
+        # ...
+    finally:
+        if slack_setup is not None:
+            await slack_setup.aclose()
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Agent 把 Slack tool source 和 MCP tool source 放在一起：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/ai_agent_session.py',
+    typescript: 'examples/typescript/src/products/ai-agent/ai-agent-flow.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    mcp_tool_sources = (
+        [McpToolSource(mcp_servers, resource_and_prompt_tools_enabled=True)] if mcp_servers else []
+    )
+    definition = AgentDefinition(
+        # ...
+        tool_sources=[*mcp_tool_sources, *build_slack_tool_sources(slack_connection)],
+        # ...
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+      // Each MCP tool's annotations pick its effect, and so whether it waits for approval.
+      toolSources: [
+        new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true }),
+        ...createSlackConnectorToolSources(slack),
+      ],
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### 调用如何运行 {#connector-tool-calls}
+
+每次调用 **slack_post_thread_reply** 都在自己的 tool Step 中通过 Connector SDK 运行一个 Slack operation。调用保留 Connector 的 Call ID 和幂等键。调用运行前，模型给出的参数会先按 operation 的 input schema 检查。
+
+Connector 的 manifest 决定 effect class。**postThreadReply** 是 Mutation，它的 manifest 没有把它标为可安全重试，所以调用只在 **CallSingleAttemptTool** 中运行一次。Worker 崩溃永远不会让同一条消息发两次。参见 [崩溃](/agent-frameworks/deploy-agents#connector-tools-crashes)。
+
+Manifest 还会建议调用是否需要审批。Slack 的 manifest 没有建议 **postThreadReply** 需要审批，所以 example 传入 Python 的 **requires_approval=True** 或 TypeScript 的 **requiresApproval: true**。每次发帖都在 **AwaitToolApproval** 中等待，直到有人批准。Connector tool 的 **tool_policies**（**toolPolicies**） 条目只改变它的审批，从不改变它的 effect class。
+
+内置 loop 运行 Connector tool 的方式和其他 tool call 相同：每次调用都是独立的 tool Step，同一个模型回复中的读操作并行运行。同一个模型回复中的 Connector 写操作按模型给出的顺序逐个运行。其中一个没有成功时，这个回复中后面的写操作不会运行，并被记录为 skipped。参见 [写操作顺序](/agent-frameworks/deploy-agents#connector-tools-write-order)。
+
+### 配置 connection {#configure-connector-connection}
+
+Connection 来自项目配置，和 Dex 应用中的任何 Connector connection 一样。Connector 在每次调用前解析凭证，所以凭证永远不会进入 Flow state。调用只保存 connection 名称。
+
+- **本地开发。** 把 **DEX_CONNECTOR_CONFIG_FILE** 设为本地 Connector 配置的 **connections.json** 文件，默认是 **$HOME/.dex/connectors/connections.json**。其中必须有一个名为 **support-slack** 且已授权的 Slack connection。[Local Connector setup](/reference/web/local-connector-setup) 介绍了这个文件。
+- **部署后。** **DEX_PROJECT_\*** 设置选择托管平台或运维人员写入的项目配置。
+
+设置 **DEX_CONNECTOR_CONFIG_FILE** 或任何一个 **DEX_PROJECT_\*** 设置，就表示要求使用项目配置。配置不完整或无效时，Worker 在启动时停止。没有项目配置，或项目配置中没有 **support-slack** connection 时，Worker 记录一行日志，agent 在没有 Slack tool 的情况下运行。Worker 在启动时读取配置，所以修改配置后要重启 Worker。
+
+有发帖在等待审批时，让每个 Worker 保持相同的配置。任何 Worker 都可能运行已批准的发帖，它需要相同的 tool 和 connection。
+
+Slack app 需要 bot scope **chat:write**，并且它的 bot 必须是该 channel 的成员。Worker 在发帖途中停止后，Connector 用 user scope **channels:history** 和 **groups:history** 读回 thread，以确认回复是否已经发出。没有这些 scope 时，这样的发帖会记录为结果未知。
+
+试用时，先设置 **DEX_CONNECTOR_CONFIG_FILE** 再启动 example。Demo 模型可以直接调用这个 tool：
+
+```text
+/tool slack_post_thread_reply {"channelId":"C0123456789","threadTimestamp":"1710000000.000100","text":"Hello from Dex"}
+```
+
+这次发帖会先等待 **Approve**，然后才运行。
 
 ## 限制 {#limits}
 

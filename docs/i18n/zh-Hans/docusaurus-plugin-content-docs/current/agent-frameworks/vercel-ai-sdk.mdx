@@ -53,7 +53,11 @@ Flow type 是 **VercelAiOrderSupportAgent**（TypeScript）。完整 example 位
 <SdkSnippet lang="typescript">
 
 ```typescript
-export function createVercelAiOrderSupportFlow(orderDesk: OrderDesk, model: LanguageModel): AgentSessionFlow {
+export function createVercelAiOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: LanguageModel,
+  slack: Connection | undefined,
+): AgentSessionFlow {
   return createVercelAiAgentSessionFlow(
     {
       model,
@@ -74,6 +78,7 @@ export function createVercelAiOrderSupportFlow(orderDesk: OrderDesk, model: Lang
         look_up_order: { effect: "read" },
         cancel_order: { effect: "non_idempotent_write" },
       },
+      toolSources: createSlackConnectorToolSources(slack),
     },
     vercelAiOrderSupportFlowType,
   );
@@ -94,10 +99,13 @@ export function createVercelAiOrderSupportFlow(orderDesk: OrderDesk, model: Lang
 <SdkSnippet lang="typescript">
 
 ```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+// ...
 // One order desk for the four agent harness examples; each harness registers its own session Flow type.
 const orderDesk = new OrderDesk();
 // ...
-const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadVercelAiOrderSupportModel());
+const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadVercelAiOrderSupportModel(), slack);
 ```
 
 </SdkSnippet>
@@ -220,6 +228,126 @@ curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-S
 ### 在 Dex Web 中审批 {#approve-in-dex-web}
 
 也可以不执行最后一条命令，而是在 Dex Web 中审批。打开这个 session 的 run：它的 Flow ID 就是 session ID。选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission **order-support.operate**。然后在 **cancel_order** 卡片上选择 **Approve** 或 **Reject**。Dex Web 会替你调用 **resolve_interrupt**。生产环境的做法参见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
+
+## 连接 Connector {#connect-connectors}
+
+Connector tool 是 agent 当作 tool 调用的 [Connector](/components/connector) operation。**ConnectorToolSource** 提供你指定的 operation。Agent 通过 **toolSources** 把它作为 tool source 接收。Effect class、审批、结果和写操作顺序的规则见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+
+Example 把 Slack Connector 的 operation **postThreadReply** 作为 tool **slack_post_thread_reply** 提供。Agent 用它在 Slack thread 中回复。
+
+### 提供 tool {#offer-connector-tools}
+
+安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+
+Worker 从项目配置中打开 Slack connection **support-slack**。**connectorTool** 把 operation 变成 tool，由 **ConnectorToolSource** 持有。没有这个 connection 时，agent 不会得到 Slack tool。
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export async function openSlackConnectionFromProject(
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<Connection | undefined> {
+  // ...
+  const project = await loadFromEnvironment(environment);
+  // ...
+  return newProjectConnection(project, slackConnectionName);
+}
+
+// ...
+
+export function createSlackConnectorToolSources(slack: Connection | undefined): ToolSource[] {
+  if (slack === undefined) {
+    return [];
+  }
+  return [
+    new ConnectorToolSource([
+      connectorTool(slack.operations.postThreadReply(), slack.reference, {
+        manifest,
+        inputValidator: PostThreadReplyInputSchema,
+        // The manifest does not ask for approval; this agent asks before every post.
+        requiresApproval: true,
+      }),
+    ]),
+  ];
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Worker 在启动时打开一次 connection，每个 agent 都使用它：
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Agent 把 tool source 和自己的 tool 一起传入：
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/vercel-ai/vercel-ai-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  return createVercelAiAgentSessionFlow(
+    {
+      // ...
+      toolSources: createSlackConnectorToolSources(slack),
+    },
+    vercelAiOrderSupportFlowType,
+  );
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### 调用如何运行 {#connector-tool-calls}
+
+每次调用 **slack_post_thread_reply** 都在自己的 tool Step 中通过 Connector SDK 运行一个 Slack operation。调用保留 Connector 的 Call ID 和幂等键。调用运行前，模型给出的参数会先按 operation 的 input schema 检查。
+
+Connector 的 manifest 决定 effect class。**postThreadReply** 是 Mutation，它的 manifest 没有把它标为可安全重试，所以调用只在 **CallSingleAttemptTool** 中运行一次。Worker 崩溃永远不会让同一条消息发两次。参见 [崩溃](/agent-frameworks/deploy-agents#connector-tools-crashes)。
+
+Manifest 还会建议调用是否需要审批。Slack 的 manifest 没有建议 **postThreadReply** 需要审批，所以 example 传入 **requiresApproval: true**。每次发帖都在 **AwaitToolApproval** 中等待，直到有人批准。Connector tool 的 **toolPolicies** 条目只改变它的审批，从不改变它的 effect class。
+
+Adapter 在 agent 的 tool 之后提供 Connector tool，它们是没有 **execute** 的 AI SDK tool。调用从不在模型调用内运行。AI SDK 的 **needsApproval** 对它不起作用；审批由 source 决定。
+
+同一个模型回复中的 Connector 写操作按模型给出的顺序逐个运行。其中一个没有成功时，后面的写操作被记录为 skipped。参见 [写操作顺序](/agent-frameworks/deploy-agents#connector-tools-write-order)。
+
+### 配置 connection {#configure-connector-connection}
+
+Connection 来自项目配置，和 Dex 应用中的任何 Connector connection 一样。Connector 在每次调用前解析凭证，所以凭证永远不会进入 Flow state。调用只保存 connection 名称。
+
+- **本地开发。** 把 **DEX_CONNECTOR_CONFIG_FILE** 设为本地 Connector 配置的 **connections.json** 文件，默认是 **$HOME/.dex/connectors/connections.json**。其中必须有一个名为 **support-slack** 且已授权的 Slack connection。[Local Connector setup](/reference/web/local-connector-setup) 介绍了这个文件。
+- **部署后。** **DEX_PROJECT_\*** 设置选择托管平台或运维人员写入的项目配置。
+
+设置 **DEX_CONNECTOR_CONFIG_FILE** 或任何一个 **DEX_PROJECT_\*** 设置，就表示要求使用项目配置。配置不完整或无效时，Worker 在启动时停止。没有项目配置，或项目配置中没有 **support-slack** connection 时，Worker 记录一行日志，agent 在没有 Slack tool 的情况下运行。Worker 在启动时读取配置，所以修改配置后要重启 Worker。
+
+有发帖在等待审批时，让每个 Worker 保持相同的配置。任何 Worker 都可能运行已批准的发帖，它需要相同的 tool 和 connection。
+
+Slack app 需要 bot scope **chat:write**，并且它的 bot 必须是该 channel 的成员。Worker 在发帖途中停止后，Connector 用 user scope **channels:history** 和 **groups:history** 读回 thread，以确认回复是否已经发出。没有这些 scope 时，这样的发帖会记录为结果未知。
+
+试用时，先设置 **DEX_CONNECTOR_CONFIG_FILE** 再启动 example。然后让 agent 在 Slack thread 中回复，并给出 channel ID 和 thread timestamp：
+
+```text
+Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursday.
+```
+
+这次发帖和 **cancel_order** 一样，会先等待审批。
 
 ## 限制 {#limits}
 

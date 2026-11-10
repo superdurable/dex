@@ -418,15 +418,17 @@ and two answers to one approval can both succeed.
 
 ## Connector tools {#connector-tools}
 
-A Stepwise agent can call [Connector](/components/connector)
+An agent session can call [Connector](/components/connector)
 operations as tools. **ConnectorToolSource** offers them, the way
 **McpToolSource** offers an MCP server's tools. Each call runs one operation
 in its own tool Step through the Connector SDK, so the Call ID, the idempotency
 key, credential handling, and the single-dispatch fence work as they do in a
-Connector Step. The Python and TypeScript cores ship it. The Python Claude
-Agent SDK adapter also takes it, through **tool_sources**. The Go core has
-function tools only, and the other framework adapters do not offer connector
-tools yet.
+Connector Step. The Python and TypeScript cores ship it. The built-in agent
+loop and every Python and TypeScript framework adapter take it, through
+**tool_sources** in Python and **toolSources** in TypeScript. The Go core has
+function tools only. Each harness page shows the wiring and its own behavior in
+a Connect Connectors section, such as
+[Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors).
 
 Install the core with the Connector SDK, and each Connector package an agent
 uses:
