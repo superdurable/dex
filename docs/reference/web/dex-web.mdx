@@ -275,7 +275,7 @@ Changed in 1.41: **Start Flow** is a button in the header of the **Work Queue** 
 
 The Go analyzer builds the schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. It supports nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps. A recursive or unsupported input produces a warning and omits the start schema without hiding the rest of the definition.
 
-The Server reloads the current definition revision and validates the complete input before calling **StartFlow**. It rejects unknown object fields, missing required fields, invalid nulls, type, enum, range, datetime, array, and map errors. The Server selects the start Step type and creates the request ID.
+Dex Web reloads the current definition revision and validates the complete input before calling **StartFlow**. It rejects unknown object fields, missing required fields, invalid nulls, type, enum, range, datetime, array, and map errors. Dex Web selects the start Step type and creates the request ID.
 
 The **POST /api/v2/start** request does not need a Worker target. Dex Web starts the Flow on a pull Worker. **workerTargetPull: true** is accepted. **workerTargetPull: false** returns HTTP 400. Dex Web does not check for a registered pull Worker before starting, because registrations can change before dispatch. See [Run against server-zd](#run-against-server-zd).
 
