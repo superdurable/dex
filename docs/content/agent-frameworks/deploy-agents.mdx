@@ -38,14 +38,16 @@ npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superd
 To write a runner of your own, install only the core:
 
 ```bash
-pip install dex-agents==0.2.0
-npm i @superdurable/dex-agents@0.2.0 @superdurable/dex@1.35.0
+pip install dex-agents
+npm i @superdurable/dex-agents @superdurable/dex
 ```
 
 All agents packages share one version line. A Python adapter requires the core
 of the same version. An npm adapter peer-depends on it. Each release pins the
 Dex SDK it supports and the framework range it was tested with; see the
 [compatibility table](https://github.com/superdurable/dex/blob/main/agents/README.md#versions-and-compatibility).
+Without a version, pip and npm install the newest agents release and the Dex
+SDK it pins.
 The packages are before 1.0, so a minor release may change their API. Pin exact
 versions in your lockfile and read the
 [changelog](https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md)
@@ -300,12 +302,10 @@ it. Copy a transcript that must outlive the session with
 
 ### Compaction and the storage bound {#compaction}
 
-Compaction, from the agents 0.2.0 packages, keeps the model input under the
-context window. Set
+Compaction keeps the model input under the context window. Set
 **compaction** in **AgentSessionOptions**, or in the agent definition of a
 Stepwise agent, with the model's context window in tokens. The runner must
-support compaction. Stepwise does. From the agents 0.3.0 packages, so do the
-adapters for the OpenAI Agents SDK, Pydantic AI, LangChain and LangGraph,
+support compaction. Stepwise does, and so do the adapters for the OpenAI Agents SDK, Pydantic AI, LangChain and LangGraph,
 Google ADK, the Vercel AI SDK, and Mastra.
 Before a model call whose input would reach 85 percent of the window, the
 session runs a **CompactContext** Step instead. It makes one model call that
@@ -343,9 +343,9 @@ model input:
   no Dex summary, so retention never deletes them.
 
 Enable compaction only after every Worker of the Flow type runs a release that
-has the **CompactContext** Step. The clients that read the session's snapshots
-need agents 0.2.0 too: a 0.1.0 client cannot read the **compacting_context**
-status that a snapshot shows during compaction.
+has the **CompactContext** Step. Upgrade the clients that read the session's
+snapshots first too: a client from an earlier release cannot read the
+**compacting_context** status that a snapshot shows during compaction.
 
 Compaction also bounds the session's storage. Retention deletes the oldest
 chunk once every message in it is summarized and at least
@@ -446,8 +446,9 @@ pip install "dex-connector-<name> @ git+https://github.com/superdurable/dex-conn
 ```
 
 Pin the versions you tested. Connector tools need Connector packages whose
-**dex-connector.json** carries agent metadata, and Dex CLI 1.38.0 or later to
-analyze a Flow that imports them.
+**dex-connector.json** carries agent metadata. To analyze a Flow that imports
+them, use a Dex CLI that reads this metadata; the
+[CLI changelog](/reference/cli/changelog) names the release.
 
 ### Which operations are offered {#connector-tools-offered}
 
@@ -609,8 +610,8 @@ application can set another mode in the start options. A plain **start_flow** or
 **startFlow** does not set it, and the server default keeps the session out of
 the search. A session started as a SubFlow inherits its parent's mode.
 
-To turn it on for a session that is already running, such as one started on
-0.2.0, call **UpdateFlowConfig** for that session. In Python, call
+To turn it on for a session that is already running, such as one started by
+an earlier release, call **UpdateFlowConfig** for that session. In Python, call
 **update_flow_config** with **active_step_search_mode** set to
 **AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE**. In TypeScript, call **updateFlowConfig**
 with **activeStepSearchMode** set to **agentSessionActiveStepSearchMode**. An
@@ -933,16 +934,22 @@ session can run on different versions.
   framework serialized. The framework version on the new Worker must restore
   it. Stay within the framework range that the adapter pins, and upgrade the
   adapter and the framework together.
+- Before a rolling deploy, read the
+  [changelog](https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md)
+  entries of every release after the one you run. They name the upgrade order
+  that a release needs.
 - Upgrade every reader of a session before the Workers that write the status
-  **failed**. A Worker or client from agents 0.2.0 or earlier cannot decode it, so
-  its **get_agent_snapshot** of a failed session raises an error. Only failed
-  sessions are affected.
-- **Upgrading from agents 0.1.0: stop every 0.1.0 Worker of the Flow type
-  before any 0.2.0 Worker starts.** Do not run them side by side. A 0.1.0
-  session keeps every message in **AgentMessages**. Once a 0.2.0 Worker stores
-  a message in it, it moves the older messages into **AgentMessageChunks**, a
-  few chunks per Step. If a 0.1.0 Worker then runs a Step of that session, the
-  turn fails, because it cannot read the moved messages.
+  **failed**. A Worker or client from a release without that status cannot
+  decode it, so its **get_agent_snapshot** of a failed session raises an error.
+  Only failed sessions are affected.
+- **Some upgrades cannot run side by side.** When the changelog says so, stop
+  every Worker of the Flow type on the older release before any Worker on the
+  newer release starts. The release that stores messages in
+  **AgentMessageChunks** is one. Older sessions keep every message in
+  **AgentMessages**. Once a newer Worker stores a message there, it moves the
+  older messages into **AgentMessageChunks**, a few chunks per Step. If an
+  older Worker then runs a Step of that session, the turn fails, because it
+  cannot read the moved messages.
 
 See [Versioning Flow code](/components/application#versioning-flow-code)
 for the general rules.
@@ -950,10 +957,10 @@ for the general rules.
 ### Session settings during a rollout {#session-settings-rollout}
 
 Start sessions with session settings, and call **update_session_settings**, only
-after every Worker of the Flow type runs agents 0.2.0. A 0.1.0 Worker drops the
-settings of a session that it starts, and it neither writes nor reads the copy
-of the settings that a turn keeps. A turn that a 0.1.0 Worker starts runs
-without settings, so it can use the Worker's default model for some of its
+after every Worker of the Flow type runs a release that has session settings.
+An older Worker drops the settings of a session that it starts, and it neither
+writes nor reads the copy of the settings that a turn keeps. A turn that an
+older Worker starts runs without settings, so it can use the Worker's default model for some of its
 model calls.
 
 ## Credentials {#credentials}
