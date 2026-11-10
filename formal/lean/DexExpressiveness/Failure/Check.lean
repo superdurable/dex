@@ -130,6 +130,9 @@ def checkRunInvariant (config : Config σ) (run : Run σ) : List String :=
         | .waitFor => Dex.Phase.waitFor
         | .execute => Dex.Phase.execute))
     | none => !decide (record.phase = .waitFor) && !decide (record.phase = .execute))) ++
+  failsUnless "closedRunIsQuiet" (match run.base.status with
+    | .running => true
+    | .closed _ => steps.all (fun record => !record.phase.isActive && record.invocation.isNone)) ++
   failsUnless "historiesHaveSteps" (ghost.invocations.all (fun entry =>
     steps.any (fun record => decide (record.id = entry.1.1) &&
       (!decide (entry.1.2 = .execute) ||

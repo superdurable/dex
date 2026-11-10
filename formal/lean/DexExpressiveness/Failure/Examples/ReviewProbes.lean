@@ -105,6 +105,50 @@ theorem reusedStepConfig_isNotSimulated :
       checkStepSimulated loopProgram reusedStepConfig (.stepComplete 0) = false := by
   decide +kernel
 
+/-! ## A closed run with a running invocation
+
+The second review found a configuration that the strengthened `Invariant`
+still accepted: the same `Start-1` with the counter of `Start` at 1, but the
+run already closed. [ATTEMPT-EXHAUSTED] of `Start-1` is enabled; it moves
+task 0 to `Z`, and `closeRun` leaves the closed run unchanged, so the
+invocation stays Running with `Θ` and `I` empty while the server is up,
+which breaks `runningIsTracked`. A closed run is quiet in every reachable
+configuration (`RunInvariant.closedRunIsQuiet`). -/
+
+/-- The run: closed, the counter of `Start` at 1, `Start-1` still running. -/
+def closedRun : Run probeSignature :=
+  { base :=
+      { (Dex.Run.empty probeSignature) with
+        status := .closed .completed, steps := [loopRecord], counters := [(StepType.start, 1)] }
+    attempts := [(loopStep, { (Attempt.fresh .execute) with snapshot := some { attributes := [] } })]
+    retryTimers := [], startRequestId := 0 }
+
+/-- The configuration of the second review. -/
+def closedRunConfig : Config probeSignature :=
+  { reusedStepConfig with run := some closedRun }
+
+/-- The invariant rejects the configuration: `Start-1` is active in a closed
+run. -/
+theorem closedRunConfig_isNotInvariant : ¬ Invariant loopProgram closedRunConfig := by
+  intro invariant
+  have isQuiet := (invariant.runInvariant closedRun rfl).closedRunIsQuiet ⟨.completed, rfl⟩
+    loopRecord (List.mem_cons_self ..)
+  exact (by decide : ¬ (loopRecord.phase.isActive = false ∧ loopRecord.invocation = none)) isQuiet
+
+/-- The Boolean mirror rejects it for the same clause only. -/
+theorem closedRunConfig_failingClauses :
+    checkInvariant loopProgram closedRunConfig = ["closedRunIsQuiet"] := by
+  decide +kernel
+
+/-- [ATTEMPT-EXHAUSTED] is enabled in it and leaves a configuration that the
+invariant rejects: the first `RunInvariant` was too weak for
+`invariant_step`. -/
+theorem closedRunConfig_exhaustionBreaksInvariant :
+    (match step loopProgram closedRunConfig (.attemptFailed loopStep (.exhausted .maximumAttempts)) with
+      | some (_, next) => (checkInvariant loopProgram next).contains "runningIsTracked"
+      | none => false) = true := by
+  decide +kernel
+
 /-! ## Retries move time -/
 
 /-- A small signature with natural numbers for every name. -/

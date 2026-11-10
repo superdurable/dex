@@ -1066,7 +1066,7 @@ binary `formal/lean/.lake/build/bin/failure-fuzz` is in `.gitignore` and
 | `Failure/Equality.lean`, `Failure/Check.lean` | Test tooling: decidable equality of configurations; `checkStepSimulated`, the decision of `IsStepSimulated`; `checkInvariant`, the Boolean mirror of `Invariant`, clause by clause. | Tooling |
 | `Failure/Examples/Script.lean`, `Failure/Examples/CrashRetryZombie.lean` | Two DexF runs of `main(x): emit(1); exit(0)`, checked in the kernel: one with a crash, two retries, a zombie effect, an interrupt, a stale result, a zombie drop, and a StartFlow retry; one in which a zombie's result commits before its interrupt, which apply then ignores. | Proved, no `sorry` |
 | `Failure/Examples/Fuzz.lean`, `FailureFuzz.lean` | The inductiveness fuzz and its executable `lake exe failure-fuzz`. | Tooling |
-| `Failure/Examples/ReviewProbes.lean` | The two findings of the first review, kept as kernel-checked regression checks: the configuration with a reused Step execution ID, which `Invariant` now rejects, and the timer race that retries change. | Proved, no `sorry` |
+| `Failure/Examples/ReviewProbes.lean` | The findings of the reviews, kept as kernel-checked regression checks: the configuration with a reused Step execution ID and the closed run with a running invocation, which `Invariant` now rejects, and the timer race that retries change. | Proved, no `sorry` |
 
 A reviewer reads, in order: `Failure/Config.lean`, `Failure/Rules.lean`,
 `Failure/Repeats.lean`, `Failure/Abstraction.lean`,
@@ -1289,9 +1289,11 @@ The fuzz walks pseudo-random DexF runs with failures and checks
 of `Invariant` at every step. It then changes every fifth configuration in
 one place (a task's counter, phase,
 attempt, or place; a history's `h`, `v`, `par`, or outcome, or a forged
-Execute history; an attempt state; a retry timer, also one ahead of its
-attempt; an interrupt; `up`; a stamp; a counter; the Step counters; a Step's
-phase), skips a copy equal
+Execute or WaitFor history; an attempt state; a retry timer, also one ahead
+of its attempt or of any attempt of a past invocation; a wait timer at any
+time; an interrupt; `up`; a stamp; a counter; the Step counters, reset,
+decremented, or duplicated; a Step's phase; the run closed), skips a copy
+equal
 to its source, keeps the copies that the mirror accepts, and checks every
 enabled single step from them, [ATTEMPT-EXHAUSTED] included. It runs on a hand-written Flow with effect
 lists longer than one, WaitFor effects, mixed wait and retry timers,
@@ -1315,9 +1317,10 @@ invocation, and 118 StartFlow retries. The walks take every label kind
 except three: [ENGINE-REJECT], which applies only before the start;
 [ATTEMPT-EXHAUSTED], which only the steps from kept copies take; and the
 Complete rule of a zombie, which the second kernel-checked run covers. The
-fuzz samples 6,264 configurations, changes them into 656,003 copies that
-differ from their source, keeps 120,178, and checks 1,109,839 single steps
-from them. It reports no failure. The planted fault reports 131 failures. Two
+fuzz samples 6,264 configurations, changes them into 1,403,764 copies that
+differ from their source, keeps 841,930, and checks 8,425,297 single steps
+from them. It reports no failure. It takes about 13 minutes. The planted
+fault reports 404 failures. Two
 `#guard` lines run a small fuzz when the file is built.
 
 #### Inductiveness: gaps found and fixed
@@ -1326,6 +1329,7 @@ from them. It reports no failure. The planted fault reports 131 failures. Two
 | --- | --- | --- |
 | Interrupt of an unminted task | `I` holds `(e, m, a, t)` with `t = nextTaskId`; the next [STEP-START] mints task `t` into `Θ`, which breaks "`t ∉ dom(Θ)`" of I7. The first run of the fuzz found it with the change `interrupt.add`. | `Invariant.interruptsBelow`: every interrupt's task ID is below `nextTaskId`. |
 | Step execution ID reused | `Start-1` runs a returned task whose decision creates another `Start`, and the counter of `Start` is 0. Its Complete rule creates a second `Start-1`; the old history is taken for the new invocation, α keeps a virtual task that Dex removed, and `stepIdsNodup` fails. The first review found it with a kernel-checked configuration; the fuzz did not change counters then. | `RunInvariant.stepNumbersCounted` (counters cover every Step number), with `historiesHaveSteps` (every history belongs to an existing Step, an Execute history to one that reached `EX`), `invocationMatchesPhase`, and the retry timer freshness facts `retryTimersHaveHistories` and `retryTimersNotAhead`. `ReviewProbes.reusedStepConfig_isNotInvariant` checks the configuration. The fuzz now changes counters, phases, and histories; with the mirror of `stepNumbersCounted` removed, `failure-fuzz 120 5 6 2` reports 63 failures. |
+| Closed run with a running invocation | The run is closed, yet `Start-1` is still Running with its returned task in `Θ`. [ATTEMPT-EXHAUSTED] moves the task to `Z`, and `closeRun` leaves a closed run unchanged, so the invocation stays Running with `Θ` and `I` empty while the server is up, which breaks `runningIsTracked`. The second review found it; its extra changes found 51 configurations of this kind. With the mirror of `closedRunIsQuiet` removed, `failure-fuzz 60 5 6 1` reports failures of this kind. | `RunInvariant.closedRunIsQuiet`: a closed run has no active Step and no invocation, as the close cancels every active Step (`flow_close.rs:308-330`) and `finish` takes the invocation (`step_decisions.rs:367-374`). `ReviewProbes.closedRunConfig_isNotInvariant` checks the configuration. Under the clause every rule that needs an invocation is disabled on a closed run, which matches the code: a fenced command for a closed run passes `RunCursor::open` (`run_cursor.rs:101-119`) and fails the invocation fence (`step_results.rs:83-128`), so apply ignores it, as `internalCommit`, `resultStale`, and an ignored `recoverInterrupt` model. A TimersFired on a closed run fires only stale retry timers. The fuzz now closes runs, and adds arbitrary wait timers, duplicate counters, extra WaitFor histories, and retry timers of any attempt. |
 
 The fuzz is evidence, not proof: the work packages prove inductiveness.
 

@@ -377,6 +377,31 @@ def perturbations (program : Program σ) (config : Config σ) : List (String × 
               { step := record.id, method := invocation.method, attempt := attempt.number + 1 }
               config.clock })
         | _, _ => none) ++
+      [("status.closed.completed", withRun { run with
+          base := { run.base with status := .closed .completed } }),
+       ("status.closed.failed", withRun { run with
+          base := { run.base with status := .closed (.failed "probe") } }),
+       ("base.counters.duplicates", withRun { run with
+          base := { run.base with
+            counters := run.base.counters ++ run.base.counters.map (fun entry => (entry.1, 0)) } })] ++
+      run.base.steps.flatMap (fun record =>
+        [0, 1, config.clock, config.clock + 1000000].flatMap (fun fireTime =>
+          [0, 1, 3].map (fun index =>
+            ("waitTimer.arbitrary", withRun { run with
+              base := { run.base with
+                timers := run.base.timers.set { step := record.id, index := index } fireTime } })))) ++
+      run.base.steps.filterMap (fun record =>
+        if (ghost.findInvocation? (record.id, .waitFor)).isSome then none
+        else
+          some ("ghost.history.addWaitFor", { config with
+            ghost := { ghost with
+              invocations := ghost.invocations ++
+                [((record.id, .waitFor), { InvocationHistory.fresh 0 with outcome := .canceled })] } })) ++
+      ghost.invocations.flatMap (fun entry =>
+        [0, 1, 2, 5].map (fun attempt =>
+          ("retryTimer.arbitraryHistory", withRun { run with
+            retryTimers := run.retryTimers.set
+              { step := entry.1.1, method := entry.1.2, attempt := attempt } config.clock }))) ++
       [("base.counters.reset", withRun { run with base := { run.base with counters := [] } }),
        ("base.counters.decrement", withRun { run with
           base := { run.base with

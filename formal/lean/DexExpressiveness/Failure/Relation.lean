@@ -286,6 +286,15 @@ structure RunInvariant (config : Config σ) (run : Run σ) : Prop where
         | .waitFor => Dex.Phase.waitFor
         | .execute => Dex.Phase.execute)
     | none => record.phase ≠ .waitFor ∧ record.phase ≠ .execute
+  /-- A closed run is quiet: no Step is active and none has an invocation.
+  The close "Cancels every active Step" (`flow_close.rs:308-330`), and
+  `finish` takes the invocation (`step_decisions.rs:367-374`). So a closed
+  run has no attempt state and no Backoff invocation, every retry timer left
+  is stale, and every fenced command for it is ignored
+  (`step_results.rs:83-128`). -/
+  closedRunIsQuiet : (∃ status, run.base.status = .closed status) →
+    ∀ record, record ∈ run.base.steps →
+      record.phase.isActive = false ∧ record.invocation = none
   /-- Every ghost history belongs to an existing Step execution, and an
   Execute history to one that reached `EX`. So an invocation pended for the
   first time finds no history, and a completed invocation's history is never
