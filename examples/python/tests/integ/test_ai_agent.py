@@ -38,7 +38,6 @@ from dex_connectors.sdk import derive_call_id
 from dex_connectors.sdk.connectormock import RecordedCall
 from dex_connectors.slack import PostThreadReplyInput, slackmock
 from tests.integ.conftest import WAIT_TIMEOUT, server_address
-from tests.integ.flow_smoke_helper import dexcli_path
 from tests.integ.ai_agent_sessions import (
     draft_revision,
     is_idle,
@@ -50,6 +49,7 @@ from tests.integ.ai_agent_sessions import (
     wait_for_message_text,
     wait_for_snapshot,
 )
+from tests.integ.flow_smoke_helper import dexcli_path
 
 from dex_examples.app import ExampleApp
 from dex_examples.http_app import create_app
@@ -206,12 +206,6 @@ async def test_ai_agent_posts_a_slack_thread_reply_once_after_approval(
     operation = slack_mock.post_thread_reply_script.definition().operation
     expected_call_id = derive_call_id(session_id, tool_steps[0].step_execution_id, operation)
     assert replies[0].call_id == expected_call_id
-
-
-def _slack_thread_replies(
-    slack_mock: slackmock.Mock, session_id: str
-) -> list[RecordedCall[PostThreadReplyInput]]:
-    return [call for call in slack_mock.post_thread_reply_script.calls() if call.flow_id == session_id]
 
 
 async def test_ai_agent_asks_a_question_inside_an_executing_plan(
@@ -674,3 +668,9 @@ async def test_ai_agent_session_runs_the_model_its_start_form_picked(
         snapshot = await sessions.get_agent_snapshot(session_id)
         # Only the model name is stored; the Worker owns the client and its key.
         assert snapshot.session_settings == {"model": model}
+
+
+def _slack_thread_replies(
+    slack_mock: slackmock.Mock, session_id: str
+) -> list[RecordedCall[PostThreadReplyInput]]:
+    return [call for call in slack_mock.post_thread_reply_script.calls() if call.flow_id == session_id]

@@ -74,9 +74,11 @@ class AgentHarnessExamplesApp:
     def __init__(
         self, config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
     ) -> None:
-        """Builds every agent; ``slack_connection`` None leaves out the Slack connector tools."""
+        """Builds every agent; ``slack_connection`` None leaves out the Slack connector tools.
+
+        The caller owns ``slack_connection`` and closes it after ``close``.
+        """
         self.config = config
-        self.slack_connection = slack_connection
         examples = [
             _new_openai_agents_example(config, slack_connection),
             _new_pydantic_ai_example(config, slack_connection),
@@ -114,19 +116,38 @@ class AgentHarnessExamplesApp:
         await self.worker.wait_pull_registered(timeout=PULL_REGISTRATION_TIMEOUT_SECONDS)
 
     async def close(self) -> None:
-        """Closes the Client, the Worker, the BlobCache, and the Slack connection, in that order."""
-        await self.client.close()
-        await self.worker.close()
+        """Closes the Client, the Worker, and the BlobCache; every step runs even after a failure.
+
+        The caller owns the Slack connection and closes it.
+
+        Raises:
+            Exception: The first failure from a close step.
+        """
+        close_errors: list[Exception] = []
+        try:
+            await self.client.close()
+        except Exception as error:
+            close_errors.append(error)
+        try:
+            await self.worker.close()
+        except Exception as error:
+            close_errors.append(error)
         if self._worker_task is not None:
             try:
                 await asyncio.wait_for(self._worker_task, timeout=10)
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._worker_task.cancel()
             except Exception:
                 _logger.exception("Worker task failed")
-        self.blob_cache.close()
-        if self.slack_connection is not None:
-            await self.slack_connection.aclose()
+            self._worker_task = None
+        try:
+            self.blob_cache.close()
+        except Exception as error:
+            close_errors.append(error)
+        for other_error in close_errors[1:]:
+            _logger.error("another close step failed", exc_info=other_error)
+        if close_errors:
+            raise close_errors[0]
 
 
 def _new_claude_agent_sdk_example(

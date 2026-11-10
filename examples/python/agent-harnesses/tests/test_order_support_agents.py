@@ -154,6 +154,7 @@ async def test_order_support_agent_never_runs_a_rejected_cancellation(
     outputs = _tool_outputs(turn, "cancel_order")
     assert not any("is cancelled" in output for output in outputs), outputs
 
+
 @pytest.mark.parametrize("harness_name", HARNESS_NAMES)
 async def test_order_support_agent_posts_a_slack_thread_reply_once_after_approval(
     app: AgentHarnessExamplesApp,
@@ -249,18 +250,6 @@ class _SessionRoutes:
         return {SESSION_TOKEN_HEADER: self._tokens[session_id]}
 
 
-def _slack_thread_replies(
-    slack_mock: slackmock.Mock, session_id: str
-) -> list[RecordedCall[PostThreadReplyInput]]:
-    return [call for call in slack_mock.post_thread_reply_script.calls() if call.flow_id == session_id]
-
-
-def _dexcli_path() -> Path | None:
-    """Returns the dexcli that run-integ-tests.sh built, or None to use $DEXCLI or PATH."""
-    configured = os.environ.get("DEXCLI_PATH")
-    return Path(configured) if configured else None
-
-
 def _tool_outputs(snapshot: AgentSnapshot, tool_name: str) -> list[str]:
     return [
         message.tool_output
@@ -299,3 +288,14 @@ async def _wait_for_pending_interrupt(
     interrupt: AgentInterrupt = await wait_until(f"{session_id} approval", pending_interrupt)
     return interrupt
 
+
+def _slack_thread_replies(
+    slack_mock: slackmock.Mock, session_id: str
+) -> list[RecordedCall[PostThreadReplyInput]]:
+    return [call for call in slack_mock.post_thread_reply_script.calls() if call.flow_id == session_id]
+
+
+def _dexcli_path() -> Path | None:
+    """Returns the dexcli that run-integ-tests.sh built, or None to use $DEXCLI or PATH."""
+    configured = os.environ.get("DEXCLI_PATH")
+    return Path(configured) if configured else None

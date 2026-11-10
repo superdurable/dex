@@ -25,6 +25,7 @@ from typing import Any
 
 from dex import ChannelMessageNotFoundError, FlowNotActiveOrNotFoundError, RpcLockConflictError
 from dex_agents import BUILT_IN_TOOL_DEFINITIONS, AgentSessionClient
+from dex_agents.connectors import ConnectorToolSource
 from dex_agents.mcp import McpToolListingError, McpToolSource
 from dex_agents.stepwise import StepwiseAgentRunner
 from dex_agents.ui_stream import AGENT_EVENT_STREAM_HEADERS, InvalidAgentEventResumeTokenError
@@ -82,8 +83,10 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
     async def get_worker_settings() -> Response:
         config, runner = app_state.config, app_state.ai_agent.runner
         assert isinstance(runner, StepwiseAgentRunner)
+        sources = runner.definition.tool_sources
+        connector_sources = [source for source in sources if isinstance(source, ConnectorToolSource)]
+        connector_tools = [tool for source in connector_sources for tool in await source.list_tools()]
         try:
-            sources = runner.definition.tool_sources
             mcp_sources = [source for source in sources if isinstance(source, McpToolSource)]
             mcp_tools = [tool for source in mcp_sources for tool in await source.list_tools()]
         except McpToolListingError:
@@ -98,6 +101,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
                 {"name": tool.name, "effect": tool.framework_effect or "unclassified"}
                 for tool in mcp_tools
             ],
+            connector_tools=[tool.name for tool in connector_tools],
             built_in_tools=[definition.name for definition in BUILT_IN_TOOL_DEFINITIONS],
         )
 

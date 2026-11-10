@@ -18,8 +18,8 @@ things:
   source, offers each server's tools and three tools that read MCP resources
   and prompts.
 - **Slack Connector tools**: the Slack Connector's agent-exposed operation,
-  passed to the agent as a second tool source, when the Worker has a Slack
-  token. See [Slack connector tools](#slack-connector-tools).
+  passed to the agent as a second tool source, when the project configuration
+  holds the Slack connection. See [Slack connector tools](#slack-connector-tools).
 - **A local demo model**, `mock/dex`, a script for the library's
   `ScriptedModelClient`, so the example and its tests run without a provider
   key.
@@ -163,8 +163,7 @@ credential or server command ever comes from a browser or from Flow input.
 | `DEX_AGENT_CONTEXT_TOKENS` | `32000` | The context window that compaction keeps the model input under |
 | `DEX_AGENT_MCP_CONFIG` | none | The MCP server file |
 | `DEX_AGENT_SESSION_KEY` | random at each start | The key that signs session tokens; keep it set so tokens survive a restart |
-| `SLACK_BOT_TOKEN` | none | The Slack bot token; without it the agent has no Slack Connector tools |
-| `SLACK_USER_TOKEN` | none | Optional Slack user token that confirms a post an interrupted attempt may have sent |
+| `DEX_CONNECTOR_CONFIG_FILE` | none | The Dex Web `connections.json` that holds the Slack connection `support-slack`; see [Slack connector tools](#slack-connector-tools) |
 
 Add the provider credential that LiteLLM reads to `examples/.env`, for example
 `OPENAI_API_KEY="..."`, and restart the Worker. The credential stays in the
@@ -229,18 +228,30 @@ tools, and the Slack Connector exposes only `postThreadReply`. The manifest
 does not ask for approval, so the example passes `requires_approval=True`:
 every post waits for **Approve**.
 
-```bash
-export SLACK_BOT_TOKEN=xoxb-...   # posts the reply
-export SLACK_USER_TOKEN=xoxp-...  # optional: reads the thread back to confirm a post
-```
+The Worker opens the Slack connection `support-slack` from the project
+configuration, as any Dex application opens a Connector connection. It holds
+no Slack token: the Connector resolves the connection's credentials each time
+it calls Slack, so they never enter Flow state.
 
-The bot needs the `chat:write` scope and must be a member of the channel. The
-user token needs `channels:history` (or `groups:history` for a private
-channel). The Connector uses it only when a Worker stopped during a post: it
-reads the thread to learn whether the reply was sent. Without it, such a post
-records an unknown outcome instead. The Connector reads both tokens each time
-it calls Slack, so they never enter Flow state. Without `SLACK_BOT_TOKEN`, the
-Worker logs one line and the agent has no Slack tool.
+- **Local development**: set `DEX_CONNECTOR_CONFIG_FILE` to the
+  `connections.json` that Dex Web saves, by default
+  `$HOME/.dex/connectors/connections.json`. It must hold an authorized Slack
+  connection named `support-slack`. See
+  [Local Connector setup](https://docs.superdurable.io/reference/web/local-connector-setup).
+- **Deployed**: the `DEX_PROJECT_*` variables select the project configuration
+  in object storage instead.
+
+The Slack app needs the bot scope `chat:write`, and its bot must be a member
+of the channel. The Connector also uses the user scopes `channels:history`
+and `groups:history`: when a Worker stopped during a post, it reads the thread
+back to learn whether the reply was sent. Without a project configuration, or
+without a Slack connection named `support-slack` in it, the Worker logs one line
+and the agent runs without the Slack tool. The configuration is read at startup, so
+restart the Worker after you change it.
+
+Keep the same connector configuration on every Worker while sessions wait for
+approval of a connector call: the approved call runs on whichever Worker takes
+its tool Step, and that Worker needs the same tool and connection.
 
 Try it with the demo model:
 

@@ -12,13 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Slack Connector operations offered to the AI Agent as tools.
+"""Slack Connector operations offered to an agent as tools.
 
 The Slack manifest exposes one operation to agents: postThreadReply. Each
 call runs in its own tool Step with the connector's Call ID, and the agent
-asks for approval before it posts. The tokens come from SLACK_BOT_TOKEN and
-SLACK_USER_TOKEN when the connector resolves credentials for a call, so they
-never enter Flow state.
+asks for approval before it posts. The connection comes from the project
+configuration, so the Worker holds no Slack token and none enters Flow state.
 """
 
 from __future__ import annotations
@@ -26,15 +25,20 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 
 from dex_agents.connectors import ConnectorToolSource, connector_tool
 from dex_agents.stepwise import ToolSource
 from dex_connectors import slack
-from dex_connectors.sdk import Call, ConnectionRef, SecretString
+from dex_connectors.sdk.projectconfig import (
+    LOCAL_CONNECTIONS_FILE_ENVIRONMENT,
+    LoadedProject,
+    load_from_environment,
+)
 
+# The static connection name that the project configuration must hold.
 SLACK_CONNECTION_NAME = "support-slack"
-SLACK_BOT_TOKEN_VARIABLE = "SLACK_BOT_TOKEN"
-SLACK_USER_TOKEN_VARIABLE = "SLACK_USER_TOKEN"
+HOSTED_PROJECT_ENVIRONMENT = "DEX_PROJECT_ID"
 
 _logger = logging.getLogger(__name__)
 
@@ -53,32 +57,49 @@ def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSo
     ]
 
 
-def new_slack_connection_from_environment(
+@dataclass
+class SlackProjectConnection:
+    """The loaded project configuration and its Slack connection; close both on shutdown."""
+
+    project: LoadedProject = field(repr=False)
+    connection: slack.Connection
+
+    async def aclose(self) -> None:
+        try:
+            await self.connection.aclose()
+        finally:
+            await self.project.close()
+
+
+async def open_slack_project_connection(
     environment: Mapping[str, str] = os.environ,
-) -> slack.Connection | None:
-    """Returns a Slack connection when SLACK_BOT_TOKEN is set, otherwise None."""
-    if not environment.get(SLACK_BOT_TOKEN_VARIABLE):
-        _logger.warning("%s is not set; the Slack connector tools are off", SLACK_BOT_TOKEN_VARIABLE)
+) -> SlackProjectConnection | None:
+    """Opens the Slack connection from the project configuration, or returns None without one."""
+    if not environment.get(LOCAL_CONNECTIONS_FILE_ENVIRONMENT) and not environment.get(
+        HOSTED_PROJECT_ENVIRONMENT
+    ):
+        _log_slack_not_set_up(f"{LOCAL_CONNECTIONS_FILE_ENVIRONMENT} is not set")
         return None
-    client = slack.Client(slack.Config(), SlackEnvironmentCredentialProvider(environment))
-    return slack.new_connection(client, ConnectionRef("slack", SLACK_CONNECTION_NAME))
+    try:
+        project = await load_from_environment(environment)
+    except FileNotFoundError:
+        _log_slack_not_set_up("the connector configuration file does not exist")
+        return None
+    has_connection = any(
+        entry.connector_id == "slack" and entry.connection_name == SLACK_CONNECTION_NAME
+        for entry in project.configuration.connections
+    )
+    if not has_connection:
+        await project.close()
+        _log_slack_not_set_up(f"the project has no Slack connection named {SLACK_CONNECTION_NAME}")
+        return None
+    try:
+        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
+    except BaseException:
+        await project.close()
+        raise
+    return SlackProjectConnection(project, connection)
 
 
-class SlackEnvironmentCredentialProvider:
-    """Reads the Slack tokens from the environment each time the connector calls Slack."""
-
-    def __init__(self, environment: Mapping[str, str]) -> None:
-        self._environment = environment
-
-    async def resolve(self, call: Call) -> slack.Credentials:
-        empty = SecretString("")
-        return slack.Credentials(
-            oauth_client_id="",
-            oauth_client_secret=empty,
-            bot_token=SecretString(self._environment.get(SLACK_BOT_TOKEN_VARIABLE, "")),
-            bot_refresh_token=empty,
-            # Optional: confirms a post after an interrupted attempt; without it that post is unknown.
-            user_token=SecretString(self._environment.get(SLACK_USER_TOKEN_VARIABLE, "")),
-            user_refresh_token=empty,
-            app_token=empty,
-        )
+def _log_slack_not_set_up(reason: str) -> None:
+    _logger.warning("Slack connector tools are off: %s", reason)
