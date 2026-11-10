@@ -72,9 +72,9 @@ connection lasts only while Dex Web runs: restarting **dexcli dev** drops it,
 and **Remove connection** drops it at once. **Delete connection** deletes a
 saved one from the file. It does not revoke the provider grant.
 
-When Dex Web writes a save, an OAuth authorization, a delete, or a Trigger
-binding save, it checks that nothing changed the connection since that
-operation started. If the connection was deleted or added again, a Flow moved
+Before Dex Web writes the result of a save, an OAuth authorization, a delete,
+or a Trigger binding save, it checks that nothing changed the connection since
+that operation started. If the connection was deleted or added again, a Flow moved
 it to another release, or another save changed it, Dex Web changes nothing and
 returns **CONNECTOR_CONNECTION_CHANGED**. Reload the page and set
 the connection up again. Dex Web checks the saved connection against the file

@@ -102,8 +102,8 @@ the Connectors library releases. No Connector is compiled into dexcli.
    grows from 1 second to 30 seconds. The server exits when **dexcli dev**
    exits.
 
-**dexcli dev** prints the **/mcp** URL when it is ready. It reports Dex Server
-and Dex Web ready without waiting for the Connectors MCP server. Until it is ready, and while it
+In its ready output, **dexcli dev** prints the **/mcp** URL. It reports Dex
+Server and Dex Web ready without waiting for the Connectors MCP server. Until it is ready, and while it
 restarts, **/mcp** answers HTTP 503. When no server can run, for example
 offline with an empty cache, on a platform without a release, or after 5
 failed starts in a row, **dexcli dev** keeps running and prints a hint to
@@ -272,8 +272,8 @@ protocol with the CLI. The command supports the normal **--server**,
 **dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
 **holderProcessId** of the active server process, and changes nothing. It fails
 with **FAILED_PRECONDITION** while a step down or its hold-off is in progress,
-and with **UNAVAILABLE** when no server process is reachable. In either case,
-wait until the hold-off ends and describe again.
+and with **UNAVAILABLE** when no server process is reachable. Then wait until
+the hold-off ends and describe again.
 
 **dexcli admin step-down --yes** asks the active server process of a node ID to
 give up its lease, so that another process of the same node ID can take over.
@@ -332,7 +332,7 @@ for details.
 JSON is the default output, and its format is stable. **--output table** is
 for people to read; scripts must not depend on its format. A bounded command
 has a 30-second client deadline by default; use **--timeout 0** to turn it off.
-**flow watch** keeps long-polling until you interrupt it.
+The deadline does not apply to **flow watch**.
 
 Errors are JSON on stderr. They include **kind**, **operation**, **message**, and,
 when they apply, **grpcCode**, **grpcCodeName**, and structured status details.

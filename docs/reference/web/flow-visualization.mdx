@@ -11,7 +11,7 @@ sidebar_label: Flow visualization
 dexcli visualize ./order_flow.go
 ```
 
-The default schema version is 1.0. The Dex Web **Design** tab and **Designs** page use Version 2.0, which Go, Python, and TypeScript sources can produce:
+The default schema version is 1.0. Go, Python, and TypeScript sources can produce Version 2.0 for the Dex Web **Design** tab and **Designs**:
 
 ```bash
 dexcli visualize ./refund_flow.go --schema-version 2.0
@@ -115,7 +115,7 @@ The TypeScript analyzer does not support these features yet:
 - Resource reads, writes, locks, state loads, and Stream writes inside local handlers. The graph has no resource edges for local Steps and skips unused-resource warnings.
 - SubFlows, and the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
 
-An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. The analyzer does not support Java or Rust, and it does not follow a Flow across several files.
+An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Java, Rust, and recursive analysis across files are not supported.
 
 Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, or movement collections that escape the handler.
 
