@@ -791,7 +791,9 @@ reports 322 failures and finds every gap of the table above:
 | `Dex.timers.duplicate`, `Dex.timers.add` | [TIMER-FIRE]: the L side is not enabled. `fire`: `Related.timers` | Duplicate timer IDs |
 
 With the present definitions the same run changes 1,898 pairs into 510,426
-copies, keeps about 190,000, and reports no failure. It checks single steps
+copies, keeps about 190,000, and reports no failure. On the finished proof,
+`inductiveness-fuzz 200 4 6 3` changes 5,876 pairs into 1,820,177 copies and
+reports no failure. It checks single steps
 of every kind: every L label kind and every thread phase that has a step
 (`bootPending`, `bootRunning`, `ready`, `running`, `emitting`, `emitted`,
 `waitStarted`, `woken`, `resuming`), `fire`, `input` while running and after
@@ -943,7 +945,7 @@ mirror of `IsSimulationState` accepts:
 
 `lake exe inductiveness-fuzz 200 4 6 3 liveness` checks 1,396,813 pairs,
 1,205,008 of them settled and 408,933 settled after the close, and reports no
-failure. Five `#guard` lines run the checks on few pairs when the file is
+failure. The run on the finished proof gives the same numbers. Five `#guard` lines run the checks on few pairs when the file is
 built.
 
 Each check finds a planted fault (`120 5 6 2 liveness`; the fault was removed
