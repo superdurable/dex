@@ -521,7 +521,7 @@
   },
   {
     "from": "/primitives/components/external-attribute-sync",
-    "to": "/concepts/primitives/attribute#attribute-store-projection"
+    "to": "/concepts/primitives/attribute"
   },
   {
     "from": "/zh-Hans/primitives/components/application",
@@ -545,7 +545,7 @@
   },
   {
     "from": "/zh-Hans/primitives/components/external-attribute-sync",
-    "to": "/zh-Hans/concepts/primitives/attribute#attribute-store-projection"
+    "to": "/zh-Hans/concepts/primitives/attribute"
   },
   {
     "from": "/reference/go/1.29.x/changelog/",
@@ -2005,11 +2005,11 @@
   },
   {
     "from": "/components/external-attribute-sync",
-    "to": "/concepts/primitives/attribute#attribute-store-projection"
+    "to": "/concepts/primitives/attribute"
   },
   {
     "from": "/zh-Hans/components/external-attribute-sync",
-    "to": "/zh-Hans/concepts/primitives/attribute#attribute-store-projection"
+    "to": "/zh-Hans/concepts/primitives/attribute"
   },
   {
     "from": "/components/connector",
