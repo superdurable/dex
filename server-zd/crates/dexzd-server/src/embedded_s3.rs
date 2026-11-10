@@ -149,6 +149,8 @@ impl EmbeddedS3 {
     ///
     /// The data directory lock is released only after both stores close. Dropping this future,
     /// such as at the end of a shutdown budget, does not cancel that work.
+    ///
+    /// This holds in production builds; store references that tests take through test-util keep a store open.
     pub(crate) async fn shutdown(self) {
         let Self {
             server,
@@ -157,7 +159,7 @@ impl EmbeddedS3 {
             #[cfg(feature = "test-util")]
             store_for_test,
         } = self;
-        // The server's accept loop then holds the last reference, so it closes the store.
+        // Without test references, the accept loop then holds the last one and closes the store.
         #[cfg(feature = "test-util")]
         drop(store_for_test);
         // A spawned task keeps closing, and keeps the lock, after a timed-out caller drops this future.
