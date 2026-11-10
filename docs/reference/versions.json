@@ -6,5 +6,6 @@
   "java": "1.41.x",
   "typescript": "1.40.x",
   "rust": "1.40.x",
-  "web": "1.41.x"
+  "web": "1.41.x",
+  "agents": "0.4.x"
 }

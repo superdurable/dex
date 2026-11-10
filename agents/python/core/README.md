@@ -6,7 +6,7 @@ framework adapters. It provides one durable agent session Flow,
 framework adapter implements. The plan is
 [agent-framework-adapters.md](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
-One Flow execution is one agent session; the Flow ID is the session ID. The
+One Flow run is one agent session; the Flow ID is the session ID. The
 session runs in **Step mode**: every model call is one `RunModel` Step, and
 every tool call, READ included, is its own Step. The tool call Steps of one
 model response run in parallel, and `ResumeTurn` waits for their results
@@ -937,7 +937,7 @@ when it moves on. Set `active_step_search_mode` in the start options to choose
 another mode, such as `ActiveStepSearchMode.DISABLED`. `AsyncClient.start_flow`
 does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 `config_override`, or call `update_flow_config` for a running session. See
-[Find sessions that need a person](https://docs.superdurable.io/agent-frameworks/deploy-agents#find-sessions).
+[Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
 ## Spend limits
 
@@ -945,7 +945,7 @@ does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 across many sessions. The session asks it before each model call and reports what
 the call used. Counters and limits belong to the application. Without one, the
 session makes no checks. See the interface's documentation and
-[Spend limits](https://docs.superdurable.io/agent-frameworks/deploy-agents#spend-limits).
+[Spend limits](https://docs.superdurable.io/reference/agents/spend-limits).
 
 ## Flow shape
 

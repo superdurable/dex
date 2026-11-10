@@ -203,7 +203,7 @@ so they run as parallel Steps.
 
 `tool_sources` takes the core's tool sources, such as `ConnectorToolSource`,
 which offers reviewed Connector operations (install `dex-agents[connectors]`).
-See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks/deploy-agents.mdx#connector-tools)
+See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks.mdx#connectors-as-tools)
 for what the manifest decides.
 
 ```python
@@ -452,7 +452,7 @@ started before the upgrade starts compacting once its Worker has one.
 - The summary call gets the earlier turns as plain text, without tools.
 - Summarization middleware changes only the graph's message state. Dex stores only messages with new IDs and owns the record, so a middleware summary is stored as one more message. Use one of the two.
 
-See [Compaction and the storage bound](https://docs.superdurable.io/agent-frameworks/deploy-agents#compaction).
+See [Compaction and the storage bound](https://docs.superdurable.io/reference/agents/session-limits#compaction).
 
 ## Limits
 

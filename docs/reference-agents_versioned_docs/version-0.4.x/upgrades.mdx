@@ -1,0 +1,50 @@
+---
+title: Upgrades
+sidebar_label: Upgrades
+---
+
+# Upgrade agent code while sessions wait {#upgrades}
+
+A waiting session runs the code of the Worker that takes its next Step. Nothing
+replays the agent loop, so a deploy takes effect at the next model call or tool
+call, even in the middle of a turn. During a rolling deploy, two Steps of one
+session can run on different versions.
+
+- Keep each agent's Flow type stable. Running sessions resume by it.
+- Keep a tool available while a running turn or a pending approval still
+  refers to it.
+- A recorded tool call keeps the effect and approval rule that applied when the
+  model asked for it. Changed tool policies apply to later calls.
+- A changed prompt or model takes effect at the next model call. A changed
+  tool takes effect at its next call.
+- Between the Steps of a turn, **FrameworkRunState** holds state that the
+  framework serialized. The framework version on the new Worker must restore
+  it. Stay within the framework range that the adapter pins, and upgrade the
+  adapter and the framework together.
+- Before a rolling deploy, read the [change log](/reference/agents/0.4.x/changelog)
+  entries of every release after the one you run. They name the upgrade order
+  that a release needs.
+- Upgrade every reader of a session before the Workers that write the status
+  **failed**. A Worker or client from a release without that status cannot
+  decode it, so its **get_agent_snapshot** of a failed session raises an error.
+  Only failed sessions are affected.
+- **Some upgrades cannot run side by side.** When the change log says so, stop
+  every Worker of the Flow type on the older release before any Worker on the
+  newer release starts. The release that stores messages in
+  **AgentMessageChunks** is one. Older sessions keep every message in
+  **AgentMessages**. Once a newer Worker stores a message there, it moves the
+  older messages into **AgentMessageChunks**, a few chunks per Step. If an
+  older Worker then runs a Step of that session, the turn fails, because it
+  cannot read the moved messages.
+
+See [Versioning Flow code](/components/application#versioning-flow-code)
+for the general rules.
+
+## Session settings during a rollout {#session-settings-rollout}
+
+Start sessions with session settings, and call **update_session_settings**, only
+after every Worker of the Flow type runs a release that has session settings.
+An older Worker drops the settings of a session that it starts. It neither
+writes nor reads the copy of the settings that a turn keeps. A turn that an
+older Worker starts runs without settings, so some of its model calls can use
+the Worker's default model.

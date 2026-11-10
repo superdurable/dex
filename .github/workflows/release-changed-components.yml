@@ -168,7 +168,7 @@ jobs:
       needs.plan.outputs.go == 'true' || needs.plan.outputs.python == 'true' ||
       needs.plan.outputs.java == 'true' || needs.plan.outputs.typescript == 'true' ||
       needs.plan.outputs.rust == 'true' || needs.plan.outputs.web == 'true' ||
-      needs.plan.outputs.cli == 'true'
+      needs.plan.outputs.cli == 'true' || needs.plan.outputs.agents == 'true'
     # A snapshot failure must never fail the release run.
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -193,6 +193,8 @@ jobs:
           RUST_SELECTED: ${{ needs.plan.outputs.rust }}
           WEB_SELECTED: ${{ needs.plan.outputs.web }}
           CLI_SELECTED: ${{ needs.plan.outputs.cli }}
+          AGENTS_SELECTED: ${{ needs.plan.outputs.agents }}
+          AGENTS_VERSION: ${{ needs.plan.outputs.agents_version }}
         run: |
           for component in go python java typescript rust web cli; do
             selected_name="${component^^}_SELECTED"
@@ -200,6 +202,10 @@ jobs:
               node docs/scripts/snapshot-reference.mjs "${component}" "${RELEASE_VERSION}"
             fi
           done
+          # The agents packages have their own version line.
+          if [[ "${AGENTS_SELECTED}" == "true" ]]; then
+            node docs/scripts/snapshot-reference.mjs agents "${AGENTS_VERSION}"
+          fi
       - name: Check snapshots
         run: npm run check --prefix docs
       # GITHUB_TOKEN cannot open pull requests here, and its pull requests would not trigger CI.
