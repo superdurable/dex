@@ -36,7 +36,7 @@ func loadAgentSession(rawNodes []json.RawMessage) (*api.V2AgentSession, error) {
 			Map bool `json:"map"`
 		} `json:"resource"`
 	}
-	foundAttributes := 0
+	foundAttributes := make(map[string]bool, len(agentSessionAttributes))
 	isStartStepFound := false
 	session := &api.V2AgentSession{RPCNames: make(map[string]bool)}
 	for _, raw := range rawNodes {
@@ -48,7 +48,7 @@ func loadAgentSession(rawNodes []json.RawMessage) (*api.V2AgentSession, error) {
 		case "attribute":
 			isMap, isSessionAttribute := agentSessionAttributes[node.Name]
 			if isSessionAttribute && isMap == (node.Resource != nil && node.Resource.Map) {
-				foundAttributes++
+				foundAttributes[node.Name] = true
 			}
 		case "step":
 			if node.Name == agentSessionStartStepType && node.Start {
@@ -59,7 +59,7 @@ func loadAgentSession(rawNodes []json.RawMessage) (*api.V2AgentSession, error) {
 			session.RPCNames[node.Name] = true
 		}
 	}
-	if foundAttributes != len(agentSessionAttributes) || !isStartStepFound {
+	if len(foundAttributes) != len(agentSessionAttributes) || !isStartStepFound {
 		return nil, nil
 	}
 	return session, nil

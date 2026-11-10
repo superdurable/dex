@@ -34,14 +34,13 @@ describe('agentSessionSchema', () => {
     expect(schema?.steerUserMessage?.rpcName).toBe(SESSION_RPC.steerUserMessage);
     expect(schema?.cancelTurn?.rpcName).toBe(SESSION_RPC.cancelTurn);
     expect(schema?.hasQuestions).toBe(true);
-    expect(schema?.canStartSession).toBe(true);
     expect(schema?.rpcNames).toEqual(expect.arrayContaining([SESSION_RPC.sendUserMessage, SESSION_RPC.updateSessionSettings]));
   });
 
-  it('does not offer New session for a graph that starts at another Step', () => {
+  it('rejects a graph that starts at another Step, and offers it no New session', () => {
     const graph = publishedSessionGraph();
     const nodes = graph.nodes.map((node) => node.name === 'StartAgentSession' ? { ...node, name: 'StartImpostor' } : node);
-    expect(agentSessionSchema({ ...graph, nodes }, undefined)?.canStartSession).toBe(false);
+    expect(agentSessionSchema({ ...graph, nodes }, undefined)).toBeNull();
 
     const entry = (flowName: string, entryGraph: FlowDefinitionGraph): FlowDefinitionEntry => ({
       id: flowName, file: `${flowName}.json`, schemaVersion: '2.0', flowName, sourceLanguage: 'python',
@@ -83,6 +82,12 @@ describe('agentSessionSchema', () => {
     expect(agentSessionSchema({ ...graph, nodes: graph.nodes.filter((node) => node.name !== 'AgentToolCalls') }, undefined)).toBeNull();
     expect(agentSessionSchema({ ...graph, valid: false }, undefined)).toBeNull();
     expect(agentSessionSchema(undefined, undefined)).toBeNull();
+  });
+
+  it('does not count a repeated Attribute in place of a missing one', () => {
+    const graph = publishedSessionGraph();
+    const nodes = graph.nodes.map((node) => node.name === 'PendingInterrupts' ? { ...node, name: 'AgentState' } : node);
+    expect(agentSessionSchema({ ...graph, nodes }, undefined)).toBeNull();
   });
 
   it('rejects a session Attribute that is not an AttributeMap where one is required', () => {

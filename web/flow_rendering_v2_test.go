@@ -516,6 +516,19 @@ func TestLoadFlowDefinitionsMarksOnlyTheSessionGraphAsAnAgentSession(t *testing.
 	if impostor.V2.AgentSession != nil || len(impostor.V2.Actions) != 4 {
 		t.Fatalf("impostor agent session = %+v, actions = %d", impostor.V2.AgentSession, len(impostor.V2.Actions))
 	}
+
+	// A repeated AgentState does not stand in for the missing PendingInterrupts.
+	duplicated := strings.ReplaceAll(graph, `"name": "PendingInterrupts"`, `"name": "AgentState"`)
+	if duplicated == graph {
+		t.Fatal("the session graph names no PendingInterrupts node")
+	}
+	malformed, err := flowDefinitionFromGraph("duplicated.json", []byte(duplicated))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if malformed.V2.AgentSession != nil {
+		t.Fatalf("duplicated AgentState agent session = %+v", malformed.V2.AgentSession)
+	}
 }
 
 func withV2Graph(definition string, nodes string, edges string) string {

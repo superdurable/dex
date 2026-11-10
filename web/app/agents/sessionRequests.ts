@@ -102,7 +102,7 @@ export function sessionRouteBlockedReason(
   rpcName: string,
   context: SessionControlContext,
 ): string | null {
-  if (!schema.canStartSession || !schema.rpcNames.includes(rpcName)) return SESSION_COPY.noSessionRPC(rpcName);
+  if (!schema.rpcNames.includes(rpcName)) return SESSION_COPY.noSessionRPC(rpcName);
   const permission = sessionActionPermission(schema);
   if (permission === null) return SESSION_COPY.noSessionActions;
   if (!context.isFlowOpen) return SESSION_COPY.closed;

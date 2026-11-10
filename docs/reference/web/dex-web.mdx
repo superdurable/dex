@@ -496,7 +496,7 @@ When **resolve_interrupt** or **answer_question** returns false, another operato
 
 ### Compatibility {#agent-session-compatibility}
 
-Dex Web shows the **Agent session** tab for a valid Flow Definition Graph 2.0 that declares the Attributes **AgentState**, **AgentMessages**, **AgentToolCalls**, and **PendingInterrupts**. **AgentMessages** and **AgentToolCalls** must be AttributeMaps. The [session graph](/agent-frameworks/deploy-agents#dex-web) that Dex Agents renders declares them.
+Dex Web shows the **Agent session** tab for a valid Flow Definition Graph 2.0 that declares the Attributes **AgentState**, **AgentMessages**, **AgentToolCalls**, and **PendingInterrupts**. **AgentMessages** and **AgentToolCalls** must be AttributeMaps, and the others must not be. Changed in 1.43: the graph's Start Step must also be **StartAgentSession**, the same rule that the session routes apply. The [session graph](/agent-frameworks/deploy-agents#dex-web) that Dex Agents renders declares them.
 
 Dex Web reads the session schema by name. It reads these Attributes: **AgentState**, **AgentMessages**, **AgentMessageChunks**, **AgentMessageIndex**, **AgentToolCalls**, **PendingInterrupts**, and **AgentUsage**. It reads the Step types **CallTool**, **CallSingleAttemptTool**, **PollToolTask**, **RecordToolFailure**, and **RecordToolOutcomeUnknown**, whose input is a tool call ID. It reads the Actions **resolve_interrupt**, **answer_question**, **steer_user_message**, and **cancel_turn**. Since 1.43, it also reads the **SessionSettings** Attribute, calls the RPCs **send_user_message** and **update_session_settings**, and starts sessions at the Step type **StartAgentSession**.
 

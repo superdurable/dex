@@ -20,13 +20,13 @@ import {
 } from './sessionRequests';
 import './session.css';
 
-/** The catalog Flow types whose session graph starts at StartAgentSession, in catalog order. */
+/** The catalog Flow types whose graph is a Dex Agents session, in catalog order. */
 export function agentSessionFlowTypes(
   catalog: V2Catalog | null | undefined,
   definitions: FlowDefinitionCatalog | null | undefined,
 ): string[] {
   return (catalog?.flows ?? [])
-    .filter((entry) => sessionSchemaFor(definitions, entry)?.canStartSession === true)
+    .filter((entry) => sessionSchemaFor(definitions, entry) !== null)
     .map((entry) => entry.flowType);
 }
 

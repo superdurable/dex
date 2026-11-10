@@ -29,7 +29,6 @@ const schema = {
   steerUserMessage: operate('steer_user_message'),
   cancelTurn: operate('cancel_turn'),
   resolveInterrupt: operate('resolve_interrupt'),
-  canStartSession: true,
   rpcNames: ['send_user_message', 'update_session_settings'],
 };
 const context = { isFlowOpen: true, workQueuePermissions: ['agent.operate'] };
@@ -146,9 +145,7 @@ describe('SessionComposer', () => {
       .toBe(SESSION_COPY.noSessionActions);
   });
 
-  it('blocks sending and settings for a graph that is not a startable session or lacks the RPC', () => {
-    expect(sessionRouteBlockedReason({ ...schema, canStartSession: false }, 'send_user_message', context))
-      .toBe(SESSION_COPY.noSessionRPC('send_user_message'));
+  it('blocks sending and settings for a graph that lacks the RPC', () => {
     expect(sessionRouteBlockedReason({ ...schema, rpcNames: ['send_user_message'] }, 'update_session_settings', context))
       .toBe(SESSION_COPY.noSessionRPC('update_session_settings'));
   });

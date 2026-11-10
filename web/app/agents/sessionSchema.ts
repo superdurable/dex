@@ -68,8 +68,6 @@ export interface AgentSessionSchema {
   cancelTurn?: FlowV2Action;
   /** False for a session Flow without the question Step, such as a Go session. */
   hasQuestions: boolean;
-  /** True when the graph starts at StartAgentSession, the Step the start route uses. */
-  canStartSession: boolean;
   /** The RPCs the graph declares; sending and settings need theirs. */
   rpcNames: readonly string[];
 }
@@ -77,21 +75,25 @@ export interface AgentSessionSchema {
 /** The session Start Step type, which Dex Web's start route uses. */
 export const SESSION_START_STEP_TYPE = 'StartAgentSession';
 
-/** The session schema a graph declares, or null when the Flow is not a Dex Agents session. */
+/**
+ * The session schema a graph declares, or null when the Flow is not a Dex Agents session.
+ *
+ * Mirrors loadAgentSession in web/flow_rendering_agent_session.go, which guards the session routes.
+ */
 export function agentSessionSchema(
   graph: FlowDefinitionGraph | undefined,
   definition: FlowV2Definition | undefined,
 ): AgentSessionSchema | null {
   if (!graph || graph.schemaVersion !== '2.0' || !graph.valid) return null;
-  const attributes = new Map(
-    graph.nodes
-      .filter((node) => node.kind === 'attribute')
-      .map((node) => [node.name, node.resource?.map === true]),
-  );
-  for (const name of REQUIRED_SESSION_ATTRIBUTES) {
-    if (!attributes.has(name)) return null;
-    if (MAP_ATTRIBUTES.includes(name) && attributes.get(name) !== true) return null;
-  }
+  // Each required Attribute counts by its own name and kind; a repeated node never stands in for another.
+  const isDeclared = (name: string) => graph.nodes.some((node) => (
+    node.kind === 'attribute' && node.name === name && (node.resource?.map === true) === MAP_ATTRIBUTES.includes(name)
+  ));
+  if (!REQUIRED_SESSION_ATTRIBUTES.every(isDeclared)) return null;
+  const hasStartStep = graph.nodes.some((node) => (
+    node.kind === 'step' && node.name === SESSION_START_STEP_TYPE && node.start === true
+  ));
+  if (!hasStartStep) return null;
   const stepTypes = new Set(graph.nodes.filter((node) => node.kind === 'step').map((node) => node.name));
   const actions = definition?.actions ?? graph.v2?.actions ?? [];
   const action = (rpcName: string) => actions.find((candidate) => candidate.rpcName === rpcName);
@@ -102,7 +104,6 @@ export function agentSessionSchema(
     steerUserMessage: action(SESSION_RPC.steerUserMessage),
     cancelTurn: action(SESSION_RPC.cancelTurn),
     hasQuestions: stepTypes.has(QUESTION_STEP_TYPE),
-    canStartSession: graph.nodes.some((node) => node.kind === 'step' && node.name === SESSION_START_STEP_TYPE && node.start === true),
     rpcNames: graph.nodes.filter((node) => node.kind === 'rpc').map((node) => node.name),
   };
 }
