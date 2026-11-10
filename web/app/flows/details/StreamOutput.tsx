@@ -45,7 +45,7 @@ export function streamEntryContentOf(value: unknown): StreamEntryContent {
   return { kind: 'structured', value: decoded };
 }
 
-/** A 0 through 100 percent from a percent or progress field; a value up to 1 is read as a fraction. */
+/** A 0 to 100 percent from a percent or progress field; values up to 1 are fractions. */
 function progressPercentOf(record: Record<string, unknown>): number | null {
   const raw = typeof record.percent === 'number' ? record.percent : typeof record.progress === 'number' ? record.progress : null;
   if (raw === null || !Number.isFinite(raw) || raw < 0) return null;

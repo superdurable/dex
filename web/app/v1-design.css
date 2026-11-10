@@ -1852,7 +1852,7 @@ body:has(.v1-page) {
   overflow-wrap: anywhere;
 }
 
-.v1-page .stream-transcript > span:last-of-type:not(.stream-transcript-caret) {
+.v1-page .stream-transcript > span:nth-last-child(2) {
   animation: stream-chunk-arrive 0.6s ease-out;
 }
 
