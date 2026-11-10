@@ -143,14 +143,14 @@ impl LoggedRemovedFields {
                 logged.add(command);
             }
         }
-        assert!(
-            logged
-                .by_run
-                .values()
-                .any(|fields| *fields != RemovedFlowConfigFields::default()),
-            "the log's FlowConfigs hold the removed fields"
-        );
         logged
+    }
+
+    /// Returns whether any logged FlowStart or child start holds the removed fields.
+    pub(crate) fn holds_removed_fields(&self) -> bool {
+        self.by_run
+            .values()
+            .any(|fields| *fields != RemovedFlowConfigFields::default())
     }
 
     fn add(&mut self, command: LoggedFlowCommand) {

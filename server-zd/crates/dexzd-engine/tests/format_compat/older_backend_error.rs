@@ -56,7 +56,12 @@ pub(crate) async fn replay_with_older_backend_errors(
     let applier = Arc::new(StepRowRecordingApplier::default());
     let (mut replayed, mut stored) =
         replay_with_applier(directory, snapshot_use, true, applier.clone()).await;
-    LoggedRemovedFields::read(directory).restore(&mut replayed, &mut stored);
+    let logged = LoggedRemovedFields::read(directory);
+    assert!(
+        logged.holds_removed_fields(),
+        "the frozen log holds the removed fields"
+    );
+    logged.restore(&mut replayed, &mut stored);
     let failures = applier.applied_failures();
     let step_row_write_deltas = applier.step_row_write_deltas(&failures);
     with_older_backend_errors(

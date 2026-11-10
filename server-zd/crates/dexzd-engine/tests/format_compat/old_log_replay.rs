@@ -16,7 +16,9 @@ use std::sync::Arc;
 
 use dexzd_apply::read_model::{StepCompletionState, step_completion_state};
 use dexzd_apply::{FlowStateReader, StateReadError, StateRow};
-use dexzd_engine::{CommandApplier, DeterministicCommandApplier, SystemEngineIdSource};
+use dexzd_engine::{
+    CommandApplier, CommittedStateView, DeterministicCommandApplier, SystemEngineIdSource,
+};
 use dexzd_keyspace::row_keys::{history_record_key, value_row_key};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueReference, parse_run_key};
 use dexzd_protocol::dex::flow_started_or_continued_history_event::StartOrContinue;
@@ -824,7 +826,12 @@ async fn replay_with_applied_failures(
     let applier = Arc::new(StepRowRecordingApplier::default());
     let (mut replayed, mut stored) =
         replay_with_applier(directory, snapshot_use, true, applier.clone()).await;
-    LoggedRemovedFields::read(directory).restore(&mut replayed, &mut stored);
+    let logged = LoggedRemovedFields::read(directory);
+    assert!(
+        logged.holds_removed_fields(),
+        "the frozen log holds the removed fields"
+    );
+    logged.restore(&mut replayed, &mut stored);
     (replayed, stored, applier.applied_failures())
 }
 
@@ -895,7 +902,17 @@ pub(crate) async fn replay_with_applier(
         .committed_view()
         .expect("open a committed view");
     let state = dump_committed_state(view).await;
-    let stored = tokio::task::spawn_blocking(move || {
+    let stored = stored_rows(row_view).await;
+    engine
+        .shutdown()
+        .await
+        .expect("the node releases its lease");
+    (state, stored)
+}
+
+/// Returns the committed Flow, History, and Value rows of `row_view`.
+pub(crate) async fn stored_rows(row_view: CommittedStateView) -> StoredRows {
+    tokio::task::spawn_blocking(move || {
         let mut stored = StoredRows::new();
         for column_family in [
             ColumnFamily::Flow,
@@ -912,10 +929,5 @@ pub(crate) async fn replay_with_applier(
         stored
     })
     .await
-    .expect("the scan task completes");
-    engine
-        .shutdown()
-        .await
-        .expect("the node releases its lease");
-    (state, stored)
+    .expect("the scan task completes")
 }

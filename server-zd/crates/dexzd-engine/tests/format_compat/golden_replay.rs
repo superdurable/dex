@@ -18,7 +18,9 @@ use prost::Message;
 
 use crate::compat_node::{engine_node_config, start_engine_node};
 use crate::format_decoding::{DecodedObjects, decode_objects};
+use crate::old_log_replay::stored_rows;
 use crate::recording::record_workload;
+use crate::removed_flow_config_fields::LoggedRemovedFields;
 use crate::scripted_clock::ScriptedClock;
 use crate::state_dump::{
     StateDump, dump_committed_state, parse_state_dump, render_state_dump, state_dump_differences,
@@ -28,8 +30,11 @@ use crate::testdata_tree::{
     load_objects, read_files, recorded_objects, testdata_versions, version_digest, write_files,
 };
 
-/// Digest of every file of each version, README included. Regenerate v1 before 1.0; afterward versions are immutable: add `v<N+1>`.
-const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[("v1", "f7b4effd5f72951612718b48717f0d31")];
+/// Digest of every file of each version, README included. Regenerate the newest version before 1.0; afterward versions are immutable: add `v<N+1>`.
+const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[
+    ("v1", "40b2004160b6f2900b954b2eff8e286b"),
+    ("v2", "05687b78d3fbd09b46d7a0249643e5c0"),
+];
 /// The restoring node starts this long after the last recorded command.
 pub(crate) const RESTART_DELAY_MICROS: i64 = 60 * 60 * 1_000_000;
 
@@ -102,7 +107,7 @@ fn every_version_keeps_its_pinned_bytes() {
         assert_eq!(
             version_digest(&version.directory),
             *pinned_digest,
-            "testdata/{} changed; regenerate v1 with its generator before 1.0, or add a new version afterward",
+            "testdata/{} changed; regenerate the newest version with its generator before 1.0, or add a new version afterward",
             version.name
         );
     }
@@ -197,7 +202,7 @@ async fn the_workload_reproduces_the_newest_version() {
     assert!(
         differences.is_empty(),
         "the workload no longer reproduces testdata/{}; if the engine now writes different bytes, \
-         regenerate v1 before 1.0, or add a new version afterward. Differences:\n{}",
+         regenerate the newest version before 1.0, or add a new version afterward. Differences:\n{}",
         newest.name,
         differences.join("\n")
     );
@@ -228,7 +233,8 @@ async fn assert_replays_to_recorded_state(version: &TestdataVersion, snapshot_us
     );
 }
 
-/// Starts a node on the recorded objects and returns its committed state after recovery.
+/// Starts a node on the recorded objects and returns its committed state after recovery, with
+/// the removed FlowConfig fields that the log recorded restored.
 async fn replay_version(version: &TestdataVersion, snapshot_use: SnapshotUse) -> StateDump {
     let decoded = decode_version(version);
     let object_store = Arc::new(load_objects(&version.directory).await);
@@ -254,7 +260,14 @@ async fn replay_version(version: &TestdataVersion, snapshot_use: SnapshotUse) ->
     );
     let engine =
         start_engine_node(&config, object_store, clock, Arc::new(SystemEngineIdSource)).await;
-    let state = dump_committed_state(
+    let mut state = dump_committed_state(
+        engine
+            .committer()
+            .committed_view()
+            .expect("open a committed view"),
+    )
+    .await;
+    let mut stored = stored_rows(
         engine
             .committer()
             .committed_view()
@@ -265,6 +278,15 @@ async fn replay_version(version: &TestdataVersion, snapshot_use: SnapshotUse) ->
         .shutdown()
         .await
         .expect("the node releases its lease");
+    let logged = LoggedRemovedFields::read(&version.directory);
+    // Only v1 predates #1072; later versions must not hold the removed fields.
+    assert_eq!(
+        logged.holds_removed_fields(),
+        version.name == "v1",
+        "testdata/{} holds the removed FlowConfig fields only if it is v1",
+        version.name
+    );
+    logged.restore(&mut state, &mut stored);
     state
 }
 
