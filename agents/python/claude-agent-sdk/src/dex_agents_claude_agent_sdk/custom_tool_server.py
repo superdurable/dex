@@ -29,6 +29,8 @@ from dex_agents_claude_agent_sdk.tool_gate import (
     ToolCatalog,
 )
 
+REPLAY_ONLY_TOOL_DESCRIPTION = "Not available now: its tool source does not offer it."
+
 
 def build_custom_tool_server(
     tool_catalog: ToolCatalog, tool_call_gate: ToolCallGate
@@ -56,6 +58,17 @@ def build_custom_tool_server(
             }
         )
         for source_tool in tool_catalog.source_tools
+    ]
+    # Served so the CLI can resume a recorded call; the gate refuses new calls.
+    wire_tools += [
+        Tool.model_validate(
+            {
+                "name": tool_name,
+                "description": REPLAY_ONLY_TOOL_DESCRIPTION,
+                "inputSchema": {"type": "object"},
+            }
+        )
+        for tool_name in tool_catalog.replay_only_tool_names
     ]
 
     async def list_custom_tools(

@@ -19,7 +19,8 @@ Query; ``create_payout`` is a ``retry: safe`` Mutation without approval and
 ``approved_payout`` the same with the manifest's approval; ``payout_checked``
 needs approval above 50; ``post_note`` is a single-attempt Mutation and
 ``policy_note`` the same under a session policy that asks for approval and
-claims ``READ``.
+claims ``READ``. ``HidingToolSource`` lists ``hiding_note``, the same
+single-attempt Mutation, until a test hides it.
 
 An application PreToolUse hook rewrites ``publish`` input ``"rewrite me"`` to
 ``"rewritten"``, raises a ``payout_checked`` amount to 500 when its memo is
@@ -35,6 +36,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -53,14 +55,23 @@ from claude_agent_sdk import (
 
 from dex_agents import (
     AgentSessionFlow,
+    AgentToolCall,
+    AgentTurnContext,
+    DeferredToolCall,
+    DeferredToolExecution,
+    DeferredToolOutcome,
     ModelCallCheck,
     ModelCallDecision,
     ModelUsageReport,
     RunModelLimit,
+    ToolCallStepOptions,
     ToolEffect,
     ToolPolicy,
+    ToolTaskPoll,
+    ToolTaskPollOutcome,
 )
 from dex_agents.connectors import ConnectorToolSource, connector_tool
+from dex_agents.stepwise import SourceToolDefinition
 from dex_agents.testing import FileGate, InvocationLog
 from dex_agents_claude_agent_sdk import (
     ClaudeAgentOptionsContext,
@@ -88,6 +99,7 @@ SPEND_CHECKS_LOG_NAME = "spend-checks.jsonl"
 SPEND_REPORTS_LOG_NAME = "spend-reports.jsonl"
 REWRITTEN_PUBLISH_INPUT = {"message": "rewritten"}
 RAISED_PAYOUT_AMOUNT = 500
+HIDE_SOURCE_TOOLS_FILE_NAME = "hide-source-tools"
 SLOW_WRITE_GATE = "slow_write"
 TOOL_POLICIES = {
     "publish": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
@@ -129,7 +141,7 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
         build_custom_tools(state_dir),
         flow_type=CLAUDE_TEST_AGENT_FLOW_TYPE,
         tool_policies=TOOL_POLICIES,
-        tool_sources=[build_connector_source(state_dir)],
+        tool_sources=[build_connector_source(state_dir), HidingToolSource(state_dir)],
         run_model_limit=_run_model_limit_from_environment(),
         spend_limit=(
             FileSpendLimit(state_dir) if os.environ.get(SPEND_LIMIT_ENVIRONMENT_VARIABLE) else None
@@ -158,6 +170,58 @@ def build_connector_source(state_dir: Path) -> ConnectorToolSource:
             connector_tool(notes, LEDGER_CONNECTION, name="policy_note"),
         ]
     )
+
+
+class HidingToolSource:
+    """A dynamic source of ``hiding_note`` whose listing a test can empty or break.
+
+    While ``HIDE_SOURCE_TOOLS_FILE_NAME`` exists, ``list_tools`` returns nothing
+    when the file says ``empty`` and raises when it says ``raise``.
+    """
+
+    source_name = "hiding-ledger"
+
+    def __init__(self, state_dir: Path) -> None:
+        self._state_dir = state_dir
+        notes = PostNoteOperation(FakeLedgerProvider(state_dir))
+        self._inner = ConnectorToolSource(
+            [connector_tool(notes, LEDGER_CONNECTION, name="hiding_note")],
+            source_name=self.source_name,
+        )
+
+    async def list_tools(self) -> Sequence[SourceToolDefinition]:
+        hide_file = self._state_dir / HIDE_SOURCE_TOOLS_FILE_NAME
+        if hide_file.exists():
+            if hide_file.read_text() == "raise":
+                raise ConnectionError("the hiding source is down")
+            return ()
+        return await self._inner.list_tools()
+
+    def deferred_tool_call(
+        self,
+        turn: AgentTurnContext,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: str,
+        listed_tool: SourceToolDefinition,
+    ) -> DeferredToolCall:
+        return self._inner.deferred_tool_call(
+            turn,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            listed_tool=listed_tool,
+        )
+
+    def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        return self._inner.tool_call_step_options(tool_call)
+
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
+        return await self._inner.execute_deferred_tool_call(call)
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        return await self._inner.poll_tool_task(poll)
 
 
 def _run_model_limit_from_environment() -> RunModelLimit | None:

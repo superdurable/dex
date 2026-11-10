@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, cast
 
@@ -105,6 +105,9 @@ ORDERED_WRITE_DEFERRAL_MESSAGE = (
     "of this reply runs first. Read its result, then call {tool_name} again by itself "
     "if it should still run."
 )
+UNLISTED_SOURCE_TOOL_MESSAGE = (
+    "{tool_name} did not run: its tool source does not offer this tool now."
+)
 BUILT_IN_TOOL_NAME_COLLISION_MESSAGE = (
     "{tool_name} did not run: a custom tool and a Claude Code tool share this name."
 )
@@ -116,12 +119,19 @@ class ToolCatalog:
         custom_tools: Sequence[SdkMcpTool[Any]],
         custom_tool_server_name: str,
         source_tools: Mapping[str, ListedSourceTool] | None = None,
+        replay_only_tool_names: Collection[str] = (),
     ) -> None:
         self.custom_tool_server_name = custom_tool_server_name
         self._custom_tool_prefix = f"mcp__{custom_tool_server_name}__"
         self._custom_tools = {custom_tool.name: custom_tool for custom_tool in custom_tools}
         # Listed per segment; ToolSourceRouter refuses their name collisions.
         self._source_tools = dict(source_tools or {})
+        # Recorded source tools this listing lacks: served only to replay their records.
+        self._replay_only_tool_names = frozenset(
+            tool_name
+            for tool_name in replay_only_tool_names
+            if tool_name not in self._custom_tools and tool_name not in self._source_tools
+        )
         if len(self._custom_tools) != len(custom_tools):
             raise ValueError("custom tool names must be unique")
         colliding_names = sorted(set(self._custom_tools) & CLAUDE_CODE_BUILT_IN_TOOL_NAMES)
@@ -134,8 +144,14 @@ class ToolCatalog:
             for name, custom_tool in self._custom_tools.items()
         }
 
-    def with_source_tools(self, source_tools: Mapping[str, ListedSourceTool]) -> ToolCatalog:
-        return ToolCatalog(self.custom_tools, self.custom_tool_server_name, source_tools)
+    def with_source_tools(
+        self,
+        source_tools: Mapping[str, ListedSourceTool],
+        replay_only_tool_names: Collection[str] = (),
+    ) -> ToolCatalog:
+        return ToolCatalog(
+            self.custom_tools, self.custom_tool_server_name, source_tools, replay_only_tool_names
+        )
 
     @property
     def custom_tools(self) -> list[SdkMcpTool[Any]]:
@@ -146,8 +162,12 @@ class ToolCatalog:
         return list(self._source_tools.values())
 
     @property
+    def replay_only_tool_names(self) -> list[str]:
+        return sorted(self._replay_only_tool_names)
+
+    @property
     def has_served_tools(self) -> bool:
-        return bool(self._custom_tools or self._source_tools)
+        return bool(self._custom_tools or self._source_tools or self._replay_only_tool_names)
 
     def custom_tool(self, custom_tool_name: str) -> SdkMcpTool[Any] | None:
         return self._custom_tools.get(custom_tool_name)
@@ -155,8 +175,15 @@ class ToolCatalog:
     def source_tool(self, tool_name: str) -> ListedSourceTool | None:
         return self._source_tools.get(tool_name)
 
+    def is_replay_only_tool(self, tool_name: str) -> bool:
+        return tool_name in self._replay_only_tool_names
+
     def is_served_tool_name(self, tool_name: str) -> bool:
-        return tool_name in self._custom_tools or tool_name in self._source_tools
+        return (
+            tool_name in self._custom_tools
+            or tool_name in self._source_tools
+            or tool_name in self._replay_only_tool_names
+        )
 
     def input_schema(self, custom_tool_name: str) -> dict[str, Any]:
         return self._input_schemas[custom_tool_name]
@@ -228,7 +255,10 @@ class ToolCallGate:
     def resolve_policy(self, cli_tool_name: str) -> ToolPolicy | None:
         """Return the policy of a custom or CLI tool, or ``None`` for a source tool."""
         served_tool_name = self._tool_catalog.served_tool_name_for(cli_tool_name)
-        if served_tool_name is not None and self._tool_catalog.source_tool(served_tool_name):
+        if served_tool_name is not None and (
+            self._tool_catalog.source_tool(served_tool_name)
+            or self._tool_catalog.is_replay_only_tool(served_tool_name)
+        ):
             return None
         custom_tool_name = self._tool_catalog.custom_tool_name_for(cli_tool_name)
         return self._turn.resolve_tool_policy(
@@ -259,6 +289,13 @@ class ToolCallGate:
         record = self._turn.recorded_tool_call(call_id)
         if record is not None:
             return self._replay_recorded_tool_call(record, served_tool_name)
+        if served_tool_name is not None and self._tool_catalog.is_replay_only_tool(
+            served_tool_name
+        ):
+            # A new call would run under a new Call ID; only the source's listing permits that.
+            return _pre_tool_use_decision(
+                "deny", UNLISTED_SOURCE_TOOL_MESSAGE.format(tool_name=policy_tool_name)
+            )
         source_tool = (
             None if served_tool_name is None else self._tool_catalog.source_tool(served_tool_name)
         )

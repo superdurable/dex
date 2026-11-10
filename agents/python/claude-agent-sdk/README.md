@@ -253,6 +253,10 @@ flow = claude_agent_session_flow(
   `failed` for a `read` call and `outcome_unknown` otherwise. A source whose
   listing fails or takes longer than `tool_source_listing_timeout` offers no
   tools in that attempt.
+- A source tool that the turn already called but the current listing lacks is
+  still served, replay-only, so the resumed CLI receives its recorded result.
+  A new call of that tool is denied in the turn ("its tool source does not
+  offer this tool now"), so it never starts a tool Step under a new Call ID.
 
 ## How a turn runs
 
@@ -540,7 +544,9 @@ changes only approval, an approval predicate on hook-rewritten input, a
 SIGKILL, `uncertain` writes recorded `outcome_unknown`, a rejected branch and
 bad arguments that never reach the provider, two writes of one reply in the
 model's order, an `allowed_tools` entry for a source tool, an unexposed
-operation, refused name collisions, and the operation's tool Step options.
+operation, refused name collisions, the operation's tool Step options, and a
+dynamic source whose listing empties or fails on resume: the recorded call
+still replays, and a new call of the vanished tool is denied.
 
 ## Notes for other languages
 

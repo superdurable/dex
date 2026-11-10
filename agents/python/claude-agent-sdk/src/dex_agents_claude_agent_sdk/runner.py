@@ -350,8 +350,14 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         session_store = TurnSegmentSessionStore(
             session_id, [*committed_transcript.entries, *earlier_turn_entries]
         )
+        # A source's listing may lack a tool the turn already called; its record must still replay.
         tool_catalog = self._tool_catalog.with_source_tools(
-            await self._tool_sources.list_source_tools()
+            await self._tool_sources.list_source_tools(),
+            replay_only_tool_names={
+                record.tool_name
+                for record in turn.tool_calls.values()
+                if self._tool_sources.is_source_call(record)
+            },
         )
         tool_call_gate = ToolCallGate(turn, tool_catalog)
         options = self._build_turn_options(

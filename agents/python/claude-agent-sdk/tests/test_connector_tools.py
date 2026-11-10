@@ -35,6 +35,7 @@ from dex_agents_claude_agent_sdk import ClaudeAgentRunner, claude_agent_session_
 from dex_agents_claude_agent_sdk.tool_sources import ToolSourceRouter
 from tests.claude_test_agent import (
     ALLOWED_TOOLS_ENVIRONMENT_VARIABLE,
+    HIDE_SOURCE_TOOLS_FILE_NAME,
     RAISED_PAYOUT_AMOUNT,
     RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE,
     build_connector_source,
@@ -337,6 +338,37 @@ async def test_two_writes_in_one_reply_run_one_at_a_time_in_the_model_order(
     payout_outputs = _tool_outputs(snapshot, "create_payout")
     assert "Writes run one at a time in your order" in payout_outputs[0]
     assert payout_outputs[1:] == ['{"amount":5,"payoutId":"createPayout-2"}']
+
+
+@pytest.mark.parametrize("listing", ["empty", "raise"])
+async def test_a_tool_its_source_stops_listing_still_replays_and_refuses_new_calls(
+    harness: ClaudeAgentHarness, listing: str
+) -> None:
+    await harness.stack.start_worker()
+    ledger = _ledger(harness)
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        _call("hiding_note", {"accountId": "a-1", "text": "first gate-after-accept:hide-now"})
+        + " && "
+        + _call("hiding_note", {"accountId": "a-1", "text": "second"}),
+    )
+    await harness.gate("hide-now").wait_until_reached()
+    # The resumed segment's listing lacks the tool whose record it must replay.
+    (harness.state_dir / HIDE_SOURCE_TOOLS_FILE_NAME).write_text(listing)
+    harness.gate("hide-now").release()
+
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    # The model calls the refused second write again by itself, under a new tool use ID.
+    assert snapshot.messages[-1].text == (
+        'hiding_note: {"noteId":"postNote-1"}; '
+        "hiding_note: PreToolUse:mcp__tools__hiding_note hook error: "
+        "hiding_note did not run: its tool source does not offer this tool now."
+    )
+    assert len(ledger.sends("postNote")) == 1
+    assert len(ledger.writes("postNote")) == 1
+    step_types = await harness.executed_step_types(session_id)
+    assert step_types.count("CallSingleAttemptTool") == 1
 
 
 async def test_an_allowed_tools_entry_for_a_source_tool_fails_the_turn(

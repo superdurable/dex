@@ -97,6 +97,9 @@ class ToolSourceRouter:
                 listed[definition.name] = ListedSourceTool(source, definition)
         return listed
 
+    def is_source_call(self, record: AgentToolCall) -> bool:
+        return _read_tool_source_envelope(record.tool_source_reference) is not None
+
     def route(self, record: AgentToolCall) -> tuple[ToolSource, str | None] | None:
         envelope = _read_tool_source_envelope(record.tool_source_reference)
         if envelope is None:
