@@ -234,6 +234,84 @@ theorem l_thread_begin_simulated (program : Program) (lConfig : L.Config)
     IsSimulatedByDex program dexConfig (.thread tid) lEvents lNext := by
   sorry
 
+/-- The named-sequence form of `l_thread_deliver_simulated`: the task of the
+emit Step runs `wp2_deliverActions` (its handler, if it has not run, then
+[WORKER-EFFECT]), and the result is related. -/
+theorem wp2_thread_deliver_exec (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    (tid : Tid) (thread : L.Thread) (isFound : lConfig.findThread? tid = some thread)
+    (effect : Val) (isEmitting : thread.phase = .emitting effect) :
+    ∃ task, task ∈ dexConfig.tasks ∧
+      (Dex.system ⟦program⟧).exec dexConfig (wp2_deliverActions task) =
+        some ([Dex.Obs.fx task.step task.method effect],
+          dexConfig.updateTask task.id (fun _ => wp2_deliveredTask program task)) ∧
+      Related program (lConfig.setPhase tid .emitted)
+        (dexConfig.updateTask task.id (fun _ => wp2_deliveredTask program task)) := by
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  obtain ⟨_, run, hasRun, isRunning⟩ := wp2_run_of_thread state thread isMember
+  have related := state.isRelated.running run hasRun isRunning
+  have idsNodup := (state.dexInvariant.runInvariant run hasRun).idsNodup
+  obtain ⟨record, isRecord, isActive, carries, isMatch⟩ :=
+    related.threadsHaveSteps thread isMember (by simp [isEmitting])
+  unfold PhaseMatchesStep at isMatch
+  simp only [isEmitting] at isMatch
+  obtain ⟨task, isTask, hasInvocation, isTaskStep, isMethod, sameInput, hasEffect, noResults⟩ :=
+    isMatch
+  refine ⟨task, isTask,
+    wp2_exec_deliver program dexConfig state.tasksDistinct task isTask
+      (state.dexInvariant.tasksComputed task isTask) effect hasEffect, ?_⟩
+  have sameTask : ∀ other, other ∈ dexConfig.tasks → other.id = task.id → other = task :=
+    fun other isOther sameId =>
+      eq_of_nodup_map (fun current => current.id) dexConfig.tasks state.tasksDistinct.1 isOther
+        isTask sameId
+  have frame : RunningRelated program (lConfig.setPhase tid .emitted)
+      (dexConfig.updateTask task.id (fun _ => wp2_deliveredTask program task)) run := by
+    refine wp2_runningRelated_setPhase related state.lInvariant idsNodup isFound isRecord
+      isActive carries .emitted (by rw [isEmitting]; rfl) (by simp [isEmitting]) (by simp)
+      (by simp) (by simp [isEmitting]) id (List.map_id _).symm
+      (fun _ => ⟨rfl, rfl, rfl, rfl, rfl⟩) (fun _ _ => rfl) rfl rfl rfl rfl rfl ?_ ?_ ?_
+    · intro other isOther otherStep
+      refine List.mem_map.mpr ⟨other, isOther, ?_⟩
+      have otherId : other.id ≠ task.id := by
+        intro sameId
+        rw [sameTask other isOther sameId] at otherStep
+        exact otherStep isTaskStep
+      simp [otherId]
+    · unfold PhaseMatchesStep
+      exact ⟨wp2_deliveredTask program task, List.mem_map.mpr ⟨task, isTask, by simp⟩,
+        hasInvocation, isTaskStep, isMethod, sameInput, rfl, noResults⟩
+    · intro other isOther
+      obtain ⟨original, isOriginal, isChanged⟩ := mem_updateTask _ _ _ _ isOther
+      have wasCurrent := related.tasksAreCurrent original isOriginal
+      by_cases sameId : original.id = task.id
+      · rw [sameTask original isOriginal sameId] at wasCurrent
+        simp only [sameId, ↓reduceIte] at isChanged
+        rw [isChanged]
+        exact wasCurrent
+      · simp only [sameId, ↓reduceIte] at isChanged
+        rw [isChanged]
+        exact wasCurrent
+  exact
+    { clock := state.isRelated.clock
+      stamp := state.isRelated.stamp
+      status := state.isRelated.status
+      notStarted := fun hasNoRun => by
+        have isAbsent : some run = none := hasRun.symm.trans hasNoRun
+        cases isAbsent
+      running := fun newRun hasNewRun _ => by
+        obtain rfl : run = newRun := Option.some.inj (hasRun.symm.trans hasNewRun)
+        exact frame
+      closed := fun newRun status hasNewRun isClosed => by
+        obtain rfl : run = newRun := Option.some.inj (hasRun.symm.trans hasNewRun)
+        rw [isRunning] at isClosed
+        cases isClosed }
+
+/-- The Worker steps of a delivery attempt no request. -/
+theorem wp2_deliverActions_requests (program : Program) (task : Dex.Task signature) :
+    (wp2_deliverActions task).filterMap (Dex.system ⟦program⟧).requestOf = [] := by
+  unfold wp2_deliverActions
+  split <;> rfl
+
 /-- `out(a)` is simulated by [WORKER-EFFECT] of the emit Step's task. -/
 theorem l_thread_deliver_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
@@ -242,6 +320,14 @@ theorem l_thread_deliver_simulated (program : Program) (lConfig : L.Config)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByDex program dexConfig (.thread tid) lEvents lNext := by
-  sorry
+  simp only [L.system, L.step, isFound, stepThread, isEmitting] at isStep
+  injection isStep with isPair
+  injection isPair with isEvents isNext
+  subst isEvents
+  subst isNext
+  obtain ⟨task, _, isExec, isRelated⟩ :=
+    wp2_thread_deliver_exec program lConfig dexConfig state tid thread isFound effect isEmitting
+  rw [(wp2_mem_of_findThread? isFound).2]
+  exact ⟨_, _, _, isExec, rfl, wp2_deliverActions_requests program task, isRelated⟩
 
 end DexExpressiveness

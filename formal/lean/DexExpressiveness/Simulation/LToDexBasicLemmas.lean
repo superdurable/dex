@@ -13,7 +13,7 @@ namespace DexExpressiveness
 
 open DexExpressiveness.L DexExpressiveness.Translation
 
-/-! ## Clocks -/
+/-! ## Clocks and status -/
 
 /-- A stamped L action may happen exactly when a Dex commit may. -/
 theorem wp2_canCommit_of_canStamp {program : Program} {lConfig : L.Config}
@@ -23,5 +23,556 @@ theorem wp2_canCommit_of_canStamp {program : Program} {lConfig : L.Config}
   unfold Dex.Config.canCommit
   rw [← isRelated.stamp, ← isRelated.clock]
   exact canStamp
+
+/-- A configuration with a thread is running, so the Flow runs. -/
+theorem wp2_run_of_thread {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} (state : IsSimulationState program lConfig dexConfig)
+    (thread : L.Thread) (isMember : thread ∈ lConfig.threads) :
+    lConfig.status = .running ∧ ∃ run, dexConfig.run = some run ∧ run.status = .running := by
+  have isStatus := state.isRelated.status
+  cases statusCase : lConfig.status with
+  | notStarted =>
+    have noThread := (state.lInvariant.notStartedIsInitial statusCase).1
+    rw [noThread] at isMember
+    cases isMember
+  | closed =>
+    have noThread := state.lInvariant.closedHasNoThread statusCase
+    rw [noThread] at isMember
+    cases isMember
+  | running =>
+    cases runCase : dexConfig.run with
+    | none => simp [statusCase, runCase] at isStatus
+    | some run =>
+      simp only [statusCase, runCase] at isStatus
+      exact ⟨rfl, run, rfl, isStatus⟩
+
+/-- Stamping an L configuration changes nothing that `RunningRelated` reads. -/
+theorem wp2_runningRelated_stamp {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run) :
+    RunningRelated program lConfig.stamp dexConfig run :=
+  { shared := related.shared
+    cvQueues := related.cvQueues
+    inputQueues := related.inputQueues
+    mutexTokens := related.mutexTokens
+    joinTokens := related.joinTokens
+    cancelRequestsAreFlags := related.cancelRequestsAreFlags
+    cancelFlagsAreRequests := related.cancelFlagsAreRequests
+    cvWakes := related.cvWakes
+    timers := related.timers
+    timerCounter := related.timerCounter
+    outputsEmpty := related.outputsEmpty
+    threadsHaveSteps := related.threadsHaveSteps
+    stepsHaveThreads := related.stepsHaveThreads
+    activeStepsHaveDistinctThreads := related.activeStepsHaveDistinctThreads
+    invocationsAreActive := related.invocationsAreActive
+    blockingOrder := related.blockingOrder
+    tasksAreCurrent := related.tasksAreCurrent }
+
+/-! ## Threads -/
+
+/-- What the thread lookup finds is a thread of the configuration. -/
+theorem wp2_mem_of_findThread? {config : L.Config} {tid : Tid} {thread : L.Thread}
+    (isFound : config.findThread? tid = some thread) :
+    thread ∈ config.threads ∧ thread.core.tid = tid :=
+  ⟨List.mem_of_find?_eq_some isFound, by simpa using List.find?_some isFound⟩
+
+/-- Two threads of an invariant configuration with the same ID are the same. -/
+theorem wp2_thread_eq_of_tid {program : Program} {config : L.Config}
+    (invariant : L.Invariant program config) {first second : L.Thread}
+    (isFirst : first ∈ config.threads) (isSecond : second ∈ config.threads)
+    (sameTid : first.core.tid = second.core.tid) : first = second :=
+  eq_of_nodup_map (fun thread => thread.core.tid) config.threads invariant.threadIdsNodup
+    isFirst isSecond sameTid
+
+/-- Setting the phase of one thread: the lookup of any thread. -/
+theorem wp2_findThread?_setPhase (config : L.Config) (tid other : Tid) (phase : Phase) :
+    (config.setPhase tid phase).findThread? other =
+      (config.findThread? other).map (fun current =>
+        if current.core.tid = tid then { current with phase := phase } else current) := by
+  simp only [L.Config.findThread?, L.Config.setPhase, L.Config.updateThread, List.find?_map]
+  congr 1
+  apply congrArg (fun predicate => config.threads.find? predicate)
+  funext candidate
+  by_cases isChanged : candidate.core.tid = tid <;> simp [isChanged]
+
+/-- The threads after setting the phase of a found thread: the other threads,
+and the found thread with its new phase. -/
+theorem wp2_mem_setPhase {program : Program} {config : L.Config}
+    (invariant : L.Invariant program config) {tid : Tid} {thread : L.Thread}
+    (isFound : config.findThread? tid = some thread) (phase : Phase) (candidate : L.Thread) :
+    candidate ∈ (config.setPhase tid phase).threads ↔
+      (candidate ∈ config.threads ∧ candidate.core.tid ≠ tid) ∨
+      candidate = { thread with phase := phase } := by
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  simp only [L.Config.setPhase, L.Config.updateThread, List.mem_map]
+  constructor
+  · rintro ⟨original, isOriginal, isCandidate⟩
+    by_cases isChanged : original.core.tid = tid
+    · have isThread : original = thread :=
+        wp2_thread_eq_of_tid invariant isOriginal isMember (isChanged.trans hasTid.symm)
+      subst isThread
+      simp only [isChanged, ↓reduceIte] at isCandidate
+      exact Or.inr isCandidate.symm
+    · simp only [isChanged, ↓reduceIte] at isCandidate
+      subst isCandidate
+      exact Or.inl ⟨isOriginal, isChanged⟩
+  · rintro (⟨isOld, isOther⟩ | isNew)
+    · exact ⟨candidate, isOld, by simp [isOther]⟩
+    · exact ⟨thread, isMember, by simp [hasTid, isNew]⟩
+
+/-! ## Which Step carries a thread -/
+
+/-- `main` before its first statement: the phases whose Step is the start Step. -/
+def wp2_isBootPhase : Phase → Bool
+  | .bootPending => true
+  | .bootRunning => true
+  | _ => false
+
+/-- A phase is a boot phase exactly when it is `bootPending` or `bootRunning`. -/
+theorem wp2_isBootPhase_eq_false (phase : Phase) :
+    wp2_isBootPhase phase = false ↔ phase ≠ .bootPending ∧ phase ≠ .bootRunning := by
+  cases phase <;> simp [wp2_isBootPhase]
+
+/-- `StepCarriesThread` by cases on "boots or not" and on the timer. -/
+theorem wp2_stepCarriesThread_iff (program : Program) (thread : L.Thread)
+    (record : Dex.StepRecord signature) :
+    StepCarriesThread program thread record ↔
+      if wp2_isBootPhase thread.phase then
+        record.id.stepType = StepType.start ∧
+        ∃ input, record.input = some (DexVal.value input) ∧
+          thread.core.locals = [(program.mainParam, input)]
+      else
+        match thread.timer with
+        | some (number, seconds) =>
+          record.id = { stepType := StepType.timed, number := number } ∧
+          record.input = some (DexVal.timedThread thread.core thread.code seconds)
+        | none =>
+          record.id.stepType = StepType.point thread.code ∧
+          record.input = some (DexVal.thread thread.core) ∧
+          record.options.executeLoadMaps = executeLoadMaps thread.core thread.code := by
+  obtain ⟨core, code, timer, phase⟩ := thread
+  cases phase <;> rcases timer with _ | ⟨number, seconds⟩ <;>
+    simp [StepCarriesThread, wp2_isBootPhase]
+
+/-- `StepCarriesThread` reads only the ID, the input, and the options of the Step. -/
+theorem wp2_stepCarriesThread_congr {program : Program} {thread : L.Thread}
+    {record changed : Dex.StepRecord signature} (sameId : changed.id = record.id)
+    (sameInput : changed.input = record.input) (sameOptions : changed.options = record.options)
+    (carries : StepCarriesThread program thread record) :
+    StepCarriesThread program thread changed := by
+  rw [wp2_stepCarriesThread_iff] at carries ⊢
+  rw [sameId, sameInput, sameOptions]
+  exact carries
+
+/-- A phase change that does not cross the end of the boot keeps the Step. -/
+theorem wp2_stepCarriesThread_setPhase {program : Program} {thread : L.Thread}
+    {record : Dex.StepRecord signature} (phase : Phase)
+    (sameBoot : wp2_isBootPhase phase = wp2_isBootPhase thread.phase)
+    (carries : StepCarriesThread program thread record) :
+    StepCarriesThread program { thread with phase := phase } record := by
+  rw [wp2_stepCarriesThread_iff] at carries ⊢
+  simp only [sameBoot]
+  exact carries
+
+/-- The Step that carries a thread has the thread's ID in its input. `main`
+boots with the empty ID. -/
+theorem wp2_threadOfInput_of_carries {program : Program} {thread : L.Thread}
+    {record : Dex.StepRecord signature} (carries : StepCarriesThread program thread record)
+    (bootIsMain : wp2_isBootPhase thread.phase = true → thread.core.tid = []) :
+    threadOfInput record.input = thread.core.tid := by
+  rw [wp2_stepCarriesThread_iff] at carries
+  cases bootCase : wp2_isBootPhase thread.phase with
+  | true =>
+    simp only [bootCase, ↓reduceIte] at carries
+    obtain ⟨_, input, hasInput, _⟩ := carries
+    rw [hasInput, bootIsMain bootCase]
+    rfl
+  | false =>
+    simp only [bootCase] at carries
+    cases timerCase : thread.timer with
+    | none =>
+      simp only [timerCase] at carries
+      rw [carries.2.1]
+      rfl
+    | some timer =>
+      obtain ⟨number, seconds⟩ := timer
+      simp only [timerCase] at carries
+      rw [carries.2]
+      rfl
+
+/-- In an invariant configuration the Step that carries a thread has the
+thread's ID in its input. -/
+theorem wp2_threadOfInput_of_mem {program : Program} {config : L.Config}
+    (invariant : L.Invariant program config) {thread : L.Thread}
+    {record : Dex.StepRecord signature} (isMember : thread ∈ config.threads)
+    (carries : StepCarriesThread program thread record) :
+    threadOfInput record.input = thread.core.tid := by
+  apply wp2_threadOfInput_of_carries carries
+  intro isBoot
+  have isBootPhase : thread.phase = .bootPending ∨ thread.phase = .bootRunning := by
+    cases phaseCase : thread.phase <;> simp [phaseCase, wp2_isBootPhase] at isBoot ⊢
+  obtain ⟨_, _, _, input, isCore⟩ := invariant.bootIsInitial thread isMember isBootPhase
+  rw [isCore]
+
+/-! ## Tasks -/
+
+/-- A running task that the next configuration keeps still runs the Step. -/
+theorem wp2_hasRunningTask_transfer {config next : Dex.Config signature}
+    {record : Dex.StepRecord signature} {method : Dex.Method}
+    {Holds : Dex.Task signature → Prop}
+    (keepsTasks : ∀ task, task ∈ config.tasks → task.step = record.id → task ∈ next.tasks)
+    (hasTask : HasRunningTask config record method Holds) :
+    HasRunningTask next record method Holds := by
+  obtain ⟨task, isMember, rest⟩ := hasTask
+  exact ⟨task, keepsTasks task isMember rest.2.1, rest⟩
+
+/-- `PhaseMatchesStep` reads the L configuration only through the waiter
+lists, and the Dex configuration only through the tasks of the Step. -/
+theorem wp2_phaseMatchesStep_transfer {program : Program} {lConfig lNext : L.Config}
+    {config next : Dex.Config signature} {thread : L.Thread}
+    {record : Dex.StepRecord signature} (sameQueues : lNext.cvQueues = lConfig.cvQueues)
+    (keepsTasks : ∀ task, task ∈ config.tasks → task.step = record.id → task ∈ next.tasks)
+    (isMatch : PhaseMatchesStep program lConfig config thread record) :
+    PhaseMatchesStep program lNext next thread record := by
+  obtain ⟨core, code, timer, phase⟩ := thread
+  cases phase <;> simp only [PhaseMatchesStep] at isMatch ⊢
+  all_goals first
+    | exact isMatch
+    | (rw [sameQueues]; exact wp2_hasRunningTask_transfer keepsTasks isMatch)
+    | exact wp2_hasRunningTask_transfer keepsTasks isMatch
+
+/-! ## The frame of a phase change
+
+One thread changes its phase, without blocking, unblocking, halting, or
+leaving the boot. On the Dex side the Step table changes only in the
+invocation and the condition results of the Step that carries the thread,
+and the tasks of every other Step stay. Then `RunningRelated` holds again,
+given the new match of the changed thread with its Step. -/
+
+/-- The frame lemma of a phase change. `image` is the change of the Step
+table; it is the identity outside the Step that carries the thread. -/
+theorem wp2_runningRelated_setPhase {program : Program} {lConfig : L.Config}
+    {dexConfig dexNext : Dex.Config signature} {run newRun : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (lInvariant : L.Invariant program lConfig)
+    (idsNodup : (run.steps.map (fun candidate => candidate.id)).Nodup)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    {record : Dex.StepRecord signature} (isRecord : record ∈ run.steps)
+    (isActive : record.phase.isActive = true)
+    (carries : StepCarriesThread program thread record)
+    (newPhase : Phase)
+    (sameBoot : wp2_isBootPhase newPhase = wp2_isBootPhase thread.phase)
+    (wasNotBlocked : ∀ on since, thread.phase ≠ .blocked on since)
+    (isNotBlocked : ∀ on since, newPhase ≠ .blocked on since)
+    (isNotHalted : newPhase ≠ .halted)
+    (keepsCanceled : thread.phase = .woken .canceled ∨ thread.phase = .resuming .canceled →
+      newPhase = .woken .canceled ∨ newPhase = .resuming .canceled)
+    (image : Dex.StepRecord signature → Dex.StepRecord signature)
+    (sameSteps : newRun.steps = run.steps.map image)
+    (imageKeeps : ∀ candidate, (image candidate).id = candidate.id ∧
+      (image candidate).input = candidate.input ∧ (image candidate).options = candidate.options ∧
+      (image candidate).phase = candidate.phase ∧
+      (image candidate).waitState = candidate.waitState)
+    (imageOther : ∀ candidate, candidate.id ≠ record.id → image candidate = candidate)
+    (sameAttributes : newRun.attributes = run.attributes)
+    (sameChannels : newRun.channels = run.channels)
+    (sameTimers : newRun.timers = run.timers)
+    (sameCounters : newRun.counters = run.counters)
+    (sameOutputs : newRun.outputs = run.outputs)
+    (keepsTasks : ∀ task, task ∈ dexConfig.tasks → task.step ≠ record.id → task ∈ dexNext.tasks)
+    (newMatch : PhaseMatchesStep program lConfig dexNext { thread with phase := newPhase }
+      (image record))
+    (tasksAreCurrent : ∀ task, task ∈ dexNext.tasks → dexNext.isTaskCurrent task = true) :
+    RunningRelated program (lConfig.setPhase tid newPhase) dexNext newRun := by
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  have memNew := wp2_mem_setPhase lInvariant isFound newPhase
+  have samePending : ∀ chan, newRun.pendingMessages chan = run.pendingMessages chan := by
+    intro chan
+    simp [Dex.Run.pendingMessages, sameChannels]
+  -- A Step of another thread is not the Step of the changed thread.
+  have otherStep : ∀ other otherRecord, other ∈ lConfig.threads → other.core.tid ≠ tid →
+      otherRecord ∈ run.steps → StepCarriesThread program other otherRecord →
+      otherRecord.id ≠ record.id := by
+    intro other otherRecord isOther otherTid isOtherRecord otherCarries sameId
+    have sameRecord : otherRecord = record :=
+      eq_of_nodup_map (fun candidate => candidate.id) run.steps idsNodup isOtherRecord
+        isRecord sameId
+    subst sameRecord
+    have otherInput := wp2_threadOfInput_of_mem lInvariant isOther otherCarries
+    have threadInput := wp2_threadOfInput_of_mem lInvariant isMember carries
+    exact otherTid ((otherInput.symm.trans threadInput).trans hasTid)
+  have imageMem : ∀ candidate, candidate ∈ run.steps → image candidate ∈ newRun.steps := by
+    intro candidate isCandidate
+    rw [sameSteps]
+    exact List.mem_map.mpr ⟨candidate, isCandidate, rfl⟩
+  have carriesImage : ∀ (other : L.Thread) (candidate : Dex.StepRecord signature),
+      StepCarriesThread program other candidate ↔
+        StepCarriesThread program other (image candidate) := by
+    intro other candidate
+    obtain ⟨sameId, sameInput, sameOptions, _, _⟩ := imageKeeps candidate
+    exact ⟨wp2_stepCarriesThread_congr sameId sameInput sameOptions,
+      wp2_stepCarriesThread_congr sameId.symm sameInput.symm sameOptions.symm⟩
+  exact
+    { shared := fun name => by
+        rw [sameAttributes]
+        exact related.shared name
+      cvQueues := fun cv => by
+        rw [sameAttributes]
+        exact related.cvQueues cv
+      inputQueues := fun chan => by
+        rw [samePending]
+        exact related.inputQueues chan
+      mutexTokens := fun areBooted mutex => by
+        rw [samePending]
+        apply related.mutexTokens
+        intro other isOther
+        by_cases isChanged : other.core.tid = tid
+        · have isThread : other = thread :=
+            wp2_thread_eq_of_tid lInvariant isOther isMember (isChanged.trans hasTid.symm)
+          subst isThread
+          have isBooted := areBooted _ ((memNew _).mpr (Or.inr rfl))
+          rw [← wp2_isBootPhase_eq_false] at isBooted ⊢
+          rw [← sameBoot]
+          exact isBooted
+        · exact areBooted other ((memNew other).mpr (Or.inl ⟨isOther, isChanged⟩))
+      joinTokens := fun joined => by
+        rw [samePending]
+        exact related.joinTokens joined
+      cancelRequestsAreFlags := fun target isPending => by
+        rw [samePending] at isPending
+        exact related.cancelRequestsAreFlags target isPending
+      cancelFlagsAreRequests := fun target isFlagged => by
+        rw [samePending, wp2_findThread?_setPhase]
+        rcases related.cancelFlagsAreRequests target isFlagged with
+          isPending | isGone | ⟨current, isCurrent, isCanceled⟩
+        · exact Or.inl isPending
+        · exact Or.inr (Or.inl (by rw [isGone]; rfl))
+        · refine Or.inr (Or.inr ⟨_, by rw [isCurrent]; rfl, ?_⟩)
+          by_cases isChanged : current.core.tid = tid
+          · have isThread : current = thread :=
+              wp2_thread_eq_of_tid lInvariant (wp2_mem_of_findThread? isCurrent).1 isMember
+                (isChanged.trans hasTid.symm)
+            subst isThread
+            simp only [isChanged, ↓reduceIte]
+            exact keepsCanceled isCanceled
+          · simp only [isChanged, ↓reduceIte]
+            exact isCanceled
+      cvWakes := fun cv waiter => by
+        rw [samePending]
+        exact related.cvWakes cv waiter
+      timers := fun timer fireTime => by
+        rw [sameTimers, related.timers]
+        constructor
+        · rintro ⟨owner, chan, since, isOwner, isBlocked, rest⟩
+          refine ⟨owner, chan, since, (memNew owner).mpr (Or.inl ⟨isOwner, ?_⟩), isBlocked, rest⟩
+          intro isChanged
+          have isThread : owner = thread :=
+            wp2_thread_eq_of_tid lInvariant isOwner isMember (isChanged.trans hasTid.symm)
+          subst isThread
+          exact wasNotBlocked _ _ isBlocked
+        · rintro ⟨owner, chan, since, isOwner, isBlocked, rest⟩
+          rcases (memNew owner).mp isOwner with ⟨isOld, _⟩ | isNew
+          · exact ⟨owner, chan, since, isOld, isBlocked, rest⟩
+          · subst isNew
+            exact (isNotBlocked _ _ isBlocked).elim
+      timerCounter := by
+        rw [sameCounters]
+        exact related.timerCounter
+      outputsEmpty := sameOutputs.trans related.outputsEmpty
+      threadsHaveSteps := fun other isOther isNotHaltedOther => by
+        rcases (memNew other).mp isOther with ⟨isOld, otherTid⟩ | isNew
+        · obtain ⟨otherRecord, isOtherRecord, otherActive, otherCarries, otherMatch⟩ :=
+            related.threadsHaveSteps other isOld isNotHaltedOther
+          have isOtherId := otherStep other otherRecord isOld otherTid isOtherRecord otherCarries
+          refine ⟨otherRecord, ?_, otherActive, otherCarries, ?_⟩
+          · have isImage := imageMem otherRecord isOtherRecord
+            rw [imageOther otherRecord isOtherId] at isImage
+            exact isImage
+          · exact wp2_phaseMatchesStep_transfer rfl
+              (fun task isTask isTaskStep =>
+                keepsTasks task isTask (by rw [isTaskStep]; exact isOtherId))
+              otherMatch
+        · subst isNew
+          refine ⟨image record, imageMem record isRecord, ?_, ?_, ?_⟩
+          · rw [(imageKeeps record).2.2.2.1]
+            exact isActive
+          · exact (carriesImage _ record).mp (wp2_stepCarriesThread_setPhase newPhase sameBoot carries)
+          · exact wp2_phaseMatchesStep_transfer rfl (fun _ isTask _ => isTask) newMatch
+      stepsHaveThreads := fun changed isChanged changedActive => by
+        rw [sameSteps] at isChanged
+        obtain ⟨candidate, isCandidate, isImage⟩ := List.mem_map.mp isChanged
+        subst isImage
+        rw [(imageKeeps candidate).2.2.2.1] at changedActive
+        obtain ⟨owner, isOwner, ownerNotHalted, ownerCarries⟩ :=
+          related.stepsHaveThreads candidate isCandidate changedActive
+        by_cases isChangedThread : owner.core.tid = tid
+        · have isThread : owner = thread :=
+            wp2_thread_eq_of_tid lInvariant isOwner isMember (isChangedThread.trans hasTid.symm)
+          subst isThread
+          exact ⟨_, (memNew _).mpr (Or.inr rfl), isNotHalted,
+            (carriesImage _ candidate).mp
+              (wp2_stepCarriesThread_setPhase newPhase sameBoot ownerCarries)⟩
+        · exact ⟨owner, (memNew owner).mpr (Or.inl ⟨isOwner, isChangedThread⟩), ownerNotHalted,
+            (carriesImage owner candidate).mp ownerCarries⟩
+      activeStepsHaveDistinctThreads := fun first isFirst second isSecond firstActive
+          secondActive sameThread => by
+        rw [sameSteps] at isFirst isSecond
+        obtain ⟨firstOld, isFirstOld, isFirstImage⟩ := List.mem_map.mp isFirst
+        obtain ⟨secondOld, isSecondOld, isSecondImage⟩ := List.mem_map.mp isSecond
+        subst isFirstImage
+        subst isSecondImage
+        rw [(imageKeeps firstOld).2.2.2.1] at firstActive
+        rw [(imageKeeps secondOld).2.2.2.1] at secondActive
+        rw [(imageKeeps firstOld).2.1, (imageKeeps secondOld).2.1] at sameThread
+        rw [related.activeStepsHaveDistinctThreads firstOld isFirstOld secondOld isSecondOld
+          firstActive secondActive sameThread]
+      invocationsAreActive := fun changed isChanged hasInvocation => by
+        rw [sameSteps] at isChanged
+        obtain ⟨candidate, isCandidate, isImage⟩ := List.mem_map.mp isChanged
+        subst isImage
+        rw [(imageKeeps candidate).2.2.2.1]
+        by_cases isChangedStep : candidate.id = record.id
+        · have sameRecord : candidate = record :=
+            eq_of_nodup_map (fun step => step.id) run.steps idsNodup isCandidate isRecord
+              isChangedStep
+          rw [sameRecord]
+          exact isActive
+        · rw [imageOther candidate isChangedStep] at hasInvocation
+          exact related.invocationsAreActive candidate isCandidate hasInvocation
+      blockingOrder := fun first second firstRecord secondRecord firstOn firstSince secondOn
+          secondSince firstWait secondWait isFirst isSecond isFirstRecord isSecondRecord
+          firstActive secondActive firstCarries secondCarries firstBlocked secondBlocked
+          firstHasWait secondHasWait => by
+        rw [sameSteps] at isFirstRecord isSecondRecord
+        obtain ⟨firstOld, isFirstOld, isFirstImage⟩ := List.mem_map.mp isFirstRecord
+        obtain ⟨secondOld, isSecondOld, isSecondImage⟩ := List.mem_map.mp isSecondRecord
+        subst isFirstImage
+        subst isSecondImage
+        rw [(imageKeeps firstOld).2.2.2.1] at firstActive
+        rw [(imageKeeps secondOld).2.2.2.1] at secondActive
+        rw [(imageKeeps firstOld).2.2.2.2] at firstHasWait
+        rw [(imageKeeps secondOld).2.2.2.2] at secondHasWait
+        have isFirstThread : first ∈ lConfig.threads := by
+          rcases (memNew first).mp isFirst with ⟨isOld, _⟩ | isNew
+          · exact isOld
+          · subst isNew
+            exact (isNotBlocked _ _ firstBlocked).elim
+        have isSecondThread : second ∈ lConfig.threads := by
+          rcases (memNew second).mp isSecond with ⟨isOld, _⟩ | isNew
+          · exact isOld
+          · subst isNew
+            exact (isNotBlocked _ _ secondBlocked).elim
+        exact related.blockingOrder first second firstOld secondOld firstOn firstSince secondOn
+          secondSince firstWait secondWait isFirstThread isSecondThread isFirstOld isSecondOld
+          firstActive secondActive ((carriesImage first firstOld).mpr firstCarries)
+          ((carriesImage second secondOld).mpr secondCarries) firstBlocked secondBlocked
+          firstHasWait secondHasWait
+      tasksAreCurrent := tasksAreCurrent }
+
+/-! ## Task lookup -/
+
+/-- With unique task IDs, the lookup of a task's ID finds the task. -/
+theorem wp2_findTask?_of_mem {config : Dex.Config signature}
+    (tasksDistinct : TasksAreDistinct config) {task : Dex.Task signature}
+    (isMember : task ∈ config.tasks) : config.findTask? task.id = some task := by
+  cases foundCase : config.findTask? task.id with
+  | none =>
+    have isRejected := List.find?_eq_none.mp foundCase task isMember
+    simp at isRejected
+  | some found =>
+    rw [eq_of_isFound config task.id task found tasksDistinct isMember rfl foundCase]
+
+/-- The task lookup after a change that keeps task IDs. -/
+theorem wp2_findTask?_updateTask (config : Dex.Config signature) (taskId other : Nat)
+    (change : Dex.Task signature → Dex.Task signature)
+    (keepsId : ∀ task, (change task).id = task.id) :
+    (config.updateTask taskId change).findTask? other =
+      (config.findTask? other).map (fun task => if task.id = taskId then change task else task) := by
+  simp only [Dex.Config.findTask?, Dex.Config.updateTask, List.find?_map]
+  congr 1
+  apply congrArg (fun predicate => config.tasks.find? predicate)
+  funext candidate
+  by_cases isChanged : candidate.id = taskId <;> simp [isChanged, keepsId]
+
+/-- Two changes of the same task are one change. -/
+theorem wp2_updateTask_updateTask (config : Dex.Config signature) (taskId : Nat)
+    (first second : Dex.Task signature → Dex.Task signature)
+    (keepsId : ∀ task, (first task).id = task.id) :
+    (config.updateTask taskId first).updateTask taskId second =
+      config.updateTask taskId (fun task => second (first task)) := by
+  simp only [Dex.Config.updateTask, List.map_map]
+  congr 1
+  apply List.map_congr_left
+  intro task _
+  by_cases isChanged : task.id = taskId <;> simp [isChanged, keepsId]
+
+/-! ## [WORKER-EFFECT] of the one effect a task holds -/
+
+/-- The Worker steps that deliver the effect of a task: run the handler if
+it has not run, then emit the effect. -/
+def wp2_deliverActions (task : Dex.Task signature) : List (Dex.Action signature) :=
+  match task.phase with
+  | .started => [.workerRun task.id, .workerEffect task.id]
+  | _ => [.workerEffect task.id]
+
+/-- The task after its one effect was emitted. -/
+def wp2_deliveredTask (program : Program) (task : Dex.Task signature) : Dex.Task signature :=
+  { task with phase := .running [] (task.compute ⟦program⟧).2 }
+
+/-- A task that holds exactly one effect emits it by `wp2_deliverActions`. -/
+theorem wp2_exec_deliver (program : Program) (config : Dex.Config signature)
+    (tasksDistinct : TasksAreDistinct config) (task : Dex.Task signature)
+    (isMember : task ∈ config.tasks) (isComputed : IsTaskComputed program task) (effect : Val)
+    (hasEffect : pendingEffects ⟦program⟧ task = [effect]) :
+    (Dex.system ⟦program⟧).exec config (wp2_deliverActions task) =
+      some ([Dex.Obs.fx task.step task.method effect],
+        config.updateTask task.id (fun _ => wp2_deliveredTask program task)) := by
+  have isFound := wp2_findTask?_of_mem tasksDistinct isMember
+  have sameUpdate : ∀ change : Dex.Task signature → Dex.Task signature, change task = wp2_deliveredTask program task →
+      config.updateTask task.id change =
+        config.updateTask task.id (fun _ => wp2_deliveredTask program task) := by
+    intro change isDelivered
+    simp only [Dex.Config.updateTask]
+    congr 1
+    apply List.map_congr_left
+    intro candidate isCandidate
+    by_cases isChanged : candidate.id = task.id
+    · have isTask : candidate = task :=
+        eq_of_nodup_map (fun current => current.id) config.tasks tasksDistinct.1 isCandidate
+          isMember isChanged
+      simp [isTask, isDelivered]
+    · simp [isChanged]
+  unfold pendingEffects at hasEffect
+  unfold IsTaskComputed at isComputed
+  cases phaseCase : task.phase with
+  | started =>
+    simp only [phaseCase] at hasEffect
+    let ranTask : Dex.Task signature → Dex.Task signature := fun current =>
+      { current with phase := .running (task.compute ⟦program⟧).1 (task.compute ⟦program⟧).2 }
+    let emittedTask : Dex.Task signature → Dex.Task signature := fun current =>
+      { current with phase := .running [] (task.compute ⟦program⟧).2 }
+    have isFoundNext : (config.updateTask task.id ranTask).findTask? task.id =
+        some { task with phase := .running [effect] (task.compute ⟦program⟧).2 } := by
+      rw [wp2_findTask?_updateTask config task.id task.id ranTask (fun _ => rfl), isFound]
+      simp [ranTask, hasEffect]
+    have isDelivered : (config.updateTask task.id ranTask).updateTask task.id emittedTask =
+        config.updateTask task.id (fun _ => wp2_deliveredTask program task) := by
+      rw [wp2_updateTask_updateTask config task.id ranTask emittedTask (fun _ => rfl)]
+      exact sameUpdate _ rfl
+    simp only [ranTask] at isFoundNext
+    simp only [wp2_deliverActions, phaseCase, TransitionSystem.exec, Dex.system, Dex.step,
+      isFound, isFoundNext, List.nil_append, List.append_nil]
+    exact congrArg (fun next => some ([Dex.Obs.fx task.step task.method effect], next))
+      isDelivered
+  | running remaining response =>
+    simp only [phaseCase] at hasEffect isComputed
+    subst hasEffect
+    simp only [wp2_deliverActions, phaseCase, TransitionSystem.exec, Dex.system, Dex.step,
+      isFound]
+    rw [sameUpdate _ (by simp [wp2_deliveredTask, isComputed])]
+    rfl
+  | returned response =>
+    simp [phaseCase] at hasEffect
 
 end DexExpressiveness
