@@ -330,6 +330,7 @@ func RegisterDynamicV2Handlers(
 	mux.HandleFunc("GET /api/v2/display", handler.display)
 	mux.HandleFunc("PATCH /api/v2/display", handler.editDisplay)
 	mux.HandleFunc("POST /api/v2/actions", handler.invokeAction)
+	registerAgentSessionHandlers(mux, handler)
 }
 
 func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request) {

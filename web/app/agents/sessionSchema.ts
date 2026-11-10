@@ -21,6 +21,7 @@ export const SESSION_ATTRIBUTE = {
   toolCalls: 'AgentToolCalls',
   pendingInterrupts: 'PendingInterrupts',
   usage: 'AgentUsage',
+  sessionSettings: 'SessionSettings',
 } as const;
 
 /** A Flow shows the Session tab only when its graph declares all of these. */
@@ -264,6 +265,11 @@ export function decodePendingInterrupts(value: unknown): AgentInterruptRecord[] 
     });
   }
   return interrupts;
+}
+
+/** Decodes the SessionSettings Attribute: one JSON object. */
+export function decodeSessionSettings(value: unknown): Record<string, unknown> | null {
+  return isData(value) ? value : null;
 }
 
 export function decodeAgentUsage(value: unknown): AgentUsageRecord | null {

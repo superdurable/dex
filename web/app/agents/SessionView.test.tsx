@@ -45,6 +45,7 @@ function sessionOf(view: Partial<SessionReadView>): LoadedAgentSession {
     view: {
       state: { status: 'waiting_for_user_message', turnCount: 1, activeTurnId: null, lastTurnError: null, acceptsTurnControl: true },
       usage: { modelCalls: 4, inputTokens: 18780, outputTokens: 1331, cachedInputTokens: 17065, reasoningTokens: 0 },
+      sessionSettings: null,
       messageIndex: null,
       pendingInterrupts: [],
       items: [],
