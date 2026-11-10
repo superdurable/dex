@@ -20,8 +20,10 @@ const effectsBySafety: readonly ToolEffect[] = ["read", "idempotent_write", "non
  * The tool's effect is a floor: an explicit `ToolPolicy` for the tool may raise it but never lowers it, so
  * the call gets the more conservative effect, ranked `read`, `idempotent_write`, `non_idempotent_write`, then
  * `unclassified`, as `McpToolSource` does for declared effects. Approval is a floor too: the call waits when the
- * tool asks for approval, when the explicit policy sets `requiresApproval: true`, or when the turn's
- * `approval.always` lists the tool. An explicit `requiresApproval: false` cannot turn a tool's approval off.
+ * tool asks for approval, when the explicit policy sets `requiresApproval: true`, when the policy leaves
+ * `requiresApproval` out and the combined effect needs approval by default (`non_idempotent_write` or
+ * `unclassified`), or when the turn's `approval.always` lists the tool. An explicit `requiresApproval: false`
+ * cannot turn a tool's own approval off.
  *
  * A harness that replaces local tool groups uses it for its own tools, with the local tool's effect and
  * approval, so its policy matches the runtime's local tools.
@@ -54,7 +56,10 @@ export function resolveTurnToolPolicy(
   }
   const combinedEffect =
     effectsBySafety.indexOf(explicit.effect) > effectsBySafety.indexOf(effect) ? explicit.effect : effect;
-  const isApprovalRequired = requiresApproval || explicit.requiresApproval === true;
+  const isApprovalRequiredByEffect =
+    (explicit.requiresApproval === undefined || explicit.requiresApproval === null) &&
+    (combinedEffect === "non_idempotent_write" || combinedEffect === "unclassified");
+  const isApprovalRequired = requiresApproval || explicit.requiresApproval === true || isApprovalRequiredByEffect;
   return {
     effect: combinedEffect,
     requiresApproval: isApprovalRequired || turnConfig.approval.always.includes(toolName),

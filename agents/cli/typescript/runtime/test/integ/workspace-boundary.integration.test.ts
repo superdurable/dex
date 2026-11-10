@@ -155,7 +155,7 @@ describe("local tool policies", () => {
   test("an explicit policy can raise a local tool's effect and approval but never lower them", () => {
     assert.deepEqual(
       resolveTurnToolPolicy(turnWith({ run_shell_command: { effect: "read" } }), "run_shell_command", "non_idempotent_write", false, turnConfig),
-      { effect: "non_idempotent_write", requiresApproval: false },
+      { effect: "non_idempotent_write", requiresApproval: true },
     );
     assert.deepEqual(
       resolveTurnToolPolicy(
@@ -169,6 +169,26 @@ describe("local tool policies", () => {
     );
     assert.deepEqual(
       resolveTurnToolPolicy(turnWith({ fetch_web_page: { effect: "non_idempotent_write" } }), "fetch_web_page", "read", false, turnConfig),
+      { effect: "non_idempotent_write", requiresApproval: true },
+    );
+    assert.deepEqual(
+      resolveTurnToolPolicy(
+        turnWith({ fetch_web_page: { effect: "non_idempotent_write", requiresApproval: false } }),
+        "fetch_web_page",
+        "read",
+        false,
+        turnConfig,
+      ),
+      { effect: "non_idempotent_write", requiresApproval: false },
+    );
+    assert.deepEqual(
+      resolveTurnToolPolicy(
+        turnWith({ run_shell_command: { effect: "read", requiresApproval: false } }),
+        "run_shell_command",
+        "non_idempotent_write",
+        false,
+        turnConfig,
+      ),
       { effect: "non_idempotent_write", requiresApproval: false },
     );
     assert.deepEqual(

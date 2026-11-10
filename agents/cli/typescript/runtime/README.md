@@ -204,9 +204,11 @@ Each call is one Dex tool Step, recorded in the session.
   memory.
 - `approval.always` adds approval to any tool by name.
 - A local tool's effect and approval are floors. An explicit `ToolPolicy` for
-  it may raise the effect, ranked as in `McpToolSource.mergeToolPolicies`, and
-  `requiresApproval: true` adds approval; `requiresApproval: false` cannot
-  remove it.
+  it may raise the effect, ranked as in `McpToolSource.mergeToolPolicies`.
+  The call waits for approval when the tool asks for it, when the policy sets
+  `requiresApproval: true`, or when the policy leaves `requiresApproval` out
+  and the raised effect needs approval by default. `requiresApproval: false`
+  cannot remove the tool's own approval.
 
 ## Connectors
 
