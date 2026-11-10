@@ -6,7 +6,15 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Agent, Handoff, getClientToolSearchExecutor, tool, type FunctionTool, type Tool } from "@openai/agents";
+import {
+  Agent,
+  Handoff,
+  getClientToolSearchExecutor,
+  getHandoff,
+  tool,
+  type FunctionTool,
+  type Tool,
+} from "@openai/agents";
 import { SandboxAgent } from "@openai/agents/sandbox";
 import { getFunctionToolDisplayName } from "@openai/agents/utils";
 import {
@@ -14,6 +22,7 @@ import {
   isFinalToolCallStatus,
   resolveToolPolicy,
   type ResolvedToolPolicy,
+  type SourceToolDefinition,
   type ToolEffect,
   type ToolPolicy,
 } from "@superdurable/dex-agents";
@@ -23,6 +32,7 @@ import { runningModelStepScope } from "./openai-agents-tool-scopes.js";
 type AnyAgent = Agent<any, any>;
 type AnyFunctionTool = FunctionTool<any, any, any>;
 type FunctionToolCallDetails = Parameters<AnyFunctionTool["invoke"]>[2];
+type NonStrictToolParameters = Extract<AnyFunctionTool["parameters"], { additionalProperties: true }>;
 
 /** One function tool of the graph: the original tool, its first original owner, and the owning clones. */
 export interface GraphFunctionTool {
@@ -65,6 +75,8 @@ const approvalRequiredPolicy = tool({
  *
  * @param startingAgent - The application's starting agent.
  * @param configuration - Tool policies, the session default, and the MCP opt-in.
+ * @param sourceTools - Tool source tools that every agent of the graph offers after its own tools, gated
+ * like function tools. They are not in {@link WrappedAgentGraph.functionTools}. Defaults to none.
  * @returns The wrapped graph and its function tools by qualified name.
  * @throws {TypeError} When the graph has a sandbox agent, an agent used as a tool, a client tool
  * search with an execute function, MCP servers without the opt-in, a local non-function tool that would need a Dex Step, or two different function tools
@@ -73,6 +85,7 @@ const approvalRequiredPolicy = tool({
 export function wrapAgentGraph(
   startingAgent: AnyAgent,
   configuration: AgentGraphConfiguration,
+  sourceTools: readonly SourceToolDefinition[] = [],
 ): WrappedAgentGraph {
   if (!(startingAgent instanceof Agent)) {
     throw new TypeError("createOpenAIAgentsSessionFlow requires an Agent from @openai/agents");
@@ -80,6 +93,7 @@ export function wrapAgentGraph(
   const originalAgents = collectAgentGraph(startingAgent);
   const functionTools = new Map<string, GraphFunctionTool & { clonedOwnerAgents: Set<AnyAgent> }>();
   const clonedAgents = new Map<AnyAgent, AnyAgent>();
+  const gatedSourceTools = sourceTools.map(createGatedSourceTool);
   for (const originalAgent of originalAgents) {
     requireSupportedAgent(originalAgent, configuration);
     const gatedTools: Tool<any>[] = [];
@@ -109,6 +123,7 @@ export function wrapAgentGraph(
       ownedToolNames.push(toolName);
       gatedTools.push(gateFunctionTool(originalTool, toolName));
     }
+    gatedTools.push(...gatedSourceTools);
     const clonedAgent = originalAgent.clone({ tools: gatedTools, handoffs: [] });
     clonedAgents.set(originalAgent, clonedAgent);
     for (const toolName of ownedToolNames) {
@@ -126,6 +141,37 @@ export function wrapAgentGraph(
     }
   }
   return { startingAgent: requireClonedAgent(clonedAgents, startingAgent), functionTools };
+}
+
+/**
+ * Returns every tool name the model can call in the graph: qualified function tool names, other tool names, and
+ * handoff tool names. A tool source tool must not repeat one.
+ *
+ * @param startingAgent - The application's starting agent.
+ * @returns The names.
+ */
+export function listAgentGraphToolNames(startingAgent: AnyAgent): ReadonlySet<string> {
+  const toolNames = new Set<string>();
+  for (const agent of collectAgentGraph(startingAgent)) {
+    for (const agentTool of agent.tools) {
+      toolNames.add(agentTool.type === "function" ? readQualifiedToolName(agentTool) : agentTool.name);
+    }
+    for (const agentHandoff of agent.handoffs) {
+      toolNames.add(getHandoff(agentHandoff).toolName);
+    }
+  }
+  return toolNames;
+}
+
+/**
+ * Returns the name the model sees for a function tool created with `name`. The SDK replaces every character
+ * other than a letter or digit with `_`, so `fake-ledger_get_balance` becomes `fake_ledger_get_balance`.
+ *
+ * @param name - The name passed to `tool()`.
+ * @returns The SDK's function tool name.
+ */
+export function readFunctionToolName(name: string): string {
+  return createSourceFunctionTool({ name, description: "", inputSchema: {} }).name;
 }
 
 /**
@@ -221,6 +267,38 @@ export function resolveConfiguredToolPolicy(
   return resolveToolPolicy(toolName, configuration.toolPolicies, configuration.defaultToolEffect);
 }
 
+// A source tool's body never runs: the gate returns the recorded result of the source's tool Step.
+function createGatedSourceTool(definition: SourceToolDefinition): AnyFunctionTool {
+  return gateFunctionTool(createSourceFunctionTool(definition), definition.name);
+}
+
+/**
+ * Returns what the model reads for a new call of a replay-only source tool: one the turn already called but its
+ * source no longer lists. The runner rejects such a call with this text inside the turn, so it never runs.
+ *
+ * @param sourceToolName - The tool's name in its source.
+ * @returns The refusal text.
+ */
+export function describeReplayOnlyToolRefusal(sourceToolName: string): string {
+  return `The tool call was not run: its tool source does not offer ${sourceToolName} now.`;
+}
+
+
+function createSourceFunctionTool(definition: SourceToolDefinition): AnyFunctionTool {
+  return tool({
+    name: definition.name,
+    description: definition.description,
+    // A source's schema need not meet strict mode, such as a connector input with optional fields.
+    parameters: definition.inputSchema as unknown as NonStrictToolParameters,
+    strict: false,
+    errorFunction: null,
+    execute: () => {
+      throw new Error(`tool ${definition.name} of a tool source ran inside the model call`);
+    },
+  });
+}
+
+/** `toolName` is the name the call's record holds: the qualified function tool name, or the source's name. */
 function gateFunctionTool(originalTool: AnyFunctionTool, toolName: string): AnyFunctionTool {
   // Input guardrails run before the real call in executeDeferredToolCall, not on the recorded result.
   return cloneFunctionTool(originalTool, {
@@ -246,6 +324,9 @@ function describeRecordedToolCall(toolName: string, details: FunctionToolCallDet
   const record = modelStep.turn.recordedToolCall(toolCallId);
   if (record === undefined || !isFinalToolCallStatus(record.status)) {
     throw new Error(`tool ${toolName} call ${toolCallId} resumed without a final Dex record`);
+  }
+  if (record.toolName !== toolName) {
+    throw new Error(`tool ${toolName} call ${toolCallId} resumed with the record of tool ${record.toolName}`);
   }
   return describeToolCallOutcome(record);
 }

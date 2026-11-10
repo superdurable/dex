@@ -12,6 +12,7 @@ import {
   type AgentSessionFlow,
   type AgentSessionOptions,
   type ToolPolicy,
+  type ToolSource,
 } from "@superdurable/dex-agents";
 
 import { OpenAIAgentsRunner } from "./openai-agents-runner.js";
@@ -62,6 +63,52 @@ export interface OpenAIAgentsSessionOptions<TContext = undefined> extends AgentS
    * @since 0.3.0
    */
   readonly summaryModel?: string | Model;
+  /**
+   * Tool sources whose tools every agent of the graph offers, such as `ConnectorToolSource` from
+   * `@superdurable/dex-agents/connectors`. Defaults to none.
+   *
+   * Every `RunModel` lists each source and offers its tools after each agent's own tools, as non-strict function
+   * tools with the source's description and JSON Schema. A source whose listing throws or takes longer than
+   * {@link toolSourceListingTimeoutMs} offers no tools in that model call. A call of a source tool stops the run
+   * like any gated function tool and never runs inside the model call. The source builds it, so the source alone
+   * decides its effect, its approval, and whether it is a write that runs in the model's order after the
+   * response's earlier writes; a `toolPolicies` entry for a `ConnectorToolSource` tool changes only its approval.
+   * The call then runs once in its own tool Step through the source, with the Step options the source gives it,
+   * such as a connector operation's timeout and retry policy. Input guardrails and `createContext` do not apply
+   * to it.
+   *
+   * The runner polls no tool tasks and asks no tool questions: a source call that asks a question records
+   * `failed`, and one that starts a task records `failed` for a `read` call and `outcome_unknown` otherwise.
+   * Each source needs a unique `sourceName`, stored with every call it builds, so keep it stable across deploys.
+   * Definition fails when a name a source declares repeats a tool or handoff of the graph or another source's
+   * tool; a listing that repeats one fails its `RunModel` attempt.
+   *
+   * @example
+   * ```ts
+   * import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };
+   * import { CreateRefundInputSchema, newProjectConnection } from "@superdurable/connector-stripe";
+   * import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
+   *
+   * const stripe = newProjectConnection(project, "billing-stripe");
+   * const flow = createOpenAIAgentsSessionFlow(agent, "SupportAgent", {
+   *   toolSources: [
+   *     new ConnectorToolSource([
+   *       connectorTool(stripe.operations.createRefund(), stripe.reference, {
+   *         manifest,
+   *         inputValidator: CreateRefundInputSchema,
+   *       }),
+   *     ]),
+   *   ],
+   * });
+   * ```
+   * @since 0.4.0
+   */
+  readonly toolSources?: readonly ToolSource[];
+  /**
+   * How long one `RunModel` waits for each tool source's listing, in milliseconds. Defaults to 10 seconds.
+   * @since 0.4.0
+   */
+  readonly toolSourceListingTimeoutMs?: number;
 }
 
 /**
@@ -149,9 +196,11 @@ export interface OpenAIAgentsSessionOptions<TContext = undefined> extends AgentS
  * `SandboxAgent`, an agent used as a tool, a client tool search with an `execute` function, MCP
  * servers without `shouldRunMcpServerToolsInline`, or a local computer, shell, or apply-patch tool
  * without a `read` policy free of approval; when two
- * different function tools share a qualified name; or when `createAgentSessionFlow` rejects the Flow
- * type or an option.
- * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive.
+ * different function tools share a qualified name; when a tool source is invalid or declares a tool name that
+ * repeats a tool or handoff of the graph or another source's tool; or when `createAgentSessionFlow` rejects the
+ * Flow type or an option.
+ * @throws {RangeError} When `eventStreamCapacityBytes`, `interruptDeadlineMs`, or `toolSourceListingTimeoutMs`
+ * is not positive.
  */
 export function createOpenAIAgentsSessionFlow<TContext = undefined>(
   agent: Agent<TContext, any>,
@@ -166,6 +215,8 @@ export function createOpenAIAgentsSessionFlow<TContext = undefined>(
     maxTurns: options.maxTurns,
     createContext: options.createContext,
     summaryModel: options.summaryModel,
+    toolSources: options.toolSources ?? [],
+    toolSourceListingTimeoutMs: options.toolSourceListingTimeoutMs,
   });
   return createAgentSessionFlow(runner, flowType, {
     ...(options.toolPolicies === undefined ? {} : { toolPolicies: options.toolPolicies }),

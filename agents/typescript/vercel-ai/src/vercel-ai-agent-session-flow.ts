@@ -19,11 +19,13 @@ import {
 } from "ai";
 
 import {
+  ToolSourceRouter,
   createAgentSessionFlow,
   type AgentSessionFlow,
   type AgentSessionOptions,
   type ToolEffect,
   type ToolPolicy,
+  type ToolSource,
 } from "@superdurable/dex-agents";
 
 import {
@@ -34,6 +36,9 @@ import {
 
 /** Model step limit of one turn when {@link VercelAiAgentDefinition.stopWhen} is omitted. */
 export const defaultVercelAiTurnStepCount = 20;
+
+// The runner's envelope around a source's toolSourceReference: the building source's name.
+const vercelAiToolSourceNameKey = "vercel_ai_tool_source";
 
 /**
  * The AI SDK agent that a Dex agent session runs: model, instructions, tools, and Dex tool policies.
@@ -82,7 +87,7 @@ export const defaultVercelAiTurnStepCount = 20;
  *   },
  * } satisfies VercelAiAgentDefinition;
  * ```
- * @typeParam TOOLS - The tool set; its names type the keys of {@link toolPolicies}.
+ * @typeParam TOOLS - The tool set; its names type the known keys of {@link toolPolicies}.
  */
 export interface VercelAiAgentDefinition<TOOLS extends ToolSet = ToolSet> {
   /** Language model of every model call, such as `openai("gpt-5")` or a gateway model ID. */
@@ -104,9 +109,63 @@ export interface VercelAiAgentDefinition<TOOLS extends ToolSet = ToolSet> {
   readonly tools?: TOOLS;
   /**
    * Dex policy by tool name. A policy overrides framework metadata and {@link defaultToolEffect}.
-   * Defaults to none. Keys must name tools in {@link tools}.
+   * Defaults to none. Keys must name tools in {@link tools}. With {@link toolSources}, a key may also name a tool
+   * a source lists; whether such a policy applies is up to the source, and for a `ConnectorToolSource` tool it
+   * changes only whether the call waits for approval.
+   *
+   * Changed in 0.4.0: the type accepts any string key, so a source tool can have a policy. Without
+   * {@link toolSources}, a key that names no tool in {@link tools} still throws `TypeError` when the agent is
+   * defined.
    */
-  readonly toolPolicies?: { readonly [TOOL_NAME in keyof TOOLS & string]?: ToolPolicy };
+  readonly toolPolicies?: { readonly [TOOL_NAME in keyof TOOLS & string]?: ToolPolicy } & {
+    readonly [toolName: string]: ToolPolicy | undefined;
+  };
+  /**
+   * Tool sources whose tools the agent offers next to {@link tools}, such as `ConnectorToolSource` from
+   * `@superdurable/dex-agents/connectors`. Defaults to none.
+   *
+   * Every `RunModel` lists each source and offers its tools after the agent's tools, as AI SDK tools with the
+   * source's description and JSON Schema and without `execute`. A source whose listing throws or takes longer
+   * than {@link toolSourceListingTimeoutMs} offers no tools in that model call. A call of a source tool never runs
+   * inside the model call. The source builds it, so the source alone decides its effect, its approval, and
+   * whether it is a write that runs in the model's order after the response's earlier writes; AI SDK
+   * `needsApproval` and MCP annotations do not apply. It then runs once in its own tool Step through the source,
+   * with the Step options the source gives it, such as a connector operation's timeout and retry policy. The
+   * model reads the source's output text unchanged.
+   *
+   * Each source needs a unique `sourceName`, stored with every call it builds, so keep it stable across deploys.
+   * Definition fails when a name a source declares repeats an agent tool or another source's tool; a listing that
+   * repeats one fails its `RunModel` attempt.
+   *
+   * @example
+   * ```ts
+   * import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };
+   * import { CreateRefundInputSchema, newProjectConnection } from "@superdurable/connector-stripe";
+   * import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
+   *
+   * const stripe = newProjectConnection(project, "billing-stripe");
+   * const supportAgent = {
+   *   model: openai("gpt-5"),
+   *   instructions: "You help customers with their orders.",
+   *   toolSources: [
+   *     new ConnectorToolSource([
+   *       connectorTool(stripe.operations.createRefund(), stripe.reference, {
+   *         manifest,
+   *         inputValidator: CreateRefundInputSchema,
+   *       }),
+   *     ]),
+   *   ],
+   *   toolPolicies: { stripe_create_refund: { effect: "idempotent_write", requiresApproval: true } },
+   * } satisfies VercelAiAgentDefinition;
+   * ```
+   * @since 0.4.0
+   */
+  readonly toolSources?: readonly ToolSource[];
+  /**
+   * How long one `RunModel` waits for each tool source's listing, in milliseconds. Defaults to 10 seconds.
+   * @since 0.4.0
+   */
+  readonly toolSourceListingTimeoutMs?: number;
   /**
    * Effect of a tool without a policy or trusted MCP annotations. Defaults to `"unclassified"`, so such
    * a tool runs at most once, in its own Step, after approval.
@@ -184,8 +243,11 @@ export type VercelAiAgentSessionOptions = Omit<AgentSessionOptions, "toolPolicie
  * @param options - Event Stream capacity and approval deadline. Defaults to the core defaults.
  * @returns A new Flow to register in one Registry.
  * @throws {TypeError} When the model is missing, a tool has no `execute` function, a tool uses a
- * `needsApproval` function, a policy names an unknown tool, or the core rejects the Flow type or a policy.
- * @throws {RangeError} When `eventStreamCapacityBytes` or `interruptDeadlineMs` is not positive.
+ * `needsApproval` function, a policy names an unknown tool while the agent has no tool sources, a tool source is
+ * invalid or declares a tool name that repeats an agent tool or another source's tool, or the core rejects the Flow
+ * type or a policy.
+ * @throws {RangeError} When `eventStreamCapacityBytes`, `interruptDeadlineMs`, or `toolSourceListingTimeoutMs` is
+ * not positive.
  */
 export function createVercelAiAgentSessionFlow<TOOLS extends ToolSet>(
   agent: VercelAiAgentDefinition<TOOLS>,
@@ -211,6 +273,12 @@ function resolveVercelAiAgentDefinition<TOOLS extends ToolSet>(
     requireDexCompatibleTool(toolName, tool);
     tools[toolName] = tool;
   }
+  const toolSources = new ToolSourceRouter(agent.toolSources ?? [], {
+    sourceNameKey: vercelAiToolSourceNameKey,
+    localToolNames: new Set(Object.keys(tools)),
+    localToolDescription: "an AI SDK tool of the agent",
+    ...(agent.toolSourceListingTimeoutMs === undefined ? {} : { listingTimeoutMs: agent.toolSourceListingTimeoutMs }),
+  });
   const toolPolicies: Record<string, ToolPolicy> = {};
   for (const [toolName, policy] of Object.entries(agent.toolPolicies ?? {}) as [string, ToolPolicy | undefined][]) {
     if (policy === undefined) {
@@ -218,6 +286,11 @@ function resolveVercelAiAgentDefinition<TOOLS extends ToolSet>(
     }
     const tool = Object.hasOwn(tools, toolName) ? tools[toolName] : undefined;
     if (tool === undefined) {
+      // A source lists its tools at run time, so its policies cannot be checked here.
+      if (toolSources.hasToolSources) {
+        toolPolicies[toolName] = policy;
+        continue;
+      }
       throw new TypeError(`toolPolicies names ${toolName}, which is not one of the agent's tools`);
     }
     if (isProviderExecutedTool(tool)) {
@@ -232,6 +305,7 @@ function resolveVercelAiAgentDefinition<TOOLS extends ToolSet>(
     instructions: agent.instructions,
     tools,
     toolPolicies,
+    toolSources,
     shouldTrustMcpToolAnnotations: agent.shouldTrustMcpToolAnnotations ?? false,
     stopConditions: (Array.isArray(stopWhen) ? [...stopWhen] : [stopWhen]) as StopCondition<ToolSet>[],
     streamTextSettings: {

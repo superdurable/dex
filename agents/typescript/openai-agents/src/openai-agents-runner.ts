@@ -26,6 +26,7 @@ import {
 import { getToolCallDisplayName } from "@openai/agents/utils";
 import {
   ToolExecutionError,
+  ToolSourceRouter,
   buildContextSummaryNote,
   buildContextSummaryPrompt,
   contextSummaryInstructions,
@@ -37,6 +38,7 @@ import {
   selectTurnBoundaryCutoff,
   type AgentEventWriter,
   type AgentFrameworkRunner,
+  type AgentToolCall,
   type AgentTurnContext,
   type AgentMessage,
   type AgentTurnOutcome,
@@ -45,12 +47,19 @@ import {
   type DeferredToolCall,
   type DeferredToolExecution,
   type FrameworkMessage,
+  type ListedSourceTool,
   type ModelCallMetadata,
   type ResolvedToolPolicy,
+  type SourceToolDefinition,
+  type ToolCallStepOptions,
   type ToolExecutionResult,
+  type ToolSource,
 } from "@superdurable/dex-agents";
 
 import {
+  describeReplayOnlyToolRefusal,
+  listAgentGraphToolNames,
+  readFunctionToolName,
   wrapAgentGraph,
   type AgentGraphConfiguration,
   type GraphFunctionTool,
@@ -85,6 +94,18 @@ const placeholderResponseId = "FAKE_ID";
 const reasoningSummaryDeltaEventType = "response.reasoning_summary_text.delta";
 // The text tool() returns from its default errorFunction, which hides whether the tool ran.
 const defaultToolErrorOutput = "An error occurred while running the tool. Please try again.";
+// The runner's envelope around a source's toolSourceReference: the building source's name.
+const openAIAgentsToolSourceNameKey = "openai_agents_tool_source";
+
+/** The agent graph of one `RunModel`, with the source tools it offers by the name the model sees. */
+interface ModelStepAgentGraph {
+  readonly agentGraph: WrappedAgentGraph;
+  readonly sourceToolsByFunctionToolName: ReadonlyMap<string, ListedSourceTool>;
+  /** The source's name of each replay-only tool, by the name the model sees. */
+  readonly replayOnlySourceToolNames: ReadonlyMap<string, string>;
+  /** The record's tool name of every source tool, listed or replay-only, by the name the model sees. */
+  readonly recordToolNames: ReadonlyMap<string, string>;
+}
 
 /** Settings of {@link OpenAIAgentsRunner}, resolved by `createOpenAIAgentsSessionFlow`. */
 export interface OpenAIAgentsRunnerSettings<TContext> extends AgentGraphConfiguration {
@@ -92,25 +113,40 @@ export interface OpenAIAgentsRunnerSettings<TContext> extends AgentGraphConfigur
   readonly maxTurns: number | null | undefined;
   readonly createContext: ((flowId: string) => TContext | Promise<TContext>) | undefined;
   readonly summaryModel?: string | Model | undefined;
+  readonly toolSources: readonly ToolSource[];
+  readonly toolSourceListingTimeoutMs: number | undefined;
 }
 
 /**
  * Runs an OpenAI Agents SDK agent graph in Step mode: one model call per `RunModel` Step. It implements the
  * compaction methods: with `AgentSessionOptions.compaction` the session compacts at turn boundaries, and the
  * summary enters as the first input item of a turn's first model call. A resumed call continues from the
- * `RunState`, which holds its input, so it never compacts.
+ * `RunState`, which holds its input, so it never compacts. With tool sources, every `RunModel` lists them and
+ * wraps the agent graph again, so every agent offers the listed tools as gated function tools.
  */
 export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
   private readonly agentGraph: WrappedAgentGraph;
   private readonly sdkRunner: Runner;
+  private readonly toolSources: ToolSourceRouter;
+  private readonly graphToolNames: ReadonlySet<string>;
   private fixedInputTokens: number | undefined;
 
   public constructor(
-    startingAgent: Agent<TContext, any>,
+    private readonly startingAgent: Agent<TContext, any>,
     private readonly settings: OpenAIAgentsRunnerSettings<TContext>,
   ) {
     this.agentGraph = wrapAgentGraph(startingAgent, settings);
     this.sdkRunner = new Runner(settings.runConfig);
+    this.graphToolNames = listAgentGraphToolNames(this.agentGraph.startingAgent);
+    this.toolSources = new ToolSourceRouter(settings.toolSources, {
+      sourceNameKey: openAIAgentsToolSourceNameKey,
+      localToolNames: this.graphToolNames,
+      localToolDescription: "a tool or handoff of the agent graph",
+      ...(settings.toolSourceListingTimeoutMs === undefined
+        ? {}
+        : { listingTimeoutMs: settings.toolSourceListingTimeoutMs }),
+    });
+    this.mapSourceToolNamesToFunctionToolNames([...this.toolSources.declaredToolNames()]);
   }
 
   public buildUserMessage(text: string): FrameworkMessage {
@@ -119,14 +155,34 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
 
   public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
     const runContext = new RunContext<TContext | undefined>(await this.createContextValue(turn.flowId));
+    const modelStepGraph = await this.wrapModelStepAgentGraph(turn);
+    const agentGraph = modelStepGraph.agentGraph;
     const unreturnedResumedToolCallIds = new Set<string>();
     const runInput =
       turn.frameworkRunState === null
         ? readTurnInputItems(turn)
-        : await this.restoreRunState(turn, turn.frameworkRunState, runContext, unreturnedResumedToolCallIds);
-    const modelStepRun = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
-      this.streamModelCall(turn, runInput, runContext),
+        : await this.restoreRunState(
+            turn,
+            modelStepGraph,
+            turn.frameworkRunState,
+            runContext,
+            unreturnedResumedToolCallIds,
+          );
+    let modelStepRun = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
+      this.streamModelCall(turn, agentGraph, runInput, runContext),
     );
+    // A new call of a replay-only tool stops the run like any gated call; refuse it and continue the run.
+    while (this.refuseReplayOnlyToolCalls(turn, modelStepGraph, modelStepRun.result)) {
+      const refusedRunState = modelStepRun.result.state;
+      const resumedRun = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
+        this.streamModelCall(turn, agentGraph, refusedRunState, runContext),
+      );
+      modelStepRun = {
+        result: resumedRun.result,
+        modelCallAgents: [...modelStepRun.modelCallAgents, ...resumedRun.modelCallAgents.slice(1)],
+        responseIds: [...modelStepRun.responseIds, ...resumedRun.responseIds],
+      };
+    }
     const result = modelStepRun.result;
     const usage = toAgentUsage(result.state.usage);
     const modelCallMetadata = createModelCallMetadata(modelStepRun, this.settings.runConfig.model);
@@ -136,7 +192,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     }
     const toolCalls: DeferredToolCall[] = [];
     for (const interruption of interruptions) {
-      toolCalls.push(await this.toDeferredToolCall(turn, interruption, runContext));
+      toolCalls.push(await this.toDeferredToolCall(turn, modelStepGraph, interruption, runContext));
     }
     return {
       kind: "tool_calls_requested",
@@ -157,7 +213,8 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
    */
   public estimateInputTokens(turn: AgentTurnContext): number {
     this.fixedInputTokens ??= estimateGraphPromptTokens(this.agentGraph.startingAgent);
-    return estimateStoredInputTokens(turn, this.fixedInputTokens);
+    const sourceToolTokens = estimateSourceToolTokens(this.toolSources.readCachedSourceTools());
+    return estimateStoredInputTokens(turn, this.fixedInputTokens + sourceToolTokens);
   }
 
   /**
@@ -213,8 +270,23 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     };
   }
 
+  /**
+   * Runs one deferred call in its tool Step. A call that a tool source built goes to that source with the whole
+   * execution, including the Step context and the heartbeat checkpoint. Any other call runs the function tool's
+   * input guardrails and the original tool once.
+   * @param call - The approved call.
+   * @returns The source's result, or the tool output as text.
+   * @throws {ToolExecutionError} When the graph has no such function tool, the arguments are invalid, a guardrail
+   * rejects the call, the tool or its source throws it, or the source asks the user a question.
+   * @throws {RangeError} When a source built the call but is not configured on this Worker, so the effect decides
+   * the outcome.
+   * @throws Any other error of the tool or the source, which fails the Step attempt.
+   */
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
     const toolCall = call.toolCall;
+    if (this.toolSources.isSourceToolCall(toolCall)) {
+      return this.toolSources.executeDeferredToolCallForResult(call);
+    }
     const graphTool = this.agentGraph.functionTools.get(toolCall.toolName);
     if (graphTool === undefined) {
       throw new ToolExecutionError(`the agent has no function tool named ${toolCall.toolName}`);
@@ -259,23 +331,142 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     });
   }
 
+  /**
+   * Returns a tool source's timeout and retry policy for one call's tool Step, such as a connector operation's.
+   * Function tools keep the tool Steps' defaults.
+   * @param toolCall - The record whose tool Step starts.
+   * @returns The source's options, or `undefined` for the defaults.
+   * @throws {RangeError} When a source built the call but is not configured on this Worker.
+   * @since 0.4.0
+   */
+  public toolCallStepOptions(toolCall: AgentToolCall): ToolCallStepOptions | undefined {
+    return this.toolSources.toolCallStepOptions(toolCall);
+  }
+
+  private async wrapModelStepAgentGraph(turn: AgentTurnContext): Promise<ModelStepAgentGraph> {
+    if (!this.toolSources.hasToolSources) {
+      return {
+        agentGraph: this.agentGraph,
+        sourceToolsByFunctionToolName: new Map(),
+        replayOnlySourceToolNames: new Map(),
+        recordToolNames: new Map(),
+      };
+    }
+    const sourceTools = await this.toolSources.listSourceTools();
+    // The SDK resumes an interrupted call by tool name, so a call the listing lacks still needs its tool.
+    const replayOnlyToolNames = new Set(
+      turn.toolCalls
+        .filter((record) => this.toolSources.isSourceToolCall(record) && !sourceTools.has(record.toolName))
+        .map((record) => record.toolName),
+    );
+    const graphSourceTools: SourceToolDefinition[] = [
+      ...[...sourceTools.values()].map((listed) => listed.tool),
+      ...[...replayOnlyToolNames].map((toolName) => ({
+        name: toolName,
+        description: "",
+        inputSchema: { type: "object", properties: {} },
+      })),
+    ];
+    const functionToolNames = this.mapSourceToolNamesToFunctionToolNames(graphSourceTools.map(({ name }) => name));
+    const sourceToolsByFunctionToolName = new Map<string, ListedSourceTool>();
+    for (const listed of sourceTools.values()) {
+      sourceToolsByFunctionToolName.set(functionToolNames.get(listed.tool.name) ?? listed.tool.name, listed);
+    }
+    const replayOnlySourceToolNames = new Map(
+      [...replayOnlyToolNames].map((toolName) => [functionToolNames.get(toolName) ?? toolName, toolName] as const),
+    );
+    return {
+      agentGraph: wrapAgentGraph(this.startingAgent, this.settings, graphSourceTools),
+      sourceToolsByFunctionToolName,
+      replayOnlySourceToolNames,
+      recordToolNames: new Map(
+        [...functionToolNames].map(([sourceToolName, functionToolName]) => [functionToolName, sourceToolName] as const),
+      ),
+    };
+  }
+
+  /** The SDK renames a function tool for the model, so two source names may meet one graph name. */
+  private mapSourceToolNamesToFunctionToolNames(sourceToolNames: readonly string[]): ReadonlyMap<string, string> {
+    const functionToolNames = new Map<string, string>();
+    const sourceToolNamesByFunctionToolName = new Map<string, string>();
+    for (const sourceToolName of sourceToolNames) {
+      const functionToolName = readFunctionToolName(sourceToolName);
+      if (this.graphToolNames.has(functionToolName)) {
+        throw new TypeError(
+          `tool ${sourceToolName} of a tool source becomes function tool ${functionToolName}, the name of a tool ` +
+            "or handoff of the agent graph",
+        );
+      }
+      const otherSourceToolName = sourceToolNamesByFunctionToolName.get(functionToolName);
+      if (otherSourceToolName !== undefined && otherSourceToolName !== sourceToolName) {
+        throw new TypeError(
+          `tools ${otherSourceToolName} and ${sourceToolName} of tool sources both become function tool ` +
+            functionToolName,
+        );
+      }
+      sourceToolNamesByFunctionToolName.set(functionToolName, sourceToolName);
+      functionToolNames.set(sourceToolName, functionToolName);
+    }
+    return functionToolNames;
+  }
+
+  /**
+   * Rejects, with the refusal text, every interruption that is a new call of a replay-only tool, so it ends inside
+   * the turn without a Step.
+   * @returns Whether it rejected any, so the run must continue.
+   */
+  private refuseReplayOnlyToolCalls(
+    turn: AgentTurnContext,
+    modelStepGraph: ModelStepAgentGraph,
+    result: AnyStreamedRunResult,
+  ): boolean {
+    let isAnyRefused = false;
+    for (const interruption of result.interruptions) {
+      const functionCall = readInterruptedFunctionCall(interruption);
+      const sourceToolName = modelStepGraph.replayOnlySourceToolNames.get(
+        getToolCallDisplayName(functionCall) ?? functionCall.name,
+      );
+      if (sourceToolName !== undefined && turn.recordedToolCall(functionCall.callId) === undefined) {
+        result.state.reject(interruption, { message: describeReplayOnlyToolRefusal(sourceToolName) });
+        isAnyRefused = true;
+      }
+    }
+    return isAnyRefused;
+  }
+
   private async restoreRunState(
     turn: AgentTurnContext,
+    modelStepGraph: ModelStepAgentGraph,
     frameworkRunState: string,
     runContext: RunContext<TContext | undefined>,
     unreturnedResumedToolCallIds: Set<string>,
   ): Promise<AnyRunState> {
     const runState = await RunState.fromStringWithContext(
-      this.agentGraph.startingAgent,
+      modelStepGraph.agentGraph.startingAgent,
       frameworkRunState,
       runContext,
     );
+    const resumedToolCallIds = new Set<string>();
     for (const interruption of runState.getInterruptions()) {
-      const toolCallId = readInterruptedFunctionCall(interruption).callId;
+      const functionCall = readInterruptedFunctionCall(interruption);
+      const toolCallId = functionCall.callId;
       const record = turn.recordedToolCall(toolCallId);
       if (record === undefined || !isFinalToolCallStatus(record.status)) {
         throw new Error(`turn ${turn.turnId} resumed before tool call ${toolCallId} had a final record`);
       }
+      // A rejected record never reaches the gate, so its name and uniqueness are checked here.
+      const functionToolName = getToolCallDisplayName(functionCall) ?? functionCall.name;
+      const recordToolName = modelStepGraph.recordToolNames.get(functionToolName) ?? functionToolName;
+      if (record.toolName !== recordToolName) {
+        throw new Error(
+          `turn ${turn.turnId} resumed tool call ${toolCallId} of ${recordToolName} with the record of tool ` +
+            record.toolName,
+        );
+      }
+      if (resumedToolCallIds.has(toolCallId)) {
+        throw new Error(`turn ${turn.turnId} resumed tool call ${toolCallId} more than once`);
+      }
+      resumedToolCallIds.add(toolCallId);
       if (record.status === "rejected") {
         runState.reject(interruption, { message: record.rejectionMessage ?? defaultRejectionToolResult });
       } else {
@@ -289,17 +480,18 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
 
   private async streamModelCall(
     turn: AgentTurnContext,
+    agentGraph: WrappedAgentGraph,
     runInput: AgentInputItem[] | AnyRunState,
     runContext: RunContext<TContext | undefined>,
   ): Promise<OpenAIAgentsModelStepRun> {
     const maxTurns = this.settings.maxTurns;
-    const modelCallAgents = [Array.isArray(runInput) ? this.agentGraph.startingAgent : runInput.currentAgent];
+    const modelCallAgents = [Array.isArray(runInput) ? agentGraph.startingAgent : runInput.currentAgent];
     const responseIds: string[] = [];
     // The run also stops when a response reuses a recorded call ID, which the SDK would skip.
     const runAbort = new AbortController();
     const signal = AbortSignal.any([turn.cancellationSignal, runAbort.signal]);
     const result: AnyStreamedRunResult = await this.sdkRunner.run(
-      this.agentGraph.startingAgent,
+      agentGraph.startingAgent,
       runInput,
       {
         stream: true,
@@ -339,12 +531,21 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
 
   private async toDeferredToolCall(
     turn: AgentTurnContext,
+    modelStepGraph: ModelStepAgentGraph,
     interruption: RunToolApprovalItem,
     runContext: RunContext<TContext | undefined>,
   ): Promise<DeferredToolCall> {
     const functionCall = readInterruptedFunctionCall(interruption);
     const toolName = getToolCallDisplayName(functionCall) ?? functionCall.name;
-    const graphTool = this.agentGraph.functionTools.get(toolName);
+    const listedSourceTool = modelStepGraph.sourceToolsByFunctionToolName.get(toolName);
+    if (listedSourceTool !== undefined) {
+      // The source decides the effect, the approval, and the write order; the SDK's needsApproval never applies.
+      return this.toolSources.buildDeferredToolCall(turn, listedSourceTool, {
+        toolCallId: functionCall.callId,
+        arguments: functionCall.arguments,
+      });
+    }
+    const graphTool = modelStepGraph.agentGraph.functionTools.get(toolName);
     if (graphTool === undefined || !graphTool.clonedOwnerAgents.has(interruption.agent)) {
       throw new Error(
         `agent ${interruption.agent.name} asked to approve tool ${toolName}, which it does not own in ` +
@@ -537,6 +738,14 @@ function describeForSummary(message: AgentMessage): string | null {
     }
   }
   return describeStoredMessage(message);
+}
+
+function estimateSourceToolTokens(sourceTools: ReadonlyMap<string, ListedSourceTool>): number {
+  let tokens = 0;
+  for (const { tool: definition } of sourceTools.values()) {
+    tokens += estimateTextTokens(`${definition.name} ${definition.description} ${JSON.stringify(definition.inputSchema)}`);
+  }
+  return tokens;
 }
 
 function estimateGraphPromptTokens(startingAgent: AnyAgent): number {

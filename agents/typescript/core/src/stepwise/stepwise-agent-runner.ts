@@ -64,23 +64,21 @@ import {
   readStoredModelInputItem,
   toStepwiseFrameworkMessage,
 } from "./stepwise-input-items.js";
-import type { SourceToolDefinition, ToolSource } from "./tool-source.js";
+import {
+  ToolSourceRouter,
+  defaultToolSourceListingTimeoutMs,
+  readToolSourceEnvelope as readRouterToolSourceEnvelope,
+  writeToolSourceEnvelope as writeRouterToolSourceEnvelope,
+  type ListedSourceTool,
+} from "../tool-source-router.js";
 
-interface ListedSourceTool {
-  readonly index: number;
-  readonly source: ToolSource;
-  readonly tool: SourceToolDefinition;
-}
+export { defaultToolSourceListingTimeoutMs } from "../tool-source-router.js";
+
 type ListedSourceTools = ReadonlyMap<string, ListedSourceTool>;
-const toolSourceMethods = ["listTools", "deferredToolCall", "executeDeferredToolCall", "pollToolTask"] as const;
 // The runner's envelope around a source's toolSourceReference: the building source's name.
 const toolSourceNameKey = "stepwise_tool_source";
 // An unlisted name never reaches a source, so it fails without asking anyone to approve it.
 const unlistedSourceToolPolicy: ResolvedToolPolicy = { effect: "unclassified", requiresApproval: false };
-const toolSourceReferenceKey = "reference";
-
-/** Default {@link AgentDefinition.toolSourceListingTimeoutMs}: 10 seconds. */
-export const defaultToolSourceListingTimeoutMs = 10_000;
 
 export const defaultMaxModelCallsPerTurn = 100;
 
@@ -122,12 +120,8 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
   /** The runner honors {@link AgentTurnContext.interactionMode}, so plan mode can be enabled. */
   public readonly supportsPlanMode = true;
   private readonly functionToolsByName: ReadonlyMap<string, FunctionTool>;
-  private readonly toolSources: readonly ToolSource[];
-  private readonly toolSourcesByName: ReadonlyMap<string, ToolSource>;
+  private readonly toolSources: ToolSourceRouter;
   private readonly maxModelCallsPerTurn: number;
-  private readonly toolSourceListingTimeoutMs: number;
-  /** The last listing of each source, so estimates count its tools without listing again. */
-  private readonly lastListings = new Map<number, readonly SourceToolDefinition[]>();
 
   /**
    * Creates the runner and checks the definition.
@@ -165,30 +159,17 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       }
       functionToolsByName.set(tool.name, tool);
     }
-    const toolSources = [...(definition.toolSources ?? [])];
-    for (const source of toolSources) {
-      const missing = toolSourceMethods.find(
-        (method) => typeof (source as unknown as Record<string, unknown> | null)?.[method] !== "function",
-      );
-      if (missing !== undefined) {
-        throw new TypeError(`tool source ${String(source)} has no ${missing} method`);
-      }
-    }
-    const toolSourcesByName = new Map<string, ToolSource>();
-    for (const source of toolSources) {
-      if (typeof source.sourceName !== "string" || source.sourceName.trim() === "") {
-        throw new TypeError(`tool source ${String(source)} needs a non-blank sourceName`);
-      }
-      if (toolSourcesByName.has(source.sourceName)) {
-        throw new TypeError(`two tool sources are named ${source.sourceName}`);
-      }
-      toolSourcesByName.set(source.sourceName, source);
-    }
-    refuseDeclaredToolNameCollisions(toolSources, new Set(functionToolsByName.keys()), enabledBuiltInTools);
     const toolSourceListingTimeoutMs = definition.toolSourceListingTimeoutMs ?? defaultToolSourceListingTimeoutMs;
     if (!(toolSourceListingTimeoutMs > 0)) {
       throw new RangeError("AgentDefinition.toolSourceListingTimeoutMs must be positive");
     }
+    const toolSources = new ToolSourceRouter(definition.toolSources ?? [], {
+      sourceNameKey: toolSourceNameKey,
+      localToolNames: new Set(functionToolsByName.keys()),
+      localToolDescription: "a function tool",
+      builtInToolNames: enabledBuiltInTools,
+      listingTimeoutMs: toolSourceListingTimeoutMs,
+    });
     if (definition.planModeEnabled === true && !enabledBuiltInTools.has("write_todos")) {
       throw new TypeError("planModeEnabled requires the write_todos built-in tool");
     }
@@ -203,8 +184,6 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     this.definition = Object.freeze({ ...definition });
     this.functionToolsByName = functionToolsByName;
     this.toolSources = toolSources;
-    this.toolSourcesByName = toolSourcesByName;
-    this.toolSourceListingTimeoutMs = toolSourceListingTimeoutMs;
     this.maxModelCallsPerTurn = maxModelCallsPerTurn;
   }
 
@@ -233,7 +212,9 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     const unstoredToolResults = buildUnstoredToolResults(turn);
     const isToolBudgetSpent = modelCallCount >= this.maxModelCallsPerTurn;
     const sourceTools: ListedSourceTools =
-      isToolBudgetSpent || turn.interactionMode === "planning" ? new Map() : await this.listSourceTools(turn);
+      isToolBudgetSpent || turn.interactionMode === "planning"
+        ? new Map()
+        : await this.toolSources.listSourceTools(turn.enabledBuiltInTools ?? new Set<string>());
     const request = await this.buildModelRequest(
       turn,
       unstoredToolResults,
@@ -271,11 +252,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       toolCalls: response.toolCalls.map((toolCall): DeferredToolCall => {
         const listed = sourceTools.get(toolCall.toolName);
         if (listed !== undefined) {
-          const built = listed.source.deferredToolCall(turn, { ...toolCall, listedTool: listed.tool });
-          return {
-            ...built,
-            toolSourceReference: writeToolSourceEnvelope(listed.source.sourceName, built.toolSourceReference),
-          };
+          return this.toolSources.buildDeferredToolCall(turn, listed, toolCall);
         }
         return {
           toolCallId: toolCall.toolCallId,
@@ -305,11 +282,10 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     const toolCall = call.toolCall;
     const tool = this.functionToolsByName.get(toolCall.toolName);
     if (tool === undefined) {
-      const routed = this.routeToToolSource(toolCall);
-      if (routed === undefined) {
+      if (!this.toolSources.isSourceToolCall(toolCall)) {
         throw new ToolExecutionError(buildUnknownToolError(toolCall.toolName));
       }
-      return routed.source.executeDeferredToolCall({ ...call, toolCall: withToolSourceReference(toolCall, routed.reference) });
+      return this.toolSources.executeDeferredToolCall(call);
     }
     const toolArguments = parseToolArguments(tool.name, toolCall.arguments);
     const violation = findJsonSchemaViolation(toolArguments, tool.parameters, "arguments");
@@ -348,11 +324,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
    * @throws Any error of the source.
    */
   public async pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
-    const routed = this.routeToToolSource(poll.toolCall);
-    if (routed === undefined) {
-      throw new RangeError(`no tool source built the call of tool ${poll.toolCall.toolName}`);
-    }
-    return routed.source.pollToolTask({ ...poll, toolCall: withToolSourceReference(poll.toolCall, routed.reference) });
+    return this.toolSources.pollToolTask(poll);
   }
 
   /**
@@ -368,8 +340,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     if (this.functionToolsByName.has(toolCall.toolName)) {
       return undefined;
     }
-    const routed = this.routeToToolSource(toolCall);
-    return routed?.source.toolCallStepOptions?.(withToolSourceReference(toolCall, routed.reference));
+    return this.toolSources.toolCallStepOptions(toolCall);
   }
 
   /**
@@ -382,14 +353,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
    * @throws Any error of the source.
    */
   public async cancelToolTask(cancellation: ToolTaskCancellation): Promise<void> {
-    const routed = this.routeToToolSource(cancellation.toolCall);
-    if (routed === undefined) {
-      throw new RangeError(`no tool source built the call of tool ${cancellation.toolCall.toolName}`);
-    }
-    await routed.source.cancelToolTask?.({
-      ...cancellation,
-      toolCall: withToolSourceReference(cancellation.toolCall, routed.reference),
-    });
+    await this.toolSources.cancelToolTask(cancellation);
   }
 
   /**
@@ -416,7 +380,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       buildUnstoredToolResults(turn),
       modelCallCount,
       isToolBudgetSpent,
-      this.readCachedSourceTools(),
+      this.toolSources.readCachedSourceTools(),
     );
     return this.resolveModel(turn.sessionSettings).estimateInputTokens(request);
   }
@@ -588,81 +552,6 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     }
   }
 
-  private async listSourceTools(turn: AgentTurnContext): Promise<ListedSourceTools> {
-    const enabledBuiltInTools: ReadonlySet<string> = turn.enabledBuiltInTools ?? new Set<string>();
-    const functionToolNames = new Set(this.functionToolsByName.keys());
-    const listed = new Map<string, ListedSourceTool>();
-    for (const [index, source] of this.toolSources.entries()) {
-      for (const tool of await this.listOneSource(index, source)) {
-        refuseSourceToolName(tool.name, functionToolNames, enabledBuiltInTools, listed);
-        listed.set(tool.name, { index, source, tool });
-      }
-    }
-    return listed;
-  }
-
-  private async listOneSource(index: number, source: ToolSource): Promise<readonly SourceToolDefinition[]> {
-    const listing = source.listTools();
-    // A listing that outlives this call keeps running; nobody else reads its error.
-    listing.catch(() => undefined);
-    let timer: NodeJS.Timeout | undefined;
-    const timedOut = new Promise<"timed_out">((resolve) => {
-      timer = setTimeout(() => resolve("timed_out"), this.toolSourceListingTimeoutMs);
-    });
-    try {
-      const tools = await Promise.race([listing, timedOut]);
-      if (tools === "timed_out") {
-        console.warn(`tool source ${index} listed nothing within ${this.toolSourceListingTimeoutMs} ms`);
-        return [];
-      }
-      this.lastListings.set(index, tools);
-      return tools;
-    } catch (error: unknown) {
-      console.warn(`tool source ${index} could not list its tools: ${error instanceof Error ? error.message : String(error)}`);
-      return [];
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  private readCachedSourceTools(): ListedSourceTools {
-    const cached = new Map<string, ListedSourceTool>();
-    for (const [index, source] of this.toolSources.entries()) {
-      const tools = source.cachedTools?.() ?? this.lastListings.get(index) ?? [];
-      for (const tool of tools) {
-        if (!cached.has(tool.name)) {
-          cached.set(tool.name, { index, source, tool });
-        }
-      }
-    }
-    return cached;
-  }
-
-  private routeToToolSource(
-    toolCall: ToolSourceRoutedCall,
-  ): { readonly source: ToolSource; readonly reference: string | undefined } | undefined {
-    const envelope = readToolSourceEnvelope(toolCall.toolSourceReference);
-    if (envelope !== undefined) {
-      const source = this.toolSourcesByName.get(envelope.sourceName);
-      if (source === undefined) {
-        throw new RangeError(
-          `tool source ${envelope.sourceName}, which built the call of tool ${toolCall.toolName}, is not configured on this Worker`,
-        );
-      }
-      return { source, reference: envelope.reference };
-    }
-    const reference = toolCall.toolSourceReference ?? undefined;
-    if (reference === undefined || this.toolSources.length === 0) {
-      return undefined;
-    }
-    const onlySource = this.toolSources.length === 1 ? this.toolSources[0] : undefined;
-    if (onlySource !== undefined) {
-      // A reference the source built itself, such as in a runner subclass.
-      return { source: onlySource, reference };
-    }
-    throw new RangeError(`cannot tell which tool source built the call of ${toolCall.toolName}`);
-  }
-
   private listOfferedTools(turn: AgentTurnContext, sourceTools: ListedSourceTools): ModelToolDefinition[] {
     const isPlanning = turn.interactionMode === "planning";
     const enabledBuiltInTools = turn.enabledBuiltInTools ?? new Set<BuiltInTool>();
@@ -694,7 +583,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
   private resolveModelToolPolicy(turn: AgentTurnContext, toolName: string): ResolvedToolPolicy {
     const tool = this.functionToolsByName.get(toolName);
     const isBuiltIn = (turn.enabledBuiltInTools as ReadonlySet<string> | undefined)?.has(toolName) === true;
-    if (tool === undefined && this.toolSources.length > 0 && !isBuiltIn) {
+    if (tool === undefined && this.toolSources.hasToolSources && !isBuiltIn) {
       return unlistedSourceToolPolicy;
     }
     const sessionPolicies = turn.toolPolicies ?? this.definition.toolPolicies ?? {};
@@ -869,40 +758,6 @@ function modelRequestMetadata(turn: AgentTurnContext): ModelRequestMetadata {
   };
 }
 
-function refuseSourceToolName(
-  toolName: string,
-  functionToolNames: ReadonlySet<string>,
-  builtInTools: ReadonlySet<string>,
-  otherSourceTools: ReadonlyMap<string, unknown>,
-): void {
-  if (builtInTools.has(toolName)) {
-    throw new TypeError(`tool ${toolName} uses the name of an enabled built-in tool`);
-  }
-  if (functionToolNames.has(toolName)) {
-    throw new TypeError(`tool ${toolName} of a tool source uses the name of a function tool`);
-  }
-  if (otherSourceTools.has(toolName)) {
-    throw new TypeError(`two tool sources list a tool named ${toolName}`);
-  }
-}
-
-function refuseDeclaredToolNameCollisions(
-  toolSources: readonly ToolSource[],
-  functionToolNames: ReadonlySet<string>,
-  builtInTools: ReadonlySet<string>,
-): void {
-  const declared = new Map<string, ToolSource>();
-  for (const source of toolSources) {
-    const names = [...(source.declaredToolNames?.() ?? [])].sort();
-    for (const toolName of names) {
-      refuseSourceToolName(toolName, functionToolNames, builtInTools, declared);
-    }
-    for (const toolName of names) {
-      declared.set(toolName, source);
-    }
-  }
-}
-
 /** Error of a call to a tool that no function tool or source listing offers; the same text as the Python core. */
 export function buildUnknownToolError(toolName: string): string {
   return `unknown tool ${toolName}`;
@@ -910,42 +765,11 @@ export function buildUnknownToolError(toolName: string): string {
 
 /** The runner's `toolSourceReference`: the source's name and its own reference, as JSON text. */
 export function writeToolSourceEnvelope(sourceName: string, reference: string | undefined): string {
-  return JSON.stringify({ [toolSourceNameKey]: sourceName, [toolSourceReferenceKey]: reference ?? null });
+  return writeRouterToolSourceEnvelope(toolSourceNameKey, sourceName, reference);
 }
 
 export function readToolSourceEnvelope(
   toolSourceReference: string | undefined,
 ): { readonly sourceName: string; readonly reference: string | undefined } | undefined {
-  if (toolSourceReference === undefined || toolSourceReference === null) {
-    return undefined;
-  }
-  let envelope: unknown;
-  try {
-    envelope = JSON.parse(toolSourceReference);
-  } catch {
-    return undefined;
-  }
-  if (typeof envelope !== "object" || envelope === null || Array.isArray(envelope)) {
-    return undefined;
-  }
-  const sourceName = (envelope as Record<string, unknown>)[toolSourceNameKey];
-  const reference = (envelope as Record<string, unknown>)[toolSourceReferenceKey];
-  if (typeof sourceName !== "string") {
-    return undefined;
-  }
-  if (reference !== null && reference !== undefined && typeof reference !== "string") {
-    return undefined;
-  }
-  return { sourceName, reference: reference ?? undefined };
-}
-
-interface ToolSourceRoutedCall {
-  readonly toolName: string;
-  readonly toolSourceReference?: string;
-}
-
-/** The record as the source built it: its own reference instead of the runner's envelope. */
-function withToolSourceReference<Call extends ToolSourceRoutedCall>(toolCall: Call, reference: string | undefined): Call {
-  const { toolSourceReference: _envelope, ...rest } = toolCall;
-  return (reference === undefined ? rest : { ...rest, toolSourceReference: reference }) as Call;
+  return readRouterToolSourceEnvelope(toolSourceNameKey, toolSourceReference);
 }

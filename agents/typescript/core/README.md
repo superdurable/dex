@@ -1489,8 +1489,14 @@ writes record `failed` with `skipped: true` and the error
 `` `${toolCallNotRunErrorPrefix}: ${toolCallSkippedAfterWriteDetail}` ``.
 Steering and `cancel_turn` cancel queued writes as they cancel unstarted calls.
 
-Framework adapters do not offer connector tools yet; `ToolSource` is Stepwise
-only.
+The Vercel AI, OpenAI Agents, and Mastra adapters take tool sources, such as
+`ConnectorToolSource`, in their own `toolSources` option; see each adapter's
+README. An adapter serves them through `ToolSourceRouter`, exported from the
+package root: it lists the sources in each `RunModel`, refuses name
+collisions, lets the source build each deferred call, so the effect, the
+approval, and the write order come from the source, and routes the tool Step,
+its Step options, and polls back to that source. The Stepwise runner uses it
+too.
 
 ## UI streams
 

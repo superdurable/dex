@@ -179,3 +179,10 @@ export {
   type OpenTelemetryTracerProvider,
   type ResolvedAgentTracingOptions,
 } from "./agent-tracing-options.js";
+export {
+  ToolSourceRouter,
+  defaultToolSourceListingTimeoutMs,
+  type ListedSourceTool,
+  type ToolSourceRouterOptions,
+} from "./tool-source-router.js";
+export { type SourceToolDefinition, type ToolSource } from "./stepwise/tool-source.js";
