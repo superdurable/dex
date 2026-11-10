@@ -15,6 +15,7 @@
 //! Integration tests for the Deferred Choice, Critical Section, and Cancel
 //! Case control-structure pattern Flows.
 
+mod condition_order_probes;
 mod worker_harness;
 
 use std::collections::BTreeMap;
@@ -22,6 +23,11 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use condition_order_probes::{
+    ACCEPT_PROBE_OFFER, CANCEL_PROBE_APPLICATION, CancelCaseOrderProbeFlow, ConditionOrderOutcome,
+    DECIDE_PROBE_APPLICATION, DeferredChoiceOrderProbeFlow, OPEN_DECISION_PROBE_GATE,
+    OPEN_OFFER_PROBE_GATE, REJECT_PROBE_OFFER, register_condition_order_probes,
+};
 use dex_examples_rust::control_patterns::cancel_case::{
     CANCEL_APPLICATION, DECIDE_APPLICATION, LoanApplication, LoanApplicationFlow, RunCreditCheck,
     STOPPED_CREDIT_CHECK_FLOW_ID,
@@ -69,13 +75,16 @@ impl ControlPatternsEnvironment {
         );
         let client = Arc::new(
             Client::try_new(
-                create_example_registry(Arc::clone(&polling_jobs)).expect("register Rust examples"),
+                create_example_registry(Arc::clone(&polling_jobs))
+                    .and_then(register_condition_order_probes)
+                    .expect("register Rust examples"),
                 Arc::clone(&cache),
                 ClientOptions::new().server_address(server_address.clone()),
             )
             .expect("create control patterns Client"),
         );
         let worker_registry = create_worker_registry(Arc::clone(&client), polling_jobs)
+            .and_then(register_condition_order_probes)
             .expect("register Rust example Worker");
         let worker_options = WorkerOptions::new()
             .server_address(&server_address)
@@ -438,6 +447,49 @@ fn cancel_case_completes_with_the_underwriter_decision() {
     assert_eq!(
         outputs_of::<String>(&result, "AwaitUnderwriterDecision"),
         ["approved after credit report for applicant-3"]
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn deferred_choice_declared_first_response_wins_when_both_are_pending() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &DeferredChoiceOrderProbeFlow::default(),
+        "deferred-choice-order",
+        (),
+    );
+    // Publish the later-declared response first: declaration order wins.
+    environment.invoke(&flow_id, REJECT_PROBE_OFFER, "no".to_string());
+    environment.invoke(&flow_id, ACCEPT_PROBE_OFFER, "yes".to_string());
+    environment.invoke(&flow_id, OPEN_OFFER_PROBE_GATE, ());
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(
+        outputs_of::<ConditionOrderOutcome>(&result, "AwaitOfferProbeResponse"),
+        [ConditionOrderOutcome::new("accepted", 1)]
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn cancel_case_cancel_wins_when_both_are_pending() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &CancelCaseOrderProbeFlow::default(),
+        "cancel-case-order",
+        (),
+    );
+    environment.invoke(&flow_id, DECIDE_PROBE_APPLICATION, "approved".to_string());
+    environment.invoke(
+        &flow_id,
+        CANCEL_PROBE_APPLICATION,
+        "applicant withdrew".to_string(),
+    );
+    environment.invoke(&flow_id, OPEN_DECISION_PROBE_GATE, ());
+    let result = environment.wait_for_completed_flow(&flow_id);
+    assert_eq!(
+        outputs_of::<ConditionOrderOutcome>(&result, "AwaitProbeDecision"),
+        [ConditionOrderOutcome::new("canceled", 1)]
     );
 }
 
