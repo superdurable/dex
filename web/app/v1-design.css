@@ -1772,6 +1772,8 @@ body:has(.v1-page) {
 
 .v1-page .stream-session-actions {
   display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   margin-left: auto;
 }
@@ -1780,6 +1782,32 @@ body:has(.v1-page) {
   min-height: 30px;
   padding: 5px 10px;
   font-size: var(--ui-text-xs);
+}
+
+.v1-page .stream-keep-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  white-space: nowrap;
+}
+
+.v1-page .stream-keep-limit select {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink);
+  background: var(--ui-chip);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.v1-page .stream-keep-limit select:focus {
+  border-color: var(--tone-accent);
+  box-shadow: var(--focus-ring);
 }
 
 .v1-page .stream-status {
@@ -1871,6 +1899,16 @@ body:has(.v1-page) {
 
 .v1-page .stream-view-switch > .copy-button {
   margin-left: auto;
+}
+
+.v1-page .stream-scroll-frame {
+  position: relative;
+  min-width: 0;
+}
+
+/* The entries view keeps the reader's place itself when entries are added above. */
+.v1-page .stream-scroll--entries {
+  overflow-anchor: none;
 }
 
 .v1-page .stream-scroll {
@@ -2080,9 +2118,16 @@ body:has(.v1-page) {
   background: var(--ui-surface);
 }
 
-.v1-page .stream-jump-latest {
-  position: absolute;
+.v1-page .stream-back-to-latest--top {
+  top: 12px;
+}
+
+.v1-page .stream-back-to-latest--bottom {
   bottom: 12px;
+}
+
+.v1-page .stream-back-to-latest {
+  position: absolute;
   left: 50%;
   display: inline-flex;
   align-items: center;

@@ -16,10 +16,14 @@ import { usePreferences } from '../../providers';
 import {
   appendStreamEntry,
   EMPTY_STREAM_ENTRIES,
+  KEPT_STREAM_MESSAGE_LIMIT_CHOICES,
+  readStoredKeptStreamMessageLimit,
+  storeKeptStreamMessageLimit,
   StreamCountAnnouncement,
   streamEntryContentOf,
   StreamOutput,
   StreamStatusBadge,
+  trimStreamEntries,
 } from './StreamOutput';
 import type { StreamEntriesState, StreamListeningStatus } from './StreamOutput';
 
@@ -103,6 +107,9 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
   const activeStreamName = activeStream?.name ?? '';
   const [entries, setEntries] = useState<StreamEntriesState>(EMPTY_STREAM_ENTRIES);
   const lastSequenceNumberRef = useRef(0);
+  const [keptMessageLimit, setKeptMessageLimit] = useState(readStoredKeptStreamMessageLimit);
+  // The listener reads the limit through a ref so changing it does not restart listening.
+  const keptMessageLimitRef = useRef(keptMessageLimit);
   const [isListening, setIsListening] = useState(false);
   const [isStopped, setIsStopped] = useState(false);
   const [formError, setFormError] = useState('');
@@ -139,7 +146,7 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
               content: streamEntryContentOf(hydrated.value, activeStream.valueType),
               sequenceNumber: lastSequenceNumberRef.current,
             };
-            setEntries((current) => appendStreamEntry(current, record));
+            setEntries((current) => appendStreamEntry(current, record, keptMessageLimitRef.current));
             if (hydrated.error) setBlobWarning(hydrated.error);
           },
         });
@@ -181,6 +188,13 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
     lastSequenceNumberRef.current = 0;
     setEntries(EMPTY_STREAM_ENTRIES);
     setBlobWarning('');
+  };
+
+  const changeKeptMessageLimit = (limit: number) => {
+    keptMessageLimitRef.current = limit;
+    setKeptMessageLimit(limit);
+    storeKeptStreamMessageLimit(limit);
+    setEntries((current) => trimStreamEntries(current, limit));
   };
 
   const stopListening = () => {
@@ -256,6 +270,20 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
             )}
             <StreamCountAnnouncement messageCount={messageCount} />
             <span className="stream-session-actions">
+              <label className="stream-keep-limit">
+                Keep last
+                <select
+                  name="keptMessageLimit"
+                  onChange={(event) => changeKeptMessageLimit(Number(event.target.value))}
+                  value={keptMessageLimit}
+                >
+                  {KEPT_STREAM_MESSAGE_LIMIT_CHOICES.map((choice) => (
+                    <option key={choice} value={choice}>
+                      {choice.toLocaleString('en-US')}
+                    </option>
+                  ))}
+                </select>
+              </label>
               {listeningStatus === 'listening' && (
                 <button className="button ghost" onClick={stopListening} type="button">
                   <Square aria-hidden="true" size={13} />
@@ -291,7 +319,7 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
         <div className="stream-empty">
           <Waves aria-hidden="true" size={20} />
           <strong>Choose a Stream to watch</strong>
-          <span>Messages the Flow writes to it appear here live, newest at the bottom.</span>
+          <span>Messages the Flow writes to it appear here live. Entries show the newest at the top.</span>
         </div>
       )}
     </section>

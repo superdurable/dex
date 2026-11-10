@@ -104,9 +104,20 @@ function streamNamesRequested(fetcher: ReturnType<typeof stubPendingFetch>): str
   return fetcher.mock.calls.map(([input]) => new URL(String(input), 'http://web.test').searchParams.get('streamName') ?? '');
 }
 
+function intStreamBody(sequence: number): StreamResponseBody {
+  return {
+    value: { intValue: sequence },
+    resumeToken: `token-${sequence}`,
+    createdTime: '2026-11-09T12:00:00Z',
+    source: '#Count-1',
+  };
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  window.localStorage.clear();
 });
 
 describe('StreamPanel', () => {
@@ -328,6 +339,57 @@ describe('StreamPanel', () => {
     expect(decodedValueMock).toHaveBeenCalledTimes(6);
     expect(container.querySelector('.stream-progress-focus [role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('60');
     expect(container.querySelector('.stream-session-header .sr-only[aria-live="polite"]')).toBeTruthy();
+  });
+
+  it('keeps the last 1,000 messages by default and trims at once to a remembered lower limit', async () => {
+    stubStreamFetch(Array.from({ length: 150 }, (_, index) => intStreamBody(index + 1)));
+    const { container, unmount } = renderPanel(definitionWithStreams([{ name: 'count', valueType: 'int' }]));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start listening' }));
+    await waitFor(() => expect(screen.getByText('150 messages', { selector: '.stream-session-count' })).toBeTruthy());
+    const keepLast = screen.getByLabelText('Keep last') as HTMLSelectElement;
+    expect(keepLast.value).toBe('1000');
+    expect([...keepLast.options].map((option) => option.value)).toEqual(['100', '500', '1000']);
+    expect(container.querySelector('.stream-dropped-note')).toBeNull();
+
+    fireEvent.change(keepLast, { target: { value: '100' } });
+    expect(container.querySelectorAll('.stream-entry')).toHaveLength(100);
+    expect(container.querySelector('.stream-entry-scalar')?.textContent).toBe('150');
+    expect(container.querySelector('.stream-dropped-note')?.textContent)
+      .toBe('50 older messages dropped · showing the newest 100');
+    expect(screen.getByText('150 messages', { selector: '.stream-session-count' })).toBeTruthy();
+    expect(window.localStorage.getItem('dex-web-stream-kept-messages')).toBe('100');
+    unmount();
+
+    stubPendingFetch();
+    renderPanel(definitionWithStreams([{ name: 'count', valueType: 'int' }]));
+    fireEvent.click(screen.getByRole('button', { name: 'Start listening' }));
+    expect((screen.getByLabelText('Keep last') as HTMLSelectElement).value).toBe('100');
+  });
+
+  it('keeps 1,000 messages when the stored limit is invalid or storage is unavailable', () => {
+    stubPendingFetch();
+    window.localStorage.setItem('dex-web-stream-kept-messages', '5000');
+    const { unmount } = renderPanel(definitionWithStreams([{ name: 'count', valueType: 'int' }]));
+    fireEvent.click(screen.getByRole('button', { name: 'Start listening' }));
+    expect((screen.getByLabelText('Keep last') as HTMLSelectElement).value).toBe('1000');
+    unmount();
+
+    // Only the Stream limit is blocked; the timezone preference does not guard its storage access.
+    const originalGetItem = Storage.prototype.getItem;
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key: string) {
+      if (key === 'dex-web-stream-kept-messages') throw new DOMException('Blocked', 'SecurityError');
+      return originalGetItem.call(this, key);
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Blocked', 'SecurityError');
+    });
+    renderPanel(definitionWithStreams([{ name: 'count', valueType: 'int' }]));
+    fireEvent.click(screen.getByRole('button', { name: 'Start listening' }));
+    const keepLast = screen.getByLabelText('Keep last') as HTMLSelectElement;
+    expect(keepLast.value).toBe('1000');
+    fireEvent.change(keepLast, { target: { value: '500' } });
+    expect(keepLast.value).toBe('500');
   });
 
   it('clears the stored value warning with the messages', async () => {

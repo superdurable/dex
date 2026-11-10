@@ -8,7 +8,7 @@
 
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowDown, CircleAlert, CircleStop, Radio } from 'lucide-react';
+import { ArrowDown, ArrowUp, CircleAlert, CircleStop, Radio } from 'lucide-react';
 import { storedValueJSONReplacer } from '@/lib/blobs';
 import { formatDate } from '@/lib/format';
 import type { TimezonePreference } from '@/lib/format';
@@ -49,7 +49,7 @@ export interface StreamEntryRecord {
   sequenceNumber: number;
 }
 
-/** The Stream messages kept on screen, newest last. */
+/** The Stream messages kept on screen, in arrival order with the newest last. */
 export interface StreamEntriesState {
   records: StreamEntryRecord[];
   droppedMessageCount: number;
@@ -57,8 +57,32 @@ export interface StreamEntriesState {
   hasPercentAboveOne: boolean;
 }
 
-/** How many Stream messages stay on screen; older ones are dropped. */
-export const MAX_KEPT_STREAM_MESSAGES = 2000;
+/** The most Stream messages that stay on screen; older ones are dropped. */
+export const MAX_KEPT_STREAM_MESSAGES = 1000;
+
+/** The kept-message limits a reader can choose in the Streams tab. */
+export const KEPT_STREAM_MESSAGE_LIMIT_CHOICES = [100, 500, 1000] as const;
+
+const KEPT_STREAM_MESSAGE_LIMIT_STORAGE_KEY = 'dex-web-stream-kept-messages';
+
+/** The reader's remembered kept-message limit, or the maximum when none is stored or storage is unavailable. */
+export function readStoredKeptStreamMessageLimit(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(KEPT_STREAM_MESSAGE_LIMIT_STORAGE_KEY));
+    return KEPT_STREAM_MESSAGE_LIMIT_CHOICES.find((choice) => choice === stored) ?? MAX_KEPT_STREAM_MESSAGES;
+  } catch {
+    return MAX_KEPT_STREAM_MESSAGES;
+  }
+}
+
+/** Remembers the reader's kept-message limit; a browser without storage keeps it for this page only. */
+export function storeKeptStreamMessageLimit(limit: number): void {
+  try {
+    window.localStorage.setItem(KEPT_STREAM_MESSAGE_LIMIT_STORAGE_KEY, String(limit));
+  } catch {
+    // Storage can be blocked or full; the choice still applies until the page reloads.
+  }
+}
 
 /** No Stream messages. */
 export const EMPTY_STREAM_ENTRIES: StreamEntriesState = { records: [], droppedMessageCount: 0, hasPercentAboveOne: false };
@@ -144,20 +168,76 @@ export function appendStreamEntry(
   record: StreamEntryRecord,
   maxKeptMessages = MAX_KEPT_STREAM_MESSAGES,
 ): StreamEntriesState {
-  const appended = [...state.records, record];
-  const overflowCount = Math.max(appended.length - maxKeptMessages, 0);
   const content = record.content;
+  return trimStreamEntries(
+    {
+      records: [...state.records, record],
+      droppedMessageCount: state.droppedMessageCount,
+      hasPercentAboveOne: state.hasPercentAboveOne
+        || (content.kind === 'progress' && !content.isComputedFromTotal && content.amount !== null && content.amount > 1),
+    },
+    maxKeptMessages,
+  );
+}
+
+/** Drops the oldest messages beyond the kept limit and counts them; returns the same state when nothing is dropped. */
+export function trimStreamEntries(state: StreamEntriesState, maxKeptMessages: number): StreamEntriesState {
+  const overflowCount = Math.max(state.records.length - maxKeptMessages, 0);
+  if (overflowCount === 0) return state;
   return {
-    records: overflowCount > 0 ? appended.slice(overflowCount) : appended,
+    ...state,
+    records: state.records.slice(overflowCount),
     droppedMessageCount: state.droppedMessageCount + overflowCount,
-    hasPercentAboveOne: state.hasPercentAboveOne
-      || (content.kind === 'progress' && !content.isComputedFromTotal && content.amount !== null && content.amount > 1),
   };
 }
 
-/** Whether a scroll box is at, or within a small tolerance of, its newest content. */
-export function isScrolledToLatest(metrics: { scrollTop: number; scrollHeight: number; clientHeight: number }): boolean {
+type ScrollMetrics = { scrollTop: number; scrollHeight: number; clientHeight: number };
+
+/** Whether a transcript scroll box is at, or within a small tolerance of, its newest text at the bottom. */
+export function isScrolledToLatest(metrics: ScrollMetrics): boolean {
   return metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <= LATEST_SCROLL_TOLERANCE_PIXELS;
+}
+
+/** Whether an entries scroll box is at, or within a small tolerance of, its newest entry at the top. */
+export function isScrolledToNewestEntry(metrics: ScrollMetrics): boolean {
+  return metrics.scrollTop <= LATEST_SCROLL_TOLERANCE_PIXELS;
+}
+
+/** The entry the reader is looking at: the first one whose bottom is below the scroll box top. */
+interface StreamScrollAnchor {
+  resumeToken: string;
+  offsetFromScrollBoxTop: number;
+}
+
+function streamScrollAnchorOf(scrollBox: HTMLElement): StreamScrollAnchor | null {
+  const entryElements = scrollBox.querySelectorAll<HTMLElement>('.stream-entry');
+  const scrollBoxTop = scrollBox.getBoundingClientRect().top;
+  // Entries stack in order, so a binary search finds the first visible one.
+  let low = 0;
+  let high = entryElements.length - 1;
+  let anchorElement: HTMLElement | null = null;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (entryElements[middle].getBoundingClientRect().bottom > scrollBoxTop) {
+      anchorElement = entryElements[middle];
+      high = middle - 1;
+    } else {
+      low = middle + 1;
+    }
+  }
+  const resumeToken = anchorElement?.dataset.resumeToken;
+  if (!anchorElement || resumeToken === undefined) return null;
+  return { resumeToken, offsetFromScrollBoxTop: anchorElement.getBoundingClientRect().top - scrollBoxTop };
+}
+
+/** Scrolls so the anchored entry sits where it was; returns false when that entry is no longer on screen. */
+function restoreStreamScrollAnchor(scrollBox: HTMLElement, anchor: StreamScrollAnchor): boolean {
+  const anchorElement = [...scrollBox.querySelectorAll<HTMLElement>('.stream-entry')]
+    .find((element) => element.dataset.resumeToken === anchor.resumeToken);
+  if (!anchorElement) return false;
+  const offsetFromScrollBoxTop = anchorElement.getBoundingClientRect().top - scrollBox.getBoundingClientRect().top;
+  scrollBox.scrollTop += offsetFromScrollBoxTop - anchor.offsetFromScrollBoxTop;
+  return true;
 }
 
 /** A short relative time such as "just now", "12s ago", or "3m ago". */
@@ -219,26 +299,58 @@ export function StreamOutput({
   const isAllText = records.every((record) => record.content.kind === 'text');
   const [pickedView, setPickedView] = useState<StreamOutputView | null>(null);
   const view: StreamOutputView = isAllText ? (pickedView ?? 'transcript') : 'entries';
+  const isNewestFirst = view === 'entries';
   const scrollBoxRef = useRef<HTMLDivElement>(null);
+  const scrollAnchorRef = useRef<StreamScrollAnchor | null>(null);
   const [isFollowingLatest, setIsFollowingLatest] = useState(true);
   const latestRecord = records.at(-1);
   const latestSequenceNumber = latestRecord?.sequenceNumber ?? 0;
   const [seenSequenceNumber, setSeenSequenceNumber] = useState(0);
+  const newestFirstRecords = useMemo(() => [...records].reverse(), [records]);
 
   useLayoutEffect(() => {
     const scrollBox = scrollBoxRef.current;
-    if (!scrollBox || !isFollowingLatest) return;
-    scrollBox.scrollTop = scrollBox.scrollHeight;
-    setSeenSequenceNumber(latestSequenceNumber);
-  }, [isFollowingLatest, latestSequenceNumber, view]);
+    if (!scrollBox) return;
+    if (isFollowingLatest) {
+      scrollBox.scrollTop = isNewestFirst ? 0 : scrollBox.scrollHeight;
+      setSeenSequenceNumber(latestSequenceNumber);
+      return;
+    }
+    if (!isNewestFirst) return;
+    const anchor = scrollAnchorRef.current;
+    if (!anchor || !restoreStreamScrollAnchor(scrollBox, anchor)) scrollAnchorRef.current = streamScrollAnchorOf(scrollBox);
+  }, [isFollowingLatest, isNewestFirst, latestSequenceNumber, records]);
 
-  const jumpToLatest = () => {
+  const followScrollPosition = (scrollBox: HTMLDivElement) => {
+    if (!isNewestFirst) {
+      setIsFollowingLatest(isScrolledToLatest(scrollBox));
+      return;
+    }
+    const isAtNewestEntry = isScrolledToNewestEntry(scrollBox);
+    scrollAnchorRef.current = isAtNewestEntry ? null : streamScrollAnchorOf(scrollBox);
+    setIsFollowingLatest(isAtNewestEntry);
+  };
+
+  const pickView = (option: StreamOutputView) => {
+    setPickedView(option);
+    scrollAnchorRef.current = null;
+    setIsFollowingLatest(true);
+  };
+
+  const backToLatest = () => {
     const scrollBox = scrollBoxRef.current;
-    if (scrollBox) scrollBox.scrollTop = scrollBox.scrollHeight;
+    if (scrollBox) scrollBox.scrollTop = isNewestFirst ? 0 : scrollBox.scrollHeight;
+    scrollAnchorRef.current = null;
     setIsFollowingLatest(true);
   };
 
   const unseenMessageCount = Math.max(latestSequenceNumber - seenSequenceNumber, 0);
+  const droppedNote = droppedMessageCount > 0 && (
+    <p className="stream-dropped-note">
+      {droppedMessageCount} older {droppedMessageCount === 1 ? 'message' : 'messages'} dropped · showing the newest{' '}
+      {records.length}
+    </p>
+  );
 
   return (
     <StreamClock isTicking={records.length > 0}>
@@ -254,7 +366,7 @@ export function StreamOutput({
               <button
                 aria-pressed={view === option}
                 key={option}
-                onClick={() => setPickedView(option)}
+                onClick={() => pickView(option)}
                 type="button"
               >
                 {option === 'transcript' ? 'Transcript' : 'Entries'}
@@ -263,48 +375,54 @@ export function StreamOutput({
             {view === 'transcript' && <CopyButton label="Copy transcript" value={() => transcriptTextOf(records)} />}
           </div>
         )}
-        <div
-          className={`stream-scroll stream-scroll--${view}`}
-          data-testid="stream-scroll"
-          onScroll={(event) => setIsFollowingLatest(isScrolledToLatest(event.currentTarget))}
-          ref={scrollBoxRef}
-        >
-          {droppedMessageCount > 0 && (
-            <p className="stream-dropped-note">
-              {droppedMessageCount} older {droppedMessageCount === 1 ? 'message' : 'messages'} dropped · showing the
-              newest {records.length}
-            </p>
-          )}
-          {view === 'transcript' ? (
-            <pre className="stream-transcript">
-              {records.map((record) => (
-                <StreamTranscriptChunk key={record.message.resumeToken} record={record} timezone={timezone} />
-              ))}
-              {status === 'listening' && <span aria-hidden="true" className="stream-transcript-caret" />}
-            </pre>
-          ) : (
-            <ol className="stream-entries">
-              {records.map((record) => (
-                <StreamEntry
-                  hasPercentAboveOne={record.content.kind === 'progress' && hasPercentAboveOne}
-                  isRecent={
-                    record.content.kind === 'structured'
-                    && record.sequenceNumber > latestSequenceNumber - OPEN_STRUCTURED_ENTRY_COUNT
-                  }
-                  key={record.message.resumeToken}
-                  record={record}
-                  timezone={timezone}
-                />
-              ))}
-            </ol>
+        <div className="stream-scroll-frame">
+          <div
+            className={`stream-scroll stream-scroll--${view}`}
+            data-testid="stream-scroll"
+            onScroll={(event) => followScrollPosition(event.currentTarget)}
+            ref={scrollBoxRef}
+          >
+            {view === 'transcript' ? (
+              <>
+                {droppedNote}
+                <pre className="stream-transcript">
+                  {records.map((record) => (
+                    <StreamTranscriptChunk key={record.message.resumeToken} record={record} timezone={timezone} />
+                  ))}
+                  {status === 'listening' && <span aria-hidden="true" className="stream-transcript-caret" />}
+                </pre>
+              </>
+            ) : (
+              <>
+                <ol className="stream-entries">
+                  {newestFirstRecords.map((record) => (
+                    <StreamEntry
+                      hasPercentAboveOne={record.content.kind === 'progress' && hasPercentAboveOne}
+                      isRecent={
+                        record.content.kind === 'structured'
+                        && record.sequenceNumber > latestSequenceNumber - OPEN_STRUCTURED_ENTRY_COUNT
+                      }
+                      key={record.message.resumeToken}
+                      record={record}
+                      timezone={timezone}
+                    />
+                  ))}
+                </ol>
+                {droppedNote}
+              </>
+            )}
+          </div>
+          {!isFollowingLatest && (
+            <button
+              className={`stream-back-to-latest stream-back-to-latest--${isNewestFirst ? 'top' : 'bottom'}`}
+              onClick={backToLatest}
+              type="button"
+            >
+              {isNewestFirst ? <ArrowUp aria-hidden="true" size={14} /> : <ArrowDown aria-hidden="true" size={14} />}
+              {unseenMessageCount > 0 ? `${unseenMessageCount} new · ` : ''}Back to latest
+            </button>
           )}
         </div>
-        {!isFollowingLatest && (
-          <button className="stream-jump-latest" onClick={jumpToLatest} type="button">
-            <ArrowDown aria-hidden="true" size={14} />
-            Jump to latest{unseenMessageCount > 0 ? ` · ${unseenMessageCount} new` : ''}
-          </button>
-        )}
       </div>
     </StreamClock>
   );
@@ -339,7 +457,7 @@ const StreamEntry = memo(function StreamEntry({
   const { content, message, sequenceNumber } = record;
   const absoluteTime = formatDate(message.createdTime, timezone);
   return (
-    <li className={`stream-entry stream-entry--${content.kind}`}>
+    <li className={`stream-entry stream-entry--${content.kind}`} data-resume-token={message.resumeToken}>
       <div className="stream-entry-meta">
         <span className="stream-entry-sequence">#{sequenceNumber}</span>
         {message.createdTime && <StreamRelativeTime absoluteTime={absoluteTime} createdTime={message.createdTime} />}
