@@ -1162,8 +1162,9 @@ Initial indexed values are validated by `dex.InitialAttribute` and
 `dex.InitialAttributeMapValue`.
 
 The SDK generates UUIDs for StartFlow and InvokeRPC.
-`StartFlowOptions.RequestID` may override the generated start ID. Durable waits
-use server-derived IDs unless the caller supplies an override.
+`StartFlowOptions.RequestID` may override the generated start ID. Step
+completion and Attribute waits accept a request ID, but the server does not
+read it.
 
 Large string and object values may be returned as blob references. Worker
 inputs and Client results hydrate before handler or application decode. Decode

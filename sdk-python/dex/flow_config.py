@@ -38,6 +38,14 @@ class FlowConfig:
     Attribute Store projection is asynchronous. Failures never roll back Flow
     Attributes, and already queued projections retain their original target.
 
+    Construct ``FlowConfig`` with keyword arguments. Field positions are not
+    part of the API.
+
+    .. versionchanged:: 1.41.0
+        Removed ``continue_as_new_threshold`` and
+        ``continue_as_new_page_size_bytes``. Every later field moved two
+        positions forward, so a positional call can set the wrong field.
+
     Attributes:
         active_step_search_mode: Optional active-Step visibility indexing policy.
         step_durability: Optional default durability for Step handlers.
