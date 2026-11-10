@@ -46,8 +46,10 @@ Name each operation an agent may use with **connector_tool** in Python or
 fails when it is built.
 
 The tool name defaults to the Connector ID and the operation in snake case,
-such as **stripe_create_refund**. The description and the argument schema come
-from the manifest.
+such as **stripe_create_refund**. The snake case matches the Connector library's
+own Python names: an acronym stays one word, so **listStoryIDs** becomes
+**list_story_ids**. The description and the argument schema come from the
+manifest.
 
 ## Step options {#step-options}
 
