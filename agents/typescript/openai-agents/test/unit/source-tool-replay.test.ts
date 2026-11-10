@@ -202,6 +202,25 @@ describe("replay of tool source calls in the OpenAI Agents runner", () => {
     });
   }
 
+  for (const status of ["succeeded", "rejected", "failed", "outcome_unknown"] as const) {
+    test(`a run state that holds one ${status} call ID twice never replays it twice`, async () => {
+      const source = new ChangingToolSource();
+      const { runModelStep, recordOf } = createReplayHarness(source, (input) =>
+        readResults(input).size === 0 ? [functionCall("c1", "lookup")] : [answer("done")],
+      );
+      const first = await runModelStep(null, []);
+      const record: AgentToolCall = {
+        ...recordOf(first, "c1", "lookup"),
+        status,
+        ...(status === "succeeded" ? {} : { output: null }),
+        ...(status === "rejected" ? { rejectionMessage: "no" } : {}),
+        ...(status === "failed" || status === "outcome_unknown" ? { error: "provider error" } : {}),
+      };
+      const duplicated = duplicateInterruption(first.kind === "tool_calls_requested" ? first.frameworkRunState : "{}");
+      await assert.rejects(runModelStep(duplicated, [record]), /resumed tool call c1 more than once/);
+    });
+  }
+
   test("a later model call that requests a replayed call ID again fails instead of replaying twice", async () => {
     const source = new ChangingToolSource();
     const { runModelStep, recordOf } = createReplayHarness(source, () => [functionCall("c1", "lookup")]);
@@ -275,6 +294,29 @@ function createReplayHarness(
       };
     },
   };
+}
+
+/** The serialized RunState with its first pending interruption listed twice, as a corrupt store could hold it. */
+function duplicateInterruption(frameworkRunState: string): string {
+  const runState = JSON.parse(frameworkRunState) as {
+    readonly currentStep: { readonly type: string; readonly data: { readonly interruptions: unknown[] } };
+    readonly generatedItems: unknown[];
+    readonly currentResponseGeneratedItemOwnership: {
+      generatedItemEndIndexExclusive: number;
+      readonly interruptionGeneratedItemIndexes: number[];
+    };
+  };
+  assert.equal(runState.currentStep.type, "next_step_interruption");
+  const [interruption] = runState.currentStep.data.interruptions;
+  const ownership = runState.currentResponseGeneratedItemOwnership;
+  const [approvalItemIndex] = ownership.interruptionGeneratedItemIndexes;
+  assert.ok(interruption !== undefined && approvalItemIndex !== undefined);
+  assert.equal(ownership.generatedItemEndIndexExclusive, runState.generatedItems.length);
+  runState.currentStep.data.interruptions.push(structuredClone(interruption));
+  ownership.interruptionGeneratedItemIndexes.push(runState.generatedItems.length);
+  runState.generatedItems.push(structuredClone(runState.generatedItems[approvalItemIndex]));
+  ownership.generatedItemEndIndexExclusive = runState.generatedItems.length;
+  return JSON.stringify(runState);
 }
 
 function functionCall(callId: string, name: string, toolArguments = "{}"): protocol.OutputModelItem {
