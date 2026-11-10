@@ -11,11 +11,13 @@ same observable finite traces and the same fair maximal traces, in a
 failure-free environment. The statement is precise, its scope is explicit,
 and its proof is checked by the Lean kernel from three standard axioms.
 
-The constructive content is the translation. A live thread is one active
-Step whose input is the thread's state. A mutex is a Channel with one token. A
+The constructive content is the translation. Each live thread that has not
+halted is carried by one active Step, whose input is the thread's state; a
+halted thread has none. A mutex is a Channel with one token. A
 condition variable is a waiter list in an Attribute and one Channel per
 waiter. A cancellation is a message that competes with the operation's own
-condition in an \kw{AnyOf}. A timed operation is a Step with one Timer.
+condition in an \kw{AnyOf}. A timed operation passes through an Enter Step
+and a shared timed Step with one Timer.
 None of these needs a lock held across a wait or an atomic
 read-modify-write, and the proof shows why none is missed.
 

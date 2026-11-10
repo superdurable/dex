@@ -65,11 +65,11 @@ not do, and the program does nothing the Flow could not do. Equation
 the same conditions, which finite traces alone cannot tell.
 
 So ``Dex is expressive'' means: the Dex core can simulate a language that
-has the standard synchronization vocabulary of concurrent programming. It
-does so through finite sequences of internal actions: an action of the
-program corresponds to a short sequence of Dex actions, and some Dex
-actions correspond to no action of the program. The observable traces are
-preserved. The translation is
+has the standard synchronization vocabulary of concurrent programming. The
+correspondence uses finite sequences of Dex transitions, some observable
+and some silent: an action of the program corresponds to a short sequence
+of Dex transitions, and some Dex transitions correspond to no action of
+the program. The observable traces are preserved. The translation is
 the constructive content. It shows \emph{how} a mutex, a condition variable,
 or a cancellable timed receive is built from Steps, Channels, Attributes,
 and Timers.
