@@ -85,7 +85,8 @@ theorem workerStep_simulated (program : Program σ)
     (isWorker : action.simulationKind = .worker) (events : List (Obs σ)) (next : Config σ)
     (isStep : step program config action = some (events, next)) :
     IsStepSimulated program config action events next := by
-  sorry
+  exact workerStep_simulated_proof program ignoresAttemptContext config invariant action isWorker
+    events next isStep
 
 end WorkerStepSimulated
 
