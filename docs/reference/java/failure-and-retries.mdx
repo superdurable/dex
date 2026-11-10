@@ -7,9 +7,8 @@ sidebar_label: Failure and retries
 # Failure and retries
 
 When a Step method attempt fails, its retry policy and failure policy decide
-what happens next. Some failures leave Dex unable to tell whether the work ran.
-[Failure and redelivery](#failure-and-redelivery) says what you can rely on
-then.
+what happens next. When Dex cannot tell whether the work ran, see
+[Failure and redelivery](#failure-and-redelivery).
 
 ## Retry and failure policies {#retry-and-failure-policies}
 
@@ -74,7 +73,7 @@ Example: [examples/java/src/main/java/io/superdurable/dex/primitives/proceedonwa
 
 ### Execute failure policy {#execute-failure-policy}
 
-To send the Flow to a **recovery Step** when **Execute** retries are used up,
+To go to a **recovery Step** when **Execute** retries are used up,
 call **onExecuteFailureProceedTo** on the **StepOptions** builder.
 
 ```java

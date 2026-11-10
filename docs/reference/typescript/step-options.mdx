@@ -109,6 +109,7 @@ is configured, the Flow fails. See
 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
 For a long wait on an external system, see
 [Polling](/design-patterns/polling).
+
 ## Heartbeat {#heartbeat}
 
 During an attempt, the method must send a heartbeat or a
@@ -166,8 +167,9 @@ check in each language, and
 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) for
 how Dex ends a canceled attempt.
 
-So a canceled attempt may still be running when the next attempt or the
-failure route starts.
+Because the SDK cannot stop running code, a canceled attempt may still be
+running when the next attempt or the failure route starts.
+
 ## Selective state loading {#selective-state-loading}
 
 Every **WaitFor**, **Execute**, and timeout-handler call receives all ordinary
@@ -204,6 +206,7 @@ returns an empty message list. Sizes and map keys are available without
 loading. For Go Flows, **dexcli visualize** reports a Step method that reads
 state it did not select. See
 [State loads](/reference/web/flow-visualization#state-loads).
+
 ## Attribute locks {#attribute-locks}
 
 Steps and RPCs that run at the same time can read and write the same
