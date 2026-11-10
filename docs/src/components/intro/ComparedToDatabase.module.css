@@ -22,7 +22,8 @@
   --cmp-chip-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
   --cmp-text: var(--docs-text);
   --cmp-heading: var(--docs-heading);
-  --cmp-subtle: var(--docs-subtle);
+  /* Darker than --docs-subtle so small text stays at WCAG AA on the tinted panels. */
+  --cmp-subtle: #5f5f68;
   --cmp-on-dex: #ffffff;
 }
 
@@ -35,6 +36,7 @@
   --cmp-panel: color-mix(in srgb, #ffffff 3%, transparent);
   --cmp-chip: #202026;
   --cmp-chip-shadow: none;
+  --cmp-subtle: var(--docs-subtle);
   --cmp-on-dex: #04140c;
 }
 
@@ -181,8 +183,7 @@
 }
 
 .notCounted {
-  font-size: 0.7rem;
-  opacity: 0.8;
+  font-size: 0.72rem;
 }
 
 .platformChips .chip {

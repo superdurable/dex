@@ -168,7 +168,7 @@ const EN: Record<ExecutionApproach, Copy> = {
     problems: [
       'The ship message is sent, but the charge ack times out: charge and ship both run twice.',
       'Step 3 means queue 3 and another consumer fleet.',
-      'Backoff, DLQ, saga rollback, and approval waits become more queues and cron.',
+      'Backoff, DLQ, and approval waits become more queues and cron.',
     ],
   },
   dex: {
@@ -258,7 +258,7 @@ const ZH: Record<ExecutionApproach, Copy> = {
     problems: [
       '发货消息已发出，扣款消息的确认却超时：扣款和发货都会执行两次。',
       '第三步就要第三套队列和另一批消费者。',
-      'Backoff、DLQ、SAGA 回滚、审批等待，往往又是更多队列和 cron。',
+      'Backoff、DLQ、审批等待，往往又是更多队列和 cron。',
     ],
   },
   dex: {
