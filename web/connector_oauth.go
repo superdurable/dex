@@ -53,16 +53,16 @@ type connectorOAuthSession struct {
 	authMethod         connectorManifestAuthMethod
 	authMethodID       string
 	definitionRevision string
-	// connectionGeneration is the key's generation at start; the callback saves only while it is unchanged.
-	connectionGeneration uint64
-	clientID             string
-	clientSecret         string
-	codeVerifier         string
-	redirectURI          string
-	configuration        map[string]json.RawMessage
-	credentialValues     map[string]json.RawMessage
-	credentialSecrets    map[string]string
-	expiresAt            time.Time
+	// connectionWrite is what the callback's save must still find; see putConnectionIfCurrent.
+	connectionWrite   connectorConnectionWriteExpectation
+	clientID          string
+	clientSecret      string
+	codeVerifier      string
+	redirectURI       string
+	configuration     map[string]json.RawMessage
+	credentialValues  map[string]json.RawMessage
+	credentialSecrets map[string]string
+	expiresAt         time.Time
 }
 
 type connectorOAuthTokenResponse struct {
@@ -153,8 +153,8 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 	setup.deleteExpiredOAuthSessions(time.Now())
 	setup.oauthSessions[state] = connectorOAuthSession{
 		identity: identity, release: resolved.release, definitionRevision: snapshot.DefinitionRevision,
-		connectionGeneration: snapshot.ConnectionGeneration,
-		authMethod:           authMethod, authMethodID: authMethod.ID,
+		connectionWrite: snapshot.ConnectionWrite,
+		authMethod:      authMethod, authMethodID: authMethod.ID,
 		clientID: body.ClientID, clientSecret: body.ClientSecret, codeVerifier: verifier, redirectURI: redirectURI,
 		configuration: body.Configuration, credentialValues: body.CredentialValues,
 		credentialSecrets: body.CredentialSecrets, expiresAt: expiresAt,
@@ -341,7 +341,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		ConnectionName: session.identity.ConnectionName, Configuration: session.configuration,
 		Credentials: credentials, CredentialExpiresAt: expiresAt,
 	}
-	if err := setup.putConnectionIfCurrent(connection, nil, session.connectionGeneration); err != nil {
+	if err := setup.putConnectionIfCurrent(request.Context(), connection, nil, session.connectionWrite); err != nil {
 		writeConnectorConnectionPutError(response, err, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
 		return
 	}

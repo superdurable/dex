@@ -9,6 +9,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -185,21 +186,80 @@ func (setup *connectorSetup) doHasConflictingPendingConnection(identity connecto
 	return found && (existing.ModulePath != identity.ModulePath || existing.ModuleVersion != identity.ModuleVersion)
 }
 
-// putConnectionIfCurrent saves a connection only while its key keeps the generation the write was authorized
-// under. It returns errConnectorConnectionChanged when the key was deleted or added again since then.
+// connectorConnectionWriteExpectation is the state a connection save was authorized against.
+type connectorConnectionWriteExpectation struct {
+	generation uint64
+	// isFlowDeclared is true when a loaded Flow declared the connection at authorization.
+	isFlowDeclared bool
+	// hasStoredRecord, storedModulePath, and storedModuleVersion describe the file's record at authorization.
+	hasStoredRecord     bool
+	storedModulePath    string
+	storedModuleVersion string
+}
+
+// newConnectorConnectionWriteExpectation records the Flow declaration and the stored record of a connection
+// whose identity was just resolved, with the generation read before that resolution.
+func (setup *connectorSetup) newConnectorConnectionWriteExpectation(
+	catalogJSON []byte,
+	identity connectorDefinitionIdentity,
+	generation uint64,
+) (connectorConnectionWriteExpectation, error) {
+	_, isFlowDeclared, _, err := connectorDefinitionForKey(
+		catalogJSON, identity.ConnectorID, identity.ConnectionName, setup.releases.overrideIdentities(),
+	)
+	if err != nil {
+		return connectorConnectionWriteExpectation{}, err
+	}
+	stored, hasStoredRecord, err := setup.store.get(identity.ConnectorID, identity.ConnectionName)
+	if err != nil {
+		return connectorConnectionWriteExpectation{}, err
+	}
+	return connectorConnectionWriteExpectation{
+		generation: generation, isFlowDeclared: isFlowDeclared, hasStoredRecord: hasStoredRecord,
+		storedModulePath: stored.ModulePath, storedModuleVersion: stored.ModuleVersion,
+	}, nil
+}
+
+// putConnectionIfCurrent saves a connection as a compare-and-set under connectionsMu. The key must keep its
+// generation, the current Flow definitions or the added connection must still name the connection's module,
+// and the file must still hold the record it held at authorization, or none. Otherwise it saves nothing and
+// returns errConnectorConnectionChanged.
 func (setup *connectorSetup) putConnectionIfCurrent(
+	ctx context.Context,
 	connection localConnectorConnection,
 	keepCredentialFields []string,
-	generation uint64,
+	expectation connectorConnectionWriteExpectation,
 ) error {
 	setup.connectionsMu.Lock()
 	defer setup.connectionsMu.Unlock()
 	key := connectorConnectionKey(connection.ConnectorID, connection.ConnectionName)
-	if setup.connectionGenerations[key] != generation {
+	if setup.connectionGenerations[key] != expectation.generation {
+		return errConnectorConnectionChanged
+	}
+	snapshot, err := setup.flowDefinitions.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load Flow definitions before saving a Connector connection: %w", err)
+	}
+	declared, isFlowDeclared, isConflict, err := connectorDefinitionForKey(
+		snapshot.Response, connection.ConnectorID, connection.ConnectionName, setup.releases.overrideIdentities(),
+	)
+	if err != nil {
+		return err
+	}
+	if isFlowDeclared != expectation.isFlowDeclared || isConflict ||
+		(isFlowDeclared && !hasConnectorModule(declared, connection.ModulePath, connection.ModuleVersion)) {
 		return errConnectorConnectionChanged
 	}
 	if pending, isPending := setup.pendingConnections[key]; isPending &&
-		(pending.ModulePath != connection.ModulePath || pending.ModuleVersion != connection.ModuleVersion) {
+		!hasConnectorModule(pending, connection.ModulePath, connection.ModuleVersion) {
+		return errConnectorConnectionChanged
+	}
+	stored, hasStoredRecord, err := setup.store.get(connection.ConnectorID, connection.ConnectionName)
+	if err != nil {
+		return err
+	}
+	if hasStoredRecord != expectation.hasStoredRecord || (hasStoredRecord &&
+		(stored.ModulePath != expectation.storedModulePath || stored.ModuleVersion != expectation.storedModuleVersion)) {
 		return errConnectorConnectionChanged
 	}
 	if err := setup.store.put(connection, keepCredentialFields); err != nil {
@@ -207,6 +267,10 @@ func (setup *connectorSetup) putConnectionIfCurrent(
 	}
 	delete(setup.pendingConnections, key)
 	return nil
+}
+
+func hasConnectorModule(identity connectorDefinitionIdentity, modulePath string, moduleVersion string) bool {
+	return identity.ModulePath == modulePath && identity.ModuleVersion == moduleVersion
 }
 
 // deleteConnection deletes the stored record and any added connection for the key, and reports whether either existed.

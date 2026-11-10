@@ -248,7 +248,7 @@ func TestStandaloneSlackOAuthIsRefusedAfterTheConnectionIsDeletedAndAddedAgain(t
 func TestStandaloneConnectionSaveIsRefusedAfterAConcurrentReleaseChange(t *testing.T) {
 	setup, mux := newStandaloneSlackOAuthTest(t, nil)
 	addStandaloneSlackTestConnection(t, setup, mux, "v1.3.0")
-	staleGeneration := setup.connectionGeneration("slack", "support-slack")
+	staleWrite := standaloneTestWriteExpectation(t, setup)
 	deleted := sendStandaloneTestRequest(t, setup, mux, http.MethodDelete, "/api/v2/connector-connections/slack/support-slack", "")
 	if deleted.Code != http.StatusOK {
 		t.Fatalf("delete status = %d: %s", deleted.Code, deleted.Body.String())
@@ -256,25 +256,198 @@ func TestStandaloneConnectionSaveIsRefusedAfterAConcurrentReleaseChange(t *testi
 	addStandaloneSlackTestConnection(t, setup, mux, "v1.4.0")
 	connection := testLocalConnectorConnection("slack", "support-slack", "xoxb-stale", nil)
 	connection.ModulePath, connection.ModuleVersion = standaloneSlackTestModulePath, "v1.3.0"
-	if err := setup.putConnectionIfCurrent(connection, nil, staleGeneration); !errors.Is(err, errConnectorConnectionChanged) {
+	ctx := context.Background()
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, staleWrite); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("stale save err = %v", err)
 	}
 	connection.ModuleVersion = "v1.4.0"
-	if err := setup.putConnectionIfCurrent(connection, nil, staleGeneration); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, staleWrite); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("stale save with the new release err = %v", err)
 	}
-	currentGeneration := setup.connectionGeneration("slack", "support-slack")
+	currentWrite := standaloneTestWriteExpectation(t, setup)
 	connection.ModuleVersion = "v1.3.0"
-	if err := setup.putConnectionIfCurrent(connection, nil, currentGeneration); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("save of another release than the added one err = %v", err)
 	}
 	connection.ModuleVersion = "v1.4.0"
-	if err := setup.putConnectionIfCurrent(connection, nil, currentGeneration); err != nil {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite); err != nil {
 		t.Fatalf("current save err = %v", err)
 	}
 	if stored := getConnectorTestConnection(t, setup, "slack", "support-slack"); stored.ModuleVersion != "v1.4.0" {
 		t.Fatalf("stored = %+v", stored)
 	}
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite); !errors.Is(err, errConnectorConnectionChanged) {
+		t.Fatalf("a save that expects no record must not replace one: err = %v", err)
+	}
+}
+
+func TestFlowConnectionSaveIsRefusedWhenTheFlowMovesToAnotherReleaseDuringIt(t *testing.T) {
+	for _, path := range []string{"PUT", "OAuth"} {
+		t.Run(path, func(t *testing.T) {
+			race := newFlowReleaseRaceTest(t)
+			var response *httptest.ResponseRecorder
+			if path == "PUT" {
+				race.setHook(&race.onReleaseDownload, race.moveFlowToV2AndSaveIt)
+				response = sendStandaloneTestRequest(t, race.setup, race.mux, http.MethodPut, "/api/v2/connector-connections/slack/workspace",
+					`{"modulePath":"`+standaloneSlackTestModulePath+`","moduleVersion":"v1.3.0","provider":"slack","configuration":{},`+
+						`"credentials":{"bot_token":"xoxb-v1","user_token":"xoxp-v1"}}`)
+			} else {
+				state := startStandaloneSlackTestOAuthFor(t, race.setup, race.mux, "workspace")
+				race.setHook(&race.onTokenRequest, race.moveFlowToV2AndSaveIt)
+				response = finishStandaloneSlackTestOAuth(t, race.mux, state)
+			}
+			if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"CONNECTOR_CONNECTION_CHANGED"`) {
+				t.Fatalf("%s status = %d: %s", path, response.Code, response.Body.String())
+			}
+			stored := getConnectorTestConnection(t, race.setup, "slack", "workspace")
+			if stored.ModuleVersion != "v1.4.0" || string(stored.Credentials["bot_token"]) != `"xoxb-v2"` {
+				t.Fatalf("the v1 save overwrote the v2 connection: %+v", stored)
+			}
+		})
+	}
+}
+
+func TestTriggerBindingWriteIsRefusedAfterItsConnectionIsDeleted(t *testing.T) {
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, nil))
+	connection := testLocalConnectorConnection("slack", "workspace", "xoxb", nil)
+	if err := setup.store.put(connection, nil); err != nil {
+		t.Fatal(err)
+	}
+	binding := localConnectorTriggerBinding{
+		ConnectorID: "slack", ConnectionName: "workspace", TriggerName: "threadReplyCreated", BindingName: "approvals",
+		Configuration: map[string]json.RawMessage{},
+	}
+	if err := setup.store.putTriggerBinding(binding); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setup.deleteConnection("slack", "workspace"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.store.putTriggerBinding(binding); !errors.Is(err, errConnectorConnectionChanged) {
+		t.Fatalf("binding write after delete err = %v", err)
+	}
+	if _, err := setup.store.list(); err != nil {
+		t.Fatalf("the connection file must stay loadable: %v", err)
+	}
+
+	if err := setup.store.put(connection, nil); err != nil {
+		t.Fatal(err)
+	}
+	var writers sync.WaitGroup
+	for index := range 20 {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			if index%2 == 0 {
+				if _, err := setup.deleteConnection("slack", "workspace"); err != nil {
+					t.Error(err)
+				}
+				return
+			}
+			if err := setup.store.putTriggerBinding(binding); err != nil && !errors.Is(err, errConnectorConnectionChanged) {
+				t.Error(err)
+			}
+		}()
+	}
+	writers.Wait()
+	if _, err := setup.store.list(); err != nil {
+		t.Fatalf("interleaved deletes and binding writes left an invalid file: %v", err)
+	}
+}
+
+// flowReleaseRaceTest declares Slack v1.3.0 in a Flow that a hook moves to v1.4.0 while a save is in progress.
+type flowReleaseRaceTest struct {
+	t                 *testing.T
+	hooksMu           sync.Mutex
+	setup             *connectorSetup
+	mux               *http.ServeMux
+	provider          *switchableFlowDefinitionProvider
+	v2Snapshot        *FlowDefinitionSnapshot
+	onReleaseDownload func()
+	onTokenRequest    func()
+}
+
+func newFlowReleaseRaceTest(t *testing.T) *flowReleaseRaceTest {
+	t.Helper()
+	race := &flowReleaseRaceTest{t: t}
+	declare := func(version string) *FlowDefinitionSnapshot {
+		return connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{{
+			ConnectorID: "slack", OperationID: "postThreadReply", OperationKind: "mutation", ConnectionName: "workspace",
+			ModulePath: standaloneSlackTestModulePath, ModuleVersion: version, ConfigurationEnabled: true,
+		}}).(staticFlowDefinitionProvider).snapshot
+	}
+	race.provider = &switchableFlowDefinitionProvider{snapshot: declare("v1.3.0")}
+	race.v2Snapshot = declare("v1.4.0")
+	race.v2Snapshot.DefinitionRevision = "sha256:test-v2"
+	setup, mux := newStandaloneSlackOAuthTestWithHooks(t, race.provider, func() {
+		race.runHookOnce(&race.onReleaseDownload)
+	}, func() {
+		race.runHookOnce(&race.onTokenRequest)
+	})
+	race.setup, race.mux = setup, mux
+	return race
+}
+
+func (race *flowReleaseRaceTest) setHook(hook *func(), action func()) {
+	race.hooksMu.Lock()
+	defer race.hooksMu.Unlock()
+	*hook = action
+}
+
+func (race *flowReleaseRaceTest) runHookOnce(hook *func()) {
+	race.hooksMu.Lock()
+	action := *hook
+	*hook = nil
+	race.hooksMu.Unlock()
+	if action != nil {
+		action()
+	}
+}
+
+// moveFlowToV2AndSaveIt plays another request that saves the connection after the Flow moved to v1.4.0.
+func (race *flowReleaseRaceTest) moveFlowToV2AndSaveIt() {
+	race.provider.replace(race.v2Snapshot)
+	connection := testLocalConnectorConnection("slack", "workspace", "unused", nil)
+	connection.ModulePath, connection.ModuleVersion, connection.Provider = standaloneSlackTestModulePath, "v1.4.0", "slack"
+	connection.Credentials = map[string]json.RawMessage{"bot_token": json.RawMessage(`"xoxb-v2"`), "user_token": json.RawMessage(`"xoxp-v2"`)}
+	if err := race.setup.store.put(connection, nil); err != nil {
+		race.t.Error(err)
+	}
+}
+
+type switchableFlowDefinitionProvider struct {
+	mu       sync.Mutex
+	snapshot *FlowDefinitionSnapshot
+}
+
+func (provider *switchableFlowDefinitionProvider) Load(context.Context) (*FlowDefinitionSnapshot, error) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	return provider.snapshot, nil
+}
+
+func (provider *switchableFlowDefinitionProvider) replace(snapshot *FlowDefinitionSnapshot) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	provider.snapshot = snapshot
+}
+
+func standaloneTestWriteExpectation(t *testing.T, setup *connectorSetup) connectorConnectionWriteExpectation {
+	t.Helper()
+	generation := setup.connectionGeneration("slack", "support-slack")
+	snapshot, err := setup.flowDefinitions.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _, _, err := setup.resolveConnectionIdentity(snapshot.Response, "slack", "support-slack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectation, err := setup.newConnectorConnectionWriteExpectation(snapshot.Response, identity, generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return expectation
 }
 
 func TestStandaloneConnectionAddRequiresTheCSRFToken(t *testing.T) {
@@ -303,6 +476,17 @@ const standaloneSlackTestModulePath = "github.com/superdurable/dex-connectors-li
 // newStandaloneSlackOAuthTest serves Slack releases v1.3.0 and v1.4.0 and a token endpoint that calls onTokenRequest first.
 func newStandaloneSlackOAuthTest(t *testing.T, onTokenRequest func()) (*connectorSetup, *http.ServeMux) {
 	t.Helper()
+	return newStandaloneSlackOAuthTestWithHooks(t, connectorTestDefinitionProvider(t, nil), nil, onTokenRequest)
+}
+
+// newStandaloneSlackOAuthTestWithHooks also takes the Flow definitions and a hook that runs before each release download.
+func newStandaloneSlackOAuthTestWithHooks(
+	t *testing.T,
+	flowDefinitions FlowDefinitionProvider,
+	onReleaseDownload func(),
+	onTokenRequest func(),
+) (*connectorSetup, *http.ServeMux) {
+	t.Helper()
 	metadataByVersion := map[string][]byte{}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		version := filepath.Base(filepath.Dir(request.URL.Path))
@@ -313,6 +497,9 @@ func newStandaloneSlackOAuthTest(t *testing.T, onTokenRequest func()) (*connecto
 				t.Error(err)
 			}
 		case connectorReleaseMetadataName:
+			if onReleaseDownload != nil {
+				onReleaseDownload()
+			}
 			if _, err := response.Write(metadataByVersion[version]); err != nil {
 				t.Error(err)
 			}
@@ -361,7 +548,7 @@ func newStandaloneSlackOAuthTest(t *testing.T, onTokenRequest func()) (*connecto
 		}
 		metadataByVersion[version] = metadata
 	}
-	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, nil))
+	setup := connectorTestSetup(t, t.TempDir(), flowDefinitions)
 	setup.releases.baseURL = server.URL
 	setup.releases.httpClient = server.Client()
 	mux := http.NewServeMux()
@@ -381,7 +568,13 @@ func addStandaloneSlackTestConnection(t *testing.T, setup *connectorSetup, mux *
 // startStandaloneSlackTestOAuth starts OAuth for support-slack and returns its state.
 func startStandaloneSlackTestOAuth(t *testing.T, setup *connectorSetup, mux *http.ServeMux) string {
 	t.Helper()
-	started := sendStandaloneTestRequest(t, setup, mux, http.MethodPost, "/api/v2/connector-connections/slack/support-slack/oauth/start",
+	return startStandaloneSlackTestOAuthFor(t, setup, mux, "support-slack")
+}
+
+// startStandaloneSlackTestOAuthFor starts OAuth for the named Slack connection and returns its state.
+func startStandaloneSlackTestOAuthFor(t *testing.T, setup *connectorSetup, mux *http.ServeMux, connectionName string) string {
+	t.Helper()
+	started := sendStandaloneTestRequest(t, setup, mux, http.MethodPost, "/api/v2/connector-connections/slack/"+connectionName+"/oauth/start",
 		`{"clientId":"client","clientSecret":"secret","configuration":{},"credentialValues":{},"credentialSecrets":{"app_token":"xapp-app"}}`)
 	if started.Code != http.StatusOK {
 		t.Fatalf("OAuth start status = %d: %s", started.Code, started.Body.String())
@@ -584,5 +777,96 @@ func TestConnectorCatalogSharesOneFetchAndRemembersAFailure(t *testing.T) {
 	offline.mu.Unlock()
 	if _, err := offline.list(context.Background()); err == nil || attempts.Load() != 2 {
 		t.Fatalf("retry after the delay: err = %v, attempts = %d", err, attempts.Load())
+	}
+}
+
+func TestConnectorCatalogServesAStaleCopyAndCoolsDownAfterAFailedRefresh(t *testing.T) {
+	var attempts atomic.Int32
+	var isOffline atomic.Bool
+	catalogServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		attempts.Add(1)
+		if isOffline.Load() {
+			http.Error(response, "offline", http.StatusServiceUnavailable)
+			return
+		}
+		if _, err := response.Write([]byte(`{"apiVersion":"connectors.dex.dev/catalog/v1alpha1","kind":"ConnectorCatalog","connectors":[` +
+			`{"id":"gmail","name":"Gmail","version":"v0.25.2","languages":{"go":"v0.25.2"},"directory":"connectors/google/gmail"}]}`)); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer catalogServer.Close()
+	catalog := newConnectorPublicCatalog()
+	catalog.url = catalogServer.URL
+	catalog.httpClient = catalogServer.Client()
+	if entries, err := catalog.list(context.Background()); err != nil || len(entries) != 1 {
+		t.Fatalf("first list: %v, %v", entries, err)
+	}
+	isOffline.Store(true)
+	catalog.mu.Lock()
+	catalog.fetchedAt = time.Now().Add(-connectorPublicCatalogTTL)
+	catalog.mu.Unlock()
+	for range 3 {
+		if entries, err := catalog.list(context.Background()); err != nil || len(entries) != 1 {
+			t.Fatalf("stale list: %v, %v", entries, err)
+		}
+	}
+	if attempts.Load() != 2 {
+		t.Fatalf("catalog requests = %d, want one failed refresh and then a cooldown", attempts.Load())
+	}
+	catalog.mu.Lock()
+	catalog.failedAt = time.Now().Add(-connectorPublicCatalogRetryDelay)
+	catalog.mu.Unlock()
+	isOffline.Store(false)
+	if entries, err := catalog.list(context.Background()); err != nil || len(entries) != 1 || attempts.Load() != 3 {
+		t.Fatalf("refresh after the cooldown: %v, %v, attempts = %d", entries, err, attempts.Load())
+	}
+}
+
+func TestConnectorCatalogFetchOutlivesTheCallerThatStartedIt(t *testing.T) {
+	var requests atomic.Int32
+	release := make(chan struct{})
+	catalogServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		<-release
+		if _, err := response.Write([]byte(`{"apiVersion":"connectors.dex.dev/catalog/v1alpha1","kind":"ConnectorCatalog","connectors":[` +
+			`{"id":"gmail","name":"Gmail","version":"v0.25.2","languages":{"go":"v0.25.2"},"directory":"connectors/google/gmail"}]}`)); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer catalogServer.Close()
+	catalog := newConnectorPublicCatalog()
+	catalog.url = catalogServer.URL
+	catalog.httpClient = catalogServer.Client()
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	firstResult := make(chan error, 1)
+	go func() {
+		_, err := catalog.list(firstCtx)
+		firstResult <- err
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for requests.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the shared fetch did not start")
+		}
+		runtime.Gosched()
+	}
+	secondResult := make(chan []connectorCatalogEntry, 1)
+	go func() {
+		entries, err := catalog.list(context.Background())
+		if err != nil {
+			t.Error(err)
+		}
+		secondResult <- entries
+	}()
+	cancelFirst()
+	if err := <-firstResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled caller err = %v", err)
+	}
+	close(release)
+	if entries := <-secondResult; len(entries) != 1 {
+		t.Fatalf("the second caller's entries = %v", entries)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("catalog requests = %d, want the canceled caller's fetch to serve the second caller", requests.Load())
 	}
 }

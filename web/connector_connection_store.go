@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -185,6 +186,12 @@ func (store *connectorConnectionStore) putTriggerBinding(binding localConnectorT
 	file, err := store.load()
 	if err != nil {
 		return err
+	}
+	// A binding needs its connection in the same file; a load rejects a file that breaks this.
+	if !slices.ContainsFunc(file.Connections, func(connection localConnectorConnection) bool {
+		return connection.ConnectorID == binding.ConnectorID && connection.ConnectionName == binding.ConnectionName
+	}) {
+		return errConnectorConnectionChanged
 	}
 	found := false
 	for index := range file.TriggerBindings {

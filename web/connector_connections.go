@@ -104,10 +104,10 @@ type connectorCatalogNode struct {
 }
 
 type connectorAuthorizationSnapshot struct {
-	// ConnectionGeneration is the connection key's generation read before its identity was resolved.
-	ConnectionGeneration uint64
-	DefinitionRevision   string
-	Response             []byte
+	// ConnectionWrite is what a connection save of this request must still find when it commits.
+	ConnectionWrite    connectorConnectionWriteExpectation
+	DefinitionRevision string
+	Response           []byte
 }
 
 type connectorDefinitionIdentity struct {
@@ -357,7 +357,7 @@ func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector connection request is invalid")
 		return
 	}
-	if err := setup.putConnectionIfCurrent(connection, body.KeepCredentialFields, snapshot.ConnectionGeneration); err != nil {
+	if err := setup.putConnectionIfCurrent(request.Context(), connection, body.KeepCredentialFields, snapshot.ConnectionWrite); err != nil {
 		writeConnectorConnectionPutError(response, err, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
 		return
 	}
@@ -491,7 +491,7 @@ func (setup *connectorSetup) handlePutTriggerBinding(response http.ResponseWrite
 		TriggerName: triggerName, BindingName: bindingName, Configuration: body.Configuration,
 	}
 	if err := store.putTriggerBinding(localBinding); err != nil {
-		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_TRIGGER_BINDING_WRITE_FAILED", "Connector Trigger binding could not be saved")
+		writeConnectorConnectionPutError(response, err, "CONNECTOR_TRIGGER_BINDING_WRITE_FAILED", "Connector Trigger binding could not be saved")
 		return
 	}
 	writeWebJSON(response, http.StatusOK, map[string]any{
@@ -611,8 +611,13 @@ func (setup *connectorSetup) authorizeConnectionKey(
 		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_VERSION_CONFLICT", "Connector connection has conflicting module versions")
 		return nil, connectorDefinitionIdentity{}, false
 	}
+	connectionWrite, err := setup.newConnectorConnectionWriteExpectation(snapshot.Response, requested, generation)
+	if err != nil {
+		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_CONNECTIONS_UNAVAILABLE", "Connector connections are unavailable")
+		return nil, connectorDefinitionIdentity{}, false
+	}
 	return &connectorAuthorizationSnapshot{
-		ConnectionGeneration: generation, DefinitionRevision: snapshot.DefinitionRevision, Response: snapshot.Response,
+		ConnectionWrite: connectionWrite, DefinitionRevision: snapshot.DefinitionRevision, Response: snapshot.Response,
 	}, requested, true
 }
 
