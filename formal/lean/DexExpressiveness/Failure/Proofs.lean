@@ -1,3 +1,5 @@
+import DexExpressiveness.Failure.Proofs.WPF6Progress
+
 /-!
 # Proofs of the leaf statements
 

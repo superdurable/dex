@@ -153,7 +153,8 @@ theorem isProgress_eq_dexProgress (program : Program σ) (config : Config σ)
     (isStep : step program config action = some (events, next)) :
     action.isProgress =
       (dexActionsOf program config action).any (Dex.system program.failureFreeFlow).isProgress := by
-  sorry
+  exact isProgress_eq_dexProgress_proof program config invariant action isNotExhausting events
+    next isStep
 
 end IsProgressEqDexProgress
 
