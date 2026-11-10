@@ -8,7 +8,7 @@ title: 等待 Step 完成
 
 **WaitForStepCompletionFlow** 示例会在 **PersistData** 中持久化记录，再启动 **BackgroundWork**。它的 controller 在查询已持久化记录前等待 **PersistData**。要等待的 Step 必须在保存好响应所需的状态之后才完成。
 
-当等待运行在 HTTP endpoint 或其他有自身截止时间的入口之后时，设置 **RequestTimeout**。下面的 runnable controller 没有设置它。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
+如果在 HTTP endpoint 或其他有自己截止时间的入口里执行等待，请设置 **RequestTimeout**。下面的 runnable controller 没有设置它。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
 
 ## 核心实现
 

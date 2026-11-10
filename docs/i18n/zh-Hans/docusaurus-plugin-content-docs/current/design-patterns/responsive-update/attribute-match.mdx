@@ -12,7 +12,7 @@ title: 等待 Attribute 匹配
 
 Revision 是 watermark，不是事件流。如果状态快速地从 0 变成 1、2、3，一次等待大于 0 的调用可能直接返回 3。调用方不能假设会观察到每个中间值。
 
-当等待运行在 HTTP endpoint 或其他有自身截止时间的入口之后时，设置 **RequestTimeout**。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
+如果在 HTTP endpoint 或其他有自己截止时间的入口里执行等待，请设置 **RequestTimeout**。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
 
 ## 在锁内推进 revision
 
