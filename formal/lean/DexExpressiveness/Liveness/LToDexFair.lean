@@ -1,4 +1,5 @@
 import DexExpressiveness.Liveness.LToDexRun
+import DexExpressiveness.Liveness.LToDexFairTime
 
 /-!
 # Liveness, work package L6: the Dex run of a fair L run is fair
