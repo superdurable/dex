@@ -5,10 +5,9 @@ sidebar_label: Workers
 
 # Java Workers
 
-This page shows how to start a Java Worker. It lists the Java names for the
-Worker settings and diagnostics. The
-[Workers and the task queue](/reference/server/workers) page describes their
-behavior for every SDK.
+This page shows how to start a Java Worker and lists the Java names of its
+settings. [Workers and the task queue](/reference/server/workers) describes
+how these settings behave in every SDK.
 
 ## Start a Worker
 
@@ -94,10 +93,11 @@ Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers
 
 ## Readiness
 
-Java provides **waitPullRegistered(Duration)** and
-**getPullRegistrationState()** in SDK 1.14.0. Java's
-**stopOnPermanentStreamRejection** provides the same opt-in shutdown behavior
-as Go.
+**waitPullRegistered(Duration)** waits until the Worker's slot streams have registered with
+Dex. **getPullRegistrationState()** reports the current registration state. By default,
+a Worker keeps retrying when Dex permanently rejects a slot stream. Set
+**stopOnPermanentStreamRejection** to stop and drain the Worker instead when a permanent
+rejection leaves a slot kind without registered streams. Since 1.14.0.
 
 A **PullRegistrationError** reports **POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or
 **POLL_WORKER_SLOT_KIND_RPC_ONLY** as its slot kind.
@@ -132,8 +132,8 @@ has no effect.
 The reserve-decline counter, **getPullReservedRpcDeclines()**, is deprecated. It remains for
 source compatibility and always reads zero.
 
-This diagnostics helper exposes registration readiness. Its reserve-decline field
-is always zero. A full Worker stays ready.
+Report registration readiness instead, as this diagnostics helper does. Its reserve-decline field
+is always zero. A Worker with every slot busy stays ready.
 
 ```java
     public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {

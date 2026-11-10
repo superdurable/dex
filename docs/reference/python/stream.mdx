@@ -22,9 +22,10 @@ them in the [Python SDK API reference](./index.mdx#api-reference).
 | Read the next message | **Client.read_stream**, with the **resume_token** of the last message | [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) |
 | List retained messages, newest first | **Client.list_stream_messages** | [List messages](/reference/server/runtime-data#stream-listing) |
 
-In a synchronous Step, **Stream.write** returns a **StepOutput** that the
-handler must yield. In an asynchronous Step, it enqueues the message and
-returns nothing. RPC and Flow timeout handlers cannot write a Stream.
+**Stream.write** works in **wait_for**, **execute**, and the Flow timeout
+handler. An RPC handler cannot write a Stream. In a synchronous handler,
+**Stream.write** returns a **StepOutput** that the handler must yield. In an
+asynchronous handler, it enqueues the message and returns nothing.
 
 ## Example {#example}
 

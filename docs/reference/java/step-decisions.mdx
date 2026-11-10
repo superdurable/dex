@@ -6,8 +6,8 @@ sidebar_label: Step decisions
 
 # Step decisions
 
-**Execute** returns a **StepDecision**. It moves to next Steps, closes the
-Flow, or both stops this branch and cancels other Steps.
+**Execute** returns a **StepDecision**. The decision moves to next Steps,
+closes the Flow, or stops this branch. It can also cancel other Steps.
 
 ## Multiple next Steps {#gotomulti}
 
@@ -28,18 +28,18 @@ Example: [examples/java/src/main/java/io/superdurable/dex/primitives/stepdecisio
 
 | Decision | What it does |
 | --- | --- |
-| **GracefulComplete** | Stops this branch and triggers the Flow to prepare for completion. When all branches and Steps are stopped, the Flow completes. |
+| **GracefulComplete** | Stops this branch and marks the Flow to complete. The Flow completes when every branch and Step has stopped. |
 | **DeadEnd** | Stops this branch only. |
 | **ForceComplete** | Completes the Flow immediately. |
 | **ForceFail** | Fails the Flow immediately. |
 
-**GracefulComplete** and **ForceComplete** can return an output. **ForceFail**
-returns a failure reason. The Flow result returns each output with the Step
-type and Step execution ID. When multiple Steps complete gracefully, all their
-outputs return together.
+**GracefulComplete** and **ForceComplete** can carry an output. **ForceFail**
+carries a failure reason. The Flow result lists each output with its Step type
+and Step execution ID. When several Steps complete gracefully, the result
+contains all their outputs.
 
-A Flow can have no active Steps and still keep running. **DeadEnd** stops this
-branch without making a decision that triggers the Flow to complete.
+**DeadEnd** stops this branch without marking the Flow to complete. A Flow with
+no active Steps can keep running.
 
 ```java
 case "graceful" -> {
@@ -80,12 +80,11 @@ An RPC can also cancel Steps by type. See
 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). For how a
 running attempt observes cancellation, see [Cancellation](./step-options.mdx#cancellation).
 
-A canceled Step returns the Channel messages its wait consumed before its
-**Execute** committed. They go back to the front of their Channels, in their
-original order, unless the decision also closes the Flow with **ForceComplete**
-or **ForceFail**. A Step that the decision cancels never
-takes the messages the same result publishes, unless the decision also closes
-the Flow at once. See
+When Dex cancels a Step before its **Execute** commits, it returns the Channel
+messages that the Step's wait consumed. They go back to the front of their
+Channels, in their original order. A Step that the decision cancels also never
+receives the messages that the same decision publishes. Neither applies when
+the decision also closes the Flow with **ForceComplete** or **ForceFail**. See
 [Canceled Steps return consumed messages](/reference/server/runtime-data#canceled-step-messages).
 
 ```java
@@ -97,14 +96,15 @@ Example: [examples/java/src/main/java/io/superdurable/dex/primitives/stepdecisio
 
 ## ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
 
-**ForceCompleteIfChannelsEmpty** atomically checks whether all named Channels
-are empty. A Channel with queued messages is non-empty. After a message is
-consumed and committed to a Step, that Channel remains non-empty until the Step
-finishes processing **Execute**. A message that a canceled Step returned is
-pending again, so its Channel is non-empty too. If every named Channel is
-empty, it completes the Flow. Otherwise, it goes to other Steps.
+**ForceCompleteIfChannelsEmpty** checks all named Channels in one atomic step.
+If every one is empty, it completes the Flow. Otherwise, it goes to the given
+next Steps. A Channel with queued messages is non-empty. A Channel also stays
+non-empty after a Step consumes a message from it, until that Step's
+**Execute** finishes. A message that a canceled Step returned is pending again,
+so its Channel is non-empty too.
 
-Use it to drain Channels and complete the Flow, so the Flow can stay short. See
+Use it to complete a Flow once its Channels are drained, so the Flow stays
+short. See
 [Drain External Channel](/design-patterns/draining-channel-for-external-publishing)
 for the full example.
 
