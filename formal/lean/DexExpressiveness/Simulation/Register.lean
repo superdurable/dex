@@ -405,4 +405,373 @@ theorem wp3a_compute_waitFor (program : Program) (thread : L.Thread)
     | none => rfl
     | some chan => cases chan <;> rfl
 
+/-! ## The frame of a registration -/
+
+/-- The change of the Step table by one Step. -/
+def wp3a_changeStep (step : Dex.StepExecId signature)
+    (change : Dex.StepRecord signature → Dex.StepRecord signature)
+    (candidate : Dex.StepRecord signature) : Dex.StepRecord signature :=
+  if candidate.id = step then change candidate else candidate
+
+/-- The Channel clauses of `RunningRelated` after the thread `tid` registered. -/
+structure wp3a_ChannelsRelated (lNext : L.Config) (run newRun : Dex.Run signature) (tid : Tid)
+    (newPhase : Phase) : Prop where
+  /-- External Channels hold the queued input. -/
+  inputQueues : ∀ chan,
+    newRun.pendingMessages (Chan.external chan) = (lNext.pendingInput chan).map DexVal.value
+  /-- One token exactly while the mutex is unlocked. -/
+  mutexTokens : ∀ mutex, (newRun.pendingMessages (Chan.mutexToken mutex)).length =
+    if lNext.mutexOwners.get? mutex = some none then 1 else 0
+  /-- One message exactly while the thread is joinable. -/
+  joinTokens : ∀ joined, (newRun.pendingMessages (Chan.joinDone joined)).length =
+    if lNext.joinable.contains joined then 1 else 0
+  /-- The early wakes of each waiter. -/
+  cvWakes : ∀ cv waiter, (newRun.pendingMessages (Chan.cvWake cv waiter)).length =
+    lNext.cvWakes.count (cv, waiter)
+  /-- The cancel requests of other threads stay. -/
+  cancelOther : ∀ other, other ≠ tid →
+    newRun.pendingMessages (Chan.cancelRequest other) =
+      run.pendingMessages (Chan.cancelRequest other)
+  /-- No cancel request of the thread appears. -/
+  cancelBefore : newRun.pendingMessages (Chan.cancelRequest tid) ≠ [] →
+    run.pendingMessages (Chan.cancelRequest tid) ≠ []
+  /-- A cancel request of the thread stays, or the thread observed it. -/
+  cancelAfter : run.pendingMessages (Chan.cancelRequest tid) ≠ [] →
+    newRun.pendingMessages (Chan.cancelRequest tid) ≠ [] ∨ newPhase = .woken .canceled
+
+/-- The frame lemma of a registration: a `waitStarted` thread becomes woken or
+blocked, its Step changes, and one Channel may lose its head message. -/
+theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Config}
+    {dexConfig dexNext : Dex.Config signature} {run newRun : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (lInvariant : L.Invariant program lConfig)
+    (idsNodup : (run.steps.map (fun candidate => candidate.id)).Nodup)
+    {tid : Tid} {thread : L.Thread} (isFound : lConfig.findThread? tid = some thread)
+    (isWaitStarted : thread.phase = .waitStarted)
+    {record : Dex.StepRecord signature} (isRecord : record ∈ run.steps)
+    (isActive : record.phase.isActive = true)
+    (carries : StepCarriesThread program thread record)
+    (newPhase : Phase) (isNotBoot : wp2_isBootPhase newPhase = false)
+    (isNotHalted : newPhase ≠ .halted)
+    (sameThreads : lNext.threads = (lConfig.setPhase tid newPhase).threads)
+    (sameShared : lNext.shared = lConfig.shared)
+    (sameQueues : lNext.cvQueues = lConfig.cvQueues)
+    (sameFlags : lNext.cancelFlags = lConfig.cancelFlags)
+    (sameTimerCounter : lNext.timerCounter = lConfig.timerCounter)
+    (change : Dex.StepRecord signature → Dex.StepRecord signature)
+    (sameSteps : newRun.steps = run.steps.map (wp3a_changeStep record.id change))
+    (changeKeeps : (change record).id = record.id ∧ (change record).input = record.input ∧
+      (change record).options = record.options ∧ (change record).phase.isActive = true)
+    (sameAttributes : newRun.attributes = run.attributes)
+    (sameCounters : newRun.counters = run.counters)
+    (sameOutputs : newRun.outputs = run.outputs)
+    (channels : wp3a_ChannelsRelated lNext run newRun tid newPhase)
+    (timersField : ∀ timer fireTime, newRun.timers.get? timer = some fireTime ↔
+      ∃ owner chan since, owner ∈ lNext.threads ∧
+        owner.phase = .blocked (.timed timer.step.number fireTime chan) since ∧
+        timer.step.stepType = StepType.timed ∧ timer.index = 0)
+    (blockedOrder : ∀ on since, newPhase = .blocked on since →
+      (∀ other, other ∈ lConfig.threads → ∀ otherOn otherSince,
+        other.phase = .blocked otherOn otherSince → otherSince < since) ∧
+      ∃ waitState, (change record).waitState = some waitState ∧
+        ∀ other, other ∈ run.steps → other.phase = .waiting → ∀ otherWait,
+          other.waitState = some otherWait →
+          otherWait.registeredSeq < waitState.registeredSeq)
+    (keepsTasks : ∀ task, task ∈ dexConfig.tasks → task.step ≠ record.id → task ∈ dexNext.tasks)
+    (newMatch : PhaseMatchesStep program lConfig dexNext { thread with phase := newPhase }
+      (change record))
+    (tasksAreCurrent : ∀ task, task ∈ dexNext.tasks → dexNext.isTaskCurrent task = true) :
+    RunningRelated program lNext dexNext newRun := by
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  have memNew : ∀ candidate, candidate ∈ lNext.threads ↔
+      (candidate ∈ lConfig.threads ∧ candidate.core.tid ≠ tid) ∨
+      candidate = { thread with phase := newPhase } := by
+    intro candidate
+    rw [sameThreads]
+    exact wp2_mem_setPhase lInvariant isFound newPhase candidate
+  have sameBoot : wp2_isBootPhase newPhase = wp2_isBootPhase thread.phase := by
+    rw [isNotBoot, isWaitStarted]
+    rfl
+  have findNew : ∀ other, lNext.findThread? other =
+      (lConfig.findThread? other).map (fun current =>
+        if current.core.tid = tid then { current with phase := newPhase } else current) := by
+    intro other
+    rw [← wp2_findThread?_setPhase]
+    show lNext.threads.find? _ = (lConfig.setPhase tid newPhase).threads.find? _
+    rw [sameThreads]
+  -- No thread boots: a booting `main` is the only thread.
+  have noBoot : ∀ other, other ∈ lConfig.threads → wp2_isBootPhase other.phase = false := by
+    intro other isOther
+    cases bootCase : wp2_isBootPhase other.phase with
+    | false => rfl
+    | true =>
+      have isBootPhase : other.phase = .bootPending ∨ other.phase = .bootRunning := by
+        cases phaseCase : other.phase <;> simp [phaseCase, wp2_isBootPhase] at bootCase ⊢
+      have isOnly := (lInvariant.bootIsInitial other isOther isBootPhase).1
+      rw [isOnly] at isMember
+      have isThread : thread = other := by simpa using isMember
+      rw [isThread] at isWaitStarted
+      rcases isBootPhase with isPhase | isPhase <;> rw [isPhase] at isWaitStarted <;>
+        cases isWaitStarted
+  have imageRecord : wp3a_changeStep record.id change record = change record := by
+    simp [wp3a_changeStep]
+  have imageOther : ∀ candidate, candidate.id ≠ record.id →
+      wp3a_changeStep record.id change candidate = candidate := by
+    intro candidate isOther
+    simp [wp3a_changeStep, isOther]
+  have imageKeeps : ∀ candidate, candidate ∈ run.steps →
+      (wp3a_changeStep record.id change candidate).id = candidate.id ∧
+      (wp3a_changeStep record.id change candidate).input = candidate.input ∧
+      (wp3a_changeStep record.id change candidate).options = candidate.options ∧
+      (wp3a_changeStep record.id change candidate).phase.isActive =
+        candidate.phase.isActive := by
+    intro candidate isCandidate
+    by_cases isChanged : candidate.id = record.id
+    · have sameRecord : candidate = record :=
+        eq_of_nodup_map (fun step => step.id) run.steps idsNodup isCandidate isRecord isChanged
+      rw [sameRecord, imageRecord]
+      exact ⟨changeKeeps.1, changeKeeps.2.1, changeKeeps.2.2.1, by
+        rw [changeKeeps.2.2.2, isActive]⟩
+    · rw [imageOther candidate isChanged]
+      exact ⟨rfl, rfl, rfl, rfl⟩
+  -- A Step of another thread is not the Step of the changed thread.
+  have otherStep : ∀ other otherRecord, other ∈ lConfig.threads → other.core.tid ≠ tid →
+      otherRecord ∈ run.steps → StepCarriesThread program other otherRecord →
+      otherRecord.id ≠ record.id := by
+    intro other otherRecord isOther otherTid isOtherRecord otherCarries sameId
+    have sameRecord : otherRecord = record :=
+      eq_of_nodup_map (fun candidate => candidate.id) run.steps idsNodup isOtherRecord
+        isRecord sameId
+    rw [sameRecord] at otherCarries
+    have otherInput := wp2_threadOfInput_of_mem lInvariant isOther otherCarries
+    have threadInput := wp2_threadOfInput_of_mem lInvariant isMember carries
+    exact otherTid ((otherInput.symm.trans threadInput).trans hasTid)
+  have imageMem : ∀ candidate, candidate ∈ run.steps →
+      wp3a_changeStep record.id change candidate ∈ newRun.steps := by
+    intro candidate isCandidate
+    rw [sameSteps]
+    exact List.mem_map.mpr ⟨candidate, isCandidate, rfl⟩
+  have carriesImage : ∀ (other : L.Thread) (candidate : Dex.StepRecord signature),
+      candidate ∈ run.steps → (StepCarriesThread program other candidate ↔
+        StepCarriesThread program other (wp3a_changeStep record.id change candidate)) := by
+    intro other candidate isCandidate
+    obtain ⟨sameId, sameInput, sameOptions, _⟩ := imageKeeps candidate isCandidate
+    exact ⟨wp2_stepCarriesThread_congr sameId sameInput sameOptions,
+      wp2_stepCarriesThread_congr sameId.symm sameInput.symm sameOptions.symm⟩
+  -- The active Step that carries the changed thread is `record`.
+  have recordOfNew : ∀ candidate, candidate ∈ run.steps → candidate.phase.isActive = true →
+      StepCarriesThread program { thread with phase := newPhase }
+        (wp3a_changeStep record.id change candidate) → candidate = record := by
+    intro candidate isCandidate candidateActive candidateCarries
+    have oldCarries : StepCarriesThread program thread candidate := by
+      have newCarries := (carriesImage _ candidate isCandidate).mpr candidateCarries
+      rw [wp2_stepCarriesThread_iff] at newCarries ⊢
+      dsimp only at newCarries
+      rw [isNotBoot] at newCarries
+      rw [← sameBoot, isNotBoot]
+      exact newCarries
+    exact related.activeStepsHaveDistinctThreads candidate isCandidate record isRecord
+      candidateActive isActive (by rw [oldCarries.input_eq carries])
+  -- The Step of a blocked thread waits.
+  have waitingOfBlocked : ∀ (other : L.Thread) (otherRecord : Dex.StepRecord signature) on since,
+      other ∈ lConfig.threads → otherRecord ∈ run.steps → otherRecord.phase.isActive = true →
+      StepCarriesThread program other otherRecord → other.phase = .blocked on since →
+      otherRecord.phase = .waiting := by
+    intro other otherRecord on since isOther isOtherRecord otherActive otherCarries isBlocked
+    have phaseMatches := related.phaseMatchesStep_of_carries other isOther
+      (by rw [isBlocked]; simp) otherRecord isOtherRecord otherActive otherCarries
+    simp only [PhaseMatchesStep, isBlocked] at phaseMatches
+    exact phaseMatches.1
+  exact
+    { shared := fun name => by
+        rw [sameAttributes]
+        show _ = (lNext.shared.get? name).getD .null
+        rw [sameShared]
+        exact related.shared name
+      cvQueues := fun cv => by
+        rw [sameAttributes, sameQueues]
+        exact related.cvQueues cv
+      inputQueues := channels.inputQueues
+      mutexTokens := fun _ => channels.mutexTokens
+      mutexesBeforeBoot := fun other isOther isBooting => by
+        have isBoot : wp2_isBootPhase other.phase = true := by
+          rcases isBooting with isPhase | isPhase <;> rw [isPhase] <;> rfl
+        rcases (memNew other).mp isOther with ⟨wasMember, _⟩ | isNew
+        · rw [noBoot other wasMember] at isBoot
+          cases isBoot
+        · rw [isNew] at isBoot
+          simp only [isNotBoot] at isBoot
+          cases isBoot
+      joinTokens := channels.joinTokens
+      cancelRequestsAreFlags := fun target isPending => by
+        rw [sameFlags]
+        apply related.cancelRequestsAreFlags
+        by_cases isSelf : target = tid
+        · rw [isSelf] at isPending ⊢
+          exact channels.cancelBefore isPending
+        · rw [← channels.cancelOther target isSelf]
+          exact isPending
+      cancelFlagsAreRequests := fun target isFlagged => by
+        rw [sameFlags] at isFlagged
+        rw [findNew]
+        by_cases isSelf : target = tid
+        · rw [isSelf] at isFlagged ⊢
+          rcases related.cancelFlagsAreRequests tid isFlagged with
+            isPending | ⟨current, isCurrent, isCanceled⟩ | ⟨isGone, _⟩
+          · rcases channels.cancelAfter isPending with stillPending | isObserved
+            · exact Or.inl stillPending
+            · refine Or.inr (Or.inl ⟨{ thread with phase := newPhase }, ?_, Or.inl isObserved⟩)
+              rw [isFound]
+              simp [hasTid]
+          · rw [isFound] at isCurrent
+            cases isCurrent
+            rw [isWaitStarted] at isCanceled
+            rcases isCanceled with isPhase | isPhase <;> cases isPhase
+          · rw [isFound] at isGone
+            cases isGone
+        · rcases related.cancelFlagsAreRequests target isFlagged with
+            isPending | ⟨current, isCurrent, isCanceled⟩ | ⟨isGone, isFresh⟩
+          · exact Or.inl (by rw [channels.cancelOther target isSelf]; exact isPending)
+          · have currentTid := (wp2_mem_of_findThread? isCurrent).2
+            refine Or.inr (Or.inl ⟨current, ?_, isCanceled⟩)
+            rw [isCurrent]
+            simp [currentTid, isSelf]
+          · refine Or.inr (Or.inr ⟨by rw [isGone]; rfl, ?_⟩)
+            intro live isLive
+            rcases (memNew live).mp isLive with ⟨wasLive, _⟩ | isNew
+            · exact isFresh live wasLive
+            · rw [isNew]
+              exact isFresh thread isMember
+      cvWakes := channels.cvWakes
+      timers := timersField
+      timerCounter := by
+        rw [sameCounters, sameTimerCounter]
+        exact related.timerCounter
+      outputsEmpty := sameOutputs.trans related.outputsEmpty
+      threadsHaveSteps := fun other isOther isNotHaltedOther => by
+        rcases (memNew other).mp isOther with ⟨isOld, otherTid⟩ | isNew
+        · obtain ⟨otherRecord, isOtherRecord, otherActive, otherCarries, otherMatch⟩ :=
+            related.threadsHaveSteps other isOld isNotHaltedOther
+          have isOtherId := otherStep other otherRecord isOld otherTid isOtherRecord otherCarries
+          refine ⟨otherRecord, ?_, otherActive, otherCarries, ?_⟩
+          · have isImage := imageMem otherRecord isOtherRecord
+            rw [imageOther otherRecord isOtherId] at isImage
+            exact isImage
+          · exact wp2_phaseMatchesStep_transfer sameQueues
+              (fun task isTask isTaskStep =>
+                keepsTasks task isTask (by rw [isTaskStep]; exact isOtherId))
+              otherMatch
+        · rw [isNew]
+          refine ⟨change record, ?_, changeKeeps.2.2.2, ?_, ?_⟩
+          · have isImage := imageMem record isRecord
+            rw [imageRecord] at isImage
+            exact isImage
+          · exact wp2_stepCarriesThread_congr changeKeeps.1 changeKeeps.2.1 changeKeeps.2.2.1
+              (wp2_stepCarriesThread_setPhase newPhase sameBoot carries)
+          · exact wp2_phaseMatchesStep_transfer sameQueues (fun _ isTask _ => isTask) newMatch
+      stepsHaveThreads := fun changed isChanged changedActive => by
+        rw [sameSteps] at isChanged
+        obtain ⟨candidate, isCandidate, isImage⟩ := List.mem_map.mp isChanged
+        rw [← isImage] at changedActive ⊢
+        rw [(imageKeeps candidate isCandidate).2.2.2] at changedActive
+        obtain ⟨owner, isOwner, ownerNotHalted, ownerCarries⟩ :=
+          related.stepsHaveThreads candidate isCandidate changedActive
+        by_cases isChangedThread : owner.core.tid = tid
+        · have isThread : owner = thread :=
+            wp2_thread_eq_of_tid lInvariant isOwner isMember (isChangedThread.trans hasTid.symm)
+          rw [isThread] at ownerCarries
+          exact ⟨_, (memNew _).mpr (Or.inr rfl), isNotHalted,
+            (carriesImage _ candidate isCandidate).mp
+              (wp2_stepCarriesThread_setPhase newPhase sameBoot ownerCarries)⟩
+        · exact ⟨owner, (memNew owner).mpr (Or.inl ⟨isOwner, isChangedThread⟩), ownerNotHalted,
+            (carriesImage owner candidate isCandidate).mp ownerCarries⟩
+      activeStepsHaveDistinctThreads := fun first isFirst second isSecond firstActive
+          secondActive sameThread => by
+        rw [sameSteps] at isFirst isSecond
+        obtain ⟨firstOld, isFirstOld, isFirstImage⟩ := List.mem_map.mp isFirst
+        obtain ⟨secondOld, isSecondOld, isSecondImage⟩ := List.mem_map.mp isSecond
+        rw [← isFirstImage] at firstActive sameThread ⊢
+        rw [← isSecondImage] at secondActive sameThread ⊢
+        rw [(imageKeeps firstOld isFirstOld).2.2.2] at firstActive
+        rw [(imageKeeps secondOld isSecondOld).2.2.2] at secondActive
+        rw [(imageKeeps firstOld isFirstOld).2.1, (imageKeeps secondOld isSecondOld).2.1]
+          at sameThread
+        rw [related.activeStepsHaveDistinctThreads firstOld isFirstOld secondOld isSecondOld
+          firstActive secondActive sameThread]
+      invocationsAreActive := fun changed isChanged hasInvocation => by
+        rw [sameSteps] at isChanged
+        obtain ⟨candidate, isCandidate, isImage⟩ := List.mem_map.mp isChanged
+        rw [← isImage] at hasInvocation ⊢
+        rw [(imageKeeps candidate isCandidate).2.2.2]
+        by_cases isChangedStep : candidate.id = record.id
+        · have sameRecord : candidate = record :=
+            eq_of_nodup_map (fun step => step.id) run.steps idsNodup isCandidate isRecord
+              isChangedStep
+          rw [sameRecord]
+          exact isActive
+        · rw [imageOther candidate isChangedStep] at hasInvocation
+          exact related.invocationsAreActive candidate isCandidate hasInvocation
+      blockingOrder := fun first second firstRecord secondRecord firstOn firstSince secondOn
+          secondSince firstWait secondWait isFirst isSecond isFirstRecord isSecondRecord
+          firstActive secondActive firstCarries secondCarries firstBlocked secondBlocked
+          firstHasWait secondHasWait => by
+        rw [sameSteps] at isFirstRecord isSecondRecord
+        obtain ⟨firstOld, isFirstOld, isFirstImage⟩ := List.mem_map.mp isFirstRecord
+        obtain ⟨secondOld, isSecondOld, isSecondImage⟩ := List.mem_map.mp isSecondRecord
+        rw [← isFirstImage] at firstActive firstCarries firstHasWait
+        rw [← isSecondImage] at secondActive secondCarries secondHasWait
+        rw [(imageKeeps firstOld isFirstOld).2.2.2] at firstActive
+        rw [(imageKeeps secondOld isSecondOld).2.2.2] at secondActive
+        rcases (memNew first).mp isFirst with ⟨isFirstThread, firstTid⟩ | isFirstNew
+        · have firstCarriesOld := (carriesImage first firstOld isFirstOld).mpr firstCarries
+          rw [imageOther firstOld (otherStep first firstOld isFirstThread firstTid isFirstOld
+            firstCarriesOld)] at firstHasWait
+          rcases (memNew second).mp isSecond with ⟨isSecondThread, secondTid⟩ | isSecondNew
+          · have secondCarriesOld := (carriesImage second secondOld isSecondOld).mpr secondCarries
+            rw [imageOther secondOld (otherStep second secondOld isSecondThread secondTid
+              isSecondOld secondCarriesOld)] at secondHasWait
+            exact related.blockingOrder first second firstOld secondOld firstOn firstSince
+              secondOn secondSince firstWait secondWait isFirstThread isSecondThread isFirstOld
+              isSecondOld firstActive secondActive firstCarriesOld secondCarriesOld firstBlocked
+              secondBlocked firstHasWait secondHasWait
+          · rw [isSecondNew] at secondCarries secondBlocked
+            have isSecondChanged := recordOfNew secondOld isSecondOld secondActive secondCarries
+            rw [isSecondChanged, imageRecord] at secondHasWait
+            obtain ⟨sinceBelow, waitState, hasWait, seqBelow⟩ :=
+              blockedOrder secondOn secondSince secondBlocked
+            rw [hasWait] at secondHasWait
+            cases secondHasWait
+            have isEarlier := sinceBelow first isFirstThread firstOn firstSince firstBlocked
+            have isEarlierSeq := seqBelow firstOld isFirstOld
+              (waitingOfBlocked first firstOld firstOn firstSince isFirstThread isFirstOld
+                firstActive firstCarriesOld firstBlocked) firstWait firstHasWait
+            exact ⟨fun _ => isEarlierSeq, fun _ => isEarlier⟩
+        · rw [isFirstNew] at firstCarries firstBlocked
+          have isFirstChanged := recordOfNew firstOld isFirstOld firstActive firstCarries
+          rw [isFirstChanged, imageRecord] at firstHasWait
+          obtain ⟨sinceBelow, waitState, hasWait, seqBelow⟩ :=
+            blockedOrder firstOn firstSince firstBlocked
+          rw [hasWait] at firstHasWait
+          cases firstHasWait
+          rcases (memNew second).mp isSecond with ⟨isSecondThread, secondTid⟩ | isSecondNew
+          · have secondCarriesOld := (carriesImage second secondOld isSecondOld).mpr secondCarries
+            rw [imageOther secondOld (otherStep second secondOld isSecondThread secondTid
+              isSecondOld secondCarriesOld)] at secondHasWait
+            have isLater := sinceBelow second isSecondThread secondOn secondSince secondBlocked
+            have isLaterSeq := seqBelow secondOld isSecondOld
+              (waitingOfBlocked second secondOld secondOn secondSince isSecondThread isSecondOld
+                secondActive secondCarriesOld secondBlocked) secondWait secondHasWait
+            exact ⟨fun isBefore => absurd isBefore (Nat.lt_asymm isLater),
+              fun isBefore => absurd isBefore (Nat.lt_asymm isLaterSeq)⟩
+          · rw [isSecondNew] at secondCarries secondBlocked
+            have isSecondChanged := recordOfNew secondOld isSecondOld secondActive secondCarries
+            rw [isSecondChanged, imageRecord, hasWait] at secondHasWait
+            cases secondHasWait
+            have sameSince : firstSince = secondSince := by
+              have samePhase := firstBlocked.symm.trans secondBlocked
+              injection samePhase
+            rw [sameSince]
+            simp only [Nat.lt_irrefl]
+      tasksAreCurrent := tasksAreCurrent }
+
 end DexExpressiveness
