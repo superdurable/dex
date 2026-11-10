@@ -1205,6 +1205,10 @@ Every `tools/call` carries the session's idempotency key,
 `<flowId>/<turnId>/<toolCallId>`, in `_meta` under
 `IDEMPOTENCY_KEY_META_KEY` (`io.superdurable.dex/idempotencyKey`). The MCP SDK
 adds `traceparent` to `_meta` when OpenTelemetry has an active trace.
+`execute_deferred_tool_call(call, request_meta=...)` adds more `_meta`
+entries to the request, such as the identity a caller expects the server to
+check before it runs the call; the idempotency key wins over an entry of the
+same name.
 
 | What happens | Recorded | Re-issued? |
 | --- | --- | --- |

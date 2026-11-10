@@ -166,6 +166,15 @@ edited. The tool's group, connection, and operation must be enabled there too,
 and a shell command that was built without approval must still be in that
 allow list; otherwise the call fails and nothing runs.
 
+A connector tool name can move to another connection between the model call
+and the tool Step, such as when a second connection of the connector is
+authorized. So before it sends a call, the connector source lists the server
+again and requires the tool's current connector, connection, and operation to
+equal the ones the call was made for; otherwise the call fails and nothing is
+sent. It also sends them in the `tools/call` request's `_meta` as
+`io.superdurable.connectors/expectedConnector`, `expectedConnection`, and
+`expectedOperation`, so a server can refuse a mismatch itself.
+
 At startup the command lists the server once:
 
 - An `auto` server that does not answer, such as one answering 503 while it

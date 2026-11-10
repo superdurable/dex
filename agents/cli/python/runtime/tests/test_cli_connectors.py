@@ -27,6 +27,7 @@ from tests.conftest import (
     session_client,
     wait_for_exit,
 )
+from tests.fake_connectors_mcp import SLACK_CONNECTION_ENVIRONMENT_VARIABLE
 from tests.scripted_harness import SCRIPTED_FLOW_TYPE
 from tests.test_cli_chat import read_session_id
 
@@ -62,6 +63,37 @@ async def test_a_connector_read_runs_at_once_and_an_approved_write_runs_once(
     assert await wait_for_exit(child) == 0
     assert fake_mcp.runs("hackernews_get_top_stories") == 1
     assert fake_mcp.runs("slack_post_thread_reply") == 1
+    (sent,) = fake_mcp.request_meta("slack_post_thread_reply")
+    assert sent["io.superdurable.connectors/expectedConnector"] == "slack"
+    assert sent["io.superdurable.connectors/expectedConnection"] == "support-slack"
+    assert sent["io.superdurable.connectors/expectedOperation"] == "postThreadReply"
+
+
+async def test_a_tool_name_rebound_to_another_connection_is_refused_before_it_is_sent(
+    cli_home: CliHome, fake_mcp: FakeConnectorsMcp
+) -> None:
+    cli_home.write_config(
+        config_yaml(
+            {
+                "connectors": {"mcp": fake_mcp.url, "enabled": ["slack"]},
+                "local_tools": NO_LOCAL_TOOLS,
+            }
+        )
+    )
+    child = cli_home.spawn()
+    await expect(child, "> ")
+    child.sendline('call slack_post_thread_reply {"thread": "T1", "text": "On it"}')
+    await expect(child, "[approval] slack_post_thread_reply")
+    # While the call waits, the same tool name moves to another Slack connection.
+    fake_mcp.stop()
+    await fake_mcp.start({SLACK_CONNECTION_ENVIRONMENT_VARIABLE: "personal-slack"})
+    child.sendline("y")
+    await expect(child, "done: slack_post_thread_reply=")
+    await expect(child, "now runs slack/personal-slack postThreadReply")
+    await expect(child, "it was not sent")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert fake_mcp.runs("slack_post_thread_reply") == 0
 
 
 async def test_session_settings_narrow_the_next_turn_and_widening_fails_it(

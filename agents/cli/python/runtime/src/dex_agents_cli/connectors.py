@@ -67,20 +67,30 @@ class ConnectorToolMetaKeys:
         connection: Key of the Dex Web connection name, such as ``work``.
         operation: Key of the operationId, such as ``getMessage``.
         operation_name: Key of the snake-case operation name, such as ``get_message``.
+        expected_connector: ``tools/call`` request key of the connector the call was approved for.
+        expected_connection: ``tools/call`` request key of the connection it was approved for.
+        expected_operation: ``tools/call`` request key of the operation it was approved for.
     """
 
     connector: str
     connection: str
     operation: str
     operation_name: str
+    expected_connector: str
+    expected_connection: str
+    expected_operation: str
 
 
-#: The keys the connectors MCP server puts in the top-level ``_meta`` of every tool.
+#: The keys of the connectors MCP server: the first four in the top-level ``_meta`` of every
+#: tool, the ``expected_*`` keys in the ``_meta`` of a ``tools/call`` request.
 CONNECTOR_TOOL_META_KEYS = ConnectorToolMetaKeys(
     connector="io.superdurable.connectors/connector",
     connection="io.superdurable.connectors/connection",
     operation="io.superdurable.connectors/operation",
     operation_name="io.superdurable.connectors/operationName",
+    expected_connector="io.superdurable.connectors/expectedConnector",
+    expected_connection="io.superdurable.connectors/expectedConnection",
+    expected_operation="io.superdurable.connectors/expectedOperation",
 )
 
 
@@ -349,7 +359,42 @@ class ConnectorsMcpToolSource:
         turn = current_turn_config() or self._resolver.resolve(recorded_turn_settings(call))
         if not _is_enabled(turn.connectors, identity):
             raise ToolExecutionError(f"tool {record.tool_name} is switched off for this session")
-        return await self._mcp.execute_deferred_tool_call(replace(call, tool_call=record))
+        if identity is None:
+            return await self._mcp.execute_deferred_tool_call(replace(call, tool_call=record))
+        await self._check_binding(record, identity)
+        return await self._mcp.execute_deferred_tool_call(
+            replace(call, tool_call=record), request_meta=_expected_identity_meta(identity)
+        )
+
+    async def _check_binding(self, record: AgentToolCall, approved: ConnectorToolIdentity) -> None:
+        """Refuse a call whose tool name now runs another connection or operation.
+
+        A name can move to another connection between the model call and the
+        tool Step, such as when a second connection of the connector is
+        authorized. Nothing is sent then.
+        """
+        mcp_tool_name = _mcp_tool_name(record)
+        try:
+            catalog = await read_connector_catalog(self._url)
+        except ConnectorsMcpUnavailableError as error:
+            raise ToolExecutionError(
+                f"cannot check what {record.tool_name} runs now, so it was not sent: {error}"
+            ) from error
+        current = next((tool.identity for tool in catalog if tool.name == mcp_tool_name), None)
+        if current is None or (current.connector, current.connection, current.operation) != (
+            approved.connector,
+            approved.connection,
+            approved.operation,
+        ):
+            now = (
+                "is no longer offered"
+                if current is None
+                else f"now runs {_describe_identity(current)}"
+            )
+            raise ToolExecutionError(
+                f"{record.tool_name} {now}, but the call was made for "
+                f"{_describe_identity(approved)}; it was not sent"
+            )
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
         """Poll one MCP task through ``McpToolSource``."""
@@ -360,6 +405,32 @@ class ConnectorsMcpToolSource:
         """Cancel one abandoned MCP task through ``McpToolSource``."""
         record, _ = _unwrap_reference(cancellation.tool_call)
         await self._mcp.cancel_tool_task(replace(cancellation, tool_call=record))
+
+
+def _expected_identity_meta(identity: ConnectorToolIdentity) -> dict[str, str]:
+    keys = CONNECTOR_TOOL_META_KEYS
+    meta = {
+        keys.expected_connector: identity.connector,
+        keys.expected_connection: identity.connection,
+    }
+    if identity.operation is not None:
+        meta[keys.expected_operation] = identity.operation
+    return meta
+
+
+def _describe_identity(identity: ConnectorToolIdentity) -> str:
+    operation = identity.operation or "an unnamed operation"
+    return f"{identity.connector}/{identity.connection} {operation}"
+
+
+def _mcp_tool_name(record: AgentToolCall) -> str:
+    """Return the tool's name on the MCP server from ``McpToolSource``'s own reference."""
+    try:
+        parsed = json.loads(record.tool_source_reference or "null")
+    except json.JSONDecodeError:
+        parsed = None
+    name = parsed.get("mcp_tool") if isinstance(parsed, dict) else None
+    return name if isinstance(name, str) else record.tool_name
 
 
 def _unwrap_reference(

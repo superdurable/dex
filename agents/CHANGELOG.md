@@ -36,6 +36,10 @@ for the Dex SDK and framework versions each release supports.
   polling. It used to fail the poll attempt.
 - `agents/conformance/mcp_dex_conventions.json` fixes the conventions for every
   core.
+- Python core: `McpToolSource.execute_deferred_tool_call` takes
+  `request_meta`, more `_meta` entries for the `tools/call` request, such as
+  the identity a caller expects the server to check. The idempotency key wins
+  over an entry of the same name.
 
 ### Added
 

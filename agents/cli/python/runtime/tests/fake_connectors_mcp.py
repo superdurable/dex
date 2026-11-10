@@ -14,13 +14,15 @@ key>`` to ``mcp-invocations.log`` in ``$FAKE_MCP_STATE_DIR``.
 
 * ``hackernews_get_top_stories`` (``readOnlyHint``): hackernews/default getTopStories.
 * ``gmail_get_message`` (``readOnlyHint``): gmail/personal getMessage.
-* ``slack_post_thread_reply`` (no hints): slack/support-slack postThreadReply.
+* ``slack_post_thread_reply`` (no hints): slack/support-slack postThreadReply, or the
+  connection in ``$FAKE_MCP_SLACK_CONNECTION``.
 * ``misc_untagged`` (``readOnlyHint``): no connector ``_meta`` at all.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -34,7 +36,10 @@ from dex_agents.testing import InvocationLog
 from dex_agents_cli import canonical_operation_name
 
 STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_MCP_STATE_DIR"
+#: The connection ``slack_post_thread_reply`` runs on; a restart can move the name to another.
+SLACK_CONNECTION_ENVIRONMENT_VARIABLE = "FAKE_MCP_SLACK_CONNECTION"
 INVOCATION_LOG_NAME = "mcp-invocations.log"
+REQUEST_META_LOG_NAME = "mcp-request-meta.jsonl"
 READY_LINE = "Uvicorn running on"
 
 server = MCPServer("fake-connectors")
@@ -71,7 +76,13 @@ def gmail_get_message(message_id: str, context: Context) -> str:
     return f"message {message_id}: hello"
 
 
-@server.tool(meta=_meta("slack", "support-slack", "postThreadReply"))
+@server.tool(
+    meta=_meta(
+        "slack",
+        os.environ.get(SLACK_CONNECTION_ENVIRONMENT_VARIABLE, "support-slack"),
+        "postThreadReply",
+    )
+)
 def slack_post_thread_reply(thread: str, text: str, context: Context) -> str:
     """Reply in a Slack thread."""
     _record("slack_post_thread_reply", context)
@@ -88,9 +99,10 @@ def misc_untagged(context: Context) -> str:
 def _record(tool_name: str, context: Context) -> None:
     meta = context.request_context.meta or {}
     key = meta.get(IDEMPOTENCY_KEY_META_KEY, "no-key")
-    InvocationLog(Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]) / INVOCATION_LOG_NAME).record(
-        f"{tool_name} {key}"
-    )
+    state_dir = Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE])
+    InvocationLog(state_dir / INVOCATION_LOG_NAME).record(f"{tool_name} {key}")
+    with (state_dir / REQUEST_META_LOG_NAME).open("a") as log:
+        log.write(json.dumps({"tool": tool_name, "meta": dict(meta)}, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":

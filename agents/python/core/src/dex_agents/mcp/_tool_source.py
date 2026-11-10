@@ -818,7 +818,10 @@ class McpToolSource:
         return {tool.name: self.execute_deferred_tool_call for tool in await self.list_tools()}
 
     async def execute_deferred_tool_call(
-        self, call: DeferredToolExecution
+        self,
+        call: DeferredToolExecution,
+        *,
+        request_meta: Mapping[str, str] | None = None,
     ) -> ToolExecutionResult | ToolTaskStarted:
         """Run one deferred MCP tool call in its tool Step.
 
@@ -833,8 +836,20 @@ class McpToolSource:
         checkpoint first; a retried attempt that reads it returns the same
         task without calling the tool again.
 
+        Example:
+            >>> await tools.execute_deferred_tool_call(
+            ...     call, request_meta={"com.example/expectedAccount": "work"})
+
+        .. versionchanged:: 0.5.0
+            ``request_meta`` adds ``_meta`` entries to the ``tools/call`` request.
+
         Args:
             call: The approved call from the tool Step.
+            request_meta: More ``_meta`` entries for the ``tools/call``
+                request, such as the identity a caller expects the server to
+                check before it runs the call. ``None``, the default, sends
+                only the idempotency key, which always wins over an entry of
+                the same name.
 
         Returns:
             The tool output the model sees, or ``ToolTaskStarted`` for a
@@ -871,6 +886,7 @@ class McpToolSource:
             heartbeat_checkpoint=call.heartbeat_checkpoint,
             save_heartbeat_checkpoint=call.save_heartbeat_checkpoint,
             is_task_polled_by_session=is_task_polled_by_session,
+            request_meta=request_meta,
         )
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
@@ -1058,12 +1074,16 @@ class McpToolSource:
         heartbeat_checkpoint: str | None,
         save_heartbeat_checkpoint: Callable[[str], Awaitable[None]] | None,
         is_task_polled_by_session: bool,
+        request_meta: Mapping[str, str] | None = None,
     ) -> ToolExecutionResult | ToolTaskStarted:
+        meta = dict(request_meta or {})
+        if idempotency_key is not None:
+            meta[IDEMPOTENCY_KEY_META_KEY] = idempotency_key
         call = _McpToolCall(
             source=self,
             target=target,
             arguments=arguments,
-            meta={} if idempotency_key is None else {IDEMPOTENCY_KEY_META_KEY: idempotency_key},
+            meta=meta,
             reporter=_McpToolCallReporter(target.tool_name, tool_call_id, events),
             heartbeat=heartbeat,
             save_heartbeat_checkpoint=save_heartbeat_checkpoint,

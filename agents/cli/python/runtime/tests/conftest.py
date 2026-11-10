@@ -36,6 +36,7 @@ from dex_agents.testing import (
 from tests.fake_connectors_mcp import (
     INVOCATION_LOG_NAME,
     READY_LINE,
+    REQUEST_META_LOG_NAME,
     STATE_DIR_ENVIRONMENT_VARIABLE,
 )
 from tests.scripted_harness import build_session_flow_without_tools
@@ -195,21 +196,65 @@ def cli_home(tmp_path: Path, shared_engine: PrivateDexEngine) -> Iterator[CliHom
     home.close()
 
 
-@dataclass(frozen=True)
+@dataclass
 class FakeConnectorsMcp:
-    """A running fake connectors MCP server.
+    """A running fake connectors MCP server, which a test can restart on the same port.
 
     Attributes:
-        url: Its MCP endpoint.
-        invocations: The log of real tool runs.
+        port: Its port.
+        state_dir: Its invocation and request logs.
+        log_path: Its output.
     """
 
-    url: str
-    invocations: InvocationLog
+    port: int
+    state_dir: Path
+    log_path: Path
+    process: subprocess.Popen[bytes] | None = None
+
+    @property
+    def url(self) -> str:
+        """Return its MCP endpoint."""
+        return f"http://127.0.0.1:{self.port}/mcp"
+
+    @property
+    def invocations(self) -> InvocationLog:
+        """Return the log of real tool runs."""
+        return InvocationLog(self.state_dir / INVOCATION_LOG_NAME)
 
     def runs(self, tool_name: str) -> int:
         """Return how many times a tool really ran."""
         return sum(1 for name in self.invocations.names() if name.split(" ")[0] == tool_name)
+
+    def request_meta(self, tool_name: str) -> list[dict[str, Any]]:
+        """Return the ``_meta`` of every call of a tool that the server ran."""
+        log = self.state_dir / REQUEST_META_LOG_NAME
+        if not log.exists():
+            return []
+        entries = [json.loads(line) for line in log.read_text().splitlines()]
+        return [entry["meta"] for entry in entries if entry["tool"] == tool_name]
+
+    async def start(self, environment: Mapping[str, str] | None = None) -> None:
+        """Start the server, with extra environment variables such as another binding."""
+        with self.log_path.open("w") as log:
+            self.process = subprocess.Popen(
+                [sys.executable, "-m", "tests.fake_connectors_mcp", str(self.port)],
+                cwd=PACKAGE_DIR,
+                env={
+                    **os.environ,
+                    STATE_DIR_ENVIRONMENT_VARIABLE: str(self.state_dir),
+                    **(environment or {}),
+                },
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+        await wait_for_text(self.log_path, READY_LINE)
+
+    def stop(self) -> None:
+        """Kill the server."""
+        if self.process is not None:
+            self.process.kill()
+            self.process.wait()
+            self.process = None
 
 
 @pytest.fixture
@@ -218,24 +263,12 @@ async def fake_mcp(tmp_path: Path) -> AsyncIterator[FakeConnectorsMcp]:
     (port,) = find_free_ports(1)
     state_dir = tmp_path / "fake-mcp"
     state_dir.mkdir()
-    log_path = tmp_path / "fake-mcp.log"
-    with log_path.open("w") as log:
-        process = subprocess.Popen(
-            [sys.executable, "-m", "tests.fake_connectors_mcp", str(port)],
-            cwd=PACKAGE_DIR,
-            env={**os.environ, STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
+    server = FakeConnectorsMcp(port=port, state_dir=state_dir, log_path=tmp_path / "fake-mcp.log")
+    await server.start()
     try:
-        await wait_for_text(log_path, READY_LINE)
-        yield FakeConnectorsMcp(
-            url=f"http://127.0.0.1:{port}/mcp",
-            invocations=InvocationLog(state_dir / INVOCATION_LOG_NAME),
-        )
+        yield server
     finally:
-        process.kill()
-        process.wait()
+        server.stop()
 
 
 async def wait_for_text(path: Path, text: str, timeout: float = _PROCESS_READY_SECONDS) -> None:
