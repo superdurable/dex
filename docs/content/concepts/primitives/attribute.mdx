@@ -334,10 +334,17 @@ index keys, and AttributeMap indexes.
 
 ## Locks {#locking}
 
-Two Steps or RPCs can write the same Attribute at the same time. Use an
+Two Steps or RPCs can write the same Attribute at the same time. Without a
+lock, a read-modify-write can overwrite another update. See
+[Step guarantees](/concepts/step#guarantees). Use an
 **Attribute lock** to run them one after the other. Dex acquires the lock before
 the Step method or RPC starts and releases it when it finishes. A Step waits for
 its lock. An RPC that cannot get a lock fails, and you retry it.
+
+Locks are cooperative. They order only the Steps and RPCs that declare the same
+lock. Steps get a lock in the order they started waiting for it. An RPC does
+not queue. It takes a free lock even when Steps are waiting for it. So a steady
+stream of locked RPCs can delay those Steps. Keep locked RPCs short.
 
 This Step locks a singleton Attribute and one AttributeMap instance while
 **Execute** runs:

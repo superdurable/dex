@@ -314,7 +314,9 @@ Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时�
 
 ## Lock {#locking}
 
-两个 Step 或 RPC 可能同时写同一个 Attribute。用 **Attribute lock** 让它们依次执行。Dex 在 Step method 或 RPC 开始前获取 lock，结束后释放。Step 会等待它的 lock。RPC 拿不到 lock 就失败，由你重试。
+两个 Step 或 RPC 可能同时写同一个 Attribute。没有 lock 时，一次先读后写的更新可能覆盖另一次更新，见 [Step 的保证](/concepts/step#guarantees)。用 **Attribute lock** 让它们依次执行。Dex 在 Step method 或 RPC 开始前获取 lock，结束后释放。Step 会等待它的 lock。RPC 拿不到 lock 就失败，由你重试。
+
+lock 是协作式的。它只给声明了同一个 lock 的 Step 和 RPC 排序。Step 按开始等待 lock 的顺序拿到它。RPC 不排队。即使有 Step 在等一个空闲的 lock，RPC 也会直接拿走它。所以持续不断的加锁 RPC 可能推迟这些 Step。让加锁的 RPC 尽量短。
 
 这个 Step 在 **Execute** 运行期间锁住一个 singleton Attribute 和一个 AttributeMap instance：
 

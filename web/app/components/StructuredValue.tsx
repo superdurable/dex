@@ -49,13 +49,31 @@ function displayValue(value: unknown): string {
 const dexValueKeys = new Set(['stringValue', 'intValue', 'doubleValue', 'boolValue', 'nullValue', 'objValue']);
 
 /** Whether a value is one Dex Value envelope, such as a Channel message or a stored blob reference. */
-function isDexValue(value: unknown): boolean {
+export function isDexValue(value: unknown): boolean {
   if (isBlobReferenceValue(value) || isStoredValueUnavailable(value)) return true;
   const keys = Object.keys(asData(value));
   return keys.length === 1 && dexValueKeys.has(keys[0]);
 }
 
-function decodedValue(value: unknown): unknown {
+/** An encoded payload the web console does not decode, such as raw bytes, described by its encoding and size. */
+export interface UndecodedPayload {
+  encoding: string;
+  byteSize: number;
+}
+
+/** The encoding and byte size of a Dex Value whose payload is neither JSON nor text; null for any other value. */
+export function undecodedPayloadOf(value: unknown): UndecodedPayload | null {
+  const object = asData(asData(value).objValue);
+  if (typeof object.payload !== 'string' || object.encoding === 'json' || object.encoding === 'text') return null;
+  try {
+    return { encoding: typeof object.encoding === 'string' ? object.encoding : '', byteSize: atob(object.payload).length };
+  } catch {
+    return null;
+  }
+}
+
+/** The payload of one Dex Value envelope: parsed JSON, decoded text, or an UndecodedPayload for other encodings. */
+export function decodedValue(value: unknown): unknown {
   if (isBlobReferenceValue(value)) return 'Loading stored value…';
   if (isStoredValueUnavailable(value)) return VALUE_BLOB_UNAVAILABLE;
   const message = asData(value);
@@ -66,6 +84,8 @@ function decodedValue(value: unknown): unknown {
   if ('nullValue' in message) return null;
   const object = asData(message.objValue);
   if (typeof object.payload !== 'string') return value;
+  const undecoded = undecodedPayloadOf(value);
+  if (undecoded) return undecoded;
   try {
     const bytes = Uint8Array.from(atob(object.payload), (character) => character.charCodeAt(0));
     const decoded = new TextDecoder().decode(bytes);

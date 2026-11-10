@@ -1088,7 +1088,7 @@ export function RunDetailsPage({
             </>
           )}
           {shownTab === 'stream' && summary && (
-            <StreamPanel flowId={flowId} flowType={summary.flowType} />
+            <StreamPanel definition={designDefinition} flowId={flowId} flowType={summary.flowType} />
           )}
           {shownTab === 'session' && sessionSchema && catalogEntry && (
             <AgentSessionTab

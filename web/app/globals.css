@@ -1396,48 +1396,6 @@ pre {
   padding: 4px 0 28px;
 }
 
-.stream-panel-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.stream-panel-header h2 {
-  margin: 3px 0 6px;
-  font-size: 20px;
-}
-
-.stream-panel-header p:not(.eyebrow) {
-  max-width: 660px;
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.stream-listening-status {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  background: var(--paper);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.stream-listening-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-subtle);
-}
-
 .stream-form {
   display: grid;
   gap: 7px;
@@ -1452,61 +1410,43 @@ pre {
 
 .stream-form > div {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .stream-form input {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 180px;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--paper);
 }
 
-.stream-empty {
-  margin: 4px 0 0;
-  padding: 22px;
-  border: 1px dashed var(--line);
-  border-radius: 12px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.stream-message-list {
-  display: grid;
-  gap: 10px;
-  max-height: min(60vh, 720px);
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.stream-message {
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--paper);
-  box-shadow: var(--shadow-soft);
-}
-
-.stream-message-meta {
+.stream-choice {
+  position: relative;
   display: flex;
+  min-width: 0;
+  flex: 1 1 220px;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  color: var(--muted);
-  font-size: 12px;
 }
 
-.stream-message-meta code {
-  overflow: hidden;
-  max-width: 70%;
-  padding: 2px 5px;
-  border-radius: 4px;
-  color: var(--ink);
-  background: var(--canvas);
+.stream-choice > svg {
+  position: absolute;
+  left: 10px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.stream-choice select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px 8px 32px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: inherit;
+  background: var(--paper);
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .run-sidebar {
@@ -3518,14 +3458,13 @@ button.timeline-edge-stub:focus-visible {
     flex: none;
   }
 
-  .stream-panel-header,
   .stream-form > div {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .stream-listening-status {
-    align-self: flex-start;
+  .stream-form > div > * {
+    flex: none;
   }
 
   .timeline-row {
