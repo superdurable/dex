@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from dex_connectors.sdk import ConnectionRef
 
 from dex_examples.products.ai_agent.slack_connector_tools import (
@@ -41,6 +42,11 @@ def test_the_two_projects_share_one_slack_connector_tools_module() -> None:
 
 async def test_slack_is_off_without_a_project_configuration() -> None:
     assert await open_slack_project_connection({}) is None
+
+
+async def test_an_incomplete_hosted_configuration_fails_instead_of_turning_slack_off() -> None:
+    with pytest.raises(ValueError):
+        await open_slack_project_connection({"DEX_PROJECT_SCOPE": "preview"})
 
 
 async def test_slack_is_off_when_the_connections_file_is_missing(tmp_path: Path) -> None:

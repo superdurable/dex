@@ -241,6 +241,10 @@ it calls Slack, so they never enter Flow state.
 - **Deployed**: the `DEX_PROJECT_*` variables select the project configuration
   in object storage instead.
 
+Setting `DEX_CONNECTOR_CONFIG_FILE` or any `DEX_PROJECT_*` variable requests a
+project configuration. An incomplete or invalid one fails startup instead of
+turning the Slack tool off.
+
 The Slack app needs the bot scope `chat:write`, and its bot must be a member
 of the channel. The Connector also uses the user scopes `channels:history`
 and `groups:history`: when a Worker stopped during a post, it reads the thread

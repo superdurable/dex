@@ -38,7 +38,7 @@ from dex_connectors.sdk.projectconfig import (
 
 # The static connection name that the project configuration must hold.
 SLACK_CONNECTION_NAME = "support-slack"
-HOSTED_PROJECT_ENVIRONMENT = "DEX_PROJECT_ID"
+HOSTED_PROJECT_ENVIRONMENT_PREFIX = "DEX_PROJECT_"
 
 _logger = logging.getLogger(__name__)
 
@@ -74,12 +74,19 @@ class SlackProjectConnection:
 async def open_slack_project_connection(
     environment: Mapping[str, str] = os.environ,
 ) -> SlackProjectConnection | None:
-    """Opens the Slack connection from the project configuration, or returns None without one."""
-    if not environment.get(LOCAL_CONNECTIONS_FILE_ENVIRONMENT) and not environment.get(
-        HOSTED_PROJECT_ENVIRONMENT
-    ):
+    """Opens the Slack connection from the project configuration, or returns None without one.
+
+    Raises:
+        ValueError: If a requested project configuration is incomplete or invalid.
+    """
+    is_configuration_requested = bool(environment.get(LOCAL_CONNECTIONS_FILE_ENVIRONMENT)) or any(
+        name.startswith(HOSTED_PROJECT_ENVIRONMENT_PREFIX) and value
+        for name, value in environment.items()
+    )
+    if not is_configuration_requested:
         _log_slack_not_set_up(f"{LOCAL_CONNECTIONS_FILE_ENVIRONMENT} is not set")
         return None
+    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
     try:
         project = await load_from_environment(environment)
     except FileNotFoundError:
