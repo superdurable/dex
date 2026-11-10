@@ -20,6 +20,8 @@ import pytest
 
 from dex_agents import (
     OUTCOME_UNKNOWN_TOOL_RESULT,
+    TOOL_CALL_NOT_RUN_ERROR_PREFIX,
+    TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL,
     AgentEventWriter,
     AgentSnapshot,
     AgentToolCall,
@@ -41,6 +43,7 @@ from tests.fake_ledger import (
 )
 
 BALANCE = '{"accountId":"a-1","amount":100}'
+SKIPPED_ERROR = f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL}"
 FIRST_PAYOUT = '{"amount":5,"payoutId":"createPayout-1"}'
 
 
@@ -213,6 +216,65 @@ async def test_two_writes_of_one_response_run_one_at_a_time_in_the_model_order(
         'post_note: {"noteId":"postNote-1"}',
         'create_payout: {"amount":5,"payoutId":"createPayout-2"}',
     ]
+
+
+async def test_an_unknown_write_skips_the_later_writes_of_the_response(
+    connector_harness: ScriptedAgentHarness,
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    ledger = _ledger(harness)
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        _calls(
+            ("create_payout", {"accountId": "a-1", "amount": 5, "memo": "uncertain"}),
+            ("post_note", {"accountId": "a-1", "text": "paid"}),
+            hold="skipped",
+        ),
+    )
+    records = await _held_records(harness, session_id, "skipped")
+    assert records["create_payout"].status is ToolCallStatus.OUTCOME_UNKNOWN
+    skipped = records["post_note"]
+    assert (skipped.status, skipped.skipped, skipped.error) == (
+        ToolCallStatus.FAILED,
+        True,
+        SKIPPED_ERROR,
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    lines = _answer_lines(snapshot)
+    assert OUTCOME_UNKNOWN_TOOL_RESULT in lines[0]
+    assert lines[1].startswith("post_note: ") and SKIPPED_ERROR in lines[1]
+    assert ledger.writes("postNote") == []
+
+
+async def test_a_rejected_write_skips_the_later_writes_of_the_response(
+    connector_harness: ScriptedAgentHarness,
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    ledger = _ledger(harness)
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        _calls(
+            ("approved_payout", {"accountId": "a-1", "amount": 5}),
+            ("post_note", {"accountId": "a-1", "text": "paid"}),
+            hold="rejected",
+        ),
+    )
+    interrupt = await harness.wait_for_pending_interrupt(session_id)
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=False, rejection_message="not now"
+    )
+    records = await _held_records(harness, session_id, "rejected")
+    assert records["approved_payout"].status is ToolCallStatus.REJECTED
+    assert records["post_note"].skipped
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    lines = _answer_lines(snapshot)
+    assert lines[0].startswith("approved_payout: ") and "not now" in lines[0]
+    assert lines[1].startswith("post_note: ") and SKIPPED_ERROR in lines[1]
+    assert ledger.sends() == []
 
 
 async def test_a_source_call_gets_its_operation_timeout_and_bounded_retries(

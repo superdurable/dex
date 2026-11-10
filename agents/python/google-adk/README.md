@@ -365,12 +365,13 @@ child runs in its own process group, so a test can SIGKILL it during
 `RunModel` or a tool Step.
 
 `tests/test_connector_tools.py` runs connector tools from a copy of the core
-tests' fake ledger Connector (`tests/fake_ledger`): a Query in its tool
-Step, an approved Mutation that runs once, a session policy that changes only
+tests' fake ledger Connector (`tests/fake_ledger`): a Query in its tool Step,
+an approved Mutation that runs once, a session policy that changes only
 approval, a `retry: safe` Mutation retried with the same Call ID, `uncertain`
 writes recorded `outcome_unknown`, two writes of one response in the model's
-order, the operation's tool Step options, an unexposed operation, and refused
-name collisions.
+order, an unknown or rejected write that skips the later write, the
+operation's tool Step options, an unexposed operation, and refused name
+collisions.
 
 ## Compaction
 

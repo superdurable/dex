@@ -415,12 +415,13 @@ an in-memory span exporter. Construction tests cover two tool nodes with one
 tool name.
 
 `tests/test_connector_tools.py` runs connector tools from a copy of the core
-tests' fake ledger Connector (`tests/fake_ledger`), once with a `create_agent` agent and once with a custom graph: a Query in its tool
-Step, an approved Mutation that runs once, a session policy that changes only
-approval, a `retry: safe` Mutation retried with the same Call ID, `uncertain`
-writes recorded `outcome_unknown`, two writes of one response in the model's
-order, the operation's tool Step options, an unexposed operation, and refused
-name collisions.
+tests' fake ledger Connector (`tests/fake_ledger`), once with a `create_agent`
+agent and once with a custom graph: a Query in its tool Step, an approved
+Mutation that runs once, a session policy that changes only approval, a
+`retry: safe` Mutation retried with the same Call ID, `uncertain` writes
+recorded `outcome_unknown`, two writes of one response in the model's order,
+an unknown or rejected write that skips the later write, the operation's tool
+Step options, an unexposed operation, and refused name collisions.
 
 ## Compaction
 
