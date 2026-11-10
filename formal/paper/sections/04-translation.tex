@@ -1,0 +1,226 @@
+\section{The translation}
+\label{sec:translation}
+
+The translation $\tr{\cdot}$ (\lean{Translation.translate},
+\file{Translation/Flow.lean}) compiles each \Lang{} thread into
+continuation-passing Steps \cite{appel1992cps}. It maps a program to one
+Flow definition with three kinds of Step types (\lean{StepType}):
+\begin{itemize}
+\item \texttt{point code}: a \emph{program point}. The Step type is the code
+  left in the current procedure; the Step runs the head statement of that
+  code and moves to the program point of what follows.
+\item \lean{start}: the entry Step. It publishes one token for each
+  statically known mutex and moves to the first program point of \kw{main}.
+\item \lean{timed}: one generic Step type for every \kw{sleep} and every
+  timed \kw{select}.
+\end{itemize}
+The Step \emph{input} is the thread's state: its thread ID, a counter for
+fresh names, its local variables, and its stack of call frames and
+exception handlers. A \kw{GoTo} passes that state on. So a thread is, at any
+moment, exactly one active Step execution, and the thread's ``program
+counter and stack'' are that Step's type and input.
+
+\paragraph{One Step per statement.}
+Each statement is its own Step. A statement that does not block has no
+\kw{WaitFor}; its \kw{Execute} takes two commits, \rulename{STEP-START} and
+\rulename{STEP-COMPLETE-EXECUTE}. A blocking statement's Step has a
+\kw{WaitFor} that returns the wait, which adds two commits. Sequencing and
+\kw{skip} are not Steps. These commit counts are the stamped actions of
+Table~\ref{tab:timing}, and Figure~\ref{fig:lifecycle} shows the
+correspondence for the two shapes.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  >={Stealth[length=4.5pt]},
+  ph/.style={draw,rounded corners=2pt,font=\scriptsize\ttfamily,inner sep=3pt,minimum height=14pt,minimum width=1.5cm},
+  dx/.style={draw,font=\scriptsize,inner sep=3pt,minimum height=14pt,minimum width=1.5cm,fill=black!6},
+  lab/.style={font=\scriptsize},
+  commit/.style={->,line width=1.1pt},
+  other/.style={->},
+  x=2.7cm,y=1cm]
+% (a) emit
+\node[lab,anchor=west] at (-0.6,3.75) {(a) \kw{emit}$(a)$: a Step without \kw{WaitFor}, two commits};
+\node[lab,anchor=east] at (-0.34,3.0) {\Lang};
+\node[ph] (l0) at (0,3.0) {ready};
+\node[ph] (l1) at (1,3.0) {emitting};
+\node[ph] (l2) at (3,3.0) {emitted};
+\node[ph] (l3) at (5,3.0) {ready};
+\draw[commit] (l0) -- node[lab,above] {begin} (l1);
+\draw[other] (l1) -- node[lab,above] {$\mathit{out}(a)$} (l2);
+\draw[commit] (l2) -- node[lab,above] {complete} (l3);
+\node[lab,anchor=east] at (-0.34,1.9) {Dex};
+\node[dx] (d0) at (0,1.9) {pending};
+\node[dx] (d1) at (1,1.9) {Started};
+\node[dx] (d2) at (2,1.9) {Running$[a]$};
+\node[dx] (d3) at (3,1.9) {Running$[\,]$};
+\node[dx] (d4) at (4,1.9) {Returned};
+\node[dx] (d5) at (5,1.9) {next Step};
+\draw[commit] (d0) -- node[lab,below] {start} (d1);
+\draw[other] (d1) -- node[lab,below] {run} (d2);
+\draw[other] (d2) -- node[lab,below] {$\mathit{fx}(a)$} (d3);
+\draw[other] (d3) -- node[lab,below] {return} (d4);
+\draw[commit] (d4) -- node[lab,below] {complete} (d5);
+\foreach \a/\b in {l0/d0,l1/d1,l2/d3,l3/d5} \draw[densely dotted] (\a) -- (\b);
+% (b) lock
+\node[lab,anchor=west] at (-0.6,0.85) {(b) \kw{lock}$(m)$: a Step with a \kw{WaitFor}, four commits};
+\node[lab,anchor=east] at (-0.34,0.1) {\Lang};
+\node[ph] (b0) at (0,0.1) {ready};
+\node[ph] (b1) at (1,0.1) {waitStarted};
+\node[ph] (b2) at (2,0.1) {blocked};
+\node[ph] (b3) at (3,0.1) {woken};
+\node[ph] (b4) at (4,0.1) {resuming};
+\node[ph] (b5) at (5,0.1) {ready};
+\draw[commit] (b0) -- node[lab,above] {begin} (b1);
+\draw[commit] (b1) -- node[lab,above] {register} (b2);
+\draw[other,dashed] (b2) -- node[lab,above] {unlock} (b3);
+\draw[commit] (b3) -- node[lab,above] {begin} (b4);
+\draw[commit] (b4) -- node[lab,above] {complete} (b5);
+\node[lab,anchor=east] at (-0.34,-1.0) {Dex};
+\node[dx] (e0) at (0,-1.0) {$\mathit{WF}$, pending};
+\node[dx] (e1) at (1,-1.0) {$\mathit{WF}$, task};
+\node[dx] (e2) at (2,-1.0) {$\mathit{WT}$};
+\node[dx] (e3) at (3,-1.0) {$\mathit{EX}$, pending};
+\node[dx] (e4) at (4,-1.0) {$\mathit{EX}$, task};
+\node[dx] (e5) at (5,-1.0) {next Step};
+\draw[commit] (e0) -- node[lab,below] {start} (e1);
+\draw[commit] (e1) -- node[lab,below] {complete} (e2);
+\draw[other,dashed] (e2) -- node[lab,below] {token} (e3);
+\draw[commit] (e3) -- node[lab,below] {start} (e4);
+\draw[commit] (e4) -- node[lab,below] {complete} (e5);
+\foreach \a/\b in {b0/e0,b1/e1,b2/e2,b3/e3,b4/e4,b5/e5} \draw[densely dotted] (\a) -- (\b);
+\end{tikzpicture}
+\caption{One \Lang{} statement and its Step. Upper lanes: the phases of the
+thread (\lean{L.Phase}). Lower lanes: the Step's invocation and task. Thick
+arrows are clock-stamped: a stamped \Lang{} action above, a Dex commit
+(\rulename{STEP-START} or a Complete rule) below. (a) An \kw{emit} is
+issued at \rulename{STEP-START}; $\ev{out}(a)$ is the Worker's effect; the
+thread continues at \rulename{STEP-COMPLETE-EXECUTE}. The Worker's run and
+return steps have no \Lang{} counterpart. (b) A blocked \kw{lock} is woken
+by another thread's \kw{unlock} (dashed): the commit that publishes the
+token moves the waiting Step from $\mathit{WT}$ to $\mathit{EX}$.}
+\label{fig:lifecycle}
+\end{figure}
+
+\paragraph{The \kw{Execute} of a program point.}
+\lean{pointStepDef} runs the thread-local semantics of the head statement
+(\lean{L.completeStatement}, the same function \Lang{}'s own semantics
+uses) and encodes the atomic action it asks for as Dex effects and a
+decision (\lean{encodeIntent}). \lean{encodeIntent} is the mapping table of
+the specification, one case per row; Table~\ref{tab:mapping} reproduces it.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}P{3.5cm}L@{}}
+\toprule
+\Lang{} construct & Dex mapping \\
+\midrule
+\kw{if}, \kw{while}, local assignment & A Step whose \kw{Execute} \kw{GoTo}s
+  the next program point (the taken branch, the loop body, or the loop
+  exit). \\
+Shared read, shared write & One \kw{Execute} per access: read from the
+  snapshot, or write one Attribute. \\
+Call, \kw{return}, recursion & Push or pop a frame on the explicit stack in
+  the Step input. No SubFlow. \\
+\kw{throw}, \kw{try} & The handler stack is in the Step input; \kw{throw}
+  is a \kw{GoTo} to the innermost handler's program point. No Worker
+  error. \\
+\kw{fork} & \kw{GoToMany}: the parent's continuation and the child's first
+  program point. The child's thread ID is the parent's ID extended by the
+  parent's counter. \\
+Thread end & Publish one message to the Channel $\mathit{join}/t$, then
+  \kw{DeadEnd}. \\
+\kw{join}$(t)$ & \kw{WaitFor} returns
+  $\kw{AnyOf}(\mathit{join}/t,\ \mathit{cancel}/\mathit{self})$. \\
+\kw{exit}$(v)$, return of \kw{main} & \kw{ForceComplete} with the tagged
+  value $\{\texttt{exit}: v\}$, which is never null. \\
+\kw{fail}$(s)$, uncaught string exception & \kw{ForceFail}$(s)$. \\
+Halted thread & \kw{DeadEnd}, publishing nothing. \\
+\kw{newMutex}, \kw{unlock}$(m)$ & \kw{Execute} publishes one token to
+  $m$'s token Channel. \\
+\kw{lock}$(m)$ & \kw{WaitFor} returns $\kw{Until}(m\text{'s token})$, that
+  is, \kw{AllOf} with one condition: a \kw{ForOne} waiter, FIFO by
+  registration. \\
+\kw{wait}$(\mathit{cv}, m)$ & Three Steps. (1) One \kw{Execute}, under $m$:
+  append the thread ID $w$ to the Attribute $\mathit{waiters}/\mathit{cv}$
+  and publish $m$'s token. (2) Wait on the per-waiter Channel
+  $\mathit{cv}/w$. (3) \kw{lock}$(m)$ again. \\
+\kw{signal}$(\mathit{cv})$ & One \kw{Execute}, under $m$: if
+  $\mathit{waiters}/\mathit{cv}$ is not empty, remove its head $h$ and
+  publish to $\mathit{cv}/h$. \\
+\kw{broadcast}$(\mathit{cv})$ & As \kw{signal}, for every waiter in
+  order. \\
+\kw{cancel}$(t)$ & \kw{Execute} publishes to $\mathit{cancel}/t$. \\
+\kw{recv}$(c)$ & \kw{WaitFor} returns
+  $\kw{AnyOf}(c,\ \mathit{cancel}/\mathit{self})$. The environment's
+  publications fill $c$. \\
+\kw{sleep}$(d)$ & \kw{GoTo} the \lean{timed} Step (Enter). Its \kw{WaitFor}
+  returns $\kw{AnyOf}(\mathit{Timer}(d),\ \mathit{cancel}/\mathit{self})$
+  (Arm). \\
+\kw{select} with \kw{after}$(d)$ & As \kw{sleep}, with the wait
+  $\kw{AnyOf}(\mathit{Timer}(d),\ c,\ \mathit{cancel}/\mathit{self})$. Only
+  the winner consumes. \\
+\kw{emit}$(a)$ & An \kw{Execute} whose only external effect is $a$. \\
+\bottomrule
+\end{tabularx}
+\caption{The translation, by construct (\lean{encodeIntent},
+\lean{encodeWaitRequest}, \lean{timedStepDef} in
+\file{Translation/Flow.lean}). Every Channel condition is \kw{ForOne}.}
+\label{tab:mapping}
+\end{table}
+
+The translation uses \kw{GoTo}, \kw{GoToMany}, \kw{DeadEnd},
+\kw{ForceComplete}, and \kw{ForceFail}, and nothing else: no
+\kw{CancelSteps}, no \kw{GracefulComplete}, no RPCs, no SubFlows, no
+Attribute locks. Every decision it returns is well formed for every input
+(\lean{translate_execute_isWellFormed}).
+
+\paragraph{Why the encodings are faithful.}
+Each encoding rests on a property of the Dex core from
+\S\ref{sec:dex-rules}.
+
+\emph{Mutex.} A mutex is a Channel that holds one token exactly while the
+mutex is unlocked. The Channel has only \kw{ForOne} waiters, so a wake
+serves them in registration order, and a token that is present when a
+waiter registers means that no earlier waiter was blocked. This gives
+\Lang{}'s FIFO acquisition. An Attribute lock would not do: it is held for
+one Step method, not across a wait.
+
+\emph{Condition variable.} The waiter list is an Attribute. Reading and
+writing it in one \kw{Execute} would normally be a lost-update hazard
+(\S\ref{sec:dex-rules}); here it is safe because the \kw{Execute} runs
+while its thread holds $m$, and no other thread touches the list. This is
+where the mutex requirement enters: \Lang{} does not let a thread begin
+such a statement without $m$, the translated Step has no such check, and
+well-formedness says that the difference never shows. The wake goes to a
+per-waiter Channel, so a signal reaches the dequeued waiter even if that
+waiter has not registered its wait yet: the message stays queued. No
+spurious wakeup is needed. The waiter list is an AttributeMap instance, so
+the Step that reads it must select it in its load options; the model
+applies the selection as the server does, and
+\lean{readWaiters_snapshot_of_cvOperand} proves that the declared selection
+is enough.
+
+\emph{Cancellation.} A cancel is a message on the per-thread Channel
+$\mathit{cancel}/t$. \kw{AnyOf} consumes only from the winning condition,
+so a cancel never eats an input message or a join token. At registration no
+timer is done, and the Channel conditions decide in declaration order, the
+operation's own Channel before $\mathit{cancel}/\mathit{self}$. That is
+\Lang{}'s rule that a cancel is observed only if the point would block. The
+translation never cancels a Step. The only Step cancellation in a
+translated Flow is the Flow close, after which nothing is observable except
+effects already in flight, which \Lang{}'s asynchronous \kw{emit} allows.
+
+\emph{Timers.} Every timed operation runs in the one Step type
+\lean{timed}, with one timer at index 0. \Lang{}'s Enter is the commit that
+creates the Step, so the timer number is the Step number. \Lang{}'s Arm is
+the \kw{WaitFor} completion, so the deadline is the fire time. For equal
+fire times Dex orders timers by encoded timer ID, which for these IDs is
+numeric order on the Step number. A \rulename{TIMER-FIRE} prefix of size
+$k$ is then $k$ consecutive \kw{fire} actions of \Lang{}.
+
+\emph{Exit.} \kw{ForceComplete} drops a null output, so the translation
+passes the tagged value $\{\texttt{exit}: v\}$, which is never null even
+when $v$ is \Lang{}'s null. The projection reads $v$ back from the one
+output of the closed Flow.

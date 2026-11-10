@@ -1,0 +1,258 @@
+\section{The language \Lang{}}
+\label{sec:language}
+
+\Lang{} is the source side of the theorem. It is meant to be recognizable:
+a reader who knows POSIX-style threads should find no surprise in its
+constructs. Its semantics, however, is fixed in detail, because an exact
+equivalence leaves no room for ``implementation-defined''.
+
+\subsection{Syntax}
+
+Figure~\ref{fig:syntax} gives the syntax (\lean{L.Stmt}, \lean{L.Expr},
+\file{L/Syntax.lean}). A program has a list of procedures, a \kw{main} body
+with one parameter that receives the program input, and a number of
+\emph{statically known} mutexes, which exist and are unlocked when the
+program begins. Expressions are pure and read thread-local variables only.
+Shared variables are read by \kw{load} and written by \kw{store}, one
+access per statement.
+
+\begin{figure}[t]
+\small
+\[
+\begin{array}{@{}r@{\;}c@{\;}l@{}}
+\mathit{lit} &::=& \kw{null} \mid \mathit{bool} \mid \mathit{int} \mid \mathit{string} \\[2pt]
+e &::=& \mathit{lit} \mid x \mid \kw{staticMutex}(i) \mid \kw{cvOf}(e, i)
+      \mid e + e \mid e = e \mid e < e \mid \lnot e \\[2pt]
+s &::=& \kw{skip} \mid s ; s \mid x := e \mid x := \kw{load}\ g \mid \kw{store}\ g := e
+      \mid \kw{if}\ e\ \kw{then}\ s\ \kw{else}\ s \mid \kw{while}\ e\ \kw{do}\ s \\
+  &\mid& x := p(\vec{e}) \mid \kw{return}\ e
+      \mid x := \kw{fork}\ p(\vec{e}) \mid \kw{join}(e) \mid \kw{cancel}(e) \\
+  &\mid& x := \kw{newMutex} \mid \kw{lock}(e) \mid \kw{unlock}(e)
+      \mid \kw{wait}(e_{\mathit{cv}}, e_m) \mid \kw{signal}(e) \mid \kw{broadcast}(e) \\
+  &\mid& \kw{sleep}(e) \mid x := \kw{recv}(c)
+      \mid \kw{select}\ \{\, x := \kw{recv}(c) \to s \;\mid\; \kw{after}(e) \to s \,\} \\
+  &\mid& \kw{emit}(e) \mid \kw{throw}\ e \mid \kw{try}\ s\ \kw{catch}\ (x)\ s
+      \mid \kw{exit}(e) \mid \kw{fail}(e)
+\end{array}
+\]
+\caption{The syntax of \Lang{}. $x$ is a thread-local variable, $g$ a shared
+variable, $p$ a procedure, $c$ an external channel, and $i$ an index.}
+\label{fig:syntax}
+\end{figure}
+
+Values are the literals plus three kinds of handles: thread handles, mutex
+handles, and condition variable handles. A condition variable is named by
+its mutex and an index, so it belongs to exactly one mutex.
+
+\Lang{}'s observable alphabet \ObsL{} has six events (\lean{L.Event}):
+$\ev{begin}(v)$, the program starts with input $v$; $\ev{in}(c, v)$, a
+message arrives on external channel $c$; $\ev{refused}(c, v)$, a message
+arrives after the program ended; $\ev{out}(a)$, an emitted effect is
+delivered; $\ev{exit}(v)$; and $\ev{fail}(s)$.
+
+\subsection{Semantics}
+\label{sec:l-semantics}
+
+The semantics is a small-step transition system (\lean{L.step},
+\file{L/Semantics.lean}). A configuration holds a status (not started,
+running, closed), a clock, the live threads, the shared variables, the owner
+of each mutex, the FIFO queue of each condition variable, the queued
+messages of each external channel, the cancel flags, the threads that ended
+and were not joined, and, after the end, the emits that were issued and not
+yet delivered. A label is an idle clock tick, an environment request, the
+next action of one thread, the internal action \kw{fire}, or the delivery or
+drop of a late emit.
+
+The definition has two layers. \file{L/ThreadLocal.lean} says what a
+statement does to its own thread and which atomic action it asks for, as a
+value of type \lean{L.Intent}. \file{L/Semantics.lean} performs that action
+on the shared state. The translation reuses the first layer verbatim
+(\S\ref{sec:translation}), which is what keeps the two sides aligned.
+
+The semantic choices below are the ones that matter for the equivalence.
+Each matches what the Dex core does.
+
+\begin{description}[leftmargin=1.2em,itemsep=3pt]
+\item[Atomic actions.] Each single read or write of a shared variable, each
+  issue of an \kw{emit}, and each synchronization operation is one atomic
+  action. Local computation is invisible. There is no atomic
+  read-modify-write: $g := g + 1$ is a \kw{load} and a \kw{store}, and two
+  threads can interleave them.
+\item[Mutexes.] Threads blocked in \kw{lock}$(m)$ acquire $m$ in FIFO order
+  of blocking. A mutex that does not exist is never free.
+\item[Condition variables.] \kw{wait}$(\mathit{cv}, m)$ atomically releases
+  $m$ and appends the thread to $\mathit{cv}$'s FIFO queue. \kw{signal}
+  wakes the head of the queue, \kw{broadcast} wakes all. A woken thread
+  re-locks $m$, in FIFO order with other lockers. There are no spurious
+  wakeups.
+\item[Cancellation] is cooperative and deferred. \kw{cancel}$(t)$ sets
+  $t$'s flag. Thread $t$ observes the flag at a cancellation point
+  (\kw{sleep}, \kw{recv}, \kw{select}, \kw{join}), and only if that point
+  would block; it then ends without releasing anything it holds, as in POSIX
+  without cleanup handlers. \kw{lock} and \kw{wait} are not cancellation
+  points. A canceled thread is joinable like any other ended thread.
+\item[Emit is asynchronous.] \kw{emit}$(a)$ is \emph{issued} as one atomic
+  action. The event $\ev{out}(a)$ happens later, after any interleaving of
+  other threads, and the thread continues only after it. If the program
+  ends between the issue and $\ev{out}(a)$, the effect may still be
+  delivered after $\ev{exit}$, or never.
+\item[Exit.] \kw{exit}$(v)$, \kw{fail}$(s)$, or the return of \kw{main}
+  ends the program at once: every other thread stops. A thread that ends
+  otherwise just ends, and a program whose threads all end without
+  \kw{exit} is stuck forever. Input that arrives after the end is
+  $\ev{refused}$.
+\item[Join.] A thread that ends leaves one join token. \kw{join}$(t)$ takes
+  the token if it is there; otherwise it observes its own cancel flag; and
+  otherwise it blocks. A second \kw{join} of the same thread blocks
+  forever.
+\item[Exceptions] are data. \kw{throw} transfers control to the innermost
+  handler on the thread's stack. An uncaught exception whose value is a
+  string $s$ fails the program with $\ev{fail}(s)$.
+\item[Halting.] \Lang{} has no static types. A statement whose operand has
+  the wrong type, and an uncaught exception that is not a string, halt the
+  thread: it takes no further action, never ends, and releases nothing.
+\end{description}
+
+\subsection{The timing model}
+\label{sec:timing}
+
+\Lang{} has an internal clock in microseconds, advanced by idle ticks. A
+timed operation's deadline is the clock value when it is armed plus a whole
+number of seconds. Dex computes fire times the same way, from commit
+timestamps, and those strictly increase from commit to commit. So two runs,
+one on each side, can carry the same deadlines only if the same number of
+clock-stamped steps lies between any two arming points. If the counts
+differ, the order of two deadlines can differ, and a \kw{select} makes that
+order observable.
+
+\Lang{} therefore has a \emph{fixed timing model}: each kind of statement
+takes a fixed number of \emph{stamped actions}, and the clock must strictly
+increase between any two stamped actions. The counts
+(Table~\ref{tab:timing}) are the numbers of Dex commits of the translation.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}LP{5.6cm}@{}}
+\toprule
+\Lang{} step & Stamped actions \\
+\midrule
+$\ev{begin}(v)$ & 1, then 2 more before \kw{main}'s first statement \\
+$s ; s$ and \kw{skip} & 0 \\
+A statement that does not block (assignment, \kw{load}, \kw{store},
+  \kw{if}, each test of \kw{while}, call, \kw{return}, \kw{fork},
+  \kw{newMutex}, \kw{unlock}, \kw{signal}, \kw{broadcast}, \kw{emit},
+  \kw{throw}, entering \kw{try}, \kw{cancel}, \kw{exit}, \kw{fail}); the end
+  of a \kw{try} body or a procedure body & 2: begin, complete \\
+\kw{lock}, \kw{recv}, \kw{join} & 4: begin the wait, register it, begin the
+  continuation, complete it \\
+\kw{wait}$(\mathit{cv}, m)$ & 10: 2 to release $m$ and enqueue, 4 to wait
+  for the signal, 4 to re-lock $m$ \\
+\kw{sleep}, \kw{select} with \kw{after} & 6: 2 for Enter, then 4, of which
+  the register is Arm \\
+$\ev{in}(c, v)$ while the program runs & 1 \\
+A batch of $k \ge 1$ consecutive \kw{fire} actions & 1 \\
+$\ev{out}(a)$; delivery or drop of a late emit; $\ev{refused}(c, v)$ & 0 \\
+\bottomrule
+\end{tabularx}
+\caption{The timing model of \Lang{}. A shared read happens at begin, an
+\kw{emit} is issued at begin, and every other atomic action happens at
+complete or at register.}
+\label{tab:timing}
+\end{table}
+
+This was an explicit decision of the model's owner (row L1 of the
+specification's review log), with this rationale: real programs cannot rely
+on timing races. A program whose outcomes do not depend on the order of two
+deadlines means the same under this timing model as under any other. The
+theorem adopts the one model that is aligned with Dex, which makes the
+equivalence exact without narrowing what it covers in practice. It is like
+counting one time unit per instruction in algorithm analysis. The theorem
+does \emph{not} say that a program is equivalent to itself under another
+cost model.
+
+In Lean the model is the phase of a thread (\lean{L.Phase}): a statement
+that does not block goes \lean{ready} $\to$ \lean{running} $\to$
+\lean{ready}; an \kw{emit} goes \lean{ready} $\to$ \lean{emitting} $\to$
+\lean{emitted} $\to$ \lean{ready}; a blocking statement goes \lean{ready}
+$\to$ \lean{waitStarted} $\to$ \lean{blocked} or \lean{woken} $\to$
+\lean{resuming} $\to$ \lean{ready}.
+
+\subsection{Timers}
+\label{sec:timers}
+
+A timed operation takes two actions. \emph{Enter} gives it the next timer
+number $n$ from one program-wide counter. \emph{Arm}, later, sets its
+deadline to the current clock plus the duration and blocks the thread. The
+timer completes only by the internal action \kw{fire}, which is enabled at
+any time no earlier than the deadline and possibly much later. \kw{fire}
+fires only the \emph{least} due timer in the order (deadline, $n$). A batch
+of consecutive \kw{fire} actions shares one clock stamp, as one
+\rulename{TIMER-FIRE} commit fires a prefix of the due timers. A blocked
+timed operation is decided by whichever comes first: its \kw{fire}, the
+arrival of its message, or a cancel. A timer is never complete when it is
+armed, even with duration zero.
+
+\subsection{Scope decisions}
+\label{sec:scope}
+
+Three more decisions bound the theorem. Each is recorded in the review log
+of the specification with its date and its reason.
+
+\paragraph{Well-formed programs (L2).}
+\kw{wait}, \kw{signal}, and \kw{broadcast} require the condition variable's
+mutex to be held, and \kw{unlock} requires the mutex to be held by the
+caller. \Lang{} gives no behavior to a thread that is about to break a
+requirement: the thread has no step. The theorem covers the programs in
+which this never happens.
+
+\begin{Verbatim}
+def Thread.BreaksMutexRequirement (config : Config) (thread : Thread) : Prop :=
+  thread.phase = .ready ∧ thread.timer = none ∧
+  ∃ mutex, requiredMutex thread.core thread.code = some mutex ∧
+    config.mutexOwners.get? mutex ≠ some (some thread.core.tid)
+
+def BreaksMutexRequirement (config : Config) : Prop :=
+  ∃ thread, thread ∈ config.threads ∧ thread.BreaksMutexRequirement config
+
+def Program.IsWellFormed (program : Program) : Prop :=
+  ∀ config, (system program).Reachable config → ¬ BreaksMutexRequirement config
+\end{Verbatim}
+
+\lean{Program.IsWellFormed} is a property of the source program under
+\Lang{}'s semantics alone, quantified over every input and every schedule,
+like data-race freedom. The translation plays no part in it.
+
+\paragraph{Unbounded counters (L3).}
+Step numbers and timer numbers are natural numbers in the model. The real
+server stores a Step number in 32 bits. The order of timers with equal fire
+times is derived from the byte order of encoded timer IDs, and that
+derivation is exact for fewer than $2^{32}$ Step executions of one type per
+run. The theorem says nothing about a run that exceeds the limit.
+
+\paragraph{Unforgeable handles and literal-only inputs (L5, L6).}
+The proof itself found these two points. In an earlier version a literal
+could be any value, including the handle of a mutex that \kw{newMutex} had
+not created yet. Consider
+\begin{quote}\small
+$\mathit{locker}()$: \kw{lock}$(h)$; \kw{emit}$(1)$ \qquad
+\kw{main}: \kw{fork} $\mathit{locker}()$; \kw{sleep}$(0)$;
+\kw{newMutex}; \kw{recv}$(9)$
+\end{quote}
+where $h$ is the forged handle of the mutex that \kw{main} creates. In
+\Lang{} the locker blocks forever, because creating a mutex does not serve
+blocked lockers. In Dex the first token that the translated \kw{newMutex}
+publishes wakes the waiting Step, and every fair run emits $\ev{out}(1)$.
+The liveness statement was false for this well-formed program. The fix is
+at the source: literals are only null, Booleans, integers, and strings
+(\lean{L.Literal}); a mutex handle comes only from \kw{newMutex} or
+\kw{staticMutex}; a thread handle comes only from \kw{fork}. The lemmas
+\lean{evalExpr_mutex_origin} and \lean{evalExpr_thread_origin} state this.
+
+The counterexample then came back through the environment: the program
+input was an arbitrary value, so it could be the forged handle. The second
+decision closes that door: the environment sends plain data only. A request
+carries a \lean{L.Literal}, and \lean{literal_isNotHandle} proves that no
+literal is a handle. After both decisions the counterexample cannot be
+written down, which is a stronger guarantee than a side condition that
+excludes it.

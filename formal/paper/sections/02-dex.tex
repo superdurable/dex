@@ -1,0 +1,218 @@
+\section{The Dex programming model and its core semantics}
+\label{sec:dex}
+
+\subsection{The model}
+\label{sec:dex-model}
+
+Table~\ref{tab:constructs} lists the constructs of the Dex programming
+model. The specification gives rules for all of them. The theorem needs only
+those in the last column, because the translation of \S\ref{sec:translation}
+uses no others.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}P{2.5cm}LP{2.6cm}@{}}
+\toprule
+Construct & What it is & Used by the translation \\
+\midrule
+Flow & One run of a Flow definition: the unit of execution and of
+  observation. It starts with a start Step and an input, and it closes with
+  a status and a result. & Yes \\
+Step & A Step execution has an input, an optional \kw{WaitFor} method, and a
+  required \kw{Execute} method. These two methods are the only place where
+  application code runs, apart from RPCs. & Yes \\
+StepDecision & What \kw{Execute} returns: \kw{GoTo}/\kw{GoToMany} (create
+  Step executions), \kw{DeadEnd} (end this branch), \kw{ForceComplete} and
+  \kw{ForceFail} (close the Flow), \kw{GracefulComplete},
+  \kw{ForceCompleteIfChannelsEmpty}, \kw{CancelSteps},
+  \kw{CancelSiblingSteps}. & \kw{GoTo}, \kw{GoToMany}, \kw{DeadEnd},
+  \kw{ForceComplete}, \kw{ForceFail} \\
+Wait & What \kw{WaitFor} returns: Timer, Channel, and SubFlow conditions
+  combined by \kw{AllOf}, \kw{AnyOf}, or \kw{AnyCombinationOf}; or the empty
+  wait. & \kw{AnyOf} and \kw{AllOf} over Timers and \kw{ForOne} Channel
+  conditions \\
+Attribute & A key-value store of one run. An AttributeMap is a family of
+  Attributes; a Step method sees an AttributeMap instance only if its
+  options select it. & Yes \\
+Channel & A FIFO queue of one run. A Channel condition has bounds; the
+  default, \kw{ForOne}, waits for one message and consumes exactly one. &
+  \kw{ForOne} only \\
+Timer & A wait condition with a duration in whole seconds. & Yes \\
+SubFlow & A child Flow started by a wait; its result is delivered to the
+  parent. & No \\
+RPC & A client call that runs a handler, reads and writes the run, and may
+  start or cancel Steps. & No \\
+Attribute lock & Mutual exclusion on Attribute keys for the duration of one
+  Step method or RPC. & No \\
+\bottomrule
+\end{tabularx}
+\caption{The constructs of the Dex core. The specification covers all of
+them; the Lean model has the ones the translation and the admissible
+environment use.}
+\label{tab:constructs}
+\end{table}
+
+Two properties of the model shape everything that follows. First,
+application code never blocks. A Step that must wait says so by returning a
+wait from \kw{WaitFor}; the engine runs \kw{Execute} when the wait is
+satisfied. Second, application code does not touch shared state directly. A
+method receives a \emph{snapshot} of the Attributes when it starts, and it
+returns its writes, its publications, and its decision as one response.
+The engine commits that response later, in one atomic step.
+
+\subsection{Configurations}
+\label{sec:dex-config}
+
+The specification defines the system state as partition clocks, a program,
+the runs of all Flows, engine state, and cross-Flow messages in transit. The
+admissible environment of the theorem starts one Flow, and the translation
+uses no SubFlows, so the Lean model (\file{Dex/Config.lean}) reduces the
+state to one partition:
+\[
+\Sigma \;=\; \langle\, \mathit{clock},\ \mathit{lastCommitAt},\
+\mathit{run} : \mathit{Run}^{?},\ \Theta : [\mathit{Task}],\
+\mathit{nextTaskId} \,\rangle .
+\]
+A run holds a status (\emph{Running} or \emph{Closed} with a close status),
+the collected outputs, the Step executions, a per-type Step counter, the
+Attributes, the pending messages of each Channel in commit order, the armed
+timers with their fire times, and a sequence number $\mathit{seq}$ that
+every commit increments. A Step execution has an ID $T\text{-}n$ (its type
+and its number from the per-type counter), an input, options, a phase
+$\varphi \in \{\mathit{WF}, \mathit{WT}, \mathit{EX}, \mathit{CO},
+\mathit{CA}\}$ (WaitFor, Waiting, Execute, Completed, Canceled), an optional
+\emph{invocation} (a method that is pending or running), an optional
+registered wait, and optional condition results. A registered wait records
+$\mathit{sws}$, the sequence number at which it was registered; it orders
+waiters.
+
+$\Theta$ is engine state that the persistent state machine does not hold:
+the \emph{tasks}, which are method attempts handed to a Worker. A task
+carries the request the engine built when the method started (context,
+input, snapshot, condition results) and a phase: \emph{Started},
+\emph{Running} with the effects still to emit and the response, or
+\emph{Returned} with the response.
+
+\subsection{Rules}
+\label{sec:dex-rules}
+
+A transition is $\Sigma \xrightarrow{\;\vec{\ell}\;} \Sigma'$, where
+$\vec{\ell}$ is the ordered sequence of observable events it produces. A
+rule marked \emph{commit} is one command of the server's deterministic
+state machine: it is atomic, it stamps the current clock value, and the
+clock must have strictly increased since the previous commit. In Lean a rule
+is a case of the partial function
+\lean{Dex.step} (\file{Dex/Rules.lean}): the \emph{action} names the rule and
+carries its nondeterministic choice, so determinism of each rule holds by
+construction (\lean{step_deterministic}). Table~\ref{tab:rules} lists the
+ten actions.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}P{3.1cm}P{1.9cm}LP{2.9cm}@{}}
+\toprule
+Action (rule) & Kind & Effect & Events \\
+\midrule
+\lean{tick} \rulename{TICK} & environment & The clock advances by
+  $\delta > 0$ microseconds. & none \\
+\lean{request} \rulename{FLOW-START} & commit & Enabled when no run exists.
+  Creates the run and its start Step. & $\ev{start}(T_0, v)$ \\
+\lean{request} \rulename{PUBLISH} & commit & While the run is running:
+  appends the message and wakes the Channel's waiters. Otherwise the request
+  is rejected and nothing changes. & $\ev{pub}(c, v)$, or
+  $\ev{rejected}(\ev{pub}(c, v))$ \\
+\lean{stepStart} \rulename{STEP-START} & commit & A pending invocation
+  becomes running. The snapshot is taken, and a fresh task enters
+  $\Theta$. & none \\
+\lean{workerRun}, \lean{workerEffect}, \lean{workerReturn}
+  \rulename{WORKER-EFFECT} & Worker & The handler runs; the task emits its
+  external effects one at a time; the task becomes \emph{Returned}. &
+  $\ev{fx}(e, m, a)$ per effect \\
+\lean{stepComplete} \rulename{STEP-COMPLETE-*} & commit & The response of a
+  \emph{Returned} task of a still-running invocation commits: its data
+  effects, then the wait registration (WaitFor) or the decision (Execute). &
+  none, or $\ev{closed}(\ldots)$ \\
+\lean{workerAbandon} \rulename{WORKER-ABANDON} & Worker & A task whose
+  invocation was canceled is dropped, before or after any of its effects. &
+  none \\
+\lean{stepCompleteStale} \rulename{STEP-COMPLETE-STALE} & Worker & A
+  \emph{Returned} task whose invocation is no longer running is dropped. &
+  none \\
+\lean{timerFire} \rulename{TIMER-FIRE} & commit & Fires a non-empty prefix
+  of the due timers, in index order, in one commit. & none, or
+  $\ev{closed}(\ldots)$ \\
+\bottomrule
+\end{tabularx}
+\caption{The transitions of the restricted Dex system
+(\lean{Dex.Action}, \file{Dex/Rules.lean}). The specification also has rules
+for the other client inputs, RPCs, SubFlows, and a deferred close; the
+admissible environment and the translation never enable them.}
+\label{tab:rules}
+\end{table}
+
+\paragraph{A Step method is three transitions.}
+This is the central fact of the semantics. A method starts
+(\rulename{STEP-START}, a commit), runs on a Worker
+(\rulename{WORKER-EFFECT}, not a commit), and completes
+(\rulename{STEP-COMPLETE-WAITFOR} or \rulename{STEP-COMPLETE-EXECUTE}, a
+commit). Any other enabled transition can occur between them. The method
+reads the snapshot taken at Start. Its writes are applied blindly at
+Complete; nothing checks that the values it read are still current. So a
+Step method is \emph{not} a read-modify-write transaction: two Steps that
+both read an Attribute and both write it can lose an update. The
+translation is designed around this: it puts at most one shared access in
+each method, so that a read linearizes at Start and a write at Complete.
+
+\paragraph{Inside one commit.}
+The effect of a commit is defined by deterministic meta-functions
+(\file{Dex/MetaFunctions.lean}), run in a fixed order. The ones the proof
+relies on are these.
+\begin{itemize}
+\item \emph{Data effects}: Attribute writes in order, then Channel
+  publications in order, then a \emph{wake} of the Channels published to.
+\item \emph{Wake}: every Step that waits on a changed Channel is
+  re-evaluated, earliest registration first (by $\mathit{sws}$). With
+  \kw{ForOne} waiters only, a Channel is therefore FIFO by registration.
+  Lean: \lean{Dex.wake_servesEarliestWaiter}.
+\item \emph{Evaluation}: a wait is satisfied when its plan is feasible.
+  \kw{AllOf} needs every condition. \kw{AnyOf} takes the first feasible
+  candidate in the order timers, then Channel conditions in declaration
+  order, and consumes only from the winner
+  (\lean{Dex.registerWait_any_firstChannelWins}). A satisfied wait moves the
+  Step to phase $\mathit{EX}$ and makes its \kw{Execute} pending.
+\item \emph{Registration}: a non-empty wait arms its timers at the commit's
+  timestamp plus whole seconds, records $\mathit{sws}$, and is evaluated
+  once. A timer is never done when its wait registers, even a zero-second
+  one (\lean{Dex.registerWait_timer_blocks}).
+\item \emph{Decision}: the deciding Step completes; then a close decision
+  closes the run, canceling every active Step, or the moves create new Step
+  executions.
+\end{itemize}
+
+\paragraph{Timers fire late and in order.}
+\rulename{TIMER-FIRE} is enabled when some armed timer's fire time is at or
+before the clock. It fires a non-empty \emph{prefix} of the due timers, in
+the order (fire time, encoded timer ID), in one commit. Firing can be
+arbitrarily late: any commit may come between a timer becoming due and its
+firing, so a due timer can lose an \kw{AnyOf} race to a message that arrives
+after its fire time. The specification argues from the timer service's code
+that a prefix, and not an arbitrary subset, is exact for failure-free runs.
+An over-approximation would be unsafe here: for an equivalence theorem,
+extra Dex runs are extra obligations for \Lang{}.
+
+\subsection{Observable events}
+\label{sec:dex-obs}
+
+The Dex event alphabet \Obs{} of the restricted system is
+$\ev{start}(T, v)$, $\ev{pub}(c, v)$, $\ev{rejected}(\ev{pub}(c, v))$,
+$\ev{fx}(e, m, a)$, and $\ev{closed}(\mathit{status}, \mathit{outs})$
+(\lean{Dex.Obs}). An $\ev{fx}$ event is one external effect of a handler,
+such as a call to another system. It is emitted by the Worker, outside any
+commit: an effect can happen with no commit after it, and after the Flow
+closed, when its Step was canceled in between.
+
+Reads are not observable. Including them would make every intermediate
+Attribute write visible and would turn the claim into a much stronger one
+that no compilation of threads into Steps could satisfy.

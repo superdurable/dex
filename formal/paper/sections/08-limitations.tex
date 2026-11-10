@@ -1,0 +1,116 @@
+\section{Limitations and threats to validity}
+\label{sec:limitations}
+
+A machine-checked proof removes one risk, an error in the argument. It
+leaves the others in place. We list them from the most to the least
+important.
+
+\paragraph{The Dex side is a model, not the code.}
+The semantics is written by hand from the server's source and validated by
+review. It is not extracted from the implementation, and no tool checks
+that the server refines it. A mistake in reading the code is a mistake in
+the theorem's meaning. Three things reduce the risk and none removes it.
+Every rule cites the implementing code. Three adversarial reviews checked
+the rules against that code. And the model's executable form runs the
+examples and the lockstep checks, although only against itself, not against
+a running server. The Lean model is, further, a \emph{restriction} of the
+specification to what the translation and the admissible environment use;
+each omission is listed in the development with the reason why it cannot
+matter. The specification also pins a base commit of the server. The server
+has changed since, including the two fixes of
+\S\ref{sec:server-bugs}; the second changes what happens to the messages of
+a canceled Step, a behavior that a translated Flow reaches only at its
+close, where it is unobservable. That last sentence is an argument, not a
+theorem.
+
+\paragraph{Failure-free environment.}
+There are no crashes, no Worker failures, no retries, no timeouts, and no
+redelivery in the model. Durability is the reason a workflow engine exists,
+and this theorem says nothing about it. The intended complement is a
+separate proposition, correctness under crashes: roughly, that crashes,
+retries, and redelivery add no observable behavior beyond what the
+failure-free semantics allows, apart from repeated external effects. Its
+precise statement is itself future work. The server has a
+deterministic simulation harness with injected crashes, which is relevant
+evidence but is not a proof.
+
+\paragraph{Fairness is assumed, not provided.}
+Liveness holds for fair runs, and the fairness conditions of
+Table~\ref{tab:fairness} are assumptions about components outside the
+rules. F2 assumes that the timer service eventually fires a due timer. F3
+assumes that the dispatcher eventually starts a pending method. F5 assumes
+that the engine eventually commits or drops a returned response. F4 is the
+one most worth stating plainly: it assumes that every Worker task
+eventually settles, by returning or by being abandoned after its invocation
+was canceled. The server does not guarantee this on its own. Cancellation
+of a running handler is cooperative, and in the failure-free model there is
+no method timeout to end a handler that never returns. A deployment in
+which a handler can hang is outside the liveness theorem; the safety
+theorem still applies to it. The fair runs that the development exhibits
+(\S\ref{sec:nonvacuity}) cover termination, deadlock, and divergence by an
+infinite input word. A fair run of a program that diverges on its own, on a
+finite word, is not exhibited, and no lemma says that every reachable
+configuration has a fair continuation.
+
+\paragraph{A restricted environment.}
+The admissible environment starts one Flow and publishes plain data to
+external Channels. It makes no RPC, never stops a Flow, never sets an
+Attribute from outside, and never deletes a message or skips a timer. The
+specification gives rules for all of these, but they are outside the
+theorem. In particular an RPC can observe intermediate state and can fail
+with a lock conflict, and stopping a Flow cancels Steps at arbitrary
+points; both would need \Lang{} counterparts.
+
+\paragraph{Well-formed programs only.}
+The hypothesis \lean{Program.IsWellFormed} excludes programs that can break
+a mutex requirement. For such a program the two sides differ: \Lang{}
+refuses the step, and the Flow takes it. The scope is semantic and
+undecidable in general. The static lock discipline of
+\S\ref{sec:nonvacuity} is sufficient, not necessary. It tracks statically
+known mutexes only, and it empties the lock set after a call and after a
+\kw{try}. So it rejects \kw{unlock}, \kw{wait}, \kw{signal}, and
+\kw{broadcast} on a created mutex, and a program that holds a lock across a
+call and unlocks after it, although such programs can be well formed. For
+them well-formedness must be proved by other means.
+
+\paragraph{The timing model.}
+\Lang{} counts stamped actions exactly as the translation counts commits
+(\S\ref{sec:timing}). The theorem is exact for this model and silent about
+any other. A program whose observable behavior depends on the order of two
+deadlines that are close together can behave differently under another cost
+model. We consider such programs incorrect, but the theorem does not
+exclude them; it just assigns them the Dex timing. The equivalence is also
+untimed: it does not say that an event happens within some time, only that
+the same sequences of events are possible. Durations are whole seconds.
+
+\paragraph{Unbounded counters.}
+Step numbers and timer numbers are unbounded in the model and 32-bit in the
+server. The order of timers with equal fire times was derived from the
+protobuf encoding of timer IDs by hand; that derivation is an assumption of
+the model, and it holds for fewer than $2^{32}$ Step executions of one type
+per run.
+
+\paragraph{\Lang{} is a chosen language.}
+\Lang{}'s semantics was designed so that the equivalence is exact: FIFO
+mutexes and condition variables, cooperative cancellation at four
+cancellation points, asynchronous \kw{emit}, a \kw{select} with one receive
+branch and one timeout branch, late timers, and a single-use join. Each
+choice is defensible and close to common practice, but \Lang{} is not an
+existing language, and a different reasonable choice (say, a cancellable
+\kw{lock}) would need a different translation and a new proof. The theorem
+shows that Dex can express \emph{a} conventional concurrent language. It
+does not show that every feature of every such language has a faithful
+encoding.
+
+\paragraph{Observations.}
+Only inputs, external effects, and the program's result are observable.
+Reads of a Flow's state by a client are not, and the events of the Flow's
+internal Channels are projected away. An observer with access to those
+could tell a translated Flow from its source program.
+
+\paragraph{Trust in the statements.}
+The kernel checks proofs, not intentions. A reader who wants to rely on the
+theorem must read the model, the translation, and the statements, about
+3,450 lines, against the specification. The development maps every section
+and every numbered assumption of the specification to its Lean definition
+to make that reading possible.
