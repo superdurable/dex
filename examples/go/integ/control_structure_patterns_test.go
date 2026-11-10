@@ -114,11 +114,27 @@ func TestCriticalSectionReturnsTheTokenWhenAnEditFails(t *testing.T) {
 		{Reviewer: "finance"},
 	})
 	records := contractEditRecords(t, flowID)
-	outcomes := map[string]string{}
-	for _, record := range records {
-		outcomes[record.Reviewer] = record.Outcome
-	}
-	require.Equal(t, map[string]string{"legal": "failed", "finance": "saved"}, outcomes)
+	require.Equal(t, map[string]string{"legal": "failed", "finance": "saved"}, contractEditOutcomes(records))
+	requireContractEditsDoNotOverlap(t, records)
+}
+
+func TestCriticalSectionReturnsTheTokenWhenTheHandoffFails(t *testing.T) {
+	flowID := startWorkflowPattern(t, registry.ContractEdit, "pattern-critical-section-handoff", []criticalsection.ContractEdit{
+		{Reviewer: "legal", ShouldFailHandoff: true},
+		{Reviewer: "finance"},
+	})
+	records := contractEditRecords(t, flowID)
+	require.Equal(t, map[string]string{"legal": "failed", "finance": "saved"}, contractEditOutcomes(records))
+	requireContractEditsDoNotOverlap(t, records)
+}
+
+func TestCriticalSectionReturnsTheTokenOnAnEarlyExit(t *testing.T) {
+	flowID := startWorkflowPattern(t, registry.ContractEdit, "pattern-critical-section-withdraw", []criticalsection.ContractEdit{
+		{Reviewer: "legal", ShouldWithdraw: true},
+		{Reviewer: "finance"},
+	})
+	records := contractEditRecords(t, flowID)
+	require.Equal(t, map[string]string{"legal": "withdrawn", "finance": "saved"}, contractEditOutcomes(records))
 	requireContractEditsDoNotOverlap(t, records)
 }
 
@@ -184,6 +200,14 @@ func contractEditReviewers(records []criticalsection.ContractEditRecord) []strin
 		reviewers = append(reviewers, record.Reviewer)
 	}
 	return reviewers
+}
+
+func contractEditOutcomes(records []criticalsection.ContractEditRecord) map[string]string {
+	outcomes := map[string]string{}
+	for _, record := range records {
+		outcomes[record.Reviewer] = record.Outcome
+	}
+	return outcomes
 }
 
 func requireContractEditsDoNotOverlap(t *testing.T, records []criticalsection.ContractEditRecord) {

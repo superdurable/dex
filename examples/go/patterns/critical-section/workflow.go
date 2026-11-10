@@ -30,10 +30,13 @@ import (
 const contractEditDuration = 100 * time.Millisecond
 
 // ContractEdit is one reviewer's turn to edit the shared contract.
+// The Should* fields simulate a failure or a withdrawal for the example.
 type ContractEdit struct {
-	Reviewer        string `json:"reviewer"`
-	ShouldFailEdit  bool   `json:"shouldFailEdit"`
-	StartedAtMillis int64  `json:"startedAtMillis"`
+	Reviewer          string `json:"reviewer"`
+	ShouldFailHandoff bool   `json:"shouldFailHandoff"`
+	ShouldWithdraw    bool   `json:"shouldWithdraw"`
+	ShouldFailEdit    bool   `json:"shouldFailEdit"`
+	StartedAtMillis   int64  `json:"startedAtMillis"`
 }
 
 // ContractEditRecord reports when one edit held the contract and how it ended.
@@ -47,12 +50,13 @@ type ContractEditRecord struct {
 var (
 	ContractEditToken    = dex.DefineChannel[string]("contractEditToken")
 	ContractEditFinished = dex.DefineChannel[ContractEditRecord]("contractEditFinished")
+	errContractHandoff   = errors.New("contract handoff failed")
 	errContractEdit      = errors.New("contract edit failed")
 	contractEditRetry    = &dex.RetryPolicy{InitialInterval: time.Second, MaximumAttempts: 2}
 )
 
 // ContractEditFlow lets several reviewers edit one contract, one at a time.
-// A one-message Channel is the token that guards the two-Step edit section.
+// A one-message Channel is the token that guards the edit section.
 type ContractEditFlow struct{ dex.FlowDefaults }
 
 func NewContractEditFlow() *ContractEditFlow {
@@ -63,6 +67,7 @@ func (*ContractEditFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(StartContractEdits{}),
 		dex.DefineStep(EnterContractEdit{}),
+		dex.DefineStep(EditContract{}),
 		dex.DefineStep(SaveContractEdit{}),
 		dex.DefineStep(ReleaseContractEditToken{}),
 		dex.DefineStep(FinishContractEdits{}),
@@ -92,11 +97,10 @@ func (StartContractEdits) Execute(ctx dex.Context, edits []ContractEdit) (*dex.S
 	return dex.GoToMany(movements...), nil
 }
 
-// EnterContractEdit enters the section by consuming the token.
+// EnterContractEdit takes the token and hands off; it does no protected work,
+// so canceling it is safe.
 type EnterContractEdit struct{ dex.StepDefaults }
 
-// GetStepOptions routes an Execute failure after the token was consumed to the
-// Step that publishes it back.
 func (EnterContractEdit) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry:   contractEditRetry,
@@ -109,7 +113,32 @@ func (EnterContractEdit) WaitFor(dex.Context, ContractEdit) (*dex.Wait, error) {
 }
 
 func (EnterContractEdit) Execute(_ dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
+	if edit.ShouldFailHandoff {
+		return nil, errContractHandoff
+	}
+	return dex.GoTo(EditContract{}, edit), nil
+}
+
+// EditContract is the first Step that works on the contract. Never cancel it.
+type EditContract struct {
+	dex.StepDefaultsNoWaitFor[ContractEdit]
+}
+
+func (EditContract) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry:   contractEditRetry,
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(ReleaseContractEditToken{}, nil),
+	}
+}
+
+func (EditContract) Execute(ctx dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
 	edit.StartedAtMillis = time.Now().UnixMilli()
+	if edit.ShouldWithdraw {
+		if err := leaveContractEdit(ctx, edit, "withdrawn"); err != nil {
+			return nil, err
+		}
+		return dex.DeadEnd(), nil
+	}
 	time.Sleep(contractEditDuration)
 	return dex.GoTo(SaveContractEdit{}, edit), nil
 }
@@ -165,12 +194,18 @@ func (FinishContractEdits) Execute(ctx dex.Context, _ int) (*dex.StepDecision, e
 }
 
 // leaveContractEdit records the edit and publishes the token for the next reviewer.
+// An edit that never started has an empty interval at its finish time.
 func leaveContractEdit(ctx dex.Context, edit ContractEdit, outcome string) error {
+	finishedAtMillis := time.Now().UnixMilli()
+	startedAtMillis := edit.StartedAtMillis
+	if startedAtMillis == 0 {
+		startedAtMillis = finishedAtMillis
+	}
 	record := ContractEditRecord{
 		Reviewer:         edit.Reviewer,
 		Outcome:          outcome,
-		StartedAtMillis:  edit.StartedAtMillis,
-		FinishedAtMillis: time.Now().UnixMilli(),
+		StartedAtMillis:  startedAtMillis,
+		FinishedAtMillis: finishedAtMillis,
 	}
 	if err := ContractEditFinished.Publish(ctx, record); err != nil {
 		return err

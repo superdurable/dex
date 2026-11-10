@@ -116,12 +116,13 @@ func (step RunCreditCheck) WaitFor(_ dex.Context, application LoanApplication) (
 		ApplicantID:        application.ApplicantID,
 		ReportDelaySeconds: application.CreditReportDelaySeconds,
 	}
+	// The cancel condition comes first: it wins when both are ready.
 	return dex.AnyOf(
+		ApplicationCanceled.ForOne(),
 		dex.SubFlow(step.creditCheckFlow, request, dex.SubFlowOptions{
 			Timeout:     &timeout,
 			ReusePolicy: dex.RestartSubFlowIfPreviousExitedAbnormally,
 		}),
-		ApplicationCanceled.ForOne(),
 	), nil
 }
 
@@ -181,7 +182,7 @@ func (step RunCreditCheck) stopCreditCheck(ctx dex.Context, childFlowID string) 
 type AwaitUnderwriterDecision struct{ dex.StepDefaults }
 
 func (AwaitUnderwriterDecision) WaitFor(dex.Context, string) (*dex.Wait, error) {
-	return dex.AnyOf(UnderwriterDecided.ForOne(), ApplicationCanceled.ForOne()), nil
+	return dex.AnyOf(ApplicationCanceled.ForOne(), UnderwriterDecided.ForOne()), nil
 }
 
 func (AwaitUnderwriterDecision) Execute(ctx dex.Context, report string) (*dex.StepDecision, error) {
