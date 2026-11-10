@@ -55,13 +55,15 @@ Polling Step 可以使用任一种 durability。见 [Step options](/reference/py
 
 **ExecuteMethodTimeout** 到期时，Dex 以 timeout 让该 attempt 失败。如果 **TotalDuration** 已经不够再 retry 一次，该 Step 失败。用 **ExecuteFailure** 选项把这个失败路由到一个短 Step，由它记录业务失败。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。
 
-失败记录不包含最后观察到的状态。它可以在进度 Stream 和日志中看到。不是固定时长的业务条件（例如不归该 Flow 所有、可能过期的 lease）仍然在循环中检查。
+失败记录不包含最后观察到的状态。它可以在进度 Stream 和日志中看到。
+
+这些 timeout 只能限定固定时长。其他业务条件仍然在循环中检查，例如由其他系统持有、可能过期的 lease。
 
 ## Checkpoint 和进度
 
 新的 attempt 从上一个 checkpoint 继续，用 **GetLastHeartbeatValue** 读取它。示例中的 checkpoint 是上一次报告的 job 状态，所以 retry 不会重复发送进度消息。
 
-只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。状态没变的轮次不应占用 Stream。Stream message 是 best-effort，所以消费方从 durable 状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。见 [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) 和 [Stream](/concepts/primitives/stream)。
+只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。Stream message 是 best-effort，所以消费方从 durable 状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。见 [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) 和 [Stream](/concepts/primitives/stream)。
 
 ## 锁
 
