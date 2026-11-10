@@ -49,7 +49,7 @@ attributeStore:
 
 ## 交付与重试
 
-Dex 异步写入，一次处理一个 Flow。表中的一行保存 Attribute 的最新值，而不是事件历史。每次写入至少投递一次。结果未知的失败之后，同一次写入可能重复，所以 Dex 按 Flow ID 对行做 upsert。
+Dex 异步写入，一次处理一个 Flow。表中的一行保存 Attribute 的最新值，而不是事件历史。结果未知的失败之后，同一次写入可能重复，所以 Dex 按 Flow ID 对行做 upsert。
 
 同步写入从不拖慢 Step、RPC 或 SetAttributes 调用。失败的写入会一直重试到 **syncRetryPolicy.totalDuration**，之后丢弃并输出 error 日志。Dex 不会自动重放旧的 Attribute，也不会为新配置的 store 回填数据。被过滤的写入、目标缺失和重试耗尽都会输出 error 日志。
 

@@ -273,7 +273,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 
 **What it is.** The number of instances is not known until the last one finishes. New instances can start while others run. The process continues after all of them finish. See the [official definition](http://www.workflowpatterns.com/patterns/control/multiple_instance/wcp15.php).
 
-**How Dex implements it.** An **RPC** starts each new instance through its next Steps and counts it in an **Attribute**. Another RPC stops new instances. The join waits for one result at a time. It loops until no new instances can start and every instance has reported.
+**How Dex implements it.** An **RPC** starts each new instance through its next Steps and counts it in an **Attribute**. Another RPC prevents further instances from starting. The join waits for one result at a time. It loops until no new instances can start and every instance has reported.
 
 **Rating:** **+/-**. The join composes an RPC, an Attribute counter, and a loop that waits again after each result.
 

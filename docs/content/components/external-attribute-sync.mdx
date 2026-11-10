@@ -63,8 +63,7 @@ for every key and its default.
 ## Delivery and retries
 
 Dex writes asynchronously, one Flow at a time. A table row holds the latest
-Attribute values, not an event history. Dex delivers each write at least once.
-A write can repeat after a failure whose outcome is unknown, so Dex upserts
+Attribute values, not an event history. A write can repeat after a failure whose outcome is unknown, so Dex upserts
 rows keyed by the Flow ID.
 
 Sync writes never delay a Step, an RPC, or a SetAttributes call. Failed writes
