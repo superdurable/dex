@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -307,7 +308,7 @@ func TestFlowConnectionSaveIsRefusedWhenTheFlowMovesToAnotherReleaseDuringIt(t *
 	}
 }
 
-func TestTriggerBindingWriteIsRefusedAfterItsConnectionIsDeleted(t *testing.T) {
+func TestTriggerBindingWriteIsRefusedAfterItsConnectionIsDeletedOrCreatedAgain(t *testing.T) {
 	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, nil))
 	connection := testLocalConnectorConnection("slack", "workspace", "xoxb", nil)
 	if err := setup.store.put(connection, nil); err != nil {
@@ -317,41 +318,119 @@ func TestTriggerBindingWriteIsRefusedAfterItsConnectionIsDeleted(t *testing.T) {
 		ConnectorID: "slack", ConnectionName: "workspace", TriggerName: "threadReplyCreated", BindingName: "approvals",
 		Configuration: map[string]json.RawMessage{},
 	}
-	if err := setup.store.putTriggerBinding(binding); err != nil {
+	if err := setup.putTriggerBindingIfCurrent(binding, connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := setup.deleteConnection("slack", "workspace"); err != nil {
+	staleBinding := connectionTestWriteExpectation(t, setup, "slack", "workspace")
+	if _, err := setup.deleteConnection("slack", "workspace", connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
 		t.Fatal(err)
 	}
-	if err := setup.store.putTriggerBinding(binding); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putTriggerBindingIfCurrent(binding, staleBinding); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("binding write after delete err = %v", err)
 	}
-	if _, err := setup.store.list(); err != nil {
-		t.Fatalf("the connection file must stay loadable: %v", err)
+	if err := setup.store.putTriggerBinding(binding); !errors.Is(err, errConnectorConnectionChanged) {
+		t.Fatalf("a binding without its connection must be refused by the store too: err = %v", err)
 	}
-
+	// The same record again has the same revision, so only the generation tells the new connection apart.
 	if err := setup.store.put(connection, nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := setup.putTriggerBindingIfCurrent(binding, staleBinding); !errors.Is(err, errConnectorConnectionChanged) {
+		t.Fatalf("binding write after delete and create again err = %v", err)
+	}
+	if bindings, err := setup.store.listTriggerBindings("slack", "workspace"); err != nil || len(bindings) != 0 {
+		t.Fatalf("the old binding landed on the new connection: %+v, %v", bindings, err)
+	}
+
 	var writers sync.WaitGroup
 	for index := range 20 {
 		writers.Add(1)
 		go func() {
 			defer writers.Done()
-			if index%2 == 0 {
-				if _, err := setup.deleteConnection("slack", "workspace"); err != nil {
-					t.Error(err)
-				}
+			expectation, err := newConnectionTestWriteExpectation(setup, "slack", "workspace")
+			if err != nil {
+				t.Error(err)
 				return
 			}
-			if err := setup.store.putTriggerBinding(binding); err != nil && !errors.Is(err, errConnectorConnectionChanged) {
+			switch index % 3 {
+			case 0:
+				_, err = setup.deleteConnection("slack", "workspace", expectation)
+			case 1:
+				err = setup.putTriggerBindingIfCurrent(binding, expectation)
+			default:
+				err = setup.store.put(connection, nil)
+			}
+			if err != nil && !errors.Is(err, errConnectorConnectionChanged) {
 				t.Error(err)
 			}
 		}()
 	}
 	writers.Wait()
 	if _, err := setup.store.list(); err != nil {
-		t.Fatalf("interleaved deletes and binding writes left an invalid file: %v", err)
+		t.Fatalf("interleaved deletes, saves, and binding writes left an invalid file: %v", err)
+	}
+}
+
+func TestConnectionSavesAndDeletesAreCompareAndSetOnTheStoredRecord(t *testing.T) {
+	ctx := context.Background()
+	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, nil))
+	connection := testLocalConnectorConnection("slack", "workspace", "xoxb-first", nil)
+	if err := setup.store.put(connection, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	firstSave := connectionTestWriteExpectation(t, setup, "slack", "workspace")
+	secondSave := connectionTestWriteExpectation(t, setup, "slack", "workspace")
+	first := testLocalConnectorConnection("slack", "workspace", "xoxb-from-first-save", nil)
+	second := testLocalConnectorConnection("slack", "workspace", "xoxb-from-second-save", nil)
+	if err := setup.putConnectionIfCurrent(ctx, first, nil, firstSave); err != nil {
+		t.Fatalf("first same-release save err = %v", err)
+	}
+	if err := setup.putConnectionIfCurrent(ctx, second, nil, secondSave); !errors.Is(err, errConnectorConnectionChanged) {
+		t.Fatalf("second same-release save err = %v", err)
+	}
+	if stored := getConnectorTestConnection(t, setup, "slack", "workspace"); string(stored.Credentials["access_token"]) != `"xoxb-from-first-save"` {
+		t.Fatalf("the second save overwrote the first: %+v", stored.Credentials)
+	}
+
+	deleteBeforeSave := connectionTestWriteExpectation(t, setup, "slack", "workspace")
+	if err := setup.putConnectionIfCurrent(ctx, second, nil, connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := setup.deleteConnection("slack", "workspace", deleteBeforeSave); deleted || !errors.Is(err, errConnectorConnectionChanged) {
+		t.Fatalf("delete authorized before a save: deleted = %v, err = %v", deleted, err)
+	}
+	if stored := getConnectorTestConnection(t, setup, "slack", "workspace"); string(stored.Credentials["access_token"]) != `"xoxb-from-second-save"` {
+		t.Fatalf("the delete removed a record saved after it was authorized: %+v", stored.Credentials)
+	}
+
+	saveBeforeDelete := connectionTestWriteExpectation(t, setup, "slack", "workspace")
+	if _, err := setup.deleteConnection("slack", "workspace", connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.putConnectionIfCurrent(ctx, first, nil, saveBeforeDelete); !errors.Is(err, errConnectorConnectionChanged) {
+		t.Fatalf("save authorized before a delete err = %v", err)
+	}
+	if _, isStored, err := setup.store.get("slack", "workspace"); err != nil || isStored {
+		t.Fatalf("a save brought back a deleted connection: stored = %v, err = %v", isStored, err)
+	}
+}
+
+func TestTwoOAuthAuthorizationsOfOneConnectionSaveOnlyTheFirst(t *testing.T) {
+	setup, mux := newStandaloneSlackOAuthTest(t, nil)
+	addStandaloneSlackTestConnection(t, setup, mux, "v1.3.0")
+	firstState := startStandaloneSlackTestOAuth(t, setup, mux)
+	secondState := startStandaloneSlackTestOAuth(t, setup, mux)
+	if first := finishStandaloneSlackTestOAuth(t, mux, firstState); first.Code != http.StatusSeeOther {
+		t.Fatalf("first callback status = %d: %s", first.Code, first.Body.String())
+	}
+	saved := getConnectorTestConnection(t, setup, "slack", "support-slack")
+	second := finishStandaloneSlackTestOAuth(t, mux, secondState)
+	if second.Code != http.StatusConflict || !strings.Contains(second.Body.String(), `"CONNECTOR_CONNECTION_CHANGED"`) {
+		t.Fatalf("second callback status = %d: %s", second.Code, second.Body.String())
+	}
+	if after := getConnectorTestConnection(t, setup, "slack", "support-slack"); !reflect.DeepEqual(after, saved) {
+		t.Fatalf("the second callback changed the record: %+v", after)
 	}
 }
 
@@ -434,20 +513,37 @@ func (provider *switchableFlowDefinitionProvider) replace(snapshot *FlowDefiniti
 
 func standaloneTestWriteExpectation(t *testing.T, setup *connectorSetup) connectorConnectionWriteExpectation {
 	t.Helper()
-	generation := setup.connectionGeneration("slack", "support-slack")
-	snapshot, err := setup.flowDefinitions.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	identity, _, _, err := setup.resolveConnectionIdentity(snapshot.Response, "slack", "support-slack")
-	if err != nil {
-		t.Fatal(err)
-	}
-	expectation, err := setup.newConnectorConnectionWriteExpectation(snapshot.Response, identity, generation)
+	return connectionTestWriteExpectation(t, setup, "slack", "support-slack")
+}
+
+func connectionTestWriteExpectation(
+	t *testing.T,
+	setup *connectorSetup,
+	connectorID string,
+	connectionName string,
+) connectorConnectionWriteExpectation {
+	t.Helper()
+	expectation, err := newConnectionTestWriteExpectation(setup, connectorID, connectionName)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return expectation
+}
+
+// newConnectionTestWriteExpectation authorizes a write of the key as a request would, without the HTTP checks.
+func newConnectionTestWriteExpectation(
+	setup *connectorSetup,
+	connectorID string,
+	connectionName string,
+) (connectorConnectionWriteExpectation, error) {
+	generation := setup.connectionGeneration(connectorID, connectionName)
+	snapshot, err := setup.flowDefinitions.Load(context.Background())
+	if err != nil {
+		return connectorConnectionWriteExpectation{}, err
+	}
+	return setup.newConnectorConnectionWriteExpectation(
+		snapshot.Response, connectorDefinitionIdentity{ConnectorID: connectorID, ConnectionName: connectionName}, generation,
+	)
 }
 
 func TestStandaloneConnectionAddRequiresTheCSRFToken(t *testing.T) {
@@ -858,6 +954,18 @@ func TestConnectorCatalogFetchOutlivesTheCallerThatStartedIt(t *testing.T) {
 		}
 		secondResult <- entries
 	}()
+	for {
+		catalog.mu.Lock()
+		hasSecondCallerJoined := catalog.inFlight != nil && catalog.inFlight.waiterCount == 2
+		catalog.mu.Unlock()
+		if hasSecondCallerJoined {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second caller did not join the shared fetch")
+		}
+		runtime.Gosched()
+	}
 	cancelFirst()
 	if err := <-firstResult; !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled caller err = %v", err)

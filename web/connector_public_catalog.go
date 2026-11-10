@@ -52,9 +52,11 @@ type connectorPublicCatalog struct {
 
 // connectorPublicCatalogFetch is one catalog download that every concurrent caller waits for.
 type connectorPublicCatalogFetch struct {
-	done    chan struct{}
-	entries []connectorCatalogEntry
-	err     error
+	done chan struct{}
+	// waiterCount is how many callers wait for this fetch; catalog.mu guards it.
+	waiterCount int
+	entries     []connectorCatalogEntry
+	err         error
 }
 
 // connectorCatalogEntry is one Connector release that a new standalone connection can use.
@@ -144,6 +146,7 @@ func (catalog *connectorPublicCatalog) list(ctx context.Context) ([]connectorCat
 		// The shared fetch outlives the request that started it; the HTTP client timeout bounds it.
 		go catalog.runFetch(context.WithoutCancel(ctx), fetch)
 	}
+	fetch.waiterCount++
 	catalog.mu.Unlock()
 	select {
 	case <-fetch.done:

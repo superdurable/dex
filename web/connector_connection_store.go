@@ -10,6 +10,8 @@ package web
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +35,8 @@ const (
 
 var errConnectorConfigurationRevisionConflict = errors.New("Connector configuration revision conflict")
 
+// connectorConnectionStore reads and writes the local connection files. Its lock and the callers' compare-and-set
+// checks work within one process only; one Dex Web process owns a connections directory at a time.
 type connectorConnectionStore struct {
 	directory             string
 	path                  string
@@ -162,6 +166,25 @@ func (store *connectorConnectionStore) get(connectorID string, connectionName st
 		}
 	}
 	return storedConnectorConnection{}, false, nil
+}
+
+// revision returns the stored record's revision, or "" when the file holds no record for the key.
+func (store *connectorConnectionStore) revision(connectorID string, connectionName string) (string, error) {
+	stored, found, err := store.get(connectorID, connectionName)
+	if err != nil || !found {
+		return "", err
+	}
+	return connectorConnectionRevision(stored.localConnectorConnection)
+}
+
+// connectorConnectionRevision hashes a record's JSON encoding, so the revision is the same after the file is read again.
+func connectorConnectionRevision(connection localConnectorConnection) (string, error) {
+	encoded, err := json.Marshal(connection)
+	if err != nil {
+		return "", fmt.Errorf("encode Connector connection for its revision: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func (store *connectorConnectionStore) listTriggerBindings(connectorID string, connectionName string) ([]localConnectorTriggerBinding, error) {

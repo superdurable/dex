@@ -371,13 +371,13 @@ func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, r
 }
 
 func (setup *connectorSetup) handleDeleteConnection(response http.ResponseWriter, request *http.Request) {
-	_, _, ok := setup.authorizeConnectionWrite(response, request)
+	snapshot, _, ok := setup.authorizeConnectionWrite(response, request)
 	if !ok {
 		return
 	}
-	deleted, err := setup.deleteConnection(request.PathValue("connectorId"), request.PathValue("connectionName"))
+	deleted, err := setup.deleteConnection(request.PathValue("connectorId"), request.PathValue("connectionName"), snapshot.ConnectionWrite)
 	if err != nil {
-		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_CONNECTION_DELETE_FAILED", "Connector connection could not be deleted")
+		writeConnectorConnectionPutError(response, err, "CONNECTOR_CONNECTION_DELETE_FAILED", "Connector connection could not be deleted")
 		return
 	}
 	writeWebJSON(response, http.StatusOK, map[string]any{"deleted": deleted, "remoteGrantRevoked": false})
@@ -457,7 +457,6 @@ func (setup *connectorSetup) handleCreateUISession(response http.ResponseWriter,
 }
 
 func (setup *connectorSetup) handlePutTriggerBinding(response http.ResponseWriter, request *http.Request) {
-	store := setup.store
 	snapshot, identity, ok := setup.authorizeConnectionWrite(response, request)
 	if !ok {
 		return
@@ -490,7 +489,7 @@ func (setup *connectorSetup) handlePutTriggerBinding(response http.ResponseWrite
 		ConnectorID: identity.ConnectorID, ConnectionName: identity.ConnectionName,
 		TriggerName: triggerName, BindingName: bindingName, Configuration: body.Configuration,
 	}
-	if err := store.putTriggerBinding(localBinding); err != nil {
+	if err := setup.putTriggerBindingIfCurrent(localBinding, snapshot.ConnectionWrite); err != nil {
 		writeConnectorConnectionPutError(response, err, "CONNECTOR_TRIGGER_BINDING_WRITE_FAILED", "Connector Trigger binding could not be saved")
 		return
 	}
