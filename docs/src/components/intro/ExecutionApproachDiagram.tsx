@@ -44,7 +44,14 @@ const toneClassNames = {
 };
 
 function DiagramNode({kicker, title, detail, icon: Icon, tone = 'neutral', compact}: NodeProps): ReactNode {
-  const className = [styles.node, toneClassNames[tone], compact ? styles.nodeCompact : ''].filter(Boolean).join(' ');
+  const className = [
+    styles.node,
+    toneClassNames[tone],
+    compact ? styles.nodeCompact : '',
+    compact && detail ? styles.nodeCompactDetail : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   return (
     <div className={className}>
       <span className={styles.nodeIcon}>
@@ -298,7 +305,7 @@ function ApproachDiagram({copy, markdownDescription}: {copy: Copy; markdownDescr
           ))}
         </div>
       ) : null}
-      {copy.callArrow ? <Arrow label={copy.callArrow} /> : copy.workers || copy.stack ? <Arrow /> : null}
+      {copy.workers ? <Arrow label={copy.callArrow} /> : null}
       {copy.workers ? <NodeRow nodes={copy.workers} /> : null}
       {copy.stack?.map((item) => (
         <React.Fragment key={item.node.title}>

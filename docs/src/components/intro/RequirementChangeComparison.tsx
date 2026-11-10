@@ -50,7 +50,6 @@ export default function RequirementChangeComparison(_props: {markdownDescription
     <section className={`${styles.palette} ${styles.changes}`} aria-label={copy.requirementsAriaLabel}>
       <div className={styles.changeGrid}>
         <div className={styles.changeHeader} aria-hidden="true">
-          <span>{copy.requirementColumn}</span>
           <span>{copy.queuesColumn}</span>
           <span>{copy.dexColumn}</span>
         </div>
@@ -58,28 +57,27 @@ export default function RequirementChangeComparison(_props: {markdownDescription
           const Icon = change.icon;
           return (
             <div key={change.title} className={styles.changeRow}>
-              <div className={`${styles.cell} ${styles.cellRequirement}`}>
+              <p className={styles.cellRequirement}>
                 <span className={styles.requirementIcon}>
                   <Icon className={styles.icon} aria-hidden="true" />
                 </span>
                 <span>{change.title}</span>
-              </div>
+              </p>
               <ChangeCell label={copy.queuesColumn} side={change.queues} isDex={false} />
               <ChangeCell label={copy.dexColumn} side={change.dex} isDex />
             </div>
           );
         })}
         <div className={styles.changeTotals}>
-          <span aria-hidden="true" />
           <span className={styles.totalQueues}>
             <span className={styles.totalNumber}>{countNewParts(changes, 'queues')}</span>
             {copy.newPartsTotal}
-            <span className={styles.totalDesign}> ({copy.queues.name})</span>
+            <span className={styles.totalDesign}>{copy.queues.name}</span>
           </span>
           <span className={styles.totalDex}>
             <span className={styles.totalNumber}>{countNewParts(changes, 'dex')}</span>
             {copy.newPartsTotal}
-            <span className={styles.totalDesign}> ({copy.dex.name})</span>
+            <span className={styles.totalDesign}>{copy.dex.name}</span>
           </span>
         </div>
       </div>

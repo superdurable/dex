@@ -30,8 +30,8 @@
   --cmp-dex-strong: #70eea9;
   --cmp-dex-tint: color-mix(in srgb, var(--ifm-color-primary) 11%, transparent);
   --cmp-dex-chip: color-mix(in srgb, var(--ifm-color-primary) 18%, #16161a);
-  --cmp-cost: #fbbf24;
-  --cmp-cost-tint: color-mix(in srgb, #fbbf24 8%, transparent);
+  --cmp-cost: #e0a458;
+  --cmp-cost-tint: color-mix(in srgb, #e0a458 8%, transparent);
   --cmp-panel: color-mix(in srgb, #ffffff 3%, transparent);
   --cmp-chip: #202026;
   --cmp-chip-shadow: none;
@@ -106,7 +106,7 @@
 }
 
 .columnDex .countNumber {
-  color: var(--cmp-dex-strong);
+  color: var(--cmp-dex);
 }
 
 .group {
@@ -167,7 +167,6 @@
 }
 
 .platform {
-  margin-top: auto;
   padding-top: 0.2rem;
 }
 
@@ -209,21 +208,17 @@
 
 .changeGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1.15fr);
-  column-gap: 0.75rem;
-  row-gap: 0.5rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.5rem 0.75rem;
 }
 
-.changeRow,
 .changeHeader,
+.changeRow,
 .changeTotals {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
-  margin: 0;
+  row-gap: 0.5rem;
 }
 
 .changeHeader > span {
@@ -239,24 +234,19 @@
   color: var(--cmp-dex-strong);
 }
 
-.cell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 0;
-  padding: 0.9rem;
-  border-radius: 14px;
-  background: var(--cmp-panel);
+.changeRow {
+  margin-top: 0.9rem;
 }
 
 .cellRequirement {
-  flex-direction: row;
-  align-items: flex-start;
+  display: flex;
+  grid-column: 1 / -1;
+  margin: 0;
+  align-items: center;
   gap: 0.6rem;
-  background: transparent;
   color: var(--cmp-heading);
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 0.98rem;
+  font-weight: 650;
   line-height: 1.35;
 }
 
@@ -270,6 +260,16 @@
   background: var(--cmp-panel);
   color: var(--cmp-heading);
   font-size: 1rem;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.9rem;
+  border-radius: 14px;
+  background: var(--cmp-panel);
 }
 
 .cellDex {
@@ -323,8 +323,12 @@
   color: var(--cmp-text);
 }
 
+.changeTotals {
+  margin-top: 0.6rem;
+}
+
 .changeTotals > span {
-  padding: 0.2rem 0.9rem;
+  padding: 0 0.9rem;
   font-size: 0.85rem;
 }
 
@@ -341,25 +345,16 @@
 }
 
 .totalDex {
-  color: var(--cmp-dex-strong);
+  color: var(--cmp-dex);
 }
 
-@container (max-width: 38rem) {
+@container (max-width: 30rem) {
   .changeGrid {
     grid-template-columns: minmax(0, 1fr);
-    row-gap: 0.4rem;
   }
 
   .changeHeader {
     display: none;
-  }
-
-  .changeRow + .changeRow {
-    margin-top: 1rem;
-  }
-
-  .cellRequirement {
-    padding: 0.25rem 0;
   }
 
   .cellLabel,
@@ -380,11 +375,6 @@
 
   .changeTotals {
     grid-template-columns: 1fr 1fr;
-    margin-top: 0.75rem;
-  }
-
-  .changeTotals > span:first-child {
-    display: none;
   }
 
   .changeTotals > span {
@@ -492,9 +482,24 @@
 }
 
 .nodeCompact {
-  flex: 1 1 10rem;
+  flex: 1 1 8rem;
+  gap: 0.6rem;
   max-width: none;
   align-items: center;
+  padding: 0.7rem 0.8rem;
+}
+
+.nodeCompactDetail {
+  flex-basis: 12rem;
+}
+
+.nodeCompact .nodeIcon {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.nodeCompact .nodeTitle {
+  font-size: 0.95rem;
 }
 
 .arrow {

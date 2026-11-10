@@ -71,7 +71,6 @@ export type OrderProcessCopy = {
   dex: OrderProcessDesign;
   ariaLabel: string;
   notCounted: string;
-  requirementColumn: string;
   queuesColumn: string;
   dexColumn: string;
   newPartsTotal: string;
@@ -147,7 +146,6 @@ const EN: OrderProcessCopy = {
     ],
   },
   requirementsAriaLabel: 'What each design adds for each new requirement',
-  requirementColumn: 'New requirement',
   queuesColumn: 'Database and queues add',
   dexColumn: 'Dex adds',
   newPartsTotal: 'new parts',
@@ -265,7 +263,6 @@ const ZH: OrderProcessCopy = {
     ],
   },
   requirementsAriaLabel: '每个新需求在两种设计里各要加什么',
-  requirementColumn: '新需求',
   queuesColumn: '数据库加队列要加',
   dexColumn: 'Dex 要加',
   newPartsTotal: '个新部件',
@@ -278,7 +275,7 @@ const ZH: OrderProcessCopy = {
           {label: 'refund-requests', icon: Inbox},
           {label: '退款消费者', icon: Cpu},
         ],
-        changes: ['发货消费者 记下第一次失败的时间，一小时后放弃。'],
+        changes: ['发货消费者记下第一次失败的时间，一小时后放弃。'],
       },
       dex: {
         newParts: [{label: 'Refund Step', icon: Undo2}],
@@ -293,7 +290,7 @@ const ZH: OrderProcessCopy = {
           {label: '审批表', icon: Table2},
           {label: '审批接口', icon: BadgeCheck},
         ],
-        changes: ['改由审批接口写入 ship-requests，扣款消费者 不再写。'],
+        changes: ['改由审批接口写入 ship-requests，扣款消费者不再写。'],
       },
       dex: {
         newParts: [{label: 'approve RPC', icon: Send}],

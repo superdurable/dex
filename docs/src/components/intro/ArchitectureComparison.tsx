@@ -52,7 +52,7 @@ function DesignColumn({
       {design.groups.map((group) => (
         <div key={group.title} className={styles.group}>
           <span className={styles.groupTitle}>{group.title}</span>
-          <PartChips parts={group.parts} />
+          <PartChips parts={group.parts} isDex={isDex} />
         </div>
       ))}
       <div className={styles.platform}>
