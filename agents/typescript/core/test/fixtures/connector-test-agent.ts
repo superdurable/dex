@@ -32,6 +32,7 @@ import {
   CreatePayoutInputSchema,
   CreatePayoutOperation,
   FakeLedgerProvider,
+  GetBalanceByIdOperation,
   GetBalanceInputSchema,
   GetBalanceOperation,
   PostNoteInputSchema,
@@ -44,6 +45,8 @@ export const connectorAgentFlowType = "ConnectorAgent";
 export const connectorAgentMaxResultBytesVariable = "CONNECTOR_AGENT_MAX_RESULT_BYTES";
 export const connectorAgentDroppedToolsVariable = "CONNECTOR_AGENT_DROPPED_TOOLS";
 export const ledgerConnection: ConnectionRef = fakeLedgerConnection;
+// The name dex-agents 0.4.0 gave getBalanceByID; 0.5.0 defaults to fake-ledger_get_balance_by_id.
+export const previousByIdToolName = "fake-ledger_get_balance_by_i_d";
 
 export function readFakeLedgerManifest(): ConnectorPackageManifest {
   return structuredClone(fakeLedgerManifest) as ConnectorPackageManifest;
@@ -56,6 +59,16 @@ export function retriedNoteManifest(): ConnectorPackageManifest {
       factory.agent["retry"] = "safe";
     }
   }
+  return manifest as unknown as ConnectorPackageManifest;
+}
+
+export function byIdManifest(): ConnectorPackageManifest {
+  const manifest = structuredClone(fakeLedgerManifest) as { factories: { operationId: string }[] };
+  const factory = structuredClone(manifest.factories.find((entry) => entry.operationId === "getBalance"));
+  if (factory === undefined) {
+    throw new Error("the fake ledger manifest has no getBalance entry");
+  }
+  manifest.factories.push({ ...factory, operationId: "getBalanceByID" });
   return manifest as unknown as ConnectorPackageManifest;
 }
 
@@ -92,6 +105,12 @@ export function createConnectorSource(
       manifest: retriedNoteManifest(),
       inputValidator: PostNoteInputSchema,
       name: "post_note_retried",
+    }),
+    connectorTool(new GetBalanceByIdOperation(provider), ledgerConnection, {
+      manifest: byIdManifest(),
+      inputValidator: GetBalanceInputSchema,
+      name: previousByIdToolName,
+      requiresApproval: true,
     }),
   ].filter((tool) => !droppedTools.has(tool.name));
   return new ConnectorToolSource(tools, maxResultBytes === undefined ? {} : { maxResultBytes });

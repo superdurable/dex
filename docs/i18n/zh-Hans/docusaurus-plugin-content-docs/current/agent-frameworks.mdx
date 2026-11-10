@@ -114,15 +114,19 @@ Session 对 Connector tool 设置的 tool policy 只改变它的审批。Effect 
 
 ### 结果 {#connector-tools-outcomes}
 
-Operation 以它的某个 branch 结束，这个 branch 决定 tool call 的记录。Connector 作者在 manifest 中把没有产生效果的 branch 标为 **rejected**，把写操作可能已经生效的 branch 标为 **unknown**。对 Mutation 来说，没有列出的 branch 按 unknown 处理：
+Operation 以它的某个 branch 结束，这个 branch 决定 tool call 的记录。Connector 作者在 manifest 中把没有产生效果的 branch 标为 **rejected**，把写操作可能已经生效的 branch 标为 **unknown**。Dex 取第一个匹配的行。rejected 那一行之前的各行，除了成功的 branch，都记为 **outcome_unknown**，所以拿不准时绝不会记成可以放心重试的失败：
 
 | Branch | 记录 | 模型看到的内容 |
 | --- | --- | --- |
+| **uncertain** | **outcome_unknown** | 结果未知 |
+| Mutation 的 **defect** | **outcome_unknown** | 结果未知 |
 | 成功的 branch，例如 **sent** 或 **refunded** | **succeeded** | 结果值 |
+| Mutation 的其他任何 branch，而它的 single-dispatch fence 无法证明请求没有发出 | **outcome_unknown** | 结果未知 |
 | 标为 **rejected** 的 branch，例如 **providerRejected** | **failed** | Branch 和 provider 的消息 |
-| **defect** | **failed** | Branch 和消息 |
-| 没有列出的 Query branch | **failed** | Branch 和消息 |
-| **uncertain**、标为 **unknown** 的 branch，或没有列出的 Mutation branch | **outcome_unknown** | 结果未知 |
+| 标为 **unknown** 的 branch，或没有列出的 Mutation branch | **outcome_unknown** | 结果未知 |
+| 没有列出的 Query branch，包括 **defect** | **failed** | Branch 和消息 |
+
+Mutation 的 **defect** 可能发生在调用 provider 之后，所以写入可能已经生效。使用 single-dispatch fence 的 Mutation 会记录请求是否可能已经发出。如果可能已经发出，即使 branch 标为 **rejected**，也不会把失败记成拒绝。
 
 **outcome_unknown** 的处理方式与其他 tool 相同，见 [处理 outcome_unknown](#reconcile-outcome-unknown)。
 

@@ -114,15 +114,19 @@ The application can override that for each tool, either way. It can also pass a 
 
 ### Outcomes {#connector-tools-outcomes}
 
-The operation ends in one of its branches, and the branch decides the tool call's record. In the manifest, a Connector author marks the branches where nothing took effect as **rejected**, and the branches where the write may have taken effect as **unknown**. A branch that is not listed counts as unknown for a Mutation:
+The operation ends in one of its branches, and the branch decides the tool call's record. In the manifest, a Connector author marks the branches where nothing took effect as **rejected**, and the branches where the write may have taken effect as **unknown**. Dex uses the first row that matches. Every row above the rejected row, except the success row, records **outcome_unknown**, so doubt never becomes a safe failure:
 
 | Branch | Record | The model sees |
 | --- | --- | --- |
+| **uncertain** | **outcome_unknown** | That the outcome is unknown |
+| A Mutation's **defect** | **outcome_unknown** | That the outcome is unknown |
 | A success branch, such as **sent** or **refunded** | **succeeded** | The result value |
+| Any other Mutation branch, when its single-dispatch fence cannot prove that nothing was sent | **outcome_unknown** | That the outcome is unknown |
 | A branch marked **rejected**, such as **providerRejected** | **failed** | The branch and the provider's message |
-| **defect** | **failed** | The branch and the message |
-| A Query branch that is not listed | **failed** | The branch and the message |
-| **uncertain**, a branch marked **unknown**, or a Mutation branch that is not listed | **outcome_unknown** | That the outcome is unknown |
+| A branch marked **unknown**, or a Mutation branch that is not listed | **outcome_unknown** | That the outcome is unknown |
+| A Query branch that is not listed, including **defect** | **failed** | The branch and the message |
+
+A Mutation's **defect** can happen after the provider was called, so the write may have taken effect. A Mutation with a single-dispatch fence records whether its request may have left. If it may have, marking the branch **rejected** does not turn the failure into a rejection.
 
 Reconcile **outcome_unknown** as for any tool; see [Reconcile outcome_unknown](#reconcile-outcome-unknown).
 

@@ -17,6 +17,12 @@ and upgrade steps.
 
 Not released yet. The next agents release ships these changes.
 
+### Breaking
+
+- Python and TypeScript cores: a Connector tool's default name now uses the Connector library's snake case, which also names the Python Step factories. An acronym stays one word: **listStoryIDs** becomes **list_story_ids**, not **list_story_i_d_s**, and **getHTTPResponse** becomes **get_http_response**. Only ASCII capitals start a word. A call stored under the old name finds no tool after the upgrade and ends as a removed tool's call does. To keep the old name, pass it as the tool's **name**. A recorded call then resumes under it. See [Name the tools](/reference/agents/connector-tools#connector-tools-offered).
+- Python and TypeScript cores: a Mutation's **defect** now records **outcome_unknown** instead of **failed**, whatever **agent.branches** says, and is not retried. A Query's **defect** follows **agent.branches**: listed as **rejected** it is a rejection, otherwise it records **failed**. These rules, and the rule for **uncertain**, now apply before the required branches, so a **defect** or **uncertain** branch declared required no longer records **succeeded**. See [Outcomes](/agent-frameworks#connector-tools-outcomes).
+- Python and TypeScript cores: a Mutation that uses the single-dispatch fence records **outcome_unknown** on every branch except the success branch when its fence checkpoints cannot prove that no request reached the provider. A single-attempt write records "not sent; the provider asked to retry later" only when a **notSent** or **canResend** marker shows that nothing was sent. **classify_connector_branch** (**classifyConnectorBranch**) takes a new optional **may_have_dispatched** (**mayHaveDispatched**).
+
 ### Added
 
 - **McpToolSource** follows the Dex MCP conventions. A tool definition's **_meta** key **io.superdurable.dex/effect** fixes the tool's effect class, and **io.superdurable.dex/approval: recommended** asks for approval, as a Connector manifest does. A session tool policy may raise such a tool's effect class or approval, but never lowers its effect class. Its writes run in the model's order. Servers without these keys behave as before.

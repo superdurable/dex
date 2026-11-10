@@ -1545,7 +1545,10 @@ an operation whose entry lacks `agent.exposed: true`, an `agent` value it does
 not know, an `agent.branches` key that is not an optional branch (or an
 `unknown` one on a Query), or an `inputSchema` keyword it cannot check. The
 tool name defaults to `<connectorId>_<operation in snake case>`; the
-description and argument schema come from the manifest. A Mutation is any
+description and argument schema come from the manifest. The snake case is
+connectorctl's, which also names the Python Step factories: an acronym run
+stays one word, so `listStoryIDs` becomes `list_story_ids`.
+`agents/conformance/connector_tools.json` pins it. A Mutation is any
 operation with an `idempotencyKey` method.
 
 | Operation | Effect | Tool Step | Retries |
@@ -1574,13 +1577,42 @@ back. A `RetryError` goes through `throwDexRetry`, except for a single-attempt w
 whose fence saved `notSent` or `canResend` in this attempt: that records `failed` with
 `connectorNotSentRetryLater` instead of `outcome_unknown`.
 
+The first matching row wins. The rows before the listing can only make an
+outcome unknown:
+
 | Branch | Record | The model reads |
 | --- | --- | --- |
-| A required (success) branch | `succeeded` | The value as compact JSON, keys sorted |
+| `uncertain`, whatever the listing or the required branches say | `outcome_unknown` (`ToolOutcomeUnknownError`) | `outcomeUnknownToolResult` |
+| A Mutation's `defect`, whatever the listing or the required branches say | `outcome_unknown` | The same text |
+| A required (success) branch other than `defect` | `succeeded` | The value as compact JSON, keys sorted |
+| Any Mutation branch when its fence cannot prove that nothing was sent | `outcome_unknown` | The same text |
 | Listed `rejected` under `agent.branches` | `failed` (`ToolExecutionError`) | `<connector> <operation> returned <branch>: <kind>: <message>` |
-| `defect` | `failed` | The same text |
-| A Query branch not listed | `failed` | The same text |
-| `uncertain`, listed `unknown`, or a Mutation branch not listed | `outcome_unknown` (`ToolOutcomeUnknownError`) | `outcomeUnknownToolResult` |
+| Listed `unknown`, or a Mutation branch not listed | `outcome_unknown` | `outcomeUnknownToolResult` |
+| A Query branch not listed, including `defect` | `failed` | `<connector> <operation> returned <branch>: <kind>: <message>` |
+
+A Mutation's `defect` is not always local: the Connector SDK selects it for
+some attempts that already called the provider, such as an invalid attempt or
+an undeclared branch, and the source cannot tell those apart. A Query's
+`defect` follows its listing.
+
+A Mutation that uses the single-dispatch fence gets one more check, the same
+one the Go Connector SDK makes for Go agent hosts. The source observes every
+fence marker the attempt saves through its Step context, bound to the call's
+Call ID and attempt. Once the fence claims a send, or records a provider ID,
+the attempt may have sent. Only a later `canResend` marker of the same call and
+attempt, after a claim without a provider ID, lowers that, as the fence's own
+`recordCanResend` does. The operation's own later checkpoints never lower it.
+On a retry that reads the earlier checkpoint, a missing checkpoint, one that is
+not a fence marker, a malformed one, another call's, or one that does not allow
+this attempt a send also means the request may have been sent. While the
+request may have been sent, every branch but the success branch records outcome
+unknown, whatever the listing says, and a Retry is never proof that nothing was
+sent. The core cannot see inside the fence, so it reads the markers instead of
+the fence's own events: a forged `canResend` marker of the same call would
+count. A Mutation that never reads its checkpoint and never saves a fence
+marker gets no such check and relies on its listing.
+`agents/conformance/connector_tools.json` pins these cases in
+`fenceObservationCases`.
 
 A result over `maxResultBytes` (default `defaultConnectorResultMaxBytes`,
 64 KiB of UTF-8 text, set per source or per tool) is cut, followed by

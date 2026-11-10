@@ -31,6 +31,7 @@ from tests.conftest import ScriptedAgentHarness
 from tests.connector_agent import (
     DROPPED_TOOLS_ENVIRONMENT_VARIABLE,
     MAX_RESULT_BYTES_ENVIRONMENT_VARIABLE,
+    PREVIOUS_BY_ID_TOOL_NAME,
 )
 from tests.fake_ledger import SECRET_ENVIRONMENT_VARIABLE, FakeLedgerProvider
 
@@ -144,6 +145,131 @@ async def test_each_branch_kind_maps_to_its_record_and_the_session_continues(
     snapshot = await harness.wait_for_turns(session_id, 3)
     assert _answer_lines(snapshot) == [f"create_payout: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
     assert snapshot.state is not None and snapshot.state.last_turn_error is None
+
+
+async def test_an_unlisted_mutation_defect_is_unknown_and_a_query_defect_fails(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        _calls(
+            ("get_balance", {"accountId": "defect"}),
+            ("create_payout", {"accountId": "a-1", "amount": 5, "memo": "defect"}),
+            hold="defects",
+        ),
+    )
+    records = await _held_records(harness, session_id, "defects")
+    assert records["call-0"].status is ToolCallStatus.FAILED
+    assert records["call-0"].error == (
+        "fake-ledger getBalance returned defect: LOCAL_DEFECT: query returned an unknown branch"
+    )
+    # The defect follows the provider call, so the payout may exist and must not run again.
+    assert records["call-1"].status is ToolCallStatus.OUTCOME_UNKNOWN
+    assert records["call-1"].error == (
+        "fake-ledger createPayout returned defect: "
+        "LOCAL_DEFECT: mutation returned an unknown branch"
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert _answer_lines(snapshot) == [
+        f"get_balance: {FAILED}fake-ledger getBalance returned defect: "
+        "LOCAL_DEFECT: query returned an unknown branch",
+        f"create_payout: {OUTCOME_UNKNOWN_TOOL_RESULT}",
+    ]
+    assert len(ledger.sends("createPayout")) == 1
+    assert len(ledger.writes("createPayout")) == 1
+    assert snapshot.state is not None and snapshot.state.last_turn_error is None
+
+
+async def test_a_fenced_write_listed_rejected_after_its_claim_is_unknown(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        _calls(("post_note", {"accountId": "a-1", "text": "reject-after-send"}), hold="claimed"),
+    )
+    records = await _held_records(harness, session_id, "claimed")
+    # The manifest lists providerRejected as rejected, but the fence claimed the send.
+    assert records["call-0"].status is ToolCallStatus.OUTCOME_UNKNOWN
+    assert records["call-0"].error == (
+        "fake-ledger postNote returned providerRejected: PROVIDER_REJECTION: refused after send"
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert _answer_lines(snapshot) == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.writes("postNote")) == 1
+
+
+async def test_a_fenced_write_that_overwrites_its_claim_then_is_listed_rejected_stays_unknown(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    _, lines = await _run_turn(
+        harness,
+        ("post_note", {"accountId": "a-1", "text": "overwrite-after-send reject-after-send"}),
+    )
+    # The operation's own checkpoint replaced the claim; the claim still counts.
+    assert lines == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.writes("postNote")) == 1
+
+
+async def test_a_fenced_write_that_overwrites_its_claim_then_retries_is_never_sent_again(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    words = "overwrite-after-send retry-after-send"
+    _, lines = await _run_turn(harness, ("post_note", {"accountId": "a-1", "text": words}))
+    # A single attempt: the overwrite proves nothing, so the call is not retry-later.
+    assert lines == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.sends("postNote")) == 1
+
+    _, lines = await _run_turn(harness, ("post_note_retried", {"accountId": "a-1", "text": words}))
+    # In CallTool, attempt 2 reads the overwrite, fails closed, and does not send.
+    assert lines == [f"post_note_retried: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.sends("postNote")) == 2
+
+
+async def test_a_retry_whose_fence_fails_closed_stays_unknown(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    _, lines = await _run_turn(
+        harness,
+        (
+            "post_note_retried",
+            {"accountId": "a-1", "text": "own-checkpoint-once reject-when-fail-closed"},
+        ),
+    )
+    # Attempt 2 reads a checkpoint that is not a marker, so an earlier send cannot be ruled out.
+    assert lines == [f"post_note_retried: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert ledger.sends("postNote") == []
+
+
+async def test_an_explicit_name_keeps_a_previous_tool_name_and_resumes_its_call(
+    connector_harness: ScriptedAgentHarness,
+) -> None:
+    harness = connector_harness
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, _calls((PREVIOUS_BY_ID_TOOL_NAME, {"accountId": "a-1"}))
+    )
+    await _pending_interrupt(harness, session_id)
+    # A new deploy keeps the previous name with name=, so the recorded call still finds its tool.
+    worker.kill()
+    await harness.stack.start_worker()
+    assert await harness.sessions.resolve_interrupt(session_id, "call-0", approved=True)
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert _answer_lines(snapshot) == [
+        f'{PREVIOUS_BY_ID_TOOL_NAME}: {{"accountId":"a-1","amount":100}}'
+    ]
 
 
 # Schema validation before decoding
