@@ -281,7 +281,7 @@ The agent can call [Connector](/components/connector) operations as tools, as [C
 
 ### Offer the tool {#offer-connector-tools}
 
-Install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. The install commands are in [Connector tools](/agent-frameworks/deploy-agents#connector-tools).
+Install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
 
 The Worker opens the Slack connection **support-slack** from the project configuration. **connector_tool** turns the operation into a tool, and **ConnectorToolSource** holds it. Without the connection, the agent gets no Slack tool.
 
@@ -380,7 +380,7 @@ The adapter adds one **SourceToolset** to the tools of every **LlmAgent** in the
 
 ### Configure the connection {#configure-connector-connection}
 
-[Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
+[Connections](/reference/agents/connector-tools#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
 
 To try it, start the example with **DEX_CONNECTOR_CONFIG_FILE** set. Then ask the agent to reply in a Slack thread, with the channel ID and the thread timestamp:
 
@@ -400,10 +400,10 @@ The post waits for approval, like **cancel_order**.
 - Code executors other than **BuiltInCodeExecutor** are refused. Run such code from a tool instead.
 - **app:** and **user:** state keys live in the Dex session, not across sessions.
 
-The adapter README lists every limit. See [Durable Agents](/agent-frameworks/deploy-agents#limits) for the server limits.
+The adapter README lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
 
 ## Related
 
 - [Agent Frameworks](/agent-frameworks)
-- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Agents reference](/reference/agents/)
 - [Python adapter README](https://github.com/superdurable/dex/tree/main/agents/python/google-adk)

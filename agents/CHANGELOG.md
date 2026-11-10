@@ -82,7 +82,7 @@ for the Dex SDK and framework versions each release supports.
   Tool sources in framework adapters.
 - Go core: no connector tools. Its **AgentToolCall** carries the four new fields, so a
   record written by another core round-trips.
-- See [Connector tools](../docs/content/agent-frameworks/deploy-agents.mdx#connector-tools).
+- See [Connector tools](../docs/content/agent-frameworks.mdx#connectors-as-tools).
 
 ### Tool call contract additions
 
@@ -166,7 +166,7 @@ for the Dex SDK and framework versions each release supports.
   `tool_source_reference` under an adapter key. The Python Step-mode adapters
   use the new key `dex_tool_source`. Keep each `source_name` stable across
   deploys, because stored calls are routed by it.
-- See [Connector tools](../docs/content/agent-frameworks/deploy-agents.mdx#connector-tools).
+- See [Connector tools](../docs/content/agent-frameworks.mdx#connectors-as-tools).
 
 ### Claude Agent SDK: replay of recorded tool calls
 
@@ -231,7 +231,7 @@ for the Dex SDK and framework versions each release supports.
 - Dex Web needs a release that accepts Actions without a condition and calls no
   RPC for a view without fields.
 - Go core: no graph. It registers only part of the session Flow.
-- See [Show sessions in Dex Web](../docs/content/agent-frameworks/deploy-agents.mdx).
+- See [Show sessions in Dex Web](../docs/reference/agents/dex-web.mdx).
 
 ### Compaction in framework adapters
 
@@ -265,7 +265,7 @@ for the Dex SDK and framework versions each release supports.
   `ContextWindowModelScript` and `ContextWindowSessionScenario`.
 - No stored value changes. The conformance suite adds the summary prompt texts.
 - Go core: unchanged.
-- See [Compaction and the storage bound](../docs/content/agent-frameworks/deploy-agents.mdx#compaction).
+- See [Compaction and the storage bound](../docs/reference/agents/session-limits.mdx#compaction).
 
 ### Spend limits
 
@@ -286,7 +286,7 @@ for the Dex SDK and framework versions each release supports.
   ends.
 - No stored value changes. The conformance suite adds the refusal prefix.
 - Go core: unchanged. It does not check spend limits.
-- See [Spend limits](../docs/content/agent-frameworks/deploy-agents.mdx).
+- See [Spend limits](../docs/reference/agents/spend-limits.mdx).
 
 ### A configurable RunModel limit
 
@@ -321,7 +321,7 @@ for the Dex SDK and framework versions each release supports.
   start stays out of this search. So do sessions started on 0.2.0, until
   `UpdateFlowConfig` turns it on. No stored value changes.
 - Go core: unchanged.
-- See [Find sessions that need a person](../docs/content/agent-frameworks/deploy-agents.mdx).
+- See [Find sessions that need a person](../docs/reference/agents/approvals.mdx#find-sessions).
 
 ### A session at the state limit fails, with the reason
 
@@ -356,7 +356,7 @@ for the Dex SDK and framework versions each release supports.
   `AgentSnapshot.queued_messages` until retention deletes the session.
 - Go core: reads `failed` and keeps its behavior. It does not end a session at
   the limit yet.
-- See [Upgrade agent code while sessions wait](../docs/content/agent-frameworks/deploy-agents.mdx)
+- See [Upgrade agent code while sessions wait](../docs/reference/agents/upgrades.mdx)
   for the order of a rolling deploy.
 
 ## 0.2.0 (2026-11-05)

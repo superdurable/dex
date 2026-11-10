@@ -183,7 +183,7 @@ const aiAgentFlow = createAiAgentFlow(aiAgentConfig, slack);
 
 Session 会把每条 user message、模型输出 item 与 tool result 分别保存为一条 message。最新的 message 是 **AgentMessages** AttributeMap instance，较早的 message 会移入不可变的 **AgentMessageChunks** instance。模型输出 item 会按 provider 返回的原样保存，包括加密的 reasoning item 与 thinking signature，并原样重放。
 
-当模型输入接近配置的 context window 时，**CompactContext** Step 会在下一次模型调用前摘要较早的 message。之后模型收到 summary 与最近的 message。Compaction 不会把 tool call 与它的 result 分开。保留策略之后可以删除较早的已摘要 message，因此长 session 的 state 保持有界。触发阈值、保留上限以及如何保留完整对话，参见 [Compaction 与存储上限](/agent-frameworks/deploy-agents#compaction)。
+当模型输入接近配置的 context window 时，**CompactContext** Step 会在下一次模型调用前摘要较早的 message。之后模型收到 summary 与最近的 message。Compaction 不会把 tool call 与它的 result 分开。保留策略之后可以删除较早的已摘要 message，因此长 session 的 state 保持有界。触发阈值、保留上限以及如何保留完整对话，参见 [Compaction 与存储上限](/reference/agents/session-limits#compaction)。
 
 ## 排队消息与 Steer {#queued-messages-and-steer}
 
@@ -408,7 +408,7 @@ dexcli dev --flow-rendering-dir ./definitions
 
 Python 与 TypeScript package 都会安装 **dex-agents-session-graph**。在 **examples/python** 中，用 **uv run --frozen** 运行它。在 **examples/typescript** 中，用 **npx** 运行它。
 
-在 Dex Web 中打开这个 session 的 run，选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission，例如 **ai-agent.operate**。然后在 tool call 卡片上选择 **Approve** 或 **Reject**。生产环境的做法参见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
+在 Dex Web 中打开这个 session 的 run，选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission，例如 **ai-agent.operate**。然后在 tool call 卡片上选择 **Approve** 或 **Reject**。生产环境的做法参见 [在 Dex Web 中显示 session](/reference/agents/dex-web)。
 
 ## 连接 Connector {#connect-connectors}
 
@@ -416,7 +416,7 @@ Agent 可以把 [Connector](/components/connector) 的 operation 当作 tool 调
 
 ### 提供 tool {#offer-connector-tools}
 
-在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tools](/reference/agents/connector-tools#install)。
 
 Worker 从项目配置中打开 Slack connection **support-slack**。Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 把 operation 变成 tool，由 **ConnectorToolSource** 持有。没有这个 connection 时，agent 不会得到 Slack tool。
 
@@ -570,7 +570,7 @@ Agent 把 Slack tool source 和 MCP tool source 放在一起：
 
 ### 配置 connection {#configure-connector-connection}
 
-Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/agent-frameworks/deploy-agents#connector-tools-connection)。
+Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/reference/agents/connector-tools#connector-tools-connection)。
 
 试用时，先设置 **DEX_CONNECTOR_CONFIG_FILE** 再启动 example。Demo 模型可以直接调用这个 tool：
 
@@ -585,13 +585,13 @@ Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，�
 - 每次模型调用和每次 tool call 都会增加一次 Step 往返。
 - **AgentEvents** 是 best effort。对话内容请读取 session snapshot。
 - 失败的 **RunModel** 会重复它的模型调用。
-- Server 的限制参见 [长 session 的限制](/agent-frameworks/deploy-agents#limits) 与 [Tool call 的限制](/agent-frameworks/deploy-agents#tool-call-limits)。
+- Server 的限制参见 [Limits for long sessions](/reference/agents/session-limits)。Single-attempt tool 的例外参见 [最多一次有一个例外](/agent-frameworks#tool-runs-twice)。
 
 ## 相关内容 {#related}
 
 - [Agent Framework](/agent-frameworks)
 - [AI Agent](/use-cases/ai-agent)
-- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Agents reference](/reference/agents/)
 - [Attribute](/concepts/primitives/attribute)
 - [Channel](/concepts/primitives/channel)
 - [Stream](/concepts/primitives/stream)

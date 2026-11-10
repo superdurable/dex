@@ -439,7 +439,7 @@ The agent can call [Connector](/components/connector) operations as tools, as [C
 
 ### Offer the tool {#offer-connector-tools}
 
-In Python, install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. In TypeScript, install **@superdurable/connectors-sdk** and the Connector package, such as **@superdurable/connector-slack**. The install commands are in [Connector tools](/agent-frameworks/deploy-agents#connector-tools).
+In Python, install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. In TypeScript, install **@superdurable/connectors-sdk** and the Connector package, such as **@superdurable/connector-slack**. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
 
 The Worker opens the Slack connection **support-slack** from the project configuration. **connector_tool** in Python and **connectorTool** in TypeScript turns the operation into a tool, and **ConnectorToolSource** holds it. Without the connection, the agent gets no Slack tool.
 
@@ -593,11 +593,11 @@ Each call of **slack_post_thread_reply** runs once, in its own **CallSingleAttem
 
 In the Claude Agent SDK, a Connector tool call never runs inside the CLI, not even a read. Every call ends the segment and runs in its own tool Step, because the Connector needs that Step for its Call ID. The resumed CLI then gets the recorded result. The CLI sees the tool as **mcp__tools__slack_post_thread_reply**; tool policies, approvals, and records use **slack_post_thread_reply**.
 
-A later write of the same reply is refused inside the turn and leaves no record; see [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order). Do not list a Connector tool in **allowed_tools** (**allowedTools**): its calls must leave the CLI, so such an entry fails the **RunModel** attempt.
+A later write of the same reply is refused inside the turn and leaves no record; see [Write order](/agent-frameworks#connector-tools-write-order). Do not list a Connector tool in **allowed_tools** (**allowedTools**): its calls must leave the CLI, so such an entry fails the **RunModel** attempt.
 
 ### Configure the connection {#configure-connector-connection}
 
-[Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
+[Connections](/reference/agents/connector-tools#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
 
 To try it, start the example with **DEX_CONNECTOR_CONFIG_FILE** set. Then ask the agent to reply in a Slack thread, with the channel ID and the thread timestamp:
 
@@ -616,11 +616,11 @@ The post waits for approval, like **cancel_order**.
 - A recorded tool result keeps text only.
 - A write call inside a subagent is denied. The model is asked to call it from the main conversation.
 
-The adapter README lists every limit. See [Durable Agents](/agent-frameworks/deploy-agents#limits) for the server limits.
+The adapter README lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
 
 ## Related
 
 - [Agent Frameworks](/agent-frameworks)
-- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Agents reference](/reference/agents/)
 - [Python adapter README](https://github.com/superdurable/dex/tree/main/agents/python/claude-agent-sdk)
 - [TypeScript adapter README](https://github.com/superdurable/dex/tree/main/agents/typescript/claude-agent-sdk)

@@ -81,7 +81,6 @@ const sidebars: SidebarsConfig = {
         'agent-frameworks/google-adk',
         'agent-frameworks/vercel-ai-sdk',
         'agent-frameworks/mastra',
-        'agent-frameworks/deploy-agents',
       ],
     },
     {

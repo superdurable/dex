@@ -937,7 +937,7 @@ when it moves on. Set `active_step_search_mode` in the start options to choose
 another mode, such as `ActiveStepSearchMode.DISABLED`. `AsyncClient.start_flow`
 does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 `config_override`, or call `update_flow_config` for a running session. See
-[Find sessions that need a person](https://docs.superdurable.io/agent-frameworks/deploy-agents#find-sessions).
+[Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
 ## Spend limits
 
@@ -945,7 +945,7 @@ does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 across many sessions. The session asks it before each model call and reports what
 the call used. Counters and limits belong to the application. Without one, the
 session makes no checks. See the interface's documentation and
-[Spend limits](https://docs.superdurable.io/agent-frameworks/deploy-agents#spend-limits).
+[Spend limits](https://docs.superdurable.io/reference/agents/spend-limits).
 
 ## Flow shape
 

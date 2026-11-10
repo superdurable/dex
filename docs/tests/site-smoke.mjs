@@ -406,7 +406,6 @@ await Promise.all([
   access(join(root, 'reference', 'web', 'flow-visualization', 'index.html')),
   access(join(root, 'reference', 'go', 'workers', 'index.html')),
   access(join(root, 'reference', 'agents', 'workers', 'index.html')),
-  access(join(root, 'agent-frameworks', 'deploy-agents', 'index.html')),
   access(join(root, 'zh-Hans', 'components', 'application', 'index.html')),
   access(join(root, 'zh-Hans', 'reference', 'rust', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html')),

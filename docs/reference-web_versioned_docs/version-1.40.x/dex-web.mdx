@@ -397,7 +397,7 @@ When **resolve_interrupt** or **answer_question** returns false, another operato
 
 ### Compatibility {#agent-session-compatibility}
 
-Dex Web shows the **Session** tab for a valid Flow Definition Graph 2.0 that declares the Attributes **AgentState**, **AgentMessages**, **AgentToolCalls**, and **PendingInterrupts**. **AgentMessages** and **AgentToolCalls** must be AttributeMaps. The [session graph](/agent-frameworks/deploy-agents#dex-web) that Dex Agents renders declares them.
+Dex Web shows the **Session** tab for a valid Flow Definition Graph 2.0 that declares the Attributes **AgentState**, **AgentMessages**, **AgentToolCalls**, and **PendingInterrupts**. **AgentMessages** and **AgentToolCalls** must be AttributeMaps. The [session graph](/reference/agents/dex-web) that Dex Agents renders declares them.
 
 Dex Web reads the session schema by name. It reads these Attributes: **AgentState**, **AgentMessages**, **AgentMessageChunks**, **AgentMessageIndex**, **AgentToolCalls**, **PendingInterrupts**, and **AgentUsage**. It reads the Step types **CallTool**, **CallSingleAttemptTool**, **PollToolTask**, **RecordToolFailure**, and **RecordToolOutcomeUnknown**, whose input is a tool call ID. It reads the Actions **resolve_interrupt**, **answer_question**, **steer_user_message**, and **cancel_turn**.
 
@@ -407,7 +407,7 @@ Python and TypeScript sessions get the full tab. A Go session has no questions, 
 
 ## Agent inbox {#agent-inbox}
 
-Since 1.39, Work Queue has an agent mode for [Dex Agents](/agent-frameworks/deploy-agents) sessions. Choose **Agents** at the top of the Work Queue list. The switch appears when at least one Flow type is a session Flow, by the rule in [Compatibility](#agent-session-compatibility), and declares the **resolve_interrupt** Action. The mode's URL is **/v2/work-queue?view=agents**.
+Since 1.39, Work Queue has an agent mode for [Dex Agents](/reference/agents/) sessions. Choose **Agents** at the top of the Work Queue list. The switch appears when at least one Flow type is a session Flow, by the rule in [Compatibility](#agent-session-compatibility), and declares the **resolve_interrupt** Action. The mode's URL is **/v2/work-queue?view=agents**.
 
 <img
   src="/img/production/dex-web-agent-inbox.png"

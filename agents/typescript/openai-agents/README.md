@@ -362,7 +362,7 @@ started before the upgrade starts compacting once its Worker has one.
 - The summary call gets the earlier turns as plain text, without tools.
 - Responses API compaction items and `truncation` change only the provider's input. Dex stores every item either way and owns the record; use one of the two. Encrypted reasoning and compaction items are left out of the summary prompt.
 
-See [Compaction and the storage bound](https://docs.superdurable.io/agent-frameworks/deploy-agents#compaction).
+See [Compaction and the storage bound](https://docs.superdurable.io/reference/agents/session-limits#compaction).
 
 ## Limits
 

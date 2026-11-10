@@ -77,11 +77,11 @@
   },
   {
     "from": "/production/agents",
-    "to": "/agent-frameworks/deploy-agents"
+    "to": "/reference/agents/"
   },
   {
     "from": "/zh-Hans/production/agents",
-    "to": "/zh-Hans/agent-frameworks/deploy-agents"
+    "to": "/zh-Hans/reference/agents/"
   },
   {
     "from": "/references",
@@ -1978,5 +1978,13 @@
   {
     "from": "/zh-Hans/reference/rust/flows-and-steps/failure-and-redelivery",
     "to": "/zh-Hans/reference/rust/failure-and-retries"
+  },
+  {
+    "from": "/agent-frameworks/deploy-agents",
+    "to": "/reference/agents/"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/deploy-agents",
+    "to": "/zh-Hans/reference/agents/"
   }
 ]
