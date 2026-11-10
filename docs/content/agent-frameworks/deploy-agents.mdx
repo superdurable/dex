@@ -5,10 +5,8 @@ sidebar_label: Durable Agents
 
 # Durable Agents
 
-This page covers running [agent framework](/agent-frameworks) sessions in
-production. One Flow execution is one agent session. Every model call is a
-**RunModel** Step, and every tool call is its own Step. Server limits on this
-page are server-zd defaults. See [Server reference](/reference/server/)
+Use these settings and limits to run [agent sessions](/agent-frameworks) in
+production. Server limits on this page are server-zd defaults. See [Server reference](/reference/server/)
 and [Application](/components/application) for the rest of the setup.
 
 ## Install the packages {#install}
@@ -169,8 +167,8 @@ the others.
 | **CallSingleAttemptTool** | 2 hours, the Dex default | 1 minute, the Dex default | 1 | **RecordToolOutcomeUnknown** |
 
 **RunModel**, **CompactContext**, and both tool Steps send a heartbeat every 20
-seconds while the runner works. A model or tool call that is slow but silent therefore stays
-within its heartbeat timeout. The method timeout still ends a hung call. In
+seconds while the runner works. So a slow model or tool call that sends no
+output stays within its heartbeat timeout. The method timeout still ends a hung call. In
 Python, keep runner and tool code non-blocking: a blocking call on the event
 loop also stops the background heartbeat.
 
@@ -234,8 +232,7 @@ The packages store state this way:
   that are never rewritten. A chunk holds at most 32 messages and 1 MiB, so it
   stays well under **values.maxValueBytes**. A larger message skips the window
   and goes straight into a chunk of its own when it is stored, so a message too
-  large for **values.maxValueBytes** fails its turn right away, as it did
-  before. **AgentMessageIndex** records where the messages are, and changes
+  large for **values.maxValueBytes** fails its turn right away. **AgentMessageIndex** records where the messages are, and changes
   only when chunks are written or deleted. Each message is written twice, once in the window
   and once in its chunk. Once the window copy is removed, it no longer counts
   toward the run budget. With [compaction](#compaction), **RunModel** loads only the
@@ -551,7 +548,7 @@ A Worker crash during a connector write never sends a write twice:
 | Worker dies after the provider accepted it | The provider drops the repeated key, or a fenced write reads back and settles as sent. One write | **outcome_unknown**, one write |
 | Provider rate-limits the request | Retried and sent once | **failed** with "not sent; the provider asked to retry later" when the write's fence recorded that nothing was sent; otherwise **outcome_unknown** |
 
-A write that runs once and asks to retry usually ends **outcome_unknown**, because a retry request alone does not prove that nothing was sent. The single-dispatch fence can prove it: it records that the request never left, or that the provider refused it without acting. With that proof the call records **failed**, the model can call again, and no one needs to check the provider. The later writes of the response are still skipped.
+When the provider asks a single-attempt write to retry later, the call usually ends **outcome_unknown**. The retry request alone does not prove that nothing was sent. The Connector's single-dispatch fence can prove it: it records that the request never left, or that the provider refused it without acting. With that proof, the call records **failed**, and the model can call again without anyone checking the provider. The later writes of the response are still skipped.
 
 Credentials stay with the Worker. A connector tool stores only the logical
 connection name with the call, as a Connector Step does; see
@@ -626,8 +623,8 @@ FlowType = "SupportAgent" AND ExecutionStatus = "Running"
 
 A Step that runs straight away, such as **RunModel**, is not indexed. So a
 session's search entry changes only when it enters or leaves a wait, which is
-twice for a turn with no tool calls. Each change writes the search entry in the
-same commit as the Step.
+twice for a turn with no tool calls. Dex writes each change to the search entry
+together with the Step change.
 
 Two things that need a person do not appear, because no Step waits on them: a
 tool call that recorded **outcome_unknown**, and a draft plan waiting for
@@ -842,8 +839,8 @@ A single-attempt tool runs in a **CallSingleAttemptTool** Step. That Step serves
 **non_idempotent_write** and **unclassified** tools. It should run the tool at
 most once, and record **outcome_unknown** when the tool may have run. When the
 tool certainly did not run, the call records **failed** instead, so the model
-can call the tool again. One case breaks the at-most-once promise. Plan for
-it. It follows from how Dex stops any Step attempt. See
+can call the tool again. One case breaks the at-most-once promise, because of
+how Dex stops a Step attempt. Plan for it. See
 [Failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery).
 
 ### A single-attempt tool can run twice {#tool-runs-twice}
@@ -854,9 +851,9 @@ connection to Dex while the tool runs, the attempt fails. A single-attempt tool
 has no retry left, so the call records **outcome_unknown**. The earlier run may
 have finished its effect, so the session does not run the tool again.
 
-Only one narrow case can still run a single-attempt tool twice. Cancellation is
-cooperative. When Dex cancels an attempt, an interrupted run may keep running
-while the failure route starts.
+Only one narrow case can still run a single-attempt tool twice. Dex cannot
+force a running attempt to stop. When Dex cancels an attempt, the interrupted
+run may keep running while the failure route starts.
 
 To make a second run harmless, pass the call's idempotency key to the service
 that the tool writes to. Every tool call receives one: the session's Flow ID,

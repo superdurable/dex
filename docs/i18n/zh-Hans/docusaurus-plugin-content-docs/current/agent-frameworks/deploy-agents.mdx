@@ -5,9 +5,8 @@ sidebar_label: Durable Agents
 
 # Durable Agents
 
-本页介绍如何在生产环境中运行 [agent framework](/agent-frameworks) 的 session。
-一次 Flow 执行就是一个 agent session。每次模型调用是一个 **RunModel** Step，每个
-tool call 是独立的 Step。本页中的服务器限制都是 server-zd 的默认值。其余配置见
+在生产环境中运行 [agent session](/agent-frameworks) 时，按本页的设置和限制来规划。
+本页中的服务器限制都是 server-zd 的默认值。其余配置见
 [Server 参考](/reference/server/) 和
 [Application](/components/application)。
 
@@ -194,7 +193,7 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 - **AgentMessages** 保存最新的消息，每条消息一个 AttributeMap 实例。保存一条消息只写这一条。
   其中超过 64 条消息时，最早的消息移入不再重写的 **AgentMessageChunks** 实例。一个 chunk 最多
   32 条消息、1 MiB，因此远低于 **values.maxValueBytes**。更大的消息不进入窗口，保存时直接放进
-  自己的 chunk，所以超过 **values.maxValueBytes** 的消息会让它所在的轮次立即失败，和以前一样。
+  自己的 chunk，所以超过 **values.maxValueBytes** 的消息会让它所在的轮次立即失败。
   **AgentMessageIndex** 记录消息所在的位置，只在写入或删除 chunk 时改变。每条消息写两次：一次在窗口中，一次在
   它的 chunk 中。窗口副本移除后，就不再计入 run 预算。启用[压缩](#compaction)时，**RunModel** 只加载
   摘要之后的消息。不启用压缩时，每次模型调用都加载并发送完整历史，也不会删除任何消息。
@@ -389,7 +388,7 @@ connector 写入期间 Worker 崩溃，绝不会把一次写入发送两次：
 | provider 接受后 Worker 退出 | provider 丢弃重复的键，或者 fenced 写入回读并确认已发送。一次写入 | **outcome_unknown**，一次写入 |
 | provider 限流 | 重试并只发送一次 | 写入的 fence 记录了未发送时为 **failed**，错误为 "not sent; the provider asked to retry later"；否则为 **outcome_unknown** |
 
-只运行一次的写入请求重试时，通常以 **outcome_unknown** 结束，因为重试请求本身不能证明什么都没发送。single-dispatch fence 可以证明这一点：它记录请求从未离开进程，或者 provider 没有处理就拒绝了请求。有了这个证明，调用记录为 **failed**，模型可以再次调用，也不需要有人去核对 provider。这次回复中后面的写入仍然会被跳过。
+provider 要求只运行一次的写入稍后重试时，调用通常以 **outcome_unknown** 结束。重试请求本身不能证明什么都没发送。Connector 的 single-dispatch fence 可以证明这一点：它记录请求从未离开进程，或者 provider 没有处理就拒绝了请求。有了这个证明，调用记录为 **failed**，模型可以再次调用，不需要有人去核对 provider。这次回复中后面的写入仍然会被跳过。
 
 凭证留在 Worker。和 Connector Step 一样，connector tool 只随调用保存逻辑 connection 名称，见 [凭证](#credentials)。
 
@@ -436,7 +435,7 @@ FlowType = "SupportAgent" AND ExecutionStatus = "Running"
 ```
 
 **RunModel** 这类直接运行的 Step 不会被索引。所以 session 的搜索记录只在进入或离开等待时变化，
-没有 tool call 的一轮变化两次。每次变化都和 Step 在同一次提交中写入搜索记录。
+没有 tool call 的一轮变化两次。Dex 把每次变化和 Step 的变化一起写入搜索记录。
 
 有两种需要人处理的情况不会出现，因为没有 Step 在等待它们：记录了 **outcome_unknown** 的
 tool call，以及等待 **execute_plan** 的草稿计划。
@@ -605,8 +604,8 @@ attempt。报告还带有包含这次调用的 session 用量，按 session 计�
 单次尝试的 tool 在 **CallSingleAttemptTool** Step 中运行。这个 Step 负责
 **non_idempotent_write** 和 **unclassified** tool。它应当最多运行一次 tool，并在 tool 可能
 已经运行过时记录 **outcome_unknown**。tool 确定没有运行时，这次调用改为记录 **failed**，模型
-可以再次调用这个 tool。有一种情况会打破“最多运行一次”这一承诺，要提前准备。它源于 Dex 停止任何
-Step attempt 的方式。见[失败与重新投递](/reference/python/flows-and-steps/failure-and-redelivery)。
+可以再次调用这个 tool。由于 Dex 停止 Step attempt 的方式，有一种情况会打破“最多运行一次”
+这一承诺，要提前准备。见[失败与重新投递](/reference/python/flows-and-steps/failure-and-redelivery)。
 
 ### 单次尝试的 tool 可能运行两次 {#tool-runs-twice}
 
@@ -615,8 +614,8 @@ Worker。如果 Worker 在 tool 运行期间停掉，或者断开了与 Dex 的�
 尝试的 tool 没有剩余的 retry，所以这次调用记录 **outcome_unknown**。之前的那次运行可能已经
 完成了副作用，因此 session 不会再次运行这个 tool。
 
-只有一种很窄的情况仍可能让单次尝试的 tool 运行两次。取消是协作式的。Dex 取消一个 attempt 时，
-被中断的运行可能仍在继续，而 failure route 已经开始。
+只有一种很窄的情况仍可能让单次尝试的 tool 运行两次。Dex 无法强行停止正在运行的 attempt。
+Dex 取消一个 attempt 时，被中断的运行可能仍在继续，而 failure route 已经开始。
 
 要让第二次运行无害，把这次调用的幂等键传给 tool 写入的服务。每个 tool call 都会收到一个幂等键：
 session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如 **session-42/turn-3/call-7**。
