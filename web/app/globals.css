@@ -3203,10 +3203,12 @@ button.timeline-edge-stub:focus-visible {
   outline-offset: -2px;
 }
 
+/* Forced colors drop box shadows; the transparent outline then shows as the ring. */
 .graph-method-waitfor:focus-visible {
   --graph-method-ring: var(--accent);
-  outline: none;
-  box-shadow: inset 0 0 0 2px var(--graph-method-ring);
+  outline: 2px solid transparent;
+  outline-offset: -4px;
+  box-shadow: inset 0 0 0 2px var(--graph-method-ring), var(--graph-method-status-shadow, 0 0 transparent);
 }
 
 /* The clip-path cuts any box ring at the arrow, so the tip draws its own stroke. */
@@ -3550,8 +3552,9 @@ button.timeline-edge-stub:focus-visible {
 }
 
 .graph-method-running {
+  --graph-method-status-shadow: inset 3px 0 0 var(--accent);
   background: var(--accent-subtle);
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: var(--graph-method-status-shadow);
 }
 
 .graph-method-failed {
