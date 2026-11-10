@@ -42,3 +42,4 @@ import DexExpressiveness.Examples.LockstepChecks
 import DexExpressiveness.Examples.ForgedHandleInput
 import DexExpressiveness.Examples.RelatedCheck
 import DexExpressiveness.Examples.Inductiveness
+import DexExpressiveness.L.LockDiscipline
