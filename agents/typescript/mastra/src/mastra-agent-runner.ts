@@ -90,6 +90,9 @@ export interface MastraAgentRunnerOptions {
    * (`agent-<name>`) and workflows (`workflow-<name>`). Mastra runs such a tool itself inside `RunModel`,
    * so the runner offers it to the model only when its policy here is `read` without approval, and it
    * is at-least-once. Defaults to none.
+   *
+   * Changed in 0.4.0: with {@link toolSources} or {@link mastraRunToolNames}, a policy key no longer allows such a
+   * tool by itself; the tool must also be in {@link mastraRunToolNames}.
    */
   readonly toolPolicies?: Readonly<Record<string, ToolPolicy>>;
   /**
@@ -165,6 +168,26 @@ export interface MastraAgentRunnerOptions {
    * @since 0.4.0
    */
   readonly toolSourceListingTimeoutMs?: number;
+  /**
+   * Names of the tools Mastra adds itself, such as `agent-researcher`, that may run inside `RunModel`. Each also
+   * needs a {@link toolPolicies} entry with effect `read` and no approval.
+   *
+   * When it is omitted and the runner has no {@link toolSources}, every such policy key is allowed, as before
+   * 0.4.0. With tool sources, a policy key may be meant for a source tool that a source does not list at the
+   * moment, so policy keys allow nothing by themselves, and only the names here may run inline. A name here that a
+   * source declares or lists is refused. Defaults to none.
+   *
+   * @example
+   * ```ts
+   * const runner = new MastraAgentRunner(supervisorAgent, {
+   *   toolPolicies: { "agent-researcher": { effect: "read" } },
+   *   mastraRunToolNames: ["agent-researcher"],
+   *   toolSources: [connectorTools],
+   * });
+   * ```
+   * @since 0.4.0
+   */
+  readonly mastraRunToolNames?: readonly string[];
 }
 
 /**
@@ -201,6 +224,8 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
   private readonly createRequestContext: (turn: MastraTurnIdentity) => RequestContext;
   private readonly summaryModel: MastraAgentRunnerOptions["summaryModel"];
   private readonly toolSources: ToolSourceRouter;
+  /** The tools Mastra adds that may run inline, or `undefined` to allow every policy key. */
+  private readonly mastraRunToolNameAllowlist: ReadonlySet<string> | undefined;
 
   /**
    * Creates a runner for one Mastra agent.
@@ -210,8 +235,8 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
    * @param options - Tool policy names, step limit, MCP annotation trust, request context factory, and tool
    * sources.
    * @throws {RangeError} When `maxSteps` or `toolSourceListingTimeoutMs` is not positive.
-   * @throws {TypeError} When a tool source is invalid, two sources declare one tool name, or a declared name does
-   * not match Mastra's tool name pattern.
+   * @throws {TypeError} When a tool source is invalid, two sources declare one tool name, a declared name does
+   * not match Mastra's tool name pattern, or a declared name is in `mastraRunToolNames`.
    */
   public constructor(
     private readonly agent: Agent,
@@ -231,8 +256,15 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
         ? {}
         : { listingTimeoutMs: options.toolSourceListingTimeoutMs }),
     });
+    this.mastraRunToolNameAllowlist =
+      options.mastraRunToolNames !== undefined || this.toolSources.hasToolSources
+        ? new Set(options.mastraRunToolNames ?? [])
+        : undefined;
     for (const toolName of this.toolSources.declaredToolNames()) {
       requireMastraToolName(toolName, "a tool source declares it");
+      if (this.mastraRunToolNameAllowlist?.has(toolName) === true) {
+        throw new TypeError(`tool ${toolName} of a tool source uses the name of a tool Mastra runs itself`);
+      }
     }
   }
 
@@ -287,7 +319,7 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       (toolName, frameworkEffect) => turn.resolveToolPolicy(toolName, frameworkEffect),
       this.shouldTrustMcpServerToolAnnotations,
       sourceTools,
-      this.toolSources.declaredToolNames(),
+      this.mastraRunToolNameAllowlist,
     );
     await this.assertClientToolsReachModel(toolPlan, requestContext);
     const messages: MessageListInput = [

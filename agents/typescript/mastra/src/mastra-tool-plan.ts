@@ -45,8 +45,9 @@ export function requireMastraToolName(toolName: string, origin: string): void {
 }
 
 /**
- * Every agent tool and tool source tool runs in a session Step; tools Mastra runs itself need an explicit inline
- * `read` policy. A policy that names a tool source tool never makes it a tool Mastra runs.
+ * Every agent tool and tool source tool runs in a session Step. A tool Mastra adds itself runs inside `RunModel`
+ * only when it is an inline candidate with a `read` policy without approval. The candidates are
+ * `mastraRunToolNames` when set, else every policy key.
  */
 export function planMastraModelStepTools(
   agentTools: ToolsInput,
@@ -54,7 +55,7 @@ export function planMastraModelStepTools(
   resolveToolPolicy: ResolveToolPolicy,
   shouldTrustMcpServerToolAnnotations: boolean,
   sourceTools: ReadonlyMap<string, ListedSourceTool> = new Map(),
-  sourceToolNames: ReadonlySet<string> = new Set(),
+  mastraRunToolNameAllowlist: ReadonlySet<string> | undefined = undefined,
 ): MastraModelStepToolPlan {
   const clientTools: ToolsInput = {};
   const activeToolNames: string[] = [];
@@ -89,9 +90,11 @@ export function planMastraModelStepTools(
     clientTools[toolName] = createSourceTool(listed.tool);
     activeToolNames.push(toolName);
   }
-  for (const toolName of Object.keys(toolPolicies)) {
-    const isSourceTool = sourceTools.has(toolName) || sourceToolNames.has(toolName);
-    if (!Object.hasOwn(agentTools, toolName) && !isSourceTool && isAllowedToRunInsideModelStep(toolName)) {
+  for (const toolName of mastraRunToolNameAllowlist ?? Object.keys(toolPolicies)) {
+    if (sourceTools.has(toolName)) {
+      throw new TypeError(`tool ${toolName} of a tool source uses the name of a tool Mastra runs itself`);
+    }
+    if (!Object.hasOwn(agentTools, toolName) && isAllowedToRunInsideModelStep(toolName)) {
       activeToolNames.push(toolName);
       mastraRunToolNames.add(toolName);
     }

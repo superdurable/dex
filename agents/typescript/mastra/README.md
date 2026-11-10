@@ -291,8 +291,9 @@ Pass `toolSources: [refunds]` to `createMastraAgentSessionFlow` or
   builds. A source whose listing throws or takes longer than
   `toolSourceListingTimeoutMs` (default 10 seconds) offers no tools in that
   model call.
-  A `toolPolicies` entry for a source tool never makes it a tool Mastra runs
-  itself.
+  With tool sources, a `toolPolicies` entry never makes a tool one Mastra runs
+  itself; only `mastraRunToolNames` does. See
+  [Tools Mastra runs itself](#tools-mastra-runs-itself).
 - Construction fails with `TypeError` when two sources declare one tool name
   or a declared name does not match Mastra's tool name pattern. The agent's
   tools resolve per `RequestContext`, so a source tool that repeats an agent
@@ -315,6 +316,12 @@ const flow = createMastraAgentSessionFlow(supervisorAgent, "SupervisorAgent", {
   toolPolicies: { "agent-researcher": { effect: "read" } },
 });
 ```
+
+With `toolSources`, a policy key may be meant for a source tool that a source
+does not list at the moment, so policy keys stop allowing these tools by
+themselves. Name each one in `mastraRunToolNames` as well; a name there that a
+source declares or lists is refused. `mastraRunToolNames` also works without
+tool sources, and then only the names in it may run inline.
 
 Mastra merges these tools after client tools, so one with the same name as an
 agent tool would replace it and run inline. The runner checks the tools Mastra
