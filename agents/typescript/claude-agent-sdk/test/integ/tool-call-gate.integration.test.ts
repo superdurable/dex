@@ -292,4 +292,31 @@ describe("the Claude tool call gate", () => {
       toolUseID: "call-1",
     });
   });
+
+  test("a tool use ID gets one PreToolUse decision per segment, which a repeat never replaces", async () => {
+    const fixture = await createGateFixture();
+    const first = decisionOf(await fixture.gate.decidePreToolUse(preToolUse("mcp__tools__read_note", "call-1"), "call-1"));
+    assert.equal(first.decision, "allow");
+    assert.equal((await askPermission(fixture, "mcp__tools__read_note", "call-1")).behavior, "allow");
+    assert.equal((await askPermission(fixture, "mcp__tools__read_note", "call-1")).behavior, "deny");
+    const repeated = decisionOf(
+      await fixture.gate.decidePreToolUse(preToolUse("mcp__tools__read_note", "call-1"), "call-1"),
+    );
+    assert.equal(repeated.decision, "deny");
+    assert.match(String(repeated.reason), /tool use ID call-1 was already decided in this turn segment/);
+    assert.equal((await askPermission(fixture, "mcp__tools__read_note", "call-1")).behavior, "deny");
+
+    // A repeat of a deferred call is denied too, and the deferral stays as the hook decided it.
+    const input = { accountId: "a-1", text: "hello" };
+    const deferred = decisionOf(
+      await fixture.gate.decidePreToolUse(preToolUse("mcp__tools__post_note", "call-2", input), "call-2"),
+    );
+    assert.equal(deferred.decision, "defer");
+    assert.equal(
+      decisionOf(await fixture.gate.decidePreToolUse(preToolUse("mcp__tools__post_note", "call-2", input), "call-2"))
+        .decision,
+      "deny",
+    );
+    assert.equal(fixture.gate.deferredToolCall({ id: "call-2", name: "mcp__tools__post_note", input }).toolCallId, "call-2");
+  });
 });

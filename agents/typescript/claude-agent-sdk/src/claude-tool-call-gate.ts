@@ -66,6 +66,8 @@ const unlistedSourceToolMessage = (toolName: string): string =>
   `${toolName} did not run: its tool source does not offer this tool now.`;
 const mismatchedReplayMessage = (toolName: string, toolUseId: string, recordedToolName: string): string =>
   `${toolName} did not run: tool use ID ${toolUseId} belongs to a recorded call of ${recordedToolName}.`;
+const repeatedDecisionMessage = (toolName: string, toolUseId: string): string =>
+  `${toolName} did not run: tool use ID ${toolUseId} was already decided in this turn segment.`;
 const repeatedReplayMessage = (toolName: string, toolUseId: string): string =>
   `${toolName} did not run: the recorded call ${toolUseId} was already resumed in this turn segment.`;
 
@@ -211,6 +213,7 @@ export class ToolCallGate {
   private deferredSourceTool: ListedSourceTool | undefined;
   private readonly permittedToolCalls = new Map<string, PermittedToolCall>();
   private readonly replayedToolUseIds = new Set<string>();
+  private readonly decidedToolUseIds = new Set<string>();
   private readonly runningToolNames = new Map<string, string>();
   private readonly customToolCallPlans = new Map<string, CustomToolCallPlan>();
 
@@ -261,11 +264,14 @@ export class ToolCallGate {
     const servedToolName = this.toolCatalog.servedToolName(cliToolName);
     const policyToolName = servedToolName ?? cliToolName;
     const record = this.turn.recordedToolCall(callId);
+    // One PreToolUse decision per tool use ID and segment; a repeat never replaces it.
+    if (this.decidedToolUseIds.has(callId) || this.replayedToolUseIds.has(callId)) {
+      const message = record === undefined ? repeatedDecisionMessage : repeatedReplayMessage;
+      return preToolUseDecision("deny", message(policyToolName, callId));
+    }
+    this.decidedToolUseIds.add(callId);
     if (record !== undefined) {
-      // A recorded call is decided once per segment, and only for its own tool.
-      if (this.replayedToolUseIds.has(callId)) {
-        return preToolUseDecision("deny", repeatedReplayMessage(policyToolName, callId));
-      }
+      // A recorded call is decided only for its own tool.
       return this.replayRecordedToolCall(record, servedToolName, policyToolName);
     }
     if (servedToolName !== undefined && this.toolCatalog.isReplayOnlyTool(servedToolName)) {

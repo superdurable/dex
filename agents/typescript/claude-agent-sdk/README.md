@@ -426,6 +426,8 @@ session and sends the failed prompt, the note, and its own prompt as three text 
   for the same tool and kind (served or inside the CLI), with the input the hook decided on: the
   recorded arguments of a replay, or the input the hook saw for a new call. The input the CLI passes
   is never used, so a request cannot change what runs.
+- Each tool use ID gets one PreToolUse decision per segment: allow, deny, defer, or a replay. A
+  later PreToolUse for the same ID is denied and never replaces that decision.
 - On the first turn of a session Claude Code also writes its usual local transcript under
   `CLAUDE_CONFIG_DIR` (`~/.claude` by default). The adapter never reads it; set `CLAUDE_CONFIG_DIR`
   in `env` to choose where it goes. Later segments run in a temporary directory that the SDK removes,
@@ -519,4 +521,4 @@ calls the custom tool server over an in-memory MCP transport with a tool name th
 permitted one, hands the gate deferrals that its PreToolUse hook never deferred or deferred under
 another ID or tool, and replays records under another tool, such as a custom or source record as
 `Bash`, or twice in one segment. It also asks `canUseTool` with another input, another kind, or a
-second time, after the hook allowed a call.
+second time, after the hook allowed a call, and repeats PreToolUse for a decided ID.
