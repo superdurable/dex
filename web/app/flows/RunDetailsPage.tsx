@@ -75,6 +75,7 @@ import { useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
 import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
 import { useWorkingAs } from '../workspace/useWorkingAs';
 import { RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
+import { webURL } from '@/lib/basePath';
 
 type RunTab = 'overview' | 'steps' | 'timeline' | 'stream' | 'design' | 'session' | 'actions';
 
@@ -298,8 +299,8 @@ export function RunDetailsPage({
   const followedRunAttempt = useRef(0);
   const loadedRunDataRequest = useRef(0);
 
-  const summaryURL = `/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
-  const stateURL = `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
+  const summaryURL = webURL(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`);
+  const stateURL = webURL(`/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`);
   const addDataWarning = useCallback((warning: string) => {
     setDataWarnings((current) => current.includes(warning) ? current : [...current, warning]);
   }, []);
@@ -398,7 +399,7 @@ export function RunDetailsPage({
     setDeletingChannelMessage(messageId);
     setError('');
     try {
-      await readResponseJSON(await fetch('/api/flows/channels/messages', {
+      await readResponseJSON(await fetch(webURL('/api/flows/channels/messages'), {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ flowId, runId, channelName, messageId }),
@@ -512,7 +513,7 @@ export function RunDetailsPage({
   useEffect(() => {
     if (!needsCurrentRun || summaryStatusCode === undefined) return undefined;
     const controller = new AbortController();
-    void fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, { cache: 'no-store', signal: controller.signal })
+    void fetch(webURL(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`), { cache: 'no-store', signal: controller.signal })
       .then((response) => readResponseJSON<FlowSummary>(response))
       .then((current) => setCurrentRunOfFlow({ flowId, runId: current.runId }))
       .catch((lookupError: unknown) => {
@@ -550,7 +551,7 @@ export function RunDetailsPage({
       runId,
       nextInternalEventId: String(nextInternalEventId),
     });
-    void fetch(`/api/flows/wait?${params}`, { cache: 'no-store', signal: controller.signal })
+    void fetch(webURL(`/api/flows/wait?${params}`), { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         if (generation !== waitGeneration.current) return;
         if (response.status === 408) {

@@ -8,6 +8,7 @@
 
 import { readResponseJSON } from './http';
 import { VALUE_BLOB_UNAVAILABLE } from './unavailable';
+import { webURL } from './basePath';
 
 export type BlobKind = 'string' | 'object';
 
@@ -75,7 +76,7 @@ export async function hydrateBlobs<T>(
       cache: 'no-store',
       signal,
     };
-    const response = await fetcher('/api/blobs/load', request);
+    const response = await fetcher(webURL('/api/blobs/load'), request);
     const result = await readResponseJSON<{ values?: Record<string, unknown> }>(response);
     for (const [key, resolved] of Object.entries(result.values ?? {})) {
       const separator = key.indexOf(':');

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { StatusBadge } from '../components/StatusBadge';
 import { usePreferences } from '../providers';
+import { webURL } from '@/lib/basePath';
 
 type QueryMode = 'basic' | 'advanced';
 type ColumnId = 'status' | 'flowId' | 'runId' | 'flowType' | 'start' | 'close' | 'duration';
@@ -150,7 +151,7 @@ export function FlowSearchPage() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/flows/search', {
+      const response = await fetch(webURL('/api/flows/search'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

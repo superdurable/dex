@@ -100,12 +100,15 @@ func TestReadinessFailsForUnavailableFlowService(t *testing.T) {
 }
 
 func TestStandaloneSPARejectsFraming(t *testing.T) {
-	handler := spaHandler(fstest.MapFS{
-		"index.html": &fstest.MapFile{Data: []byte("<html><head></head><body></body></html>")},
-	})
+	pages, err := newSitePages(fstest.MapFS{
+		"dist/index.html": &fstest.MapFile{Data: []byte("<html><head></head><body></body></html>")},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
+	pages.spaHandler("/", false).ServeHTTP(response, request)
 	if response.Header().Get("Content-Security-Policy") != "frame-ancestors 'none'" ||
 		response.Header().Get("X-Frame-Options") != "DENY" {
 		t.Fatalf("standalone SPA headers = %v", response.Header())

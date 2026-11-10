@@ -95,6 +95,15 @@ func TestConnectorOAuthClientSecretRequirementFollowsManifestField(t *testing.T)
 }
 
 func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSecret(t *testing.T) {
+	testConnectorOAuthPKCEFlow(t, "/")
+}
+
+func TestConnectorOAuthRedirectsStayUnderBasePath(t *testing.T) {
+	testConnectorOAuthPKCEFlow(t, "/dex/web")
+}
+
+func testConnectorOAuthPKCEFlow(t *testing.T, basePath string) {
+	t.Helper()
 	identity := connectorDefinitionIdentity{
 		ConnectorID: "gmail", OperationID: "sendMessage", OperationKind: "mutation", ConnectionName: "sender",
 		ModulePath:    "github.com/superdurable/dex-connectors-library/connectors/google/gmail",
@@ -170,7 +179,12 @@ func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSec
 		t.Fatal(err)
 	}
 	provider := connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity})
-	setup := connectorTestSetup(t, t.TempDir(), provider)
+	setup, err := newConnectorSetup(&Config{
+		BindAddress: "127.0.0.1", ConnectorSetupEnabled: true, ConnectorConfigDirectory: t.TempDir(), BasePath: basePath,
+	}, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
 	setup.releases.baseURL = server.URL
 	setup.releases.httpClient = server.Client()
 
@@ -202,6 +216,10 @@ func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSec
 	if state == "" || challenge == "" || authorizationURL.Query().Get("code_challenge_method") != "S256" {
 		t.Fatalf("authorization URL = %s", startResponse.AuthorizationURL)
 	}
+	wantRedirectURI := "http://127.0.0.1:8802" + joinBasePath(basePath, "/api/v2/connector-oauth/callback")
+	if redirectURI := authorizationURL.Query().Get("redirect_uri"); redirectURI != wantRedirectURI {
+		t.Fatalf("OAuth redirect URI = %q, want %q", redirectURI, wantRedirectURI)
+	}
 
 	callback := httptest.NewRequest(http.MethodGet, "/api/v2/connector-oauth/callback?state="+url.QueryEscape(state)+"&code=authorization-code", nil)
 	callbackRecorder := httptest.NewRecorder()
@@ -209,7 +227,7 @@ func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSec
 	if callbackRecorder.Code != http.StatusSeeOther {
 		t.Fatalf("OAuth callback status = %d: %s", callbackRecorder.Code, callbackRecorder.Body.String())
 	}
-	if location := callbackRecorder.Header().Get("Location"); location != "/v1/connectors?oauth=success&connectorId=gmail&connectionName=sender" {
+	if location := callbackRecorder.Header().Get("Location"); location != joinBasePath(basePath, "/v1/connectors")+"?oauth=success&connectorId=gmail&connectionName=sender" {
 		t.Fatalf("OAuth callback location = %q", location)
 	}
 	verifierDigest := sha256.Sum256([]byte(receivedVerifier))

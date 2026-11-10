@@ -10,6 +10,7 @@ import { useId, useState } from 'react';
 import { Info, Pencil } from 'lucide-react';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
+import { webURL } from '@/lib/basePath';
 
 const maxInt32 = 2147483647;
 const retentionWindowHint = 'Older events are deleted.';
@@ -106,7 +107,7 @@ export function HistorySettingsCard({
     setError('');
     setIsValidationError(false);
     try {
-      await readResponseJSON(await fetch('/api/flows/config/history', {
+      await readResponseJSON(await fetch(webURL('/api/flows/config/history'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ flowId: savedRun.flowId, runId: savedRun.runId, ...pending.update }),

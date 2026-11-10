@@ -26,6 +26,7 @@ import {
 } from './connectorStudioTheme';
 import { CONNECTORS_COPY } from './copy';
 import './connectors.css';
+import { webURL } from '@/lib/basePath';
 
 /** The theme every Studio frame paints; the page provides the Dex Web theme. */
 export const ConnectorStudioFrameThemeContext = createContext<Theme>('light');
@@ -213,7 +214,7 @@ export function ConnectorsPage() {
 
   // selectKey picks a connection, such as one just added or one an OAuth redirect names.
   const load = useCallback(async (signal?: AbortSignal, selectKey?: string) => {
-    const response = await fetch('/api/v2/connector-connections', { signal });
+    const response = await fetch(webURL('/api/v2/connector-connections'), { signal });
     const next = await readResponseJSON<ConnectionsResponse>(response);
     setCatalog(next);
     setSelected((current) => selectedConnectionAfterLoad(next.connections, current, selectKey));
@@ -233,7 +234,7 @@ export function ConnectorsPage() {
     if (!catalog || !selected || selected.status === 'Unsupported' || selected.status === 'Conflict') return;
     const controller = new AbortController();
     setBusy(true);
-    void fetch('/api/v2/connector-ui-sessions', {
+    void fetch(webURL('/api/v2/connector-ui-sessions'), {
       method: 'POST',
       signal: controller.signal,
       headers: connectorWriteHeaders(catalog),
@@ -575,7 +576,7 @@ export function AddConnectionPanel({catalog, onAdded, onCancel}: {
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch('/api/v2/connector-catalog', {signal: controller.signal})
+    void fetch(webURL('/api/v2/connector-catalog'), {signal: controller.signal})
       .then((response) => readResponseJSON<ConnectorCatalogResponse>(response))
       .then((value) => {
         setEntries(value.connectors);
@@ -597,7 +598,7 @@ export function AddConnectionPanel({catalog, onAdded, onCancel}: {
     if (!chosen || nameProblem !== '') return;
     setSubmitting(true);
     try {
-      const response = await fetch('/api/v2/connector-connections', {
+      const response = await fetch(webURL('/api/v2/connector-connections'), {
         method: 'POST', headers: connectorWriteHeaders(catalog), body: JSON.stringify({
           connectorId: chosen.connectorId, connectionName,
           modulePath: chosen.modulePath, moduleVersion: chosen.moduleVersion,
@@ -1643,7 +1644,7 @@ async function executeStudioCommand(
     if (typeof commandId !== 'string' || !session.manifest.spec.studio?.commands?.some((candidate) => candidate.id === commandId)) {
       throw new Error('Provider command is not declared');
     }
-    target = `/api/v2/connector-ui-sessions/${encodeURIComponent(session.sessionNonce ?? '')}/commands/${encodeURIComponent(commandId)}`;
+    target = webURL(`/api/v2/connector-ui-sessions/${encodeURIComponent(session.sessionNonce ?? '')}/commands/${encodeURIComponent(commandId)}`);
     method = 'POST';
     body = JSON.stringify(providerCommandRequestBody(session, input));
   } else if (command === 'connection.save') {
@@ -1654,9 +1655,9 @@ async function executeStudioCommand(
     const unit = targetScope;
     const nextConfiguration = mergeUnitValue(configuration, unit.bindings, value);
     if (unit.scope.kind === 'trigger') {
-      target = `/api/v2/connector-trigger-bindings/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}/${encodeURIComponent(unit.scope.triggerName)}/${encodeURIComponent(unit.scope.bindingName)}`;
+      target = webURL(`/api/v2/connector-trigger-bindings/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}/${encodeURIComponent(unit.scope.triggerName)}/${encodeURIComponent(unit.scope.bindingName)}`);
     } else {
-      target = `/api/v2/connector-use-configurations/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}/${encodeURIComponent(unit.scope.operationId)}/${encodeURIComponent(unit.scope.flowType)}/${encodeURIComponent(unit.scope.stepType)}`;
+      target = webURL(`/api/v2/connector-use-configurations/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}/${encodeURIComponent(unit.scope.operationId)}/${encodeURIComponent(unit.scope.flowType)}/${encodeURIComponent(unit.scope.stepType)}`);
     }
     method = 'PUT';
     body = JSON.stringify({ configuration: nextConfiguration });
@@ -1806,7 +1807,7 @@ export function connectorWriteHeaders(catalog: Pick<ConnectionsResponse, 'csrfTo
 }
 
 function connectionURL(connection: ConnectionView) {
-  return `/api/v2/connector-connections/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}`;
+  return webURL(`/api/v2/connector-connections/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}`);
 }
 
 export function connectionKey(connection: Pick<ConnectionView, 'connectorId' | 'connectionName'>) {
