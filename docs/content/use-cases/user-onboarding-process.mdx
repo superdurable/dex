@@ -19,26 +19,24 @@ The process accepts a username, email address, first name, and last name. It mus
 5. Mark onboarding as completed, send a welcome email, and complete the Flow only after task 2 finishes.
 6. Expose verification and both task completions as RPCs so an application can advance the process while it is waiting.
 
-Each waiting Step uses **AnyOf** with a Timer and a Channel. A Channel message advances the user immediately. A Timer sends a reminder and moves the same Step back to itself. A Worker can restart during any wait without losing the current stage, the reminder schedule, or a user action.
+Each waiting Step uses **AnyOf** to wait for a Timer or a Channel message. A Channel message moves the user to the next stage right away. If the Timer fires first, the Step sends a reminder and moves back to itself to wait again.
 
-Potential failures and exceptional outcomes include:
+Failures and other outcomes to handle:
 
 - A duplicate username cannot start a second Flow with the same Flow ID. The start endpoint reports that onboarding already exists.
-- Verification or a task may never arrive. The Flow remains durably waiting and sends reminders until it is completed, cancelled, or reaches its configured Flow timeout.
-- A task completion can arrive out of order. Its RPC returns that the task is not waiting and does not publish the Channel message.
-- A Step method or RPC can fail before it returns. Dex commits none of that method's Attribute writes or Channel publications, so a retry starts from the previously committed durable state.
-- Email delivery can fail transiently. The email adapter should surface the error so Dex can retry the Step.
-- An email provider can accept a message before the Worker records success. Production email calls need an idempotency key or equivalent deduplication.
+- The user may never verify the email or finish a task. The Flow keeps waiting and sending reminders until it completes, is canceled, or reaches its Flow timeout.
+- A task completion can arrive out of order. The RPC then reports that the task is not waiting, and it does not publish the Channel message.
+- A Step method or RPC can fail before it returns. Dex then saves none of that method's Attribute writes or Channel messages. A retry starts from the state that was saved before the method ran.
+- Sending an email can fail temporarily. The email adapter should return the error so that Dex retries the Step.
+- The email provider can accept a message and the Worker can then fail before Dex records success. In production, send email with an idempotency key or another way to drop duplicates.
 
-The Go, Java, Python, TypeScript, and Rust examples all implement and integration-test the complete verification, task 1, task 2, and completion path.
+The Go, Java, Python, TypeScript, and Rust examples all implement the full path: verification, task 1, task 2, and completion. Each has an integration test for that path.
 
 ## Flow design
 
-This interactive definition graph is generated from the runnable Python Flow.
-
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The Flow is a sequential state machine with interruptible waits:
+The Flow runs four waiting stages in order:
 
 **Submit** → **VerifyEmail** → **AccomplishTask1** → **AccomplishTask2**
 
@@ -47,16 +45,14 @@ It combines these design patterns:
 - [**Durable reminder**](/design-patterns/durable-timer/reminder) moves a waiting Step back to itself whenever its Timer fires.
 - [**Interruptible wait**](/design-patterns/interruptible) uses **AnyOf** so a Channel message can wake the Step before the reminder Timer.
 - [**Responsive update**](/design-patterns/responsive-update) uses RPCs to validate the current stage and publish the matching Channel message while the Flow is waiting.
-- **Sequential state machine** makes email verification and both tasks explicitly ordered. A later task cannot bypass an earlier one.
-- **Durable progress state** records each target stage in its **WaitFor** method. The **Status** Attribute changes when that durable wait is installed, so RPCs and operators observe the stage the Flow is actually waiting on.
-- **Atomic method commit** makes each **WaitFor**, **Execute**, and RPC invocation a separate commit boundary. Dex Server commits all Attribute writes and Channel publications from one method together only after it succeeds, so failed methods cannot expose partial durable state or messages.
-- **Idempotent side effects** let a retried Step safely resend an externally deduplicated email.
+- **Sequential stages**: the Steps run in a fixed order, so a later task cannot skip an earlier one.
+- **Stage in an Attribute**: each Step sets the **Status** Attribute in its **WaitFor** method. Dex saves that value when the Step starts to wait. RPCs and operators therefore see the stage the Flow is actually waiting on.
 
-Separate Channels represent verification, task 1, and task 2. This keeps every external action scoped to exactly one wait and makes invalid transitions easy to reject.
+Verification, task 1, and task 2 each have their own Channel. A user action can then wake only the one Step that waits for it. An RPC can also reject an action that arrives at the wrong stage.
 
 ## Core implementation
 
-Each tab starts with the Flow signature, Step topology, and persistence schema. The second snippet shows a representative Timer-or-Channel wait. The linked example includes every RPC, its HTTP controller, and an end-to-end integration test.
+In each tab, the first snippet declares the Flow, its Steps, and its Attributes. The second snippet shows one Step that waits for a Timer or a Channel message. The linked example also has every RPC, the HTTP controller, and an end-to-end integration test.
 
 <SdkTabs
   examples={{
@@ -393,7 +389,7 @@ impl Step for AccomplishTask1 {
 
 ## Demo
 
-This completed Go run submitted one user, verified the email, accomplished task 1, and accomplished task 2. The graph records each business stage as its own completed Step. Each waiting Step shows the Timer and Channel that were active before the user action arrived.
+In this Go run, one user signed up, verified the email, and finished task 1 and task 2. Each stage appears as its own completed Step. Each Step shows the Timer and Channel it waited on before the user action arrived.
 
 <a href="/img/use-cases/user-onboarding-process-step-execution-graph.png">
   <img
@@ -402,5 +398,3 @@ This completed Go run submitted one user, verified the email, accomplished task 
     style={{display: 'block', width: '100%', maxWidth: '420px', margin: '1rem auto'}}
   />
 </a>
-
-Open the lossless PNG to inspect the full-resolution graph.

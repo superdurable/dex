@@ -79,8 +79,8 @@ Released 2026-11-05 as [server-zd/v0.1.17](https://github.com/superdurable/dex/r
 ### Breaking
 
 - Protocol version 4 requires a coordinated server upgrade: stop all old active and standby processes before starting the new version, then upgrade SDKs. After the new binary writes to a storage prefix, roll forward or restore a pre-upgrade backup into a new prefix. [Reference](/reference/server/0.1.23/upgrades).
-- A Step attempt interrupted after its hand-out was committed now fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/python/flows-and-steps/failure-and-redelivery#same-attempt-redelivery).
-- Retry total duration starts at the first hand-out and only gates scheduling another retry. Use method timeouts to bound a running attempt. [Reference](/reference/python/flows-and-steps/step-options#timeouts-and-total-duration).
+- A Step attempt interrupted after its hand-out was committed now fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/python/failure-and-retries#same-attempt-redelivery).
+- Retry total duration starts at the first hand-out and only gates scheduling another retry. Use method timeouts to bound a running attempt. [Reference](/reference/python/step-options#timeouts-and-total-duration).
 - Steps with no available or supporting Worker now wait durably instead of failing with **NO_WORKER_AVAILABLE**. Set a Flow timeout when that wait must be bounded; **matching.dispatchWait** now applies only to RPCs. [Reference](/reference/server/0.1.23/workers#step-task-queue).
 - Worker startup fails when its requested concurrency exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower Worker concurrency or raise that cap and **matching.maxStreams** first. [Reference](/reference/server/0.1.23/workers#pull-worker-dispatch).
 - **limits.maxChildFlowResultBytes** now limits child Flow results to 16 MiB by default. Raise it before starting affected runs or reduce result size. [Reference](/reference/server/0.1.23/configuration#limits).

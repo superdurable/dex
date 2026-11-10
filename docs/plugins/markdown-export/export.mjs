@@ -21,7 +21,8 @@ import {markdownPath} from '../../src/markdownPath.mjs';
 export const sdkOrder = ['python', 'go', 'java', 'typescript', 'rust'];
 const sdkLabels = {python: 'Python', go: 'Go', java: 'Java', typescript: 'TypeScript', rust: 'Rust'};
 const diagrams = new Set(['DexSystemDiagram', 'ExecutionApproachDiagram', 'StepWaitExecuteDiagram',
-  'StepDecisionMovementsDiagram', 'RpcRequestDiagram', 'ChannelScopeDiagram']);
+  'StepDecisionMovementsDiagram', 'RpcRequestDiagram', 'ChannelScopeDiagram', 'ArchitectureComparison',
+  'RequirementChangeComparison']);
 // Docusaurus default admonition keywords.
 const admonitionKeywords = ['note', 'tip', 'info', 'warning', 'danger', 'caution', 'important', 'secondary', 'success'];
 const localeCopies = {

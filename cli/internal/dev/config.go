@@ -42,6 +42,10 @@ var flagOrder = []string{
 	"bind-address",
 	"connector-config-dir",
 	"connector-release-override",
+	"connectors-mcp",
+	"connectors-mcp-binary",
+	"connectors-mcp-connection",
+	"connectors-mcp-version",
 	"dex-port",
 	"durability",
 	"engine",
@@ -87,6 +91,8 @@ type Config struct {
 	ConnectorReleaseOverrides map[string]string
 	// AllowedHosts defaults empty and lists extra host names that Dex Web /api requests may use besides loopback.
 	AllowedHosts string
+	// ConnectorsMCP configures the Dex Connectors MCP server that dexcli dev proxies at /mcp on the Dex Web port.
+	ConnectorsMCP ConnectorsMCPConfig
 	// OpenBrowser defaults true and opens Dex Web after readiness.
 	OpenBrowser bool
 	// ZDStartupTimeout defaults to 60 seconds.
@@ -146,6 +152,30 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"connector-release-override",
 		"local Connector release override as connector-id=artifact-directory (repeatable)",
 	)
+	flags.BoolVar(
+		&cfg.ConnectorsMCP.IsEnabled,
+		"connectors-mcp",
+		cfg.ConnectorsMCP.IsEnabled,
+		"find or start the Dex Connectors MCP server and proxy it at /mcp on the Dex Web port (loopback --bind-address only)",
+	)
+	flags.StringVar(
+		&cfg.ConnectorsMCP.Version,
+		"connectors-mcp-version",
+		"",
+		"Connectors MCP server release X.Y.Z to run (default the newest compatible release)",
+	)
+	flags.StringVar(
+		&cfg.ConnectorsMCP.BinaryPath,
+		"connectors-mcp-binary",
+		cfg.ConnectorsMCP.BinaryPath,
+		"local dex-connectors-mcp executable to run instead of a downloaded release (default "+connectorsMCPBinaryEnvironment+")",
+	)
+	connectorsMCPConnections := connectorsMCPConnectionFlag{}
+	flags.Var(
+		&connectorsMCPConnections,
+		"connectors-mcp-connection",
+		"connection the Connectors MCP server offers, as connectorId/connectionName[=tool,...] (repeatable; default every authorized connection)",
+	)
 	flags.BoolVar(&cfg.OpenBrowser, "open", true, "open Dex Web after startup")
 	flags.IntVar(&cfg.WebPort, "web-port", cfg.WebPort, "Dex Web port")
 	flags.StringVar(
@@ -165,6 +195,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		return nil, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
 	}
 	cfg.ConnectorReleaseOverrides = connectorReleaseOverrides.values
+	cfg.ConnectorsMCP.Connections = connectorsMCPConnections.values
 	cfg.explicitLocalFlags = make(map[string]bool)
 	flags.Visit(func(item *flag.Flag) {
 		switch item.Name {
@@ -193,6 +224,7 @@ func defaultConfig() (*Config, error) {
 		StateDirectory:            stateDirectory,
 		ConnectorConfigDirectory:  filepath.Join(stateDirectory, "connectors"),
 		ConnectorReleaseOverrides: make(map[string]string),
+		ConnectorsMCP:             defaultConnectorsMCPConfig(),
 		OpenBrowser:               true,
 		ZDStartupTimeout:          defaultZDStartupTimeout,
 		ShutdownTimeout:           10 * time.Second,
@@ -274,6 +306,9 @@ func (c *Config) validate() error {
 		return fmt.Errorf("resolve connector config directory: %w", err)
 	}
 	c.ConnectorConfigDirectory = absoluteConnectorConfigDirectory
+	if err := c.ConnectorsMCP.validate(); err != nil {
+		return err
+	}
 	for connectorID, directory := range c.ConnectorReleaseOverrides {
 		absoluteDirectory, err := filepath.Abs(strings.TrimSpace(directory))
 		if err != nil {

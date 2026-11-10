@@ -12,11 +12,11 @@ Recover automatically when an **Execute** method still fails after its retry pol
 
 **ExecuteFailureRecoveryFlow** starts **FailingStep**. Its **Execute** method can fail, and its **ExecuteFailure** policy sends the Flow to **RecoveryStep** after retries are exhausted. **RecoveryStep** performs the compensating action and completes the Flow.
 
-Use this pattern when the Flow can recover without a person. Keep the recovery Step idempotent because it may be retried independently.
+Use this pattern when the Flow can recover without a person. Make the recovery Step idempotent, because Dex may retry it separately.
 
 ## Core implementation
 
-The failed **FailingStep** owns both its retry policy and the movement to **RecoveryStep**. **RecoveryStep** receives the same input and performs the compensating action before it completes or fails the Flow.
+**FailingStep** sets both its retry policy and the movement to **RecoveryStep**. **RecoveryStep** receives the same input as **FailingStep**, and it can complete or fail the Flow.
 
 <SdkTabs
   examples={{
@@ -149,4 +149,4 @@ impl Step for RecoveryStep {
 ## Related
 
 - [Failure Handling](/design-patterns/failure-handling)
-- [Step options](/reference/python/flows-and-steps/step-options#retry-and-failure-policies)
+- [Retry and failure policies](/reference/python/failure-and-retries#retry-and-failure-policies)

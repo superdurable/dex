@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "ContractEditFlow",
     "startStepId": "step:StartContractEdits",
     "span": {
-      "startLine": 192,
+      "startLine": 204,
       "startColumn": 1,
-      "endLine": 216,
+      "endLine": 228,
       "endColumn": 81
     }
   },
@@ -23,23 +23,23 @@
       "parentId": "step:EditContract",
       "phase": "execute",
       "span": {
-        "startLine": 125,
+        "startLine": 131,
         "startColumn": 5,
-        "endLine": 136,
+        "endLine": 142,
         "endColumn": 53
       }
     },
     {
-      "id": "decision:step:EditContract:134:20",
+      "id": "decision:step:EditContract:140:20",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:EditContract",
       "condition": "started_edit.should_withdraw",
       "phase": "execute",
       "span": {
-        "startLine": 134,
+        "startLine": 140,
         "startColumn": 20,
-        "endLine": 134,
+        "endLine": 140,
         "endColumn": 30
       },
       "decision": {
@@ -47,16 +47,16 @@
       }
     },
     {
-      "id": "decision:step:EditContract:136:16",
+      "id": "decision:step:EditContract:142:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:EditContract",
       "condition": "not (started_edit.should_withdraw)",
       "phase": "execute",
       "span": {
-        "startLine": 136,
+        "startLine": 142,
         "startColumn": 16,
-        "endLine": 136,
+        "endLine": 142,
         "endColumn": 53
       },
       "decision": {
@@ -64,15 +64,15 @@
       }
     },
     {
-      "id": "decision:step:EnterContractEdit:114:16",
+      "id": "decision:step:EnterContractEdit:118:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:EnterContractEdit",
       "phase": "execute",
       "span": {
-        "startLine": 114,
+        "startLine": 118,
         "startColumn": 16,
-        "endLine": 114,
+        "endLine": 118,
         "endColumn": 41
       },
       "decision": {
@@ -80,15 +80,15 @@
       }
     },
     {
-      "id": "decision:step:FinishContractEdits:174:16",
+      "id": "decision:step:FinishContractEdits:186:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:FinishContractEdits",
       "phase": "execute",
       "span": {
-        "startLine": 174,
+        "startLine": 186,
         "startColumn": 16,
-        "endLine": 174,
+        "endLine": 186,
         "endColumn": 80
       },
       "decision": {
@@ -96,15 +96,15 @@
       }
     },
     {
-      "id": "decision:step:ReleaseContractEditToken:164:16",
+      "id": "decision:step:ReleaseContractEditToken:174:16",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:ReleaseContractEditToken",
       "phase": "execute",
       "span": {
-        "startLine": 164,
+        "startLine": 174,
         "startColumn": 16,
-        "endLine": 164,
+        "endLine": 174,
         "endColumn": 26
       },
       "decision": {
@@ -112,15 +112,15 @@
       }
     },
     {
-      "id": "decision:step:SaveContractEdit:155:16",
+      "id": "decision:step:SaveContractEdit:163:16",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:SaveContractEdit",
       "phase": "execute",
       "span": {
-        "startLine": 155,
+        "startLine": 163,
         "startColumn": 16,
-        "endLine": 155,
+        "endLine": 163,
         "endColumn": 26
       },
       "decision": {
@@ -128,15 +128,15 @@
       }
     },
     {
-      "id": "decision:step:StartContractEdits:97:16",
+      "id": "decision:step:StartContractEdits:99:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:StartContractEdits",
       "phase": "execute",
       "span": {
-        "startLine": 97,
+        "startLine": 99,
         "startColumn": 16,
-        "endLine": 97,
+        "endLine": 99,
         "endColumn": 38
       },
       "decision": {
@@ -177,10 +177,13 @@
       "name": "EditContract",
       "phase": "execute",
       "span": {
-        "startLine": 209,
+        "startLine": 221,
         "startColumn": 13,
-        "endLine": 209,
+        "endLine": 221,
         "endColumn": 31
+      },
+      "metadata": {
+        "explanation": "Apply the edit while holding the token."
       }
     },
     {
@@ -189,10 +192,13 @@
       "name": "EnterContractEdit",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 208,
+        "startLine": 220,
         "startColumn": 13,
-        "endLine": 208,
+        "endLine": 220,
         "endColumn": 37
+      },
+      "metadata": {
+        "explanation": "Wait for the contract edit token to enter the section."
       }
     },
     {
@@ -201,10 +207,13 @@
       "name": "FinishContractEdits",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 212,
+        "startLine": 224,
         "startColumn": 13,
-        "endLine": 212,
+        "endLine": 224,
         "endColumn": 39
+      },
+      "metadata": {
+        "explanation": "Wait for every edit to report, then complete with the results."
       }
     },
     {
@@ -213,10 +222,13 @@
       "name": "ReleaseContractEditToken",
       "phase": "execute",
       "span": {
-        "startLine": 211,
+        "startLine": 223,
         "startColumn": 13,
-        "endLine": 211,
+        "endLine": 223,
         "endColumn": 45
+      },
+      "metadata": {
+        "explanation": "Report the failed edit and release the token."
       }
     },
     {
@@ -225,10 +237,13 @@
       "name": "SaveContractEdit",
       "phase": "execute",
       "span": {
-        "startLine": 210,
+        "startLine": 222,
         "startColumn": 13,
-        "endLine": 210,
+        "endLine": 222,
         "endColumn": 36
+      },
+      "metadata": {
+        "explanation": "Save the edit, report it, and release the token."
       }
     },
     {
@@ -238,22 +253,25 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 207,
+        "startLine": 219,
         "startColumn": 36,
-        "endLine": 207,
+        "endLine": 219,
         "endColumn": 61
+      },
+      "metadata": {
+        "explanation": "Start one edit path per contract edit and the Step that awaits them."
       }
     },
     {
-      "id": "wait:EnterContractEdit:109:16:0",
+      "id": "wait:EnterContractEdit:113:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:EnterContractEdit",
       "phase": "wait_for",
       "span": {
-        "startLine": 109,
+        "startLine": 113,
         "startColumn": 16,
-        "endLine": 109,
+        "endLine": 113,
         "endColumn": 57
       },
       "wait": {
@@ -264,9 +282,9 @@
             "label": "contractEditToken.for 1",
             "resourceId": "resource:channel:CONTRACT_EDIT_TOKEN",
             "span": {
-              "startLine": 109,
+              "startLine": 113,
               "startColumn": 27,
-              "endLine": 109,
+              "endLine": 113,
               "endColumn": 56
             }
           }
@@ -274,15 +292,15 @@
       }
     },
     {
-      "id": "wait:FinishContractEdits:171:16:0",
+      "id": "wait:FinishContractEdits:183:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:FinishContractEdits",
       "phase": "wait_for",
       "span": {
-        "startLine": 171,
+        "startLine": 183,
         "startColumn": 16,
-        "endLine": 171,
+        "endLine": 183,
         "endColumn": 68
       },
       "wait": {
@@ -294,9 +312,9 @@
             "resourceId": "resource:channel:CONTRACT_EDIT_FINISHED",
             "expression": "edit_count",
             "span": {
-              "startLine": 171,
+              "startLine": 183,
               "startColumn": 27,
-              "endLine": 171,
+              "endLine": 183,
               "endColumn": 67
             }
           }
@@ -308,54 +326,54 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:EditContract:136:16",
+      "from": "decision:step:EditContract:142:16",
       "to": "step:SaveContractEdit",
       "label": "go_to",
       "span": {
-        "startLine": 136,
+        "startLine": 142,
         "startColumn": 16,
-        "endLine": 136,
+        "endLine": 142,
         "endColumn": 53
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:EnterContractEdit:114:16",
+      "from": "decision:step:EnterContractEdit:118:16",
       "to": "step:EditContract",
       "label": "go_to",
       "span": {
-        "startLine": 114,
+        "startLine": 118,
         "startColumn": 16,
-        "endLine": 114,
+        "endLine": 118,
         "endColumn": 41
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:StartContractEdits:97:16",
+      "from": "decision:step:StartContractEdits:99:16",
       "to": "step:EnterContractEdit",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
-        "startLine": 94,
+        "startLine": 96,
         "startColumn": 13,
-        "endLine": 94,
+        "endLine": 96,
         "endColumn": 53
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:StartContractEdits:97:16",
+      "from": "decision:step:StartContractEdits:99:16",
       "to": "step:FinishContractEdits",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
-        "startLine": 96,
+        "startLine": 98,
         "startColumn": 26,
-        "endLine": 96,
+        "endLine": 98,
         "endColumn": 74
       }
     },
@@ -366,9 +384,9 @@
       "to": "step:FinishContractEdits",
       "label": "results",
       "span": {
-        "startLine": 174,
+        "startLine": 186,
         "startColumn": 39,
-        "endLine": 174,
+        "endLine": 186,
         "endColumn": 78
       },
       "metadata": {
@@ -379,12 +397,12 @@
       "id": "edge:0006",
       "kind": "wait_condition",
       "from": "resource:channel:CONTRACT_EDIT_FINISHED",
-      "to": "wait:FinishContractEdits:171:16:0",
+      "to": "wait:FinishContractEdits:183:16:0",
       "label": "contractEditFinished.for edit_count",
       "span": {
-        "startLine": 171,
+        "startLine": 183,
         "startColumn": 27,
-        "endLine": 171,
+        "endLine": 183,
         "endColumn": 67
       }
     },
@@ -392,12 +410,12 @@
       "id": "edge:0007",
       "kind": "wait_condition",
       "from": "resource:channel:CONTRACT_EDIT_TOKEN",
-      "to": "wait:EnterContractEdit:109:16:0",
+      "to": "wait:EnterContractEdit:113:16:0",
       "label": "contractEditToken.for 1",
       "span": {
-        "startLine": 109,
+        "startLine": 113,
         "startColumn": 27,
-        "endLine": 109,
+        "endLine": 113,
         "endColumn": 56
       }
     },
@@ -408,9 +426,9 @@
       "to": "resource:channel:CONTRACT_EDIT_FINISHED",
       "label": "publish",
       "span": {
-        "startLine": 130,
+        "startLine": 136,
         "startColumn": 13,
-        "endLine": 132,
+        "endLine": 138,
         "endColumn": 14
       },
       "metadata": {
@@ -424,9 +442,9 @@
       "to": "resource:channel:CONTRACT_EDIT_TOKEN",
       "label": "publish",
       "span": {
-        "startLine": 133,
+        "startLine": 139,
         "startColumn": 13,
-        "endLine": 133,
+        "endLine": 139,
         "endColumn": 61
       },
       "metadata": {
@@ -440,9 +458,9 @@
       "to": "step:ReleaseContractEditToken",
       "label": "Execute failure",
       "span": {
-        "startLine": 121,
+        "startLine": 127,
         "startColumn": 16,
-        "endLine": 123,
+        "endLine": 129,
         "endColumn": 10
       },
       "metadata": {
@@ -456,9 +474,9 @@
       "to": "step:ReleaseContractEditToken",
       "label": "Execute failure",
       "span": {
-        "startLine": 104,
+        "startLine": 108,
         "startColumn": 16,
-        "endLine": 106,
+        "endLine": 110,
         "endColumn": 10
       },
       "metadata": {
@@ -472,9 +490,9 @@
       "to": "resource:channel:CONTRACT_EDIT_FINISHED",
       "label": "publish",
       "span": {
-        "startLine": 162,
+        "startLine": 172,
         "startColumn": 9,
-        "endLine": 162,
+        "endLine": 172,
         "endColumn": 86
       },
       "metadata": {
@@ -488,9 +506,9 @@
       "to": "resource:channel:CONTRACT_EDIT_TOKEN",
       "label": "publish",
       "span": {
-        "startLine": 163,
+        "startLine": 173,
         "startColumn": 9,
-        "endLine": 163,
+        "endLine": 173,
         "endColumn": 57
       },
       "metadata": {
@@ -504,9 +522,9 @@
       "to": "resource:channel:CONTRACT_EDIT_FINISHED",
       "label": "publish",
       "span": {
-        "startLine": 153,
+        "startLine": 161,
         "startColumn": 9,
-        "endLine": 153,
+        "endLine": 161,
         "endColumn": 85
       },
       "metadata": {
@@ -520,9 +538,9 @@
       "to": "resource:channel:CONTRACT_EDIT_TOKEN",
       "label": "publish",
       "span": {
-        "startLine": 154,
+        "startLine": 162,
         "startColumn": 9,
-        "endLine": 154,
+        "endLine": 162,
         "endColumn": 57
       },
       "metadata": {
@@ -536,9 +554,9 @@
       "to": "step:ReleaseContractEditToken",
       "label": "Execute failure",
       "span": {
-        "startLine": 143,
+        "startLine": 151,
         "startColumn": 16,
-        "endLine": 145,
+        "endLine": 153,
         "endColumn": 10
       },
       "metadata": {
@@ -552,9 +570,9 @@
       "to": "resource:channel:CONTRACT_EDIT_TOKEN",
       "label": "publish",
       "span": {
-        "startLine": 92,
+        "startLine": 94,
         "startColumn": 9,
-        "endLine": 92,
+        "endLine": 94,
         "endColumn": 57
       },
       "metadata": {
@@ -562,5 +580,61 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "enter-section",
+      "label": "Enter section",
+      "stepIds": [
+        "step:EnterContractEdit"
+      ]
+    },
+    {
+      "id": "edit-in-section",
+      "label": "Edit in section",
+      "stepIds": [
+        "step:EditContract"
+      ]
+    },
+    {
+      "id": "leave-section",
+      "label": "Leave section",
+      "stepIds": [
+        "step:SaveContractEdit"
+      ]
+    },
+    {
+      "id": "failure-exit",
+      "label": "Failure exit",
+      "stepIds": [
+        "step:ReleaseContractEditToken"
+      ]
+    },
+    {
+      "id": "finish",
+      "label": "Finish",
+      "stepIds": [
+        "step:FinishContractEdits"
+      ]
+    },
+    {
+      "id": "setup",
+      "label": "Setup",
+      "stepIds": [
+        "step:StartContractEdits"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

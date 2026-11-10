@@ -342,6 +342,11 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		Credentials: credentials, CredentialExpiresAt: expiresAt,
 	}
 	if err := setup.putConnectionIfCurrent(request.Context(), connection, nil, session.connectionWrite); err != nil {
+		if errors.Is(err, errConnectorConnectionChanged) {
+			api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_CHANGED",
+				"Connector connection changed during authorization; reload Connectors and start the authorization again")
+			return
+		}
 		writeConnectorConnectionPutError(response, err, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
 		return
 	}

@@ -6,40 +6,38 @@ import flowDefinition from '@site/src/data/flow-definitions/deal-dsl.json';
 
 # Deal DSL
 
-Define a durable deal as data, then run the same interpreter for any sellable item.
+Describe each deal as data. One Flow then runs any deal, for any sellable item.
 
 ## Product requirements
 
 The process represents one buyer's deal for one item. The item can be a dataset, a physical product, a subscription, a service, or another sellable good. It must:
 
 1. Accept a definition containing a process ID, item ID and name, initial state, initial state data, states, actions, waits, and transitions.
-2. Validate the definition before execution. Every referenced state and action must exist, identifiers must be valid, and each condition name must identify one wait point.
-3. Run **InitializeDeal** once. It stores an immutable definition snapshot, buyer and item identity, initial state data, and the first state to enter.
+2. Validate the definition before execution. Every referenced state and action must exist, identifiers must be valid, and each condition name must belong to exactly one wait.
+3. Run **InitializeDeal** once. It stores a snapshot of the definition that later edits cannot change, the buyer and item, the initial state data, and the first state to enter.
 4. Run **WaitForDealCondition** before entering a state. If the state declares a precondition, the Step waits for one message on that condition's keyed Channel. Otherwise it proceeds immediately.
 5. Merge the condition message into **DealStateData**, then execute the state's actions in their declared order. Each action gets its own **ExecuteDealAction** execution and durable checkpoint.
-6. Run **EvaluateDealTransition** after the actions. It can wait for another external condition, compare one state-data value against ordered equality cases, and select the matching state or the fallback state.
+6. Run **EvaluateDealTransition** after the actions. It can wait for another external condition. It then compares one state-data value with a list of cases, in order, and selects the state of the first equal case or the fallback state.
 7. Repeat the interpreter loop until it reaches a state without a transition. The Flow then completes with the accumulated state data.
-8. Keep running executions independent from later definition edits. The Go application stores editable definitions in PostgreSQL and passes a snapshot into each new Flow.
+8. Edits to a definition must not change deals that are already running. The Go application stores editable definitions in PostgreSQL and passes a snapshot into each new Flow.
 
-The Flow waits for precondition messages, transition messages, and retry delays after a failed Step attempt. A wait does not occupy a Worker.
+The Flow waits only for precondition messages, transition messages, and the delay before a Step retry.
 
-Potential failures include:
+Failures to handle:
 
 - Definition validation can reject a missing item, an unknown initial or destination state, a duplicate condition name, an invalid identifier, or an unregistered action.
 - A condition message can be malformed, target an unknown or stopped Flow, or arrive for a condition that the definition does not expose.
-- A condition result is invalid unless exactly one message satisfies the keyed wait. The Step fails instead of merging ambiguous input.
+- Each keyed wait must receive exactly one message. Otherwise the Step fails instead of merging ambiguous input.
 - Payment, refund, sample delivery, or item delivery can time out or return an error. Dex retries the failed Step without rerunning earlier completed actions.
 - An action can succeed remotely while its response is lost. Production adapters should use the Flow ID and Step execution identity as an idempotency key.
 - State data can omit a decision key. The transition then follows its explicit fallback state.
-- A definition can contain a business loop with no eventual external decision. The Flow remains durable, but product-level validation or timeouts must bound unwanted loops.
+- A definition can loop forever if no external decision ever ends the loop. Dex keeps running such a Flow. Use validation or a timeout in your product to stop unwanted loops.
 
 ## Flow design
 
-This interactive definition graph is generated from the runnable Python Flow.
-
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The Flow is a small durable interpreter. A definition chooses the business path; four Step types provide the execution machinery:
+The Flow is a small interpreter. The definition chooses the business path. Four Step types run it:
 
 ```text
 DealStart(definition snapshot, buyer, item)
@@ -65,24 +63,20 @@ DealStart(definition snapshot, buyer, item)
        complete with accumulated state data
 ```
 
-It combines these design patterns:
+It uses these patterns:
 
-- **Interpreter** keeps the executable Flow stable while process definitions supply states, waits, actions, and transitions.
-- **Finite-state machine** makes the current state and every transition explicit and inspectable.
-- **Immutable execution snapshot** prevents an edit to the catalog definition from changing an in-flight deal.
-- **Keyed Channel rendezvous** maps each named external condition to its own durable inbox without creating one Channel definition per condition.
-- **One-action checkpoint** isolates retries and records the exact action that failed. Ordered actions never collapse into one opaque Step.
-- **Guarded transition with fallback** evaluates ordered equality cases against shared state data and always has an explicit default path.
-- **Blackboard state** lets condition messages and actions contribute small key-value updates to one durable **DealStateData** map.
+- **Finite-state machine**: the current state and every transition are explicit, so you can inspect them.
+- **Keyed Channel**: each named condition is a key on one Channel. You do not define a Channel for each condition.
+- **Shared state map**: condition messages and actions each add small key-value updates to one **DealStateData** map.
 - [**Entity store**](/design-patterns/entity-store) gives each Go execution a stable Flow ID and searchable process, item, buyer, current-state, and pending-condition Attributes.
 
-The portable SDK examples use one action list per state. The Go product example extends the same loop with separate pre-actions and post-actions, a PostgreSQL definition catalog, search endpoints, and a browser UI.
+The examples in every SDK use one action list per state. The Go example adds separate pre-actions and post-actions, a PostgreSQL definition catalog, search endpoints, and a browser UI.
 
-The Go product maps its six Keyword Attributes to **keyword1** through **keyword6** in declaration order. Its raw searches always constrain **FlowType** before filtering one of those namespace-level slots.
+The Go example maps its six Keyword Attributes to **keyword1** through **keyword6**, in the order it declares them. Every Flow type in the namespace shares these slots. Its raw searches therefore always filter on **FlowType** first.
 
 ## Core implementation
 
-Each tab includes the Flow signature, persistence schema, and the complete four-Step interpreter path. Every snippet comes from the linked runnable example.
+Each tab shows the Flow from the linked runnable example, including all four interpreter Steps.
 
 <SdkTabs
   examples={{

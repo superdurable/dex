@@ -1,0 +1,174 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* The tinted scope is the Flow execution; everything inside belongs to it. */
+.scope {
+  display: flex;
+  min-width: 0;
+  padding: 0.85rem;
+  flex-direction: column;
+  border-radius: 18px;
+  background: var(--cd-group);
+}
+
+.scopeLabel {
+  display: inline-flex;
+  margin-bottom: 0.75rem;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--cd-ink);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.publishers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.scope .publishers .publisher {
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.publisherText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.publishArrows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.publishLabel {
+  color: var(--cd-subtle);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+section.scope .channel {
+  gap: 0.6rem;
+}
+
+.channelHeading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.channelName {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.channelName b {
+  font-family: var(--ifm-font-family-monospace);
+}
+
+.queue {
+  display: flex;
+  padding: 0.3rem 0.35rem 0.3rem 0.7rem;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cd-accent) 9%, transparent);
+  color: var(--cd-accent);
+}
+
+.queueDirection {
+  display: inline-flex;
+  margin-right: auto;
+  opacity: 0.7;
+}
+
+.queue .queueMessage {
+  display: grid;
+  width: 2.4rem;
+  height: 1.6rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--cd-tile);
+  color: var(--cd-accent);
+}
+
+.queue .queueMessage.queueHead {
+  background: var(--cd-accent);
+  color: var(--cd-on-solid);
+}
+
+.channelFacts {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.35rem;
+  color: var(--cd-subtle);
+  font-size: 0.78rem;
+}
+
+.channelFacts b {
+  color: var(--cd-ink);
+}
+
+.scope .consumeArrow {
+  padding: 0.15rem 0;
+}
+
+.methods {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.55rem;
+  margin-top: 0.15rem;
+}
+
+.method {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.methodName,
+.methodNameWait {
+  color: var(--cd-accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.methodNameWait {
+  color: var(--cd-wait);
+}
+
+.methodBody {
+  color: var(--cd-ink);
+  font-size: 0.82rem;
+  font-weight: 550;
+}
+
+@container (min-width: 34rem) {
+  .scope .publishers .publisher {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .methods {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+}

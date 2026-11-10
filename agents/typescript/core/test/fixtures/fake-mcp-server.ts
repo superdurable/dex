@@ -13,9 +13,16 @@
 // audit.lookup (collides with audit_lookup), record_note (idempotentHint), purge_cache (idempotentHint
 // and destructiveHint), send_message (no annotations; gate waits at a FileGate, crash exits),
 // long_report (readOnlyHint, taskSupport required; honors the requested TTL and logs it; completes
-// after 200 ms, or with gate once every poll marked the gate and it is released), and ask_account (readOnlyHint, taskSupport required; its
-// task needs input). It also offers the resource memo://greeting and the prompt summarize, with one topic
-// argument.
+// after 200 ms, or with gate once every poll marked the gate and it is released; outcome "unknown" completes
+// it with a result that reports the Dex outcome unknown), and ask_account (readOnlyHint, taskSupport required; its
+// task needs input). Dex MCP convention tools: get_balance declares the Dex effect read; post_note declares
+// non_idempotent_write without approval, and readOnlyHint, which the declaration overrides; send_payment
+// declares idempotent_write with recommended approval, applies one payment per idempotency key (logged as
+// payment-applied <key>), answers a repeated key with "already applied", takes outcome "unknown" or
+// "rejected" to answer with that Dex outcome, and crash_after_apply to exit right after it applies a new key.
+// In http mode, outcome "unknown_error" or "rejected_error" answers with a JSON-RPC InternalError whose
+// data._meta carries that Dex outcome.
+// It also offers the resource memo://greeting and the prompt summarize, with one topic argument.
 
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
@@ -25,9 +32,18 @@ import { InMemoryTaskStore } from "@modelcontextprotocol/sdk/experimental/tasks/
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
-import { mcpIdempotencyKeyMetaKey } from "../../src/mcp/index.js";
+import {
+  mcpIdempotencyKeyMetaKey,
+  mcpToolApprovalMetaKey,
+  mcpToolApprovalRecommended,
+  mcpToolEffectMetaKey,
+  mcpToolOutcomeMetaKey,
+  mcpToolOutcomeRejected,
+  mcpToolOutcomeUnknown,
+} from "../../src/mcp/index.js";
 import { FileGate, InvocationLog } from "../../src/testing/index.js";
 import { fakeMcpInvocationLogName, fakeMcpReadyLine, fakeMcpStateDirectoryVariable } from "./fake-mcp-server-names.js";
 
@@ -35,10 +51,13 @@ const readOnly = { readOnlyHint: true };
 
 /** Completes a gated task once its gate is released; every poll marks the gate. */
 class GatedTaskStore extends InMemoryTaskStore {
-  private readonly gatedTasks = new Map<string, { readonly gate: string; readonly topic: string }>();
+  private readonly gatedTasks = new Map<
+    string,
+    { readonly gate: string; readonly topic: string; readonly outcome: string | undefined }
+  >();
 
-  public gateTask(taskId: string, gate: string, topic: string): void {
-    this.gatedTasks.set(taskId, { gate, topic });
+  public gateTask(taskId: string, gate: string, topic: string, outcome: string | undefined): void {
+    this.gatedTasks.set(taskId, { gate, topic, outcome });
   }
 
   public override async updateTaskStatus(
@@ -62,7 +81,7 @@ class GatedTaskStore extends InMemoryTaskStore {
       fileGate.markReached();
       if (fileGate.isReleased()) {
         this.gatedTasks.delete(taskId);
-        await this.storeTaskResult(taskId, "completed", text(`report on ${gated.topic}`), sessionId);
+        await this.storeTaskResult(taskId, "completed", reportResult(gated.topic, gated.outcome), sessionId);
       }
     }
     return super.getTask(taskId, sessionId);
@@ -84,13 +103,22 @@ function invocations(): InvocationLog {
   return new InvocationLog(join(stateDirectory(), fakeMcpInvocationLogName));
 }
 
-function recordRun(toolName: string, meta: Record<string, unknown> | undefined): void {
-  const key = meta?.[mcpIdempotencyKeyMetaKey];
-  invocations().record(`${toolName} ${typeof key === "string" ? key : "no-key"}`);
+function recordRun(toolName: string, meta: Record<string, unknown> | undefined): string {
+  const value = meta?.[mcpIdempotencyKeyMetaKey];
+  const key = typeof value === "string" ? value : "no-key";
+  invocations().record(`${toolName} ${key}`);
+  return key;
 }
 
 function text(value: string): { content: [{ type: "text"; text: string }] } {
   return { content: [{ type: "text", text: value }] };
+}
+
+function reportResult(topic: string, outcome: string | undefined): CallToolResult {
+  if (outcome === mcpToolOutcomeUnknown) {
+    return { ...text(`report on ${topic}`), isError: true, _meta: { [mcpToolOutcomeMetaKey]: mcpToolOutcomeUnknown } };
+  }
+  return text(`report on ${topic}`);
 }
 
 function createFakeMcpServer(): McpServer {
@@ -180,26 +208,81 @@ function createFakeMcpServer(): McpServer {
       return text(`sent ${message}`);
     },
   );
+  server.registerTool(
+    "get_balance",
+    {
+      description: "Read the balance of one account.",
+      inputSchema: { account: z.string() },
+      _meta: { [mcpToolEffectMetaKey]: "read" },
+    },
+    ({ account }, extra) => {
+      recordRun("get_balance", extra._meta);
+      return text(`balance of ${account} is 5`);
+    },
+  );
+  server.registerTool(
+    "post_note",
+    {
+      description: "Post a note; posting it again posts a second note.",
+      inputSchema: { text: z.string() },
+      annotations: readOnly,
+      _meta: { [mcpToolEffectMetaKey]: "non_idempotent_write" },
+    },
+    ({ text: note }, extra) => {
+      recordRun("post_note", extra._meta);
+      return text(`posted ${note}`);
+    },
+  );
+  server.registerTool(
+    "send_payment",
+    {
+      description: "Send a payment; one payment per idempotency key.",
+      inputSchema: { amount: z.number().int(), outcome: z.string().optional(), crash_after_apply: z.boolean().optional() },
+      _meta: { [mcpToolEffectMetaKey]: "idempotent_write", [mcpToolApprovalMetaKey]: mcpToolApprovalRecommended },
+    },
+    ({ amount, outcome, crash_after_apply }, extra): CallToolResult => {
+      const key = recordRun("send_payment", extra._meta);
+      if (outcome === mcpToolOutcomeUnknown) {
+        return {
+          ...text("the payment provider timed out"),
+          isError: true,
+          _meta: { [mcpToolOutcomeMetaKey]: mcpToolOutcomeUnknown },
+        };
+      }
+      if (outcome === mcpToolOutcomeRejected) {
+        return { ...text("the card was declined"), isError: true, _meta: { [mcpToolOutcomeMetaKey]: mcpToolOutcomeRejected } };
+      }
+      // The Dex call ID derives from the idempotency key, so a retried attempt applies nothing.
+      if (invocations().names().includes(`payment-applied ${key}`)) {
+        return text(`payment of ${amount} already applied`);
+      }
+      invocations().record(`payment-applied ${key}`);
+      if (crash_after_apply === true) {
+        process.exit(1);
+      }
+      return text(`paid ${amount}`);
+    },
+  );
   server.experimental.tasks.registerToolTask(
     "long_report",
     {
       description: "Write a long report as a task.",
-      inputSchema: { topic: z.string(), gate: z.string().optional() },
+      inputSchema: { topic: z.string(), gate: z.string().optional(), outcome: z.string().optional() },
       annotations: readOnly,
       execution: { taskSupport: "required" },
     },
     {
-      createTask: async ({ topic, gate }, extra) => {
+      createTask: async ({ topic, gate, outcome }, extra) => {
         recordRun("long_report", extra._meta);
         invocations().record(`long_report-ttl ${extra.taskRequestedTtl ?? "none"}`);
         const task = await extra.taskStore.createTask({ ttl: extra.taskRequestedTtl ?? 60_000, pollInterval: 50 });
         if (gate !== undefined) {
-          taskStore.gateTask(task.taskId, gate, topic);
+          taskStore.gateTask(task.taskId, gate, topic, outcome);
           return { task };
         }
         // The shared store, because this request's server is closed when the result lands.
         setTimeout(() => {
-          taskStore.storeTaskResult(task.taskId, "completed", text(`report on ${topic}`)).catch((error: unknown) => {
+          taskStore.storeTaskResult(task.taskId, "completed", reportResult(topic, outcome)).catch((error: unknown) => {
             console.error("storing the long_report result failed", error);
           });
         }, 200);
@@ -247,6 +330,40 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   return chunks.length === 0 ? undefined : JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+/**
+ * Returns the JSON-RPC error answer of a send_payment call with outcome "unknown_error" or "rejected_error".
+ * McpServer turns an error a tool throws into an isError result, so the answer is built here.
+ */
+function dexOutcomeErrorAnswer(body: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(body) || body["method"] !== "tools/call" || !isRecord(body["params"])) {
+    return undefined;
+  }
+  const params = body["params"];
+  const toolArguments = params["arguments"];
+  if (params["name"] !== "send_payment" || !isRecord(toolArguments)) {
+    return undefined;
+  }
+  const outcome = toolArguments["outcome"];
+  if (outcome !== "unknown_error" && outcome !== "rejected_error") {
+    return undefined;
+  }
+  recordRun("send_payment", isRecord(params["_meta"]) ? params["_meta"] : undefined);
+  const isUnknown = outcome === "unknown_error";
+  return {
+    jsonrpc: "2.0",
+    id: body["id"],
+    error: {
+      code: ErrorCode.InternalError,
+      message: isUnknown ? "the payment provider timed out" : "the card was declined",
+      data: { _meta: { [mcpToolOutcomeMetaKey]: isUnknown ? mcpToolOutcomeUnknown : mcpToolOutcomeRejected } },
+    },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 const [mode, port] = process.argv.slice(2);
 if (mode === "stdio") {
   await createFakeMcpServer().connect(new StdioServerTransport());
@@ -285,6 +402,12 @@ if (mode === "stdio") {
 } else if (mode === "http" && port !== undefined) {
   const httpServer = createServer((request, response) => {
     void (async () => {
+      const body = await readJsonBody(request);
+      const errorAnswer = dexOutcomeErrorAnswer(body);
+      if (errorAnswer !== undefined) {
+        response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(errorAnswer));
+        return;
+      }
       // Stateless mode: one server and transport per request, no protocol session.
       const server = createFakeMcpServer();
       const transport = new StreamableHTTPServerTransport({});
@@ -293,7 +416,7 @@ if (mode === "stdio") {
         void server.close();
       });
       await server.connect(transport);
-      await transport.handleRequest(request, response, await readJsonBody(request));
+      await transport.handleRequest(request, response, body);
     })().catch((error: unknown) => {
       console.error("fake MCP server request failed", error);
       if (!response.headersSent) {

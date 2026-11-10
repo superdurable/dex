@@ -12,7 +12,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 每个子 Flow 都在独立的 **SubFlowStep** execution 中运行。子 Flow 完成后向 **SubFlowCompletedCh** 发布一条消息。**WaitSubFlows** 等待其中一半消息，然后为每个可能尚未完成的子 Flow 发布一条 **AllDoneCh** 消息。
 
-关键点是父 Flow 达到阈值后不会立即结束。每个尚未完成的 **SubFlowStep** 会先消费一条 **AllDoneCh** 消息，取得自己的 **SubFlowID** 并停止对应子 Flow，然后才 graceful complete。这样每个未完成分支都有机会清理自己的 SubFlow。
+一半子 Flow 完成后，父 Flow 不会立即结束。每个尚未完成的 **SubFlowStep** 会先消费一条 **AllDoneCh** 消息，取得自己的 **SubFlowID** 并停止对应子 Flow，然后才 graceful complete。这样每个未完成的分支都会停止自己的 SubFlow。
 
 ## 核心实现
 

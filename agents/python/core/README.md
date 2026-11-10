@@ -1082,7 +1082,8 @@ are best effort; rebuild from `get_agent_snapshot`.
 
 `dex_agents.mcp` turns the tools of MCP servers into tools of an agent
 session. Every MCP tool call runs in its own tool Step, with an effect class
-from the tool's annotations, so a crash never repeats a write silently.
+from the tool's annotations or from the [Dex MCP
+conventions](#dex-mcp-conventions), so a crash never repeats a write silently.
 Install the MCP SDK with the `mcp` extra; the core itself never imports it:
 
 ```bash
@@ -1179,6 +1180,7 @@ not followed. The names are `MCP_LIST_RESOURCES_AND_PROMPTS_TOOL_NAME`,
 
 | MCP annotations | Effect | Tool Step | Approval by default |
 | --- | --- | --- | --- |
+| any, with the Dex `effect` key in `_meta` | the declared effect; see [Dex MCP conventions](#dex-mcp-conventions) | by effect | Only with `approval: recommended` |
 | `readOnlyHint: true` | `read` | `CallTool` | No |
 | `idempotentHint: true` | `idempotent_write` | `CallTool` | No |
 | anything else, or none | `default_tool_effect`, `unclassified` by default | `CallSingleAttemptTool` | Yes |
@@ -1208,6 +1210,7 @@ adds `traceparent` to `_meta` when OpenTelemetry has an active trace.
 | --- | --- | --- |
 | A result | `succeeded`: text blocks joined with newlines, other content as JSON | - |
 | An `isError` result, or a JSON-RPC error response other than `-32603` | `failed` with the text (`ToolExecutionError`) | No |
+| A result or error with the Dex `outcome` key | `outcome_unknown` or `failed`; see [Dex MCP conventions](#dex-mcp-conventions) | No |
 | The call was never sent: its server is not configured, or 3 connection attempts failed | `failed` | No |
 | The stream broke, the server exited, or the request timed out after it was sent; an internal error (`-32603`), an HTTP error status, or a body that is not JSON-RPC (`-32700`), which a gateway can return after the server ran the call; a server that keeps asking to repeat the call | `McpToolCallInterruptedError`, a Step failure | `read` and `idempotent_write`: `CallTool` sends a new request, same idempotency key, up to 3 attempts. Other effects: `outcome_unknown`, never sent again |
 | The Worker dies during the call | as for any tool Step | Same as above |
@@ -1297,13 +1300,117 @@ records `failed` the same way; mapping it to a question is a follow-up. A
 state-only `input_required` answer, which only asks for the same request
 again, is retried at once.
 
+### Dex MCP conventions
+
+An MCP server built for Dex, such as one that serves Dex connectors, carries a
+connector's guarantees across MCP with `_meta` keys under the
+`io.superdurable.dex/` prefix. A server that sets none of them behaves exactly
+as described above. Both cores follow the same rules, and
+[`agents/conformance/mcp_dex_conventions.json`](../../conformance/mcp_dex_conventions.json)
+fixes them case by case. Since 0.5.0.
+
+| Key | Where | Values |
+| --- | --- | --- |
+| `io.superdurable.dex/effect` (`TOOL_EFFECT_META_KEY`) | tool definition `_meta` in `tools/list` | `read`, `idempotent_write`, `non_idempotent_write` |
+| `io.superdurable.dex/approval` (`TOOL_APPROVAL_META_KEY`) | tool definition `_meta` in `tools/list` | `recommended` |
+| `io.superdurable.dex/outcome` (`TOOL_OUTCOME_META_KEY`) | `tools/call` result `_meta`, or JSON-RPC `error.data._meta` | `unknown`, `rejected` |
+| `io.superdurable.dex/idempotencyKey` (`IDEMPOTENCY_KEY_META_KEY`) | `tools/call` request `_meta`, sent by the source | `<flowId>/<turnId>/<toolCallId>` |
+
+**Tool definitions.** A tool with the `effect` key is declared, as a connector
+manifest declares an operation for `ConnectorToolSource`:
+
+- Its effect class is the declared value, whatever its annotations say:
+  `read` and `idempotent_write` run in `CallTool`, `non_idempotent_write` in
+  `CallSingleAttemptTool`. A declared write runs in the model's order after the
+  turn's earlier writes, and a write after one that did not succeed is skipped.
+- Without a session policy, its calls wait for approval only with `approval:
+  recommended`, like `agent.approval: recommended` in a manifest. Any other
+  `approval` value, `null` included, also asks, so an unknown value fails
+  closed.
+- A session `ToolPolicy` in `AgentSessionOptions.tool_policies` for the tool
+  may keep or raise its safety, never lower it. The call gets the more
+  conservative of the declared effect and the policy's effect, ranked `READ`,
+  `IDEMPOTENT_WRITE`, `NON_IDEMPOTENT_WRITE`, then `UNCLASSIFIED`. So a policy
+  `ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE)` on a tool declared `read` runs
+  it once in `CallSingleAttemptTool`, in the model's order, after approval. A
+  declared `non_idempotent_write` stays one with a `READ` policy.
+- The policy's `requires_approval`, when set, wins. When it is `None`, a call
+  waits for approval when the tool recommends it or the policy's effect asks
+  for approval by default, as `NON_IDEMPOTENT_WRITE` does.
+- A framework adapter gets the same rule from
+  `tools.merge_tool_policies(your_policies)`. Do not spread your policies
+  after `tools.tool_policies()`: yours would replace the declaration and
+  could lower its effect.
+- `approval` without `effect` is ignored. An `effect` value outside the three
+  above gives the tool the session's `default_tool_effect` and ignores its
+  annotations, with a warning log.
+- `trusts_tool_annotations=False` also ignores both keys.
+
+**Results.** The `outcome` key reports what a call did:
+
+| `outcome` | Recorded | The model sees | Sent again? |
+| --- | --- | --- | --- |
+| `unknown` | `outcome_unknown` (`ToolOutcomeUnknownError`), with the result's text as `error` | `OUTCOME_UNKNOWN_TOOL_RESULT` | Never, for any effect class |
+| `rejected` | `failed` (`ToolExecutionError`) | `The tool call failed: <text>` | Never |
+| absent | as in "What a call does" | | |
+
+- The key wins over `isError` and over the JSON-RPC error code. Set
+  `isError: true` with either value, so a client that does not know these
+  conventions never reads the result as a success.
+- The text is the result's text: text blocks joined with newlines, other
+  content as JSON. A result without text gets a fixed text. Write a message
+  that is safe to show the model and the user.
+- In the JSON-RPC error form, put the key in `error.data._meta`. The text is
+  `MCP error <code>: <message>`. An internal error (`-32603`) with the key is
+  not re-issued.
+- A task's completed result follows the same rule, whether the tool Step or
+  `PollToolTask` reads it.
+- Other values are reserved; the source ignores them with a warning log.
+
+**Idempotency key.** Every `tools/call` from a tool Step carries the session's
+idempotency key. It is the same on every attempt of one tool call, including a
+`CallTool` retry and an attempt after a Worker restart, and it is unique per
+tool call. Treat it as opaque. A server that follows these conventions derives
+its own call ID from it, such as a hash, and keeps a fence per call ID: a
+retried attempt gets the first attempt's result and never applies the write a
+second time. When the server cannot tell whether an earlier attempt took
+effect, it answers `outcome: unknown`. It should refuse a declared write that
+arrives without the key, because it cannot recognize a retry of that call.
+Task requests (`tasks/get`, `tasks/update`, `tasks/cancel`) carry no key; the
+task ID names the call there.
+
+A declared tool, as `tools/list` returns it:
+
+```json
+{
+  "name": "send_payment",
+  "description": "Send a payment.",
+  "inputSchema": {"type": "object", "properties": {"amount": {"type": "integer"}}},
+  "annotations": {"idempotentHint": true},
+  "_meta": {
+    "io.superdurable.dex/effect": "idempotent_write",
+    "io.superdurable.dex/approval": "recommended"
+  }
+}
+```
+
+A result whose outcome is unknown:
+
+```json
+{
+  "content": [{"type": "text", "text": "the payment provider timed out"}],
+  "isError": true,
+  "_meta": {"io.superdurable.dex/outcome": "unknown"}
+}
+```
+
 ### With a framework adapter
 
 The runner above is the core's runner-agnostic path. A framework adapter uses
 the source when it accepts tools defined by a JSON Schema: wrap each `McpTool`
 as a framework tool whose function calls `tools.call_tool(name, arguments,
 idempotency_key=...)` with the key from the adapter's tool context, and pass
-`{**tools.tool_policies(), **your_policies}` as the adapter's `tool_policies`.
+`tools.merge_tool_policies(your_policies)` as the adapter's `tool_policies`.
 No adapter package changes for this.
 
 | Adapter | Schema-only tool | Key inside the tool |

@@ -19,6 +19,7 @@ from typing import Any
 
 from mcp_types import CallToolResult, TextContent, Tool
 
+from dex_agents.mcp._dex_conventions import read_dex_tool_declaration
 from dex_agents.values import ToolEffect
 
 # Model APIs accept tool names of at most 64 letters, digits, '_', and '-'.
@@ -105,9 +106,25 @@ class McpTool:
         description: Tool description for the model.
         input_schema: JSON Schema of the tool's arguments object.
         annotations: The server's behavior hints, or ``None`` when it sent none.
-        framework_effect: Effect from the annotations when the server
-            configuration trusts them, else ``None``. An explicit
-            ``ToolPolicy`` overrides it.
+        framework_effect: The effect the server declares when its
+            configuration trusts it, else ``None``: ``dex_effect`` when the
+            tool declares one, otherwise the effect from the annotations. An
+            explicit ``ToolPolicy`` overrides it, except for a tool with a
+            ``dex_effect``, where ``McpToolSource.deferred_tool_call`` lets the
+            policy raise the effect but never lower it.
+        dex_effect: The effect the tool declares under
+            ``TOOL_EFFECT_META_KEY`` in its definition's ``_meta``, when the
+            server configuration trusts the server, else ``None``. A tool
+            with a ``dex_effect`` follows the Dex MCP conventions in the
+            package README: a session ``ToolPolicy`` may raise its effect or
+            its approval but never lowers its effect.
+
+            .. versionadded:: 0.5.0
+        is_approval_recommended: Whether the tool declares
+            ``TOOL_APPROVAL_META_KEY`` together with a ``dex_effect``. Always
+            ``False`` without a ``dex_effect``.
+
+            .. versionadded:: 0.5.0
     """
 
     name: str
@@ -117,6 +134,8 @@ class McpTool:
     input_schema: Mapping[str, Any] = field(repr=False)
     annotations: McpToolAnnotations | None
     framework_effect: ToolEffect | None
+    dex_effect: ToolEffect | None = None
+    is_approval_recommended: bool = False
 
 
 def mcp_tool_from_listing(server_name: str, tool: Tool, trusts_annotations: bool) -> McpTool:
@@ -128,6 +147,15 @@ def mcp_tool_from_listing(server_name: str, tool: Tool, trusts_annotations: bool
             destructive_hint=tool.annotations.destructive_hint,
             open_world_hint=tool.annotations.open_world_hint,
         )
+    declaration = (
+        read_dex_tool_declaration(tool.meta, server_name, tool.name) if trusts_annotations else None
+    )
+    framework_effect: ToolEffect | None = None
+    if declaration is not None:
+        # A Dex declaration replaces the annotations, even when its effect is invalid.
+        framework_effect = declaration.effect
+    elif trusts_annotations:
+        framework_effect = tool_effect_from_mcp_annotations(annotations)
     return McpTool(
         name=build_agent_tool_name(server_name, tool.name),
         server_name=server_name,
@@ -135,9 +163,11 @@ def mcp_tool_from_listing(server_name: str, tool: Tool, trusts_annotations: bool
         description=tool.description or tool.title or f"MCP tool {tool.name} of {server_name}",
         input_schema=tool.input_schema,
         annotations=annotations,
-        framework_effect=tool_effect_from_mcp_annotations(annotations)
-        if trusts_annotations
-        else None,
+        framework_effect=framework_effect,
+        dex_effect=None if declaration is None else declaration.effect,
+        is_approval_recommended=declaration is not None
+        and declaration.effect is not None
+        and declaration.is_approval_recommended,
     )
 
 

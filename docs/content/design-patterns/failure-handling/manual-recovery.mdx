@@ -10,11 +10,11 @@ Escalate a Step to a person after its automatic retries are exhausted.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**ManualRecoveryFlow** starts **DoWork**. Its failure policy makes three exponential-backoff retries, then proceeds to **ManualStep**. **ManualStep** waits for either the **Retry** Channel or the **Skip** Channel. Retry returns to **DoWork** after the operator resolves the problem; skip fails the Flow with an explicit reason.
+**ManualRecoveryFlow** starts **DoWork**. **DoWork** retries three times with exponential backoff, then moves to **ManualStep**. **ManualStep** waits for either the **Retry** Channel or the **Skip** Channel. After the operator fixes the problem, a **Retry** message sends the Flow back to **DoWork**. A **Skip** message fails the Flow with an explicit reason.
 
 ## Core implementation
 
-**DoWork** owns the retry policy and its exhausted-failure movement. **ManualStep** owns the durable wait for the operator's Channel message and turns that message into the next decision.
+**DoWork** sets the retry policy and the movement to **ManualStep** after the last retry fails. **ManualStep** waits for the operator's message and turns it into the next decision.
 
 <SdkTabs
   examples={{

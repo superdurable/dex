@@ -466,7 +466,7 @@ func TestConnectorUseConfigurationAPIWritesFlowStepScopedSidecar(t *testing.T) {
 	}
 	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, []connectorDefinitionIdentity{identity}))
 	installConnectorTestRelease(t, setup, identity, "google", nil)
-	if err := setup.store.put(testLocalConnectorConnection("gmail", "sender", "token", nil), nil); err != nil {
+	if err := setup.store.putCurrentForTest(testLocalConnectorConnection("gmail", "sender", "token", nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	request := authorizedConnectorRequest(t, setup, http.MethodPut, "/api/v2/connector-use-configurations/gmail/sender/sendMessage/TestFlow/TestStep", strings.NewReader(`{"configuration":{"message":{"text":"Done"}}}`))
@@ -557,7 +557,7 @@ func TestConnectorConnectionViewsUseLocalReleaseOverrideForWorkspaceFlow(t *test
 	connection.ModulePath = releaseIdentity.ModulePath
 	connection.ModuleVersion = "v0.6.1"
 	connection.Provider = "slack"
-	if err := setup.store.put(connection, nil); err != nil {
+	if err := setup.store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	views, _, err := setup.connectionViews(context.Background())

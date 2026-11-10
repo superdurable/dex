@@ -5,20 +5,21 @@ sidebar_label: Entity Flow with SQL Projection
 
 # Entity Flow with SQL Projection
 
-Keep one durable Flow for each application entity, then project selected
-Attributes into an application-owned SQL table. The Flow is the write model and
-source of truth. SQL is an asynchronous, latest-state projection for reads and
-queries.
+Keep one Flow for each entity, such as a user. Dex projects (copies) selected
+Attributes of that Flow into a SQL table that your application owns. The Flow
+holds the authoritative state, and every write goes through it. Dex updates the
+SQL table asynchronously, and the table holds only the latest values. Use it for
+reads and queries.
 
 The runnable example keeps one **UserProfileFlow** per user. Its Flow ID becomes
 the **user_id** primary key in **public.user_profiles**. The Server configuration
-names the projection target **entityStore**.
+names the target Attribute Store **entityStore**.
 
 ## When to use this pattern
 
-Use this pattern when an entity needs durable state or RPC updates, while the
-application also needs database queries over its latest state. Do not use the
-SQL projection to make Flow decisions: Dex state remains authoritative.
+Use this pattern when an entity needs durable state or updates through RPCs, and
+your application also needs to query its latest state in a database. Do not make
+Flow decisions from the SQL table. Read the Flow state instead.
 
 ## How it works
 
@@ -30,8 +31,9 @@ The example projects text, boolean, integer, double, datetime, and JSON values. 
 
 ### Define synced Attributes
 
-Every SDK marks the same profile fields for projection. Their Flow persistence
-schemas include the definitions, so the values are durable before Dex syncs them.
+Each SDK marks the same profile fields for projection. The Flow's persistence
+schema includes these Attributes, so Dex stores each value durably before it
+syncs the value to SQL.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-store/user_profile_flow.py', go: 'examples/go/patterns/entity-store/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/UserProfileFlow.java', typescript: 'examples/typescript/src/patterns/entity-store/user-profile-flow.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs'}}>
 <SdkSnippet lang="python">
@@ -182,8 +184,8 @@ static METADATA: LazyLock<Attribute<UserProfileMetadata>> = LazyLock::new(|| {
 
 ### Update through a Flow RPC
 
-The RPC is the write path. Each implementation validates the profile at its
-boundary, then updates every projected Attribute.
+Clients update a profile by calling this RPC. It validates the profile, then
+updates every projected Attribute.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-store/user_profile_flow.py', go: 'examples/go/patterns/entity-store/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/UserProfileFlow.java', typescript: 'examples/typescript/src/patterns/entity-store/user-profile-flow.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs'}}>
 <SdkSnippet lang="python">
@@ -300,8 +302,8 @@ fn update(&self, context: &mut Context, replacement: UserProfile) -> HandlerResu
 ### Select the storage target at Flow start
 
 The Attribute Store is configured on the Server. Select it in **FlowConfig**
-when starting the Flow; the initial Attribute values in that same request also
-project to SQL.
+when you start the Flow. The initial Attribute values in that start request are
+projected to SQL too.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-store/controller.py', go: 'examples/go/patterns/entity-store/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/EntityStoreController.java', typescript: 'examples/typescript/src/patterns/entity-store/controller.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs'}}>
 <SdkSnippet lang="python">
@@ -349,7 +351,7 @@ FlowConfig::new().attribute_store_names(vec![STORE_NAME.to_owned()])
 
 - **POST /patterns/entity-store/profile** — create a profile Flow
 - **POST /patterns/entity-store/profile/update** — update its synced fields
-- **GET /patterns/entity-store/profile?userId=...** — read authoritative Flow state
+- **GET /patterns/entity-store/profile?userId=...** — read the profile from the Flow
 - **POST /patterns/entity-store/profile/clear?userId=...** — delete the synced values
 
 ## Run with PostgreSQL

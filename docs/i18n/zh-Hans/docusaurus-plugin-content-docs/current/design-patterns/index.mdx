@@ -7,32 +7,32 @@ slug: /design-patterns
 
 # 设计模式
 
-来自 Dex 示例的可复用 Flow 形状。每个模式页说明问题和做法，并链接到多语言代码。
+每个模式用一种可复用的 Flow 结构解决一类常见问题。每页都链接到各 SDK 语言的可运行代码。
 
 ## Flow 控制
 
-- [Parallel Steps](/design-patterns/parallel) — 选择静态、动态、等待全部完成或首个获胜的并发 Step 协调方式。
-- [Parallel SubFlows](/design-patterns/parallel-subflows) — 用 SubFlow fan-out、父 Flow 并发上限、分区和 durable 背压处理大规模并行工作。
-- [可中断执行](/design-patterns/interruptible) — 根据 durable 控制消息，优雅地停止或转向长时间工作。
-- [Durable Timer](/design-patterns/durable-timer) — 选择 cron schedule、Reminder 或 inactivity tracker。
+- [Parallel Steps](/design-patterns/parallel) — 并发运行 Step：数量固定或动态，等全部完成或只等第一个。
+- [Parallel SubFlows](/design-patterns/parallel-subflows) — 把工作分给多个 SubFlow，限制一个父 Flow 同时运行的数量，分散到多个父 Flow，并加上 durable 背压。
+- [可中断执行](/design-patterns/interruptible) — 用户要求时，干净地停止长时间运行的工作。
+- [Durable Timer](/design-patterns/durable-timer) — 按计划运行工作、发送提醒，或在一段时间没有活动后执行动作。
 - [Deferred Choice](/design-patterns/deferred-choice) — 同时等待多个事件，按最先发生的那个决定分支。
-- [Critical Section](/design-patterns/critical-section) — 用 Channel 里的一个 token，让并行分支轮流执行一段跨多个 Step 的流程。
+- [Critical Section](/design-patterns/critical-section) — 通过 Channel 传递一个 token，让并行分支轮流执行一段跨多个 Step 的流程。
 - [连同子 Flow 一起取消](/design-patterns/cancel-case) — Flow 被取消时，停止它启动的子 Flow。
 
 ## 可靠性
 
-- [Failure Handling](/design-patterns/failure-handling) — 恢复 Execute 或 WaitFor 失败、升级给操作人员，或强制执行业务截止时间。
+- [Failure Handling](/design-patterns/failure-handling) — 从 **Execute** 或 **WaitFor** 失败中恢复、交给操作人员处理，或强制执行业务截止时间。
 - [Polling](/design-patterns/polling) — 在一个长时间运行的 Step 中等待外部系统。
 
 ## 消息
 
-- [Drain Channels](/design-patterns/drain-channels) — 在内部或外部 Channel 消息都处理完之后结束 Flow。
-- [响应式更新](/design-patterns/responsive-update) — 在 Step 边界返回、等待 durable 状态，或流式传递增量更新。
+- [Drain Channels](/design-patterns/drain-channels) — Channel 消息都处理完之后才结束 Flow。
+- [响应式更新](/design-patterns/responsive-update) — 让调用方等待某个 Step、某个 Attribute 值或一串更新，而不是等整个 Flow 结束。
 - [Inbound Event Loop](/design-patterns/inbound-event-loop) — 持续接收外部消息，直到收到结论或对话长时间没有动静。
 
 ## 数据
 
 - [AttributeMap 分区](/design-patterns/attribute-map-partitioning) — 把不断增长的集合拆成有上限的 chunk 或 hash partition。
-- [Entity Flow with SQL Projection](/design-patterns/entity-store) — 将每个实体的 durable Flow Attribute 投影到应用自有的 SQL 表。
+- [Entity Flow with SQL Projection](/design-patterns/entity-store) — 每个实体一个 Flow，并把它的 Attribute 复制到你自己的 SQL 表中供查询。
 
 完整示例位于 **examples/** 下。可在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 中试用 HTTP 示例。

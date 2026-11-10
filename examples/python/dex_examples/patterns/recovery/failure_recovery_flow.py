@@ -57,6 +57,8 @@ class PaymentProcessor:
         print(f"Voiding payment for $ {price:.2f}")
 
 
+# dex:group group-id:inventory-recovery group-label:"Inventory recovery"
+# dex:explanation text:"Restore the stock quantity, then fail the Flow."
 class UpdateQuantityRecovery(Step[FailureRecoveryWorkflowInput]):
     def __init__(self, database: DatabaseConnection) -> None:
         self.database = database
@@ -70,6 +72,8 @@ class UpdateQuantityRecovery(Step[FailureRecoveryWorkflowInput]):
         return force_fail("Failed to process transaction")
 
 
+# dex:group group-id:payment-recovery group-label:"Payment recovery"
+# dex:explanation text:"Void the payment after charging fails."
 class VoidPaymentRecovery(Step[int]):
     def __init__(
         self,
@@ -90,6 +94,8 @@ class VoidPaymentRecovery(Step[int]):
         return go_to(UpdateQuantityRecovery, workflow)
 
 
+# dex:group group-id:payment group-label:"Payment"
+# dex:explanation text:"Charge for the reserved items."
 class ChargeForItems(Step[int]):
     def __init__(
         self,
@@ -115,6 +121,8 @@ class ChargeForItems(Step[int]):
         return graceful_complete()
 
 
+# dex:group group-id:inventory group-label:"Inventory"
+# dex:explanation text:"Reserve the items by reducing the stock quantity."
 class UpdateItemQuantity(Step[FailureRecoveryWorkflowInput]):
     def __init__(
         self,

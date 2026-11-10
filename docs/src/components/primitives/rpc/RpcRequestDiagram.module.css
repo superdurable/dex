@@ -1,0 +1,197 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Narrow: numbered arrows only, with the steps listed below. Wide: labels sit on the arrows. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.25rem minmax(0, 0.9fr);
+  grid-template-areas:
+    'label . server'
+    'client clientHops server'
+    'worker workerHops server'
+    'sequence sequence sequence';
+  column-gap: 0.5rem;
+}
+
+.appBackground {
+  grid-column: 1;
+  grid-row: 1 / 4;
+  border-radius: 16px;
+  background: var(--cd-group);
+}
+
+.appLabel {
+  grid-area: label;
+  padding: 0.7rem 0.75rem 0.55rem;
+}
+
+.layout .role.client,
+.layout .role.worker {
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0.5rem;
+  text-align: center;
+}
+
+.layout .role.client {
+  grid-area: client;
+}
+
+.layout .role.worker {
+  grid-area: worker;
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.hops {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.clientHops {
+  grid-area: clientHops;
+}
+
+.workerHops {
+  grid-area: workerHops;
+  padding: 0.6rem 0;
+}
+
+.hop {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.hopLabel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.hopText {
+  display: none;
+  color: var(--cd-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.hopNumber {
+  display: grid;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--cd-accent);
+  color: var(--cd-on-solid);
+  font-size: 0.66rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+div.layout .server {
+  grid-area: server;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  text-align: center;
+}
+
+.serverStore {
+  display: inline-flex;
+  color: var(--cd-accent);
+}
+
+.layout ol.sequence {
+  display: flex;
+  grid-area: sequence;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 0.55rem;
+  list-style: none;
+}
+
+.layout ol.sequence li {
+  display: flex;
+  margin: 0;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.layout ol.sequence li .hopNumber {
+  margin-top: 0.1rem;
+}
+
+.sequenceText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  color: var(--cd-ink);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.sequenceRoute {
+  color: var(--cd-subtle);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+@container (min-width: 34rem) {
+  .layout {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.4fr) minmax(0, 0.75fr);
+    grid-template-areas:
+      'label . server'
+      'client clientHops server'
+      'worker workerHops server';
+    column-gap: 0.75rem;
+  }
+
+  .hops {
+    gap: 0.6rem;
+  }
+
+  .layout .role.client,
+  .layout .role.worker {
+    flex-direction: row;
+    gap: 0.55rem;
+    margin: 0 0.6rem;
+    text-align: left;
+  }
+
+  .layout .role.worker {
+    margin-top: 0.6rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .hopLabel {
+    justify-content: flex-start;
+  }
+
+  .hopLeft .hopLabel {
+    justify-content: flex-end;
+  }
+
+  .hopText {
+    display: inline;
+  }
+
+  .layout ol.sequence {
+    display: none;
+  }
+}

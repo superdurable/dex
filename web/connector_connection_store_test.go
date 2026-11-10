@@ -9,6 +9,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -31,7 +32,7 @@ func TestConnectorConnectionStoreRoundTripsAuthMethodIDsAndCopiesKeptCredentials
 		"openai_api_key":    json.RawMessage(`"openai-secret"`),
 		"anthropic_api_key": json.RawMessage(`"anthropic-secret"`),
 	}
-	if err := store.put(connection, nil); err != nil {
+	if err := store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, err := newConnectorConnectionStore(directory)
@@ -50,7 +51,7 @@ func TestConnectorConnectionStoreRoundTripsAuthMethodIDsAndCopiesKeptCredentials
 	next := testLocalConnectorConnection("llm", "default", "unused", nil)
 	next.AuthMethodIDs = []string{"openai"}
 	next.Credentials = map[string]json.RawMessage{"auth_methods": json.RawMessage(`["openai"]`)}
-	if err := reloaded.put(next, []string{"openai_api_key"}); err != nil {
+	if err := reloaded.putCurrentForTest(next, []string{"openai_api_key"}); err != nil {
 		t.Fatal(err)
 	}
 	stored, found, err := reloaded.get("llm", "default")
@@ -61,11 +62,11 @@ func TestConnectorConnectionStoreRoundTripsAuthMethodIDsAndCopiesKeptCredentials
 
 	removed := testLocalConnectorConnection("llm", "default", "unused", nil)
 	removed.Credentials = map[string]json.RawMessage{}
-	if err := reloaded.put(removed, []string{"anthropic_api_key"}); !errors.Is(err, errConnectorConfigurationRevisionConflict) {
+	if err := reloaded.putCurrentForTest(removed, []string{"anthropic_api_key"}); !errors.Is(err, errConnectorConfigurationRevisionConflict) {
 		t.Fatalf("keep of a field no longer stored error = %v", err)
 	}
 	unsaved := testLocalConnectorConnection("llm", "unsaved", "unused", nil)
-	if err := reloaded.put(unsaved, []string{"access_token"}); !errors.Is(err, errConnectorConfigurationRevisionConflict) {
+	if err := reloaded.putCurrentForTest(unsaved, []string{"access_token"}); !errors.Is(err, errConnectorConfigurationRevisionConflict) {
 		t.Fatalf("keep without a stored record error = %v", err)
 	}
 	both := testLocalConnectorConnection("llm", "default", "unused", nil)
@@ -91,7 +92,7 @@ func TestConnectorConnectionStorePersistsAcrossRestartAndIsolatesDirectories(t *
 	}
 	expiresAt := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	connection := testLocalConnectorConnection("gmail", "sender", "token-one", &expiresAt)
-	if err := firstStore.put(connection, nil); err != nil {
+	if err := firstStore.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,11 +160,11 @@ func TestConnectorConnectionStoreAtomicallyReplacesAndDeletesRecord(t *testing.T
 		t.Fatal(err)
 	}
 	connection := testLocalConnectorConnection("github", "reviewer", "token-one", nil)
-	if err := store.put(connection, nil); err != nil {
+	if err := store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	connection.Credentials["access_token"] = json.RawMessage(`"token-two"`)
-	if err := store.put(connection, nil); err != nil {
+	if err := store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	connections, err := store.list()
@@ -173,7 +174,7 @@ func TestConnectorConnectionStoreAtomicallyReplacesAndDeletesRecord(t *testing.T
 	if len(connections) != 1 || string(connections[0].Credentials["access_token"]) != `"token-two"` {
 		t.Fatalf("updated connections = %+v", connections)
 	}
-	deleted, err := store.delete("github", "reviewer")
+	deleted, err := store.deleteCurrentForTest("github", "reviewer")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,21 +188,21 @@ func TestConnectorConnectionStoreKeepsTriggerBindingsSeparateAndDeletesThemWithC
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.put(testLocalConnectorConnection("slack", "slack-workspace", "bot-token", nil), nil); err != nil {
+	if err := store.putCurrentForTest(testLocalConnectorConnection("slack", "slack-workspace", "bot-token", nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	binding := localConnectorTriggerBinding{
 		ConnectorID: "slack", ConnectionName: "slack-workspace", TriggerName: "channelThreadCreated",
 		BindingName: "slack-email-approval-start", Configuration: map[string]json.RawMessage{"channelId": json.RawMessage(`"C123"`)},
 	}
-	if err := store.putTriggerBinding(binding); err != nil {
+	if err := store.putTriggerBindingCurrentForTest(binding); err != nil {
 		t.Fatal(err)
 	}
 	bindings, err := store.listTriggerBindings("slack", "slack-workspace")
 	if err != nil || len(bindings) != 1 || bindings[0].BindingName != binding.BindingName {
 		t.Fatalf("bindings = %+v, err = %v", bindings, err)
 	}
-	deleted, err := store.delete("slack", "slack-workspace")
+	deleted, err := store.deleteCurrentForTest("slack", "slack-workspace")
 	if err != nil || !deleted {
 		t.Fatalf("deleted = %v, err = %v", deleted, err)
 	}
@@ -224,4 +225,64 @@ func testLocalConnectorConnection(
 		Credentials:         map[string]json.RawMessage{"access_token": json.RawMessage(`"` + token + `"`)},
 		CredentialExpiresAt: expiresAt,
 	}
+}
+
+// putCurrentForTest saves connection against the record revision stored now.
+func (store *connectorConnectionStore) putCurrentForTest(connection localConnectorConnection, keepCredentialFields []string) error {
+	fileLock, err := store.lockConnectionsFile(context.Background())
+	if err != nil {
+		return err
+	}
+	defer fileLock.release()
+	revision, err := store.revision(connection.ConnectorID, connection.ConnectionName)
+	if err != nil {
+		return err
+	}
+	return store.put(fileLock, connection, keepCredentialFields, revision)
+}
+
+// putLockedForTest takes the connections file lock under ctx and saves connection against expectedRevision.
+func (store *connectorConnectionStore) putLockedForTest(
+	ctx context.Context,
+	connection localConnectorConnection,
+	expectedRevision string,
+) error {
+	fileLock, err := store.lockConnectionsFile(ctx)
+	if err != nil {
+		return err
+	}
+	defer fileLock.release()
+	return store.put(fileLock, connection, nil, expectedRevision)
+}
+
+// putTriggerBindingCurrentForTest saves binding against the connection and binding revisions stored now.
+func (store *connectorConnectionStore) putTriggerBindingCurrentForTest(binding localConnectorTriggerBinding) error {
+	fileLock, err := store.lockConnectionsFile(context.Background())
+	if err != nil {
+		return err
+	}
+	defer fileLock.release()
+	connectionRevision, err := store.revision(binding.ConnectorID, binding.ConnectionName)
+	if err != nil {
+		return err
+	}
+	bindingRevision, err := store.triggerBindingRevision(binding)
+	if err != nil {
+		return err
+	}
+	return store.putTriggerBinding(fileLock, binding, connectionRevision, bindingRevision)
+}
+
+// deleteCurrentForTest deletes the connection against the record revision stored now.
+func (store *connectorConnectionStore) deleteCurrentForTest(connectorID string, connectionName string) (bool, error) {
+	fileLock, err := store.lockConnectionsFile(context.Background())
+	if err != nil {
+		return false, err
+	}
+	defer fileLock.release()
+	revision, err := store.revision(connectorID, connectionName)
+	if err != nil {
+		return false, err
+	}
+	return store.delete(fileLock, connectorID, connectionName, revision)
 }

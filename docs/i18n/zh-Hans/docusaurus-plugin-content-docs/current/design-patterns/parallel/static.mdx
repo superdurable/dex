@@ -7,13 +7,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # 静态并行 Step
 
+同时启动固定的一组不同类型的 Step。
+
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** 同时为 **WorkAStep** 和 **WorkBStep** 返回 movement。两个 Step 独立完成，适用于分支职责和输入类型都已知的场景。
+**Init** 在同一个 decision 中为 **WorkAStep** 和 **WorkBStep** 各返回一个 movement。Dex 同时运行这两个 Step，它们各自完成。每个分支的职责和输入类型都已知时，使用这种形状。
 
 ## 核心实现
-
-起始 Step 在同一个 decision 中返回两个 movement。
 
 <SdkTabs
   examples={{

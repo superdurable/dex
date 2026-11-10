@@ -53,8 +53,8 @@ persistence schema.
 
 <a id="buffer-text-chunks"></a>
 
-This example writes progress text through a buffered text writer. Dex flushes
-the buffered text before the Step result. The Step does not wait for the server
+This example writes progress text through a buffered text writer. Dex sends
+the buffered text before it saves the Step result. The Step does not wait for the server
 to store the text. See [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text).
 
 <SdkTabs examples={{
@@ -270,6 +270,9 @@ A Client can also write to a Stream, even when the Flow has closed. An RPC
 handler writes through an injected Client.
 
 ## Reference
+
+The [Stream](/reference/python/stream) page of each SDK reference lists the
+API names in that language.
 
 [Data primitive semantics](/reference/server/runtime-data#streams) covers write
 semantics, buffered text, reads, listing, capacity, and storage in detail. The

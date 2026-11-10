@@ -10,11 +10,11 @@ Use the first completed concurrent Step and cancel the remaining siblings.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** starts multiple **DoWork** executions. Each worker sleeps for a random short duration, creating a real race. The first execution to return a decision selects its sibling **DoWork** executions for cancellation. The Flow keeps the first result and stops work that can no longer affect the outcome.
+**Init** starts several **DoWork** executions. Each one sleeps for a random short time, so any of them can finish first. The first execution to return a decision cancels its sibling **DoWork** executions. The Flow keeps the first result and stops work that can no longer change it.
 
 ## Core implementation
 
-The cancellation selector targets sibling executions of the same Step type, not unrelated branches.
+The cancellation selector cancels only sibling executions of the same Step type. Other branches keep running.
 
 <SdkTabs
   examples={{

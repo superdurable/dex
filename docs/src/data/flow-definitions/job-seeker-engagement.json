@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "EngagementFlow",
     "startStepId": "step:Initialize",
     "span": {
-      "startLine": 130,
+      "startLine": 138,
       "startColumn": 1,
-      "endLine": 223,
+      "endLine": 231,
       "endColumn": 47
     }
   },
@@ -23,22 +23,22 @@
       "parentId": "step:Reminder",
       "phase": "execute",
       "span": {
-        "startLine": 75,
+        "startLine": 79,
         "startColumn": 5,
-        "endLine": 87,
+        "endLine": 91,
         "endColumn": 37
       }
     },
     {
-      "id": "decision:rpc:accept:202:16",
+      "id": "decision:rpc:accept:210:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:accept",
       "phase": "rpc",
       "span": {
-        "startLine": 202,
+        "startLine": 210,
         "startColumn": 16,
-        "endLine": 207,
+        "endLine": 215,
         "endColumn": 10
       },
       "decision": {
@@ -46,15 +46,15 @@
       }
     },
     {
-      "id": "decision:rpc:decline:185:16",
+      "id": "decision:rpc:decline:193:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:decline",
       "phase": "rpc",
       "span": {
-        "startLine": 185,
+        "startLine": 193,
         "startColumn": 16,
-        "endLine": 190,
+        "endLine": 198,
         "endColumn": 10
       },
       "decision": {
@@ -62,15 +62,15 @@
       }
     },
     {
-      "id": "decision:rpc:describe:170:16",
+      "id": "decision:rpc:describe:178:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:describe",
       "phase": "rpc",
       "span": {
-        "startLine": 170,
+        "startLine": 178,
         "startColumn": 16,
-        "endLine": 170,
+        "endLine": 178,
         "endColumn": 60
       },
       "decision": {
@@ -78,15 +78,15 @@
       }
     },
     {
-      "id": "decision:step:Initialize:123:16",
+      "id": "decision:step:Initialize:131:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:Initialize",
       "phase": "execute",
       "span": {
-        "startLine": 123,
+        "startLine": 131,
         "startColumn": 16,
-        "endLine": 127,
+        "endLine": 135,
         "endColumn": 10
       },
       "decision": {
@@ -94,15 +94,15 @@
       }
     },
     {
-      "id": "decision:step:NotifyExternalSystem:62:16",
+      "id": "decision:step:NotifyExternalSystem:64:16",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:NotifyExternalSystem",
       "phase": "execute",
       "span": {
-        "startLine": 62,
+        "startLine": 64,
         "startColumn": 16,
-        "endLine": 62,
+        "endLine": 64,
         "endColumn": 26
       },
       "decision": {
@@ -110,15 +110,15 @@
       }
     },
     {
-      "id": "decision:step:ProcessTimeout:110:16",
+      "id": "decision:step:ProcessTimeout:116:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:ProcessTimeout",
       "phase": "execute",
       "span": {
-        "startLine": 110,
+        "startLine": 116,
         "startColumn": 16,
-        "endLine": 110,
+        "endLine": 116,
         "endColumn": 41
       },
       "decision": {
@@ -126,16 +126,16 @@
       }
     },
     {
-      "id": "decision:step:Reminder:78:20",
+      "id": "decision:step:Reminder:82:20",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:Reminder",
       "condition": "status is not Status.INITIATED",
       "phase": "execute",
       "span": {
-        "startLine": 78,
+        "startLine": 82,
         "startColumn": 20,
-        "endLine": 78,
+        "endLine": 82,
         "endColumn": 30
       },
       "decision": {
@@ -143,16 +143,16 @@
       }
     },
     {
-      "id": "decision:step:Reminder:81:20",
+      "id": "decision:step:Reminder:85:20",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:Reminder",
       "condition": "not (status is not Status.INITIATED) and self.flow.opt_out_reminder.results(context)",
       "phase": "execute",
       "span": {
-        "startLine": 81,
+        "startLine": 85,
         "startColumn": 20,
-        "endLine": 81,
+        "endLine": 85,
         "endColumn": 30
       },
       "decision": {
@@ -160,16 +160,16 @@
       }
     },
     {
-      "id": "decision:step:Reminder:87:16",
+      "id": "decision:step:Reminder:91:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:Reminder",
       "condition": "not (status is not Status.INITIATED) and not (self.flow.opt_out_reminder.results(context))",
       "phase": "execute",
       "span": {
-        "startLine": 87,
+        "startLine": 91,
         "startColumn": 16,
-        "endLine": 87,
+        "endLine": 91,
         "endColumn": 37
       },
       "decision": {
@@ -181,9 +181,9 @@
       "kind": "attribute",
       "name": "EmployerId",
       "span": {
-        "startLine": 131,
+        "startLine": 139,
         "startColumn": 5,
-        "endLine": 131,
+        "endLine": 139,
         "endColumn": 47
       },
       "resource": {
@@ -195,9 +195,9 @@
       "kind": "attribute",
       "name": "EngagementStatus",
       "span": {
-        "startLine": 133,
+        "startLine": 141,
         "startColumn": 5,
-        "endLine": 137,
+        "endLine": 145,
         "endColumn": 6
       },
       "resource": {
@@ -209,9 +209,9 @@
       "kind": "attribute",
       "name": "JobSeekerId",
       "span": {
-        "startLine": 132,
+        "startLine": 140,
         "startColumn": 5,
-        "endLine": 132,
+        "endLine": 140,
         "endColumn": 50
       },
       "resource": {
@@ -223,9 +223,9 @@
       "kind": "attribute",
       "name": "LastUpdateTimeMillis",
       "span": {
-        "startLine": 138,
+        "startLine": 146,
         "startColumn": 5,
-        "endLine": 138,
+        "endLine": 146,
         "endColumn": 67
       },
       "resource": {
@@ -237,9 +237,9 @@
       "kind": "attribute",
       "name": "notes",
       "span": {
-        "startLine": 139,
+        "startLine": 147,
         "startColumn": 5,
-        "endLine": 139,
+        "endLine": 147,
         "endColumn": 36
       },
       "resource": {
@@ -251,9 +251,9 @@
       "kind": "channel",
       "name": "CompleteProcess",
       "span": {
-        "startLine": 141,
+        "startLine": 149,
         "startColumn": 5,
-        "endLine": 141,
+        "endLine": 149,
         "endColumn": 68
       },
       "resource": {
@@ -265,9 +265,9 @@
       "kind": "channel",
       "name": "OptOutReminder",
       "span": {
-        "startLine": 140,
+        "startLine": 148,
         "startColumn": 5,
-        "endLine": 140,
+        "endLine": 148,
         "endColumn": 67
       },
       "resource": {
@@ -279,9 +279,9 @@
       "kind": "rpc",
       "name": "accept",
       "span": {
-        "startLine": 193,
+        "startLine": 201,
         "startColumn": 5,
-        "endLine": 207,
+        "endLine": 215,
         "endColumn": 10
       }
     },
@@ -290,9 +290,9 @@
       "kind": "rpc",
       "name": "decline",
       "span": {
-        "startLine": 177,
+        "startLine": 185,
         "startColumn": 5,
-        "endLine": 190,
+        "endLine": 198,
         "endColumn": 10
       }
     },
@@ -301,9 +301,9 @@
       "kind": "rpc",
       "name": "describe",
       "span": {
-        "startLine": 169,
+        "startLine": 177,
         "startColumn": 5,
-        "endLine": 170,
+        "endLine": 178,
         "endColumn": 60
       }
     },
@@ -312,9 +312,9 @@
       "kind": "rpc",
       "name": "opt_out",
       "span": {
-        "startLine": 173,
+        "startLine": 181,
         "startColumn": 5,
-        "endLine": 174,
+        "endLine": 182,
         "endColumn": 53
       }
     },
@@ -325,10 +325,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 151,
+        "startLine": 159,
         "startColumn": 36,
-        "endLine": 151,
+        "endLine": 159,
         "endColumn": 51
+      },
+      "metadata": {
+        "explanation": "Store the engagement and start the timeout, reminder, and notification paths."
       }
     },
     {
@@ -337,10 +340,13 @@
       "name": "NotifyExternalSystem",
       "phase": "execute",
       "span": {
-        "startLine": 154,
+        "startLine": 162,
         "startColumn": 13,
-        "endLine": 154,
+        "endLine": 162,
         "endColumn": 40
+      },
+      "metadata": {
+        "explanation": "Tell the external system about the engagement status."
       }
     },
     {
@@ -349,10 +355,13 @@
       "name": "ProcessTimeout",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 152,
+        "startLine": 160,
         "startColumn": 13,
-        "endLine": 152,
+        "endLine": 160,
         "endColumn": 33
+      },
+      "metadata": {
+        "explanation": "Wait for completion or the 60-day timeout, then report the final status."
       }
     },
     {
@@ -361,22 +370,25 @@
       "name": "Reminder",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 153,
+        "startLine": 161,
         "startColumn": 13,
-        "endLine": 153,
+        "endLine": 161,
         "endColumn": 26
+      },
+      "metadata": {
+        "explanation": "Remind the job seeker until they respond or opt out."
       }
     },
     {
-      "id": "wait:ProcessTimeout:95:16:0",
+      "id": "wait:ProcessTimeout:101:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:ProcessTimeout",
       "phase": "wait_for",
       "span": {
-        "startLine": 95,
+        "startLine": 101,
         "startColumn": 16,
-        "endLine": 98,
+        "endLine": 104,
         "endColumn": 10
       },
       "wait": {
@@ -387,9 +399,9 @@
             "label": "60 days timer",
             "expression": "timedelta(days=60)",
             "span": {
-              "startLine": 96,
+              "startLine": 102,
               "startColumn": 13,
-              "endLine": 96,
+              "endLine": 102,
               "endColumn": 50
             }
           },
@@ -398,9 +410,9 @@
             "label": "CompleteProcess.for 1",
             "resourceId": "resource:channel:EngagementFlow.complete_process",
             "span": {
-              "startLine": 97,
+              "startLine": 103,
               "startColumn": 13,
-              "endLine": 97,
+              "endLine": 103,
               "endColumn": 49
             }
           }
@@ -408,15 +420,15 @@
       }
     },
     {
-      "id": "wait:Reminder:70:16:0",
+      "id": "wait:Reminder:74:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:Reminder",
       "phase": "wait_for",
       "span": {
-        "startLine": 70,
+        "startLine": 74,
         "startColumn": 16,
-        "endLine": 73,
+        "endLine": 77,
         "endColumn": 10
       },
       "wait": {
@@ -427,9 +439,9 @@
             "label": "5 seconds timer",
             "expression": "timedelta(seconds=5)",
             "span": {
-              "startLine": 71,
+              "startLine": 75,
               "startColumn": 13,
-              "endLine": 71,
+              "endLine": 75,
               "endColumn": 52
             }
           },
@@ -438,9 +450,9 @@
             "label": "OptOutReminder.for 1",
             "resourceId": "resource:channel:EngagementFlow.opt_out_reminder",
             "span": {
-              "startLine": 72,
+              "startLine": 76,
               "startColumn": 13,
-              "endLine": 72,
+              "endLine": 76,
               "endColumn": 49
             }
           }
@@ -452,78 +464,78 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:rpc:accept:202:16",
+      "from": "decision:rpc:accept:210:16",
       "to": "step:NotifyExternalSystem",
       "label": "fan-out",
       "span": {
-        "startLine": 205,
+        "startLine": 213,
         "startColumn": 17,
-        "endLine": 205,
+        "endLine": 213,
         "endColumn": 71
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:rpc:decline:185:16",
+      "from": "decision:rpc:decline:193:16",
       "to": "step:NotifyExternalSystem",
       "label": "fan-out",
       "span": {
-        "startLine": 188,
+        "startLine": 196,
         "startColumn": 17,
-        "endLine": 188,
+        "endLine": 196,
         "endColumn": 71
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:Initialize:123:16",
+      "from": "decision:step:Initialize:131:16",
       "to": "step:NotifyExternalSystem",
       "label": "fan-out",
       "span": {
-        "startLine": 126,
+        "startLine": 134,
         "startColumn": 13,
-        "endLine": 126,
+        "endLine": 134,
         "endColumn": 68
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:Initialize:123:16",
+      "from": "decision:step:Initialize:131:16",
       "to": "step:ProcessTimeout",
       "label": "fan-out",
       "span": {
-        "startLine": 124,
+        "startLine": 132,
         "startColumn": 13,
-        "endLine": 124,
+        "endLine": 132,
         "endColumn": 50
       }
     },
     {
       "id": "edge:0005",
       "kind": "transition",
-      "from": "decision:step:Initialize:123:16",
+      "from": "decision:step:Initialize:131:16",
       "to": "step:Reminder",
       "label": "fan-out",
       "span": {
-        "startLine": 125,
+        "startLine": 133,
         "startColumn": 13,
-        "endLine": 125,
+        "endLine": 133,
         "endColumn": 44
       }
     },
     {
       "id": "edge:0006",
       "kind": "transition",
-      "from": "decision:step:Reminder:87:16",
+      "from": "decision:step:Reminder:91:16",
       "to": "step:Reminder",
       "label": "go_to",
       "span": {
-        "startLine": 87,
+        "startLine": 91,
         "startColumn": 16,
-        "endLine": 87,
+        "endLine": 91,
         "endColumn": 37
       }
     },
@@ -534,9 +546,9 @@
       "to": "step:NotifyExternalSystem",
       "label": "get",
       "span": {
-        "startLine": 59,
+        "startLine": 61,
         "startColumn": 48,
-        "endLine": 59,
+        "endLine": 61,
         "endColumn": 82
       },
       "metadata": {
@@ -550,9 +562,9 @@
       "to": "rpc:accept",
       "label": "get",
       "span": {
-        "startLine": 194,
+        "startLine": 202,
         "startColumn": 18,
-        "endLine": 194,
+        "endLine": 202,
         "endColumn": 53
       },
       "metadata": {
@@ -566,9 +578,9 @@
       "to": "rpc:decline",
       "label": "get",
       "span": {
-        "startLine": 178,
+        "startLine": 186,
         "startColumn": 18,
-        "endLine": 178,
+        "endLine": 186,
         "endColumn": 53
       },
       "metadata": {
@@ -582,9 +594,9 @@
       "to": "step:Reminder",
       "label": "get",
       "span": {
-        "startLine": 76,
+        "startLine": 80,
         "startColumn": 18,
-        "endLine": 76,
+        "endLine": 80,
         "endColumn": 58
       },
       "metadata": {
@@ -598,9 +610,9 @@
       "to": "step:NotifyExternalSystem",
       "label": "get",
       "span": {
-        "startLine": 60,
+        "startLine": 62,
         "startColumn": 30,
-        "endLine": 60,
+        "endLine": 62,
         "endColumn": 66
       },
       "metadata": {
@@ -614,9 +626,9 @@
       "to": "step:Reminder",
       "label": "get",
       "span": {
-        "startLine": 83,
+        "startLine": 87,
         "startColumn": 13,
-        "endLine": 83,
+        "endLine": 87,
         "endColumn": 49
       },
       "metadata": {
@@ -627,12 +639,12 @@
       "id": "edge:0013",
       "kind": "wait_condition",
       "from": "resource:channel:EngagementFlow.complete_process",
-      "to": "wait:ProcessTimeout:95:16:0",
+      "to": "wait:ProcessTimeout:101:16:0",
       "label": "CompleteProcess.for 1",
       "span": {
-        "startLine": 97,
+        "startLine": 103,
         "startColumn": 13,
-        "endLine": 97,
+        "endLine": 103,
         "endColumn": 49
       }
     },
@@ -643,9 +655,9 @@
       "to": "step:Reminder",
       "label": "results",
       "span": {
-        "startLine": 79,
+        "startLine": 83,
         "startColumn": 12,
-        "endLine": 79,
+        "endLine": 83,
         "endColumn": 55
       },
       "metadata": {
@@ -656,12 +668,12 @@
       "id": "edge:0015",
       "kind": "wait_condition",
       "from": "resource:channel:EngagementFlow.opt_out_reminder",
-      "to": "wait:Reminder:70:16:0",
+      "to": "wait:Reminder:74:16:0",
       "label": "OptOutReminder.for 1",
       "span": {
-        "startLine": 72,
+        "startLine": 76,
         "startColumn": 13,
-        "endLine": 72,
+        "endLine": 76,
         "endColumn": 49
       }
     },
@@ -672,9 +684,9 @@
       "to": "resource:channel:EngagementFlow.complete_process",
       "label": "publish",
       "span": {
-        "startLine": 201,
+        "startLine": 209,
         "startColumn": 9,
-        "endLine": 201,
+        "endLine": 209,
         "endColumn": 53
       },
       "metadata": {
@@ -688,9 +700,9 @@
       "to": "resource:channel:EngagementFlow.opt_out_reminder",
       "label": "publish",
       "span": {
-        "startLine": 174,
+        "startLine": 182,
         "startColumn": 9,
-        "endLine": 174,
+        "endLine": 182,
         "endColumn": 53
       },
       "metadata": {
@@ -704,9 +716,9 @@
       "to": "resource:attribute:EngagementFlow.employer_id",
       "label": "set",
       "span": {
-        "startLine": 118,
+        "startLine": 126,
         "startColumn": 9,
-        "endLine": 118,
+        "endLine": 126,
         "endColumn": 62
       },
       "metadata": {
@@ -720,9 +732,9 @@
       "to": "resource:attribute:EngagementFlow.engagement_status",
       "label": "set",
       "span": {
-        "startLine": 120,
+        "startLine": 128,
         "startColumn": 9,
-        "endLine": 120,
+        "endLine": 128,
         "endColumn": 67
       },
       "metadata": {
@@ -736,9 +748,9 @@
       "to": "resource:attribute:EngagementFlow.job_seeker_id",
       "label": "set",
       "span": {
-        "startLine": 119,
+        "startLine": 127,
         "startColumn": 9,
-        "endLine": 119,
+        "endLine": 127,
         "endColumn": 66
       },
       "metadata": {
@@ -752,9 +764,9 @@
       "to": "resource:attribute:EngagementFlow.last_update_timestamp",
       "label": "set",
       "span": {
-        "startLine": 121,
+        "startLine": 129,
         "startColumn": 9,
-        "endLine": 121,
+        "endLine": 129,
         "endColumn": 76
       },
       "metadata": {
@@ -768,9 +780,9 @@
       "to": "resource:attribute:EngagementFlow.notes",
       "label": "set",
       "span": {
-        "startLine": 122,
+        "startLine": 130,
         "startColumn": 9,
-        "endLine": 122,
+        "endLine": 130,
         "endColumn": 56
       },
       "metadata": {
@@ -778,5 +790,47 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "closing",
+      "label": "Closing",
+      "stepIds": [
+        "step:ProcessTimeout"
+      ]
+    },
+    {
+      "id": "reminders",
+      "label": "Reminders",
+      "stepIds": [
+        "step:Reminder"
+      ]
+    },
+    {
+      "id": "notification",
+      "label": "Notification",
+      "stepIds": [
+        "step:NotifyExternalSystem"
+      ]
+    },
+    {
+      "id": "setup",
+      "label": "Setup",
+      "stepIds": [
+        "step:Initialize"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

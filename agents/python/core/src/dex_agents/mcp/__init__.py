@@ -11,7 +11,8 @@
 ``McpToolSource`` connects to MCP servers configured on the Worker, over stdio
 or Streamable HTTP, and offers their tools as agent tool definitions. Each
 call runs in its own tool Step, with an effect class from the tool's
-annotations, so a crash never repeats a write silently. Install the MCP SDK
+annotations or from the Dex MCP conventions in its ``_meta``, so a crash never
+repeats a write silently. Install the MCP SDK
 with the ``mcp`` extra::
 
     pip install "dex-agents[mcp]"
@@ -27,6 +28,14 @@ if importlib.util.find_spec("mcp") is None:
         name="mcp",
     )
 
+from dex_agents.mcp._dex_conventions import (
+    TOOL_APPROVAL_META_KEY,
+    TOOL_APPROVAL_RECOMMENDED,
+    TOOL_EFFECT_META_KEY,
+    TOOL_OUTCOME_META_KEY,
+    TOOL_OUTCOME_REJECTED,
+    TOOL_OUTCOME_UNKNOWN,
+)
 from dex_agents.mcp._resource_and_prompt_tools import (
     MCP_GET_PROMPT_TOOL_NAME,
     MCP_LIST_RESOURCES_AND_PROMPTS_TOOL_NAME,
@@ -71,6 +80,12 @@ __all__ = [
     "MCP_TASK_STATUS_EVENT_TYPE",
     "MCP_TOOL_PROGRESS_EVENT_TYPE",
     "TASKS_EXTENSION_IDENTIFIER",
+    "TOOL_APPROVAL_META_KEY",
+    "TOOL_APPROVAL_RECOMMENDED",
+    "TOOL_EFFECT_META_KEY",
+    "TOOL_OUTCOME_META_KEY",
+    "TOOL_OUTCOME_REJECTED",
+    "TOOL_OUTCOME_UNKNOWN",
     "DeferredToolHandler",
     "McpServerConfig",
     "McpStdioServerConfig",

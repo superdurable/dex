@@ -22,6 +22,8 @@ func testConfig(t *testing.T) *Config {
 	}
 	cfg.StateDirectory = t.TempDir()
 	cfg.OpenBrowser = false
+	// Tests that need the Connectors MCP server enable it with a fake binary or release index.
+	cfg.ConnectorsMCP.IsEnabled = false
 	// Test servers skip fsync; a config file also works with the released bundled dex-server-zd.
 	cfg.ZDConfigPath = filepath.Join(t.TempDir(), "zd-overrides.yaml")
 	if err := os.WriteFile(cfg.ZDConfigPath, []byte("dev:\n  durabilityMode: processCrashSafe\n"), 0o600); err != nil {
