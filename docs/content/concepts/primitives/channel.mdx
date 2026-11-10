@@ -9,9 +9,7 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 A **Channel** is a durable first-in, first-out (FIFO) queue inside one Flow
 execution. Steps and RPCs publish typed messages to it. A Step consumes messages
-by waiting on the Channel in **WaitFor**.
-
-A Channel is scoped to one Flow execution. Messages never cross between Flow
+by waiting on the Channel in **WaitFor**. Messages never move between Flow
 executions.
 
 <ChannelScopeDiagram markdownDescription="A Flow execution owns a FIFO Channel shared by its Steps and RPCs. Publishers add messages, and one waiting consumer Step consumes each message." />
@@ -28,8 +26,8 @@ live progress that a user can afford to lose.
 - Dex stores every message durably with the Flow.
 - Messages stay in arrival order.
 - One wait consumes a message. Dex does not copy it to other waiting Steps.
-- A Step can be canceled after its wait consumed messages but before its
-  **Execute** commits. Then Dex returns the messages to the front of their
+- A Step can be canceled after its wait consumed messages but before Dex saves
+  its **Execute** result. Then Dex puts the messages back at the front of their
   Channel, in their original order. Another wait can consume them.
 - A canceled **Execute** may already have seen a returned message. So a message
   can reach **Execute** twice. Make message processing idempotent.
@@ -48,7 +46,8 @@ live progress that a user can afford to lose.
   one message with Steps that wait for several.
 - A message can arrive before a Step starts waiting. Dex keeps it until a later
   wait consumes it.
-- A publication commits together with the Step or RPC result that made it.
+- Dex publishes a message only when the Step method or RPC that published it
+  succeeds. See [Step guarantees](/concepts/step#guarantees).
 
 ## Define, publish, and wait {#persistence-schema}
 
@@ -286,7 +285,7 @@ as Channel results.
 ## Publish messages {#publish-messages}
 
 Inside a Step or RPC, publish with the handler **Context**. Code outside a
-Worker calls a Flow RPC that publishes. This keeps validation, authorization,
+Worker publishes by calling an RPC of the Flow. This keeps validation, authorization,
 and related state changes inside the Flow.
 
 ## Manage pending messages {#manage-pending-messages}
@@ -296,8 +295,8 @@ messages, read them in FIFO order, and delete one by ID. Reading does not
 consume a message. Other Steps and RPCs can change the queue while a handler
 runs, so a loaded list can be stale.
 
-Inside a Step or a non-transactional RPC, deleting a message that is gone is a
-no-op. A transactional RPC fails instead and commits nothing. A direct delete
+Inside a Step or a non-transactional RPC, deleting a message that is gone does
+nothing. A transactional RPC fails instead, and Dex saves none of its changes. A direct delete
 from dexcli or Dex Web fails with a not-found error. See
 [Pending messages](/reference/server/runtime-data#manage-pending-messages).
 

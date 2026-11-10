@@ -8,9 +8,7 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 # Channel
 
-**Channel** 是单个 Flow execution 内部一条 durable 的 first-in, first-out (FIFO) 队列。Step 和 RPC 向它发布有类型的消息。Step 在 **WaitFor** 里等待这个 Channel，从而消费消息。
-
-Channel 只属于一个 Flow execution。消息不会跨 Flow execution。
+**Channel** 是单个 Flow execution 内部一条 durable 的 first-in, first-out (FIFO) 队列。Step 和 RPC 向它发布有类型的消息。Step 在 **WaitFor** 里等待这个 Channel，从而消费消息。消息不会跨 Flow execution。
 
 <ChannelScopeDiagram markdownDescription="Flow execution 拥有一个由其 Step 和 RPC 共享的 FIFO Channel。发布者添加消息，每条消息由一个等待中的消费 Step 消费。" />
 
@@ -23,7 +21,7 @@ Channel 适合 Step 要等待的事件，例如一次审批、用户回复或新
 - Dex 把每条消息和 Flow 一起 durable 存储。
 - 消息保持到达顺序。
 - 一条消息由一个 wait 消费。Dex 不会把它复制给其他等待中的 Step。
-- Step 的 wait 消费了消息之后、它的 **Execute** commit 之前，Step 可能被取消。这时 Dex 把这些消息按原来的顺序放回 Channel 的最前面。之后的 wait 可以再消费它们。
+- Step 的 wait 消费了消息之后、Dex 保存它的 **Execute** 结果之前，Step 可能被取消。这时 Dex 把这些消息按原来的顺序放回 Channel 的最前面。之后的 wait 可以再消费它们。
 - 被取消的 **Execute** 可能已经看到过放回的消息。所以一条消息可能两次到达 **Execute**。消息处理要做成幂等的。
 - 如果 Step 是因为 Flow 关闭而被取消的，Dex 会丢弃这些消息，不再放回。**StopFlow** 请求、Flow timeout，以及用 **ForceComplete** 或 **ForceFail** 关闭 Flow 的决定，都属于这种情况。
 - 其他取消都会放回消息，即使 Flow 之后关闭，例如在 **GracefulComplete** 之后。Flow 关闭后，不会再有 Step 消费它们。
@@ -31,7 +29,7 @@ Channel 适合 Step 要等待的事件，例如一次审批、用户回复或新
 - 多个 Step 等待同一个 Channel 时，最先开始等待的 Step 最先有机会拿到新消息。如果一个 Step 的 wait 需要的消息比待处理的多，它会被跳过，之后的 Step 可以拿走这些消息。
 - 所以当其他 Step 一条一条地拿走消息时，等待多条消息的 Step 可能永远等不到。在同一个 Channel 上，不要同时有等待一条消息的 Step 和等待多条消息的 Step。
 - 消息可以在 Step 开始等待之前到达。Dex 会保留它，直到之后的 wait 消费它。
-- 发布和产生它的 Step 或 RPC 结果一起 commit。
+- 只有发布消息的 Step 方法或 RPC 成功时，Dex 才会发布这条消息。见 [Step 的保证](/concepts/step#guarantees)。
 
 ## 定义、发布和等待 {#persistence-schema}
 
@@ -257,13 +255,13 @@ fn publish_approval_message(&self, context: &mut Context) -> HandlerResult<()> {
 
 ## 发布消息 {#publish-messages}
 
-在 Step 或 RPC 里，用 handler 的 **Context** 发布。Worker 之外的代码调用一个负责发布的 Flow RPC。这样校验、授权和相关的状态变更都留在 Flow 内。
+在 Step 或 RPC 里，用 handler 的 **Context** 发布。Worker 之外的代码通过调用 Flow 的 RPC 来发布。这样校验、授权和相关的状态变更都留在 Flow 内。
 
 ## 管理待处理消息 {#manage-pending-messages}
 
 Dex 接受每条消息时会给它一个 ID。Step 或 RPC 可以加载待处理消息，按 FIFO 顺序读取，并按 ID 删除其中一条。读取不会消费消息。handler 运行时，其他 Step 和 RPC 可能改变队列，所以加载到的列表可能已经过时。
 
-在 Step 或非 transactional RPC 中，删除一条已经不在的消息是空操作（no-op）。transactional RPC 会失败，什么也不 commit。从 dexcli 或 Dex Web 直接删除时，会返回 not-found 错误。见 [Pending messages](/reference/server/runtime-data#manage-pending-messages)。
+在 Step 或非 transactional RPC 中，删除一条已经不在的消息不会有任何效果。transactional RPC 则会失败，Dex 不保存它的任何修改。从 dexcli 或 Dex Web 直接删除时，会返回 not-found 错误。见 [Pending messages](/reference/server/runtime-data#manage-pending-messages)。
 
 ## ChannelMap {#channelmap}
 
