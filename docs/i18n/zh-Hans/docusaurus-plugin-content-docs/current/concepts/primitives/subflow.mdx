@@ -12,14 +12,14 @@ slug: /concepts/primitives/subflow
 
 SubFlow 主要有两种用途：
 
-1. 把复杂逻辑拆到更小的 Flow 中。这让业务逻辑更容易维护，层次也更清楚。
+1. 把复杂逻辑拆到更小的 Flow 中。这让业务逻辑更容易维护。
 2. 扇出工作。一个 Flow execution 不能同时运行太多操作，但可以把工作交给很多 SubFlow。这些 SubFlow 同时运行，父 Flow 因此能达到高得多的并发。
 
 ## 保证
 
-Dex Server 根据父 Flow ID、Step execution 和 condition 序号生成 SubFlow ID。因此重试或重复启动会找到同一个子 Flow，而不是再启动一个。默认情况下，父 Flow 继续等待运行中的子 Flow，使用已完成子 Flow 的结果，并重启异常结束的子 Flow。
+Dex Server 根据父 Flow ID、Step execution 和 condition 序号计算 SubFlow ID。因此重试或重复启动会找到同一个子 Flow，而不是再启动一个。默认情况下，父 Flow 继续等待运行中的子 Flow，使用已完成子 Flow 的结果，并重启异常结束的子 Flow。
 
-Dex 根据父 Flow ID 和启动 SubFlow 的 Step 计算 SubFlow ID。用同一个父 Flow ID 再启动一次时，新的 run 通常会算出和之前的 run 相同的 SubFlow ID。这时 Dex 按 reuse policy 处理。使用默认 policy 时，新的 run 会拿到之前 run 的子 Flow（无论它还在运行还是已经完成），直到 Dex 删除那个子 Flow。要让每个 run 都启动新的子 Flow，就用 **ALWAYS_RESTART**。如果之前的子 Flow 还在运行，它会被终止。两个子 Flow 都要继续运行时，换一个父 Flow ID。
+用同一个父 Flow ID 再启动一次时，新的 run 通常会算出和之前的 run 相同的 SubFlow ID。这时 Dex 按 reuse policy 处理。使用默认 policy 时，新的 run 会拿到之前 run 的子 Flow（无论它还在运行还是已经完成），直到 Dex 删除那个子 Flow。要让每个 run 都启动新的子 Flow，就用 **ALWAYS_RESTART**。如果之前的子 Flow 还在运行，它会被终止。两个子 Flow 都要继续运行时，换一个父 Flow ID。
 
 父 Step 被取消或父 Flow 关闭时，子 Flow 会继续运行。你需要自己停止它，或者给子 Flow 设置 Flow timeout，让它到时自行结束。
 
