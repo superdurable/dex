@@ -21,7 +21,7 @@ slug: /concepts/client
 
 ## 和其他 Primitive 的关系 {#related-primitives}
 
-- [Flow](/concepts/flow)：**StartFlow** 用你选择的 **Flow ID** 创建 Flow execution。Flow ID 是业务身份，例如订单号。Dex 创建 Run ID。之后的调用都用 Flow ID 指定 Flow。
+- [Flow](/concepts/flow)：**StartFlow** 用你选择的 **Flow ID** 创建 Flow run。Flow ID 是业务身份，例如订单号。Dex 创建 Run ID。之后的调用都用 Flow ID 指定 Flow。
 - [RPC](/concepts/primitives/rpc)：通过 RPC 修改运行中的 Flow。要修改 Attribute、AttributeMap、Channel 或 ChannelMap 状态，为每个命令定义一个 typed RPC，再用 **InvokeRPC** 调用。这样 validation、authorization、lock 和 transaction 都留在 Flow 内。
 - [Attribute](/concepts/primitives/attribute)：**GetAttributes** 直接从 server 读取已存储的值，不需要 Worker 运行。如果读取需要 Flow 内的 validation、authorization、Channel 消息、派生视图或 Attribute lock，改用 RPC。
 - [Step](/concepts/step)：**WaitForStepCompletion** 阻塞到 Step 完成。**WaitForAttributeMatch** 阻塞到 Attribute 达到某个值。需要等 Flow 有了进展再响应请求时，使用它们。见 [Responsive Update](/design-patterns/responsive-update)。

@@ -35,7 +35,7 @@ The top-level durable program. It contains Steps, Attributes, Channels, and RPCs
 
 #### [Flow ID](/concepts/flow#identifiers)
 
-The ID that your application assigns to a Flow execution.
+The ID that your application assigns to a Flow run.
 
 #### [GetAttributes](/reference/server/runtime-client#read-attributes)
 
@@ -55,7 +55,7 @@ A decision to go to another Step, or to complete or fail the Flow.
 
 #### [Time Travel](/components/application)
 
-Creating a new Flow execution that starts from an earlier Step, after a fix.
+Restarting a Flow run from an earlier Step, after a fix. The run keeps its Run ID.
 
 #### [RPC](/concepts/primitives/rpc)
 
@@ -63,7 +63,7 @@ A Worker handler that reads or writes a running Flow from outside.
 
 #### [Run ID](/concepts/flow#identifiers)
 
-The ID that the engine assigns to one run attempt within a Flow execution.
+The ID that the engine assigns to each run of a Flow ID.
 
 #### [Step](/concepts/step)
 

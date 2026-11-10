@@ -12,7 +12,7 @@ references, such as the [Go reference](/reference/go/).
 
 ## Start a Flow {#start-a-flow}
 
-**StartFlow** creates a Flow execution. It returns as soon as the server
+**StartFlow** creates a Flow run. It returns as soon as the server
 accepts the request. It takes a registered Flow, a business **Flow ID**, the
 start Step input, and **StartFlowOptions**.
 
@@ -30,8 +30,8 @@ reason.
 ## Invoke an RPC {#invoke-an-rpc}
 
 **InvokeRPC** calls a registered [RPC](/concepts/primitives/rpc) handler and returns its
-result. A query-only RPC can read a retained terminal execution. An RPC that
-commits effects needs an active execution.
+result. A query-only RPC can read a retained terminal run. An RPC that
+commits effects needs an active run.
 
 ## Requests during Flow close {#requests-during-flow-close}
 
@@ -332,7 +332,7 @@ ID that does not belong to a Flow, returns a typed Flow-not-found error.
 ## Search Flows {#search-flows}
 
 **SearchFlows** returns one page of Flow runs that match a search query.
-Internal server executions are excluded. Pass the returned page token to
+Internal server Flow runs are excluded. Pass the returned page token to
 continue a search. Keep the query unchanged across pages. See
 [Search backends](/reference/server/search) for the query backends.
 

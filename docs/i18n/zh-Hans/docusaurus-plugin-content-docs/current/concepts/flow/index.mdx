@@ -6,7 +6,7 @@ slug: /concepts/flow
 
 # Flow
 
-**Flow** 是 Dex 中最顶层的工作单元。一个 Flow type 描述一类业务流程，比如订单、订阅或审批。一个 Flow execution 是它的一个实例，比如 42 号订单。
+**Flow** 是 Dex 中最顶层的工作单元。一个 Flow type 描述一类业务流程，比如订单、订阅或审批。一个 Flow run 是它的一个实例，比如 42 号订单。
 
 Dex 负责 Flow 的生命周期和状态。你的代码不需要数据库或任务队列，就能让流程在崩溃和重启之后继续运行。
 
@@ -172,17 +172,17 @@ impl Flow for ExampleFlow {
 
 ## 标识符 {#identifiers}
 
-"Flow" 这个词可以指 Flow 定义，也可以指一次 Flow execution。下面这些标识符把它们区分开。
+"Flow" 这个词可以指 Flow 定义，也可以指一次 Flow run。下面这些标识符把它们区分开。
 
 | 标识符 | 谁设置 | 含义 |
 |--------|--------|------|
 | **FlowType** | 应用（Flow 实现） | Dex 路由 Worker 调用和搜索结果使用的稳定类型名。 |
-| **Flow ID** | 应用在 start 时 | 一次 Flow execution 的业务身份。ID reuse policy 控制能否用同一个 Flow ID 再启动一个 execution。 |
+| **Flow ID** | 应用在 start 时 | 一次 Flow run 的业务身份。ID reuse policy 控制能否用同一个 Flow ID 再启动一个 run。 |
 | **Run ID** | Dex Server | 这个 Flow ID 的一次 run 的身份。Time travel 保留它，并创建一个新的 run attempt。请用 Flow ID 定位 Flow；Run ID 只用于诊断。 |
 | **StepType** | 应用（Step 实现） | Flow 内一个 Step 定义的稳定名称。 |
 | **StepExecutionID** | Dex Server | 某个 Step type 的一次执行，格式为 **StepType-Number**。 |
 
-大多数 SDK 默认用语言里的类型名作为 **FlowType**，你也可以显式覆盖。还有 execution 在运行时，不要改这些名称。
+大多数 SDK 默认用语言里的类型名作为 **FlowType**，你也可以显式覆盖。还有 Flow run 在运行时，不要改这些名称。
 
 ## 生命周期 {#lifecycle}
 
@@ -199,7 +199,7 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 
 ## Start options 和配置 {#start-options}
 
-两组选项决定一次 Flow execution 的行为：
+两组选项决定一次 Flow run 的行为：
 
 - **StartFlowOptions** 只在启动时生效一次。它设置 Flow timeout、ID reuse policy、start request ID 和 Attribute 初始值。
 - **FlowConfig** 保存运行时设置，比如默认的 Step durability。Flow 运行期间可以更新。

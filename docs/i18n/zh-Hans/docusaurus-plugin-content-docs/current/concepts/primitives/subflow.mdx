@@ -6,14 +6,14 @@ slug: /concepts/primitives/subflow
 
 # SubFlow
 
-**SubFlow** 是父 Flow 从它的某个 Step 启动的 Flow execution。子 Flow 是一个普通的 Flow，有自己的 Step、Attribute 和 Channel。父 Flow 像等待 **WaitFor** 中的其他 condition 一样等待它。
+**SubFlow** 是父 Flow 从它的某个 Step 启动的 Flow run。子 Flow 是一个普通的 Flow，有自己的 Step、Attribute 和 Channel。父 Flow 像等待 **WaitFor** 中的其他 condition 一样等待它。
 
 ## 什么时候用 SubFlow
 
 SubFlow 主要有两种用途：
 
 1. 把复杂逻辑拆到更小的 Flow 中。这让业务逻辑更容易维护。
-2. 扇出工作。一个 Flow execution 不能同时运行太多操作，但可以把工作交给很多 SubFlow。这些 SubFlow 同时运行，父 Flow 因此能达到高得多的并发。
+2. 扇出工作。一个 Flow run 不能同时运行太多操作，但可以把工作交给很多 SubFlow。这些 SubFlow 同时运行，父 Flow 因此能达到高得多的并发。
 
 ## 保证
 

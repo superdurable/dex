@@ -23,7 +23,7 @@ If the user explicitly invokes this skill, stay in it.
 
 ## Mental model
 
-A **Flow** is one durable business execution with a stable Flow ID. It is a graph of **Steps**. Each Step has **WaitFor**, which returns the Conditions to wait on, and **Execute**, which does the work and returns a decision: the next Steps, or how the Flow closes. Each method call is one commit boundary. Dex persists every committed change and retries failed methods, so the Flow survives Worker and Server restarts.
+A **Flow** is one durable run of a business process, with a stable Flow ID. It is a graph of **Steps**. Each Step has **WaitFor**, which returns the Conditions to wait on, and **Execute**, which does the work and returns a decision: the next Steps, or how the Flow closes. Each method call is one commit boundary. Dex persists every committed change and retries failed methods, so the Flow survives Worker and Server restarts.
 
 | Primitive | What it is | Key rule |
 | --- | --- | --- |
@@ -121,7 +121,7 @@ For non-trivial work, run the [design review](references/core/self-check.md#desi
 - **Start first.** Call StartFlow first with stable identity. Do not read before or after a successful start to guard duplicates. See [error-handling.md](references/core/error-handling.md#start-first-reconcile-only-after-an-error).
 - **Typed failures.** Keep typed Dex errors until domain policy can tell a business rejection, a closed-Flow race, a retryable failure, and a local defect apart.
 - **Terminal reads.** Read retained state with a Client Attribute read or a query-only RPC. Never decode Step outputs from history for a business read.
-- **Open Flows.** Keep stable names compatible with running executions. See [application.md](references/core/application.md#versioning-flow-code).
+- **Open Flows.** Keep stable names compatible with open Flow runs. See [application.md](references/core/application.md#versioning-flow-code).
 
 ## Complete the vertical slice
 

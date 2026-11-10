@@ -6,7 +6,7 @@ slug: /concepts/primitives/attribute
 
 # Attribute
 
-An **Attribute** is durable data that belongs to one Flow execution. Steps and
+An **Attribute** is durable data that belongs to one Flow run. Steps and
 RPCs read and write it. Dex stores it with the Flow, so you do not need a
 database for intermediate state.
 
@@ -328,7 +328,7 @@ See [when a read needs an RPC](/concepts/client#related-primitives) and
 To set values when the Flow starts, see [Initial values](/reference/server/runtime-data#initial-attribute-values).
 
 An indexed Attribute can be used in **SearchFlows** queries to find Flow
-executions. The example above indexes the status Attribute. See
+runs. The example above indexes the status Attribute. See
 [Indexes](/reference/server/runtime-data#attribute-indexes) for index types,
 index keys, and AttributeMap indexes.
 

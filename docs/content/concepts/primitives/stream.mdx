@@ -39,7 +39,7 @@ A Stream gives up durability for speed:
 - A failed Stream write never fails the Step.
 - A reader sees messages in the order Dex stored them.
 
-The capacity is shared by all Flow executions with the same Flow type and
+The capacity is shared by all Flow runs with the same Flow type and
 Stream name. It is not a limit for each Flow ID. See [Write semantics](/reference/server/runtime-data#stream-write-semantics),
 [Capacity and trimming](/reference/server/runtime-data#stream-capacity), and
 [Best-effort storage](/reference/server/runtime-data#stream-storage).

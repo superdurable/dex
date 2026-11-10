@@ -63,7 +63,7 @@ Design these contracts before you propose a custom management backend or UI.
   The Server evaluates it atomically with the writes and adds newly matching
   permissions to the Flow's Work Queue permission history.
 - Permission history only grows. A matched permission stays for that Flow
-  execution, stays searchable after completion, and is not removed by later
+  run, stays searchable after completion, and is not removed by later
   state changes. Removing or renaming a permission does not clear old
   history.
 - Application Steps need no projection-only locks to maintain that history.

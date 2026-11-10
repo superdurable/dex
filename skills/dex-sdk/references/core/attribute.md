@@ -1,13 +1,13 @@
 # Attribute and AttributeMap
 
-An Attribute is typed durable state inside one Flow execution. Later Steps, RPCs, Client reads, search, and recovery read it. Dex persists every committed write.
+An Attribute is typed durable state inside one Flow run. Later Steps, RPCs, Client reads, search, and recovery read it. Dex persists every committed write.
 
 Use Attributes for current state. Use Channels for ordered durable messages. Do not use a Channel as storage.
 
 ## Lifetime and schema
 
 - Register every Attribute and AttributeMap in the Flow's persistence schema before reading or writing it.
-- An Attribute lives as long as its Flow execution. Dex deletes it when retention removes the Flow. Data that must outlive the Flow needs [Attribute Store sync](#attribute-store-sync) or an application database.
+- An Attribute lives as long as its Flow run. Dex deletes it when retention removes the Flow. Data that must outlive the Flow needs [Attribute Store sync](#attribute-store-sync) or an application database.
 - Writing null deletes the Attribute. A deleted or never-written Attribute reads as unset.
 - Initial values passed at StartFlow commit with the start. The first Step sees them.
 - Attribute names are durable data for open Flows. Do not rename them as a refactor. See [application.md](application.md#versioning-flow-code).
@@ -36,7 +36,7 @@ Use Attributes for current state. Use Channels for ordered durable messages. Do 
 
 ## Locks
 
-Attribute locks serialize Steps and RPCs that declare the same lock within one Flow execution. Dex acquires and releases them around the invocation.
+Attribute locks serialize Steps and RPCs that declare the same lock within one Flow run. Dex acquires and releases them around the invocation.
 
 - Lock the exact AttributeMap instance when parallel Steps or RPCs read-modify-write the same value. Unrelated instances stay concurrent.
 - Without a lock, a read-modify-write can lose an update. Dex commits a write without checking that the values the handler read are still current.
@@ -54,7 +54,7 @@ When a write invariant spans several instances or the whole map, register a sepa
 - Every Step, timeout handler, and RPC that changes the protected map declares that singleton lock in its options.
 - A writer that takes only an instance lock does not conflict with the singleton lock and can break the invariant.
 - The bool value is not the lock state. Never read, toggle, or release it by hand. It needs no stored value.
-- The lock serializes writers within one Flow execution only.
+- The lock serializes writers within one Flow run only.
 - Use instance locks for independent updates and the singleton lock for a map-wide invariant.
 
 ## Indexed Attributes and search

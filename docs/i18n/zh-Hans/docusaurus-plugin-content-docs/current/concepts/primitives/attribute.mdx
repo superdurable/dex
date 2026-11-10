@@ -6,7 +6,7 @@ slug: /concepts/primitives/attribute
 
 # Attribute
 
-**Attribute** 是属于一个 Flow execution 的 durable 数据。Step 和 RPC 读写它。Dex 把它和 Flow 存在一起，所以中间状态不需要另外的 database。
+**Attribute** 是属于一个 Flow run 的 durable 数据。Step 和 RPC 读写它。Dex 把它和 Flow 存在一起，所以中间状态不需要另外的 database。
 
 Attribute 的生命周期和它的 Flow 相同。Flow 关闭后过了 retention period，Dex 删除 Flow，也一并删除 Attribute。要更长时间保留数据，见[在 Flow 之后保留数据](#attribute-store-projection)。
 
@@ -310,7 +310,7 @@ self.progress
 
 Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时候改用 RPC，见[什么时候读取需要 RPC](/concepts/client#related-primitives)。另见 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)。在 Flow 启动时设置初始值，见 [Initial values](/reference/server/runtime-data#initial-attribute-values)。
 
-带 index 的 Attribute 可以用在 **SearchFlows** 查询里，查找 Flow execution。上面的例子给 status Attribute 建了 index。index 类型、index key 和 AttributeMap index 见 [Indexes](/reference/server/runtime-data#attribute-indexes)。
+带 index 的 Attribute 可以用在 **SearchFlows** 查询里，查找 Flow run。上面的例子给 status Attribute 建了 index。index 类型、index key 和 AttributeMap index 见 [Indexes](/reference/server/runtime-data#attribute-indexes)。
 
 ## Lock {#locking}
 

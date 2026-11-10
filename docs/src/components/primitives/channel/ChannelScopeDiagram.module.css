@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
  */
 
-/* The tinted scope is the Flow execution; everything inside belongs to it. */
+/* The tinted scope is the Flow run; everything inside belongs to it. */
 .scope {
   display: flex;
   min-width: 0;

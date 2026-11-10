@@ -8,7 +8,7 @@ slug: /concepts/flow
 
 A **Flow** is the top-level unit of work in Dex. A Flow type describes one kind
 of business process, such as an order, a subscription, or an approval. A Flow
-execution is one instance of it, such as order 42.
+run is one instance of it, such as order 42.
 
 Dex owns the Flow's lifecycle and state. Your code does not need a database
 or a job queue to keep the process going across crashes and restarts.
@@ -189,19 +189,19 @@ impl Flow for ExampleFlow {
 
 ## Identifiers {#identifiers}
 
-The word Flow can mean a Flow definition or a Flow execution. These
+The word Flow can mean a Flow definition or a Flow run. These
 identifiers keep them apart.
 
 | Identifier | Who sets it | Meaning |
 |----------|-------------|---------|
 | **FlowType** | Application (via Flow implementation) | Stable type name Dex uses to route Worker calls and search results. |
-| **Flow ID** | Application client on start | Business identity for one Flow execution. The ID reuse policy controls whether another execution may start with the same Flow ID. |
+| **Flow ID** | Application client on start | Business identity for one Flow run. The ID reuse policy controls whether another run may start with the same Flow ID. |
 | **Run ID** | Dex Server | Identity of one run of the Flow ID. Time travel keeps it and creates a new run attempt. Address a Flow by its Flow ID; the Run ID is diagnostic. |
 | **StepType** | Application (via Step implementation) | Stable name for a Step definition inside the Flow. |
 | **StepExecutionID** | Dex Server | One execution of a Step type, formatted as **StepType-Number**. |
 
 Most SDKs use the language's type name as the **FlowType** unless you
-override it. Do not change these names while executions are open.
+override it. Do not change these names while runs are open.
 
 ## Lifecycle {#lifecycle}
 
@@ -225,7 +225,7 @@ its RPCs.
 
 ## Start options and configuration {#start-options}
 
-Two sets of options shape a Flow execution:
+Two sets of options shape a Flow run:
 
 - **StartFlowOptions** apply once, at start. They set the Flow timeout, the ID
   reuse policy, the start request ID, and initial Attribute values.

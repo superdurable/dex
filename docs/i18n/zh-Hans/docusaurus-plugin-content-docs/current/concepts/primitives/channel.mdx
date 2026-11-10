@@ -8,9 +8,9 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 # Channel
 
-**Channel** 是单个 Flow execution 内部一条 durable 的 first-in, first-out (FIFO) 队列。Step 和 RPC 向它发布有类型的消息。Step 在 **WaitFor** 里等待这个 Channel，从而消费消息。消息不会跨 Flow execution。
+**Channel** 是单个 Flow run 内部一条 durable 的 first-in, first-out (FIFO) 队列。Step 和 RPC 向它发布有类型的消息。Step 在 **WaitFor** 里等待这个 Channel，从而消费消息。消息不会跨 Flow run。
 
-<ChannelScopeDiagram markdownDescription="Flow execution 拥有一个由其 Step 和 RPC 共享的 FIFO Channel。发布者添加消息，每条消息由一个等待中的消费 Step 消费。" />
+<ChannelScopeDiagram markdownDescription="Flow run 拥有一个由其 Step 和 RPC 共享的 FIFO Channel。发布者添加消息，每条消息由一个等待中的消费 Step 消费。" />
 
 ## 什么时候用 Channel
 

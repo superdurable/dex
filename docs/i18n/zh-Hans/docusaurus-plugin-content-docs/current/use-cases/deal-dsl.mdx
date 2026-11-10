@@ -68,7 +68,7 @@ DealStart（定义快照、买家、商品）
 - **有限状态机**：当前状态和每一次转换都是显式的，可以随时查看。
 - **键控 Channel**：每个命名条件是同一个 Channel 上的一个 key，不必为每个条件单独定义 Channel。
 - **共享状态 map**：条件消息和动作各自把小的键值更新写入同一个 **DealStateData** map。
-- [**Entity store**](/design-patterns/entity-store) 为每个 Go execution 提供稳定的 Flow ID，并把流程、商品、买家、当前状态和等待条件保存成可搜索 Attribute。
+- [**Entity store**](/design-patterns/entity-store) 为每个 Go Flow run 提供稳定的 Flow ID，并把流程、商品、买家、当前状态和等待条件保存成可搜索 Attribute。
 
 各个 SDK 的示例都为每个状态使用一个动作列表。Go 示例另外加入了分开的前置动作和后置动作、PostgreSQL 定义目录、搜索 API 和浏览器 UI。
 
