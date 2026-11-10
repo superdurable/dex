@@ -8,7 +8,7 @@ and permission coverage first. Then choose exactly one mode.
 | Mode | When | The application ships |
 | --- | --- | --- |
 | No custom UI | Dex Web covers management and no participant UI is requested | the Go Worker, plus a minimal HTTP server only for confirmed integration ingress |
-| Custom UI | the mapping names an interaction Dex Web v2 cannot provide | the Go Worker, an application API from a generated contract, and a frontend for that interaction only |
+| Custom UI | the mapping names an interaction Dex Web cannot provide | the Go Worker, an application API from a generated contract, and a frontend for that interaction only |
 
 When Dex Web covers management and nobody asks for a participant UI, select No
 custom UI without asking. A request for an admin portal, dashboard, or
@@ -17,11 +17,11 @@ backend" is not a capability gap either.
 
 ## No custom UI
 
-Dex Web v2 is the only process-management UI: `dexcli dev` locally, and the
+Dex Web is the only process-management UI: `dexcli dev` locally, and the
 standalone Dex Web behind the deployment's authenticated proxy. Define indexed
 Attributes, `GetDexSummary`, `GetDexDisplay`, editable fields, human-action
 Steps, and Action RPCs with conditions and permissions, so Run and Work Queue
-modes cover the confirmed process. [Dex Web v2](dex-web-v2.md) and
+modes cover the confirmed process. [Dex Web](dex-web-v2.md) and
 [Go FDG authoring](fdg-authoring.md) describe those contracts.
 
 Do not build any custom management surface or operation:
@@ -50,7 +50,7 @@ workflow before you implement it.
 ## Custom UI
 
 Enter this mode only for the unsupported interaction that the mapping names.
-Keep every operation Dex Web v2 covers on its native Run, Work Queue, detail,
+Keep every operation Dex Web covers on its native Run, Work Queue, detail,
 Action, edit, timeline, and graph surfaces. Valid gaps include a participant
 portal, a different navigation model, domain visualization, or a complex
 interaction Dex Web does not provide.
@@ -67,7 +67,7 @@ Agree only on the information architecture the backend design needs:
 - role-specific entry pages and ordinary link navigation;
 - the list, detail, create, action, and completion pages;
 - labels, inputs, buttons, and placeholder regions on each page;
-- which Dex Web v2 surfaces stay available to maintainers.
+- which Dex Web surfaces stay available to maintainers.
 
 The checkpoint is a low-fidelity static wireframe in the application's
 frontend. A new frontend defaults to a React and Vite application in its own

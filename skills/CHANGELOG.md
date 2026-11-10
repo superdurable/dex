@@ -3,6 +3,10 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.0.5 - 2026-11-09
+
+- Remove the Dex Web v2 product name from `dex-app-builder`. There is one Dex Web. Its Flow Definition Graph features are labeled Experimental, and Start Flow is in the Work Queue list header.
+
 ## 1.0.4 - 2026-11-09
 
 - Correct the Flow result rule in `dex-sdk`: only a COMPLETED Flow keeps the outputs of its completing decisions. A Flow that fails, is canceled, is terminated, or times out has none.

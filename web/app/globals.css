@@ -460,7 +460,8 @@ a {
   min-height: calc(100vh - var(--header-h));
 }
 
-.app-main:has(.v2-shell) {
+/* Only the split workspaces fill the viewport; run tabs and the design graph flow with the page. */
+.app-main:has(.v2-shell.v2-run) {
   height: calc(100vh - var(--header-h));
   min-height: 0;
   overflow: hidden;
@@ -625,22 +626,45 @@ a {
   min-width: 0;
 }
 
-/* The v2 canvas needs a sized box; its own tokens come from `.v2-shell`. */
-.v2-shell.flow-rendering-canvas {
-  height: min(78vh, 940px);
-  min-height: 640px;
-  overflow: hidden;
-  border: 1px solid var(--p-line);
-  border-radius: 17px;
-}
-
-.flow-rendering-canvas > .pcanvas {
-  height: 100%;
+/* The design graph sizes itself. */
+.flow-rendering-canvas {
+  min-width: 0;
 }
 
 .flow-rendering-children {
   margin: 10px 0 0;
   color: var(--muted);
+}
+
+/* Borderless, one line per diagnostic; color marks the severity. */
+.flow-definition-diagnostics {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  font-size: 13px;
+}
+
+.flow-definition-diagnostic {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-width: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.flow-definition-diagnostic b {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.flow-definition-diagnostic.is-error b {
+  color: var(--fail);
+}
+
+.flow-definition-diagnostic.is-warning b {
+  color: var(--busy);
 }
 
 .flow-rendering-empty p {
@@ -3363,9 +3387,14 @@ button.timeline-edge-stub:focus-visible {
     padding: 0 14px;
   }
 
-  .connection-pill,
+  .connection-label,
   .timezone-control > span {
     display: none;
+  }
+
+  /* The status pill keeps only its dot on a phone. */
+  .connection-pill {
+    padding: 9px;
   }
 
   .header-nav {

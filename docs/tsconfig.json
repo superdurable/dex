@@ -5,7 +5,8 @@
     "preserveSymlinks": true,
     "paths": {
       "@site/*": ["./*"],
-      "@dex-web-v2/*": ["../web/app/v2/*"],
+      "@dex-web-design/*": ["../web/app/design/*"],
+      "@dex-web-workspace/*": ["../web/app/workspace/*"],
       "react": ["./node_modules/@types/react"],
       "react/*": ["./node_modules/@types/react/*"],
       "@xyflow/react": ["./node_modules/@xyflow/react"],

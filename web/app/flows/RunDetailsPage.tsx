@@ -32,6 +32,7 @@ import type {
   FlowState,
   FlowSummary,
 } from '@/lib/types';
+import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import {
   CalendarClock,
   Flag,
@@ -41,6 +42,9 @@ import {
   Link as LinkIcon,
   RefreshCw,
   Rows3,
+  PencilRuler,
+  Bot,
+  MousePointerClick,
   Square,
   Timer,
   Waves,
@@ -63,8 +67,25 @@ import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 import { HorizontalTimeline } from './details/HorizontalTimeline';
 import { useRunHistory } from './useRunHistory';
+import { AgentSessionTab, RunActionsTab } from './details/ExperimentalRunTabs';
+import { ExperimentalBadge } from '../components/ExperimentalBadge';
+import { FlowDesignGraph } from '../design/FlowDesignGraph';
+import { FlowDefinitionDiagnostics } from '../rendering/FlowDefinitionDiagnostics';
+import { useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
+import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
+import { useWorkingAs } from '../workspace/useWorkingAs';
+import { RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
 
-type RunTab = 'overview' | 'steps' | 'timeline' | 'stream';
+type RunTab = 'overview' | 'steps' | 'timeline' | 'stream' | 'design' | 'session' | 'actions';
+
+/** Whether the run on screen is the one the operator API acts on, which takes only a Flow ID. */
+type DisplayedRunPosition = 'current' | 'earlier' | 'unknown';
+
+/** The current run of a Flow, as resolved by a summary request without a run ID. */
+interface CurrentRunOfFlow {
+  flowId: string;
+  runId: string;
+}
 
 /** History settings saved on this page, shown until a state load started after the save succeeds. */
 interface SavedHistorySettings {
@@ -87,6 +108,7 @@ interface SelectedEventConnector {
 
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 const noHistoryEvents: FlowHistoryEvent[] = [];
+const noOperatorDefinitions: FlowV2Definition[] = [];
 const runTabStorageKey = 'dex.run.selected-tab';
 /** The horizontal Timeline needs width; narrow screens keep the vertical one. */
 const horizontalTimelineQuery = '(min-width: 761px)';
@@ -106,7 +128,11 @@ function useMediaQuery(query: string): boolean {
   }, [query]);
   return isMatch;
 }
-const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'stream']);
+const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'stream', 'design', 'session', 'actions']);
+
+function isRunTab(value: string | null): value is RunTab {
+  return value !== null && runTabs.has(value as RunTab);
+}
 const minimumSidebarWidth = 280;
 
 type SidebarKind = 'graph' | 'timeline';
@@ -189,7 +215,50 @@ export function RunDetailsPage({
   const { appendNewest, clear: clearRunHistory, loadNewest } = runHistory;
   const [state, setState] = useState<FlowState | null>(null);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
-  const [tab, setTab] = useState<RunTab>(storedRunTab);
+  const requestedView = searchParams.get(RUN_VIEW_PARAM);
+  const [tab, setTab] = useState<RunTab>(() => (isRunTab(requestedView) ? requestedView : storedRunTab()));
+  const webCatalog = useOptionalWebCatalog();
+  const isCatalogReady = webCatalog === null || webCatalog.ready;
+  const designDefinition = designDefinitionFor(webCatalog?.definitions, summary?.flowType);
+  const catalogEntry = catalogEntryFor(webCatalog?.catalog, webCatalog?.canUseV2 ?? false, summary?.flowType);
+  const workingAsDefinitions = useMemo(
+    () => (catalogEntry ? [catalogEntry.definition] : noOperatorDefinitions),
+    [catalogEntry],
+  );
+  const workingAs = useWorkingAs(workingAsDefinitions);
+  const [currentRunOfFlow, setCurrentRunOfFlow] = useState<CurrentRunOfFlow | null>(null);
+  const history = runHistory.newest?.events ?? noHistoryEvents;
+  const continuedToRunId = useMemo(() => {
+    const closed = [...history].reverse().find((event) => event.type === 'FlowClosed');
+    const nextRunId = closed?.payload.continuedToRunId;
+    return typeof nextRunId === 'string' ? nextRunId : '';
+  }, [history]);
+  const isViewingEarlierRunAttempt = summary !== null
+    && requestedRunAttempt > 0
+    && requestedRunAttempt < positiveRunAttempt(summary.runAttempt);
+  const displayedRunPosition = displayedRunPositionOf(
+    summary,
+    isViewingEarlierRunAttempt,
+    continuedToRunId,
+    currentRunOfFlow,
+    flowId,
+    runId,
+  );
+  const runSessionSchema = sessionSchemaFor(webCatalog?.definitions, catalogEntry);
+  const runHasActions = hasRunActions(catalogEntry);
+  // Agent session and Actions read and write the current run, so an earlier run does not offer them.
+  const sessionSchema = displayedRunPosition === 'current' ? runSessionSchema : null;
+  const hasActionsTab = displayedRunPosition === 'current' && runHasActions;
+  const isCurrentRunOnlyTabRequested = displayedRunPosition === 'earlier'
+    && ((tab === 'session' && runSessionSchema !== null) || (tab === 'actions' && runHasActions));
+  // A remembered or linked tab that does not apply to this run shows the Execution graph instead.
+  const shownTab: RunTab = (tab === 'design' && !designDefinition)
+    || (tab === 'session' && !sessionSchema)
+    || (tab === 'actions' && !hasActionsTab)
+    ? 'steps'
+    : tab;
+  // Design draws only the definition: history, state and blobs wait until the reader leaves it.
+  const isHoldingRunData = tab === 'design' && (designDefinition !== null || summary === null || !isCatalogReady);
   const isHorizontalTimeline = useMediaQuery(horizontalTimelineQuery);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -202,6 +271,7 @@ export function RunDetailsPage({
   const [stopOpen, setStopOpen] = useState(false);
   const [stateWriteKind, setStateWriteKind] = useState<StateWriteKind | null>(null);
   const [waitCycle, setWaitCycle] = useState(0);
+  const [runDataRequest, setRunDataRequest] = useState(0);
   const [hydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
   const [dataWarnings, setDataWarnings] = useState<string[]>([]);
   const [sidebarWidths, setSidebarWidths] = useState<Record<SidebarKind, number>>(() => ({
@@ -217,7 +287,7 @@ export function RunDetailsPage({
   const blobCache = useRef(new Map<string, unknown>());
   const hydratingEventIDs = useRef(new Set<number>());
   const hydratedEventIDs = useRef(new Set<number>());
-  const sidebarKind: SidebarKind = tab === 'timeline' ? 'timeline' : 'graph';
+  const sidebarKind: SidebarKind = shownTab === 'timeline' ? 'timeline' : 'graph';
   const sidebarWidth = sidebarWidths[sidebarKind];
   const sidebarKindRef = useRef(sidebarKind);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -226,6 +296,7 @@ export function RunDetailsPage({
   sidebarWidthRef.current = sidebarWidth;
   const runContent = useRef<HTMLDivElement>(null);
   const followedRunAttempt = useRef(0);
+  const loadedRunDataRequest = useRef(0);
 
   const summaryURL = `/api/flows/summary?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
   const stateURL = `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(runId)}`;
@@ -389,6 +460,7 @@ export function RunDetailsPage({
     }
   }, [loadNewest]);
 
+  /** Loads the summary, then asks for history and state, which load once the shown tab needs them. */
   const refresh = useCallback(async () => {
     setPendingRunRequestCount((current) => current + 1);
     setError('');
@@ -398,16 +470,13 @@ export function RunDetailsPage({
       // Another client may have time traveled while Live was off.
       if (latestRunAttempt !== followedRunAttempt.current) clearLoadedRun();
       followedRunAttempt.current = latestRunAttempt;
-      await Promise.all([
-        loadHistory(historyRunAttempt(latestSummary)),
-        loadState(latestSummary.flowStatusCode),
-      ]);
+      setRunDataRequest((current) => current + 1);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Run refresh failed');
     } finally {
       setPendingRunRequestCount((current) => current - 1);
     }
-  }, [clearLoadedRun, historyRunAttempt, loadHistory, loadState, loadSummary]);
+  }, [clearLoadedRun, loadSummary]);
 
   useEffect(() => {
     let active = true;
@@ -423,7 +492,36 @@ export function RunDetailsPage({
       active = false;
       waitGeneration.current += 1;
     };
-  }, [clearLoadedRun, refresh]);
+  }, [clearLoadedRun, refresh, requestedRunAttempt]);
+
+  // A layout effect, so Loading events shows before an empty graph can paint.
+  useLayoutEffect(() => {
+    if (isHoldingRunData || !summary || loadedRunDataRequest.current === runDataRequest) return;
+    loadedRunDataRequest.current = runDataRequest;
+    void Promise.all([
+      loadHistory(historyRunAttempt(summary)),
+      loadState(summary.flowStatusCode),
+    ]).catch((loadError: unknown) => {
+      setError(loadError instanceof Error ? loadError.message : 'Run refresh failed');
+    });
+  }, [historyRunAttempt, isHoldingRunData, loadHistory, loadState, runDataRequest, summary]);
+
+  // The operator API acts on the current run, so learn which run that is before offering it.
+  const summaryStatusCode = summary?.flowStatusCode;
+  const needsCurrentRun = catalogEntry !== null;
+  useEffect(() => {
+    if (!needsCurrentRun || summaryStatusCode === undefined) return undefined;
+    const controller = new AbortController();
+    void fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, { cache: 'no-store', signal: controller.signal })
+      .then((response) => readResponseJSON<FlowSummary>(response))
+      .then((current) => setCurrentRunOfFlow({ flowId, runId: current.runId }))
+      .catch((lookupError: unknown) => {
+        if (controller.signal.aborted) return;
+        // Agent session and Actions stay hidden; nothing else on the page needs the current run.
+        console.warn('Unable to resolve the current run of the Flow.', lookupError);
+      });
+    return () => controller.abort();
+  }, [flowId, needsCurrentRun, runId, summaryStatusCode]);
 
   const runIdentity = runIdentityOf(flowId, runId, summary?.runAttempt);
   useLayoutEffect(() => {
@@ -433,12 +531,12 @@ export function RunDetailsPage({
     ? savedHistorySettings.values
     : undefined;
 
-  const isViewingEarlierRunAttempt = summary !== null && historyRunAttempt(summary) > 0;
   const nextInternalEventId = runHistory.newest?.nextInternalEventId ?? 0;
 
   useEffect(() => {
     if (
       !autoRefresh
+      || isHoldingRunData
       || !summary
       || terminalStatuses.has(summary.flowStatusCode)
       || nextInternalEventId <= 0
@@ -493,6 +591,7 @@ export function RunDetailsPage({
     clearLoadedRun,
     flowId,
     historyRunAttempt,
+    isHoldingRunData,
     isViewingEarlierRunAttempt,
     loadHistory,
     loadState,
@@ -503,13 +602,16 @@ export function RunDetailsPage({
     waitCycle,
   ]);
 
-  const tabs: Array<[RunTab, string, LucideIcon]> = [
-    ['overview', 'Overview', LayoutDashboard],
-    ['steps', 'Execution graph', Workflow],
-    ['timeline', 'Timeline', Rows3],
-    ['stream', 'Streams', Waves],
+  // Experimental tabs follow Streams, and each appears only when it applies to this run.
+  const tabs: Array<{ id: RunTab; label: string; Icon: LucideIcon; isExperimental?: boolean }> = [
+    { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
+    { id: 'steps', label: 'Execution graph', Icon: Workflow },
+    { id: 'timeline', label: 'Timeline', Icon: Rows3 },
+    { id: 'stream', label: 'Streams', Icon: Waves },
+    ...(designDefinition ? [{ id: 'design' as const, label: 'Design', Icon: PencilRuler, isExperimental: true }] : []),
+    ...(sessionSchema ? [{ id: 'session' as const, label: 'Agent session', Icon: Bot, isExperimental: true }] : []),
+    ...(hasActionsTab ? [{ id: 'actions' as const, label: 'Actions', Icon: MousePointerClick, isExperimental: true }] : []),
   ];
-  const history = runHistory.newest?.events ?? noHistoryEvents;
   const timelineWindow = runHistory.timelineWindow;
   const timelineEvents = timelineWindow?.events ?? noHistoryEvents;
   const flowStartEvent = runHistory.flowStartEvent;
@@ -528,7 +630,7 @@ export function RunDetailsPage({
     [hydratedEvents, timelineEvents],
   );
   // The Execution graph and the Timeline share one event page.
-  const isSelectionOnTimeline = tab === 'timeline' || tab === 'steps';
+  const isSelectionOnTimeline = shownTab === 'timeline' || shownTab === 'steps';
   const pageEventsWithFlowStart = useMemo(
     () => withFlowStart(displayedTimelineEvents, flowStartEvent),
     [displayedTimelineEvents, flowStartEvent],
@@ -550,10 +652,24 @@ export function RunDetailsPage({
   }), [prunedEventIdRange, selectedRaw, selectionEvents, selectionHasNewer, selectionHasOlder]);
   const { back: backInTimeline, highlightEvent, jumpToEvent: jumpInTimeline } = runHistory;
 
+  /** Shows a tab and keeps it in the URL, so reloading or sharing the page opens the same tab. */
+  const selectTab = useCallback((nextTab: RunTab) => {
+    setTab(nextTab);
+    persistRunTab(nextTab);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set(RUN_VIEW_PARAM, nextTab);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    if (isRunTab(requestedView)) setTab(requestedView);
+  }, [requestedView]);
+
   const jumpToEvent = useCallback(async (eventId: number) => {
     setError('');
-    setTab('timeline');
-    persistRunTab('timeline');
+    selectTab('timeline');
     try {
       const result = await jumpInTimeline(eventId, selectedEvent);
       // A pruned target needs no error: the refreshed pruned range turns its stub into a pruned stub.
@@ -562,7 +678,7 @@ export function RunDetailsPage({
     } catch (jumpError) {
       setError(jumpError instanceof Error ? jumpError.message : 'History page failed to load');
     }
-  }, [jumpInTimeline, selectedEvent]);
+  }, [jumpInTimeline, selectTab, selectedEvent]);
 
   const selectTimelineEvent = useCallback((event: FlowHistoryEvent) => {
     highlightEvent(null);
@@ -604,10 +720,8 @@ export function RunDetailsPage({
     clearRunHistory();
     setSelectedEvent(null);
     setError('');
-    void loadHistory(historyRunAttempt(summary)).catch((loadError: unknown) => {
-      setError(loadError instanceof Error ? loadError.message : 'History page failed to load');
-    });
-  }, [clearRunHistory, historyPageSize, historyRunAttempt, loadHistory, summary]);
+    setRunDataRequest((current) => current + 1);
+  }, [clearRunHistory, historyPageSize, summary]);
 
   const pageFirstEventId = timelineEvents[0]?.eventId;
   const pageLastEventId = timelineEvents.at(-1)?.eventId;
@@ -633,17 +747,17 @@ export function RunDetailsPage({
     };
 
   useEffect(() => {
-    if (selectedRaw) void hydrateEvent(selectedRaw);
-  }, [hydrateEvent, selectedRaw?.eventId]);
+    if (selectedRaw && !isHoldingRunData) void hydrateEvent(selectedRaw);
+  }, [hydrateEvent, isHoldingRunData, selectedRaw?.eventId]);
 
   useEffect(() => {
-    if (tab === 'overview' && flowStartEvent) void hydrateEvent(flowStartEvent);
-  }, [flowStartEvent, hydrateEvent, tab]);
+    if (shownTab === 'overview' && flowStartEvent) void hydrateEvent(flowStartEvent);
+  }, [flowStartEvent, hydrateEvent, shownTab]);
 
   useLayoutEffect(() => {
     const content = runContent.current;
     const selectedEventID = selectedEvent?.eventId;
-    if (!content || tab !== 'timeline' || !selectedEventID) {
+    if (!content || shownTab !== 'timeline' || !selectedEventID) {
       setSelectedEventConnector(null);
       return;
     }
@@ -691,18 +805,12 @@ export function RunDetailsPage({
       window.removeEventListener('resize', scheduleUpdate);
       window.removeEventListener('scroll', scheduleUpdate, true);
     };
-  }, [selectedEvent, sidebarWidth, tab, timelineEvents]);
+  }, [selectedEvent, sidebarWidth, shownTab, timelineEvents]);
 
   const runChain = useMemo(() => {
     if (!summary) return [];
     return [...new Set([summary.firstRunId, summary.runId].filter(Boolean))];
   }, [summary]);
-  const continuedToRunId = useMemo(() => {
-    const closed = [...history].reverse().find((event) => event.type === 'FlowClosed');
-    const nextRunId = closed?.payload.continuedToRunId;
-    return typeof nextRunId === 'string' ? nextRunId : '';
-  }, [history]);
-
   const openTimeTravel = useCallback((event: FlowHistoryEvent | null) => {
     setTimeTravelEvent(event);
     setTimeTravelOpen(true);
@@ -864,30 +972,40 @@ export function RunDetailsPage({
       ))}
 
       <div aria-label="Run views" className="run-tabs" role="group">
-        {tabs.map(([id, label, TabIcon]) => (
+        {tabs.map(({ id, label, Icon, isExperimental }) => (
           <button
             key={id}
-            aria-pressed={tab === id}
-            className={tab === id ? 'active' : ''}
-            onClick={() => {
-              setTab(id);
-              persistRunTab(id);
-            }}
+            aria-pressed={shownTab === id}
+            className={shownTab === id ? 'active' : ''}
+            data-tab={id}
+            onClick={() => selectTab(id)}
             type="button"
           >
-            <TabIcon aria-hidden="true" size={15} strokeWidth={2} />
+            <Icon aria-hidden="true" size={15} strokeWidth={2} />
             {label}
+            {isExperimental && <ExperimentalBadge className="run-tab-badge" />}
           </button>
         ))}
       </div>
 
+      {isCurrentRunOnlyTabRequested && (
+        <p className="run-experimental-hint">
+          Agent session and Actions act on the current run, so this earlier run does not offer them.{' '}
+          <Link to={`${currentRunPath(flowId)}?${new URLSearchParams({ [RUN_VIEW_PARAM]: tab })}`}>
+            Open the current run
+          </Link>
+        </p>
+      )}
+
       <div
         className={[
           'run-content',
-          tab === 'overview' ? 'run-content--overview' : '',
+          shownTab === 'overview' ? 'run-content--overview' : '',
+          shownTab === 'design' ? 'run-content--design' : '',
+          shownTab === 'session' || shownTab === 'actions' ? 'run-content--experimental' : '',
           resizingSidebar ? 'is-resizing-sidebar' : '',
-          tab === 'timeline' ? 'run-content--timeline' : '',
-          tab === 'timeline' && isHorizontalTimeline ? 'run-content--horizontal-timeline' : '',
+          shownTab === 'timeline' ? 'run-content--timeline' : '',
+          shownTab === 'timeline' && isHorizontalTimeline ? 'run-content--horizontal-timeline' : '',
         ].filter(Boolean).join(' ')}
         ref={runContent}
         style={{ '--run-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
@@ -904,10 +1022,10 @@ export function RunDetailsPage({
           </svg>
         )}
         <section className="run-primary">
-          {isWaitingForHistory && (tab === 'steps' || tab === 'timeline') && (
+          {isWaitingForHistory && (shownTab === 'steps' || shownTab === 'timeline') && (
             <LoadingIndicator className="card page-loading" label="Loading events…" />
           )}
-          {tab === 'overview' && summary && (
+          {shownTab === 'overview' && summary && (
             <FlowOverview
               summary={summary}
               events={displayedHistory}
@@ -919,7 +1037,7 @@ export function RunDetailsPage({
               onHistorySettingsSaved={showSavedHistorySettings}
             />
           )}
-          {tab === 'steps' && !isWaitingForHistory && (
+          {shownTab === 'steps' && !isWaitingForHistory && (
             <ExecutionGraph
               flowId={flowId}
               events={pageEventsWithFlowStart}
@@ -929,7 +1047,7 @@ export function RunDetailsPage({
               onSelectEvent={setSelectedEvent}
             />
           )}
-          {tab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
+          {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
             <HorizontalTimeline
               events={displayedTimelineEvents}
               selectedEvent={selectedRaw}
@@ -945,7 +1063,7 @@ export function RunDetailsPage({
               highlightedEventId={runHistory.highlightedEventId}
             />
           )}
-          {tab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
+          {shownTab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
             <Timeline
               flowId={flowId}
               events={displayedTimelineEvents}
@@ -963,11 +1081,35 @@ export function RunDetailsPage({
               runStepDurability={runStepDurabilityOf(flowStartEvent)}
             />
           )}
-          {tab === 'stream' && summary && (
+          {shownTab === 'design' && designDefinition && (
+            <>
+              <FlowDesignGraph key={designDefinition.id} definition={designDefinition} />
+              <FlowDefinitionDiagnostics definition={designDefinition} />
+            </>
+          )}
+          {shownTab === 'stream' && summary && (
             <StreamPanel flowId={flowId} flowType={summary.flowType} />
           )}
+          {shownTab === 'session' && sessionSchema && catalogEntry && (
+            <AgentSessionTab
+              entry={catalogEntry}
+              flowId={flowId}
+              reloadKey={latestEvent?.eventId ?? 0}
+              schema={sessionSchema}
+              workingAs={workingAs}
+            />
+          )}
+          {shownTab === 'actions' && catalogEntry && summary && (
+            <RunActionsTab
+              entry={catalogEntry}
+              flowId={flowId}
+              flowStatusCode={summary.flowStatusCode}
+              reloadKey={latestEvent?.eventId ?? 0}
+              workingAs={workingAs}
+            />
+          )}
         </section>
-        {(tab === 'steps' || tab === 'timeline') && (
+        {(shownTab === 'steps' || shownTab === 'timeline') && (
           <aside className="run-sidebar">
             <button
               type="button"
@@ -1028,6 +1170,25 @@ export function RunDetailsPage({
       )}
     </div>
   );
+}
+
+/**
+ * Returns 'earlier' when the run on screen is not the Flow's current run: a continued run, an
+ * earlier run attempt, or a run other than the one its Flow ID resolves to. Returns 'current'
+ * when the resolved current run is this run, and 'unknown' while that is still loading.
+ */
+function displayedRunPositionOf(
+  summary: FlowSummary | null,
+  isViewingEarlierRunAttempt: boolean,
+  continuedToRunId: string,
+  currentRunOfFlow: CurrentRunOfFlow | null,
+  flowId: string,
+  runId: string,
+): DisplayedRunPosition {
+  if (!summary) return 'unknown';
+  if (summary.flowStatus === 'Continued as new' || isViewingEarlierRunAttempt || continuedToRunId !== '') return 'earlier';
+  if (currentRunOfFlow?.flowId !== flowId) return 'unknown';
+  return currentRunOfFlow.runId === runId ? 'current' : 'earlier';
 }
 
 /** Reads the run's configured Step durability from its start event, when loaded. */

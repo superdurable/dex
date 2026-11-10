@@ -1,0 +1,429 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/*
+ * Experimental pages and tabs share the design graph's language: no borders, content first,
+ * colour spent on what to act on. Selectors start at `html` so they outrank the workspace styles.
+ */
+
+html .xp,
+html .v2-work-queue-case,
+html .v2-connectors,
+html .ai-body {
+  --xp-surface: var(--ui-surface);
+  --xp-ink: var(--ui-ink);
+  --xp-ink-2: var(--ui-ink-2);
+  --xp-ink-3: var(--ui-ink-3);
+  --xp-track: rgba(15, 23, 42, 0.05);
+  --xp-accent: #6d28d9;
+  --xp-accent-wash: rgba(124, 58, 237, 0.08);
+  --xp-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 10px 26px -14px rgba(15, 23, 42, 0.22);
+  --xp-attention-ink: #c2410c;
+  --xp-attention-fill: #fff1e6;
+  --xp-success-ink: #047857;
+  --xp-success-fill: #ddf7ec;
+  --xp-danger-ink: #b91c1c;
+  --xp-danger-fill: #fdeaea;
+}
+
+html[data-theme='dark'] .xp,
+html[data-theme='dark'] .v2-work-queue-case,
+html[data-theme='dark'] .v2-connectors,
+html[data-theme='dark'] .ai-body {
+  --xp-track: rgba(148, 163, 184, 0.1);
+  --xp-accent: #c4b5fd;
+  --xp-accent-wash: rgba(167, 139, 250, 0.14);
+  --xp-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 28px -14px rgba(0, 0, 0, 0.8);
+  --xp-attention-ink: #fdba74;
+  --xp-attention-fill: #3b2414;
+  --xp-success-ink: #6ee7b7;
+  --xp-success-fill: #073424;
+  --xp-danger-ink: #fca5a5;
+  --xp-danger-fill: #3a1518;
+}
+
+/* ---------- a run tab: the page's own surface, flowing with the page ---------- */
+html .v2-shell.xp {
+  height: auto;
+  padding: 26px 30px 34px;
+  border-radius: 20px;
+  background: var(--xp-surface);
+  color: var(--xp-ink);
+  font-family: inherit;
+}
+
+.xp .xp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.xp .xp-head h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Working as: a compact pill with its own select, never a full-width field. */
+.xp-working-as {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px 6px 12px;
+  border-radius: 999px;
+  background: var(--xp-accent-wash);
+  color: var(--xp-accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.xp-working-as > span {
+  color: var(--xp-ink-3);
+  font-weight: 600;
+}
+
+html .xp .xp-working-as select {
+  width: auto;
+  min-width: 0;
+  padding: 0 18px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--xp-accent);
+  font: inherit;
+  font-weight: 700;
+  appearance: none;
+  cursor: pointer;
+}
+
+.xp-working-as > svg:last-child {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+}
+
+/* ---------- the run's details and Actions ---------- */
+html .xp .v2-case,
+html .v2-work-queue-case .v2-case {
+  max-height: none;
+  height: auto;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+}
+
+html .v2-work-queue-case .v2-case {
+  padding: 24px 28px 36px;
+}
+
+html .v2-work-queue-case .sc-head {
+  align-items: center;
+  padding-bottom: 0;
+  border: 0;
+}
+
+html .v2-work-queue-case .sc-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+html .v2-work-queue-case .sc-status {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--xp-track);
+  color: var(--xp-ink-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-block {
+  margin-top: 22px;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-blockhead {
+  margin: 0 0 10px;
+  color: var(--xp-ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Actions are the focal point: one card each, the ready ones in colour. */
+.sc-action-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--xp-surface);
+  box-shadow: var(--xp-shadow);
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-action-card[data-state='ready'] {
+  background: linear-gradient(160deg, var(--xp-accent-wash), var(--xp-surface) 70%);
+  box-shadow: var(--xp-shadow), inset 0 0 0 1.5px color-mix(in srgb, var(--xp-accent) 28%, transparent);
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-action-card:not([data-state='ready']) {
+  background: var(--xp-track);
+  box-shadow: none;
+}
+
+.sc-action-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.sc-action-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
+  color: #ffffff;
+  box-shadow: 0 6px 14px -6px rgba(124, 58, 237, 0.7);
+}
+
+.sc-action-card:not([data-state='ready']) .sc-action-icon {
+  background: var(--xp-track);
+  color: var(--xp-ink-3);
+  box-shadow: none;
+}
+
+.sc-action-words {
+  display: grid;
+  gap: 2px;
+}
+
+.sc-action-words b {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.sc-action-card:not([data-state='ready']) .sc-action-words b {
+  color: var(--xp-ink-2);
+}
+
+.sc-action-words small {
+  color: var(--xp-ink-3);
+  font-size: 12px;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-action-card label {
+  display: grid;
+  gap: 5px;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-action-card input,
+html :is(.xp, .v2-work-queue-case) .sc-action-card select,
+html :is(.xp, .v2-work-queue-case) .sc-fvalue input,
+html :is(.xp, .v2-work-queue-case) .sc-fvalue select {
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--xp-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--xp-ink-3) 30%, transparent);
+  color: var(--xp-ink);
+  font: inherit;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-action-submit {
+  align-self: flex-start;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 8px 18px -8px rgba(109, 40, 217, 0.8);
+  cursor: pointer;
+}
+
+/* ---------- details: readable labels above values, status as a chip ---------- */
+html :is(.xp, .v2-work-queue-case) .sc-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 18px 28px;
+  margin: 0;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-facts[data-lead='true'] {
+  margin-bottom: 20px;
+  padding-bottom: 0;
+  border: 0;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-fact {
+  display: grid;
+  grid-column: auto;
+  grid-template-columns: none;
+  gap: 4px;
+  align-content: start;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-fact[data-kind='long'] {
+  grid-column: 1 / -1;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-fname {
+  color: var(--xp-ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-fvalue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--xp-ink);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-fact[data-kind='long'] .sc-ftext {
+  max-width: 72ch;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--xp-track);
+  color: var(--xp-ink);
+}
+
+.sc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: var(--xp-track);
+  color: var(--xp-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.sc-chip::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  content: '';
+}
+
+.sc-chip[data-tone='attention'] {
+  background: var(--xp-attention-fill);
+  color: var(--xp-attention-ink);
+}
+
+.sc-chip[data-tone='success'] {
+  background: var(--xp-success-fill);
+  color: var(--xp-success-ink);
+}
+
+.sc-chip[data-tone='danger'] {
+  background: var(--xp-danger-fill);
+  color: var(--xp-danger-ink);
+}
+
+html :is(.xp, .v2-work-queue-case) .sc-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--xp-accent-wash);
+  color: var(--xp-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ---------- Work Queue, the agent inbox and Connectors: lists without rules ---------- */
+html .v2-shell.v2-run :is(.rsw, .ai-list) {
+  border: 0;
+}
+
+html .v2-shell.v2-run .rsw-zone[data-zone='find'],
+html .v2-shell.v2-run .rsw-zone[data-zone='store'] {
+  padding: 12px 12px 6px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--p-surface-2);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 20px -14px rgba(15, 23, 42, 0.25);
+}
+
+html .v2-shell.v2-run :is(.rsw, .ai-list, .rsq) :is(select, input:not([type='checkbox']):not([type='radio'])) {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--p-surface-3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--p-ink-3) 26%, transparent);
+  color: var(--p-ink-0);
+}
+
+html .v2-shell.v2-run .sq-title {
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Runs or Agents, as one segmented switch. */
+html .v2-shell .ai-modes {
+  gap: 2px;
+  padding: 3px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--p-ink-3) 14%, transparent);
+}
+
+html .v2-shell .ai-modes a {
+  padding: 3px 11px;
+  border: 0;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+html .v2-shell .ai-modes a + a {
+  border: 0;
+}
+
+html .v2-shell .ai-modes a[aria-current='page'] {
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  color: #ffffff;
+}
+
+html .v2-shell.xp .ses {
+  padding: 0;
+}
+
+html .xp .v2-case > .sc-block:first-of-type {
+  margin-top: 0;
+}

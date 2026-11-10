@@ -8,6 +8,27 @@ sidebar_label: Change log
 
 This page lists user-visible changes to Dex Web, newest first; each section covers the changes since the previous release of this component.
 
+## 1.41 {#v1-41}
+
+Released 2026-11-09 as [web/v1.41.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.41.0).
+
+### Breaking
+
+- The **v2** pages are removed, including the Run workspace, its run overlay, and the **Debug** view. Every **/v2** URL redirects to its **/v1** equivalent and keeps its query and hash, and **/** opens **/v1/flows**. The **/api/v2** endpoints are unchanged. [Reference](/reference/web/dex-web#v1-pages).
+
+### Added
+
+- A **Design** tab on the run page draws the Flow design graph from the loaded Flow Definition Graph, with no history. [Reference](/reference/web/dex-web#flow-canvas).
+- One **Experimental** header menu holds **Designs**, **Work Queue**, and **Connectors**. [Reference](/reference/web/dex-web#run-tabs).
+- **?view=design**, **?view=session**, and **?view=actions** open a run tab directly. [Reference](/reference/web/dex-web#run-tabs).
+
+### Changed
+
+- The version picker is gone. **Work Queue**, **Connectors**, **Agent session**, and **Actions** are **Experimental**, and each shows only when it applies. **Agent session** and **Actions** are run tabs, and **Start Flow** is in the **Work Queue** list header. [Reference](/reference/web/dex-web#run-tabs).
+- **Flow Rendering** is now **Designs**, at the same **/v1/rendering** URL, and draws both schema versions with one graph. [Reference](/reference/web/flow-visualization).
+- The agent inbox URL is **/v1/work-queue?view=agents**. [Reference](/reference/web/dex-web#agent-inbox).
+- Step cards no longer show outcome chips. The Step panel lists outcomes under **Paths out**. [Reference](/reference/web/dex-web#flow-canvas).
+
 ## 1.40 {#v1-40}
 
 Released 2026-11-09 as [web/v1.40.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.40.0). Patch releases [web/v1.40.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.40.1) and [web/v1.40.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.40.2) followed the same day.

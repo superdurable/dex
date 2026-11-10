@@ -8,18 +8,18 @@
 
 import {useCallback, useMemo, useState} from 'react';
 import type {FlowDefinitionGraph} from '@superdurable/flow-definition-renderer';
-import {safeDecode} from '@dex-web-v2/canvas/model/decode';
-import {ArrowDefs} from '@dex-web-v2/canvas/render/ArrowDefs';
-import {Stage} from '@dex-web-v2/canvas/render/Stage';
-import {useStageScene} from '@dex-web-v2/canvas/useStageScene';
-import {stageId} from '@dex-web-v2/canvas/views/stageCard';
-import {stepTitle} from '@dex-web-v2/canvas/views/stepBox';
-import type {Direction} from '@dex-web-v2/canvas/views/types';
-import {Controls} from '@dex-web-v2/flow/Controls';
-import {Legend} from '@dex-web-v2/flow/Legend';
-import {groupsFromDefinition} from '@dex-web-v2/groupsFromGraph';
-import '@dex-web-v2/css/tokens.css';
-import '@dex-web-v2/css/canvas.css';
+import {safeDecode} from '@dex-web-design/canvas/model/decode';
+import {ArrowDefs} from '@dex-web-design/canvas/render/ArrowDefs';
+import {Stage} from '@dex-web-design/canvas/render/Stage';
+import {useStageScene} from '@dex-web-design/canvas/useStageScene';
+import {stageId} from '@dex-web-design/canvas/views/stageCard';
+import {stepTitle} from '@dex-web-design/canvas/views/stepBox';
+import {DIRECTION_LABEL, DIRECTIONS, type Direction} from '@dex-web-design/canvas/views/types';
+import type {StageState} from '@dex-web-design/canvas/useStageScene';
+import {Legend} from '@dex-web-design/flow/Legend';
+import {groupsFromDefinition} from '@dex-web-design/groupsFromGraph';
+import '@dex-web-workspace/css/tokens.css';
+import '@dex-web-design/canvas.css';
 
 /** A Version 2.0 definition drawn with Dex Web's Flow canvas, without a run. */
 export default function DocsFlowCanvas({graph}: {graph: FlowDefinitionGraph}) {
@@ -51,7 +51,7 @@ export default function DocsFlowCanvas({graph}: {graph: FlowDefinitionGraph}) {
       <div className="pcanvas">
         <ArrowDefs />
         <div className="pctlbar">
-          <Controls
+          <DocsFlowCanvasControls
             stages={stages.hasStages ? stages.state : null}
             direction={direction}
             onCollapseAll={stages.collapseAll}
@@ -122,6 +122,69 @@ export default function DocsFlowCanvas({graph}: {graph: FlowDefinitionGraph}) {
       <p className="sr-only" aria-live="polite">
         {stages.cue?.message}
       </p>
+    </div>
+  );
+}
+
+/** The View and Direction controls of the docs canvas. */
+function DocsFlowCanvasControls({
+  stages,
+  direction,
+  onCollapseAll,
+  onExpandAll,
+  onDirection,
+}: {
+  stages: StageState | null;
+  direction: Direction;
+  onCollapseAll: () => void;
+  onExpandAll: () => void;
+  onDirection: (direction: Direction) => void;
+}) {
+  return (
+    <div className="pctl">
+      {stages === null ? null : (
+        <div className="pctl-group" role="group" aria-label="View">
+          <span className="pctl-label">View</span>
+          <div className="pctl-row">
+            <button
+              type="button"
+              className="pchip"
+              aria-pressed={stages === 'collapsed'}
+              data-on={stages === 'collapsed' ? 'true' : undefined}
+              onClick={onCollapseAll}
+            >
+              Collapsed
+            </button>
+            <button
+              type="button"
+              className="pchip"
+              aria-pressed={stages === 'expanded'}
+              data-on={stages === 'expanded' ? 'true' : undefined}
+              onClick={onExpandAll}
+            >
+              Expanded
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="pctl-group">
+        <span className="pctl-label">Direction</span>
+        <div className="pctl-row" role="radiogroup" aria-label="Direction">
+          {DIRECTIONS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={direction === option}
+              className="pchip"
+              data-on={direction === option ? 'true' : undefined}
+              onClick={() => onDirection(option)}
+            >
+              {DIRECTION_LABEL[option]}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

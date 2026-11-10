@@ -8,18 +8,16 @@
 
 import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AppHeader } from './components/AppHeader';
-import { DebugWorkspace } from './v2/debug/DebugWorkspace';
 import { CurrentRunRedirect } from './flows/CurrentRunRedirect';
 import { FlowSearchPage } from './flows/FlowSearchPage';
 import { RunDetailsPage } from './flows/RunDetailsPage';
 import { PreferencesProvider } from './providers';
 import { FlowRenderingPage } from './rendering/FlowRenderingPage';
 import { ThemeProvider } from './theme';
-import { WorkQueueWorkspace } from './v2/work-queue/WorkQueueWorkspace';
-import { HomePage, RunWorkspace } from './v2/RunWorkspace';
-import { WebCatalogProvider } from './v2/WebCatalogProvider';
-import { ConnectorsPage } from './v2/connectors/ConnectorsPage';
-import { LEGACY_CONNECTORS_PATH, legacyConnectorsRedirectPath, v2ConnectorsPath } from './v2/contract';
+import { WorkQueueWorkspace } from './work-queue/WorkQueueWorkspace';
+import { WebCatalogProvider } from './catalog/WebCatalogProvider';
+import { ConnectorsPage } from './connectors/ConnectorsPage';
+import { CONNECTORS_PATH, FLOWS_PATH, legacyV2RedirectPath, WORK_QUEUE_PATH } from './routes';
 
 export function App() {
   return (
@@ -28,26 +26,7 @@ export function App() {
         <WebCatalogProvider>
           <AppHeader />
           <main className="app-main">
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/v2" element={<Navigate to="/v2/run" replace />} />
-              <Route path="/v2/run" element={<RunWorkspace />} />
-              <Route path="/v2/run/:flowType" element={<RunWorkspace />} />
-              <Route path="/v2/run/:flowType/:flowId" element={<RunWorkspace />} />
-              <Route path="/v2/run/:flowType/:flowId/debug" element={<DebugWorkspace />} />
-              <Route path="/v2/run/:flowType/:flowId/debug/:runId" element={<DebugWorkspace />} />
-              <Route path="/v2/work-queue" element={<WorkQueueWorkspace />} />
-              <Route path="/v2/work-queue/:flowType" element={<WorkQueueWorkspace />} />
-              <Route path="/v2/work-queue/:flowType/:flowId" element={<WorkQueueWorkspace />} />
-              <Route path={v2ConnectorsPath()} element={<ConnectorsPage />} />
-              <Route path={`${LEGACY_CONNECTORS_PATH}/*`} element={<LegacyConnectorsRedirect />} />
-              <Route path="/v1" element={<Navigate to="/v1/flows" replace />} />
-              <Route path="/v1/flows" element={<FlowSearchPage />} />
-              <Route path="/v1/rendering" element={<FlowRenderingPage />} />
-              <Route path="/v1/flows/:flowId" element={<CurrentFlowRoute />} />
-              <Route path="/v1/flows/:flowId/:runId" element={<FlowRunRoute />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            <AppRoutes />
           </main>
         </WebCatalogProvider>
       </ThemeProvider>
@@ -55,8 +34,29 @@ export function App() {
   );
 }
 
-function LegacyConnectorsRedirect() {
-  return <Navigate to={legacyConnectorsRedirectPath(useLocation())} replace />;
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to={FLOWS_PATH} replace />} />
+      <Route path="/v1" element={<Navigate to={FLOWS_PATH} replace />} />
+      <Route path={FLOWS_PATH} element={<FlowSearchPage />} />
+      <Route path="/v1/rendering" element={<FlowRenderingPage />} />
+      <Route path="/v1/flows/:flowId" element={<CurrentFlowRoute />} />
+      <Route path="/v1/flows/:flowId/:runId" element={<FlowRunRoute />} />
+      <Route path={WORK_QUEUE_PATH} element={<WorkQueueWorkspace />} />
+      <Route path={`${WORK_QUEUE_PATH}/:flowType`} element={<WorkQueueWorkspace />} />
+      <Route path={`${WORK_QUEUE_PATH}/:flowType/:flowId`} element={<WorkQueueWorkspace />} />
+      <Route path={`${CONNECTORS_PATH}/*`} element={<ConnectorsPage />} />
+      <Route path="/v2/*" element={<LegacyV2Redirect />} />
+      <Route path="/v2" element={<LegacyV2Redirect />} />
+      <Route path="*" element={<Navigate to={FLOWS_PATH} replace />} />
+    </Routes>
+  );
+}
+
+/** Old Dex Web v2 bookmarks land on the page that now does the same job. */
+function LegacyV2Redirect() {
+  return <Navigate to={legacyV2RedirectPath(useLocation())} replace />;
 }
 
 function CurrentFlowRoute() {
@@ -71,7 +71,7 @@ function FlowRunRoute() {
     <RunDetailsPage
       breadcrumb={(
         <div className="breadcrumbs">
-          <Link to="/v1/flows">Flows</Link><span>/</span>
+          <Link to={FLOWS_PATH}>Flows</Link><span>/</span>
           <Link to={flowPath}>{flowId}</Link><span>/</span>
           <span className="mono">{runId}</span>
         </div>

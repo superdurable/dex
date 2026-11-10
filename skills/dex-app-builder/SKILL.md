@@ -47,7 +47,7 @@ reference once its facts are recorded.
 | 0. Workspace | Classify the repository, choose or keep the stack, install tools | [Workspace bootstrap](references/workspace-bootstrap.md) |
 | 0'. Import | Convert an exported workflow, such as n8n JSON, before the normal stages | [Workflow import](references/workflow-import.md) and [n8n semantics](references/n8n-semantics.md) |
 | 1. Discovery | Actors, roles, permissions, lifecycle, Flow boundaries, storage, Connectors, management mapping | [Product discovery](references/product-discovery.md) |
-| 2. UI decision | No custom UI (Dex Web only) or Custom UI for a recorded gap | [UI workflow](references/ui-workflow.md) and [Dex Web v2](references/dex-web-v2.md) |
+| 2. UI decision | No custom UI (Dex Web only) or Custom UI for a recorded gap | [UI workflow](references/ui-workflow.md) and [Dex Web](references/dex-web-v2.md) |
 | 3. Backend | Flow design, Dex-first storage, Actions, Workers, API contract | [Backend implementation](references/backend-implementation.md) |
 | 3a. FDG | Summary, Display, Actions, Start input, Step groups, diagnostics | [Go FDG authoring](references/fdg-authoring.md) |
 | 3b. Connectors | Catalog discovery, Connector Steps, Triggers, `llm`, credentials | [Connector architecture](references/connector-architecture.md) |
@@ -62,7 +62,7 @@ These App Builder rules are stricter than the Dex SDK rules. They take
 precedence.
 
 - **Go backend only.** This is a product decision. Strict FDG 2.0 only, and
-  Dex Web v2 metadata comes only from the Go analyzer. Connectors also ship
+  Dex Web metadata comes only from the Go analyzer. Connectors also ship
   for Python and TypeScript, but App Builder uses the Go packages.
 - **Dex Web owns management.** It owns Runs, Work Queue, Actions, edits,
   history, and diagnostics: `dexcli dev` locally, the standalone `dex-web`
