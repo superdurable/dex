@@ -482,7 +482,8 @@ def step (program : Program) (config : Config) : Label → Option (List Event ×
   | .request (.start input) =>
     match config.status with
     | .notStarted =>
-      if config.canStamp then some ([Event.begin input], (config.begun program input).stamp)
+      if config.canStamp then
+        some ([Event.begin input.toVal], (config.begun program input.toVal).stamp)
       else none
     | _ => none
   | .request (.input chan value) =>
@@ -490,10 +491,10 @@ def step (program : Program) (config : Config) : Label → Option (List Event ×
     | .notStarted => none
     | .running =>
       if config.canStamp then
-        some ([Event.input chan value], (config.deliverInput chan value).stamp)
+        some ([Event.input chan value.toVal], (config.deliverInput chan value.toVal).stamp)
       else none
     -- "Input that arrives after exit is `refused`."
-    | .closed => some ([Event.refused chan value], config)
+    | .closed => some ([Event.refused chan value.toVal], config)
   | .thread thread =>
     match config.findThread? thread with
     | none => none

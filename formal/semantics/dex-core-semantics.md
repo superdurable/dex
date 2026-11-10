@@ -1,9 +1,10 @@
 # Dex Core Semantics (Step 0 of the expressiveness proof)
 
-Status: revision 6 (after three adversarial reviews, the owner decisions of
-2026-11-09 on the review of the Lean statements, and the owner decision of
-2026-11-10 on unforgeable handles; see [Review log](#10-review-log)). The
-Lean development is in `formal/lean/`.
+Status: revision 7 (after three adversarial reviews, the owner decisions of
+2026-11-09 on the review of the Lean statements, the owner decision of
+2026-11-10 on unforgeable handles, and its completion for the environment's
+input; see [Review log](#10-review-log)). The Lean development is in
+`formal/lean/`.
 
 Base commit: `9b37482ed` on `main`. Every `path:line` below is relative to the
 repository root at that commit.
@@ -985,6 +986,12 @@ this shape:
   `in(c, v)`, and the rejection to `refused(c, v)`. A publication of any other
   Dex value to an external Channel has no L counterpart and is not
   admissible.
+- [owner, completing the decision of 2026-11-10] The environment sends plain
+  data only. The start input and every published message are encoded L
+  **literals**: null, a Boolean, an integer, or a string (Section 8.1,
+  Handles and literals). A request that carries a thread, mutex, or condition
+  variable handle is not admissible, so no handle enters a program from
+  outside.
 
 **Projection `π : Obs → Obs_L ∪ {ε}`**, where `Obs_L` is L's observable
 alphabet (Section 8.1):
@@ -1651,6 +1658,13 @@ does; they are L design decisions for the owner.
     or join itself, and `main` is never canceled.
   - A condition variable handle is formed from a mutex handle and an index.
 
+  - The environment sends plain data only [owner, completing the decision
+    of 2026-11-10]: the program input of `begin(v)` and every message of
+    `in(c, v)` and `refused(c, v)` are literals (Section 5.3). So a lock
+    handle can only be created by `newMutex` or named by the static-mutex
+    expression, and thread handles are likewise unforgeable: no handle
+    reaches a program through its input.
+
   So a thread can name a created mutex only after `newMutex` created it. A
   static-mutex expression whose index is beyond the program's statically
   known mutexes names a mutex that never exists; `lock` on it blocks forever,
@@ -1884,6 +1898,14 @@ theorem found the point (Lean commit `56057f7a7`).
 | --- | --- | --- |
 | L5 | Forged mutex handles. A literal could be any value, so a program could write the handle of a mutex before `newMutex` created it. A thread that locked it blocked forever in L, because creating a mutex does not serve blocked lockers; in Dex the first token that `newMutex` publishes wakes the waiting Step. For `locker(): lock(<forged handle>); emit(1)` and `main: fork locker(); sleep(0); newMutex(); recv(9)`, L had the fair maximal trace `[begin(0)]` with `δ`, and every fair run of the Flow emits `out(1)`. | **Owner decision, 2026-11-10.** Mutex handles are unforgeable: L literals are only null, Boolean, integer, and string, and a mutex handle comes only from `newMutex` or the static-mutex expression. The same rule is applied to thread handles, which come only from `fork`: it follows from the restriction on literals at no cost, and it rules out handles of threads that do not exist. Section 8.1, Handles and literals; Appendix A, item 40. |
 
+Revision 7 records the completion of that decision for the environment's
+input. The proof of the safety theorem found the point (Lean commit
+`83cbcc202`).
+
+| # | Point | Decision or resolution |
+| --- | --- | --- |
+| L6 | Forged handles through the input. After L5 no expression could forge a handle, but the program input and every external message were arbitrary L values, and an L value can be a mutex handle. The counterexample of L5 came back with the forged handle as the program input: `locker(h): lock(h); emit(1)` and `main(x): fork locker(x); sleep(0); newMutex(); recv(9)`, started with `x` the handle of the mutex `main` creates. | **Owner decision, completing that of 2026-11-10.** The environment sends plain data only: the start input and every external message are literals (null, Boolean, integer, string), and `E_adm` admits only encoded literals. So a lock handle can only be created by `newMutex` or named by the static-mutex expression, and thread handles are likewise unforgeable. Sections 5.3 and 8.1; Appendix A, item 41. Row K9 is narrowed accordingly: "encoded L values" there now means encoded literals. |
+
 ## Appendix A. Assumptions and decisions in one list
 
 1. User code is a total function with output-only external effects (2.2).
@@ -1966,3 +1988,6 @@ theorem found the point (Lean commit `56057f7a7`).
 40. L literals are only null, Boolean, integer, and string. Mutex handles
     come only from `newMutex` and the static-mutex expression; thread handles
     come only from `fork` [owner, 2026-11-10] (8.1).
+41. The environment sends plain data only: the program input and every
+    external message are literals, and `E_adm` admits only encoded literals
+    [owner, completing the decision of 2026-11-10] (5.3, 8.1).

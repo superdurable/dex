@@ -298,7 +298,7 @@ theorem isAdmissibleWord_encode (word : Sequence L.Request)
     (isAdmissible : L.IsAdmissibleWord word) :
     environment.IsAdmissibleWord (word.map encodeRequest) := by
   obtain ⟨⟨input, startsWith⟩, laterAreInputs, isClosed⟩ := isAdmissible
-  refine ⟨⟨DexVal.value input, ⟨input, rfl⟩, ?_⟩, ?_, ?_⟩
+  refine ⟨⟨DexVal.value input.toVal, ⟨input, rfl⟩, ?_⟩, ?_, ?_⟩
   · simp [Sequence.map, startsWith, encodeRequest, environment]
   · intro position request isRequest
     simp only [Sequence.map] at isRequest
@@ -317,8 +317,9 @@ theorem isAdmissibleWord_encode (word : Sequence L.Request)
 
 /-- The L form of a Dex request of `E_adm`, when it has one. -/
 def decodeRequest : Dex.Request signature → Option L.Request
-  | .startFlow StepType.start (DexVal.value input) => some (.start input)
-  | .publish (Chan.external chan) (DexVal.value value) => some (.input chan value)
+  | .startFlow StepType.start (DexVal.value input) => (Literal.ofVal? input).map .start
+  | .publish (Chan.external chan) (DexVal.value value) =>
+    (Literal.ofVal? value).map (.input chan)
   | _ => none
 
 /-- Every admissible word of `E_adm` is the Dex form of an admissible L word
@@ -331,7 +332,7 @@ theorem isAdmissibleWord_decode (word : Sequence (Dex.Request signature))
   obtain ⟨⟨input, ⟨value, isValue⟩, startsWith⟩, laterArePublications, isClosed⟩ := isAdmissible
   subst isValue
   refine ⟨fun position => (word position).bind decodeRequest, ⟨⟨value, ?_⟩, ?_, ?_⟩, ?_⟩
-  · simp [startsWith, decodeRequest, environment]
+  · simp [startsWith, decodeRequest, environment, Literal.ofVal?_toVal]
   · intro position request isRequest
     cases atPosition : word (position + 1) with
     | none => simp [atPosition] at isRequest
@@ -339,7 +340,7 @@ theorem isAdmissibleWord_decode (word : Sequence (Dex.Request signature))
       obtain ⟨chan, message, isPublication, externalChan, messageValue, isExternal, isEncoded⟩ :=
         laterArePublications position dexRequest atPosition
       subst isPublication isExternal isEncoded
-      simp [atPosition, decodeRequest] at isRequest
+      simp [atPosition, decodeRequest, Literal.ofVal?_toVal] at isRequest
       exact ⟨externalChan, messageValue, isRequest.symm⟩
   · intro position isNone
     cases atPosition : word position with
@@ -349,15 +350,17 @@ theorem isAdmissibleWord_decode (word : Sequence (Dex.Request signature))
       | zero =>
         rw [startsWith] at atPosition
         cases atPosition
-        simp [startsWith, decodeRequest, environment] at isNone
+        simp [startsWith, decodeRequest, environment, Literal.ofVal?_toVal] at isNone
       | succ previous =>
         obtain ⟨chan, message, isPublication, externalChan, messageValue, isExternal, isEncoded⟩ :=
           laterArePublications previous dexRequest atPosition
         subst isPublication isExternal isEncoded
-        simp [atPosition, decodeRequest] at isNone
+        simp [atPosition, decodeRequest, Literal.ofVal?_toVal] at isNone
   · funext position
     cases position with
-    | zero => simp [Sequence.map, startsWith, decodeRequest, encodeRequest, environment]
+    | zero =>
+      simp [Sequence.map, startsWith, decodeRequest, encodeRequest, environment,
+        Literal.ofVal?_toVal]
     | succ previous =>
       cases atPosition : word (previous + 1) with
       | none => simp [Sequence.map, atPosition]
@@ -365,6 +368,6 @@ theorem isAdmissibleWord_decode (word : Sequence (Dex.Request signature))
         obtain ⟨chan, message, isPublication, externalChan, messageValue, isExternal, isEncoded⟩ :=
           laterArePublications previous dexRequest atPosition
         subst isPublication isExternal isEncoded
-        simp [Sequence.map, atPosition, decodeRequest, encodeRequest]
+        simp [Sequence.map, atPosition, decodeRequest, encodeRequest, Literal.ofVal?_toVal]
 
 end DexExpressiveness

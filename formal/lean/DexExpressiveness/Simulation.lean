@@ -266,10 +266,11 @@ start of the entry Step with an encoded program input, or, once the Flow has
 started, a publication of an encoded message to an external Channel (spec §5.3). -/
 def IsAdmissibleAction (config : Dex.Config signature) : Dex.Action signature → Prop
   | .request (.startFlow stepType input) =>
-    stepType = StepType.start ∧ ∃ value, input = DexVal.value value
+    stepType = StepType.start ∧ ∃ literal : Literal, input = DexVal.value literal.toVal
   | .request (.publish chan message) =>
     config.run ≠ none ∧
-    ∃ externalChan value, chan = Chan.external externalChan ∧ message = DexVal.value value
+    ∃ (externalChan : ExtChan) (literal : Literal),
+      chan = Chan.external externalChan ∧ message = DexVal.value literal.toVal
   | _ => True
 
 /-- Dex to L: every Dex action from a configuration related to a reachable L

@@ -109,7 +109,8 @@ def AreRequestsAdmissibleFrom (config : Dex.Config signature)
     (requests : List (Dex.Request signature)) : Prop :=
   (config.run.isSome = true →
     ∀ request, request ∈ requests →
-      ∃ chan value, request = .publish (Chan.external chan) (DexVal.value value)) ∧
+      ∃ (chan : ExtChan) (literal : Literal),
+        request = .publish (Chan.external chan) (DexVal.value literal.toVal)) ∧
   (config.run.isSome = false → environment.IsAdmissiblePrefix requests)
 
 /-- An enabled action whose request is admissible from here is an admissible
@@ -256,7 +257,7 @@ theorem finiteTrace_dex_to_l (program : Program) (isWellFormed : program.IsWellF
 /-! ## L to Dex -/
 
 /-- A start is enabled only before the program started, and starts it. -/
-theorem l_step_start (program : Program) (config : L.Config) (input : Val)
+theorem l_step_start (program : Program) (config : L.Config) (input : Literal)
     (events : List Event) (next : L.Config)
     (isStep : L.step program config (.request (.start input)) = some (events, next)) :
     config.status = .notStarted ∧ next.status = .running := by
@@ -272,7 +273,7 @@ theorem l_step_start (program : Program) (config : L.Config) (input : Val)
   · cases isStep
 
 /-- An input is enabled only after the program started. -/
-theorem l_step_input (program : Program) (config : L.Config) (chan : ExtChan) (value : Val)
+theorem l_step_input (program : Program) (config : L.Config) (chan : ExtChan) (value : Literal)
     (events : List Event) (next : L.Config)
     (isStep : L.step program config (.request (.input chan value)) = some (events, next)) :
     config.status ≠ .notStarted := by
@@ -382,7 +383,7 @@ theorem l_exec_simulated (program : Program) (labels : List L.Label) :
         have nextHasRun : dexNext.run.isSome = true := by simp [nextIsSome, isRunning]
         have arePublications := laterAfterStart nextHasRun
         refine ⟨fun hasRun => by simp [currentIsSome, wasNotStarted] at hasRun, fun _ => ?_⟩
-        refine Or.inr ⟨DexVal.value input, _, rfl, ⟨input, rfl⟩, ?_⟩
+        refine Or.inr ⟨DexVal.value input.toVal, _, rfl, ⟨input, rfl⟩, ?_⟩
         intro request isMember
         obtain ⟨chan, value, isPublication⟩ := arePublications request isMember
         exact ⟨_, _, isPublication, chan, value, rfl, rfl⟩

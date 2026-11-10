@@ -33,18 +33,20 @@ def project : Dex.Obs signature → Option Event
   | _ => none
 
 /-- The Dex form of an L request: the program input and every external
-message travel as `enc(v)`; the start names the entry Step. -/
+message travel as `enc(v)` of a literal; the start names the entry Step. -/
 def encodeRequest : L.Request → Dex.Request signature
-  | .start input => .startFlow StepType.start (DexVal.value input)
-  | .input chan value => .publish (Chan.external chan) (DexVal.value value)
+  | .start input => .startFlow StepType.start (DexVal.value input.toVal)
+  | .input chan value => .publish (Chan.external chan) (DexVal.value value.toVal)
 
 /-- The admissible environment `E_adm` of a translated program (spec §5.3):
-the entry Step is the start Step, a program input is an encoded L value, and
-an external message is an encoded L value on an external Channel. -/
+the entry Step is the start Step, a program input is an encoded literal, and
+an external message is an encoded literal on an external Channel. "The
+environment sends plain data only": no handle enters a Flow from outside. -/
 def environment : Dex.Environment signature :=
   { entryStep := StepType.start
-    IsProgramInput := fun input => ∃ value, input = DexVal.value value
+    IsProgramInput := fun input => ∃ literal : Literal, input = DexVal.value literal.toVal
     IsExternalMessage := fun chan message =>
-      ∃ externalChan value, chan = Chan.external externalChan ∧ message = DexVal.value value }
+      ∃ (externalChan : ExtChan) (literal : Literal),
+        chan = Chan.external externalChan ∧ message = DexVal.value literal.toVal }
 
 end DexExpressiveness.Translation

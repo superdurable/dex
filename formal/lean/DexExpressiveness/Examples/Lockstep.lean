@@ -89,8 +89,10 @@ before the step. Running and returning a handler have no L counterpart. -/
 def lLabelsFor (program : Program) (lConfig : L.Config) (dexConfig : Dex.Config signature) :
     Dex.Action signature → List L.Label
   | .tick duration => [.tick duration]
-  | .request (.startFlow _ (.value input)) => [.request (.start input)]
-  | .request (.publish (.external chan) (.value value)) => [.request (.input chan value)]
+  | .request (.startFlow _ (.value input)) =>
+    ((Literal.ofVal? input).map (fun literal => L.Label.request (.start literal))).toList
+  | .request (.publish (.external chan) (.value value)) =>
+    ((Literal.ofVal? value).map (fun literal => L.Label.request (.input chan literal))).toList
   | .request _ => []
   | .timerFire count => [.fire count]
   | .stepStart stepId =>

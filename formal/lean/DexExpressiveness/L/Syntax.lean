@@ -91,6 +91,25 @@ def Literal.toVal : Literal → Val
   | .int value => .int value
   | .str value => .str value
 
+/-- The literal of a value that is plain data; `none` for a handle. -/
+def Literal.ofVal? : Val → Option Literal
+  | .null => some .null
+  | .bool value => some (.bool value)
+  | .int value => some (.int value)
+  | .str value => some (.str value)
+  | .thread _ => none
+  | .mutex _ => none
+  | .cv _ => none
+
+/-- A literal is recovered from its value. -/
+theorem Literal.ofVal?_toVal (literal : Literal) : Literal.ofVal? literal.toVal = some literal := by
+  cases literal <;> rfl
+
+/-- A value with a literal is the value of that literal. -/
+theorem Literal.toVal_of_ofVal? (value : Val) (literal : Literal)
+    (isLiteral : Literal.ofVal? value = some literal) : literal.toVal = value := by
+  cases value <;> simp [Literal.ofVal?] at isLiteral <;> subst isLiteral <;> rfl
+
 /-- A pure expression over thread-local variables. "Local computation is
 invisible" (spec §8.1), so expressions never touch shared state. Handles are
 unforgeable (spec §8.1, "Handles and literals"): a mutex handle comes only
@@ -211,12 +230,14 @@ inductive Event
   deriving DecidableEq, Repr
 
 /-- A request of L's environment: the L form of an attempted client request
-(spec §5.3). -/
+(spec §5.3). The environment sends plain data only (spec §5.3, §8.1 "Handles
+and literals"): the program input and every external message are literals, so
+no handle enters a program from outside. -/
 inductive Request
   /-- Start the program with this input. -/
-  | start (input : Val)
+  | start (input : Literal)
   /-- Send this message on this external channel. -/
-  | input (chan : ExtChan) (value : Val)
+  | input (chan : ExtChan) (value : Literal)
   deriving DecidableEq, Repr
 
 end DexExpressiveness.L

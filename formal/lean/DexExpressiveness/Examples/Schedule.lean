@@ -55,17 +55,20 @@ theorem isFiniteTrace_of_traceOf {State Label Event Request Visible : Type}
     rw [executed] at traceMatches
     exact ⟨labels, result.1, result.2, executed, isAdmissible, (Option.some.inj traceMatches).symm⟩
 
+/-- A Boolean check that a request is a publication of an encoded literal to
+an external Channel. -/
+def isEncodedPublication : Dex.Request signature → Bool
+  | .publish (Chan.external _) (DexVal.value value) => (Literal.ofVal? value).isSome
+  | _ => false
+
 /-- A Boolean check that a request list is a finite prefix of an admissible
 word of a translated program: empty, or the start of the entry Step with an
-encoded input followed by publications of encoded messages to external
+encoded literal followed by publications of encoded literals to external
 Channels (spec §5.3). -/
 def isEncodedRequestPrefix : List (Dex.Request signature) → Bool
   | [] => true
-  | .startFlow StepType.start (DexVal.value _) :: laterRequests =>
-    laterRequests.all (fun request =>
-      match request with
-      | .publish (Chan.external _) (DexVal.value _) => true
-      | _ => false)
+  | .startFlow StepType.start (DexVal.value input) :: laterRequests =>
+    (Literal.ofVal? input).isSome && laterRequests.all isEncodedPublication
   | _ => false
 
 /-- The Boolean check implies admissibility. -/
@@ -76,12 +79,19 @@ theorem isAdmissiblePrefix_of_check (requests : List (Dex.Request signature))
   split at passes
   · exact Or.inl rfl
   · rename_i input laterRequests
-    refine Or.inr ⟨DexVal.value input, laterRequests, rfl, ⟨input, rfl⟩, ?_⟩
+    simp only [Bool.and_eq_true] at passes
+    obtain ⟨inputIsLiteral, laterPass⟩ := passes
+    obtain ⟨literal, isLiteral⟩ := Option.isSome_iff_exists.mp inputIsLiteral
+    refine Or.inr ⟨DexVal.value input, laterRequests, rfl,
+      ⟨literal, by rw [Literal.toVal_of_ofVal? input literal isLiteral]⟩, ?_⟩
     intro request isMember
-    have requestPasses := List.all_eq_true.mp passes request isMember
+    have requestPasses := List.all_eq_true.mp laterPass request isMember
+    unfold isEncodedPublication at requestPasses
     split at requestPasses
     · rename_i chan value
-      exact ⟨_, _, rfl, chan, value, rfl, rfl⟩
+      obtain ⟨messageLiteral, isMessageLiteral⟩ := Option.isSome_iff_exists.mp requestPasses
+      exact ⟨_, _, rfl, chan, messageLiteral,
+        rfl, by rw [Literal.toVal_of_ofVal? value messageLiteral isMessageLiteral]⟩
     · cases requestPasses
   · cases passes
 
