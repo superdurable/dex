@@ -8,7 +8,7 @@ slug: /concepts/primitives/attribute
 
 **Attribute** 是属于一个 Flow execution 的 durable 数据。Step 和 RPC 读写它。Dex 把它和 Flow 存在一起，所以中间状态不需要另外的 database。
 
-Attribute 的生命周期和它的 Flow 相同。Flow 关闭后过了 retention period，Dex 删除 Flow，也一并删除 Attribute。要更长时间保留数据，就把它同步到你自己的 database。
+Attribute 的生命周期和它的 Flow 相同。Flow 关闭后过了 retention period，Dex 删除 Flow，也一并删除 Attribute。要更长时间保留数据，见[在 Flow 之后保留数据](#attribute-store-projection)。
 
 ## 什么时候用 Attribute
 
@@ -18,7 +18,7 @@ Attribute 适合存放 Flow 据以做决定的状态：订单状态、计数器�
 
 在 Flow 的 persistence schema 里声明每个 Attribute。之后 Step 或 RPC 就可以读写它。schema 没有声明的 Attribute，Worker 会拒绝。把 Attribute 设为 null 会删除它。
 
-Dex 把 handler 的 Attribute 写入和它的结果一起 commit。Step 或 RPC 失败时，它的写入会被丢弃。
+只有 Step 方法或 RPC 成功时，它的 Attribute 写入才会生效。见 [Step 的保证](/concepts/step#guarantees)。
 
 <SdkTabs
   examples={{
@@ -314,7 +314,7 @@ Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时�
 
 ## Lock {#locking}
 
-两个 Step 或 RPC 可能同时写同一个 Attribute。没有 lock 时，一次先读后写的更新可能覆盖另一次更新，见 [Step 的保证](/concepts/step#guarantees)。用 **Attribute lock** 让它们依次执行。Dex 在 Step method 或 RPC 开始前获取 lock，结束后释放。Step 会等待它的 lock。RPC 拿不到 lock 就失败，由你重试。
+两个 Step 或 RPC 可能同时写同一个 Attribute。没有 lock 时，两个先读后写这个 Attribute 的 Step 或 RPC 可能互相覆盖对方的更新，见 [Step 的保证](/concepts/step#guarantees)。用 **Attribute lock** 让它们依次执行。Dex 在 Step method 或 RPC 开始前获取 lock，结束后释放。Step 会等待它的 lock。RPC 拿不到 lock 就失败，由你重试。
 
 lock 只对声明了它的 Step 和 RPC 起作用。没有声明这个 lock 的 Step 或 RPC 仍然可以写这个 Attribute。Step 按开始等待 lock 的顺序拿到它。RPC 不排队。即使有 Step 在等一个空闲的 lock，RPC 也会直接拿走它。所以持续不断的加锁 RPC 可能推迟这些 Step。让加锁的 RPC 尽量短。
 
@@ -395,7 +395,7 @@ lock 的获取时机，以及 **WaitFor**、**Execute** 和 RPC 的 lock，见 [
 
 ## 短期 secret {#hard-delete-attributes}
 
-**hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入不同，hard-delete 写入在 handler 的结果 commit 之前就生效。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)。
+**hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入不同，hard-delete 写入在 Dex 保存 handler 的结果之前就生效。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)。
 
 ## 在 Flow 之后保留数据 {#attribute-store-projection}
 

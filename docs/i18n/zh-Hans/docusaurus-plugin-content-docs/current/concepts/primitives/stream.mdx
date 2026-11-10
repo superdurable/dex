@@ -43,7 +43,7 @@ Stream 有稳定的名字、消息类型和容量。把它加到 Flow 的 persis
 
 <a id="buffer-text-chunk"></a>
 
-这个例子通过 buffered text writer 写入进度文本。Dex 在 Step 结果之前 flush 缓冲的文本。Step 不等待 server 保存文本。见 [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text)。
+这个例子通过 buffered text writer 写入进度文本。Dex 在保存 Step 结果之前发出缓冲的文本。Step 不等待 server 保存文本。见 [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text)。
 
 <SdkTabs examples={{
 python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',

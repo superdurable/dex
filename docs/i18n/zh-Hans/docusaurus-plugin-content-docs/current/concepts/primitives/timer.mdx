@@ -6,15 +6,15 @@ slug: /concepts/primitives/timer
 
 # Timer
 
-**Timer** 是由 Dex Server 保存的 durable timer。Step 在 **WaitFor** 中返回它，Timer 触发后运行 **Execute**。Step 等待期间，没有 Worker 为它占用内存、线程或连接。
+**Timer** 是一个等到某个时间点的 durable 等待，由 Dex Server 保存。Step 在 **WaitFor** 中返回它，Timer 触发后运行 **Execute**。Step 等待期间，没有 Worker 为它占用内存、线程或连接。
 
 ## 什么时候用 Timer
 
-Timer 适合延迟、提醒或截止时间。把它和另一个 condition 组合，就能实现超时：一个 Step 同时等待 [Channel](/concepts/primitives/channel) 消息和 Timer，哪个先到就继续。
+Timer 适合延迟、提醒或截止时间。把它和另一个 condition 组合，就能实现超时。例如，一个 Step 同时等待 [Channel](/concepts/primitives/channel) 消息和 Timer，哪个先到就继续。在 **Execute** 中，Step 检查它的 Timer 是否已触发。
 
 ## 保证
 
-server 把 Timer 和 Flow 一起保存。Worker 重启和 server failover 都不会丢失它。在 **Execute** 中，Step 检查它的 Timer 是否已触发。
+server 把 Timer 和 Flow 一起保存。Worker 重启和 server failover 都不会丢失它。
 
 ## 等待 Timer
 
