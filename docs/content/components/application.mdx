@@ -26,9 +26,9 @@ or **dexcli** starts also runs on your Workers.
 
 ## Start a Worker {#enable-pull-mode}
 
-Give the Worker the server address. A Client needs only the server address too.
-The pull options are optional. They tune task capacity, registration, and
-shutdown.
+Configure the Worker with the server address. A Client needs only the server
+address too. You can also set pull options to tune task capacity,
+registration, and shutdown.
 
 Each SDK reference has a runnable startup example:
 [Go](/reference/go/workers), [Python](/reference/python/workers),
@@ -38,7 +38,7 @@ and [Rust](/reference/rust/workers).
 ## Capacity and shutdown
 
 A Worker opens one stream for each task slot. Dex sends a task only to a free
-slot. So a Worker never declines work for capacity. A Step that no Worker takes
+slot, so a Worker never has to decline work for lack of capacity. A Step that no Worker takes
 waits in a durable task queue. An RPC fails when no Worker takes it in time.
 Stop Workers gracefully during a deployment, so running tasks can finish.
 
@@ -47,18 +47,15 @@ routing, capacity, shutdown, and network settings.
 
 ## Operate it in production
 
-Run the application like any production service. Record the deployed version.
-Expose useful logs. Keep its network path to the server healthy.
-
 When a Flow does not advance or fails, follow
 [Troubleshoot a Flow run](/reference/web/debugging).
 
 ## Versioning Flow code
 
-Dex does not replay your Flow handler code to decide later transitions, so a
-deployment does not produce a user-code replay nondeterminism error. That does
-not remove compatibility work. Open Flows can still observe changed business
-rules, unavailable Step implementations, renamed RPCs, or incompatible data.
+Dex does not re-run your earlier Step code to decide what a Flow does next.
+So deploying changed code never causes a replay error. You still have to keep
+open Flows working across a deployment. They can meet changed business rules,
+missing Step implementations, renamed RPCs, or incompatible data.
 
 ### Lock business behavior at Flow start
 
@@ -68,13 +65,13 @@ currently serving the call. Existing Flows keep their old behavior; new Flows
 can use the new behavior after deployment.
 
 Use this when a change alters a decision, payment rule, retry policy, deadline,
-or other customer-visible meaning. A code rollout alone is not a versioning
-strategy because a long-running Flow can call a newly deployed Worker later.
+or other customer-visible meaning. Deploying new code alone is not enough,
+because a long-running Flow can call a newly deployed Worker later.
 
 ### Evolve data and contracts additively
 
-Add optional fields. Readers must tolerate absent fields from older runs and
-ignore unknown fields sent by newer components. Supply a safe default for an
+Add optional fields. Code that reads a payload must handle fields that older
+runs did not set, and ignore unknown fields that newer components send. Supply a safe default for an
 absent field, and keep the previous meaning of existing field values. For an
 incompatible payload or output contract, introduce a new Step type or RPC name
 instead of silently changing the old one.
@@ -86,14 +83,15 @@ open Flow can still call it. Deploy the new definition alongside the old one,
 route only new-version Flows to it, and keep the old implementation available
 through retries and any approved Time Travel recovery.
 
-During a rolling deployment, a pull Worker that lacks a requested Step or RPC
-can hand the call to another capable Worker without consuming a Step attempt.
+During a rolling deployment, a Worker that lacks a requested Step or RPC can
+hand the call to another Worker that has it. This does not use up a Step
+attempt.
 See [Routing and availability](/reference/server/workers#routing-and-availability).
 
 Before removing the old definition, search for the legacy Flow type and confirm
 that no running, waiting, retrying, or recoverable terminal Flow needs it. Keep
 the search result with the change record. The exact query depends on your
-visibility-store fields; begin with a bounded Flow-type search such as:
+search fields. Start with a search by Flow type:
 
 ~~~bash
 dexcli flow search --query 'FlowType = "OldFlowType"'

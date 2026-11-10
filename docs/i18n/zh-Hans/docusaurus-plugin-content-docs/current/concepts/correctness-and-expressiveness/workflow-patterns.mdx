@@ -34,13 +34,11 @@ Dex 在一个 Flow 内用 Channel 信号表达汇合：每个分支结束时发�
 
 ## 与已发表评估的比较 {#comparison-with-a-published-evaluation}
 
-一项[已发表的评估](https://doi.org/10.1016/j.infsof.2009.02.002)按同样的 43 个 control-flow 模式评估了六个 workflow 和 BPM 系统。作者是 Wohed、Russell、ter Hofstede、Andersson 和 van der Aalst，发表于 Information and Software Technology 51(8)，2009（[PDF](https://www.vdaalst.com/publications/p536.pdf)）。在其 Table 20 中，每个系统直接支持 11 到 20 个模式，部分支持最多 6 个模式，不支持 19 到 32 个模式。
-
-Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
+一项[已发表的评估](https://doi.org/10.1016/j.infsof.2009.02.002)按同样的 43 个 control-flow 模式评估了六个 workflow 和 BPM 系统。作者是 Wohed、Russell、ter Hofstede、Andersson 和 van der Aalst，发表于 Information and Software Technology 51(8)，2009（[PDF](https://www.vdaalst.com/publications/p536.pdf)）。在其 Table 20 中，每个系统直接支持 11 到 20 个模式，部分支持最多 6 个，有 19 到 32 个模式不支持。Dex 没有不支持的模式。
 
 ## 结果 {#results}
 
-表中列出每个评级依据的 Dex 构件。每个链接打开一种 SDK 语言的示例。
+表中列出每个评级依据的 Dex 构件。
 
 | Pattern | 评级 | Dex 构件 | 示例 |
 | --- | --- | --- | --- |
@@ -97,15 +95,13 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 - **ForceComplete** 立即关闭 Flow，并取消其他 Step。
 - **AnyOf** 只消费被选中条件的消息。
 - Channel 消息一直排队，直到被 Step 消费。
-- decision 或 RPC 按 Step type 取消 Step。取消是协作式的。
+- decision 或 RPC 按 Step type 取消 Step。Dex 不会强行停止被取消方法的代码。方法会一直运行，直到它检查到取消并返回。
 - 同一时间只有一个 Step 方法或 RPC 持有某个 Attribute lock。
 - 父 Flow 关闭后，SubFlow 会继续运行。
 
 这些概念见 [Step](/concepts/step)、[Channel](/concepts/primitives/channel) 和 [SubFlow](/concepts/primitives/subflow)。
 
 ## 各模式详情 {#pattern-details}
-
-每节说明一个模式的含义、Dex 的实现方式和评级理由。
 
 ### WCP-1 Sequence {#wcp-1}
 
@@ -233,7 +229,7 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **Dex 实现**：Step 返回 **GoToMany**，包含固定数量的实例和一个汇合 Step。每个实例发布一个 **Channel** 信号。汇合 Step 用 **ForN** 等待这个数量。
 
-**评级**：**+/-**。汇合由 Channel 信号和 **ForN** 等待组合而成。测试用一个闸门同时挡住所有实例，证明它们同时运行。
+**评级**：**+/-**。汇合由 Channel 信号和 **ForN** 等待组合而成。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DesignTimeMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs)
 
@@ -251,9 +247,9 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **模式含义**：直到最后一个实例完成，实例数量才确定。其他实例运行时可以启动新实例。全部完成后流程才继续。见[官方定义](http://www.workflowpatterns.com/patterns/control/multiple_instance/wcp15.php)。
 
-**Dex 实现**：**RPC** 通过 next Steps 添加实例，并在 **Attribute** 中计数。另一个 RPC 关闭接收。汇合 Step 每次等待一个结果，循环直到接收已关闭且每个实例都已报告。
+**Dex 实现**：**RPC** 通过 next Steps 启动每个新实例，并在 **Attribute** 中计数。另一个 RPC 停止添加新实例。汇合 Step 每次等待一个结果，一直循环，直到不能再添加新实例且每个实例都已报告。
 
-**评级**：**+/-**。汇合由 RPC、Attribute 计数和循环等待组合而成。
+**评级**：**+/-**。汇合由 RPC、Attribute 计数和每收到一个结果就重新等待的循环组合而成。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/NoPriorKnowledgeMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs)
 
@@ -273,7 +269,7 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **模式含义**：一组任务按偏序允许的任意顺序运行。每个任务运行一次，任意两个任务都不同时运行。见[官方定义](http://www.workflowpatterns.com/patterns/control/state/wcp17.php)。
 
-**Dex 实现**：每个任务在一个共享 **Attribute** 上持有 **Execute** 锁。**GoTo** 表示偏序。汇合 Step 用 **ForN** 等待各任务的信号。
+**Dex 实现**：每个任务的 **Execute** 都在同一个 **Attribute** 上声明锁。**GoTo** 表示偏序。汇合 Step 用 **ForN** 等待各任务的信号。
 
 **评级**：**+/-**。路由由锁和 Channel 信号组合而成。锁只覆盖一个 **Execute**，不覆盖 **WaitFor**，也不覆盖跨多个 Step 的任务。
 
@@ -293,7 +289,7 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **模式含义**：已启用的任务在开始前被撤回；正在运行的任务尽可能被停止。见[官方定义](http://www.workflowpatterns.com/patterns/control/cancellation/wcp19.php)。
 
-**Dex 实现**：**RPC** 结果按 Step type 取消正在等待的 Step，并在同一次提交中启动另一个 Step。
+**Dex 实现**：**RPC** 结果按 Step type 取消正在等待的 Step，并启动另一个 Step。Dex 让这两项改动同时生效。
 
 **评级**：**+**。取消 Step 是 RPC 结果的内置功能。
 
@@ -335,7 +331,7 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **模式含义**：信号只有在任务已经在等待时才能触发它。没有任务等待时到达的信号会丢失。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp23.php)。
 
-**Dex 实现**：**WaitFor** 在 **Attribute** 中记录有 Step 正在等待。**RPC** 持有该 Attribute 的锁，只在它成立时接受触发，并在同一次提交中清除它，之后的触发都会被丢弃。
+**Dex 实现**：Step 的 **WaitFor** 设置一个 **Attribute**，记录它正在等待。**RPC** 在该 Attribute 上声明锁，只在它已设置时接受触发，并在接受时清除它。之后的触发都会被丢弃。
 
 **评级**：**+/-**。Channel 消息会持久保存，所以示例组合了 Attribute、锁和 RPC 检查来丢弃触发。
 
@@ -377,7 +373,7 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **Dex 实现**：**RPC** 结果取消各实例及其汇合 Step，然后用已有结果启动下一个 Step。
 
-**评级**：**+**。一个 RPC 结果在同一次提交中完成取消和继续。
+**评级**：**+**。一个 RPC 结果既取消各实例，又启动下一个 Step。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CompleteMultipleInstanceTaskFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs)
 
@@ -387,7 +383,7 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **Dex 实现**：第 k 轮的分支向第 k 轮的 **ChannelMap** 实例发布信号。汇合 Step 用 **ForN** 等待 1 个信号，reset Step 等待其余信号。第 k 轮复位前，没有 Step 等待第 k + 1 轮，所以下一轮的信号只会排队，不产生效果。
 
-**评级**：**+/-**。阻塞由结构保证，但需要组合按轮次划分的 ChannelMap、**ForN** 等待和 reset Step。
+**评级**：**+/-**。阻塞不需要额外代码。汇合仍由按轮次划分的 ChannelMap、**ForN** 等待和 reset Step 组合而成。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/BlockingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs)
 
@@ -417,7 +413,7 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **Dex 实现**：做法与 WCP-28 相同，只是 **ForN** 取 n。信号按轮次存放，所以下一轮的信号会一直排队，直到复位。
 
-**评级**：**+/-**。阻塞由结构保证，但需要组合按轮次划分的 ChannelMap、**ForN** 等待和 reset Step。
+**评级**：**+/-**。阻塞不需要额外代码。汇合仍由按轮次划分的 ChannelMap、**ForN** 等待和 reset Step 组合而成。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/BlockingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs)
 
@@ -465,9 +461,9 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **模式含义**：其他实例运行时可以启动新实例，直到添加被禁止。每个实例完成后都会检查完成条件，条件成立时下一个任务开始。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp36.php)。
 
-**Dex 实现**：**RPC** 添加实例，除非 **Attribute** 表明已停止接收。汇合 Step 每次等待一个结果并检查条件。条件成立时，它停止接收并继续。
+**Dex 实现**：**RPC** 启动新实例，除非 **Attribute** 标志表明已禁止添加。汇合 Step 每次等待一个结果并检查条件。条件成立时，它设置这个标志，然后继续。
 
-**评级**：**+/-**。汇合由 RPC、Attribute 标志、共享锁和循环等待组合而成。
+**评级**：**+/-**。汇合由 RPC、Attribute 标志、共享锁和每收到一个结果就重新等待的循环组合而成。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DynamicPartialJoinForMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_partial_joins.rs)
 
@@ -485,7 +481,7 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **模式含义**：合并等待每个活动分支，或者等到 "it is not possible that any branch that has not yet been enabled will be enabled at any future time"。它适用于任何流程，包括带循环的非结构化流程。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp38.php)。
 
-**Dex 实现**：**Attribute** 记录仍能到达合并点的线程数。修改它的每个 Step 都持有同一把锁。把计数降到 0 的那次提交向 **Channel** 发布一条哨兵消息，合并 Step 等待这条消息。
+**Dex 实现**：**Attribute** 记录仍能到达合并点的线程数。修改计数的每个 Step 都在这个 Attribute 上声明锁。把计数降到 0 的 Step 同时向 **Channel** 发布一条"完成"消息。合并 Step 等待这条消息。
 
 **评级**：**+/-**。该模式要求合并点根据流程结构自行判断可达性。在 Dex 中，这一判断由应用代码在每次 **GoTo** 时做出。
 
@@ -507,7 +503,7 @@ Dex 有 19 个 **+**、24 个 **+/-** 和 0 个 **-**。
 
 **模式含义**：一组任务中的每个任务以任意顺序运行一次，任意两个都不同时运行。全部完成后下一个任务开始。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp40.php)。
 
-**Dex 实现**：每个任务在一个共享 **Attribute** 上持有 **Execute** 锁。汇合 Step 用 **ForN** 等待各任务的信号。
+**Dex 实现**：每个任务的 **Execute** 都在同一个 **Attribute** 上声明锁。汇合 Step 用 **ForN** 等待各任务的信号。
 
 **评级**：**+/-**。路由由锁和 Channel 信号组合而成。与 WCP-17 一样，锁只覆盖一个 **Execute**。
 
