@@ -201,6 +201,21 @@ impl ControlPatternsEnvironment {
         );
         outputs.remove(0)
     }
+
+    /// Asserts that legal ended with `legal_outcome`, finance still saved,
+    /// and the edits never overlapped.
+    fn assert_contract_edit_outcomes(&self, flow_id: &str, legal_outcome: &str) {
+        let records = self.contract_edit_records(flow_id);
+        let outcomes = records
+            .iter()
+            .map(|record| (record.reviewer.as_str(), record.outcome.as_str()))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            outcomes,
+            BTreeMap::from([("finance", "saved"), ("legal", legal_outcome)])
+        );
+        assert_contract_edits_do_not_overlap(&records);
+    }
 }
 
 impl Drop for ControlPatternsEnvironment {
@@ -292,9 +307,9 @@ fn critical_section_runs_one_edit_at_a_time() {
         &ContractEditFlow::default(),
         "critical-section",
         vec![
-            contract_edit("legal", false),
-            contract_edit("finance", false),
-            contract_edit("procurement", false),
+            contract_edit("legal"),
+            contract_edit("finance"),
+            contract_edit("procurement"),
         ],
     );
     let records = environment.contract_edit_records(&flow_id);
@@ -318,20 +333,50 @@ fn critical_section_returns_the_token_when_an_edit_fails() {
         &ContractEditFlow::default(),
         "critical-section-failure",
         vec![
-            contract_edit("legal", true),
-            contract_edit("finance", false),
+            ContractEdit {
+                should_fail_edit: true,
+                ..contract_edit("legal")
+            },
+            contract_edit("finance"),
         ],
     );
-    let records = environment.contract_edit_records(&flow_id);
-    let outcomes = records
-        .iter()
-        .map(|record| (record.reviewer.as_str(), record.outcome.as_str()))
-        .collect::<BTreeMap<_, _>>();
-    assert_eq!(
-        outcomes,
-        BTreeMap::from([("finance", "saved"), ("legal", "failed")])
+    environment.assert_contract_edit_outcomes(&flow_id, "failed");
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn critical_section_returns_the_token_when_a_handoff_fails() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &ContractEditFlow::default(),
+        "critical-section-handoff-failure",
+        vec![
+            ContractEdit {
+                should_fail_handoff: true,
+                ..contract_edit("legal")
+            },
+            contract_edit("finance"),
+        ],
     );
-    assert_contract_edits_do_not_overlap(&records);
+    environment.assert_contract_edit_outcomes(&flow_id, "failed");
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn critical_section_returns_the_token_on_an_early_exit() {
+    let environment = ControlPatternsEnvironment::start();
+    let flow_id = environment.start_flow(
+        &ContractEditFlow::default(),
+        "critical-section-early-exit",
+        vec![
+            ContractEdit {
+                should_withdraw: true,
+                ..contract_edit("legal")
+            },
+            contract_edit("finance"),
+        ],
+    );
+    environment.assert_contract_edit_outcomes(&flow_id, "withdrawn");
 }
 
 #[test]
@@ -404,10 +449,9 @@ fn unique_flow_id(prefix: &str) -> String {
     format!("rust-pattern-{prefix}-{}-{timestamp}", std::process::id())
 }
 
-fn contract_edit(reviewer: &str, should_fail_edit: bool) -> ContractEdit {
+fn contract_edit(reviewer: &str) -> ContractEdit {
     ContractEdit {
         reviewer: reviewer.to_string(),
-        should_fail_edit,
         ..ContractEdit::default()
     }
 }

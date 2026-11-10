@@ -92,9 +92,9 @@ public class ControlStructurePatternsIntegTest {
                 ContractEditFlow.class,
                 "critical-section",
                 new ContractEdit[] {
-                    new ContractEdit("legal", false, 0L),
-                    new ContractEdit("finance", false, 0L),
-                    new ContractEdit("procurement", false, 0L),
+                    new ContractEdit("legal", false, false, false, 0L),
+                    new ContractEdit("finance", false, false, false, 0L),
+                    new ContractEdit("procurement", false, false, false, 0L),
                 });
         final List<ContractEditRecord> records = contractEditRecords(flowId);
         assertEquals(
@@ -113,8 +113,8 @@ public class ControlStructurePatternsIntegTest {
                 ContractEditFlow.class,
                 "critical-section-failure",
                 new ContractEdit[] {
-                    new ContractEdit("legal", true, 0L),
-                    new ContractEdit("finance", false, 0L),
+                    new ContractEdit("legal", false, false, true, 0L),
+                    new ContractEdit("finance", false, false, false, 0L),
                 });
         final List<ContractEditRecord> records = contractEditRecords(flowId);
         final Map<String, String> outcomes = new HashMap<String, String>();
@@ -123,6 +123,28 @@ public class ControlStructurePatternsIntegTest {
         }
         assertEquals(Map.of("legal", "failed", "finance", "saved"), outcomes);
         assertContractEditsDoNotOverlap(records);
+    }
+
+    @Test
+    void criticalSectionReturnsTheTokenWhenTheHandoffFails() {
+        assertContractEditOutcomes(
+                "critical-section-handoff-failure",
+                new ContractEdit[] {
+                    new ContractEdit("legal", true, false, false, 0L),
+                    new ContractEdit("finance", false, false, false, 0L),
+                },
+                Map.of("legal", "failed", "finance", "saved"));
+    }
+
+    @Test
+    void criticalSectionReturnsTheTokenOnAnEarlyExit() {
+        assertContractEditOutcomes(
+                "critical-section-withdrawal",
+                new ContractEdit[] {
+                    new ContractEdit("legal", false, true, false, 0L),
+                    new ContractEdit("finance", false, false, false, 0L),
+                },
+                Map.of("legal", "withdrawn", "finance", "saved"));
     }
 
     @Test
@@ -192,6 +214,20 @@ public class ControlStructurePatternsIntegTest {
                 return false;
             }
         }, flowId + " offer expiry Timer was never skipped");
+    }
+
+    private static void assertContractEditOutcomes(
+            final String prefix,
+            final ContractEdit[] edits,
+            final Map<String, String> expectedOutcomes) {
+        final List<ContractEditRecord> records =
+                contractEditRecords(startPatternFlow(ContractEditFlow.class, prefix, edits));
+        final Map<String, String> outcomes = new HashMap<String, String>();
+        for (final ContractEditRecord record : records) {
+            outcomes.put(record.reviewer(), record.outcome());
+        }
+        assertEquals(expectedOutcomes, outcomes);
+        assertContractEditsDoNotOverlap(records);
     }
 
     private static List<ContractEditRecord> contractEditRecords(final String flowId) {

@@ -144,7 +144,8 @@ impl Step for RunCreditCheck {
                 .reuse_policy(SubFlowReusePolicy::RestartIfPreviousExitsAbnormally),
         )
         .map_err(HandlerError::from_error)?;
-        Ok(Wait::any_of([credit_check, APPLICATION_CANCELED.for_one()]))
+        // The cancel condition comes first: it wins when both are ready.
+        Ok(Wait::any_of([APPLICATION_CANCELED.for_one(), credit_check]))
     }
 
     fn execute(
@@ -186,8 +187,8 @@ impl Step for AwaitUnderwriterDecision {
 
     fn wait_for(&self, _context: &mut Context, _report: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            UNDERWRITER_DECIDED.for_one(),
             APPLICATION_CANCELED.for_one(),
+            UNDERWRITER_DECIDED.for_one(),
         ]))
     }
 

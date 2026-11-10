@@ -33,15 +33,27 @@ import java.time.Duration;
 
 /**
  * Lets several reviewers edit one contract, one at a time. A one-message Channel is the token that
- * guards the two-Step edit section.
+ * guards the edit section.
  */
 @Component
 public class ContractEditFlow implements Flow<ContractEditFlow.ContractEdit[]> {
     private static final Duration CONTRACT_EDIT_DURATION = Duration.ofMillis(100);
     private static final String TOKEN = "contract";
 
-    /** One reviewer's turn to edit the shared contract. */
-    public record ContractEdit(String reviewer, boolean shouldFailEdit, long startedAtMillis) {
+    /**
+     * One reviewer's turn to edit the shared contract. The should* fields simulate a failure or a
+     * withdrawal for the example.
+     */
+    public record ContractEdit(
+            String reviewer,
+            boolean shouldFailHandoff,
+            boolean shouldWithdraw,
+            boolean shouldFailEdit,
+            long startedAtMillis) {
+        ContractEdit withStartedAtMillis(final long millis) {
+            return new ContractEdit(
+                    reviewer, shouldFailHandoff, shouldWithdraw, shouldFailEdit, millis);
+        }
     }
 
     /** When one edit held the contract and how it ended. */
@@ -56,6 +68,7 @@ public class ContractEditFlow implements Flow<ContractEditFlow.ContractEdit[]> {
 
     private final StartContractEdits startContractEdits = new StartContractEdits();
     private final EnterContractEdit enterContractEdit = new EnterContractEdit();
+    private final EditContract editContract = new EditContract();
     private final SaveContractEdit saveContractEdit = new SaveContractEdit();
     private final ReleaseContractEditToken releaseContractEditToken =
             new ReleaseContractEditToken();
@@ -64,7 +77,11 @@ public class ContractEditFlow implements Flow<ContractEditFlow.ContractEdit[]> {
     @Override
     public StepList<ContractEdit[]> getSteps() {
         return StepList.startStep(startContractEdits).otherSteps(
-                enterContractEdit, saveContractEdit, releaseContractEditToken, finishContractEdits);
+                enterContractEdit,
+                editContract,
+                saveContractEdit,
+                releaseContractEditToken,
+                finishContractEdits);
     }
 
     @Override
@@ -102,7 +119,7 @@ public class ContractEditFlow implements Flow<ContractEditFlow.ContractEdit[]> {
         }
     }
 
-    /** Enters the section by consuming the token. */
+    /** Takes the token and hands off; it does no protected work, so canceling it is safe. */
     static final class EnterContractEdit implements Step<ContractEdit> {
         @Override
         public Class<ContractEdit> getInputType() {
@@ -121,8 +138,32 @@ public class ContractEditFlow implements Flow<ContractEditFlow.ContractEdit[]> {
 
         @Override
         public StepDecision execute(final Context context, final ContractEdit edit) {
-            final ContractEdit started = new ContractEdit(
-                    edit.reviewer(), edit.shouldFailEdit(), System.currentTimeMillis());
+            if (edit.shouldFailHandoff()) {
+                throw new IllegalStateException("contract handoff failed");
+            }
+            return StepDecision.goTo(EditContract.class, edit);
+        }
+    }
+
+    /** The first Step that works on the contract. Never cancel it. */
+    static final class EditContract implements Step<ContractEdit> {
+        @Override
+        public Class<ContractEdit> getInputType() {
+            return ContractEdit.class;
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return contractEditOptions();
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final ContractEdit edit) {
+            final ContractEdit started = edit.withStartedAtMillis(System.currentTimeMillis());
+            if (started.shouldWithdraw()) {
+                leaveContractEdit(context, started, "withdrawn");
+                return StepDecision.deadEnd();
+            }
             holdContract();
             return StepDecision.goTo(SaveContractEdit.class, started);
         }
@@ -183,11 +224,17 @@ public class ContractEditFlow implements Flow<ContractEditFlow.ContractEdit[]> {
         }
     }
 
-    /** Records the edit and publishes the token for the next reviewer. */
+    /**
+     * Records the edit and publishes the token for the next reviewer. An edit that never started
+     * has an empty interval at its finish time.
+     */
     private static void leaveContractEdit(
             final Context context, final ContractEdit edit, final String outcome) {
+        final long finishedAtMillis = System.currentTimeMillis();
+        final long startedAtMillis =
+                edit.startedAtMillis() == 0 ? finishedAtMillis : edit.startedAtMillis();
         contractEditFinished.publish(context, new ContractEditRecord(
-                edit.reviewer(), outcome, edit.startedAtMillis(), System.currentTimeMillis()));
+                edit.reviewer(), outcome, startedAtMillis, finishedAtMillis));
         contractEditToken.publish(context, TOKEN);
     }
 

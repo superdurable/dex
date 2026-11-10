@@ -183,8 +183,41 @@ async def test_critical_section_returns_the_token_when_an_edit_fails(
         [ContractEdit("legal", should_fail_edit=True), ContractEdit("finance")],
     )
     records = await contract_edit_records(client, flow_id)
-    outcomes = {record.reviewer: record.outcome for record in records}
-    assert outcomes == {"legal": "failed", "finance": "saved"}
+    assert contract_edit_outcomes(records) == {"legal": "failed", "finance": "saved"}
+    assert_contract_edits_do_not_overlap(records)
+
+
+async def test_critical_section_returns_the_token_when_the_handoff_fails(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = await start_pattern_flow(
+        client,
+        new_flow_id,
+        app.contract_edit,
+        "pattern-critical-section-handoff",
+        [ContractEdit("legal", should_fail_handoff=True), ContractEdit("finance")],
+    )
+    records = await contract_edit_records(client, flow_id)
+    assert contract_edit_outcomes(records) == {"legal": "failed", "finance": "saved"}
+    assert_contract_edits_do_not_overlap(records)
+
+
+async def test_critical_section_returns_the_token_on_an_early_exit(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = await start_pattern_flow(
+        client,
+        new_flow_id,
+        app.contract_edit,
+        "pattern-critical-section-withdraw",
+        [ContractEdit("legal", should_withdraw=True), ContractEdit("finance")],
+    )
+    records = await contract_edit_records(client, flow_id)
+    assert contract_edit_outcomes(records) == {"legal": "withdrawn", "finance": "saved"}
     assert_contract_edits_do_not_overlap(records)
 
 
@@ -260,6 +293,10 @@ async def contract_edit_records(
     assert len(outputs) == 1
     records: list[ContractEditRecord] = outputs[0]
     return records
+
+
+def contract_edit_outcomes(records: list[ContractEditRecord]) -> dict[str, str]:
+    return {record.reviewer: record.outcome for record in records}
 
 
 def assert_contract_edits_do_not_overlap(records: list[ContractEditRecord]) -> None:

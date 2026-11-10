@@ -88,7 +88,9 @@ class RunCreditCheck(Step[LoanApplication]):
             applicant_id=application.applicant_id,
             report_delay_seconds=application.credit_report_delay_seconds,
         )
+        # The cancel condition comes first: it wins when both are ready.
         return Wait.any_of(
+            APPLICATION_CANCELED.for_one(),
             SubFlow.run(
                 self.credit_check_flow,
                 request,
@@ -97,7 +99,6 @@ class RunCreditCheck(Step[LoanApplication]):
                     reuse_policy=SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY,
                 ),
             ),
-            APPLICATION_CANCELED.for_one(),
         )
 
     async def execute(  # type: ignore[override]
@@ -129,7 +130,7 @@ class AwaitUnderwriterDecision(Step[str]):
     """Also waits for the cancel Channel, so a late cancellation still closes the application."""
 
     def wait_for(self, context: Context, report: str) -> Wait:
-        return Wait.any_of(UNDERWRITER_DECIDED.for_one(), APPLICATION_CANCELED.for_one())
+        return Wait.any_of(APPLICATION_CANCELED.for_one(), UNDERWRITER_DECIDED.for_one())
 
     def execute(self, context: Context, report: str) -> StepDecision:
         reasons = APPLICATION_CANCELED.results(context)

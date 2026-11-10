@@ -116,12 +116,13 @@ public class LoanApplicationFlow implements Flow<LoanApplicationFlow.LoanApplica
         public Wait waitFor(final Context context, final LoanApplication application) {
             final CreditCheckRequest request = new CreditCheckRequest(
                     application.applicantId(), application.creditReportDelaySeconds());
+            // The cancel condition comes first: it wins when both are ready.
             return Wait.anyOf(
+                    applicationCanceled.forOne(),
                     SubFlow.run(CreditCheckFlow.class, request, SubFlowOptions.newBuilder()
                             .timeout(CREDIT_CHECK_TIMEOUT)
                             .reusePolicy(SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY)
-                            .build()),
-                    applicationCanceled.forOne());
+                            .build()));
         }
 
         @Override
@@ -167,7 +168,7 @@ public class LoanApplicationFlow implements Flow<LoanApplicationFlow.LoanApplica
 
         @Override
         public Wait waitFor(final Context context, final String report) {
-            return Wait.anyOf(underwriterDecided.forOne(), applicationCanceled.forOne());
+            return Wait.anyOf(applicationCanceled.forOne(), underwriterDecided.forOne());
         }
 
         @Override

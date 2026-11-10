@@ -44,9 +44,18 @@ CONTRACT_EDIT_SECONDS = 0.1
 
 @dataclass(frozen=True)
 class ContractEdit:
-    """One reviewer's turn to edit the shared contract."""
+    """One reviewer's turn to edit the shared contract.
+
+    The should_* fields simulate a failure or a withdrawal for the example.
+    """
 
     reviewer: str
+    should_fail_handoff: bool = field(
+        default=False, metadata={"dex_json_name": "shouldFailHandoff"}
+    )
+    should_withdraw: bool = field(
+        default=False, metadata={"dex_json_name": "shouldWithdraw"}
+    )
     should_fail_edit: bool = field(
         default=False, metadata={"dex_json_name": "shouldFailEdit"}
     )
@@ -89,9 +98,8 @@ class StartContractEdits(Step[list[ContractEdit]]):
 
 
 class EnterContractEdit(Step[ContractEdit]):
-    """Enters the section by consuming the token."""
+    """Takes the token and hands off; it does no protected work, so canceling it is safe."""
 
-    # A failure after the token was consumed routes to the Step that publishes it back.
     def get_step_options(self) -> StepOptions:
         return StepOptions(execute_retry=CONTRACT_EDIT_RETRY).on_execute_failure_proceed_to(
             ReleaseContractEditToken
@@ -100,10 +108,30 @@ class EnterContractEdit(Step[ContractEdit]):
     def wait_for(self, context: Context, edit: ContractEdit) -> Wait:
         return Wait.until(CONTRACT_EDIT_TOKEN.for_one())
 
+    def execute(self, context: Context, edit: ContractEdit) -> StepDecision:
+        if edit.should_fail_handoff:
+            raise ContractEditError("contract handoff failed")
+        return go_to(EditContract, edit)
+
+
+class EditContract(Step[ContractEdit]):
+    """The first Step that works on the contract. Never cancel it."""
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=CONTRACT_EDIT_RETRY).on_execute_failure_proceed_to(
+            ReleaseContractEditToken
+        )
+
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, edit: ContractEdit
     ) -> StepDecision:
         started_edit = replace(edit, started_at_millis=current_time_millis())
+        if started_edit.should_withdraw:
+            CONTRACT_EDIT_FINISHED.publish(
+                context, finish_contract_edit(started_edit, "withdrawn")
+            )
+            CONTRACT_EDIT_TOKEN.publish(context, "contract")
+            return dead_end()
         await asyncio.sleep(CONTRACT_EDIT_SECONDS)
         return go_to(SaveContractEdit, started_edit)
 
@@ -147,11 +175,13 @@ class FinishContractEdits(Step[int]):
 
 
 def finish_contract_edit(edit: ContractEdit, outcome: str) -> ContractEditRecord:
+    """Records the edit; one that never started has an empty interval at its finish time."""
+    finished_at_millis = current_time_millis()
     return ContractEditRecord(
         reviewer=edit.reviewer,
         outcome=outcome,
-        started_at_millis=edit.started_at_millis,
-        finished_at_millis=current_time_millis(),
+        started_at_millis=edit.started_at_millis or finished_at_millis,
+        finished_at_millis=finished_at_millis,
     )
 
 
@@ -162,12 +192,13 @@ def current_time_millis() -> int:
 class ContractEditFlow(Flow[list[ContractEdit]]):
     """Lets several reviewers edit one contract, one at a time.
 
-    A one-message Channel is the token that guards the two-Step edit section.
+    A one-message Channel is the token that guards the edit section.
     """
 
     def __init__(self) -> None:
         self.start_contract_edits = StartContractEdits()
         self.enter_contract_edit = EnterContractEdit()
+        self.edit_contract = EditContract()
         self.save_contract_edit = SaveContractEdit()
         self.release_contract_edit_token = ReleaseContractEditToken()
         self.finish_contract_edits = FinishContractEdits()
@@ -175,6 +206,7 @@ class ContractEditFlow(Flow[list[ContractEdit]]):
     def get_steps(self) -> StepList[list[ContractEdit]]:
         return StepList.start_step(self.start_contract_edits).other_steps(
             self.enter_contract_edit,
+            self.edit_contract,
             self.save_contract_edit,
             self.release_contract_edit_token,
             self.finish_contract_edits,

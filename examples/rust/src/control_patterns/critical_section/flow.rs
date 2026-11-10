@@ -26,10 +26,13 @@ const CONTRACT_EDIT_DURATION: Duration = Duration::from_millis(100);
 const CONTRACT_TOKEN: &str = "contract";
 
 /// One reviewer's turn to edit the shared contract.
+/// The `should_*` fields simulate a failure or a withdrawal for the example.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContractEdit {
     pub reviewer: String,
+    pub should_fail_handoff: bool,
+    pub should_withdraw: bool,
     pub should_fail_edit: bool,
     pub started_at_millis: i64,
 }
@@ -50,11 +53,12 @@ pub static CONTRACT_EDIT_FINISHED: LazyLock<Channel<ContractEditRecord>> =
     LazyLock::new(|| Channel::new("contractEditFinished"));
 
 /// Lets several reviewers edit one contract, one at a time.
-/// A one-message Channel is the token that guards the two-Step edit section.
+/// A one-message Channel is the token that guards the edit section.
 #[derive(Default)]
 pub struct ContractEditFlow {
     start_contract_edits: StartContractEdits,
     enter_contract_edit: EnterContractEdit,
+    edit_contract: EditContract,
     save_contract_edit: SaveContractEdit,
     release_contract_edit_token: ReleaseContractEditToken,
     finish_contract_edits: FinishContractEdits,
@@ -66,6 +70,7 @@ impl Flow for ContractEditFlow {
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.start_contract_edits)
             .and(&self.enter_contract_edit)
+            .and(&self.edit_contract)
             .and(&self.save_contract_edit)
             .and(&self.release_contract_edit_token)
             .and(&self.finish_contract_edits)
@@ -97,15 +102,14 @@ impl Step for StartContractEdits {
     }
 }
 
-/// Enters the section by consuming the token.
+/// Takes the token and hands off; it does no protected work, so canceling
+/// it is safe.
 #[derive(Default)]
 struct EnterContractEdit;
 
 impl Step for EnterContractEdit {
     type Input = ContractEdit;
 
-    /// Routes an Execute failure after the token was consumed to the Step
-    /// that publishes it back.
     fn options(&self) -> StepOptions<Self::Input> {
         contract_edit_options()
     }
@@ -114,12 +118,34 @@ impl Step for EnterContractEdit {
         Ok(Wait::until(CONTRACT_EDIT_TOKEN.for_one()))
     }
 
-    fn execute(
-        &self,
-        _context: &mut Context,
-        mut edit: Self::Input,
-    ) -> HandlerResult<StepDecision> {
+    fn execute(&self, _context: &mut Context, edit: Self::Input) -> HandlerResult<StepDecision> {
+        if edit.should_fail_handoff {
+            return Err(HandlerError::new(
+                "ContractHandoffFailed",
+                "contract handoff failed",
+            ));
+        }
+        Ok(StepDecision::go_to(&EditContract, edit))
+    }
+}
+
+/// The first Step that works on the contract. Never cancel it.
+#[derive(Default)]
+struct EditContract;
+
+impl Step for EditContract {
+    type Input = ContractEdit;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        contract_edit_options()
+    }
+
+    fn execute(&self, context: &mut Context, mut edit: Self::Input) -> HandlerResult<StepDecision> {
         edit.started_at_millis = current_unix_millis()?;
+        if edit.should_withdraw {
+            leave_contract_edit(context, edit, "withdrawn")?;
+            return Ok(StepDecision::dead_end());
+        }
         thread::sleep(CONTRACT_EDIT_DURATION);
         Ok(StepDecision::go_to(&SaveContractEdit, edit))
     }
@@ -194,18 +220,25 @@ fn contract_edit_options() -> StepOptions<ContractEdit> {
 }
 
 /// Records the edit and publishes the token for the next reviewer.
+/// An edit that never started has an empty interval at its finish time.
 fn leave_contract_edit(
     context: &mut Context,
     edit: ContractEdit,
     outcome: &str,
 ) -> HandlerResult<()> {
+    let finished_at_millis = current_unix_millis()?;
+    let started_at_millis = if edit.started_at_millis == 0 {
+        finished_at_millis
+    } else {
+        edit.started_at_millis
+    };
     CONTRACT_EDIT_FINISHED.publish(
         context,
         ContractEditRecord {
             reviewer: edit.reviewer,
             outcome: outcome.to_string(),
-            started_at_millis: edit.started_at_millis,
-            finished_at_millis: current_unix_millis()?,
+            started_at_millis,
+            finished_at_millis,
         },
     )?;
     CONTRACT_EDIT_TOKEN.publish(context, CONTRACT_TOKEN.to_string())
