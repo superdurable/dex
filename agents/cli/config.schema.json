@@ -213,7 +213,7 @@
     "operation_name": {
       "type": "string",
       "pattern": "^[A-Za-z][A-Za-z0-9_]{0,127}(?![\\s\\S])",
-      "description": "A connector operation: its snake-case name, such as get_message, or its operationId, such as getMessage. Both spellings name the same operation: an operationId is compared in snake case, each ASCII capital letter becoming an underscore and its lowercase letter, with leading underscores removed."
+      "description": "A connector operation: its snake-case name, such as get_message, or its operationId, such as getMessage. Both spellings name the same operation: an operationId is compared after the connectors library's lowerCamelToSnake conversion, which keeps acronym runs together, so listStoryIDs is list_story_ids and getHTTPResponse is get_http_response."
     },
     "connector_key": {
       "type": "string",

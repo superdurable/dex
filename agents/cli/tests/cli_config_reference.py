@@ -107,8 +107,12 @@ def resolve_config(
     }
 
 
-def resolve_turn(effective: Mapping[str, Any], session_settings: object) -> dict[str, Any]:
-    """Return the configuration of one turn: an effective configuration with session settings.
+def resolve_turn(
+    effective: Mapping[str, Any], session_settings: object
+) -> tuple[dict[str, Any], list[str]]:
+    """Return one turn's configuration and the JSON Pointers of the ignored settings keys.
+
+    Top-level keys the session settings schema does not define are ignored, sorted by key.
 
     Raises:
         ConfigError: ``schema``, ``duplicate_tool``, ``duplicate_connection``,
@@ -116,9 +120,11 @@ def resolve_turn(effective: Mapping[str, Any], session_settings: object) -> dict
     """
     turn = copy.deepcopy(dict(effective))
     if session_settings is None:
-        return turn
+        return turn, []
     raise_first_schema_error(SESSION_SETTINGS_VALIDATOR, session_settings)
     assert isinstance(session_settings, Mapping)
+    known_keys = SESSION_SETTINGS_SCHEMA["properties"].keys()
+    warnings = [json_pointer_of([key]) for key in sorted(session_settings) if key not in known_keys]
     if "model" in session_settings:
         turn["model"] = session_settings["model"]
     if "system_prompt" in session_settings:
@@ -138,7 +144,7 @@ def resolve_turn(effective: Mapping[str, Any], session_settings: object) -> dict
     narrow_local_tools(
         turn["local_tools"], effective["local_tools"], session_settings.get("local_tools", {})
     )
-    return turn
+    return turn, warnings
 
 
 def parse_connector_entries(
@@ -173,8 +179,37 @@ def parse_connector_entry(entry: str | Mapping[str, Any], path: str) -> dict[str
 
 
 def canonical_operation_name(name: str) -> str:
-    """Return an operation's snake-case name, as the agents cores name connector tools."""
-    return "".join(f"_{c.lower()}" if "A" <= c <= "Z" else c for c in name).lstrip("_")
+    """Return an operation's snake-case name by connectorctl's lowerCamelToSnake rule.
+
+    A capital starts a word after a lowercase letter or digit, or when it ends an acronym
+    run before a lowercase letter, unless that letter is a plural s: listStoryIDs is
+    list_story_ids.
+    """
+    converted: list[str] = []
+    for index, character in enumerate(name):
+        if not is_ascii_upper(character):
+            converted.append(character)
+            continue
+        previous = name[index - 1] if index > 0 else ""
+        following = name[index + 1] if index + 1 < len(name) else ""
+        after_following = name[index + 2] if index + 2 < len(name) else ""
+        is_previous_lower_or_digit = is_ascii_lower(previous) or "0" <= previous <= "9"
+        is_acronym_plural = following == "s" and not is_ascii_lower(after_following)
+        is_end_of_acronym = (
+            is_ascii_upper(previous) and is_ascii_lower(following) and not is_acronym_plural
+        )
+        if is_previous_lower_or_digit or is_end_of_acronym:
+            converted.append("_")
+        converted.append(character.lower())
+    return "".join(converted)
+
+
+def is_ascii_upper(character: str) -> bool:
+    return character != "" and "A" <= character <= "Z"
+
+
+def is_ascii_lower(character: str) -> bool:
+    return character != "" and "a" <= character <= "z"
 
 
 def is_same_connection_covered(first: Mapping[str, Any], second: Mapping[str, Any]) -> bool:
@@ -261,6 +296,8 @@ def walk_errors(errors: Iterable[ValidationError]) -> Iterator[ValidationError]:
 
 
 def json_pointer(error: ValidationError) -> str:
-    return "".join(
-        "/" + str(part).replace("~", "~0").replace("/", "~1") for part in error.absolute_path
-    )
+    return json_pointer_of(error.absolute_path)
+
+
+def json_pointer_of(parts: Iterable[object]) -> str:
+    return "".join("/" + str(part).replace("~", "~0").replace("/", "~1") for part in parts)

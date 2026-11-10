@@ -1,10 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Dex Agents CLI session settings",
-  "description": "The settings of one session that a Dex Agents CLI command runs: the JSON object that start_session and update_session_settings store, at most 16 KiB. They override the configuration file from the next turn on. model and system_prompt replace the file's values. connectors.enabled may only narrow the file's connections and tools, approval.always only adds tools that need approval, and local_tools may only switch tools off or shrink the shell allow list. An omitted field keeps the file's value; there are no defaults here. Settings that fail this schema or try to widen the file are rejected as a whole, and the turn fails with the error. A session without settings uses the file as it is. Settings are stored in the session, so they never hold secrets.",
+  "description": "The settings of one session that a Dex Agents CLI command runs: the JSON object that start_session and update_session_settings store, at most 16 KiB. They override the configuration file from the next turn on. model and system_prompt replace the file's values. connectors.enabled may only narrow the file's connections and tools, approval.always only adds tools that need approval, and local_tools may only switch tools off or shrink the shell allow list. An omitted field keeps the file's value; there are no defaults here. Other top-level keys belong to other readers of the settings: they are ignored and reported as warnings, so they never fail a turn. Unknown keys inside a known field are errors. Settings that fail this schema or try to widen the file are rejected as a whole, and the turn fails with the error. A session without settings uses the file as it is. Settings are stored in the session, so they never hold secrets.",
   "$comment": "The $defs shared with config.schema.json must stay identical to it; the tests in agents/cli/tests check them.",
   "type": "object",
-  "additionalProperties": false,
   "properties": {
     "model": {
       "$ref": "#/$defs/model",
@@ -97,7 +96,7 @@
     "operation_name": {
       "type": "string",
       "pattern": "^[A-Za-z][A-Za-z0-9_]{0,127}(?![\\s\\S])",
-      "description": "A connector operation: its snake-case name, such as get_message, or its operationId, such as getMessage. Both spellings name the same operation: an operationId is compared in snake case, each ASCII capital letter becoming an underscore and its lowercase letter, with leading underscores removed."
+      "description": "A connector operation: its snake-case name, such as get_message, or its operationId, such as getMessage. Both spellings name the same operation: an operationId is compared after the connectors library's lowerCamelToSnake conversion, which keeps acronym runs together, so listStoryIDs is list_story_ids and getHTTPResponse is get_http_response."
     },
     "connector_key": {
       "type": "string",

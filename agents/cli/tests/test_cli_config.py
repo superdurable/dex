@@ -149,7 +149,9 @@ def test_session_case(case: dict[str, Any]) -> None:
     if "turn" in case:
         if settings is not None:
             assert list(SESSION_SETTINGS_VALIDATOR.iter_errors(settings)) == []
-        assert resolve_turn(effective, settings) == case["turn"]
+        turn, warnings = resolve_turn(effective, settings)
+        assert turn == case["turn"]
+        assert warnings == case["warnings"]
         return
     expect_error(
         lambda: resolve_turn(effective, settings),

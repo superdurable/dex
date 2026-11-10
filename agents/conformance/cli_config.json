@@ -13,6 +13,7 @@
     "widens_connectors": "A session entry is not inside any entry of the file. path is the entry.",
     "widens_local_tools": "A session switches on what the file switches off, or allows a command the file does not."
   },
+  "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings.",
   "check_order": "Report the first failure in this order: yaml; schema; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser.",
   "harness_sections": [
     "claude",
@@ -85,11 +86,39 @@
     },
     {
       "name": "GetHTML",
-      "canonical": "get_h_t_m_l"
+      "canonical": "get_html"
+    },
+    {
+      "name": "listStoryIDs",
+      "canonical": "list_story_ids"
+    },
+    {
+      "name": "getHTTPResponse",
+      "canonical": "get_http_response"
+    },
+    {
+      "name": "readIDToken",
+      "canonical": "read_id_token"
+    },
+    {
+      "name": "readIDsFromCache",
+      "canonical": "read_ids_from_cache"
+    },
+    {
+      "name": "getAPISettings",
+      "canonical": "get_api_settings"
     },
     {
       "name": "list2Items",
       "canonical": "list2_items"
+    },
+    {
+      "name": "getV2Items",
+      "canonical": "get_v2_items"
+    },
+    {
+      "name": "getOAuth2Token",
+      "canonical": "get_o_auth2_token"
     }
   ],
   "shell_allow": [
@@ -1438,7 +1467,8 @@
           "browser": false
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "empty-settings",
@@ -1494,7 +1524,8 @@
           "browser": false
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "replace-model-and-prompt",
@@ -1553,7 +1584,8 @@
           "browser": false
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "narrow-connectors-and-operations",
@@ -1616,7 +1648,8 @@
           "browser": false
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "narrow-inside-a-bare-connector",
@@ -1679,7 +1712,8 @@
           "browser": false
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "same-entry-repeated",
@@ -1738,7 +1772,8 @@
           "browser": false
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "no-connector-tools",
@@ -1779,7 +1814,8 @@
           "browser": false
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "any-list-narrows-an-omitted-list",
@@ -1837,7 +1873,8 @@
           "browser": true
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "approval-only-adds",
@@ -1903,7 +1940,8 @@
           "browser": false
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "local-tools-switch-off",
@@ -1970,7 +2008,8 @@
           "browser": false
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "local-tools-repeat-true",
@@ -2031,7 +2070,8 @@
           "browser": false
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
     },
     {
       "name": "shell-allow-subset-when-shell-off",
@@ -2070,7 +2110,143 @@
           "browser": true
         },
         "harness_options": {}
-      }
+      },
+      "warnings": []
+    },
+    {
+      "name": "file-only-keys-are-ignored",
+      "description": "workspace, dex, system_prompt_file, and harness sections belong to the file; in settings they are ignored with a warning each.",
+      "config": "bounded",
+      "session_settings": {
+        "workspace": "/",
+        "dex": {
+          "server": "http://localhost:1"
+        },
+        "system_prompt_file": "/etc/passwd",
+        "claude": {}
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": [
+        "/claude",
+        "/dex",
+        "/system_prompt_file",
+        "/workspace"
+      ]
+    },
+    {
+      "name": "other-readers-keys-are-ignored",
+      "description": "Keys another reader of the settings uses are ignored, sorted by key, and escaped as JSON Pointers.",
+      "config": "bounded",
+      "session_settings": {
+        "note": "x",
+        "a/b~c": 1,
+        "Account": null,
+        "model": "gpt-5-mini"
+      },
+      "turn": {
+        "model": "gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": [
+        "/Account",
+        "/a~1b~0c",
+        "/note"
+      ]
     },
     {
       "name": "add-a-connector",
@@ -2287,34 +2463,6 @@
       }
     },
     {
-      "name": "change-workspace",
-      "description": "workspace is fixed by the file.",
-      "config": "bounded",
-      "session_settings": {
-        "workspace": "/"
-      },
-      "error": {
-        "code": "schema",
-        "path": "",
-        "keyword": "additionalProperties"
-      }
-    },
-    {
-      "name": "change-server",
-      "description": "dex is fixed by the file.",
-      "config": "bounded",
-      "session_settings": {
-        "dex": {
-          "server": "http://localhost:1"
-        }
-      },
-      "error": {
-        "code": "schema",
-        "path": "",
-        "keyword": "additionalProperties"
-      }
-    },
-    {
       "name": "change-mcp",
       "description": "connectors.mcp is fixed by the file.",
       "config": "bounded",
@@ -2330,41 +2478,34 @@
       }
     },
     {
-      "name": "prompt-file",
-      "description": "Only system_prompt text; a session never reads a file.",
+      "name": "unknown-key-with-widening",
+      "description": "An ignored key does not excuse a widening.",
       "config": "bounded",
       "session_settings": {
-        "system_prompt_file": "/etc/passwd"
+        "note": "x",
+        "local_tools": {
+          "browser": true
+        }
       },
       "error": {
-        "code": "schema",
-        "path": "",
-        "keyword": "additionalProperties"
+        "code": "widens_local_tools",
+        "path": "/local_tools/browser"
       }
     },
     {
-      "name": "harness-section",
-      "description": "Harness options are fixed by the file.",
+      "name": "unknown-key-inside-known-field",
+      "description": "Only top-level keys are ignored; inside a known field an unknown key is an error.",
       "config": "bounded",
       "session_settings": {
-        "claude": {}
+        "approval": {
+          "never": [
+            "Bash"
+          ]
+        }
       },
       "error": {
         "code": "schema",
-        "path": "",
-        "keyword": "additionalProperties"
-      }
-    },
-    {
-      "name": "unknown-key",
-      "description": "Unknown keys are errors.",
-      "config": "bounded",
-      "session_settings": {
-        "note": "x"
-      },
-      "error": {
-        "code": "schema",
-        "path": "",
+        "path": "/approval",
         "keyword": "additionalProperties"
       }
     },

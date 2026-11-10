@@ -80,7 +80,11 @@ Each `connectors.enabled` entry is one of:
 
 `tools` names each operation by its snake-case name, such as `get_message`, or
 its operationId, such as `getMessage`. The two spellings are the same
-operation: each capital letter becomes an underscore and its lowercase letter.
+operation. An operationId converts to snake case as the connectors library's
+`lowerCamelToSnake` does: a capital letter starts a new word after a lowercase
+letter or a digit, and an acronym stays one word, so `listStoryIDs` is
+`list_story_ids` and `getHTTPResponse` is `get_http_response`. The
+`operation_names` cases in the conformance file fix the exact rule.
 Two entries must not cover the same connection, so `slack` and `slack/work`
 cannot appear together. An empty list gives the agent no connector tools.
 
@@ -101,19 +105,24 @@ session in Dex Web can edit its settings.
 | `local_tools.files`, `web_fetch`, `browser`, `shell.enabled` | `false` switches the tool off. `true` is allowed only where the file has `true`. |
 | `local_tools.shell.allow` | Replaces the file's allow list with a subset of it. |
 
-All other fields, including `dex`, `connectors.mcp`, `workspace`, and the
-harness sections, belong to the file only. Settings that fail the schema or
-widen the file are rejected as a whole: the turn fails with the error code and
-the JSON Pointer of the first problem, and the session keeps its settings
-until someone fixes them.
+Other top-level keys are ignored, so the settings can also hold keys that
+other readers use. This includes `dex`, `workspace`, `system_prompt_file`, and
+the harness sections, which belong to the file only. The command reports each
+ignored key as a warning, but the turn still runs. Inside a known field, an
+unknown key is an error, so `connectors.mcp` fails.
+
+Settings that fail the schema or widen the file are rejected as a whole: the
+turn fails with the error code and the JSON Pointer of the first problem, and
+the session keeps its settings until someone fixes them.
 
 ## Conformance
 
 [`../conformance/cli_config.json`](../conformance/cli_config.json) holds the
 cases every CLI runtime runs: YAML parsing, valid and invalid files with the
 expected effective configuration or error, and session settings with the
-expected turn configuration or error. Its `error_codes` and `check_order`
-fields define how errors are reported.
+expected turn configuration and warnings, or error. Its `error_codes`,
+`warnings`, and `check_order` fields define how errors and warnings are
+reported.
 
 `tests/` checks the schemas, the examples, and every case against a test-only
 reference resolver. Agents CI runs it through `tests/ci.sh`:
