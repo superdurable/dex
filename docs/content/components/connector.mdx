@@ -44,8 +44,7 @@ Step input forward. Keep business context in an
 [Attribute](/concepts/primitives/attribute), or pass it through an application
 Step before the Connector.
 
-A mutation's idempotency key is derived from the Step execution, so it stays
-the same when Dex retries the Step. When a mutation's outcome is unknown, the
+A mutation's idempotency key stays the same when Dex retries the Step. When a mutation's outcome is unknown, the
 Connector selects an uncertainty branch. The Flow can then query the provider
 and reconcile, instead of sending the mutation again blindly.
 

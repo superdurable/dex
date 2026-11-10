@@ -27,7 +27,7 @@ sidebar_label: Connector
 
 Connector 的结果包含操作输出、回执、选中的分支，以及（如果有的话）安全的失败分类。结果不会把上一个 Step 的输入带下去。业务上下文要保存在 [Attribute](/concepts/primitives/attribute) 中，或者在调用 Connector 之前，通过应用自己的 Step 传递。
 
-Mutation 的幂等 key 由 Step 执行派生，所以 Dex 重试这个 Step 时 key 不变。Mutation 的结果无法确认时，Connector 会选择 uncertainty 分支。Flow 可以先查询服务商、核对结果，而不是盲目地再发一次。
+Dex 重试 Step 时，Mutation 的幂等 key 保持不变。Mutation 的结果无法确认时，Connector 会选择 uncertainty 分支。Flow 可以先查询服务商、核对结果，而不是盲目地再发一次。
 
 只有成功路径的分支必须连接，可选分支可以不连。如果 Connector 选中了一个没有连接的分支，Flow 会失败。服务商那边的结果仍然可见，便于恢复。
 
