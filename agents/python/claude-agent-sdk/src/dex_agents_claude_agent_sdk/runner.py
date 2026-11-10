@@ -15,6 +15,7 @@ import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import Any, cast
 
 from claude_agent_sdk import (
@@ -35,21 +36,30 @@ from claude_agent_sdk.types import HookEvent
 
 from dex_agents import (
     AgentFrameworkRunner,
+    AgentToolCall,
     AgentTurnContext,
     AgentTurnOutcome,
     AgentUsage,
     DeferredToolExecution,
+    DeferredToolOutcome,
     FrameworkMessage,
     MessageRole,
     ModelCallMetadata,
     ToolCallsRequested,
+    ToolCallStepOptions,
     ToolExecutionError,
     ToolExecutionResult,
     TurnCompleted,
 )
+from dex_agents.stepwise import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
 from dex_agents_claude_agent_sdk.custom_tool_server import build_custom_tool_server
 from dex_agents_claude_agent_sdk.session_store import TurnSegmentSessionStore
-from dex_agents_claude_agent_sdk.tool_gate import ToolCallGate, ToolCatalog
+from dex_agents_claude_agent_sdk.tool_gate import (
+    CLAUDE_CODE_BUILT_IN_TOOL_NAMES,
+    ToolCallGate,
+    ToolCatalog,
+)
+from dex_agents_claude_agent_sdk.tool_sources import ToolSourceRouter
 from dex_agents_claude_agent_sdk.transcript import (
     TranscriptEntry,
     build_turn_prompt_content,
@@ -138,7 +148,7 @@ def current_deferred_tool_execution() -> DeferredToolExecution | None:
     return _running_deferred_tool_execution.get()
 
 
-class ClaudeAgentRunner(AgentFrameworkRunner):
+class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     """Run a Claude Agent SDK agent as a durable Dex agent session.
 
     The Claude Agent SDK runs its agent loop in a Claude Code CLI subprocess
@@ -164,6 +174,17 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
     approval, run inside the resumed turn after approval, and are
     at-least-once: a crash during ``RunModel`` can run them again.
 
+    Tool sources, such as ``ConnectorToolSource``, add tools that the same
+    in-process server offers under the source's name, description, and JSON
+    Schema. Every call of a source tool is deferred, reads included, and runs
+    once in its own tool Step through the source that built it. The source
+    picks the effect class, the approval, and the tool Step's timeout and
+    retry policy, so connector operations keep their Call ID, fence, branch
+    mapping, and result bound. Because one call per segment leaves the turn,
+    writes of one reply run one at a time in the model's order: a later
+    deferrable call is refused, and the model sees the earlier result before
+    it calls again.
+
     Most applications use ``claude_agent_session_flow`` instead of
     constructing the runner directly.
 
@@ -188,7 +209,9 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
     ``mcp-config``, ``resume``, or ``session-id`` in ``extra_args``; when ``permission_mode`` is
     ``"bypassPermissions"``, ``"acceptEdits"``, or ``"auto"``; when
     ``mcp_servers`` is not a dict or already uses the custom tool server name;
-    or when an ``allowed_tools`` entry names a tool whose calls must defer.
+    when an ``allowed_tools`` entry names a tool whose calls must defer, such
+    as any source tool; or when a source lists a tool whose name repeats a
+    custom tool, a Claude Code tool, or another source's tool.
     """
 
     def __init__(
@@ -197,6 +220,8 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
         custom_tools: Sequence[SdkMcpTool[Any]] = (),
         *,
         custom_tool_server_name: str = DEFAULT_CUSTOM_TOOL_SERVER_NAME,
+        tool_sources: Sequence[ToolSource] = (),
+        tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     ) -> None:
         """Create a runner for one agent.
 
@@ -214,11 +239,38 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
             custom_tool_server_name: Name of the in-process MCP server. The
                 model sees custom tools as ``mcp__<name>__<tool>``. Defaults to
                 ``"tools"``.
+            tool_sources: Tool sources, such as ``ConnectorToolSource``, whose
+                tools the runner lists in every ``RunModel`` attempt and serves
+                from the custom tool server after the custom tools. Each source
+                has a unique ``source_name``, which the runner stores with every
+                call it builds, so the tool Step reaches that source on any
+                Worker. Every call of a source tool defers, waits for approval
+                when the source's policy asks, and runs in its own tool Step
+                through the source's ``execute_deferred_tool_call``, with the
+                Step options of its ``tool_call_step_options``. Policies and
+                records use the tool's own name. The runner polls no tool
+                tasks, so a call that starts one records ``FAILED`` for a
+                ``READ`` call and ``OUTCOME_UNKNOWN`` otherwise. Defaults to
+                none.
+
+                .. versionadded:: 0.4.0
+            tool_source_listing_timeout: How long one ``RunModel`` attempt
+                waits for each source's ``list_tools``. A source that fails or
+                takes longer offers no tools in that attempt. Defaults to 10
+                seconds.
+
+                .. versionadded:: 0.4.0
 
         Raises:
             ValueError: If the server name is not letters, digits, ``-``, and
-                single underscores, two custom tools share a name, or a custom
-                tool uses a name in ``CLAUDE_CODE_BUILT_IN_TOOL_NAMES``.
+                single underscores, two custom tools share a name, a custom
+                tool uses a name in ``CLAUDE_CODE_BUILT_IN_TOOL_NAMES``, two
+                tool sources share a ``source_name``, a source's
+                ``declared_tool_names`` repeat a custom tool, a Claude Code
+                tool, or another source's tool, or
+                ``tool_source_listing_timeout`` is not positive.
+            TypeError: If a tool source lacks a ``ToolSource`` method or a
+                non-blank ``source_name``.
         """
         if not _SERVER_NAME_PATTERN.fullmatch(custom_tool_server_name):
             raise ValueError(
@@ -226,6 +278,11 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
             )
         self._options_factory = options_factory
         self._tool_catalog = ToolCatalog(list(custom_tools), custom_tool_server_name)
+        self._tool_sources = ToolSourceRouter(
+            list(tool_sources),
+            tool_source_listing_timeout,
+            {custom_tool.name for custom_tool in custom_tools} | CLAUDE_CODE_BUILT_IN_TOOL_NAMES,
+        )
 
     def build_user_message(self, text: str) -> FrameworkMessage:
         """Store user text, or a turn-failure note, as a prompt for the CLI.
@@ -272,7 +329,8 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
             grouped into messages.
 
         Raises:
-            ValueError: If the options factory returned unsupported options.
+            ValueError: If the options factory returned unsupported options,
+                or a tool source listed a name that another tool uses.
             RuntimeError: If the CLI reported an error result, ended without a
                 result, deferred a call the adapter did not defer, called a
                 Claude Code tool that shares a custom tool's name, or its
@@ -292,8 +350,19 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
         session_store = TurnSegmentSessionStore(
             session_id, [*committed_transcript.entries, *earlier_turn_entries]
         )
-        tool_call_gate = ToolCallGate(turn, self._tool_catalog)
-        options = self._build_turn_options(turn, session_id, session_store, tool_call_gate)
+        # A source's listing may lack a tool the turn already called; its record must still replay.
+        tool_catalog = self._tool_catalog.with_source_tools(
+            await self._tool_sources.list_source_tools(),
+            replay_only_tool_names={
+                record.tool_name
+                for record in turn.tool_calls.values()
+                if self._tool_sources.is_source_call(record)
+            },
+        )
+        tool_call_gate = ToolCallGate(turn, tool_catalog)
+        options = self._build_turn_options(
+            turn, session_id, session_store, tool_catalog, tool_call_gate
+        )
         observer = _TurnSegmentObserver(turn, tool_call_gate)
         # The client keeps stdin open without a prompt, so the CLI can resume a deferred call.
         client = ClaudeSDKClient(options)
@@ -324,38 +393,53 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
             )
         return TurnCompleted(
             new_messages=project_turn_entries(
-                segment_session_id, turn_entries, self._tool_catalog.policy_tool_name
+                segment_session_id, turn_entries, tool_catalog.policy_tool_name
             ),
             usage=usage,
             model_call_metadata=model_call_metadata,
         )
 
-    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
         """Run one deferred call outside the CLI, in its own tool Step.
 
-        A custom tool's arguments are validated against its input schema, and
-        then its handler runs once; ``current_deferred_tool_execution`` returns
-        ``call`` inside it. A tool that runs inside the CLI is only marked
-        approved here; the resumed turn runs it.
+        A call that a tool source built goes to that source, found by the
+        source name stored with the call, with the source's own reference and
+        the tool Step's live context. A custom tool's arguments are validated
+        against its input schema, and then its handler runs once;
+        ``current_deferred_tool_execution`` returns ``call`` inside it. A tool
+        that runs inside the CLI is only marked approved here; the resumed turn
+        runs it.
 
         Args:
             call: The approved record and its idempotency key.
 
         Returns:
-            The custom tool's text output, or ``APPROVED_CLI_TOOL_OUTPUT`` for a
-            tool that runs inside the CLI. Non-text content is replaced by a
-            short placeholder.
+            The source's outcome; the custom tool's text output; or
+            ``APPROVED_CLI_TOOL_OUTPUT`` for a tool that runs inside the CLI.
+            Non-text content of a custom tool is replaced by a short
+            placeholder.
 
         Raises:
             ToolExecutionError: The arguments do not match the tool's input
-                schema, or the custom tool returned ``is_error``. The model sees
-                the text.
-            Exception: Any exception the handler raises fails the Step attempt.
-                An ``IDEMPOTENT_WRITE`` call retries; once its attempts run out,
-                or at once for a single-attempt call, the session records
-                ``OUTCOME_UNKNOWN``.
+                schema, the custom tool returned ``is_error``, or the source
+                raised it. The model sees the text.
+            ToolOutcomeUnknownError: The source cannot tell whether the call
+                took effect. The session records ``OUTCOME_UNKNOWN``.
+            LookupError: A source built the call, but no source of that name
+                is configured on this Worker, so the effect class decides.
+            Exception: Any exception the handler or source raises fails the
+                Step attempt. An ``IDEMPOTENT_WRITE`` call retries; once its
+                attempts run out, or at once for a single-attempt call, the
+                session records ``OUTCOME_UNKNOWN``.
         """
         record = call.tool_call
+        # Before the custom tool lookup: a source call must never record the CLI placeholder.
+        routed = self._tool_sources.route(record)
+        if routed is not None:
+            source, reference = routed
+            return await source.execute_deferred_tool_call(
+                replace(call, tool_call=replace(record, tool_source_reference=reference))
+            )
         custom_tool = self._tool_catalog.custom_tool(record.tool_name)
         if custom_tool is None:
             return ToolExecutionResult(output=APPROVED_CLI_TOOL_OUTPUT)
@@ -375,11 +459,43 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
             raise ToolExecutionError(text)
         return ToolExecutionResult(output=text)
 
+    def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        """Return a tool source's options for one call's tool Step.
+
+        A source that defines ``tool_call_step_options(tool_call)`` gives its
+        calls their own timeout and retry policy, as ``ConnectorToolSource``
+        does from each operation's manifest. Custom tools and tools that run
+        inside the CLI keep the tool Steps' defaults.
+
+        .. versionadded:: 0.4.0
+
+        Args:
+            tool_call: The record whose tool Step starts.
+
+        Returns:
+            The source's options, or ``None`` for the defaults.
+
+        Raises:
+            LookupError: If a source built the call but no source of that name
+                is configured on this Worker. The session then uses the
+                defaults.
+        """
+        routed = self._tool_sources.route(tool_call)
+        if routed is None:
+            return None
+        source, reference = routed
+        provide = getattr(source, "tool_call_step_options", None)
+        if provide is None:
+            return None
+        options = provide(replace(tool_call, tool_source_reference=reference))
+        return options if isinstance(options, ToolCallStepOptions) else None
+
     def _build_turn_options(
         self,
         turn: AgentTurnContext,
         session_id: str | None,
         session_store: TurnSegmentSessionStore,
+        tool_catalog: ToolCatalog,
         tool_call_gate: ToolCallGate,
     ) -> ClaudeAgentOptions:
         options = self._options_factory(
@@ -387,15 +503,23 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
                 flow_id=turn.flow_id, turn_id=turn.turn_id, attempt=turn.attempt
             )
         )
-        self._validate_application_options(options, tool_call_gate)
-        server_name = self._tool_catalog.custom_tool_server_name
+        self._validate_application_options(options, tool_catalog, tool_call_gate)
+        server_name = tool_catalog.custom_tool_server_name
         mcp_servers = dict(cast(Mapping[str, Any], options.mcp_servers))
-        if self._tool_catalog.custom_tools:
-            mcp_servers[server_name] = build_custom_tool_server(self._tool_catalog, tool_call_gate)
+        if tool_catalog.has_served_tools:
+            mcp_servers[server_name] = build_custom_tool_server(tool_catalog, tool_call_gate)
         hooks: dict[HookEvent, list[HookMatcher]] = {
             event: list(matchers) for event, matchers in (options.hooks or {}).items()
         }
-        hooks.setdefault("PreToolUse", []).append(
+        # A replayed call passed these hooks when it was first decided; a deny now would hide it.
+        hooks["PreToolUse"] = [
+            replace(
+                matcher,
+                hooks=[tool_call_gate.skip_hook_on_replay(callback) for callback in matcher.hooks],
+            )
+            for matcher in hooks.get("PreToolUse", [])
+        ]
+        hooks["PreToolUse"].append(
             HookMatcher(matcher=None, hooks=[tool_call_gate.decide_pre_tool_use])
         )
         return replace(
@@ -411,7 +535,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
         )
 
     def _validate_application_options(
-        self, options: ClaudeAgentOptions, tool_call_gate: ToolCallGate
+        self, options: ClaudeAgentOptions, tool_catalog: ToolCatalog, tool_call_gate: ToolCallGate
     ) -> None:
         adapter_owned_options = {
             "can_use_tool": options.can_use_tool is not None,
@@ -443,15 +567,15 @@ class ClaudeAgentRunner(AgentFrameworkRunner):
             )
         if not isinstance(options.mcp_servers, Mapping):
             raise ValueError("pass ClaudeAgentOptions.mcp_servers as a dict of server configs")
-        server_name = self._tool_catalog.custom_tool_server_name
-        if self._tool_catalog.custom_tools and server_name in options.mcp_servers:
+        server_name = tool_catalog.custom_tool_server_name
+        if tool_catalog.has_served_tools and server_name in options.mcp_servers:
             raise ValueError(f"mcp_servers already has a server named {server_name!r}")
         for allowed_tool in options.allowed_tools:
             cli_tool_name = allowed_tool.split("(", 1)[0].strip()
-            policy_tool_name = self._tool_catalog.policy_tool_name(cli_tool_name)
-            is_custom_tool = self._tool_catalog.custom_tool_name_for(cli_tool_name) is not None
+            policy_tool_name = tool_catalog.policy_tool_name(cli_tool_name)
+            is_custom_tool = tool_catalog.custom_tool_name_for(cli_tool_name) is not None
             policy = tool_call_gate.resolve_policy(cli_tool_name)
-            if self._tool_catalog.requires_deferral(is_custom_tool, policy):
+            if tool_catalog.requires_deferral(is_custom_tool, policy):
                 raise ValueError(
                     f"allowed_tools entry {allowed_tool!r} would let {policy_tool_name} run "
                     "without its approval or Step; remove it or give the tool a policy "

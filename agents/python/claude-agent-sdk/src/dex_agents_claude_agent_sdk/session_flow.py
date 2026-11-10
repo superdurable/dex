@@ -26,6 +26,7 @@ from dex_agents import (
     ToolEffect,
     ToolPolicy,
 )
+from dex_agents.stepwise import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
 from dex_agents_claude_agent_sdk.runner import (
     DEFAULT_CUSTOM_TOOL_SERVER_NAME,
     ClaudeAgentOptionsFactory,
@@ -46,6 +47,8 @@ def claude_agent_session_flow(
     tracing: AgentTracingOptions | None = None,
     run_model_limit: RunModelLimit | None = None,
     spend_limit: ModelSpendLimit | None = None,
+    tool_sources: Sequence[ToolSource] = (),
+    tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for one Claude Agent SDK agent.
 
@@ -64,6 +67,11 @@ def claude_agent_session_flow(
     approval first when their policy requires it. The default effect,
     ``UNCLASSIFIED``, requires approval for every tool without a policy or MCP
     annotation, built-in tools included.
+
+    Tool sources add tools that always run in their own tool Step, reads
+    included. ``ConnectorToolSource`` offers reviewed Connector operations
+    this way: each call gets the operation's effect class, approval, Call ID,
+    timeout, and retry policy from its manifest, as in a Stepwise agent.
 
     Example:
         >>> @tool("lookup_order", "Look up an order", {"order_id": str},
@@ -129,6 +137,16 @@ def claude_agent_session_flow(
             so one segment can overshoot it. Set ``max_budget_usd`` in the
             ``ClaudeAgentOptions`` too to bound a single segment. ``None``, the
             default, makes no checks.
+        tool_sources: Tool sources, such as ``ConnectorToolSource``, served
+            from the custom tool server. See ``ClaudeAgentRunner``. A
+            ``tool_policies`` entry for a connector tool changes only its
+            approval. Defaults to none.
+
+            .. versionadded:: 0.4.0
+        tool_source_listing_timeout: How long one ``RunModel`` attempt waits
+            for each source's ``list_tools``. Defaults to 10 seconds.
+
+            .. versionadded:: 0.4.0
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with ``ClaudeAgentRunner``.
@@ -136,12 +154,19 @@ def claude_agent_session_flow(
     Raises:
         ValueError: If an option is invalid, such as a duplicate custom tool
             name, a custom tool named like a Claude Code tool (see
-            ``CLAUDE_CODE_BUILT_IN_TOOL_NAMES``), or a non-positive
-            ``interrupt_deadline``.
+            ``CLAUDE_CODE_BUILT_IN_TOOL_NAMES``), a source tool that repeats a
+            custom tool, a Claude Code tool, or another source's tool, or a
+            non-positive ``interrupt_deadline``.
+        TypeError: If a tool source lacks a ``ToolSource`` method or a
+            non-blank ``source_name``.
     """
     return AgentSessionFlow(
         ClaudeAgentRunner(
-            options_factory, custom_tools, custom_tool_server_name=custom_tool_server_name
+            options_factory,
+            custom_tools,
+            custom_tool_server_name=custom_tool_server_name,
+            tool_sources=tool_sources,
+            tool_source_listing_timeout=tool_source_listing_timeout,
         ),
         flow_type=flow_type,
         options=AgentSessionOptions(

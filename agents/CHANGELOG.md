@@ -38,6 +38,17 @@ for the Dex SDK and framework versions each release supports.
 - Needs Connector SDK 0.9.0 (`dex-connectors-sdk==0.9.0`,
   `@superdurable/connectors-sdk` `0.9.0`), which exports `raise_dex_retry` and
   `throwDexRetry`.
+- Python Claude Agent SDK adapter: **ClaudeAgentRunner** and
+  **claude_agent_session_flow** take `tool_sources`, such as
+  **ConnectorToolSource**, and `tool_source_listing_timeout`. The in-process
+  custom tool server offers their tools. Every call of a source tool runs in its
+  own tool Step through its source, reads included, with the source's effect
+  class, approval, and Step options. Writes of one reply run one at a time
+  because one call per segment leaves the turn; a later write is refused inside
+  the turn rather than recorded as skipped. A source tool name that repeats a
+  custom tool, a Claude Code tool, or another source's tool is refused, and so is
+  an `allowed_tools` entry for a source tool. The TypeScript adapter does not
+  take tool sources yet.
 - Go core: no connector tools. Its **AgentToolCall** carries the four new fields, so a
   record written by another core round-trips.
 - See [Connector tools](../docs/content/agent-frameworks/deploy-agents.mdx#connector-tools).

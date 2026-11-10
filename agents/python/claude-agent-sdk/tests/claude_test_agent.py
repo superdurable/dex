@@ -14,11 +14,23 @@
 * ``slow_write`` is a non-idempotent write without approval that waits at a gate.
 * ``Bash`` runs inside the CLI and needs approval, the default for unknown tools.
 
+The fake ledger Connector's operations are source tools: ``get_balance`` is a
+Query; ``create_payout`` is a ``retry: safe`` Mutation without approval and
+``approved_payout`` the same with the manifest's approval; ``payout_checked``
+needs approval above 50; ``post_note`` is a single-attempt Mutation and
+``policy_note`` the same under a session policy that asks for approval and
+claims ``READ``. ``HidingToolSource`` lists ``hiding_note``, the same
+single-attempt Mutation, until a test hides it.
+
 An application PreToolUse hook rewrites ``publish`` input ``"rewrite me"`` to
-``"rewritten"``, and appends ``+`` to any ``publish`` message or ``lookup``
-query that starts with ``stamp`` on every call, resumed calls included. With
+``"rewritten"``, raises a ``payout_checked`` amount to 500 when its memo is
+``raise``, and appends ``+`` to any ``publish`` message or ``lookup``
+query that starts with ``stamp`` on every call it sees; the adapter skips
+application hooks for a resumed call that has a final record. Another denies
+``publish`` and ``post_note`` while ``DENY_FLAG_FILE_NAME`` exists. With
 ``REAL_CLI_ENVIRONMENT_VARIABLE`` set, the agent runs the bundled Claude Code
-CLI with that JSON object as extra CLI environment.
+CLI with that JSON object as extra CLI environment. A comma-separated
+``ALLOWED_TOOLS_ENVIRONMENT_VARIABLE`` becomes ``allowed_tools``.
 """
 
 from __future__ import annotations
@@ -26,12 +38,14 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
+    HookCallback,
     HookContext,
     HookInput,
     HookJSONOutput,
@@ -44,13 +58,23 @@ from claude_agent_sdk import (
 
 from dex_agents import (
     AgentSessionFlow,
+    AgentToolCall,
+    AgentTurnContext,
+    DeferredToolCall,
+    DeferredToolExecution,
+    DeferredToolOutcome,
     ModelCallCheck,
     ModelCallDecision,
     ModelUsageReport,
     RunModelLimit,
+    ToolCallStepOptions,
     ToolEffect,
     ToolPolicy,
+    ToolTaskPoll,
+    ToolTaskPollOutcome,
 )
+from dex_agents.connectors import ConnectorToolSource, connector_tool
+from dex_agents.stepwise import SourceToolDefinition
 from dex_agents.testing import FileGate, InvocationLog
 from dex_agents_claude_agent_sdk import (
     ClaudeAgentOptionsContext,
@@ -58,21 +82,34 @@ from dex_agents_claude_agent_sdk import (
     current_deferred_tool_execution,
 )
 from tests.fake_claude_cli import INVOCATION_LOG_NAME, STATE_DIR_ENVIRONMENT_VARIABLE
+from tests.fake_ledger import (
+    LEDGER_CONNECTION,
+    CreatePayoutOperation,
+    FakeLedgerProvider,
+    GetBalanceOperation,
+    PostNoteOperation,
+)
 
 CLAUDE_TEST_AGENT_FLOW_TYPE = "ScriptedClaudeAgent"
 FAKE_CLI_PATH_ENVIRONMENT_VARIABLE = "FAKE_CLAUDE_CLI_PATH"
 REAL_CLI_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_REAL_CLI_ENV"
 PERMISSION_MODE_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_PERMISSION_MODE"
+ALLOWED_TOOLS_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_ALLOWED_TOOLS"
 RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_RUN_MODEL_LIMIT"
 SPEND_LIMIT_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_SPEND_LIMIT"
 SPEND_REFUSAL_FILE_NAME = "spend-refusal"
 SPEND_CHECKS_LOG_NAME = "spend-checks.jsonl"
 SPEND_REPORTS_LOG_NAME = "spend-reports.jsonl"
 REWRITTEN_PUBLISH_INPUT = {"message": "rewritten"}
+RAISED_PAYOUT_AMOUNT = 500
+HIDE_SOURCE_TOOLS_FILE_NAME = "hide-source-tools"
+DENY_FLAG_FILE_NAME = "deny-publish-and-post-note"
+APPLICATION_HOOK_DENIAL = "the application hook denies this call"
 SLOW_WRITE_GATE = "slow_write"
 TOOL_POLICIES = {
     "publish": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
     "slow_write": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
+    "policy_note": ToolPolicy(ToolEffect.READ, requires_approval=True),
 }
 
 
@@ -80,6 +117,7 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
     def build_options(context: ClaudeAgentOptionsContext) -> ClaudeAgentOptions:
         real_cli_environment = os.environ.get(REAL_CLI_ENVIRONMENT_VARIABLE)
         permission_mode = os.environ.get(PERMISSION_MODE_ENVIRONMENT_VARIABLE)
+        allowed_tools = os.environ.get(ALLOWED_TOOLS_ENVIRONMENT_VARIABLE, "")
         return ClaudeAgentOptions(
             cli_path=None
             if real_cli_environment is not None
@@ -91,12 +129,18 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
             },
             system_prompt=f"You are scripted agent {context.flow_id}.",
             tools=["Bash"],
+            allowed_tools=[name for name in allowed_tools.split(",") if name],
             setting_sources=[],
             permission_mode=cast(PermissionMode | None, permission_mode),
             hooks={
                 "PreToolUse": [
                     HookMatcher(matcher="mcp__tools__publish", hooks=[rewrite_publish_input]),
                     HookMatcher(matcher="mcp__tools__(publish|lookup)", hooks=[stamp_tool_input]),
+                    HookMatcher(matcher="mcp__tools__payout_checked", hooks=[raise_checked_payout]),
+                    HookMatcher(
+                        matcher="mcp__tools__(publish|post_note)",
+                        hooks=[_deny_while_flagged(state_dir)],
+                    ),
                 ]
             },
         )
@@ -106,11 +150,87 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
         build_custom_tools(state_dir),
         flow_type=CLAUDE_TEST_AGENT_FLOW_TYPE,
         tool_policies=TOOL_POLICIES,
+        tool_sources=[build_connector_source(state_dir), HidingToolSource(state_dir)],
         run_model_limit=_run_model_limit_from_environment(),
         spend_limit=(
             FileSpendLimit(state_dir) if os.environ.get(SPEND_LIMIT_ENVIRONMENT_VARIABLE) else None
         ),
     )
+
+
+def build_connector_source(state_dir: Path) -> ConnectorToolSource:
+    provider = FakeLedgerProvider(state_dir)
+    payouts = CreatePayoutOperation(provider)
+    notes = PostNoteOperation(provider)
+    return ConnectorToolSource(
+        [
+            connector_tool(GetBalanceOperation(provider), LEDGER_CONNECTION, name="get_balance"),
+            connector_tool(
+                payouts, LEDGER_CONNECTION, name="create_payout", requires_approval=False
+            ),
+            connector_tool(payouts, LEDGER_CONNECTION, name="approved_payout"),
+            connector_tool(
+                payouts,
+                LEDGER_CONNECTION,
+                name="payout_checked",
+                requires_approval=lambda arguments: arguments["amount"] > 50,
+            ),
+            connector_tool(notes, LEDGER_CONNECTION, name="post_note"),
+            connector_tool(notes, LEDGER_CONNECTION, name="policy_note"),
+        ]
+    )
+
+
+class HidingToolSource:
+    """A dynamic source of ``hiding_note`` whose listing a test can empty or break.
+
+    While ``HIDE_SOURCE_TOOLS_FILE_NAME`` exists, ``list_tools`` returns nothing
+    when the file says ``empty`` and raises when it says ``raise``.
+    """
+
+    source_name = "hiding-ledger"
+
+    def __init__(self, state_dir: Path) -> None:
+        self._state_dir = state_dir
+        notes = PostNoteOperation(FakeLedgerProvider(state_dir))
+        self._inner = ConnectorToolSource(
+            [connector_tool(notes, LEDGER_CONNECTION, name="hiding_note")],
+            source_name=self.source_name,
+        )
+
+    async def list_tools(self) -> Sequence[SourceToolDefinition]:
+        hide_file = self._state_dir / HIDE_SOURCE_TOOLS_FILE_NAME
+        if hide_file.exists():
+            if hide_file.read_text() == "raise":
+                raise ConnectionError("the hiding source is down")
+            return ()
+        return await self._inner.list_tools()
+
+    def deferred_tool_call(
+        self,
+        turn: AgentTurnContext,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: str,
+        listed_tool: SourceToolDefinition,
+    ) -> DeferredToolCall:
+        return self._inner.deferred_tool_call(
+            turn,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            listed_tool=listed_tool,
+        )
+
+    def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        return self._inner.tool_call_step_options(tool_call)
+
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
+        return await self._inner.execute_deferred_tool_call(call)
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        return await self._inner.poll_tool_task(poll)
 
 
 def _run_model_limit_from_environment() -> RunModelLimit | None:
@@ -176,6 +296,39 @@ async def stamp_tool_input(
     if not str(tool_input.get(field_name, "")).startswith("stamp"):
         return {}
     tool_input[field_name] = f"{tool_input[field_name]}+"
+    return cast(
+        HookJSONOutput,
+        {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": tool_input}},
+    )
+
+
+def _deny_while_flagged(state_dir: Path) -> HookCallback:
+    async def deny_while_flagged(
+        hook_input: HookInput, tool_use_id: str | None, context: HookContext
+    ) -> HookJSONOutput:
+        if not (state_dir / DENY_FLAG_FILE_NAME).exists():
+            return {}
+        return cast(
+            HookJSONOutput,
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": APPLICATION_HOOK_DENIAL,
+                }
+            },
+        )
+
+    return deny_while_flagged
+
+
+async def raise_checked_payout(
+    hook_input: HookInput, tool_use_id: str | None, context: HookContext
+) -> HookJSONOutput:
+    tool_input = dict(cast(dict[str, Any], hook_input).get("tool_input") or {})
+    if tool_input.get("memo") != "raise":
+        return {}
+    tool_input["amount"] = RAISED_PAYOUT_AMOUNT
     return cast(
         HookJSONOutput,
         {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": tool_input}},

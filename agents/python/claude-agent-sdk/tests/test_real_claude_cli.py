@@ -22,6 +22,7 @@ from dex_agents.testing import wait_for_agent_snapshot
 from tests.claude_test_agent import PERMISSION_MODE_ENVIRONMENT_VARIABLE
 from tests.conftest import MOCK_API_KEY, RealClaudeCliHarness
 from tests.fake_claude_cli import CONTINUE_PROMPT
+from tests.fake_ledger import FakeLedgerProvider
 
 
 async def test_real_cli_resumes_an_approved_write_without_a_prompt(
@@ -100,6 +101,45 @@ async def test_real_cli_defers_two_writes_of_one_reply_one_at_a_time(
         if block.get("type") == "tool_result" and block.get("is_error")
     ]
     assert denied[0].startswith("PreToolUse:mcp__tools__publish hook error: publish did not run.")
+    _assert_only_the_mock_was_reached(harness)
+
+
+async def test_real_cli_runs_two_connector_writes_of_one_reply_in_the_model_order(
+    real_cli_harness: RealClaudeCliHarness,
+) -> None:
+    harness = real_cli_harness
+    ledger = FakeLedgerProvider(harness.state_dir)
+    await harness.stack.start_worker({PERMISSION_MODE_ENVIRONMENT_VARIABLE: "dontAsk"})
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        'call post_note {"accountId": "a-1", "text": "first gate-after-accept:first-write"}'
+        ' && call create_payout {"accountId": "a-1", "amount": 5}',
+    )
+    await harness.gate("first-write").wait_until_reached()
+    running = await harness.sessions.get_agent_snapshot(session_id)
+    assert [record.tool_name for record in running.tool_calls] == ["post_note"]
+    assert [entry["operation"] for entry in ledger.sends()] == ["postNote"]
+    harness.gate("first-write").release()
+
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == (
+        'post_note: {"noteId":"postNote-1"}; '
+        'create_payout: {"amount":5,"payoutId":"createPayout-2"}'
+    )
+    assert [entry["operation"] for entry in ledger.writes()] == ["postNote", "createPayout"]
+    denied = [
+        block["content"]
+        for body in _model_requests(harness)
+        for message in body["messages"]
+        if isinstance(message.get("content"), list)
+        for block in message["content"]
+        if block.get("type") == "tool_result" and block.get("is_error")
+    ]
+    assert denied[0].startswith(
+        "PreToolUse:mcp__tools__create_payout hook error: create_payout did not run. "
+        "Writes run one at a time in your order"
+    )
     _assert_only_the_mock_was_reached(harness)
 
 

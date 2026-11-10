@@ -310,7 +310,7 @@ RPC 的锁由调用方发送。SDK Client 和 Dex Web 会带上 RPC 声明的锁
 
 ## Connector tool {#connector-tools}
 
-Stepwise agent 可以把 [Connector](/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供这些 tool，方式和 **McpToolSource** 提供 MCP server 的 tool 一样。每次调用在自己的 tool Step 中通过 Connector SDK 运行一个 operation，所以 Call ID、幂等键、凭证处理和 single-dispatch fence 的行为和 Connector Step 中相同。Python 和 TypeScript core 提供这项功能。Go core 只支持 function tool，framework adapter 暂时也不提供 connector tool。
+Stepwise agent 可以把 [Connector](/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供这些 tool，方式和 **McpToolSource** 提供 MCP server 的 tool 一样。每次调用在自己的 tool Step 中通过 Connector SDK 运行一个 operation，所以 Call ID、幂等键、凭证处理和 single-dispatch fence 的行为和 Connector Step 中相同。Python 和 TypeScript core 提供这项功能。Python 的 Claude Agent SDK adapter 也通过 **tool_sources** 接受它。Go core 只支持 function tool，其他 framework adapter 暂时也不提供 connector tool。
 
 安装带 Connector SDK 的 core，以及 agent 用到的每个 Connector 包：
 
@@ -370,6 +370,8 @@ operation 选中的 branch 决定 tool call 的记录。Connector 作者在 **ag
 ### 写入顺序 {#connector-tools-write-order}
 
 同一次模型回复中的 connector 写入按模型给出的顺序逐个运行。读取以及其他 tool 的调用照旧并行运行。需要审批的写入轮到它时才请求审批。一次写入失败、以 **outcome_unknown** 结束，或者被人或 provider 拒绝时，这次回复中后面的 connector 写入都不会运行。它们各自记录为 **failed**， **skipped** 字段为 true，错误以 "the tool did not run, so it is safe to call again" 开头。 Dex Web 把这些调用显示为已跳过。
+
+在 Claude Agent SDK adapter 中，一次模型回复的调用每次只有一个离开 turn，在自己的 tool Step 中运行。这次回复中后面的写入在 turn 内被拒绝，所以它不会运行，也不留下记录。模型先读到前一次写入的结果，再决定是否重新调用后面的写入。
 
 ### 结果大小 {#connector-tools-result-size}
 

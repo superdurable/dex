@@ -1,0 +1,105 @@
+{
+  "connectorId": "fake-ledger",
+  "releaseTag": "connectors/fake-ledger/go/v0.0.0",
+  "package": {"ecosystem": "pypi", "name": "fake-ledger", "version": "0.0.0"},
+  "factories": [
+    {
+      "name": "new_get_balance_step",
+      "kind": "query",
+      "operationId": "getBalance",
+      "inputType": "GetBalanceInput",
+      "description": "Read the balance of one ledger account.",
+      "agent": {"exposed": true, "branches": {"notFound": "rejected"}},
+      "fields": {"stepType": "step_type", "annotations": "annotations", "connectionName": "connection_name", "resultAttribute": "result_attribute"},
+      "branches": [
+        {"id": "found", "field": "found", "optional": false},
+        {"id": "notFound", "field": "not_found", "optional": true},
+        {"id": "invalidResponse", "field": "invalid_response", "optional": true},
+        {"id": "defect", "field": "defect", "optional": true}
+      ],
+      "inputSchema": {
+        "type": "object",
+        "description": "GetBalanceInput names one account.",
+        "additionalProperties": false,
+        "properties": {
+          "accountId": {"type": "string", "description": "The account."},
+          "padding": {"type": "integer", "description": "Bytes of filler to add to the result."}
+        },
+        "required": ["accountId"]
+      }
+    },
+    {
+      "name": "new_create_payout_step",
+      "kind": "mutation",
+      "operationId": "createPayout",
+      "inputType": "CreatePayoutInput",
+      "description": "Pay an amount out of one ledger account.",
+      "agent": {"exposed": true, "approval": "recommended", "retry": "safe", "branches": {"providerRejected": "rejected"}},
+      "fields": {"stepType": "step_type", "annotations": "annotations", "connectionName": "connection_name", "resultAttribute": "result_attribute"},
+      "branches": [
+        {"id": "paid", "field": "paid", "optional": false},
+        {"id": "providerRejected", "field": "provider_rejected", "optional": true},
+        {"id": "uncertain", "field": "uncertain", "optional": true},
+        {"id": "invalidResponse", "field": "invalid_response", "optional": true},
+        {"id": "defect", "field": "defect", "optional": true}
+      ],
+      "inputSchema": {
+        "type": "object",
+        "description": "CreatePayoutInput is one payout.",
+        "additionalProperties": false,
+        "properties": {
+          "accountId": {"type": "string", "description": "The account."},
+          "amount": {"type": "integer", "description": "The amount in cents."},
+          "memo": {"$ref": "#/$defs/Memo"}
+        },
+        "required": ["accountId", "amount"],
+        "$defs": {
+          "Memo": {"type": "string", "description": "Scenario switches for the fake provider."}
+        }
+      }
+    },
+    {
+      "name": "new_post_note_step",
+      "kind": "mutation",
+      "operationId": "postNote",
+      "inputType": "PostNoteInput",
+      "description": "Post a note on one ledger account.",
+      "agent": {"exposed": true, "branches": {"providerRejected": "rejected"}},
+      "fields": {"stepType": "step_type", "annotations": "annotations", "connectionName": "connection_name", "resultAttribute": "result_attribute"},
+      "branches": [
+        {"id": "posted", "field": "posted", "optional": false},
+        {"id": "providerRejected", "field": "provider_rejected", "optional": true},
+        {"id": "uncertain", "field": "uncertain", "optional": true},
+        {"id": "defect", "field": "defect", "optional": true}
+      ],
+      "inputSchema": {
+        "type": "object",
+        "description": "PostNoteInput is one note.",
+        "additionalProperties": false,
+        "properties": {
+          "accountId": {"type": "string", "description": "The account."},
+          "text": {"type": "string", "description": "The note text and scenario switches."}
+        },
+        "required": ["accountId", "text"]
+      }
+    },
+    {
+      "name": "new_close_account_step",
+      "kind": "mutation",
+      "operationId": "closeAccount",
+      "inputType": "CloseAccountInput",
+      "description": "Close one ledger account.",
+      "fields": {"stepType": "step_type", "annotations": "annotations", "connectionName": "connection_name", "resultAttribute": "result_attribute"},
+      "branches": [
+        {"id": "closed", "field": "closed", "optional": false},
+        {"id": "defect", "field": "defect", "optional": true}
+      ],
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"accountId": {"type": "string"}},
+        "required": ["accountId"]
+      }
+    }
+  ]
+}

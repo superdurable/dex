@@ -423,8 +423,10 @@ operations as tools. **ConnectorToolSource** offers them, the way
 **McpToolSource** offers an MCP server's tools. Each call runs one operation
 in its own tool Step through the Connector SDK, so the Call ID, the idempotency
 key, credential handling, and the single-dispatch fence work as they do in a
-Connector Step. The Python and TypeScript cores ship it. The Go core has
-function tools only, and framework adapters do not offer connector tools yet.
+Connector Step. The Python and TypeScript cores ship it. The Python Claude
+Agent SDK adapter also takes it, through **tool_sources**. The Go core has
+function tools only, and the other framework adapters do not offer connector
+tools yet.
 
 Install the core with the Connector SDK, and each Connector package an agent
 uses:
@@ -523,6 +525,11 @@ needs approval asks for it only when its turn comes. When a write fails, ends
 connector writes of that response do not run. Each records **failed** with its
 **skipped** field set and an error that starts "the tool did not run, so it is
 safe to call again". Dex Web shows these calls as skipped.
+
+In the Claude Agent SDK adapter, one call of a model response at a time leaves
+the turn to run in its tool Step. A later write of that response is refused
+inside the turn, so it never runs and leaves no record. The model reads the earlier write's result and then decides
+whether to call the later write again.
 
 ### Result size {#connector-tools-result-size}
 

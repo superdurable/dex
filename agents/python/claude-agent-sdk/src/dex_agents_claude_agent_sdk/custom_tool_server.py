@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""The in-process MCP server that serves custom tools by the CLI's tool use ID."""
+"""The in-process MCP server that serves custom and source tools by the CLI's tool use ID."""
 
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ from dex_agents_claude_agent_sdk.tool_gate import (
     ToolCatalog,
 )
 
+REPLAY_ONLY_TOOL_DESCRIPTION = "Not available now: its tool source does not offer it."
+
 
 def build_custom_tool_server(
     tool_catalog: ToolCatalog, tool_call_gate: ToolCallGate
@@ -46,6 +48,28 @@ def build_custom_tool_server(
         )
         for custom_tool in tool_catalog.custom_tools
     ]
+    # No annotations: the CLI runs unannotated MCP tools one at a time, in the model's order.
+    wire_tools += [
+        Tool.model_validate(
+            {
+                "name": source_tool.definition.name,
+                "description": source_tool.definition.description,
+                "inputSchema": dict(source_tool.definition.input_schema),
+            }
+        )
+        for source_tool in tool_catalog.source_tools
+    ]
+    # Served so the CLI can resume a recorded call; the gate refuses new calls.
+    wire_tools += [
+        Tool.model_validate(
+            {
+                "name": tool_name,
+                "description": REPLAY_ONLY_TOOL_DESCRIPTION,
+                "inputSchema": {"type": "object"},
+            }
+        )
+        for tool_name in tool_catalog.replay_only_tool_names
+    ]
 
     async def list_custom_tools(
         context: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None
@@ -55,17 +79,17 @@ def build_custom_tool_server(
     async def call_custom_tool(
         context: ServerRequestContext[Any, Any], params: CallToolRequestParams
     ) -> CallToolResult:
-        custom_tool = tool_catalog.custom_tool(params.name)
-        if custom_tool is None:
+        if not tool_catalog.is_served_tool_name(params.name):
             return _error_result(f"Tool '{params.name}' not found")
+        custom_tool = tool_catalog.custom_tool(params.name)
         meta = params.meta or {}
         tool_use_id = meta.get(CLAUDE_CODE_TOOL_USE_ID_META_KEY)
         try:
             result = await tool_call_gate.call_custom_tool(
-                custom_tool.name,
+                params.name,
                 tool_use_id if isinstance(tool_use_id, str) else None,
                 dict(params.arguments or {}),
-                custom_tool.handler,
+                None if custom_tool is None else custom_tool.handler,
             )
         except Exception as error:
             return _error_result(str(error) or type(error).__name__)
