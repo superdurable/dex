@@ -16,22 +16,10 @@ Step movement has its own input and can also have its own
 [Step options](./step-options.mdx#stepoptions-override-per-stepexecution).
 
 ```java
-public StepDecision execute(final Context context, final String mode) {
-    switch (mode) {
-        case "graceful":
-            return StepDecision.gracefulComplete("done");
-        case "dead-end":
-            return StepDecision.goToMany(
-                    StepMovement.of(BranchWorker.class, "left"),
-                    StepMovement.of(BranchWorker.class, "right"));
-        default:
-            final Quote quote = new Quote("winner", 9);
-            return StepDecision.goToMany(
-                    StepMovement.of(CarrierA.class, new Quote("A", 10)),
-                    StepMovement.of(CarrierB.class, new Quote("B", 12)),
-                    StepMovement.of(Winner.class, quote));
-    }
-}
+return StepDecision.goToMany(
+        StepMovement.of(CarrierA.class, quoteA),
+        StepMovement.of(CarrierB.class, quoteB),
+        StepMovement.of(Winner.class, winnerQuote));
 ```
 
 Example: [examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java)
@@ -54,32 +42,22 @@ A Flow can have no active Steps and still keep running. **DeadEnd** stops this
 branch without making a decision that triggers the Flow to complete.
 
 ```java
-public StepDecision execute(final Context context, final String mode) {
-    switch (mode) {
-        case "graceful":
-            return StepDecision.gracefulComplete("done");
-        case "dead-end":
-            return StepDecision.goToMany(
-                    StepMovement.of(BranchWorker.class, "left"),
-                    StepMovement.of(BranchWorker.class, "right"));
-        default:
-            final Quote quote = new Quote("winner", 9);
-            return StepDecision.goToMany(
-                    StepMovement.of(CarrierA.class, new Quote("A", 10)),
-                    StepMovement.of(CarrierB.class, new Quote("B", 12)),
-                    StepMovement.of(Winner.class, quote));
-    }
+case "graceful" -> {
+    return StepDecision.gracefulComplete("done");
+}
+case "dead-end" -> {
+    return StepDecision.goToMany(
+            StepMovement.of(BranchWorker.class, "left"),
+            StepMovement.of(BranchWorker.class, "right"));
 }
 
-public StepDecision execute(final Context context, final String input) {
-    return StepDecision.deadEnd();
-}
+return StepDecision.deadEnd();
 ```
 
 Example: [examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java)
 
 ```java
-public StepDecision handleTimeout(final Context context) {
+public StepDecision execute(final Context context, final Void input) {
     return StepDecision.forceFail("Workflow did not finish the task in time");
 }
 
@@ -102,11 +80,17 @@ An RPC can also cancel Steps by type. See
 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). For how a
 running attempt observes cancellation, see [Cancellation](./step-options.mdx#cancellation).
 
+A canceled Step returns the Channel messages its wait consumed before its
+**Execute** committed. They go back to the front of their Channels, in their
+original order, unless the decision also closes the Flow with **ForceComplete**
+or **ForceFail**. A Step that the decision cancels never
+takes the messages the same result publishes, unless the decision also closes
+the Flow at once. See
+[Canceled Steps return consumed messages](/reference/server/runtime-data#canceled-step-messages).
+
 ```java
-public StepDecision execute(final Context context, final Quote quote) {
-    return StepDecision.goTo(RecordQuote.class, quote)
-            .withCancelingSteps(CarrierA.class, CarrierB.class);
-}
+return StepDecision.goTo(RecordQuote.class, quote)
+        .withCancelingSteps(carrierA, carrierB);
 ```
 
 Example: [examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java)
@@ -116,8 +100,9 @@ Example: [examples/java/src/main/java/io/superdurable/dex/primitives/stepdecisio
 **ForceCompleteIfChannelsEmpty** atomically checks whether all named Channels
 are empty. A Channel with queued messages is non-empty. After a message is
 consumed and committed to a Step, that Channel remains non-empty until the Step
-finishes processing **Execute**. If every named Channel is empty, it completes
-the Flow. Otherwise, it goes to other Steps.
+finishes processing **Execute**. A message that a canceled Step returned is
+pending again, so its Channel is non-empty too. If every named Channel is
+empty, it completes the Flow. Otherwise, it goes to other Steps.
 
 Use it to drain Channels and complete the Flow, so the Flow can stay short. See
 [Drain External Channel](/design-patterns/draining-channel-for-external-publishing)

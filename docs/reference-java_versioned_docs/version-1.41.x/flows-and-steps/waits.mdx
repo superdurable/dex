@@ -23,53 +23,17 @@ the **Context**. Add IDs only when another API requires them, such as
 **AnyCombinationOf** or a Timer selected by ID.
 
 ```java
-public Wait waitFor(final Context context, final WaitTypesInput input) {
-    final Duration timeout = Duration.ofSeconds(input.getTimeoutSeconds());
-    switch (input.getMode()) {
-        case "any":
-            return Wait.anyOf(
-                    channelA.forOne("signal"),
-                    Timer.byDuration(timeout, "timeout"));
-        case "all":
-            return Wait.allOf(
-                    channelA.forOne("signal-a"),
-                    channelB.forOne("signal-b"));
-        case "combo":
-            return Wait.anyCombinationOf(
-                    ConditionCombination.of(
-                            channelA.forOne("signal-a"),
-                            Timer.byDuration(timeout, "timeout")),
-                    ConditionCombination.of(channelB.forOne("signal-b")));
-        default:
-            throw new IllegalArgumentException("unknown wait mode: " + input.getMode());
-    }
-}
+return Wait.anyOf(
+        channelA.forOne(),
+        Timer.byDuration(timeout));
 ```
 
 Example: [examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
 
 ```java
-public Wait waitFor(final Context context, final WaitTypesInput input) {
-    final Duration timeout = Duration.ofSeconds(input.getTimeoutSeconds());
-    switch (input.getMode()) {
-        case "any":
-            return Wait.anyOf(
-                    channelA.forOne("signal"),
-                    Timer.byDuration(timeout, "timeout"));
-        case "all":
-            return Wait.allOf(
-                    channelA.forOne("signal-a"),
-                    channelB.forOne("signal-b"));
-        case "combo":
-            return Wait.anyCombinationOf(
-                    ConditionCombination.of(
-                            channelA.forOne("signal-a"),
-                            Timer.byDuration(timeout, "timeout")),
-                    ConditionCombination.of(channelB.forOne("signal-b")));
-        default:
-            throw new IllegalArgumentException("unknown wait mode: " + input.getMode());
-    }
-}
+return Wait.allOf(
+        channelA.forOne(),
+        channelB.forOne());
 ```
 
 Example: [examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
@@ -103,40 +67,26 @@ until it is resolved.
 ### Channel results {#channel-results}
 
 ```java
-final class ChannelWait implements Step<Integer> {
+final class ChannelWaitStep implements Step<Integer> {
     @Override
     public Class<Integer> getInputType() {
         return Integer.class;
     }
 
     @Override
-    public StepOptions getStepOptions() {
-        return StepOptions.newBuilder()
-                .addExecuteLoadChannel(queuedMessages)
-                .build();
-    }
-
-    @Override
     public Wait waitFor(final Context context, final Integer input) {
         return Wait.anyOf(
-                approvalMessages.forOne(),
+                approval.forOne(),
                 Timer.byDuration(Duration.ofSeconds(input)));
     }
 
     @Override
     public StepDecision execute(final Context context, final Integer input) {
-        final List<ChannelMessage<String>> pendingQueuedMessages =
-                queuedMessages.pendingMessages(context);
-        if (!pendingQueuedMessages.isEmpty()) {
-            queuedMessages.delete(context, pendingQueuedMessages.get(0).getMessageId());
-            return StepDecision.gracefulComplete(pendingQueuedMessages.get(0).getValue());
-        }
         if (context.hasTimerFired()) {
             return StepDecision.gracefulComplete("approval timed out");
         }
-        final List<String> approvalMessageValues =
-                approvalMessages.getConditionResults(context);
-        return StepDecision.gracefulComplete(approvalMessageValues.get(0));
+        final List<String> approvals = approval.getConditionResults(context);
+        return StepDecision.gracefulComplete(approvals.get(0));
     }
 }
 ```
@@ -188,23 +138,14 @@ overkill. Step input is already passed to both methods. Do not copy input into
 a local.
 
 ```java
-final class NoteWait implements Step<Integer> {
-    @Override
-    public Class<Integer> getInputType() {
-        return Integer.class;
-    }
+public Wait waitFor(final Context context, final Integer input) {
+    context.setStepExecutionLocal("note", "approval:" + input, String.class);
+    return Wait.until(approval.forOne());
+}
 
-    @Override
-    public Wait waitFor(final Context context, final Integer input) {
-        context.setStepExecutionLocal("note", "approval:" + input, String.class);
-        return Wait.until(approval.forOne());
-    }
-
-    @Override
-    public StepDecision execute(final Context context, final Integer input) {
-        final String note = context.getStepExecutionLocal("note", String.class);
-        return StepDecision.gracefulComplete(note == null ? "" : note);
-    }
+public StepDecision execute(final Context context, final Integer input) {
+    final String note = context.getStepExecutionLocal("note", String.class);
+    return StepDecision.gracefulComplete(note == null ? "" : note);
 }
 ```
 

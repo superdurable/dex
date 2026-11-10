@@ -1,0 +1,137 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to dexcli, newest first; each section covers the changes since the previous release of this component.
+
+## 1.41 {#v1-41}
+
+Released 2026-11-09 as [cli-v1.41.0](https://github.com/superdurable/dex/releases/tag/cli-v1.41.0).
+
+### Breaking
+
+- **dexcli web** and **dexcli dev** serve a Dex Web with one UI. The **v2** pages are removed, and every **/v2** URL redirects to its **/v1** equivalent. [Reference](/reference/web/dex-web#v1-pages).
+
+### Added
+
+- **dexcli web** and **dexcli dev** serve the Dex Web **Design** tab and the **Experimental** menu with **Designs**, **Work Queue**, and **Connectors**. [Reference](/reference/web/dex-web#run-tabs).
+
+### Changed
+
+- **dexcli visualize** opens the **Designs** page, which was called **Flow Rendering**. [Reference](/reference/web/flow-visualization).
+- **dexcli web** and **dexcli dev** serve the Timeline overview histogram. [Reference](/reference/web/dex-web#v1-pages).
+
+## 1.40 {#v1-40}
+
+Released 2026-11-09 as [cli-v1.40.0](https://github.com/superdurable/dex/releases/tag/cli-v1.40.0). Patch releases [cli-v1.40.1](https://github.com/superdurable/dex/releases/tag/cli-v1.40.1) and [cli-v1.40.2](https://github.com/superdurable/dex/releases/tag/cli-v1.40.2) followed the same day.
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.23. Its breaking changes apply to every **dexcli dev** data directory. Each run now chooses at start whether it offloads history, and the **history.offloadEnabled**, **history.deleteExpiredObjects**, and **history.maxRetainedSupersededBytes** keys are removed. A **history.offloadEnabled** value of false in a **--zd-config** file now fails startup. [Reference](/reference/server/changelog#v0-1-23).
+- The default **history.windowEvents** for **dexcli dev** is 5,000 events, where it was 10,000. Runs keep the window they recorded at start.
+- Do not run an earlier dexcli on a data directory after 1.40 has used it.
+
+### Added
+
+- **dexcli flow start --config** accepts **offloadHistory**. [Reference](/reference/server/configuration#history-offload).
+- The Connector manifest schema accepts **agent.branches**, so **dexcli visualize** reads it without a diagnostic. [Reference](/reference/web/flow-visualization#connector-package-manifests).
+- **dexcli web** and **dexcli dev** serve the Dex Web v1 Flows and Run pages redesign, including a horizontal Timeline and editing of a run's history window. [Reference](/reference/web/dex-web#v1-pages).
+
+### Changed
+
+- **FlowConfig.delete_expired_history_objects** is deprecated. **dexcli** no longer sends it.
+- **dexcli dev** bundles server-zd 0.1.25 since 1.40.2. [Reference](/reference/server/changelog#v0-1-25).
+
+## 1.39 {#v1-39}
+
+Released 2026-11-09 as [cli-v1.39.0](https://github.com/superdurable/dex/releases/tag/cli-v1.39.0). Patch release [cli-v1.39.1](https://github.com/superdurable/dex/releases/tag/cli-v1.39.1) followed the same day.
+
+### Added
+
+- **dexcli visualize** reads Actions declared by Python and TypeScript applications, and emits their RPC lock edges. This arrived in 1.39.1. [Reference](/reference/web/flow-visualization#actions-in-python-and-typescript).
+- **dexcli visualize** provides a Flow Definition Graph for Dex Agents session Flows.
+- Dex Web sends the declared RPC locks when a person runs an Action. [Reference](/reference/web/dex-web#actions).
+- Dex Web adds a Session tab for Dex Agents sessions and an agent inbox in the Work Queue. [Reference](/reference/web/dex-web#agent-session-view).
+
+### Changed
+
+- **dexcli** sends LoadBlobs requests in batches of at most 1,000 entries.
+- **dexcli dev** bundles server-zd 0.1.22 since 1.39.1. This turns history offload on by default for **dexcli dev**. [Reference](/reference/server/changelog#v0-1-22).
+- **dexcli flow start --config** accepts **deleteExpiredHistoryObjects**.
+
+## 1.38 {#v1-38}
+
+Released 2026-11-07 as [cli-v1.38.0](https://github.com/superdurable/dex/releases/tag/cli-v1.38.0).
+
+### Added
+
+- Dex Web v2 searches by active Step type and across Flow types, returns the output of an Action RPC, and accepts an Action without a condition. [Reference](/reference/web/dex-web#search-several-flow-types).
+- **dexcli flow start --config** accepts **historyWindowEvents**, which sets how many history events a run keeps. [Reference](/reference/server/configuration#history-window).
+
+### Changed
+
+- **dexcli** splits a LoadBlobs request when the server rejects its response size.
+
+## 1.37 {#v1-37}
+
+Released 2026-11-06 as [cli-v1.37.0](https://github.com/superdurable/dex/releases/tag/cli-v1.37.0). Reference: [1.37.x](/reference/cli/1.37.x/).
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.20 and creates 32-partition state directories. To retain an older 1024-partition directory, pass **--zd-config** with **cluster.partitionCount** set to 1024. [Reference](/reference/cli/1.41.x/#start-locally).
+
+### Added
+
+- **dexcli web** serves Dex Web against an existing **--server** using the CLI’s TLS and credential settings. It binds loopback by default and accepts **--flow-rendering-dir**. [Reference](/reference/cli/1.41.x/#web).
+
+### Fixed
+
+- Stopping embedded Dex Web no longer waits for an open Flow history long poll to finish. [Reference](/reference/cli/1.41.x/#web).
+
+## 1.36 {#v1-36}
+
+Released 2026-11-06 as [cli-v1.36.0](https://github.com/superdurable/dex/releases/tag/cli-v1.36.0). Reference: [1.36.x](/reference/cli/1.36.x/).
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.19, which caps node Stream data at 1 GiB and each requested Stream capacity at 64 MiB by default. Set **streamStore.maxTotalBytes** and **streamStore.maxStreamCapacityBytes** through **--zd-config** for larger buffers. [Reference](/reference/cli/1.41.x/#start-locally).
+
+## 1.35 {#v1-35}
+
+Released 2026-11-06 as [cli-v1.35.0](https://github.com/superdurable/dex/releases/tag/cli-v1.35.0). Reference: [1.35.x](/reference/cli/1.35.x/).
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.18 and defaults to strict durability, with slower writes that survive host crashes. Pass **--durability process-crash-safe** for the previous behavior. [Reference](/reference/cli/1.41.x/#start-locally).
+- **dexcli dev** refuses data directories left unclean by server-zd releases before 0.1.4. Delete such a directory to start empty. [Reference](/reference/cli/1.41.x/#start-locally).
+
+### Added
+
+- **--durability** accepts **strict**, **process-crash-safe**, or **relaxed**. An explicit flag overrides **dev.durabilityMode** in **--zd-config**. [Reference](/reference/cli/1.41.x/#start-locally).
+
+### Changed
+
+- The bundled server supports protocol version 4, including durable Step queues and planned-stop draining. This CLI release can run SDK 1.35 applications locally. [Reference](/reference/cli/1.41.x/#start-locally).
+- **dexcli visualize** uses **RPCOptions.Name** for Actions and Summary and Display RPCs when the name is a compile-time string. [Reference](/reference/cli/1.41.x/#start-locally).
+
+## 1.34 {#v1-34}
+
+Released 2026-11-02 as [cli-v1.34.0](https://github.com/superdurable/dex/releases/tag/cli-v1.34.0). Reference: [1.34.x](/reference/cli/1.41.x/).
+
+### Changed
+
+- **dexcli dev** now bundles server-zd 0.1.16, including the fix for a process taking its lease back after step-down. [Reference](/reference/cli/1.41.x/#start-locally).
+
+## 1.33 {#v1-33}
+
+Released 2026-11-02 as [cli-v1.33.0](https://github.com/superdurable/dex/releases/tag/cli-v1.33.0). Reference: [1.33.x](/reference/cli/1.41.x/).
+
+### Changed
+
+- **dexcli dev** now bundles server-zd 0.1.15, which supports hot standby takeover and administrative step-down. [Reference](/reference/cli/1.41.x/#start-locally).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=cli-v&expanded=true).
