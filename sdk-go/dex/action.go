@@ -18,7 +18,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
-// WorkQueuePermissionsIndexKey is the Temporal KeywordList Search Attribute
+// WorkQueuePermissionsIndexKey is the Dex KeywordList indexed Attribute
 // containing permissions for Actions that have been available in the current
 // Flow execution.
 //

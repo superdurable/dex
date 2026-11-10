@@ -171,57 +171,6 @@ func (subFlowAbnormalParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecis
 	return completeSubFlowStatus(ctx)
 }
 
-type subFlowContinueAsNewParentFlow struct{ emptyFlowSchema }
-
-func (subFlowContinueAsNewParentFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(subFlowContinueAsNewParentStep{})}
-}
-
-type subFlowContinueAsNewParentStep struct{ dex.StepDefaults }
-
-func (subFlowContinueAsNewParentStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
-	options := dex.SubFlowOptions{ConfigOverride: &dex.FlowConfig{
-		ContinueAsNewThreshold: ptr.Any(int32(100)),
-	}}
-	return dex.AllOf(
-		dex.SubFlow(subFlowImmediateFlow{}, input, options),
-		dex.SubFlow(subFlowTimerFlow{}, 300, options),
-	), nil
-}
-
-func (subFlowContinueAsNewParentStep) Execute(
-	ctx dex.Context,
-	_ int,
-) (*dex.StepDecision, error) {
-	completed, err := dex.SubFlowResult(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var completedOutput string
-	if err := completed.DecodeSingleOutput(&completedOutput); err != nil {
-		return nil, err
-	}
-	delayed, err := dex.SubFlowResult(ctx, 1)
-	if err != nil {
-		return nil, err
-	}
-	completedID, err := dex.SubFlowID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	delayedID, err := dex.SubFlowID(ctx, 1)
-	if err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(fmt.Sprintf(
-		"%s|%s|%s|%s",
-		completedID,
-		completedOutput,
-		delayedID,
-		delayed.Status,
-	)), nil
-}
-
 type subFlowTimerFlow struct{ dex.FlowDefaults }
 
 func (subFlowTimerFlow) GetSteps() []dex.StepDef {
@@ -361,36 +310,6 @@ func TestSubFlowDefaultReuseRestartsFailedExecutionAcrossParentReset(t *testing.
 	waitForFlow(t, flowID, true)
 	secondRunID := awaitSubFlowRunID(t, childID, firstRunID)
 	require.NotEqual(t, firstRunID, secondRunID)
-}
-
-func TestSubFlowPartialResultsSurviveContinueAsNewWithoutRestart(t *testing.T) {
-	// C3: server-zd never continues a run as new.
-	t.Skip("server-zd never continues a run as new")
-	flowID := newFlowID(t, "sub-flow-can")
-	completedID := subFlowID(flowID, subFlowContinueAsNewParentStep{}, 0)
-	delayedID := subFlowID(flowID, subFlowContinueAsNewParentStep{}, 1)
-	_, err := integClient.StartFlow(
-		integrationContext(t),
-		subFlowContinueAsNewParentFlow{},
-		flowID,
-		4,
-		dex.StartFlowOptions{ConfigOverride: &dex.FlowConfig{
-			ContinueAsNewThreshold: ptr.Any(int32(1)),
-		}},
-	)
-	require.NoError(t, err)
-	completedRunID := awaitSubFlowRunID(t, completedID, "")
-	require.NoError(t, integClient.TriggerContinueAsNew(integrationContext(t), flowID))
-	skipSubFlowTimer(t, delayedID)
-	var output string
-	require.NoError(t, waitForFlow(t, flowID, true).DecodeSingleOutput(&output))
-	parts := strings.Split(output, "|")
-	require.Len(t, parts, 4)
-	require.Equal(t, completedID, parts[0])
-	require.Equal(t, completedRunID+",6", parts[1])
-	require.Equal(t, delayedID, parts[2])
-	require.Equal(t, "completed", parts[3])
-	require.Equal(t, completedRunID, getSubFlowRunID(t, completedID))
 }
 
 func completeSubFlowStatus(ctx dex.Context) (*dex.StepDecision, error) {
