@@ -6,57 +6,58 @@ sidebar_label: Agent Frameworks
 
 # Agent Frameworks
 
-An agent already written with an agent framework can run on Dex without a rewrite. A framework adapter wraps the agent in a session Flow, one Flow per session, and keeps the framework's own agent definition, tools and prompts.
+Dex runs an AI agent as a durable agent session. You can build the agent with the built-in agent loop of Dex Agents. You can also keep an agent that you already wrote with an agent framework. Every choice runs on the same session Flow, so a session behaves the same way on Dex.
 
-## How a session runs
+## A durable agent session
 
-The framework makes one model call per Step. Each tool call the model asks for then runs as its own Step, and the tool calls of one turn run in parallel. When they finish, the session goes back to the model with their results.
+One Flow execution is one agent session. The Flow ID is the session ID. Dex Agents builds the session Flow: the **dex-agents** package in Python and **@superdurable/dex-agents** in TypeScript. A framework adapter adds one agent framework to it.
 
-A crash repeats only the call that was running. Nothing replays the loop, so the framework code needs no determinism rules, and a code change takes effect at the next Step.
+The session stores the conversation in Attributes. A session waits for the next user message without holding a Worker. It can wait for days.
 
-The Claude Agent SDK is the exception: it runs its own loop in a CLI subprocess, so its adapter runs each whole turn as one Step.
+Model calls run in a **RunModel** Step. A tool call runs in its own Step. The tool calls of one model response run in parallel. When they finish, the session goes back to the model with their results.
+
+A crash repeats only the call that was running. Nothing replays the loop. So the agent code needs no determinism rules, and a code change takes effect at the next Step.
 
 ## Tool policies and approvals
 
-Each tool gets a **ToolPolicy** that marks it as a read, an idempotent write, or a write that must run once. Reads and idempotent writes retry. Other writes get a single attempt, so a retry never repeats them silently. A tool call that needs approval waits in its own Step until someone answers, for as long as it takes.
+Each tool gets a **ToolPolicy**. The policy marks the tool as a read, an idempotent write, or a write that must run once. Reads and idempotent writes retry. Other writes get a single attempt, so a retry never repeats them silently.
 
-## Install
+A tool call that needs approval waits in its own **AwaitToolApproval** Step. It waits until someone answers, for as long as it takes. A person approves it from your application or from [Dex Web](/reference/web/dex-web#agent-session-view).
 
-Python adapters are on PyPI:
+## Choose a harness
 
-```bash
-pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
-pip install dex-agents-langgraph
-pip install dex-agents-openai-agents
-pip install dex-agents-google-adk
-pip install dex-agents-claude-agent-sdk
-```
+A harness is the code that runs the agent loop: the built-in loop or a framework. Each page below has an install command, a runnable example, and the steps to run it locally.
 
-TypeScript adapters are on npm, with the core and the Dex SDK as peer packages:
+| Harness | Languages | How the loop maps onto Steps | Choose it when |
+| --- | --- | --- | --- |
+| [Built-in agent loop](/agent-frameworks/built-in-agent-loop) | Python, TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You start a new agent. You want Dex to own the model input, with questions, durable waits, plans, and MCP tools. |
+| [Claude Agent SDK](/agent-frameworks/claude-agent-sdk) | Python, TypeScript | The Claude Code CLI runs a turn segment in one **RunModel** Step. Reads run inside it. A write ends the segment and runs in its own Step. | You want the Claude Code agent loop and its tools. |
+| [OpenAI Agents SDK](/agent-frameworks/openai-agents-sdk) | Python, TypeScript | One model call per **RunModel** Step. Each function tool call is its own Step. | You have an OpenAI Agents SDK agent, with or without handoffs. |
+| [Pydantic AI](/agent-frameworks/pydantic-ai) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Pydantic AI agent. |
+| [LangChain and LangGraph](/agent-frameworks/langchain-langgraph) | Python | The graph runs until its tool calls in one **RunModel** Step. Each tool call is its own Step. | You have a LangChain **create_agent** agent or a LangGraph graph. |
+| [Google ADK](/agent-frameworks/google-adk) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Google ADK agent. |
+| [Vercel AI SDK](/agent-frameworks/vercel-ai-sdk) | TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You have AI SDK tools and models in a TypeScript application. |
+| [Mastra](/agent-frameworks/mastra) | TypeScript | One model call per **RunModel** Step. Each agent tool call is its own Step. | You have a Mastra agent. |
 
-```bash
-npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai zod
-npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
-npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
-npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
-```
+## The examples
 
-## Adapters
+Every framework page uses the same order support agent. It has two tools on an in-memory order desk:
 
-Each adapter's README has a runnable example and its options.
-
-| Framework | Language | Adapter |
+| Tool | Policy | What Dex does |
 | --- | --- | --- |
-| Pydantic AI | Python | [pydantic-ai](https://github.com/superdurable/dex/tree/main/agents/python/pydantic-ai) |
-| LangChain and LangGraph | Python | [langgraph](https://github.com/superdurable/dex/tree/main/agents/python/langgraph) |
-| OpenAI Agents SDK | Python, TypeScript | [Python](https://github.com/superdurable/dex/tree/main/agents/python/openai-agents), [TypeScript](https://github.com/superdurable/dex/tree/main/agents/typescript/openai-agents) |
-| Google ADK | Python | [google-adk](https://github.com/superdurable/dex/tree/main/agents/python/google-adk) |
-| Vercel AI SDK | TypeScript | [vercel-ai](https://github.com/superdurable/dex/tree/main/agents/typescript/vercel-ai) |
-| Mastra | TypeScript | [mastra](https://github.com/superdurable/dex/tree/main/agents/typescript/mastra) |
-| Claude Agent SDK | Python, TypeScript | [Python](https://github.com/superdurable/dex/tree/main/agents/python/claude-agent-sdk), [TypeScript](https://github.com/superdurable/dex/tree/main/agents/typescript/claude-agent-sdk) |
+| **look_up_order** | read | Runs without approval and retries on failure. |
+| **cancel_order** | non-idempotent write | Waits in **AwaitToolApproval**, then runs at most once. |
+
+The Python agents are under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses). The TypeScript agents are under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses). Each harness serves the same HTTP routes, so you can try them side by side.
+
+The built-in agent loop page uses the [AI Agent](/use-cases/ai-agent) example instead. It shows every session feature.
+
+## Run sessions in production
+
+[Durable Agents](/agent-frameworks/deploy-agents) covers the Stream backend, sizing, limits, approvals and deadlines, Dex Web, and upgrades.
 
 ## Related
 
-- [AI Agent](/use-cases/ai-agent): a Stepwise agent built on Dex Agents, with no framework
+- [AI Agent](/use-cases/ai-agent)
 - [Step](/concepts/step)
-- [Durable Agents](/agent-frameworks/deploy-agents): the Stream backend, sizing, and limits for production sessions
+- [Durable Agents](/agent-frameworks/deploy-agents)

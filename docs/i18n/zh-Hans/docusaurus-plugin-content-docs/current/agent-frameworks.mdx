@@ -6,57 +6,58 @@ sidebar_label: Agent Framework
 
 # Agent Framework
 
-已经用 agent framework 写好的 Agent 不需要重写就能运行在 Dex 上。Framework adapter 把 Agent 包装成 session Flow，每个 session 对应一个 Flow，并保留 framework 自己的 Agent 定义、tool 和 prompt。
+Dex 把 AI Agent 作为 durable agent session 运行。你可以用 Dex Agents 的内置 agent loop 构建 Agent，也可以保留已经用 agent framework 写好的 Agent。每种选择都运行在同一个 session Flow 上，因此 session 在 Dex 上的行为都相同。
 
-## Session 如何运行
+## Durable agent session {#a-durable-agent-session}
 
-Framework 每个 Step 只调用一次模型。模型请求的每个 tool call 作为独立的 Step 执行，同一轮的 tool call 并行运行。它们完成后，session 带着结果回到模型。
+一次 Flow execution 就是一个 agent session。Flow ID 就是 session ID。Dex Agents 负责构建 session Flow：Python 版是 **dex-agents** package，TypeScript 版是 **@superdurable/dex-agents**。Framework adapter 在它之上接入一个 agent framework。
 
-崩溃时只会重跑当时正在执行的那一次调用。整个循环不会重放，所以 framework 代码不需要遵守确定性规则，代码改动会在下一个 Step 生效。
+Session 把对话保存在 Attribute 中。Session 等待下一条用户消息时不占用 Worker，可以等上好几天。
 
-Claude Agent SDK 是例外：它在 CLI 子进程中运行自己的循环，因此它的 adapter 把每一整轮作为一个 Step 执行。
+模型调用在 **RunModel** Step 中运行。Tool call 在自己的 Step 中运行。同一次模型回复中的 tool call 并行运行。它们完成后，session 带着结果回到模型。
 
-## Tool policy 和审批
+崩溃时只会重跑当时正在运行的那一次调用，不会重放整个循环。因此 Agent 代码不需要遵守确定性规则，代码改动会在下一个 Step 生效。
 
-每个 tool 都有一个 **ToolPolicy**，标明它是读操作、幂等写操作，还是只能执行一次的写操作。读操作和幂等写操作会重试，其他写操作只尝试一次，因此重试不会悄悄重复它们。需要审批的 tool call 会在独立的 Step 中等待，直到有人回复，等多久都可以。
+## Tool policy 和审批 {#tool-policies-and-approvals}
 
-## 安装
+每个 tool 都有一个 **ToolPolicy**。Policy 标明 tool 是读操作、幂等写操作，还是只能执行一次的写操作。读操作和幂等写操作会重试。其他写操作只尝试一次，因此重试不会悄悄重复它们。
 
-Python adapter 发布在 PyPI：
+需要审批的 tool call 会在自己的 **AwaitToolApproval** Step 中等待，直到有人回复，等多久都可以。审批人可以在你的应用中审批，也可以在 [Dex Web](/reference/web/dex-web#agent-session-view) 中审批。
 
-```bash
-pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
-pip install dex-agents-langgraph
-pip install dex-agents-openai-agents
-pip install dex-agents-google-adk
-pip install dex-agents-claude-agent-sdk
-```
+## 选择 harness {#choose-a-harness}
 
-TypeScript adapter 发布在 npm，core 和 Dex SDK 作为 peer package 一起安装：
+Harness 是运行 agent loop 的代码：内置 loop 或某个 framework。下面每个页面都有安装命令、可运行的 example 以及在本地运行它的步骤。
 
-```bash
-npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai zod
-npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
-npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
-npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
-```
+| Harness | 语言 | Loop 如何映射到 Step | 何时选择 |
+| --- | --- | --- | --- |
+| [内置 Agent Loop](/agent-frameworks/built-in-agent-loop) | Python、TypeScript | 每个 **RunModel** Step 调用一次模型。每个 tool call 是独立的 Step。 | 开发新的 Agent。希望由 Dex 管理模型输入，并使用提问、durable wait、plan 和 MCP tool。 |
+| [Claude Agent SDK](/agent-frameworks/claude-agent-sdk) | Python、TypeScript | Claude Code CLI 在一个 **RunModel** Step 中运行一个 turn segment。Read 在其中运行。写操作会结束 segment，并在自己的 Step 中运行。 | 需要 Claude Code 的 agent loop 和它的 tool。 |
+| [OpenAI Agents SDK](/agent-frameworks/openai-agents-sdk) | Python、TypeScript | 每个 **RunModel** Step 调用一次模型。每个 function tool call 是独立的 Step。 | 已有 OpenAI Agents SDK Agent，无论是否使用 handoff。 |
+| [Pydantic AI](/agent-frameworks/pydantic-ai) | Python | 每个 **RunModel** Step 调用一次模型。每个 tool call 是独立的 Step。 | 已有 Pydantic AI Agent。 |
+| [LangChain 和 LangGraph](/agent-frameworks/langchain-langgraph) | Python | Graph 在一个 **RunModel** Step 中运行到它的 tool call 为止。每个 tool call 是独立的 Step。 | 已有 LangChain **create_agent** Agent 或 LangGraph graph。 |
+| [Google ADK](/agent-frameworks/google-adk) | Python | 每个 **RunModel** Step 调用一次模型。每个 tool call 是独立的 Step。 | 已有 Google ADK Agent。 |
+| [Vercel AI SDK](/agent-frameworks/vercel-ai-sdk) | TypeScript | 每个 **RunModel** Step 调用一次模型。每个 tool call 是独立的 Step。 | TypeScript 应用中已有 AI SDK 的 tool 和模型。 |
+| [Mastra](/agent-frameworks/mastra) | TypeScript | 每个 **RunModel** Step 调用一次模型。每个 Agent tool call 是独立的 Step。 | 已有 Mastra Agent。 |
 
-## Adapter
+## Example {#the-examples}
 
-每个 adapter 的 README 都有可运行的示例和选项说明。
+每个 framework 页面都使用同一个订单客服 Agent。它在一个内存中的订单系统上有两个 tool：
 
-| Framework | 语言 | Adapter |
+| Tool | Policy | Dex 的处理 |
 | --- | --- | --- |
-| Pydantic AI | Python | [pydantic-ai](https://github.com/superdurable/dex/tree/main/agents/python/pydantic-ai) |
-| LangChain 和 LangGraph | Python | [langgraph](https://github.com/superdurable/dex/tree/main/agents/python/langgraph) |
-| OpenAI Agents SDK | Python、TypeScript | [Python](https://github.com/superdurable/dex/tree/main/agents/python/openai-agents)、[TypeScript](https://github.com/superdurable/dex/tree/main/agents/typescript/openai-agents) |
-| Google ADK | Python | [google-adk](https://github.com/superdurable/dex/tree/main/agents/python/google-adk) |
-| Vercel AI SDK | TypeScript | [vercel-ai](https://github.com/superdurable/dex/tree/main/agents/typescript/vercel-ai) |
-| Mastra | TypeScript | [mastra](https://github.com/superdurable/dex/tree/main/agents/typescript/mastra) |
-| Claude Agent SDK | Python、TypeScript | [Python](https://github.com/superdurable/dex/tree/main/agents/python/claude-agent-sdk)、[TypeScript](https://github.com/superdurable/dex/tree/main/agents/typescript/claude-agent-sdk) |
+| **look_up_order** | read | 无需审批就会运行，失败时会重试。 |
+| **cancel_order** | non-idempotent write | 先在 **AwaitToolApproval** 中等待，然后最多运行一次。 |
 
-## 相关内容
+Python 版 Agent 位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。TypeScript 版 Agent 位于 [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses)。每个 harness 提供相同的 HTTP route，因此可以并排试用。
 
-- [AI Agent](/use-cases/ai-agent)：基于 Dex Agents、不依赖 framework 的 Stepwise agent
+内置 Agent Loop 页面改用 [AI Agent](/use-cases/ai-agent) example。它展示了 session 的全部功能。
+
+## 在生产环境中运行 session {#run-sessions-in-production}
+
+[Durable Agents](/agent-frameworks/deploy-agents) 介绍 Stream 后端、容量规划、限制、审批与 deadline、Dex Web 以及升级。
+
+## 相关内容 {#related}
+
+- [AI Agent](/use-cases/ai-agent)
 - [Step](/concepts/step)
-- [Durable Agents](/agent-frameworks/deploy-agents)：生产环境 session 的 Stream 后端、容量规划和限制
+- [Durable Agents](/agent-frameworks/deploy-agents)

@@ -1,0 +1,261 @@
+---
+title: Pydantic AI
+sidebar_label: Pydantic AI
+---
+
+# Pydantic AI
+
+Pydantic AI 用 tool、依赖和 output type 定义有类型的 Agent。Dex adapter 把 Pydantic AI Agent 放进 durable session 中运行。它支持 Python。
+
+## 何时使用 {#when-to-use-it}
+
+Agent 已经用 Pydantic AI 编写时，使用它。保留 Agent、它的 tool 和 capability，由 Dex 管理 session。这个 adapter 取代 Pydantic AI 自带的 durable execution 集成。
+
+## Session 如何运行 {#how-a-session-runs}
+
+每个 **RunModel** Step 运行 Agent 时，会加上一个 capability，把每个 function tool 标记为 external tool。Pydantic AI 从不运行 external tool，因此模型请求 tool 之后，run 立即结束。
+
+每个 tool call 在自己的 Step 中并行运行：read 或 idempotent write 用 **CallTool**，其他写操作用 **CallSingleAttemptTool**。需要审批的调用先在 **AwaitToolApproval** 中等待。Tool Step 通过 Agent 运行 tool 一次，因此 Agent 的 tool hook 在这里运行。下一个 **RunModel** 用记录下来的结果恢复 run。
+
+查询订单的 turn 依次运行 **RunModel**、**CallTool**、**ResumeTurn** 和 **RunModel**。
+
+## 安装 {#install}
+
+把 adapter 与它的 framework 一起安装。每个 adapter 都会带上 Dex Agents core。
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/pydantic-ai/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Example {#the-example}
+
+这个 example 是一个订单客服 Agent。它在一个内存中的订单系统上有两个 tool。**look_up_order** 读取订单。它的 policy 是 read，因此无需审批就会运行，失败时会重试。**cancel_order** 取消一个仍在处理中的订单。它的 policy 是 non-idempotent write，因此会先等待审批，然后最多运行一次。
+
+Flow type 是 **PydanticAIOrderSupport**（Python）。 完整 example 位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。
+
+### Agent 与 tool {#agent-and-tools}
+
+Tool 是 Agent 上普通的 Pydantic AI tool。Tool policy 指定每个 tool。Agent 推迟了模型检查，因此 Client 进程不需要 provider key。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/pydantic_ai_order_support.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_pydantic_ai_order_support_flow(
+    order_desk: OrderDesk, model: str | Model
+) -> AgentSessionFlow:
+    """Builds the session Flow; ``model`` is a Pydantic AI model name, such as "openai:gpt-5.2"."""
+    # The model is resolved at the first run, so a Client process needs no provider key.
+    agent = Agent(model, instructions=ORDER_SUPPORT_INSTRUCTIONS, defer_model_check=True)
+
+    # The tools are closures, so they call the OrderDesk passed in here.
+    @agent.tool_plain
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @agent.tool_plain
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    return pydantic_ai_session_flow(
+        agent,
+        flow_type=PYDANTIC_AI_ORDER_SUPPORT_FLOW_TYPE,
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Worker {#worker}
+
+一个 Worker 为 example 中所有 harness 的 session Flow 提供服务。Agent session 的 Step 是 async 的，因此 Python Registry 允许 async handler。每个启动 session 或调用其 RPC 的进程，都要构建同一个 session Flow。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+        # Agent session Steps are async, so the Registry allows async handlers.
+        self.registry = Registry(
+            tuple(example.session_flow for example in self.examples), allow_async_handlers=True
+        )
+        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.blob_cache = open_blob_cache(BlobCacheConfig(str(config.blob_cache_dir), 1 << 30))
+        self.worker = AsyncWorker(
+            self.registry,
+            self.blob_cache,
+            WorkerOptions(
+                server_address=config.server_address,
+                pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
+            ),
+        )
+        self.client = AsyncClient(
+            self.registry, self.blob_cache, ClientOptions(server_address=config.server_address)
+        )
+
+# ...
+
+def _new_pydantic_ai_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+    order_desk = OrderDesk()
+    model = _pydantic_ai_model(config.pydantic_ai_model)
+    flow = build_pydantic_ai_order_support_flow(order_desk, model)
+    return AgentHarnessExample("pydantic-ai", flow, order_desk)
+
+
+def _pydantic_ai_model(model: str) -> str | PydanticAIModel:
+    return build_pydantic_ai_demo_model() if is_demo_model(model) else model
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Session route {#session-routes}
+
+每个 harness 都提供相同的 HTTP route。每个 route 对应 session Flow 上的一次调用：启动 session、发送消息或处理审批。启动 session 会返回 session token，它是用 **DEX_AGENT_SESSION_KEY** 对 session ID 计算的 HMAC。其他每个 route 都会检查 **X-Agent-Session-Token** header 中的 token，缺少时返回 403。真实的应用会改用自己的登录。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
+        await sessions.start_session(session_id)
+        session_token = sign_session_id(app_state.config.session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+
+    @blueprint.post("/messages")
+    async def send_user_message() -> Response:
+        body, session_id = await session_request()
+        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
+        return jsonify(accepted=accepted)
+
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 在本地运行 {#run-it-locally}
+
+在本地 Dex 上运行这个 example。先渲染 session graph。Dex Web 在启动时读取它，并需要它来显示 session 及其审批控件。
+
+### 启动 Dex 与 example {#start-dex-and-the-example}
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv sync --locked
+uv run --frozen dex-agents-session-graph --flow-type PydanticAIOrderSupport \
+  --permission order-support.operate --out definitions/pydantic-ai.json
+dexcli dev --flow-rendering-dir ./definitions
+
+# 在第二个终端中，从 examples/python/agent-harnesses 运行：
+uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+应用监听 **127.0.0.1:8081**。Dex Web 位于 **127.0.0.1:8802**。
+
+没有设置 **DEX_PYDANTIC_AI_MODEL** 时，Agent 使用 **mock/order-support**，这是一个不需要 key 的本地 demo model。收到 "look up order 1001" 时它调用 **look_up_order**，收到 "cancel order 1002" 时它调用 **cancel_order**。
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| **DEX_PYDANTIC_AI_MODEL** | **mock/order-support** | Pydantic AI 模型名称，例如 **openai:gpt-5.2**。 |
+| **OPENAI_API_KEY** | 无 | Provider key，使用 OpenAI 模型时需要。 |
+| **DEX_AGENT_SESSION_KEY** | 随机 key | 签发 session token 的 key。 |
+
+### 调用 session {#call-the-session}
+
+启动一个 session，让 Agent 取消订单 1002，然后批准这次调用：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+base=http://127.0.0.1:8081/products/agent-harnesses/pydantic-ai
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
+curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq .snapshot.pending_interrupts
+interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq -r '.snapshot.pending_interrupts[0].interrupt_id')
+curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" \
+  -d "{\"session_id\": \"$id\", \"interrupt_id\": \"$interrupt\", \"approved\": true}"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+模型调用需要一点时间。如果 **pending_interrupts** 为空，请再读一次 snapshot。**cancel_order** 只在批准之后运行，并且只运行一次。再读一次 snapshot 即可看到 Agent 的回答。
+
+### 在 Dex Web 中审批 {#approve-in-dex-web}
+
+也可以不执行最后一条命令，而是在 Dex Web 中审批。打开这个 session 的 run：它的 Flow ID 就是 session ID。选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission **order-support.operate**。然后在 **cancel_order** 卡片上选择 **Approve** 或 **Reject**。Dex Web 会替你调用 **resolve_interrupt**。生产环境的做法参见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
+
+## 限制 {#limits}
+
+- Pydantic AI 自己发给模型的重试，会在同一个 **RunModel** Step 中再调用一次模型。例如 tool 参数无效，或 output 校验失败。
+- Output function 在 **RunModel** 内运行，至少运行一次。请把写操作放进 tool。
+- 由 provider 运行的 tool，例如 **WebSearchTool**，会在 **RunModel** 重跑时重复执行。
+- Deferred tool 返回给模型的是文本。图片和文件会丢失。
+- 只在运行时才请求审批的 tool，需要一个带 **requires_approval=True** 的 **ToolPolicy**。
+- **UsageLimits** 和 tool 重试预算按 Step 计算，而不是按 turn 计算。
+
+每次模型调用和每次 tool call 都会增加一次 Step 往返。Adapter README 列出了全部限制。Server 的限制参见 [Durable Agents](/agent-frameworks/deploy-agents#limits)。
+
+## 相关内容 {#related}
+
+- [Agent Framework](/agent-frameworks)
+- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Python adapter README](https://github.com/superdurable/dex/tree/main/agents/python/pydantic-ai)
