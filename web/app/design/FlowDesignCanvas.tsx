@@ -270,7 +270,7 @@ function usePreferredCanvasHeight({
   return onPreferredHeight === undefined ? null : insetTopPx;
 }
 
-/** Space between the overlays and the drawing, whose own frame margin may be cropped when it opens on its start. */
+/** Space below the overlays; a drawing opened on its start may lose its own frame margin. */
 const OVERLAY_GAP_PX = 8;
 
 const DIRECTION_OPTIONS: { id: Direction; label: string; Icon: typeof ArrowDown }[] = [

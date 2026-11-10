@@ -65,7 +65,7 @@ export function chromeCompensation(zoom: number): number {
 
 const PADDING = { top: '8%', bottom: '4%', left: '4%', right: '4%' } as const
 
-/** The right padding reserves the overlaid panel's share of the pane, and the top padding the host's overlays. */
+/** The right padding reserves the overlaid panel's share of the pane, so nothing draws under it. */
 export function fitOptions(
   insetRightPx: number | null | undefined,
   paneWidth: number,
@@ -77,6 +77,7 @@ export function fitOptions(
     insetRightPx == null || insetRightPx <= 0 || paneWidth <= 0
       ? PADDING.right
       : `${Math.min(58, Math.max(18, (insetRightPx / paneWidth) * 100 + 4))}%`
+  // The top padding likewise reserves the host's overlays when it reports them.
   const top: `${number}%` =
     insetTopPx == null || insetTopPx <= 0 || paneHeight <= 0
       ? PADDING.top
