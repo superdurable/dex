@@ -614,11 +614,6 @@ html[data-theme='dark'] {
   border-radius: 10px;
 }
 
-.flow-graph-panel-body {
-  border: 0;
-  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
-}
-
 html[data-theme='dark'] .exec-node {
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
 }
