@@ -148,4 +148,105 @@ theorem publish_simulated (program : Program σ) (config : Config σ)
         · cases isStep
   · cases isStep
 
+/-- The run that [FLOW-START] creates, before its start Step. -/
+def startedRun (requestId : Nat) : Run σ :=
+  { base := Dex.Run.empty σ, attempts := [], retryTimers := [], startRequestId := requestId }
+
+/-- Before the start the ghosts are initial, so the empty run satisfies the
+run invariant. -/
+theorem runInvariant_startedRun {program : Program σ} {config : Config σ}
+    (invariant : Invariant program config) (hasNoRun : config.run = none) (requestId : Nat) :
+    RunInvariant config (startedRun requestId) := by
+  obtain ⟨_, _, _, noInvocations, noCount, noIndex, _, _⟩ := invariant.notStarted hasNoRun
+  refine
+    { stepIdsNodup := by simp [startedRun, Dex.Run.empty]
+      stepNumbersCounted := by simp [startedRun, Dex.Run.empty]
+      invocationMatchesPhase := by simp [startedRun, Dex.Run.empty]
+      closedRunIsQuiet := by simp [startedRun, Dex.Run.empty]
+      historiesHaveSteps := by simp [noInvocations]
+      retryTimersHaveHistories := by simp [startedRun]
+      retryTimersNotAhead := by simp [startedRun]
+      waitTimersNodup := by simp [startedRun, Dex.Run.empty]
+      retryTimersNodup := by simp [startedRun]
+      attemptKeysNodup := by simp [startedRun]
+      attemptsHaveInvocations := by simp [startedRun]
+      normalIndexValues := by simp [noIndex, noCount]
+      normalIndexKeysIncrease := by simp [noIndex]
+      normalIndexKeysTaken := by simp [noIndex]
+      waitSeqsIndexed := by simp [startedRun, Dex.Run.empty]
+      attemptsMatch := by simp [startedRun, Dex.Run.empty]
+      liveIsCurrent := by simp [Ghost.findInvocation?, noInvocations, AssocList.get?]
+      runningTaskIdsBelow := by simp [startedRun, Dex.Run.empty]
+      runningTaskMatches := by simp [startedRun, Dex.Run.empty]
+      runningIsTracked := by simp [startedRun, Dex.Run.empty] }
+
+theorem flowStart_simulated (program : Program σ) (config : Config σ)
+    (invariant : Invariant program config) (requestId : Nat) (stepType : σ.StepType)
+    (input : σ.Val) (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config (.request (.startFlow requestId stepType input)) =
+      some (events, next)) :
+    IsStepSimulated program config (.request (.startFlow requestId stepType input)) events next := by
+  unfold IsStepSimulated
+  simp only [dexActionsOf, Request.toDex, exec_singleton]
+  simp only [step] at isStep
+  split at isStep
+  · cases isStep
+  · rename_i hasNoRun
+    split at isStep
+    · rename_i canServe
+      simp only [Option.some.injEq] at isStep
+      obtain ⟨isEventsEq, isNextEq⟩ := Prod.ext_iff.mp isStep
+      subst isEventsEq isNextEq
+      have runInvariant := runInvariant_startedRun invariant hasNoRun requestId
+      obtain ⟨_, _, _, noInvocations, noCount, _, noStamp, _⟩ := invariant.notStarted hasNoRun
+      have absNoRun : (abstractConfig config).run = none := by simp [abstractConfig, hasNoRun]
+      have absCommit : (abstractConfig config).canCommit = true := by
+        simp [Dex.Config.canCommit, abstractConfig, noStamp]
+      simp only [Dex.step, absNoRun, absCommit, ↓reduceIte, Dex.Config.commit]
+      obtain ⟨isEvents, isConfig⟩ := commit_simulated config (startedRun requestId) runInvariant
+        none [Obs.start stepType input]
+        (fun current =>
+          { current with
+            base := current.base.newStep stepType (some input)
+              { skipWaitFor := (program.failureFreeFlow.stepDef stepType).waitFor.isNone }
+              .flowStart })
+        (fun base => base.newStep stepType (some input)
+          { skipWaitFor := (program.failureFreeFlow.stepDef stepType).waitFor.isNone } .flowStart)
+        rfl (fun _ => rfl)
+        (newStep_relabelRun _ _ _ _ _ _ _ (isCounterFresh_bumpedRun runInvariant))
+        rfl
+        (nodup_newStep _ _ _ _ _ (by simp [bumpedRun, startedRun, Dex.Run.empty])
+          (by simp [NumbersCounted, bumpedRun, startedRun, Dex.Run.empty])).1
+      have absEmpty : { Run.abstract config.ghost (startedRun requestId) with
+          seq := config.ghost.normalCount + 1 } = { Dex.Run.empty σ with seq := (Dex.Run.empty σ).seq + 1 } := by
+        simp [Run.abstract, startedRun, Dex.Run.empty, noCount]
+      have absEmptyRun : Run.abstract config.ghost (startedRun requestId) = Dex.Run.empty σ := by
+        simp [Run.abstract, startedRun, Dex.Run.empty, noCount]
+      obtain ⟨extra, isInvocations, isFresh⟩ := reconcile_invocations
+        (countedGhost config.ghost ((startedRun (σ := σ) requestId).base.seq + 1) config.clock) none
+        ((bumpedRun (startedRun requestId)).base.newStep stepType (some input)
+          { skipWaitFor := (program.failureFreeFlow.stepDef stepType).waitFor.isNone } .flowStart)
+      have tasksEq : (config.commitRun (startedRun requestId) true none [Obs.start stepType input]
+          (fun current =>
+            { current with
+              base := current.base.newStep stepType (some input)
+                { skipWaitFor := (program.failureFreeFlow.stepDef stepType).waitFor.isNone }
+                .flowStart })).2.virtualTasks = config.virtualTasks := by
+        rw [commitRun_normal]
+        refine virtualTasks_of_extra config _ ?_ extra ?_ ?_
+        · rfl
+        · rw [isInvocations]
+          simp [countedGhost, noInvocations]
+        · intro entry isMember
+          rw [isFresh entry isMember]
+          rfl
+      have runEq : startedRun (σ := σ) requestId =
+          { base := Dex.Run.empty σ, attempts := [], retryTimers := [],
+            startRequestId := requestId } := rfl
+      rw [← runEq]
+      rw [isEvents, isConfig, tasksEq, absEmpty, absEmptyRun]
+      simp [eraseStepEvents, Obs.toDex]
+      exact ⟨rfl, rfl, rfl⟩
+    · cases isStep
+
 end DexExpressiveness.DexF.WPF1
