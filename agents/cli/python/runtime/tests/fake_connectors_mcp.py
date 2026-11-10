@@ -1,0 +1,86 @@
+# Copyright (c) 2026 Super Durable, Inc.
+#
+# Licensed under the Sustainable Use License 1.0.
+# You may not use this file except in compliance with the License.
+# See the LICENSE file in the repository root.
+#
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+"""A fake connectors MCP server: ``python -m tests.fake_connectors_mcp <port>``.
+
+Each tool's ``_meta`` names its connector, connection, and operation, as the
+connectors MCP server does. Every real run appends ``<tool> <idempotency
+key>`` to ``mcp-invocations.log`` in ``$FAKE_MCP_STATE_DIR``.
+
+* ``hackernews_get_top_stories`` (``readOnlyHint``): hackernews/default getTopStories.
+* ``gmail_get_message`` (``readOnlyHint``): gmail/personal getMessage.
+* ``slack_post_thread_reply`` (no hints): slack/support-slack postThreadReply.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from pathlib import Path
+from typing import Any
+
+from mcp.server.mcpserver import Context, MCPServer
+from mcp_types import ToolAnnotations
+
+from dex_agents.mcp import IDEMPOTENCY_KEY_META_KEY
+from dex_agents.testing import InvocationLog
+from dex_agents_cli.connectors import CONNECTION_META_KEY, CONNECTOR_META_KEY, OPERATION_META_KEY
+
+STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_MCP_STATE_DIR"
+INVOCATION_LOG_NAME = "mcp-invocations.log"
+READY_LINE = "Uvicorn running on"
+
+server = MCPServer("fake-connectors")
+
+
+def _meta(connector: str, connection: str, operation: str) -> dict[str, Any]:
+    return {
+        CONNECTOR_META_KEY: connector,
+        CONNECTION_META_KEY: connection,
+        OPERATION_META_KEY: operation,
+    }
+
+
+@server.tool(
+    annotations=ToolAnnotations(read_only_hint=True),
+    meta=_meta("hackernews", "default", "getTopStories"),
+)
+def hackernews_get_top_stories(context: Context) -> str:
+    """List the top Hacker News stories."""
+    _record("hackernews_get_top_stories", context)
+    return "1. Durable agents; 2. Local first"
+
+
+@server.tool(
+    annotations=ToolAnnotations(read_only_hint=True),
+    meta=_meta("gmail", "personal", "getMessage"),
+)
+def gmail_get_message(message_id: str, context: Context) -> str:
+    """Read one email."""
+    _record("gmail_get_message", context)
+    return f"message {message_id}: hello"
+
+
+@server.tool(meta=_meta("slack", "support-slack", "postThreadReply"))
+def slack_post_thread_reply(thread: str, text: str, context: Context) -> str:
+    """Reply in a Slack thread."""
+    _record("slack_post_thread_reply", context)
+    return f"posted {text!r} in {thread}"
+
+
+def _record(tool_name: str, context: Context) -> None:
+    meta = context.request_context.meta or {}
+    key = meta.get(IDEMPOTENCY_KEY_META_KEY, "no-key")
+    InvocationLog(Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]) / INVOCATION_LOG_NAME).record(
+        f"{tool_name} {key}"
+    )
+
+
+if __name__ == "__main__":
+    asyncio.run(server.run_streamable_http_async(port=int(sys.argv[1])))

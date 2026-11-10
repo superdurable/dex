@@ -6,6 +6,18 @@ for the Dex SDK and framework versions each release supports.
 
 ## Unreleased
 
+### Added
+
+- Python CLI runtime (`dex-agents-cli`, not published yet): the shared runtime
+  of the Python harness commands. It reads `~/.dex/agents/<harness>.yaml` and
+  asks the init questions on first run, reuses or starts `dexcli dev`
+  (downloading a checksum-verified `dexcli` when none is installed), offers the
+  connectors MCP server's tools and local file, shell, web fetch, and browser
+  tools as Dex tool Steps, narrows each turn by the session settings, and chats
+  in the terminal with inline approvals and Ctrl-C to cancel a turn. Harness
+  packages implement **AgentHarness**. See
+  [cli/python/runtime](cli/python/runtime/README.md).
+
 ### Fixed
 
 - Python and TypeScript Claude Agent SDK adapters: when the Claude Code CLI

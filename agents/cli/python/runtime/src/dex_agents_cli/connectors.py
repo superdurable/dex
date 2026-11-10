@@ -1,0 +1,296 @@
+# Copyright (c) 2026 Super Durable, Inc.
+#
+# Licensed under the Sustainable Use License 1.0.
+# You may not use this file except in compliance with the License.
+# See the LICENSE file in the repository root.
+#
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+"""Connector tools from the connectors MCP server, filtered by the configuration."""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from datetime import timedelta
+from typing import Any
+
+import httpx2
+from mcp import Client, Implementation
+
+from dex_agents import (
+    AgentTurnContext,
+    DeferredToolCall,
+    DeferredToolExecution,
+    ToolExecutionResult,
+    ToolPolicy,
+    ToolTaskCancellation,
+    ToolTaskPoll,
+    ToolTaskPollOutcome,
+    ToolTaskStarted,
+)
+from dex_agents.mcp import McpStreamableHttpServerConfig, McpTool, McpToolSource
+from dex_agents.stepwise import SourceToolDefinition
+from dex_agents_cli.config import ConnectorsConfig
+from dex_agents_cli.turns import TurnConfigResolver, current_turn_config
+
+#: The connector source's ``source_name``; stored calls are routed by it.
+CONNECTORS_TOOL_SOURCE_NAME = "dex_connectors"
+#: ``_meta`` keys that name a connector tool's connector, connection, and operation.
+CONNECTOR_META_KEY = "io.superdurable.dex/connector"
+CONNECTION_META_KEY = "io.superdurable.dex/connection"
+OPERATION_META_KEY = "io.superdurable.dex/operation"
+
+_MCP_SERVER_NAME = "connectors"
+_CLIENT_NAME = "dex-agents-cli"
+_CATALOG_TIMEOUT_SECONDS = 15.0
+_CATALOG_REFRESH_SECONDS = 30.0
+_LISTING_PAGE_LIMIT = 100
+
+
+@dataclass(frozen=True)
+class ConnectorToolIdentity:
+    """Which connector operation on which connection one MCP tool runs.
+
+    Attributes:
+        connector: Connector ID, such as ``slack``.
+        connection: Connection name.
+        operation: The operationId or snake-case name the server reports.
+    """
+
+    connector: str
+    connection: str
+    operation: str
+
+
+@dataclass(frozen=True)
+class ConnectorCatalogTool:
+    """One tool of the connectors MCP server.
+
+    Attributes:
+        name: The tool name the agent sees.
+        description: Its description.
+        identity: Its connector operation, or ``None`` when the server did not say.
+    """
+
+    name: str
+    description: str
+    identity: ConnectorToolIdentity | None
+
+
+class ConnectorsMcpUnavailableError(Exception):
+    """Report that the connectors MCP server cannot be listed, with the reason."""
+
+
+@dataclass(frozen=True)
+class ConnectorToolDefinition:
+    """A connector tool as the model sees it: the MCP tool name without a server prefix.
+
+    Attributes:
+        name: The MCP tool name, such as ``slack_post_thread_reply``.
+        description: Tool description for the model.
+        input_schema: JSON Schema of the arguments.
+        mcp_tool: The ``McpTool`` that runs the call.
+    """
+
+    name: str
+    description: str
+    input_schema: Mapping[str, Any] = field(repr=False)
+    mcp_tool: McpTool = field(repr=False)
+
+
+async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
+    """List the connectors MCP server's tools and the connector operation each one runs.
+
+    Args:
+        url: The server's MCP endpoint.
+
+    Returns:
+        Every listed tool.
+
+    Raises:
+        ConnectorsMcpUnavailableError: If the server cannot be listed. A server
+            that answers 503 gives its reason, such as that it is still starting.
+    """
+    try:
+        async with Client(
+            url,
+            read_timeout_seconds=_CATALOG_TIMEOUT_SECONDS,
+            client_info=_client_info(),
+            cache=None,
+        ) as client:
+            tools: list[Any] = []
+            cursor: str | None = None
+            for _ in range(_LISTING_PAGE_LIMIT):
+                page = await client.list_tools(cursor=cursor)
+                tools.extend(page.tools)
+                cursor = page.next_cursor
+                if not cursor:
+                    break
+    except Exception as error:
+        raise ConnectorsMcpUnavailableError(await _describe_unavailable(url, error)) from error
+    return tuple(
+        ConnectorCatalogTool(
+            name=tool.name, description=tool.description or "", identity=_identity(tool.meta)
+        )
+        for tool in tools
+    )
+
+
+class ConnectorsMcpToolSource:
+    """Offer the connectors MCP server's tools that the running turn enables.
+
+    Calls run through ``McpToolSource``, so each one is a Dex tool Step with
+    the server's effect class, approval, idempotency key, and tasks. The tool
+    names are the server's own, without a server prefix, so
+    ``approval.always`` names them as the agent sees them. A tool whose
+    connector, connection, and operation the server does not report is
+    offered only while ``connectors.enabled`` is omitted.
+    """
+
+    def __init__(self, url: str, resolver: TurnConfigResolver) -> None:
+        """Connect to one connectors MCP server.
+
+        Args:
+            url: The server's MCP endpoint, on a loopback host.
+            resolver: The turn configuration resolver.
+        """
+        self._url = url
+        self._resolver = resolver
+        self._mcp = McpToolSource(
+            [McpStreamableHttpServerConfig(name=_MCP_SERVER_NAME, url=url)],
+            client_name=_CLIENT_NAME,
+            listing_ttl=timedelta(seconds=_CATALOG_REFRESH_SECONDS),
+        )
+        self._identities: dict[str, ConnectorToolIdentity | None] = {}
+        self._identities_read_at = 0.0
+        self._identity_lock = asyncio.Lock()
+        self._last_listing: tuple[ConnectorToolDefinition, ...] = ()
+
+    @property
+    def source_name(self) -> str:
+        """Return ``dex_connectors``."""
+        return CONNECTORS_TOOL_SOURCE_NAME
+
+    @property
+    def url(self) -> str:
+        """Return the server's MCP endpoint."""
+        return self._url
+
+    def cached_tools(self) -> tuple[ConnectorToolDefinition, ...]:
+        """Return the last listing."""
+        return self._last_listing
+
+    async def list_tools(self) -> Sequence[SourceToolDefinition]:
+        """Return the tools the running turn enables; none outside a model call."""
+        turn_config = current_turn_config()
+        if turn_config is None:
+            return ()
+        mcp_tools = await self._mcp.list_tools()
+        identities = await self._read_identities({tool.mcp_tool_name for tool in mcp_tools})
+        self._last_listing = tuple(
+            ConnectorToolDefinition(
+                name=tool.mcp_tool_name,
+                description=tool.description,
+                input_schema=tool.input_schema,
+                mcp_tool=tool,
+            )
+            for tool in mcp_tools
+            if _is_enabled(turn_config.connectors, identities.get(tool.mcp_tool_name))
+        )
+        return self._last_listing
+
+    def deferred_tool_call(
+        self,
+        turn: AgentTurnContext,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: str,
+        listed_tool: SourceToolDefinition,
+    ) -> DeferredToolCall:
+        """Build the MCP call under the agent's tool name, adding ``approval.always``."""
+        if not isinstance(listed_tool, ConnectorToolDefinition):
+            raise LookupError(f"{tool_name} was not listed by the connectors MCP server")
+        mcp_tool = listed_tool.mcp_tool
+        built = self._mcp.deferred_tool_call(
+            turn,
+            tool_call_id=tool_call_id,
+            tool_name=mcp_tool.name,
+            arguments=arguments,
+            listed_tool=mcp_tool,
+        )
+        policy = built.policy
+        if tool_name in self._resolver.resolve_turn(turn).approval.always:
+            policy = ToolPolicy(policy.effect, requires_approval=True)
+        return replace(built, tool_name=tool_name, policy=policy)
+
+    async def execute_deferred_tool_call(
+        self, call: DeferredToolExecution
+    ) -> ToolExecutionResult | ToolTaskStarted:
+        """Run one call through ``McpToolSource``."""
+        return await self._mcp.execute_deferred_tool_call(call)
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        """Poll one MCP task through ``McpToolSource``."""
+        return await self._mcp.poll_tool_task(poll)
+
+    async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
+        """Cancel one abandoned MCP task through ``McpToolSource``."""
+        await self._mcp.cancel_tool_task(cancellation)
+
+    async def _read_identities(
+        self, mcp_tool_names: set[str]
+    ) -> Mapping[str, ConnectorToolIdentity | None]:
+        async with self._identity_lock:
+            is_stale = time.monotonic() - self._identities_read_at > _CATALOG_REFRESH_SECONDS
+            if is_stale or not mcp_tool_names <= self._identities.keys():
+                catalog = await read_connector_catalog(self._url)
+                self._identities = {tool.name: tool.identity for tool in catalog}
+                self._identities_read_at = time.monotonic()
+            return self._identities
+
+
+def _is_enabled(connectors: ConnectorsConfig, identity: ConnectorToolIdentity | None) -> bool:
+    if connectors.enabled is None:
+        return True
+    if identity is None:
+        return False
+    return connectors.allows_tool(identity.connector, identity.connection, identity.operation)
+
+
+def _identity(meta: Mapping[str, Any] | None) -> ConnectorToolIdentity | None:
+    if not meta:
+        return None
+    connector = meta.get(CONNECTOR_META_KEY)
+    connection = meta.get(CONNECTION_META_KEY)
+    operation = meta.get(OPERATION_META_KEY)
+    if not all(isinstance(value, str) and value for value in (connector, connection, operation)):
+        return None
+    assert isinstance(connector, str) and isinstance(connection, str)
+    assert isinstance(operation, str)
+    return ConnectorToolIdentity(connector=connector, connection=connection, operation=operation)
+
+
+async def _describe_unavailable(url: str, error: Exception) -> str:
+    """Ask the endpoint directly, so a 503 shows the server's own reason."""
+    try:
+        async with httpx2.AsyncClient(timeout=5.0) as http:
+            response = await http.get(url, headers={"Accept": "text/event-stream"})
+    except httpx2.HTTPError as http_error:
+        return f"cannot reach {url}: {http_error}"
+    if response.status_code == 503:
+        reason = response.text.strip() or "the server is not ready"
+        return f"{url} is not ready: {reason}"
+    if response.status_code == 404:
+        return (
+            f"{url} does not serve MCP (404); this dexcli dev predates the connectors MCP "
+            "server or runs with --connectors-mcp=false"
+        )
+    return f"cannot list the tools of {url}: {error}"
+
+
+def _client_info() -> Implementation:
+    return Implementation(name=_CLIENT_NAME, version="0.1.0")
