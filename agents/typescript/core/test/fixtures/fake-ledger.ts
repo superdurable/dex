@@ -293,6 +293,10 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
       await fence.recordCanResend();
       return newMutationRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "postNote", message: "rate limited" });
     }
+    if (words.includes("reject-after-send")) {
+      // A wrong listing: the claim proves the provider may have acted.
+      return newMutationBranch("providerRejected", {}, {}, failure("postNote", "refused after send"));
+    }
     await fence.recordProviderId(noteId);
     if (words.includes("uncertain")) {
       return newMutationUncertain({}, failure("postNote", "no response"));

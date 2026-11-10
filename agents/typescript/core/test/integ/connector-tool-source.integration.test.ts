@@ -31,7 +31,7 @@ import {
   type ConnectorBranchOutcome,
   type ConnectorPackageManifest,
 } from "../../src/connectors/index.js";
-import { isProvenNotSent, lowerCamelToSnake } from "../../src/connectors/connector-tool-source.js";
+import { isProvenNotSent, lowerCamelToSnake, mayHaveDispatched } from "../../src/connectors/connector-tool-source.js";
 import type { AgentToolCall, AgentTurnContext, ToolPolicy } from "../../src/index.js";
 import { ledgerConnection, readFakeLedgerManifest, retriedNoteManifest } from "../fixtures/connector-test-agent.js";
 import { conformanceSuiteDirectory } from "../fixtures/conformance-suite.js";
@@ -56,6 +56,7 @@ interface ConformanceCases {
     readonly branch: string;
     readonly requiredBranches: readonly string[];
     readonly agentBranches: Readonly<Record<string, string>>;
+    readonly mayHaveDispatched?: boolean;
     readonly outcome: ConnectorBranchOutcome;
   }[];
   readonly toolNameCases: readonly { readonly operationId: string; readonly snakeName: string }[];
@@ -100,6 +101,7 @@ describe("connector tools follow the shared conformance cases", () => {
           branch: testCase.branch,
           requiredBranches: new Set(testCase.requiredBranches),
           agentBranches: testCase.agentBranches,
+          mayHaveDispatched: testCase.mayHaveDispatched ?? false,
         }),
         testCase.outcome,
         JSON.stringify(testCase),
@@ -386,6 +388,56 @@ describe("the Step context the single-dispatch fence uses", () => {
     fence.decide();
     await fence.recordNotSent();
     assert.equal(proves(fencedCallWithContext(2, first.checkpoint, new SessionCheckpoints())), false);
+  });
+
+  test("only fence checkpoints proving no send keep the manifest listing", async () => {
+    const dispatched = (fenced: FencedCall, previous: string | undefined) =>
+      mayHaveDispatched(fenced.call, fenced.context, previous);
+    assert.equal(dispatched(fencedCallWithContext(2, undefined, new SessionCheckpoints()), undefined), false);
+
+    const notSent = new SessionCheckpoints();
+    const notSentCall = fencedCallWithContext(1, undefined, notSent);
+    let fence = new Fence(notSentCall.call, 30_000);
+    fence.decide();
+    assert.equal(dispatched(notSentCall, undefined), false);
+    await fence.recordNotSent();
+    assert.equal(dispatched(notSentCall, undefined), false);
+
+    const claimed = new SessionCheckpoints();
+    const claimedCall = fencedCallWithContext(1, undefined, claimed);
+    fence = new Fence(claimedCall.call, 30_000);
+    fence.decide();
+    await fence.dispatch(async () => "note-1");
+    assert.equal(dispatched(claimedCall, undefined), true);
+    await fence.recordProviderId("note-1");
+    assert.equal(dispatched(claimedCall, undefined), true);
+
+    const canResend = new SessionCheckpoints();
+    const canResendCall = fencedCallWithContext(1, undefined, canResend);
+    fence = new Fence(canResendCall.call, 30_000);
+    fence.decide();
+    await fence.dispatch(async () => undefined);
+    await fence.recordCanResend();
+    assert.equal(dispatched(canResendCall, undefined), false);
+
+    const callId = notSentCall.call.id;
+    const previousCheckpoints: readonly (readonly [string, string | undefined, boolean])[] = [
+      ["a notSent marker of the attempt before", notSent.checkpoint, false],
+      ["a canResend marker of the attempt before", canResend.checkpoint, false],
+      ["a claim", claimed.checkpoint, true],
+      ["a marker of another call", notSent.checkpoint?.replace(callId, "f".repeat(callId.length)), true],
+      ["a malformed marker", '{"callId": 7, "state": "notSent"}', true],
+      ["a checkpoint that is not a marker", '"a task handle"', false],
+      ["no checkpoint", undefined, true],
+    ];
+    for (const [label, previous, expected] of previousCheckpoints) {
+      const retry = fencedCallWithContext(2, previous, new SessionCheckpoints());
+      new Fence(retry.call, 30_000).decide();
+      assert.equal(dispatched(retry, previous), expected, label);
+    }
+    const stale = fencedCallWithContext(3, notSent.checkpoint, new SessionCheckpoints());
+    new Fence(stale.call, 30_000).decide();
+    assert.equal(dispatched(stale, notSent.checkpoint), true);
   });
 
   test("a marker that failed to save proves nothing", async () => {

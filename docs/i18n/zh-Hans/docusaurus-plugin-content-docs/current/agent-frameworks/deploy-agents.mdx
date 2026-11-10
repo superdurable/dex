@@ -357,17 +357,19 @@ session 的 **tool_policies**（**toolPolicies**）中针对 connector tool 的�
 
 ### 结果 {#connector-tools-outcomes}
 
-operation 选中的 branch 决定 tool call 的记录。Connector 作者在 **agent.branches** 中列出需要说明的 branch：**rejected**（什么都没有生效）或 **unknown**（写入可能已经生效）。列表优先。按顺序取第一个匹配的行，规则在不确定时按最保守的方式处理：
+operation 选中的 branch 决定 tool call 的记录。Connector 作者在 **agent.branches** 中列出需要说明的 branch：**rejected**（什么都没有生效）或 **unknown**（写入可能已经生效）。按顺序取第一个匹配的行。排在列表之前的行只会把结果变成未知，所以规则在不确定时按最保守的方式处理：
 
 | Branch | 记录 | 模型看到 |
 | --- | --- | --- |
 | 成功 branch，例如 **sent** 或 **refunded** | **succeeded** | 结果值 |
+| **uncertain** | **outcome_unknown** | 结果未知 |
+| Mutation 的 **defect** | **outcome_unknown** | 结果未知 |
+| single-dispatch fence 无法证明请求没有发出的 Mutation 的任何 branch | **outcome_unknown** | 结果未知 |
 | 列为 **rejected** 的 branch，例如 **providerRejected** | **failed** | branch 和 provider 的消息 |
-| 列为 **unknown** 的 branch，或 **uncertain** | **outcome_unknown** | 结果未知 |
-| 未列出的 Mutation branch，包括 **defect** | **outcome_unknown** | 结果未知 |
+| 列为 **unknown** 的 branch，或未列出的 Mutation branch | **outcome_unknown** | 结果未知 |
 | 未列出的 Query branch，包括 **defect** | **failed** | branch 和消息 |
 
-Mutation 的 **defect** 可能发生在调用 provider 之后，所以写入可能已经生效。
+Mutation 的 **defect** 可能发生在调用 provider 之后，所以写入可能已经生效。使用 single-dispatch fence 的 Mutation 会记录请求是否可能已经发出。如果可能已经发出，任何列表都不能把失败变成拒绝。
 
 被拒绝或失败的调用不会让 session 失败。模型读到结果后可以做出反应。和其他 tool 一样处理 **outcome_unknown**，见[核对 outcome_unknown](#reconcile-outcome-unknown)。
 

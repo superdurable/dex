@@ -507,19 +507,23 @@ the schema check never wait for approval, because they never run.
 The branch the operation selects becomes the tool call's record. A Connector
 author lists the branches that need it under **agent.branches**, as
 **rejected** (nothing took effect) or **unknown** (the write may have taken
-effect). The listing comes first. The first matching row wins, and the rule
-fails closed:
+effect). The first matching row wins. The rows before the listing can only
+make an outcome unknown, so the rule fails closed:
 
 | Branch | Record | The model sees |
 | --- | --- | --- |
 | A success branch, such as **sent** or **refunded** | **succeeded** | The result value |
+| **uncertain** | **outcome_unknown** | That the outcome is unknown |
+| A Mutation's **defect** | **outcome_unknown** | That the outcome is unknown |
+| Any Mutation branch when its single-dispatch fence cannot prove that nothing was sent | **outcome_unknown** | That the outcome is unknown |
 | Listed as **rejected**, such as **providerRejected** | **failed** | The branch and the provider's message |
-| Listed as **unknown**, or **uncertain** | **outcome_unknown** | That the outcome is unknown |
-| A Mutation branch not listed, including **defect** | **outcome_unknown** | That the outcome is unknown |
+| Listed as **unknown**, or a Mutation branch not listed | **outcome_unknown** | That the outcome is unknown |
 | A Query branch not listed, including **defect** | **failed** | The branch and the message |
 
 A Mutation's **defect** can come after the provider was called, so the write
-may have happened.
+may have happened. A Mutation with the single-dispatch fence records whether
+its request may have left. When it may have, no listing can turn a failure
+into a rejection.
 
 A rejected or failed call does not fail the session. The model reads it and
 can react. Reconcile **outcome_unknown** as for any tool; see

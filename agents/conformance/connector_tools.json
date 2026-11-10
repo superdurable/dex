@@ -384,7 +384,7 @@
       "agentBranches": {
         "uncertain": "rejected"
       },
-      "outcome": "rejected"
+      "outcome": "outcome_unknown"
     },
     {
       "kind": "mutation",
@@ -413,7 +413,7 @@
       "agentBranches": {
         "defect": "rejected"
       },
-      "outcome": "rejected"
+      "outcome": "outcome_unknown"
     },
     {
       "kind": "mutation",
@@ -445,6 +445,40 @@
         "uncertain": "unknown"
       },
       "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "providerRejected",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "providerRejected": "rejected"
+      },
+      "mayHaveDispatched": true,
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "done",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "mayHaveDispatched": true,
+      "outcome": "succeeded"
+    },
+    {
+      "kind": "query",
+      "branch": "notFound",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "notFound": "rejected"
+      },
+      "mayHaveDispatched": true,
+      "outcome": "rejected"
     }
   ],
   "toolNameCases": [
@@ -547,6 +581,38 @@
     {
       "operationId": "fetchÜberData",
       "snakeName": "fetchÜber_data"
+    },
+    {
+      "operationId": "postReply",
+      "snakeName": "post_reply"
+    },
+    {
+      "operationId": "send",
+      "snakeName": "send"
+    },
+    {
+      "operationId": "createV2Item",
+      "snakeName": "create_v2_item"
+    },
+    {
+      "operationId": "listOAuthApps",
+      "snakeName": "list_o_auth_apps"
+    },
+    {
+      "operationId": "listURLs",
+      "snakeName": "list_urls"
+    },
+    {
+      "operationId": "uploadURLsBatch",
+      "snakeName": "upload_urls_batch"
+    },
+    {
+      "operationId": "sendSMSMessage",
+      "snakeName": "send_sms_message"
+    },
+    {
+      "operationId": "listIDs",
+      "snakeName": "list_ids"
     }
   ],
   "resultCases": [

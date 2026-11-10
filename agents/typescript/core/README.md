@@ -1470,20 +1470,35 @@ back. A `RetryError` goes through `throwDexRetry`, except for a single-attempt w
 whose fence saved `notSent` or `canResend` in this attempt: that records `failed` with
 `connectorNotSentRetryLater` instead of `outcome_unknown`.
 
-The first matching row wins, and `agent.branches` comes before the branch's
-name:
+The first matching row wins. The rows before the listing can only make an
+outcome unknown:
 
 | Branch | Record | The model reads |
 | --- | --- | --- |
 | A required (success) branch | `succeeded` | The value as compact JSON, keys sorted |
+| `uncertain`, whatever the listing says | `outcome_unknown` (`ToolOutcomeUnknownError`) | `outcomeUnknownToolResult` |
+| A Mutation's `defect`, whatever the listing says | `outcome_unknown` | The same text |
+| Any Mutation branch when its fence cannot prove that nothing was sent | `outcome_unknown` | The same text |
 | Listed `rejected` under `agent.branches` | `failed` (`ToolExecutionError`) | `<connector> <operation> returned <branch>: <kind>: <message>` |
-| Listed `unknown`, or `uncertain` | `outcome_unknown` (`ToolOutcomeUnknownError`) | `outcomeUnknownToolResult` |
-| A Mutation branch not listed, including `defect` | `outcome_unknown` | The same text |
+| Listed `unknown`, or a Mutation branch not listed | `outcome_unknown` | `outcomeUnknownToolResult` |
 | A Query branch not listed, including `defect` | `failed` | `<connector> <operation> returned <branch>: <kind>: <message>` |
 
-A Mutation's `defect` is not always local: the Connector SDK turns some
-attempts that already called the provider into `defect`, so the write may have
-happened.
+A Mutation's `defect` is not always local: the Connector SDK selects it for
+some attempts that already called the provider, such as an invalid attempt or
+an undeclared branch, and the source cannot tell those apart. A Query's
+`defect` follows its listing.
+
+A Mutation that uses the single-dispatch fence gets one more check, the same
+one the Go Connector SDK makes for Go agent hosts. The source watches the
+fence's heartbeat checkpoints through its Step context. When they cannot prove
+that no request reached the provider, every branch but the success branch
+records outcome unknown, whatever the listing says: this attempt claimed a
+send (with or without a provider ID), or the earlier attempt's checkpoint is a
+malformed marker, belongs to another call, does not allow this attempt a send,
+or is missing on a retry that read it. Known gap: a checkpoint that is not a
+fence marker at all is left to the fence, which fails closed on it itself. A
+Mutation with its own checkpoint, or none, gets no such check and relies on its
+listing.
 
 A result over `maxResultBytes` (default `defaultConnectorResultMaxBytes`,
 64 KiB of UTF-8 text, set per source or per tool) is cut, followed by

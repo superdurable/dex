@@ -182,6 +182,27 @@ async def test_an_unlisted_mutation_defect_is_unknown_and_a_query_defect_fails(
     assert snapshot.state is not None and snapshot.state.last_turn_error is None
 
 
+async def test_a_fenced_write_listed_rejected_after_its_claim_is_unknown(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        _calls(("post_note", {"accountId": "a-1", "text": "reject-after-send"}), hold="claimed"),
+    )
+    records = await _held_records(harness, session_id, "claimed")
+    # The manifest lists providerRejected as rejected, but the fence claimed the send.
+    assert records["call-0"].status is ToolCallStatus.OUTCOME_UNKNOWN
+    assert records["call-0"].error == (
+        "fake-ledger postNote returned providerRejected: PROVIDER_REJECTION: refused after send"
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert _answer_lines(snapshot) == [f"post_note: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
+    assert len(ledger.writes("postNote")) == 1
+
+
 # Schema validation before decoding
 
 

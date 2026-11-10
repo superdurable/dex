@@ -38,7 +38,7 @@ import type { AgentToolCall, ToolEffect } from "../agent-session-values.js";
 import { serializeJsonWithSpacedSeparators } from "../stepwise/json-schema-validation.js";
 import type { SourceToolDefinition, ToolSource } from "../stepwise/tool-source.js";
 import { checkConnectorInputSchema, compareCodePoints, findConnectorInputViolation } from "./connector-input-schema.js";
-import { ConnectorStepContext, readSavedHeartbeatValue } from "./connector-step-context.js";
+import { ConnectorStepContext, hasReadCheckpoint, readSavedHeartbeatValue } from "./connector-step-context.js";
 
 /**
  * Default {@link ConnectorToolSource.sourceName}.
@@ -68,7 +68,9 @@ export const connectorNotSentRetryLater = "not sent; the provider asked to retry
 
 // The most CallTool attempts of any tool; a connector's own policy can only narrow it.
 const maximumToolAttempts = 3;
+const defectBranch = "defect";
 const uncertainBranch = "uncertain";
+const fenceMarkerKeys = new Set(["callId", "attempt", "state", "providerId"]);
 
 /**
  * Decides from a call's decoded JSON arguments whether that call waits for approval.
@@ -83,11 +85,13 @@ export type ApprovalPredicate = (toolArguments: Readonly<Record<string, unknown>
  * - `rejected`: a branch the manifest lists as `rejected` under `agent.branches`, such as `providerRejected`.
  *   Nothing took effect. The record is `failed` with an error the model reads, and the session continues.
  * - `failed`: an optional branch of a Query that `agent.branches` does not list, including `defect`.
- * - `outcome_unknown`: a branch listed as `unknown`, `uncertain`, or an optional branch of a Mutation that
- *   `agent.branches` does not list, including `defect`. The write may have taken effect.
+ * - `outcome_unknown`: `uncertain`, a Mutation's `defect`, any optional branch of a Mutation whose single-dispatch
+ *   fence cannot prove that nothing was sent, a branch listed as `unknown`, or an optional branch of a Mutation
+ *   that `agent.branches` does not list. The write may have taken effect.
  *
- * Changed in 0.5.0: `defect` no longer maps to `failed` before `agent.branches` is read. A Mutation's `defect`
- * can follow a provider call, so an unlisted one is `outcome_unknown`. A listed `uncertain` follows its listing.
+ * Changed in 0.5.0: a Mutation's `defect` is always `outcome_unknown`, because the Connector SDK can select it
+ * after the provider was called. A Query's `defect` follows `agent.branches`. A fenced Mutation whose fence cannot
+ * prove that nothing was sent is `outcome_unknown` on any optional branch.
  * @since 0.4.0
  */
 export type ConnectorBranchOutcome = "succeeded" | "rejected" | "failed" | "outcome_unknown";
@@ -219,28 +223,38 @@ export interface ConnectorTool {
 /**
  * Returns what a connector tool call records for one selected branch.
  *
- * The rules apply in this order, as the Connector library's manifest authoring guide defines them:
+ * The rules apply in this order. The manifest listing comes after the checks that can only tighten an outcome to
+ * `outcome_unknown`:
  *
  * 1. A required branch is `succeeded`.
- * 2. A branch that `agent.branches` lists as `rejected` is `rejected`.
- * 3. A branch that `agent.branches` lists as `unknown` is `outcome_unknown`.
- * 4. An unlisted `uncertain` is `outcome_unknown`.
- * 5. Any other optional branch of a Mutation is `outcome_unknown`. This includes `defect`: the Connector SDK can
- *    select `defect` after the provider was called, so the write may have happened.
- * 6. Any other optional branch of a Query, including `defect`, is `failed`.
+ * 2. `uncertain` is `outcome_unknown`, whatever `agent.branches` says. It means the write may have happened, so a
+ *    listing of it as `rejected` is a manifest error.
+ * 3. A Mutation's `defect` is `outcome_unknown`, whatever `agent.branches` says. The Connector SDK selects
+ *    `defect` for some attempts that already called the provider, such as an invalid attempt or an undeclared
+ *    branch, and a host cannot tell those apart.
+ * 4. On a Mutation, any other branch is `outcome_unknown` when `mayHaveDispatched` is set: its single-dispatch
+ *    fence cannot prove that no request reached the provider.
+ * 5. A branch that `agent.branches` lists as `rejected` is `rejected`.
+ * 6. A branch that `agent.branches` lists as `unknown` is `outcome_unknown`.
+ * 7. Any other optional branch of a Mutation is `outcome_unknown`.
+ * 8. Any other optional branch of a Query, including `defect`, is `failed`.
  *
  * The rule fails closed: an optional branch of a Mutation that the manifest does not classify is
  * `outcome_unknown`, because the write may have happened.
  *
- * Changed in 0.5.0: `agent.branches` is read before `defect` and `uncertain`. An unlisted `defect` of a Mutation
- * is `outcome_unknown` instead of `failed`, and an `uncertain` listed as `rejected` is `rejected`.
+ * Changed in 0.5.0: added `mayHaveDispatched`. `agent.branches` no longer decides a Mutation's `defect`, which is
+ * `outcome_unknown` instead of `failed`. A Query's `defect` follows `agent.branches`.
  *
  * @example
  * ```ts
- * classifyConnectorBranch({ kind: "mutation", branch: "invalidResponse", requiredBranches: new Set(["refunded"]),
- *   agentBranches: {} }); // "outcome_unknown"
+ * classifyConnectorBranch({ kind: "mutation", branch: "defect", requiredBranches: new Set(["refunded"]),
+ *   agentBranches: { defect: "rejected" } }); // "outcome_unknown"
  * ```
- * @param options - The operation kind, the selected branch, the required branches, and `agent.branches`.
+ * @param options - The operation kind, the selected branch, the required branches, `agent.branches`, and
+ * `mayHaveDispatched`: whether the attempt's single-dispatch fence checkpoints leave open that the request reached
+ * the provider, because this attempt claimed a send or the earlier attempt's checkpoint is missing, malformed,
+ * foreign, or does not allow this attempt a send. {@link ConnectorToolSource} computes it. It defaults to `false`
+ * and applies only to a Mutation.
  * @returns The outcome to record.
  * @since 0.4.0
  */
@@ -249,16 +263,23 @@ export function classifyConnectorBranch(options: {
   readonly branch: string;
   readonly requiredBranches: ReadonlySet<string>;
   readonly agentBranches: Readonly<Record<string, string>>;
+  readonly mayHaveDispatched?: boolean;
 }): ConnectorBranchOutcome {
   const { kind, branch, requiredBranches, agentBranches } = options;
   if (requiredBranches.has(branch)) {
     return "succeeded";
   }
+  if (branch === uncertainBranch) {
+    return "outcome_unknown";
+  }
+  if (kind === "mutation" && (branch === defectBranch || options.mayHaveDispatched === true)) {
+    return "outcome_unknown";
+  }
   const listed = Object.hasOwn(agentBranches, branch) ? agentBranches[branch] : undefined;
   if (listed === "rejected") {
     return "rejected";
   }
-  if (listed === "unknown" || branch === uncertainBranch || kind === "mutation") {
+  if (listed === "unknown" || kind === "mutation") {
     return "outcome_unknown";
   }
   return "failed";
@@ -603,6 +624,7 @@ export class ConnectorToolSource implements ToolSource {
       branch: result.branch,
       requiredBranches: tool.requiredBranches,
       agentBranches: tool.agentBranches,
+      mayHaveDispatched: mayHaveDispatched(connectorCall, stepContext, call.heartbeatCheckpoint),
     });
     if (outcome === "succeeded") {
       return boundConnectorResult(encodeResultValue(result.value), tool.maxResultBytes ?? this.maxResultBytes);
@@ -721,6 +743,42 @@ function parseToolArguments(toolName: string, toolArguments: string): Readonly<R
     throw new ToolExecutionError(`invalid arguments for ${toolName}: expected a JSON object`);
   }
   return values;
+}
+
+/** Reports whether fence checkpoints leave open that the request was sent, as sdkgo does. */
+export function mayHaveDispatched(
+  call: Call,
+  context: ConnectorStepContext,
+  previousCheckpoint: string | undefined,
+): boolean {
+  const saved = readSavedHeartbeatValue(context);
+  if (isFenceMarkerShaped(saved) && saved["state"] === "claimed") {
+    return true;
+  }
+  if (previousCheckpoint === undefined) {
+    // A lost checkpoint after attempt one may hide an earlier send.
+    return hasReadCheckpoint(context) && context.attempt > 1;
+  }
+  let previous: unknown;
+  try {
+    previous = JSON.parse(previousCheckpoint);
+  } catch {
+    return false;
+  }
+  if (!isFenceMarkerShaped(previous)) {
+    return false;
+  }
+  const isSendAllowed =
+    Object.keys(previous).every((key) => fenceMarkerKeys.has(key)) &&
+    previous["callId"] === call.id &&
+    previous["attempt"] === context.attempt - 1 &&
+    (previous["state"] === "notSent" || previous["state"] === "canResend") &&
+    (previous["providerId"] === undefined || previous["providerId"] === "");
+  return !isSendAllowed;
+}
+
+function isFenceMarkerShaped(value: unknown): value is Readonly<Record<string, unknown>> {
+  return isRecord(value) && (Object.hasOwn(value, "callId") || Object.hasOwn(value, "state"));
 }
 
 /** Reports whether this attempt's last saved fence marker proves the write was not sent. */

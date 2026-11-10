@@ -17,14 +17,19 @@ for the Dex SDK and framework versions each release supports.
   name ends as a removed tool's call does, unless the application keeps the old
   name with `name`. `agents/conformance/connector_tools.json` adds
   `toolNameCases`.
-- Breaking, Python and TypeScript cores: `classify_connector_branch`
-  (`classifyConnectorBranch`) reads `agent.branches` first, as the Connector
-  library's manifest guide says. An unlisted `defect` of a Mutation now records
-  `outcome_unknown` instead of `failed` and is not retried, because the
-  Connector SDK can select `defect` after it called the provider. A listed
-  `defect` follows its listing, and an unlisted Query `defect` still records
-  `failed`. An `uncertain` branch listed as `rejected` now records `failed` as
-  a rejection instead of `outcome_unknown`.
+- Breaking, Python and TypeScript cores: a Mutation's `defect` now records
+  `outcome_unknown` instead of `failed`, whatever `agent.branches` says, and is
+  not retried. The Connector SDK selects `defect` for some attempts that already
+  called the provider, and the core cannot tell those apart. A Query's `defect`
+  now follows `agent.branches`: listed `rejected` it is a rejection, otherwise
+  it still records `failed`. `uncertain` still records `outcome_unknown`.
+- Breaking, Python and TypeScript cores: a Mutation that uses the
+  single-dispatch fence records `outcome_unknown` on every branch but the
+  success branch when its fence checkpoints cannot prove that no request
+  reached the provider, whatever `agent.branches` says. This is the same check
+  the Go Connector SDK makes for agent hosts. `classify_connector_branch`
+  (`classifyConnectorBranch`) takes a new optional `may_have_dispatched`
+  (`mayHaveDispatched`), which the source computes.
 
 ### Fixed
 

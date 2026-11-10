@@ -365,6 +365,11 @@ class PostNoteOperation:
             return MutationAttempt.retry(
                 Failure(FailureKind.RATE_LIMIT, CONNECTOR_ID, "postNote", "rate limited")
             )
+        if "reject-after-send" in words:
+            # A wrong listing: the claim proves the provider may have acted.
+            return MutationAttempt.branch_result(
+                "providerRejected", Note(), Receipt(), _failure("postNote", "refused after send")
+            )
         await fence.record_provider_id(note_id)
         if "uncertain" in words:
             return MutationAttempt.uncertain(Note(), _failure("postNote", "no response"), Receipt())

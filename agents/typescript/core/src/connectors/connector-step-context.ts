@@ -18,6 +18,14 @@ export function readSavedHeartbeatValue(context: ConnectorStepContext): unknown 
   return savedHeartbeatValues.get(context);
 }
 
+// The source reads it to tell a lost fence checkpoint from an unfenced operation.
+const checkpointReaders = new WeakSet<ConnectorStepContext>();
+
+/** Reports whether the operation asked this context for an earlier attempt's checkpoint. Internal to the core. */
+export function hasReadCheckpoint(context: ConnectorStepContext): boolean {
+  return checkpointReaders.has(context);
+}
+
 /** How a {@link ConnectorStepContext} reaches the tool Step's heartbeats. */
 export interface ConnectorStepHeartbeats {
   /** The text checkpoint an earlier attempt of the tool Step saved, or `undefined`. */
@@ -93,6 +101,7 @@ export class ConnectorStepContext {
    * @returns `true` when the session read a checkpoint for this attempt.
    */
   public hasLastHeartbeatValue(): boolean {
+    checkpointReaders.add(this);
     return this.heartbeats.previousCheckpoint !== undefined;
   }
 
@@ -107,6 +116,7 @@ export class ConnectorStepContext {
     if (codec !== undefined) {
       throw new TypeError("ConnectorStepContext keeps heartbeat values as JSON and takes no codec");
     }
+    checkpointReaders.add(this);
     const previous = this.heartbeats.previousCheckpoint;
     return previous === undefined ? undefined : (JSON.parse(previous) as T);
   }

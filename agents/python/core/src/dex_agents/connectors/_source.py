@@ -79,6 +79,7 @@ CONNECTOR_MANIFEST_FILE_NAME = "dex-connector.json"
 
 # The most CallTool attempts of any tool; a connector's own policy can only narrow it.
 _MAXIMUM_TOOL_ATTEMPTS = 3
+_DEFECT_BRANCH = "defect"
 _UNCERTAIN_BRANCH = "uncertain"
 _CODECS = CodecRegistry()
 
@@ -100,18 +101,20 @@ class ConnectorBranchOutcome(StrEnum):
             the session continues.
         FAILED: An optional branch of a Query that ``agent.branches`` does
             not list, including ``defect``. The record is ``FAILED``.
-        OUTCOME_UNKNOWN: A branch listed as ``unknown``, ``uncertain``, or an
-            optional branch of a Mutation that ``agent.branches`` does not list,
-            including ``defect``. The write may have taken effect. The record
-            is ``OUTCOME_UNKNOWN``.
+        OUTCOME_UNKNOWN: ``uncertain``, a Mutation's ``defect``, any optional
+            branch of a Mutation whose single-dispatch fence cannot prove that
+            nothing was sent, a branch listed as ``unknown``, or an optional
+            branch of a Mutation that ``agent.branches`` does not list. The
+            write may have taken effect. The record is ``OUTCOME_UNKNOWN``.
 
     .. versionadded:: 0.4.0
 
     .. versionchanged:: 0.5.0
-        ``defect`` no longer maps to ``FAILED`` before ``agent.branches`` is
-        read. A Mutation's ``defect`` can follow a provider call, so an
-        unlisted one is ``OUTCOME_UNKNOWN``. A listed ``uncertain`` follows its
-        listing.
+        A Mutation's ``defect`` is always ``OUTCOME_UNKNOWN``, because the
+        Connector SDK can select it after the provider was called. A Query's
+        ``defect`` follows ``agent.branches``. A fenced Mutation whose fence
+        cannot prove that nothing was sent is ``OUTCOME_UNKNOWN`` on any
+        optional branch.
     """
 
     SUCCEEDED = "succeeded"
@@ -126,21 +129,29 @@ def classify_connector_branch(
     branch: str,
     required_branches: frozenset[str],
     agent_branches: Mapping[str, str],
+    may_have_dispatched: bool = False,
 ) -> ConnectorBranchOutcome:
     """Return what a connector tool call records for one selected branch.
 
-    The rules apply in this order, as the Connector library's manifest
-    authoring guide defines them:
+    The rules apply in this order. The manifest listing comes after the
+    checks that can only tighten an outcome to ``OUTCOME_UNKNOWN``:
 
     1. A required branch is ``SUCCEEDED``.
-    2. A branch that ``agent.branches`` lists as ``rejected`` is ``REJECTED``.
-    3. A branch that ``agent.branches`` lists as ``unknown`` is
+    2. ``uncertain`` is ``OUTCOME_UNKNOWN``, whatever ``agent.branches`` says.
+       It means the write may have happened, so a listing of it as
+       ``rejected`` is a manifest error.
+    3. A Mutation's ``defect`` is ``OUTCOME_UNKNOWN``, whatever
+       ``agent.branches`` says. The Connector SDK selects ``defect`` for some
+       attempts that already called the provider, such as an invalid attempt
+       or an undeclared branch, and a host cannot tell those apart.
+    4. On a Mutation, any other branch is ``OUTCOME_UNKNOWN`` when
+       ``may_have_dispatched`` is set: its single-dispatch fence cannot prove
+       that no request reached the provider.
+    5. A branch that ``agent.branches`` lists as ``rejected`` is ``REJECTED``.
+    6. A branch that ``agent.branches`` lists as ``unknown`` is
        ``OUTCOME_UNKNOWN``.
-    4. An unlisted ``uncertain`` is ``OUTCOME_UNKNOWN``.
-    5. Any other optional branch of a Mutation is ``OUTCOME_UNKNOWN``. This
-       includes ``defect``: the Connector SDK can select ``defect`` after the
-       provider was called, so the write may have happened.
-    6. Any other optional branch of a Query, including ``defect``, is
+    7. Any other optional branch of a Mutation is ``OUTCOME_UNKNOWN``.
+    8. Any other optional branch of a Query, including ``defect``, is
        ``FAILED``.
 
     The rule fails closed: an optional branch of a Mutation that the manifest
@@ -152,7 +163,7 @@ def classify_connector_branch(
         ...     kind="mutation",
         ...     branch="defect",
         ...     required_branches=frozenset({"refunded"}),
-        ...     agent_branches={},
+        ...     agent_branches={"defect": "rejected"},
         ... )
         <ConnectorBranchOutcome.OUTCOME_UNKNOWN: 'outcome_unknown'>
 
@@ -162,6 +173,11 @@ def classify_connector_branch(
         required_branches: The operation's branches that are not optional.
         agent_branches: The manifest's ``agent.branches``: branch ID to
             ``"rejected"`` or ``"unknown"``.
+        may_have_dispatched: Whether the attempt's single-dispatch fence
+            checkpoints leave open that the request reached the provider: this
+            attempt claimed a send, or the earlier attempt's checkpoint is
+            missing, malformed, foreign, or does not allow this attempt a send.
+            ``ConnectorToolSource`` computes it. It applies only to a Mutation.
 
     Returns:
         The outcome to record.
@@ -169,17 +185,20 @@ def classify_connector_branch(
     .. versionadded:: 0.4.0
 
     .. versionchanged:: 0.5.0
-        ``agent.branches`` is read before ``defect`` and ``uncertain``. An
-        unlisted ``defect`` of a Mutation is ``OUTCOME_UNKNOWN`` instead of
-        ``FAILED``, and an ``uncertain`` listed as ``rejected`` is
-        ``REJECTED``.
+        Added ``may_have_dispatched``. ``agent.branches`` no longer decides a
+        Mutation's ``defect``, which is ``OUTCOME_UNKNOWN`` instead of
+        ``FAILED``. A Query's ``defect`` follows ``agent.branches``.
     """
     if branch in required_branches:
         return ConnectorBranchOutcome.SUCCEEDED
+    if branch == _UNCERTAIN_BRANCH:
+        return ConnectorBranchOutcome.OUTCOME_UNKNOWN
+    if kind == "mutation" and (branch == _DEFECT_BRANCH or may_have_dispatched):
+        return ConnectorBranchOutcome.OUTCOME_UNKNOWN
     listed = agent_branches.get(branch)
     if listed == "rejected":
         return ConnectorBranchOutcome.REJECTED
-    if listed == "unknown" or branch == _UNCERTAIN_BRANCH or kind == "mutation":
+    if listed == "unknown" or kind == "mutation":
         return ConnectorBranchOutcome.OUTCOME_UNKNOWN
     return ConnectorBranchOutcome.FAILED
 
@@ -623,6 +642,7 @@ class ConnectorToolSource:
             branch=result.branch,
             required_branches=tool.required_branches,
             agent_branches=tool.agent_branches,
+            may_have_dispatched=_may_have_dispatched(connector_call),
         )
         if outcome is ConnectorBranchOutcome.SUCCEEDED:
             return bound_connector_result(
@@ -774,6 +794,37 @@ def _is_proven_not_sent(call: Call) -> bool:
         and marker.state in (State.NOT_SENT, State.CAN_RESEND)
         and not marker.provider_id
     )
+
+
+def _may_have_dispatched(call: Call) -> bool:
+    """Report whether fence checkpoints leave open that the request was sent, as sdkgo does."""
+    context = call.context
+    if not isinstance(context, ConnectorStepContext):
+        return False
+    saved = context._saved_heartbeat_value
+    if isinstance(saved, Marker) and saved.state is State.CLAIMED:
+        return True
+    previous = context._previous_checkpoint
+    if previous is None:
+        # A lost checkpoint after attempt one may hide an earlier send.
+        return context._has_read_checkpoint and context.attempt > 1
+    try:
+        decoded = json.loads(previous)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(decoded, dict) or not ({"callId", "state"} & decoded.keys()):
+        return False
+    try:
+        marker = Marker.from_wire(decoded)
+    except ValueError:
+        return True
+    is_send_allowed = (
+        marker.call_id == call.id
+        and marker.attempt == context.attempt - 1
+        and not marker.provider_id
+        and marker.state in (State.NOT_SENT, State.CAN_RESEND)
+    )
+    return not is_send_allowed
 
 
 def _not_sent_detail(tool: ConnectorTool, failure: Any) -> str:

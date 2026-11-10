@@ -219,6 +219,22 @@ describe("connector tools on a Dex engine", () => {
     assert.equal((await sessions.readAgentState(sessionId))?.lastTurnError, null);
   });
 
+  test("a fenced write listed rejected after its claim is unknown", async () => {
+    const harness = newHarness();
+    await harness.startWorker();
+    const sessionId = `connector-${randomUUID()}`;
+    await sessions.startSession(
+      sessionId,
+      calls([["post_note", { accountId: "a-1", text: "reject-after-send" }]], "claimed"),
+    );
+    const [record] = await heldRecords(harness, sessionId, "claimed", 1);
+    // The manifest lists providerRejected as rejected, but the fence claimed the send.
+    assert.equal(record?.status, "outcome_unknown");
+    assert.equal(record?.error, "fake-ledger postNote returned providerRejected: PROVIDER_REJECTION: refused after send");
+    assert.deepEqual(await answerLines(sessionId, 1), [`post_note: ${outcomeUnknownToolResult}`]);
+    assert.equal(harness.ledger.writes("postNote").length, 1);
+  });
+
   test("arguments that break the schema fail without running the operation", async () => {
     const harness = newHarness();
     await harness.startWorker();

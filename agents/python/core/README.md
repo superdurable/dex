@@ -1412,19 +1412,35 @@ What a call does:
    `canResend` in this attempt, which proves the provider did not process it, it
    records `FAILED` with `CONNECTOR_NOT_SENT_RETRY_LATER` instead.
 5. Map the selected branch with `classify_connector_branch`. The first
-   matching row wins, and `agent.branches` comes before the branch's name:
+   matching row wins. The rows before the listing can only make an outcome
+   unknown:
 
 | Branch | Record | The model reads |
 | --- | --- | --- |
 | A required (success) branch | `SUCCEEDED` | The value as compact JSON, keys sorted |
+| `uncertain`, whatever the listing says | `OUTCOME_UNKNOWN` (`ToolOutcomeUnknownError`) | `OUTCOME_UNKNOWN_TOOL_RESULT` |
+| A Mutation's `defect`, whatever the listing says | `OUTCOME_UNKNOWN` | The same text |
+| Any Mutation branch when its fence cannot prove that nothing was sent | `OUTCOME_UNKNOWN` | The same text |
 | Listed `rejected` under `agent.branches` | `FAILED` (`ToolExecutionError`) | `"<connector> <operation> returned <branch>: <kind>: <message>"` |
-| Listed `unknown`, or `uncertain` | `OUTCOME_UNKNOWN` (`ToolOutcomeUnknownError`) | `OUTCOME_UNKNOWN_TOOL_RESULT` |
-| A Mutation branch not listed, including `defect` | `OUTCOME_UNKNOWN` | The same text |
+| Listed `unknown`, or a Mutation branch not listed | `OUTCOME_UNKNOWN` | `OUTCOME_UNKNOWN_TOOL_RESULT` |
 | A Query branch not listed, including `defect` | `FAILED` | `"<connector> <operation> returned <branch>: <kind>: <message>"` |
 
-A Mutation's `defect` is not always local: the Connector SDK turns some
-attempts that already called the provider into `defect`, so the write may have
-happened.
+A Mutation's `defect` is not always local: the Connector SDK selects it for
+some attempts that already called the provider, such as an invalid attempt or
+an undeclared branch, and the source cannot tell those apart. A Query's
+`defect` follows its listing.
+
+A Mutation that uses the single-dispatch fence gets one more check, the same
+one the Go Connector SDK makes for Go agent hosts. The source watches the
+fence's heartbeat checkpoints through its Step context. When they cannot prove
+that no request reached the provider, every branch but the success branch
+records outcome unknown, whatever the listing says: this attempt claimed a
+send (with or without a provider ID), or the earlier attempt's checkpoint is a
+malformed marker, belongs to another call, does not allow this attempt a send,
+or is missing on a retry that read it. Known gap: a checkpoint that is not a
+fence marker at all is left to the fence, which fails closed on it itself. A
+Mutation with its own checkpoint, or none, gets no such check and relies on its
+listing.
 
 A result over `max_result_bytes` (default `DEFAULT_CONNECTOR_RESULT_MAX_BYTES`,
 64 KiB of UTF-8 text, set per source or per tool) is cut, followed by

@@ -60,6 +60,8 @@ class ConnectorStepContext:
         self._save_checkpoint = save_checkpoint
         # The source reads it on a Retry; a failed save leaves the earlier value.
         self._saved_heartbeat_value: object | None = None
+        # The source reads it to tell a lost fence checkpoint from an unfenced operation.
+        self._has_read_checkpoint = False
 
     @property
     def flow_id(self) -> str:
@@ -87,6 +89,7 @@ class ConnectorStepContext:
         Returns:
             ``True`` when the session read a checkpoint for this attempt.
         """
+        self._has_read_checkpoint = True
         return self._previous_checkpoint is not None
 
     def get_last_heartbeat_value(self, value_type: type[ValueT]) -> ValueT | None:
@@ -101,6 +104,7 @@ class ConnectorStepContext:
         Raises:
             Exception: If the checkpoint does not decode as ``value_type``.
         """
+        self._has_read_checkpoint = True
         if self._previous_checkpoint is None:
             return None
         if value_type is str:
