@@ -32,8 +32,9 @@ import (
 // time, in call order. A hook must not call RecordHeartbeat, SetStepExecutionLocal, or RecordEvent
 // on the same Context; such a call deadlocks.
 //
-// After the parent context is done, these methods return an error that wraps the parent's error,
-// and they do not call the hook. This check narrows, but cannot close, the race between ending an
+// After the parent context is done, the hooks never run. These methods then return an error that
+// wraps the parent's error when the arguments are valid, the value encodes, and the event name is
+// not already recorded; otherwise they return that validation error first. This check narrows, but cannot close, the race between ending an
 // attempt and a write from that attempt that is already in progress. A hook that persists values
 // must therefore write conditionally on Attempt: it must never let a value from an older attempt
 // replace a value from a newer attempt of the same logical call.
@@ -124,16 +125,19 @@ type StandaloneContextOptions struct {
 // not change what GetStepExecutionLocal returns. Unlike a Worker, a standalone Context allows both
 // methods in any handler method. RecordEvent rejects an empty or repeated name and calls
 // options.OnRecordEvent. Without the hooks, heartbeats, locals, and events are validated and then
-// discarded. Dex stores nothing durably for a standalone Context. After parent is done,
-// RecordHeartbeat, SetStepExecutionLocal, and RecordEvent return an error that wraps parent's error
-// and do not call the hooks. See StandaloneContextOptions for why persisting hooks must still write
-// conditionally on Attempt.
+// discarded. Dex stores nothing durably for a standalone Context. After parent is done, the hooks
+// never run. RecordHeartbeat, SetStepExecutionLocal, and RecordEvent then return an error that wraps
+// parent's error when the arguments are valid, the value encodes, and the event name is not already
+// recorded; otherwise the validation error comes first. See StandaloneContextOptions for why
+// persisting hooks must still write conditionally on Attempt.
 //
 // Methods that need a Worker invocation return fixed results. HasTimerFired, HasTimerFiredByIndex,
 // and WaitForMethodFailed return false. Attribute, Channel, Stream, BufferedTextStream, SubFlowResult,
-// and SubFlowID operations need a Worker invocation. Those that return an error return an invalid
-// invocation context error. The size and instance key methods, such as Channel.Size and
-// AttributeMap.AllInstanceKeys, panic, as they do for any Context not created by a Worker.
+// and SubFlowID operations need a Worker invocation. The Attribute, Channel, Stream, and
+// BufferedTextStream operations that return an error return an invalid invocation context error.
+// SubFlowResult and SubFlowID return errors stating that they require a Dex invocation Context.
+// The size and instance key methods, such as Channel.Size and AttributeMap.AllInstanceKeys, panic,
+// as they do for any Context not created by a Worker.
 //
 // The returned Context is safe for concurrent use. NewStandaloneContext panics when parent is nil. It
 // returns an error when options.Attempt is below 1, when a step-execution local key is empty, or

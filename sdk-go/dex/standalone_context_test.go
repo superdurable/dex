@@ -652,6 +652,52 @@ func TestStandaloneContextRejectsWorkerOnlyOperations(t *testing.T) {
 	if err := commandChannel.Publish(ctx, command{Name: "ship"}); err == nil {
 		t.Fatal("Channel.Publish succeeded without a Worker invocation")
 	}
+	if _, err := dex.SubFlowResult(ctx); err == nil ||
+		err.Error() != "dex: SubFlow results require a Dex invocation Context" {
+		t.Fatalf("SubFlowResult error = %v", err)
+	}
+	if _, err := dex.SubFlowID(ctx); err == nil ||
+		err.Error() != "dex: SubFlow IDs require a Dex invocation Context" {
+		t.Fatalf("SubFlowID error = %v", err)
+	}
+}
+
+func TestStandaloneContextValidationPrecedesParentDoneError(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	eventHookCalls := 0
+	ctx, err := dex.NewStandaloneContext(parent, dex.StandaloneContextOptions{
+		Attempt: 1,
+		OnRecordEvent: func(string, any) error {
+			eventHookCalls++
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewStandaloneContext: %v", err)
+	}
+	if err := ctx.RecordEvent("sent", "provider-42"); err != nil {
+		t.Fatalf("RecordEvent before cancel: %v", err)
+	}
+	cancel()
+
+	for _, payload := range []any{"provider-43", math.NaN()} {
+		err := ctx.RecordEvent("sent", payload)
+		if err == nil || errors.Is(err, context.Canceled) {
+			t.Fatalf("duplicate event after cancel = %v, want duplicate error", err)
+		}
+	}
+	if err := ctx.RecordEvent("", "value"); err == nil || errors.Is(err, context.Canceled) {
+		t.Fatalf("empty event name after cancel = %v, want validation error", err)
+	}
+	if err := ctx.SetStepExecutionLocal("", "value"); err == nil || errors.Is(err, context.Canceled) {
+		t.Fatalf("empty local key after cancel = %v, want validation error", err)
+	}
+	if err := ctx.RecordEvent("other", "value"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("new event after cancel = %v", err)
+	}
+	if eventHookCalls != 1 {
+		t.Fatalf("event hook calls = %d, want only the call before cancel", eventHookCalls)
+	}
 }
 
 func TestStandaloneContextChannelSizePanics(t *testing.T) {

@@ -434,16 +434,19 @@ attempt.
   into `any`: JSON numbers become `float64` and byte slices become base64
   strings, so decoding into the original type later fails. Do not seed the JSON
   itself as `json.RawMessage` or `[]byte`.
-- After the parent context is done, the three write methods return an error
-  that wraps the parent's error and skip the hook. A write already in progress
+- After the parent context is done, the hooks never run. The three write
+  methods then return an error that wraps the parent's error when the
+  arguments are valid, the value encodes, and the event name is not already
+  recorded; otherwise the validation error comes first. A write already in progress
   can still race with the end of its attempt, so a persisting hook must write
   conditionally on `Attempt` and never let an older attempt replace a newer
   attempt's value.
 - `HasTimerFired`, `HasTimerFiredByIndex`, and `WaitForMethodFailed` return
   false.
-- Attribute, Channel, Stream, `BufferedTextStream`, `SubFlowResult`, and
-  `SubFlowID` operations that return an error return an invalid invocation
-  context error.
+- Attribute, Channel, Stream, and `BufferedTextStream` operations that return
+  an error return an invalid invocation context error.
+- `SubFlowResult` and `SubFlowID` return errors stating that they require a
+  Dex invocation Context.
 - These methods have no error result and panic on a standalone Context:
   `Channel.Size`, `ChannelMap.Size`, `ChannelMap.MapSize`,
   `ChannelMap.AllInstanceKeys`, `AttributeMap.MapSize`, and
