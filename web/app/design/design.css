@@ -140,6 +140,7 @@ html .v2-shell.dg {
 }
 
 .dg .dg-canvas {
+  container: dg-canvas / inline-size;
   min-width: 0;
   height: 100%;
   flex: 1 1 auto;
@@ -158,13 +159,64 @@ html .v2-shell.dg {
   color: var(--muted);
 }
 
-/* ---------- toolbar: two segmented switches floating over the drawing ---------- */
-.dg .dg-toolbar {
+/* ---------- overlay: toolbar at the top left, zoom and legend at the top right ---------- */
+/* Only the controls take pointer events, so the drawing under the overlay's empty parts still pans. */
+.dg .dg-overlay {
   position: absolute;
-  top: 14px;
-  left: 16px;
+  inset: 14px 16px 16px;
   z-index: 6;
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.dg .dg-segment,
+.dg .dg-legend {
+  pointer-events: auto;
+}
+
+/* Stretched to the overlay's height, so the open legend can scroll inside it down to the canvas bottom. */
+.dg .dg-corner {
+  display: flex;
+  min-height: 0;
+  flex: none;
+  align-self: stretch;
+  align-items: flex-start;
+  margin-left: auto;
+  gap: 10px;
+}
+
+/* A narrow canvas stacks the corner under the toolbar, so the two never overlap. */
+@container dg-canvas (max-width: 720px) {
+  .dg .dg-overlay {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .dg .dg-corner {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    align-self: auto;
+    justify-content: flex-end;
+  }
+
+  /* Too wide beside the zoom pill, the open legend wraps under it; 44px is that pill's row. */
+  .dg .dg-legend {
+    max-width: 100%;
+  }
+
+  .dg .plegend-card[data-open='true'] {
+    max-height: calc(100% - 44px);
+  }
+}
+
+.dg .dg-toolbar {
+  display: flex;
+  min-width: 0;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
@@ -501,36 +553,24 @@ html .v2-shell.dg {
   stroke: var(--dg-focus);
 }
 
-/* ---------- zoom controls ---------- */
-.dg .react-flow__controls {
-  overflow: hidden;
-  border-radius: 14px;
-  box-shadow: var(--dg-shadow);
+/* ---------- zoom controls: a pill like the toolbar's ---------- */
+.dg .dg-zoom {
+  flex: none;
 }
 
-.dg .react-flow__controls-button {
-  border: 0;
-  background: var(--dg-surface);
-  color: var(--dg-ink-1);
-  fill: currentColor;
+.dg .dg-zoom button {
+  padding: 0 10px;
 }
 
-.dg .react-flow__controls-button:hover {
-  background: var(--dg-track);
-}
-
-/* ---------- legend: an overlay at the canvas's bottom-right ---------- */
+/* ---------- legend: at the canvas's top-right, opening downward ---------- */
 .dg .dg-legend {
   /* The drawing hides hairlines; the key's outlined swatches need one. */
   --p-line: color-mix(in srgb, var(--dg-ink-3) 55%, transparent);
 
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  z-index: 6;
   display: flex;
-  max-width: min(340px, calc(100% - 32px));
-  max-height: calc(100% - 96px);
+  max-width: min(340px, calc(100cqw - 32px));
+  max-height: 100%;
+  min-height: 0;
   flex-direction: column;
 }
 
@@ -628,17 +668,33 @@ html .v2-shell.dg {
   font-weight: 600;
 }
 
+.dg .dg-legend-head .plegend-toggle {
+  width: auto;
+  flex: 1 1 auto;
+}
+
+/* Closed, the legend is a pill like the zoom controls beside it. */
+.dg .plegend-card:not([data-open='true']) {
+  border-radius: 999px;
+}
+
 .dg .plegend-card:not([data-open='true']) .plegend-toggle {
-  padding: 6px 12px;
+  min-height: 34px;
+  padding: 0 14px;
   color: var(--dg-ink-2);
 }
 
-/* Outside the scrolling body, so the hide button never covers the last line. */
-.dg .dg-legend-foot {
+/* Outside the scrolling body, so the toggle and hide button stay put while the key scrolls. */
+.dg .dg-legend-head {
   display: flex;
   flex: none;
-  justify-content: flex-end;
-  padding: 0 6px 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dg .plegend-card[data-open='true'] .dg-legend-head {
+  padding: 4px 4px 0 0;
 }
 
 .dg .dg-legend-hide {

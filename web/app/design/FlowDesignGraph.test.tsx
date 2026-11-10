@@ -54,6 +54,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('Flow design graph', () => {
@@ -68,18 +69,26 @@ describe('Flow design graph', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('hides the expanded legend from its bottom-right button and returns focus to the toggle', async () => {
+  it('keeps the legend at the top right and hides it from the panel header', async () => {
     render(<MemoryRouter><FlowDesignGraph definition={entryOf(SCHEMA_2_FILE)} /></MemoryRouter>);
     const toggle = await screen.findByRole('button', { name: 'Legend' }, { timeout: 4_000 });
     expect(screen.queryByRole('button', { name: 'Hide legend' })).toBeNull();
+    // The legend and the zoom controls share the top-right corner, after the top-left toolbar.
+    const corner = document.querySelector('.dg-overlay > .dg-corner');
+    expect(corner?.contains(toggle)).toBe(true);
+    expect(corner?.contains(screen.getByRole('group', { name: 'Zoom' }))).toBe(true);
+    expect(document.querySelector('.dg-overlay')?.firstElementChild?.classList.contains('dg-toolbar')).toBe(true);
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     const hide = screen.getByRole('button', { name: 'Hide legend' });
     expect(hide.getAttribute('title')).toBe('Hide legend');
-    // It is the card's last element, below the scrolling body, where the collapsed toggle sat.
+    // It shares the header row with the toggle, above the scrolling body.
     const card = document.querySelector('.dg-legend');
-    expect(card?.lastElementChild?.contains(hide)).toBe(true);
+    const head = card?.firstElementChild;
+    expect(head?.classList.contains('dg-legend-head')).toBe(true);
+    expect(head?.contains(toggle)).toBe(true);
+    expect(head?.lastElementChild).toBe(hide);
     expect(card?.querySelector('.dg-legend-body')?.contains(hide)).toBe(false);
 
     hide.focus();
@@ -88,6 +97,40 @@ describe('Flow design graph', () => {
     expect(screen.queryByRole('button', { name: 'Hide legend' })).toBeNull();
     expect(document.querySelector('.dg-legend-body')).toBeNull();
     expect(document.activeElement).toBe(toggle);
+  });
+
+  it('labels the zoom controls and returns from a zoomed view when Fit is pressed', async () => {
+    // Instant camera moves, so each transform lands synchronously.
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('prefers-reduced-motion'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+    }));
+    // jsdom lays nothing out; the camera frames only a pane it can measure.
+    for (const [property, size] of [['clientWidth', 1200], ['clientHeight', 800], ['offsetWidth', 1200], ['offsetHeight', 800]] as const) {
+      vi.spyOn(HTMLElement.prototype, property, 'get').mockReturnValue(size);
+    }
+    render(<MemoryRouter><FlowDesignGraph definition={entryOf(SCHEMA_2_FILE)} /></MemoryRouter>);
+    const fit = await screen.findByRole('button', { name: 'Fit the whole Flow' }, { timeout: 4_000 });
+    expect(fit.getAttribute('title')).toBe('Fit the whole Flow');
+    expect(document.querySelector('.react-flow__controls')).toBeNull();
+    await waitFor(() => expect(document.querySelectorAll('.react-flow__node').length).toBeGreaterThan(0), { timeout: 4_000 });
+    const viewport = () => document.querySelector<HTMLElement>('.react-flow__viewport')?.style.transform ?? '';
+
+    fireEvent.click(fit);
+    await waitFor(() => expect(viewport()).toMatch(/scale/));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const fitted = viewport();
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    await waitFor(() => expect(viewport()).not.toBe(fitted));
+
+    fireEvent.click(fit);
+    // React Flow skipped fitView while any node lacked a measured size, leaving the zoomed view.
+    await waitFor(() => expect(viewport()).toBe(fitted));
   });
 
   it.each([SCHEMA_1_FILE, SCHEMA_2_FILE])('puts no outcome or status annotation on a card of %s', (file) => {
