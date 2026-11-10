@@ -50,15 +50,21 @@ Only the happy-path branch must be connected. You can leave optional branches
 unconnected. If the Connector selects an unconnected branch, the Flow fails.
 The provider outcome stays visible for recovery.
 
-### Queries and Mutations {#queries-and-mutations}
+<a id="queries-and-mutations"></a>
 
-Each operation is a Query or a Mutation. The difference decides what a retry
-can do:
+### Effect classes {#effect-classes}
 
-| Operation | Effect on the provider | When Dex retries the Step |
+Each operation is a Query or a Mutation. A Query reads provider state. A
+Mutation changes it. Each operation has an effect class that says what a
+repeated call does:
+
+| Effect class | Operations | What a repeated call does |
 | --- | --- | --- |
-| Query | Reads provider state. | The provider returns the current state again. |
-| Mutation | Changes provider state. | The Mutation sends the same idempotency key, so the provider can ignore the repeat. |
+| Read | Every Query | Changes nothing. |
+| Idempotent write | A Mutation that its Connector marks safe to repeat | Makes no second effect. The Connector author has confirmed that the provider ignores a repeat with the same idempotency key. |
+| Non-idempotent write | Every other Mutation | Can make a second effect. |
+
+A Mutation sends the same idempotency key every time Dex retries its Step.
 
 When a Mutation's outcome is unknown, the Connector selects an uncertainty
 branch. Connect it to a Step that queries the provider and reconciles. Do not

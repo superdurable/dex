@@ -7,6 +7,8 @@ Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 
 - Classify Attribute Store sync as an Attribute feature, not a Component. Its rules move from `external-attribute-sync.md` into the Attribute Store sync section of `dex-sdk` `attribute.md`; the rules themselves are unchanged.
 - Classify Connector as a concept, not a Component, in `dex-sdk` `SKILL.md`. The Components are the application, server, dexcli, and Dex Web.
+- Add Connector operation effect classes to `connector.md`: a Query is a read, a Mutation marked safe to repeat is an idempotent write, and every other Mutation is a non-idempotent write.
+- Say Flow run instead of Flow execution.
 
 ## 1.0.9 - 2026-11-10
 

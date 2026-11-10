@@ -25,7 +25,7 @@ If the user explicitly invokes this skill, stay in it.
 
 A **Flow** is one durable run of a business process, with a stable Flow ID. It is a graph of **Steps**. Each Step has **WaitFor**, which returns the Conditions to wait on, and **Execute**, which does the work and returns a decision: the next Steps, or how the Flow closes. Each method call is one commit boundary. Dex persists every committed change and retries failed methods, so the Flow survives Worker and Server restarts.
 
-| Primitive | What it is | Key rule |
+| Concept | What it is | Key rule |
 | --- | --- | --- |
 | [Flow](references/core/flow.md) | durable execution with identity, schema, and RPCs | one Flow per business lifecycle; name it after the domain |
 | [Step](references/core/step.md) | WaitFor plus Execute; options set durability, timeouts, retries, loads, locks | split Steps by recovery boundary; external effects idempotent |
