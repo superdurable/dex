@@ -41,8 +41,9 @@ import { checkConnectorInputSchema, compareCodePoints, findConnectorInputViolati
 import {
   ConnectorStepContext,
   hasReadCheckpoint,
+  isFenceMarker,
+  readFenceEvidence,
   readPreviousCheckpoint,
-  readSavedHeartbeatValues,
 } from "./connector-step-context.js";
 
 /**
@@ -75,7 +76,6 @@ export const connectorNotSentRetryLater = "not sent; the provider asked to retry
 const maximumToolAttempts = 3;
 const defectBranch = "defect";
 const uncertainBranch = "uncertain";
-const fenceMarkerKeys = new Set(["callId", "attempt", "state", "providerId"]);
 
 /**
  * Decides from a call's decoded JSON arguments whether that call waits for approval.
@@ -767,31 +767,9 @@ interface FenceObservation {
 }
 
 function observeFence(call: Call, context: ConnectorStepContext): FenceObservation {
-  // Fold every saved marker, so a later checkpoint cannot erase a claim.
-  let isClaimed = false;
-  let hasProviderId = false;
-  let hasClaimed = false;
-  let hasNotSentProof = false;
-  for (const value of readSavedHeartbeatValues(context)) {
-    if (!isFenceMarker(value) || value["callId"] !== call.id || value["attempt"] !== context.attempt) {
-      continue;
-    }
-    const hasMarkerProviderId = value["providerId"] !== undefined && value["providerId"] !== "";
-    if (value["state"] === "claimed") {
-      isClaimed = true;
-      hasClaimed = true;
-      hasProviderId ||= hasMarkerProviderId;
-      hasNotSentProof = false;
-    } else if (value["state"] === "canResend") {
-      // The fence allows canResend only after its own claim without a provider ID.
-      if (isClaimed && !hasProviderId && !hasMarkerProviderId) {
-        isClaimed = false;
-        hasNotSentProof = true;
-      }
-    } else if (value["state"] === "notSent" && !hasClaimed && !hasMarkerProviderId) {
-      hasNotSentProof = true;
-    }
-  }
+  const evidence = readFenceEvidence(context, call.id);
+  const isClaimed = evidence?.isClaimed ?? false;
+  const hasNotSentProof = evidence?.hasNotSentProof ?? false;
   const isPriorDispatchPossible = hasReadCheckpoint(context) && isPriorDispatchPossibleFor(call, context);
   const isDispatchPossible = isClaimed || isPriorDispatchPossible;
   return { mayHaveDispatched: isDispatchPossible, isProvenNotSent: hasNotSentProof && !isDispatchPossible };
@@ -818,19 +796,6 @@ function isPriorDispatchPossibleFor(call: Call, context: ConnectorStepContext): 
     (previous["state"] === "notSent" || previous["state"] === "canResend") &&
     (previous["providerId"] === undefined || previous["providerId"] === "");
   return !isSendAllowed;
-}
-
-function isFenceMarker(value: unknown): value is Readonly<Record<string, unknown>> {
-  return (
-    isRecord(value) &&
-    Object.keys(value).every((key) => fenceMarkerKeys.has(key)) &&
-    typeof value["callId"] === "string" &&
-    typeof value["attempt"] === "number" &&
-    Number.isInteger(value["attempt"]) &&
-    value["attempt"] >= 1 &&
-    (value["state"] === "notSent" || value["state"] === "claimed" || value["state"] === "canResend") &&
-    (value["providerId"] === undefined || typeof value["providerId"] === "string")
-  );
 }
 
 function notSentDetail(tool: ConnectorTool, failure: Failure | undefined): string {

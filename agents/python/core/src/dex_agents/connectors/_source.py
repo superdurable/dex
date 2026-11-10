@@ -37,7 +37,7 @@ from dex_connectors.sdk import (
 from dex_connectors.sdk.singledispatch import Marker, State
 
 from dex_agents.connectors._schema import check_input_schema, find_input_violation
-from dex_agents.connectors._step_context import ConnectorStepContext
+from dex_agents.connectors._step_context import ConnectorStepContext, FenceEvidence
 from dex_agents.runner import (
     AgentTurnContext,
     DeferredToolCall,
@@ -802,29 +802,9 @@ def _observe_fence(call: Call) -> _FenceObservation:
     context = call.context
     if not isinstance(context, ConnectorStepContext):
         return _FenceObservation(may_have_dispatched=False, is_proven_not_sent=False)
-    # Fold every saved marker, so a later checkpoint cannot erase a claim.
-    is_claimed = False
-    has_provider_id = False
-    has_claimed = False
-    has_not_sent_proof = False
-    for value in context._saved_heartbeat_values:
-        if not (
-            isinstance(value, Marker)
-            and value.call_id == call.id
-            and value.attempt == context.attempt
-        ):
-            continue
-        if value.state is State.CLAIMED:
-            is_claimed = has_claimed = True
-            has_provider_id = has_provider_id or bool(value.provider_id)
-            has_not_sent_proof = False
-        elif value.state is State.CAN_RESEND:
-            # The fence allows canResend only after its own claim without a provider ID.
-            if is_claimed and not has_provider_id and not value.provider_id:
-                is_claimed = False
-                has_not_sent_proof = True
-        elif value.state is State.NOT_SENT and not has_claimed and not value.provider_id:
-            has_not_sent_proof = True
+    evidence = context._fence_evidence.get(str(call.id), FenceEvidence())
+    is_claimed = evidence.is_claimed
+    has_not_sent_proof = evidence.has_not_sent_proof
     is_prior_dispatch_possible = context._has_read_checkpoint and _is_prior_dispatch_possible(
         call, context
     )

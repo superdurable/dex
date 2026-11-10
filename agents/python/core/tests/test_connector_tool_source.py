@@ -131,8 +131,8 @@ def test_fence_events_are_observed_as_the_conformance_suite_says(case: dict[str,
             value: object = Marker.from_wire(bound)
         except ValueError:
             value = bound
-        # The fence's markers, or the operation's own value, as heartbeat() stores them.
-        context._saved_heartbeat_values.append(value)
+        # The fence's markers, or the operation's own value, as heartbeat() observes them.
+        context._observe_saved_heartbeat_value(value)
     assert _may_have_dispatched(call) is case["mayHaveDispatched"]
     assert _is_proven_not_sent(call) is case["isProvenNotSent"]
 
