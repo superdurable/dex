@@ -16,6 +16,7 @@ import {
   hasRetriedFailure,
   minimumPositionGap,
   monotonicEventTimes,
+  overviewBucketSelectionIndex,
   ratioToEventIndex,
   type EventStatus,
 } from './timelineOverview';
@@ -164,5 +165,29 @@ describe('overview brush mapping', () => {
     expect((narrow.left + narrow.right) / 2).toBeCloseTo(502.5);
     expect(brushPixelSpan(axis, 998, 2, 1000, 24)).toEqual({ left: 976, right: 1000 });
     expect(brushPixelSpan(axis, 0, 2, 1000, 24)).toEqual({ left: 0, right: 24 });
+  });
+});
+
+describe('overview bar selection', () => {
+  const bucket = (firstEventIndex: number, lastEventIndex: number) => ({
+    firstEventIndex,
+    lastEventIndex,
+    count: lastEventIndex - firstEventIndex + 1,
+    failed: 0,
+    retried: 0,
+    retriedNormal: 0,
+    waiting: 0,
+    canceled: 0,
+  });
+
+  it('picks a failed event first, then a retried, waiting, or canceled one, else the first event', () => {
+    const statuses: EventStatus[] = ['normal', 'canceled', 'waiting', 'normal', 'failed', 'normal'];
+    const retried = [false, false, false, true, false, false];
+    expect(overviewBucketSelectionIndex(bucket(0, 5), statuses, retried)).toBe(4);
+    expect(overviewBucketSelectionIndex(bucket(0, 3), statuses, retried)).toBe(3);
+    expect(overviewBucketSelectionIndex(bucket(0, 2), statuses, retried)).toBe(2);
+    expect(overviewBucketSelectionIndex(bucket(0, 1), statuses, retried)).toBe(1);
+    expect(overviewBucketSelectionIndex(bucket(5, 5), statuses, retried)).toBe(5);
+    expect(overviewBucketSelectionIndex({ ...bucket(-1, -1), count: 0 }, statuses, retried)).toBe(-1);
   });
 });

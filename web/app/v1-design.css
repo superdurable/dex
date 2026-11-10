@@ -2640,6 +2640,12 @@ body:has(.v1-page) {
   color: var(--tone-canceled);
 }
 
+.htl-overview-tooltip-hint {
+  margin-top: 2px;
+  color: var(--ui-ink-3);
+  font-size: 11px;
+}
+
 .htl-strip {
   position: relative;
   overscroll-behavior: contain;
