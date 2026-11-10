@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import refundGraph from '../../../../../docs/src/data/flow-definitions/customer-refund-agentic.json';
+import orderProcessingGraph from '../../../../../docs/src/data/flow-definitions/intro/order-processing.json';
 import { groupsFromDefinition } from '../../groupsFromGraph';
 import { safeDecode } from '../model/decode';
 import type { FlowDefinitionGraph } from '../model/fdg';
@@ -24,6 +25,7 @@ import {
   focusView,
   framingNeighbours,
   openingView,
+  paneHeightForWholeDrawing,
   type CameraView,
 } from './camera';
 import { OPEN_FLOOR } from './zoom';
@@ -92,6 +94,38 @@ describe('entrance', () => {
     expect(Math.max(...scene.boxes.map((box) => delays.get(box.id) as number))).toBeLessThanOrEqual(440);
   });
 });
+
+describe('pane height for the whole drawing', () => {
+  it('opens on the whole drawing at the capped zoom, below the overlay inset', async () => {
+    const graph = orderProcessingGraph as unknown as FlowDefinitionGraph;
+    const flow = safeDecode(graph, { generated: true, note: 'order-processing' });
+    const groups = groupsFromDefinition(graph as never, flow);
+    const scene = await controlTopologyView.layout(flow, { direction: 'tb', run: null, groups, openStages: new Set() });
+    const drawing = drawingRect(scene);
+    const insetTopPx = 100;
+    // A wide pane caps the zoom at 1; a narrower one fits its width between OPEN_FLOOR and 1.
+    for (const paneWidth of [1600, Math.round((drawing.w * 0.85) / 0.92)]) {
+      const paneHeight = paneHeightForWholeDrawing(scene, paneWidth, 1, insetTopPx);
+      const room = cameraRoom(paneWidth, paneHeight, null, insetTopPx);
+      const opened = openingView(scene, room, 'tb', 1);
+      expect(opened.scope).toBe('whole');
+      expect(opened.view.zoom).toBeCloseTo(Math.min(1, room.width / drawing.w), 6);
+      expect(opened.view.zoom).toBeGreaterThanOrEqual(OPEN_FLOOR);
+      expect(drawing.y * opened.view.zoom + opened.view.y).toBeGreaterThanOrEqual(insetTopPx - 0.5);
+      expect((drawing.y + drawing.h) * opened.view.zoom + opened.view.y).toBeLessThanOrEqual(paneHeight + 0.5);
+    }
+  });
+});
+
+/** The drawing's bounds with the camera's 40-unit frame margin, as `openingView` frames them. */
+function drawingRect(scene: Scene): { x: number; y: number; w: number; h: number } {
+  const rects = [...scene.boxes, ...scene.bands];
+  const x = Math.min(...rects.map((rect) => rect.x)) - 40;
+  const y = Math.min(...rects.map((rect) => rect.y)) - 40;
+  const right = Math.max(...rects.map((rect) => rect.x + rect.w)) + 40;
+  const bottom = Math.max(...rects.map((rect) => rect.y + rect.h)) + 40;
+  return { x, y, w: right - x, h: bottom - y };
+}
 
 function inRoom(box: Box, view: CameraView, room: ReturnType<typeof cameraRoom>): boolean {
   const left = box.x * view.zoom + view.x;

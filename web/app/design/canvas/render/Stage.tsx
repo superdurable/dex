@@ -268,12 +268,16 @@ type StageProps = {
   /** False when the host draws its own zoom and fit buttons through handleRef. */
   showsZoomControls?: boolean
   insetRightPx?: number | null
+  /** Pixels at the pane's top that the host's overlays cover; framing and Fit keep the drawing below them. */
+  insetTopPx?: number | null
   /** Changing this re-opens the view; opening a stage keeps the reader's place, so it is not part of it. */
   fitKey: string
   /** False while the drawing is on its way; the last settled one stays on screen meanwhile. */
   isSettled?: boolean
   /** Steps a transition joins to the focus, or to "now", which its framing keeps in view. */
   targetNeighbours?: FramingNeighbours
+  /** Largest zoom for opening on, or fitting, the whole drawing. Defaults to `FIT_MAX_ZOOM`. */
+  wholeMaxZoom?: number
 }
 
 function Inner({
@@ -281,6 +285,7 @@ function Inner({
   dimUnrelated = true,
   focusNodeId,
   insetRightPx,
+  insetTopPx = null,
   legend,
   handleRef,
   onSelectGroup,
@@ -299,6 +304,7 @@ function Inner({
   fitKey,
   isSettled = true,
   targetNeighbours,
+  wholeMaxZoom = FIT_MAX_ZOOM,
   scene: latestScene,
   nowNodeId: latestNowNodeId = null,
 }: StageProps): JSX.Element {
@@ -314,8 +320,12 @@ function Inner({
 
   const fitWhole = useCallback(() => {
     const el = paneRef.current?.querySelector<HTMLElement>('.react-flow') ?? paneRef.current
-    void rf.fitView({ ...fitOptions(insetRightPx, el?.clientWidth ?? 0), minZoom: MIN_ZOOM, ...cameraMotion() })
-  }, [insetRightPx, rf])
+    void rf.fitView({
+      ...fitOptions(insetRightPx, el?.clientWidth ?? 0, wholeMaxZoom, insetTopPx, el?.clientHeight ?? 0),
+      minZoom: MIN_ZOOM,
+      ...cameraMotion(),
+    })
+  }, [insetRightPx, insetTopPx, rf, wholeMaxZoom])
   // After the view opens, a resize with a selection only pans that selection back into view.
   const keepSelectionInView = useRef<() => boolean>(() => false)
   const camera = useCamera({
@@ -328,7 +338,8 @@ function Inner({
     targetId: focusNodeId ?? null,
     targetNeighbours,
     insetRightPx,
-    wholeMaxZoom: FIT_MAX_ZOOM,
+    insetTopPx,
+    wholeMaxZoom,
     fitWhole,
     keepSelectionInView: () => keepSelectionInView.current(),
   })
@@ -496,8 +507,8 @@ function Inner({
       focus: (nodeId: string) => {
         const el = paneRef.current?.querySelector<HTMLElement>('.react-flow')
         if (el === null || el === undefined) return
-        const room = cameraRoom(el.clientWidth, el.clientHeight, insetRightPx)
-        const framed = focusView(scene, nodeId, { near: [], twoAway: [] }, room, FIT_MAX_ZOOM)
+        const room = cameraRoom(el.clientWidth, el.clientHeight, insetRightPx, insetTopPx)
+        const framed = focusView(scene, nodeId, { near: [], twoAway: [] }, room, wholeMaxZoom)
         if (framed === null) return
         setOwner('camera')
         void rf.setViewport(framed.view, cameraMotion())
@@ -507,7 +518,7 @@ function Inner({
         if (box !== undefined) panToShow(box)
       },
     }),
-    [fitWhole, insetRightPx, panToShow, rf, scene, setOwner],
+    [fitWhole, insetRightPx, insetTopPx, panToShow, rf, scene, setOwner, wholeMaxZoom],
   )
 
   const applyZoomVars = useCallback((zoom: number) => {
@@ -634,7 +645,7 @@ function Inner({
           <Controls
             showInteractive={false}
             fitViewOptions={{
-              ...fitOptions(insetRightPx, paneRef.current?.clientWidth ?? 0),
+              ...fitOptions(insetRightPx, paneRef.current?.clientWidth ?? 0, wholeMaxZoom, insetTopPx, paneRef.current?.clientHeight ?? 0),
               minZoom: MIN_ZOOM,
               ...cameraMotion(),
             }}
