@@ -113,6 +113,21 @@ theorem mem_of_mem_erase (map : AssocList κ ν) (key : κ) (entry : κ × ν)
       · simp [isHead]
       · exact List.mem_cons_of_mem _ (inductionHypothesis isInRest)
 
+/-- A key in the domain of a map has an entry. -/
+theorem mem_of_contains (map : AssocList κ ν) (key : κ) (isContained : contains map key = true) :
+    ∃ value, (key, value) ∈ map := by
+  induction map with
+  | nil => simp [contains, get?] at isContained
+  | cons head rest inductionHypothesis =>
+    obtain ⟨headKey, headValue⟩ := head
+    by_cases isKey : headKey = key
+    · subst isKey
+      exact ⟨headValue, List.mem_cons_self ..⟩
+    · have restContains : contains rest key = true := by
+        simpa [contains, get?, isKey] using isContained
+      obtain ⟨value, isMember⟩ := inductionHypothesis restContains
+      exact ⟨value, List.mem_cons_of_mem _ isMember⟩
+
 end AssocList
 
 /-- Two members with the same image are equal, when the images have no duplicates. -/

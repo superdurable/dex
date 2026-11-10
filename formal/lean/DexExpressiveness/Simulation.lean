@@ -1,4 +1,4 @@
-import DexExpressiveness.Dex.WaitLemmas
+import DexExpressiveness.Invariants
 import DexExpressiveness.TraceSets
 
 /-!
@@ -28,55 +28,6 @@ step correspondence on pseudo-random schedules.
 namespace DexExpressiveness
 
 open DexExpressiveness.L DexExpressiveness.Translation
-
-/-! ## Invariants of translated Flows under the admissible environment -/
-
-/-- A Dex configuration of `⟦program⟧` that a finite run with admissible
-requests reaches (spec §5.3, §5.4). -/
-def IsAdmissiblyReachable (program : Program) (config : Dex.Config signature) : Prop :=
-  ∃ actions events,
-    (Dex.system ⟦program⟧).exec (Dex.system ⟦program⟧).init actions = some (events, config) ∧
-    environment.IsAdmissiblePrefix (actions.filterMap (Dex.system ⟦program⟧).requestOf)
-
-/-- A pending message never coexists with a waiter on its Channel (spec §7
-item 4: "a message present when a waiter registers means no earlier waiter
-could take it"). The FIFO arguments of spec §8.3 rest on this. -/
-theorem noWaiterOnNonEmptyChannel (program : Program) (config : Dex.Config signature)
-    (isReachable : IsAdmissiblyReachable program config)
-    (run : Dex.Run signature) (hasRun : config.run = some run)
-    (record : Dex.StepRecord signature) (isMember : record ∈ run.steps)
-    (waitState : Dex.WaitState signature)
-    (isWaiting : record.phase = .waiting) (hasWaitState : record.waitState = some waitState)
-    (chan : Chan) (isWaitedOn : chan ∈ waitState.wait.channels) :
-    run.pendingMessages chan = [] := by
-  sorry
-
-/-- Two waiters never share `sws` (spec §7 item 4; spec Appendix A, assumption
-11: "Equal `sws` among waiters of one Channel does not occur"). So the
-tie-break on the Step execution ID that `Run.waitersOn` leaves out is never
-used. -/
-theorem registeredSeq_isInjective (program : Program) (config : Dex.Config signature)
-    (isReachable : IsAdmissiblyReachable program config)
-    (run : Dex.Run signature) (hasRun : config.run = some run)
-    (first second : Dex.StepRecord signature)
-    (isFirstMember : first ∈ run.steps) (isSecondMember : second ∈ run.steps)
-    (firstWait secondWait : Dex.WaitState signature)
-    (isFirstWaiting : first.phase = .waiting) (hasFirstWait : first.waitState = some firstWait)
-    (isSecondWaiting : second.phase = .waiting) (hasSecondWait : second.waitState = some secondWait)
-    (sameSeq : firstWait.registeredSeq = secondWait.registeredSeq) :
-    first.id = second.id := by
-  sorry
-
-/-- Every armed timer is the index-0 timer of a `Timed` Step (spec §8.2: "All
-the program's timers are wait timers of one run ... at index 0, with IDs
-`Timed-n`"). So the timer order of `signature` is the order spec §8.2 derives
-(spec Appendix A, assumption 26). -/
-theorem armedTimers_areTimedSteps (program : Program) (config : Dex.Config signature)
-    (isReachable : IsAdmissiblyReachable program config)
-    (run : Dex.Run signature) (hasRun : config.run = some run)
-    (timer : Dex.TimerId signature) (isArmed : run.timers.contains timer = true) :
-    timer.step.stepType = StepType.timed ∧ timer.index = 0 := by
-  sorry
 
 /-! ## The candidate simulation relation -/
 

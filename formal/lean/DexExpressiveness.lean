@@ -13,6 +13,7 @@ import DexExpressiveness.L.ThreadLocal
 import DexExpressiveness.L.Semantics
 import DexExpressiveness.Translation.Flow
 import DexExpressiveness.Translation.Projection
+import DexExpressiveness.Invariants
 import DexExpressiveness.TraceSets
 import DexExpressiveness.Properties
 import DexExpressiveness.Simulation

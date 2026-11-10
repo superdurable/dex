@@ -65,6 +65,8 @@ and `make copyright-check` passes.
 | `DexExpressiveness/Dex/Observation.lean` | The Dex system, `E_adm`, fairness F1 to F6 (spec §5.2 to §5.5). |
 | `DexExpressiveness/Dex/RunLemmas.lean` | Proved: lookup after update, sorting, and the shape of `eval`. |
 | `DexExpressiveness/Dex/WaitLemmas.lean` | Proved: `wake` serves the earliest waiter; AnyOf and timers at registration. |
+| `DexExpressiveness/Dex/RunInvariant.lean` | Proved: the run invariant, kept by every meta-function of spec §4.2. |
+| `DexExpressiveness/Invariants.lean` | Proved: the invariant of every reachable configuration of a translated Flow, and the three invariants of spec §7 item 4 and Appendix A, items 11 and 26. |
 | `DexExpressiveness/L/Syntax.lean` | L syntax and its event alphabet (spec §8.1). |
 | `DexExpressiveness/L/ThreadLocal.lean` | What one statement does to its own thread, and the atomic action it asks for. |
 | `DexExpressiveness/L/Semantics.lean` | L small-step semantics, L fairness, `Program.IsWellFormed` (spec §8.1). |
@@ -221,7 +223,7 @@ How they read against the spec:
 | 6 | `Action.stepStart` may start any pending invocation. |
 | 7 | `Action.timerFire count` fires a non-empty prefix of `Run.dueTimers`. |
 | 8, 9, 10, 16, 21, 22 | Not applicable: no RPCs, no SubFlows, one Flow, untimed. |
-| 11 | `Run.waitersOn` sorts by `sws` only. Lemma `registeredSeq_isInjective` (`sorry`). |
+| 11 | `Run.waitersOn` sorts by `sws` only. Lemma `registeredSeq_isInjective` (proved). |
 | 12 | `Signature.isTimerIdAtMost`, a parameter of the model. |
 | 13 | `Obs` has no read event. |
 | 14 | `Theorems.lean`. |
@@ -233,7 +235,7 @@ How they read against the spec:
 | 23 | `L/Semantics.lean`. |
 | 24 | `IsRunFor` counts every request label, accepted or rejected. |
 | 25 | `DexVal.exitTag`, `Close.forceFail`; `project`. |
-| 26 | `StepType.timed`; `signature.isTimerIdAtMost` orders by Step number. Lemma `armedTimers_areTimedSteps` (`sorry`). |
+| 26 | `StepType.timed`; `signature.isTimerIdAtMost` orders by Step number. Lemma `armedTimers_areTimedSteps` (proved). |
 | 27 | `StepExecId.number`, `Run.counters`, and `L.Config.timerCounter` are `Nat`. |
 | 28 | `Program.IsWellFormed`; the hypothesis of every theorem. |
 | 29 | The phases of `L.Phase` and `L.stepThread`; `Label.fire count`. The file comment of `L/Semantics.lean` repeats the table. |
@@ -447,15 +449,12 @@ load selection from the translation failed `readWaiters_snapshot_of_cvOperand`.
 
 ## The `sorry` inventory
 
-There are 9, all in `DexExpressiveness/Simulation.lean`. The numbers are
-those of the Stage 1 inventory; numbers 1 to 3 are proved (see
+There are 6, all in `DexExpressiveness/Simulation.lean`. The numbers are
+those of the Stage 1 inventory; numbers 1 to 6 are proved (see
 [Stage 2a progress](#stage-2a-progress)).
 
 | # | Lemma | What it needs |
 | --- | --- | --- |
-| 4 | `noWaiterOnNonEmptyChannel` | Induction over admissible runs; each rule that publishes calls `wake`, and `wake` leaves no feasible waiter. |
-| 5 | `registeredSeq_isInjective` | Induction over runs; `seq` increases by one per commit and a commit registers at most one wait. |
-| 6 | `armedTimers_areTimedSteps` | Induction over runs; only `timedStepDef` returns a wait with a timer. |
 | 7 | `dex_step_simulated` | Case analysis on the Dex action, the thread's phase, and the `Intent`; uses 1 to 6. `Related` may need more invariants. |
 | 8 | `l_step_simulated` | The converse case analysis; inserts `workerRun` and `workerReturn` before each commit. |
 | 9 | `finiteTrace_dex_to_l` | Induction on the run with `dex_step_simulated` and `related_initial`. |
@@ -483,6 +482,18 @@ classical case splits, so `Classical.choice` may appear among the axioms.
 | 1 | `Dex.wake_servesEarliestWaiter` | Proved, `Dex/WaitLemmas.lean`. |
 | 2 | `Dex.registerWait_any_firstChannelWins` | Proved, `Dex/WaitLemmas.lean`. |
 | 3 | `Dex.registerWait_timer_blocks` | Proved, `Dex/WaitLemmas.lean`. |
+| 4 | `noWaiterOnNonEmptyChannel` | Proved, `Invariants.lean`. |
+| 5 | `registeredSeq_isInjective` | Proved, `Invariants.lean`. |
+| 6 | `armedTimers_areTimedSteps` | Proved, `Invariants.lean`. |
+
+Items 4 to 6 follow from one inductive invariant. `Dex/RunInvariant.lean`
+defines `Run.Invariant` (unique Step IDs, counted Step numbers, quiet
+waiters, injective `sws`, allowed timers) and proves that every meta-function
+of spec §4.2 keeps it, for any Flow whose waits are AnyOf or
+`Until(c.ForOne())`. `Invariants.lean` proves that every transition of a
+translated Flow keeps `ConfigInvariant`, so every reachable configuration
+satisfies it. The step simulations (items 7 and 8) can use it as a fact about
+the Dex side.
 
 ## Stage 2 outline
 
