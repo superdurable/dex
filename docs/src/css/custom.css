@@ -593,10 +593,6 @@ summary:focus-visible {
   margin-block: 24px 32px;
 }
 
-.docs-flow-definition-graph .flow-definition-canvas {
-  height: min(82vh, 960px);
-}
-
 .docs-flow-definition-graph-actions {
   display: flex;
   justify-content: flex-end;
@@ -633,13 +629,9 @@ summary:focus-visible {
   box-shadow: 0 24px 80px rgba(20, 45, 24, 0.28);
 }
 
-.docs-flow-definition-graph.is-expanded .flow-definition-canvas {
-  height: calc(100vh - 190px);
-  min-height: 520px;
-}
-
 /* Dex Web's Design tab canvas; its colours follow the page theme through `.v2-shell.dg`. */
-html .docs-flow-canvas > .v2-shell.dg {
+html .docs-flow-canvas > .v2-shell.dg,
+.docs-flow-canvas-placeholder {
   height: min(72vh, 760px);
   min-height: 520px;
   border-radius: 12px;
@@ -651,7 +643,8 @@ html .docs-flow-definition-graph.is-expanded .docs-flow-canvas > .v2-shell.dg {
 }
 
 @media (max-width: 760px) {
-  html .docs-flow-canvas > .v2-shell.dg {
+  html .docs-flow-canvas > .v2-shell.dg,
+  .docs-flow-canvas-placeholder {
     height: 70vh;
     min-height: 440px;
   }
