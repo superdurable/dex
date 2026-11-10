@@ -1972,12 +1972,22 @@ body:has(.v1-page) {
   }
 }
 
+/* The overview is a histogram of the page, like a log explorer's: density, problems, and the view. */
 .htl-minimap {
-  margin-bottom: 10px;
-  padding: 4px 0;
+  position: relative;
+  margin: 2px 0 14px;
   border-radius: var(--ui-radius-control);
   cursor: pointer;
   touch-action: none;
+  user-select: none;
+}
+
+.htl-minimap.is-over-brush {
+  cursor: grab;
+}
+
+.htl-minimap:active {
+  cursor: grabbing;
 }
 
 .htl-minimap:focus-visible,
@@ -1986,47 +1996,178 @@ body:has(.v1-page) {
   outline-offset: 2px;
 }
 
-.htl-minimap svg {
+.htl-overview-chart {
   display: block;
   width: 100%;
-  height: 10px;
+  overflow: visible;
 }
 
-.htl-tick {
-  fill: var(--ui-ink-3);
-  opacity: 0.22;
+.htl-overview-baseline {
+  stroke: var(--ui-hairline);
+  stroke-width: 1px;
 }
 
-.htl-tick.htl-status-waiting {
-  fill: var(--tone-wait);
-  opacity: 1;
+/* Normal events take a calm brand tint; bars in view are stronger, so the brush reads at a glance. */
+.htl-bar-segment {
+  fill: color-mix(in srgb, var(--tone-accent) 24%, var(--ui-hairline));
+  transition: fill 120ms ease;
 }
 
-.htl-tick.htl-status-failed {
+.htl-bar.is-in-view .htl-bar-segment.htl-status-normal {
+  fill: color-mix(in srgb, var(--tone-accent) 62%, var(--ui-hairline));
+}
+
+.htl-bar.is-hovered .htl-bar-segment.htl-status-normal {
+  fill: var(--tone-accent);
+}
+
+.htl-bar-segment.htl-status-failed,
+.htl-bar-marker.htl-status-failed {
   fill: var(--tone-fail);
-  opacity: 1;
 }
 
-.htl-tick.htl-status-canceled {
+.htl-bar-segment.htl-status-waiting,
+.htl-bar-marker.htl-status-waiting {
+  fill: var(--tone-wait);
+}
+
+.htl-bar-segment.htl-status-canceled {
   fill: var(--tone-canceled);
-  opacity: 1;
 }
 
-.htl-tick.is-linked {
+/* A soft column under the marker keeps a failure findable even in a short bar. */
+.htl-bar-failure-band {
+  fill: color-mix(in srgb, var(--tone-fail) 16%, transparent);
+}
+
+/* Dark surfaces swallow low-contrast tints, so bars and bands lift a step. */
+[data-theme='dark'] .htl-bar-segment.htl-status-normal {
+  fill: color-mix(in srgb, var(--tone-accent) 34%, var(--ui-hairline));
+}
+
+[data-theme='dark'] .htl-bar.is-in-view .htl-bar-segment.htl-status-normal {
+  fill: color-mix(in srgb, var(--tone-accent) 72%, var(--ui-hairline));
+}
+
+[data-theme='dark'] .htl-bar.is-hovered .htl-bar-segment.htl-status-normal {
   fill: var(--tone-accent);
-  opacity: 0.55;
 }
 
-.htl-tick.is-selected {
-  fill: var(--tone-accent);
-  opacity: 1;
+[data-theme='dark'] .htl-bar-failure-band {
+  fill: color-mix(in srgb, var(--tone-fail) 24%, transparent);
 }
 
-.htl-minimap-window {
-  fill: color-mix(in srgb, var(--tone-accent) 8%, transparent);
+.htl-overview-linked {
   stroke: var(--tone-accent);
+  stroke-width: 1px;
+  stroke-dasharray: 2 2;
+  opacity: 0.7;
+}
+
+.htl-overview-selection line {
+  stroke: var(--ui-ink);
   stroke-width: 1.5px;
-  vector-effect: non-scaling-stroke;
+}
+
+.htl-overview-selection circle {
+  fill: var(--ui-ink);
+}
+
+.htl-overview-brush-fill {
+  fill: color-mix(in srgb, var(--ui-ink) 7%, transparent);
+}
+
+.htl-overview-brush-edge line {
+  stroke: color-mix(in srgb, var(--ui-ink) 45%, transparent);
+  stroke-width: 1px;
+}
+
+.htl-overview-brush-edge rect {
+  fill: var(--ui-surface);
+  stroke: color-mix(in srgb, var(--ui-ink) 45%, transparent);
+  stroke-width: 1px;
+}
+
+.htl-minimap:hover .htl-overview-brush-fill {
+  fill: color-mix(in srgb, var(--ui-ink) 10%, transparent);
+}
+
+.htl-overview-axis {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--ui-ink-3);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.htl-overview-axis > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.htl-overview-summary {
+  font-family: var(--ui-font-sans);
+}
+
+.htl-overview-summary-failed {
+  color: var(--tone-fail-ink);
+  font-weight: 600;
+}
+
+.htl-overview-tooltip {
+  position: absolute;
+  z-index: 3;
+  bottom: calc(100% - 4px);
+  display: grid;
+  gap: 2px;
+  min-width: 150px;
+  padding: 8px 10px;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  background: var(--ui-surface-raised);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 14%), 0 0 0 1px color-mix(in srgb, var(--ui-ink) 6%, transparent);
+  font-size: 12px;
+  line-height: 16px;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.htl-overview-tooltip.is-start {
+  transform: translateX(-12px);
+}
+
+.htl-overview-tooltip.is-end {
+  transform: translateX(calc(-100% + 12px));
+}
+
+.htl-overview-tooltip strong {
+  color: var(--ui-ink);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.htl-overview-tooltip-problem {
+  font-weight: 600;
+}
+
+.htl-overview-tooltip-problem.htl-status-failed {
+  color: var(--tone-fail-ink);
+}
+
+.htl-overview-tooltip-problem.htl-status-waiting {
+  color: var(--tone-wait-ink);
+}
+
+.htl-overview-tooltip-problem.htl-status-canceled {
+  color: var(--tone-canceled);
 }
 
 .htl-strip {
@@ -2174,6 +2315,13 @@ body:has(.v1-page) {
 
 .htl-legend-dot.htl-status-canceled {
   background: var(--tone-canceled);
+}
+
+/* A retry badge marks Steps that succeeded only after failed attempts. */
+.htl-legend-dot.htl-legend-retried,
+.htl-dot-badge.htl-dot-badge-retried {
+  color: var(--tone-fail-on);
+  background: var(--tone-fail);
 }
 
 /* Labels rise at the strip's label angle, so neighbors share space like angled parking. */

@@ -18,9 +18,11 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { formatDate, type TimezonePreference } from '@/lib/format';
 import type { EventIdRange } from '@/lib/historyRelations';
 import {
   buildSelectedTimelineRelations,
+  formatElapsedDuration,
   type TimelineSelectedRelations,
 } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
@@ -30,6 +32,7 @@ import {
   GitFork,
   Hourglass,
   Play,
+  RotateCcw,
   Send,
   Tag,
   Trash2,
@@ -38,8 +41,20 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { flowStatusLabel } from '@/lib/semantic';
+import { useTimezonePreference } from '../../providers';
 import { eventTitle } from './EventDetails';
 import { executionSummary, type TimelinePaging } from './Timeline';
+import {
+  brushPixelSpan,
+  bucketOverviewEvents,
+  buildOverviewAxis,
+  hasRetriedFailure,
+  minimumPositionGap,
+  ratioToEventIndex,
+  type EventStatus,
+  type OverviewAxis,
+  type OverviewBucket,
+} from './timelineOverview';
 
 /** The one knob for the label slant; spacing, the label run, and the strip height follow from it. */
 const labelAngleDegrees = 20;
@@ -63,9 +78,20 @@ const { slotWidth, labelRunWidth } = horizontalTimelineLayout;
 const overscanSlots = 6;
 const fallbackStripWidth = 1200;
 const arcBandHeight = 44;
-/** The overview track is 10 px; neutral ticks form a 4 px density line inside it. */
-const minimapHeight = 10;
-const neutralTickHeight = 4;
+/** The overview histogram: a marker lane for problems above the bars, about one bar per 7 px. */
+const overviewMarkerLaneHeight = 9;
+const overviewBarAreaHeight = 50;
+const overviewHeight = overviewMarkerLaneHeight + overviewBarAreaHeight;
+const overviewBucketWidth = 7;
+const overviewMinBarHeight = 3;
+/** A failed, waiting, or canceled share never shrinks below this, however many normal events share its bar. */
+const overviewStatusCapHeight = 5;
+const overviewMinBrushWidth = 24;
+/** Room at both ends, so the first and last bars clear the brush handles. */
+const overviewPlotInset = 10;
+/** On a short page each event gets its own bar; time spacing must leave neighbors this many pixels apart. */
+const overviewFewEventMinGap = 10;
+const overviewFewEventMaxBarWidth = 20;
 
 type EventKind = 'waitfor' | 'execute' | 'channel-publish' | 'channel-delete' | 'flow-start' | 'flow-close'
   | 'rpc' | 'attributes' | 'fork';
@@ -95,9 +121,6 @@ function eventKindOf(event: FlowHistoryEvent): EventKind {
   if (event.type === 'TimeTravelFork') return 'fork';
   return event.payload.isSetAttributeApi === true ? 'attributes' : 'rpc';
 }
-
-/** Only states that need attention get a status; everything else is normal. */
-type EventStatus = 'normal' | 'waiting' | 'failed' | 'canceled';
 
 const statusNames: Record<Exclude<EventStatus, 'normal'>, string> = {
   waiting: 'Waiting',
@@ -242,9 +265,132 @@ function EventKindLegend() {
             {statusNames[status]}
           </li>
         ))}
+        <li>
+          <span aria-hidden="true" className="htl-legend-mark">
+            <span className="htl-legend-dot htl-legend-retried"><RotateCcw size={8} strokeWidth={3.5} /></span>
+          </span>
+          Retried after failure
+        </li>
       </ul>
     </div>
   );
+}
+
+/** How a retried Step event states its failed attempts after the subject. */
+function retriedSpoken(event: FlowHistoryEvent): string {
+  const finalAttempt = Number(contextOf(event).finalAttempt);
+  return Number.isFinite(finalAttempt) && finalAttempt > 1
+    ? `succeeded on attempt ${finalAttempt}`
+    : 'succeeded after a failed attempt';
+}
+
+const clockFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** Time of day with seconds, plus tenths when a range is shorter than a minute. */
+function formatClock(epochMs: number, timezone: TimezonePreference, showsTenths: boolean): string {
+  const key = `${timezone}-${showsTenths}`;
+  let formatter = clockFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: showsTenths ? 1 : undefined,
+      timeZone: timezone === 'UTC' ? 'UTC' : undefined,
+    });
+    clockFormatters.set(key, formatter);
+  }
+  return formatter.format(epochMs);
+}
+
+/** Labels the two ends of the overview axis with clock times, led by event IDs when bars follow event order. */
+function overviewAxisEnds(
+  axis: OverviewAxis,
+  events: readonly FlowHistoryEvent[],
+  timezone: TimezonePreference,
+): [string, string] {
+  const firstId = `#${events[0].eventId}`;
+  const lastId = `#${events[events.length - 1].eventId}`;
+  if (axis.startMs === null || axis.endMs === null) return [firstId, lastId];
+  let ends: [string, string];
+  const isSameDay = new Date(axis.startMs).toDateString() === new Date(axis.endMs).toDateString();
+  if (!isSameDay) {
+    ends = [formatDate(new Date(axis.startMs).toISOString(), timezone), formatDate(new Date(axis.endMs).toISOString(), timezone)];
+  } else {
+    const showsTenths = axis.endMs - axis.startMs < 60_000;
+    ends = [formatClock(axis.startMs, timezone, showsTenths), formatClock(axis.endMs, timezone, showsTenths)];
+  }
+  return axis.kind === 'time' ? ends : [`${firstId} · ${ends[0]}`, `${ends[1]} · ${lastId}`];
+}
+
+/** The clock range a bar covers: its slice of the time axis, or its own events' times. */
+function overviewBucketTimeRange(
+  axis: OverviewAxis,
+  bucket: OverviewBucket,
+  bucketIndex: number,
+  bucketCount: number,
+  events: readonly FlowHistoryEvent[],
+  timezone: TimezonePreference,
+): string | null {
+  if (axis.startMs === null || axis.endMs === null) return null;
+  const span = axis.endMs - axis.startMs;
+  let from = axis.startMs + (span * bucketIndex) / bucketCount;
+  let to = axis.startMs + (span * (bucketIndex + 1)) / bucketCount;
+  if (axis.kind === 'index' || bucket.count === 1) {
+    from = Date.parse(events[bucket.firstEventIndex].eventTime ?? '');
+    to = Date.parse(events[bucket.lastEventIndex].eventTime ?? '');
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  }
+  const showsTenths = to - from < 60_000;
+  return from === to
+    ? formatClock(from, timezone, showsTenths)
+    : `${formatClock(from, timezone, showsTenths)} – ${formatClock(to, timezone, showsTenths)}`;
+}
+
+/** The hover card lines for one bar: its range, its event count, and its problems. */
+function overviewBucketLines(
+  axis: OverviewAxis,
+  bucket: OverviewBucket,
+  bucketIndex: number,
+  bucketCount: number,
+  events: readonly FlowHistoryEvent[],
+  timezone: TimezonePreference,
+): { range: string; detail: string; problems: { tone: Exclude<EventStatus, 'normal'>; text: string }[] } {
+  const firstId = events[bucket.firstEventIndex].eventId;
+  const lastId = events[bucket.lastEventIndex].eventId;
+  const ids = firstId === lastId ? `#${firstId}` : `#${firstId} – #${lastId}`;
+  const eventCount = `${bucket.count} ${bucket.count === 1 ? 'event' : 'events'}`;
+  const timeRange = overviewBucketTimeRange(axis, bucket, bucketIndex, bucketCount, events, timezone);
+  const range = timeRange ?? `Events ${ids}`;
+  let detail = timeRange ? `${eventCount} · ${ids}` : eventCount;
+  if (bucket.count === 1) detail = `${ids} · ${eventSubject(events[bucket.firstEventIndex])}`;
+  const problems: { tone: Exclude<EventStatus, 'normal'>; text: string }[] = [];
+  if (bucket.failed) problems.push({ tone: 'failed', text: `${bucket.failed} failed` });
+  if (bucket.retried) {
+    problems.push({ tone: 'failed', text: `${bucket.retried} retried after ${bucket.retried === 1 ? 'a failed attempt' : 'failed attempts'}` });
+  }
+  if (bucket.waiting) problems.push({ tone: 'waiting', text: `${bucket.waiting} waiting` });
+  if (bucket.canceled) problems.push({ tone: 'canceled', text: `${bucket.canceled} canceled` });
+  return { range, detail, problems };
+}
+
+/** One bar's stacked segments from the top: failures, waits, cancels, then normal events. */
+function overviewBarSegments(bucket: OverviewBucket, maxCount: number): { tone: EventStatus; height: number }[] {
+  const scaled = Math.round((bucket.count / Math.max(1, maxCount)) * (overviewBarAreaHeight - 2));
+  let height = Math.max(overviewMinBarHeight, scaled);
+  const shares: [Exclude<EventStatus, 'normal'>, number][] = [
+    ['failed', bucket.failed + bucket.retried],
+    ['waiting', bucket.waiting],
+    ['canceled', bucket.canceled],
+  ];
+  const segments = shares
+    .filter(([, count]) => count > 0)
+    .map(([tone, count]) => ({ tone, height: Math.max(overviewStatusCapHeight, Math.round((count / bucket.count) * height)) }));
+  const statusHeight = segments.reduce((sum, segment) => sum + segment.height, 0);
+  const normalCount = bucket.count - shares.reduce((sum, [, count]) => sum + count, 0);
+  if (normalCount > 0) height = Math.max(height, statusHeight + 2);
+  const remaining = Math.min(overviewBarAreaHeight, height) - statusHeight;
+  return remaining > 0 && normalCount > 0 ? [...segments, { tone: 'normal', height: remaining }] : segments;
 }
 
 /** Shows a Timeline page left to right with slanted labels; only events in view render. */
@@ -283,6 +429,31 @@ export function HorizontalTimeline({
   const [windowStart, setWindowStart] = useState(maxStart);
   const isAtNewestEnd = useRef(true);
   const isDraggingMinimap = useRef(false);
+  /** Where the drag grabbed the brush, in events from its left edge, so dragging never jumps. */
+  const brushGrabOffset = useRef(0);
+  const [hoveredBucket, setHoveredBucket] = useState<number | null>(null);
+  const [isPointerOverBrush, setIsPointerOverBrush] = useState(false);
+  const timezone = useTimezonePreference();
+  const plotWidth = Math.max(1, stripWidth - 2 * overviewPlotInset);
+  const histogramBucketCount = Math.max(1, Math.floor(plotWidth / overviewBucketWidth));
+  // A page with fewer events than bars draws one wide bar per event instead of slivers.
+  const isFewEvents = chronological.length <= histogramBucketCount;
+  const overviewAxis = useMemo(
+    () => buildOverviewAxis(chronological, histogramBucketCount, isFewEvents ? overviewFewEventMinGap / plotWidth : 0),
+    [chronological, histogramBucketCount, isFewEvents, plotWidth],
+  );
+  const bucketCount = isFewEvents && overviewAxis.kind === 'index' ? Math.max(1, chronological.length) : histogramBucketCount;
+  /** Each event's own bar width on a short page: as wide as its neighbors allow, up to the cap. */
+  const fewEventBarWidth = isFewEvents
+    ? Math.max(3, Math.min(overviewFewEventMaxBarWidth, minimumPositionGap(overviewAxis) * plotWidth - 3))
+    : 0;
+  const retriedFlags = useMemo(() => chronological.map(hasRetriedFailure), [chronological]);
+  const overviewBuckets = useMemo(() => bucketOverviewEvents(
+    overviewAxis,
+    chronological.map((event) => states.get(event.eventId)?.status ?? 'normal'),
+    retriedFlags,
+    bucketCount,
+  ), [overviewAxis, chronological, states, retriedFlags, bucketCount]);
 
   const clampStart = useCallback((start: number) => Math.min(maxStart, Math.max(0, start)), [maxStart]);
   const moveWindow = useCallback((start: number) => {
@@ -384,22 +555,59 @@ export function HorizontalTimeline({
     selectIndex(target);
   };
 
-  const moveWindowToPointer = (clientX: number) => {
+  /** The pointer's position along the plot, between the insets, as a ratio in [0, 1]. */
+  const pointerRatio = (clientX: number) => {
     const rect = minimapRef.current?.getBoundingClientRect();
     const width = rect && rect.width > 0 ? rect.width : stripWidth;
-    const ratio = (clientX - (rect?.left ?? 0)) / width;
-    centerOn(ratio * chronological.length);
+    const chartX = ((clientX - (rect?.left ?? 0)) / width) * stripWidth;
+    return Math.min(1, Math.max(0, (chartX - overviewPlotInset) / plotWidth));
+  };
+  const brushSpan = () => brushPixelSpan(overviewAxis, windowStart, visibleCount, plotWidth, overviewMinBrushWidth);
+  const isOverBrush = (ratio: number) => {
+    const { left, right } = brushSpan();
+    return ratio * plotWidth >= left && ratio * plotWidth <= right;
+  };
+  /** The bar under the pointer; on a short page, the nearest event's bar within reach. */
+  const bucketAtRatio = (ratio: number): number | null => {
+    if (!isFewEvents) {
+      const bucketIndex = Math.min(bucketCount - 1, Math.floor(ratio * bucketCount));
+      return overviewBuckets[bucketIndex]?.count ? bucketIndex : null;
+    }
+    // Edges sit halfway between neighbors, so the event whose span holds the pointer is the nearest one.
+    const nearest = Math.min(chronological.length - 1, Math.floor(ratioToEventIndex(overviewAxis, ratio)));
+    const distance = Math.abs(overviewAxis.positions[nearest] - ratio) * plotWidth;
+    if (distance > fewEventBarWidth / 2 + 3) return null;
+    return overviewBuckets.findIndex((bucket) => bucket.firstEventIndex <= nearest && bucket.lastEventIndex >= nearest);
   };
 
+  // Pressing inside the brush drags it from where it was grabbed; pressing outside jumps there first.
   const handleMinimapPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     isDraggingMinimap.current = true;
+    setHoveredBucket(null);
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    moveWindowToPointer(event.clientX);
+    const ratio = pointerRatio(event.clientX);
+    const pointerIndex = ratioToEventIndex(overviewAxis, ratio);
+    if (isOverBrush(ratio)) {
+      brushGrabOffset.current = Math.min(visibleCount, Math.max(0, pointerIndex - windowStart));
+      return;
+    }
+    brushGrabOffset.current = visibleCount / 2;
+    moveWindow(pointerIndex - brushGrabOffset.current);
   };
 
   const handleMinimapPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (isDraggingMinimap.current) moveWindowToPointer(event.clientX);
+    const ratio = pointerRatio(event.clientX);
+    if (isDraggingMinimap.current) {
+      moveWindow(ratioToEventIndex(overviewAxis, ratio) - brushGrabOffset.current);
+      return;
+    }
+    setHoveredBucket(bucketAtRatio(ratio));
+    setIsPointerOverBrush(maxStart > 0 && isOverBrush(ratio));
+  };
+
+  const endMinimapDrag = () => {
+    isDraggingMinimap.current = false;
   };
 
   const handleMinimapKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -423,13 +631,32 @@ export function HorizontalTimeline({
   const firstVisible = chronological[Math.min(chronological.length - 1, Math.round(windowStart))];
   const lastVisible = chronological[Math.min(chronological.length - 1, Math.round(windowStart) + visibleCount - 1)];
   const xOf = (index: number) => (index - windowStart) * slotWidth + slotWidth / 2;
-  // Ticks stay about 3 px wide, so a short page does not read as solid blocks.
-  const tickWidth = Math.min(1, (3 * chronological.length) / Math.max(1, stripWidth));
-  // The view window stays at least 12 px wide, so a long page keeps it findable.
-  const windowWidth = Math.min(
-    chronological.length,
-    Math.max(visibleCount, (12 * chronological.length) / Math.max(1, stripWidth)),
-  );
+  const brushInPlot = brushSpan();
+  const brush = { left: overviewPlotInset + brushInPlot.left, right: overviewPlotInset + brushInPlot.right };
+  // The brush only appears when the page is wider than the strip; otherwise there is nothing to move.
+  const hasBrush = maxStart > 0;
+  const barSlotWidth = plotWidth / bucketCount;
+  const barWidth = isFewEvents ? fewEventBarWidth : Math.max(1, barSlotWidth - (barSlotWidth > 4 ? 2 : 1));
+  /** A bar's horizontal center in chart pixels: its own event on a short page, its slice otherwise. */
+  const barCenterX = (bucket: OverviewBucket, bucketIndex: number) => overviewPlotInset + (isFewEvents
+    ? overviewAxis.positions[bucket.firstEventIndex] * plotWidth
+    : (bucketIndex + 0.5) * barSlotWidth);
+  const plotX = (index: number) => overviewPlotInset + overviewAxis.positions[index] * plotWidth;
+  const maxBucketCount = overviewBuckets.reduce((max, bucket) => Math.max(max, bucket.count), 0);
+  const problemCount = overviewBuckets.reduce((sum, bucket) => sum + bucket.failed + bucket.retried, 0);
+  const [axisStartLabel, axisEndLabel] = overviewAxisEnds(overviewAxis, chronological, timezone);
+  const axisSpanLabel = [
+    overviewAxis.startMs !== null && overviewAxis.endMs !== null && overviewAxis.endMs > overviewAxis.startMs
+      ? formatElapsedDuration(overviewAxis.endMs - overviewAxis.startMs)
+      : '',
+    overviewAxis.kind === 'index' ? 'spaced by event order' : '',
+  ].filter(Boolean).join(' · ');
+  const hovered = hoveredBucket !== null && overviewBuckets[hoveredBucket]?.count
+    ? overviewBucketLines(overviewAxis, overviewBuckets[hoveredBucket], hoveredBucket, bucketCount, chronological, timezone)
+    : null;
+  const hoveredCenterRatio = hoveredBucket === null || !overviewBuckets[hoveredBucket]?.count
+    ? 0
+    : barCenterX(overviewBuckets[hoveredBucket], hoveredBucket) / stripWidth;
 
   return (
     <div className="timeline-wrap htl">
@@ -448,40 +675,138 @@ export function HorizontalTimeline({
         aria-valuemin={0}
         aria-valuenow={Math.round(windowStart)}
         aria-valuetext={`Events #${firstVisible.eventId} to #${lastVisible.eventId}`}
-        className="htl-minimap"
+        className={`htl-minimap${isPointerOverBrush ? ' is-over-brush' : ''}`}
+        data-axis={overviewAxis.kind}
         onKeyDown={handleMinimapKeyDown}
-        onLostPointerCapture={() => { isDraggingMinimap.current = false; }}
+        onLostPointerCapture={endMinimapDrag}
         onPointerDown={handleMinimapPointerDown}
+        onPointerLeave={() => {
+          setHoveredBucket(null);
+          setIsPointerOverBrush(false);
+        }}
         onPointerMove={handleMinimapPointerMove}
-        onPointerUp={() => { isDraggingMinimap.current = false; }}
+        onPointerUp={endMinimapDrag}
         ref={minimapRef}
         role="slider"
         tabIndex={0}
       >
-        <svg aria-hidden="true" preserveAspectRatio="none" viewBox={`0 0 ${chronological.length} ${minimapHeight}`}>
-          {chronological.map((event, index) => {
-            const status = states.get(event.eventId)?.status ?? 'normal';
-            const isProminent = status !== 'normal' || index === selectedIndex;
-            const tickHeight = isProminent ? minimapHeight : neutralTickHeight;
-            return (
-              <rect
-                className={`htl-tick htl-status-${status}${linkedEventIds.has(event.eventId) ? ' is-linked' : ''}${index === selectedIndex ? ' is-selected' : ''}`}
-                height={tickHeight}
-                key={event.eventId}
-                width={tickWidth}
-                x={index + (1 - tickWidth) / 2}
-                y={(minimapHeight - tickHeight) / 2}
-              />
-            );
-          })}
-          <rect
-            className="htl-minimap-window"
-            height={minimapHeight - 1}
-            width={windowWidth}
-            x={Math.min(windowStart, chronological.length - windowWidth)}
-            y={0.5}
+        <svg aria-hidden="true" className="htl-overview-chart" height={overviewHeight} viewBox={`0 0 ${stripWidth} ${overviewHeight}`}>
+          <line
+            className="htl-overview-baseline"
+            x1={overviewPlotInset}
+            x2={overviewPlotInset + plotWidth}
+            y1={overviewHeight - 0.5}
+            y2={overviewHeight - 0.5}
           />
+          {overviewBuckets.flatMap((bucket, bucketIndex) => {
+            if (!bucket.count) return [];
+            const segments = overviewBarSegments(bucket, maxBucketCount);
+            const centerX = barCenterX(bucket, bucketIndex);
+            const x = centerX - barWidth / 2;
+            const isInView = bucket.lastEventIndex >= Math.floor(windowStart) && bucket.firstEventIndex < windowStart + visibleCount;
+            const hasFailure = bucket.failed + bucket.retried > 0;
+            const bandWidth = Math.max(barSlotWidth, barWidth + 4);
+            let y = overviewHeight - segments.reduce((sum, segment) => sum + segment.height, 0);
+            return [(
+              <g
+                className={[
+                  'htl-bar',
+                  isInView && hasBrush ? 'is-in-view' : '',
+                  hoveredBucket === bucketIndex ? 'is-hovered' : '',
+                  hasFailure ? 'has-failure' : '',
+                ].filter(Boolean).join(' ')}
+                data-count={bucket.count}
+                key={bucketIndex}
+              >
+                {hasFailure && (
+                  <rect
+                    className="htl-bar-failure-band"
+                    height={overviewHeight - overviewMarkerLaneHeight}
+                    rx={2}
+                    width={isFewEvents ? barWidth + 4 : bandWidth}
+                    x={centerX - (isFewEvents ? barWidth + 4 : bandWidth) / 2}
+                    y={overviewMarkerLaneHeight}
+                  />
+                )}
+                {(hasFailure || bucket.waiting > 0) && (
+                  <circle
+                    className={`htl-bar-marker htl-status-${hasFailure ? 'failed' : 'waiting'}`}
+                    cx={centerX}
+                    cy={overviewMarkerLaneHeight / 2}
+                    r={3}
+                  />
+                )}
+                {segments.map((segment) => {
+                  const top = y;
+                  y += segment.height;
+                  return (
+                    <rect
+                      className={`htl-bar-segment htl-status-${segment.tone}`}
+                      height={segment.height}
+                      key={segment.tone}
+                      rx={Math.min(isFewEvents ? 3 : 1.5, barWidth / 3)}
+                      width={barWidth}
+                      x={x}
+                      y={top}
+                    />
+                  );
+                })}
+              </g>
+            )];
+          })}
+          {[...linkedEventIds].flatMap((eventId) => {
+            const index = indexByEventId.get(eventId);
+            if (index === undefined || index === selectedIndex) return [];
+            const x = plotX(index);
+            return [<line className="htl-overview-linked" key={eventId} x1={x} x2={x} y1={overviewMarkerLaneHeight} y2={overviewHeight} />];
+          })}
+          {selectedIndex >= 0 && (
+            <g className="htl-overview-selection">
+              <line x1={plotX(selectedIndex)} x2={plotX(selectedIndex)} y1={overviewMarkerLaneHeight - 2} y2={overviewHeight} />
+              <circle cx={plotX(selectedIndex)} cy={overviewMarkerLaneHeight - 2} r={2.5} />
+            </g>
+          )}
+          {hasBrush && (
+            <g className="htl-overview-brush">
+              <rect className="htl-overview-brush-fill" height={overviewHeight} rx={3} width={brush.right - brush.left} x={brush.left} y={0} />
+              {[brush.left, brush.right].map((edge, edgeIndex) => (
+                <g className="htl-overview-brush-edge" key={edgeIndex}>
+                  <line x1={edge} x2={edge} y1={0} y2={overviewHeight} />
+                  {/* Grips sit just outside the brush, in the inset at either end, so they never cover a bar in view. */}
+                  <rect height={16} rx={2} width={5} x={edgeIndex === 0 ? edge - 6 : edge + 1} y={(overviewHeight - 16) / 2} />
+                </g>
+              ))}
+            </g>
+          )}
         </svg>
+        <div aria-hidden="true" className="htl-overview-axis">
+          <span>{axisStartLabel}</span>
+          <span className="htl-overview-summary">
+            {axisSpanLabel}
+            {problemCount > 0 && (
+              <>
+                {axisSpanLabel ? ' · ' : ''}
+                <span className="htl-overview-summary-failed">
+                  {problemCount} {problemCount === 1 ? 'failure' : 'failures'}
+                </span>
+              </>
+            )}
+          </span>
+          <span>{axisEndLabel}</span>
+        </div>
+        {hovered && (
+          <div
+            aria-hidden="true"
+            className={`htl-overview-tooltip${hoveredCenterRatio < 0.12 ? ' is-start' : ''}${hoveredCenterRatio > 0.88 ? ' is-end' : ''}`}
+            style={{ left: `${hoveredCenterRatio * 100}%` }}
+          >
+            <strong>{hovered.range}</strong>
+            <span>{hovered.detail}</span>
+            {hovered.problems.map((problem) => (
+              <span className={`htl-overview-tooltip-problem htl-status-${problem.tone}`} key={problem.text}>{problem.text}</span>
+            ))}
+          </div>
+        )}
       </div>
 
       <div
@@ -510,6 +835,7 @@ export function HorizontalTimeline({
           const KindIcon = eventKinds[kind].icon;
           const subject = eventSubject(event);
           const isSelected = index === selectedIndex;
+          const isRetried = status === 'normal' && retriedFlags[index];
           const classes = [
             'htl-event',
             `kind-${kind}`,
@@ -523,6 +849,7 @@ export function HorizontalTimeline({
                 eventTitle(event),
                 subject !== eventTitle(event) ? subject : '',
                 state.spoken,
+                isRetried ? retriedSpoken(event) : '',
                 `#${event.eventId}`,
               ].filter(Boolean).join(', ')}
               aria-selected={isSelected}
@@ -538,6 +865,7 @@ export function HorizontalTimeline({
               <span aria-hidden="true" className={`htl-dot htl-family-${eventKinds[kind].family} htl-status-${status}`}>
                 <KindIcon size={13} strokeWidth={2.5} />
                 {status === 'failed' && <span className="htl-dot-badge"><X size={8} strokeWidth={3.5} /></span>}
+                {isRetried && <span className="htl-dot-badge htl-dot-badge-retried"><RotateCcw size={7} strokeWidth={3.5} /></span>}
               </span>
             </div>
           );
