@@ -1,4 +1,5 @@
 import DexExpressiveness.Simulation.LToDexBasicWake
+import DexExpressiveness.Simulation.Completion
 
 /-!
 # L to Dex: the registration of a wait and the completion of an action
@@ -52,7 +53,8 @@ theorem l_thread_boot_simulated (program : Program) (lConfig : L.Config)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
-  sorry
+  exact wp3b_boot_simulated program lConfig dexConfig state tid thread isFound isBootRunning
+    lEvents lNext isStep
 
 /-- The completion of a statement is simulated by [STEP-COMPLETE-EXECUTE]:
 the Dex effects and decision of `encodeIntent` do to the run what
@@ -64,7 +66,8 @@ theorem l_thread_complete_simulated (program : Program) (lConfig : L.Config)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
-  sorry
+  exact wp3b_complete_simulated program lConfig dexConfig state tid thread isFound isCompleting
+    lEvents lNext isStep
 
 /-- The completion of the continuation of a wait is simulated by
 [STEP-COMPLETE-EXECUTE] of the waiting Step or of the `Timed` Step. -/
@@ -75,6 +78,7 @@ theorem l_thread_resume_simulated (program : Program) (lConfig : L.Config)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
-  sorry
+  exact wp3b_resume_thread_simulated program lConfig dexConfig state tid thread isFound outcome
+    isResuming lEvents lNext isStep
 
 end DexExpressiveness

@@ -1,5 +1,6 @@
 import DexExpressiveness.Simulation.RelationLemmas
 import DexExpressiveness.Simulation.Completion.Statements
+import DexExpressiveness.Simulation.Completion.IntentsBroadcast
 
 /-!
 # L to Dex: the completion of an action
@@ -32,7 +33,8 @@ The files under `Simulation/Completion/` hold the parts:
 | `Effects.lean`, `EffectsCancel.lean` | `effects` of each atomic L action. |
 | `Decision.lean`, `Decide.lean` | `decide`: finish the Step, create the Steps of the moves. |
 | `Assemble.lean` | `Completing`; back to `Related`. |
-| `Intents.lean`, `IntentsSync.lean` | One lemma per row of the mapping table (spec §8.3). |
+| `Intents.lean`, `IntentsSync.lean`, `IntentsBroadcast.lean` | One lemma per row of the mapping table (spec §8.3). |
+| `BroadcastL.lean`, `Broadcast.lean` | `broadcast`: the L fold in closed form, and the batch `wake`. |
 | `Close.lean` | `exit` and `fail`. |
 | `Statements.lean` | Facts about `completeStatement`, `resumeBlocked`, `resumeTimed`. |
 -/
@@ -295,7 +297,7 @@ theorem wp3b_ownFlag (program : Program) (lConfig : L.Config) (dexConfig : Dex.C
 /-! ## The completion of a statement -/
 
 /-- The completion of a statement that began, for every row of the mapping
-table. The row of `broadcast` is a hypothesis here. -/
+table. -/
 theorem wp3b_running_simulated
     (start : IntentStart program lConfig dexConfig run thread record task result)
     (isResponse : executeResponse program task = encodeIntent task.snapshot result)
@@ -319,11 +321,7 @@ theorem wp3b_running_simulated
         ∀ index, child.freshCounter ≤ index → ¬ (child.tid ++ [index]) <+: target)
     (mutexFresh : ∀ mutex, result.intent = .newMutex mutex →
       lConfig.mutexOwners.get? mutex = none ∧
-      ∀ other, other ∈ lConfig.threads → ∀ since, other.phase ≠ .blocked (.lock mutex) since)
-    (broadcastRow : ∀ cv, result.intent = .broadcast cv →
-      readWaiters task.snapshot cv = (lConfig.cvQueues.get? cv).getD [] →
-      NoOtherOperand lConfig thread.core.tid cv →
-      IntentGoal program lConfig dexConfig run thread record task result) :
+      ∀ other, other ∈ lConfig.threads → ∀ since, other.phase ≠ .blocked (.lock mutex) since) :
     IsSimulatedByCompletion program dexConfig task
       (lConfig.applyIntent thread.core.tid result).1
       (lConfig.applyIntent thread.core.tid result).2.stamp := by
@@ -361,7 +359,7 @@ theorem wp3b_running_simulated
   | broadcast cv =>
     obtain ⟨sameWaiters, noOther⟩ := cvWaiters cv (Or.inr (Or.inr intentCase))
     exact wp3b_simulated_of_goal start isResponse (by simp [intentCase]) (by simp [intentCase])
-      (broadcastRow cv intentCase sameWaiters noOther)
+      (wp3b_intent_broadcast start ownFlag cv intentCase sameWaiters noOther)
   | cancel target =>
     exact wp3b_simulated_of_goal start isResponse (by simp [intentCase]) (by simp [intentCase])
       (wp3b_intent_cancel start ownFlag target intentCase)
@@ -375,24 +373,9 @@ theorem wp3b_running_simulated
     exact wp3b_simulated_of_goal start isResponse (by simp [intentCase]) (by simp [intentCase])
       (wp3b_intent_halt start ownFlag intentCase)
 
-/-- The row of `broadcast(cv)` of the mapping table: "As `signal`, for every
-waiter in order" (spec §8.3). -/
-def BroadcastRow (program : Program) : Prop :=
-  ∀ (lConfig : L.Config) (dexConfig : Dex.Config signature) (run : Dex.Run signature)
-    (thread : L.Thread) (record : Dex.StepRecord signature) (task : Dex.Task signature)
-    (result : StatementResult),
-    IntentStart program lConfig dexConfig run thread record task result →
-    (lConfig.cancelFlags.contains thread.core.tid = true →
-      run.pendingMessages (Chan.cancelRequest thread.core.tid) ≠ []) →
-    ∀ cv, result.intent = .broadcast cv →
-      readWaiters task.snapshot cv = (lConfig.cvQueues.get? cv).getD [] →
-      NoOtherOperand lConfig thread.core.tid cv →
-      IntentGoal program lConfig dexConfig run thread record task result
-
 /-- The completion of a statement that began and emits nothing. -/
 theorem wp3b_complete_running (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
-    (broadcastRow : BroadcastRow program)
     (thread : L.Thread) (isFound : lConfig.findThread? thread.core.tid = some thread)
     (loaded : Val) (isPhase : thread.phase = .running loaded)
     (canStamp : lConfig.canStamp = true) :
@@ -498,9 +481,6 @@ theorem wp3b_complete_running (program : Program) (lConfig : L.Config)
       have isValid := (lInvariant.handlesExist.1 other isOther).2.2.2
       rw [isBlocked] at isValid
       exact isNotContained isValid
-  · exact fun cv intentCase sameQueue noOther =>
-      broadcastRow lConfig dexConfig run thread record task _ start ownFlag cv intentCase
-        sameQueue noOther
 
 /-- The completion of an `emit` after its effect was delivered. -/
 theorem wp3b_complete_emitted (program : Program) (lConfig : L.Config)
@@ -548,7 +528,6 @@ theorem wp3b_complete_emitted (program : Program) (lConfig : L.Config)
 by the completion actions of the thread's task. -/
 theorem wp3b_complete_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
-    (broadcastRow : BroadcastRow program)
     (tid : Tid) (thread : L.Thread) (isFound : lConfig.findThread? tid = some thread)
     (isCompleting : (∃ loaded, thread.phase = .running loaded) ∨ thread.phase = .emitted)
     (lEvents : List Event) (lNext : L.Config)
@@ -563,8 +542,8 @@ theorem wp3b_complete_simulated (program : Program) (lConfig : L.Config)
     split at isStepThread
     · rename_i canStamp
       cases isStepThread
-      exact wp3b_complete_running program lConfig dexConfig state broadcastRow thread
-        isFound loaded isPhase canStamp
+      exact wp3b_complete_running program lConfig dexConfig state thread isFound loaded isPhase
+        canStamp
     · cases isStepThread
   · simp only [stepThread, isPhase] at isStepThread
     split at isStepThread
