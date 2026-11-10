@@ -254,7 +254,9 @@ export function StepNodeLabel({
                 {channelCount > 0 && (
                   <i title={channelSummary}>
                     <ConditionIcon type="channel" />
-                    <span>{channelSummary}</span>
+                    <span className="graph-condition-names">
+                      {channels.length > 0 ? channels.map((channel) => <span key={channel}>{channel}</span>) : channelSummary}
+                    </span>
                   </i>
                 )}
                 {subFlowCount > 0 && (

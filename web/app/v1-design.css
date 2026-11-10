@@ -1477,7 +1477,12 @@ body:has(.v1-page) {
 
 /* The selected method uses an ink ring, so it never reads as a status color. */
 .v1-page .graph-method.is-selected {
-  box-shadow: inset 0 0 0 2px var(--ui-ink);
+  --graph-method-ring: var(--ui-ink);
+  box-shadow: inset 0 0 0 2px var(--graph-method-ring);
+}
+
+.v1-page .graph-method-waitfor.is-selected::after {
+  display: block;
 }
 
 .v1-page .graph-method.is-selected strong {
@@ -1491,7 +1496,9 @@ body:has(.v1-page) {
 
 /* The WaitFor arrow is clipped, so its focus ring sits inside the shape. */
 .v1-page .graph-method-waitfor:focus-visible {
-  outline-offset: -4px;
+  --graph-method-ring: var(--ui-focus-outline);
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--graph-method-ring);
 }
 
 .v1-page .graph-step-heading code {

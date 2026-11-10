@@ -45,6 +45,29 @@ describe('Execution graph Step node', () => {
     expect(document.activeElement).toBe(execute);
     expect(execute.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
   });
+
+  it('shows each waited Channel name on its own line with the full list as a tooltip', () => {
+    const node: StepGraphNode = {
+      ...completedNode,
+      waitFor: {
+        eventId: 2,
+        eventTime: null,
+        type: 'StepWaitForCompleted',
+        payload: {
+          output: {
+            waitForCondition: {
+              channelConditions: [{ channelName: 'TurnControlRequests' }, { channelName: 'QueuedUserMessages' }],
+            },
+          },
+        },
+      },
+    };
+    render(<StepNodeLabel node={node} onSelect={vi.fn()} />);
+    const names = screen.getByText('TurnControlRequests').parentElement;
+    expect(names?.className).toBe('graph-condition-names');
+    expect([...(names?.children ?? [])].map((child) => child.textContent)).toEqual(['TurnControlRequests', 'QueuedUserMessages']);
+    expect(names?.closest('i')?.getAttribute('title')).toBe('TurnControlRequests, QueuedUserMessages');
+  });
 });
 
 describe('Execution graph method selection', () => {
