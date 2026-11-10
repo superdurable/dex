@@ -42,12 +42,6 @@ Read the [Java SDK API reference](pathname:///api/java/latest/) for the latest r
 
 Versioned snapshots: [1.37.0](pathname:///api/java/1.37/), [1.35.0](pathname:///api/java/1.35/), [1.32.0](pathname:///api/java/1.32/), [1.31.0](pathname:///api/java/1.31/), [1.30.0](pathname:///api/java/1.30/).
 
-## RPC stubs and Kotlin {#rpc-stubs-and-kotlin}
-
-**Client.newRpcStub** creates a subclass of the Flow. A Java Flow class and its
-RPC methods must not be final. Kotlin makes both final by default, so declare
-the Flow class and its RPC methods with **open**.
-
 ## Pages
 
 - [Flow](./flow.mdx)<a id="flow-definition"></a><a id="flow-config"></a><a id="update-flow-config-with-a-client"></a>: The Flow definition and **FlowConfig**.
@@ -56,6 +50,13 @@ the Flow class and its RPC methods with **open**.
 - [StepOptions](./step-options.mdx)<a id="step-options"></a><a id="stepoptions-override-per-stepexecution"></a><a id="durability"></a><a id="timeouts-and-total-duration"></a><a id="heartbeat"></a><a id="cancellation"></a><a id="selective-state-loading"></a><a id="attribute-locks"></a>: Durability, timeouts, heartbeats, cancellation, state loading, and Attribute locks.
 - [Step decisions](./step-decisions.mdx)<a id="step-decisions"></a><a id="gotomulti"></a><a id="close-decisions"></a><a id="cancellation-on-stepdecision"></a><a id="forcecompleteifchannelsempty"></a>: Next Steps, close decisions, and canceling other Steps.
 - [Waits](./waits.mdx)<a id="waits"></a><a id="condition-results"></a><a id="channel-results"></a><a id="channel-结果"></a><a id="subflow-results"></a><a id="subflow-结果"></a><a id="anycombinationof"></a><a id="skip-immediately"></a>: Timer, Channel, and SubFlow conditions, and how to combine them.
+- [Attribute](./attribute.mdx): Java names for Attributes and AttributeMaps.
+- [RPC](./rpc.mdx)<a id="rpc-stubs-and-kotlin"></a>: Java names for RPC handlers and their results.
+- [Channel](./channel.mdx): Java names for Channels and ChannelMaps.
+- [Stream](./stream.mdx): Java names for writing and reading Streams.
+- [Timer](./timer.mdx): Java names for Timer conditions.
+- [SubFlow](./subflow.mdx): Java names for SubFlow conditions and results.
+- [Client](./client.mdx): Java names for Client calls.
 - [Failure and retries](./failure-and-retries.mdx)<a id="retry-and-failure-policies"></a><a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="last-failure-info"></a><a id="retry-after"></a><a id="failure-and-redelivery"></a><a id="heartbeats-not-acknowledged"></a><a id="same-attempt-redelivery"></a><a id="unknown-outcome"></a><a id="design-for-redelivery"></a><a id="version-notes"></a>: Retry and failure policies, redelivery, and unknown outcomes.
 - [Workers](./workers.mdx): Java names for Worker readiness, capacity, and shutdown settings.
 

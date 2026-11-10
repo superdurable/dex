@@ -1,0 +1,41 @@
+---
+id: rpc
+title: RPC
+sidebar_label: RPC
+---
+
+# RPC
+
+This page lists the Java SDK names for [RPCs](/concepts/primitives/rpc).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Java SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Java API | Dex behavior |
+| --- | --- | --- |
+| Define an RPC handler | **@RPC** on a Flow method | [Flow definition](./flow.mdx#flow-definition) |
+| Set the durable RPC name | **name** of **@RPC**. It defaults to the method name. | [Flow definition](./flow.mdx#flow-definition) |
+| Set the RPC timeout | **timeoutSeconds** of **@RPC** | [RPC timeout](/reference/server/runtime-data#rpc-timeout) |
+| Lock Attributes for the whole call | **lockAttributes** and **lockAttributeMaps** of **@RPC**, with **@RPCAttributeMapLock** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Request transactional reads and writes without locks | **isTransactional** of **@RPC** | [Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes) |
+| Load AttributeMap values and Channel messages | **loadAttributeMaps**, **loadAttributeMapInstances**, **loadChannels**, **loadChannelMaps**, and **loadChannelMapInstances** of **@RPC** | [Selective state loading](/reference/server/runtime-data#load-collection-state) |
+| Return the output and start next Steps | **RPCResult.of** | [RPCs](/reference/server/runtime-data#rpcs) |
+| Cancel running Steps | **RPCResult.withCancelingSteps** | [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) |
+| Let a person invoke the RPC from Dex Web | Not available in the Java SDK. | [Actions](/reference/web/dex-web#actions) |
+| Invoke the RPC from a Client | **Client.invokeRPC**, on a stub from **Client.newRpcStub** | [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc) |
+| Lock or load map instances chosen at call time | **RPCInvokeOptions** | [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances) |
+
+An RPC method takes a **Context**, optionally followed by one input. It returns
+**void** or an **RPCResult**. The lock and load elements of **@RPC** take
+registered names. An exact map instance uses the form MapName/instance.
+
+## RPC stubs and Kotlin {#rpc-stubs-and-kotlin}
+
+**Client.newRpcStub** creates a subclass of the Flow. A Java Flow class and its
+RPC methods must not be final. Kotlin makes both final by default, so declare
+the Flow class and its RPC methods with **open**.
+
+## Example {#example}
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/rpc/RpcFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/rpc/RpcFlow.java)

@@ -31,6 +31,13 @@ const sharedSdkReferencePages = [
   'step-options',
   'step-decisions',
   'waits',
+  'attribute',
+  'rpc',
+  'channel',
+  'stream',
+  'timer',
+  'subflow',
+  'client',
   'failure-and-retries',
   'workers',
 ];

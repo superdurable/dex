@@ -20,7 +20,7 @@ immutable after start.
 | **RetryPolicy** | Not supported. server-zd rejects it with **INVALID_ARGUMENT**. See [RetryPolicy](#retry-policy). |
 | **StartDelay** | Not supported. server-zd rejects a positive value with **INVALID_ARGUMENT**. See [StartDelay](#start-delay). |
 | **Attributes** | Initial Attribute values. |
-| **FlowConfig** | Per-execution Flow configuration, sent as **ConfigOverride**. |
+| **FlowConfig** | Per-run Flow configuration, sent as **ConfigOverride**. |
 
 For an application-defined outcome at the Flow deadline, see
 [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout).
@@ -139,10 +139,10 @@ The ID reuse policy determines whether Dex rejects the start in the first place:
 
 Dex Server requires a non-empty **RequestID**. An SDK generates one before
 sending the request when you omit it. The server records it with the Flow
-execution, then starts the Flow using the requested ID reuse policy.
+run, then starts the Flow using the requested ID reuse policy.
 **IDReuseDefault** uses the server default: reject every previously used Flow
 ID. Choose **IDReuseAllowIfNotRunning** explicitly when a closed Flow ID should
-start a new execution.
+start a new run.
 
 If the Flow is already started, Dex checks
 **AlreadyStartedOptions.IgnoreError**. When it is on, Dex reads the existing
@@ -158,7 +158,7 @@ identity, owner, or initial Attributes you supplied.
 
 For retries of one logical start, combine a stable **RequestID**,
 **IDReuseDisallow**, and the ignore-already-started option. Keep the same input
-and options on every retry. **IDReuseDisallow** prevents another execution
+and options on every retry. **IDReuseDisallow** prevents another run
 after closure; a policy that permits another run can bypass the
 matching-RequestID path.
 
@@ -193,7 +193,7 @@ Example: [examples/typescript/src/primitives/flow/controller.ts](https://github.
 
 For example, starting **invoice-42** with input **7** sends RequestID
 **start-example-flow:7:invoice-42**. Retrying that call returns the same
-execution, even after it closes, while Dex retains it. Starting the same Flow
+run, even after it closes, while Dex retains it. Starting the same Flow
 ID with input **8** sends a different RequestID and returns an already-started
 error. No snapshot comparison is needed on the successful path.
 
@@ -272,7 +272,7 @@ separate top-level Flow with its own owner and lifecycle, launch it from an
 **Execute** Step with stable downstream Flow ID, RequestID, and start options.
 Persist the launch input in the owning Flow. If the Worker dies after the
 downstream start is accepted but before the Step commits, the Step can retry
-the same start without creating another execution. Keep **WaitFor** for
+the same start without creating another run. Keep **WaitFor** for
 durable conditions. A separately owned top-level Flow does not need to become a
 SubFlow merely because another Flow starts it.
 

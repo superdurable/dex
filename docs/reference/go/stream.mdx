@@ -1,0 +1,31 @@
+---
+id: stream
+title: Stream
+sidebar_label: Stream
+---
+
+# Stream
+
+This page lists the Go SDK names for [Streams](/concepts/primitives/stream).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Go SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Go API | Dex behavior |
+| --- | --- | --- |
+| Define a Stream and its byte capacity | **DefineStream**, with its **streamCapacityBytes** argument | [Capacity and trimming](/reference/server/runtime-data#stream-capacity) |
+| Declare it in the Flow | **Streams** of **PersistenceSchema**, returned from **GetPersistenceSchema** | [Flow definition](./flow.mdx#flow-definition) |
+| Write a message from a Step | **Stream.Write** | [Write semantics](/reference/server/runtime-data#stream-write-semantics) |
+| Write text chunks in batches from a Step | **NewBufferedTextStream**, which returns a **BufferedTextStream** | [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text) |
+| Write a message from a Client | **Client.WriteStream** | [Write semantics](/reference/server/runtime-data#stream-write-semantics) |
+| Read the next message | **Client.ReadStream**, with the **ResumeToken** of the last **StreamMessage** | [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) |
+| List retained messages, newest first | **Client.ListStreamMessages**, into a **StreamMessagesPage** | [List messages](/reference/server/runtime-data#stream-listing) |
+
+**Stream.Write** sends the message right away from **WaitFor** or
+**Execute**. Its error covers only local validation, encoding, and transport.
+An RPC handler cannot write a Stream.
+
+## Example {#example}
+
+Example: [examples/go/primitives/stream/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/stream/workflow.go)

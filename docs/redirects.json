@@ -101,11 +101,11 @@
   },
   {
     "from": "/primitives/flow/flow-options",
-    "to": "/reference/python/start-flow-options"
+    "to": "/reference/python/"
   },
   {
     "from": "/zh-Hans/primitives/flow/flow-options",
-    "to": "/zh-Hans/reference/python/start-flow-options"
+    "to": "/zh-Hans/reference/python/"
   },
   {
     "from": "/primitives/step/basic",
@@ -117,27 +117,27 @@
   },
   {
     "from": "/primitives/step/waiting-condition",
-    "to": "/reference/python/waits"
+    "to": "/reference/python/"
   },
   {
     "from": "/zh-Hans/primitives/step/waiting-condition",
-    "to": "/zh-Hans/reference/python/waits"
+    "to": "/zh-Hans/reference/python/"
   },
   {
     "from": "/primitives/step/step-decision",
-    "to": "/reference/python/step-decisions"
+    "to": "/reference/python/"
   },
   {
     "from": "/zh-Hans/primitives/step/step-decision",
-    "to": "/zh-Hans/reference/python/step-decisions"
+    "to": "/zh-Hans/reference/python/"
   },
   {
     "from": "/primitives/step/step-options",
-    "to": "/reference/python/step-options"
+    "to": "/reference/python/"
   },
   {
     "from": "/zh-Hans/primitives/step/step-options",
-    "to": "/zh-Hans/reference/python/step-options"
+    "to": "/zh-Hans/reference/python/"
   },
   {
     "from": "/primitives/client/basic",
