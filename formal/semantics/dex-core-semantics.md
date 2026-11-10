@@ -2156,6 +2156,7 @@ checked against the code at `55721e878`.
 | F31 | "Every engine rule requires `up`" contradicted [RECOVER], which requires `¬up`. | **Fixed.** [RECOVER] is exempt. Section 11.2. |
 | F32 | [ENGINE-REJECT] lacked the premise that the request is targeted; StartFlow is always proposed (`client_operations/mod.rs:72-86`). A "committed word" was left in Section 11.5. | **Fixed.** Premise added, with citations; the leftover now says outcome word. Sections 11.3 and 11.5. |
 | F33 | Retries were defined through the rule [START-RETRY] having fired. | **Fixed.** A retry is a StartFlow request with the request ID of the word's first StartFlow and `ignore_already_started_error`. `w↓` removes those requests; HP orders their commands before the original run's RunPurge and holds trivially without one. Under HP each retry takes [START-RETRY]; without it, a retry after the purge starts a new run (`flow_start.rs:91-124`, `:139-155`; `run_purge.rs:216-227`). Section 11.3; Appendix A, item 66. |
+| F34 | The retry definition also matched the word's first StartFlow, which sets `ignore_already_started_error` and has its own request ID, so `w↓` deleted the real start. | **Fixed.** A retry is a StartFlow request at a position after the first one, with the first one's request ID. `w↓`, HP, and Appendix A, item 66, use this definition. Section 11.3. |
 
 ## 11. Failures
 
@@ -2874,9 +2875,9 @@ retry while the run is only marked purging still finds the directory entry
 and is deduplicated.
 
 - **HP, retries come before the purge.** A predicate on runs: in the
-  committed log, the command of every retry (a StartFlow request that
-  carries the request ID of the word's first StartFlow, defined below) is
-  ordered before the RunPurge of the original run. HP holds trivially in a
+  committed log, the command of every retry (a later StartFlow request of
+  the word that carries the request ID of its first StartFlow, defined
+  below) is ordered before the RunPurge of the original run. HP holds trivially in a
   run with no RunPurge. It is a condition on the execution, not a property
   of the input word. Arriving at the server first is not
   enough. The registry submits a command to the log before its outcome is
@@ -2904,9 +2905,10 @@ lets the caller fix the request ID (`sdk-go/dex/client.go:510-512`,
   request is rejected with ALREADY_EXISTS (`flow_start.rs:126-130`). That
   produces `rejected(...)`, which `E_adm` does not admit.
 - **StartFlow retries, by request identity.** A **retry** is a StartFlow
-  request of the word whose request ID equals the request ID of the word's
-  first StartFlow, with `ignore_already_started_error` set. This defines
-  retries by the request, not by the rule that applies to it.
+  request at a position **after** the word's first StartFlow, whose request
+  ID equals the first one's, with `ignore_already_started_error` set. The
+  first StartFlow itself is never a retry. This defines retries by the
+  request, not by the rule that applies to it.
 - **`E_adm` with retries.** The input word is the outcome word (D7). Its
   first StartFlow is the start of Section 5.3, and it is the first request
   of the word. Any number of retries may follow anywhere in the word. Every
@@ -2999,8 +3001,9 @@ reached.
 
 **Word mapping.** A DexF outcome word may contain retries (Section 11.3),
 and a Dex word of `E_adm` does not. For an outcome word `w`, write `w↓` for
-the Dex word obtained by deleting its retries. Under HP each deleted request
-took [START-RETRY] and produced no event.
+the Dex word obtained by deleting its retries. The first StartFlow is not a
+retry, so `w↓` keeps it. Under HP each deleted request took [START-RETRY]
+and produced no event.
 
 **Erasure.** For a DexF trace `t`, `erase(t)` removes every repeated `fx`
 (the ghost form of Section 11.4). Then `t` is a repetition of `erase(t)`.
@@ -3502,8 +3505,8 @@ hypothesis.
     is rejected with NOT_FOUND and FLOW_NOT_EXISTS before and after the
     purge (1.3).
 66. HP, a predicate on runs: in the committed log, the command of every
-    retry, a StartFlow request with the request ID of the word's first
-    StartFlow, is ordered before the RunPurge of the original run. It holds
+    retry, a StartFlow request after the word's first StartFlow with the
+    same request ID, is ordered before the RunPurge of the original run. It holds
     trivially without a RunPurge. It is not a property of the input word
     (11.3, 11.5).
 67. F2 does not apply to the retention timer. That post-close
