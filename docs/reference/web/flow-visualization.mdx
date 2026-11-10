@@ -5,28 +5,28 @@ sidebar_label: Flow visualization
 
 # Flow source visualization
 
-**dexcli visualize** turns one Go, Python, or TypeScript Flow source file into a static Flow Definition Graph. The graph shows every possible path that can be determined from the source. It does not represent one Flow run or its history.
+**dexcli visualize** turns one Go, Python, or TypeScript Flow source file into a static Flow Definition Graph. The graph shows every path that the analyzer can determine from the source. It does not show one Flow run or its history.
 
 ```bash
 dexcli visualize ./order_flow.go
 ```
 
-The default schema version is 1.0. Go, Python, and TypeScript sources can opt into Version 2.0 for the Dex Web **Design** tab and **Designs**:
+The default schema version is 1.0. The Dex Web **Design** tab and **Designs** page use Version 2.0, which Go, Python, and TypeScript sources can produce:
 
 ```bash
 dexcli visualize ./refund_flow.go --schema-version 2.0
 ```
 
-This opens the local **Designs** page and keeps it available until you press Ctrl+C. Use **--json** when you need a Flow Definition Graph artifact. Without **--out**, it writes JSON to stdout. Use **--out** to choose a file prefix:
-
-```bash
-dexcli visualize ./order_flow.py --json --out ./build/order-flow
-```
-
-Use **--json** to write the JSON to stdout:
+The command opens the local **Designs** page and keeps it available until you press Ctrl+C. Use **--json** to get the Flow Definition Graph as JSON. Without **--out**, it writes the JSON to stdout:
 
 ```bash
 dexcli visualize ./order_flow.py --json
+```
+
+Use **--out** to write files with a chosen prefix instead:
+
+```bash
+dexcli visualize ./order_flow.py --json --out ./build/order-flow
 ```
 
 ## Render definitions in Dex Web
@@ -37,11 +37,11 @@ Start Dex with a directory containing generated JSON files:
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Open **Designs** from the **Experimental** menu, at **/v1/rendering**. Changed in 1.41: the page was called **Flow Rendering**. The menu links to it only while the definitions directory holds at least one JSON file. The header checks the directory again on every page change. Without definitions, the page explains how to load them. This page is independent from Flow search and run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPCs, Attributes, Channels, Streams, SubFlows, and diagnostics. Flow timeout handlers are always shown as part of the Flow. Streams are hidden by default. The other layers start visible. Changed in 1.41: one Flow design graph draws Version 1.0 and Version 2.0 files. A Version 2.0 file is followed by its diagnostics. See [Dex Web](/reference/web/dex-web#flow-canvas).
+Open **Designs** from the **Experimental** menu, at **/v1/rendering**. Changed in 1.41: the page was called **Flow Rendering**. The menu links to it only while the definitions directory holds at least one JSON file. The header checks the directory again on every page change. Without definitions, the page explains how to load them. The page does not use Flow search or run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPCs, Attributes, Channels, Streams, SubFlows, and diagnostics. Flow timeout handlers are always shown as part of the Flow. Streams are hidden by default. The other layers start visible. Changed in 1.41: one Flow design graph draws Version 1.0 and Version 2.0 files. For a Version 2.0 file, its diagnostics follow the graph. See [Dex Web](/reference/web/dex-web#flow-canvas).
 
 When Dex starts with a JSON directory, the **Design** tab of a run also renders the definition of the run's Flow type, and **Work Queue** uses it to list runs. See [Dex Web](/reference/web/dex-web).
 
-Dex scans JSON files recursively and takes a snapshot when it starts. Restart Dex after changing the files. Invalid JSON, an unsupported schema version, or a path that is not a directory stops startup with an error.
+Dex reads the JSON files in the directory and its subdirectories once, when it starts. Restart Dex after changing the files. Invalid JSON, an unsupported schema version, or a path that is not a directory stops startup with an error.
 
 ## What the graph contains
 
@@ -59,23 +59,23 @@ The definition graph includes:
 - completion, failure, Channel-empty checks, and cancellation inside Execute cards
 - Execute failure recovery paths
 
-Terminal decisions do not create separate terminal nodes. Cancellation is shown inside the Execute card instead of adding duplicate arrows. The start Step carries a START marker instead of receiving an artificial start edge. Timers appear as rows in WaitFor rather than separate nodes.
+Terminal decisions do not create separate terminal nodes. Cancellation is shown inside the Execute card instead of adding duplicate arrows. The start Step carries a START marker instead of an incoming start edge. Timers appear as rows in WaitFor rather than separate nodes.
 
-An error return or raised exception does not identify another Step. It therefore does not create a transition. An explicit **ProceedToOnExecuteFailure** or **on_execute_failure_proceed_to** policy creates a solid magenta recovery edge to the recovery Step. The label records when the recovery skips WaitFor.
+An error return or raised exception does not name a next Step, so it creates no transition. An explicit **ProceedToOnExecuteFailure** or **on_execute_failure_proceed_to** policy creates a solid magenta recovery edge to the recovery Step. The label records when the recovery skips WaitFor.
 
-Resource arrows have a consistent direction:
+Resource arrows always point the same way:
 
 - publisher → Channel → consuming WaitFor
 - Attribute writer → Attribute box → Attribute reader
 - WaitFor → folded SubFlow
 
-Resource and SubFlow relations are dashed, so they remain visually weaker than solid Step transitions. Channels are grouped at the upper left of the Flow. Attributes share one box. RPC hexagons cross the left Flow boundary. A SubFlow is a small dashed frame containing only its Flow type; its internal Steps are not expanded.
+Resource and SubFlow relations are dashed, so they look weaker than the solid Step transitions. Channels are grouped at the upper left of the Flow. Attributes share one box. RPC hexagons cross the left Flow boundary. A SubFlow is a small dashed frame containing only its Flow type; its internal Steps are not expanded.
 
-The renderer fits the complete Flow into the viewport by default. Channel and Attribute arrows stay hidden until you select that resource or a related Step, WaitFor, Execute decision, RPC, or timeout handler. This keeps the default graph focused on control flow while preserving resource access on demand.
+The renderer fits the complete Flow into the viewport by default. Channel and Attribute arrows stay hidden until you select that resource or a related Step, WaitFor, Execute decision, RPC, or timeout handler.
 
-Attribute relations include reads, writes, and locks. The Python analyzer follows static resource aliases on the Flow class, and records Attribute locks declared by RPC or Step options. Since 1.39, the TypeScript analyzer adds a node for each RPC, from **rpc** decorators and **declareRPCMethod** calls, and records the locks in its **lockAttributes**. Python and TypeScript RPC lock edges also carry **metadata.rpcName**. The Go analyzer attributes a read or write made by a same-package helper to the handler that calls it. The edge records the helper in its metadata. Since 1.39, the Go analyzer also records the Attribute locks in **RPCOptions.LockAttributes**. Each lock edge carries **metadata.rpcName**, the RPC name Dex Web invokes. In a Version 2.0 graph, an Action, Summary, or Display RPC whose locks the analyzer cannot read produces the blocking **rpc_lock_unresolved** diagnostic. Build the lock list from **dex.LockAttribute** or **dex.LockAttributeMap** calls in the options or in a variable of the Flow's package.
+Attribute relations include reads, writes, and locks. The Python analyzer follows static resource aliases on the Flow class, and records Attribute locks declared by RPC or Step options. Since 1.39, the TypeScript analyzer adds a node for each RPC, from **rpc** decorators and **declareRPCMethod** calls, and records the locks in its **lockAttributes**. Python and TypeScript RPC lock edges also carry **metadata.rpcName**. The Go analyzer counts a read or write in a same-package helper as made by the handler that calls it. The edge records the helper in its metadata. Since 1.39, the Go analyzer also records the Attribute locks in **RPCOptions.LockAttributes**. Each lock edge carries **metadata.rpcName**, the RPC name Dex Web invokes. In a Version 2.0 graph, an Action, Summary, or Display RPC whose locks the analyzer cannot read produces the blocking **rpc_lock_unresolved** diagnostic. Build the lock list from **dex.LockAttribute** or **dex.LockAttributeMap** calls in the options or in a variable of the Flow's package.
 
-Stream relations describe observable application output, not control flow. They are hidden by default in Designs and can be enabled from the legend. The JSON marks Step Stream writes as repeatable and best effort. Heartbeat calls and checkpoint reads are runtime reliability details, so they are not included in the definition graph.
+Stream relations describe observable application output, not control flow. They are hidden by default in Designs and can be enabled from the legend. The JSON marks Step Stream writes as repeatable and best effort. The graph leaves out heartbeat calls and checkpoint reads.
 
 Go reports **step_progress_outside_step** when an RPC or Flow timeout handler calls **Stream.Write** or creates a writer with **NewBufferedTextStream**. The check also follows same-package helpers and buffered writer aliases. The error names the handler, Stream, and helper location. Move the output to a Step. An RPC can publish a Channel message or return **NextSteps** to schedule that Step.
 
@@ -115,15 +115,15 @@ The TypeScript analyzer does not support these features yet:
 - Resource reads, writes, locks, state loads, and Stream writes inside local handlers. The graph has no resource edges for local Steps and skips unused-resource warnings.
 - SubFlows, and the Version 2.0 Indexed Attributes, Summary, Display, and start-input schemas.
 
-An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. Java, Rust, and recursive multi-file analysis are not included.
+An Execute method whose decision is hidden in a helper produces **hidden_dex_decision**. In TypeScript, every Execute return that is not a recognized decision, such as a helper call or a variable, produces its own **hidden_dex_decision**, even when another return is recognized. The analyzer does not support Java or Rust, and it does not follow a Flow across several files.
 
 Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, or movement collections that escape the handler.
 
-Version 2.0 retains every Version 1 field and requires Step groups and explanations in the same file. Named directive parameters can appear in any order within a line. Multiple directive lines keep source order, which becomes UI order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. The Go analyzer also reads Indexed Attributes, Summary, Display, Actions, and start-input schemas. Since 1.39, the Python and TypeScript analyzers read Actions too. See [Dex Web](/reference/web/dex-web) for those rules.
+Version 2.0 retains every Version 1 field and requires Step groups and explanations in the same file. Named directive parameters can appear in any order within a line. Directive lines keep their source order, and Dex Web shows them in that order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. The Go analyzer also reads Indexed Attributes, Summary, Display, Actions, and start-input schemas. Since 1.39, the Python and TypeScript analyzers read Actions too. See [Dex Web](/reference/web/dex-web) for those rules.
 
-Version 2.0 derives an optional start-input schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. Nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps are supported. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
+Version 2.0 builds an optional start-input schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. Nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps are supported. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
 
-Version 2.0 recognizes operation-specific Connector factories such as **openai.NewCreateResponseStep** through the config's canonical Connector SDK marker and generated field metadata, rather than a list of connector or function names. Dex Web shows these Steps with their app's initials. Steps of the **llm** Connector, which reaches any model provider, read as AI model work. The generic SDK **MustNewQueryStep** and **MustNewMutationStep** escape hatches remain supported. Put the factory call directly in **DefineStep** or **DefineStartStep** and use an inline config literal. Step type, annotations, named **GoTo** branch targets (or generic **GoToBranch** targets), **StepRef** names, Result Attributes, Streams, and **ProceedToOnExecuteFailure** targets must be statically visible. Factory annotations supply the Step group and explanation, so the generated Step does not need local directives. Each Connector Step passes only its current operation result to its branch target. Persist business context in an application Attribute before entering the Connector Step. The graph emits one labeled transition per Connector branch, a write relation for the Result Attribute, and best-effort progress relations for structured and text Streams. Dynamic config, branch slice, target, annotation, or resource reference produces a blocking diagnostic. See the [Connector factory example](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go).
+Version 2.0 recognizes operation-specific Connector factories such as **openai.NewCreateResponseStep** through the config's canonical Connector SDK marker and generated field metadata, rather than a list of connector or function names. Dex Web shows these Steps with their app's initials. Steps of the **llm** Connector, which reaches any model provider, read as AI model work. The generic SDK factories **MustNewQueryStep** and **MustNewMutationStep** are still supported. Put the factory call directly in **DefineStep** or **DefineStartStep** and use an inline config literal. Step type, annotations, named **GoTo** branch targets (or generic **GoToBranch** targets), **StepRef** names, Result Attributes, Streams, and **ProceedToOnExecuteFailure** targets must be statically visible. Factory annotations supply the Step group and explanation, so the generated Step does not need local directives. Each Connector Step passes only its current operation result to its branch target. Persist business context in an application Attribute before entering the Connector Step. The graph emits one labeled transition per Connector branch, a write relation for the Result Attribute, and best-effort progress relations for structured and text Streams. A dynamic config, branch slice, target, annotation, or resource reference produces a blocking diagnostic. See the [Connector factory example](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go).
 
 ### Actions in Python and TypeScript
 
@@ -134,7 +134,7 @@ Since 1.39, a Version 2.0 graph of a Python or TypeScript Flow includes its Acti
 - The condition, when present, is a direct **when_attribute_matches** or **whenAttributeMatches** call. Its first argument names an Attribute declared in the file. Each other argument is an **AttributeMatch** equality match on a literal or a module-level constant. A TypeScript **bigint** literal is an integer value.
 - The input, when present, is a Python dataclass or a TypeScript interface or object type alias in the same file. Each of its fields has one **dex:input** directive on the RPC. See [Dex Web](/reference/web/dex-web#actions).
 
-Anything else is a blocking **v2_action** or **v2_action_input** diagnostic that names the construct and its line, and the graph has no Action for that RPC. A condition value must match the Attribute's type: **str**, **int**, **float**, **bool**, or **datetime** in Python, and **string**, **bigint**, **number**, **boolean**, or **Date** in TypeScript. An Action RPC whose lock list is not a literal list of Attribute **lock()** calls is the blocking **rpc_lock_unresolved** diagnostic, as in Go.
+Anything else is a blocking **v2_action** or **v2_action_input** diagnostic that names the construct and its line, and the graph has no Action for that RPC. A condition value must match the Attribute's type: **str**, **int**, **float**, **bool**, or **datetime** in Python, and **string**, **bigint**, **number**, **boolean**, or **Date** in TypeScript. An Action RPC whose lock list is not a literal list of Attribute **lock()** calls produces the blocking **rpc_lock_unresolved** diagnostic, as in Go.
 
 ### Python and TypeScript Step annotations
 
@@ -154,13 +154,13 @@ The group ID must be kebab-case. Steps sharing an ID must use the same non-empty
 
 ### Connector package manifests
 
-A Python or npm Connector package ships **dex-connector.json**. Python places it inside the import package directory. The analyzer resolves imports through the selected interpreter's installed packages and the Flow source directory; **--python /path/to/venv/bin/python** selects a virtual environment. It reads site-packages directories and the plain directory lines of their **.pth** files, which covers path-based editable installs. It never runs **.pth** import lines, so an editable install that relies on an import hook is not found. npm places it next to **package.json**. TypeScript resolves the imported package through **node_modules**, starting at the Flow source directory and walking toward the filesystem root. Named import aliases and package namespace aliases are supported. Analysis does not execute the imported Connector.
+A Python or npm Connector package ships **dex-connector.json**. A Python package places it inside the import package directory, and an npm package places it next to **package.json**. The Python analyzer resolves imports through the selected interpreter's installed packages and the Flow source directory; **--python /path/to/venv/bin/python** selects a virtual environment. It reads site-packages directories and the plain directory lines of their **.pth** files, which covers path-based editable installs. It never runs **.pth** import lines, so an editable install that relies on an import hook is not found. TypeScript resolves the imported package through **node_modules**, starting at the Flow source directory and walking toward the filesystem root. Named import aliases and package namespace aliases are supported. Analysis does not execute the imported Connector.
 
 The [manifest JSON schema](https://github.com/superdurable/dex/blob/main/cli/internal/flowviz/dex-connector.schema.json) defines the manifest structure. A manifest has **connectorId**, an exact **releaseTag** such as **connectors/catalog/v1.2.3**, a **package** object with **ecosystem**, **name**, and **version**, and a non-empty **factories** array. Package ecosystems are **pypi**, **npm**, or **go**; the Python and TypeScript analyzers require **pypi** and **npm**, respectively. Package versions are exact installed versions, independent of the Connector release tag. The CLI also enforces rules that JSON Schema cannot express. Factory names, branch IDs, and ConfigurationUI unit IDs must be unique. Mapped config field names must be distinct. Binding ports must be unique within a unit.
 
-Each exported factory declares **name**, **kind** (**query**, **mutation**, or **trigger**), and **fields** mapping semantic names to source config field names. Query and mutation factories require **operationId**, **stepType** and **annotations** field mappings, and named **branches**. Every branch has an **id**, a config **field**, and optional **optional**. An unwired optional branch appears as a failure decision. Trigger factories require **triggerName** and a **bindingName** field mapping. All factories require a **connectionName** mapping.
+Each exported factory declares **name**, **kind** (**query**, **mutation**, or **trigger**), and **fields** mapping semantic names to source config field names. Query and mutation factories require **operationId**, **stepType** and **annotations** field mappings, and named **branches**. Every branch has an **id**, a config **field**, and an optional **optional** flag. An unwired optional branch appears as a failure decision. Trigger factories require **triggerName** and a **bindingName** field mapping. All factories require a **connectionName** mapping.
 
-Query and mutation factories may also carry agent tool metadata. **inputType** names the public input model in the package's language. **inputSchema** is a JSON Schema draft 2020-12 object for that input, written with its JSON field names. The two appear together. **description** is a model-facing description. **agent** records a review for agent use: **exposed** is required, and **approval** may be **recommended** when **exposed** is true. On a mutation, **retry** may be **safe** when **exposed** is true: repeating the call with the same Call ID, inside the operation's own Execute retry policy, cannot make a second effect. Without it, a repeat may not be safe. A query never carries **retry**. **branches** may map optional branch IDs to **rejected**, which means the call changed nothing, or **unknown**, which means its effect may have happened. A host treats an unlisted optional mutation branch as **unknown** and an unlisted optional query branch as a failure, and a query uses only **rejected**. The analyzers ignore an unknown field inside **agent**, so a package with a newer field still analyzes, though the JSON schema rejects it. An unknown field anywhere else fails. An **agent** block requires **inputType** and **inputSchema**, and a missing block means the operation is not offered to agents. Trigger factories carry none of these fields. All four are optional, so a manifest without them stays valid. The analyzers check their shape, and they do not change the Flow definition.
+Query and mutation factories may also carry agent tool metadata. **inputType** names the public input model in the package's language. **inputSchema** is a JSON Schema draft 2020-12 object for that input, written with its JSON field names. Set both or neither. **description** is a model-facing description. **agent** records a review for agent use: **exposed** is required, and **approval** may be **recommended** when **exposed** is true. On a mutation, **retry** may be **safe** when **exposed** is true: repeating the call with the same Call ID, inside the operation's own Execute retry policy, cannot make a second effect. Without it, a repeat may not be safe. A query never carries **retry**. **branches** may map optional branch IDs to **rejected**, which means the call changed nothing, or **unknown**, which means its effect may have happened. A host treats an unlisted optional mutation branch as **unknown** and an unlisted optional query branch as a failure, and a query uses only **rejected**. The analyzers ignore an unknown field inside **agent**, so a package with a newer field still analyzes, though the JSON schema rejects it. An unknown field anywhere else fails. An **agent** block requires **inputType** and **inputSchema**, and a missing block means the operation is not offered to agents. Trigger factories carry none of these fields. All four are optional, so a manifest without them stays valid. The analyzers check their shape, and they do not change the Flow definition.
 
 The optional mappings **resultAttribute**, **resultStream**, **progressStream**, and **textStream** identify declared resources. **configurationUI** maps a static override; the manifest may also provide a default **configurationUI** object containing **units**, their **bindings**, and JSON pointers. The graph preserves this information for Dex Web. An optional **executeFailure** mapping names a static recovery Step and adds an Execute failure edge.
 
@@ -168,7 +168,7 @@ Python factory calls use keyword arguments, one inline dictionary, or one inline
 
 A Step registration or Trigger binding that calls a name from a package without **dex-connector.json** produces **connector_manifest_missing**. The message names the package and the expected manifest path. The same diagnostic reports a package that is not installed. A malformed manifest, or one with a wrong-typed field, produces **connector_manifest** and names the failing field. Two Steps with one Step type produce **duplicate_step_type**. That includes two factory calls with one Step type, and a factory Step type that matches a local Step.
 
-Connector nodes emit **connectorId**, **releaseTag**, and **package** inside **metadata.connector**, together with operation identity, connection name, **configurationUI**, and **configurationEnabled**. A non-empty static connection name enables automatic configuration; a dynamic name emits a warning and disables it. Dex Web resolves the exact release tag and verifies its release metadata. Existing Go **modulePath** / **moduleVersion** metadata remains supported, and Go graph output is unchanged. This manifest describes analysis metadata; it does not add runtime Connector APIs to an SDK.
+Connector nodes emit **connectorId**, **releaseTag**, and **package** inside **metadata.connector**, together with operation identity, connection name, **configurationUI**, and **configurationEnabled**. A non-empty static connection name enables automatic configuration; a dynamic name emits a warning and disables it. Dex Web resolves the exact release tag and verifies its release metadata. Existing Go **modulePath** / **moduleVersion** metadata remains supported, and Go graph output is unchanged. The manifest only provides metadata for analysis. It adds no Connector API to any SDK.
 
 ## Flow and Step names {#flow-and-step-names}
 
@@ -273,7 +273,7 @@ When another package chooses an RPC's map instance at invocation, declare that o
 
 Use **channel-map** to name a ChannelMap. The directive satisfies instance reads of the named map, but not enumeration. A name that is not an AttributeMap or ChannelMap of the Flow produces **invocation_load_directive**.
 
-The analysis is path-insensitive: a load on one movement into a Step counts for every movement. Calls through interfaces, function values, and reflection are not followed. When load options cannot be evaluated, such as options returned by another package, the default mode reports nothing for that read.
+The analysis does not track paths: a load declared on one movement into a Step counts for every movement into it. Calls through interfaces, function values, and reflection are not followed. When load options cannot be evaluated, such as options returned by another package, the default mode reports nothing for that read.
 
 ## Application lints {#application-lints}
 
@@ -291,11 +291,11 @@ dexcli visualize ./order_flow.go --schema-version 2.0 --json --lint app
 
 ## Unknown nodes and diagnostics
 
-Unsupported dynamic control flow is never omitted silently. The output contains an Unknown node and an error diagnostic. The default renderer still shows the partial graph. With **--json**, a partial JSON artifact is written, and the command exits with status 1.
+The analyzer never drops unsupported dynamic control flow silently. The output contains an Unknown node and an error diagnostic. The default renderer still shows the partial graph. With **--json**, a partial JSON artifact is written, and the command exits with status 1.
 
 Warnings do not invalidate the graph. For example, an Attribute whose value type cannot be determined uses **unknown** and produces a warning. A registered Step that cannot be reached from the start Step or an RPC also produces a warning. Invalid command arguments exit with status 2.
 
-The JSON **valid** field is false when any blocking diagnostic is present. Consumers should reject editing or deployment based on an invalid graph while still using its known nodes and edges for explanation.
+The JSON **valid** field is false when any blocking diagnostic is present. A tool that reads the graph should not edit or deploy from an invalid graph. It can still use the known nodes and edges to explain the Flow.
 
 ## JSON contract
 
