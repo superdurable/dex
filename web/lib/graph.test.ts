@@ -119,7 +119,6 @@ describe('step graph', () => {
 
     expect(graph.nodes.find((node) => node.id === '__start__')).toMatchObject({
       label: 'Flow start',
-      previousRunId: '',
     });
   });
 

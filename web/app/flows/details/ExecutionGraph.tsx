@@ -486,27 +486,14 @@ export function ExecutionGraph({
                 <StatusIcon status={node.kind === 'source' ? 'Source' : node.status} size={13} />
                 {node.kind === 'source' ? 'Source' : node.status}
               </span>
-              {node.previousRunId ? (
-                <>
-                  <b>
-                    <Link
-                      className="graph-run-link nodrag nopan"
-                      title={node.previousRunId}
-                      to={`/v1/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(node.previousRunId)}`}
-                    >
-                      Continued from previous run
-                    </Link>
-                  </b>
-                  <code title={node.previousRunId}>{node.previousRunId}</code>
-                </>
-              ) : <b>{node.label}</b>}
+              <b>{node.label}</b>
             </div>
           ),
         },
       };
     });
     return layoutGraph(raw, edges);
-  }, [edges, flowId, graph.nodes, onSelectEvent, selectedEvent?.eventId, selection, subFlowParentIDs]);
+  }, [edges, graph.nodes, onSelectEvent, selectedEvent?.eventId, selection, subFlowParentIDs]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
   const initialZoom = defaultGraphZoom(bounds.width, canvasWidth);
 

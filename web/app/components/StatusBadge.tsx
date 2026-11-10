@@ -9,7 +9,6 @@
 import {
   Activity,
   Ban,
-  CircleArrowRight,
   CircleCheck,
   CircleHelp,
   CircleX,

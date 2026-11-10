@@ -131,26 +131,6 @@ describe('selected step event details', () => {
     expect(markup).not.toContain('Published messages');
   });
 
-  it('reads pending Channel messages of a continued run from their messages field', () => {
-    const event: FlowHistoryEvent = {
-      eventId: 1,
-      eventTime: '2026-08-05T23:44:29Z',
-      type: 'FlowStartedOrContinued',
-      payload: {
-        continuedStart: {
-          pendingChannelMessages: {
-            approvals: { messages: [{ channelName: 'approvals', value: 'carried-over', messageId: 'm-1' }] },
-          },
-        },
-      },
-    };
-
-    const markup = renderDetails(event);
-
-    expect(markup).toContain('Pending channels');
-    expect(markup).toContain('carried-over');
-  });
-
   it.each([
     ['sync', 1],
     ['async', 2],
@@ -486,70 +466,6 @@ describe('selected step event details', () => {
     expect(markup).not.toContain('should-not-render');
   });
 
-  it('derives options from an exact continued step resume', () => {
-    const event = executeEvent(2);
-    event.payload.context = {
-      ...event.payload.context as Record<string, unknown>,
-      fromStepExecutionId: 'previous-run-step-1',
-    };
-    const continued: FlowHistoryEvent = {
-      eventId: 1,
-      eventTime: '2026-08-05T23:44:29Z',
-      type: 'FlowStartedOrContinued',
-      payload: {
-        continuedStart: {
-          stepsToResume: [{
-            stepExecutionId: 'charge-1',
-            step: {
-              stepType: 'charge',
-              stepOptions: {
-                executeFailurePolicy: 1,
-                executeLockAttributeKeys: ['continued-account'],
-              },
-            },
-          }],
-        },
-      },
-    };
-
-    const markup = renderDetails(event, [continued, event]);
-
-    expect(markup).toContain('Fail flow');
-    expect(markup).toContain('continued-account');
-  });
-
-  it('derives options from a continued step movement', () => {
-    const event = executeEvent(2);
-    event.payload.context = {
-      ...event.payload.context as Record<string, unknown>,
-      fromStepExecutionId: 'previous-run-step-1',
-    };
-    const continued: FlowHistoryEvent = {
-      eventId: 1,
-      eventTime: '2026-08-05T23:44:29Z',
-      type: 'FlowStartedOrContinued',
-      payload: {
-        continuedStart: {
-          stepsToStart: [{
-            stepType: 'charge',
-            fromStepExecutionIdInternalOnly: 'previous-run-step-1',
-            stepOptions: {
-              executeFailurePolicy: 2,
-              executeFailureProceedStepType: 'continued-recovery',
-              executeLockAttributeKeys: ['continued-movement-account'],
-            },
-          }],
-        },
-      },
-    };
-
-    const markup = renderDetails(event, [continued, event]);
-
-    expect(markup).toContain('Proceed to configured step');
-    expect(markup).toContain('continued-recovery');
-    expect(markup).toContain('continued-movement-account');
-  });
-
   it('derives options from an RPC movement', () => {
     const event = executeEvent(2);
     event.payload.context = {
@@ -802,29 +718,6 @@ describe('flow start event details', () => {
     expect(markup).toContain('1m');
     expect(markup).toContain('Timeout policy');
     expect(markup).toContain('Cancel');
-  });
-
-  it('links a minimal continued SubFlow state by generated Flow ID', () => {
-    const event: FlowHistoryEvent = {
-      eventId: 1,
-      eventTime: '2026-08-05T23:44:29Z',
-      type: 'FlowStartedOrContinued',
-      payload: {
-        continuedStart: {
-          stepsToResume: [{
-            stepExecutionId: 'charge-1',
-            waitingCondition: {
-              subFlowConditions: [{ conditionId: 'child' }],
-            },
-          }],
-        },
-      },
-    };
-
-    const markup = renderDetails(event);
-
-    expect(markup).toContain('href="/v1/flows/SubFlow%3Aparent-charge-1-0"');
-    expect(markup).toContain('SubFlow:parent-charge-1-0');
   });
 
   it('renders Flow timeout closure details', () => {

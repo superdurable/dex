@@ -2400,16 +2400,14 @@ pre {
   margin-left: 8px;
 }
 
-.event-run-link,
-.graph-run-link {
+.event-run-link {
   color: inherit;
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--pass) 35%, transparent);
   text-underline-offset: 3px;
 }
 
-.event-run-link:hover,
-.graph-run-link:hover {
+.event-run-link:hover {
   color: var(--pass);
   text-decoration-color: currentColor;
 }

@@ -36,16 +36,6 @@ function doFindSourceStepOptions(
     return findTimeoutHandlerStepOptions(event, history);
   }
 
-  const carriedOptions = findContinuedStepOptions(
-    event,
-    history,
-    stepExecutionID,
-    fromStepExecutionID,
-    stepType,
-    stepInput,
-  );
-  if (hasData(carriedOptions)) return carriedOptions;
-
   if (fromStepExecutionID === '__start__') {
     const initialOptions = findInitialStepOptions(event, history, stepType);
     if (hasData(initialOptions)) return initialOptions;
@@ -96,38 +86,6 @@ function findTimeoutHandlerStepOptions(
     executeLoadChannelNames: options.loadChannelNames,
     executeLoadChannelMapInstances: options.loadChannelMapInstances,
   };
-}
-
-function findContinuedStepOptions(
-  event: FlowHistoryEvent,
-  history: FlowHistoryEvent[],
-  stepExecutionID: string,
-  fromStepExecutionID: string,
-  stepType: string,
-  stepInput: unknown,
-): Data {
-  const startEvents = history
-    .filter((candidate) => candidate.type === 'FlowStartedOrContinued')
-    .filter((candidate) => candidate.eventId < event.eventId)
-    .sort((left, right) => right.eventId - left.eventId);
-  for (const startEvent of startEvents) {
-    const continued = asData(startEvent.payload.continuedStart);
-    if (!hasData(continued)) continue;
-    const resume = asDataArray(continued.stepsToResume)
-      .find((candidate) => candidate.stepExecutionId === stepExecutionID);
-    const resumeOptions = asData(asData(resume?.step).stepOptions);
-    if (hasData(resumeOptions)) return resumeOptions;
-
-    const movement = selectStepMovement(
-      asDataArray(continued.stepsToStart),
-      stepType,
-      fromStepExecutionID,
-      stepInput,
-    );
-    const movementOptions = asData(movement.stepOptions);
-    if (hasData(movementOptions)) return movementOptions;
-  }
-  return {};
 }
 
 function findInitialStepOptions(

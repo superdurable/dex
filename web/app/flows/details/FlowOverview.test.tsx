@@ -328,11 +328,11 @@ describe('redesigned Overview', () => {
   it('shows the first run ID only when it differs from the run ID', () => {
     const sameRun = renderToStaticMarkup(<FlowOverview summary={runningSummary} events={[]} state={emptyState} />);
     expect(sameRun).not.toContain('First run ID');
-    const continuedRun = renderToStaticMarkup(
+    const laterRun = renderToStaticMarkup(
       <FlowOverview summary={{ ...runningSummary, firstRunId: 'run-0' }} events={[]} state={emptyState} />,
     );
-    expect(continuedRun).toContain('First run ID');
-    expect(continuedRun).toContain('run-0');
+    expect(laterRun).toContain('First run ID');
+    expect(laterRun).toContain('run-0');
   });
 
   it('truncates a long Attribute value behind Show all', () => {

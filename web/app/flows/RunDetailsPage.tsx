@@ -228,18 +228,12 @@ export function RunDetailsPage({
   const workingAs = useWorkingAs(workingAsDefinitions);
   const [currentRunOfFlow, setCurrentRunOfFlow] = useState<CurrentRunOfFlow | null>(null);
   const history = runHistory.newest?.events ?? noHistoryEvents;
-  const continuedToRunId = useMemo(() => {
-    const closed = [...history].reverse().find((event) => event.type === 'FlowClosed');
-    const nextRunId = closed?.payload.continuedToRunId;
-    return typeof nextRunId === 'string' ? nextRunId : '';
-  }, [history]);
   const isViewingEarlierRunAttempt = summary !== null
     && requestedRunAttempt > 0
     && requestedRunAttempt < positiveRunAttempt(summary.runAttempt);
   const displayedRunPosition = displayedRunPositionOf(
     summary,
     isViewingEarlierRunAttempt,
-    continuedToRunId,
     currentRunOfFlow,
     flowId,
     runId,
@@ -861,11 +855,6 @@ export function RunDetailsPage({
             </div>
           </div>
           <div className="run-actions">
-            {continuedToRunId && (
-              <Link className="button primary" to={runPath(continuedToRunId)}>
-                Next run
-              </Link>
-            )}
             <label
               className={`live-toggle${autoRefresh && summary && !terminalStatuses.has(summary.flowStatusCode) ? ' is-on' : ''}`}
             >
@@ -1173,20 +1162,19 @@ export function RunDetailsPage({
 }
 
 /**
- * Returns 'earlier' when the run on screen is not the Flow's current run: a continued run, an
+ * Returns 'earlier' when the run on screen is not the Flow's current run: an
  * earlier run attempt, or a run other than the one its Flow ID resolves to. Returns 'current'
  * when the resolved current run is this run, and 'unknown' while that is still loading.
  */
 function displayedRunPositionOf(
   summary: FlowSummary | null,
   isViewingEarlierRunAttempt: boolean,
-  continuedToRunId: string,
   currentRunOfFlow: CurrentRunOfFlow | null,
   flowId: string,
   runId: string,
 ): DisplayedRunPosition {
   if (!summary) return 'unknown';
-  if (isViewingEarlierRunAttempt || continuedToRunId !== '') return 'earlier';
+  if (isViewingEarlierRunAttempt) return 'earlier';
   if (currentRunOfFlow?.flowId !== flowId) return 'unknown';
   return currentRunOfFlow.runId === runId ? 'current' : 'earlier';
 }
