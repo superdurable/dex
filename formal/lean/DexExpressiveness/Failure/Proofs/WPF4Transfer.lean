@@ -153,7 +153,7 @@ theorem updateInvocation_other (ghost : Ghost σ) (key : InvocationKey σ)
 /-- `Invariant` under a change of the tasks, the interrupts, availability,
 stamps, and the progress part of the ghost, when the run stays. The clauses
 that such a change can break are hypotheses. -/
-theorem invariant_transfer {program : Program σ} {config next : Config σ}
+theorem invariant_transfer_general {program : Program σ} {config next : Config σ}
     (invariant : Invariant program config) (sameRun : next.run = config.run)
     (sameNextTaskId : next.nextTaskId = config.nextTaskId)
     (frame : GhostFrame config.ghost next.ghost)
@@ -161,8 +161,7 @@ theorem invariant_transfer {program : Program σ} {config next : Config σ}
     (sameNextVirtual : next.ghost.nextVirtualTaskId = config.ghost.nextVirtualTaskId)
     (sameArguments : next.ghost.invocations.filterMap (fun entry => entry.2.arguments) =
       config.ghost.invocations.filterMap (fun entry => entry.2.arguments))
-    (realIdsSublist : (next.realTasks.map (fun task => task.base.id)).Sublist
-      (config.realTasks.map (fun task => task.base.id)))
+    (realIdsNodup : (next.realTasks.map (fun task => task.base.id)).Nodup)
     (realTasksFrom : ∀ task, task ∈ next.realTasks → ∃ original, original ∈ config.realTasks ∧
       original.base.id = task.base.id ∧ original.base.step = task.base.step ∧
       original.base.method = task.base.method ∧
@@ -171,7 +170,11 @@ theorem invariant_transfer {program : Program σ} {config next : Config σ}
       original.base.id = task.base.id ∧ original.base.step = task.base.step ∧
       original.base.method = task.base.method ∧
       original.attemptContext.attempt = task.attemptContext.attempt)
-    (interruptsFrom : ∀ interrupt, interrupt ∈ next.interrupts → interrupt ∈ config.interrupts)
+    (interruptsNotInTasks : ∀ interrupt task, interrupt ∈ next.interrupts → task ∈ next.tasks →
+      task.base.id ≠ interrupt.taskId)
+    (interruptsBelow : ∀ interrupt, interrupt ∈ next.interrupts →
+      interrupt.taskId < next.nextTaskId)
+    (noRunNoInterrupts : next.run = none → next.interrupts = [])
     (downIsEmpty : next.isUp = false → next.tasks = [] ∧ next.interrupts = [])
     (lastNormalCommitAtMost :
       IsStampAtMost next.ghost.lastNormalCommitAt next.lastCommitAt)
@@ -188,22 +191,14 @@ theorem invariant_transfer {program : Program σ} {config next : Config σ}
           ({ step := record.id, method := method, attempt := attempt.number, taskId := taskId } :
             Interrupt σ) ∈ next.interrupts) :
     Invariant program next where
-  realTaskIdsNodup := List.Nodup.sublist realIdsSublist invariant.realTaskIdsNodup
+  realTaskIdsNodup := realIdsNodup
   realTaskIdsBelow := by
     intro task isTask
     obtain ⟨original, isOriginal, sameId, _⟩ := realTasksFrom task isTask
     rw [← sameId, sameNextTaskId]
     exact invariant.realTaskIdsBelow original isOriginal
-  interruptsNotInTasks := by
-    intro interrupt task isInterrupt isTask
-    obtain ⟨original, isOriginal, sameId, _⟩ := tasksFrom task isTask
-    rw [← sameId]
-    exact invariant.interruptsNotInTasks interrupt original (interruptsFrom interrupt isInterrupt)
-      isOriginal
-  interruptsBelow := by
-    intro interrupt isInterrupt
-    rw [sameNextTaskId]
-    exact invariant.interruptsBelow interrupt (interruptsFrom interrupt isInterrupt)
+  interruptsNotInTasks := interruptsNotInTasks
+  interruptsBelow := interruptsBelow
   downIsEmpty := downIsEmpty
   lastNormalCommitAtMost := lastNormalCommitAtMost
   notStarted := by
@@ -223,11 +218,7 @@ theorem invariant_transfer {program : Program σ} {config next : Config σ}
       obtain ⟨original, isOriginal, _⟩ := realTasksFrom task isTask
       rw [noReal] at isOriginal
       cases isOriginal
-    · apply List.eq_nil_iff_forall_not_mem.mpr
-      intro interrupt isInterrupt
-      have isOriginal := interruptsFrom interrupt isInterrupt
-      rw [noInterrupts] at isOriginal
-      cases isOriginal
+    · exact noRunNoInterrupts hasNoRun
     · have sameKeys := frame.keys
       rw [noInvocations] at sameKeys
       exact List.map_eq_nil_iff.mp sameKeys
@@ -262,5 +253,61 @@ theorem invariant_transfer {program : Program σ} {config next : Config σ}
     obtain ⟨original, isOriginal, sameId, sameStep, sameMethod, sameAttempt⟩ :=
       realTasksFrom task isTask
     exact ⟨original, isOriginal, sameId, by simp [Task.key, sameStep, sameMethod], sameAttempt⟩
+
+/-- `invariant_transfer_general` when the real task IDs shrink and the
+interrupts only shrink. -/
+theorem invariant_transfer {program : Program σ} {config next : Config σ}
+    (invariant : Invariant program config) (sameRun : next.run = config.run)
+    (sameNextTaskId : next.nextTaskId = config.nextTaskId)
+    (frame : GhostFrame config.ghost next.ghost)
+    (sameLastNormal : next.ghost.lastNormalCommitAt = config.ghost.lastNormalCommitAt)
+    (sameNextVirtual : next.ghost.nextVirtualTaskId = config.ghost.nextVirtualTaskId)
+    (sameArguments : next.ghost.invocations.filterMap (fun entry => entry.2.arguments) =
+      config.ghost.invocations.filterMap (fun entry => entry.2.arguments))
+    (realIdsSublist : (next.realTasks.map (fun task => task.base.id)).Sublist
+      (config.realTasks.map (fun task => task.base.id)))
+    (realTasksFrom : ∀ task, task ∈ next.realTasks → ∃ original, original ∈ config.realTasks ∧
+      original.base.id = task.base.id ∧ original.base.step = task.base.step ∧
+      original.base.method = task.base.method ∧
+      original.attemptContext.attempt = task.attemptContext.attempt)
+    (tasksFrom : ∀ task, task ∈ next.tasks → ∃ original, original ∈ config.tasks ∧
+      original.base.id = task.base.id ∧ original.base.step = task.base.step ∧
+      original.base.method = task.base.method ∧
+      original.attemptContext.attempt = task.attemptContext.attempt)
+    (interruptsFrom : ∀ interrupt, interrupt ∈ next.interrupts → interrupt ∈ config.interrupts)
+    (downIsEmpty : next.isUp = false → next.tasks = [] ∧ next.interrupts = [])
+    (lastNormalCommitAtMost :
+      IsStampAtMost next.ghost.lastNormalCommitAt next.lastCommitAt)
+    (historiesConsistent : ∀ entry, entry ∈ next.ghost.invocations →
+      HistoryIsConsistent program.failureFreeFlow entry.1 entry.2)
+    (realTasksFollowHistory : ∀ task, task ∈ next.realTasks →
+      ∃ history, next.ghost.findInvocation? task.key = some history ∧
+        TaskFollowsHistory program.failureFreeFlow task history)
+    (stillTracked : ∀ run, config.run = some run → ∀ record method taskId,
+      record ∈ run.base.steps →
+      record.invocation = some { method := method, state := .running taskId } →
+      (∃ task, task ∈ next.tasks ∧ task.base.id = taskId) ∨ next.isUp = false ∨
+        ∃ attempt, run.findAttempt? record.id = some attempt ∧
+          ({ step := record.id, method := method, attempt := attempt.number, taskId := taskId } :
+            Interrupt σ) ∈ next.interrupts) :
+    Invariant program next := by
+  refine invariant_transfer_general invariant sameRun sameNextTaskId frame sameLastNormal
+    sameNextVirtual sameArguments (List.Nodup.sublist realIdsSublist invariant.realTaskIdsNodup)
+    realTasksFrom tasksFrom ?_ ?_ ?_ downIsEmpty lastNormalCommitAtMost historiesConsistent
+    realTasksFollowHistory stillTracked
+  · intro interrupt task isInterrupt isTask
+    obtain ⟨original, isOriginal, sameId, _⟩ := tasksFrom task isTask
+    rw [← sameId]
+    exact invariant.interruptsNotInTasks interrupt original (interruptsFrom interrupt isInterrupt)
+      isOriginal
+  · intro interrupt isInterrupt
+    rw [sameNextTaskId]
+    exact invariant.interruptsBelow interrupt (interruptsFrom interrupt isInterrupt)
+  · intro hasNoRun
+    apply List.eq_nil_iff_forall_not_mem.mpr
+    intro interrupt isInterrupt
+    have isOriginal := interruptsFrom interrupt isInterrupt
+    rw [(invariant.notStarted (by rw [← sameRun]; exact hasNoRun)).2.1] at isOriginal
+    cases isOriginal
 
 end DexExpressiveness.DexF.WPF4
