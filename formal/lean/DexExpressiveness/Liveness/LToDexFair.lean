@@ -40,18 +40,73 @@ variable {program : Program} {lRun : InfiniteRun L.Config L.Label}
 /-- F1: the Dex clock is the L clock at every block boundary. -/
 theorem DexRunOfLRun.timeDiverges (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
     (timeDiverges : L.Fairness.TimeDiverges lRun) : Dex.Fairness.TimeDiverges dexRun := by
-  sorry
+  intro bound
+  obtain ⟨index, isAbove⟩ := timeDiverges bound
+  refine ⟨boundary index, ?_⟩
+  rw [built.isFlattened.stateAtBoundary index, ← (built.follows.isState index).isRelated.clock]
+  exact isAbove
 
 /-- F2: an armed and due Dex timer is an armed and due L timer. -/
 theorem DexRunOfLRun.timersFire (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
     (timersFire : L.Fairness.TimersFire lRun) : Dex.Fairness.TimersFire dexRun := by
-  sorry
+  intro timer start isDue
+  apply Classical.byContradiction
+  intro staysDue
+  have isAlwaysDue : ∀ position, start ≤ position →
+      Dex.Fairness.IsTimerArmedAndDue dexRun timer position := fun position isLater =>
+    Classical.byContradiction fun isNotDue => staysDue ⟨position, isLater, isNotDue⟩
+  obtain ⟨first, isFirst⟩ := built.exists_boundary_ge start
+  obtain ⟨firstRun, fireTime, hasFirstRun, isArmed, isFirstDue⟩ :=
+    isAlwaysDue (boundary first) isFirst
+  rw [built.isFlattened.stateAtBoundary first] at hasFirstRun isFirstDue
+  obtain ⟨firstRecord, current, chan, since, isFirstFound, _, isCurrent, isBlocked⟩ :=
+    (built.follows.isState first).timedThread hasFirstRun isArmed
+  obtain ⟨later, isLater, isNotDue⟩ := timersFire (threadOfInput firstRecord.input)
+    timer.step.number first ⟨current, fireTime, chan, since, isCurrent, isBlocked, by
+      rw [(built.follows.isState first).isRelated.clock]
+      exact isFirstDue⟩
+  apply isNotDue
+  obtain ⟨laterRun, laterFireTime, hasLaterRun, isLaterArmed, isLaterDue⟩ :=
+    isAlwaysDue (boundary later)
+      (Nat.le_trans isFirst (built.isFlattened.boundary_mono first later isLater))
+  rw [built.isFlattened.stateAtBoundary later] at hasLaterRun isLaterDue
+  obtain ⟨laterRecord, laterCurrent, laterChan, laterSince, isLaterFound, hasLaterInput,
+    isLaterCurrent, isLaterBlocked⟩ :=
+    (built.follows.isState later).timedThread hasLaterRun isLaterArmed
+  rw [built.sameInput_at_boundaries first later isLater hasFirstRun isFirstFound hasLaterRun
+    isLaterFound hasLaterInput] at isLaterCurrent
+  exact ⟨laterCurrent, laterFireTime, laterChan, laterSince, isLaterCurrent, isLaterBlocked, by
+    rw [(built.follows.isState later).isRelated.clock]
+    exact isLaterDue⟩
 
 /-- F3: a pending invocation belongs to the Step of a thread whose next
 action has not begun; the close clears it. -/
 theorem DexRunOfLRun.stepsStart (built : DexRunOfLRun program lRun dexBlocks dexRun boundary)
     (threadsBegin : L.Fairness.ThreadsBegin lRun) : Dex.Fairness.StepsStart dexRun := by
-  sorry
+  intro stepId method start isPending
+  apply Classical.byContradiction
+  intro staysPending
+  have isAlwaysPending : ∀ position, start ≤ position →
+      Dex.Fairness.IsInvocationPending dexRun stepId method position := fun position isLater =>
+    Classical.byContradiction fun isNotPending => staysPending ⟨position, isLater, isNotPending⟩
+  obtain ⟨first, isFirst⟩ := built.exists_boundary_ge start
+  obtain ⟨firstRun, firstRecord, hasFirstRun, isFirstFound, firstInvocation⟩ :=
+    isAlwaysPending (boundary first) isFirst
+  rw [built.isFlattened.stateAtBoundary first] at hasFirstRun
+  obtain ⟨_, current, isCurrent, isPhase⟩ :=
+    (built.follows.isState first).pendingThread hasFirstRun isFirstFound firstInvocation
+  obtain ⟨later, isLater, isNotPending⟩ :=
+    threadsBegin (threadOfInput firstRecord.input) first ⟨current, isCurrent, isPhase⟩
+  apply isNotPending
+  obtain ⟨laterRun, laterRecord, hasLaterRun, isLaterFound, laterInvocation⟩ :=
+    isAlwaysPending (boundary later)
+      (Nat.le_trans isFirst (built.isFlattened.boundary_mono first later isLater))
+  rw [built.isFlattened.stateAtBoundary later] at hasLaterRun
+  obtain ⟨hasLaterInput, laterCurrent, isLaterCurrent, isLaterPhase⟩ :=
+    (built.follows.isState later).pendingThread hasLaterRun isLaterFound laterInvocation
+  rw [built.sameInput_at_boundaries first later isLater hasFirstRun isFirstFound hasLaterRun
+    isLaterFound hasLaterInput] at isLaterCurrent
+  exact ⟨laterCurrent, isLaterCurrent, isLaterPhase⟩
 
 /-- F4: a task that has not returned belongs to a thread that issued an emit
 or began an action, or holds a late emit. -/
