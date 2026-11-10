@@ -35,7 +35,8 @@ use crate::projections::history_event_links::StepEventLink;
 use crate::projections::history_events::reference_effect_values;
 use crate::state_access::FlowTransaction;
 use crate::steps::{
-    NewStepExecution, cancel_steps_by_type, create_step_execution, wait_conditions,
+    NewStepExecution, cancel_steps_by_type, complete_gracefully_if_ready, create_step_execution,
+    wait_conditions,
 };
 use crate::values::{
     ValueHolder, ValueRejection, complete_worker_value, is_run_over_state_budget, store_value,
@@ -223,6 +224,8 @@ pub(crate) fn apply_rpc_committed(
     }
     // The commit of an RPC admitted before cleanup may be the last thing a close waits for.
     finalize_pending_close_if_ready(transaction, &mut cursor, scope)?;
+    // Canceling the last user Step completes a Flow whose graceful completion was requested.
+    complete_gracefully_if_ready(transaction, &mut cursor, scope)?;
     let reply = CommandReply {
         reply: Some(command_reply::Reply::Rpc(RpcReply { output })),
     };

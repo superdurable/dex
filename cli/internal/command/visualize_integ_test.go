@@ -931,6 +931,11 @@ func visualizerRepositoryRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(filename), "../../.."))
 }
 
+var multiFlowExampleDirectories = map[string]bool{
+	"workflow-patterns": true,
+	"workflow_patterns": true,
+}
+
 func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 	t.Helper()
 	type sourceRoot struct {
@@ -949,6 +954,10 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 				return walkErr
 			}
 			if entry.IsDir() && path != root.directory && strings.HasPrefix(entry.Name(), ".") {
+				return filepath.SkipDir
+			}
+			// Workflow pattern catalogs define several small Flows per file; visualize renders one Flow per file.
+			if entry.IsDir() && multiFlowExampleDirectories[entry.Name()] {
 				return filepath.SkipDir
 			}
 			if entry.IsDir() || filepath.Ext(path) != root.extension || strings.HasSuffix(path, "_test.go") {

@@ -50,6 +50,8 @@ use prost::Message;
 
 #[path = "apply_backbone/attempt_handout.rs"]
 mod attempt_handout;
+#[path = "apply_backbone/close_results.rs"]
+mod close_results;
 #[path = "apply_backbone/dispatch_queue.rs"]
 mod dispatch_queue;
 #[path = "apply_backbone/retry_snapshots.rs"]

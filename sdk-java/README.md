@@ -748,7 +748,7 @@ close cleanup. Re-read the retained terminal Flow state before deciding whether
 another action is needed.
 `Client.waitForFlow` returns `FlowResult` for successful and unsuccessful
 terminal statuses. Inspect `getStatus`, `getErrorType`, and `getErrorMessage`
-before decoding outputs from an unsuccessful result.
+first. Only a completed result carries outputs; an unsuccessful result has none.
 `WorkerInvocationException` preserves the original Worker error type,
 detail, gRPC code, and Java stack trace. Read the persisted trace with
 `getWorkerStackTrace()`; it may be empty for Workers implemented by another SDK.

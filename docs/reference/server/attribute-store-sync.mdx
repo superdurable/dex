@@ -35,12 +35,14 @@ store's tables.
   value, because earlier writes of the same run may have committed. If
   **dexzd_attribute_sync_dropped_entries_total** increases, compare the affected
   rows with the Flow's Attributes and write the Attributes again.
-- While a close waits, SetAttributes, PublishToChannel, and RPCs that are
-  neither transactional nor locking are accepted. Their synced writes extend
-  the wait, and they start no Step.
-  Transactional or locking RPCs, WaitForStepCompletion, WaitForAttribute, and
-  DeleteChannelMessage calls made during the wait fail with
-  FAILED_PRECONDITION.
+- While a close waits, SetAttributes and RPCs that are neither transactional
+  nor locking are accepted. Their synced writes extend the wait, and they
+  start no Step.
+  Transactional or locking RPCs, WaitForStepCompletion, WaitForAttribute,
+  DeleteChannelMessage, and PublishToChannel calls made during the wait fail
+  with FAILED_PRECONDITION and sub-status FLOW_CLOSING. See
+  [Requests during Flow close](/reference/server/runtime-client#requests-during-flow-close).
+  Changed in 0.1.26: before, PublishToChannel was accepted.
 - A natural close also waits for every
   transactional or locking RPC admitted before it, even without an Attribute
   Store. Such an RPC still commits, and its synced writes join the wait. The

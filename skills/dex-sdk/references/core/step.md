@@ -82,6 +82,7 @@ Rules:
 | ForceCompleteIfChannelsEmpty | Atomically check the named Channels. If all are empty, complete; otherwise take the supplied movement. |
 
 - GracefulComplete and ForceComplete can carry output. The Flow result lists each output with its Step type and Step execution ID.
+- Only a COMPLETED Flow keeps these outputs. A Flow that fails, is canceled, is terminated, or times out has no outputs, even after an earlier GracefulComplete carried one. Do not read a partial result from an unsuccessful Flow; keep data that must survive a failure in an Attribute.
 - A Channel stays non-empty for ForceCompleteIfChannelsEmpty while a consumed message's Step has not finished Execute.
 - A decision can also cancel active Steps: by Step type, or the siblings started by the same parent Step execution. Use cancellation deliberately, for example after a first-winner branch.
 - Dex selects the Steps to cancel after the decision commits. Steps that the same decision starts are never canceled by it, so one decision can cancel a Step type and start a fresh execution of it.

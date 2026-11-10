@@ -1,0 +1,19 @@
+cluster:
+  nodeId: "dexbench-1"
+objectStore:
+  bucket: "dex-benchmark-2026-11-09-v0.1.25-3103a463"
+  prefix: "2026-11-09-v0.1.25-4xlarge-04-final-trials-rpc-locking-c32-221805/20261109T221805Z-c85665/p001-rpc-locking-c8192-t1"
+  region: "us-west-2"
+  credentialsSource: defaultChain
+localStorage:
+  directory: "/mnt/nvme/dexzd"
+  writeBufferBytes: 134217728
+  blockCacheBytes: 8589934592
+api:
+  listen: "0.0.0.0:8801"
+metrics:
+  listen: "0.0.0.0:9901"
+commit:
+  maxUnappliedBytes: 268435456
+limits:
+  maxInFlightRpcsPerNode: 16384

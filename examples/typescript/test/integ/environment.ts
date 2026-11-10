@@ -21,11 +21,13 @@ import { join } from "node:path";
 
 import { Client, Registry, openBlobCache, type Flow } from "@superdurable/dex";
 
+import { setClient } from "../../src/client-holder.js";
 import { HOUR_MS } from "../../src/config/env.js";
 import {
   startExampleWorker,
 } from "../../src/config/worker.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
+import { workflowPatternFlows } from "../../src/patterns/workflow-patterns/workflow-pattern-flows.js";
 import { channelFlow } from "../../src/primitives/channel/channel-flow.js";
 import { reportGenerationFlow } from "../../src/primitives/rpc-canceling-steps/report-generation-flow.js";
 import { streamFlow } from "../../src/primitives/stream/stream-flow.js";
@@ -94,6 +96,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     orchestrationFlow,
     subscriptionFlow,
     userOnboardingFlow,
+    ...workflowPatternFlows,
   ];
   const registry = new Registry(flows);
   const cacheDirectory = await mkdtemp(join(tmpdir(), "dex-typescript-examples-integ-"));
@@ -109,6 +112,8 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
   const client = new Client(registry, blobCache, {
     serverAddress,
   });
+  // Steps that stop child Flows read the Client from the holder.
+  setClient(client);
   return {
     client,
     failureRecoveryFlow,
