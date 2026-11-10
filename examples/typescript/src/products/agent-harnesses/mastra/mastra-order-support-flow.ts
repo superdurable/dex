@@ -15,6 +15,7 @@
  */
 
 import { Agent } from "@mastra/core/agent";
+import type { MastraModelConfig } from "@mastra/core/llm";
 import { createTool } from "@mastra/core/tools";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createMastraAgentSessionFlow } from "@superdurable/dex-agents-mastra";
@@ -26,14 +27,11 @@ import { orderSupportInstructions, type OrderDesk } from "../order-support/order
 /** Flow type of the Mastra order support session. */
 export const mastraOrderSupportFlowType = "MastraOrderSupportAgent";
 
-/** The Mastra model of every model call, such as a model router ID or an AI SDK language model. */
-export type MastraOrderSupportModel = ConstructorParameters<typeof Agent>[0]["model"];
-
 /**
  * The model router ID from `DEX_MASTRA_MODEL`, such as `openai/gpt-5-mini`. Mastra reads the provider key, such as
  * `OPENAI_API_KEY`, from the Worker's environment.
  */
-export function loadMastraOrderSupportModel(): MastraOrderSupportModel {
+export function loadMastraOrderSupportModel(): MastraModelConfig {
   return environmentOr("DEX_MASTRA_MODEL", "openai/gpt-5-mini");
 }
 
@@ -41,7 +39,7 @@ export function loadMastraOrderSupportModel(): MastraOrderSupportModel {
  * Builds the order support session Flow. Each model call and each tool call is its own Step.
  * look_up_order only reads, so it runs without approval. cancel_order waits for approval and runs at most once.
  */
-export function createMastraOrderSupportFlow(orderDesk: OrderDesk, model: MastraOrderSupportModel): AgentSessionFlow {
+export function createMastraOrderSupportFlow(orderDesk: OrderDesk, model: MastraModelConfig): AgentSessionFlow {
   const lookUpOrder = createTool({
     id: "look_up_order",
     description: "Look up one order by its order ID and return its items and status.",

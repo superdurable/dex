@@ -72,10 +72,16 @@ npm install
 ANTHROPIC_API_KEY=... OPENAI_API_KEY=... npm start
 ```
 
-The Claude Agent SDK example authenticates only with `ANTHROPIC_API_KEY`. Without it, the process
-logs one line and does not register the Claude Flow or its routes, so the Claude Code CLI never
-falls back to another login. The other harnesses still register without their keys; only their
-model calls fail.
+The Claude Agent SDK example authenticates only with `ANTHROPIC_API_KEY`:
+
+- The Claude Code CLI gets its own environment, built by `buildClaudeCliEnvironment`. It holds
+  `ANTHROPIC_API_KEY` and only the variables the CLI needs to run: `PATH`, `HOME`, `TMPDIR`, and
+  the proxy variables when they are set. Other Claude credentials or provider settings in the
+  Worker's environment never reach the CLI.
+- Without `ANTHROPIC_API_KEY`, the process logs one line and does not register the Claude Flow or
+  its routes.
+
+The other harnesses still register without their keys; only their model calls fail.
 
 ## Routes
 
@@ -90,9 +96,10 @@ is `claude-agent-sdk`, `openai-agents`, `vercel-ai`, or `mastra`:
 | `POST /sessions/:id/interrupts/:interruptId/approve` | `resolve_interrupt`, approved |
 | `POST /sessions/:id/interrupts/:interruptId/reject` | `resolve_interrupt`, rejected, with an optional `{ reason }` the model reads |
 
-Every route under `/sessions/:id` needs the `X-Agent-Session-Token` header from `POST /sessions`, and
-answers 403 without it. A route answers 400 for a malformed body, and 409 when the session refuses
-the request or is closed. Replace the token with your application's authentication.
+Every route under `/sessions/:id` checks the `X-Agent-Session-Token` header from `POST /sessions`
+first, and answers 403 when it is missing or wrong. A route then answers 400 when a required field,
+such as `text`, is missing or empty, and 409 when the session refuses the request or is closed.
+Replace the token with your application's authentication.
 
 ```bash
 base=http://localhost:8080/products/agent-harnesses/vercel-ai
@@ -106,8 +113,8 @@ curl -s -X POST $base/sessions/$ID/interrupts/$INTERRUPT_ID/approve -H "X-Agent-
 
 `test/integ/agent-harness-<harness>.test.ts` drives each harness through these routes against a
 real Dex Server, with no model key. Each runs a turn that calls `look_up_order`, a cancellation of
-order `1002` that is rejected and never runs, one that is approved and runs once, and the 403 and
-400 responses.
+order `1002` that is rejected and never runs while the model reads the rejection, one that is
+approved and runs exactly once, and the 403 and 400 responses.
 
 - The scripted models follow the Python demo model's script: "cancel order <id>" calls
   `cancel_order`, other text with "order <id>" calls `look_up_order`, and the answer repeats the

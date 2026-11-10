@@ -109,6 +109,9 @@ export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup):
     await sessions.waitForCompletedTurns(session.sessionId, 1, waitOptions);
     assert.equal(orderDesk.cancelCallCount, 0);
     assert.equal(orderDesk.describeOrder("1002"), "Order 1002: 1 desk lamp, processing.");
+    // The model reads the rejection reason as the call's result.
+    const reply = lastAssistantText(await sessions.getAgentSnapshot(session.sessionId));
+    assert.ok(reply.startsWith(scriptedReplyPrefix) && reply.includes("keep the order"), reply);
   });
 
   test(`${setup.harnessName}: a cancellation waits for approval and runs once after it`, async () => {
@@ -129,9 +132,13 @@ export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup):
     assert.equal(orderDesk.cancelCallCount, 1);
   });
 
-  test(`${setup.harnessName}: session routes refuse a wrong token and a malformed body`, async () => {
+  test(`${setup.harnessName}: session routes refuse a missing or wrong token and an empty message`, async () => {
     const session = await startSession();
+    const missingToken = await fetch(`${baseUrl}/sessions/${session.sessionId}/snapshot`);
+    assert.equal(missingToken.status, 403);
     assert.equal((await request({ ...session, sessionToken: "0".repeat(64) }, "snapshot")).status, 403);
+    // The token check comes first, so a stranger learns nothing from the body validation.
+    assert.equal((await post({ ...session, sessionToken: "0".repeat(64) }, "messages", { text: "" })).status, 403);
     assert.equal((await post(session, "messages", { text: "" })).status, 400);
   });
 

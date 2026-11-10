@@ -73,6 +73,7 @@ import { waitTypesFlow } from "./primitives/wait-types/wait-types-flow.js";
 import { loadAiAgentConfig } from "./products/ai-agent/ai-agent-config.js";
 import { createAiAgentFlow } from "./products/ai-agent/ai-agent-flow.js";
 import {
+  buildClaudeCliEnvironment,
   createClaudeAgentSdkOrderSupportFlow,
   hasAnthropicApiKey,
   loadClaudeAgentSdkOrderSupportModel,
@@ -110,7 +111,7 @@ const aiAgentFlow = createAiAgentFlow(aiAgentConfig);
 const orderDesk = new OrderDesk();
 // Without the key the Claude Code CLI could fall back to a developer's own login, so skip the harness.
 const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
-  ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel())
+  ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel(), buildClaudeCliEnvironment())
   : undefined;
 if (claudeAgentSdkOrderSupportFlow === undefined) {
   console.warn("ANTHROPIC_API_KEY is not set, so the Claude Agent SDK order support example is not registered");

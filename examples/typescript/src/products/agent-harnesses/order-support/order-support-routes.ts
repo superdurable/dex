@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { Router, type NextFunction, type Request, type Response } from "express";
 
@@ -36,11 +36,6 @@ class HttpError extends Error {
 
 type JsonBody = Record<string, unknown>;
 
-/** Signs session tokens. A random key ends every token when the process restarts. */
-export function loadOrderSupportSessionKey(): string {
-  return process.env.DEX_AGENT_SESSION_KEY || randomBytes(32).toString("hex");
-}
-
 /**
  * Routes of one order-support session Flow, the same for every harness. The session ID is the Flow ID.
  * Each session route checks the session token, an HMAC of the session ID.
@@ -60,7 +55,7 @@ export function createOrderSupportRouter(client: Client, flow: AgentSessionFlow,
 
   router.post("/sessions", async (request, response) => {
     const initialMessage = optionalString(requireBody(request), "message");
-    // The server picks the session ID, so a caller cannot reuse another caller's session.
+    // The server picks the session ID, so a caller cannot name another session.
     const sessionId = `order-support-${randomUUID()}`;
     await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
     response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
@@ -69,17 +64,20 @@ export function createOrderSupportRouter(client: Client, flow: AgentSessionFlow,
     response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
   });
   router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
     const message = { text: requireString(requireBody(request), "text") };
-    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionIdOf(request), message));
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
   });
   router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
     const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
-    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionIdOf(request), approval));
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
   });
   router.post("/sessions/:id/interrupts/:interruptId/reject", async (request, response) => {
+    const sessionId = sessionIdOf(request);
     const rejectionMessage = optionalString(requireBody(request), "reason");
     const rejection = { interruptId: String(request.params.interruptId), approved: false, rejectionMessage };
-    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionIdOf(request), rejection));
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, rejection));
   });
 
   router.use(sendErrorResponse);

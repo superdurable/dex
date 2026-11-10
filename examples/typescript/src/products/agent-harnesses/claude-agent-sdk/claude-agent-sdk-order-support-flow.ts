@@ -38,16 +38,34 @@ export function hasAnthropicApiKey(): boolean {
   return (process.env.ANTHROPIC_API_KEY ?? "") !== "";
 }
 
+/** Worker environment variables the Claude Code CLI needs to run, besides its API key. */
+const claudeCliRuntimeVariableNames = ["PATH", "HOME", "TMPDIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"];
+
+/**
+ * Builds the whole environment of the Claude Code CLI: `ANTHROPIC_API_KEY` and the variables the CLI needs to
+ * run. Other credentials in the Worker's environment never reach the CLI.
+ */
+export function buildClaudeCliEnvironment(): Record<string, string> {
+  const cliEnvironment: Record<string, string> = { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "" };
+  for (const name of claudeCliRuntimeVariableNames) {
+    const value = process.env[name];
+    if (value !== undefined) {
+      cliEnvironment[name] = value;
+    }
+  }
+  return cliEnvironment;
+}
+
 /**
  * Builds the order support session Flow. The Claude Code CLI runs each turn, and look_up_order runs inside it.
  * cancel_order waits for approval, runs at most once in its own Step, and then the Claude session continues.
  *
- * @param cliEnvironment - The whole CLI environment; unset, the CLI inherits the Worker's.
+ * @param cliEnvironment - The whole environment of the Claude Code CLI, from {@link buildClaudeCliEnvironment}.
  */
 export function createClaudeAgentSdkOrderSupportFlow(
   orderDesk: OrderDesk,
   model: string,
-  cliEnvironment?: Readonly<Record<string, string>>,
+  cliEnvironment: Readonly<Record<string, string>>,
 ): AgentSessionFlow {
   const lookUpOrder = tool(
     "look_up_order",
@@ -70,7 +88,8 @@ export function createClaudeAgentSdkOrderSupportFlow(
         tools: [],
         // Settings files could approve a tool before Dex asks for approval.
         settingSources: [],
-        ...(cliEnvironment === undefined ? {} : { env: { ...cliEnvironment } }),
+        // Only the variables in cliEnvironment reach the CLI, so no other Claude credential can take over.
+        env: { ...cliEnvironment },
       },
       customTools: [lookUpOrder, cancelOrder],
       toolPolicies: {

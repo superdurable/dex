@@ -57,10 +57,7 @@ import { createTimerRouter } from "./primitives/timer/controller.js";
 import { createWaitTypesRouter } from "./primitives/wait-types/controller.js";
 import { loadAiAgentSessionKey } from "./products/ai-agent/ai-agent-config.js";
 import { createAiAgentRouter } from "./products/ai-agent/controller.js";
-import {
-  createOrderSupportRouter,
-  loadOrderSupportSessionKey,
-} from "./products/agent-harnesses/order-support/order-support-routes.js";
+import { createOrderSupportRouter } from "./products/agent-harnesses/order-support/order-support-routes.js";
 import { createEngagementRouter } from "./products/engagement/controller.js";
 import { createJobPostingRouter } from "./products/job-post/controller.js";
 import { createMicroserviceRouter } from "./products/microservices/controller.js";
@@ -111,20 +108,21 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/products/subscription", createSubscriptionRouter(client));
   app.use("/products/signup", createSignupRouter(client));
   app.use("/products/job-post", createJobPostingRouter(client));
-  app.use("/products/ai-agent", createAiAgentRouter(client, aiAgentFlow, loadAiAgentSessionKey(), aiAgentConfig.models));
-  const orderSupportSessionKey = loadOrderSupportSessionKey();
+  // The AI Agent and the agent harness routes sign session tokens with the same key.
+  const agentSessionKey = loadAiAgentSessionKey();
+  app.use("/products/ai-agent", createAiAgentRouter(client, aiAgentFlow, agentSessionKey, aiAgentConfig.models));
   if (claudeAgentSdkOrderSupportFlow !== undefined) {
     app.use(
       "/products/agent-harnesses/claude-agent-sdk",
-      createOrderSupportRouter(client, claudeAgentSdkOrderSupportFlow, orderSupportSessionKey),
+      createOrderSupportRouter(client, claudeAgentSdkOrderSupportFlow, agentSessionKey),
     );
   }
   app.use(
     "/products/agent-harnesses/openai-agents",
-    createOrderSupportRouter(client, openAIAgentsOrderSupportFlow, orderSupportSessionKey),
+    createOrderSupportRouter(client, openAIAgentsOrderSupportFlow, agentSessionKey),
   );
-  app.use("/products/agent-harnesses/vercel-ai", createOrderSupportRouter(client, vercelAiOrderSupportFlow, orderSupportSessionKey));
-  app.use("/products/agent-harnesses/mastra", createOrderSupportRouter(client, mastraOrderSupportFlow, orderSupportSessionKey));
+  app.use("/products/agent-harnesses/vercel-ai", createOrderSupportRouter(client, vercelAiOrderSupportFlow, agentSessionKey));
+  app.use("/products/agent-harnesses/mastra", createOrderSupportRouter(client, mastraOrderSupportFlow, agentSessionKey));
   app.use("/patterns/polling", createPatternPollingRouter(client, pollingFlow, pollingJobs));
   app.use("/patterns/interruptible", createInterruptibleRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));

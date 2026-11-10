@@ -15,7 +15,8 @@
  */
 
 import { Agent, tool, type Model } from "@openai/agents";
-import { createOpenAIAgentsSessionFlow, type AgentSessionFlow } from "@superdurable/dex-agents-openai-agents";
+import type { AgentSessionFlow } from "@superdurable/dex-agents";
+import { createOpenAIAgentsSessionFlow } from "@superdurable/dex-agents-openai-agents";
 import { z } from "zod";
 
 import { environmentOr } from "../../../config/env.js";

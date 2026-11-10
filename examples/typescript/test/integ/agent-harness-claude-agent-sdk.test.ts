@@ -19,7 +19,10 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createClaudeAgentSdkOrderSupportFlow } from "../../src/products/agent-harnesses/claude-agent-sdk/claude-agent-sdk-order-support-flow.js";
+import {
+  buildClaudeCliEnvironment,
+  createClaudeAgentSdkOrderSupportFlow,
+} from "../../src/products/agent-harnesses/claude-agent-sdk/claude-agent-sdk-order-support-flow.js";
 import { registerOrderSupportScenarios } from "./agent-harnesses/order-support-scenarios.js";
 import { ScriptedOrderSupportMessagesApi } from "./agent-harnesses/scripted-order-support-messages-api.js";
 
@@ -47,6 +50,23 @@ registerOrderSupportScenarios({
     });
   },
   close: async () => {
+    // Other Claude credentials in the Worker's environment never reach the CLI.
+    const savedEnvironment = { ...process.env };
+    try {
+      Object.assign(process.env, {
+        ANTHROPIC_API_KEY: "sk-ant-test-worker-key",
+        ANTHROPIC_AUTH_TOKEN: "another-credential",
+        CLAUDE_CODE_USE_BEDROCK: "1",
+        PATH: "/usr/bin:/bin",
+      });
+      assert.deepEqual(
+        Object.keys(buildClaudeCliEnvironment()).filter((name) => name.startsWith("ANTHROPIC") || name.startsWith("CLAUDE")),
+        ["ANTHROPIC_API_KEY"],
+      );
+      assert.equal(buildClaudeCliEnvironment().PATH, "/usr/bin:/bin");
+    } finally {
+      process.env = savedEnvironment;
+    }
     assert.deepEqual(messagesApi.unservedRequests, []);
     await messagesApi.stop();
     rmSync(stateDirectory, { recursive: true, force: true });
