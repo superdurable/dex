@@ -575,6 +575,12 @@ theorem wp2_exec_deliver (program : Program) (config : Dex.Config signature)
   | returned response =>
     simp [phaseCase] at hasEffect
 
+/-- The Worker steps of a delivery attempt no request. -/
+theorem wp2_deliverActions_requests (program : Program) (task : Dex.Task signature) :
+    (wp2_deliverActions task).filterMap (Dex.system ⟦program⟧).requestOf = [] := by
+  unfold wp2_deliverActions
+  split <;> rfl
+
 /-! ## [STEP-START] -/
 
 /-- The task that [STEP-START] hands to a Worker. -/
@@ -812,5 +818,143 @@ theorem wp2_readWaiters_snapshot (run : Dex.Run signature) (core : ThreadCore) (
     (Key.cvWaiters cv)
     (by simp [Dex.Run.isLoadedKey, hasSelection, executeLoadMaps, isOperand,
       Dex.StepOptions.loadMaps])]
+
+/-- Every handler of a translated Flow has at most one external effect. -/
+theorem wp2_compute_effects_length (program : Program) (task : Dex.Task signature) :
+    (task.compute ⟦program⟧).1.length ≤ 1 := by
+  cases methodCase : task.method with
+  | waitFor => simp [wp2_compute_waitFor_effects program task methodCase]
+  | execute =>
+    unfold Dex.Task.compute
+    simp only [methodCase]
+    cases task.step.stepType with
+    | start => simp [translate, wp2_startStep_effects]
+    | timed => simp [translate, wp2_timedStep_effects]
+    | point code =>
+      simp only [translate, pointStepDef]
+      split
+      · split
+        · simp
+        · split <;> simp
+      · simp
+
+/-! ## After the close: the task that holds a late emit -/
+
+/-- A list with at most one element that has an element is that singleton. -/
+theorem wp2_eq_singleton_of_mem {α : Type} {element : α} {elements : List α}
+    (isMember : element ∈ elements) (isShort : elements.length ≤ 1) :
+    elements = [element] := by
+  match elements, isMember, isShort with
+  | [only], isOnly, _ => simp [List.mem_singleton.mp isOnly]
+  | _ :: _ :: _, _, isTooLong => simp at isTooLong
+
+/-- A list is its element at `index` followed by the rest, up to order. -/
+theorem wp2_perm_removeAt {α : Type} (elements : List α) (index : Nat) (element : α)
+    (isAt : elements[index]? = some element) :
+    elements.Perm (element :: removeAt elements index) := by
+  induction elements generalizing index with
+  | nil => simp at isAt
+  | cons head rest inductionHypothesis =>
+    cases index with
+    | zero =>
+      simp only [List.getElem?_cons_zero, Option.some.injEq] at isAt
+      subst isAt
+      exact List.Perm.refl _
+    | succ previous =>
+      simp only [List.getElem?_cons_succ] at isAt
+      exact ((inductionHypothesis previous isAt).cons head).trans (List.Perm.swap _ _ _)
+
+/-- With unique task IDs, the task list splits around a task, and no other
+task has its ID. -/
+theorem wp2_split_task {config : Dex.Config signature} (tasksDistinct : TasksAreDistinct config)
+    {task : Dex.Task signature} (isMember : task ∈ config.tasks) :
+    ∃ before after, config.tasks = before ++ task :: after ∧
+      (∀ other, other ∈ before → other.id ≠ task.id) ∧
+      (∀ other, other ∈ after → other.id ≠ task.id) := by
+  obtain ⟨before, after, isSplit⟩ := List.append_of_mem isMember
+  have idsNodup := tasksDistinct.1
+  rw [isSplit] at idsNodup
+  simp only [List.map_append, List.map_cons, List.nodup_append, List.nodup_cons, List.mem_map,
+    List.mem_cons] at idsNodup
+  refine ⟨before, after, isSplit, ?_, ?_⟩
+  · intro other isOther sameId
+    exact idsNodup.2.2 other.id ⟨other, isOther, rfl⟩ task.id (Or.inl rfl) sameId
+  · intro other isOther sameId
+    exact idsNodup.2.1.1 ⟨other, isOther, sameId⟩
+
+/-- The configurations after the close: the Flow is closed. -/
+theorem wp2_run_of_closed {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} (isRelated : Related program lConfig dexConfig)
+    (isClosed : lConfig.status = .closed) :
+    ∃ run status, dexConfig.run = some run ∧ run.status = .closed status := by
+  have isStatus := isRelated.status
+  cases runCase : dexConfig.run with
+  | none => simp [isClosed, runCase] at isStatus
+  | some run =>
+    simp only [isClosed, runCase] at isStatus
+    obtain ⟨status, hasStatus⟩ := isStatus
+    exact ⟨run, status, rfl, hasStatus⟩
+
+/-- A late emit is the one effect of some task. Without that task, the
+remaining tasks hold the remaining late emits. The hypothesis
+`singleEffects` is not part of `IsSimulationState` today; see the README. -/
+theorem wp2_late_task {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} (state : IsSimulationState program lConfig dexConfig)
+    (singleEffects : ∀ task, task ∈ dexConfig.tasks →
+      (pendingEffects ⟦program⟧ task).length ≤ 1)
+    {run : Dex.Run signature} {status : Dex.CloseStatus} (hasRun : dexConfig.run = some run)
+    (isClosedRun : run.status = .closed status) (index : Nat) (effect : Val)
+    (isLate : lConfig.lateEmits[index]? = some effect) :
+    ∃ task before after, task ∈ dexConfig.tasks ∧
+      pendingEffects ⟦program⟧ task = [effect] ∧
+      dexConfig.tasks = before ++ task :: after ∧
+      (∀ other, other ∈ before → other.id ≠ task.id) ∧
+      (∀ other, other ∈ after → other.id ≠ task.id) ∧
+      ((before ++ after).flatMap (pendingEffects ⟦program⟧)).Perm
+        (removeAt lConfig.lateEmits index) := by
+  have closedRelated := state.isRelated.closed run status hasRun isClosedRun
+  have isHeld : effect ∈ dexConfig.tasks.flatMap (pendingEffects ⟦program⟧) :=
+    closedRelated.lateEmits.mem_iff.mpr (List.mem_of_getElem? isLate)
+  obtain ⟨task, isTask, holdsEffect⟩ := List.mem_flatMap.mp isHeld
+  have hasEffect := wp2_eq_singleton_of_mem holdsEffect (singleEffects task isTask)
+  obtain ⟨before, after, isSplit, beforeOther, afterOther⟩ :=
+    wp2_split_task state.tasksDistinct isTask
+  refine ⟨task, before, after, isTask, hasEffect, isSplit, beforeOther, afterOther, ?_⟩
+  have isPerm := closedRelated.lateEmits
+  rw [isSplit] at isPerm
+  simp only [List.flatMap_append, List.flatMap_cons, hasEffect, List.singleton_append] at isPerm
+  have isMiddle : (effect :: (before ++ after).flatMap (pendingEffects ⟦program⟧)).Perm
+      (effect :: removeAt lConfig.lateEmits index) := by
+    rw [List.flatMap_append]
+    exact (List.perm_middle.symm.trans isPerm).trans
+      (wp2_perm_removeAt lConfig.lateEmits index effect isLate)
+  exact isMiddle.cons_inv
+
+/-- Removing a task whose ID no other task has leaves the other tasks. -/
+theorem wp2_removeTask_of_split (config : Dex.Config signature) (task : Dex.Task signature)
+    (before after : List (Dex.Task signature)) (isSplit : config.tasks = before ++ task :: after)
+    (beforeOther : ∀ other, other ∈ before → other.id ≠ task.id)
+    (afterOther : ∀ other, other ∈ after → other.id ≠ task.id) :
+    (config.removeTask task.id).tasks = before ++ after := by
+  simp only [Dex.Config.removeTask, isSplit, List.filter_append, List.filter_cons,
+    decide_true, Bool.not_true, Bool.false_eq_true, ↓reduceIte]
+  congr 1
+  · exact List.filter_eq_self.mpr (fun other isOther => by simp [beforeOther other isOther])
+  · exact List.filter_eq_self.mpr (fun other isOther => by simp [afterOther other isOther])
+
+/-- Changing a task whose ID no other task has leaves the other tasks. -/
+theorem wp2_updateTask_of_split (config : Dex.Config signature) (task : Dex.Task signature)
+    (change : Dex.Task signature → Dex.Task signature)
+    (before after : List (Dex.Task signature)) (isSplit : config.tasks = before ++ task :: after)
+    (beforeOther : ∀ other, other ∈ before → other.id ≠ task.id)
+    (afterOther : ∀ other, other ∈ after → other.id ≠ task.id) :
+    (config.updateTask task.id change).tasks = before ++ change task :: after := by
+  simp only [Dex.Config.updateTask, isSplit, List.map_append, List.map_cons, ↓reduceIte]
+  congr 1
+  · exact (List.map_congr_left (fun other isOther => by simp [beforeOther other isOther])).trans
+      (List.map_id _)
+  · congr 1
+    exact (List.map_congr_left (fun other isOther => by simp [afterOther other isOther])).trans
+      (List.map_id _)
 
 end DexExpressiveness

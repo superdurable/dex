@@ -202,6 +202,158 @@ theorem l_fire_simulated (program : Program) (lConfig : L.Config)
     IsSimulatedByDex program dexConfig (.fire count) lEvents lNext := by
   sorry
 
+/-- The named-sequence form of the delivery of a late emit, under the
+hypothesis that every task holds at most one effect: a task that holds the
+effect runs `wp2_deliverActions`, and the result is related.
+
+`singleEffects` is not part of `IsSimulationState` at the base commit of
+this package, and `l_lateDeliver_simulated` is false without it. -/
+theorem wp2_lateDeliver_exec (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    (singleEffects : ∀ task, task ∈ dexConfig.tasks →
+      (pendingEffects ⟦program⟧ task).length ≤ 1)
+    (index : Nat) (effect : Val) (isClosed : lConfig.status = .closed)
+    (isLate : lConfig.lateEmits[index]? = some effect) :
+    ∃ task, task ∈ dexConfig.tasks ∧
+      (Dex.system ⟦program⟧).exec dexConfig (wp2_deliverActions task) =
+        some ([Dex.Obs.fx task.step task.method effect],
+          dexConfig.updateTask task.id (fun _ => wp2_deliveredTask program task)) ∧
+      Related program { lConfig with lateEmits := removeAt lConfig.lateEmits index }
+        (dexConfig.updateTask task.id (fun _ => wp2_deliveredTask program task)) := by
+  obtain ⟨run, status, hasRun, isClosedRun⟩ := wp2_run_of_closed state.isRelated isClosed
+  have closedRelated := state.isRelated.closed run status hasRun isClosedRun
+  obtain ⟨task, before, after, isTask, hasEffect, isSplit, beforeOther, afterOther, isPerm⟩ :=
+    wp2_late_task state singleEffects hasRun isClosedRun index effect isLate
+  refine ⟨task, isTask,
+    wp2_exec_deliver program dexConfig state.tasksDistinct task isTask
+      (state.dexInvariant.tasksComputed task isTask) effect hasEffect, ?_⟩
+  have hasTasks := wp2_updateTask_of_split dexConfig task
+    (fun _ => wp2_deliveredTask program task) before after isSplit beforeOther afterOther
+  exact
+    { clock := state.isRelated.clock
+      stamp := state.isRelated.stamp
+      status := state.isRelated.status
+      notStarted := fun hasNoRun => by
+        have isAbsent : some run = none := hasRun.symm.trans hasNoRun
+        cases isAbsent
+      running := fun newRun hasNewRun isRunning => by
+        obtain rfl : run = newRun := Option.some.inj (hasRun.symm.trans hasNewRun)
+        rw [isClosedRun] at isRunning
+        cases isRunning
+      closed := fun newRun newStatus hasNewRun _ => by
+        obtain rfl : run = newRun := Option.some.inj (hasRun.symm.trans hasNewRun)
+        exact
+          { lateEmits := by
+              rw [hasTasks]
+              simpa [List.flatMap_append, wp2_deliveredTask, pendingEffects] using isPerm
+            tasksAreStale := fun other isOther => by
+              obtain ⟨original, isOriginal, isChanged⟩ := mem_updateTask _ _ _ _ isOther
+              have wasStale := closedRelated.tasksAreStale original isOriginal
+              by_cases sameId : original.id = task.id
+              · have isTaskOriginal : original = task :=
+                  eq_of_nodup_map (fun current => current.id) dexConfig.tasks
+                    state.tasksDistinct.1 isOriginal isTask sameId
+                rw [isTaskOriginal] at wasStale
+                simp only [sameId, ↓reduceIte] at isChanged
+                rw [isChanged]
+                exact wasStale
+              · simp only [sameId, ↓reduceIte] at isChanged
+                rw [isChanged]
+                exact wasStale
+            noInvocation := closedRelated.noInvocation
+            noTimer := closedRelated.noTimer } }
+
+/-- `l_lateDeliver_simulated` under the hypothesis that every task holds at
+most one effect. -/
+theorem wp2_lateDeliver_simulated_of_singleEffects (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    (singleEffects : ∀ task, task ∈ dexConfig.tasks →
+      (pendingEffects ⟦program⟧ task).length ≤ 1)
+    (index : Nat) (lEvents : List Event) (lNext : L.Config)
+    (isStep : (L.system program).step lConfig (.lateDeliver index) = some (lEvents, lNext)) :
+    IsSimulatedByDex program dexConfig (.lateDeliver index) lEvents lNext := by
+  simp only [L.system, L.step] at isStep
+  split at isStep
+  · rename_i effect isClosed isLate
+    injection isStep with isPair
+    injection isPair with isEvents isNext
+    subst isEvents
+    subst isNext
+    obtain ⟨task, _, isExec, isRelated⟩ := wp2_lateDeliver_exec program lConfig dexConfig state
+      singleEffects index effect isClosed isLate
+    exact ⟨_, _, _, isExec, rfl, wp2_deliverActions_requests program task, isRelated⟩
+  · cases isStep
+
+/-- The named-sequence form of the drop of a late emit, under the hypothesis
+that every task holds at most one effect: [WORKER-ABANDON] of a task that
+holds the effect, and the result is related.
+
+`singleEffects` is not part of `IsSimulationState` at the base commit of
+this package, and `l_lateDrop_simulated` is false without it. -/
+theorem wp2_lateDrop_exec (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    (singleEffects : ∀ task, task ∈ dexConfig.tasks →
+      (pendingEffects ⟦program⟧ task).length ≤ 1)
+    (index : Nat) (effect : Val) (isClosed : lConfig.status = .closed)
+    (isLate : lConfig.lateEmits[index]? = some effect) :
+    ∃ task, task ∈ dexConfig.tasks ∧
+      (Dex.system ⟦program⟧).exec dexConfig [.workerAbandon task.id] =
+        some ([], dexConfig.removeTask task.id) ∧
+      Related program { lConfig with lateEmits := removeAt lConfig.lateEmits index }
+        (dexConfig.removeTask task.id) := by
+  obtain ⟨run, status, hasRun, isClosedRun⟩ := wp2_run_of_closed state.isRelated isClosed
+  have closedRelated := state.isRelated.closed run status hasRun isClosedRun
+  obtain ⟨task, before, after, isTask, _, isSplit, beforeOther, afterOther, isPerm⟩ :=
+    wp2_late_task state singleEffects hasRun isClosedRun index effect isLate
+  have isFound := wp2_findTask?_of_mem state.tasksDistinct isTask
+  have isStale := closedRelated.tasksAreStale task isTask
+  refine ⟨task, isTask, ?_, ?_⟩
+  · simp [TransitionSystem.exec, Dex.system, Dex.step, isFound, isStale]
+  · have hasTasks := wp2_removeTask_of_split dexConfig task before after isSplit beforeOther
+      afterOther
+    exact
+      { clock := state.isRelated.clock
+        stamp := state.isRelated.stamp
+        status := state.isRelated.status
+        notStarted := fun hasNoRun => by
+          have isAbsent : some run = none := hasRun.symm.trans hasNoRun
+          cases isAbsent
+        running := fun newRun hasNewRun isRunning => by
+          obtain rfl : run = newRun := Option.some.inj (hasRun.symm.trans hasNewRun)
+          rw [isClosedRun] at isRunning
+          cases isRunning
+        closed := fun newRun newStatus hasNewRun _ => by
+          obtain rfl : run = newRun := Option.some.inj (hasRun.symm.trans hasNewRun)
+          exact
+            { lateEmits := by
+                rw [hasTasks]
+                exact isPerm
+              tasksAreStale := fun other isOther =>
+                closedRelated.tasksAreStale other (List.mem_filter.mp isOther).1
+              noInvocation := closedRelated.noInvocation
+              noTimer := closedRelated.noTimer } }
+
+/-- `l_lateDrop_simulated` under the hypothesis that every task holds at most
+one effect. -/
+theorem wp2_lateDrop_simulated_of_singleEffects (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    (singleEffects : ∀ task, task ∈ dexConfig.tasks →
+      (pendingEffects ⟦program⟧ task).length ≤ 1)
+    (index : Nat) (lEvents : List Event) (lNext : L.Config)
+    (isStep : (L.system program).step lConfig (.lateDrop index) = some (lEvents, lNext)) :
+    IsSimulatedByDex program dexConfig (.lateDrop index) lEvents lNext := by
+  simp only [L.system, L.step] at isStep
+  split at isStep
+  · rename_i effect isClosed isLate
+    injection isStep with isPair
+    injection isPair with isEvents isNext
+    subst isEvents
+    subst isNext
+    obtain ⟨task, _, isExec, isRelated⟩ := wp2_lateDrop_exec program lConfig dexConfig state
+      singleEffects index effect isClosed isLate
+    exact ⟨_, _, _, isExec, rfl, rfl, isRelated⟩
+  · cases isStep
+
 /-- The delivery of a late emit is simulated by the [WORKER-EFFECT] of a
 task of a canceled Step. -/
 theorem l_lateDeliver_simulated (program : Program) (lConfig : L.Config)
@@ -468,12 +620,6 @@ theorem wp2_thread_deliver_exec (program : Program) (lConfig : L.Config)
         obtain rfl : run = newRun := Option.some.inj (hasRun.symm.trans hasNewRun)
         rw [isRunning] at isClosed
         cases isClosed }
-
-/-- The Worker steps of a delivery attempt no request. -/
-theorem wp2_deliverActions_requests (program : Program) (task : Dex.Task signature) :
-    (wp2_deliverActions task).filterMap (Dex.system ⟦program⟧).requestOf = [] := by
-  unfold wp2_deliverActions
-  split <;> rfl
 
 /-- `out(a)` is simulated by [WORKER-EFFECT] of the emit Step's task. -/
 theorem l_thread_deliver_simulated (program : Program) (lConfig : L.Config)
