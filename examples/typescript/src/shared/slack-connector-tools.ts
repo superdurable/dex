@@ -14,40 +14,42 @@
  * limitations under the License.
  */
 
-import { SecretString, StaticCredentialProvider, type ConnectionRef } from "@superdurable/connectors-sdk";
+import { LocalConnectionsFileEnvironment, loadFromEnvironment } from "@superdurable/connectors-sdk/projectconfig";
 import manifest from "@superdurable/connector-slack/dex-connector.json" with { type: "json" };
 import {
+  ConnectorID,
   PostThreadReplyInputSchema,
-  ProviderID,
-  SlackClient,
-  newConnection,
+  newProjectConnection,
   type Connection,
-  type Credentials,
 } from "@superdurable/connector-slack";
 import type { ToolSource } from "@superdurable/dex-agents";
 import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
 
-/** The logical Slack connection the agent examples post with. Flow state stores only this reference. */
-export const slackConnectionReference: ConnectionRef = { provider: ProviderID, name: "support-slack" };
+/** The static name of the project's Slack connection that the agent examples post with. */
+export const slackConnectionName = "support-slack";
 
 /**
- * Opens the Slack connection with tokens from the environment; they never enter Flow state.
+ * Opens the Slack connection `support-slack` from the Dex project configuration. Credentials never enter Flow state.
  *
- * @returns The connection, or `undefined` after logging one line when `SLACK_BOT_TOKEN` is unset.
+ * @param environment - Selects the project configuration: `DEX_CONNECTOR_CONFIG_FILE` or the `DEX_PROJECT_*` settings.
+ * @returns The connection, or `undefined` after logging one line when the project has no such connection.
  */
-export function openSlackConnectionFromEnvironment(): Connection | undefined {
-  const botToken = process.env.SLACK_BOT_TOKEN ?? "";
-  if (botToken === "") {
-    console.warn("SLACK_BOT_TOKEN is not set, so the agent examples offer no Slack connector tools");
+export async function openSlackConnectionFromProject(
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<Connection | undefined> {
+  if (!environment[LocalConnectionsFileEnvironment] && !environment.DEX_PROJECT_ID) {
+    console.warn("No Dex project configuration is set, so the agent examples offer no Slack connector tools");
     return undefined;
   }
-  const credentials: Credentials = {
-    botToken: new SecretString(botToken),
-    // Optional: confirms a post after an interrupted attempt; without it that post is outcome_unknown.
-    userToken: new SecretString(process.env.SLACK_USER_TOKEN ?? ""),
-  };
-  const credentialProvider = new StaticCredentialProvider([[slackConnectionReference, credentials]]);
-  return newConnection(new SlackClient({}, credentialProvider), slackConnectionReference);
+  const project = await loadFromEnvironment(environment);
+  const hasSlackConnection = project.configuration.connections.some(
+    (connection) => connection.connectorId === ConnectorID && connection.connectionName === slackConnectionName,
+  );
+  if (!hasSlackConnection) {
+    console.warn(`The Dex project has no Slack connection ${slackConnectionName}, so the agent examples offer no Slack connector tools`);
+    return undefined;
+  }
+  return newProjectConnection(project, slackConnectionName);
 }
 
 /**

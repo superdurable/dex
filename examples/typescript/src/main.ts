@@ -191,25 +191,35 @@ export async function startSampleServer(): Promise<SampleServer> {
     worker,
     httpServer,
     async close() {
-      await new Promise<void>((resolve, reject) => {
-        httpServer.close((error) => {
-          if (error !== undefined) {
-            reject(error);
-            return;
-          }
-          resolve();
+      try {
+        await new Promise<void>((resolve, reject) => {
+          httpServer.close((error) => {
+            if (error !== undefined) {
+              reject(error);
+              return;
+            }
+            resolve();
+          });
         });
-      });
-      await Promise.race([
-        (async () => {
-          await client.close();
-          await worker.close();
-          blobCache.close();
-        })(),
-        new Promise<void>((resolve) => {
-          setTimeout(resolve, 3_000);
-        }),
-      ]);
+      } finally {
+        // Each later close still runs when an earlier one throws.
+        await Promise.race([
+          (async () => {
+            try {
+              await client.close();
+            } finally {
+              try {
+                await worker.close();
+              } finally {
+                blobCache.close();
+              }
+            }
+          })(),
+          new Promise<void>((resolve) => {
+            setTimeout(resolve, 3_000);
+          }),
+        ]);
+      }
     },
   };
 }
@@ -254,7 +264,12 @@ async function main(): Promise<void> {
     `Dex TypeScript examples listening on http://${env.httpAddress} (pull worker)`,
   );
   const shutdown = async () => {
-    await server.close();
+    try {
+      await server.close();
+    } catch (error) {
+      console.error(error);
+      process.exit(1);
+    }
     process.exit(0);
   };
   process.on("SIGINT", () => {

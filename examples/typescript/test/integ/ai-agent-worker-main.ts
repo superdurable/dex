@@ -22,7 +22,7 @@ import { runAgentWorkerProcess } from "@superdurable/dex-agents/testing";
 
 import { loadAiAgentConfig } from "../../src/products/ai-agent/ai-agent-config.js";
 import { createAiAgentFlow } from "../../src/products/ai-agent/ai-agent-flow.js";
-import { slackConnectionReference } from "../../src/shared/slack-connector-tools.js";
+import { slackConnectionName } from "../../src/shared/slack-connector-tools.js";
 
 // The AI Agent Worker as a child process, so a test can kill it mid-turn.
 await runAgentWorkerProcess([createAiAgentFlow(loadAiAgentConfig(), openRecordingSlackMock())]);
@@ -34,7 +34,7 @@ function openRecordingSlackMock(): Connection | undefined {
   if (callsFile === undefined) {
     return undefined;
   }
-  const slackMock = new GeneratedMock(slackConnectionReference.name);
+  const slackMock = new GeneratedMock(slackConnectionName);
   const mockPostThreadReply = slackMock.postThreadReply();
   return newConnectionWithOperations(
     {
@@ -51,6 +51,6 @@ function openRecordingSlackMock(): Connection | undefined {
         },
       }),
     },
-    slackConnectionReference,
+    slackMock.connection().reference,
   );
 }

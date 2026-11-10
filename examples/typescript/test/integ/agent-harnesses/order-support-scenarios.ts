@@ -31,7 +31,7 @@ import {
   createOrderSupportRouter,
   orderSupportSessionTokenHeaderName,
 } from "../../../src/products/agent-harnesses/order-support/order-support-routes.js";
-import { slackConnectionReference } from "../../../src/shared/slack-connector-tools.js";
+import { slackConnectionName } from "../../../src/shared/slack-connector-tools.js";
 import { scriptedCancelReason, scriptedReplyPrefix, slackPostThreadReplyToolName } from "./order-support-script.js";
 
 const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
@@ -74,7 +74,7 @@ export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup):
 
   test.before(async () => {
     orderDesk = new CancelCountingOrderDesk();
-    slackMock = new GeneratedMock(slackConnectionReference.name);
+    slackMock = new GeneratedMock(slackConnectionName);
     // Strict with one scripted answer: any other post fails the mock.
     slackMock.postThreadReply().strict().respond(postThreadReplyReplySent());
     const flow = await setup.createFlow(orderDesk, slackMock.connection());

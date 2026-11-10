@@ -48,8 +48,7 @@ command, URL, or credential. The names match the Python example.
 | `DEX_AGENT_CONTEXT_TOKENS` | `32000` | Context window for compaction |
 | `DEX_AGENT_MCP_CONFIG` | the demo `notes` server | Path to a YAML file of MCP servers, in the Python example's format |
 | `DEX_AGENT_SESSION_KEY` | random per process | Signs session tokens; a random key ends every token when the process restarts |
-| `SLACK_BOT_TOKEN` | none | Slack bot token that posts for `slack_post_thread_reply`. Without it, the process logs one line and the agent offers no Slack tool |
-| `SLACK_USER_TOKEN` | none | Optional Slack user token that confirms a post after an interrupted attempt; without it, that post ends `outcome_unknown` |
+| `DEX_CONNECTOR_CONFIG_FILE` or `DEX_PROJECT_*` | none | The Dex project configuration. With a Slack connection named `support-slack` in it, the agent offers `slack_post_thread_reply`; otherwise the process logs one line and the agent offers no Slack tool. Keep the same configuration on every Worker while sessions wait for approval. See the [agent harnesses](../agent-harnesses#slack-connector-tools) |
 
 The MCP file is the Python example's format, so one file serves both examples:
 
@@ -95,7 +94,7 @@ another. The demo model answers with
 
 | Command | Does |
 | --- | --- |
-| `/tool <name> <json>` | Calls a tool, such as `/tool notes__search_notes {"query":"Step"}` (runs at once) or `/tool notes__post_message {"channel":"#general","text":"hi"}` (waits for approval). With Slack credentials, `/tool slack_post_thread_reply {"channelId":"C0123456789","threadTimestamp":"1710000000.000100","text":"hi"}` waits for approval and then posts to Slack |
+| `/tool <name> <json>` | Calls a tool, such as `/tool notes__search_notes {"query":"Step"}` (runs at once) or `/tool notes__post_message {"channel":"#general","text":"hi"}` (waits for approval). With the `support-slack` connection, `/tool slack_post_thread_reply {"channelId":"C0123456789","threadTimestamp":"1710000000.000100","text":"hi"}` waits for approval and then posts to Slack |
 | `/ask <question>` | Asks a free-text question |
 | `/choose <question> \| <choice> \| <choice>` | Asks a question with choices |
 | `/wait <seconds> <reason>` | Starts a durable wait |

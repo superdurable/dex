@@ -100,14 +100,14 @@ import { OrderProcessingFlow } from "./products/order-processing/order-processin
 import { userOnboardingFlow } from "./products/signup/user-signup-flow.js";
 import { subscriptionFlow } from "./products/subscription/subscription-flow.js";
 import { MyDependencyService } from "./shared/my-dependency-service.js";
-import { openSlackConnectionFromEnvironment } from "./shared/slack-connector-tools.js";
+import { openSlackConnectionFromProject } from "./shared/slack-connector-tools.js";
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const pollingJobs = new FakeJobService();
 const pollingFlow = new PollingFlow(pollingJobs);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
-// One Slack connection for the agent examples; without its tokens they offer no Slack tools.
-const slack = openSlackConnectionFromEnvironment();
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
 const aiAgentConfig = loadAiAgentConfig();
 const aiAgentFlow = createAiAgentFlow(aiAgentConfig, slack);
 // One order desk for the four agent harness examples; each harness registers its own session Flow type.

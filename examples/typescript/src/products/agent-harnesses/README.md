@@ -39,7 +39,7 @@ differ from the Python ones, so both can run against one Dex Server.
 runs at most once, in its own single-attempt tool Step. A rejected call never runs; the model reads
 the rejection.
 
-With Slack credentials, the agent also has `slack_post_thread_reply`; see
+With a `support-slack` Slack connection, the agent also has `slack_post_thread_reply`; see
 [Slack connector tools](#slack-connector-tools).
 
 How each harness runs a turn:
@@ -53,37 +53,46 @@ How each harness runs a turn:
 
 ## Slack connector tools
 
-Every harness can post a reply to a Slack thread through the Slack Connector,
-[`@superdurable/connector-slack`](https://www.npmjs.com/package/@superdurable/connector-slack) 0.2.0.
-`ConnectorToolSource` from `@superdurable/dex-agents/connectors` offers the Connector operation
-`postThreadReply` as the tool `slack_post_thread_reply`, and each harness passes it in its own
-`toolSources` option, next to the order tools.
+Each agent can also post a reply in a Slack thread through the Slack Connector
+([`@superdurable/connector-slack`](https://www.npmjs.com/package/@superdurable/connector-slack)
+0.2.0). The Connector's operations reach the agent through `ConnectorToolSource` from
+`@superdurable/dex-agents/connectors`, passed to each framework adapter as `toolSources`. The
+wiring is in [`slack-connector-tools.ts`](../../shared/slack-connector-tools.ts); each agent file
+passes `toolSources: createSlackConnectorToolSources(slack)`.
 
-| Tool | Arguments | Effect | Approval | What it does |
-| --- | --- | --- | --- | --- |
-| `slack_post_thread_reply` | `channelId`, `threadTimestamp`, `text` | `non_idempotent_write` | Yes, set by the example | Posts one reply to an existing Slack thread |
+| Tool | Slack operation | What Dex does |
+| --- | --- | --- |
+| `slack_post_thread_reply(channelId, threadTimestamp, text)` | `postThreadReply` | Waits in `AwaitToolApproval`, then runs once in its own tool Step under the Connector's Call ID. |
 
-- [`slack-connector-tools.ts`](../../shared/slack-connector-tools.ts) holds the wiring that every
-  harness shares. `createSlackConnectorToolSources` wraps the operation with `connectorTool`. It
-  passes the package's `dex-connector.json` manifest and its `PostThreadReplyInputSchema` validator.
-- The manifest decides which operations an agent may use. Slack 0.2.0 marks only `postThreadReply`
-  for agent use. Its reading operations, such as `listThreadMessages`, are not offered as tools.
-- The manifest also decides the effect. `postThreadReply` is a Mutation without `agent.retry: safe`,
-  so each call runs once, in its own `CallSingleAttemptTool` Step. The Call ID comes from that
-  Step, and the post carries an idempotency key derived from it.
-- The manifest does not ask for approval of `postThreadReply`. The example sets
-  `requiresApproval: true`, so a person approves every post before it reaches Slack.
-- `openSlackConnectionFromEnvironment` reads `SLACK_BOT_TOKEN` and `SLACK_USER_TOKEN` into the
-  Connector's credential provider. The tokens stay in the Worker's memory and never enter Flow
-  state.
+The Slack manifest decides what an agent may call: only operations marked `agent.exposed` can
+become tools. The Slack Connector exposes only `postThreadReply`, so the agents cannot read a thread
+through it. The manifest does not ask for approval, so the example passes `requiresApproval: true`:
+every post waits for a person to approve it. `connectorTool` takes the package's
+`dex-connector.json` manifest and its `PostThreadReplyInputSchema` validator.
 
-  | Variable | Required | Use |
-  | --- | --- | --- |
-  | `SLACK_BOT_TOKEN` | Yes, for the Slack tool | Posts the reply |
-  | `SLACK_USER_TOKEN` | No | Reads the thread back to confirm a post after an interrupted attempt; without it, that post ends `outcome_unknown` |
+The Slack connection comes from the Dex project configuration, like any Connector connection. At
+startup the example calls `loadFromEnvironment` from `@superdurable/connectors-sdk/projectconfig`
+and opens the connection named `support-slack` with the package's `newProjectConnection`:
 
-- Without `SLACK_BOT_TOKEN`, the process logs one line and the agents offer no Slack tool.
-  Everything else runs as before.
+- In local development, set `DEX_CONNECTOR_CONFIG_FILE` to the `connections.json` file that Dex Web
+  in `dexcli dev` writes, by default `$HOME/.dex/connectors/connections.json`. It must hold a Slack
+  connection named `support-slack`.
+- In a deployment, the `DEX_PROJECT_*` settings select the project configuration that the hosting
+  platform or operator writes.
+
+The Connector resolves the Slack credentials before each call, so they never enter Flow state. The
+bot credential posts the reply. The user credential is used only when a Worker stopped during a
+post: the Connector reads the thread to learn whether the reply was sent, and without it such a post
+records an unknown outcome. Without a project configuration, or without a `support-slack`
+connection in it, the app logs one line and the agents run without the Slack tool.
+
+A post can wait for approval for a long time, and any Worker may run it after approval. Keep the
+same Connector configuration, with the `support-slack` connection, on every Worker that runs these
+Flow types while sessions wait for approval. A Worker without it offers no Slack tool and cannot
+run an approved post.
+
+With the demo model, send `Reply in Slack thread <channel ID> <thread timestamp>: <text>`, such as
+`Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursday.`
 
 ## Configuration
 
@@ -110,12 +119,9 @@ dexcli dev
 cd examples/typescript
 npm install
 ANTHROPIC_API_KEY=... OPENAI_API_KEY=... npm start
-# Optional: also offer slack_post_thread_reply.
-SLACK_BOT_TOKEN=xoxb-... SLACK_USER_TOKEN=xoxp-... ANTHROPIC_API_KEY=... OPENAI_API_KEY=... npm start
+# Optional: also offer slack_post_thread_reply from the support-slack connection.
+DEX_CONNECTOR_CONFIG_FILE=$HOME/.dex/connectors/connections.json ANTHROPIC_API_KEY=... OPENAI_API_KEY=... npm start
 ```
-
-To post a Slack reply, ask, for example, "Reply in Slack thread C0123456789 1710000000.000100:
-Order 1001 has shipped." The call waits for approval like `cancel_order`.
 
 The Claude Agent SDK example authenticates only with `ANTHROPIC_API_KEY`:
 
@@ -166,6 +172,10 @@ Each also posts a Slack thread reply through the Slack Connector's mock,
 mock sees no call before it. After approval the mock sees exactly one call, in the session's Flow,
 with no retry or replay and an idempotency key derived from its Call ID. A second approval answers
 409 and changes nothing.
+
+`test/workflow/slack-connector-tools.test.ts` checks the connection wiring: no tool without a
+project configuration or without a `support-slack` connection, and one tool source from a local
+connections file that has it.
 
 - The scripted models follow the Python demo model's script: "cancel order <id>" calls
   `cancel_order`, other text with "order <id>" calls `look_up_order`, and the answer repeats the
