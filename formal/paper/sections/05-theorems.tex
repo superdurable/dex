@@ -141,12 +141,17 @@ hold forever from any point on.
 F0 & Every request of $w$ is eventually attempted, in order. It follows
   from ``run for $w$''. & The same. \\
 F1 & The clock exceeds every bound. & The same. \\
-F2 & No timer stays armed and due forever. An assumption on the timer
-  service: it eventually proposes \rulename{TIMER-FIRE}. & No thread's
-  armed timer stays due forever: \kw{fire} eventually happens. \\
-F3 & No invocation stays pending forever. An assumption on dispatch: a
-  pending method is eventually handed to a Worker. In this fragment every
-  pending invocation is startable, because there are no locks. & No thread
+F2 & No timer stays armed and due forever. A timer stops being armed when
+  \rulename{TIMER-FIRE} fires it, or when its wait is decided another way
+  or its Step is canceled. For a timer that nothing else disarms, this
+  assumes that the timer service eventually fires it. & No thread stays
+  blocked forever on an armed timer that is due: \kw{fire} happens, or a
+  message or a cancel decides the wait, or the program ends. \\
+F3 & No invocation stays pending forever. A pending invocation ends by
+  starting, or when the Flow closes and cancels its Step. Otherwise this
+  assumes that dispatch eventually hands it to a Worker. In this fragment
+  every pending invocation is startable, because there are no locks. & No
+  thread
   stays forever in a phase in which its next action has not begun
   (\lean{bootPending}, \lean{ready}, \lean{woken}). \\
 F4 & No task stays in $\Theta$ forever without having returned: it emits
@@ -237,8 +242,9 @@ matters, through the order in which timers fire and through F1 and F2.
 \paragraph{What the kernel checked.}
 For both theorems, \texttt{\#print axioms} reports
 \lean{propext}, \lean{Classical.choice}, and \lean{Quot.sound}: the three
-standard axioms of Lean, and nothing else. No file contains \texttt{sorry},
-and the proofs do not use \lean{native_decide}. The trusted base is the
+standard axioms of Lean, and nothing else. No proof contains a
+\texttt{sorry} placeholder (the word occurs only in comments), and the
+proofs do not use \lean{native_decide}. The trusted base is the
 Lean~4 kernel \cite{demoura2021lean4} and the definitions a reader must
 check against the specification: the transition-system core, the Dex model,
 the \Lang{} model, the translation, the projection, and the two statements,

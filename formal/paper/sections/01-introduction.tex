@@ -64,9 +64,12 @@ not do, and the program does nothing the Flow could not do. Equation
 \eqref{eq:liveness} adds that the two terminate, deadlock, and diverge under
 the same conditions, which finite traces alone cannot tell.
 
-So ``Dex is expressive'' means: the Dex core can simulate, step for step and
-with the same observable behavior, a language that has the standard
-synchronization vocabulary of concurrent programming. The translation is
+So ``Dex is expressive'' means: the Dex core can simulate a language that
+has the standard synchronization vocabulary of concurrent programming. The
+correspondence uses finite sequences of Dex transitions, some observable
+and some silent: an action of the program corresponds to a short sequence
+of Dex transitions, and some Dex transitions correspond to no action of
+the program. The observable traces are preserved. The translation is
 the constructive content. It shows \emph{how} a mutex, a condition variable,
 or a cancellable timed receive is built from Steps, Channels, Attributes,
 and Timers.
@@ -75,19 +78,22 @@ and Timers.
 \begin{enumerate}
 \item \textbf{A formal semantics of the Dex core}
   (\S\ref{sec:dex}). It is a labeled transition system written against the
-  implementation of the Dex server, with every rule citing the code that
-  implements it. Three adversarial reviews checked it against the code.
+  implementation of the Dex server, with the rules citing the code that
+  implements them. (One rule outside the theorem's fragment follows a fix
+  that was not yet merged at the pinned commit, and says so.) Three
+  adversarial reviews checked it against the code.
 \item \textbf{The language \Lang{} and its semantics}
   (\S\ref{sec:language}), including the choices that make an exact
   equivalence possible: a timing model, a well-formedness scope, and
   unforgeable handles.
 \item \textbf{The translation} from \Lang{} to Dex
-  (\S\ref{sec:translation}): one Step per statement, in
+  (\S\ref{sec:translation}): one Step per program point, in
   continuation-passing style.
 \item \textbf{The theorems} (\S\ref{sec:theorems}) and \textbf{their proof
   in Lean~4} (\S\ref{sec:proof}): \lean{safety_of_isWellFormed} and
-  \lean{liveness_of_isWellFormed}. The development has no \texttt{sorry},
-  depends on the Lean core library only, and \texttt{\#print axioms} reports
+  \lean{liveness_of_isWellFormed}. No proof contains a \texttt{sorry}
+  placeholder, the development depends on the Lean core library only, and
+  \texttt{\#print axioms} reports
   \lean{propext}, \lean{Classical.choice}, and \lean{Quot.sound} for both
   theorems.
 \item \textbf{Non-vacuity} of both theorems: a decidable static lock
