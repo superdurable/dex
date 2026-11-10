@@ -24,8 +24,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DEXCLI_RELEASE_TAG: cli-v1.38.0
-  DEXCLI_ARCHIVE: dexcli_v1.38.0_linux_amd64.tar.gz
+  DEXCLI_RELEASE_TAG: cli-v1.42.0
+  DEXCLI_ARCHIVE: dexcli_v1.42.0_linux_amd64.tar.gz
 
 jobs:
   discover:
