@@ -97,7 +97,7 @@ export function FlowDesignCanvas({
 
   const selectedStep = flow.steps.find((step) => step.id === selectedId) ?? null;
   const shellRef = useRef<HTMLDivElement>(null);
-  const insetTopPx = usePreferredCanvasHeight({
+  const { overlayInsetTopPx } = useReportPreferredCanvasHeight({
     shellRef,
     viewKey: `${graphKey}|${stages.view}`,
     scene: stages.isSettled ? stages.scene : null,
@@ -192,7 +192,7 @@ export function FlowDesignCanvas({
           handleRef={viewportRef}
           showsZoomControls={false}
           wholeMaxZoom={wholeMaxZoom}
-          insetTopPx={insetTopPx}
+          insetTopPx={overlayInsetTopPx}
         />
         <p className="sr-only" aria-live="polite">{stages.cue?.message}</p>
         <p className="sr-only" aria-live="polite">{detourFor ? detourMessage(flow, detourFor) : ''}</p>
@@ -214,10 +214,10 @@ export function FlowDesignCanvas({
 }
 
 /**
- * Sizes each view once, so opening a stage or a detour never resizes; skipped while the Step panel narrows it.
- * Returns the pixels the overlays cover at the pane's top, or null when the host does not size the canvas.
+ * Reports one height per view and width; not while the Step panel is open.
+ * Returns `overlayInsetTopPx`: the pixels the overlays cover at the pane's top, or null when the host does not size the canvas.
  */
-function usePreferredCanvasHeight({
+function useReportPreferredCanvasHeight({
   shellRef,
   viewKey,
   scene,
@@ -233,15 +233,15 @@ function usePreferredCanvasHeight({
   isPanelOpen: boolean;
   wholeMaxZoom: number;
   onPreferredHeight: ((heightPx: number) => void) | undefined;
-}): number | null {
-  const [sized, setSized] = useState<{ viewKey: string; scene: Scene } | null>(null);
-  const [insetTopPx, setInsetTopPx] = useState<number | null>(null);
-  if (onPreferredHeight !== undefined && scene !== null && sized?.viewKey !== viewKey) setSized({ viewKey, scene });
+}): { overlayInsetTopPx: number | null } {
+  const [sizedView, setSizedView] = useState<{ viewKey: string; scene: Scene } | null>(null);
+  const [overlayInsetTopPx, setOverlayInsetTopPx] = useState<number | null>(null);
+  if (onPreferredHeight !== undefined && scene !== null && sizedView?.viewKey !== viewKey) setSizedView({ viewKey, scene });
 
   useEffect(() => {
     const shell = shellRef.current;
-    if (onPreferredHeight === undefined || sized === null || shell === null || isPanelOpen) return undefined;
-    const measure = (): void => {
+    if (onPreferredHeight === undefined || sizedView === null || shell === null || isPanelOpen) return undefined;
+    const measureAndReportHeight = (): void => {
       const pane = shell.querySelector<HTMLElement>('.react-flow');
       if (pane === null || pane.clientWidth < 8) return;
       const shellBox = shell.getBoundingClientRect();
@@ -249,25 +249,40 @@ function usePreferredCanvasHeight({
       // The toolbar and corner controls float over the pane's top; the drawing opens below them.
       const overlayBottom = Math.max(
         paneBox.top,
-        ...Array.from(shell.querySelectorAll('.dg-toolbar, .dg-zoom, .dg-legend-head'), (el) => el.getBoundingClientRect().bottom),
+        ...Array.from(
+          shell.querySelectorAll('.dg-toolbar, .dg-zoom, .dg-legend-head'),
+          (overlayControl) => overlayControl.getBoundingClientRect().bottom,
+        ),
       );
       const insetTop = overlayBottom - paneBox.top + OVERLAY_GAP_PX;
-      setInsetTopPx(insetTop);
-      const paneHeight = paneHeightForWholeDrawing(sized.scene, pane.clientWidth, wholeMaxZoom, insetTop);
+      setOverlayInsetTopPx(insetTop);
+      const paneHeight = paneHeightForWholeDrawing(sizedView.scene, pane.clientWidth, wholeMaxZoom, insetTop);
       onPreferredHeight(Math.ceil(paneBox.top - shellBox.top + paneHeight + shellBox.bottom - paneBox.bottom));
     };
-    measure();
+    measureAndReportHeight();
     // Only a width change moves the answer; the height this reports would otherwise re-trigger it.
-    let observedWidth = shell.clientWidth;
-    const observer = new ResizeObserver(() => {
-      if (shell.clientWidth === observedWidth) return;
-      observedWidth = shell.clientWidth;
-      measure();
+    let observedShellWidth = shell.clientWidth;
+    const shellObserver = new ResizeObserver(() => {
+      if (shell.clientWidth === observedShellWidth) return;
+      observedShellWidth = shell.clientWidth;
+      measureAndReportHeight();
     });
-    observer.observe(shell);
-    return () => observer.disconnect();
-  }, [isPanelOpen, onPreferredHeight, shellRef, sized, wholeMaxZoom]);
-  return onPreferredHeight === undefined ? null : insetTopPx;
+    shellObserver.observe(shell);
+    // The toolbar grows when a late web font loads; its height never depends on the shell's height.
+    const toolbar = shell.querySelector<HTMLElement>('.dg-toolbar');
+    let observedToolbarHeight = toolbar?.offsetHeight ?? 0;
+    const toolbarObserver = new ResizeObserver(() => {
+      if (toolbar === null || toolbar.offsetHeight === observedToolbarHeight) return;
+      observedToolbarHeight = toolbar.offsetHeight;
+      measureAndReportHeight();
+    });
+    if (toolbar !== null) toolbarObserver.observe(toolbar);
+    return () => {
+      shellObserver.disconnect();
+      toolbarObserver.disconnect();
+    };
+  }, [isPanelOpen, onPreferredHeight, shellRef, sizedView, wholeMaxZoom]);
+  return { overlayInsetTopPx: onPreferredHeight === undefined ? null : overlayInsetTopPx };
 }
 
 /** Space below the overlays; a drawing opened on its start may lose its own frame margin. */

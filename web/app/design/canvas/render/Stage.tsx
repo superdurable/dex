@@ -508,7 +508,7 @@ function Inner({
         const el = paneRef.current?.querySelector<HTMLElement>('.react-flow')
         if (el === null || el === undefined) return
         const room = cameraRoom(el.clientWidth, el.clientHeight, insetRightPx, insetTopPx)
-        const framed = focusView(scene, nodeId, { near: [], twoAway: [] }, room, FIT_MAX_ZOOM)
+        const framed = focusView(scene, nodeId, { near: [], twoAway: [] }, room, wholeMaxZoom)
         if (framed === null) return
         setOwner('camera')
         void rf.setViewport(framed.view, cameraMotion())
@@ -518,7 +518,7 @@ function Inner({
         if (box !== undefined) panToShow(box)
       },
     }),
-    [fitWhole, insetRightPx, insetTopPx, panToShow, rf, scene, setOwner],
+    [fitWhole, insetRightPx, insetTopPx, panToShow, rf, scene, setOwner, wholeMaxZoom],
   )
 
   const applyZoomVars = useCallback((zoom: number) => {

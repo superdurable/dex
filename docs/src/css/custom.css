@@ -629,13 +629,13 @@ summary:focus-visible {
   box-shadow: 0 24px 80px rgba(20, 45, 24, 0.28);
 }
 
-/* Dex Web's Design tab canvas; its colours follow the page theme through `.v2-shell.dg`. */
 /* The canvas takes the height its Flow needs (`--docs-flow-canvas-height`), within these bounds. */
 .docs-flow-definition-graph {
   --docs-flow-canvas-min-height: 280px;
   --docs-flow-canvas-max-height: max(520px, min(72vh, 760px));
 }
 
+/* Dex Web's Design tab canvas; its colours follow the page theme through `.v2-shell.dg`. */
 html .docs-flow-canvas > .v2-shell.dg,
 html .docs-flow-canvas > .dg-empty,
 .docs-flow-canvas-placeholder {
