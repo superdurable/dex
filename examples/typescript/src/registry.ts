@@ -100,25 +100,28 @@ import { OrderProcessingFlow } from "./products/order-processing/order-processin
 import { userOnboardingFlow } from "./products/signup/user-signup-flow.js";
 import { subscriptionFlow } from "./products/subscription/subscription-flow.js";
 import { MyDependencyService } from "./shared/my-dependency-service.js";
+import { openSlackConnectionFromEnvironment } from "./shared/slack-connector-tools.js";
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const pollingJobs = new FakeJobService();
 const pollingFlow = new PollingFlow(pollingJobs);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
+// One Slack connection for the agent examples; without its tokens they offer no Slack tools.
+const slack = openSlackConnectionFromEnvironment();
 const aiAgentConfig = loadAiAgentConfig();
-const aiAgentFlow = createAiAgentFlow(aiAgentConfig);
+const aiAgentFlow = createAiAgentFlow(aiAgentConfig, slack);
 // One order desk for the four agent harness examples; each harness registers its own session Flow type.
 const orderDesk = new OrderDesk();
 // Without the key the Claude Code CLI could fall back to a developer's own login, so skip the harness.
 const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
-  ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel(), buildClaudeCliEnvironment())
+  ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel(), buildClaudeCliEnvironment(), slack)
   : undefined;
 if (claudeAgentSdkOrderSupportFlow === undefined) {
   console.warn("ANTHROPIC_API_KEY is not set, so the Claude Agent SDK order support example is not registered");
 }
-const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(orderDesk, loadOpenAIAgentsOrderSupportModel());
-const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadVercelAiOrderSupportModel());
-const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel());
+const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(orderDesk, loadOpenAIAgentsOrderSupportModel(), slack);
+const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadVercelAiOrderSupportModel(), slack);
+const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel(), slack);
 
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,

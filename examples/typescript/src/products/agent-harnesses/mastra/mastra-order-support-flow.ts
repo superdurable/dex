@@ -17,11 +17,13 @@
 import { Agent } from "@mastra/core/agent";
 import type { MastraModelConfig } from "@mastra/core/llm";
 import { createTool } from "@mastra/core/tools";
+import type { Connection } from "@superdurable/connector-slack";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createMastraAgentSessionFlow } from "@superdurable/dex-agents-mastra";
 import { z } from "zod";
 
 import { environmentOr } from "../../../config/env.js";
+import { createSlackConnectorToolSources } from "../../../shared/slack-connector-tools.js";
 import { orderSupportInstructions, type OrderDesk } from "../order-support/order-desk.js";
 
 /** Flow type of the Mastra order support session. */
@@ -38,8 +40,13 @@ export function loadMastraOrderSupportModel(): MastraModelConfig {
 /**
  * Builds the order support session Flow. Each model call and each tool call is its own Step.
  * look_up_order only reads, so it runs without approval. cancel_order waits for approval and runs at most once.
+ * With a Slack connection, slack_post_thread_reply also waits for approval and runs at most once.
  */
-export function createMastraOrderSupportFlow(orderDesk: OrderDesk, model: MastraModelConfig): AgentSessionFlow {
+export function createMastraOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: MastraModelConfig,
+  slack: Connection | undefined,
+): AgentSessionFlow {
   const lookUpOrder = createTool({
     id: "look_up_order",
     description: "Look up one order by its order ID and return its items and status.",
@@ -64,5 +71,6 @@ export function createMastraOrderSupportFlow(orderDesk: OrderDesk, model: Mastra
       look_up_order: { effect: "read" },
       cancel_order: { effect: "non_idempotent_write" },
     },
+    toolSources: createSlackConnectorToolSources(slack),
   });
 }

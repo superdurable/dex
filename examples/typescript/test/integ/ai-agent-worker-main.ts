@@ -14,10 +14,43 @@
  * limitations under the License.
  */
 
+import { appendFileSync } from "node:fs";
+
+import { newConnectionWithOperations, type Connection } from "@superdurable/connector-slack";
+import { GeneratedMock } from "@superdurable/connector-slack/mock";
 import { runAgentWorkerProcess } from "@superdurable/dex-agents/testing";
 
 import { loadAiAgentConfig } from "../../src/products/ai-agent/ai-agent-config.js";
 import { createAiAgentFlow } from "../../src/products/ai-agent/ai-agent-flow.js";
+import { slackConnectionReference } from "../../src/shared/slack-connector-tools.js";
 
 // The AI Agent Worker as a child process, so a test can kill it mid-turn.
-await runAgentWorkerProcess([createAiAgentFlow(loadAiAgentConfig())]);
+await runAgentWorkerProcess([createAiAgentFlow(loadAiAgentConfig(), openRecordingSlackMock())]);
+
+/** The Slack connector mock, recording every post to a file because the test runs in another process. */
+function openRecordingSlackMock(): Connection | undefined {
+  // ai-agent.test.ts sets it; each line is one mock call as JSON.
+  const callsFile = process.env.AI_AGENT_TEST_SLACK_CALLS_FILE;
+  if (callsFile === undefined) {
+    return undefined;
+  }
+  const slackMock = new GeneratedMock(slackConnectionReference.name);
+  const mockPostThreadReply = slackMock.postThreadReply();
+  return newConnectionWithOperations(
+    {
+      listThreadMessages: () => slackMock.listThreadMessages(),
+      getThreadReply: () => slackMock.getThreadReply(),
+      postChannelMessage: () => slackMock.postChannelMessage(),
+      postThreadReply: () => ({
+        definition: () => mockPostThreadReply.definition(),
+        idempotencyKey: (callId: string) => mockPostThreadReply.idempotencyKey(callId),
+        invoke: (call, input) => {
+          const attempt = mockPostThreadReply.invoke(call, input);
+          appendFileSync(callsFile, `${JSON.stringify(mockPostThreadReply.calls().at(-1))}\n`);
+          return attempt;
+        },
+      }),
+    },
+    slackConnectionReference,
+  );
+}

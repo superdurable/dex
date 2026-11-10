@@ -15,11 +15,13 @@
  */
 
 import { Agent, tool, type Model } from "@openai/agents";
+import type { Connection } from "@superdurable/connector-slack";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createOpenAIAgentsSessionFlow } from "@superdurable/dex-agents-openai-agents";
 import { z } from "zod";
 
 import { environmentOr } from "../../../config/env.js";
+import { createSlackConnectorToolSources } from "../../../shared/slack-connector-tools.js";
 import { orderSupportInstructions, type OrderDesk } from "../order-support/order-desk.js";
 
 /** Flow type of the OpenAI Agents SDK order support session. */
@@ -36,8 +38,13 @@ export function loadOpenAIAgentsOrderSupportModel(): string {
 /**
  * Builds the order support session Flow. Each model call and each tool call is its own Step.
  * look_up_order only reads, so it runs without approval. cancel_order waits for approval and runs at most once.
+ * With a Slack connection, slack_post_thread_reply also waits for approval and runs at most once.
  */
-export function createOpenAIAgentsOrderSupportFlow(orderDesk: OrderDesk, model: string | Model): AgentSessionFlow {
+export function createOpenAIAgentsOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: string | Model,
+  slack: Connection | undefined,
+): AgentSessionFlow {
   const lookUpOrder = tool({
     name: "look_up_order",
     description: "Look up one order by its order ID and return its items and status.",
@@ -64,5 +71,6 @@ export function createOpenAIAgentsOrderSupportFlow(orderDesk: OrderDesk, model: 
       look_up_order: { effect: "read" },
       cancel_order: { effect: "non_idempotent_write" },
     },
+    toolSources: createSlackConnectorToolSources(slack),
   });
 }

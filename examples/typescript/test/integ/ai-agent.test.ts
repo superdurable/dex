@@ -16,7 +16,7 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -35,7 +35,7 @@ import { createAiAgentFlow, type AiAgentFlow } from "../../src/products/ai-agent
 import { createAiAgentRouter, sessionTokenHeaderName } from "../../src/products/ai-agent/controller.js";
 
 // The demo model needs no key. A small window makes compaction reachable.
-const workerEnvironment = { DEX_AGENT_MODEL: "mock/dex", DEX_AGENT_CONTEXT_TOKENS: "600" };
+const workerEnvironment: Record<string, string> = { DEX_AGENT_MODEL: "mock/dex", DEX_AGENT_CONTEXT_TOKENS: "600" };
 Object.assign(process.env, workerEnvironment);
 
 const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
@@ -52,7 +52,11 @@ let routes: AiAgentRoutes;
 
 test.before(async () => {
   stateDirectory = await mkdtemp(join(tmpdir(), "dex-typescript-examples-ai-agent-"));
-  flow = createAiAgentFlow(loadAiAgentConfig());
+  // The Worker posts to Slack through the connector mock and appends each call to this file.
+  workerEnvironment.AI_AGENT_TEST_SLACK_CALLS_FILE = join(stateDirectory, "slack-calls.jsonl");
+  await writeFile(workerEnvironment.AI_AGENT_TEST_SLACK_CALLS_FILE, "");
+  // The test process only starts sessions and calls RPCs, so its Flow needs no Slack connection.
+  flow = createAiAgentFlow(loadAiAgentConfig(), undefined);
   blobCache = openBlobCache({ directory: join(stateDirectory, "blobs"), maxBytes: 64 * 1024 * 1024 });
   client = new Client(new Registry([flow]), blobCache, { serverAddress });
   sessions = new AgentSessionTestClient(client, flow);
@@ -93,6 +97,36 @@ test("aiAgentRecordsARejectedApproval", async () => {
   await sessions.waitForCompletedTurns(sessionId, 1, waitOptions);
   const history = await sessions.listAgentMessages(sessionId, null, 50);
   assert.equal(history.messages.find((message) => message.role === "tool")?.toolName, "notes__post_message");
+});
+
+test("aiAgentPostsAnApprovedSlackThreadReplyOnce", async () => {
+  const sessionId = await startSession();
+  const replyInput = { channelId: "C0123456789", threadTimestamp: "1710000000.000100", text: "Order 1001 has shipped." };
+  await sessions.sendUserMessage(sessionId, `/tool slack_post_thread_reply ${JSON.stringify(replyInput)}`);
+  const approval = await sessions.waitForPendingInterrupt(sessionId, "slack_post_thread_reply", waitOptions);
+  assert.deepEqual(await readSlackCalls(), []);
+
+  assert.equal(await sessions.resolveInterrupt(sessionId, approval.interruptId, true), true);
+  await sessions.waitForCompletedTurns(sessionId, 1, waitOptions);
+  const calls = await readSlackCalls();
+  assert.equal(calls.length, 1);
+  const [providerCall] = calls;
+  assert.equal(providerCall?.flowId, sessionId);
+  assert.deepEqual(providerCall?.input, replyInput);
+  assert.equal(providerCall?.branch, "sent");
+  assert.equal(providerCall?.retry, undefined);
+  assert.equal(providerCall?.replay, undefined);
+  // Slack deduplicates on a key derived from the Call ID, which the tool Step keeps across attempts.
+  assert.equal(providerCall?.idempotencyKey, providerCall?.callId);
+
+  const snapshot = await sessions.getAgentSnapshot(sessionId);
+  const toolCall = snapshot.toolCalls.find((record) => record.toolName === "slack_post_thread_reply");
+  assert.equal(toolCall?.status, "succeeded");
+  // A non-idempotent write runs once, in its own single-attempt tool Step.
+  assert.equal(toolCall?.effect, "non_idempotent_write");
+  assert.equal(toolCall?.requiresApproval, true);
+  assert.equal(await sessions.resolveInterrupt(sessionId, approval.interruptId, true), false);
+  assert.equal((await readSlackCalls()).length, 1);
 });
 
 test("aiAgentReadsAnMcpResource", async () => {
@@ -299,6 +333,25 @@ test("aiAgentFinishesADurableWaitAfterTheWorkerIsKilled", async () => {
   await sessions.waitForCompletedTurns(sessionId, 1, waitOptions);
   assert.match(lastText(await sessions.getAgentSnapshot(sessionId)), /"status":"completed","waited_seconds":3/);
 });
+
+/** One Slack post the Worker's connector mock answered, as the Worker recorded it. */
+interface SlackMockCall {
+  readonly flowId: string;
+  readonly callId: string;
+  readonly idempotencyKey?: string;
+  readonly input: unknown;
+  readonly branch?: string;
+  readonly retry?: boolean;
+  readonly replay?: boolean;
+}
+
+async function readSlackCalls(): Promise<SlackMockCall[]> {
+  const text = await readFile(workerEnvironment.AI_AGENT_TEST_SLACK_CALLS_FILE ?? "", "utf8");
+  return text
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line) as SlackMockCall);
+}
 
 function startWorker(): Promise<KillableWorkerProcess> {
   return KillableWorkerProcess.start({

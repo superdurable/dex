@@ -15,11 +15,13 @@
  */
 
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import type { Connection } from "@superdurable/connector-slack";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createClaudeAgentSessionFlow } from "@superdurable/dex-agents-claude-agent-sdk";
 import { z } from "zod";
 
 import { environmentOr } from "../../../config/env.js";
+import { createSlackConnectorToolSources } from "../../../shared/slack-connector-tools.js";
 import { orderSupportInstructions, type OrderDesk } from "../order-support/order-desk.js";
 
 /** Flow type of the Claude Agent SDK order support session. */
@@ -59,6 +61,7 @@ export function buildClaudeCliEnvironment(): Record<string, string> {
 /**
  * Builds the order support session Flow. The Claude Code CLI runs each turn, and look_up_order runs inside it.
  * cancel_order waits for approval, runs at most once in its own Step, and then the Claude session continues.
+ * With a Slack connection, slack_post_thread_reply does the same.
  *
  * @param cliEnvironment - The whole environment of the Claude Code CLI, from {@link buildClaudeCliEnvironment}.
  */
@@ -66,6 +69,7 @@ export function createClaudeAgentSdkOrderSupportFlow(
   orderDesk: OrderDesk,
   model: string,
   cliEnvironment: Readonly<Record<string, string>>,
+  slack: Connection | undefined,
 ): AgentSessionFlow {
   const lookUpOrder = tool(
     "look_up_order",
@@ -96,6 +100,7 @@ export function createClaudeAgentSdkOrderSupportFlow(
         look_up_order: { effect: "read" },
         cancel_order: { effect: "non_idempotent_write" },
       },
+      toolSources: createSlackConnectorToolSources(slack),
     },
     claudeAgentSdkOrderSupportFlowType,
   );

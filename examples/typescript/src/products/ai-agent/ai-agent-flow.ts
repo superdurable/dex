@@ -15,6 +15,7 @@
  */
 
 import { openai } from "@ai-sdk/openai";
+import type { Connection } from "@superdurable/connector-slack";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createAiSdkModelClient } from "@superdurable/dex-agents/ai-sdk";
 import { McpToolSource } from "@superdurable/dex-agents/mcp";
@@ -24,6 +25,7 @@ import {
   type StepwiseAgentRunner,
 } from "@superdurable/dex-agents/stepwise";
 
+import { createSlackConnectorToolSources } from "../../shared/slack-connector-tools.js";
 import type { AiAgentConfig } from "./ai-agent-config.js";
 import { createScriptedModelClient } from "./scripted-model.js";
 
@@ -31,9 +33,10 @@ export type AiAgentFlow = AgentSessionFlow<StepwiseAgentRunner>;
 
 /**
  * Builds the AI Agent session Flow from Worker configuration. Each session is one Flow execution,
- * and the library owns its Steps, state, RPCs, and events.
+ * and the library owns its Steps, state, RPCs, and events. With a Slack connection, the agent can also post
+ * thread replies, each after approval.
  */
-export function createAiAgentFlow(config: AiAgentConfig): AiAgentFlow {
+export function createAiAgentFlow(config: AiAgentConfig, slack: Connection | undefined): AiAgentFlow {
   const clients = new Map(config.models.map((model) => [model, createModelClient(model)]));
   const defaultClient = clients.get(config.models[0]!)!;
   return createStepwiseAgentSessionFlow(
@@ -44,7 +47,10 @@ export function createAiAgentFlow(config: AiAgentConfig): AiAgentFlow {
       // Settings hold only a model name; an unknown one gets the default, never a new client.
       resolveModel: (settings) => clients.get(String(settings.model)) ?? defaultClient,
       // Each MCP tool's annotations pick its effect, and so whether it waits for approval.
-      toolSources: [new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true })],
+      toolSources: [
+        new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true }),
+        ...createSlackConnectorToolSources(slack),
+      ],
       builtInTools: ["ask_user", "durable_wait", "write_todos"],
       planModeEnabled: true,
       compaction: { contextWindowTokens: config.contextWindowTokens },
