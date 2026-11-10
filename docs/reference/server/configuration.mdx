@@ -74,7 +74,9 @@ dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] 
 ~~~
 
 The data directory holds the embedded object store in **s3**, the local store in
-**store**, and the lock file **dev.lock**. The embedded object store is the
+**store**, and the lock file **dev.lock**. With an
+[application bucket](#single-node-application-bucket), it also holds
+**application-s3**. The embedded object store is the
 source of truth, as the bucket is for **serve**. Put the data directory on a
 persistent disk. **--log-dir** also writes the log to
 **dex-server-zd.log** in that directory.
@@ -147,6 +149,26 @@ spelled **strict**, **process-crash-safe**, and **relaxed**.
 | **relaxed** | Only a graceful stop. | Writes stay in memory until a graceful stop. After an abrupt exit, every start fails until you delete the data directory. |
 
 Keep the default **strict** mode in production.
+
+### Application bucket {#single-node-application-bucket}
+
+Since 0.1.26. **dev** and **local** can serve one more S3-compatible bucket for
+applications, such as the image bytes of Dex Agents:
+
+~~~bash
+dex-server-zd dev --data-dir <dir> --application-s3-listen 127.0.0.1:8803 --application-s3-bucket dex-dev-media
+~~~
+
+The two flags go together. The bucket has its own embedded s3local store in
+**application-s3** in the data directory, and its own address. The server's
+own bucket is not reachable at that address, so applications cannot write into
+it. The bucket is created at startup when it is missing, and its objects stay
+across restarts. It uses the durability mode of the embedded object store.
+
+Clients use path-style URLs, such as
+**http://127.0.0.1:8803/dex-dev-media/&lt;key&gt;**, with any credentials. The
+bucket does not check signatures, so **--application-s3-listen** must be a
+loopback address; other addresses fail startup.
 
 ### One node {#single-node-local-one-node}
 
