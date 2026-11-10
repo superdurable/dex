@@ -72,7 +72,7 @@ only when a section genuinely doesn't apply.
 
 ### UI/UX
 
-- No in-repo web UI. Do not invent Temporal Web work unless the change adds a UI.
+- No in-repo web UI unless the change adds one.
 
 ## Code Quality Rules
 
@@ -117,7 +117,7 @@ Label every new issue when you open it:
   `type:tech-debt`.
 - Exactly one priority: `P0` (blocks a release or users now), `P1` (do next),
   `P2` (normal), or `P3` (low).
-- At least one area: `area:server-zd`, `area:server`, `area:sdk-go`,
+- At least one area: `area:server-zd`, `area:sdk-go`,
   `area:sdk-python`, `area:sdk-java`, `area:sdk-typescript`, `area:sdk-rust`,
   `area:cli`, `area:web`, `area:docs`, `area:examples`, `area:skills`,
   `area:s3local`, `area:ci`, or `area:protos`.
@@ -309,10 +309,9 @@ still not describe downstream products.
 User-facing docs, examples and skills describe Dex concepts and guarantees only.
 Do not mention Continue-As-New except in the Flow options reference for the
 Continue-As-New threshold and the TriggerContinueAsNew Client API reference. Do
-not describe Temporal or Cadence internals (activity timeout names, Signals,
-Queries, Updates, workflow history mechanics) as part of the application model;
-state the Dex behavior instead. Deployment and operations guidance may name the
-backend and its configuration.
+not describe server-zd engine internals (apply, commands, partitions, history
+mechanics) as part of the application model; state the Dex behavior instead.
+Deployment and operations guidance may name server-zd and its configuration.
 
 ### Regenerate the Entire Repository After Proto Changes
 
@@ -427,17 +426,6 @@ forcing identical syntax across SDKs.
 Constructor injection only. Never add `SetXyz`, `Inject*`, `Wire*`, or exported
 mutable fields for wiring components after `New*()` returns. Fix bootstrap
 ordering instead.
-
-### Inject Config Sections by Pointer, Not Individual Fields
-
-When a component needs tunables from a config section, pass a pointer to that
-whole section into its constructor and read fields off it — do NOT thread
-individual fields as separate constructor params.
-
-- Store an unexported `cfg *config.XyzConfig`; read `h.cfg.SomeKnob` where used.
-  Panic in the constructor if nil.
-- Pass the **section**, not the whole `config.Config`, and by **pointer**, not
-  value.
 
 ### No Stateful Closures — Use Methods on Structs
 

@@ -12,7 +12,7 @@ Label every new issue when you open it:
   `type:tech-debt`.
 - Exactly one priority: `P0` (blocks a release or users now), `P1` (do next),
   `P2` (normal), or `P3` (low).
-- At least one area: `area:server-zd`, `area:server`, `area:sdk-go`,
+- At least one area: `area:server-zd`, `area:sdk-go`,
   `area:sdk-python`, `area:sdk-java`, `area:sdk-typescript`, `area:sdk-rust`,
   `area:cli`, `area:web`, `area:docs`, `area:examples`, `area:skills`,
   `area:s3local`, `area:ci`, or `area:protos`.

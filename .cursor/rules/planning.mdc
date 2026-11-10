@@ -34,5 +34,4 @@ Every implementation plan must include all three sections below. Use
 
 ## UI/UX
 
-- `N/A: no in-repo web UI` unless a change adds one. Do not invent UI work for
-  Temporal Web.
+- `N/A: no in-repo web UI` unless a change adds one.

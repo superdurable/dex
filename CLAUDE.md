@@ -46,7 +46,7 @@ Label every new issue when you open it:
   `type:tech-debt`.
 - Exactly one priority: `P0` (blocks a release or users now), `P1` (do next),
   `P2` (normal), or `P3` (low).
-- At least one area: `area:server-zd`, `area:server`, `area:sdk-go`,
+- At least one area: `area:server-zd`, `area:sdk-go`,
   `area:sdk-python`, `area:sdk-java`, `area:sdk-typescript`, `area:sdk-rust`,
   `area:cli`, `area:web`, `area:docs`, `area:examples`, `area:skills`,
   `area:s3local`, `area:ci`, or `area:protos`.
@@ -231,10 +231,9 @@ still not describe downstream products.
 User-facing docs, examples and skills describe Dex concepts and guarantees only.
 Do not mention Continue-As-New except in the Flow options reference for the
 Continue-As-New threshold and the TriggerContinueAsNew Client API reference. Do
-not describe Temporal or Cadence internals (activity timeout names, Signals,
-Queries, Updates, workflow history mechanics) as part of the application model;
-state the Dex behavior instead. Deployment and operations guidance may name the
-backend and its configuration.
+not describe server-zd engine internals (apply, commands, partitions, history
+mechanics) as part of the application model; state the Dex behavior instead.
+Deployment and operations guidance may name server-zd and its configuration.
 
 ## Beta Compatibility
 
@@ -263,10 +262,6 @@ backend and its configuration.
 - Use constructor injection. Never add `SetXyz`, `Inject*`, `Wire*`, or exported
   mutable fields to wire dependencies after construction.
 - Fix bootstrap ordering instead of post-construction wiring.
-- Inject a pointer to the component's config section, not individual tunables or
-  the whole `config.Config`.
-- Store it as `cfg *config.XyzConfig`, panic on nil in the constructor, and read
-  fields where used.
 
 ## Maintainability
 
