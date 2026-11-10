@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Inbox, PencilRuler, Plug } from 'lucide-react';
+import { BookOpen, Inbox, PencilRuler, Plug } from 'lucide-react';
 import { readResponseJSON } from '@/lib/http';
 import { usePreferences } from '../providers';
 import type { FlowDefinitionCatalog } from '@/lib/types';
@@ -21,6 +21,9 @@ import { ThemeToggle } from './ThemeToggle';
 
 /** The company site that the header logo opens in the same tab. */
 export const COMPANY_HOME_URL = 'https://superdurable.io';
+
+/** The Dex documentation site that the header Docs link opens in a new tab. */
+export const DEX_DOCS_URL = 'https://docs.superdurable.io/';
 
 /** Designs has something to show only when the definitions directory holds at least one JSON file. */
 export function hasLoadedFlowDefinitions(definitions: FlowDefinitionCatalog | null): boolean {
@@ -121,6 +124,16 @@ export function AppHeader() {
             <span className="connection-dot" />
             <span className="connection-label">Dex server</span>
         </span>
+        <a
+          className="header-docs-link"
+          href={DEX_DOCS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Dex documentation"
+        >
+          <BookOpen aria-hidden="true" size={15} strokeWidth={2} />
+          <span className="header-docs-label">Docs</span>
+        </a>
         <label className="timezone-control">
           <span>Timezone</span>
           <select

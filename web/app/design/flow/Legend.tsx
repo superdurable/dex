@@ -112,68 +112,107 @@ export function Legend({ scene, flow }: { scene: Scene; flow: PocFlow }): JSX.El
           <h4 className="plegend-head">Who acts</h4>
           <ul className="plegend-list">
             {TILE_MEANING.filter(([key]) => tiles.has(key)).map(([key, label]) => (
-              <li key={key} data-tile={key}>
-                <span className="plegend-tile">
-                  <TileView tile={SAMPLE_TILE[key] as Tile} />
-                </span>
-                <span className="plegend-text">{label}</span>
-                <span className="plegend-count">{tiles.get(key)}</span>
-              </li>
+              <LegendRow
+                key={key}
+                data={{ 'data-tile': key }}
+                swatch={
+                  <span className="plegend-tile">
+                    <TileView tile={SAMPLE_TILE[key] as Tile} />
+                  </span>
+                }
+                label={label}
+                count={tiles.get(key)}
+              />
             ))}
           </ul>
         </>
       ) : null}
 
-      {stages > 0 || lines.size > 0 || marks.length > 0 ? <h4 className="plegend-head">Shapes</h4> : null}
-      <ul className="plegend-list">
-        {stages > 0 ? (
-          <li>
-            <span className="plegend-stage" />
-            <span className="plegend-text">a stage: ⊕ shows its steps</span>
-            <span className="plegend-count">{stages}</span>
-          </li>
-        ) : null}
-        {(['control', 'failure'] as const)
-          .filter((family) => lines.has(family))
-          .map((family) => (
-            <li key={family}>
-              <span className="plegend-line" data-family={family} />
-              <span className="plegend-text">{LINE_LABEL[family]}</span>
-              <span className="plegend-count">{lines.get(family)}</span>
-            </li>
-          ))}
-        {marks.map((m) =>
-          m.key === 'start' || m.key === 'loop' ? (
-            <li key={m.key}>
-              <Glyph name={m.key === 'start' ? 'bolt' : 'refresh'} className="plegend-glyph" />
-              <span className="plegend-text">{m.label}</span>
-            </li>
-          ) : (
-            <li key={m.key}>
-              <span className="plegend-mark" data-mark={m.key}></span><span className="plegend-text">{m.label}</span>
-            </li>
-          ),
-        )}
-      </ul>
+      {stages > 0 || lines.size > 0 || marks.length > 0 ? (
+        <>
+          <h4 className="plegend-head">Shapes</h4>
+          <ul className="plegend-list">
+            {stages > 0 ? (
+              <LegendRow
+                swatch={
+                  <span className="plegend-stage" aria-hidden="true">
+                    ⊕
+                  </span>
+                }
+                label="a stage: ⊕ shows its steps"
+                count={stages}
+              />
+            ) : null}
+            {(['control', 'failure'] as const)
+              .filter((family) => lines.has(family))
+              .map((family) => (
+                <LegendRow
+                  key={family}
+                  swatch={<span className="plegend-line" data-family={family} />}
+                  label={LINE_LABEL[family]}
+                  count={lines.get(family)}
+                />
+              ))}
+            {marks.map((m) => (
+              <LegendRow
+                key={m.key}
+                swatch={
+                  m.key === 'start' || m.key === 'loop' ? (
+                    <Glyph name={m.key === 'start' ? 'bolt' : 'refresh'} className="plegend-glyph" />
+                  ) : (
+                    <span className="plegend-mark" data-mark={m.key}></span>
+                  )
+                }
+                label={m.label}
+              />
+            ))}
+          </ul>
+        </>
+      ) : null}
 
       {chips.size > 0 ? (
         <>
           <h4 className="plegend-head">On a card</h4>
-          <ul className="plegend-list">
+          <ul className="plegend-list" data-swatch="chip">
             {(Object.keys(CHIP) as BoxChip['kind'][])
               .filter((kind) => chips.has(kind))
               .map((kind) => (
-                <li key={kind} data-chip={kind}>
-                  <span className="pdock" data-chip={kind}>
-                    {CHIP[kind].sample}
-                  </span>
-                  <span className="plegend-text">{CHIP[kind].label}</span>
-                  <span className="plegend-count">{chips.get(kind)}</span>
-                </li>
+                <LegendRow
+                  key={kind}
+                  data={{ 'data-chip': kind }}
+                  swatch={
+                    <span className="pdock" data-chip={kind}>
+                      {CHIP[kind].sample}
+                    </span>
+                  }
+                  label={CHIP[kind].label}
+                  count={chips.get(kind)}
+                />
               ))}
           </ul>
         </>
       ) : null}
     </section>
+  )
+}
+
+/** One legend row: a swatch cell of fixed width, a wrapping label, and an optional census count. */
+function LegendRow({
+  swatch,
+  label,
+  count,
+  data,
+}: {
+  swatch: JSX.Element
+  label: string
+  count?: number
+  data?: Record<string, string>
+}): JSX.Element {
+  return (
+    <li {...data}>
+      <span className="plegend-swatch">{swatch}</span>
+      <span className="plegend-text">{label}</span>
+      {count === undefined ? null : <span className="plegend-count">{count}</span>}
+    </li>
   )
 }

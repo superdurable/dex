@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlowDefinitionGraph } from '@superdurable/flow-definition-renderer';
@@ -66,6 +66,28 @@ describe('Flow design graph', () => {
     await waitFor(() => expect(document.querySelector('.v2-shell.dg')).not.toBeNull(), { timeout: 4_000 });
     expect(screen.queryByText('This Flow Definition Graph has no Steps to draw.')).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('hides the expanded legend from its bottom-right button and returns focus to the toggle', async () => {
+    render(<MemoryRouter><FlowDesignGraph definition={entryOf(SCHEMA_2_FILE)} /></MemoryRouter>);
+    const toggle = await screen.findByRole('button', { name: 'Legend' }, { timeout: 4_000 });
+    expect(screen.queryByRole('button', { name: 'Hide legend' })).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const hide = screen.getByRole('button', { name: 'Hide legend' });
+    expect(hide.getAttribute('title')).toBe('Hide legend');
+    // It is the card's last element, below the scrolling body, where the collapsed toggle sat.
+    const card = document.querySelector('.dg-legend');
+    expect(card?.lastElementChild?.contains(hide)).toBe(true);
+    expect(card?.querySelector('.dg-legend-body')?.contains(hide)).toBe(false);
+
+    hide.focus();
+    fireEvent.click(hide);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('button', { name: 'Hide legend' })).toBeNull();
+    expect(document.querySelector('.dg-legend-body')).toBeNull();
+    expect(document.activeElement).toBe(toggle);
   });
 
   it.each([SCHEMA_1_FILE, SCHEMA_2_FILE])('puts no outcome or status annotation on a card of %s', (file) => {

@@ -519,12 +519,105 @@ html .v2-shell.dg {
   background: var(--dg-track);
 }
 
-/* ---------- legend ---------- */
+/* ---------- legend: an overlay at the canvas's bottom-right ---------- */
+.dg .dg-legend {
+  /* The drawing hides hairlines; the key's outlined swatches need one. */
+  --p-line: color-mix(in srgb, var(--dg-ink-3) 55%, transparent);
+
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 6;
+  display: flex;
+  max-width: min(340px, calc(100% - 32px));
+  max-height: calc(100% - 96px);
+  flex-direction: column;
+}
+
 .dg .plegend-card {
   border: 0;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--dg-surface) 90%, transparent);
+  background: color-mix(in srgb, var(--dg-surface) 94%, transparent);
   box-shadow: var(--dg-shadow);
+  backdrop-filter: blur(10px);
+}
+
+.dg .plegend-card[data-open='true'] {
+  width: max-content;
+}
+
+/* Taller than the canvas, the key scrolls inside itself; the wheel never zooms the drawing. */
+.dg .dg-legend-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dg .plegend {
+  padding: 2px 14px 6px;
+  border-bottom: 0;
+}
+
+.dg .plegend-head {
+  margin: 12px 0 4px;
+  color: var(--dg-ink-3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dg .plegend-head:first-child {
+  margin-top: 2px;
+}
+
+.dg .plegend-text {
+  color: var(--dg-ink-1);
+}
+
+.dg .plegend-tile .pcard-tile {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  box-shadow: 0 2px 6px -3px color-mix(in srgb, var(--tone-ink) 70%, transparent);
+}
+
+.dg .plegend-tile .pcard-tile[data-tone='machine'] {
+  box-shadow: none;
+}
+
+.dg .plegend-tile .pcard-tile .pglyph {
+  width: 13px;
+  height: 13px;
+}
+
+.dg .plegend-tile .pcard-monogram {
+  font-size: 8.5px;
+}
+
+/* Stages draw as raised surfaces here, so the swatch is one too, with a card stacked behind. */
+.dg .plegend-stage {
+  border: 0;
+  background: var(--dg-surface-raised);
+  color: var(--dg-ink-2);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--dg-ink-3) 55%, transparent),
+    3px 3px 0 -1px var(--dg-surface-raised),
+    3px 3px 0 0 color-mix(in srgb, var(--dg-ink-3) 55%, transparent);
+}
+
+.dg .plegend-glyph {
+  color: var(--dg-ink-2);
+}
+
+.dg .plegend-notes {
+  padding: 2px 14px 12px;
+  border-top: 0;
+}
+
+.dg .plegend-notes p {
+  color: var(--dg-ink-2);
+  font-size: 12.5px;
 }
 
 .dg .plegend-toggle {
@@ -538,6 +631,38 @@ html .v2-shell.dg {
 .dg .plegend-card:not([data-open='true']) .plegend-toggle {
   padding: 6px 12px;
   color: var(--dg-ink-2);
+}
+
+/* Outside the scrolling body, so the hide button never covers the last line. */
+.dg .dg-legend-foot {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  padding: 0 6px 6px;
+}
+
+.dg .dg-legend-hide {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--dg-ink-3);
+  cursor: pointer;
+}
+
+.dg .dg-legend-hide:hover {
+  background: var(--dg-track);
+  color: var(--dg-ink-0);
+}
+
+.dg .plegend-toggle:focus-visible,
+.dg .dg-legend-hide:focus-visible {
+  outline: 2px solid var(--dg-focus);
+  outline-offset: 2px;
 }
 
 /* ---------- Step details, beside the drawing ---------- */

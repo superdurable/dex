@@ -62,7 +62,7 @@ function card(id: string, rpcRole?: Box['rpcRole']): Box {
 }
 
 function marksIn(markup: string): [string, string][] {
-  return [...markup.matchAll(/data-mark="([^"]+)"><\/span><span class="plegend-text">([^<]+)</g)].map(
+  return [...markup.matchAll(/data-mark="([^"]+)"><\/span><\/span><span class="plegend-text">([^<]+)</g)].map(
     ([, mark, label]) => [mark, label],
   )
 }
