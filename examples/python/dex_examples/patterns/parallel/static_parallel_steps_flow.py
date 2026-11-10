@@ -25,14 +25,14 @@ from dex import (
 )
 
 
-# dex:group group-id:parallel-work group-label:"Parallel work"
+# dex:group group-id:work-a group-label:"Work A"
 # dex:explanation text:"Do work A."
 class WorkA(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return graceful_complete(f"A:{input}")
 
 
-# dex:group group-id:parallel-work group-label:"Parallel work"
+# dex:group group-id:work-b group-label:"Work B"
 # dex:explanation text:"Do work B."
 class WorkB(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:

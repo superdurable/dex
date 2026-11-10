@@ -142,10 +142,16 @@
   "diagnostics": [],
   "groups": [
     {
-      "id": "parallel-work",
-      "label": "Parallel work",
+      "id": "work-a",
+      "label": "Work A",
       "stepIds": [
-        "step:WorkA",
+        "step:WorkA"
+      ]
+    },
+    {
+      "id": "work-b",
+      "label": "Work B",
+      "stepIds": [
         "step:WorkB"
       ]
     },

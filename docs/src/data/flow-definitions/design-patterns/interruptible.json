@@ -395,10 +395,16 @@
   "diagnostics": [],
   "groups": [
     {
-      "id": "interruptible-work",
-      "label": "Interruptible work",
+      "id": "work-a",
+      "label": "Work A",
       "stepIds": [
-        "step:WorkA",
+        "step:WorkA"
+      ]
+    },
+    {
+      "id": "work-b",
+      "label": "Work B",
+      "stepIds": [
         "step:WorkB"
       ]
     },

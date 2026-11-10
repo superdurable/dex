@@ -40,7 +40,7 @@ from dex_examples.patterns.interruptible.work_job_parameters_input import (
 INTERRUPT_VALUE = "cancel"
 
 
-# dex:group group-id:interruptible-work group-label:"Interruptible work"
+# dex:group group-id:work-a group-label:"Work A"
 # dex:explanation text:"Do one unit of job A every 2 seconds until it is done or interrupted."
 class WorkA(Step[WorkJobParametersInput]):
     def __init__(self, interrupt_signal: Attribute[str]) -> None:
@@ -72,7 +72,7 @@ class WorkA(Step[WorkJobParametersInput]):
         )
 
 
-# dex:group group-id:interruptible-work group-label:"Interruptible work"
+# dex:group group-id:work-b group-label:"Work B"
 # dex:explanation text:"Do one unit of job B every 3 seconds until it is done or interrupted."
 class WorkB(Step[WorkJobParametersInput]):
     def __init__(self, interrupt_signal: Attribute[str]) -> None:

@@ -583,11 +583,23 @@
   "diagnostics": [],
   "groups": [
     {
-      "id": "critical-section",
-      "label": "Critical section",
+      "id": "enter-section",
+      "label": "Enter section",
       "stepIds": [
-        "step:EnterContractEdit",
-        "step:EditContract",
+        "step:EnterContractEdit"
+      ]
+    },
+    {
+      "id": "edit-in-section",
+      "label": "Edit in section",
+      "stepIds": [
+        "step:EditContract"
+      ]
+    },
+    {
+      "id": "leave-section",
+      "label": "Leave section",
+      "stepIds": [
         "step:SaveContractEdit"
       ]
     },
