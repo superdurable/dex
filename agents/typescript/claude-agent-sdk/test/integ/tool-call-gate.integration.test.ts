@@ -144,17 +144,10 @@ describe("the Claude tool call gate", () => {
 
     const mismatched = await callTool(client, "write_note", "call-1");
     assert.equal(mismatched.isError, true);
-    // canUseTool, too, allows only the permitted tool under a permitted ID.
-    assert.equal((await askPermission(fixture, "Bash", "call-2")).behavior, "deny");
-    // A bare name is a tool inside the CLI, another kind than the served read_note.
-    assert.equal((await askPermission(fixture, "read_note", "call-2")).behavior, "deny");
-    // The hook decided on an empty input; canUseTool answers with it, once.
-    assert.deepEqual(await askPermission(fixture, "mcp__tools__read_note", "call-2", { path: "/etc/passwd" }), {
-      behavior: "allow",
-      updatedInput: {},
-      toolUseID: "call-2",
-    });
-    assert.equal((await askPermission(fixture, "mcp__tools__read_note", "call-2")).behavior, "deny");
+    // The hook allow was the call's one confirmation; canUseTool allows no tool under that ID.
+    for (const cliToolName of ["Bash", "read_note", "mcp__tools__read_note"]) {
+      assert.equal((await askPermission(fixture, cliToolName, "call-2", { path: "/etc/passwd" })).behavior, "deny");
+    }
     // The mismatched call consumed call-1; the permitted name still runs under call-2.
     const permitted = await callTool(client, "read_note", "call-2");
     assert.notEqual(permitted.isError, true, JSON.stringify(permitted));
@@ -251,12 +244,8 @@ describe("the Claude tool call gate", () => {
     const hookFirst = await createGateFixture([record]);
     const first = decisionOf(await hookFirst.gate.decidePreToolUse(preToolUse("Bash", "call-1"), "call-1"));
     assert.deepEqual([first.decision, first.updatedInput], ["allow", { command: "echo reviewed" }]);
-    // The CLI may consult canUseTool once for the call the hook allowed; it runs the recorded input.
-    assert.deepEqual(await askPermission(hookFirst, "Bash", "call-1", { command: "rm -rf build" }), {
-      behavior: "allow",
-      updatedInput: { command: "echo reviewed" },
-      toolUseID: "call-1",
-    });
+    // The hook allow authorized the one run; canUseTool afterwards, as after the tool result, is denied.
+    assert.equal((await askPermission(hookFirst, "Bash", "call-1", { command: "echo reviewed" })).behavior, "deny");
     assert.equal((await askPermission(hookFirst, "Bash", "call-1", { command: "rm -rf build" })).behavior, "deny");
     const second = decisionOf(await hookFirst.gate.decidePreToolUse(preToolUse("Bash", "call-1"), "call-1"));
     assert.equal(second.decision, "deny");
@@ -284,20 +273,26 @@ describe("the Claude tool call gate", () => {
       await fixture.gate.decidePreToolUse(preToolUse("mcp__tools__read_note", "call-1", { path: "other" }), "call-1"),
     );
     assert.deepEqual([replay.decision, replay.updatedInput], ["allow", { path: "notes/a" }]);
-    // The bare name is a tool inside the CLI; the served record never confirms it.
+    // The hook allow was the replay's one decision, whatever kind canUseTool names afterwards.
     assert.equal((await askPermission(fixture, "read_note", "call-1")).behavior, "deny");
-    assert.deepEqual(await askPermission(fixture, "mcp__tools__read_note", "call-1", { path: "other" }), {
+    assert.equal((await askPermission(fixture, "mcp__tools__read_note", "call-1")).behavior, "deny");
+
+    // With the hook skipped, canUseTool makes the one decision: the recorded input, only for the served kind.
+    const hookSkipped = await createGateFixture([record]);
+    assert.equal((await askPermission(hookSkipped, "read_note", "call-1")).behavior, "deny");
+    const viaPermission = await createGateFixture([record]);
+    assert.deepEqual(await askPermission(viaPermission, "mcp__tools__read_note", "call-1", { path: "other" }), {
       behavior: "allow",
       updatedInput: { path: "notes/a" },
       toolUseID: "call-1",
     });
+    assert.equal((await askPermission(viaPermission, "mcp__tools__read_note", "call-1")).behavior, "deny");
   });
 
   test("a tool use ID gets one PreToolUse decision per segment, which a repeat never replaces", async () => {
     const fixture = await createGateFixture();
     const first = decisionOf(await fixture.gate.decidePreToolUse(preToolUse("mcp__tools__read_note", "call-1"), "call-1"));
     assert.equal(first.decision, "allow");
-    assert.equal((await askPermission(fixture, "mcp__tools__read_note", "call-1")).behavior, "allow");
     assert.equal((await askPermission(fixture, "mcp__tools__read_note", "call-1")).behavior, "deny");
     const repeated = decisionOf(
       await fixture.gate.decidePreToolUse(preToolUse("mcp__tools__read_note", "call-1"), "call-1"),

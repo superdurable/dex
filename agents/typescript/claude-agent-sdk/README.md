@@ -422,10 +422,16 @@ session and sends the failed prompt, the note, and its own prompt as three text 
 - A recorded call replays only as its own tool, a custom or source record never as a tool inside the
   CLI, and at most once per segment. Another tool, or a second decision, under its tool use ID is
   denied and never runs. Every allow of a replay carries the recorded arguments as `updatedInput`.
-- When the CLI asks `canUseTool` about a call the PreToolUse hook allowed, the adapter allows it once,
-  for the same tool and kind (served or inside the CLI), with the input the hook decided on: the
-  recorded arguments of a replay, or the input the hook saw for a new call. The input the CLI passes
-  is never used, so a request cannot change what runs.
+- A PreToolUse allow is the call's one authorization, so `canUseTool` denies every later request for
+  that tool use ID. `canUseTool` allows only a resumed call whose hook did not run, once, for its own
+  tool and kind (served or inside the CLI), with the recorded arguments; the input the CLI passes is
+  never used.
+- An inline custom tool is decided by its name and policy, not its input: the MCP call runs with the
+  input the CLI sends after every hook's `updatedInput`, which may differ from the input the adapter's
+  hook saw. Check input in your own PreToolUse hooks or in the tool.
+- A deferred call is rebuilt from the final input the CLI reports, after every hook's `updatedInput`.
+  Its policy, approval, approval interrupt, and tool Step all use that input, so what runs is what was
+  approved.
 - Each tool use ID gets one PreToolUse decision per segment: allow, deny, defer, or a replay. A
   later PreToolUse for the same ID is denied and never replaces that decision.
 - On the first turn of a session Claude Code also writes its usual local transcript under
@@ -520,5 +526,6 @@ also checks that a source call asking a question records `failed`, and one start
 calls the custom tool server over an in-memory MCP transport with a tool name that differs from the
 permitted one, hands the gate deferrals that its PreToolUse hook never deferred or deferred under
 another ID or tool, and replays records under another tool, such as a custom or source record as
-`Bash`, or twice in one segment. It also asks `canUseTool` with another input, another kind, or a
-second time, after the hook allowed a call, and repeats PreToolUse for a decided ID.
+`Bash`, or twice in one segment. It also asks `canUseTool` after the hook allowed a call, with any
+input or kind, asks it twice for a resumed call whose hook did not run, and repeats PreToolUse for a
+decided ID.
