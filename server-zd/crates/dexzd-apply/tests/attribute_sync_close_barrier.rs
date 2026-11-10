@@ -953,6 +953,57 @@ fn a_pending_failed_close_drops_graceful_outputs_at_once() {
     assert!(closed.close.expect("close details").results.is_empty());
 }
 
+/// Older servers accepted a publication during a pending close; time travel skips reapplying it.
+#[test]
+fn time_travel_skips_a_recorded_publication_that_meets_a_restored_pending_close() {
+    let mut harness = Harness::new();
+    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+    harness.force_complete(Vec::new());
+    let close_time = harness.history_record(harness.last_seq()).timestamp_micros;
+    let pending_close = harness.run_record().pending_close.expect("the close waits");
+
+    // Record the publication as an older server did: hide the pending close while it applies.
+    harness.edit_stored_run_record(|record| record.pending_close = None);
+    assert!(is_ok(&harness.publish("legacy").reply));
+    let publish_seq = harness.last_seq();
+    assert!(
+        harness.history_record(publish_seq).command.is_some(),
+        "the publication is recorded external input"
+    );
+    harness.edit_stored_run_record(|record| record.pending_close = Some(pending_close));
+    assert_eq!(
+        harness.channel_message_ids("orders"),
+        vec!["legacy".to_owned()]
+    );
+
+    harness.travel_to(ResetFlowRequest {
+        skip_writes_reapply: false,
+        ..reset_to_time(close_time)
+    });
+
+    let restored = harness.run_record();
+    assert_eq!(restored.status, FlowStatus::Running as i32);
+    assert_eq!(
+        restored.pending_close.as_ref().map(|close| close.status),
+        Some(FlowStatus::Completed as i32),
+        "the restored close still waits"
+    );
+    assert!(
+        harness.channel_message_ids("orders").is_empty(),
+        "the skipped publication stores nothing"
+    );
+    let travel_history = harness.history_record(harness.last_seq());
+    assert!(
+        !travel_history.events.iter().any(|event| matches!(
+            event.payload,
+            Some(flow_history_event::Payload::ChannelExternalPublish(_))
+        )),
+        "the skipped publication records no history event"
+    );
+    harness.ack(PRIMARY, harness.last_seq());
+    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+}
+
 #[test]
 fn update_class_requests_fail_during_cleanup() {
     let mut harness = Harness::new();
@@ -1349,14 +1400,21 @@ impl Harness {
 
     /// Sets the run's state budget in place and keeps its own row size in `state_row_bytes`.
     fn set_max_run_state_bytes(&mut self, max_run_state_bytes: u64) {
+        self.edit_stored_run_record(|record| {
+            record
+                .settings
+                .as_mut()
+                .expect("run settings exist")
+                .max_run_state_bytes = max_run_state_bytes;
+        });
+    }
+
+    /// Rewrites the stored run record and keeps its own row size in `state_row_bytes`.
+    fn edit_stored_run_record(&mut self, edit: impl FnOnce(&mut RunRecord)) {
         let key = run_singleton_key(self.context.flow_hash, self.run(), RunTable::RunRecord);
         let original = self.state.rows[&(ColumnFamily::Flow, key.clone())].clone();
         let mut record = RunRecord::decode(original.as_slice()).expect("valid run record");
-        record
-            .settings
-            .as_mut()
-            .expect("run settings exist")
-            .max_run_state_bytes = max_run_state_bytes;
+        edit(&mut record);
         let other_state_bytes = record
             .storage
             .expect("storage is accounted")
