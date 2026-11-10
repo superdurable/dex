@@ -27,6 +27,7 @@ Released 2026-11-09 as [web/v1.41.0](https://github.com/superdurable/dex/release
 
 - Since 1.41.1: A run opens on the **Timeline** tab unless the browser remembers another tab, and a linked tab that does not apply opens **Timeline**. [Reference](/reference/web/dex-web#run-tabs).
 - Since 1.41.1: Clicking a bar in the Timeline overview selects its event and centers it in the strip. A bar of several events selects its most important event: a failed one first, then a retried, waiting, or canceled one. Dragging the brush still only scrolls. [Reference](/reference/web/dex-web#v1-pages).
+- Since 1.41.1: The **Agent session** tab shows a connector write that waits for an earlier write of its turn as **waiting for an earlier write**, and a write that write ordering skipped as **skipped**. [Reference](/reference/web/dex-web#agent-session-view).
 - The version picker is gone. **Work Queue**, **Connectors**, **Agent session**, and **Actions** are **Experimental**, and each shows only when it applies. **Agent session** and **Actions** are run tabs, and **Start Flow** is in the **Work Queue** list header. [Reference](/reference/web/dex-web#run-tabs).
 - **Flow Rendering** is now **Designs**, at the same **/v1/rendering** URL, and draws both schema versions with one graph. [Reference](/reference/web/flow-visualization).
 - The agent inbox URL is **/v1/work-queue?view=agents**. [Reference](/reference/web/dex-web#agent-inbox).
