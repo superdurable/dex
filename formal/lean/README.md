@@ -204,7 +204,8 @@ How they read against the spec:
 | External input | `Config.deliverInput`; `step` case `.request (.input ..)` |
 | Clock and timing model | `Config.clock`, `lastStampAt`, `canStamp`, `stamp`; `Label.tick`; the phases of `Phase` and `stepThread`, which take the stamped actions the spec tabulates |
 | Timers | `Thread.timer` (Enter); `registerWait` (Arm); `Config.leastDueTimerThread`, `Config.fireTimers`, `Label.fire` |
-| Joined at most once | `Config.joinable`; `registerWait` case `join` |
+| Join | `Config.joinable`; `registerWait` case `join`; `applyIntent` case `endThread` |
+| `select` | `Stmt.select`; `timedChan`, `resumeTimed` (`L/ThreadLocal.lean`) |
 | Halting | `Intent.halt`, `Phase.halted`; the `halted` branches of `completeStatement`, `resumeBlocked`, `resumeTimed` (`L/ThreadLocal.lean`) |
 
 ### Spec Appendix A, assumption by assumption
@@ -235,6 +236,15 @@ How they read against the spec:
 | 28 | `Program.IsWellFormed`; the hypothesis of every theorem. |
 | 29 | The phases of `L.Phase` and `L.stepThread`; `Label.fire count`. The file comment of `L/Semantics.lean` repeats the table. |
 | 30 | `Intent.halt`, `Phase.halted`. |
+| 31 | `CvId.mutex`; `completeStatement` case `wait` halts on another mutex. |
+| 32 | `resumeBlocked` and `resumeTimed` give `Intent.endThread` on `canceled`; `encodeIntent` case `endThread` publishes `join/t`. |
+| 33 | `Config.joinable`; `Config.registerWait` case `join`. |
+| 34 | `Config.applyIntent` case `fail` calls `Config.closeProgram`, as `exit` does. |
+| 35 | `Translation.environment` (`IsProgramInput`, `IsExternalMessage`); `project`. |
+| 36 | `Dex.step`, case `.request (.startFlow ..)`. |
+| 37 | `Dex.Fairness.WorkersSettle`, `Dex.Fairness.ResultsCommit`. |
+| 38 | `L.Fairness`, `L.IsFair`. |
+| 39 | `Stmt.select`, `Stmt.recv`. |
 
 ## What the Dex model leaves out
 
@@ -301,10 +311,11 @@ repeated in the next section.
 
 ## Points for the owner
 
-Every point is decided or closed. The owner decisions are dated 2026-11-09
-and are in the spec's Review log (revision 5, rows L1 to L4). "Kept as taken"
-means that the first review asked for no change; those choices are in the
-Lean model and in this list, and are not yet written into the spec text.
+Every point is decided or closed, and every one is in the spec. The owner
+decisions are dated 2026-11-09 and are in the spec's Review log (revision 5,
+rows L1 to L4). "Kept as taken" means that the first review asked for no
+change and the owner accepted the choice by not objecting; the spec's Review
+log lists each as row K3 to K15, and the spec section is given below.
 
 1. **Clock and action granularity. Decided [owner], spec row L1.**
    - The point: spec revision 4 said L's clock "strictly increases between
@@ -334,34 +345,40 @@ Lean model and in this list, and are not yet written into the spec text.
      statement, and `requiredMutex_eq_of_intent` (proved) ties it to the
      atomic action the statement asks for. The theorems are named
      `..._of_isWellFormed`.
-3. **Which mutex `signal(cv)` requires. Kept as taken.** A `CvId` holds its
-   mutex. `wait(cv, m)` with another mutex is a type error.
-4. **A canceled thread is joinable. Kept as taken.** It publishes `join/t`.
-5. **A second join of a thread blocks. Kept as taken.** The first join takes
-   the thread's one join token.
+3. **Which mutex `signal(cv)` requires. Kept as taken, spec row K3.** A
+   `CvId` holds its mutex. `wait(cv, m)` with another mutex is a type error.
+   Spec §8.1 "Condition variable".
+4. **A canceled thread is joinable. Kept as taken, spec row K4.** It
+   publishes `join/t`. Spec §8.1 "Cancellation", §8.3 `cancel` row.
+5. **A second join of a thread blocks. Kept as taken, spec row K5.** The
+   first join takes the thread's one join token. Spec §8.1 "Join".
 6. **Uncaught exceptions. Decided [owner], spec row L4.** A string value `s`
    fails the program with `fail(s)`, in any thread. Any other value halts the
    thread. Spec §8.1 "Halting".
 7. **Dynamic type errors. Decided [owner], spec row L4.** The thread halts.
    It takes the statement's first 2 or 4 actions, never ends, and is never
    joinable. Spec §8.1 "Halting".
-8. **`fail` and late emits. Kept as taken.** As after `exit`.
-9. **Values of `E_adm`. Kept as taken.** The start input and every external
-   message are encoded L values (`DexVal.value`).
+8. **`fail` and late emits. Kept as taken, spec row K8.** As after `exit`.
+   Spec §8.1 "Exit".
+9. **Values of `E_adm`. Kept as taken, spec row K9.** The start input and
+   every external message are encoded L values (`DexVal.value`). Spec §5.3.
 10. **`waiters/cv` and the snapshot. Fixed, spec row R4-1.** The first
     submission loaded every Attribute, which spec §4.2 does not do. The model
     now applies `loadMaps` as spec §4.2 states it, and the translation
     declares the exact instance `waiters/cv` in the Execute options of the
     Steps that read it. Spec §8.2 and §8.3 say so.
-11. **Options of the start Step. Kept as taken.** `skipWaitFor` is read from
-    the Step definition; the start Step selects no AttributeMap.
+11. **Options of the start Step. Kept as taken, spec row K11.**
+    `skipWaitFor` is read from the Step definition; the start Step selects no
+    AttributeMap. Spec §4.3.
 12. **A rejected input takes no stamp. Decided with point 1.** The timing
     table of spec §8.1 gives `refused(c, v)` zero stamped actions.
-13. **`F4`, `F5`, and membership in `Θ`. Kept as taken.** A task stays in `Θ`
-    until its result commits or it is dropped.
-14. **L's fairness. Kept as taken.** `L.Fairness`, the L forms of F1 to F6.
-15. **`select` without `after`. Kept as taken.** It is `recv` followed by the
-    branch; `select` has one `recv` branch.
+13. **`F4`, `F5`, and membership in `Θ`. Kept as taken, spec row K13.** A
+    task stays in `Θ` until its result commits or it is dropped. Spec §5.5.
+14. **L's fairness. Kept as taken, spec row K14.** `L.Fairness`, the L forms
+    of F1 to F6. Spec §5.5.
+15. **`select` without `after`. Kept as taken, spec row K15.** It is `recv`
+    followed by the branch; `select` has one `recv` branch. Spec §8.1
+    "`select`".
 16. **The runtime `park`. Fixed, spec row R4-2.** `park` is no longer a
     `Stmt`. Source statements and runtime instructions are separate types.
 17. **Unbounded counters. Decided [owner], spec row L3.** Step numbers and

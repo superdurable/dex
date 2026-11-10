@@ -562,6 +562,12 @@ then `new(T₀, v₀, o₀, "__start__")` when `T₀` is not empty.
 Without a start Step the Flow runs with no Step and waits for RPCs or a close
 (`flow_start.rs:204-205`). No Flow timeout is set (Section 1.3).
 
+[owner, 2026-11-09, kept as taken] The options `o₀` of the start Step are not
+part of the event `start(f, T₀, v₀, A₀)`. Under `E_adm` (Section 5.3),
+`o₀.skipWaitFor` is true exactly when the definition of `T₀` has no WaitFor,
+as the SDKs fill it (Section 2.1), and `o₀` selects no AttributeMap and no
+Channel.
+
 ### 4.4 Step methods
 
 A Step method is **three** transitions: Start, Run, Complete. Other
@@ -972,6 +978,12 @@ this shape:
   an L program maps to Channel publications, which never meet RPC lock
   conflicts.
 - Every request ID is fresh (Section 1.3).
+- [owner, 2026-11-09, kept as taken] The start input and every published
+  message are encoded L values `enc(v)`. `π` decodes them: it maps
+  `start(f, T₀, enc(v), ∅)` to `begin(v)`, `pub(f, [(c, enc(v))])` to
+  `in(c, v)`, and the rejection to `refused(c, v)`. A publication of any other
+  Dex value to an external Channel has no L counterpart and is not
+  admissible.
 
 **Projection `π : Obs → Obs_L ∪ {ε}`**, where `Obs_L` is L's observable
 alphabet (Section 8.1):
@@ -1051,6 +1063,10 @@ unfair.
   by [WORKER-ABANDON] after some prefix of its effects.
 - **F5 Results commit.** Every `Returned` task is eventually completed by a
   Complete rule or dropped by [STEP-COMPLETE-STALE].
+  [owner, 2026-11-09, kept as taken] A task stays in `Θ` until a Complete
+  rule commits its result or a rule drops it. So F4 reads: every task
+  eventually becomes `Returned` or is dropped; and F5 reads: every `Returned`
+  task eventually leaves `Θ`.
 - **F6 Messages move.** Every outbox message is eventually sent and delivered;
   [PENDING-CLOSE-CHECK] and [RPC-FINISH] eventually run when enabled.
 
@@ -1090,6 +1106,20 @@ actions (including timer `fire`, Section 8.1) as progress and idle time as
 not, with `✓` only after every issued emit has delivered or been dropped. The theorem states safety (5.4) and
 liveness (5.5) together. [decision] The alternative, weak bisimilarity, is
 stronger than needed and would distinguish where a choice is made.
+
+[owner, 2026-11-09, kept as taken] A fair L run satisfies the L forms of F0
+to F6:
+
+- **F0** and **F1** as above, for L's requests and L's clock.
+- **F2.** An armed timer that stays due is eventually fired.
+- **F3.** A thread whose next action can begin eventually begins it. This is
+  the L form of a pending invocation: before the program's start action,
+  before the begin of a statement, and after a wait was decided.
+- **F4.** An issued emit eventually delivers its `out(a)`, or the program
+  ends first. After the end, every issued emit is eventually delivered or
+  dropped.
+- **F5.** A thread that began an action eventually completes it.
+- **F6** holds trivially: L has no cross-program messages.
 
 ### 5.6 Timed variant
 
@@ -1501,6 +1531,10 @@ does; they are L design decisions for the owner.
   `broadcast(cv)` require `m` held; `signal` wakes the head of the queue,
   `broadcast` wakes all. No spurious wakeups. A woken thread re-locks `m`
   (FIFO with other lockers). `wait` is not a cancellation point. (Items 1, 4.)
+  [owner, 2026-11-09, kept as taken] A condition variable belongs to one
+  mutex, fixed by its identity. That mutex is the `m` that `signal(cv)` and
+  `broadcast(cv)` require. `wait(cv, m)` with any other mutex is a type error
+  and halts the thread (see Halting).
 - **Well-formed programs.** [owner, 2026-11-09] The requirements above define
   the theorem's domain. A program is **well formed** when no run of it, under
   any input and any schedule, has a thread about to call `wait(cv, m)`,
@@ -1514,6 +1548,9 @@ does; they are L design decisions for the owner.
   only if that point would block; `t` then ends without releasing anything it
   holds. A canceled thread that holds a mutex leaves it locked, as in POSIX
   without cleanup handlers. (Items 6, 9.)
+  [owner, 2026-11-09, kept as taken] A thread that ends this way has
+  ended like any other: `join(t)` on it completes. In Dex its last Step
+  publishes to `join/t` before it decides DeadEnd (Section 8.3).
 - **Emit is asynchronous.** `emit(a)` is issued as one atomic action; the
   `out(a)` event happens later, after any interleaving of other threads, and
   the thread continues only after `out(a)`. If the program exits between the
@@ -1524,6 +1561,9 @@ does; they are L design decisions for the owner.
   thread that ends otherwise just ends. A program whose threads all end
   without `exit` is stuck forever. `exit(v)` may carry any value, including
   null; `fail(s)` carries a string. (Item 10.)
+  [owner, 2026-11-09, kept as taken] `fail(s)` ends the program the same
+  way as `exit(v)`: every thread stops, an issued emit may still deliver or
+  never deliver, and input that arrives afterwards is `refused`.
 - **External input.** Each external channel is a FIFO queue. Threads blocked
   in `recv(c)` on it are served in FIFO order of blocking. Input that arrives
   after exit is `refused`. (Items 4, 21.)
@@ -1591,7 +1631,15 @@ does; they are L design decisions for the owner.
   `wait_conditions/mod.rs:140-164`). Section 8.2 shows that Dex's order is
   exactly `(deadline, n)` for translated programs. Durations are whole
   seconds. (Item 12.)
-- Each thread is joined at most once.
+- **Join.** Each thread is joined at most once. [owner, 2026-11-09, kept as taken]
+  A thread that ends leaves one join token. A `join(t)` takes the token if it
+  is there; otherwise it observes its own cancel flag, and otherwise it
+  blocks. Threads blocked in `join(t)` are served in FIFO order of blocking.
+  So a second `join(t)` blocks forever, unless a cancel ends it; and so does a
+  `join` of a thread that never ends.
+- **`select`.** [owner, 2026-11-09, kept as taken] `select` has exactly one
+  `recv` branch and one `after` branch. A `select` without `after` is not a
+  separate construct: it is `recv(c)` followed by the branch (Section 8.3).
 - **Halting.** [owner, 2026-11-09] L has no static types. A statement whose
   operand has the wrong type halts its thread: a non-Boolean condition, a
   `lock` of a value that is not a mutex, a call of an unknown procedure or
@@ -1695,7 +1743,7 @@ Compile each L thread to continuation-passing Steps.
 | `recv(c)` on an external channel | WaitFor `AnyOf(c.ForOne(), cancel/self.ForOne())`. The environment's `pub` fills `c`. | 4, 5 |
 | `emit(a)` | An Execute whose only effect is `a`. | 9, 18 |
 | `throw` / `try` | The handler stack lives in the Step input. `throw` is a GoTo to the innermost handler's Step. No Worker errors. | 19 |
-| `cancel(t)` | One Execute publishes to `cancel/t`. At a cancellation point, a wait that cannot complete at once is won by `cancel/t`, and the thread ends with DE. | 4, 5 |
+| `cancel(t)` | One Execute publishes to `cancel/t`. At a cancellation point, a wait that cannot complete at once is won by `cancel/t`, and the thread ends: its Step publishes to `join/t` and decides DE, as any thread end does. | 4, 5 |
 
 Why the synchronization encodings are sound under these L semantics:
 
@@ -1795,6 +1843,25 @@ findings of that review.
 | R4-1 | The Lean model loaded every Attribute into a snapshot, but `snapshot` (Section 4.2) excludes keys with `/` unless `loadMaps` selects them, and the translation reads `waiters/cv`. | Confirmed (`attempt_snapshot.rs:145-158`). The Lean model now applies the selection, and the translation declares the exact instance `waiters/cv` in the Execute options of the Steps that read it. Sections 8.2 and 8.3 say so. |
 | R4-2 | The Lean syntax of L exposed the runtime-only `park` as a source statement. | Fixed in Lean: source statements and runtime instructions are separate types, so the theorem ranges over programs built from the constructs of Section 8.1 only. No spec change. |
 
+The same review listed nine more choices that the Lean model had taken
+where the spec was silent. Each is **kept as taken, owner accepted by not
+objecting, 2026-11-09**, and is now written into the spec.
+
+| # | Choice | Status and place |
+| --- | --- | --- |
+| K3 | A condition variable belongs to one mutex, fixed by its identity; that is the `m` `signal(cv)` and `broadcast(cv)` require. `wait(cv, m)` with another mutex is a type error. | Kept as taken, owner accepted by not objecting, 2026-11-09. Section 8.1, Condition variable; Appendix A, item 31. |
+| K4 | A thread that ends by observing its cancel flag is joinable; its last Step publishes to `join/t`. | Kept as taken, owner accepted by not objecting, 2026-11-09. Section 8.1, Cancellation; Section 8.3, `cancel` row; Appendix A, item 32. |
+| K5 | A thread that ends leaves one join token; a second `join(t)` blocks forever. | Kept as taken, owner accepted by not objecting, 2026-11-09. Section 8.1, Join; Appendix A, item 33. |
+| K8 | `fail(s)` ends the program as `exit(v)` does: issued emits may still deliver, and later input is `refused`. | Kept as taken, owner accepted by not objecting, 2026-11-09. Section 8.1, Exit; Appendix A, item 34. |
+| K9 | Under `E_adm`, the start input and every published message are encoded L values. | Kept as taken, owner accepted by not objecting, 2026-11-09. Section 5.3; Appendix A, item 35. |
+| K11 | The start Step's `skipWaitFor` is read from its definition; it selects no AttributeMap and no Channel. | Kept as taken, owner accepted by not objecting, 2026-11-09. Section 4.3; Appendix A, item 36. |
+| K13 | A task stays in `Θ` until its result commits or it is dropped, which fixes the reading of F4 and F5. | Kept as taken, owner accepted by not objecting, 2026-11-09. Section 5.5; Appendix A, item 37. |
+| K14 | L's fair runs are given by the L forms of F0 to F6. | Kept as taken, owner accepted by not objecting, 2026-11-09. Section 5.5; Appendix A, item 38. |
+| K15 | `select` has one `recv` branch and one `after` branch; without `after` it is `recv(c)` followed by the branch. | Kept as taken, owner accepted by not objecting, 2026-11-09. Section 8.1, `select`; Appendix A, item 39. |
+
+The numbers K3 to K15 are the point numbers of "Points for the owner" in
+`formal/lean/README.md`.
+
 ## Appendix A. Assumptions and decisions in one list
 
 1. User code is a total function with output-only external effects (2.2).
@@ -1852,3 +1919,25 @@ findings of that review.
     [owner] (8.1, 8.2).
 30. A dynamic type error halts its thread, and so does an uncaught exception
     with a non-string value [owner] (8.1).
+31. A condition variable belongs to one mutex, fixed by its identity;
+    `wait(cv, m)` with another mutex is a type error [owner, kept as taken]
+    (8.1).
+32. A thread that ends by observing its cancel flag is joinable: its last
+    Step publishes to `join/t` [owner, kept as taken] (8.1, 8.3).
+33. A thread that ends leaves one join token; a second `join(t)` blocks
+    forever [owner, kept as taken] (8.1).
+34. `fail(s)` ends the program as `exit(v)` does: issued emits may still
+    deliver, and later input is `refused` [owner, kept as taken] (8.1).
+35. Under `E_adm`, the start input and every published message are encoded L
+    values; other Dex values on an external Channel are not admissible
+    [owner, kept as taken] (5.3).
+36. Under `E_adm`, the start Step's `skipWaitFor` is read from its definition,
+    and it selects no AttributeMap and no Channel [owner, kept as taken]
+    (4.3).
+37. A task stays in `Θ` until its result commits or it is dropped; F4 is
+    "becomes `Returned` or is dropped", F5 is "a `Returned` task leaves `Θ`"
+    [owner, kept as taken] (5.5).
+38. A fair L run satisfies the L forms of F0 to F6 [owner, kept as taken]
+    (5.5).
+39. `select` has one `recv` branch and one `after` branch; without `after`
+    it is `recv(c)` followed by the branch [owner, kept as taken] (8.1).

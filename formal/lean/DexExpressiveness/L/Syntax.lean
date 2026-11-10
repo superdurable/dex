@@ -39,9 +39,10 @@ inductive MutexId
   | dynamic (creator : Tid) (index : Nat)
   deriving DecidableEq, Repr
 
-/-- A condition variable identity. It names its mutex: spec §8.1 says
-"`signal(cv)` and `broadcast(cv)` require `m` held" without saying how `m` is
-found from `cv`, so the identity carries it. -/
+/-- A condition variable identity. It names its mutex (spec §8.1, "Condition
+variable": "A condition variable belongs to one mutex, fixed by its
+identity. That mutex is the `m` that `signal(cv)` and `broadcast(cv)`
+require."). -/
 structure CvId where
   /-- The mutex `m` every operation on this condition variable requires. -/
   mutex : MutexId
