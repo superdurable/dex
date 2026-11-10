@@ -41,6 +41,7 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'concepts/client',
+        'concepts/connector',
       ],
     },
     {
@@ -53,7 +54,6 @@ const sidebars: SidebarsConfig = {
         'components/server',
         'components/cli',
         'components/web',
-        'components/connector',
       ],
     },
     {

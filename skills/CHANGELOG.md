@@ -6,6 +6,7 @@ Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 ## 1.0.10 - 2026-11-10
 
 - Classify Attribute Store sync as an Attribute feature, not a Component. Its rules move from `external-attribute-sync.md` into the Attribute Store sync section of `dex-sdk` `attribute.md`; the rules themselves are unchanged.
+- Classify Connector as a concept, not a Component, in `dex-sdk` `SKILL.md`. The Components are the application, server, dexcli, and Dex Web.
 
 ## 1.0.9 - 2026-11-10
 

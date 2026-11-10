@@ -1,11 +1,12 @@
 ---
 title: Connector
 sidebar_label: Connector
+slug: /concepts/connector
 ---
 
 # Connector
 
-**Connector** 是一种 Dex component，把 Flow 接到外部服务商，例如邮件、支付或新闻服务。它包含带类型的操作、对服务商事件的接收、授权，以及可选的配置界面。服务商的凭证永远不会进入持久化的 Flow 状态。
+**Connector** 把 Flow 接到外部服务商，例如邮件、支付或新闻服务。它为 Flow 提供调用服务商的现成 Step，以及把服务商事件变成 Flow 启动或 RPC 调用的 Trigger。你的应用引入 Connector 包，像使用自己的 Step 一样使用它的 Step。服务商的凭证永远不会进入持久化的 Flow 状态。
 
 官方 Connector 与 Dex 分开发布。自己编写对接服务商的代码之前，先[查找](#查找-connector)有没有这个服务商的 Connector。
 
@@ -19,33 +20,40 @@ sidebar_label: Connector
 - **Mutation** 修改服务商的状态。它会发送幂等 key，并处理结果未知的调用。
 - **UI** 提供可复用的配置单元。Dex Web 把它们组合成 Step 或 Trigger 绑定的设置表单。
 
-服务商模块只提供自己需要的能力。你的应用使用它所引入的那个模块版本生成的类型。
+Connector 只提供它的服务商需要的能力。你的应用使用它所引入的那个 Connector 版本生成的类型。
 
-## 操作就是 Connector Step {#operation-是-connector-step}
+## 操作就是现成的 Step {#operation-是-connector-step}
 
 每个操作都有一个工厂函数，用来创建 Connector Step。你的应用把当前 Step 的输入映射成服务商的输入，并把每个必需的结果分支连到另一个 Step。服务商调用在 **Execute** 中运行，所以和其他 [Step](/concepts/step) 一样，享有 Dex 的重试、超时、持久性和恢复。
 
 Connector 的结果包含操作输出、回执、选中的分支，以及（如果有的话）安全的失败分类。结果不会把上一个 Step 的输入带下去。业务上下文要保存在 [Attribute](/concepts/primitives/attribute) 中，或者在调用 Connector 之前，通过应用自己的 Step 传递。
 
-Dex 重试 Step 时，Mutation 的幂等 key 保持不变。Mutation 的结果无法确认时，Connector 会选择 uncertainty 分支。Flow 可以先查询服务商、核对结果，而不是盲目地再发一次。
-
 只有成功路径的分支必须连接，可选分支可以不连。如果 Connector 选中了一个没有连接的分支，Flow 会失败。服务商那边的结果仍然可见，便于恢复。
+
+### Query 和 Mutation {#queries-and-mutations}
+
+每个操作要么是 Query，要么是 Mutation。两者的区别决定了重试会产生什么效果：
+
+| 操作 | 对服务商的影响 | Dex 重试 Step 时 |
+| --- | --- | --- |
+| Query | 读取服务商的状态。 | 服务商再次返回当前状态。 |
+| Mutation | 修改服务商的状态。 | Mutation 发送同一个幂等 key，服务商可以忽略这次重复。 |
+
+Mutation 的结果无法确认时，Connector 会选择 uncertainty 分支。把它连到一个先查询服务商、再核对结果的 Step。不要盲目地再发一次 Mutation。
 
 ## Trigger 启动或更新 Flow
 
 Connector Trigger 是 Flow 之外长期运行的事件源。它保留服务商的事件 ID 和发生时间，并把每个事件至少一次地交给你的应用指定的目标。
 
-你的应用提供最终的过滤条件，确定 Flow ID，并把服务商事件映射成带类型的输入。应用决定这个事件是启动一个 Flow，还是调用已有 Flow 上带类型的 [RPC](/concepts/primitives/rpc)。启动 Flow 时，服务商的事件 ID 用作请求 ID，所以重复的事件不会再启动第二个 Flow。RPC 目标自己处理重复事件，所用的状态有大小上限。
+你的应用提供最终的过滤条件，确定 Flow ID，并把服务商事件映射成带类型的输入。应用决定这个事件是启动一个 Flow，还是调用已有 Flow 上带类型的 [RPC](/concepts/primitives/rpc)。启动 Flow 时，服务商的事件 ID 用作请求 ID，所以重复的事件不会再启动第二个 Flow。RPC 目标要自己处理重复事件，所用的状态要有大小上限。
 
 本地 Trigger runner 先保存匹配的事件，再向服务商确认收到。重启后，它会重新投递尚未完成的事件。
 
-## 连接与配置 {#connection-与-configuration}
+## 连接 {#connection-与-configuration}
 
-Flow 定义按名称引用连接，而不是引用凭证。本地开发时，Dex Web 在 **Connectors** 页面列出这些名称。在写入连接、操作或 Trigger 绑定配置之前，它会先确认模块是确切的官方版本。
+连接是服务商那边一个具名、已授权的账号。Flow 定义按名称引用连接，而不是引用凭证。你的应用在调用服务商时，把名称解析成凭证。
 
-应用也可以使用没有被任何 Flow 定义引用的连接，例如 agent 工具使用的连接。在同一个页面上按名称添加它，然后像其他连接一样授权。
-
-Connector 的界面运行在 opaque origin 的沙箱 iframe 中。Dex Web 执行 Connector 版本中声明的服务商命令。已保存的凭证永远不会进入 iframe、Flow 输入、Attribute、结果、回执、Stream、日志或生成的产物。
+已保存的凭证永远不会进入 Flow 输入、Attribute、结果、回执、Stream、日志或生成的产物。
 
 ## 语言
 
@@ -53,27 +61,28 @@ Connector 支持 Go、Python 和 TypeScript，暂不支持 Java 和 Rust。每�
 
 Go 包就是每个 Connector 的 Go module。Python 包发布在 PyPI，名称为 **dex-connector-&lt;slug&gt;**。TypeScript 包发布在 npm，名称为 **@superdurable/connector-&lt;slug&gt;**。每个 Python 和 TypeScript 包都用验证 Go 包的同一批服务商场景测试。可运行示例位于 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 的 **connectors/&lt;directory&gt;/&lt;language&gt;/examples/** 下。如果需要其他语言，请[提交 Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new)。
 
-## 使用或贡献 Connector
-
-[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 包含 manifest、生成的 API、服务商实现、界面单元和可运行示例。
-
-应用使用已发布的 Connector 时，用 [Dex SDK skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx)。新增或修改官方 Connector、操作、Trigger 或界面单元时，用 [Dex Connector Contributor skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)。
-
-## 与其他组件的关系
-
-你的[应用](/components/application)引入 Connector 包，把它的操作作为 Connector Step 运行。Trigger 把服务商事件变成 Flow 启动或 RPC 调用。
+<a id="使用或贡献-connector"></a>
+<a id="与其他组件的关系"></a>
 
 ## 查找 Connector
 
 在 [Connector 目录](https://connectors.superdurable.io/)中查看已发布的 Connector、它们的操作和支持的语言。每个 Connector 的参考以目录为准。
 
+[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 包含 manifest、生成的 API、服务商实现、界面单元和可运行示例。
+
+应用使用已发布的 Connector 时，用 [Dex SDK skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx)。新增或修改官方 Connector、操作、Trigger 或界面单元时，用 [Dex Connector Contributor skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)。
+
 ## 在本地配置 Connector
 
-本地开发时，[Dex Web](/components/web) 为 Go 应用配置 Connector 账号和 Trigger 绑定。这个功能只在 **dexcli dev** 中提供。
+本地开发时，[Dex Web](/components/web) 为 Go 应用配置 Connector 连接和 Trigger 绑定。这个功能只在 **dexcli dev** 中提供。
 
 1. 用你的 Flow Definition Graph 目录启动 **dexcli dev**。
-2. 在 Dex Web 中打开 **Connectors** 页面，配置每个账号。
+2. 在 Dex Web 中打开 **Connectors** 页面。它列出 Flow 定义用到的连接名称。逐个授权。
 3. 用 Dex Web 显示的连接文件启动你的应用。
+
+要使用没有被任何 Flow 定义引用的连接，例如 agent 工具使用的连接，在同一个页面上按名称添加它，然后像其他连接一样授权。
+
+Dex Web 只配置确切的官方 Connector 版本。Connector 的界面运行在沙箱 iframe 中，已保存的凭证永远不会进入其中。
 
 连接文件以明文保存密钥，只能在本地使用。不要提交它，也不要在生产环境中使用。
 

@@ -397,11 +397,11 @@
   },
   {
     "from": "/primitives/connector",
-    "to": "/components/connector"
+    "to": "/concepts/connector"
   },
   {
     "from": "/zh-Hans/primitives/connector",
-    "to": "/zh-Hans/components/connector"
+    "to": "/zh-Hans/concepts/connector"
   },
   {
     "from": "/reference/server/runtime-steps",
@@ -517,7 +517,7 @@
   },
   {
     "from": "/primitives/components/connector",
-    "to": "/components/connector"
+    "to": "/concepts/connector"
   },
   {
     "from": "/primitives/components/external-attribute-sync",
@@ -541,7 +541,7 @@
   },
   {
     "from": "/zh-Hans/primitives/components/connector",
-    "to": "/zh-Hans/components/connector"
+    "to": "/zh-Hans/concepts/connector"
   },
   {
     "from": "/zh-Hans/primitives/components/external-attribute-sync",
@@ -2010,5 +2010,13 @@
   {
     "from": "/zh-Hans/components/external-attribute-sync",
     "to": "/zh-Hans/concepts/primitives/attribute#attribute-store-projection"
+  },
+  {
+    "from": "/components/connector",
+    "to": "/concepts/connector"
+  },
+  {
+    "from": "/zh-Hans/components/connector",
+    "to": "/zh-Hans/concepts/connector"
   }
 ]
