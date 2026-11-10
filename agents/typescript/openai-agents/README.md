@@ -243,8 +243,9 @@ Pass `toolSources: [refunds]` to `createOpenAIAgentsSessionFlow`.
   `toolSourceListingTimeoutMs` (default 10 seconds) offers no tools in that
   model call.
 - A source tool that the turn already called but the current listing lacks is
-  still offered, so the resumed run receives its recorded result. A new call
-  of it fails in its tool Step and never reaches a source.
+  still offered, replay-only, so the resumed run receives its recorded result.
+  A new call of it is denied inside the turn, before any Step: the model reads
+  "its tool source does not offer <name> now", and no source runs.
 - Definition fails with `TypeError` when a name a source declares repeats a
   tool or handoff of the graph or another source's tool. A listing that
   repeats one fails its `RunModel` attempt.

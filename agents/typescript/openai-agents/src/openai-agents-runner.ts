@@ -50,7 +50,6 @@ import {
   type ListedSourceTool,
   type ModelCallMetadata,
   type ResolvedToolPolicy,
-  type SourceToolDefinition,
   type ToolCallStepOptions,
   type ToolExecutionResult,
   type ToolSource,
@@ -60,6 +59,7 @@ import {
   listAgentGraphToolNames,
   readFunctionToolName,
   wrapAgentGraph,
+  type GraphSourceTool,
   type AgentGraphConfiguration,
   type GraphFunctionTool,
   type WrappedAgentGraph,
@@ -95,15 +95,11 @@ const reasoningSummaryDeltaEventType = "response.reasoning_summary_text.delta";
 const defaultToolErrorOutput = "An error occurred while running the tool. Please try again.";
 // The runner's envelope around a source's toolSourceReference: the building source's name.
 const openAIAgentsToolSourceNameKey = "openai_agents_tool_source";
-// A replay-only tool fails in its tool Step without reaching a source, so it needs no approval.
-const replayOnlySourceToolPolicy: ResolvedToolPolicy = { effect: "unclassified", requiresApproval: false };
 
 /** The agent graph of one `RunModel`, with the source tools it offers by the name the model sees. */
 interface ModelStepAgentGraph {
   readonly agentGraph: WrappedAgentGraph;
   readonly sourceToolsByFunctionToolName: ReadonlyMap<string, ListedSourceTool>;
-  /** Source tools this turn already called that the listing lacks; served only so their results replay. */
-  readonly replayOnlyFunctionToolNames: ReadonlySet<string>;
 }
 
 /** Settings of {@link OpenAIAgentsRunner}, resolved by `createOpenAIAgentsSessionFlow`. */
@@ -332,11 +328,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
 
   private async wrapModelStepAgentGraph(turn: AgentTurnContext): Promise<ModelStepAgentGraph> {
     if (!this.toolSources.hasToolSources) {
-      return {
-        agentGraph: this.agentGraph,
-        sourceToolsByFunctionToolName: new Map(),
-        replayOnlyFunctionToolNames: new Set(),
-      };
+      return { agentGraph: this.agentGraph, sourceToolsByFunctionToolName: new Map() };
     }
     const sourceTools = await this.toolSources.listSourceTools();
     // The SDK resumes an interrupted call by tool name, so a call the listing lacks still needs its tool.
@@ -345,25 +337,23 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
         .filter((record) => this.toolSources.isSourceToolCall(record) && !sourceTools.has(record.toolName))
         .map((record) => record.toolName),
     );
-    const definitions: SourceToolDefinition[] = [
-      ...[...sourceTools.values()].map((listed) => listed.tool),
+    const graphSourceTools: GraphSourceTool[] = [
+      ...[...sourceTools.values()].map((listed) => ({ definition: listed.tool, isReplayOnly: false })),
       ...[...replayOnlyToolNames].map((toolName) => ({
-        name: toolName,
-        description: "",
-        inputSchema: { type: "object", properties: {} },
+        definition: { name: toolName, description: "", inputSchema: { type: "object", properties: {} } },
+        isReplayOnly: true,
       })),
     ];
-    const functionToolNames = this.mapSourceToolNamesToFunctionToolNames(definitions.map(({ name }) => name));
+    const functionToolNames = this.mapSourceToolNamesToFunctionToolNames(
+      graphSourceTools.map(({ definition }) => definition.name),
+    );
     const sourceToolsByFunctionToolName = new Map<string, ListedSourceTool>();
     for (const listed of sourceTools.values()) {
       sourceToolsByFunctionToolName.set(functionToolNames.get(listed.tool.name) ?? listed.tool.name, listed);
     }
     return {
-      agentGraph: wrapAgentGraph(this.startingAgent, this.settings, definitions),
+      agentGraph: wrapAgentGraph(this.startingAgent, this.settings, graphSourceTools),
       sourceToolsByFunctionToolName,
-      replayOnlyFunctionToolNames: new Set(
-        [...replayOnlyToolNames].map((toolName) => functionToolNames.get(toolName) ?? toolName),
-      ),
     };
   }
 
@@ -487,14 +477,6 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
         toolCallId: functionCall.callId,
         arguments: functionCall.arguments,
       });
-    }
-    if (modelStepGraph.replayOnlyFunctionToolNames.has(toolName)) {
-      return {
-        toolCallId: functionCall.callId,
-        toolName,
-        arguments: functionCall.arguments,
-        policy: replayOnlySourceToolPolicy,
-      };
     }
     const graphTool = modelStepGraph.agentGraph.functionTools.get(toolName);
     if (graphTool === undefined || !graphTool.clonedOwnerAgents.has(interruption.agent)) {
