@@ -844,7 +844,7 @@ func testWebHistoryAndSummary(
 	require.Equal(t, basic.FlowType, summary.GetFlowType())
 	require.NotNil(t, summary.GetStartTime())
 
-	firstRunEvents, _ := getAllWebHistoryEvents(
+	firstRunEvents, nextEventID := getAllWebHistoryEvents(
 		t,
 		ctx,
 		runtime.FlowClient,
@@ -940,6 +940,18 @@ func testWebHistoryAndSummary(
 	require.NoError(t, err)
 	require.Len(t, partiallyLoaded.GetValues(), 1)
 	require.Contains(t, partiallyLoaded.GetValues(), closeOutput.GetInternalBlobIdForStringValue())
+
+	waitResponse, err := runtime.FlowClient.WaitForHistoryEvent(
+		ctx,
+		&dexpb.WaitForHistoryEventRequest{
+			FlowId:              flowID,
+			RunId:               startResponse.GetRunId(),
+			NextInternalEventId: nextEventID,
+		},
+	)
+	require.NoError(t, err)
+	require.False(t, waitResponse.GetEventAvailable())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, waitResponse.GetFlowStatus())
 
 }
 
