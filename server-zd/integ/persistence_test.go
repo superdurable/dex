@@ -34,17 +34,6 @@ func TestPersistenceWorkflowTemporal(t *testing.T) {
 	}
 }
 
-func TestPersistenceWorkflowTemporalContinueAsNew(t *testing.T) {
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestPersistenceWorkflow(
-			t,
-
-			minimumContinueAsNewAsyncDurabilityConfig(),
-		)
-		smallWaitForFastTest()
-	}
-}
-
 func doTestPersistenceWorkflow(
 	t *testing.T,
 	flowConfig *dexpb.FlowConfig,
@@ -224,9 +213,8 @@ func doTestPersistenceWorkflow(
 		}
 		require.Eventually(t, func() bool {
 			searchResponse, searchErr := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-				IncludeContinuedAsNew: flowConfig != nil,
-				Query:                 fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr),
-				PageSize:              100,
+				Query:    fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr),
+				PageSize: 100,
 			})
 			if searchErr != nil {
 				return false
@@ -317,9 +305,8 @@ func doTestPersistenceWorkflow(
 		var extraSearchFlow *dexpb.SearchFlowsResponseEntry
 		require.Eventually(t, func() bool {
 			searchResponse, searchErr := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-				IncludeContinuedAsNew: flowConfig != nil,
-				Query:                 fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr),
-				PageSize:              100,
+				Query:    fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr),
+				PageSize: 100,
 			})
 			if searchErr != nil {
 				return false
@@ -343,10 +330,10 @@ func doTestPersistenceWorkflow(
 
 		// C3: server-zd never continues a run as new, so it has no earlier runs to count.
 
-		assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr), 5, flowConfig != nil)
-		assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomTextField='%v'", nowTimeStr, "Quanzheng"), 1, flowConfig != nil)
-		assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomDoubleField='%v'", nowTimeStr, "0.01"), 3, flowConfig != nil)
-		assertSearchFlows(t, flowClient, boolQuery, 0, flowConfig != nil)
+		assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v'", nowTimeStr), 5)
+		assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomTextField='%v'", nowTimeStr, "Quanzheng"), 1)
+		assertSearchFlows(t, flowClient, fmt.Sprintf("CustomDatetimeField='%v' AND CustomDoubleField='%v'", nowTimeStr, "0.01"), 3)
+		assertSearchFlows(t, flowClient, boolQuery, 0)
 
 	}
 }

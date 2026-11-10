@@ -22,8 +22,8 @@ import (
 )
 
 /**
- * This test flow validates that all command threads complete before continue-as-new snapshots state.
- * It tests the fix for the bug where internal channel signals were lost during continue-as-new.
+ * This test flow validates that command threads complete before the next Step observes state.
+ * It tests internal Channel signals after a command thread completes.
  *
  * Flow structure:
  * Step1:
@@ -32,16 +32,14 @@ import (
  * Step2:
  *   - WaitFor: Wait for the internal channel from Step1
  *   - Execute: Complete flow
- *
- * The test triggers continue-as-new after Step1 execute but before Step2 starts.
- * This ensures the internal channel signal published by Step1 is captured before continue-as-new.
  */
+
 const (
 	WorkflowType = "command_thread_completion"
 	State1       = "S1"
 	State2       = "S2"
 	State3       = "S3"
-	StateAnyCmd  = "StateAnyCmd" // Tests ANY_COMPLETED with CAN
+	StateAnyCmd  = "StateAnyCmd"
 
 	testChannel    = "test-channel"
 	testSignal     = "test-signal"

@@ -28,17 +28,6 @@ func TestCreateFlowTemporal(t *testing.T) {
 	}
 }
 
-func TestCreateFlowTemporalContinueAsNew(t *testing.T) {
-	for i := 0; i < *repeatIntegTest; i++ {
-		doTestCreateWithoutStartingStep(
-			t,
-
-			minimumContinueAsNewAsyncDurabilityConfig(),
-		)
-		smallWaitForFastTest()
-	}
-}
-
 func doTestCreateWithoutStartingStep(
 	t *testing.T,
 	flowConfig *dexpb.FlowConfig,

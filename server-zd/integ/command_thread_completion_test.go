@@ -19,7 +19,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"github.com/superdurable/dex/server-zd/integ/workflow/command_thread_completion"
 	"google.golang.org/protobuf/proto"
@@ -30,9 +29,7 @@ func TestCommandThreadCompletionTemporal(t *testing.T) {
 		doTestCommandThreadCompletion(t, nil)
 		smallWaitForFastTest()
 
-		doTestCommandThreadCompletion(t, &dexpb.FlowConfig{
-			ContinueAsNewThreshold: ptr.Any(int32(1)),
-		})
+		doTestCommandThreadCompletion(t, &dexpb.FlowConfig{})
 		smallWaitForFastTest()
 	}
 }
@@ -60,9 +57,7 @@ func doTestAnyCommandCompleted(t *testing.T) {
 		StartStepType: command_thread_completion.StateAnyCmd,
 		StepInput:     nullValue(),
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
-			FlowConfigOverride: &dexpb.FlowConfig{
-				ContinueAsNewThreshold: ptr.Any(int32(1)),
-			},
+			FlowConfigOverride: &dexpb.FlowConfig{},
 		}, workerTarget),
 	})
 	require.NoError(t, err)
