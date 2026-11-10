@@ -1,0 +1,142 @@
+\section{Introduction}
+\label{sec:introduction}
+
+A durable workflow engine runs long-lived application logic and keeps its
+state across process restarts. Engines differ in the programming model they
+give the application. Dex's model is deliberately small. An application
+defines a \emph{Flow}. A Flow is a set of \emph{Step} types. A Step has an
+optional \kw{WaitFor} method, which returns what the Step waits for, and a
+required \kw{Execute} method, which returns a \emph{StepDecision}: go to
+other Steps, end this branch, or close the Flow. Steps read and write
+\emph{Attributes}, publish to and consume from \emph{Channels}, and wait on
+\emph{Timers}. There is no thread that blocks in the middle of a function,
+no lock that is held across a wait, and no shared memory that is read and
+written in one atomic step.
+
+A natural question follows: what can this model \emph{not} express? The
+usual way to answer is by example. The Workflow Patterns
+\cite{vanderaalst2003patterns,russell2006revised} are a catalog of 43
+control-flow behaviors, and an engine is rated by how directly it supports
+each one \cite{wohed2009patterns}. Dex has such an evaluation: 19 of the 43
+control-flow patterns have direct support, 24 have indirect support, and
+none is unsupported; each rating comes with a runnable example and an
+integration test against a real server.%
+\footnote{The evaluation is on the Dex documentation site, under
+\emph{Concepts, Correctness and expressiveness, Workflow Patterns
+evaluation}.}
+A pattern catalog measures breadth against the running system. It does not
+say that some \emph{class} of programs is expressible, and it does not say
+what ``expressible'' means when the engine interleaves the pieces of a
+program in ways the source program never wrote down.
+
+This paper gives the other kind of evidence: one precise claim, with a
+machine-checked proof.
+
+\begin{quote}
+\emph{Every well-formed program of a small concurrent imperative language
+\Lang{} translates into a Dex Flow that is trace-equivalent to it, assuming
+no failures.}
+\end{quote}
+
+\paragraph{What ``expressive'' means here.}
+\Lang{} is a conventional shared-memory concurrent language: threads with
+local variables, shared variables, procedures with recursion, \kw{fork} and
+\kw{join}, mutexes, condition variables, \kw{sleep}, a timed \kw{select} on
+an external channel, cooperative cancellation, exceptions, external effects,
+and program exit. We define a translation $\tr{\cdot}$ from \Lang{} programs
+to Dex Flow definitions, a set of observable events on each side, and a
+projection $\pi$ from Dex events to \Lang{} events. The claim is two
+equalities of trace sets, for every well-formed \Lang{} program $S$:
+\begin{align}
+\pi\bigl(\FinTr_{\Eadm}(\tr{S})\bigr) &= \FinTr(S)
+  && \text{(safety)} \label{eq:safety}\\
+\forall w \in \Eadm.\quad
+\pi\bigl(\MaxTr^{\mathit{fair}}_{w}(\tr{S})\bigr) &= \MaxTr^{\mathit{fair}}_{w}(S)
+  && \text{(liveness)} \label{eq:liveness}
+\end{align}
+\FinTr{} is the set of finite observable traces. $\MaxTr^{\mathit{fair}}_w$
+is the set of traces of fair infinite runs for the input word $w$, each
+with a marker: terminated (\mterm), deadlocked (\mdead), or divergent
+(\mdiv). \Eadm{} is the admissible environment: it starts the program once
+and then sends plain data on the program's external channels.
+Equation~\eqref{eq:safety} says that the Flow does nothing the program could
+not do, and the program does nothing the Flow could not do. Equation
+\eqref{eq:liveness} adds that the two terminate, deadlock, and diverge under
+the same conditions, which finite traces alone cannot tell.
+
+So ``Dex is expressive'' means: the Dex core can simulate a language that
+has the standard synchronization vocabulary of concurrent programming. The
+correspondence uses finite sequences of Dex transitions, some observable
+and some silent: an action of the program corresponds to a short sequence
+of Dex transitions, and some Dex transitions correspond to no action of
+the program. The observable traces are preserved. The translation is
+the constructive content. It shows \emph{how} a mutex, a condition variable,
+or a cancellable timed receive is built from Steps, Channels, Attributes,
+and Timers.
+
+\paragraph{Contributions.}
+\begin{enumerate}
+\item \textbf{A formal semantics of the Dex core}
+  (\S\ref{sec:dex}). It is a labeled transition system written against the
+  implementation of the Dex server, with the rules citing the code that
+  implements them. (One rule outside the theorem's fragment follows a fix
+  that was not yet merged at the pinned commit, and says so.) Three
+  adversarial reviews checked it against the code.
+\item \textbf{The language \Lang{} and its semantics}
+  (\S\ref{sec:language}), including the choices that make an exact
+  equivalence possible: a timing model, a well-formedness scope, and
+  unforgeable handles.
+\item \textbf{The translation} from \Lang{} to Dex
+  (\S\ref{sec:translation}): one Step per program point, in
+  continuation-passing style.
+\item \textbf{The theorems} (\S\ref{sec:theorems}) and \textbf{their proof
+  in Lean~4} (\S\ref{sec:proof}): \lean{safety_of_isWellFormed} and
+  \lean{liveness_of_isWellFormed}. No proof contains a \texttt{sorry}
+  placeholder, the development depends on the Lean core library only, and
+  \texttt{\#print axioms} reports
+  \lean{propext}, \lean{Classical.choice}, and \lean{Quot.sound} for both
+  theorems.
+\item \textbf{Non-vacuity} of both theorems: a decidable static lock
+  discipline that implies well-formedness, witness programs that together
+  use every construct of \Lang{}, and kernel-checked fair maximal traces
+  for each of the three markers.
+\item \textbf{An account of the proof engineering}
+  (\S\ref{sec:engineering}): parallel work packages with fixed statements,
+  the gaps that the provers found in the fixed definitions, the fuzz that
+  now tests those definitions for inductiveness, and two defects that the
+  work exposed in the real server.
+\end{enumerate}
+
+\paragraph{What is not claimed.}
+The scope is narrow on purpose, and \S\ref{sec:limitations} discusses each
+limit.
+\begin{itemize}
+\item \emph{No failures.} The environment has no crashes, no retries, and no
+  redelivery. That a Flow behaves the same with crashes as without is a
+  separate proposition and is future work.
+\item \emph{A model, not the code.} The Dex side of the theorem is a
+  hand-written model of the server, validated by review against the source.
+  It is not extracted from the implementation.
+\item \emph{Well-formed programs only.} A program that can call
+  \kw{unlock}, \kw{wait}, \kw{signal}, or \kw{broadcast} without holding the
+  mutex is outside the domain, as a program with a data race is outside a
+  theorem about data-race-free programs.
+\item \emph{A restricted environment.} Inputs are one start and then
+  publications to external channels. Remote procedure calls into a Flow,
+  stopping a Flow, and the other client operations are specified in the
+  semantics but are outside the theorem.
+\item \emph{One timing model.} \Lang{} counts a fixed number of clock-stamped
+  actions per statement, aligned with Dex. The theorem does not say that a
+  program is equivalent to itself under another cost model.
+\item \emph{Trace equivalence.} The theorem is not bisimilarity and not full
+  abstraction, and it says nothing about performance.
+\item \emph{One direction of expressiveness.} We translate \Lang{} into Dex.
+  We do not claim that every Dex Flow is an \Lang{} program.
+\end{itemize}
+
+\paragraph{Artifacts.}
+The semantics is \file{formal/semantics/dex-core-semantics.md} (revision~8;
+``the specification'' below). The Lean development is \file{formal/lean/}.
+File paths in this paper are relative to the repository root, and Lean
+files are under \file{formal/lean/DexExpressiveness/}. Numbers are for
+commit \texttt{33e998003} of the development.

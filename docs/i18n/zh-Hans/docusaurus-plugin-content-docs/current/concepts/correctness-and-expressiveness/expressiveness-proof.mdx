@@ -1,0 +1,86 @@
+---
+title: Expressiveness proof
+sidebar_label: Expressiveness proof
+slug: /concepts/correctness-and-expressiveness/expressiveness-proof
+---
+
+# 表达能力证明
+
+Dex 有一个形式化的表达能力结论，并配有机器验证的证明。本页说明它声称什么、如何验证，以及不涵盖什么。完整论证见论文。
+
+- [下载论文（PDF）](/papers/dex-expressiveness.pdf)
+- [GitHub 上的形式化源码](https://github.com/superdurable/dex/tree/main/formal)
+
+## 结论 {#the-claim}
+
+论文定义了一门小型并发语言。它具备并发编程的常用工具：
+
+- 线程，以及 **fork** 和 **join**；
+- 共享变量、局部变量，以及可递归的过程；
+- 互斥锁（mutex）和条件变量（condition variable）；
+- 定时：**sleep**，以及等待一条消息或超时的 **select**；
+- 取消线程；
+- 异常；
+- 外部副作用，例如发送一封邮件；
+- 程序退出。
+
+结论如下：这门语言中每个 well-formed 的程序，都能翻译成一个从外部观察行为相同的 Dex Flow。
+
+“行为相同”包含两部分。
+
+- **相同的事件序列。** 程序能产生的每个有限事件序列，Flow 都能产生；Flow 能产生的每一个，程序也能产生。
+- **相同的结局。** 在公平调度下，程序和 Flow 在相同条件下完成、卡住或永远运行。
+
+“从外部观察”指输入、外部副作用和结果。Flow 内部的 Channel 和 Attribute 不在观察范围内。
+
+## 这对你意味着什么 {#why-it-matters}
+
+Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是一组 Step：它们读写 Attribute，发布和消费 Channel 消息，并等待 Timer。你可能会问：这个模型有什么表达不了？
+
+这个证明对一整类程序给出了回答。凡是能用上述构件写出的并发结构，都有等价的 Dex Flow。论文还展示了如何用 Step、Channel、Attribute 和 Timer 搭出每个构件。
+
+这个翻译是为证明而做的构造，不是 Dex 附带的编译器。它大致为每条语句使用一个 Step，这不是建模应用的方式。用它来确认某种结构可以实现。建模你自己的 Flow 时，请参考[设计模式](/design-patterns)。
+
+## 每个构件如何搭建 {#how-each-construct-is-built}
+
+下表总结了论文中的翻译。
+
+| 构件 | Dex 构件 | 相关设计模式 |
+| --- | --- | --- |
+| 线程 | 一串 Step，通常每条语句一个。**wait** 用三个 Step，**sleep** 和带超时的 **select** 会多一个入口 Step。线程的位置和局部状态放在 Step 输入中传递。任一时刻，一个运行中的线程就是一个活跃的 Step 执行。 | |
+| **fork** | **GoToMany** 到父线程的下一个 Step 和子线程的第一个 Step。 | |
+| **join** | 结束的线程向自己的 join Channel 发布一条消息，然后返回 **DeadEnd**。执行 join 的 Step 用 **AnyOf** 等待这个 Channel 和自己的取消 Channel。 | [Await Parallel Steps](/design-patterns/parallel/await) |
+| 互斥锁 | 一个 Channel，在互斥锁空闲时持有一个 token。**lock** 用 **ForOne** 等待这个 token，等待者按开始等待的顺序获得服务。**unlock** 把 token 发布回去。 | [Critical Section](/design-patterns/critical-section) |
+| 条件变量 | 一个 Attribute 保存等待线程的列表，每个等待者有自己的 Channel。**wait** 把线程加入列表，释放互斥锁，等待自己的 Channel，然后重新获取互斥锁。**signal** 移除第一个等待者，并向它的 Channel 发布消息。**broadcast** 对每个等待者都这样做。 | |
+| **sleep** | 一个定时 Step。它的 **WaitFor** 返回 **AnyOf**，包含一个 Timer 和线程的取消 Channel。 | |
+| 带超时的 **select** | 同一个定时 Step。它用 **AnyOf** 等待一个 Timer、输入 Channel 和取消 Channel。只有胜出的 Condition 会消费消息。 | [Deferred Choice](/design-patterns/deferred-choice) |
+| 取消 | 向被取消线程的取消 Channel 发布一条消息。线程只在本会阻塞的位置看到它。 | |
+| 异常 | 处理器栈放在 Step 输入中传递。**throw** 是一次 **GoTo**，跳到处理器的 Step。 | |
+| 退出或失败 | 带结果的 **ForceComplete**，或带错误的 **ForceFail**。 | |
+| 外部副作用 | 一个 **Execute**，它唯一的副作用就是这次外部调用。 | |
+
+互斥锁说明了细节为何重要。Attribute 锁不行，因为它只覆盖一个 Step 方法，不覆盖等待。Channel token 可以跨多个 Step 和等待持有。
+
+## 如何验证 {#how-it-was-checked}
+
+这个结论建立在三部分之上。
+
+- **Dex 核心的形式语义。** 它描述 Flow、Step、Channel、Attribute 和 Timer 的行为。它对照 server 代码写成，其中的规则引用了实现它们的代码。评审者对照代码检查了这些规则。
+- **翻译和定理。** 论文定义了翻译，并给出两个等式：相同的事件序列，以及公平调度下相同的结局。
+- **Lean 4 证明。** Lean 内核检查证明的每一步，没有任何一步未经证明。证明只用到 Lean 的三个标准公理，并且只依赖 Lean 核心库。
+
+## 不涵盖的内容 {#what-it-does-not-cover}
+
+范围是有意收窄的。论文逐条讨论了每个限制。
+
+- **没有故障。** 模型中没有崩溃、重试或重新投递。Flow 在故障下仍然正确是另一个命题，其证明是未来的工作。
+- **只针对 well-formed 程序。** 程序在 unlock 一个互斥锁或使用它的条件变量时，必须持有该互斥锁。其他程序不在结论范围内。
+- **server 的模型。** Dex 一侧是对照 server 代码评审过的模型，不是从代码中提取出来的。
+- **受限的环境。** 外部世界启动 Flow 一次，然后向它的外部 Channel 发布消息。它不发起 RPC 调用，也从不停止 Flow。
+- **一种计时模型。** Timer 的顺序按每条语句固定的步数计算。结论不涉及其他代价模型，也不涉及性能。
+- **公平性是假设。** 结局部分对公平运行成立。它假设 Timer 会触发、Step 能得到运行，并且 Worker 是合作的：每个 Step 方法都会返回，或在被取消后结束。永远挂起的 Worker 不在这部分范围内。
+- **单一方向。** 每个程序都有对应的 Flow。结论并不说每个 Flow 都是这样的程序。
+
+## 相关证据 {#related-evidence}
+
+[Workflow Patterns 评估](/concepts/correctness-and-expressiveness/workflow-patterns)是互补的证据。它按 43 个 workflow 模式为 Dex 评级，每个评级都配有可运行的示例和针对真实 server 的测试。这些模式衡量的是运行中系统的覆盖面；证明则在 server 的模型上覆盖一整类程序。

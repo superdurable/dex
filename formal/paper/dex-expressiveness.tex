@@ -1,0 +1,115 @@
+% A Machine-Checked Expressiveness Theorem for the Dex Durable Workflow Programming Model
+%
+% Build (from the repository root):
+%   tectonic -o docs/static/papers formal/paper/dex-expressiveness.tex
+% or `make -C formal/paper`. See formal/paper/README.md.
+\documentclass[10pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{fontspec}
+% A monospace font with the Unicode symbols that Lean statements use.
+\setmonofont{DejaVuSansMono.ttf}[Scale=0.86,BoldFont=DejaVuSansMono-Bold.ttf]
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{stmaryrd}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{fvextra}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{microtype}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hyphens]{url}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+
+% --- Macros -----------------------------------------------------------------
+% Lean names and repository paths: typewriter, breakable at dots, slashes, and underscores.
+% Robust, so that they can be used in captions.
+\DeclareRobustCommand{\lean}{\begingroup\urlstyle{tt}\Url}
+\DeclareRobustCommand{\file}{\begingroup\urlstyle{tt}\Url}
+\makeatletter
+\g@addto@macro{\UrlBreaks}{\do\_\do\.\do\/}
+\makeatother
+
+\newcommand{\Lang}{\ensuremath{\mathsf{L}}}
+\newcommand{\tr}[1]{\ensuremath{\llbracket #1 \rrbracket}}
+\newcommand{\Eadm}{\ensuremath{E_{\mathit{adm}}}}
+\newcommand{\Obs}{\ensuremath{\mathit{Obs}}}
+\newcommand{\ObsL}{\ensuremath{\mathit{Obs}_{\Lang}}}
+\newcommand{\FinTr}{\ensuremath{\mathrm{FinTr}}}
+\newcommand{\MaxTr}{\ensuremath{\mathrm{MaxTr}}}
+\newcommand{\rulename}[1]{\textsf{\small[#1]}}
+\newcommand{\kw}[1]{\textsf{#1}}
+\newcommand{\ev}[1]{\ensuremath{\mathit{#1}}}
+\newcommand{\mterm}{\ensuremath{\checkmark}}
+\newcommand{\mdead}{\ensuremath{\delta}}
+\newcommand{\mdiv}{\ensuremath{\infty}}
+
+\newtheorem{theorem}{Theorem}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\RecustomVerbatimEnvironment{Verbatim}{Verbatim}{fontsize=\footnotesize,xleftmargin=1.2em}
+\setlist{itemsep=2pt,topsep=4pt}
+\setlength{\emergencystretch}{2em}
+\renewcommand{\arraystretch}{1.18}
+
+\title{A Machine-Checked Expressiveness Theorem for the\\
+Dex Durable Workflow Programming Model}
+\author{Quanzheng Long\\[2pt] Superdurable\\[2pt] \texttt{long@superdurable.io}}
+\date{November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Dex is a durable workflow framework. An application is a \emph{Flow} of
+\emph{Steps}; each Step has an optional \kw{WaitFor} method and an
+\kw{Execute} method that returns a \emph{StepDecision}, and the Steps of a
+Flow share \emph{Attributes}, \emph{Channels}, and \emph{Timers}. This model
+has no threads, no locks held across waits, and no blocking calls. We ask
+whether it can nevertheless express ordinary concurrent programs, and we
+answer with a theorem instead of a list of examples. We define a small
+concurrent imperative language \Lang{} with threads, mutexes, condition
+variables, channels, timers, fork and join, cooperative cancellation,
+exceptions, and external effects. We give a formal operational semantics of
+the Dex core, written against the server implementation, and a translation
+from \Lang{} into Dex Flows. We prove, in Lean~4, that every well-formed
+\Lang{} program and its translation have the same observable finite traces
+(safety) and the same fair maximal traces with termination, deadlock, and
+divergence markers (liveness), in a failure-free environment. The proof is
+about 38,000 lines of Lean with no dependency beyond the Lean core, no
+proof in it contains a \texttt{sorry} placeholder, and the theorems depend
+only on the three standard axioms. We also report how
+the proof was engineered: fixed statements proved in parallel work packages,
+six gaps in the simulation invariant that a fuzz of perturbed reachable
+states reproduces on the old definitions and no longer finds on the new
+ones, and two defects in the real server that writing the semantics exposed.
+\end{abstract}
+
+\input{sections/01-introduction}
+\input{sections/02-dex}
+\input{sections/03-language}
+\input{sections/04-translation}
+\input{sections/05-theorems}
+\input{sections/06-proof}
+\input{sections/07-engineering}
+\input{sections/08-limitations}
+\input{sections/09-related}
+\input{sections/10-conclusion}
+
+{\small
+\setlength{\bibsep}{3pt plus 1pt}
+\bibliographystyle{abbrvnat}
+\bibliography{references}
+}
+
+\end{document}

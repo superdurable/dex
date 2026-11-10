@@ -41,3 +41,6 @@ script/licenseheaders/copyright/copyright
 web/dex-web
 # Generated SDK API reference HTML and its downloaded tools.
 docs/.cache/
+# Lean build output of the formal development
+formal/lean/.lake/
+formal/lean/.lake/build/bin/inductiveness-fuzz

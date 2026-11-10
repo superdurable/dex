@@ -16,6 +16,8 @@ slug: /concepts/correctness-and-expressiveness
 
 [Workflow Patterns 评估](/concepts/correctness-and-expressiveness/workflow-patterns)按 43 个 control-flow Workflow Patterns 为 Dex 评级。研究者用这些模式比较各种 workflow 语言和引擎。每个评级都配有可运行的示例和集成测试。
 
+[表达能力证明](/concepts/correctness-and-expressiveness/expressiveness-proof)覆盖一整类程序：一门小型并发语言中每个 well-formed 的程序，都能翻译成行为相同的 Dex Flow。这个结论由 Lean 证明检查。完整论证见[论文](/papers/dex-expressiveness.pdf)。
+
 ## 正确性 {#correctness}
 
-[Step 的保证](/concepts/step#guarantees)说明 Step 方法失败或重复运行时 Dex 的承诺。一篇带机器验证证明的正式论文正在撰写中。
+[Step 的保证](/concepts/step#guarantees)说明 Step 方法失败或重复运行时 Dex 的承诺。表达能力证明假设没有故障。关于故障下正确性的形式化证明是未来的工作。

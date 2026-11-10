@@ -69,3 +69,7 @@ web/dex-web
 
 # Benchmark server logs are too large to commit
 benchmark/results/**/*.log.gz
+
+# Lean build output of the formal development
+formal/lean/.lake/
+formal/lean/.lake/build/bin/inductiveness-fuzz

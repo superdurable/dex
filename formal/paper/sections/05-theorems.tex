@@ -1,0 +1,251 @@
+\section{The theorems}
+\label{sec:theorems}
+
+Both sides are instances of one structure,
+\lean{TransitionSystem} (\file{Core/TransitionSystem.lean}): an initial
+state, a partial step function that returns the events of a transition, the
+request a label attempts (if any), whether a label is a \emph{progress
+step}, and whether a state is \emph{closed}. Finite traces, runs for an
+input word, markers, and fair maximal traces are defined once, for any
+transition system, so the two trace sets of each statement are built the
+same way. Figure~\ref{fig:overview} shows the shape of the claim.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  >={Stealth[length=5pt]},
+  box/.style={draw,rounded corners=2pt,align=center,font=\small,inner sep=5pt,minimum width=3.6cm,minimum height=0.9cm},
+  lab/.style={font=\footnotesize,align=center}]
+\node[box] (S) at (0,2.6) {\Lang{} program $S$\\[-1pt]{\footnotesize well formed}};
+\node[box] (F) at (8.4,2.6) {Dex Flow $\tr{S}$};
+\node[box] (TL) at (0,0) {traces over \ObsL{}};
+\node[box] (TD) at (8.4,0) {traces over \Obs{}};
+\draw[->] (S) -- node[lab,above] {translation $\tr{\cdot}$} node[lab,below] {\S\ref{sec:translation}} (F);
+\draw[->] (S) -- node[lab,left] {\Lang{} semantics\\ \S\ref{sec:language}} (TL);
+\draw[->] (F) -- node[lab,right] {Dex core semantics\\ under \Eadm{}, \S\ref{sec:dex}} (TD);
+\draw[->] (TD) -- node[lab,above] {projection $\pi$} node[lab,below] {equal sets: finite traces;\\ fair maximal traces with \mterm, \mdead, \mdiv} (TL);
+\end{tikzpicture}
+\caption{The claim. The traces of the translated Flow, projected to
+\Lang{}'s alphabet, are the traces of the program.}
+\label{fig:overview}
+\end{figure}
+
+\subsection{The admissible environment and the projection}
+
+The Dex alphabet has raw identifiers and the theorem's environment is
+restricted, so the statement is over a projection, under an admissible
+environment.
+
+\paragraph{\Eadm.}
+An admissible input word is a finite or infinite sequence of
+\emph{attempted} client requests, accepted and rejected alike. It begins
+with exactly one request that starts the Flow at the entry Step with the
+program input. Every later request publishes one message to one of the
+program's external Channels. The start input and every message are encoded
+\Lang{} literals (\S\ref{sec:scope}). There is no other client operation.
+In Lean, \lean{Translation.environment} fixes these data and
+\lean{Dex.Environment.IsAdmissibleWord} states the shape. The \Lang{} form
+is \lean{L.IsAdmissibleWord}: one \lean{start}, then \lean{input} requests.
+The lemmas \lean{isAdmissibleWord_encode} and \lean{isAdmissibleWord_decode}
+show that the encoded admissible \Lang{} words are exactly the words of
+\Eadm.
+
+Counting attempted requests, and not only accepted ones, matters. A
+publication after the Flow closed is rejected and produces only a
+$\ev{rejected}$ event; \Lang{} produces $\ev{refused}$ for the same input.
+A word of accepted events only would give the \Lang{} run that exits and
+then refuses an input no matching Dex run.
+
+\paragraph{$\pi$.}
+The projection $\pi : \Obs \to \ObsL \cup \{\varepsilon\}$
+(\lean{Translation.project}) is given by Table~\ref{tab:projection}.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+Dex event & \Lang{} event \\
+\midrule
+$\ev{start}(T_0, \mathit{enc}(v))$ & $\ev{begin}(v)$ \\
+$\ev{pub}(c, \mathit{enc}(v))$, $c$ external & $\ev{in}(c, v)$ \\
+$\ev{rejected}(\ev{pub}(c, \mathit{enc}(v)))$, $c$ external & $\ev{refused}(c, v)$ \\
+$\ev{fx}(e, m, a)$ & $\ev{out}(a)$ \quad (the source is dropped) \\
+$\ev{closed}(\mathit{Completed}, [(e, \{\texttt{exit}: v\})])$ & $\ev{exit}(v)$ \\
+$\ev{closed}(\mathit{Failed}(s), \_)$ & $\ev{fail}(s)$ \\
+every other event & $\varepsilon$ \\
+\bottomrule
+\end{tabular}
+\caption{The projection $\pi$ from Dex events to \Lang{} events.}
+\label{tab:projection}
+\end{table}
+
+\subsection{Safety}
+
+A finite trace of a system is the event sequence of a finite run from the
+initial state, viewed through a function that may erase events
+(\lean{TransitionSystem.IsFiniteTrace}). The two sets of
+Equation~\eqref{eq:safety} are (\file{TraceSets.lean}):
+
+\begin{Verbatim}
+def IsProjectedDexFiniteTrace (program : Program) (trace : List Event) : Prop :=
+  (Dex.system ⟦program⟧).IsFiniteTrace environment.IsAdmissiblePrefix project trace
+
+def IsLFiniteTrace (program : Program) (trace : List Event) : Prop :=
+  (L.system program).IsFiniteTrace (fun _ => True) some trace
+\end{Verbatim}
+
+Lean's core library has no set type, so an equality of sets is written as a
+bi-implication for every element. The safety theorem
+(\file{Theorems.lean}) is:
+
+\begin{Verbatim}
+theorem safety_of_isWellFormed (program : Program) (isWellFormed : program.IsWellFormed)
+    (trace : List Event) :
+    IsProjectedDexFiniteTrace program trace ↔ IsLFiniteTrace program trace
+\end{Verbatim}
+
+This is weak trace equality: Dex transitions without a projected event are
+invisible. Finite traces alone cannot tell a Flow whose last thread ended
+with \kw{DeadEnd}, and which stays running forever, from a Flow whose close
+an unfair scheduler never runs. Liveness closes that gap.
+
+\subsection{Liveness}
+\label{sec:liveness-statement}
+
+\paragraph{Runs for a word.}
+Clock ticks are always enabled, so no maximal run is finite. A run
+\emph{for} an input word $w$ is an infinite run whose request transitions
+are exactly the requests of $w$, each once and in order
+(\lean{IsRunFor}). A tick is time passing, not progress; every other
+transition is a progress step.
+
+\paragraph{Fairness.}
+The rules themselves are unfair: the dispatcher may delay a startable
+method, the timer service a due timer, and a Worker its response, each
+without bound. Liveness is therefore stated for fair runs. The conditions
+are assumptions about the scheduler, the timer service, and the Workers.
+They are not guarantees that the rules provide. Table~\ref{tab:fairness}
+states them on both sides. Each of F2 to F5 is a weak-fairness condition of
+one shape (\lean{EventuallyFails}): a given predicate on the state does not
+hold forever from any point on.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}P{0.6cm}LL@{}}
+\toprule
+ & Dex (\lean{Dex.IsFair}, \file{Dex/Observation.lean}) &
+   \Lang{} (\lean{L.IsFair}, \file{L/Semantics.lean}) \\
+\midrule
+F0 & Every request of $w$ is eventually attempted, in order. It follows
+  from ``run for $w$''. & The same. \\
+F1 & The clock exceeds every bound. & The same. \\
+F2 & No timer stays armed and due forever. A timer stops being armed when
+  \rulename{TIMER-FIRE} fires it, or when its wait is decided another way
+  or its Step is canceled. For a timer that nothing else disarms, this
+  assumes that the timer service eventually fires it. & No thread stays
+  blocked forever on an armed timer that is due: \kw{fire} happens, or a
+  message or a cancel decides the wait, or the program ends. \\
+F3 & No invocation stays pending forever. A pending invocation ends by
+  starting, or when the Flow closes and cancels its Step. Otherwise this
+  assumes that dispatch eventually hands it to a Worker. In this fragment
+  every pending invocation is startable, because there are no locks. & No
+  thread
+  stays forever in a phase in which its next action has not begun
+  (\lean{bootPending}, \lean{ready}, \lean{woken}). \\
+F4 & No task stays in $\Theta$ forever without having returned: it emits
+  all its effects and returns, or, if its invocation was canceled, it is
+  dropped after some prefix of its effects. An assumption on the Workers:
+  handlers terminate, and a Worker whose task was canceled eventually stops
+  or finishes. & No thread stays \lean{emitting} forever while the program
+  runs; after the end, a non-empty list of late emits eventually
+  shrinks. \\
+F5 & No task stays \emph{Returned} forever: its result commits, or it is
+  dropped as stale. An assumption on the engine: a returned response is
+  eventually proposed as a commit. & No thread stays forever in a phase in
+  which it began an action and has not completed it. \\
+F6 & Cross-Flow messages are delivered. Vacuous here: one Flow. &
+  Vacuous. \\
+\bottomrule
+\end{tabularx}
+\caption{The fairness assumptions. They constrain runs; no rule enforces
+them.}
+\label{tab:fairness}
+\end{table}
+
+F4 deserves emphasis. The server does not make a Worker finish. It hands a
+method to a Worker, and for a canceled method it sends a cancel request;
+cancellation is cooperative. That every task eventually leaves $\Theta$ is
+an assumption about Workers that run terminating handlers and honor
+cancellation or run to completion. A Worker that hangs forever on a task
+gives an unfair run, about which the theorem says nothing.
+
+\paragraph{Markers.}
+A fair run is infinite, because time keeps passing. It is classified by its
+progress steps (\lean{HasMarker}):
+\begin{itemize}
+\item \mterm{} (\lean{terminated}): finitely many progress steps, and the
+  program is closed at some point.
+\item \mdead{} (\lean{deadlocked}): finitely many progress steps, and the
+  program is never closed. From some point on only ticks happen: nothing
+  can start, no task is in flight, no timer is armed, and the word is used
+  up. A program whose threads all ended without \kw{exit} lands here.
+\item \mdiv{} (\lean{divergent}): infinitely many progress steps.
+\end{itemize}
+A \mterm{} run has finitely many progress steps, so by F4 and F5 no task
+is left in $\Theta$ after the last one. The trace therefore already contains
+every effect that a canceled Worker emits after the close, and a \mterm{}
+trace is never a proper prefix of another fair trace for the same word.
+
+\paragraph{The statement.}
+A fair maximal trace for $w$ is the whole observable trace of a fair run
+for $w$, with the run's marker (\lean{IsFairMaximalTrace}). The two sets of
+Equation~\eqref{eq:liveness} are:
+
+\begin{Verbatim}
+def IsProjectedDexFairMaximalTrace (program : Program) (word : Sequence L.Request)
+    (trace : Sequence Event) (marker : Marker) : Prop :=
+  (Dex.system ⟦program⟧).IsFairMaximalTrace Dex.IsFair project
+    (word.map encodeRequest) trace marker
+
+def IsLFairMaximalTrace (program : Program) (word : Sequence L.Request)
+    (trace : Sequence Event) (marker : Marker) : Prop :=
+  (L.system program).IsFairMaximalTrace L.IsFair some word trace marker
+\end{Verbatim}
+
+A \lean{Sequence} is a finite or infinite sequence. The word is quantified
+in \Lang{} form and encoded for the Dex side. The liveness theorem is:
+
+\begin{Verbatim}
+theorem liveness_of_isWellFormed (program : Program) (isWellFormed : program.IsWellFormed)
+    (word : Sequence L.Request) (isAdmissible : L.IsAdmissibleWord word)
+    (trace : Sequence Event) (marker : Marker) :
+    IsProjectedDexFairMaximalTrace program word trace marker ↔
+      IsLFairMaximalTrace program word trace marker
+\end{Verbatim}
+
+\lean{expressiveness_of_isWellFormed} is the conjunction of the two
+theorems. The theorem names carry the scope, so that it is visible wherever
+a theorem is used.
+
+\paragraph{Why this equivalence.}
+The specification chose trace equality over weak bisimilarity, which is
+stronger than the claim needs and distinguishes \emph{where} a
+nondeterministic choice is made. Trace equality with markers, per input
+word, still separates normal exit, failure, deadlock, and divergence, and
+it accounts for effects after the close. The proof does establish step
+simulations in both directions over one relation (\S\ref{sec:proof}); the
+theorems state only what follows for traces. The theorem is untimed: clock values are not observable. Time still
+matters, through the order in which timers fire and through F1 and F2.
+
+\paragraph{What the kernel checked.}
+For both theorems, \texttt{\#print axioms} reports
+\lean{propext}, \lean{Classical.choice}, and \lean{Quot.sound}: the three
+standard axioms of Lean, and nothing else. No proof contains a
+\texttt{sorry} placeholder (the word occurs only in comments), and the
+proofs do not use \lean{native_decide}. The trusted base is the
+Lean~4 kernel \cite{demoura2021lean4} and the definitions a reader must
+check against the specification: the transition-system core, the Dex model,
+the \Lang{} model, the translation, the projection, and the two statements,
+about 3,450 lines in 14 files.

@@ -1,0 +1,301 @@
+\section{Engineering the proof}
+\label{sec:engineering}
+
+This section reports how the result was produced, including what went
+wrong. We think the method is reusable, and the failures are the
+informative part.
+
+\subsection{Stages and fixed statements}
+
+The work had three stages.
+
+\emph{Stage 0: the semantics.} The specification was written against the
+server code at a pinned commit, with the rules citing the files and lines
+that implement them, and every modeling choice marked as an assumption or
+a decision. There is one deliberate exception: the rule for the commit of
+an RPC follows a fix that was not yet merged at the pinned commit (the
+first defect of \S\ref{sec:server-bugs}), and is marked as doing so. Three
+adversarial reviews checked it against the code. They produced 21 findings;
+one was rejected with an argument from the code (the prefix rule of
+\rulename{TIMER-FIRE}), and the others changed the specification. The
+additions include the fair maximal traces with markers, the admissible
+environment and the projection, attempted requests as the input word, and
+the late, ordered \kw{fire} action of \Lang{}. The specification ends with a
+list of 41 numbered assumptions and decisions.
+
+\emph{Stage 1: the model and the statements.} The Lean model, the
+translation, and the two theorems were written first, with the theorems
+reduced to inclusion lemmas that ended in \texttt{sorry}: twelve in all.
+A review compared the statements with the specification before any proof
+started. That review led to the owner decisions L1 to L4 of
+\S\ref{sec:language} and to two corrections of the model: snapshots had
+loaded every Attribute, where the server loads an AttributeMap instance
+only when it is selected; and a runtime-only instruction had been exposed
+as a source statement.
+
+\emph{Stage 2: the proofs.} The definitions that the proofs share were
+\emph{fixed}: the relation, the invariants, the shape of each step lemma,
+and later the liveness definitions. The remaining work was cut into
+packages with fixed statements (Table~\ref{tab:packages}), which were
+proved in parallel on separate branches and then merged. A package may add
+lemmas. It may not change a model file, a fixed definition, or a statement.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}P{1.35cm}LP{5.4cm}@{}}
+\toprule
+Package & Content & Main statement \\
+\midrule
+WP1 & Every \Lang{} transition keeps the \Lang{} invariant. &
+  \lean{L.Invariant.step} \\
+WP2 & \Lang{} to Dex: ticks, requests, timer fires, late emits, the begin of
+  an action, the delivery of an effect. &
+  \lean{l_tick_simulated}, \lean{l_fire_simulated}, \ldots \\
+WP3 & \Lang{} to Dex: the registration of a wait and the completion of an
+  action. & \lean{l_thread_register_simulated},
+  \lean{l_thread_complete_simulated}, \ldots \\
+WP4 & Dex to \Lang{}: every Dex step. & \lean{dex_step_simulated} \\
+\midrule
+L1 & Block runs flatten; the flattening keeps the trace, the requests, and
+  finiteness of progress. & \lean{exists_flattening} \\
+L2 & Silent actions lower the silent weight; labels are progress steps
+  exactly when the action is one. &
+  \lean{silentWeight_lt_of_isSilentKind} \\
+L3 & The \Lang{} run of a Dex run: existence, word, trace, marker. &
+  \lean{exists_lRun_of_dexRun} \\
+L4 & The \Lang{} run of a fair Dex run is fair. & one lemma per assumption \\
+L5 & The Dex run of an \Lang{} run: existence, word, trace, marker. &
+  \lean{exists_dexRun_of_lRun} \\
+L6 & The Dex run of a fair \Lang{} run is fair. & one lemma per assumption \\
+\bottomrule
+\end{tabularx}
+\caption{The work packages. None of them changed a definition of a model
+file, a definition of \file{TraceSets.lean}, or a statement of
+\file{Theorems.lean}.}
+\label{tab:packages}
+\end{table}
+
+Fixing the statements first has an obvious benefit: independent provers
+cannot drift apart. It also has a cost, which we met at once. A step lemma
+quantifies over \emph{every} pair of configurations that satisfies
+\lean{IsSimulationState}, not only over reachable pairs. If the fixed
+definitions admit an unreachable pair that breaks a step, the lemma is
+false, and the prover of that package is the one who finds out.
+
+\subsection{Six gaps, and a fuzz that finds them}
+\label{sec:gaps}
+
+That is what happened. The first fixed definitions were not inductive. The
+provers found six pairs of configurations that satisfied the definitions,
+were not reachable, and falsified a step lemma (Table~\ref{tab:gaps}). Each
+gap was closed by one more clause.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}P{2.6cm}LP{4.3cm}@{}}
+\toprule
+Gap & A pair the first definitions allowed & Closed by \\
+\midrule
+\kw{WaitFor} task with an effect & A thread that began a wait, whose
+  \kw{WaitFor} task holds an effect: the Worker's effect step has no
+  \Lang{} step. & \lean{PhaseMatchesStep}: such a task holds no effect. \\
+Task effects & After the close, a stale task holds two effects: abandoning
+  it drops both, \Lang{} drops one late emit per label. &
+  \lean{IsTaskComputed}: a task holds what its handler computes, at most
+  one effect. \\
+Waiting Step with an invocation & A thread that is not blocked, carried by a
+  Step in phase $\mathit{WT}$ with a stored wait: a publication wakes the
+  Step and not the thread. & \lean{PhaseMatchesStep} fixes the Step's phase
+  in every case. \\
+Cancel flag of an unforked child & A flag is set for the next child of a
+  live thread, with no pending request: after \kw{fork} the child has a
+  flag and no request. & \lean{cancelFlagsAreRequests}. \\
+Boot and static mutexes & While \kw{main} boots, the mutex owners and the
+  token Channels are unconstrained, and the start Step then publishes the
+  tokens. & \lean{mutexesBeforeBoot}. \\
+Duplicate timer IDs & The timer list holds one ID twice: the relation reads
+  the first binding, the due-timer computation reads both. &
+  \lean{TimersAreDistinct}. \\
+\bottomrule
+\end{tabularx}
+\caption{The six gaps in the first fixed definitions. Each row is an
+unreachable pair that the definitions accepted and that breaks a step
+lemma.}
+\label{tab:gaps}
+\end{table}
+
+A seventh problem was in the shape of a statement, not in an invariant. The
+\Lang{}-to-Dex lemmas first concluded with an existential (``some Dex
+actions simulate the label''). The Dex-to-\Lang{} direction could not reuse
+them by determinism, because the actions were hidden. The statement was
+changed to name them (\lean{simulatingActions},
+\S\ref{sec:ltodex}).
+
+Finding such gaps by proving is expensive: each one stops a package, and
+the fix touches definitions that other packages rely on. So after the fact
+we built the test that would have caught them: an \emph{inductiveness
+fuzz} (\file{Examples/Inductiveness.lean}), in the spirit of testing a
+property on random inputs before trying to prove it
+\cite{claessen2000quickcheck}.
+\begin{enumerate}
+\item It runs an \Lang{} program and its Flow in lockstep, in both
+  directions, on pseudo-random schedules, and samples the reached pairs of
+  configurations.
+\item It \emph{perturbs} each pair in about 270 ways: one field of one side
+  (a thread's phase, counter, timer, locals, or code; the cancel flags; the
+  mutex owners; a Step's phase, invocation, wait, or input; a task's phase
+  or snapshot; added, dropped, or doubled Steps, tasks, messages, timers,
+  Attributes), or matching fields of both sides.
+\item It keeps a perturbed pair only when an executable Boolean mirror of
+  \lean{IsSimulationState} (\lean{checkState},
+  \file{Examples/RelatedCheck.lean}) accepts it. The kept pairs are
+  mostly unreachable, which is the point.
+\item From every kept pair it takes every enabled \Lang{} label with its
+  simulating actions, and every enabled admissible Dex action with its
+  \Lang{} labels. The other side must be enabled, the events and clock
+  stamps must agree, and the mirror must accept the result.
+\end{enumerate}
+
+The result is the honest measure of the method. With the mirror of the
+\emph{first} definitions, the run \texttt{inductiveness-fuzz 120 5 6 2}
+reports 322 failures, and they cover all six gaps of
+Table~\ref{tab:gaps}. With the present definitions the same run, on 13
+programs, perturbs 1,898 pairs into 510,426 copies, keeps 189,045 of them,
+and reports no failure. A larger run on the finished proof,
+\texttt{inductiveness-fuzz 200 4 6 3}, perturbs 5,876 pairs into 1,820,177
+copies, again with no failure. The fuzz found no gap beyond the six. It is
+evidence, not proof; the work packages prove inductiveness. But the
+smaller run takes well under a minute, and had it existed before the statements were fixed,
+none of the six gaps would have reached a prover.
+
+Writing the fuzz also taught a lesson about the tooling. The first mirror
+of the timer clause checked every binding of the timer list, where the
+clause itself reads only the first binding of an ID. A mirror that is
+stricter than its clause \emph{hides} gaps: the duplicate-timer gap was
+invisible until the mirror was made exact.
+
+\subsection{Testing before proving}
+\label{sec:testing}
+
+The same habit was applied throughout. None of these checks is part of the
+proof. All of them run when the development is built, and a failure fails
+the build.
+
+\emph{Lockstep checks} (\file{Examples/Lockstep.lean},
+\file{Examples/LockstepChecks.lean}) run a program and its Flow side by
+side on pseudo-random schedules, in both directions, for 13 programs that
+together use every construct. After every step the \Lang{} events must
+equal the projected Dex events, and the \Lang{} clock stamp must equal the
+Dex commit timestamp. Three faults were planted to see whether the build
+notices. Dropping the cancel of a blocked timed operation failed. Dropping
+the load selection of the waiter list failed. Dropping the timer-number
+tie-break \emph{passed}: equal deadlines are rare under random ticks. A
+dedicated example with two equal deadlines (\file{Examples/TimerOrder.lean})
+was added and fails under that fault.
+
+\emph{Relation checks} (\file{Examples/RelatedCheck.lean}) evaluate the
+mirror of \lean{IsSimulationState} in every pair that the lockstep runs
+reach, for 14 programs.
+
+\emph{Liveness checks} (\file{Examples/LivenessChecks.lean}) tested the
+liveness definitions before the liveness packages started: that
+\lean{fairActions} are enabled and end in a settled pair; that the fairness
+obligations of the two sides correspond; that every silent action lowers
+the silent weight; and that, in a settled pair, \Lang{} has a step other
+than a tick or a request exactly when the Flow has one, which is what the
+markers \mterm{} and \mdead{} compare. The run
+\texttt{inductiveness-fuzz 200 4 6 3 liveness} checks 1,396,813 pairs,
+1,205,008 of them settled and 408,933 settled after the close, with no
+failure. Each of the four checks was shown to detect a planted fault.
+
+These checks cannot test a statement about an infinite run, and they did
+miss one thing. A fixed statement of package L2 was false as first written:
+that every silent action lowers the silent weight. With two tasks of one ID
+it fails, because an update by ID changes both. The statement now assumes
+\lean{TasksAreDistinct}, which every configuration of a run satisfies. The
+checks did not find this because they start from pairs that the mirror
+accepts, and those have distinct task IDs. The prover found it.
+
+\subsection{What the work found in the real server}
+\label{sec:server-bugs}
+
+Writing a rule for every server behavior, with a citation, means reading
+every caller of every function the rule mentions. Two defects in the real
+server surfaced this way, before any Lean was written.
+\begin{itemize}
+\item \emph{A cancellation that skipped the graceful-completion check.}
+  A Flow that has requested graceful completion closes once no Step is
+  active. One path that cancels Steps, cancellation by an RPC, did not run
+  that check, so a Flow whose last active Step was canceled this way stayed
+  running forever.
+\item \emph{Consumed messages lost when a waiting Step was canceled.} A
+  Step whose wait had consumed Channel messages, and which was canceled
+  before its \kw{Execute} committed, discarded those messages. A review
+  finding showed the consequence for a token-based mutex: the token is
+  gone and the mutex stays locked.
+\end{itemize}
+Both have since been fixed in the server. The first is outside the
+translation, which uses neither graceful completion nor RPCs. For the
+second, the fix changed how the server handles the consumed messages of a
+canceled Step. A translated Flow cancels Steps only by closing, and we
+argue that the changed handling is unobservable there; but the model
+describes the server at the pinned commit, and we have not proved that
+the current server refines it (\S\ref{sec:limitations}). The second defect
+also shaped \Lang{}: it is why \Lang{}'s cancellation is cooperative and
+\kw{lock} is not a cancellation point. The
+specification also records where the product documentation said less than
+the code does; the plainest case is ``a Step method commits atomically'',
+which is true of the writes and not of the read-modify-write
+(\S\ref{sec:dex-rules}).
+
+\subsection{Size and effort}
+\label{sec:size}
+
+Table~\ref{tab:size} gives the size of the development, counted with
+\texttt{wc -l}, comments and blank lines included. The definitions that a
+reader must trust are about a tenth of it. The largest part by far is the
+\Lang{}-to-Dex step simulation; its largest file, the registration of a
+wait, has 1,941 lines.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+Directory & Files & Lines & Content \\
+\midrule
+\texttt{Core/} & 4 & 1,177 & transition systems, traces, block runs \\
+\texttt{Dex/} & 9 & 3,378 & the Dex model, its run invariant, lemmas \\
+\texttt{L/} & 11 & 6,033 & the \Lang{} model, its invariant, the lock discipline \\
+\texttt{Translation/} & 2 & 433 & the translation, the projection, \Eadm \\
+\texttt{Simulation/} & 32 & 15,862 & the relation and the step simulations \\
+\texttt{Liveness/} & 16 & 6,435 & the liveness definitions, packages L2 to L6, resting runs \\
+\texttt{Examples/} & 13 & 2,692 & kernel-checked runs, witnesses, checks, the fuzz \\
+top level & 9 & 2,076 & invariants, finite traces, the theorems \\
+\midrule
+Total & 96 & 38,086 & \\
+\bottomrule
+\end{tabular}
+\caption{The Lean development at commit \texttt{33e998003}. The
+specification is a further 2,005 lines of Markdown.}
+\label{tab:size}
+\end{table}
+
+The development uses Lean 4.35.0 and no library beyond the Lean core: no
+Mathlib and no Batteries. The list and arithmetic facts it needs are in the
+core or are proved in the development. Finite maps are association lists,
+so that every model function evaluates in the kernel and the examples are
+checked by evaluation. A clean build takes a few minutes at most; the two
+fuzz runs quoted above took about half a minute and two minutes when we
+reran them for this paper.
+
+The proofs were produced by AI coding agents working in parallel on the
+work packages with fixed statements, under the author's direction. The
+author made all semantic decisions. By their git author dates, the 92
+commits under \file{formal/} up to the revision described here fall
+between 13:39 and 23:11 on one day: from the first committed draft of the
+specification to the complete proof took a little under ten hours. That
+figure excludes earlier preparation: planning, the Workflow Patterns
+evaluation, and drafting the specification before its first commit.
