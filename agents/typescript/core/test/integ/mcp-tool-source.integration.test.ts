@@ -472,6 +472,27 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     assert.deepEqual(toolRuns("long_report", "direct-session"), ["direct-session/turn-1/call-1"]);
   });
 
+  test("only a session-polled task resumes without sending, as willResumeToolTaskWithoutSending says", async () => {
+    const tools = createMcpToolSource(stateDirectory, httpUrl);
+    const savedCheckpoints: string[] = [];
+    assert.equal(tools.willResumeToolTaskWithoutSending(deferredExecution('{"topic": "q9"}')), false);
+    await tools.executeDeferredToolCall(
+      deferredExecution('{"topic": "q9"}', undefined, async (checkpoint) => {
+        savedCheckpoints.push(checkpoint);
+      }),
+    );
+    const checkpoint = savedCheckpoints[0];
+    assert.ok(checkpoint !== undefined);
+    assert.equal(tools.willResumeToolTaskWithoutSending(deferredExecution('{"topic": "q9"}', checkpoint)), true);
+    // Without a session poller the tool Step polls itself, and calls again if the task is gone.
+    assert.equal(
+      tools.willResumeToolTaskWithoutSending(deferredExecution('{"topic": "q9"}', checkpoint, undefined, false)),
+      false,
+    );
+    const polledInStep = JSON.stringify({ ...JSON.parse(checkpoint), mcp_task_polled_by_session: false });
+    assert.equal(tools.willResumeToolTaskWithoutSending(deferredExecution('{"topic": "q9"}', polledInStep)), false);
+  });
+
   test("without a poller the tool Step polls the task to its end", async () => {
     const tools = createMcpToolSource(stateDirectory, httpUrl);
 

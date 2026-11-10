@@ -36,6 +36,16 @@ for the Dex SDK and framework versions each release supports.
   polling. It used to fail the poll attempt.
 - `agents/conformance/mcp_dex_conventions.json` fixes the conventions for every
   core.
+- TypeScript core: **McpToolSource.executeDeferredToolCall** takes an optional
+  second argument, `executeDeferredToolCall(call, { requestMeta })`, and
+  **McpToolCallOptions** has `requestMeta`: more entries for the `tools/call`
+  request's `_meta`, such as the identity the caller expects the tool to have.
+  The idempotency key entry wins on a name clash.
+- TypeScript core: new **McpToolSource.willResumeToolTaskWithoutSending(call)**
+  is `true` only when `executeDeferredToolCall` will return a session-polled
+  task that an earlier attempt started and can never send `tools/call` for the
+  call. A task polled inside the tool Step, such as one bound to a protocol
+  session, may be called again when the server no longer knows it.
 
 ### Changed
 
