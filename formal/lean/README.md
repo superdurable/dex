@@ -10,13 +10,16 @@ The semantics it formalizes is
 [`formal/semantics/dex-core-semantics.md`](../semantics/dex-core-semantics.md),
 revision 5. "Spec" below means that document.
 
-## Status: Stage 2a in progress
+## Status: Stage 2a in progress, stopped on an open issue
 
 Stage 2a proves the safety theorem. Eight of the twelve `sorry` of Stage 1
 are proved, and `safety_of_isWellFormed` depends on exactly two: the step
 simulations. Work on those found that a program could forge a mutex handle;
 the owner decided on 2026-11-10 that handles are unforgeable. See
-[Decided in Stage 2a](#decided-in-stage-2a-handles-are-unforgeable).
+[Decided in Stage 2a](#decided-in-stage-2a-handles-are-unforgeable). The same
+forged handle can still arrive through the program input or an external
+message. See
+[Open issue found in Stage 2a](#open-issue-found-in-stage-2a-forged-handles-through-the-input).
 
 ### Stage 1, revised after the first review
 
@@ -512,6 +515,48 @@ kernel, is deleted: the program can no longer be written, because no
 expression denotes the handle of a mutex that `newMutex` has not created. The
 two lemmas above are the check that replaces it.
 
+## Open issue found in Stage 2a: forged handles through the input
+
+**Stage 2a is stopped on this point. It needs an owner decision.** Nothing in
+the model, the translation, or the theorem statements was changed for it.
+
+The decision of 2026-11-10 closed the source syntax: no expression denotes a
+handle that was not created. But the program input and every external message
+are L values (`Val`), and a `Val` can be a mutex handle. So the environment
+can still pass the handle of a mutex that `newMutex` has not created yet, and
+the counterexample of spec Review log row L5 comes back:
+
+```text
+locker(h):  lock(h); emit(1)
+main(x):    t := fork locker(x); sleep(0); m := newMutex(); y := recv(9)
+```
+
+started with `x = <handle of the mutex main will create>`. The program has no
+literal handle and is well formed. `Examples/ForgedHandleInput.lean` checks
+both runs in the kernel:
+
+| Fact | Lean |
+| --- | --- |
+| The L run in which the locker blocks first has trace `[begin(x)]`. | `l_trace` |
+| At its end the mutex is unlocked and the locker is still blocked on it. | `l_lockerIsStuck` |
+| The translated Flow has trace `[begin(x), out(1)]`. | `dex_trace` |
+
+So `liveness_of_isWellFormed` is still false as the model stands, and the
+step simulations (items 7 and 8) are false for this program. The same input
+can arrive as an external message (`in(c, v)`).
+
+Options:
+
+| Option | Change | Cost |
+| --- | --- | --- |
+| (a) The environment sends plain data only. Recommended. | The program input and every external message are literals: null, a Boolean, an integer, or a string. In Lean, `L.Request` carries a `Literal`, and `E_adm` admits encoded literals only. Spec §5.3 and §8.1 say so. | Small. It completes the decision of 2026-11-10: a mutex handle then really comes from `newMutex` or the static-mutex expression only. Thread and condition variable handles are excluded by the same rule. |
+| (b) `newMutex` serves blocked lockers. | L semantics: creating a mutex grants it to the first thread already blocked on its identity. | Small in Lean, but L keeps a rule that only a forged handle can trigger, and the unforgeability of 2026-11-10 stays incomplete. |
+| (c) Well-formedness excludes it. | `Program.IsWellFormed` also requires that no thread locks a mutex that does not exist. | Small, but the condition then depends on the input, and it also excludes `lock` of a static mutex beyond `staticMutexCount`. |
+
+With (a), the L-side invariant "every handle of a created mutex that a thread
+can reach names an existing mutex" holds for every reachable configuration.
+The step simulations need it.
+
 ## Stage 2a progress
 
 Stage 2a proves `safety_of_isWellFormed`. Liveness stays `sorry` until
@@ -534,8 +579,21 @@ Proof lines added in Stage 2a so far: about 2,800, in `Dex/RunLemmas.lean`,
 `Dex/WaitLemmas.lean`, `Dex/RunInvariant.lean`, `Invariants.lean`, and
 `FiniteTraces.lean`.
 
-What remains for safety is items 7 and 8. Three strengthenings of `Related`
-are already known to be needed:
+What remains for safety is items 7 and 8. The plan for them:
+
+- Both step simulations take "the L configuration is reachable". The facts
+  about the L side alone go into an invariant of reachable L configurations,
+  proved by induction on L runs as `ConfigInvariant` is for Dex: unique and
+  fresh thread IDs, fresh created mutex IDs, at most one owner per mutex,
+  distinct `since` stamps, and "every reachable handle of a created mutex
+  names an existing mutex" (which needs the open issue above decided).
+- `Related` keeps only the clauses that link the two sides.
+- The L-to-Dex simulation is proved case by case: per label, per thread
+  phase, per `Intent`. The Dex-to-L simulation follows from it by
+  determinism, plus "the L label is enabled" and the four Dex actions that L
+  does not see.
+
+Three strengthenings of `Related` are already known to be needed:
 
 - While `main` boots, the relation must fix the whole thread state (thread
   ID, counter, stack, code, no timer), not only the locals.
