@@ -1,6 +1,7 @@
 # Agents M3: Connector Tools, the Operator View, and Session Lifetime
 
-Status: proposed, design only. Nothing here is approved or built.
+Status: O1, O2, and O3 items 1 to 4 are built (see [As built](#as-built)). O3 compaction
+beyond the adapters, O4, O5, and O6 are design only.
 Built so far: [long-running-agents.md](../long-running-agents.md), the as-built design.
 Current contract: [agent-framework-adapters.md](agent-framework-adapters.md) and
 [agents-m2-stepwise.md](agents-m2-stepwise.md), as released in `agents/v0.2.0`.
@@ -45,6 +46,21 @@ These come from the owner reviews and apply to every item.
 9. **Python and TypeScript first.** They are the first tier for agents, and every
    item ships there first. Go and other languages are the second tier. A feature
    that exists only in Go is a gap to close, not a baseline.
+
+## As built
+
+| Item | PRs |
+| --- | --- |
+| O1 Connector tools | Connector library [#628](https://github.com/superdurable/dex-connectors-library/pull/628), Connector SDK 0.9.0 ([#641](https://github.com/superdurable/dex-connectors-library/pull/641), [#642](https://github.com/superdurable/dex-connectors-library/pull/642)), file schema #1395, cores #1391 |
+| O2 Session graph, session view, inbox | #1383, #1385, #1384 |
+| O2 Action locks | #1387, #1390 |
+| O3 items 1 to 4 | #1335, #1373, #1374, #1375 |
+| O3 compaction in framework adapters | #1382 |
+| Python and TypeScript Actions | #1400 |
+| Action route | #1352 |
+
+Agents 0.3.0 shipped the O2 and O3 items. O1 ships in the next agents release.
+#1461 merged Dex Web v2 into v1, so "Dex Web v2" below means today's Dex Web.
 
 ## Preconditions
 
@@ -428,10 +444,14 @@ support it. It is worth doing, and the agent inbox does not wait for it.
 **Permissions.** "Working as" filters on permissions that Workers project. Agent sessions
 without mappings have nothing to match, so the first inbox does not filter by permission.
 
-**Races.** Two operators approve the same call. `resolve_interrupt` locks `PendingInterrupts`,
-and an RPC that cannot get a lock fails. The UI treats that as "already handled", then reloads.
-A deadline can reject a call while an operator decides, so the result is read back from
-committed state.
+**Races.** Two operators approve the same call. The caller sends an RPC's locks with the call,
+and the server runs only the locks it is sent; it does not read them from the RPC declaration.
+So the Action route takes the locks from the Flow Definition Graph's `resource_lock` edges
+(#1387): `resolve_interrupt` locks `PendingInterrupts`, and the second caller gets a lock
+conflict (409) or, after the first commits, `false`. The card retries a conflict three times,
+then shows the call as busy; `false` reads as "already handled", and the card reloads. A raw
+`InvokeRPC` without locks runs unlocked (#1390 documents this). A deadline can reject a call
+while an operator decides, so the result is read back from committed state.
 
 ### Conditional approval
 
@@ -574,10 +594,10 @@ O2 is the UI work of this plan.
 
 - Session view: a tab on the run page, present only for Flows with the Dex Agents schema. It reads as a conversation, with each tool call drawn inline where the agent made it. Each tool call shows its state, and "queued for a Worker" reads differently from "running" and "failed".
 - Inbox: an agent mode of the Work Queue. Rows are grouped by agent, which is the session's Flow type, with a count per group. One row per session that needs a person, oldest deadline first inside a group. Selecting a row opens the Work Queue side panel with the pending call, the last message, approve, reject, and open session, so the operator acts without leaving the list.
-- Approval card: tool, arguments, effect class, deadline, approve and reject. A failed approval because another operator acted reads as "already handled", and the card reloads.
+- Approval card: tool, arguments, effect class, deadline, approve and reject. An approval that another operator already resolved reads as "already handled", and the card reloads. A lock conflict is retried, then reads as busy.
 - An error while reading a session shows what is missing. It does not show an empty conversation.
 
-Native Dex Web units are the standard. The view works with Workers down, except for actions that need an RPC, which are disabled with a reason.
+Native Dex Web units are the standard. The view reads with Workers down. Actions stay enabled, because a queued Step does not mean Workers are down; an RPC that fails with UNAVAILABLE says that no Worker is connected.
 
 ## Decisions
 
@@ -607,10 +627,12 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 10. **Action route.** #1352 returns an RPC's output and accepts an Action without a condition.
 11. **Limit exemption.** Dropped. The read path in #1335 reports the failure.
 12. **Error code.** Text matching stays for now. #1350 tracks a dedicated code.
+13. **RPC locks.** The caller sends them; the server does not infer or enforce them. Dex Web
+    reads them from the Flow Definition Graph (#1387). #1388 closed as not planned.
 
 **Still open.**
 
-13. **Long record keeping.** With #1325, is archiving old messages still needed?
+14. **Long record keeping.** With #1325, is archiving old messages still needed?
 
 ## Non-goals
 
