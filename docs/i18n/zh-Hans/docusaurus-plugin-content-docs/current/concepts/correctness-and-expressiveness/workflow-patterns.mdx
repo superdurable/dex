@@ -289,7 +289,7 @@ Dex 在一个 Flow 内用 Channel 信号表达汇合：每个分支结束时发�
 
 **模式含义**：已启用的任务在开始前被撤回；正在运行的任务尽可能被停止。见[官方定义](http://www.workflowpatterns.com/patterns/control/cancellation/wcp19.php)。
 
-**Dex 实现**：**RPC** 结果按 Step type 取消正在等待的 Step，并启动另一个 Step。Dex 把这两项改动一起生效。
+**Dex 实现**：**RPC** 结果按 Step type 取消正在等待的 Step，并启动另一个 Step。Dex 让这两项改动同时生效。
 
 **评级**：**+**。取消 Step 是 RPC 结果的内置功能。
 
