@@ -60,7 +60,8 @@ func NewEmbeddedSite(cfg *EmbeddedSiteConfig, assets fs.FS) (*EmbeddedSite, erro
 
 // SetFramingHeaders sets the Content-Security-Policy frame-ancestors and X-Frame-Options headers that
 // FrameAncestors chooses, and removes an X-Frame-Options that the list does not allow. Call it before writing a
-// response that ServeTarget does not write, such as a resolver error.
+// Dex Web response that ServeTarget does not write, such as the default resolver error. Never call it for a
+// page that the host writes, because it replaces the host's Content-Security-Policy.
 func (site *EmbeddedSite) SetFramingHeaders(header http.Header) {
 	site.pages.framePolicy.apply(header)
 }

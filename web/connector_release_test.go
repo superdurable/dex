@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestConnectorReleaseResolverVerifiesAndCachesUI(t *testing.T) {
@@ -291,13 +292,10 @@ func TestServeConnectorUIAssetUsesSandboxHeadersAndRequest(t *testing.T) {
 	response.Header().Set("X-Frame-Options", "DENY")
 	response.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
 
-	serveConnectorUIAsset(response, request, "index.html", root, false)
+	serveConnectorUIAsset(response, request, "index.html", root, false, "'self'")
 
 	if frameOptions := response.Header().Get("X-Frame-Options"); frameOptions != "" {
 		t.Fatalf("X-Frame-Options = %q", frameOptions)
-	}
-	if strings.Contains(response.Header().Get("Content-Security-Policy"), "frame-ancestors") {
-		t.Fatalf("CSP = %q", response.Header().Get("Content-Security-Policy"))
 	}
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)
@@ -305,11 +303,114 @@ func TestServeConnectorUIAssetUsesSandboxHeadersAndRequest(t *testing.T) {
 	if response.Body.String() != "<main>Gmail</main>" {
 		t.Fatalf("body = %q", response.Body.String())
 	}
-	if !strings.Contains(response.Header().Get("Content-Security-Policy"), "connect-src 'none'") {
-		t.Fatalf("CSP = %q", response.Header().Get("Content-Security-Policy"))
+	policy := response.Header().Get("Content-Security-Policy")
+	for _, directive := range []string{
+		"connect-src 'none'", "script-src 'self' 'unsafe-inline'", "frame-ancestors 'self';", "sandbox allow-scripts",
+	} {
+		if !strings.Contains(policy, directive) {
+			t.Fatalf("CSP = %q, want %q", policy, directive)
+		}
 	}
-	if !strings.Contains(response.Header().Get("Content-Security-Policy"), "script-src 'self' 'unsafe-inline'") {
-		t.Fatalf("CSP = %q", response.Header().Get("Content-Security-Policy"))
+	if strings.Contains(policy, "frame-ancestors 'none'") {
+		t.Fatalf("CSP = %q", policy)
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", contentType)
+	}
+	if noSniff := response.Header().Get("X-Content-Type-Options"); noSniff != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q", noSniff)
+	}
+}
+
+func TestServeConnectorUIAssetNeverLetsBrowsersSniffContentType(t *testing.T) {
+	root := t.TempDir()
+	for name, contents := range map[string]string{
+		"app.js": "console.log(1)", "module.MJS": "export {}", "style.css": "main{}", "logo.svg": "<svg></svg>",
+		"payload.bin": "<html><script>alert(1)</script></html>", "README": "<html></html>",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for assetPath, wantContentType := range map[string]string{
+		"app.js":      "text/javascript; charset=utf-8",
+		"module.MJS":  "text/javascript; charset=utf-8",
+		"style.css":   "text/css; charset=utf-8",
+		"logo.svg":    "image/svg+xml",
+		"payload.bin": "application/octet-stream",
+		"README":      "application/octet-stream",
+	} {
+		response := httptest.NewRecorder()
+		serveConnectorUIAsset(response, httptest.NewRequest(http.MethodGet, "http://localhost/"+assetPath, nil), assetPath, root, true, "'self'")
+		if response.Code != http.StatusOK || response.Header().Get("Content-Type") != wantContentType ||
+			response.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatalf("%s = %d %v", assetPath, response.Code, response.Header())
+		}
+	}
+}
+
+func TestConnectorUIAssetFramingThroughStandaloneEntry(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<!doctype html>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, testCase := range []struct {
+		name               string
+		frameAncestors     []string
+		wantFrameAncestors string
+	}{
+		{name: "default", wantFrameAncestors: "frame-ancestors 'self';"},
+		{name: "self", frameAncestors: []string{"'self'"}, wantFrameAncestors: "frame-ancestors 'self';"},
+		{
+			name:               "allowlist",
+			frameAncestors:     []string{"https://console.example", "'self'"},
+			wantFrameAncestors: "frame-ancestors 'self' https://console.example;",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := &Config{
+				BindAddress: "127.0.0.1", ConnectorSetupEnabled: true, ConnectorConfigDirectory: t.TempDir(),
+				FrameAncestors: testCase.frameAncestors,
+			}
+			setup, err := newConnectorSetup(cfg, staticFlowDefinitionProvider{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			framing, err := newFramePolicy(cfg.FrameAncestors)
+			if err != nil {
+				t.Fatal(err)
+			}
+			setup.uiSessions["asset-session"] = connectorUISession{root: root, expiresAt: time.Now().Add(time.Minute)}
+			mux := http.NewServeMux()
+			setup.registerHandlers(mux)
+			handler := newStandaloneBasePathHandler("/", framing, mux)
+
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/v2/connector-ui-sessions/asset-session/index.html", nil))
+
+			policy := response.Header().Get("Content-Security-Policy")
+			if response.Code != http.StatusOK || !strings.Contains(policy, testCase.wantFrameAncestors) ||
+				!strings.HasSuffix(policy, "; sandbox allow-scripts") || response.Header().Get("X-Frame-Options") != "" ||
+				response.Header().Get("X-Content-Type-Options") != "nosniff" {
+				t.Fatalf("asset = %d %v", response.Code, response.Header())
+			}
+			missingResponse := httptest.NewRecorder()
+			handler.ServeHTTP(missingResponse, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/v2/connector-ui-sessions/expired/index.html", nil))
+			if missingResponse.Code != http.StatusNotFound || missingResponse.Header().Get("Content-Security-Policy") != framing.contentSecurityPolicy {
+				t.Fatalf("missing session = %d %v", missingResponse.Code, missingResponse.Header())
+			}
+		})
+	}
+}
+
+func TestConnectorUISandboxMatchesConnectorsPageFrame(t *testing.T) {
+	page, err := os.ReadFile(filepath.Join("app", "connectors", "ConnectorsPage.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), `sandbox="allow-scripts"`) ||
+		!strings.HasSuffix(connectorUIContentSecurityPolicy(false, "'self'"), "; sandbox allow-scripts") {
+		t.Fatal("the Connector UI CSP sandbox must allow exactly what the Connectors page iframe sandbox allows")
 	}
 }
 

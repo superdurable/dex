@@ -142,7 +142,8 @@ Return one of these errors, or an error that wraps one, to choose the response:
 
 The response body never contains the error text. The handler logs an
 unrecognized error through **log/slog**. Set **WriteResolveError** in
-**Config** to write the response yourself, such as a sign-in redirect.
+**Config** to write the response yourself, such as a sign-in redirect. The
+handler does not add its [framing headers](#host-and-framing) to that response.
 
 ### Credentials {#credentials}
 
@@ -204,10 +205,15 @@ for **/api** requests, without a bind address.
 **Config.FrameAncestors** works like [--frame-ancestors](/reference/web/dex-web#frame-ancestors).
 By default no page may frame Dex Web. Pass **'self'** to let the host's own
 pages show it in a frame. The handler sets the framing headers on every
-response before it calls **ResolveTarget**, so redirects and resolver errors
-carry them too. With a list, it removes an **X-Frame-Options** header that host
-middleware set earlier. **WriteResolveError** may still replace the headers on
-its own error page.
+response that Dex Web writes, including redirects and the default resolver
+errors. These headers replace a **Content-Security-Policy** that host
+middleware set earlier. With a list, the handler also removes the host's
+**X-Frame-Options** header from these responses.
+
+The handler leaves every header unchanged when **WriteResolveError** writes the
+response. The host's error page owns its own **Content-Security-Policy** and
+**X-Frame-Options**, so a sign-in page that host middleware protects stays
+protected, even when **FrameAncestors** allows framing.
 
 ### Browser storage {#browser-storage}
 

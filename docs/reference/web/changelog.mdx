@@ -22,6 +22,7 @@ Released 2026-11-10 as [web/v1.43.0](https://github.com/superdurable/dex/release
 ### Changed
 
 - Without local Connector setup, the **/api/v2/connector-** routes return HTTP 404 with the code **CONNECTOR_SETUP_UNAVAILABLE**. [Reference](/reference/web/embed-dex-web#limits).
+- Connector UI files send **frame-ancestors**, **sandbox allow-scripts**, and **X-Content-Type-Options: nosniff**. A file with an unknown extension is sent as **application/octet-stream**. [Reference](/reference/web/dex-web#frame-ancestors).
 
 ## 1.42 {#v1-42}
 

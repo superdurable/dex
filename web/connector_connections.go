@@ -54,6 +54,8 @@ type connectorSetup struct {
 	connectionGenerations map[string]uint64
 	// connectionsMu guards both maps and orders their changes with connection file writes and deletes.
 	connectionsMu sync.Mutex
+	// uiFrameAncestors is the frame-ancestors source list for Connector UI assets.
+	uiFrameAncestors string
 }
 
 type connectorUISession struct {
@@ -254,6 +256,7 @@ func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*co
 		publicCatalog:         newConnectorPublicCatalog(),
 		pendingConnections:    make(map[string]connectorDefinitionIdentity),
 		connectionGenerations: make(map[string]uint64),
+		uiFrameAncestors:      connectorUIFrameAncestors(cfg.FrameAncestors),
 	}, nil
 }
 
@@ -561,7 +564,9 @@ func (setup *connectorSetup) handleUIAsset(response http.ResponseWriter, request
 		api.WriteCodedError(response, http.StatusNotFound, "CONNECTOR_UI_SESSION_NOT_FOUND", "Connector UI session is missing or expired")
 		return
 	}
-	serveConnectorUIAsset(response, request, request.PathValue("assetPath"), session.root, session.canWriteConnection)
+	serveConnectorUIAsset(
+		response, request, request.PathValue("assetPath"), session.root, session.canWriteConnection, setup.uiFrameAncestors,
+	)
 }
 
 func (setup *connectorSetup) deleteExpiredUISessions(now time.Time) {

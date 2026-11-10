@@ -147,6 +147,14 @@ wrapper in front of Dex Web already set. The list **'self'** alone sends
 **X-Frame-Options: SAMEORIGIN** instead. Framing does not change the
 [/api checks](#api-requests): the framed page calls its own origin.
 
+Connector UI files from [local Connector setup](/reference/web/local-connector-setup)
+send **frame-ancestors 'self'** plus the **--frame-ancestors** list, so only the
+Connectors page and the sites that may frame it can frame them. Their
+**Content-Security-Policy** also has **sandbox allow-scripts**, which isolates
+them even when opened directly. They carry
+**X-Content-Type-Options: nosniff**, and a file with an unknown extension is
+sent as **application/octet-stream**.
+
 ### The /api requests {#api-requests}
 
 **POST**, **PUT**, **PATCH**, and **DELETE** requests under **/api/**, including

@@ -126,11 +126,12 @@ type Config struct {
 	// generic JSON body. Set it to write your own response, such as your application's error page.
 	WriteResolveError ResolveErrorWriter
 	// FrameAncestors defaults empty, which sends "Content-Security-Policy: frame-ancestors 'none'" and
-	// "X-Frame-Options: DENY" with every response, including redirects and resolver errors, so no page may frame
-	// Dex Web. Each entry is a CSP source that may frame it: 'self' or an explicit host source such as
-	// https://host.example. A non-empty list replaces the CSP sources and removes X-Frame-Options, even one that host
-	// middleware set before the handler ran, except that the list 'self' alone sends "X-Frame-Options: SAMEORIGIN".
-	// The handler sets these headers before it calls ResolveTarget, so WriteResolveError may still replace them.
+	// "X-Frame-Options: DENY" with every response that Dex Web writes, including redirects and the default resolver
+	// errors, so no page may frame Dex Web. Each entry is a CSP source that may frame it: 'self' or an explicit host
+	// source such as https://host.example. A non-empty list replaces the CSP sources and removes X-Frame-Options, even
+	// one that host middleware set before the handler ran, except that the list 'self' alone sends
+	// "X-Frame-Options: SAMEORIGIN". The handler leaves every header unchanged when WriteResolveError writes the
+	// response, so the host's error page owns its Content-Security-Policy and X-Frame-Options.
 	FrameAncestors []string
 	// AllowedHosts defaults empty, which accepts every Host header because the host server owns Host checks.
 	// When it has an entry, /api requests must name a loopback name, an IP address, or one of these hosts in their
@@ -171,8 +172,6 @@ func NewDexWebHandler(cfg *Config) (http.Handler, error) {
 }
 
 func (handler *dexWebHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	// Before resolving, so redirects and resolver errors carry the framing headers too.
-	handler.site.SetFramingHeaders(response.Header())
 	target, err := handler.resolveTarget(request)
 	if err != nil {
 		handler.writeResolveError(response, request, err)
@@ -187,9 +186,12 @@ func (handler *dexWebHandler) ServeHTTP(response http.ResponseWriter, request *h
 
 func (handler *dexWebHandler) writeResolveError(response http.ResponseWriter, request *http.Request, err error) {
 	if handler.hostResolveErrorWriter != nil {
+		// The host's page keeps the host's own headers; Dex framing would loosen its policy.
 		handler.hostResolveErrorWriter(response, request, err)
 		return
 	}
+	// So the default resolver errors carry the framing headers too; ServeTarget sets them on the rest.
+	handler.site.SetFramingHeaders(response.Header())
 	switch {
 	case errors.Is(err, ErrTargetNotFound):
 		api.WriteCodedError(response, http.StatusNotFound, "TARGET_NOT_FOUND", "Dex Server not found")

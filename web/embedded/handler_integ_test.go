@@ -492,11 +492,12 @@ func TestHandlerSetsFramingHeadersOnEveryResponse(t *testing.T) {
 		for _, hasHostErrorPage := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/hostErrorPage=%t", framing.name, hasHostErrorPage), func(t *testing.T) {
 				handler := newFramingTestHandler(t, framing.frameAncestors, hasHostErrorPage)
-				// Host middleware that denies framing for its own pages runs before Dex Web.
+				// Host middleware that denies framing and scripts for its own pages runs before Dex Web.
 				mux := http.NewServeMux()
 				mux.Handle("/dex-web/{serverID}", handler)
 				mux.Handle("/dex-web/{serverID}/", handler)
 				hostDeniesFraming := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+					response.Header().Set("Content-Security-Policy", "default-src 'none'")
 					response.Header().Set("X-Frame-Options", "DENY")
 					mux.ServeHTTP(response, request)
 				})
@@ -507,14 +508,16 @@ func TestHandlerSetsFramingHeadersOnEveryResponse(t *testing.T) {
 					"/dex-web/broken/api/flow-definitions": http.StatusInternalServerError,
 					"/dex-web/bad-base-path/":              http.StatusInternalServerError,
 				} {
+					wantPolicy, wantOptions := framing.wantPolicy, framing.wantOptions
 					if hasHostErrorPage && (requestPath == "/dex-web/forbidden/" || requestPath == "/dex-web/broken/api/flow-definitions") {
-						wantStatus = http.StatusTeapot
+						// The host's error page keeps the host's headers in every framing mode.
+						wantStatus, wantPolicy, wantOptions = http.StatusTeapot, "default-src 'none'", "DENY"
 					}
 					response := httptest.NewRecorder()
 					hostDeniesFraming.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1"+requestPath, nil))
 					if response.Code != wantStatus ||
-						response.Header().Get("Content-Security-Policy") != framing.wantPolicy ||
-						response.Header().Get("X-Frame-Options") != framing.wantOptions {
+						response.Header().Get("Content-Security-Policy") != wantPolicy ||
+						response.Header().Get("X-Frame-Options") != wantOptions {
 						t.Fatalf("GET %s = %d %v %s", requestPath, response.Code, response.Header(), response.Body)
 					}
 				}
