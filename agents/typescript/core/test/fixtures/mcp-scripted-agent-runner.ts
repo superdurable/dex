@@ -32,12 +32,12 @@ export const mcpAgentGatewayUrlVariable = "MCP_AGENT_GATEWAY_URL";
 /** Environment variable that, when set, adds a `sessions` server, one that keeps protocol sessions. */
 export const mcpAgentSessionsUrlVariable = "MCP_AGENT_SESSIONS_URL";
 /**
- * A policy wins over the tool's readOnlyHint annotation, and changes only the approval of a tool that
- * declares its effect in the Dex `_meta` keys.
+ * A policy wins over the tool's readOnlyHint annotation, and raises the effect a tool declares in the Dex
+ * `_meta` keys.
  */
 export const mcpAgentToolPolicies = {
   local__audit_lookup: { effect: "non_idempotent_write" },
-  remote__get_balance: { effect: "non_idempotent_write", requiresApproval: true },
+  remote__get_balance: { effect: "non_idempotent_write" },
 } as const;
 
 const usage = { modelCalls: 1, inputTokens: 10, outputTokens: 5, cachedInputTokens: 0, reasoningTokens: 0 };

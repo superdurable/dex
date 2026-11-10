@@ -147,6 +147,13 @@ _MAXIMUM_DURABLE_TASK_POLL_INTERVAL_SECONDS = 3600
 # identical request counts as a new one, and the user is asked again.
 _TASK_ANSWER_GRACE_SECONDS = 10
 _YES_NO_CHOICES = ("yes", "no")
+# UNCLASSIFIED ranks highest: nothing is known, and it runs like a non-idempotent write.
+_EFFECT_CONSERVATISM = {
+    ToolEffect.READ: 0,
+    ToolEffect.IDEMPOTENT_WRITE: 1,
+    ToolEffect.NON_IDEMPOTENT_WRITE: 2,
+    ToolEffect.UNCLASSIFIED: 3,
+}
 # The SDK also reports HTTP error statuses and unreadable bodies with these codes, after the
 # server may have run the call, so they leave the outcome unknown.
 _NO_RESULT_ERROR_CODES = frozenset(
@@ -323,9 +330,10 @@ class McpToolSource:
     A server that follows the Dex MCP conventions declares each tool's effect
     and approval in its definition's ``_meta`` instead, under
     ``TOOL_EFFECT_META_KEY`` and ``TOOL_APPROVAL_META_KEY``, as a connector
-    manifest does for ``ConnectorToolSource``. Such a tool keeps its declared
-    effect, a session ``ToolPolicy`` changes only whether its calls wait for
-    approval, and its writes run in the model's order. A result or JSON-RPC
+    manifest does for ``ConnectorToolSource``. A session ``ToolPolicy`` for
+    such a tool may keep or raise its safety but never lowers it: the call
+    gets the more conservative of the two effects, and its writes run in the
+    model's order. A result or JSON-RPC
     error whose ``_meta`` reports ``TOOL_OUTCOME_UNKNOWN`` records
     ``outcome_unknown`` without a retry, and ``TOOL_OUTCOME_REJECTED``
     records ``failed``. See the package README, "Dex MCP conventions".
@@ -632,7 +640,9 @@ class McpToolSource:
         tools: pass it in the adapter's ``tool_policies`` and put your own
         policies after it, so yours win. A tool with a ``dex_effect`` gets that
         effect and requires approval exactly when ``is_approval_recommended``;
-        a policy you put after it replaces both.
+        a policy you put after it replaces both. Unlike in
+        ``deferred_tool_call``, such a policy can lower the declared effect,
+        so keep yours at least as conservative as ``dex_effect``.
 
         Example:
             >>> await tools.list_tools()
@@ -671,16 +681,21 @@ class McpToolSource:
         annotation effect, so an explicit ``ToolPolicy`` wins. The call's
         ``tool_source_reference`` names the server and the tool's MCP name.
 
-        A tool with a ``dex_effect`` keeps that effect, as a connector tool
-        does. Its call waits for approval when the session's ``ToolPolicy``
-        for the tool sets ``requires_approval`` to ``True``, or, when that
-        policy leaves it ``None`` or there is none, when
-        ``is_approval_recommended`` is ``True``. A write runs in the model's
-        order after the turn's earlier writes (``DeferredToolCall.ordered``).
+        For a tool with a ``dex_effect``, the session's ``ToolPolicy`` for
+        the tool may keep or raise its safety but never lowers it. The call
+        gets the more conservative of ``dex_effect`` and the policy's effect,
+        ranked ``READ``, ``IDEMPOTENT_WRITE``, ``NON_IDEMPOTENT_WRITE``, then
+        ``UNCLASSIFIED``. It waits for approval when the policy sets
+        ``requires_approval``. When the policy leaves ``requires_approval``
+        ``None``, the call waits when ``is_approval_recommended`` is ``True``
+        or the policy's effect requires approval by default. Without a
+        policy, it waits exactly when ``is_approval_recommended`` is
+        ``True``. A write runs in the model's order after the turn's earlier
+        writes (``DeferredToolCall.ordered``).
 
         .. versionchanged:: 0.5.0
-            A tool with a ``dex_effect`` keeps it; a ``ToolPolicy`` changes
-            only its approval.
+            For a tool with a ``dex_effect``, a ``ToolPolicy`` may raise the
+            effect or the approval but never lowers the effect.
 
         Args:
             turn: The ``RunModel`` context.
@@ -717,19 +732,16 @@ class McpToolSource:
                 policy=turn.resolve_tool_policy(tool_name, tool.framework_effect),
                 tool_source_reference=tool_source_reference,
             )
-        session_policy = turn.tool_policies.get(tool_name)
-        requires_approval = (
-            session_policy.requires_approval
-            if session_policy is not None and session_policy.requires_approval is not None
-            else tool.is_approval_recommended
+        policy = _combine_declared_tool_policy(
+            tool.dex_effect, tool.is_approval_recommended, turn.tool_policies.get(tool_name)
         )
         return DeferredToolCall(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             arguments=arguments,
-            policy=ToolPolicy(tool.dex_effect, requires_approval),
+            policy=policy,
             tool_source_reference=tool_source_reference,
-            ordered=tool.dex_effect is not ToolEffect.READ,
+            ordered=policy.effect is not ToolEffect.READ,
         )
 
     async def deferred_tool_handlers(self) -> dict[str, DeferredToolHandler]:
@@ -1526,6 +1538,21 @@ async def _cancel_task_quietly(client: Client, task_id: str) -> None:
     except Exception as error:
         # Cancellation is cooperative; the tool's outcome is already reported either way.
         _LOGGER.warning("tasks/cancel for MCP task %s failed: %s", task_id, error)
+
+
+def _combine_declared_tool_policy(
+    declared_effect: ToolEffect, is_approval_recommended: bool, session_policy: ToolPolicy | None
+) -> ToolPolicy:
+    """Return a declared tool's policy; a session policy may raise its safety, never lower it."""
+    if session_policy is None:
+        return ToolPolicy(declared_effect, is_approval_recommended)
+    effect = max(declared_effect, session_policy.effect, key=_EFFECT_CONSERVATISM.__getitem__)
+    requires_approval = (
+        session_policy.requires_approval
+        if session_policy.requires_approval is not None
+        else is_approval_recommended or session_policy.is_approval_required
+    )
+    return ToolPolicy(effect, requires_approval)
 
 
 def _parse_tool_arguments(arguments_json: str) -> dict[str, Any]:

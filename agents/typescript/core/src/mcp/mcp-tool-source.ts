@@ -34,6 +34,7 @@ import {
   type DeferredToolCall,
   type DeferredToolExecution,
   type McpToolAnnotations,
+  type ResolvedToolPolicy,
   type ToolExecutionResult,
   type ToolPolicy,
   type ToolTaskCancellation,
@@ -101,6 +102,13 @@ const taskTtlWaitMultiple = 4;
 // A durable poll is a Step: backing off to a minute bounds a long task's history.
 const durableTaskPollBackoffCapSeconds = 60;
 const maximumDurableTaskPollIntervalSeconds = 3_600;
+// unclassified ranks highest: nothing is known, and it runs like a non-idempotent write.
+const effectConservatism: Readonly<Record<ToolEffect, number>> = {
+  read: 0,
+  idempotent_write: 1,
+  non_idempotent_write: 2,
+  unclassified: 3,
+};
 // The server or a gateway may report InternalError after the call ran, so it leaves the outcome unknown.
 const noResultErrorCodes: ReadonlySet<number> = new Set([
   ErrorCode.ConnectionClosed,
@@ -137,14 +145,14 @@ export interface McpTool {
    * The effect the server declares when its configuration trusts it, else `undefined`: {@link dexEffect}
    * when the tool declares one, otherwise the effect from {@link toolEffectFromMcpToolAnnotations}. An
    * explicit {@link ToolPolicy} overrides it, except for a tool with a {@link dexEffect}, where
-   * {@link McpToolSource.deferredToolCall} lets the policy change only approval.
+   * {@link McpToolSource.deferredToolCall} lets the policy raise the effect but never lower it.
    */
   readonly frameworkEffect: ToolEffect | undefined;
   /**
    * The effect the tool declares under `mcpToolEffectMetaKey` in its definition's `_meta`, when the server
    * configuration trusts the server, else `undefined`. A tool with a `dexEffect` follows the Dex MCP
-   * conventions in the package README: its effect never changes, and it waits for approval only when
-   * {@link isApprovalRecommended} is `true` or a session {@link ToolPolicy} asks for approval.
+   * conventions in the package README: a session {@link ToolPolicy} may raise its effect or its approval but
+   * never lowers its effect.
    * @since 0.5.0
    */
   readonly dexEffect?: ToolEffect | undefined;
@@ -337,8 +345,9 @@ const nodeInspectSymbol = Symbol.for("nodejs.util.inspect.custom");
  *
  * A server that follows the Dex MCP conventions declares each tool's effect and approval in its definition's
  * `_meta` instead, under `mcpToolEffectMetaKey` and `mcpToolApprovalMetaKey`, as a connector manifest does for
- * `ConnectorToolSource`. Such a tool keeps its declared effect, a session {@link ToolPolicy} changes only
- * whether its calls wait for approval, and its writes run in the model's order. A result or JSON-RPC error
+ * `ConnectorToolSource`. A session {@link ToolPolicy} for such a tool may keep or raise its safety but never
+ * lowers it: the call gets the more conservative of the two effects, and its writes run in the model's order.
+ * A result or JSON-RPC error
  * whose `_meta` reports `mcpToolOutcomeUnknown` records `outcome_unknown` without a retry, and
  * `mcpToolOutcomeRejected` records `failed`. See the package README, "Dex MCP conventions".
  *
@@ -611,7 +620,9 @@ export class McpToolSource {
    * Use it with a framework adapter that offers the MCP tools as its own tools: pass it in the
    * adapter's `toolPolicies` and spread your own policies after it, so yours win. A tool with a
    * {@link McpTool.dexEffect} gets that effect and requires approval exactly when
-   * {@link McpTool.isApprovalRecommended}; a policy you spread after it replaces both.
+   * {@link McpTool.isApprovalRecommended}; a policy you spread after it replaces both. Unlike in
+   * {@link deferredToolCall}, such a policy can lower the declared effect, so keep yours at least as
+   * conservative as {@link McpTool.dexEffect}.
    * @example
    * ```ts
    * await tools.listTools();
@@ -643,11 +654,15 @@ export class McpToolSource {
    * {@link ToolPolicy} wins. The call's `toolSourceReference` names the server, the tool's MCP name, and
    * its task support.
    *
-   * A tool with a {@link McpTool.dexEffect} keeps that effect, as a connector tool does. Its call waits for
-   * approval when the session's {@link ToolPolicy} for the tool sets `requiresApproval` to `true`, or, when
-   * that policy leaves it out or there is none, when {@link McpTool.isApprovalRecommended} is `true`. A write
+   * For a tool with a {@link McpTool.dexEffect}, the session's {@link ToolPolicy} for the tool may keep or
+   * raise its safety but never lowers it. The call gets the more conservative of `dexEffect` and the policy's
+   * effect, ranked `read`, `idempotent_write`, `non_idempotent_write`, then `unclassified`. It waits for
+   * approval when the policy sets `requiresApproval`. When the policy leaves `requiresApproval` out, the call
+   * waits when {@link McpTool.isApprovalRecommended} is `true` or the policy's effect requires approval by
+   * default. Without a policy, it waits exactly when {@link McpTool.isApprovalRecommended} is `true`. A write
    * runs in the model's order after the turn's earlier writes (`DeferredToolCall.ordered`). Changed in
-   * 0.5.0: a tool with a `dexEffect` keeps it; a {@link ToolPolicy} changes only its approval.
+   * 0.5.0: for a tool with a `dexEffect`, a {@link ToolPolicy} may raise the effect or the approval but never
+   * lowers the effect.
    * @param turn - The `RunModel` context.
    * @param call - Framework tool call ID, the {@link McpTool.name} the model called, the arguments as JSON
    * text, and optionally `listedTool`, the {@link McpTool} the listing offered for this model call, as the
@@ -689,16 +704,14 @@ export class McpToolSource {
       turn.toolPolicies !== undefined && Object.hasOwn(turn.toolPolicies, call.toolName)
         ? turn.toolPolicies[call.toolName]
         : undefined;
+    const policy = combineDeclaredToolPolicy(tool.dexEffect, tool.isApprovalRecommended === true, sessionPolicy);
     return {
       toolCallId: call.toolCallId,
       toolName: call.toolName,
       arguments: call.arguments,
-      policy: {
-        effect: tool.dexEffect,
-        requiresApproval: sessionPolicy?.requiresApproval ?? tool.isApprovalRecommended === true,
-      },
+      policy,
       ...reference,
-      ordered: tool.dexEffect !== "read",
+      ordered: policy.effect !== "read",
     };
   }
 
@@ -1427,6 +1440,25 @@ export function mcpToolFromListing(server: McpServerConfig, tool: Tool): McpTool
     dexEffect: declaration?.effect,
     isApprovalRecommended: declaration?.effect !== undefined && declaration.isApprovalRecommended,
     taskSupport: tool.execution?.taskSupport,
+  };
+}
+
+/** Returns a declared tool's policy; a session policy may raise its safety, never lower it. */
+function combineDeclaredToolPolicy(
+  declaredEffect: ToolEffect,
+  isApprovalRecommended: boolean,
+  sessionPolicy: ToolPolicy | undefined,
+): ResolvedToolPolicy {
+  if (sessionPolicy === undefined) {
+    return { effect: declaredEffect, requiresApproval: isApprovalRecommended };
+  }
+  const effect =
+    effectConservatism[sessionPolicy.effect] > effectConservatism[declaredEffect] ? sessionPolicy.effect : declaredEffect;
+  const isApprovalRequiredBySessionEffect =
+    sessionPolicy.effect === "non_idempotent_write" || sessionPolicy.effect === "unclassified";
+  return {
+    effect,
+    requiresApproval: sessionPolicy.requiresApproval ?? (isApprovalRecommended || isApprovalRequiredBySessionEffect),
   };
 }
 

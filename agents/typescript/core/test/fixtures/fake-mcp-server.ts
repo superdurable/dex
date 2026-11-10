@@ -20,6 +20,8 @@
 // declares idempotent_write with recommended approval, applies one payment per idempotency key (logged as
 // payment-applied <key>), answers a repeated key with "already applied", takes outcome "unknown" or
 // "rejected" to answer with that Dex outcome, and crash_after_apply to exit right after it applies a new key.
+// In http mode, outcome "unknown_error" or "rejected_error" answers with a JSON-RPC InternalError whose
+// data._meta carries that Dex outcome.
 // It also offers the resource memo://greeting and the prompt summarize, with one topic argument.
 
 import { randomUUID } from "node:crypto";
@@ -30,7 +32,7 @@ import { InMemoryTaskStore } from "@modelcontextprotocol/sdk/experimental/tasks/
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { ErrorCode, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import {
@@ -328,6 +330,40 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   return chunks.length === 0 ? undefined : JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+/**
+ * Returns the JSON-RPC error answer of a send_payment call with outcome "unknown_error" or "rejected_error".
+ * McpServer turns an error a tool throws into an isError result, so the answer is built here.
+ */
+function dexOutcomeErrorAnswer(body: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(body) || body["method"] !== "tools/call" || !isRecord(body["params"])) {
+    return undefined;
+  }
+  const params = body["params"];
+  const toolArguments = params["arguments"];
+  if (params["name"] !== "send_payment" || !isRecord(toolArguments)) {
+    return undefined;
+  }
+  const outcome = toolArguments["outcome"];
+  if (outcome !== "unknown_error" && outcome !== "rejected_error") {
+    return undefined;
+  }
+  recordRun("send_payment", isRecord(params["_meta"]) ? params["_meta"] : undefined);
+  const isUnknown = outcome === "unknown_error";
+  return {
+    jsonrpc: "2.0",
+    id: body["id"],
+    error: {
+      code: ErrorCode.InternalError,
+      message: isUnknown ? "the payment provider timed out" : "the card was declined",
+      data: { _meta: { [mcpToolOutcomeMetaKey]: isUnknown ? mcpToolOutcomeUnknown : mcpToolOutcomeRejected } },
+    },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 const [mode, port] = process.argv.slice(2);
 if (mode === "stdio") {
   await createFakeMcpServer().connect(new StdioServerTransport());
@@ -366,6 +402,12 @@ if (mode === "stdio") {
 } else if (mode === "http" && port !== undefined) {
   const httpServer = createServer((request, response) => {
     void (async () => {
+      const body = await readJsonBody(request);
+      const errorAnswer = dexOutcomeErrorAnswer(body);
+      if (errorAnswer !== undefined) {
+        response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(errorAnswer));
+        return;
+      }
       // Stateless mode: one server and transport per request, no protocol session.
       const server = createFakeMcpServer();
       const transport = new StreamableHTTPServerTransport({});
@@ -374,7 +416,7 @@ if (mode === "stdio") {
         void server.close();
       });
       await server.connect(transport);
-      await transport.handleRequest(request, response, await readJsonBody(request));
+      await transport.handleRequest(request, response, body);
     })().catch((error: unknown) => {
       console.error("fake MCP server request failed", error);
       if (!response.headersSent) {

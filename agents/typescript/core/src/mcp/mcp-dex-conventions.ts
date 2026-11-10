@@ -85,10 +85,10 @@ export function readDexToolDeclaration(
     );
     return { effect: undefined, isApprovalRecommended: false };
   }
-  const approval = Object.hasOwn(meta, mcpToolApprovalMetaKey) ? meta[mcpToolApprovalMetaKey] : undefined;
-  const hasApproval = approval !== undefined && approval !== null;
+  const hasApproval = Object.hasOwn(meta, mcpToolApprovalMetaKey);
+  const approval = meta[mcpToolApprovalMetaKey];
   if (hasApproval && approval !== mcpToolApprovalRecommended) {
-    // Fail closed: an approval value this core does not know still asks a person.
+    // Fail closed: any other approval value, null included, still asks a person.
     console.warn(
       `MCP tool ${serverName}/${mcpToolName} declares the unknown approval ${JSON.stringify(approval)}; its calls wait for approval`,
     );

@@ -14,8 +14,10 @@ for the Dex SDK and framework versions each release supports.
   (`read`, `idempotent_write`, `non_idempotent_write`) fixes the tool's effect
   class, whatever its annotations say, and `io.superdurable.dex/approval:
   recommended` asks for approval, as a connector manifest does. A session tool
-  policy changes only such a tool's approval, and its writes run in the model's
-  order. Servers without these keys behave as before.
+  policy for such a tool may raise its effect class or its approval but never
+  lowers its effect class: the call gets the more conservative of the two
+  effects. Its writes run in the model's order. Servers without these keys
+  behave as before.
 - A tool result's `_meta` key `io.superdurable.dex/outcome` (or a JSON-RPC
   error's `data._meta`) set to `unknown` records `outcome_unknown` and never
   sends the call again; `rejected` records `failed`. Either wins over `isError`.

@@ -103,16 +103,17 @@ def read_dex_tool_declaration(
             effect_value,
         )
         return DexToolDeclaration(effect=None, is_approval_recommended=False)
+    has_approval = TOOL_APPROVAL_META_KEY in meta
     approval = meta.get(TOOL_APPROVAL_META_KEY)
-    if approval is not None and approval != TOOL_APPROVAL_RECOMMENDED:
-        # Fail closed: an approval value this core does not know still asks a person.
+    if has_approval and approval != TOOL_APPROVAL_RECOMMENDED:
+        # Fail closed: any other approval value, null included, still asks a person.
         _LOGGER.warning(
             "MCP tool %s/%s declares the unknown approval %r; its calls wait for approval",
             server_name,
             mcp_tool_name,
             approval,
         )
-    return DexToolDeclaration(effect=effect, is_approval_recommended=approval is not None)
+    return DexToolDeclaration(effect=effect, is_approval_recommended=has_approval)
 
 
 def read_dex_tool_outcome(meta: Any) -> DexToolOutcome | None:

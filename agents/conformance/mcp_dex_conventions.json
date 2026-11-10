@@ -94,7 +94,7 @@
       }
     },
     {
-      "name": "a session policy changes only the approval of a declared tool",
+      "name": "a session policy with a weaker effect never lowers a declared effect",
       "tool": {
         "name": "send_payment",
         "inputSchema": {
@@ -149,6 +149,165 @@
       }
     },
     {
+      "name": "a session policy with a stronger effect raises a declared read and asks for approval by its default",
+      "tool": {
+        "name": "get_balance",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "read"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": {
+        "effect": "non_idempotent_write"
+      },
+      "expected": {
+        "frameworkEffect": "read",
+        "dexEffect": "read",
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "non_idempotent_write",
+          "requiresApproval": true
+        },
+        "ordered": true
+      }
+    },
+    {
+      "name": "a session policy that raises a declared read keeps its explicit approval",
+      "tool": {
+        "name": "get_balance",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "read"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": {
+        "effect": "non_idempotent_write",
+        "requiresApproval": false
+      },
+      "expected": {
+        "frameworkEffect": "read",
+        "dexEffect": "read",
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "non_idempotent_write",
+          "requiresApproval": false
+        },
+        "ordered": true
+      }
+    },
+    {
+      "name": "a session policy raises a declared read to an idempotent write without approval",
+      "tool": {
+        "name": "get_balance",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "read"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": {
+        "effect": "idempotent_write"
+      },
+      "expected": {
+        "frameworkEffect": "read",
+        "dexEffect": "read",
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "idempotent_write",
+          "requiresApproval": false
+        },
+        "ordered": true
+      }
+    },
+    {
+      "name": "a session policy that raises a declared read keeps the recommended approval",
+      "tool": {
+        "name": "get_balance",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "read",
+          "io.superdurable.dex/approval": "recommended"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": {
+        "effect": "idempotent_write"
+      },
+      "expected": {
+        "frameworkEffect": "read",
+        "dexEffect": "read",
+        "isApprovalRecommended": true,
+        "policy": {
+          "effect": "idempotent_write",
+          "requiresApproval": true
+        },
+        "ordered": true
+      }
+    },
+    {
+      "name": "a session policy with the same effect only asks for approval",
+      "tool": {
+        "name": "get_balance",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "read"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": {
+        "effect": "read",
+        "requiresApproval": true
+      },
+      "expected": {
+        "frameworkEffect": "read",
+        "dexEffect": "read",
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "read",
+          "requiresApproval": true
+        },
+        "ordered": false
+      }
+    },
+    {
+      "name": "an unclassified session policy is more conservative than any declared effect",
+      "tool": {
+        "name": "get_balance",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "idempotent_write"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": {
+        "effect": "unclassified"
+      },
+      "expected": {
+        "frameworkEffect": "idempotent_write",
+        "dexEffect": "idempotent_write",
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "unclassified",
+          "requiresApproval": true
+        },
+        "ordered": true
+      }
+    },
+    {
       "name": "an approval value outside the convention asks for approval",
       "tool": {
         "name": "get_balance",
@@ -158,6 +317,31 @@
         "_meta": {
           "io.superdurable.dex/effect": "read",
           "io.superdurable.dex/approval": "always"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": null,
+      "expected": {
+        "frameworkEffect": "read",
+        "dexEffect": "read",
+        "isApprovalRecommended": true,
+        "policy": {
+          "effect": "read",
+          "requiresApproval": true
+        },
+        "ordered": false
+      }
+    },
+    {
+      "name": "a null approval value asks for approval",
+      "tool": {
+        "name": "get_balance",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "read",
+          "io.superdurable.dex/approval": null
         }
       },
       "trustsToolAnnotations": true,

@@ -1459,7 +1459,7 @@ def test_dex_error_responses_map_as_the_conformance_suite_says(case: dict[str, A
     assert _describe_dex_outcome(outcome) == case["expected"]
 
 
-async def test_dex_meta_declares_effect_and_approval_and_a_policy_changes_only_approval(
+async def test_dex_meta_declares_effect_and_approval_and_a_policy_only_raises_safety(
     mcp_harness: McpAgentHarness,
 ) -> None:
     tools = build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url)
@@ -1483,19 +1483,23 @@ async def test_dex_meta_declares_effect_and_approval_and_a_policy_changes_only_a
     )
     first = await _wait_for_interrupt_of(mcp_harness, session_id, "remote__get_balance")
     waiting = await mcp_harness.sessions.get_agent_snapshot(session_id)
-    # The session policy asks for approval of get_balance but cannot make it a write.
+    # A non-idempotent write policy raises the declared read; its default asks for approval.
     assert {
-        call.tool_name: (call.effect, call.requires_approval) for call in waiting.tool_calls
+        call.tool_name: (call.effect, call.requires_approval, call.ordered_write)
+        for call in waiting.tool_calls
     } == {
-        "remote__get_balance": (ToolEffect.READ, True),
-        "remote__post_note": (ToolEffect.NON_IDEMPOTENT_WRITE, False),
-        "remote__send_payment": (ToolEffect.IDEMPOTENT_WRITE, True),
+        "remote__get_balance": (ToolEffect.NON_IDEMPOTENT_WRITE, True, True),
+        "remote__post_note": (ToolEffect.NON_IDEMPOTENT_WRITE, False, True),
+        "remote__send_payment": (ToolEffect.IDEMPOTENT_WRITE, True, True),
     }
+    # post_note waits for the earlier ordered write, get_balance.
+    assert mcp_harness.tool_runs("post_note") == []
     assert await mcp_harness.sessions.resolve_interrupt(
         session_id, first.interrupt_id, approved=True
     )
     # post_note runs without approval; send_payment's approval is raised once its turn comes.
     second = await _wait_for_interrupt_of(mcp_harness, session_id, "remote__send_payment")
+    assert mcp_harness.tool_runs("get_balance") == [f"{session_id}/turn-1/turn-1-call-0"]
     assert mcp_harness.tool_runs("post_note") == [f"{session_id}/turn-1/turn-1-call-1"]
     assert await mcp_harness.sessions.resolve_interrupt(
         session_id, second.interrupt_id, approved=True
@@ -1507,8 +1511,8 @@ async def test_dex_meta_declares_effect_and_approval_and_a_policy_changes_only_a
         "remote__send_payment: paid 5"
     )
     steps = await mcp_harness.executed_step_types(session_id)
-    assert steps.count("CallTool") == 2
-    assert steps.count("CallSingleAttemptTool") == 1
+    assert steps.count("CallTool") == 1
+    assert steps.count("CallSingleAttemptTool") == 2
 
 
 @pytest.mark.parametrize("outcome", ["unknown", "unknown_error"])

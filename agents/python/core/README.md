@@ -1323,12 +1323,23 @@ manifest declares an operation for `ConnectorToolSource`:
   `read` and `idempotent_write` run in `CallTool`, `non_idempotent_write` in
   `CallSingleAttemptTool`. A declared write runs in the model's order after the
   turn's earlier writes, and a write after one that did not succeed is skipped.
-- Its calls wait for approval only with `approval: recommended`, like
-  `agent.approval: recommended` in a manifest. Any other `approval` value also
-  asks, so an unknown value fails closed.
+- Without a session policy, its calls wait for approval only with `approval:
+  recommended`, like `agent.approval: recommended` in a manifest. Any other
+  `approval` value, `null` included, also asks, so an unknown value fails
+  closed.
 - A session `ToolPolicy` in `AgentSessionOptions.tool_policies` for the tool
-  changes only approval: its `requires_approval`, when set, wins, and its
-  effect is ignored.
+  may keep or raise its safety, never lower it. The call gets the more
+  conservative of the declared effect and the policy's effect, ranked `READ`,
+  `IDEMPOTENT_WRITE`, `NON_IDEMPOTENT_WRITE`, then `UNCLASSIFIED`. So a policy
+  `ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE)` on a tool declared `read` runs
+  it once in `CallSingleAttemptTool`, in the model's order, after approval. A
+  declared `non_idempotent_write` stays one with a `READ` policy.
+- The policy's `requires_approval`, when set, wins. When it is `None`, a call
+  waits for approval when the tool recommends it or the policy's effect asks
+  for approval by default, as `NON_IDEMPOTENT_WRITE` does.
+- A framework adapter reads `tools.tool_policies()` merged with your own
+  policies, and there your policy replaces the declaration, so keep it at
+  least as conservative as the declared effect.
 - `approval` without `effect` is ignored. An `effect` value outside the three
   above gives the tool the session's `default_tool_effect` and ignores its
   annotations, with a warning log.

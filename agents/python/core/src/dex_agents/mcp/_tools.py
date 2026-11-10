@@ -111,14 +111,13 @@ class McpTool:
             tool declares one, otherwise the effect from the annotations. An
             explicit ``ToolPolicy`` overrides it, except for a tool with a
             ``dex_effect``, where ``McpToolSource.deferred_tool_call`` lets the
-            policy change only approval.
+            policy raise the effect but never lower it.
         dex_effect: The effect the tool declares under
             ``TOOL_EFFECT_META_KEY`` in its definition's ``_meta``, when the
             server configuration trusts the server, else ``None``. A tool
             with a ``dex_effect`` follows the Dex MCP conventions in the
-            package README: its effect never changes, and it waits for
-            approval only when ``is_approval_recommended`` is ``True`` or a
-            session ``ToolPolicy`` asks for approval.
+            package README: a session ``ToolPolicy`` may raise its effect or
+            its approval but never lowers its effect.
 
             .. versionadded:: 0.5.0
         is_approval_recommended: Whether the tool declares

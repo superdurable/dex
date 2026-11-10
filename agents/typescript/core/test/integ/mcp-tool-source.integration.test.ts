@@ -649,7 +649,7 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     );
   });
 
-  test("Dex _meta declares effect and approval, and a session policy changes only approval", async () => {
+  test("Dex _meta declares effect and approval, and a session policy only raises safety", async () => {
     const tools = createMcpToolSource(stateDirectory, httpUrl);
     const listed = new Map((await tools.listTools()).map((tool) => [tool.name, tool]));
     assert.equal(listed.get("remote__post_note")?.dexEffect, "non_idempotent_write");
@@ -666,18 +666,23 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     );
     const first = await sessions.waitForPendingInterrupt(sessionId, "remote__get_balance");
     const waiting = await sessions.getAgentSnapshot(sessionId);
-    // The session policy asks for approval of get_balance but cannot make it a write.
+    // A non-idempotent write policy raises the declared read; its default asks for approval.
     assert.deepEqual(
-      Object.fromEntries(waiting.toolCalls.map((call) => [call.toolName, [call.effect, call.requiresApproval]])),
+      Object.fromEntries(
+        waiting.toolCalls.map((call) => [call.toolName, [call.effect, call.requiresApproval, call.orderedWrite]]),
+      ),
       {
-        remote__get_balance: ["read", true],
-        remote__post_note: ["non_idempotent_write", false],
-        remote__send_payment: ["idempotent_write", true],
+        remote__get_balance: ["non_idempotent_write", true, true],
+        remote__post_note: ["non_idempotent_write", false, true],
+        remote__send_payment: ["idempotent_write", true, true],
       },
     );
+    // post_note waits for the earlier ordered write, get_balance.
+    assert.deepEqual(toolRuns("post_note", sessionId), []);
     assert.equal(await sessions.resolveInterrupt(sessionId, first.interruptId, true), true);
     // post_note runs without approval; send_payment's approval is raised once its turn comes.
     const second = await sessions.waitForPendingInterrupt(sessionId, "remote__send_payment");
+    assert.deepEqual(toolRuns("get_balance", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
     assert.deepEqual(toolRuns("post_note", sessionId), [`${sessionId}/turn-1/turn-1-call-1`]);
     assert.equal(await sessions.resolveInterrupt(sessionId, second.interruptId, true), true);
     await sessions.waitForCompletedTurns(sessionId, 1);
@@ -687,49 +692,58 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
       "remote__get_balance: balance of a is 5; remote__post_note: posted hi; remote__send_payment: paid 5",
     );
     const steps = await executedStepTypes(sessionId);
-    assert.equal(steps.filter((step) => step === "CallTool").length, 2);
-    assert.equal(steps.filter((step) => step === "CallSingleAttemptTool").length, 1);
+    assert.equal(steps.filter((step) => step === "CallTool").length, 1);
+    assert.equal(steps.filter((step) => step === "CallSingleAttemptTool").length, 2);
   });
 
-  test("a Dex outcome unknown is recorded once and never retried", async () => {
-    await startWorker();
-    const sessionId = `mcp-dex-unknown-${randomUUID()}`;
-    await sessions.startSession(sessionId, 'call remote__send_payment {"amount": 5, "outcome": "unknown"}');
-    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "remote__send_payment");
-    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
-    await sessions.waitForCompletedTurns(sessionId, 1);
+  for (const outcome of ["unknown", "unknown_error"]) {
+    test(`a Dex outcome unknown is recorded once and never retried (${outcome})`, async () => {
+      await startWorker();
+      const sessionId = `mcp-dex-unknown-${randomUUID()}`;
+      await sessions.startSession(sessionId, `call remote__send_payment {"amount": 5, "outcome": "${outcome}"}`);
+      const interrupt = await sessions.waitForPendingInterrupt(sessionId, "remote__send_payment");
+      assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+      await sessions.waitForCompletedTurns(sessionId, 1);
 
-    // An idempotent write runs in CallTool, which would retry a Step failure.
-    assert.equal(await lastMessageText(sessionId), `remote__send_payment: ${outcomeUnknownToolResult}`);
-    assert.deepEqual(toolRuns("send_payment", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
-    const history = await readStepHistory(engine.serverAddress, sessionId);
-    assert.deepEqual(
-      history.filter((entry) => entry.stepType === "CallTool").map((entry) => entry.finalAttempt),
-      [1],
-    );
-    assert.ok(!(await executedStepTypes(sessionId)).includes("RecordToolOutcomeUnknown"));
-    assert.deepEqual(
-      (await eventPayloads(sessionId, "tool_call_finished")).map((payload) => payload["status"]),
-      ["outcome_unknown"],
-    );
-  });
+      // An idempotent write runs in CallTool, which would retry a Step failure.
+      assert.equal(await lastMessageText(sessionId), `remote__send_payment: ${outcomeUnknownToolResult}`);
+      assert.deepEqual(toolRuns("send_payment", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
+      const history = await readStepHistory(engine.serverAddress, sessionId);
+      assert.deepEqual(
+        history.filter((entry) => entry.stepType === "CallTool").map((entry) => entry.finalAttempt),
+        [1],
+      );
+      assert.ok(!(await executedStepTypes(sessionId)).includes("RecordToolOutcomeUnknown"));
+      assert.deepEqual(
+        (await eventPayloads(sessionId, "tool_call_finished")).map((payload) => payload["status"]),
+        ["outcome_unknown"],
+      );
+    });
+  }
 
-  test("a Dex outcome rejected is recorded failed and never retried", async () => {
-    await startWorker();
-    const sessionId = `mcp-dex-rejected-${randomUUID()}`;
-    await sessions.startSession(sessionId, 'call remote__send_payment {"amount": 5, "outcome": "rejected"}');
-    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "remote__send_payment");
-    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
-    await sessions.waitForCompletedTurns(sessionId, 1);
+  for (const outcome of ["rejected", "rejected_error"]) {
+    test(`a Dex outcome rejected is recorded failed and never retried (${outcome})`, async () => {
+      await startWorker();
+      const sessionId = `mcp-dex-rejected-${randomUUID()}`;
+      await sessions.startSession(sessionId, `call remote__send_payment {"amount": 5, "outcome": "${outcome}"}`);
+      const interrupt = await sessions.waitForPendingInterrupt(sessionId, "remote__send_payment");
+      assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+      await sessions.waitForCompletedTurns(sessionId, 1);
 
-    assert.equal(await lastMessageText(sessionId), "remote__send_payment: The tool call failed: the card was declined");
-    assert.deepEqual(toolRuns("send_payment", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
-    const history = await readStepHistory(engine.serverAddress, sessionId);
-    assert.deepEqual(
-      history.filter((entry) => entry.stepType === "CallTool").map((entry) => entry.finalAttempt),
-      [1],
-    );
-  });
+      const message = outcome === "rejected" ? "the card was declined" : "MCP error -32603: the card was declined";
+      assert.equal(await lastMessageText(sessionId), `remote__send_payment: The tool call failed: ${message}`);
+      assert.deepEqual(toolRuns("send_payment", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
+      const history = await readStepHistory(engine.serverAddress, sessionId);
+      assert.deepEqual(
+        history.filter((entry) => entry.stepType === "CallTool").map((entry) => entry.finalAttempt),
+        [1],
+      );
+      assert.deepEqual(
+        (await eventPayloads(sessionId, "tool_call_finished")).map((payload) => payload["status"]),
+        ["failed"],
+      );
+    });
+  }
 
   test("retries of a Dex write carry one idempotency key, so the server applies it once", async () => {
     await startWorker();
