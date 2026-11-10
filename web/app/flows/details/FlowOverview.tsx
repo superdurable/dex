@@ -23,8 +23,6 @@ const sectionExpandByKey = new Map<string, boolean>();
 
 /** Deprecated Flow configuration fields that Dex stores but ignores. */
 const ignoredFlowConfigKeys = new Set([
-  'continueAsNewThreshold',
-  'continueAsNewPageSizeInBytes',
   'deleteExpiredHistoryObjects',
 ]);
 

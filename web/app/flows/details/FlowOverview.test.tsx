@@ -313,8 +313,6 @@ describe('redesigned Overview', () => {
     const state: FlowState = {
       ...emptyState,
       flowConfig: {
-        continueAsNewThreshold: 100,
-        continueAsNewPageSizeInBytes: 2048,
         deleteExpiredHistoryObjects: true,
         stepDurability: 1,
       },
@@ -322,9 +320,9 @@ describe('redesigned Overview', () => {
     render(<FlowOverview summary={runningSummary} events={[]} state={state} />);
     fireEvent.click(screen.getByRole('button', { name: /Flow config/ }));
     expect(screen.getByText('stepDurability')).toBeTruthy();
-    expect(document.body.textContent).not.toMatch(/continueAsNew|deleteExpiredHistoryObjects/);
+    expect(document.body.textContent).not.toMatch(/deleteExpiredHistoryObjects/);
     fireEvent.click(screen.getByRole('button', { name: 'Raw JSON' }));
-    expect(document.body.textContent).not.toMatch(/continueAsNew|deleteExpiredHistoryObjects/);
+    expect(document.body.textContent).not.toMatch(/deleteExpiredHistoryObjects/);
   });
 
   it('shows the first run ID only when it differs from the run ID', () => {

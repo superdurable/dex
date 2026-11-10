@@ -25,7 +25,6 @@ export const FLOW_STATUS = {
   4: 'Timed out',
   5: 'Terminated',
   6: 'Canceled',
-  7: 'Continued as new',
 } as const;
 
 export type FlowStatus = (typeof FLOW_STATUS)[keyof typeof FLOW_STATUS];
@@ -38,7 +37,6 @@ export const FLOW_STATUS_QUERY_VALUE: Record<Exclude<FlowStatus, 'Unspecified'>,
   'Timed out': 'TimedOut',
   Terminated: 'Terminated',
   Canceled: 'Canceled',
-  'Continued as new': 'ContinuedAsNew',
 };
 
 /** The engine behind the Dex Server, as reported by Dex Web. */

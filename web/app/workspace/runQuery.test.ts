@@ -157,7 +157,6 @@ describe('statusOptions', () => {
     const labels = statusOptions().map((option) => option.label);
     expect(labels).toContain('Running');
     expect(labels).not.toContain('Unspecified');
-    expect(labels).not.toContain('Continued as new');
   });
 
   it('pairs each display label with the value both Dex Servers accept', () => {
@@ -173,7 +172,6 @@ describe('statusOptions', () => {
 
   it('maps labels to query values and keeps query values unchanged', () => {
     expect(flowStatusQueryValue('Timed out')).toBe('TimedOut');
-    expect(flowStatusQueryValue('Continued as new')).toBe('ContinuedAsNew');
     expect(flowStatusQueryValue('TimedOut')).toBe('TimedOut');
     expect(flowStatusQueryValue('constructor')).toBe('constructor');
   });

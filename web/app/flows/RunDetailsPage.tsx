@@ -1186,7 +1186,7 @@ function displayedRunPositionOf(
   runId: string,
 ): DisplayedRunPosition {
   if (!summary) return 'unknown';
-  if (summary.flowStatus === 'Continued as new' || isViewingEarlierRunAttempt || continuedToRunId !== '') return 'earlier';
+  if (isViewingEarlierRunAttempt || continuedToRunId !== '') return 'earlier';
   if (currentRunOfFlow?.flowId !== flowId) return 'unknown';
   return currentRunOfFlow.runId === runId ? 'current' : 'earlier';
 }

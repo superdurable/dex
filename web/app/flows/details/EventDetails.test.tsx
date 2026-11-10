@@ -643,7 +643,7 @@ describe('selected step event details', () => {
         options: {
           retryPolicy: { initialIntervalSeconds: 2, maximumAttempts: 4 },
           attributes: [{ key: 'region', value: { stringValue: 'west' } }],
-          flowConfigOverride: { continueAsNewThreshold: 20 },
+          flowConfigOverride: { historyWindowEvents: 5000 },
         },
       }],
     });
@@ -655,7 +655,7 @@ describe('selected step event details', () => {
     expect(waitMarkup).toContain('Initial Attributes');
     expect(waitMarkup).toContain('region');
     expect(waitMarkup).toContain('Flow configuration override');
-    expect(waitMarkup).toContain('continueAsNewThreshold');
+    expect(waitMarkup).toContain('historyWindowEvents');
 
     const resultMarkup = renderDetails(event, [wait, event]);
     expect(resultMarkup).toContain('href="/v1/flows/SubFlow%3Aparent-charge-1-0"');

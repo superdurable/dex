@@ -1201,8 +1201,7 @@ pre {
   background: var(--fail-subtle);
 }
 
-.status-canceled,
-.status-continued-as-new {
+.status-canceled {
   color: var(--muted);
   background: var(--hover);
 }

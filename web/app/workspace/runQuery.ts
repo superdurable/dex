@@ -78,12 +78,12 @@ const OPERATOR_LABEL: Record<RunOperator, string> = {
   lte: 'at most',
 };
 
-type ListedFlowStatus = Exclude<FlowStatus, 'Unspecified' | 'Continued as new'>;
+type ListedFlowStatus = Exclude<FlowStatus, 'Unspecified'>;
 
-/** Every status shown in the run list; continued-as-new executions belong to their successor. */
+/** Every status shown in the run list. */
 export function statusOptions(): { value: string; label: ListedFlowStatus }[] {
   return Object.values(FLOW_STATUS)
-    .filter((label): label is ListedFlowStatus => label !== 'Unspecified' && label !== 'Continued as new')
+    .filter((label): label is ListedFlowStatus => label !== 'Unspecified')
     .map((label) => ({ value: FLOW_STATUS_QUERY_VALUE[label], label }));
 }
 

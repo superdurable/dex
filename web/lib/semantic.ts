@@ -55,7 +55,6 @@ export function flowStatusLabel(value: unknown): string {
     4: 'Server-side timeout (internal only)',
     5: 'Terminated',
     6: 'Canceled',
-    7: 'Continued as new',
     FLOW_STATUS_UNSPECIFIED: 'Unspecified',
     FLOW_STATUS_RUNNING: 'Running',
     FLOW_STATUS_COMPLETED: 'Completed',
@@ -63,7 +62,6 @@ export function flowStatusLabel(value: unknown): string {
     FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY: 'Server-side timeout (internal only)',
     FLOW_STATUS_TERMINATED: 'Terminated',
     FLOW_STATUS_CANCELED: 'Canceled',
-    FLOW_STATUS_CONTINUED_AS_NEW: 'Continued as new',
   });
 }
 
@@ -76,7 +74,6 @@ export function subFlowStatusName(value: unknown): string {
     4: 'SERVER_SIDE_TIMEOUT_INTERNAL_ONLY',
     5: 'TERMINATED',
     6: 'CANCELED',
-    7: 'CONTINUED_AS_NEW',
     FLOW_STATUS_UNSPECIFIED: 'UNSPECIFIED',
     FLOW_STATUS_RUNNING: 'RUNNING',
     FLOW_STATUS_COMPLETED: 'COMPLETED',
@@ -84,7 +81,6 @@ export function subFlowStatusName(value: unknown): string {
     FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY: 'SERVER_SIDE_TIMEOUT_INTERNAL_ONLY',
     FLOW_STATUS_TERMINATED: 'TERMINATED',
     FLOW_STATUS_CANCELED: 'CANCELED',
-    FLOW_STATUS_CONTINUED_AS_NEW: 'CONTINUED_AS_NEW',
   });
 }
 
