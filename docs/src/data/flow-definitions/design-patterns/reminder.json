@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "ReminderFlow",
     "startStepId": "step:ReminderStep",
     "span": {
-      "startLine": 61,
+      "startLine": 63,
       "startColumn": 1,
-      "endLine": 77,
+      "endLine": 79,
       "endColumn": 44
     }
   },
@@ -23,23 +23,23 @@
       "parentId": "step:ReminderStep",
       "phase": "execute",
       "span": {
-        "startLine": 54,
+        "startLine": 56,
         "startColumn": 5,
-        "endLine": 58,
+        "endLine": 60,
         "endColumn": 41
       }
     },
     {
-      "id": "decision:step:ReminderStep:56:20",
+      "id": "decision:step:ReminderStep:58:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:ReminderStep",
       "condition": "not context.has_timer_fired()",
       "phase": "execute",
       "span": {
-        "startLine": 56,
+        "startLine": 58,
         "startColumn": 20,
-        "endLine": 56,
+        "endLine": 58,
         "endColumn": 39
       },
       "decision": {
@@ -47,16 +47,16 @@
       }
     },
     {
-      "id": "decision:step:ReminderStep:58:16",
+      "id": "decision:step:ReminderStep:60:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:ReminderStep",
       "condition": "not (not context.has_timer_fired())",
       "phase": "execute",
       "span": {
-        "startLine": 58,
+        "startLine": 60,
         "startColumn": 16,
-        "endLine": 58,
+        "endLine": 60,
         "endColumn": 41
       },
       "decision": {
@@ -68,9 +68,9 @@
       "kind": "channel",
       "name": "OptOut",
       "span": {
-        "startLine": 64,
+        "startLine": 66,
         "startColumn": 5,
-        "endLine": 64,
+        "endLine": 66,
         "endColumn": 51
       },
       "resource": {
@@ -82,9 +82,9 @@
       "kind": "rpc",
       "name": "opt_out_reminders",
       "span": {
-        "startLine": 76,
+        "startLine": 78,
         "startColumn": 5,
-        "endLine": 77,
+        "endLine": 79,
         "endColumn": 44
       }
     },
@@ -95,22 +95,25 @@
       "phase": "wait_for+execute",
       "start": true,
       "span": {
-        "startLine": 70,
+        "startLine": 72,
         "startColumn": 36,
-        "endLine": 70,
+        "endLine": 72,
         "endColumn": 54
+      },
+      "metadata": {
+        "explanation": "Send a reminder each interval until the user opts out."
       }
     },
     {
-      "id": "wait:ReminderStep:49:16:0",
+      "id": "wait:ReminderStep:51:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:ReminderStep",
       "phase": "wait_for",
       "span": {
-        "startLine": 49,
+        "startLine": 51,
         "startColumn": 16,
-        "endLine": 52,
+        "endLine": 54,
         "endColumn": 10
       },
       "wait": {
@@ -121,9 +124,9 @@
             "label": "REMINDER_INTERVAL timer",
             "expression": "REMINDER_INTERVAL",
             "span": {
-              "startLine": 50,
+              "startLine": 52,
               "startColumn": 13,
-              "endLine": 50,
+              "endLine": 52,
               "endColumn": 49
             }
           },
@@ -132,9 +135,9 @@
             "label": "OptOut.for 1",
             "resourceId": "resource:channel:ReminderFlow.opt_out",
             "span": {
-              "startLine": 51,
+              "startLine": 53,
               "startColumn": 13,
-              "endLine": 51,
+              "endLine": 53,
               "endColumn": 35
             }
           }
@@ -146,13 +149,13 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:ReminderStep:58:16",
+      "from": "decision:step:ReminderStep:60:16",
       "to": "step:ReminderStep",
       "label": "go_to",
       "span": {
-        "startLine": 58,
+        "startLine": 60,
         "startColumn": 16,
-        "endLine": 58,
+        "endLine": 60,
         "endColumn": 41
       }
     },
@@ -160,12 +163,12 @@
       "id": "edge:0002",
       "kind": "wait_condition",
       "from": "resource:channel:ReminderFlow.opt_out",
-      "to": "wait:ReminderStep:49:16:0",
+      "to": "wait:ReminderStep:51:16:0",
       "label": "OptOut.for 1",
       "span": {
-        "startLine": 51,
+        "startLine": 53,
         "startColumn": 13,
-        "endLine": 51,
+        "endLine": 53,
         "endColumn": 35
       }
     },
@@ -176,9 +179,9 @@
       "to": "resource:channel:ReminderFlow.opt_out",
       "label": "publish",
       "span": {
-        "startLine": 77,
+        "startLine": 79,
         "startColumn": 9,
-        "endLine": 77,
+        "endLine": 79,
         "endColumn": 44
       },
       "metadata": {
@@ -186,5 +189,26 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "reminders",
+      "label": "Reminders",
+      "stepIds": [
+        "step:ReminderStep"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

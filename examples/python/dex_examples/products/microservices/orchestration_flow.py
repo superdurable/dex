@@ -37,6 +37,8 @@ from dex import (
 from dex_examples.shared.my_dependency_service import MyDependencyService
 
 
+# dex:group group-id:follow-up group-label:"Follow-up"
+# dex:explanation text:"Call API 4 when the ready signal did not arrive in time."
 class CallAPI4(Step[None]):
     def __init__(self, service: MyDependencyService, data: Attribute[str]) -> None:
         self.service = service
@@ -48,6 +50,8 @@ class CallAPI4(Step[None]):
         return graceful_complete(value)
 
 
+# dex:group group-id:parallel-calls group-label:"Parallel calls"
+# dex:explanation text:"Wait for the ready signal or 24 hours, then call API 3."
 class CallAPI3(Step[None]):
     def __init__(
         self,
@@ -75,6 +79,8 @@ class CallAPI3(Step[None]):
         return graceful_complete(value)
 
 
+# dex:group group-id:parallel-calls group-label:"Parallel calls"
+# dex:explanation text:"Call API 2 with the stored data."
 class CallAPI2(Step[None]):
     def __init__(self, service: MyDependencyService, data: Attribute[str]) -> None:
         self.service = service
@@ -85,6 +91,8 @@ class CallAPI2(Step[None]):
         return dead_end()
 
 
+# dex:group group-id:start group-label:"Start"
+# dex:explanation text:"Call API 1, store its data, and call APIs 2 and 3 in parallel."
 class CallAPI1(Step[str]):
     def __init__(
         self,

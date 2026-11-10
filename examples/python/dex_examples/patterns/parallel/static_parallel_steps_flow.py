@@ -25,16 +25,22 @@ from dex import (
 )
 
 
+# dex:group group-id:parallel-work group-label:"Parallel work"
+# dex:explanation text:"Do work A."
 class WorkA(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return graceful_complete(f"A:{input}")
 
 
+# dex:group group-id:parallel-work group-label:"Parallel work"
+# dex:explanation text:"Do work B."
 class WorkB(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return graceful_complete(f"B:{input}")
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Start work A and work B in parallel."
 class InitStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return go_to_many(

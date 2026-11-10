@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "PollingFlow",
     "startStepId": "step:StartJob",
     "span": {
-      "startLine": 105,
+      "startLine": 111,
       "startColumn": 1,
-      "endLine": 117,
+      "endLine": 123,
       "endColumn": 50
     }
   },
@@ -23,23 +23,23 @@
       "parentId": "step:AwaitJob",
       "phase": "execute",
       "span": {
-        "startLine": 72,
+        "startLine": 76,
         "startColumn": 5,
-        "endLine": 85,
+        "endLine": 89,
         "endColumn": 63
       }
     },
     {
-      "id": "decision:step:AwaitJob:77:24",
+      "id": "decision:step:AwaitJob:81:24",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:AwaitJob",
       "condition": "status.state is JobState.SUCCEEDED",
       "phase": "execute",
       "span": {
-        "startLine": 77,
+        "startLine": 81,
         "startColumn": 24,
-        "endLine": 77,
+        "endLine": 81,
         "endColumn": 56
       },
       "decision": {
@@ -47,16 +47,16 @@
       }
     },
     {
-      "id": "decision:step:AwaitJob:79:24",
+      "id": "decision:step:AwaitJob:83:24",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:AwaitJob",
       "condition": "not (status.state is JobState.SUCCEEDED) and status.state is JobState.FAILED",
       "phase": "execute",
       "span": {
-        "startLine": 79,
+        "startLine": 83,
         "startColumn": 24,
-        "endLine": 79,
+        "endLine": 83,
         "endColumn": 58
       },
       "decision": {
@@ -64,15 +64,15 @@
       }
     },
     {
-      "id": "decision:step:RecordJobWaitFailure:51:16",
+      "id": "decision:step:RecordJobWaitFailure:53:16",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:RecordJobWaitFailure",
       "phase": "execute",
       "span": {
-        "startLine": 51,
+        "startLine": 53,
         "startColumn": 16,
-        "endLine": 53,
+        "endLine": 55,
         "endColumn": 10
       },
       "decision": {
@@ -80,15 +80,15 @@
       }
     },
     {
-      "id": "decision:step:StartJob:102:16",
+      "id": "decision:step:StartJob:108:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:StartJob",
       "phase": "execute",
       "span": {
-        "startLine": 102,
+        "startLine": 108,
         "startColumn": 16,
-        "endLine": 102,
+        "endLine": 108,
         "endColumn": 39
       },
       "decision": {
@@ -115,10 +115,13 @@
       "name": "AwaitJob",
       "phase": "execute",
       "span": {
-        "startLine": 113,
+        "startLine": 119,
         "startColumn": 13,
-        "endLine": 113,
+        "endLine": 119,
         "endColumn": 27
+      },
+      "metadata": {
+        "explanation": "Poll the job with heartbeats until it succeeds or fails."
       }
     },
     {
@@ -127,10 +130,13 @@
       "name": "RecordJobWaitFailure",
       "phase": "execute",
       "span": {
-        "startLine": 113,
+        "startLine": 119,
         "startColumn": 29,
-        "endLine": 113,
+        "endLine": 119,
         "endColumn": 57
+      },
+      "metadata": {
+        "explanation": "Fail the Flow with the reason polling stopped."
       }
     },
     {
@@ -140,10 +146,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 112,
+        "startLine": 118,
         "startColumn": 36,
-        "endLine": 112,
+        "endLine": 118,
         "endColumn": 50
+      },
+      "metadata": {
+        "explanation": "Start the external job."
       }
     }
   ],
@@ -151,13 +160,13 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:StartJob:102:16",
+      "from": "decision:step:StartJob:108:16",
       "to": "step:AwaitJob",
       "label": "go_to",
       "span": {
-        "startLine": 102,
+        "startLine": 108,
         "startColumn": 16,
-        "endLine": 102,
+        "endLine": 108,
         "endColumn": 39
       }
     },
@@ -168,9 +177,9 @@
       "to": "resource:stream:JOB_PROGRESS",
       "label": "write",
       "span": {
-        "startLine": 81,
+        "startLine": 85,
         "startColumn": 17,
-        "endLine": 81,
+        "endLine": 85,
         "endColumn": 52
       },
       "metadata": {
@@ -187,9 +196,9 @@
       "to": "step:RecordJobWaitFailure",
       "label": "Execute failure",
       "span": {
-        "startLine": 61,
+        "startLine": 65,
         "startColumn": 16,
-        "endLine": 70,
+        "endLine": 74,
         "endColumn": 62
       },
       "metadata": {
@@ -197,5 +206,40 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "polling",
+      "label": "Polling",
+      "stepIds": [
+        "step:AwaitJob"
+      ]
+    },
+    {
+      "id": "failure",
+      "label": "Failure",
+      "stepIds": [
+        "step:RecordJobWaitFailure"
+      ]
+    },
+    {
+      "id": "start-job",
+      "label": "Start job",
+      "stepIds": [
+        "step:StartJob"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

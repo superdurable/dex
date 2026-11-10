@@ -27,11 +27,15 @@ class StubResizeObserver {
   disconnect() {}
 }
 
+// The docs ship only schema 2.0, so entryOf drops this file's 2.0 additions to make a 1.0 definition.
 const SCHEMA_1_FILE = '../docs/src/data/flow-definitions/money-transfer.json';
 const SCHEMA_2_FILE = '../docs/src/data/flow-definitions/customer-refund-agentic.json';
 
 function entryOf(file: string): FlowDefinitionEntry {
-  const graph = JSON.parse(readFileSync(resolve(process.cwd(), file), 'utf8')) as FlowDefinitionGraph;
+  const shipped = JSON.parse(readFileSync(resolve(process.cwd(), file), 'utf8')) as FlowDefinitionGraph;
+  const graph: FlowDefinitionGraph = file === SCHEMA_1_FILE
+    ? { ...shipped, schemaVersion: '1.0', groups: undefined, v2: undefined }
+    : shipped;
   return {
     id: file,
     file,

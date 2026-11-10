@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "InterruptibleFlow",
     "startStepId": "step:Init",
     "span": {
-      "startLine": 122,
+      "startLine": 128,
       "startColumn": 1,
-      "endLine": 147,
+      "endLine": 153,
       "endColumn": 60
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "step:WorkA",
       "phase": "execute",
       "span": {
-        "startLine": 50,
+        "startLine": 52,
         "startColumn": 5,
-        "endLine": 70,
+        "endLine": 72,
         "endColumn": 10
       }
     },
@@ -36,22 +36,22 @@
       "parentId": "step:WorkB",
       "phase": "execute",
       "span": {
-        "startLine": 80,
+        "startLine": 84,
         "startColumn": 5,
-        "endLine": 100,
+        "endLine": 104,
         "endColumn": 10
       }
     },
     {
-      "id": "decision:step:Init:116:16",
+      "id": "decision:step:Init:122:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:Init",
       "phase": "execute",
       "span": {
-        "startLine": 116,
+        "startLine": 122,
         "startColumn": 16,
-        "endLine": 119,
+        "endLine": 125,
         "endColumn": 10
       },
       "decision": {
@@ -59,16 +59,16 @@
       }
     },
     {
-      "id": "decision:step:WorkA:57:20",
+      "id": "decision:step:WorkA:59:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:WorkA",
       "condition": "(self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE",
       "phase": "execute",
       "span": {
-        "startLine": 57,
+        "startLine": 59,
         "startColumn": 20,
-        "endLine": 57,
+        "endLine": 59,
         "endColumn": 39
       },
       "decision": {
@@ -76,16 +76,16 @@
       }
     },
     {
-      "id": "decision:step:WorkA:61:20",
+      "id": "decision:step:WorkA:63:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:WorkA",
       "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and input.progress \u003e input.job_upper_bound",
       "phase": "execute",
       "span": {
-        "startLine": 61,
+        "startLine": 63,
         "startColumn": 20,
-        "endLine": 61,
+        "endLine": 63,
         "endColumn": 39
       },
       "decision": {
@@ -93,16 +93,16 @@
       }
     },
     {
-      "id": "decision:step:WorkA:67:16",
+      "id": "decision:step:WorkA:69:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:WorkA",
       "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and not (input.progress \u003e input.job_upper_bound)",
       "phase": "execute",
       "span": {
-        "startLine": 67,
+        "startLine": 69,
         "startColumn": 16,
-        "endLine": 70,
+        "endLine": 72,
         "endColumn": 10
       },
       "decision": {
@@ -110,20 +110,20 @@
       }
     },
     {
-      "id": "decision:step:WorkB:87:20",
+      "id": "decision:step:WorkB:101:16",
       "kind": "decision",
-      "name": "gracefulComplete",
+      "name": "goTo",
       "parentId": "step:WorkB",
-      "condition": "(self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE",
+      "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and not (input.progress \u003e input.job_upper_bound)",
       "phase": "execute",
       "span": {
-        "startLine": 87,
-        "startColumn": 20,
-        "endLine": 87,
-        "endColumn": 39
+        "startLine": 101,
+        "startColumn": 16,
+        "endLine": 104,
+        "endColumn": 10
       },
       "decision": {
-        "type": "gracefulComplete"
+        "type": "goTo"
       }
     },
     {
@@ -131,7 +131,7 @@
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:WorkB",
-      "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and input.progress \u003e input.job_upper_bound",
+      "condition": "(self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE",
       "phase": "execute",
       "span": {
         "startLine": 91,
@@ -144,20 +144,20 @@
       }
     },
     {
-      "id": "decision:step:WorkB:97:16",
+      "id": "decision:step:WorkB:95:20",
       "kind": "decision",
-      "name": "goTo",
+      "name": "gracefulComplete",
       "parentId": "step:WorkB",
-      "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and not (input.progress \u003e input.job_upper_bound)",
+      "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and input.progress \u003e input.job_upper_bound",
       "phase": "execute",
       "span": {
-        "startLine": 97,
-        "startColumn": 16,
-        "endLine": 100,
-        "endColumn": 10
+        "startLine": 95,
+        "startColumn": 20,
+        "endLine": 95,
+        "endColumn": 39
       },
       "decision": {
-        "type": "goTo"
+        "type": "gracefulComplete"
       }
     },
     {
@@ -165,9 +165,9 @@
       "kind": "attribute",
       "name": "interruptSignal",
       "span": {
-        "startLine": 125,
+        "startLine": 131,
         "startColumn": 5,
-        "endLine": 125,
+        "endLine": 131,
         "endColumn": 59
       },
       "resource": {
@@ -179,9 +179,9 @@
       "kind": "rpc",
       "name": "interrupt",
       "span": {
-        "startLine": 146,
+        "startLine": 152,
         "startColumn": 5,
-        "endLine": 147,
+        "endLine": 153,
         "endColumn": 60
       }
     },
@@ -192,10 +192,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 137,
+        "startLine": 143,
         "startColumn": 36,
-        "endLine": 137,
+        "endLine": 143,
         "endColumn": 45
+      },
+      "metadata": {
+        "explanation": "Start work A and work B in parallel."
       }
     },
     {
@@ -204,10 +207,13 @@
       "name": "WorkA",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 138,
+        "startLine": 144,
         "startColumn": 13,
-        "endLine": 138,
+        "endLine": 144,
         "endColumn": 29
+      },
+      "metadata": {
+        "explanation": "Do one unit of job A every 2 seconds until it is done or interrupted."
       }
     },
     {
@@ -216,22 +222,25 @@
       "name": "WorkB",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 139,
+        "startLine": 145,
         "startColumn": 13,
-        "endLine": 139,
+        "endLine": 145,
         "endColumn": 29
+      },
+      "metadata": {
+        "explanation": "Do one unit of job B every 3 seconds until it is done or interrupted."
       }
     },
     {
-      "id": "wait:WorkA:48:16:0",
+      "id": "wait:WorkA:50:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:WorkA",
       "phase": "wait_for",
       "span": {
-        "startLine": 48,
+        "startLine": 50,
         "startColumn": 16,
-        "endLine": 48,
+        "endLine": 50,
         "endColumn": 67
       },
       "wait": {
@@ -242,9 +251,9 @@
             "label": "2 seconds timer",
             "expression": "timedelta(seconds=2)",
             "span": {
-              "startLine": 48,
+              "startLine": 50,
               "startColumn": 27,
-              "endLine": 48,
+              "endLine": 50,
               "endColumn": 66
             }
           }
@@ -252,15 +261,15 @@
       }
     },
     {
-      "id": "wait:WorkB:78:16:0",
+      "id": "wait:WorkB:82:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:WorkB",
       "phase": "wait_for",
       "span": {
-        "startLine": 78,
+        "startLine": 82,
         "startColumn": 16,
-        "endLine": 78,
+        "endLine": 82,
         "endColumn": 67
       },
       "wait": {
@@ -271,9 +280,9 @@
             "label": "3 seconds timer",
             "expression": "timedelta(seconds=3)",
             "span": {
-              "startLine": 78,
+              "startLine": 82,
               "startColumn": 27,
-              "endLine": 78,
+              "endLine": 82,
               "endColumn": 66
             }
           }
@@ -285,52 +294,52 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:Init:116:16",
+      "from": "decision:step:Init:122:16",
       "to": "step:WorkA",
       "label": "fan-out",
       "span": {
-        "startLine": 117,
+        "startLine": 123,
         "startColumn": 13,
-        "endLine": 117,
+        "endLine": 123,
         "endColumn": 47
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:Init:116:16",
+      "from": "decision:step:Init:122:16",
       "to": "step:WorkB",
       "label": "fan-out",
       "span": {
-        "startLine": 118,
+        "startLine": 124,
         "startColumn": 13,
-        "endLine": 118,
+        "endLine": 124,
         "endColumn": 47
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:WorkA:67:16",
+      "from": "decision:step:WorkA:69:16",
       "to": "step:WorkA",
       "label": "go_to",
       "span": {
-        "startLine": 67,
+        "startLine": 69,
         "startColumn": 16,
-        "endLine": 70,
+        "endLine": 72,
         "endColumn": 10
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:WorkB:97:16",
+      "from": "decision:step:WorkB:101:16",
       "to": "step:WorkB",
       "label": "go_to",
       "span": {
-        "startLine": 97,
+        "startLine": 101,
         "startColumn": 16,
-        "endLine": 100,
+        "endLine": 104,
         "endColumn": 10
       }
     },
@@ -341,9 +350,9 @@
       "to": "step:WorkA",
       "label": "get",
       "span": {
-        "startLine": 55,
+        "startLine": 57,
         "startColumn": 13,
-        "endLine": 55,
+        "endLine": 57,
         "endColumn": 47
       },
       "metadata": {
@@ -357,9 +366,9 @@
       "to": "step:WorkB",
       "label": "get",
       "span": {
-        "startLine": 85,
+        "startLine": 89,
         "startColumn": 13,
-        "endLine": 85,
+        "endLine": 89,
         "endColumn": 47
       },
       "metadata": {
@@ -373,9 +382,9 @@
       "to": "resource:attribute:InterruptibleFlow.interrupt_signal",
       "label": "set",
       "span": {
-        "startLine": 147,
+        "startLine": 153,
         "startColumn": 9,
-        "endLine": 147,
+        "endLine": 153,
         "endColumn": 60
       },
       "metadata": {
@@ -383,5 +392,34 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "interruptible-work",
+      "label": "Interruptible work",
+      "stepIds": [
+        "step:WorkA",
+        "step:WorkB"
+      ]
+    },
+    {
+      "id": "setup",
+      "label": "Setup",
+      "stepIds": [
+        "step:Init"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }
