@@ -76,13 +76,13 @@ Rules:
 | --- | --- |
 | GoTo | Start one next Step with typed input. |
 | GoToMany | Start several next Steps, each with its own input and optional StepOptions. This is how a Flow runs work in parallel. |
-| GracefulComplete | End this branch and request completion. The Flow completes when every branch has stopped. |
+| GracefulComplete | End this branch and request completion. Dex begins to complete the Flow when every branch has stopped. |
 | DeadEnd | End this branch only. Without a pending GracefulComplete, a Flow with no active Steps keeps running, for example while RPCs can still move it. |
 | ForceComplete | Complete the Flow at once and abandon other active Steps. |
 | ForceFail | Fail the Flow at once with a reason. |
 | ForceCompleteIfChannelsEmpty | Atomically check the named Channels. If all are empty, complete; otherwise take the supplied movement. |
 
-- A GracefulComplete request stays in force. The Flow completes as soon as no Step is active, even when a later branch ends with DeadEnd. Until then, other Steps and RPCs can still start new Steps, and those delay completion too.
+- A GracefulComplete request stays in force. Dex begins to complete the Flow as soon as no Step is active, even when a later branch ends with DeadEnd. Pending Attribute Store writes or an admitted transactional RPC keep the Flow running until Dex records the close; see [error-handling.md](error-handling.md#flow-close-cleanup-rejection). Until then, other Steps and RPCs can still start new Steps, and those delay completion too.
 - Dex never closes a Flow because no Step is active. Without a pending GracefulComplete, such a Flow keeps running until something else closes it, such as its Flow timeout, a stop, or a Step that an RPC starts. End the last branch with a completing decision, and give a Flow that must not wait forever a Flow timeout.
 - GracefulComplete and ForceComplete can carry output. The Flow result lists each output with its Step type and Step execution ID.
 - Only a COMPLETED Flow keeps these outputs. A Flow that fails, is canceled, is terminated, or times out has no outputs, even after an earlier GracefulComplete carried one. Do not read a partial result from an unsuccessful Flow; keep data that must survive a failure in an Attribute.

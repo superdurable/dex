@@ -35,7 +35,7 @@ ParentStep.execute(context, input)
 ## Identity and reuse
 
 - Dex generates the child Flow ID from the parent Flow ID, the Step execution ID, and the Condition index.
-- A later run of the same parent Flow ID generates the same child Flow IDs, because Step execution IDs restart in each run. Its start is a repeated start under the reuse policy. With the default policy it reuses the earlier run's running or completed child until Dex deletes that child. For a fresh child in every run, use Always restart or a fresh parent Flow ID.
+- A later run of the same parent Flow ID generates the same child Flow ID when it creates the same Step execution ID (same Step type and sequence number) and uses the same Condition index. Step execution numbers restart in each run, so this is common. Its start is then a repeated start under the reuse policy. With the default policy it reuses the earlier run's running or completed child until Dex deletes that child. Always restart starts a fresh child but terminates an old child that is still running. When both children must keep running, use a different parent Flow ID.
 - SubFlow options are the start options plus a SubFlow reuse policy.
 - The Request ID that Dex generates for the child start always attaches to a running child or returns its terminal result, whatever the policy. So a parent retry never duplicates the child.
 - A different Request ID goes through the reuse policy:

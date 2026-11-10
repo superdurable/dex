@@ -19,7 +19,7 @@ Dex 负责 Flow 的生命周期和状态。你的代码不需要数据库或任�
 ## 保证 {#guarantees}
 
 - 一个 Flow ID 同一时间最多只有一个 active run。
-- 每个 Step 方法的 Attribute 写入和 Channel 发布一起 commit，要么全部生效，要么都不生效。见 [Step 的保证](/concepts/step#guarantees)。
+- commit 边界见 [Step 的保证](/concepts/step#guarantees)。
 - 使用默认的 SYNC durability 时，一个 Step 的结果在下一个 Step 开始前已经 durable 存储。Worker 崩溃和 Dex Server 重启都不会丢失它。
 - 没有 Worker 接的 Step 在 durable 队列里等待，有 Worker 可用时再运行。
 
@@ -188,7 +188,7 @@ impl Flow for ExampleFlow {
 
 [Client](/concepts/client) 用一个 Flow ID 和 start input 启动 Flow。Dex 随后在 Worker 上运行 start Step。每个 Step 返回一个决定：进入下一个或多个 Step，或者关闭 Flow。同一时间可以有多个 Step 处于 active。
 
-某个 Step 完成 Flow 或让它失败、timeout 让它失败或取消它，或 client 停止它时，Flow 关闭。timeout 也可以改为运行一个 handler，由它决定结果。Flow 运行期间，client 通过 RPC 和 Channel 读取和修改它。
+某个 Step 完成 Flow 或让它失败、timeout 让它失败或取消它，或 client 停止它时，Flow 关闭。再次启动同一个 Flow ID 也可能关闭它：会终止运行中 run 的 ID reuse policy 会这样做，使用 **ALWAYS_RESTART** 的 SubFlow 启动也会。timeout 也可以改为运行一个 handler，由它决定结果。Flow 运行期间，client 通过 RPC 和 Channel 读取和修改它。
 
 ## Start options 和配置 {#start-options}
 
@@ -197,7 +197,7 @@ impl Flow for ExampleFlow {
 - **StartFlowOptions** 只在启动时生效一次。它设置 Flow timeout、ID reuse policy、start request ID 和 Attribute 初始值。
 - **FlowConfig** 保存运行时设置，比如默认的 Step durability。Flow 运行期间可以更新。
 
-用稳定的业务 Flow ID 直接启动 Flow。不要为了避免冲突先读取或搜索。要安全地重试同一次启动，每次都发送同一个 request ID，并打开忽略 already-started 错误的启动选项。这样 Dex 会返回同一个 execution，而不是报错。
+用稳定的业务 Flow ID 直接启动 Flow。不要为了避免冲突先读取或搜索。要安全地重试同一次启动，使用拒绝第二个 run 的 ID reuse policy，每次都发送同一个 request ID，并打开忽略 already-started 错误的启动选项。如果这个 request ID 已经启动了 Flow，Dex 会返回已有的 execution，而不是报错。允许再启动一个 run 的 policy 则可能启动一个新的 run。
 
 ## 参考
 

@@ -254,7 +254,7 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 
 取消是协作式的。被取消的方法应检查取消状态并返回。在它返回之前，它的代码会继续运行。它对外部系统的调用仍然会生效，即使 Flow 已经关闭。
 
-**GracefulComplete** 结束它自己的分支，并请求 Dex 完成 Flow。一旦没有 active Step，Flow 就完成。在这之前，其他 Step 和 RPC 仍然可以启动新的 Step，这些 Step 也会推迟完成。这个请求一直有效。之后某个分支以 **DeadEnd** 结束，也不会撤回它。
+**GracefulComplete** 结束它自己的分支，并请求 Dex 完成 Flow。一旦没有 active Step，Dex 就开始完成 Flow。待处理的 Attribute Sync 写入或已经接受的 transactional RPC，可能让 Flow 保持 **RUNNING**，直到 Dex 记录关闭。在没有 active Step 之前，其他 Step 和 RPC 仍然可以启动新的 Step，这些 Step 也会推迟完成。这个请求一直有效。之后某个分支以 **DeadEnd** 结束，也不会撤回它。
 
 没有待处理的 **GracefulComplete** 时，一个没有 active Step 的 Flow 会继续运行。RPC 仍然可以在里面启动新的 Step。Dex 不会因为没有 active Step 而关闭 Flow。用一个完成类的决定结束最后一个分支。不能无限等待的 Flow，要设置 Flow timeout。
 

@@ -1642,13 +1642,14 @@ without failing the Step.
 
 ### Firing time {#timer-firing-time}
 
-A Timer's firing time is the commit time of the **WaitFor** that declared it,
-plus its duration in whole seconds.
+Dex sets a Timer's deadline to the server proposal timestamp of the
+**WaitFor** result that declared it, plus its duration in whole seconds.
 
-A Timer never fires before its firing time. It can fire later, for example
+Except for an explicit **SkipTimer**, Dex never satisfies a Timer condition
+before its deadline. After the deadline, the firing can be late, for example
 while the server is busy or failing over. Until the Timer fires, another
 condition can still satisfy the wait. So in an **AnyOf**, a Channel message
-that commits after the Timer's firing time can still win.
+that commits after the Timer's deadline can still win.
 
 ## SubFlows {#subflows}
 

@@ -310,8 +310,10 @@ Cancellation is cooperative. A canceled method should check for cancellation
 and return. Until it does, its code keeps running. Its calls to external
 systems still take effect, even after the Flow has closed.
 
-**GracefulComplete** ends its own branch and asks Dex to complete the Flow. The
-Flow completes as soon as no Step is active. Until then, other Steps and RPCs
+**GracefulComplete** ends its own branch and asks Dex to complete the Flow. As
+soon as no Step is active, Dex begins to complete the Flow. Pending Attribute
+Sync writes or an admitted transactional RPC can keep the Flow **RUNNING**
+until Dex records the close. Until no Step is active, other Steps and RPCs
 can still start new Steps, and those Steps delay completion too. The request
 stays in force. A later branch that ends with **DeadEnd** does not withdraw it.
 

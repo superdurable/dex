@@ -27,8 +27,7 @@ into smaller Flows or to fan out work.
 ## Guarantees {#guarantees}
 
 - A Flow ID has at most one active run at a time.
-- Each Step method's Attribute writes and Channel publications commit together,
-  or not at all. See [Step guarantees](/concepts/step#guarantees).
+- See [Step guarantees](/concepts/step#guarantees) for commit boundaries.
 - With the default SYNC durability, a Step's result is stored durably before
   the next Step starts. It survives Worker crashes and Dex Server restarts.
 - A Step that no Worker takes waits in a durable queue. It runs when a Worker
@@ -211,8 +210,10 @@ that moves to the next Steps or closes the Flow. Several Steps can be active
 at the same time.
 
 A Flow closes when a Step completes or fails it, when its timeout fails or
-cancels it, or when a client stops it. A timeout can instead run a handler that
-decides the outcome. While it runs, clients read and change it through RPCs
+cancels it, or when a client stops it. Starting the same Flow ID again can also
+close it: an ID reuse policy that terminates a running run does this, and so
+does a SubFlow start with **ALWAYS_RESTART**. A timeout can instead run a
+handler that decides the outcome. While it runs, clients read and change it through RPCs
 and Channels.
 
 ## Start options and configuration {#start-options}
@@ -225,9 +226,11 @@ Two sets of options shape a Flow execution:
   You can update it while the Flow runs.
 
 Start a Flow directly with a stable business Flow ID. Do not read or search
-first to avoid a conflict. To retry one start safely, send the same request ID
-each time and set the start option that ignores the already-started error. Dex
-then returns the same execution instead of an error.
+first to avoid a conflict. To retry one start safely, use an ID reuse policy
+that rejects a second run, send the same request ID each time, and set the
+start option that ignores the already-started error. When that request ID
+already started the Flow, Dex returns the existing execution instead of an
+error. A policy that allows another run can start a new run instead.
 
 ## Reference
 
