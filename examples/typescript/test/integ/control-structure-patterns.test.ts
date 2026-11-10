@@ -97,14 +97,14 @@ const deferredChoiceCases = [
   {
     name: "accept",
     respond: (flowId: string) =>
-      environment.client.invokeRPC(offerResponseFlow.acceptOffer, flowId, "looks good"),
+      environment.client.invokeRPC(offerResponseFlow.acceptCustomerOffer, flowId, "looks good"),
     expectedStep: "FulfillOffer",
     expectedOutput: "fulfilled offer-1",
   },
   {
     name: "reject",
     respond: (flowId: string) =>
-      environment.client.invokeRPC(offerResponseFlow.rejectOffer, flowId, "too expensive"),
+      environment.client.invokeRPC(offerResponseFlow.rejectCustomerOffer, flowId, "too expensive"),
     expectedStep: "CloseRejectedOffer",
     expectedOutput: "rejected offer-1",
   },
@@ -131,8 +131,8 @@ for (const testCase of deferredChoiceCases) {
 
 test("deferred choice consumes only the winning response", async () => {
   const flowId = await startPatternFlow(offerResponseFlow, "pattern-deferred-choice-race", "offer-2");
-  await environment.client.invokeRPC(offerResponseFlow.acceptOffer, flowId, "yes");
-  await environment.client.invokeRPC(offerResponseFlow.rejectOffer, flowId, "no");
+  await environment.client.invokeRPC(offerResponseFlow.acceptCustomerOffer, flowId, "yes");
+  await environment.client.invokeRPC(offerResponseFlow.rejectCustomerOffer, flowId, "no");
   const result = await waitForCompletedFlow(flowId);
   assert.equal(result.completions.length, 1);
   assert.ok(["FulfillOffer", "CloseRejectedOffer"].includes(result.completions[0]!.stepType));

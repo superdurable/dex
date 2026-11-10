@@ -40,7 +40,7 @@ func TestDeferredChoiceRoutesOnTheCustomerResponse(t *testing.T) {
 		{
 			name: "accept",
 			respond: func(t *testing.T, flowID string) {
-				invokeWorkflowPatternRPC(t, flowID, registry.OfferResponse.AcceptOffer, "looks good", nil)
+				invokeWorkflowPatternRPC(t, flowID, registry.OfferResponse.AcceptCustomerOffer, "looks good", nil)
 			},
 			expectedStep:   "FulfillOffer",
 			expectedOutput: "fulfilled offer-1",
@@ -48,7 +48,7 @@ func TestDeferredChoiceRoutesOnTheCustomerResponse(t *testing.T) {
 		{
 			name: "reject",
 			respond: func(t *testing.T, flowID string) {
-				invokeWorkflowPatternRPC(t, flowID, registry.OfferResponse.RejectOffer, "too expensive", nil)
+				invokeWorkflowPatternRPC(t, flowID, registry.OfferResponse.RejectCustomerOffer, "too expensive", nil)
 			},
 			expectedStep:   "CloseRejectedOffer",
 			expectedOutput: "rejected offer-1",
@@ -73,8 +73,8 @@ func TestDeferredChoiceRoutesOnTheCustomerResponse(t *testing.T) {
 func TestDeferredChoiceConsumesOnlyTheWinningResponse(t *testing.T) {
 	flow := registry.OfferResponse
 	flowID := startWorkflowPattern(t, flow, "pattern-deferred-choice-race", "offer-2")
-	invokeWorkflowPatternRPC(t, flowID, flow.AcceptOffer, "yes", nil)
-	invokeWorkflowPatternRPC(t, flowID, flow.RejectOffer, "no", nil)
+	invokeWorkflowPatternRPC(t, flowID, flow.AcceptCustomerOffer, "yes", nil)
+	invokeWorkflowPatternRPC(t, flowID, flow.RejectCustomerOffer, "no", nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
 	require.Len(t, result.Completions, 1)
 	require.Contains(t, []string{"FulfillOffer", "CloseRejectedOffer"}, result.Completions[0].StepType)

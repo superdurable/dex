@@ -54,7 +54,7 @@ public class ControlStructurePatternsIntegTest {
     @Test
     void deferredChoiceRoutesOnTheAcceptResponse() {
         assertOfferResponse(
-                flowId -> client().invokeRPC(offerStub(flowId)::acceptOffer, "looks good"),
+                flowId -> client().invokeRPC(offerStub(flowId)::acceptCustomerOffer, "looks good"),
                 "FulfillOffer",
                 "fulfilled offer-1");
     }
@@ -62,7 +62,7 @@ public class ControlStructurePatternsIntegTest {
     @Test
     void deferredChoiceRoutesOnTheRejectResponse() {
         assertOfferResponse(
-                flowId -> client().invokeRPC(offerStub(flowId)::rejectOffer, "too expensive"),
+                flowId -> client().invokeRPC(offerStub(flowId)::rejectCustomerOffer, "too expensive"),
                 "CloseRejectedOffer",
                 "rejected offer-1");
     }
@@ -78,8 +78,8 @@ public class ControlStructurePatternsIntegTest {
         final String flowId =
                 startPatternFlow(OfferResponseFlow.class, "deferred-choice-race", "offer-2");
         final OfferResponseFlow stub = offerStub(flowId);
-        client().invokeRPC(stub::acceptOffer, "yes");
-        client().invokeRPC(stub::rejectOffer, "no");
+        client().invokeRPC(stub::acceptCustomerOffer, "yes");
+        client().invokeRPC(stub::rejectCustomerOffer, "no");
         final List<StepCompletion> completions = waitForCompletedFlow(flowId);
         assertEquals(1, completions.size());
         assertTrue(Set.of("FulfillOffer", "CloseRejectedOffer")

@@ -122,8 +122,8 @@ async def test_deferred_choice_routes_on_the_customer_response(
         client, new_flow_id, flow, "pattern-deferred-choice", "offer-1"
     )
     responses: dict[str, Callable[[], Awaitable[object]]] = {
-        "accept": lambda: client.invoke_rpc(flow.accept_offer, flow_id, "looks good"),
-        "reject": lambda: client.invoke_rpc(flow.reject_offer, flow_id, "too expensive"),
+        "accept": lambda: client.invoke_rpc(flow.accept_customer_offer, flow_id, "looks good"),
+        "reject": lambda: client.invoke_rpc(flow.reject_customer_offer, flow_id, "too expensive"),
         "expire": lambda: skip_offer_expiry(client, flow_id),
     }
     await responses[respond]()
@@ -141,8 +141,8 @@ async def test_deferred_choice_consumes_only_the_winning_response(
     flow_id = await start_pattern_flow(
         client, new_flow_id, flow, "pattern-deferred-choice-race", "offer-2"
     )
-    await client.invoke_rpc(flow.accept_offer, flow_id, "yes")
-    await client.invoke_rpc(flow.reject_offer, flow_id, "no")
+    await client.invoke_rpc(flow.accept_customer_offer, flow_id, "yes")
+    await client.invoke_rpc(flow.reject_customer_offer, flow_id, "no")
     result = await wait_for_completed_flow(client, flow_id)
     assert len(result.completions) == 1
     assert result.completions[0].step_type in ("FulfillOffer", "CloseRejectedOffer")

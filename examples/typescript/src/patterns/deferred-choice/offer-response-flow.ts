@@ -122,13 +122,13 @@ export class OfferResponseFlow implements Flow<string> {
 
   /** Records that the customer accepted the offer. */
   @rpc({ inputCodec: stringCodec })
-  public acceptOffer(context: Context, note: string): void {
+  public acceptCustomerOffer(context: Context, note: string): void {
     offerAccepted.publish(context, note);
   }
 
   /** Records that the customer rejected the offer. */
   @rpc({ inputCodec: stringCodec })
-  public rejectOffer(context: Context, note: string): void {
+  public rejectCustomerOffer(context: Context, note: string): void {
     offerRejected.publish(context, note);
   }
 }

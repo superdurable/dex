@@ -53,8 +53,8 @@ func (*OfferResponseFlow) GetSteps() []dex.StepDef {
 
 func (flow *OfferResponseFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
-		dex.DefineRPC(flow.AcceptOffer, nil),
-		dex.DefineRPC(flow.RejectOffer, nil),
+		dex.DefineRPC(flow.AcceptCustomerOffer, nil),
+		dex.DefineRPC(flow.RejectCustomerOffer, nil),
 	}
 }
 
@@ -64,16 +64,16 @@ func (*OfferResponseFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	}
 }
 
-// AcceptOffer records that the customer accepted the offer.
-func (*OfferResponseFlow) AcceptOffer(ctx dex.Context, note string) (*dex.RPCResult[dex.None], error) {
+// AcceptCustomerOffer records that the customer accepted the offer.
+func (*OfferResponseFlow) AcceptCustomerOffer(ctx dex.Context, note string) (*dex.RPCResult[dex.None], error) {
 	if err := OfferAccepted.Publish(ctx, note); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-// RejectOffer records that the customer rejected the offer.
-func (*OfferResponseFlow) RejectOffer(ctx dex.Context, note string) (*dex.RPCResult[dex.None], error) {
+// RejectCustomerOffer records that the customer rejected the offer.
+func (*OfferResponseFlow) RejectCustomerOffer(ctx dex.Context, note string) (*dex.RPCResult[dex.None], error) {
 	if err := OfferRejected.Publish(ctx, note); err != nil {
 		return nil, err
 	}

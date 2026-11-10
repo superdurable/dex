@@ -89,11 +89,11 @@ class OfferResponseFlow(Flow[str]):
         return PersistenceSchema.of(OFFER_ACCEPTED, OFFER_REJECTED)
 
     @rpc
-    def accept_offer(self, context: Context, note: str) -> None:
+    def accept_customer_offer(self, context: Context, note: str) -> None:
         """Records that the customer accepted the offer."""
         OFFER_ACCEPTED.publish(context, note)
 
     @rpc
-    def reject_offer(self, context: Context, note: str) -> None:
+    def reject_customer_offer(self, context: Context, note: str) -> None:
         """Records that the customer rejected the offer."""
         OFFER_REJECTED.publish(context, note)

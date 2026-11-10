@@ -62,13 +62,13 @@ public class OfferResponseFlow implements Flow<String> {
 
     /** Records that the customer accepted the offer. */
     @RPC
-    public void acceptOffer(final Context context, final String note) {
+    public void acceptCustomerOffer(final Context context, final String note) {
         offerAccepted.publish(context, note);
     }
 
     /** Records that the customer rejected the offer. */
     @RPC
-    public void rejectOffer(final Context context, final String note) {
+    public void rejectCustomerOffer(final Context context, final String note) {
         offerRejected.publish(context, note);
     }
 
