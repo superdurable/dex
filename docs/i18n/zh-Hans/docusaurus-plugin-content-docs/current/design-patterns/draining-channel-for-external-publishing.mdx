@@ -7,13 +7,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/drai
 
 # Drain External Channels
 
-处理外部发布到 Channel 的消息；队列为空时完成这条短生命周期的 Flow。
+处理客户端发布到 Channel 的消息，Channel 一空就完成 Flow。
 
 ## 问题与做法
 
-当一条 Flow 要处理 Worker 外部发来的消息，并且消息可能突发到来时，使用这个模式。Client 调用 RPC，由 RPC 把每条消息追加到 Channel。关键要求是在 Channel 为空时完成 Flow，从而尽可能让 Flow 保持短生命周期。有新消息到来时，Flow 会重新启动。
+当消息来自 Worker 外部、而且可能突发到来时，使用这个模式。Client 调用 RPC，由 RPC 把每条消息追加到 Channel。Channel 一空，Flow 就完成，所以 Flow 只在有工作时运行。下一条消息会再次启动它。
 
-这个 decision 会在记录下一步动作时原子地检查 Channel。Channel 为空时完成 Flow；Channel 中还有排队消息，或有消息已从该 Channel 消费并提交给尚未完成 **Execute** 处理的 Step 时，Dex 会走 fallback movement 回到 **ProcessMessage**。前一次 execution 完成后，下一个请求会使用相同的 Flow ID 启动新的 Flow execution，并将消息作为启动输入。
+**ProcessMessage** 返回 **ForceCompleteIfChannelsEmpty** decision。Dex 在保存这个 decision 时检查 Channel，所以检查和完成之间不会插进新消息。Channel 为空时，Flow 完成。如果 Channel 中还有消息，或者某个 Step 已经取走消息、但还没执行完 **Execute**，Dex 会改走 fallback movement，回到 **ProcessMessage**。
 
 被 **ForceCompleteIfChannelsEmpty** 检查的 Channel 只能由一个 Step 消费。
 
@@ -390,7 +390,7 @@ impl Step for DrainChannel {
 
 ## Controller
 
-Controller 会先调用活跃 Flow 的发布 RPC。调用表明 Flow 不活跃时，Controller 会使用该消息作为输入启动新的 Flow；其他错误会返回给调用方。
+Controller 先对正在运行的 Flow 调用发布 RPC。如果 Dex 报告 Flow 没有在运行，Controller 用相同的 Flow ID 启动一次新的 Flow execution，并把消息作为启动输入。其他错误直接返回给调用方。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/controller.py', go: 'examples/go/patterns/drain-channels/external-publishing/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/DrainChannelsController.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/controller.ts', rust: 'examples/rust/src/patterns/drain_channels/controller.rs'}}>
 <SdkSnippet lang="python">
