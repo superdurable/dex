@@ -133,7 +133,7 @@ The timeout handler is the Flow's last chance to record a business outcome and c
 - Flow configuration is persisted at start. Changing the application default affects new Flows only.
 - A configuration update merges only the supplied fields. It does not recall work already dispatched.
 - A method's durability is fixed when the method call becomes pending. A changed default affects later method calls only.
-- Attribute Store sync requires the Flow to name its stores at start. See [external-attribute-sync.md](external-attribute-sync.md).
+- Attribute Store sync requires the Flow to name its stores at start. See [attribute.md](attribute.md#attribute-store-sync).
 - Indexing active Step types for search is an explicit opt-in in Flow configuration.
 
 The current option names, defaults, and limits are in the language's Developer reference. See [SKILL.md](../../SKILL.md#find-the-right-reference-version).

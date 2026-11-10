@@ -15,7 +15,7 @@ sidebar_label: Entity Flow with SQL Projection
 
 ## 工作方式
 
-用实体 ID 作为 Flow ID。标记每个要投影的 Attribute，并在启动 Flow 时选择 Attribute Store。通过 Flow 更新或删除 Attribute，Dex 会把结果值投影到 SQL。配置见 [External Attribute Sync](/components/external-attribute-sync)。
+用实体 ID 作为 Flow ID。标记每个要投影的 Attribute，并在启动 Flow 时选择 Attribute Store。通过 Flow 更新或删除 Attribute，Dex 会把结果值投影到 SQL。配置见[在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)。
 
 示例投影 text、boolean、integer、double、datetime 和 JSON 值。删除 Attribute 时，SQL 行会保留，对应列投影为 **NULL**。列类型、同步时延和重试见 [Attribute Store sync reference](/reference/server/attribute-store-sync)。
 
@@ -348,4 +348,4 @@ FlowConfig::new().attribute_store_names(vec![STORE_NAME.to_owned()])
 ## 相关内容
 
 - [Attribute](/concepts/primitives/attribute)
-- [External Attribute Sync](/components/external-attribute-sync)
+- [在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)

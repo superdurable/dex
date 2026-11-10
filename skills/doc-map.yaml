@@ -72,10 +72,6 @@ mappings:
     docs:
       - docs/content/components/web.mdx
 
-  - skill: dex-sdk/references/core/external-attribute-sync.md
-    docs:
-      - docs/content/components/external-attribute-sync.mdx
-
   - skill: dex-sdk/references/core/patterns.md
     docs:
       - docs/content/design-patterns/attribute-map-partitioning.mdx
@@ -170,5 +166,3 @@ unmapped:
   - skills/dex-connector-contributor/SKILL.md
   # The Concepts overview; dex-sdk/SKILL.md holds the agent mental model.
   - docs/content/concepts/index.mdx
-  # Expressiveness evidence for human readers; no agent rule changes.
-  - docs/content/correctness-and-expressiveness/*.mdx

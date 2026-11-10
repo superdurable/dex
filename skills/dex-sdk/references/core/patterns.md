@@ -601,7 +601,7 @@ One Flow per entity, with a SQL projection for queries. Go folder: `entity-store
 - Mark the projected Attributes for sync, and select the Attribute Store in the Flow configuration at start.
 - Update through a typed RPC that validates, then writes every projected Attribute. Read authoritative state from the Flow.
 - The SQL table is an asynchronous latest-state projection. Never make a Flow decision from it. Deleting an Attribute keeps the row and projects NULL.
-- Define optimistic concurrency, deletion, retention, and open-Flow compatibility. See [external-attribute-sync.md](external-attribute-sync.md).
+- Define optimistic concurrency, deletion, retention, and open-Flow compatibility. See [attribute.md](attribute.md#attribute-store-sync).
 
 ## Partitioned AttributeMap state
 

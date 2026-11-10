@@ -54,7 +54,6 @@ const sidebars: SidebarsConfig = {
         'components/cli',
         'components/web',
         'components/connector',
-        'components/external-attribute-sync',
       ],
     },
     {

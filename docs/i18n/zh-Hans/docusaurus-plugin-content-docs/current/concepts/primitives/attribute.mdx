@@ -397,9 +397,32 @@ lock 的获取时机，以及 **WaitFor**、**Execute** 和 RPC 的 lock，见 [
 
 **hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入不同，hard-delete 写入在 Dex 保存 handler 的结果之前就生效。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)。
 
+<a id="与其他组件的关系"></a>
+<a id="配置"></a>
+<a id="交付与重试"></a>
+<a id="attribute-store-local-development"></a>
+
 ## 在 Flow 之后保留数据 {#attribute-store-projection}
 
-Attribute Sync 把选中的 Attribute 复制到你自己的 PostgreSQL 表。Dex 删除 Flow 后，表里的数据仍然保留，你也可以为自己的查询建 index。Dex 异步写入最新值。见 [External Attribute Sync](/components/external-attribute-sync) 和 [Entity Store](/design-patterns/entity-store) 模式。
+Attribute Store sync 把选中的 Attribute 复制到你自己的 PostgreSQL 表。每个目标称为一个 **Attribute Store**。Dex 删除 Flow 后，表里的数据仍然保留。你的应用和报表用 SQL 查询这些表，你也可以为自己的查询建 index。
+
+同步一个 Attribute 的步骤：
+
+1. 在 server 启动前建好表。Dex 不会创建、迁移或回填表。
+2. 在 server 配置里配置这个 store。
+3. 用 **syncToAttributeStore** 标记 Attribute 或 AttributeMap。
+4. 启动 Flow 时，在它的 **FlowConfig** 里列出 store 名称。
+
+需要知道的行为：
+
+- Flow 仍是数据的权威来源。表里的一行保存最新值，不是历史记录。不要根据这张表做 Flow 决策。
+- Dex 在后台写入。写入不会拖慢 Step、RPC 或 SetAttributes 调用。同一个 Flow ID 的写入保持顺序。
+- 写入失败时，Dex 会在一段有限的时间内重试，之后丢弃这次写入并记录错误日志。Dex 不会重放旧值，也不会为新配置的 store 补写数据。
+- Flow 自己完成或失败时，会保持运行，直到待写入的数据写完或被丢弃。StopFlow 不等待。
+- 删除 Attribute 会把它的列写成 NULL。Flow 关闭时，Dex 不会删除这一行。
+- 一个 store 可以把 Flow ID 拆成多个主键列，也可以把每个 AttributeMap instance 写成单独一张表里的一行。
+
+配置、表的要求、row key、AttributeMap 表、重试、指标和本地开发，见英文的 [Attribute Store sync](/reference/server/attribute-store-sync) 参考页。完整示例见 [Entity Store](/design-patterns/entity-store) 模式。
 
 ## 参考
 

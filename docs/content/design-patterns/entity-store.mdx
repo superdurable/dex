@@ -23,7 +23,7 @@ Flow decisions from the SQL table. Read the Flow state instead.
 
 ## How it works
 
-Use the entity ID as the Flow ID. Mark each projected Attribute and select the Attribute Store when you start the Flow. Update or delete Attributes through the Flow, and Dex projects the resulting values to SQL. See [External Attribute Sync](/components/external-attribute-sync) for the setup.
+Use the entity ID as the Flow ID. Mark each projected Attribute and select the Attribute Store when you start the Flow. Update or delete Attributes through the Flow, and Dex projects the resulting values to SQL. See [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection) for the setup.
 
 The example projects text, boolean, integer, double, datetime, and JSON values. Deleting an Attribute keeps the SQL row and projects **NULL** to its column. The [Attribute Store sync reference](/reference/server/attribute-store-sync) gives the column types, delivery timing, and retries.
 
@@ -361,4 +361,4 @@ The [shared example setup](https://github.com/superdurable/dex/tree/main/example
 ## Related
 
 - [Attribute](/concepts/primitives/attribute)
-- [External Attribute Sync](/components/external-attribute-sync)
+- [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection)

@@ -37,7 +37,7 @@ A **Flow** is one durable business execution with a stable Flow ID. It is a grap
 | [SubFlow](references/core/subflow.md) | child Flow started from WaitFor | not in a first design; pass the evolution gate |
 | [Client](references/core/client.md) | the application's boundary to Dex | start, invoke, read, wait; no direct state write |
 
-Components include [Connector](references/core/connector.md), a released provider integration that supplies Connector Steps and Triggers; credentials never enter Flow state. Other Components: [application (Worker and Client)](references/core/application.md), [server](references/core/server.md), [dexcli and local development](references/core/cli.md), [Dex Web](references/core/web.md), [External Attribute Sync](references/core/external-attribute-sync.md).
+Components include [Connector](references/core/connector.md), a released provider integration that supplies Connector Steps and Triggers; credentials never enter Flow state. Other Components: [application (Worker and Client)](references/core/application.md), [server](references/core/server.md), [dexcli and local development](references/core/cli.md), [Dex Web](references/core/web.md).
 
 Choose the mechanism:
 
@@ -89,7 +89,7 @@ Rules:
 | New application, wiring, Workers, deployment rollouts | [application.md](references/core/application.md) |
 | Flow boundary, start options, Flow timeout | [flow.md](references/core/flow.md) |
 | Step graph, waits, decisions, durability, retries, heartbeats, locks | [step.md](references/core/step.md) |
-| State, maps, indexes, search, hard-delete secrets | [attribute.md](references/core/attribute.md) |
+| State, maps, indexes, search, hard-delete secrets, SQL projection of Attributes (Attribute Store sync) | [attribute.md](references/core/attribute.md) |
 | Queues, approvals, moving pending messages | [channel.md](references/core/channel.md) |
 | RPC design, transactions, cancellation from an RPC | [rpc.md](references/core/rpc.md) |
 | Progress, LLM token streaming | [stream.md](references/core/stream.md) |
@@ -99,7 +99,6 @@ Rules:
 | Client calls, reads, waits, lifecycle APIs | [client.md](references/core/client.md) |
 | Errors, recovery types, diagnosis, operator recovery | [error-handling.md](references/core/error-handling.md) |
 | Large values, BlobCache, whether to add a database | [data-handling.md](references/core/data-handling.md) |
-| SQL projection of Attributes | [external-attribute-sync.md](references/core/external-attribute-sync.md) |
 | Pattern choice and skeletons, durable AI agents | [patterns.md](references/core/patterns.md) |
 | Integration tests | [testing.md](references/core/testing.md) |
 | Server behavior, search backends, deployment | [server.md](references/core/server.md) |
