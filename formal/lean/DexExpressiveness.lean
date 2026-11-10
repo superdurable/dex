@@ -43,3 +43,4 @@ import DexExpressiveness.Examples.ForgedHandleInput
 import DexExpressiveness.Examples.RelatedCheck
 import DexExpressiveness.Examples.Inductiveness
 import DexExpressiveness.L.LockDiscipline
+import DexExpressiveness.L.LockDisciplineSound
