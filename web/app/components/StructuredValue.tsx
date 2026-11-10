@@ -55,7 +55,24 @@ export function isDexValue(value: unknown): boolean {
   return keys.length === 1 && dexValueKeys.has(keys[0]);
 }
 
-/** The payload of one Dex Value envelope, with JSON objects parsed; other values are returned unchanged. */
+/** An encoded payload the web console does not decode, such as raw bytes, described by its encoding and size. */
+export interface UndecodedPayload {
+  encoding: string;
+  byteSize: number;
+}
+
+/** The encoding and byte size of a Dex Value whose payload is neither JSON nor text; null for any other value. */
+export function undecodedPayloadOf(value: unknown): UndecodedPayload | null {
+  const object = asData(asData(value).objValue);
+  if (typeof object.payload !== 'string' || object.encoding === 'json' || object.encoding === 'text') return null;
+  try {
+    return { encoding: typeof object.encoding === 'string' ? object.encoding : '', byteSize: atob(object.payload).length };
+  } catch {
+    return null;
+  }
+}
+
+/** The payload of one Dex Value envelope: parsed JSON, decoded text, or an UndecodedPayload for other encodings. */
 export function decodedValue(value: unknown): unknown {
   if (isBlobReferenceValue(value)) return 'Loading stored value…';
   if (isStoredValueUnavailable(value)) return VALUE_BLOB_UNAVAILABLE;
@@ -67,6 +84,8 @@ export function decodedValue(value: unknown): unknown {
   if ('nullValue' in message) return null;
   const object = asData(message.objValue);
   if (typeof object.payload !== 'string') return value;
+  const undecoded = undecodedPayloadOf(value);
+  if (undecoded) return undecoded;
   try {
     const bytes = Uint8Array.from(atob(object.payload), (character) => character.charCodeAt(0));
     const decoded = new TextDecoder().decode(bytes);

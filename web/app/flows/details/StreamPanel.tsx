@@ -13,8 +13,15 @@ import { hydrateBlobs } from '@/lib/blobs';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionEntry, StreamMessage } from '@/lib/types';
 import { usePreferences } from '../../providers';
-import { StreamOutput, StreamStatusBadge } from './StreamOutput';
-import type { StreamListeningStatus } from './StreamOutput';
+import {
+  appendStreamEntry,
+  EMPTY_STREAM_ENTRIES,
+  StreamCountAnnouncement,
+  streamEntryContentOf,
+  StreamOutput,
+  StreamStatusBadge,
+} from './StreamOutput';
+import type { StreamEntriesState, StreamListeningStatus } from './StreamOutput';
 
 interface StreamPanelProps {
   flowId: string;
@@ -86,11 +93,16 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
   const definedStreams = definedStreamsOf(definition);
   const hasDefinedStreams = definedStreams.length > 0;
   const [pickedStreamChoice, setPickedStreamChoice] = useState<string | null>(null);
-  const streamChoice = pickedStreamChoice ?? (definedStreams.length === 1 ? definedStreams[0].name : '');
+  const isPickedChoiceAvailable = pickedStreamChoice === OTHER_STREAM_CHOICE
+    || definedStreams.some((stream) => stream.name === pickedStreamChoice);
+  const defaultStreamChoice = definedStreams.length === 1 ? definedStreams[0].name : '';
+  const streamChoice = isPickedChoiceAvailable && pickedStreamChoice !== null ? pickedStreamChoice : defaultStreamChoice;
   const isTypingStreamName = !hasDefinedStreams || streamChoice === OTHER_STREAM_CHOICE;
   const [streamName, setStreamName] = useState('');
-  const [activeStreamName, setActiveStreamName] = useState('');
-  const [messages, setMessages] = useState<StreamMessage[]>([]);
+  const [activeStream, setActiveStream] = useState<DefinedStream | null>(null);
+  const activeStreamName = activeStream?.name ?? '';
+  const [entries, setEntries] = useState<StreamEntriesState>(EMPTY_STREAM_ENTRIES);
+  const lastSequenceNumberRef = useRef(0);
   const [isListening, setIsListening] = useState(false);
   const [isStopped, setIsStopped] = useState(false);
   const [formError, setFormError] = useState('');
@@ -100,7 +112,7 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
   const blobCache = useRef(new Map<string, unknown>());
 
   useEffect(() => {
-    if (!activeStreamName || isStopped) return;
+    if (!activeStream || isStopped) return;
     const controller = new AbortController();
     let isActive = true;
 
@@ -110,7 +122,7 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
         await listenToStream({
           flowId,
           flowType,
-          streamName: activeStreamName,
+          streamName: activeStream.name,
           signal: controller.signal,
           onMessage: async (rawMessage) => {
             const hydrated = await hydrateBlobs(
@@ -120,7 +132,14 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
               controller.signal,
             );
             if (!isActive) return;
-            setMessages((current) => [...current, { ...rawMessage, value: hydrated.value }]);
+            // Classify once on arrival, outside the updater, so a re-render never repeats it.
+            lastSequenceNumberRef.current += 1;
+            const record = {
+              message: { ...rawMessage, value: hydrated.value },
+              content: streamEntryContentOf(hydrated.value, activeStream.valueType),
+              sequenceNumber: lastSequenceNumberRef.current,
+            };
+            setEntries((current) => appendStreamEntry(current, record));
             if (hydrated.error) setBlobWarning(hydrated.error);
           },
         });
@@ -135,7 +154,7 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
       isActive = false;
       controller.abort();
     };
-  }, [activeStreamName, flowId, flowType, isStopped, session]);
+  }, [activeStream, flowId, flowType, isStopped, session]);
 
   const startListening = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -145,13 +164,23 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
       return;
     }
     blobCache.current.clear();
-    setMessages([]);
+    lastSequenceNumberRef.current = 0;
+    setEntries(EMPTY_STREAM_ENTRIES);
     setFormError('');
     setReadError('');
     setIsStopped(false);
     setBlobWarning('');
-    setActiveStreamName(nextStreamName);
+    setActiveStream({
+      name: nextStreamName,
+      valueType: definedStreams.find((stream) => stream.name === nextStreamName)?.valueType ?? '',
+    });
     setSession((current) => current + 1);
+  };
+
+  const clearMessages = () => {
+    lastSequenceNumberRef.current = 0;
+    setEntries(EMPTY_STREAM_ENTRIES);
+    setBlobWarning('');
   };
 
   const stopListening = () => {
@@ -162,6 +191,7 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
   const listeningStatus: StreamListeningStatus = readError
     ? 'error'
     : isListening && !isStopped ? 'listening' : 'stopped';
+  const messageCount = entries.droppedMessageCount + entries.records.length;
 
   return (
     <section className="stream-panel">
@@ -197,7 +227,11 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
               autoFocus={hasDefinedStreams}
               id="stream-name"
               name="streamName"
-              onChange={(event) => setStreamName(event.target.value)}
+              onChange={(event) => {
+                setStreamName(event.target.value);
+                // A name typed before the definitions load keeps the text box when they arrive.
+                if (!hasDefinedStreams) setPickedStreamChoice(OTHER_STREAM_CHOICE);
+              }}
               placeholder="a defined stream name"
               value={streamName}
             />
@@ -215,11 +249,12 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
           <div className="stream-session-header">
             <StreamStatusBadge status={listeningStatus} />
             <code className="stream-session-name">{activeStreamName}</code>
-            {messages.length > 0 && (
+            {messageCount > 0 && (
               <span className="stream-session-count">
-                {messages.length} {messages.length === 1 ? 'message' : 'messages'}
+                {messageCount} {messageCount === 1 ? 'message' : 'messages'}
               </span>
             )}
+            <StreamCountAnnouncement messageCount={messageCount} />
             <span className="stream-session-actions">
               {listeningStatus === 'listening' && (
                 <button className="button ghost" onClick={stopListening} type="button">
@@ -227,8 +262,8 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
                   Stop
                 </button>
               )}
-              {messages.length > 0 && (
-                <button className="button ghost" onClick={() => setMessages([])} type="button">
+              {messageCount > 0 && (
+                <button className="button ghost" onClick={clearMessages} type="button">
                   <Eraser aria-hidden="true" size={13} />
                   Clear
                 </button>
@@ -237,8 +272,8 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
           </div>
           {readError && <div className="error-banner">{readError}</div>}
           {blobWarning && <div className="warning-banner">{blobWarning}</div>}
-          {messages.length > 0 ? (
-            <StreamOutput messages={messages} timezone={timezone} />
+          {entries.records.length > 0 ? (
+            <StreamOutput entries={entries} status={listeningStatus} timezone={timezone} />
           ) : (
             !readError && (
               <div className="stream-empty">

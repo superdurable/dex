@@ -6,51 +6,129 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { ArrowDown, CircleAlert, CircleStop, Radio } from 'lucide-react';
+import { storedValueJSONReplacer } from '@/lib/blobs';
 import { formatDate } from '@/lib/format';
 import type { TimezonePreference } from '@/lib/format';
 import type { StreamMessage } from '@/lib/types';
 import { CopyButton } from '../../components/CopyButton';
-import { decodedValue, isDexValue } from '../../components/StructuredValue';
+import { decodedValue, isDexValue, undecodedPayloadOf } from '../../components/StructuredValue';
 
 /** What the Streams tab is doing with the chosen Stream. */
 export type StreamListeningStatus = 'listening' | 'stopped' | 'error';
 
+/** One progress update read from a Stream message. */
+export interface StreamProgressContent {
+  kind: 'progress';
+  /** The percent or progress field, or progress / total as a percent; null when the update has no amount. */
+  amount: number | null;
+  /** Whether an amount up to 1 may be a fraction, as in a declared ProgressUpdate or a phase-and-sequence record. */
+  isFractionEligible: boolean;
+  /** Whether the amount was computed from progress and total, so it is already a percent. */
+  isComputedFromTotal: boolean;
+  label: string;
+  phase: string;
+  value: Record<string, unknown>;
+}
+
 /** How one Stream message reads on screen. */
 export type StreamEntryContent =
   | { kind: 'text'; text: string }
-  | { kind: 'progress'; percent: number | null; label: string; phase: string; value: Record<string, unknown> }
+  | { kind: 'scalar'; text: string }
+  | StreamProgressContent
+  | { kind: 'undecoded'; encoding: string; byteSize: number }
   | { kind: 'structured'; value: unknown };
+
+/** One Stream message with its content, classified once when it arrives. */
+export interface StreamEntryRecord {
+  message: StreamMessage;
+  content: StreamEntryContent;
+  /** The one-based position of the message since listening started, kept when older messages are dropped. */
+  sequenceNumber: number;
+}
+
+/** The Stream messages kept on screen, newest last. */
+export interface StreamEntriesState {
+  records: StreamEntryRecord[];
+  droppedMessageCount: number;
+  /** Whether any progress amount exceeded 1, so the whole Stream reads amounts as 0 to 100. */
+  hasPercentAboveOne: boolean;
+}
+
+/** How many Stream messages stay on screen; older ones are dropped. */
+export const MAX_KEPT_STREAM_MESSAGES = 2000;
+
+/** No Stream messages. */
+export const EMPTY_STREAM_ENTRIES: StreamEntriesState = { records: [], droppedMessageCount: 0, hasPercentAboveOne: false };
 
 type StreamOutputView = 'transcript' | 'entries';
 
 const LATEST_SCROLL_TOLERANCE_PIXELS = 24;
 const RELATIVE_TIME_TICK_MILLISECONDS = 15_000;
+const OPEN_STRUCTURED_ENTRY_COUNT = 3;
+const COUNT_ANNOUNCEMENT_INTERVAL_MILLISECONDS = 5_000;
 
-/** Classifies one Stream message value as text, a progress update, or a structured value. */
-export function streamEntryContentOf(value: unknown): StreamEntryContent {
-  const decoded = isDexValue(value) ? decodedValue(value) : value;
+/** Whether a declared Stream value type is the connector ProgressUpdate, whose percent runs from 0 to 1. */
+export function isProgressUpdateValueType(valueType: string): boolean {
+  return valueType === 'ProgressUpdate' || valueType.endsWith('.ProgressUpdate');
+}
+
+/** Classifies one Stream message value as text, a scalar, a progress update, an undecoded payload, or a structured value. */
+export function streamEntryContentOf(value: unknown, declaredValueType = ''): StreamEntryContent {
+  const isEnvelope = isDexValue(value);
+  const undecoded = isEnvelope ? undecodedPayloadOf(value) : null;
+  if (undecoded) return { kind: 'undecoded', encoding: undecoded.encoding, byteSize: undecoded.byteSize };
+  const decoded = isEnvelope ? decodedValue(value) : value;
   if (typeof decoded === 'string') return { kind: 'text', text: decoded };
-  if (typeof decoded === 'number' || typeof decoded === 'boolean') return { kind: 'text', text: String(decoded) };
+  if (typeof decoded === 'number' || typeof decoded === 'boolean') return { kind: 'scalar', text: String(decoded) };
   if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) {
-    const record = decoded as Record<string, unknown>;
-    const percent = progressPercentOf(record);
-    const label = firstText(record.message, record.status, record.label);
-    const phase = firstText(record.phase, record.stage, record.step);
-    if (percent !== null || (phase && 'sequence' in record)) {
-      return { kind: 'progress', percent, label, phase, value: record };
-    }
+    const progress = progressContentOf(decoded as Record<string, unknown>, isProgressUpdateValueType(declaredValueType));
+    if (progress) return progress;
   }
   return { kind: 'structured', value: decoded };
 }
 
-/** A 0 to 100 percent from a percent or progress field; values up to 1 are fractions. */
-function progressPercentOf(record: Record<string, unknown>): number | null {
-  const raw = typeof record.percent === 'number' ? record.percent : typeof record.progress === 'number' ? record.progress : null;
-  if (raw === null || !Number.isFinite(raw) || raw < 0) return null;
-  const percent = raw <= 1 ? raw * 100 : raw;
-  return Math.min(percent, 100);
+function progressContentOf(record: Record<string, unknown>, isDeclaredProgressUpdate: boolean): StreamProgressContent | null {
+  const label = firstText(record.message, record.status, record.label);
+  const phase = firstText(record.phase, record.stage, record.step);
+  const hasPhaseAndSequence = phase !== '' && 'sequence' in record;
+  let amount: number | null = null;
+  let isComputedFromTotal = false;
+  if (isNonNegativeNumber(record.percent)) {
+    amount = record.percent;
+  } else if (isNonNegativeNumber(record.progress)) {
+    if ('total' in record) {
+      // A progress count without a usable total is a plain record, not a progress update.
+      if (!isNonNegativeNumber(record.total) || record.total === 0) return null;
+      amount = (record.progress / record.total) * 100;
+      isComputedFromTotal = true;
+    } else {
+      amount = record.progress;
+    }
+  }
+  if (amount === null && !hasPhaseAndSequence) return null;
+  return {
+    kind: 'progress',
+    amount,
+    isFractionEligible: !isComputedFromTotal && (isDeclaredProgressUpdate || hasPhaseAndSequence),
+    isComputedFromTotal,
+    label,
+    phase,
+    value: record,
+  };
+}
+
+/** A 0 to 100 percent; eligible amounts up to 1 are fractions until the Stream shows an amount above 1. */
+export function progressPercentOf(content: StreamProgressContent, hasPercentAboveOne: boolean): number | null {
+  if (content.amount === null) return null;
+  const isFraction = content.isFractionEligible && !hasPercentAboveOne && content.amount <= 1;
+  return Math.min(isFraction ? content.amount * 100 : content.amount, 100);
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function firstText(...candidates: unknown[]): string {
@@ -58,6 +136,23 @@ function firstText(...candidates: unknown[]): string {
     if (typeof candidate === 'string' && candidate.trim()) return candidate;
   }
   return '';
+}
+
+/** Appends one classified message, dropping the oldest messages beyond the kept limit. */
+export function appendStreamEntry(
+  state: StreamEntriesState,
+  record: StreamEntryRecord,
+  maxKeptMessages = MAX_KEPT_STREAM_MESSAGES,
+): StreamEntriesState {
+  const appended = [...state.records, record];
+  const overflowCount = Math.max(appended.length - maxKeptMessages, 0);
+  const content = record.content;
+  return {
+    records: overflowCount > 0 ? appended.slice(overflowCount) : appended,
+    droppedMessageCount: state.droppedMessageCount + overflowCount,
+    hasPercentAboveOne: state.hasPercentAboveOne
+      || (content.kind === 'progress' && !content.isComputedFromTotal && content.amount !== null && content.amount > 1),
+  };
 }
 
 /** Whether a scroll box is at, or within a small tolerance of, its newest content. */
@@ -78,8 +173,13 @@ export function formatRelativeTime(createdTime: string | null, nowMilliseconds: 
 }
 
 function copyTextOf(content: StreamEntryContent): string {
-  if (content.kind === 'text') return content.text;
-  return JSON.stringify(content.value, null, 2) ?? '';
+  if (content.kind === 'text' || content.kind === 'scalar') return content.text;
+  if (content.kind === 'undecoded') return JSON.stringify({ encoding: content.encoding, byteSize: content.byteSize }, null, 2);
+  return JSON.stringify(content.value, storedValueJSONReplacer, 2) ?? '';
+}
+
+function transcriptTextOf(records: StreamEntryRecord[]): string {
+  return records.map((record) => (record.content.kind === 'text' ? record.content.text : '')).join('');
 }
 
 /** The listening state with an icon; a live Stream pulses. */
@@ -95,29 +195,42 @@ export function StreamStatusBadge({ status }: { status: StreamListeningStatus })
   );
 }
 
+/** A screen reader announcement of the message count, at most once every few seconds. */
+export function StreamCountAnnouncement({ messageCount }: { messageCount: number }) {
+  const announcedCount = useThrottledValue(messageCount, COUNT_ANNOUNCEMENT_INTERVAL_MILLISECONDS);
+  return (
+    <span aria-live="polite" className="sr-only">
+      {announcedCount > 0 ? `${announcedCount} ${announcedCount === 1 ? 'message' : 'messages'}` : ''}
+    </span>
+  );
+}
+
 /** The messages read from one Stream, as a transcript for text or as entries. */
 export function StreamOutput({
-  messages,
+  entries,
+  status,
   timezone,
 }: {
-  messages: StreamMessage[];
+  entries: StreamEntriesState;
+  status: StreamListeningStatus;
   timezone: TimezonePreference;
 }) {
-  const contents = messages.map((message) => streamEntryContentOf(message.value));
-  const isAllText = contents.every((content) => content.kind === 'text');
+  const { records, droppedMessageCount, hasPercentAboveOne } = entries;
+  const isAllText = records.every((record) => record.content.kind === 'text');
   const [pickedView, setPickedView] = useState<StreamOutputView | null>(null);
   const view: StreamOutputView = isAllText ? (pickedView ?? 'transcript') : 'entries';
-  const nowMilliseconds = useTickingNow(messages.length > 0);
   const scrollBoxRef = useRef<HTMLDivElement>(null);
   const [isFollowingLatest, setIsFollowingLatest] = useState(true);
-  const [seenMessageCount, setSeenMessageCount] = useState(0);
+  const latestRecord = records.at(-1);
+  const latestSequenceNumber = latestRecord?.sequenceNumber ?? 0;
+  const [seenSequenceNumber, setSeenSequenceNumber] = useState(0);
 
   useLayoutEffect(() => {
     const scrollBox = scrollBoxRef.current;
     if (!scrollBox || !isFollowingLatest) return;
     scrollBox.scrollTop = scrollBox.scrollHeight;
-    setSeenMessageCount(messages.length);
-  }, [isFollowingLatest, messages.length, view]);
+    setSeenSequenceNumber(latestSequenceNumber);
+  }, [isFollowingLatest, latestSequenceNumber, view]);
 
   const jumpToLatest = () => {
     const scrollBox = scrollBoxRef.current;
@@ -125,111 +238,145 @@ export function StreamOutput({
     setIsFollowingLatest(true);
   };
 
-  const latestContent = contents.at(-1);
-  const unseenMessageCount = Math.max(messages.length - seenMessageCount, 0);
-  const transcriptChunks = contents.map((content) => (content.kind === 'text' ? content.text : ''));
-  const transcript = transcriptChunks.join('');
+  const unseenMessageCount = Math.max(latestSequenceNumber - seenSequenceNumber, 0);
 
   return (
-    <div className="stream-output">
-      {latestContent?.kind === 'progress' && (
-        <div className="stream-progress-focus">
-          <StreamProgress content={latestContent} />
-        </div>
-      )}
-      {isAllText && (
-        <div aria-label="Stream view" className="stream-view-switch" role="group">
-          {(['transcript', 'entries'] as const).map((option) => (
-            <button
-              aria-pressed={view === option}
-              key={option}
-              onClick={() => setPickedView(option)}
-              type="button"
-            >
-              {option === 'transcript' ? 'Transcript' : 'Entries'}
-            </button>
-          ))}
-          {view === 'transcript' && <CopyButton label="Copy transcript" value={transcript} />}
-        </div>
-      )}
-      <div
-        className={`stream-scroll stream-scroll--${view}`}
-        data-testid="stream-scroll"
-        onScroll={(event) => setIsFollowingLatest(isScrolledToLatest(event.currentTarget))}
-        ref={scrollBoxRef}
-      >
-        {view === 'transcript' ? (
-          <pre aria-live="polite" className="stream-transcript">
-            {messages.map((message, index) => (
-              <span
-                key={message.resumeToken}
-                title={`#${index + 1} · ${formatDate(message.createdTime, timezone)}`}
+    <StreamClock isTicking={records.length > 0}>
+      <div className="stream-output">
+        {latestRecord?.content.kind === 'progress' && (
+          <div className="stream-progress-focus">
+            <StreamProgress content={latestRecord.content} hasPercentAboveOne={hasPercentAboveOne} />
+          </div>
+        )}
+        {isAllText && (
+          <div aria-label="Stream view" className="stream-view-switch" role="group">
+            {(['transcript', 'entries'] as const).map((option) => (
+              <button
+                aria-pressed={view === option}
+                key={option}
+                onClick={() => setPickedView(option)}
+                type="button"
               >
-                {transcriptChunks[index]}
-              </span>
+                {option === 'transcript' ? 'Transcript' : 'Entries'}
+              </button>
             ))}
-            <span aria-hidden="true" className="stream-transcript-caret" />
-          </pre>
-        ) : (
-          <ol aria-live="polite" className="stream-entries">
-            {messages.map((message, index) => (
-              <StreamEntry
-                content={contents[index]}
-                key={message.resumeToken}
-                message={message}
-                nowMilliseconds={nowMilliseconds}
-                sequenceNumber={index + 1}
-                timezone={timezone}
-              />
-            ))}
-          </ol>
+            {view === 'transcript' && <CopyButton label="Copy transcript" value={() => transcriptTextOf(records)} />}
+          </div>
+        )}
+        <div
+          className={`stream-scroll stream-scroll--${view}`}
+          data-testid="stream-scroll"
+          onScroll={(event) => setIsFollowingLatest(isScrolledToLatest(event.currentTarget))}
+          ref={scrollBoxRef}
+        >
+          {droppedMessageCount > 0 && (
+            <p className="stream-dropped-note">
+              {droppedMessageCount} older {droppedMessageCount === 1 ? 'message' : 'messages'} dropped · showing the
+              newest {records.length}
+            </p>
+          )}
+          {view === 'transcript' ? (
+            <pre className="stream-transcript">
+              {records.map((record) => (
+                <StreamTranscriptChunk key={record.message.resumeToken} record={record} timezone={timezone} />
+              ))}
+              {status === 'listening' && <span aria-hidden="true" className="stream-transcript-caret" />}
+            </pre>
+          ) : (
+            <ol className="stream-entries">
+              {records.map((record) => (
+                <StreamEntry
+                  hasPercentAboveOne={record.content.kind === 'progress' && hasPercentAboveOne}
+                  isRecent={
+                    record.content.kind === 'structured'
+                    && record.sequenceNumber > latestSequenceNumber - OPEN_STRUCTURED_ENTRY_COUNT
+                  }
+                  key={record.message.resumeToken}
+                  record={record}
+                  timezone={timezone}
+                />
+              ))}
+            </ol>
+          )}
+        </div>
+        {!isFollowingLatest && (
+          <button className="stream-jump-latest" onClick={jumpToLatest} type="button">
+            <ArrowDown aria-hidden="true" size={14} />
+            Jump to latest{unseenMessageCount > 0 ? ` · ${unseenMessageCount} new` : ''}
+          </button>
         )}
       </div>
-      {!isFollowingLatest && (
-        <button className="stream-jump-latest" onClick={jumpToLatest} type="button">
-          <ArrowDown aria-hidden="true" size={14} />
-          Jump to latest{unseenMessageCount > 0 ? ` · ${unseenMessageCount} new` : ''}
-        </button>
-      )}
-    </div>
+    </StreamClock>
   );
 }
 
-function StreamEntry({
-  content,
-  message,
-  nowMilliseconds,
-  sequenceNumber,
+const StreamTranscriptChunk = memo(function StreamTranscriptChunk({
+  record,
   timezone,
 }: {
-  content: StreamEntryContent;
-  message: StreamMessage;
-  nowMilliseconds: number;
-  sequenceNumber: number;
+  record: StreamEntryRecord;
   timezone: TimezonePreference;
 }) {
+  return (
+    <span title={`#${record.sequenceNumber} · ${formatDate(record.message.createdTime, timezone)}`}>
+      {record.content.kind === 'text' ? record.content.text : ''}
+    </span>
+  );
+});
+
+const StreamEntry = memo(function StreamEntry({
+  hasPercentAboveOne,
+  isRecent,
+  record,
+  timezone,
+}: {
+  hasPercentAboveOne: boolean;
+  /** Whether a structured value is among the newest few, which open their JSON. */
+  isRecent: boolean;
+  record: StreamEntryRecord;
+  timezone: TimezonePreference;
+}) {
+  const { content, message, sequenceNumber } = record;
   const absoluteTime = formatDate(message.createdTime, timezone);
   return (
     <li className={`stream-entry stream-entry--${content.kind}`}>
       <div className="stream-entry-meta">
         <span className="stream-entry-sequence">#{sequenceNumber}</span>
-        {message.createdTime && (
-          <time dateTime={message.createdTime} title={absoluteTime}>
-            {formatRelativeTime(message.createdTime, nowMilliseconds) || absoluteTime}
-          </time>
-        )}
+        {message.createdTime && <StreamRelativeTime absoluteTime={absoluteTime} createdTime={message.createdTime} />}
         {message.source && <code>{message.source}</code>}
-        <CopyButton label={`Copy message ${sequenceNumber}`} value={copyTextOf(content)} />
+        <CopyButton label={`Copy message ${sequenceNumber}`} value={() => copyTextOf(content)} />
       </div>
       {content.kind === 'text' && <p className="stream-entry-text">{content.text}</p>}
-      {content.kind === 'progress' && <StreamProgress content={content} />}
-      {content.kind === 'structured' && <StreamStructuredValue value={content.value} />}
+      {content.kind === 'scalar' && <p className="stream-entry-text stream-entry-scalar">{content.text}</p>}
+      {content.kind === 'progress' && (
+        <>
+          <StreamProgress content={content} hasPercentAboveOne={hasPercentAboveOne} />
+          <StreamStructuredValue isRecent={false} value={content.value} />
+        </>
+      )}
+      {content.kind === 'undecoded' && (
+        <p className="stream-entry-undecoded">
+          Payload in {content.encoding ? `${content.encoding} encoding` : 'an unnamed encoding'} · {content.byteSize}{' '}
+          {content.byteSize === 1 ? 'byte' : 'bytes'}
+        </p>
+      )}
+      {content.kind === 'structured' && <StreamStructuredValue isRecent={isRecent} value={content.value} />}
     </li>
+  );
+});
+
+function StreamRelativeTime({ absoluteTime, createdTime }: { absoluteTime: string; createdTime: string }) {
+  const nowMilliseconds = useContext(StreamClockContext);
+  return (
+    <time dateTime={createdTime} title={absoluteTime}>
+      {formatRelativeTime(createdTime, nowMilliseconds) || absoluteTime}
+    </time>
   );
 }
 
-function StreamProgress({ content }: { content: Extract<StreamEntryContent, { kind: 'progress' }> }) {
-  const roundedPercent = content.percent === null ? null : Math.round(content.percent);
+function StreamProgress({ content, hasPercentAboveOne }: { content: StreamProgressContent; hasPercentAboveOne: boolean }) {
+  const percent = progressPercentOf(content, hasPercentAboveOne);
+  const roundedPercent = percent === null ? null : Math.round(percent);
   return (
     <div className="stream-progress">
       <div className="stream-progress-label">
@@ -251,21 +398,37 @@ function StreamProgress({ content }: { content: Extract<StreamEntryContent, { ki
   );
 }
 
-function StreamStructuredValue({ value }: { value: unknown }) {
-  const json = JSON.stringify(value, null, 2) ?? String(value);
+/** Collapsible JSON that renders its text only while open; recent values open until the reader toggles them. */
+function StreamStructuredValue({ isRecent, value }: { isRecent: boolean; value: unknown }) {
+  const [readerOpenChoice, setReaderOpenChoice] = useState<boolean | null>(null);
+  const isOpen = readerOpenChoice ?? isRecent;
+  const json = useMemo(
+    () => (isOpen ? JSON.stringify(value, storedValueJSONReplacer, 2) ?? String(value) : ''),
+    [isOpen, value],
+  );
   const fieldCount = value && typeof value === 'object' ? Object.keys(value).length : 0;
   const summary = Array.isArray(value)
     ? `List · ${value.length} ${value.length === 1 ? 'item' : 'items'}`
     : `Object · ${fieldCount} ${fieldCount === 1 ? 'field' : 'fields'}`;
   return (
-    <details className="stream-json" open>
+    <details
+      className="stream-json"
+      onToggle={(event) => {
+        // Programmatic changes already match isOpen; only a reader's toggle differs.
+        if (event.currentTarget.open !== isOpen) setReaderOpenChoice(event.currentTarget.open);
+      }}
+      open={isOpen}
+    >
       <summary>{summary}</summary>
-      <pre>{json}</pre>
+      {isOpen && <pre>{json}</pre>}
     </details>
   );
 }
 
-function useTickingNow(isTicking: boolean): number {
+const StreamClockContext = createContext(0);
+
+/** Shares one ticking clock with the relative times, so a tick re-renders only them. */
+function StreamClock({ children, isTicking }: { children: ReactNode; isTicking: boolean }) {
   const [nowMilliseconds, setNowMilliseconds] = useState(() => Date.now());
   useEffect(() => {
     if (!isTicking) return;
@@ -273,5 +436,20 @@ function useTickingNow(isTicking: boolean): number {
     const timer = window.setInterval(() => setNowMilliseconds(Date.now()), RELATIVE_TIME_TICK_MILLISECONDS);
     return () => window.clearInterval(timer);
   }, [isTicking]);
-  return nowMilliseconds;
+  return <StreamClockContext.Provider value={nowMilliseconds}>{children}</StreamClockContext.Provider>;
+}
+
+function useThrottledValue<T>(value: T, intervalMilliseconds: number): T {
+  const [throttledValue, setThrottledValue] = useState(value);
+  const lastUpdateMillisecondsRef = useRef(0);
+  useEffect(() => {
+    if (Object.is(value, throttledValue)) return;
+    const waitMilliseconds = Math.max(lastUpdateMillisecondsRef.current + intervalMilliseconds - Date.now(), 0);
+    const timer = window.setTimeout(() => {
+      lastUpdateMillisecondsRef.current = Date.now();
+      setThrottledValue(value);
+    }, waitMilliseconds);
+    return () => window.clearTimeout(timer);
+  }, [intervalMilliseconds, throttledValue, value]);
+  return throttledValue;
 }

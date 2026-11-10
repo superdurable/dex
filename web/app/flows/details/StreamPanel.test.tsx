@@ -16,7 +16,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FlowDefinitionGraph } from '@superdurable/flow-definition-renderer';
 import { PreferencesProvider } from '@/app/providers';
 import type { FlowDefinitionEntry } from '@/lib/types';
+import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
+import { decodedValue } from '../../components/StructuredValue';
 import { definedStreamsOf, listenToStream, StreamPanel } from './StreamPanel';
+
+vi.mock('../../components/StructuredValue', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../components/StructuredValue')>();
+  return { ...original, decodedValue: vi.fn(original.decodedValue) };
+});
 
 const CONNECTOR_FACTORY_FILE = '../docs/src/data/flow-definitions/connector-factory.json';
 
@@ -57,6 +64,40 @@ function stubPendingFetch() {
   });
   vi.stubGlobal('fetch', fetcher);
   return fetcher;
+}
+
+interface StreamResponseBody {
+  value: unknown;
+  resumeToken: string;
+  createdTime: string;
+  source: string;
+}
+
+/** Answers Stream reads with the given messages in order, then waits until aborted; blob loads fail. */
+function stubStreamFetch(bodies: StreamResponseBody[]) {
+  let readCount = 0;
+  const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).startsWith('/api/blobs/load')) {
+      return Promise.resolve(new Response(JSON.stringify({ error: 'blob store down' }), { status: 500 }));
+    }
+    const body = bodies[readCount];
+    readCount += 1;
+    if (body) return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  return fetcher;
+}
+
+function jsonStreamBody(value: unknown, sequence: number): StreamResponseBody {
+  return {
+    value: { objValue: { encoding: 'json', payload: btoa(JSON.stringify(value)) } },
+    resumeToken: `token-${sequence}`,
+    createdTime: '2026-11-09T12:00:00Z',
+    source: '#Summarize-1',
+  };
 }
 
 function streamNamesRequested(fetcher: ReturnType<typeof stubPendingFetch>): string[] {
@@ -209,7 +250,7 @@ describe('StreamPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start listening' }));
     await waitFor(() => expect(screen.getByText('Drafting the summary')).toBeTruthy());
     expect(screen.getByText('Live')).toBeTruthy();
-    expect(screen.getByText('1 message')).toBeTruthy();
+    expect(screen.getByText('1 message', { selector: '.stream-session-count' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     expect(screen.getByText('Stopped')).toBeTruthy();
@@ -234,5 +275,74 @@ describe('StreamPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start listening' }));
 
     await waitFor(() => expect(streamNamesRequested(fetcher)).toEqual(['thinking']));
+  });
+
+  it('falls back to the default choice when the picked Stream leaves the definition', () => {
+    const panelWith = (streams: Array<{ name: string; valueType: string }>) => (
+      <PreferencesProvider>
+        <StreamPanel definition={definitionWithStreams(streams)} flowId="checkout-1" flowType="CheckoutFlow" />
+      </PreferencesProvider>
+    );
+    const { rerender } = render(panelWith([
+      { name: 'progress', valueType: 'string' },
+      { name: 'text', valueType: 'string' },
+    ]));
+    fireEvent.change(screen.getByLabelText('Stream name'), { target: { value: 'text' } });
+    expect((screen.getByLabelText('Stream name') as HTMLSelectElement).value).toBe('text');
+
+    rerender(panelWith([
+      { name: 'progress', valueType: 'string' },
+      { name: 'summary', valueType: 'string' },
+    ]));
+    expect((screen.getByLabelText('Stream name') as HTMLSelectElement).value).toBe('');
+
+    rerender(panelWith([{ name: 'summary', valueType: 'string' }]));
+    expect((screen.getByLabelText('Stream name') as HTMLSelectElement).value).toBe('summary');
+  });
+
+  it('keeps a name typed before the definition loads', () => {
+    const panelWith = (definition: FlowDefinitionEntry | null) => (
+      <PreferencesProvider>
+        <StreamPanel definition={definition} flowId="checkout-1" flowType="CheckoutFlow" />
+      </PreferencesProvider>
+    );
+    const { rerender } = render(panelWith(null));
+    fireEvent.change(screen.getByLabelText('Stream name'), { target: { value: 'thinking' } });
+
+    rerender(panelWith(definitionWithStreams([{ name: 'progress', valueType: 'string' }])));
+    expect((screen.getByLabelText('Stream name') as HTMLSelectElement).value).not.toBe('progress');
+    expect((screen.getByLabelText('Other Stream name') as HTMLInputElement).value).toBe('thinking');
+  });
+
+  it('classifies each message once and reads a declared ProgressUpdate Stream as fractions', async () => {
+    stubStreamFetch([1, 2, 3, 4, 5, 6].map((sequence) => (
+      jsonStreamBody({ callId: 'c-1', phase: 'generating', message: `Step ${sequence}`, percent: sequence / 10 }, sequence)
+    )));
+    const decodedValueMock = vi.mocked(decodedValue);
+    decodedValueMock.mockClear();
+    const { container } = renderPanel(definitionWithStreams([{ name: 'progress', valueType: 'sdkgo.ProgressUpdate' }]));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start listening' }));
+    await waitFor(() => expect(screen.getByText('6 messages', { selector: '.stream-session-count' })).toBeTruthy());
+
+    expect(decodedValueMock).toHaveBeenCalledTimes(6);
+    expect(container.querySelector('.stream-progress-focus [role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('60');
+    expect(container.querySelector('.stream-session-header .sr-only[aria-live="polite"]')).toBeTruthy();
+  });
+
+  it('clears the stored value warning with the messages', async () => {
+    stubStreamFetch([{
+      value: { __dexBlobReference: { kind: 'object', id: 'blob-1' } },
+      resumeToken: 'token-1',
+      createdTime: '2026-11-09T12:00:00Z',
+      source: '#Summarize-1',
+    }]);
+    const { container } = renderPanel(definitionWithStreams([{ name: 'report', valueType: 'string' }]));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start listening' }));
+    await waitFor(() => expect(container.querySelector('.warning-banner')?.textContent).toBe(VALUE_BLOB_UNAVAILABLE));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(container.querySelector('.warning-banner')).toBeNull();
   });
 });
