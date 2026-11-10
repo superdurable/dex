@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dex_agents import AgentTurnContext, ToolCallStatus, ToolEffect, ToolPolicy
-from dex_agents.stepwise import SourceToolDefinition
+from dex_agents.stepwise import SourceToolDefinition, SourceToolListing
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, AnyMessage, ToolCall, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -379,6 +379,7 @@ class _RunModelBinding:
     turn: AgentTurnContext
     tools_by_name: Mapping[str, BaseTool]
     source_tools: Sequence[BaseTool] = ()
+    source_tool_listing: SourceToolListing | None = None
     resumed_tool_call_ids: set[str] = field(default_factory=set)
 
 
@@ -403,6 +404,7 @@ class _DeferredToolCallRequest:
 @dataclass(frozen=True, kw_only=True)
 class _RecordedToolCallOutcome:
     tool_call_id: str
+    tool_name: str
     status: ToolCallStatus
     output: str
 
@@ -452,7 +454,11 @@ def _recorded_outcomes_resume_value(
 ) -> dict[str, Any]:
     return {
         "results": {
-            outcome.tool_call_id: {"status": str(outcome.status), "output": outcome.output}
+            outcome.tool_call_id: {
+                "tool_name": outcome.tool_name,
+                "status": str(outcome.status),
+                "output": outcome.output,
+            }
             for outcome in outcomes
         }
     }
@@ -465,6 +471,7 @@ def _recorded_outcomes_from_resume_value(value: object) -> dict[str, _RecordedTo
     return {
         str(tool_call_id): _RecordedToolCallOutcome(
             tool_call_id=str(tool_call_id),
+            tool_name=str(result["tool_name"]),
             status=ToolCallStatus(result["status"]),
             output=str(result["output"]),
         )
@@ -478,6 +485,11 @@ def _defer_tool_calls(
     request_tool: BaseTool | None,
     node_tools_by_name: Mapping[str, BaseTool] | None = None,
 ) -> list[ToolMessage]:
+    refusals = {
+        tool_call["id"] or "": refusal
+        for tool_call in tool_calls
+        if (refusal := _source_tool_refusal(binding, tool_call["id"] or "", tool_call["name"]))
+    }
     requests = [
         _DeferredToolCallRequest(
             tool_call_id=tool_call["id"] or "",
@@ -493,19 +505,68 @@ def _defer_tool_calls(
             ),
         )
         for tool_call in tool_calls
+        if (tool_call["id"] or "") not in refusals
     ]
     # No side effect may precede interrupt(): LangGraph reruns this node from its start.
-    recorded = _recorded_outcomes_from_resume_value(
-        interrupt(_deferred_tool_calls_interrupt_value(requests))
+    recorded = (
+        _recorded_outcomes_from_resume_value(
+            interrupt(_deferred_tool_calls_interrupt_value(requests))
+        )
+        if requests
+        else {}
     )
     tool_messages: list[ToolMessage] = []
-    for request in requests:
-        outcome = recorded.get(request.tool_call_id)
-        if outcome is None:
-            raise RuntimeError(f"tool call {request.tool_call_id} resumed without its result")
-        binding.resumed_tool_call_ids.add(request.tool_call_id)
-        tool_messages.append(outcome.to_tool_message(request.tool_name))
+    requests_by_id = {request.tool_call_id: request for request in requests}
+    for tool_call in tool_calls:
+        tool_call_id = tool_call["id"] or ""
+        refusal = refusals.get(tool_call_id)
+        if refusal is not None:
+            tool_messages.append(
+                ToolMessage(
+                    content=refusal,
+                    tool_call_id=tool_call_id,
+                    name=tool_call["name"],
+                    status="error",
+                )
+            )
+            continue
+        tool_messages.append(
+            _recorded_tool_message(binding, requests_by_id[tool_call_id], recorded)
+        )
     return tool_messages
+
+
+def _source_tool_refusal(
+    binding: _RunModelBinding, tool_call_id: str, tool_name: str
+) -> str | None:
+    """Return the refusal of a new call of a tool its source no longer lists, else ``None``."""
+    listing = binding.source_tool_listing
+    if listing is None or binding.turn.recorded_tool_call(tool_call_id) is not None:
+        return None
+    return listing.not_offered_result(tool_name) if listing.is_replay_only(tool_name) else None
+
+
+def _recorded_tool_message(
+    binding: _RunModelBinding,
+    request: _DeferredToolCallRequest,
+    recorded: Mapping[str, _RecordedToolCallOutcome],
+) -> ToolMessage:
+    """Replay a resumed call's record once, and only for the tool the record names."""
+    outcome = recorded.get(request.tool_call_id)
+    if outcome is None:
+        raise RuntimeError(f"tool call {request.tool_call_id} resumed without its result")
+    if outcome.tool_name != request.tool_name:
+        raise RuntimeError(
+            f"tool call {request.tool_call_id} is recorded for {outcome.tool_name}, "
+            f"not {request.tool_name}"
+        )
+    if request.tool_call_id in binding.resumed_tool_call_ids:
+        raise RuntimeError(
+            f"tool call {request.tool_call_id} already replayed its recorded result in this "
+            "model call"
+        )
+    binding.resumed_tool_call_ids.add(request.tool_call_id)
+    return outcome.to_tool_message(request.tool_name)
 
 
 def _resolve_deferred_tool_policy(

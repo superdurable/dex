@@ -351,6 +351,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             turn=turn,
             tools_by_name=loaded_graph.tools_by_name,
             source_tools=[_source_tool_as_langchain_tool(tool) for tool in source_tools.tools],
+            source_tool_listing=source_tools,
         )
         with _bind_run_model(binding):
             async for streamed in graph.astream(
@@ -819,6 +820,7 @@ def _resume_values(
             outcomes.append(
                 _RecordedToolCallOutcome(
                     tool_call_id=tool_call_id,
+                    tool_name=record.tool_name,
                     status=record.status,
                     output=describe_tool_call_outcome(record),
                 )
