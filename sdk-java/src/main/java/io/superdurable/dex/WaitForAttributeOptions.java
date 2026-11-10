@@ -56,7 +56,7 @@ public final class WaitForAttributeOptions {
         /**
          * Sets an optional request ID; the Server does not read it.
          *
-         * @param value the non-empty Request ID override
+         * @param value the optional request ID
          * @return this builder
          */
         public Builder requestId(final String value) {

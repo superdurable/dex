@@ -1173,7 +1173,9 @@ export class Client {
 
   /**
    * Waits until one Step execution completes or its request budget expires.
-   * The current Server reads state without Request ID deduplication; requestId is a compatibility field.
+   * The Server does not read requestId for this wait.
+   * All long-poll waits on one Flow share a cap that defaults to 1,000 (`limits.maxLongPollWaitersPerFlow`).
+   * A wait over the cap fails with RESOURCE_EXHAUSTED. A wait frees its slot when it returns or the caller disconnects.
    * An omitted or zero request timeout waits indefinitely across transparent reattachments.
    * @param flowId - Non-empty active Flow ID.
    * @param stepExecutionId - Step type and positive execution number.
@@ -1233,7 +1235,9 @@ export class Client {
   /**
    * Waits until a singleton Attribute in the current run satisfies a match.
    * Returns the current value observed by the successful wait operation.
-   * The current Server reads state without Request ID deduplication; requestId is a compatibility field.
+   * The Server does not read requestId for this wait.
+   * All long-poll waits on one Flow share a cap that defaults to 1,000 (`limits.maxLongPollWaitersPerFlow`).
+   * A wait over the cap fails with RESOURCE_EXHAUSTED. A wait frees its slot when it returns or the caller disconnects.
    * Request timeout covers transparent long-poll retries.
    * Only inline scalar values can be compared. Blob-backed or noncomparable values fail with
    * FAILED_PRECONDITION; keep a separate small scalar Attribute for the condition.
@@ -1246,7 +1250,7 @@ export class Client {
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered singleton Attribute to observe.
    * @param match - Scalar predicate whose operand has the Attribute value type.
-   * @param options - Optional Request ID override and request timeout control.
+   * @param options - Optional request ID and request timeout.
    * @returns The matched current Attribute value.
    * @throws {@link TypeError} when `attribute` uses {@link Attribute.hardDeleteOnNull}; no request is sent.
    */
@@ -1265,7 +1269,7 @@ export class Client {
    * @param attribute - Registered AttributeMap to observe.
    * @param instance - The map instance to observe. Slash is prohibited because it is a reserved character.
    * @param match - Scalar predicate whose operand has the AttributeMap value type.
-   * @param options - Optional Request ID override and request timeout control.
+   * @param options - Optional request ID and request timeout.
    * @returns The matched current AttributeMap value.
    * @throws {@link TypeError} when `attribute` uses {@link AttributeMap.hardDeleteOnNull}; no request is sent.
    */

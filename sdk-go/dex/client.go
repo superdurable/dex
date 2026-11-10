@@ -1315,8 +1315,8 @@ func streamMessagesPageTarget(
 //
 // match must contain an operand matching the registered Attribute type. The
 // matched current value is decoded into valuePtr before this method returns.
-// valuePtr must be a non-nil pointer of the registered type. When options.RequestID is empty, the
-// server derives one from the Attribute condition.
+// valuePtr must be a non-nil pointer of the registered type.
+// The Server does not read options.RequestID for this wait.
 // RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
 // across transparent transport reattachments. A positive
 // value returns RequestTimeoutError.
@@ -1350,8 +1350,8 @@ func (client *Client) WaitForAttributeMatch(
 //
 // instance identifies the map entry. Slash is prohibited because it is reserved.
 // The matched current value is decoded into valuePtr. The match operand and
-// valuePtr must use the registered AttributeMap value type. options has the same required RequestID,
-// wait-budget, and error behavior as WaitForAttributeMatch.
+// valuePtr must use the registered AttributeMap value type. options has the same RequestID,
+// wait-budget, wait-cap, and error behavior as WaitForAttributeMatch.
 func (client *Client) WaitForAttributeMapInstanceMatch(
 	ctx context.Context,
 	flowID string,

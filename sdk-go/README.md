@@ -1002,8 +1002,8 @@ Flows without a starting step require nil input.
 
 The SDK generates request IDs for StartFlow and InvokeRPC. A
 `StartFlowOptions.RequestID` may provide a stable business identifier spanning
-separate calls. Durable wait request IDs are optional overrides of server-derived
-stable IDs.
+separate calls. Step completion and Attribute waits accept an optional request
+ID, but the server does not read it.
 
 A stable request ID alone does not make a StartFlow retry succeed. A retried
 StartFlow returns the existing run only when `AlreadyStarted.IgnoreError` is

@@ -1362,6 +1362,10 @@ public final class Client implements AutoCloseable {
     /**
      * Blocks until a specific Step execution completes or its caller-visible request expires.
      * The Server does not read the request ID for this wait.
+     * All long-poll waits on one Flow share a cap that defaults to 1,000
+     * ({@code limits.maxLongPollWaitersPerFlow}). A wait over the cap fails with a
+     * {@link DexServiceException} whose status is RESOURCE_EXHAUSTED. A wait frees its slot
+     * when it returns or the caller disconnects.
      * Request timeout covers transparent transport reattachments.
      *
      * @param flowId the target Flow ID
@@ -1415,6 +1419,10 @@ public final class Client implements AutoCloseable {
     /**
      * Blocks until a singleton Attribute satisfies a scalar match or its request timeout expires.
      * The Server does not read the request ID for this wait.
+     * All long-poll waits on one Flow share a cap that defaults to 1,000
+     * ({@code limits.maxLongPollWaitersPerFlow}). A wait over the cap fails with a
+     * {@link DexServiceException} whose status is RESOURCE_EXHAUSTED. A wait frees its slot
+     * when it returns or the caller disconnects.
      * Missing Attributes never match. Strings and booleans support equality and inequality;
      * numeric values also support ordered comparisons. The returned value is current state when
      * the condition matches, so rapid revisions may coalesce. See {@link AttributeMatch} for

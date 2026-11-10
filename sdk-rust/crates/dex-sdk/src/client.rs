@@ -763,6 +763,9 @@ impl Client {
     /// Blocks until one Step execution completes or its request budget expires.
     ///
     /// The Server does not read the request ID for this wait.
+    /// All long-poll waits on one Flow share a cap that defaults to 1,000
+    /// (`limits.maxLongPollWaitersPerFlow`). A wait over the cap returns a service error with
+    /// `ResourceExhausted`. A wait frees its slot when it returns or the caller disconnects.
     ///
     /// # Errors
     ///
@@ -825,12 +828,16 @@ impl Client {
 
     /// Blocks until a singleton Attribute in the current run satisfies `attribute_match`.
     ///
-    /// Returns the current value observed by the successful wait. The server derives a stable
-    /// Request ID from the condition when none is supplied. String and Boolean
+    /// Returns the current value observed by the successful wait. The Server does not read the
+    /// request ID for this wait. String and Boolean
     /// Attributes support equality matches. Integer and floating-point Attributes support every
     /// match. A positive request-timeout expiry returns [`SdkError::RequestTimeout`]. A
     /// hard-delete Attribute, defined with [`Attribute::hard_delete_on_null`], returns
     /// [`SdkError::InvalidArgument`] before the Client contacts Dex.
+    ///
+    /// All long-poll waits on one Flow share a cap that defaults to 1,000
+    /// (`limits.maxLongPollWaitersPerFlow`). A wait over the cap returns a service error with
+    /// `ResourceExhausted`. A wait frees its slot when it returns or the caller disconnects.
     pub fn wait_for_attribute_match<T: Value>(
         &self,
         flow_id: &str,
@@ -844,8 +851,8 @@ impl Client {
 
     /// Blocks until one AttributeMap instance satisfies `attribute_match`.
     ///
-    /// This targets the current run and otherwise has the same match, request-timeout and handler-generation,
-    /// request-ID, return-value, and error behavior as [`Self::wait_for_attribute_match`]. A
+    /// This targets the current run and otherwise has the same match, request-timeout,
+    /// request-ID, wait-cap, return-value, and error behavior as [`Self::wait_for_attribute_match`]. A
     /// hard-delete AttributeMap, defined with [`AttributeMap::hard_delete_on_null`], returns
     /// [`SdkError::InvalidArgument`] before the Client contacts Dex.
     pub fn wait_for_attribute_map_instance_match<T: Value>(

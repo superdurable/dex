@@ -81,7 +81,6 @@ from dex.wait_options import (
     WaitForAttributeOptions,
     WaitForStepCompletionOptions,
     _ClientRequestBudget,
-    _duration_seconds32,
 )
 
 InputT = TypeVar("InputT")
@@ -988,6 +987,10 @@ class Client:
 
         The Server does not read the request ID for this wait. Request timeout
         covers transparent transport reattachments.
+        All long-poll waits on one Flow share a cap that defaults to 1,000
+        (``limits.maxLongPollWaitersPerFlow``). A wait over the cap raises
+        ``DexServiceError`` with RESOURCE_EXHAUSTED. A wait frees its slot when
+        it returns or the caller disconnects.
 
         Args:
             flow_id: The non-empty active Flow ID.
@@ -1048,6 +1051,10 @@ class Client:
         does not read the request ID for this wait. Request timeout covers
         transparent transport reattachments.
         JSON, bytes, and null operands raise ``ValueError`` before transport.
+        All long-poll waits on one Flow share a cap that defaults to 1,000
+        (``limits.maxLongPollWaitersPerFlow``). A wait over the cap raises
+        ``DexServiceError`` with RESOURCE_EXHAUSTED. A wait frees its slot when
+        it returns or the caller disconnects.
 
         Args:
             flow_id: The non-empty active Flow ID.
@@ -1081,7 +1088,7 @@ class Client:
         """Wait for one AttributeMap instance in the current run to match.
 
         ``instance`` is encoded as a map key. Match restrictions, Request ID,
-        request-timeout and handler-generation behavior, and service errors match
+        request-timeout and wait-cap behavior, and service errors match
         :meth:`wait_for_attribute_match`.
 
         Args:
@@ -1089,7 +1096,7 @@ class Client:
             attribute: The registered AttributeMap to observe.
             instance: The map instance to observe. Slash is prohibited because it is a reserved character.
             match: The scalar predicate to await.
-            options: The optional Request ID override and total handler request timeout.
+            options: The optional request ID and request timeout.
 
         Returns:
             The current AttributeMap value that satisfied ``match``.

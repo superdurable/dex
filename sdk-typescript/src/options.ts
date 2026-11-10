@@ -125,13 +125,13 @@ export interface FlowServiceTlsOptions {
 
 /**
  * Configures one durable Step completion wait.
- * The current Server implements this as a read wait without Request ID deduplication.
+ * The Server does not read `requestId` for this wait.
  * `requestTimeoutMs` bounds the entire SDK call across transparent transport reattachments.
  * The SDK transparently retries server long-poll timeouts within that budget.
  * These read waits do not append Flow history events.
  */
 export interface WaitForStepCompletionOptions {
-  /** Optional compatibility Request ID; the current Server does not use it to deduplicate read waits. */
+  /** Optional request ID sent with the wait; the Server does not read it. */
   readonly requestId?: string;
   /** Total SDK call budget. Omit or use zero to wait indefinitely. */
   readonly requestTimeoutMs?: number;
@@ -139,13 +139,13 @@ export interface WaitForStepCompletionOptions {
 
 /**
  * Configures one durable Attribute match wait.
- * The current Server implements this as a read wait without Request ID deduplication.
+ * The Server does not read `requestId` for this wait.
  * `requestTimeoutMs` bounds the entire SDK call across transparent transport reattachments.
  * The SDK transparently retries server long-poll timeouts within that budget.
  * These read waits do not append Flow history events.
  */
 export interface WaitForAttributeOptions {
-  /** Optional compatibility Request ID; the current Server does not use it to deduplicate read waits. */
+  /** Optional request ID sent with the wait; the Server does not read it. */
   readonly requestId?: string;
   /** Total SDK call budget. Omit or use zero to wait indefinitely. */
   readonly requestTimeoutMs?: number;
