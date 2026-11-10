@@ -1177,7 +1177,7 @@ export class Client {
    * An omitted or zero request timeout waits indefinitely across transparent reattachments.
    * @param flowId - Non-empty active Flow ID.
    * @param stepExecutionId - Step type and positive execution number.
-   * @param options - Optional Request ID, request timeout, and internal handler timeout.
+   * @param options - Optional Request ID and request timeout.
    * @throws {@link FlowClosingError} when Flow close cleanup rejects the wait.
    * @throws {@link FlowNotActiveOrNotFoundError} when no active target exists.
    * @throws {@link RequestTimeoutError} when a positive request timeout expires first.
@@ -1234,7 +1234,7 @@ export class Client {
    * Waits until a singleton Attribute in the current run satisfies a match.
    * Returns the current value observed by the successful wait operation.
    * The current Server reads state without Request ID deduplication; requestId is a compatibility field.
-   * Request timeout covers transparent long-poll retries. The current Server ignores internal handler timeout.
+   * Request timeout covers transparent long-poll retries.
    * Only inline scalar values can be compared. Blob-backed or noncomparable values fail with
    * FAILED_PRECONDITION; keep a separate small scalar Attribute for the condition.
    * An omitted or zero request timeout waits indefinitely.
@@ -1246,7 +1246,7 @@ export class Client {
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered singleton Attribute to observe.
    * @param match - Scalar predicate whose operand has the Attribute value type.
-   * @param options - Optional Request ID override and request and internal handler timeout controls.
+   * @param options - Optional Request ID override and request timeout control.
    * @returns The matched current Attribute value.
    * @throws {@link TypeError} when `attribute` uses {@link Attribute.hardDeleteOnNull}; no request is sent.
    */
@@ -1265,7 +1265,7 @@ export class Client {
    * @param attribute - Registered AttributeMap to observe.
    * @param instance - The map instance to observe. Slash is prohibited because it is a reserved character.
    * @param match - Scalar predicate whose operand has the AttributeMap value type.
-   * @param options - Optional Request ID override and request and internal handler timeout controls.
+   * @param options - Optional Request ID override and request timeout control.
    * @returns The matched current AttributeMap value.
    * @throws {@link TypeError} when `attribute` uses {@link AttributeMap.hardDeleteOnNull}; no request is sent.
    */

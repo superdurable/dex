@@ -99,7 +99,7 @@ public final class FlowConfig {
             return this;
         }
 
-            /**
+        /**
          * Sets the normal default durability for Step methods in this Flow.
          *
          * <p>The server default is {@link StepDurability#SYNC}. A method-level setting in

@@ -284,7 +284,6 @@ fn is_terminal_flow_closed_failure(payload: &Value) -> bool {
         Some(Value::String(status)) => !matches!(
             status.as_str(),
             "FLOW_STATUS_COMPLETED"
-                | "FLOW_STATUS_CONTINUED_AS_NEW"
                 | "FLOW_STATUS_RUNNING"
                 | "FLOW_STATUS_UNSPECIFIED"
                 | ""

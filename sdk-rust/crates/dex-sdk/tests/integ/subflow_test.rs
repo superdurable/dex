@@ -12,8 +12,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use dex_sdk::{
-    Client, Flow, FlowStatus, Registry, StartFlowOptions, Step, StepExecutionId, StopFlowOptions,
-    SubFlowReusePolicy, TimeTravelOptions, TimerId,
+    Client, Flow, FlowStatus, Registry, Step, StepExecutionId, StopFlowOptions, SubFlowReusePolicy,
+    TimeTravelOptions, TimerId,
 };
 
 use crate::basic_abnormal_exit_workflow::BasicAbnormalExitWorkflow;
@@ -171,14 +171,6 @@ fn registry2<First: Flow, Second: Flow>(
     Registry::new()
         .register(first)
         .and_then(|registry| registry.register(second))
-}
-
-fn registry3<First: Flow, Second: Flow, Third: Flow>(
-    first: First,
-    second: Second,
-    third: Third,
-) -> dex_sdk::SdkResult<Registry> {
-    registry2(first, second).and_then(|registry| registry.register(third))
 }
 
 fn wait(client: &Client, flow_id: &str) -> dex_sdk::FlowResult {

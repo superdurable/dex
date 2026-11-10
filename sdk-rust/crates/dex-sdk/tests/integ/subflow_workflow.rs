@@ -11,8 +11,8 @@
 use std::time::Duration;
 
 use dex_sdk::{
-    Context, Flow, FlowConfig, FlowTimeoutPolicy, HandlerError, HandlerResult, Step, StepDecision,
-    StepList, SubFlow, SubFlowOptions, SubFlowReusePolicy, Timer, Wait,
+    Context, Flow, FlowTimeoutPolicy, HandlerError, HandlerResult, Step, StepDecision, StepList,
+    SubFlow, SubFlowOptions, SubFlowReusePolicy, Timer, Wait,
 };
 
 use crate::basic_abnormal_exit_workflow::BasicAbnormalExitWorkflow;
