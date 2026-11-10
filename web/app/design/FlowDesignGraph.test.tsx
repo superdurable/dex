@@ -27,13 +27,15 @@ class StubResizeObserver {
   disconnect() {}
 }
 
-// The docs ship only schema 2.0, so entryOf drops this file's 2.0 additions to make a 1.0 definition.
-const SCHEMA_1_FILE = '../docs/src/data/flow-definitions/money-transfer.json';
+// A schema 1.0 definition generated before the docs moved to 2.0.
+const SCHEMA_1_FILE = 'app/design/testdata/schema-1-0-parallel-static.json';
+// entryOf relabels this 2.0 file as 1.0 and drops its groups and v2 fields.
+const DERIVED_SCHEMA_1_FILE = '../docs/src/data/flow-definitions/money-transfer.json';
 const SCHEMA_2_FILE = '../docs/src/data/flow-definitions/customer-refund-agentic.json';
 
 function entryOf(file: string): FlowDefinitionEntry {
   const shipped = JSON.parse(readFileSync(resolve(process.cwd(), file), 'utf8')) as FlowDefinitionGraph;
-  const graph: FlowDefinitionGraph = file === SCHEMA_1_FILE
+  const graph: FlowDefinitionGraph = file === DERIVED_SCHEMA_1_FILE
     ? { ...shipped, schemaVersion: '1.0', groups: undefined, v2: undefined }
     : shipped;
   return {
@@ -64,6 +66,7 @@ afterEach(() => {
 describe('Flow design graph', () => {
   it.each([
     ['a schema 1.0 file', SCHEMA_1_FILE],
+    ['a 2.0 file relabelled as 1.0 without groups', DERIVED_SCHEMA_1_FILE],
     ['a schema 2.0 file', SCHEMA_2_FILE],
   ])('opens %s from the definition alone, with no request', async (_name, file) => {
     render(<MemoryRouter><FlowDesignGraph definition={entryOf(file)} /></MemoryRouter>);
@@ -71,6 +74,20 @@ describe('Flow design graph', () => {
     await waitFor(() => expect(document.querySelector('.v2-shell.dg')).not.toBeNull(), { timeout: 4_000 });
     expect(screen.queryByText('This Flow Definition Graph has no Steps to draw.')).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('draws every Step of a schema 1.0 file', async () => {
+    // jsdom lays nothing out; React Flow draws nodes only inside a pane it can measure.
+    for (const [property, size] of [['clientWidth', 1200], ['clientHeight', 800], ['offsetWidth', 1200], ['offsetHeight', 800]] as const) {
+      vi.spyOn(HTMLElement.prototype, property, 'get').mockReturnValue(size);
+    }
+    render(<MemoryRouter><FlowDesignGraph definition={entryOf(SCHEMA_1_FILE)} /></MemoryRouter>);
+    for (const title of ['Init step', 'Work a', 'Work b']) {
+      await waitFor(
+        () => expect(document.querySelector(`.v2-shell.dg [aria-label^="${title},"]`)).not.toBeNull(),
+        { timeout: 4_000 },
+      );
+    }
   });
 
   it('keeps the legend at the top right and hides it from the panel header', async () => {
@@ -137,7 +154,7 @@ describe('Flow design graph', () => {
     await waitFor(() => expect(viewport()).toBe(fitted));
   });
 
-  it.each([SCHEMA_1_FILE, SCHEMA_2_FILE])('puts no outcome or status annotation on a card of %s', (file) => {
+  it.each([SCHEMA_1_FILE, DERIVED_SCHEMA_1_FILE, SCHEMA_2_FILE])('puts no outcome or status annotation on a card of %s', (file) => {
     const { graph } = entryOf(file);
     const flow = safeDecode(graph, { generated: true, note: file });
     const groups = groupsFromDefinition(graph, flow);

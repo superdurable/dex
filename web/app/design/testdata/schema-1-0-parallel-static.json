@@ -1,0 +1,134 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/parallel/static_parallel_steps_flow.py"
+  },
+  "flow": {
+    "name": "StaticParallelStepsFlow",
+    "startStepId": "step:InitStep",
+    "span": {
+      "startLine": 46,
+      "startColumn": 1,
+      "endLine": 56,
+      "endColumn": 38
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:InitStep:40:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:InitStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 40,
+        "startColumn": 16,
+        "endLine": 43,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:WorkA:30:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:WorkA",
+      "phase": "execute",
+      "span": {
+        "startLine": 30,
+        "startColumn": 16,
+        "endLine": 30,
+        "endColumn": 47
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:WorkB:35:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:WorkB",
+      "phase": "execute",
+      "span": {
+        "startLine": 35,
+        "startColumn": 16,
+        "endLine": 35,
+        "endColumn": 47
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "step:InitStep",
+      "kind": "step",
+      "name": "InitStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 53,
+        "startColumn": 36,
+        "endLine": 53,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "step:WorkA",
+      "kind": "step",
+      "name": "WorkA",
+      "phase": "execute",
+      "span": {
+        "startLine": 53,
+        "startColumn": 59,
+        "endLine": 53,
+        "endColumn": 70
+      }
+    },
+    {
+      "id": "step:WorkB",
+      "kind": "step",
+      "name": "WorkB",
+      "phase": "execute",
+      "span": {
+        "startLine": 53,
+        "startColumn": 72,
+        "endLine": 53,
+        "endColumn": 83
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:InitStep:40:16",
+      "to": "step:WorkA",
+      "label": "fan-out",
+      "span": {
+        "startLine": 41,
+        "startColumn": 13,
+        "endLine": 41,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:InitStep:40:16",
+      "to": "step:WorkB",
+      "label": "fan-out",
+      "span": {
+        "startLine": 42,
+        "startColumn": 13,
+        "endLine": 42,
+        "endColumn": 42
+      }
+    }
+  ],
+  "diagnostics": []
+}
