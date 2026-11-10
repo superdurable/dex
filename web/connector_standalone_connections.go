@@ -23,7 +23,11 @@ import (
 // connectorConnectionNameLimit matches the longest project connection name the Connector SDKs accept.
 const connectorConnectionNameLimit = 256
 
-var errConnectorConnectionStoreUnavailable = errors.New("Connector connection store is unavailable")
+var (
+	errConnectorConnectionStoreUnavailable = errors.New("Connector connection store is unavailable")
+	errConnectorConnectionExists           = errors.New("Connector connection already exists")
+	errConnectorConnectionChanged          = errors.New("Connector connection was deleted or added again")
+)
 
 // handleAddConnection adds a named connection that no loaded Flow uses, so a developer can authorize it for agent tools.
 func (setup *connectorSetup) handleAddConnection(response http.ResponseWriter, request *http.Request) {
@@ -80,8 +84,11 @@ func (setup *connectorSetup) handleAddConnection(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusBadGateway, "CONNECTOR_RELEASE_UNAVAILABLE", "Connector release metadata is unavailable")
 		return
 	}
-	if !setup.rememberPendingConnection(identity) {
-		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_EXISTS", "This connection was already added with another Connector release")
+	if err := setup.rememberPendingConnection(identity); errors.Is(err, errConnectorConnectionExists) {
+		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_EXISTS", "This connection already exists with another Connector release")
+		return
+	} else if err != nil {
+		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_CONNECTIONS_UNAVAILABLE", "Connector connections are unavailable")
 		return
 	}
 	view := pendingConnectorView(identity, localOverride)
@@ -131,48 +138,106 @@ func (setup *connectorSetup) resolveConnectionIdentity(
 			ModuleVersion: view.ModuleVersion, ConfigurationEnabled: view.Status != "Unsupported",
 		}, true, false, nil
 	}
-	setup.pendingConnectionsMu.Lock()
-	defer setup.pendingConnectionsMu.Unlock()
+	setup.connectionsMu.Lock()
+	defer setup.connectionsMu.Unlock()
 	pending, isPending := setup.pendingConnections[connectorConnectionKey(connectorID, connectionName)]
 	return pending, isPending, false, nil
 }
 
-// rememberPendingConnection records an added connection and reports false when the key holds another release.
-func (setup *connectorSetup) rememberPendingConnection(identity connectorDefinitionIdentity) bool {
-	setup.pendingConnectionsMu.Lock()
-	defer setup.pendingConnectionsMu.Unlock()
-	if setup.doHasConflictingPendingConnection(identity) {
-		return false
+// connectionGeneration returns the key's current generation; it changes when the key is added or deleted.
+func (setup *connectorSetup) connectionGeneration(connectorID string, connectionName string) uint64 {
+	setup.connectionsMu.Lock()
+	defer setup.connectionsMu.Unlock()
+	return setup.connectionGenerations[connectorConnectionKey(connectorID, connectionName)]
+}
+
+// rememberPendingConnection records an added connection under a new generation. It returns
+// errConnectorConnectionExists when the file or another added release already holds the key, and
+// errConnectorConnectionStoreUnavailable when the file cannot be read. Adding the same release again is a no-op.
+func (setup *connectorSetup) rememberPendingConnection(identity connectorDefinitionIdentity) error {
+	setup.connectionsMu.Lock()
+	defer setup.connectionsMu.Unlock()
+	key := connectorConnectionKey(identity.ConnectorID, identity.ConnectionName)
+	_, isStored, err := setup.store.get(identity.ConnectorID, identity.ConnectionName)
+	if err != nil {
+		return errors.Join(errConnectorConnectionStoreUnavailable, err)
 	}
-	setup.pendingConnections[connectorConnectionKey(identity.ConnectorID, identity.ConnectionName)] = identity
-	return true
+	if isStored || setup.doHasConflictingPendingConnection(identity) {
+		return errConnectorConnectionExists
+	}
+	if _, isPending := setup.pendingConnections[key]; isPending {
+		return nil
+	}
+	setup.pendingConnections[key] = identity
+	setup.connectionGenerations[key]++
+	return nil
 }
 
 func (setup *connectorSetup) hasConflictingPendingConnection(identity connectorDefinitionIdentity) bool {
-	setup.pendingConnectionsMu.Lock()
-	defer setup.pendingConnectionsMu.Unlock()
+	setup.connectionsMu.Lock()
+	defer setup.connectionsMu.Unlock()
 	return setup.doHasConflictingPendingConnection(identity)
 }
 
-// doHasConflictingPendingConnection requires pendingConnectionsMu.
+// doHasConflictingPendingConnection requires connectionsMu.
 func (setup *connectorSetup) doHasConflictingPendingConnection(identity connectorDefinitionIdentity) bool {
 	existing, found := setup.pendingConnections[connectorConnectionKey(identity.ConnectorID, identity.ConnectionName)]
 	return found && (existing.ModulePath != identity.ModulePath || existing.ModuleVersion != identity.ModuleVersion)
 }
 
-// forgetPendingConnection drops an added connection once it is stored or deleted and reports whether one existed.
-func (setup *connectorSetup) forgetPendingConnection(connectorID string, connectionName string) bool {
-	setup.pendingConnectionsMu.Lock()
-	defer setup.pendingConnectionsMu.Unlock()
-	key := connectorConnectionKey(connectorID, connectionName)
-	_, found := setup.pendingConnections[key]
+// putConnectionIfCurrent saves a connection only while its key keeps the generation the write was authorized
+// under. It returns errConnectorConnectionChanged when the key was deleted or added again since then.
+func (setup *connectorSetup) putConnectionIfCurrent(
+	connection localConnectorConnection,
+	keepCredentialFields []string,
+	generation uint64,
+) error {
+	setup.connectionsMu.Lock()
+	defer setup.connectionsMu.Unlock()
+	key := connectorConnectionKey(connection.ConnectorID, connection.ConnectionName)
+	if setup.connectionGenerations[key] != generation {
+		return errConnectorConnectionChanged
+	}
+	if pending, isPending := setup.pendingConnections[key]; isPending &&
+		(pending.ModulePath != connection.ModulePath || pending.ModuleVersion != connection.ModuleVersion) {
+		return errConnectorConnectionChanged
+	}
+	if err := setup.store.put(connection, keepCredentialFields); err != nil {
+		return err
+	}
 	delete(setup.pendingConnections, key)
-	return found
+	return nil
+}
+
+// deleteConnection deletes the stored record and any added connection for the key, and reports whether either existed.
+func (setup *connectorSetup) deleteConnection(connectorID string, connectionName string) (bool, error) {
+	setup.connectionsMu.Lock()
+	defer setup.connectionsMu.Unlock()
+	key := connectorConnectionKey(connectorID, connectionName)
+	// A write authorized before this delete must not recreate the key, even when the delete fails part way.
+	setup.connectionGenerations[key]++
+	deleted, err := setup.store.delete(connectorID, connectionName)
+	if err != nil {
+		return false, err
+	}
+	if _, isPending := setup.pendingConnections[key]; isPending {
+		delete(setup.pendingConnections, key)
+		deleted = true
+	}
+	return deleted, nil
+}
+
+func writeConnectorConnectionPutError(response http.ResponseWriter, err error, code string, message string) {
+	if errors.Is(err, errConnectorConnectionChanged) {
+		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_CHANGED", "Connector connection was deleted or added again; set it up again")
+		return
+	}
+	writeConnectorConfigurationStoreError(response, err, code, message)
 }
 
 func (setup *connectorSetup) pendingConnectionSnapshot() map[string]connectorDefinitionIdentity {
-	setup.pendingConnectionsMu.Lock()
-	defer setup.pendingConnectionsMu.Unlock()
+	setup.connectionsMu.Lock()
+	defer setup.connectionsMu.Unlock()
 	snapshot := make(map[string]connectorDefinitionIdentity, len(setup.pendingConnections))
 	for key, identity := range setup.pendingConnections {
 		snapshot[key] = identity

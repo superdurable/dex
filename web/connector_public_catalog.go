@@ -30,6 +30,7 @@ const (
 	connectorPublicCatalogKind       = "ConnectorCatalog"
 	connectorPublicCatalogLimit      = 8 << 20
 	connectorPublicCatalogTTL        = 10 * time.Minute
+	connectorPublicCatalogRetryDelay = 30 * time.Second
 	connectorPublicCatalogTimeout    = 15 * time.Second
 	officialConnectorModulePrefix    = "github.com/superdurable/dex-connectors-library/"
 )
@@ -43,6 +44,17 @@ type connectorPublicCatalog struct {
 	mu         sync.Mutex
 	entries    []connectorCatalogEntry
 	fetchedAt  time.Time
+	// failure is the last fetch error while no catalog is cached; failedAt is when it happened.
+	failure  error
+	failedAt time.Time
+	inFlight *connectorPublicCatalogFetch
+}
+
+// connectorPublicCatalogFetch is one catalog download that every concurrent caller waits for.
+type connectorPublicCatalogFetch struct {
+	done    chan struct{}
+	entries []connectorCatalogEntry
+	err     error
 }
 
 // connectorCatalogEntry is one Connector release that a new standalone connection can use.
@@ -107,22 +119,54 @@ func (setup *connectorSetup) handleListConnectorCatalog(response http.ResponseWr
 	})
 }
 
-// list returns the cached public catalog, refetching it after the TTL. A failed refetch keeps a cached copy.
+// list returns the cached public catalog, refetching it after the TTL. Concurrent callers share one fetch. A failed
+// refetch keeps a cached copy; without one, the error is returned and remembered for connectorPublicCatalogRetryDelay.
 func (catalog *connectorPublicCatalog) list(ctx context.Context) ([]connectorCatalogEntry, error) {
 	catalog.mu.Lock()
-	defer catalog.mu.Unlock()
-	if catalog.entries != nil && time.Since(catalog.fetchedAt) < connectorPublicCatalogTTL {
-		return catalog.entries, nil
+	now := time.Now()
+	if catalog.entries != nil && now.Sub(catalog.fetchedAt) < connectorPublicCatalogTTL {
+		entries := catalog.entries
+		catalog.mu.Unlock()
+		return entries, nil
 	}
+	if catalog.entries == nil && catalog.failure != nil && now.Sub(catalog.failedAt) < connectorPublicCatalogRetryDelay {
+		failure := catalog.failure
+		catalog.mu.Unlock()
+		return nil, failure
+	}
+	fetch := catalog.inFlight
+	if fetch == nil {
+		fetch = &connectorPublicCatalogFetch{done: make(chan struct{})}
+		catalog.inFlight = fetch
+		// The shared fetch outlives the request that started it; the HTTP client timeout bounds it.
+		go catalog.runFetch(context.WithoutCancel(ctx), fetch)
+	}
+	catalog.mu.Unlock()
+	select {
+	case <-fetch.done:
+		return fetch.entries, fetch.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (catalog *connectorPublicCatalog) runFetch(ctx context.Context, fetch *connectorPublicCatalogFetch) {
 	entries, err := catalog.fetch(ctx)
-	if err != nil {
-		if catalog.entries != nil {
-			return catalog.entries, nil
-		}
-		return nil, err
+	catalog.mu.Lock()
+	defer catalog.mu.Unlock()
+	defer close(fetch.done)
+	catalog.inFlight = nil
+	if err == nil {
+		catalog.entries, catalog.fetchedAt, catalog.failure = entries, time.Now(), nil
+		fetch.entries = entries
+		return
 	}
-	catalog.entries, catalog.fetchedAt = entries, time.Now()
-	return entries, nil
+	if catalog.entries != nil {
+		fetch.entries = catalog.entries
+		return
+	}
+	catalog.failure, catalog.failedAt = err, time.Now()
+	fetch.err = err
 }
 
 func (catalog *connectorPublicCatalog) fetch(ctx context.Context) ([]connectorCatalogEntry, error) {

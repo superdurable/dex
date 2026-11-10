@@ -47,8 +47,11 @@ type connectorSetup struct {
 	settingHTTPClient *http.Client
 	publicCatalog     *connectorPublicCatalog
 	// pendingConnections holds added connections without a stored record; they last until the process exits.
-	pendingConnections   map[string]connectorDefinitionIdentity
-	pendingConnectionsMu sync.Mutex
+	pendingConnections map[string]connectorDefinitionIdentity
+	// connectionGenerations changes when a connection key is added or deleted, so a stale write can be refused.
+	connectionGenerations map[string]uint64
+	// connectionsMu guards both maps and orders their changes with connection file writes and deletes.
+	connectionsMu sync.Mutex
 }
 
 type connectorUISession struct {
@@ -101,8 +104,10 @@ type connectorCatalogNode struct {
 }
 
 type connectorAuthorizationSnapshot struct {
-	DefinitionRevision string
-	Response           []byte
+	// ConnectionGeneration is the connection key's generation read before its identity was resolved.
+	ConnectionGeneration uint64
+	DefinitionRevision   string
+	Response             []byte
 }
 
 type connectorDefinitionIdentity struct {
@@ -237,11 +242,12 @@ func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*co
 	return &connectorSetup{
 		store: store, flowDefinitions: flowDefinitions, releases: releases, csrfToken: csrfToken,
 		uiSessions: make(map[string]connectorUISession), oauthSessions: make(map[string]connectorOAuthSession),
-		providerHTTPClient: newConnectorProviderHTTPClient(),
-		endpointPolicy:     endpointPolicy,
-		settingHTTPClient:  newConnectorAddressPolicyClient(nil, endpointPolicy),
-		publicCatalog:      newConnectorPublicCatalog(),
-		pendingConnections: make(map[string]connectorDefinitionIdentity),
+		providerHTTPClient:    newConnectorProviderHTTPClient(),
+		endpointPolicy:        endpointPolicy,
+		settingHTTPClient:     newConnectorAddressPolicyClient(nil, endpointPolicy),
+		publicCatalog:         newConnectorPublicCatalog(),
+		pendingConnections:    make(map[string]connectorDefinitionIdentity),
+		connectionGenerations: make(map[string]uint64),
 	}, nil
 }
 
@@ -351,11 +357,10 @@ func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_REQUEST_INVALID", "Connector connection request is invalid")
 		return
 	}
-	if err := store.put(connection, body.KeepCredentialFields); err != nil {
-		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
+	if err := setup.putConnectionIfCurrent(connection, body.KeepCredentialFields, snapshot.ConnectionGeneration); err != nil {
+		writeConnectorConnectionPutError(response, err, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
 		return
 	}
-	setup.forgetPendingConnection(connection.ConnectorID, connection.ConnectionName)
 	result := map[string]any{
 		"connectorId": connection.ConnectorID, "connectionName": connection.ConnectionName,
 		"status": "Ready", "definitionRevision": snapshot.DefinitionRevision,
@@ -366,18 +371,14 @@ func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, r
 }
 
 func (setup *connectorSetup) handleDeleteConnection(response http.ResponseWriter, request *http.Request) {
-	store := setup.store
 	_, _, ok := setup.authorizeConnectionWrite(response, request)
 	if !ok {
 		return
 	}
-	deleted, err := store.delete(request.PathValue("connectorId"), request.PathValue("connectionName"))
+	deleted, err := setup.deleteConnection(request.PathValue("connectorId"), request.PathValue("connectionName"))
 	if err != nil {
 		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_CONNECTION_DELETE_FAILED", "Connector connection could not be deleted")
 		return
-	}
-	if setup.forgetPendingConnection(request.PathValue("connectorId"), request.PathValue("connectionName")) {
-		deleted = true
 	}
 	writeWebJSON(response, http.StatusOK, map[string]any{"deleted": deleted, "remoteGrantRevoked": false})
 }
@@ -592,6 +593,7 @@ func (setup *connectorSetup) authorizeConnectionKey(
 		api.WriteCodedError(response, http.StatusConflict, "FLOW_DEFINITION_REVISION_CONFLICT", "Flow Definition revision is stale")
 		return nil, connectorDefinitionIdentity{}, false
 	}
+	generation := setup.connectionGeneration(connectorID, connectionName)
 	requested, found, conflict, err := setup.resolveConnectionIdentity(snapshot.Response, connectorID, connectionName)
 	if errors.Is(err, errConnectorConnectionStoreUnavailable) {
 		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_CONNECTIONS_UNAVAILABLE", "Connector connections are unavailable")
@@ -609,7 +611,9 @@ func (setup *connectorSetup) authorizeConnectionKey(
 		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_VERSION_CONFLICT", "Connector connection has conflicting module versions")
 		return nil, connectorDefinitionIdentity{}, false
 	}
-	return &connectorAuthorizationSnapshot{DefinitionRevision: snapshot.DefinitionRevision, Response: snapshot.Response}, requested, true
+	return &connectorAuthorizationSnapshot{
+		ConnectionGeneration: generation, DefinitionRevision: snapshot.DefinitionRevision, Response: snapshot.Response,
+	}, requested, true
 }
 
 func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorConnectionView, string, error) {
