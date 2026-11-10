@@ -5,12 +5,12 @@ import DexExpressiveness.Dex.RunInvariant
 # WP-F6: the DexF step with no failure that follows a Dex step
 
 The backward inclusion of `liveness_failure` follows a fair Dex run step by
-step with a DexF run that has no failure. `NoFailure` is what such a DexF
+step with a DexF run that has no failure. `wpf6NoFailure` is what such a DexF
 configuration looks like: the server is up, nothing is in `Z`, `I`, or the
 retry timers, no invocation is in Backoff or holds a retained snapshot, and
 each invocation has at most one real task, whose ID, phase, and effect count
 are those of its virtual task. On such a configuration α is transparent, and
-every Dex step lifts to one DexF step (`liftAction`).
+every Dex step lifts to one DexF step (`wpf6LiftAction`).
 -/
 
 namespace DexExpressiveness.DexF
@@ -18,7 +18,7 @@ namespace DexExpressiveness.DexF
 variable {σ : Dex.Signature}
 
 /-- A DexF configuration that no failure reached. -/
-structure NoFailure (program : Program σ) (config : Config σ) : Prop where
+structure wpf6NoFailure (program : Program σ) (config : Config σ) : Prop where
   /-- The server is up. -/
   isUp : config.isUp = true
   /-- No zombie task. -/
@@ -57,15 +57,15 @@ structure NoFailure (program : Program σ) (config : Config σ) : Prop where
 
 /-- The DexF request of a Dex request: a StartFlow gets the request ID of the
 start. -/
-def liftRequest (startRequestId : Nat) : Dex.Request σ → Request σ
+def wpf6LiftRequest (startRequestId : Nat) : Dex.Request σ → Request σ
   | .startFlow stepType input => .startFlow startRequestId stepType input
   | .publish chan value => .publish chan value
 
 /-- The DexF label with no failure that follows a Dex label. A stale result
 is dropped by [WORKER-ABANDON], which takes no stamp. -/
-def liftAction (startRequestId : Nat) : Dex.Action σ → Action σ
+def wpf6LiftAction (startRequestId : Nat) : Dex.Action σ → Action σ
   | .tick duration => .tick duration
-  | .request request => .request (liftRequest startRequestId request)
+  | .request request => .request (wpf6LiftRequest startRequestId request)
   | .stepStart stepId => .stepStart stepId false
   | .workerRun taskId => .workerRun taskId true
   | .workerEffect taskId => .workerEffect taskId true
@@ -144,7 +144,7 @@ theorem wpf6b_length_sortStable {α : Type} (isAtMost : α → α → Bool) (ele
 
 /-- With no zombie, the real tasks are `Θ`. -/
 theorem wpf6b_realTasks_eq (program : Program σ) (config : Config σ)
-    (noFailure : NoFailure program config) : config.realTasks = config.tasks := by
+    (noFailure : wpf6NoFailure program config) : config.realTasks = config.tasks := by
   unfold Config.realTasks
   rw [noFailure.noZombies, List.append_nil]
 
@@ -161,7 +161,7 @@ theorem wpf6b_findStep?_abstract (ghost : Ghost σ) (run : Run σ) (stepId : Dex
 
 /-- With no failure, α may commit exactly when DexF may. -/
 theorem wpf6b_canCommit_abstract (program : Program σ) (config : Config σ)
-    (noFailure : NoFailure program config) :
+    (noFailure : wpf6NoFailure program config) :
     (abstractConfig config).canCommit = config.canCommit := by
   unfold Dex.Config.canCommit Config.canCommit abstractConfig
   rw [noFailure.lastCommitIsNormal]
@@ -169,7 +169,7 @@ theorem wpf6b_canCommit_abstract (program : Program σ) (config : Config σ)
 
 /-- With no failure, DexF may serve a commit exactly when α may commit. -/
 theorem wpf6b_canServeCommit_abstract (program : Program σ) (config : Config σ)
-    (noFailure : NoFailure program config) :
+    (noFailure : wpf6NoFailure program config) :
     config.canServeCommit = (abstractConfig config).canCommit := by
   unfold Config.canServeCommit
   rw [noFailure.isUp, wpf6b_canCommit_abstract program config noFailure, Bool.true_and]
@@ -205,7 +205,7 @@ theorem wpf6b_findInvocation?_of_mem (program : Program σ) (config : Config σ)
 /-- The bridge from α to DexF: a task of α is the virtual task of the
 history of a real task in `Θ` with the same ID and phase. -/
 theorem wpf6b_realTask_of_abstractTask (program : Program σ) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (virtualTaskId : Nat) (dexTask : Dex.Task σ)
     (isFound : (abstractConfig config).findTask? virtualTaskId = some dexTask) :
     ∃ task history arguments, task ∈ config.tasks ∧ task.base.id = virtualTaskId ∧
@@ -474,7 +474,7 @@ theorem wpf6b_closeEvents_noFx (before after : Dex.Run σ) (stepId : Dex.StepExe
   unfold Config.closeEvents
   split <;> simp
 
-/-- The fields of `NoFailure` about real tasks and ghost histories. -/
+/-- The fields of `wpf6NoFailure` about real tasks and ghost histories. -/
 def wpf6b_GhostParts (config : Config σ) : Prop :=
   (∀ task, task ∈ config.realTasks →
     ∃ history arguments, config.ghost.findInvocation? task.key = some history ∧
@@ -498,7 +498,7 @@ theorem wpf6b_virtualPhase_congr (first second : InvocationHistory σ)
 
 /-- The ghost parts after a commit that removes at most some real tasks. -/
 theorem wpf6b_ghostParts_reconcile (program : Program σ) (config : Config σ)
-    (noFailure : NoFailure program config) (next : Config σ) (counted : Ghost σ)
+    (noFailure : wpf6NoFailure program config) (next : Config σ) (counted : Ghost σ)
     (completed : Option (InvocationKey σ)) (base : Dex.Run σ)
     (sameInvocations : counted.invocations = config.ghost.invocations)
     (isGhost : next.ghost = counted.reconcile completed base)
@@ -560,11 +560,11 @@ theorem wpf6b_ghostParts_reconcile (program : Program σ) (config : Config σ)
     · rw [noArguments] at hasArguments
       cases hasArguments
 
-/-- `NoFailure` after a step that is not a failure, from its parts that the
+/-- `wpf6NoFailure` after a step that is not a failure, from its parts that the
 frame lemmas do not give. -/
 theorem wpf6b_noFailure_of_parts (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (action : Action σ) (events : List (Obs σ)) (next : Config σ)
     (isStep : step program config action = some (events, next))
     (isNotFailed : ∀ stepId decision, action ≠ .attemptFailed stepId decision)
@@ -574,7 +574,7 @@ theorem wpf6b_noFailure_of_parts (program : Program σ)
     (lastCommitIsNormal : next.lastCommitAt = next.ghost.lastNormalCommitAt)
     (nextTaskIdIsVirtual : next.nextTaskId = next.ghost.nextVirtualTaskId)
     (ghostParts : wpf6b_GhostParts next) :
-    NoFailure program next := by
+    wpf6NoFailure program next := by
   obtain ⟨tasksMatchHistories, tasksNotCommitted, oneTaskPerKey, liveHasTask⟩ := ghostParts
   have nextInvariant := invariant_step program ignoresAttemptContext config invariant action
     events next isStep
@@ -654,10 +654,10 @@ def wpf6b_LiftResult (program : Program σ) (config : Config σ) (action : Actio
     (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ) : Prop :=
   ∃ events next, step program config action = some (events, next) ∧
     abstractConfig next = dexNext ∧ dexEvents = events.map Obs.toDex ∧
-    eraseStepEvents config events = events.map Obs.toDex ∧ NoFailure program next
+    eraseStepEvents config events = events.map Obs.toDex ∧ wpf6NoFailure program next
 
 /-- The lift of one label, once the step, its Dex run, its fresh events, and
-`NoFailure` of the result are known. -/
+`wpf6NoFailure` of the result are known. -/
 theorem wpf6b_lift_finish (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
     (invariant : Invariant program config) (action : Action σ)
@@ -668,7 +668,7 @@ theorem wpf6b_lift_finish (program : Program σ)
       (dexActionsOf program config action) = some (dexEvents, dexNext))
     (isFresh : ∀ stepId method effect index, Obs.fx stepId method effect index ∈ events →
       config.ghost.emittedCountOf (stepId, method) < index)
-    (nextNoFailure : NoFailure program next) :
+    (nextNoFailure : wpf6NoFailure program next) :
     wpf6b_LiftResult program config action dexEvents dexNext := by
   obtain ⟨isAbstract, isErased⟩ := wpf6b_lift_conclude program ignoresAttemptContext config
     invariant action isNotExhausting events next isStep dexEvents dexNext isExec
@@ -678,7 +678,7 @@ theorem wpf6b_lift_finish (program : Program σ)
 /-- The lift of a normal commit that keeps the real tasks. -/
 theorem wpf6b_lift_commit (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (action : Action σ) (isNotExhausting : action.isExhausting = false)
     (isNotFailed : ∀ stepId decision, action ≠ .attemptFailed stepId decision)
     (isNotInterrupt : ∀ interrupt decision, action ≠ .recoverInterrupt interrupt decision)
@@ -708,7 +708,7 @@ theorem wpf6b_lift_commit (program : Program σ)
 /-- [TICK] lifts. -/
 theorem wpf6b_lift_tick (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (duration : Nat) (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config) (.tick duration) =
       some (dexEvents, dexNext)) :
@@ -736,7 +736,7 @@ theorem wpf6b_lift_tick (program : Program σ)
 theorem wpf6b_lift_startFlow (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (startRequestId : Nat)
     (config : Config σ) (invariant : Invariant program config)
-    (noFailure : NoFailure program config) (stepType : σ.StepType) (input : σ.Val)
+    (noFailure : wpf6NoFailure program config) (stepType : σ.StepType) (input : σ.Val)
     (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config)
       (.request (.startFlow stepType input)) = some (dexEvents, dexNext)) :
@@ -769,7 +769,7 @@ theorem wpf6b_lift_startFlow (program : Program σ)
 /-- [PUBLISH] and its rejection lift. -/
 theorem wpf6b_lift_publish (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (chan : σ.Chan) (value : σ.Val) (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config)
       (.request (.publish chan value)) = some (dexEvents, dexNext)) :
@@ -819,7 +819,7 @@ theorem wpf6b_realTask_eq_of_id (program : Program σ) (config : Config σ)
 /-- The ghost parts after a Worker step that changes one real task of `Θ`
 and the history of its invocation. -/
 theorem wpf6b_ghostParts_worker (program : Program σ) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (task : Task σ) (isTask : task ∈ config.tasks) (history : InvocationHistory σ)
     (isHistory : config.ghost.findInvocation? task.key = some history)
     (changeTask : Task σ → Task σ) (changeHistory : InvocationHistory σ → InvocationHistory σ)
@@ -934,11 +934,11 @@ theorem wpf6b_ghostParts_worker (program : Program σ) (config : Config σ)
     · rw [keepsKey]; exact hasKey
     · exact hasKey
 
-/-- `NoFailure` after a Worker step that changes one real task of `Θ` and
+/-- `wpf6NoFailure` after a Worker step that changes one real task of `Θ` and
 the history of its invocation. -/
 theorem wpf6b_noFailure_worker (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (action : Action σ) (events : List (Obs σ))
     (task : Task σ) (isTask : task ∈ config.tasks) (history : InvocationHistory σ)
     (isHistory : config.ghost.findInvocation? task.key = some history)
@@ -955,7 +955,7 @@ theorem wpf6b_noFailure_worker (program : Program σ)
     (keepsOutcome : (changeHistory history).outcome = history.outcome)
     (sameCount : (changeTask task).emittedCount = (changeHistory history).emittedCount)
     (samePhase : (changeTask task).base.phase = (changeHistory history).virtualPhase) :
-    NoFailure program { config.updateRealTask task.base.id changeTask with
+    wpf6NoFailure program { config.updateRealTask task.base.id changeTask with
       ghost := config.ghost.updateInvocation task.key changeHistory } := by
   obtain ⟨sameStamp, sameNextId⟩ := wpf6b_updateInvocation_fields config.ghost task.key changeHistory
   apply wpf6b_noFailure_of_parts program ignoresAttemptContext config invariant noFailure action
@@ -995,7 +995,7 @@ theorem wpf6b_dexPhase (arguments : Arguments σ) (key : InvocationKey σ)
 /-- [WORKER-EFFECT], first part, lifts. -/
 theorem wpf6b_lift_workerRun (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (taskId : Nat) (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config) (.workerRun taskId) =
       some (dexEvents, dexNext)) :
@@ -1045,7 +1045,7 @@ theorem wpf6b_lift_workerRun (program : Program σ)
 /-- [WORKER-EFFECT] lifts. -/
 theorem wpf6b_lift_workerEffect (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (taskId : Nat) (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config) (.workerEffect taskId) =
       some (dexEvents, dexNext)) :
@@ -1108,7 +1108,7 @@ theorem wpf6b_lift_workerEffect (program : Program σ)
 /-- [WORKER-EFFECT], last part, lifts. -/
 theorem wpf6b_lift_workerReturn (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (taskId : Nat) (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config) (.workerReturn taskId) =
       some (dexEvents, dexNext)) :
@@ -1182,11 +1182,11 @@ theorem wpf6b_abandon_of_stale (flow : Dex.FlowDef σ) (dexConfig : Dex.Config �
     · exact isDexStep
     · cases isDexStep
 
-/-- `NoFailure` after a real task of `Θ` whose invocation was canceled is
+/-- `wpf6NoFailure` after a real task of `Θ` whose invocation was canceled is
 dropped. -/
 theorem wpf6b_noFailure_remove (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (action : Action σ) (events : List (Obs σ)) (task : Task σ) (isTask : task ∈ config.tasks)
     (history : InvocationHistory σ)
     (isHistory : config.ghost.findInvocation? task.key = some history)
@@ -1195,7 +1195,7 @@ theorem wpf6b_noFailure_remove (program : Program σ)
     (isNotFailed : ∀ stepId decision, action ≠ .attemptFailed stepId decision)
     (isNotInterrupt : ∀ interrupt decision, action ≠ .recoverInterrupt interrupt decision)
     (isNotCrash : action ≠ .crash) (isNotRecover : action ≠ .recover) :
-    NoFailure program (config.removeRealTask task.base.id) := by
+    wpf6NoFailure program (config.removeRealTask task.base.id) := by
   have isRealTasks := wpf6b_realTasks_eq program config noFailure
   have nextRealTasks : (config.removeRealTask task.base.id).realTasks =
       config.tasks.filter (fun other => !decide (other.base.id = task.base.id)) := by
@@ -1237,7 +1237,7 @@ theorem wpf6b_noFailure_remove (program : Program σ)
 of a canceled invocation, which fails the fence. -/
 theorem wpf6b_lift_abandon (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (taskId : Nat) (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config) (.workerAbandon taskId) =
       some (dexEvents, dexNext)) :
@@ -1374,7 +1374,7 @@ theorem wpf6b_dueTimers_length (ghost : Ghost σ) (run : Run σ) (clock : Nat)
 /-- [TIMER-FIRE] lifts to TimersFired of the same wait timers. -/
 theorem wpf6b_lift_timerFire (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (count : Nat) (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config) (.timerFire count) =
       some (dexEvents, dexNext)) :
@@ -1532,7 +1532,7 @@ theorem wpf6b_ghostParts_addTask (middle : Config σ) (parts : wpf6b_GhostParts 
 /-- [STEP-START] lifts to the [STEP-START] that computes a snapshot. -/
 theorem wpf6b_lift_stepStart (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (stepId : Dex.StepExecId σ) (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config) (.stepStart stepId) =
       some (dexEvents, dexNext)) :
@@ -1642,7 +1642,7 @@ theorem wpf6b_lift_stepStart (program : Program σ)
 /-- A virtual task that is current under α is the attempt of a real task
 that passes the fence. -/
 theorem wpf6b_fence_of_current (program : Program σ) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (task : Task σ) (isTask : task ∈ config.tasks) (history : InvocationHistory σ)
     (isHistory : config.ghost.findInvocation? task.key = some history)
     (arguments : Arguments σ) (isVirtualId : arguments.virtualTaskId = task.base.id)
@@ -1717,7 +1717,7 @@ theorem wpf6b_fence_of_current (program : Program σ) (config : Config σ)
 leaves no virtual task without a real task. -/
 theorem wpf6b_lift_stepComplete (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (taskId : Nat) (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config) (.stepComplete taskId) =
       some (dexEvents, dexNext)) :
@@ -1898,7 +1898,7 @@ theorem wpf6b_lift_stepComplete (program : Program σ)
 /-! ## Statements -/
 
 /-- The initial configuration has no failure. -/
-theorem wpf6_noFailure_initial (program : Program σ) : NoFailure program (Config.initial σ) := by
+theorem wpf6_noFailure_initial (program : Program σ) : wpf6NoFailure program (Config.initial σ) := by
   refine
     { isUp := rfl
       noZombies := rfl
@@ -1921,14 +1921,14 @@ events are the Dex events with ghost indexes, none of them is a repeated
 theorem wpf6_lift_step (program : Program σ)
     (ignoresAttemptContext : IgnoresAttemptContext program) (startRequestId : Nat)
     (config : Config σ) (invariant : Invariant program config)
-    (noFailure : NoFailure program config) (dexAction : Dex.Action σ)
+    (noFailure : wpf6NoFailure program config) (dexAction : Dex.Action σ)
     (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow (abstractConfig config) dexAction =
       some (dexEvents, dexNext)) :
-    ∃ events next, step program config (liftAction startRequestId dexAction) = some (events, next) ∧
+    ∃ events next, step program config (wpf6LiftAction startRequestId dexAction) = some (events, next) ∧
       abstractConfig next = dexNext ∧ dexEvents = events.map Obs.toDex ∧
-      eraseStepEvents config events = events.map Obs.toDex ∧ NoFailure program next := by
-  show wpf6b_LiftResult program config (liftAction startRequestId dexAction) dexEvents dexNext
+      eraseStepEvents config events = events.map Obs.toDex ∧ wpf6NoFailure program next := by
+  show wpf6b_LiftResult program config (wpf6LiftAction startRequestId dexAction) dexEvents dexNext
   cases dexAction with
   | tick duration =>
     exact wpf6b_lift_tick program ignoresAttemptContext config invariant noFailure duration
@@ -1968,7 +1968,7 @@ theorem wpf6_lift_step (program : Program σ)
 
 /-- With no failure, a pending invocation of the DexF run is pending under α. -/
 theorem wpf6_abstract_pending_of_noFailure (program : Program σ) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (run : Run σ) (stepId : Dex.StepExecId σ) (record : Dex.StepRecord σ) (method : Dex.Method)
     (hasRun : config.run = some run) (isFound : run.base.findStep? stepId = some record)
     (isPending : record.invocation = some { method := method, state := .pending }) :
@@ -1991,7 +1991,7 @@ theorem wpf6_abstract_pending_of_noFailure (program : Program σ) (config : Conf
 
 /-- With no failure, a real task is the task of α with the same ID and phase. -/
 theorem wpf6_abstract_task_of_noFailure (program : Program σ) (config : Config σ)
-    (invariant : Invariant program config) (noFailure : NoFailure program config)
+    (invariant : Invariant program config) (noFailure : wpf6NoFailure program config)
     (taskId : Nat) (task : Task σ) (isFound : config.findRealTask? taskId = some task) :
     ∃ dexTask, (abstractConfig config).findTask? taskId = some dexTask ∧
       dexTask.phase = task.base.phase := by

@@ -19,7 +19,7 @@ variable {σ : Dex.Signature}
 
 /-- A DexF configuration that follows a Dex configuration with no failure. -/
 def wpf6Follows (program : Program σ) (dexConfig : Dex.Config σ) (config : Config σ) : Prop :=
-  Invariant program config ∧ NoFailure program config ∧ abstractConfig config = dexConfig
+  Invariant program config ∧ wpf6NoFailure program config ∧ abstractConfig config = dexConfig
 
 /-- The configuration that follows a Dex step exists, with the step that
 reaches it. -/
@@ -29,7 +29,7 @@ theorem wpf6_lift_next (program : Program σ)
     (dexAction : Dex.Action σ) (dexEvents : List (Dex.Obs σ)) (dexNext : Dex.Config σ)
     (isDexStep : Dex.step program.failureFreeFlow dexConfig dexAction = some (dexEvents, dexNext)) :
     ∃ next, wpf6Follows program dexNext next ∧
-      ∃ events, step program config (liftAction startRequestId dexAction) = some (events, next) ∧
+      ∃ events, step program config (wpf6LiftAction startRequestId dexAction) = some (events, next) ∧
         dexEvents = events.map Obs.toDex ∧ eraseStepEvents config events = events.map Obs.toDex := by
   obtain ⟨invariant, noFailure, isAbstract⟩ := follows
   rw [← isAbstract] at isDexStep
@@ -57,7 +57,7 @@ theorem wpf6_liftOne_spec (program : Program σ)
     (dexRun : InfiniteRun (Dex.Config σ) (Dex.Action σ))
     (isDexRun : (Dex.system program.failureFreeFlow).IsRun dexRun) (index : Nat)
     (previous : { config : Config σ // wpf6Follows program (dexRun.states index) config }) :
-    ∃ events, step program previous.1 (liftAction startRequestId (dexRun.labels index)) =
+    ∃ events, step program previous.1 (wpf6LiftAction startRequestId (dexRun.labels index)) =
         some (events, (wpf6LiftOne program ignoresAttemptContext startRequestId dexRun isDexRun
           index previous).1) ∧
       (Dex.system program.failureFreeFlow).eventsAt dexRun index = events.map Obs.toDex ∧
@@ -86,7 +86,7 @@ noncomputable def wpf6LiftedRun (program : Program σ)
     InfiniteRun (Config σ) (Action σ) :=
   { states := fun index =>
       (wpf6LiftedStates program ignoresAttemptContext startRequestId dexRun isDexRun index).1
-    labels := fun index => liftAction startRequestId (dexRun.labels index) }
+    labels := fun index => wpf6LiftAction startRequestId (dexRun.labels index) }
 
 section LiftedRun
 
@@ -144,34 +144,34 @@ end LiftedRun
 /-- A lifted label attempts the lifted request of the Dex label. -/
 theorem wpf6_requestOf_liftAction (flow : Dex.FlowDef σ) (startRequestId : Nat)
     (dexAction : Dex.Action σ) :
-    (liftAction startRequestId dexAction).requestOf =
-      ((Dex.system flow).requestOf dexAction).map (liftRequest startRequestId) := by
+    (wpf6LiftAction startRequestId dexAction).requestOf =
+      ((Dex.system flow).requestOf dexAction).map (wpf6LiftRequest startRequestId) := by
   cases dexAction <;> rfl
 
 /-- A lifted label is a progress step exactly when the Dex label is. -/
 theorem wpf6_isProgress_liftAction (flow : Dex.FlowDef σ) (startRequestId : Nat)
     (dexAction : Dex.Action σ) :
-    (liftAction startRequestId dexAction).isProgress = (Dex.system flow).isProgress dexAction := by
+    (wpf6LiftAction startRequestId dexAction).isProgress = (Dex.system flow).isProgress dexAction := by
   cases dexAction <;> rfl
 
 /-- A lifted label is no failure that FF counts. -/
 theorem wpf6_isCountedFailure_liftAction (startRequestId : Nat) (dexAction : Dex.Action σ) :
-    Fairness.Action.isCountedFailure (liftAction startRequestId dexAction) = false := by
+    Fairness.Action.isCountedFailure (wpf6LiftAction startRequestId dexAction) = false := by
   cases dexAction <;> rfl
 
 /-- A lifted label never exhausts. -/
 theorem wpf6_isExhausting_liftAction (startRequestId : Nat) (dexAction : Dex.Action σ) :
-    (liftAction startRequestId dexAction).isExhausting = false := by
+    (wpf6LiftAction startRequestId dexAction).isExhausting = false := by
   cases dexAction <;> rfl
 
 /-- A lifted label is no non-retryable failure. -/
 theorem wpf6_isNonRetryable_liftAction (startRequestId : Nat) (dexAction : Dex.Action σ) :
-    (liftAction startRequestId dexAction).isNonRetryableFailure = false := by
+    (wpf6LiftAction startRequestId dexAction).isNonRetryableFailure = false := by
   cases dexAction <;> rfl
 
 /-- A lifted label is never a crash. -/
 theorem wpf6_liftAction_ne_crash (startRequestId : Nat) (dexAction : Dex.Action σ) :
-    liftAction startRequestId dexAction ≠ .crash := by
+    wpf6LiftAction startRequestId dexAction ≠ .crash := by
   cases dexAction <;> nofun
 
 /-! ## The word -/
@@ -220,9 +220,9 @@ theorem wpf6_liftWord_eq (environment : Dex.Environment σ) (word : Sequence (Re
     (isAdmissible : IsAdmissibleOutcomeWord environment word) (hasNoRetry : HasNoRetry word)
     (startRequestId : Nat) (input : σ.Val)
     (isStart : word 0 = some (.startFlow startRequestId environment.entryStep input)) :
-    (word.map Request.toDex).map (liftRequest startRequestId) = word := by
+    (word.map Request.toDex).map (wpf6LiftRequest startRequestId) = word := by
   funext position
-  show ((word position).map Request.toDex).map (liftRequest startRequestId) = word position
+  show ((word position).map Request.toDex).map (wpf6LiftRequest startRequestId) = word position
   cases isPresent : word position with
   | none => rfl
   | some request =>
@@ -460,7 +460,7 @@ theorem wpf6_lifted_hypotheses :
       | startFlow dexStepType dexInput =>
         have isLifted : (wpf6LiftedRun program ignoresAttemptContext startRequestId dexRun
             isDexRun).labels index = .request (.startFlow startRequestId dexStepType dexInput) := by
-          show liftAction _ _ = _
+          show wpf6LiftAction _ _ = _
           rw [isLabel]
           rfl
         rw [isLifted] at isStep
@@ -468,22 +468,22 @@ theorem wpf6_lifted_hypotheses :
         rw [hadNoRun] at hasRun
         cases hasRun
       | publish chan value =>
-        simp [wpf6LiftedRun, isLabel, liftAction, liftRequest, Action.requestOf] at isRequest
-    | _ => simp [wpf6LiftedRun, isLabel, liftAction, Action.requestOf] at isRequest
+        simp [wpf6LiftedRun, isLabel, wpf6LiftAction, wpf6LiftRequest, Action.requestOf] at isRequest
+    | _ => simp [wpf6LiftedRun, isLabel, wpf6LiftAction, Action.requestOf] at isRequest
 
 /-- **The word.** The lifted run attempts the lifted requests of `w↓`. -/
 theorem wpf6_lifted_isRunFor (erasedWord : Sequence (Dex.Request σ))
     (isDexRunFor : (Dex.system program.failureFreeFlow).IsRunFor dexRun erasedWord) :
     (system program).IsRunFor
       (wpf6LiftedRun program ignoresAttemptContext startRequestId dexRun isDexRun)
-      (erasedWord.map (liftRequest startRequestId)) := by
-  have isMapped := isConcatenation_map (liftRequest startRequestId) _ erasedWord isDexRunFor
+      (erasedWord.map (wpf6LiftRequest startRequestId)) := by
+  have isMapped := isConcatenation_map (wpf6LiftRequest startRequestId) _ erasedWord isDexRunFor
   have isChunks : (system program).requestsAt
       (wpf6LiftedRun program ignoresAttemptContext startRequestId dexRun isDexRun) =
       fun index => ((Dex.system program.failureFreeFlow).requestsAt dexRun index).map
-        (liftRequest startRequestId) := by
+        (wpf6LiftRequest startRequestId) := by
     funext index
-    show ((liftAction startRequestId (dexRun.labels index)).requestOf).toList = _
+    show ((wpf6LiftAction startRequestId (dexRun.labels index)).requestOf).toList = _
     rw [wpf6_requestOf_liftAction program.failureFreeFlow]
     show _ = (((Dex.system program.failureFreeFlow).requestOf (dexRun.labels index)).toList).map _
     cases (Dex.system program.failureFreeFlow).requestOf (dexRun.labels index) <;> rfl
@@ -572,7 +572,7 @@ theorem wpf6_liveness_backward (program : Program σ)
     ((system program).eventsAt
       (wpf6LiftedRun program ignoresAttemptContext startRequestId dexRun isDexRun)
         index).filterMap some)
-  have isWord : erasedWord.map (liftRequest startRequestId) = word := by
+  have isWord : erasedWord.map (wpf6LiftRequest startRequestId) = word := by
     rw [wpf6_erasedWord_eq environment word isAdmissible erasedWord isErasure hasNoRetry]
     exact wpf6_liftWord_eq environment word isAdmissible hasNoRetry startRequestId input isStart
   have isRunFor : (system program).IsRunFor

@@ -568,7 +568,7 @@ theorem wpf6a2_history_stepStart (program : Program σ) (config : Config σ)
   · cases isStep
 
 /-- Split a DexF step of a known rule down to its result. -/
-macro "wpf6a2_split_step " isStep:ident : tactic =>
+local macro "wpf6a2_split_step " isStep:ident : tactic =>
   `(tactic| ((try cases ‹Request _›) <;> simp only [step] at $isStep:ident <;>
     (repeat' split at $isStep:ident) <;> (try (cases $isStep:ident; done)) <;>
     (obtain ⟨isEvents, isNext⟩ := wpf6a2_some_inj $isStep:ident; subst isEvents; subst isNext)))
