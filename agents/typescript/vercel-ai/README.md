@@ -207,7 +207,9 @@ and returns a new `AgentSessionFlow`. `options` takes the core's
 | `model` | required | AI SDK `LanguageModel`, such as `openai("gpt-5")` or a gateway model ID |
 | `instructions` | none | AI SDK `instructions` of every model call |
 | `tools` | none | AI SDK tools by name; each needs `execute` unless provider-executed |
-| `toolPolicies` | none | Dex `ToolPolicy` by tool name; keys must name tools |
+| `toolPolicies` | none | Dex `ToolPolicy` by tool name; keys must name tools, or source tools when `toolSources` is set |
+| `toolSources` | none | Tool sources, such as `ConnectorToolSource`; see [Tool sources](#tool-sources) |
+| `toolSourceListingTimeoutMs` | 10 seconds | How long one `RunModel` waits for each source's listing |
 | `defaultToolEffect` | `"unclassified"` | Effect of a tool without a policy or trusted annotations |
 | `shouldTrustMcpToolAnnotations` | `false` | Classify tools by `metadata.annotations`, as `@ai-sdk/mcp` sets them |
 | `stopWhen` | `isStepCount(20)` | AI SDK stop conditions over every model step of the turn |
@@ -226,6 +228,52 @@ these.
 The factory throws `TypeError` for a tool without `execute`, a tool with a
 `needsApproval` function, a policy for an unknown or provider-executed tool,
 and the core's invalid options.
+
+## Tool sources
+
+`toolSources` takes the core's tool sources, such as `ConnectorToolSource`
+from `@superdurable/dex-agents/connectors`, which offers reviewed Connector
+operations. Install `@superdurable/connectors-sdk` and the Connector packages.
+
+```ts
+import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };
+import { CreateRefundInputSchema, newProjectConnection } from "@superdurable/connector-stripe";
+import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
+
+const stripe = newProjectConnection(project, "billing-stripe");
+const refunds = new ConnectorToolSource([
+  connectorTool(stripe.operations.createRefund(), stripe.reference, {
+    manifest,
+    inputValidator: CreateRefundInputSchema,
+  }),
+]);
+```
+
+Pass `toolSources: [refunds]` in the agent definition.
+
+- Every `RunModel` lists each source and offers its tools after the agent's
+  tools, as AI SDK tools with the source's description and JSON Schema and
+  without `execute`.
+- A call of a source tool never runs inside the model call. The source
+  builds the call, so its effect, its approval, and whether it is an ordered
+  write come from the source; AI SDK `needsApproval` and MCP annotations do not apply. A
+  `toolPolicies` entry for a connector tool changes only its approval.
+- The call runs once in its own tool Step through the source's
+  `executeDeferredToolCall`, with the tool Step's context, heartbeat
+  checkpoint, and attempt, so a connector call keeps its Call ID and fence.
+  `toolCallStepOptions` gives the Step the operation's timeout and retry
+  policy. Connector writes of one response run one at a time in the model's
+  order, and a write that does not succeed skips the later ones.
+- The runner polls no tool tasks and asks no tool questions: a source call that
+  asks a question records `failed`, and one that starts a task records
+  `failed` for a `read` call and `outcome_unknown` otherwise.
+- Each source needs a unique, stable `sourceName`, stored with every call it
+  builds. A source whose listing throws or takes longer than
+  `toolSourceListingTimeoutMs` (default 10 seconds) offers no tools in that
+  model call.
+- Definition fails with `TypeError` when a name a source declares repeats an
+  agent tool or another source's tool. A listing that repeats one fails its
+  `RunModel` attempt.
 
 ## Messages and events
 

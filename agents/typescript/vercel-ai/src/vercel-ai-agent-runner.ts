@@ -9,9 +9,12 @@
 import {
   asSchema,
   generateText,
+  jsonSchema,
   streamText,
+  tool,
   type FinishReason,
   type Instructions,
+  type JSONSchema7,
   type LanguageModel,
   type LanguageModelCallOptions,
   type LanguageModelUsage,
@@ -47,12 +50,16 @@ import {
   type DeferredToolCall,
   type DeferredToolExecution,
   type FrameworkMessage,
+  type ListedSourceTool,
   type McpToolAnnotations,
   type ModelCallMetadata,
   type ResolvedToolPolicy,
+  type SourceToolDefinition,
+  type ToolCallStepOptions,
   type ToolEffect,
   type ToolExecutionResult,
   type ToolPolicy,
+  type ToolSourceRouter,
 } from "@superdurable/dex-agents";
 
 import { runInAgentToolExecutionScope } from "./agent-tool-execution-scope.js";
@@ -84,6 +91,7 @@ export interface ResolvedVercelAiAgentDefinition {
   readonly instructions: Instructions | undefined;
   readonly tools: Readonly<Record<string, Tool>>;
   readonly toolPolicies: Readonly<Record<string, ToolPolicy>>;
+  readonly toolSources: ToolSourceRouter;
   readonly shouldTrustMcpToolAnnotations: boolean;
   readonly stopConditions: readonly StopCondition<ToolSet>[];
   readonly streamTextSettings: VercelAiStreamTextSettings;
@@ -136,6 +144,7 @@ interface RecordedToolResult {
 interface ModelCallTools {
   readonly tools: Record<string, Tool>;
   readonly policies: ReadonlyMap<string, ResolvedToolPolicy>;
+  readonly sourceTools: ReadonlyMap<string, ListedSourceTool>;
 }
 
 interface ModelCallResult {
@@ -147,7 +156,8 @@ interface ModelCallResult {
 /**
  * Runs one `streamText` step per `RunModel`; every tool lacks `execute`, so tool calls come back to Dex.
  * It implements the compaction methods, so with `AgentSessionOptions.compaction` the session compacts at turn
- * boundaries and the summary enters as the first message.
+ * boundaries and the summary enters as the first message. Tool source tools are listed in every `RunModel` and
+ * offered as JSON Schema tools without `execute`; their calls run through the source in their tool Steps.
  */
 export class VercelAiAgentRunner implements AgentFrameworkRunner {
   private fixedInputTokens: number | undefined;
@@ -167,7 +177,8 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
    */
   public estimateInputTokens(turn: AgentTurnContext): number {
     this.fixedInputTokens ??= estimateAgentPromptTokens(this.agent);
-    return estimateStoredInputTokens(turn, this.fixedInputTokens);
+    const sourceToolTokens = estimateSourceToolTokens(this.agent.toolSources.readCachedSourceTools());
+    return estimateStoredInputTokens(turn, this.fixedInputTokens + sourceToolTokens);
   }
 
   /**
@@ -229,7 +240,7 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
         return { kind: "completed", newMessages: turnMessages.map(toFrameworkMessage), usage: emptyAgentUsage() };
       }
     }
-    const modelCallTools = this.createModelCallTools(turn);
+    const modelCallTools = await this.createModelCallTools(turn);
     const modelCall = await runInAgentToolExecutionScope(
       { flowId: turn.flowId, turnId: turn.turnId, attempt: turn.attempt, idempotencyKey: null, events: turn.events },
       () => this.streamModelCall(turn, [...history, ...turnMessages], modelCallTools, modelSteps),
@@ -274,8 +285,23 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     };
   }
 
+  /**
+   * Runs one deferred call in its tool Step. A call that a tool source built goes to that source with the whole
+   * execution, including the Step context and the heartbeat checkpoint. Any other call runs the AI SDK tool's
+   * `execute` once.
+   * @param call - The approved call.
+   * @returns The source's result, or the tool output as text.
+   * @throws {ToolExecutionError} When the agent has no such tool, the tool or its source throws it, or the source
+   * asks the user a question, which this runner cannot ask.
+   * @throws {RangeError} When a source built the call but is not configured on this Worker, so the effect decides
+   * the outcome.
+   * @throws Any other error of the tool or the source, which fails the Step attempt.
+   */
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
     const toolCall = call.toolCall;
+    if (this.agent.toolSources.isSourceToolCall(toolCall)) {
+      return this.agent.toolSources.executeDeferredToolCallForResult(call);
+    }
     const tool = this.findTool(toolCall.toolName);
     if (tool?.execute === undefined) {
       throw new ToolExecutionError(`the agent has no tool named ${toolCall.toolName}`);
@@ -303,6 +329,18 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     return { output: serializeToolOutput(output) };
   }
 
+  /**
+   * Returns a tool source's timeout and retry policy for one call's tool Step, such as a connector operation's.
+   * AI SDK tools keep the tool Steps' defaults.
+   * @param toolCall - The record whose tool Step starts.
+   * @returns The source's options, or `undefined` for the defaults.
+   * @throws {RangeError} When a source built the call but is not configured on this Worker.
+   * @since 0.4.0
+   */
+  public toolCallStepOptions(toolCall: AgentToolCall): ToolCallStepOptions | undefined {
+    return this.agent.toolSources.toolCallStepOptions(toolCall);
+  }
+
   private readFinalRecord(turn: AgentTurnContext, toolCallId: string): AgentToolCall {
     const record = turn.recordedToolCall(toolCallId);
     if (record === undefined || !isFinalToolCallStatus(record.status)) {
@@ -311,7 +349,16 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     return record;
   }
 
-  private createRecordedToolResult(record: AgentToolCall): Promise<ToolResultPart> {
+  private async createRecordedToolResult(record: AgentToolCall): Promise<ToolResultPart> {
+    // A source's output is text, such as a truncated connector result, so the model reads it unchanged.
+    if (record.status === "succeeded" && this.agent.toolSources.isSourceToolCall(record)) {
+      return {
+        type: "tool-result",
+        toolCallId: record.toolCallId,
+        toolName: record.toolName,
+        output: { type: "text", value: record.output ?? "" },
+      };
+    }
     return createRecordedToolResultPart(record, this.findTool(record.toolName));
   }
 
@@ -319,18 +366,22 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     return Object.hasOwn(this.agent.tools, toolName) ? this.agent.tools[toolName] : undefined;
   }
 
-  private createModelCallTools(turn: AgentTurnContext): ModelCallTools {
+  private async createModelCallTools(turn: AgentTurnContext): Promise<ModelCallTools> {
     const tools: Record<string, Tool> = {};
     const policies = new Map<string, ResolvedToolPolicy>();
-    for (const [toolName, tool] of Object.entries(this.agent.tools)) {
-      if (isProviderExecutedTool(tool)) {
-        tools[toolName] = tool;
+    for (const [toolName, agentTool] of Object.entries(this.agent.tools)) {
+      if (isProviderExecutedTool(agentTool)) {
+        tools[toolName] = agentTool;
         continue;
       }
-      policies.set(toolName, this.resolveTurnToolPolicy(turn, toolName, tool));
-      tools[toolName] = withoutLocalExecution(tool);
+      policies.set(toolName, this.resolveTurnToolPolicy(turn, toolName, agentTool));
+      tools[toolName] = withoutLocalExecution(agentTool);
     }
-    return { tools, policies };
+    const sourceTools = await this.agent.toolSources.listSourceTools();
+    for (const [toolName, listed] of sourceTools) {
+      tools[toolName] = createSourceTool(listed.tool);
+    }
+    return { tools, policies, sourceTools };
   }
 
   private resolveTurnToolPolicy(turn: AgentTurnContext, toolName: string, tool: Tool): ResolvedToolPolicy {
@@ -360,10 +411,19 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
     toolCall: RecordedToolCall,
     modelCallTools: ModelCallTools,
   ): DeferredToolCall {
+    const toolArguments = serializeJsonValue(toolCall.input ?? null);
+    const listedSourceTool = modelCallTools.sourceTools.get(toolCall.toolName);
+    if (listedSourceTool !== undefined) {
+      // The source decides the effect, the approval, and the write order; AI SDK settings never apply.
+      return this.agent.toolSources.buildDeferredToolCall(turn, listedSourceTool, {
+        toolCallId: toolCall.toolCallId,
+        arguments: toolArguments,
+      });
+    }
     return {
       toolCallId: toolCall.toolCallId,
       toolName: toolCall.toolName,
-      arguments: serializeJsonValue(toolCall.input ?? null),
+      arguments: toolArguments,
       policy: modelCallTools.policies.get(toolCall.toolName) ?? turn.resolveToolPolicy(toolCall.toolName),
     };
   }
@@ -446,6 +506,23 @@ function estimateAgentPromptTokens(agent: ResolvedVercelAiAgentDefinition): numb
     }
   }
   return parts.reduce((tokens, part) => tokens + estimateTextTokens(part), 0);
+}
+
+function estimateSourceToolTokens(sourceTools: ReadonlyMap<string, ListedSourceTool>): number {
+  let tokens = 0;
+  for (const { tool: definition } of sourceTools.values()) {
+    tokens += estimateTextTokens(`${definition.name} ${definition.description} ${JSON.stringify(definition.inputSchema)}`);
+  }
+  return tokens;
+}
+
+/** A tool source's tool as the model sees it. It has no `execute`, so its calls always come back to Dex. */
+function createSourceTool(definition: SourceToolDefinition): Tool {
+  // Without a validator the AI SDK accepts any JSON arguments; the source checks them in the tool Step.
+  return tool({
+    description: definition.description,
+    inputSchema: jsonSchema(definition.inputSchema as JSONSchema7),
+  });
 }
 
 /** Returns a copy of a tool without `execute` and without input callbacks, which would rerun with the model call. */
