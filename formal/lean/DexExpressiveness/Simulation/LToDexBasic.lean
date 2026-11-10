@@ -1,4 +1,4 @@
-import DexExpressiveness.Simulation.LToDexBasicWake
+import DexExpressiveness.Simulation.LToDexBasicFire
 
 /-!
 # L to Dex: ticks, requests, timer fires, late emits, and the begin of an action
@@ -27,15 +27,16 @@ Each is proved here under the one missing fact, as an explicit hypothesis:
 | Lemma | Missing fact | Proved form |
 | --- | --- | --- |
 | `l_input_simulated` | A Step in phase `WT` has no invocation. | `wp2_input_simulated_of_waitingHasNoInvocation` |
-| `l_fire_simulated` | The keys of `run.timers` are distinct. | See the lemma. |
+| `l_fire_simulated` | The keys of `run.timers` are distinct. | `wp2_fire_simulated_of_timerKeysNodup` |
 | `l_lateDeliver_simulated` | A task holds at most one effect. | `wp2_lateDeliver_simulated_of_singleEffects` |
 | `l_lateDrop_simulated` | A task holds at most one effect. | `wp2_lateDrop_simulated_of_singleEffects` |
 
 The lemmas named `wp2_*_exec` state the Dex action sequence of a case
 explicitly: `wp2_exec_stepStart`, `wp2_thread_deliver_exec`,
-`wp2_input_exec_running`, `wp2_input_exec_closed`, `wp2_lateDeliver_exec`, and
-`wp2_lateDrop_exec`. The helper lemmas are in
-`Simulation/LToDexBasicLemmas.lean` and `Simulation/LToDexBasicWake.lean`.
+`wp2_input_exec_running`, `wp2_input_exec_closed`, `wp2_fire_exec`,
+`wp2_lateDeliver_exec`, and `wp2_lateDrop_exec`. The helper lemmas are in
+`Simulation/LToDexBasicLemmas.lean`, `Simulation/LToDexBasicWake.lean`, and
+`Simulation/LToDexBasicFire.lean`.
 -/
 
 namespace DexExpressiveness
@@ -198,18 +199,6 @@ theorem l_start_simulated (program : Program) (lConfig : L.Config)
               simp [hasNoTask] at isMember }
     · cases isStep
   · cases isStep
-
-/-- The Flow of a running program runs. -/
-theorem wp2_run_of_running {program : Program} {lConfig : L.Config}
-    {dexConfig : Dex.Config signature} (isRelated : Related program lConfig dexConfig)
-    (isRunningL : lConfig.status = .running) :
-    ∃ run, dexConfig.run = some run ∧ run.status = .running := by
-  have isStatus := isRelated.status
-  cases runCase : dexConfig.run with
-  | none => simp [isRunningL, runCase] at isStatus
-  | some run =>
-    simp only [isRunningL, runCase] at isStatus
-    exact ⟨run, rfl, isStatus⟩
 
 /-- [PUBLISH] to a running Flow, as one explicit action. -/
 theorem wp2_exec_publish (flow : Dex.FlowDef signature) (config : Dex.Config signature)
@@ -554,6 +543,28 @@ theorem l_input_simulated (program : Program) (lConfig : L.Config)
     IsSimulatedByDex program dexConfig (.request (.input chan value)) lEvents lNext := by
   sorry
 
+/-- `l_fire_simulated` under the hypothesis that the keys of `run.timers` are distinct. -/
+theorem wp2_fire_simulated_of_timerKeysNodup (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    (timerKeysNodup : ∀ run, dexConfig.run = some run →
+      (run.timers.map (fun entry => entry.1)).Nodup)
+    (count : Nat) (lEvents : List Event) (lNext : L.Config)
+    (isStep : (L.system program).step lConfig (.fire count) = some (lEvents, lNext)) :
+    IsSimulatedByDex program dexConfig (.fire count) lEvents lNext := by
+  simp only [L.system, L.step] at isStep
+  by_cases isEnabled : (decide (0 < count) && lConfig.canStamp) = true
+  · simp only [isEnabled, ↓reduceIte] at isStep
+    cases firedCase : lConfig.fireTimers count with
+    | none => simp [firedCase] at isStep
+    | some lFinal =>
+      simp only [firedCase, Option.map_some, Option.some.injEq, Prod.mk.injEq] at isStep
+      obtain ⟨rfl, rfl⟩ := isStep
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at isEnabled
+      obtain ⟨dexNext, isExec, isRelated⟩ := wp2_fire_exec program lConfig dexConfig state
+        timerKeysNodup count lFinal isEnabled.1 isEnabled.2 firedCase
+      exact ⟨_, _, dexNext, isExec, rfl, rfl, isRelated⟩
+  · simp [isEnabled] at isStep
+
 /-- A batch of `fire` actions is simulated by one [TIMER-FIRE] of the same
 number of due timers: both sides order the due timers by `(deadline, timer
 number)` (spec §8.1, §8.2).
@@ -561,8 +572,8 @@ number)` (spec §8.1, §8.2).
 Blocked. False as stated: `run.timers` may hold a second, shadowed binding of
 a timer key. `Related.timers` reads the first binding (`get?`), and
 `Run.dueTimers` filters every binding, so [TIMER-FIRE] may fire a timer that
-is not due in L. The missing fact is that the keys of `run.timers` are
-distinct. -/
+is not due in L. `wp2_fire_simulated_of_timerKeysNodup` proves the statement
+given that the keys of `run.timers` are distinct. -/
 theorem l_fire_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (count : Nat) (lEvents : List Event) (lNext : L.Config)

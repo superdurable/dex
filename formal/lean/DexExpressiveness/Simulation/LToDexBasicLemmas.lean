@@ -46,6 +46,18 @@ theorem wp2_run_of_thread {program : Program} {lConfig : L.Config}
       simp only [statusCase, runCase] at isStatus
       exact ⟨rfl, run, rfl, isStatus⟩
 
+/-- The Flow of a running program runs. -/
+theorem wp2_run_of_running {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} (isRelated : Related program lConfig dexConfig)
+    (isRunningL : lConfig.status = .running) :
+    ∃ run, dexConfig.run = some run ∧ run.status = .running := by
+  have isStatus := isRelated.status
+  cases runCase : dexConfig.run with
+  | none => simp [isRunningL, runCase] at isStatus
+  | some run =>
+    simp only [isRunningL, runCase] at isStatus
+    exact ⟨run, rfl, isStatus⟩
+
 /-- Stamping an L configuration changes nothing that `RunningRelated` reads. -/
 theorem wp2_runningRelated_stamp {program : Program} {lConfig : L.Config}
     {dexConfig : Dex.Config signature} {run : Dex.Run signature}
