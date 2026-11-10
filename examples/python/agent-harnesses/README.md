@@ -57,8 +57,10 @@ it calls Slack, so they never enter Flow state.
 - **Local development**: set `DEX_CONNECTOR_CONFIG_FILE` to the
   `connections.json` that Dex Web saves, by default
   `$HOME/.dex/connectors/connections.json`. It must hold an authorized Slack
-  connection named `support-slack`. See
-  [Local Connector setup](https://docs.superdurable.io/reference/web/local-connector-setup).
+  connection named `support-slack`. To create it, run `dexcli dev`, open
+  **Experimental > Connectors** in Dex Web, choose **+ Add**, pick **Slack**,
+  name the connection `support-slack`, and authorize it. See
+  [Add a connection](https://docs.superdurable.io/reference/web/local-connector-setup#add-a-connection).
 - **Deployed**: the `DEX_PROJECT_*` variables select the project configuration
   in object storage instead.
 

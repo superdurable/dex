@@ -76,7 +76,9 @@ and opens the connection named `support-slack` with the package's `newProjectCon
 
 - In local development, set `DEX_CONNECTOR_CONFIG_FILE` to the `connections.json` file that Dex Web
   in `dexcli dev` writes, by default `$HOME/.dex/connectors/connections.json`. It must hold a Slack
-  connection named `support-slack`.
+  connection named `support-slack`. To create it, open **Experimental > Connectors** in Dex Web,
+  choose **+ Add**, pick **Slack**, name the connection `support-slack`, and authorize it. See
+  [Add a connection](https://docs.superdurable.io/reference/web/local-connector-setup#add-a-connection).
 - In a deployment, the `DEX_PROJECT_*` settings select the project configuration that the hosting
   platform or operator writes.
 

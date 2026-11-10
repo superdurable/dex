@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -234,6 +235,16 @@ func TestStandaloneCommandEnvironmentFlagsAndShutdown(t *testing.T) {
 	if err != nil || cfg.web.Port != 19003 {
 		t.Fatalf("config: %+v, %v", cfg, err)
 	}
+	t.Setenv("DEX_WEB_ALLOWED_HOSTS", "dex.example.com, ,proxy.example:443")
+	allowed, err := parseCommandConfig(nil, io.Discard)
+	if err != nil || !reflect.DeepEqual(allowed.web.AllowedHosts, []string{"dex.example.com", "proxy.example:443"}) {
+		t.Fatalf("allowed hosts config: %+v, %v", allowed, err)
+	}
+	overridden, err := parseCommandConfig([]string{"--allowed-hosts", "flag.example"}, io.Discard)
+	if err != nil || !reflect.DeepEqual(overridden.web.AllowedHosts, []string{"flag.example"}) {
+		t.Fatalf("allowed hosts flag: %+v, %v", overridden, err)
+	}
+	t.Setenv("DEX_WEB_ALLOWED_HOSTS", "")
 	for _, arguments := range [][]string{{"--port", "0"}, {"--tls-ca-file", "ca.pem"}, {"unexpected"}} {
 		if _, err := parseCommandConfig(arguments, io.Discard); err == nil {
 			t.Fatalf("accepted invalid arguments: %v", arguments)

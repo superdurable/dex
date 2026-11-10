@@ -36,6 +36,7 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 | **--flow-rendering-dir** | Optional Flow Definition Graph JSON directory. |
 | **--connector-config-dir** | **$HOME/.dex/connectors**; local Connector credentials. |
 | **--connector-release-override** | Repeatable **connector-id=artifact-directory** for a local Connector release. |
+| **--allowed-hosts** | Empty; comma-separated host names that Dex Web **/api** requests may name besides loopback names and IP addresses. Since 1.42. See [Allowed hosts](/reference/web/dex-web#allowed-hosts). |
 
 If a default port is occupied, Dex selects the next available port and prints
 its addresses. An explicitly requested occupied port fails. The state directory

@@ -65,6 +65,23 @@ interface ConnectionView {
   credentialExpiresAt?: string;
   uses: ConnectionUse[];
   triggerUses?: TriggerUse[];
+  /** True when no loaded Flow uses the connection, such as one an agent tool opens by name. */
+  standalone?: boolean;
+}
+
+/** One Connector release that a new connection can use. */
+export interface ConnectorCatalogEntry {
+  connectorId: string;
+  displayName: string;
+  description?: string;
+  modulePath: string;
+  moduleVersion: string;
+  localOverride?: boolean;
+}
+
+interface ConnectorCatalogResponse {
+  connectors: ConnectorCatalogEntry[];
+  publicCatalogAvailable: boolean;
 }
 
 interface ConnectionsResponse {
@@ -188,24 +205,24 @@ export function ConnectorsPage() {
   const [savedSetupConnectionKey, setSavedSetupConnectionKey] = useState<string>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [isAddingConnection, setIsAddingConnection] = useState(false);
   const initializedSetupConnection = useRef('');
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  // selectKey picks a connection, such as one just added or one an OAuth redirect names.
+  const load = useCallback(async (signal?: AbortSignal, selectKey?: string) => {
     const response = await fetch('/api/v2/connector-connections', { signal });
     const next = await readResponseJSON<ConnectionsResponse>(response);
     setCatalog(next);
-    setSelected((current) => current
-      ? next.connections.find((connection) => connectionKey(connection) === connectionKey(current)) ?? null
-      : next.connections[0] ?? null);
+    setSelected((current) => selectedConnectionAfterLoad(next.connections, current, selectKey));
     setError('');
   }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal).catch((loadError: unknown) => {
+    void load(controller.signal, oauthReturnConnectionKey(window.location.search)).catch((loadError: unknown) => {
       if (!controller.signal.aborted) setError(errorMessage(loadError));
     });
     return () => controller.abort();
@@ -255,7 +272,8 @@ export function ConnectorsPage() {
         method: 'DELETE', headers: connectorWriteHeaders(catalog),
       });
       await readResponseJSON<{ deleted: boolean }>(response);
-      await load();
+      // A deleted standalone connection leaves the list, so the first remaining one is selected.
+      await load(undefined, selected.standalone ? '' : undefined);
     } catch (deleteError) {
       setError(errorMessage(deleteError));
     } finally {
@@ -295,17 +313,26 @@ export function ConnectorsPage() {
                 <div className="sq-head">
                   <span className="sq-title">{CONNECTORS_COPY.heading}</span>
                   <span className="sq-live">{CONNECTORS_COPY.localNote}</span>
+                  <button
+                    aria-label={CONNECTORS_COPY.addConnection}
+                    aria-pressed={isAddingConnection}
+                    className="v2-ghost connector-add-button"
+                    onClick={() => setIsAddingConnection(true)}
+                    title={CONNECTORS_COPY.addConnection}
+                    type="button"
+                  >+ Add</button>
                 </div>
                 {catalog.connections.length === 0 && <p className="sq-state">{CONNECTORS_COPY.empty}</p>}
                 <div className="rsw-scroll" data-zone="list">
                   <ul aria-label={CONNECTORS_COPY.listLabel} className="rsw-list">
                     {catalog.connections.map((connection) => {
-                      const isSelected = selected ? connectionKey(connection) === connectionKey(selected) : false;
+                      const isSelected = !isAddingConnection && selected ? connectionKey(connection) === connectionKey(selected) : false;
                       return <li className="rsw-item" data-selected={isSelected ? 'true' : undefined} key={connectionKey(connection)}>
                         <ConnectionRow
                           connection={connection}
                           isSelected={isSelected}
                           onSelect={() => {
+                            setIsAddingConnection(false);
                             setSelected(connection);
                             setSelectedSetupTabKey('authorize');
                           }}
@@ -335,10 +362,27 @@ export function ConnectorsPage() {
             onCommit={listPane.commit}
             onToggle={listPane.isCollapsed ? listPane.expand : listPane.collapse}
           />
-          <section aria-label={selected ? connectorDisplayName(selected) : CONNECTORS_COPY.heading} className="v2-work-queue-case">
-            {selected ? (
+          <section
+            aria-label={isAddingConnection ? CONNECTORS_COPY.addConnection : selected ? connectorDisplayName(selected) : CONNECTORS_COPY.heading}
+            className="v2-work-queue-case"
+          >
+            {isAddingConnection ? (
+              <div className="v2-case sc">
+                <AddConnectionPanel
+                  catalog={catalog}
+                  onAdded={async (added) => {
+                    setIsAddingConnection(false);
+                    setSelectedSetupTabKey('authorize');
+                    await load(undefined, connectionKey(added));
+                  }}
+                  onCancel={() => setIsAddingConnection(false)}
+                />
+                <ConnectorStoreZone catalog={catalog} />
+              </div>
+            ) : selected ? (
               <div className="v2-case sc">
                 <ConnectionHeader connection={selected} />
+                {selected.standalone && <p className="sc-why connector-standalone-note">{CONNECTORS_COPY.standaloneNote}</p>}
                 {error && <p className="v2-error" role="alert">{error}</p>}
                 {selected.status === 'Conflict' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.conflict}</p>}
                 {selected.status === 'Unsupported' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.unsupported}</p>}
@@ -352,9 +396,9 @@ export function ConnectorsPage() {
                   setupTabs={setupTabs}
                 />}
                 <div className="sc-block connector-connection-footer">
-                  {selected.status !== 'Missing' && selected.status !== 'Unsupported' && selected.status !== 'Conflict' && (
+                  {isConnectionDeletable(selected) && (
                     <button className="rhd-stop" disabled={busy} onClick={() => void deleteCredentials()} type="button">
-                      {connectionDeleteLabel()}
+                      {connectionDeleteLabel(selected)}
                     </button>
                   )}
                   <p className="sc-why">{connectorConfigurationEffectText()}</p>
@@ -446,8 +490,189 @@ function ConnectorStoreEntry({ label, value, displayValue = value, copyable = fa
   </div>;
 }
 
-export function connectionDeleteLabel() {
+/**
+ * The connection to select after a reload. A selectKey names one, and an empty one asks for the first.
+ * Without it the current connection stays selected while it exists.
+ */
+export function selectedConnectionAfterLoad<T extends Pick<ConnectionView, 'connectorId' | 'connectionName'>>(
+  connections: T[],
+  current: T | null,
+  selectKey?: string,
+): T | null {
+  const find = (key: string) => connections.find((connection) => connectionKey(connection) === key);
+  if (selectKey) return find(selectKey) ?? (current ? find(connectionKey(current)) : undefined) ?? connections[0] ?? null;
+  if (selectKey === '' || !current) return connections[0] ?? null;
+  return find(connectionKey(current)) ?? null;
+}
+
+/** A stored connection can be deleted; an added standalone connection can also be removed before it is saved. */
+export function isConnectionDeletable(connection: Pick<ConnectionView, 'standalone' | 'status'>): boolean {
+  if (connection.standalone) return connection.status !== 'Conflict' && connection.status !== 'Unsupported';
+  return connection.status !== 'Missing' && connection.status !== 'Unsupported' && connection.status !== 'Conflict';
+}
+
+export function connectionDeleteLabel(connection?: Pick<ConnectionView, 'standalone' | 'status'>) {
+  if (connection?.standalone) {
+    return connection.status === 'Missing' ? CONNECTORS_COPY.removePendingConnection : CONNECTORS_COPY.deleteStandaloneConnection;
+  }
   return 'Delete local credentials';
+}
+
+/** The connection key that an OAuth redirect names in its query, or undefined when it names none. */
+export function oauthReturnConnectionKey(search: string): string | undefined {
+  const parameters = new URLSearchParams(search);
+  const connectorId = parameters.get('connectorId');
+  const connectionName = parameters.get('connectionName');
+  if (parameters.get('oauth') !== 'success' || !connectorId || !connectionName) return undefined;
+  return connectionKey({connectorId, connectionName});
+}
+
+/** Why a new connection name is not accepted, or an empty string. It follows the Connector SDK rules. */
+export function connectionNameProblem(name: string): string {
+  if (name === '') return 'Enter a connection name.';
+  if (name.trim() !== name) return 'The connection name must not start or end with a space.';
+  if ([...name].length > 256) return 'The connection name must have at most 256 characters.';
+  if (name.includes('/') || /\p{Cc}/u.test(name)) return 'The connection name must not contain a slash or a control character.';
+  return '';
+}
+
+/** Catalog entries whose name, ID, or description contains every word of the query; the chosen entry stays. */
+export function filterConnectorCatalog(
+  entries: ConnectorCatalogEntry[],
+  query: string,
+  chosenConnectorId = '',
+): ConnectorCatalogEntry[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return entries.filter((entry) => {
+    if (entry.connectorId === chosenConnectorId) return true;
+    const text = `${entry.displayName} ${entry.connectorId} ${entry.description ?? ''}`.toLowerCase();
+    return words.every((word) => text.includes(word));
+  });
+}
+
+export function connectorCatalogOptionText(entry: ConnectorCatalogEntry): string {
+  const release = entry.localOverride ? `local override ${entry.moduleVersion}` : entry.moduleVersion;
+  return entry.displayName.toLowerCase() === entry.connectorId
+    ? `${entry.displayName} · ${release}`
+    : `${entry.displayName} (${entry.connectorId}) · ${release}`;
+}
+
+/** Picks a Connector from the catalog and names a connection that no loaded Flow uses. */
+export function AddConnectionPanel({catalog, onAdded, onCancel}: {
+  catalog: Pick<ConnectionsResponse, 'csrfToken' | 'definitionRevision'>;
+  onAdded: (connection: ConnectionView) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [entries, setEntries] = useState<ConnectorCatalogEntry[] | null>(null);
+  const [isPublicCatalogAvailable, setIsPublicCatalogAvailable] = useState(true);
+  const [query, setQuery] = useState('');
+  const [connectorId, setConnectorId] = useState('');
+  const [connectionName, setConnectionName] = useState('');
+  const [hasTriedSubmit, setHasTriedSubmit] = useState(false);
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const formId = useId();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch('/api/v2/connector-catalog', {signal: controller.signal})
+      .then((response) => readResponseJSON<ConnectorCatalogResponse>(response))
+      .then((value) => {
+        setEntries(value.connectors);
+        setIsPublicCatalogAvailable(value.publicCatalogAvailable);
+      })
+      .catch((loadError: unknown) => {
+        if (!controller.signal.aborted) setError(errorMessage(loadError));
+      });
+    return () => controller.abort();
+  }, []);
+
+  const chosen = entries?.find((entry) => entry.connectorId === connectorId);
+  const matching = filterConnectorCatalog(entries ?? [], query, connectorId);
+  const nameProblem = connectionNameProblem(connectionName);
+  const isNameProblemShown = hasTriedSubmit && nameProblem !== '';
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setHasTriedSubmit(true);
+    if (!chosen || nameProblem !== '') return;
+    setSubmitting(true);
+    try {
+      const response = await fetch('/api/v2/connector-connections', {
+        method: 'POST', headers: connectorWriteHeaders(catalog), body: JSON.stringify({
+          connectorId: chosen.connectorId, connectionName,
+          modulePath: chosen.modulePath, moduleVersion: chosen.moduleVersion,
+        }),
+      });
+      await onAdded(await readResponseJSON<ConnectionView>(response));
+    } catch (addError) {
+      setError(errorMessage(addError));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return <form aria-label={CONNECTORS_COPY.addConnection} className="connector-form connector-add-form" noValidate onSubmit={(event) => void submit(event)}>
+    <div className="sc-block">
+      <h3 className="sc-blockhead">{CONNECTORS_COPY.addConnection}</h3>
+      <p className="scx-purpose">{CONNECTORS_COPY.addConnectionPurpose}</p>
+    </div>
+    {error && <p className="v2-error" role="alert">{error}</p>}
+    {entries === null && !error && <p className="sc-state" role="status">{CONNECTORS_COPY.loadingCatalog}</p>}
+    {entries !== null && !isPublicCatalogAvailable && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.publicCatalogUnavailable}</p>}
+    {entries !== null && <>
+      <fieldset className="sc-block connector-field-group">
+        <legend className="sc-blockhead">Connector</legend>
+        <div className="connector-field">
+          <label><span className="sc-fname">Search the catalog</span>
+            <input autoComplete="off" onChange={(event) => setQuery(event.target.value)} placeholder="Slack" type="search" value={query} />
+          </label>
+        </div>
+        <div className="connector-field">
+          <label><span className="sc-fname">Connector *</span>
+            <select
+              aria-describedby={`${formId}-connector`}
+              aria-invalid={hasTriedSubmit && !chosen ? true : undefined}
+              onChange={(event) => setConnectorId(event.target.value)}
+              required
+              value={connectorId}
+            >
+              <option value="">Choose a Connector ({matching.length})</option>
+              {matching.map((entry) => <option key={entry.connectorId} value={entry.connectorId}>
+                {connectorCatalogOptionText(entry)}
+              </option>)}
+            </select>
+          </label>
+          <small className="sc-why" id={`${formId}-connector`}>
+            {hasTriedSubmit && !chosen ? 'Choose a Connector.' : chosen?.description ?? 'The newest release in the catalog.'}
+          </small>
+        </div>
+      </fieldset>
+      <fieldset className="sc-block connector-field-group">
+        <legend className="sc-blockhead">Connection</legend>
+        <div className="connector-field">
+          <label><span className="sc-fname">Connection name *</span>
+            <input
+              aria-describedby={`${formId}-name`}
+              aria-invalid={isNameProblemShown ? true : undefined}
+              autoComplete="off"
+              onChange={(event) => setConnectionName(event.target.value)}
+              placeholder="support-slack"
+              required
+              spellCheck={false}
+              type="text"
+              value={connectionName}
+            />
+          </label>
+          <small className="sc-why" id={`${formId}-name`}>
+            {isNameProblemShown ? nameProblem : CONNECTORS_COPY.addConnectionNameHelp}
+          </small>
+        </div>
+      </fieldset>
+    </>}
+    <div className="connector-form-actions">
+      <button className="v2-primary" disabled={submitting || entries === null} type="submit">{CONNECTORS_COPY.addConnection}</button>
+      <button className="v2-ghost" onClick={onCancel} type="button">Cancel</button>
+    </div>
+  </form>;
 }
 
 export function connectorConfigurationEffectText() {
@@ -546,7 +771,7 @@ function AuthorizationPanel({catalog, connection, hasSavedSetup, session, onConf
     return <div className="connector-authorization-summary">
       <div className="connector-notice connector-authorization-complete" data-tone="done">
         <span aria-hidden="true" className="apg-mark">✓</span>
-        <div><h3>Authorization complete</h3><p>This connection is ready. Continue with each Flow operation and trigger.</p></div>
+        <div><h3>Authorization complete</h3><p>{connection.standalone ? CONNECTORS_COPY.standaloneReady : 'This connection is ready. Continue with each Flow operation and trigger.'}</p></div>
         <button className="v2-ghost" onClick={() => setEditing(true)} type="button">
           {isOAuthConnection ? 'Reauthorize' : 'Edit connection'}
         </button>
@@ -1572,7 +1797,7 @@ export function studioState(status: ConnectionStatus) {
   return 'error';
 }
 
-export function connectorWriteHeaders(catalog: ConnectionsResponse) {
+export function connectorWriteHeaders(catalog: Pick<ConnectionsResponse, 'csrfToken' | 'definitionRevision'>) {
   return {
     'Content-Type': 'application/json',
     'X-Dex-CSRF-Token': catalog.csrfToken,
@@ -1584,7 +1809,7 @@ function connectionURL(connection: ConnectionView) {
   return `/api/v2/connector-connections/${encodeURIComponent(connection.connectorId)}/${encodeURIComponent(connection.connectionName)}`;
 }
 
-export function connectionKey(connection: ConnectionView) {
+export function connectionKey(connection: Pick<ConnectionView, 'connectorId' | 'connectionName'>) {
   return `${connection.connectorId}\u0000${connection.connectionName}`;
 }
 

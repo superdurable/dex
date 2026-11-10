@@ -3,6 +3,10 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.0.9 - 2026-11-10
+
+- Correct the local Connector setup rule in `dex-sdk` and `dex-app-builder`: Dex Web in `dexcli dev` no longer configures only the connections that loaded Flow definitions use. It can also add a named connection that no Flow uses, such as one an agent tool opens by name.
+
 ## 1.0.8 - 2026-11-10
 
 - Add a control structure quick reference to `dex-sdk` `patterns.md`. It maps sequence, choice, parallel split, fork and join, several waiters, first result, first external event, mutual exclusion, critical section, task and case cancellation, loops, schedules, and multiple instances to their Dex recipes. Fork and join requires every branch to publish its signal on every exit path, including failure recovery, and a canceled branch never publishes, so the join must not count branches that may be canceled.

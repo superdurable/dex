@@ -43,6 +43,8 @@ Connector Trigger 是运行在 Flow 之外的长时间 event source。它保留 
 
 Flow definition 引用 logical connection name，而不是 credential。本地开发时，Dex Web 在 **Connectors** 中列出这些名字。只有验证了精确的官方 module release 之后，它才会写入 connection、operation 或 Trigger-binding configuration。
 
+应用也可以打开一个没有 Flow definition 引用的 connection，比如 agent tool 使用的 connection。在同一个页面上按名称添加它，然后像其他 connection 一样授权。
+
 Connector UI 运行在 opaque-origin sandbox iframe 中。Dex Web 执行 Connector release 声明的 provider command。已保存的 credential 不会进入 iframe、Flow input、Attribute、result、receipt、Stream、日志或生成的 artifact。
 
 ## 语言

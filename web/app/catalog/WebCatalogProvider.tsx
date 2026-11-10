@@ -20,6 +20,8 @@ import type { FlowDefinitionCatalog, V2Catalog } from '@/lib/types';
 
 interface WebCatalogValue {
   ready: boolean;
+  /** True when a Dex server answers, whether or not Flow definitions are loaded. */
+  canUseOperatorAPI: boolean;
   canUseV2: boolean;
   catalog: V2Catalog | null;
   definitions: FlowDefinitionCatalog | null;
@@ -91,6 +93,7 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<WebCatalogValue>(() => ({
     ready,
+    canUseOperatorAPI: operatorAPIAvailable,
     canUseV2: operatorAPIAvailable && definitions?.configured === true,
     catalog,
     definitions,

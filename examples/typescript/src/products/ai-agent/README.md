@@ -48,7 +48,7 @@ command, URL, or credential. The names match the Python example.
 | `DEX_AGENT_CONTEXT_TOKENS` | `32000` | Context window for compaction |
 | `DEX_AGENT_MCP_CONFIG` | the demo `notes` server | Path to a YAML file of MCP servers, in the Python example's format |
 | `DEX_AGENT_SESSION_KEY` | random per process | Signs session tokens; a random key ends every token when the process restarts |
-| `DEX_CONNECTOR_CONFIG_FILE` or `DEX_PROJECT_*` | none | The Dex project configuration. With a Slack connection named `support-slack` in it, the agent offers `slack_post_thread_reply`; otherwise the process logs one line and the agent offers no Slack tool. Keep the same configuration on every Worker while sessions wait for approval. See the [agent harnesses](../agent-harnesses#slack-connector-tools) |
+| `DEX_CONNECTOR_CONFIG_FILE` or `DEX_PROJECT_*` | none | The Dex project configuration. With a Slack connection named `support-slack` in it, the agent offers `slack_post_thread_reply`; otherwise the process logs one line and the agent offers no Slack tool. Keep the same configuration on every Worker while sessions wait for approval. Create the connection in Dex Web under **Experimental > Connectors** with **+ Add**; see the [agent harnesses](../agent-harnesses#slack-connector-tools) |
 
 The MCP file is the Python example's format, so one file serves both examples:
 

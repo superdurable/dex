@@ -10,6 +10,8 @@ package web
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -32,6 +35,8 @@ const (
 
 var errConnectorConfigurationRevisionConflict = errors.New("Connector configuration revision conflict")
 
+// connectorConnectionStore reads and writes the local connection files. Its lock and the callers' compare-and-set
+// checks work within one process only; one Dex Web process owns a connections directory at a time.
 type connectorConnectionStore struct {
 	directory             string
 	path                  string
@@ -163,6 +168,45 @@ func (store *connectorConnectionStore) get(connectorID string, connectionName st
 	return storedConnectorConnection{}, false, nil
 }
 
+// revision returns the stored record's revision, or "" when the file holds no record for the key.
+func (store *connectorConnectionStore) revision(connectorID string, connectionName string) (string, error) {
+	stored, found, err := store.get(connectorID, connectionName)
+	if err != nil || !found {
+		return "", err
+	}
+	return connectorConnectionRevision(stored.localConnectorConnection)
+}
+
+// triggerBindingRevision returns the stored binding's revision for the binding's key, or "" when the file holds none.
+func (store *connectorConnectionStore) triggerBindingRevision(binding localConnectorTriggerBinding) (string, error) {
+	bindings, err := store.listTriggerBindings(binding.ConnectorID, binding.ConnectionName)
+	if err != nil {
+		return "", err
+	}
+	for _, stored := range bindings {
+		if stored.TriggerName != binding.TriggerName || stored.BindingName != binding.BindingName {
+			continue
+		}
+		encoded, err := json.Marshal(stored)
+		if err != nil {
+			return "", fmt.Errorf("encode Connector Trigger binding for its revision: %w", err)
+		}
+		digest := sha256.Sum256(encoded)
+		return hex.EncodeToString(digest[:]), nil
+	}
+	return "", nil
+}
+
+// connectorConnectionRevision hashes a record's JSON encoding, so the revision is the same after the file is read again.
+func connectorConnectionRevision(connection localConnectorConnection) (string, error) {
+	encoded, err := json.Marshal(connection)
+	if err != nil {
+		return "", fmt.Errorf("encode Connector connection for its revision: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
 func (store *connectorConnectionStore) listTriggerBindings(connectorID string, connectionName string) ([]localConnectorTriggerBinding, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -185,6 +229,12 @@ func (store *connectorConnectionStore) putTriggerBinding(binding localConnectorT
 	file, err := store.load()
 	if err != nil {
 		return err
+	}
+	// A binding needs its connection in the same file; a load rejects a file that breaks this.
+	if !slices.ContainsFunc(file.Connections, func(connection localConnectorConnection) bool {
+		return connection.ConnectorID == binding.ConnectorID && connection.ConnectionName == binding.ConnectionName
+	}) {
+		return errConnectorConnectionChanged
 	}
 	found := false
 	for index := range file.TriggerBindings {

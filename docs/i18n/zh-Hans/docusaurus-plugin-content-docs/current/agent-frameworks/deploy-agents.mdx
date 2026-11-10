@@ -397,7 +397,7 @@ connector 写入期间 Worker 崩溃，绝不会把一次写入发送两次：
 
 和 Connector Step 一样，connector tool 使用一个 Connector connection。应用在 Worker 启动时，按 connection 名称从项目配置中打开它一次：
 
-- **本地开发**：把 **DEX_CONNECTOR_CONFIG_FILE** 设为本地 Connector 配置的 **connections.json** 文件，默认是 **$HOME/.dex/connectors/connections.json**。其中必须有一个已授权、名称与应用打开的名称相同的 connection。[Local Connector setup](/reference/web/local-connector-setup) 介绍了这个文件。
+- **本地开发**：把 **DEX_CONNECTOR_CONFIG_FILE** 设为本地 Connector 配置的 **connections.json** 文件，默认是 **$HOME/.dex/connectors/connections.json**。其中必须有一个已授权、名称与应用打开的名称相同的 connection。在 Dex Web 中创建它：运行 **dexcli dev**，打开 **Connectors**，添加一个使用这个名称的 connection，然后授权。见 [Add a connection](/reference/web/local-connector-setup#add-a-connection)。
 - **部署后**：**DEX_PROJECT_\*** 设置选择托管平台或运维人员写入的项目配置。
 
 设置 **DEX_CONNECTOR_CONFIG_FILE** 或任何一个 **DEX_PROJECT_\*** 设置，就表示要求使用项目配置。配置不完整或无效时，启动会失败。Worker 在启动时读取配置，所以修改配置后要重启 Worker。

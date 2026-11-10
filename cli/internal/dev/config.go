@@ -37,6 +37,7 @@ const (
 var zdDurabilities = []string{"strict", "process-crash-safe", "relaxed"}
 
 var flagOrder = []string{
+	"allowed-hosts",
 	"attribute-store-config",
 	"bind-address",
 	"connector-config-dir",
@@ -84,6 +85,8 @@ type Config struct {
 	ConnectorConfigDirectory string
 	// ConnectorReleaseOverrides maps Connector IDs to local release artifact directories.
 	ConnectorReleaseOverrides map[string]string
+	// AllowedHosts defaults empty and lists extra host names that Dex Web /api requests may use besides loopback.
+	AllowedHosts string
 	// OpenBrowser defaults true and opens Dex Web after readiness.
 	OpenBrowser bool
 	// ZDStartupTimeout defaults to 60 seconds.
@@ -124,6 +127,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 			"only a process kill, relaxed can lose writes on any crash; overrides dev.durabilityMode in the zd config file",
 	)
 	flags.IntVar(&cfg.DexPort, "dex-port", cfg.DexPort, "Dex gRPC port")
+	flags.StringVar(&cfg.AllowedHosts, "allowed-hosts", "", "comma-separated extra host names that Dex Web /api requests may use")
 	flags.StringVar(
 		&cfg.FlowRenderingDirectory,
 		"flow-rendering-dir",
