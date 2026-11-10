@@ -68,6 +68,8 @@ interface ToolRequest {
   readonly requestIndex: number;
   readonly toolName: string;
   readonly toolInput: JsonObject;
+  /** A tool use ID to reuse instead of a new one, for `;; reuse`. */
+  readonly reusedToolUseId?: string;
 }
 
 interface ToolUse {
@@ -341,6 +343,9 @@ class ScriptedModel {
     const summary = requests
       .map((request) => `${request.toolName}: ${results.get(request.requestIndex)?.text ?? "no result"}`)
       .join("; ");
+    if (afterToolCalls.startsWith("reuse ")) {
+      return reuseFirstToolUseId(afterToolCalls, tail);
+    }
     if (afterToolCalls === "fail") {
       throw new ScriptedModelFailure("scripted failure after tool calls");
     }
@@ -563,7 +568,8 @@ class FakeClaudeCli {
         return;
       }
       const toolUses: ToolUse[] = action.requests.map((request) => ({
-        toolUseId: `toolu_${request.requestIndex}_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+        toolUseId:
+          request.reusedToolUseId ?? `toolu_${request.requestIndex}_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
         cliToolName: this.mcpClient.cliToolName(request.toolName),
         toolInput: request.toolInput,
       }));
@@ -959,6 +965,29 @@ function parseToolRequests(script: string): ToolRequest[] {
     const [, toolName = "", ...inputParts] = call.split(" ");
     return { requestIndex, toolName, toolInput: JSON.parse(inputParts.join(" ")) as JsonObject };
   });
+}
+
+/** Calls a tool under the tool use ID of the turn's first call, then answers with its second result. */
+function reuseFirstToolUseId(afterToolCalls: string, tail: readonly JsonObject[]): ModelAction {
+  const [, toolName = "", ...inputParts] = afterToolCalls.split(" ");
+  const firstToolUseId = tail
+    .flatMap(contentBlocksOf)
+    .find((block) => block["type"] === "tool_use")?.["id"];
+  if (typeof firstToolUseId !== "string") {
+    throw new Error("the turn has no tool call to reuse");
+  }
+  const results = tail
+    .flatMap(contentBlocksOf)
+    .filter((block) => block["type"] === "tool_result" && block["tool_use_id"] === firstToolUseId)
+    .map((block) => String(block["content"] ?? ""));
+  if (results.length < 2) {
+    const toolInput = JSON.parse(inputParts.join(" ")) as JsonObject;
+    return {
+      kind: "call_tools",
+      requests: [{ requestIndex: 0, toolName, toolInput, reusedToolUseId: firstToolUseId }],
+    };
+  }
+  return { kind: "answer", text: `reused ${toolName}: ${results.at(-1) ?? ""}` };
 }
 
 /** Returns the latest result of each scripted request, keyed by request index. */

@@ -30,7 +30,10 @@ interface GateFixture {
   readonly handlerCalls: string[];
 }
 
-async function createGateFixture(records: readonly AgentToolCall[] = []): Promise<GateFixture> {
+async function createGateFixture(
+  records: readonly AgentToolCall[] = [],
+  settledToolUseIds: ReadonlySet<string> = new Set(),
+): Promise<GateFixture> {
   const handlerCalls: string[] = [];
   const customTools = [
     tool(
@@ -66,7 +69,7 @@ async function createGateFixture(records: readonly AgentToolCall[] = []): Promis
     }),
     events: { writeToolCallStarted: () => undefined, writeToolCallFinished: () => undefined },
   } as unknown as AgentTurnContext;
-  return { catalog, gate: new ToolCallGate(turn, catalog), handlerCalls };
+  return { catalog, gate: new ToolCallGate(turn, catalog, settledToolUseIds), handlerCalls };
 }
 
 function preToolUse(cliToolName: string, toolUseId: string, toolInput: Record<string, unknown> = {}): HookInput {

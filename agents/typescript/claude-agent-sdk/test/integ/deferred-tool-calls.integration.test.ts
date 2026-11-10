@@ -146,6 +146,68 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
     assert.equal(agent.invocations.count("Bash"), 1);
   });
 
+  for (const doesResumeSkipHooks of [false, true]) {
+    test(`a call reusing the replayed call's ID in its segment is denied (hooks skipped: ${doesResumeSkipHooks})`, async () => {
+      harness = await ClaudeAgentTestHarness.start(engine, true, () => ({
+        flowType: doesResumeSkipHooks ? "ReuseResumingWithoutHooks" : "ReuseWithHooks",
+        ...(doesResumeSkipHooks ? { environment: { [fakeClaudeResumeWithoutHooksVariable]: "1" } } : {}),
+      }));
+      const agent = harness;
+      const sessionId = agent.newSessionId("reuse-in-segment");
+      await agent.sessions.startSession(sessionId, 'call Bash {"command":"echo hi"} ;; reuse Bash {"command":"echo again"}');
+      const interrupt = await agent.waitForNewInterrupt(sessionId, "Bash");
+      assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+      const snapshot = await agent.waitForTurns(sessionId, 1);
+
+      assert.equal(
+        snapshot.messages.at(-1)?.text,
+        `reused Bash: PreToolUse:Bash hook error: Bash did not run: the recorded call ${interrupt.toolCallId} ` +
+          "was already resumed in this turn segment.",
+      );
+      assert.equal(agent.invocations.count("Bash"), 1);
+    });
+  }
+
+  test("a call reusing a recorded call's ID under another tool is denied", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("reuse-other-tool");
+    await agent.sessions.startSession(sessionId, 'call Bash {"command":"echo hi"} ;; reuse lookup {"query":"again"}');
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "Bash");
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      `reused lookup: PreToolUse:mcp__tools__lookup hook error: lookup did not run: the recorded call ` +
+        `${interrupt.toolCallId} was already resumed in this turn segment.`,
+    );
+    assert.equal(agent.invocations.count("Bash"), 1);
+    assert.equal(agent.invocations.count("lookup"), 0);
+  });
+
+  test("a call reusing an ID that an earlier segment answered is denied", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("reuse-earlier-segment");
+    await agent.sessions.startSession(
+      sessionId,
+      'call Bash {"command":"echo hi"} && call publish {"message":"p"} ;; reuse Bash {"command":"echo again"}',
+    );
+    const bash = await agent.waitForNewInterrupt(sessionId, "Bash");
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, bash.interruptId, true), true);
+    const publish = await agent.waitForNewInterrupt(sessionId, "publish", [bash.interruptId]);
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, publish.interruptId, true), true);
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    // The third segment reuses the Bash ID that the second segment's transcript already answers.
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      `reused Bash: PreToolUse:Bash hook error: Bash did not run: the recorded call ${bash.toolCallId} ` +
+        "was already resumed in an earlier turn segment.",
+    );
+    assert.equal(agent.invocations.count("Bash"), 1);
+    assert.equal(agent.invocations.count("publish"), 1);
+  });
+
   test("a deferred call whose rewritten input fails the tool's schema is recorded failed and never runs", async () => {
     const agent = await startHarness();
     const sessionId = agent.newSessionId("invalid-input");

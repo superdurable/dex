@@ -167,6 +167,16 @@ export function projectTurnEntries(
   return groups.map((group) => toFrameworkMessage(sessionId, group, toolNamesById, policyToolName));
 }
 
+/** Returns the IDs of the tool uses that have a `tool_result` in `entries`. */
+export function answeredToolUseIds(entries: readonly ClaudeTranscriptEntry[]): ReadonlySet<string> {
+  return new Set(
+    entries
+      .flatMap(contentBlocksOf)
+      .filter((block) => block["type"] === "tool_result" && typeof block["tool_use_id"] === "string")
+      .map((block) => String(block["tool_use_id"])),
+  );
+}
+
 // Non-text blocks become a placeholder such as `[image content omitted]`.
 export function toolResultText(content: unknown): string {
   if (content === null || content === undefined) {

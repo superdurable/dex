@@ -68,6 +68,8 @@ const mismatchedReplayMessage = (toolName: string, toolUseId: string, recordedTo
   `${toolName} did not run: tool use ID ${toolUseId} belongs to a recorded call of ${recordedToolName}.`;
 const repeatedDecisionMessage = (toolName: string, toolUseId: string): string =>
   `${toolName} did not run: tool use ID ${toolUseId} was already decided in this turn segment.`;
+const settledReplayMessage = (toolName: string, toolUseId: string): string =>
+  `${toolName} did not run: the recorded call ${toolUseId} was already resumed in an earlier turn segment.`;
 const repeatedReplayMessage = (toolName: string, toolUseId: string): string =>
   `${toolName} did not run: the recorded call ${toolUseId} was already resumed in this turn segment.`;
 
@@ -206,9 +208,11 @@ export class ToolCallGate {
   private readonly runningToolNames = new Map<string, string>();
   private readonly customToolCallPlans = new Map<string, CustomToolCallPlan>();
 
+  // settledToolUseIds: calls the stored transcript already answers; only a pending deferral may replay.
   public constructor(
     private readonly turn: AgentTurnContext,
     private readonly toolCatalog: ToolCatalog,
+    private readonly settledToolUseIds: ReadonlySet<string>,
   ) {}
 
   /** Returns the policy of a custom or CLI tool, or `undefined` for a source or replay-only tool. */
@@ -383,6 +387,9 @@ export class ToolCallGate {
       throw new Error(`tool call ${record.toolCallId} resumed before it was final`);
     }
     this.replayedToolUseIds.add(record.toolCallId);
+    if (this.settledToolUseIds.has(record.toolCallId)) {
+      return preToolUseDecision("deny", settledReplayMessage(policyToolName, record.toolCallId));
+    }
     // A served record never replays as a CLI tool, nor the reverse, so its input stays with its tool.
     const isServedRecord = this.toolCatalog.isServedToolName(record.toolName);
     if (record.toolName !== policyToolName || isServedRecord !== (servedToolName !== undefined)) {

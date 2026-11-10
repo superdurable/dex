@@ -41,6 +41,7 @@ import { ToolCallGate, ToolCatalog, cliToolNames, type ClaudeCustomTool } from "
 import { createClaudeToolServer } from "./claude-tool-server.js";
 import { ToolSourceRouter, withSourceReference } from "./claude-tool-sources.js";
 import {
+  answeredToolUseIds,
   decodeRunState,
   encodeRunState,
   encodeUserPromptItem,
@@ -381,7 +382,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     const resumedSessionId = resumedEntries.length === 0 ? null : sessionId;
     const sessionStore = new TurnSegmentSessionStore(resumedSessionId, resumedEntries);
     const toolCatalog = await this.listSegmentTools(turn);
-    const toolCallGate = new ToolCallGate(turn, toolCatalog);
+    const toolCallGate = new ToolCallGate(turn, toolCatalog, answeredToolUseIds(resumedEntries));
     const observer = new TurnSegmentObserver(turn, toolCallGate);
     const segmentInput = new TurnSegmentInput(promptContent);
     const abortController = new AbortController();

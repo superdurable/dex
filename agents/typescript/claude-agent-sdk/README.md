@@ -422,6 +422,8 @@ session and sends the failed prompt, the note, and its own prompt as three text 
 - A recorded call replays only as its own tool, a custom or source record never as a tool inside the
   CLI, and at most once per segment. Another tool, or a second decision, under its tool use ID is
   denied and never runs. Every allow of a replay carries the recorded arguments as `updatedInput`.
+  Only the pending deferred call replays: a recorded call whose `tool_result` the stored transcript
+  already holds, because an earlier segment resumed it, is denied.
 - A PreToolUse allow is the call's one authorization, so `canUseTool` denies every later request for
   that tool use ID. `canUseTool` allows only a resumed call whose hook did not run, once, for its own
   tool and kind (served or inside the CLI), with the recorded arguments; the input the CLI passes is
@@ -488,7 +490,9 @@ block of the turn's last real prompt; the mock looks for them after `dex-script:
 - `recall` answers with every earlier prompt of the session.
 - `call <tool> <json>` calls tools; ` && ` joins calls into one reply. A refused call that must run
   alone is called again by itself. A trailing ` ;; pause <gate>` waits at a gate before answering;
-  ` ;; fail` fails once every call has a result (fake CLI only).
+  ` ;; fail` fails once every call has a result (fake CLI only). A trailing ` ;; reuse <tool> <json>`
+  then calls that tool under the tool use ID of the turn's first call and answers
+  `reused <tool>: <result>` (fake CLI only).
 - `stall <gate>` calls `lookup`, streams text, and waits at a gate before answering (fake CLI only).
 - An `Agent` tool call runs a subagent: one assistant message whose `parent_tool_use_id` is the call,
   answered by another model and kept out of the main transcript (fake CLI only).
@@ -526,6 +530,7 @@ also checks that a source call asking a question records `failed`, and one start
 calls the custom tool server over an in-memory MCP transport with a tool name that differs from the
 permitted one, hands the gate deferrals that its PreToolUse hook never deferred or deferred under
 another ID or tool, and replays records under another tool, such as a custom or source record as
-`Bash`, or twice in one segment. It also asks `canUseTool` after the hook allowed a call, with any
-input or kind, asks it twice for a resumed call whose hook did not run, and repeats PreToolUse for a
-decided ID.
+`Bash`, or twice in one segment. They also ask `canUseTool` after the hook allowed a call, with any
+input or kind, ask it twice for a resumed call whose hook did not run, and repeat PreToolUse for a
+decided ID. `deferred-tool-calls.integration.test.ts` reuses a resumed call's ID in its segment, under
+another tool, and in a later segment.
