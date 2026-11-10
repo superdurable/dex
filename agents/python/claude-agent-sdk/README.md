@@ -203,6 +203,57 @@ text. An exception fails the Step attempt: an `idempotent_write` call retries,
 and once its attempts run out, or at once for a single-attempt call, the
 session records `outcome_unknown`, because the write may have taken effect.
 
+## Tool sources and connector tools
+
+`tool_sources` takes the core's tool sources, such as `ConnectorToolSource`,
+which offers reviewed Connector operations (install `dex-agents[connectors]`).
+See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks/deploy-agents.mdx#connector-tools)
+for what the manifest decides.
+
+```python
+from dex_agents.connectors import ConnectorToolSource, connector_tool
+
+stripe = new_project_connection(project, "billing-stripe")
+flow = claude_agent_session_flow(
+    build_options,
+    [lookup_order],
+    flow_type="SupportAgent",
+    tool_sources=[
+        ConnectorToolSource([
+            connector_tool(stripe.operations.create_refund(), stripe.reference),
+        ]),
+    ],
+)
+```
+
+- The runner lists every source in each `RunModel` attempt and serves its
+  tools from the custom tool server, after the custom tools, with the source's
+  name, description, and JSON Schema. The model sees `mcp__tools__<name>`;
+  policies, interrupts, and records use `<name>`.
+- Every call of a source tool defers, reads included, because the source needs
+  its tool Step: a connector call derives its Call ID from the Step execution
+  ID and keeps its fence marker in the Step's heartbeat checkpoint. The source
+  builds the call from the CLI's final input, after your hooks' `updatedInput`,
+  so it decides the effect class and approval, and `tool_call_step_options`
+  gives the tool Step the operation's timeout and retry policy. A
+  `tool_policies` entry for a connector tool changes only its approval.
+- The tool Step runs the call through the source's `execute_deferred_tool_call`.
+  The resumed CLI receives the final record through the custom tool server, as
+  for a deferred custom tool; the source never runs inside the CLI.
+- Writes of one reply run one at a time in the model's order, because one call
+  per segment leaves the turn. A later deferrable call is refused inside the
+  turn with a message that asks the model to read the earlier result first. It
+  leaves no record, so the core's `skipped` marker never appears here.
+- Definition fails with `ValueError` when two sources share a `source_name`,
+  or a source's `declared_tool_names` repeat a custom tool, a name in
+  `CLAUDE_CODE_BUILT_IN_TOOL_NAMES`, or another source's tool. The same names
+  listed at run time fail that `RunModel` attempt. An `allowed_tools` entry for
+  a source tool fails the attempt, because the call must defer.
+- The runner polls no tool tasks. A source call that starts one records
+  `failed` for a `read` call and `outcome_unknown` otherwise. A source whose
+  listing fails or takes longer than `tool_source_listing_timeout` offers no
+  tools in that attempt.
+
 ## How a turn runs
 
 1. `build_user_message` stores the prompt as
@@ -373,8 +424,8 @@ model sees what already ran.
 Recorded in Dex state, never repeated after a crash:
 
 - The transcript of every completed turn, and the entries of a suspended turn.
-- Every deferred custom tool call and its outcome: output text, failure,
-  rejection, or unknown outcome.
+- Every deferred custom tool call and source tool call, and its outcome:
+  output text, failure, rejection, or unknown outcome.
 - Approvals and rejections of every deferred call, including CLI tools.
 
 Not recorded, and repeated when `RunModel` reruns a segment after a crash:
@@ -479,7 +530,17 @@ the `tracing` option of `claude_agent_session_flow`. A scripted `Agent` call
 runs a subagent whose assistant message carries `parent_tool_use_id`. The
 real-CLI tests cover a resume across a
 Worker restart, four resumes in one session including a plain-text rejection,
-and two writes in one reply under `dontAsk`.
+and two writes in one reply under `dontAsk`, custom and connector.
+
+`tests/test_connector_tools.py` runs connector tools from a copy of the core
+tests' fake ledger Connector (`tests/fake_ledger`): a Query in its tool Step, a
+Mutation with manifest approval across a Worker restart, a session policy that
+changes only approval, an approval predicate on hook-rewritten input, a
+`retry: safe` Mutation retried with the same Call ID, with and without a
+SIGKILL, `uncertain` writes recorded `outcome_unknown`, a rejected branch and
+bad arguments that never reach the provider, two writes of one reply in the
+model's order, an `allowed_tools` entry for a source tool, an unexposed
+operation, and refused name collisions.
 
 ## Notes for other languages
 
