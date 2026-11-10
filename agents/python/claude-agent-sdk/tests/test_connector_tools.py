@@ -11,8 +11,11 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions, tool
@@ -21,16 +24,20 @@ from dex_agents import (
     OUTCOME_UNKNOWN_TOOL_RESULT,
     AgentSnapshot,
     AgentToolCall,
+    AgentTurnContext,
     MessageRole,
     ToolCallStatus,
+    ToolCallStepOptionsProvider,
     ToolEffect,
 )
 from dex_agents.connectors import ConnectorToolSource, connector_tool
 from dex_agents_claude_agent_sdk import ClaudeAgentRunner, claude_agent_session_flow
+from dex_agents_claude_agent_sdk.tool_sources import ToolSourceRouter
 from tests.claude_test_agent import (
     ALLOWED_TOOLS_ENVIRONMENT_VARIABLE,
     RAISED_PAYOUT_AMOUNT,
     RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE,
+    build_connector_source,
 )
 from tests.conftest import ClaudeAgentHarness
 from tests.fake_ledger import (
@@ -39,6 +46,44 @@ from tests.fake_ledger import (
     FakeLedgerProvider,
     GetBalanceOperation,
 )
+
+
+async def test_a_source_call_gets_its_operation_timeout_and_bounded_retries(
+    tmp_path: Path,
+) -> None:
+    source = build_connector_source(tmp_path)
+    runner = ClaudeAgentRunner(lambda context: ClaudeAgentOptions(), tool_sources=[source])
+    assert isinstance(runner, ToolCallStepOptionsProvider)
+    [listed] = [
+        listed
+        for name, listed in (
+            await ToolSourceRouter([source], timedelta(seconds=5), ()).list_source_tools()
+        ).items()
+        if name == "post_note"
+    ]
+    # ConnectorToolSource reads only tool_policies from the turn.
+    turn = cast(AgentTurnContext, SimpleNamespace(tool_policies={}))
+    deferred = listed.build_deferred_tool_call(turn, "toolu_1", '{"accountId":"a-1"}')
+    record = AgentToolCall(
+        tool_call_id=deferred.tool_call_id,
+        turn_id="turn-1",
+        tool_name=deferred.tool_name,
+        arguments=deferred.arguments,
+        effect=deferred.policy.effect,
+        requires_approval=deferred.policy.is_approval_required,
+        status=ToolCallStatus.APPROVED,
+        tool_source_reference=deferred.tool_source_reference,
+    )
+    options = runner.tool_call_step_options(record)
+    assert options is not None
+    assert options.execute_method_timeout == timedelta(seconds=30)
+    assert options.execute_retry is not None and options.execute_retry.maximum_attempts == 3
+    # The runner unwraps its envelope and asks the source with the source's own reference.
+    inner = replace(record, tool_source_reference=json.dumps({"tool": "post_note"}))
+    assert options == source.tool_call_step_options(inner)
+    # Custom tools and CLI tools keep the tool Steps' defaults.
+    assert runner.tool_call_step_options(replace(record, tool_source_reference=None)) is None
+
 
 BALANCE = '{"accountId":"a-1","amount":100}'
 FIRST_PAYOUT = '{"amount":5,"payoutId":"createPayout-1"}'

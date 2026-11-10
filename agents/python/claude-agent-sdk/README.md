@@ -540,7 +540,7 @@ changes only approval, an approval predicate on hook-rewritten input, a
 SIGKILL, `uncertain` writes recorded `outcome_unknown`, a rejected branch and
 bad arguments that never reach the provider, two writes of one reply in the
 model's order, an `allowed_tools` entry for a source tool, an unexposed
-operation, and refused name collisions.
+operation, refused name collisions, and the operation's tool Step options.
 
 ## Notes for other languages
 

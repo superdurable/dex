@@ -1432,8 +1432,9 @@ later writes record `FAILED` with `skipped=True` and the error
 `TOOL_CALL_NOT_RUN_ERROR_PREFIX + ": " + TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL`.
 Steering and `cancel_turn` cancel queued writes as they cancel unstarted calls.
 
-Framework adapters do not offer connector tools yet; `ToolSource` is Stepwise
-only. The Go core has function tools only.
+The Claude Agent SDK adapter also takes tool sources, through its own
+`tool_sources`; see its README. The other framework adapters do not offer
+connector tools yet. The Go core has function tools only.
 
 ## Browser streams
 
