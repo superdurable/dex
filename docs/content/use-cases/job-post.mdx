@@ -13,7 +13,7 @@ Store one job posting, make it searchable, and deliver every accepted update to 
 Each Flow is one job posting for its whole life. It must:
 
 1. Create the Flow with a title, description, last-update timestamp, and update version 0. The title is stored in the **text1** full-text Search Attribute. The description is stored but not indexed.
-2. Run **InitStep** once. It starts **UpdateLinkedInPosting** and **UpdateIndeedPosting** in parallel. Each Step then waits on its own Channel.
+2. Run the Init Step once. It starts **UpdateLinkedInPosting** and **UpdateIndeedPosting** in parallel. Each Step then waits on its own Channel.
 3. Return the current title, description, and notes through a read RPC.
 4. Accept a replacement title, description, and notes through an update RPC. The RPC declares a lock on **UpdatePostingLock**, an Attribute that holds no value and exists only for this lock. Dex then runs one update at a time, so only one update at a time takes a version and publishes.
 5. Increment **UpdateVersion**, persist the current posting, and publish the same immutable **PostingUpdate** to **LinkedInPostingUpdates** and **IndeedPostingUpdates**. The payload contains the version, a stable idempotency key, and the posting snapshot.
@@ -73,7 +73,7 @@ The consumer Steps need no Attribute lock. Each job board has only one consumer 
 
 ## Core implementation
 
-Each tab shows the Flow from the linked runnable example: **InitStep**, the locked update RPC that publishes to both Channels, the consumer loops, and the retry policy.
+Each tab shows the Flow from the linked runnable example: the Init Step, the locked update RPC that publishes to both Channels, the consumer loops, and the retry policy.
 
 <SdkTabs
   examples={{
@@ -527,7 +527,7 @@ impl Step for UpdateLinkedInPosting {
 
 ## Demo
 
-Run Dex and any language example server, then create and update a posting from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). This run accepted two updates. The graph shows **InitStep**, two ordered executions for each job board, and the next LinkedIn and Indeed consumer executions waiting for another Channel message.
+Run Dex and any language example server, then create and update a posting from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). This run accepted two updates. The graph shows the Init Step, two ordered executions for each job board, and the next LinkedIn and Indeed consumer executions waiting for another Channel message.
 
 <a href="/img/use-cases/job-posting-step-execution-graph.png" target="_blank" rel="noopener noreferrer" title="Open the full-resolution Step graph">
   <img className="job-posting-step-graph" src="/img/use-cases/job-posting-step-execution-graph.png" alt="Job posting Flow with InitStep and two ordered Channel consumer executions per job board" />

@@ -10,9 +10,9 @@ Drain the queued requests, then complete the parent without losing a request tha
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** fills **RequestChannel**, initializes **CurrSubFlowNum**, and starts N workers. **CurrSubFlowNum** counts the running SubFlows. **HandleRequest.Execute** locks it and adds one. **HandleSubFlow.Execute** takes the same lock and subtracts one.
+The Init Step fills **RequestChannel**, initializes **CurrSubFlowNum**, and starts N workers. **CurrSubFlowNum** counts the running SubFlows. The Execute method of the HandleRequest Step locks it and adds one. The Execute method of the HandleSubFlow Step takes the same lock and subtracts one.
 
-The last active worker returns **ForceCompleteIfChannelsEmpty**. Dex then checks **RequestChannel** and completes the Flow only if the Channel is empty. If an RPC has published a request first, Dex schedules another **HandleRequest** instead. The check and the completion happen together, so no request can arrive between them. Checking the Channel size in application code cannot give this guarantee.
+The last active worker returns **ForceCompleteIfChannelsEmpty**. Dex then checks **RequestChannel** and completes the Flow only if the Channel is empty. If an RPC has published a request first, Dex schedules another HandleRequest Step instead. The check and the completion happen together, so no request can arrive between them. Checking the Channel size in application code cannot give this guarantee.
 
 ## Core implementation
 

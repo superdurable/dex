@@ -10,7 +10,7 @@ Keep a fixed pool of worker Steps running while the Flow accepts more requests.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** publishes the initial requests to **RequestChannel**, sets **Stopped** to false, and starts N **HandleRequest** executions. Each worker takes the oldest message and moves to **HandleSubFlow**. That Step starts **ExampleSubFlow** and waits for it. When the child completes, the Step loops back to **HandleRequest**. If the **Stop** RPC has set **Stopped** to true, it completes gracefully instead.
+The Init Step publishes the initial requests to **RequestChannel**, sets **Stopped** to false, and starts N HandleRequest Step executions. Each worker takes the oldest message and moves to the HandleSubFlow Step. That Step starts **ExampleSubFlow** and waits for it. When the child completes, the Step loops back to the HandleRequest Step. If the **Stop** RPC has set **Stopped** to true, it completes gracefully instead.
 
 **SendRequest** checks the Channel size before it publishes. When the Channel reaches the buffer threshold, it returns false. The caller can then back off and retry, and the parent is not overloaded.
 

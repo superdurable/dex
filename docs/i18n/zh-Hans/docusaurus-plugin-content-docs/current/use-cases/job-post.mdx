@@ -14,7 +14,7 @@ import flowDefinition from '@site/src/data/flow-definitions/job-post.json';
 每个 Flow 在整个生命周期内代表一条职位信息。它必须：
 
 1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称保存在 **text1** 全文检索 Search Attribute 中。描述会保存，但不建索引。
-2. 只运行一次 **InitStep**，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。之后每个 Step 在自己的 Channel 上等待。
+2. 只运行一次 Init Step，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。之后每个 Step 在自己的 Channel 上等待。
 3. 通过读取 RPC 返回当前名称、描述和备注。
 4. 通过更新 RPC 接收新的名称、描述和备注。RPC 声明对 **UpdatePostingLock** 的 lock。这个 Attribute 没有值，只用来加 lock。这样 Dex 一次只运行一个更新，同一时间只有一个更新能分配版本并发布消息。
 5. 递增 **UpdateVersion**，持久化当前职位信息，并把同一个不可变 **PostingUpdate** 发布到 **LinkedInPostingUpdates** 和 **IndeedPostingUpdates**。消息包含版本、稳定的幂等键和职位快照。
@@ -74,7 +74,7 @@ consumer Step 不需要 Attribute lock。每个招聘网站同一时间只有一
 
 ## 核心实现
 
-每个标签页展示链接的可运行示例中的 Flow：**InitStep**、带 lock 并向两个 Channel 发布的更新 RPC、consumer 循环和重试策略。
+每个标签页展示链接的可运行示例中的 Flow：Init Step、带 lock 并向两个 Channel 发布的更新 RPC、consumer 循环和重试策略。
 
 <SdkTabs
   examples={{
@@ -528,7 +528,7 @@ impl Step for UpdateLinkedInPosting {
 
 ## 演示
 
-运行 Dex 和任意语言的示例服务，然后在[示例 Playground](https://github.com/superdurable/dex/tree/main/examples/playground)中创建并更新职位。下面的运行接受了两次更新。执行图显示 **InitStep**、每个招聘网站的两个有序 execution，以及等待下一条 Channel 消息的 LinkedIn 和 Indeed consumer execution。
+运行 Dex 和任意语言的示例服务，然后在[示例 Playground](https://github.com/superdurable/dex/tree/main/examples/playground)中创建并更新职位。下面的运行接受了两次更新。执行图显示 Init Step、每个招聘网站的两个有序 execution，以及等待下一条 Channel 消息的 LinkedIn 和 Indeed consumer execution。
 
 <a href="/img/use-cases/job-posting-step-execution-graph.png" target="_blank" rel="noopener noreferrer" title="打开原始分辨率 Step graph">
   <img className="job-posting-step-graph" src="/img/use-cases/job-posting-step-execution-graph.png" alt="职位发布 Flow，其中 InitStep 为每个招聘网站启动两个有序的 Channel consumer execution" />

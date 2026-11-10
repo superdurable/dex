@@ -11,7 +11,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** 将初始请求发布到 **RequestChannel**，把 **Stopped** 设为 false，并启动 N 个 **HandleRequest**。每个 worker 取出最早的一条消息，然后跳转到 **HandleSubFlow**。这个 Step 启动并等待 **ExampleSubFlow**。子 Flow 完成后，它回到 **HandleRequest**；如果 **Stop** RPC 已把 **Stopped** 设为 true，它就 graceful complete。
+Init Step 将初始请求发布到 **RequestChannel**，把 **Stopped** 设为 false，并启动 N 个 HandleRequest Step。每个 worker 取出最早的一条消息，然后跳转到 HandleSubFlow Step。这个 Step 启动并等待 **ExampleSubFlow**。子 Flow 完成后，它回到 HandleRequest Step；如果 **Stop** RPC 已把 **Stopped** 设为 true，它就 graceful complete。
 
 **SendRequest** 在发布前检查 Channel size。Channel 达到 buffer threshold 时，它返回 false。调用方可以稍后重试，父 Flow 也不会过载。
 
