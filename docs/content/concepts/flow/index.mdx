@@ -20,7 +20,7 @@ that shares that identity and lifecycle into [Steps](/concepts/step) of the
 same Flow. Steps can run in parallel inside one Flow.
 
 Start a separate Flow when the work has its own owner and lifecycle. Two Flows
-coordinate through RPCs and Channels. Use a [SubFlow](/concepts/primitives/subflow)
+coordinate by calling each other's RPCs. Use a [SubFlow](/concepts/primitives/subflow)
 when a parent Step waits for a child Flow, for example to split complex logic
 into smaller Flows or to fan out work.
 
@@ -221,7 +221,7 @@ A Flow closes in one of these ways:
 
 Instead of failing or canceling the Flow, a timeout can run a handler that
 decides the outcome. While the Flow runs, clients read and change it through
-RPCs and Channels.
+its RPCs.
 
 ## Start options and configuration {#start-options}
 

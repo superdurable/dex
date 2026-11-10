@@ -14,7 +14,7 @@ Dex 负责 Flow 的生命周期和状态。你的代码不需要数据库或任�
 
 每个需要由 Dex 管理流程的业务身份，用一个 Flow。共享这个身份和生命周期的工作，放进同一个 Flow 的 [Step](/concepts/step)。一个 Flow 里的 Step 可以并行运行。
 
-工作有自己的 owner 和生命周期时，启动另一个 Flow。两个 Flow 之间通过 RPC 和 Channel 协作。父 Step 要等待子 Flow 时，用 [SubFlow](/concepts/primitives/subflow)，例如把复杂逻辑拆成更小的 Flow，或者 fan out 工作。
+工作有自己的 owner 和生命周期时，启动另一个 Flow。两个 Flow 之间通过调用对方的 RPC 协作。父 Step 要等待子 Flow 时，用 [SubFlow](/concepts/primitives/subflow)，例如把复杂逻辑拆成更小的 Flow，或者 fan out 工作。
 
 ## 保证 {#guarantees}
 
@@ -195,7 +195,7 @@ Flow 在以下情况下关闭：
 - client 停止它；
 - 用同一个 Flow ID 的新启动终止它。只有新启动使用的 ID reuse policy 会终止正在运行的 Flow 时，才会这样。用 **ALWAYS_RESTART** 启动的 SubFlow 也会这样终止之前的子 Flow。
 
-timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。Flow 运行期间，client 通过 RPC 和 Channel 读取和修改它。
+timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。Flow 运行期间，client 通过它的 RPC 读取和修改它。
 
 ## Start options 和配置 {#start-options}
 
