@@ -1,3 +1,10 @@
+import DexExpressiveness.Failure.Composite.WPF6Sequences
+import DexExpressiveness.Failure.Composite.WPF6Abstraction
+import DexExpressiveness.Failure.Composite.WPF6Run
+import DexExpressiveness.Failure.Composite.WPF6Lift
+import DexExpressiveness.Failure.Composite.WPF6Forward
+import DexExpressiveness.Failure.Composite.WPF6Backward
+
 /-!
 # Helper lemmas of the main statements
 

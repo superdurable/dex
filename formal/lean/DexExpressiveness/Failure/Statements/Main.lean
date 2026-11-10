@@ -104,7 +104,14 @@ theorem liveness_failure (program : Program σ)
         marker →
       ∃ failureTrace, IsFailureFairMaximalTrace program word failureTrace marker ∧
         IsRepeatErasure failureTrace trace) := by
-  sorry
+  refine ⟨?_, ?_⟩
+  · intro hasFailureTrace
+    obtain ⟨failureTrace, isFailureTrace, isErased⟩ := hasFailureTrace
+    exact wpf6_liveness_forward program ignoresAttemptContext environment word isAdmissible
+      erasedWord isErasure trace marker failureTrace isFailureTrace isErased
+  · intro hasNoRetry isDexTrace
+    exact wpf6_liveness_backward program ignoresAttemptContext environment word isAdmissible
+      erasedWord isErasure trace marker hasNoRetry isDexTrace
 
 /-! ## WP-F7: the end-to-end corollary -/
 

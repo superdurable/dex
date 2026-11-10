@@ -1,4 +1,6 @@
 import DexExpressiveness.Failure.Proofs.WPF6Progress
+import DexExpressiveness.Failure.Proofs.WPF6FrameTasks
+import DexExpressiveness.Failure.Proofs.WPF6FrameAttempts
 
 /-!
 # Proofs of the leaf statements
