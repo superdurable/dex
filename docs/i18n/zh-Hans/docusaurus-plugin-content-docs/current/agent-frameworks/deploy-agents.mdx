@@ -357,14 +357,14 @@ session 的 **tool_policies**（**toolPolicies**）中针对 connector tool 的�
 
 ### 结果 {#connector-tools-outcomes}
 
-operation 选中的 branch 决定 tool call 的记录。Connector 作者在 **agent.branches** 中列出需要说明的 branch：**rejected**（什么都没有生效）或 **unknown**（写入可能已经生效）。按顺序取第一个匹配的行。排在列表之前的行只会把结果变成未知，所以规则在不确定时按最保守的方式处理：
+operation 选中的 branch 决定 tool call 的记录。Connector 作者在 **agent.branches** 中列出需要说明的 branch：**rejected**（什么都没有生效）或 **unknown**（写入可能已经生效）。按顺序取第一个匹配的行。在列表规则之前的各行中，除了成功 branch 那一行，其余都记为 **outcome_unknown**，所以规则在不确定时按最保守的方式处理：
 
 | Branch | 记录 | 模型看到 |
 | --- | --- | --- |
-| 成功 branch，例如 **sent** 或 **refunded** | **succeeded** | 结果值 |
 | **uncertain** | **outcome_unknown** | 结果未知 |
 | Mutation 的 **defect** | **outcome_unknown** | 结果未知 |
-| single-dispatch fence 无法证明请求没有发出的 Mutation 的任何 branch | **outcome_unknown** | 结果未知 |
+| 成功 branch，例如 **sent** 或 **refunded** | **succeeded** | 结果值 |
+| single-dispatch fence 无法证明请求没有发出时，Mutation 的其他任何 branch | **outcome_unknown** | 结果未知 |
 | 列为 **rejected** 的 branch，例如 **providerRejected** | **failed** | branch 和 provider 的消息 |
 | 列为 **unknown** 的 branch，或未列出的 Mutation branch | **outcome_unknown** | 结果未知 |
 | 未列出的 Query branch，包括 **defect** | **failed** | branch 和消息 |
