@@ -27,6 +27,7 @@ from pydantic_ai import (
     ModelResponse,
     RunContext,
     RunUsage,
+    Tool,
     ToolApproved,
     ToolCallPart,
     ToolDefinition,
@@ -42,7 +43,7 @@ from pydantic_ai.capabilities import ReinjectSystemPrompt
 from pydantic_ai.messages import UserContent
 from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.output import OutputSpec
-from pydantic_ai.toolsets import ExternalToolset
+from pydantic_ai.toolsets import AbstractToolset, ExternalToolset, FunctionToolset
 
 from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
@@ -295,8 +296,11 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
             note = build_context_summary_note(turn.context_summary)
             prior_history.insert(0, ModelRequest(parts=[UserPromptPart(note)]))
         user_prompt = read_turn_user_prompt(turn.messages, turn.turn_id)
-        capability = DexModelStepCapability(turn=turn)
         source_tools = await self._tool_sources.list_source_tools(turn)
+        capability = DexModelStepCapability(
+            turn=turn,
+            replay_only_tool_names=frozenset(tool.name for tool in source_tools.replay_only_tools),
+        )
         earlier_turn_messages: Sequence[ModelMessage] = ()
         recorded_tool_call_ids: Sequence[str] = ()
         if turn.framework_run_state is None:
@@ -557,7 +561,7 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
             deps=self._create_deps(turn.flow_id),
             model=self._model,
             conversation_id=turn.flow_id,
-            toolsets=[_source_toolset(source_tools)] if source_tools.tools else None,
+            toolsets=_source_toolsets(source_tools) or None,
             # Restores system prompts when no replayed turn holds them, as after failed first turns.
             capabilities=[
                 capability,
@@ -740,18 +744,46 @@ def _function_tool_names(agent: AbstractAgent[Any, Any]) -> set[str]:
     return names
 
 
-def _source_toolset(source_tools: SourceToolListing) -> ExternalToolset[Any]:
-    # External tools never run, so the run ends and the call reaches its tool Step.
-    return ExternalToolset(
-        [
-            ToolDefinition(
-                name=tool.name,
-                description=tool.description,
-                parameters_json_schema=dict(tool.input_schema),
+def _source_toolsets(source_tools: SourceToolListing) -> list[AbstractToolset[Any]]:
+    toolsets: list[AbstractToolset[Any]] = []
+    if source_tools.tools:
+        # External tools never run, so the run ends and the call reaches its tool Step.
+        toolsets.append(
+            ExternalToolset(
+                [
+                    ToolDefinition(
+                        name=tool.name,
+                        description=tool.description,
+                        parameters_json_schema=dict(tool.input_schema),
+                    )
+                    for tool in source_tools.tools
+                ]
             )
-            for tool in source_tools.tools
-        ]
-    )
+        )
+    if source_tools.replay_only_tools:
+        # A recorded call replays its supplied result; a new call reads the refusal, never a Step.
+        toolsets.append(
+            FunctionToolset(
+                [
+                    Tool.from_schema(
+                        _SourceToolRefusal(source_tools.not_offered_result(tool.name)),
+                        name=tool.name,
+                        description=tool.description,
+                        json_schema=dict(tool.input_schema),
+                    )
+                    for tool in source_tools.replay_only_tools
+                ]
+            )
+        )
+    return toolsets
+
+
+class _SourceToolRefusal:
+    def __init__(self, refusal: str) -> None:
+        self._refusal = refusal
+
+    def __call__(self, **arguments: Any) -> str:
+        return self._refusal
 
 
 def _run_output_type_with_deferred_tool_requests(
@@ -871,6 +903,7 @@ def _require_every_tool_result_recorded(
                 isinstance(part, ToolReturnPart)
                 and part.outcome == "success"
                 and part.tool_name in capability.tool_definitions
+                and part.tool_name not in capability.replay_only_tool_names
                 and part.tool_call_id not in recorded_ids
             ):
                 raise RuntimeError(

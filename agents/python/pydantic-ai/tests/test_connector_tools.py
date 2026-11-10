@@ -34,7 +34,7 @@ from dex_agents.connectors import ConnectorToolSource, connector_tool
 from dex_agents.stepwise import FrameworkToolSourceRouter
 from dex_agents_pydantic_ai import PydanticAIRunner, pydantic_ai_session_flow
 from tests.conftest import ScriptedAgentHarness
-from tests.connector_agent import build_connector_agent, build_connector_source
+from tests.connector_agent import WITHDRAWN_FILE_NAME, build_connector_agent, build_connector_source
 from tests.fake_ledger import (
     LEDGER_CONNECTION,
     CloseAccountOperation,
@@ -44,6 +44,7 @@ from tests.fake_ledger import (
 
 BALANCE = '{"accountId":"a-1","amount":100}'
 SKIPPED_ERROR = f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL}"
+NOT_OFFERED = "hiding_note did not run: its tool source does not offer this tool now."
 FIRST_PAYOUT = '{"amount":5,"payoutId":"createPayout-1"}'
 
 
@@ -275,6 +276,59 @@ async def test_a_rejected_write_skips_the_later_writes_of_the_response(
     assert lines[0].startswith("approved_payout: ") and "not now" in lines[0]
     assert lines[1].startswith("post_note: ") and SKIPPED_ERROR in lines[1]
     assert ledger.sends() == []
+
+
+@pytest.mark.parametrize("withdrawn", ["empty", "raise"])
+async def test_a_new_call_of_a_tool_its_source_withdrew_is_refused_before_any_step(
+    connector_harness: ScriptedAgentHarness, withdrawn: str
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    ledger = _ledger(harness)
+    session_id = harness.new_session_id()
+    first = {"accountId": "a-1", "text": "first gate-after-accept:withdraw"}
+    second = {"accountId": "a-1", "text": "second"}
+    await harness.sessions.start_session(
+        session_id,
+        _calls(("hiding_note", first)) + " then " + json.dumps([["hiding_note", second]]),
+    )
+    await harness.gate("withdraw").wait_until_reached()
+    # The next RunModel's listing lacks the tool whose recorded call it must replay.
+    (harness.state_dir / WITHDRAWN_FILE_NAME).write_text(withdrawn)
+    harness.gate("withdraw").release()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.state is not None and snapshot.state.last_turn_error is None
+    lines = _answer_lines(snapshot)
+    assert lines[0] == 'hiding_note: {"noteId":"postNote-1"}'
+    assert lines[1].startswith("hiding_note: ")
+    assert NOT_OFFERED in lines[1]
+    assert len(ledger.sends("postNote")) == 1
+    assert (await harness.executed_step_types(session_id)).count("CallSingleAttemptTool") == 1
+
+
+@pytest.mark.parametrize("second_tool", ["get_balance", "post_note"])
+async def test_a_reused_call_id_never_replays_a_recorded_result(
+    connector_harness: ScriptedAgentHarness, second_tool: str
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    ledger = _ledger(harness)
+    session_id = harness.new_session_id()
+    later = [[second_tool, {"accountId": "a-1", "text": "reused"}, "reused-id"]]
+    if second_tool == "get_balance":
+        later = [["get_balance", {"accountId": "a-1"}, "reused-id"]]
+    await harness.sessions.start_session(
+        session_id,
+        "calls "
+        + json.dumps([["get_balance", {"accountId": "a-1"}, "reused-id"]])
+        + " then "
+        + json.dumps(later),
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.state is not None
+    assert "reused-id" in (snapshot.state.last_turn_error or "")
+    assert ledger.sends("postNote") == []
+    assert len(ledger.sends("getBalance")) <= 1
 
 
 async def test_a_source_call_gets_its_operation_timeout_and_bounded_retries(
