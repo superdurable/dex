@@ -110,6 +110,7 @@ export function SessionView({
 
   const { view } = session;
   const neededPermission = sessionPermissionToChoose(schema, workQueuePermissions);
+  const permissionHint = neededPermission && onChooseWorkingAs ? SESSION_COPY.chooseWorkingAs(neededPermission) : null;
   return (
     <section className="ses" aria-label={SESSION_COPY.tabSession}>
       <SessionHeader session={session} onReload={reload} />
@@ -128,7 +129,7 @@ export function SessionView({
       {neededPermission && onChooseWorkingAs && (
         <p className="ses-permission">
           <ShieldAlert aria-hidden="true" size={15} />
-          <span>{SESSION_COPY.chooseWorkingAs(neededPermission)}</span>
+          <span>{permissionHint}</span>
           <button className="ses-workas" onClick={() => onChooseWorkingAs(neededPermission)} type="button">
             {SESSION_COPY.workAs(neededPermission)}
           </button>
@@ -169,6 +170,7 @@ export function SessionView({
       </div>
       <SessionControls
         context={controlContext}
+        hintShownAbove={permissionHint}
         invoke={invoke}
         onActed={reload}
         schema={schema}
@@ -338,6 +340,7 @@ function SessionControls({
   schema,
   session,
   context,
+  hintShownAbove,
   invoke,
   onActed,
   steerRef,
@@ -347,6 +350,8 @@ function SessionControls({
   schema: AgentSessionSchema;
   session: LoadedAgentSession;
   context: SessionControlContext;
+  /** The Working as hint at the top of the tab, which the composer does not repeat. */
+  hintShownAbove: string | null;
   invoke: SessionActionInvoker;
   onActed: () => void;
   steerRef: RefObject<HTMLTextAreaElement | null>;
@@ -422,8 +427,10 @@ function SessionControls({
           </div>
         </div>
         {steerBlocked === null && activeTurnId === null && <p className="agc-note">{SESSION_COPY.steerIdleNote}</p>}
-        {steerBlocked !== null && <p className="agc-blocked">{steerBlocked}</p>}
-        {stopBlocked !== null && stopBlocked !== steerBlocked && <p className="agc-blocked">{SESSION_COPY.stop}: {stopBlocked}</p>}
+        {steerBlocked !== null && steerBlocked !== hintShownAbove && <p className="agc-blocked">{steerBlocked}</p>}
+        {stopBlocked !== null && stopBlocked !== steerBlocked && stopBlocked !== hintShownAbove && (
+          <p className="agc-blocked">{SESSION_COPY.stop}: {stopBlocked}</p>
+        )}
         {message && <p className={message.tone === 'error' ? 'agc-error' : 'agc-note'} role="status">{message.text}</p>}
       </form>
     </footer>

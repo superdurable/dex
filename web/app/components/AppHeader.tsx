@@ -118,9 +118,9 @@ export function AppHeader() {
       <nav className="header-nav" aria-label="Primary navigation">
         <NavLink className="header-core-link" to={FLOWS_PATH}>Flows</NavLink>
         <span className="header-nav-spacer" />
-        <span className="connection-pill">
+        <span className="connection-pill" title="Dex server">
             <span className="connection-dot" />
-            Dex server
+            <span className="connection-label">Dex server</span>
         </span>
         <label className="timezone-control">
           <span>Timezone</span>

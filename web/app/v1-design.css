@@ -2658,6 +2658,38 @@ body:has(.v1-page) {
   line-height: 1.35;
 }
 
+/* A phone keeps every header entry: the brand drops its maker line and Experimental shows its icon. */
+@media (max-width: 760px) {
+  .app-header .header-nav {
+    min-width: 0;
+    margin-left: 12px;
+  }
+
+  .header-brand {
+    gap: 8px;
+  }
+
+  .brand-name > span,
+  .experimental-menu-label {
+    display: none;
+  }
+
+  .experimental-menu-button {
+    gap: 3px;
+    padding: 7px 8px;
+  }
+
+  .experimental-menu-popover {
+    position: fixed;
+    top: calc(var(--header-h) + 6px);
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100dvh - var(--header-h) - 18px);
+    overflow-y: auto;
+  }
+}
+
 .page-title-badge {
   margin-left: 8px;
   font-size: 11px;

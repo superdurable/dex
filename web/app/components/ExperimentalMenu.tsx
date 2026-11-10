@@ -54,13 +54,14 @@ export function ExperimentalMenu({ pages }: { pages: readonly ExperimentalPage[]
         aria-controls={menuId}
         aria-expanded={isOpen}
         aria-haspopup="menu"
+        aria-label="Experimental"
         className="experimental-menu-button"
         data-active={isOnExperimentalPage ? 'true' : undefined}
         onClick={() => setIsOpen((open) => !open)}
         type="button"
       >
         <FlaskConical aria-hidden="true" size={15} strokeWidth={2} />
-        Experimental
+        <span className="experimental-menu-label">Experimental</span>
         <ChevronDown aria-hidden="true" className="experimental-menu-chevron" size={14} strokeWidth={2} />
       </button>
       {isOpen && (

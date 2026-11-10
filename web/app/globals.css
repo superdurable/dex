@@ -3387,9 +3387,14 @@ button.timeline-edge-stub:focus-visible {
     padding: 0 14px;
   }
 
-  .connection-pill,
+  .connection-label,
   .timezone-control > span {
     display: none;
+  }
+
+  /* The status pill keeps only its dot on a phone. */
+  .connection-pill {
+    padding: 9px;
   }
 
   .header-nav {

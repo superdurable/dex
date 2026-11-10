@@ -11,6 +11,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SESSION_COPY } from './copy';
+import type { FlowV2Action } from '@superdurable/flow-definition-renderer';
 import type { SessionView as SessionReadView, ToolCallView } from './sessionModel';
 import type { LoadedAgentSession } from './useAgentSession';
 import { messageTextParts, SessionView } from './SessionView';
@@ -112,5 +113,29 @@ describe('SessionView', () => {
     const chip = screen.getByText(SESSION_COPY.waitingForApproval(1));
     expect(chip.closest('.ses-status')?.getAttribute('data-tone')).toBe('attention');
     expect(screen.getByTestId('tool-call-call-1').dataset.tone).toBe('attention');
+  });
+
+  it('asks for Working as once, at the top of the tab', () => {
+    const operate = (rpcName: string): FlowV2Action => ({
+      rpcName, label: rpcName, requiredPermission: 'coding.operate', input: { kind: 'object', fields: [] },
+    });
+    const actionSchema = { ...schema, steerUserMessage: operate('steer_user_message'), cancelTurn: operate('cancel_turn') };
+    loaded = sessionOf({
+      state: { status: 'running_model', turnCount: 1, activeTurnId: 'turn-1', lastTurnError: null, acceptsTurnControl: true },
+    });
+    render(
+      <SessionView
+        flowId="session-1"
+        flowType="CodingAgent"
+        onChooseWorkingAs={vi.fn()}
+        reloadKey={0}
+        schema={actionSchema}
+        workQueuePermissions={[]}
+      />,
+    );
+
+    expect(screen.getAllByText(SESSION_COPY.chooseWorkingAs('coding.operate'))).toHaveLength(1);
+    expect(screen.getByRole('button', { name: SESSION_COPY.workAs('coding.operate') })).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: SESSION_COPY.steerLabel }) as HTMLTextAreaElement).disabled).toBe(true);
   });
 });
