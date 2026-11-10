@@ -21,7 +21,7 @@ import flowDefinition from '@site/src/data/flow-definitions/money-transfer.json'
 
 Rust 示例简化了余额检查：金额为正数即通过。它把账务变动记录为事件。其他语言的示例会调用带有明确余额检查和撤销方法的内存依赖服务。
 
-潜在故障分为三类：
+故障分为三类：
 
 - 余额不足属于业务拒绝。因为资金尚未移动，Flow 会立即失败。
 - memo、借记和贷记调用可能发生瞬时故障。Dex 会按退避策略重试，Flow 停留在同一个 Step。

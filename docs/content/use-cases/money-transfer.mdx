@@ -15,7 +15,7 @@ The transfer accepts a source account, destination account, amount, and note. It
 1. Check that the source account can cover the transfer. Reject the Flow before creating any side effect when the balance is insufficient.
 2. Create a debit memo, debit the source account, create a credit memo, and credit the destination account in that order.
 3. Complete only after the destination account is credited.
-4. Compensate the transfer when a side-effecting Step still fails after its retry policy is exhausted.
+4. Compensate the transfer when a side-effecting Step still fails after all its retries.
 
 The Flow never waits for approval, a Channel message, or an RPC. It waits only between retries. The Go, Java, Python, and TypeScript examples retry each side-effecting Step for up to one hour, then retry compensation for up to 24 hours. The Rust example allows three attempts instead, so its integration test finishes quickly.
 
@@ -24,7 +24,7 @@ The Rust example stubs the balance check: any positive amount passes. It records
 Failures fall into three groups:
 
 - An insufficient balance is a business rejection. The Flow fails immediately because no money has moved.
-- Memo, debit, and credit calls can fail transiently. Dex retries them with backoff, and the Flow stays at the same Step.
+- Memo, debit, and credit calls can fail temporarily. Dex retries them with backoff, and the Flow stays at the same Step.
 - An operation can still fail after all its retries. The Flow then moves to compensation, reverses the transfer, and finishes as failed. Dex retries compensation too, because an incomplete compensation is also a failure.
 
 Make the dependency calls idempotent. The remote system can complete a call before Dex records the result. The Worker then calls it again.
