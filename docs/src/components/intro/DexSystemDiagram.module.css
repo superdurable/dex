@@ -1,0 +1,150 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Narrow: the Application stacks above Dex Server. Wide: they sit side by side. */
+.layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    'label label'
+    'client client'
+    'worker worker'
+    'sdk sdk'
+    'to from'
+    'server server';
+  column-gap: 0.75rem;
+}
+
+.appBackground {
+  grid-column: 1 / -1;
+  grid-row: 1 / 5;
+  border-radius: 16px;
+  background: var(--cd-group);
+}
+
+.appLabel {
+  grid-area: label;
+  padding: 0.75rem 0.8rem 0.6rem;
+}
+
+div.layout .role {
+  gap: 0.35rem;
+  margin: 0 0.65rem 0.6rem;
+}
+
+.client {
+  grid-area: client;
+}
+
+.worker {
+  grid-area: worker;
+}
+
+.roleHeading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+div.layout .sdk {
+  grid-area: sdk;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0.65rem 0.65rem;
+}
+
+.sdkText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.call {
+  display: flex;
+  min-width: 0;
+  padding: 0.6rem 0;
+  justify-content: center;
+}
+
+.toServer {
+  grid-area: to;
+}
+
+.fromServer {
+  grid-area: from;
+}
+
+.layout .call > .callWide {
+  display: none;
+}
+
+div.layout .server {
+  grid-area: server;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  text-align: center;
+}
+
+.serverStore {
+  display: flex;
+  max-width: 14rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--cd-accent);
+}
+
+@container (min-width: 34rem) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 6.5rem) minmax(0, 7.5rem) minmax(0, 0.9fr);
+    grid-template-areas:
+      'label label . server'
+      'client sdk to server'
+      'worker sdk from server';
+    column-gap: 0.6rem;
+  }
+
+  .appBackground {
+    grid-column: 1 / 3;
+    grid-row: 1 / 4;
+  }
+
+  div.layout .role {
+    margin: 0 0 0.6rem 0.65rem;
+  }
+
+  div.layout .sdk {
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    margin: 0 0.65rem 0.6rem 0;
+  }
+
+  .sdkText {
+    align-items: center;
+  }
+
+  .call {
+    padding: 0;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .layout .call > .callNarrow {
+    display: none;
+  }
+
+  .layout .call > .callWide {
+    display: flex;
+  }
+}
