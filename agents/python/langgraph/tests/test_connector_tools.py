@@ -31,10 +31,13 @@ from dex_agents import (
     ToolPolicy,
 )
 from dex_agents.connectors import ConnectorToolSource, connector_tool
-from dex_agents.stepwise import FrameworkToolSourceRouter
+from dex_agents.stepwise import FrameworkToolSourceRouter, SourceToolListing
+from dex_agents.stepwise.framework_tool_sources import _ListedSourceTool
+from langchain_core.messages import ToolCall
 
 from dex_agents_langgraph import LangGraphAgentRunner, langchain_agent_session_flow
 from dex_agents_langgraph.tool_deferral import (
+    _defer_tool_calls,
     _DeferredToolCallRequest,
     _recorded_tool_message,
     _RecordedToolCallOutcome,
@@ -45,6 +48,7 @@ from tests.connector_agent import (
     WITHDRAWN_FILE_NAME,
     build_connector_create_agent,
     build_connector_source,
+    build_withdrawing_source,
 )
 from tests.fake_ledger import (
     LEDGER_CONNECTION,
@@ -326,6 +330,79 @@ async def test_a_new_call_of_a_tool_its_source_withdrew_is_refused_before_any_st
     assert NOT_OFFERED in lines[1]
     assert len(ledger.sends("postNote")) == 1
     assert (await harness.executed_step_types(session_id)).count("CallSingleAttemptTool") == 1
+
+
+@BOTH_AGENTS
+async def test_a_refused_call_and_a_deferred_call_of_one_response_keep_their_order(
+    connector_harness: ScriptedAgentHarness,
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    ledger = _ledger(harness)
+    session_id = harness.new_session_id()
+    first = {"accountId": "a-1", "text": "first gate-after-accept:withdraw"}
+    later = [
+        ["hiding_note", {"accountId": "a-1", "text": "second"}],
+        ["post_note", {"accountId": "a-1", "text": "live"}],
+    ]
+    await harness.sessions.start_session(
+        session_id, _calls(("hiding_note", first)) + " then " + json.dumps(later)
+    )
+    await harness.gate("withdraw").wait_until_reached()
+    (harness.state_dir / WITHDRAWN_FILE_NAME).write_text("empty")
+    harness.gate("withdraw").release()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.state is not None and snapshot.state.last_turn_error is None
+    lines = _answer_lines(snapshot)
+    assert lines[0] == 'hiding_note: {"noteId":"postNote-1"}'
+    assert lines[1].startswith("hiding_note: ") and NOT_OFFERED in lines[1]
+    assert lines[2] == 'post_note: {"noteId":"postNote-2"}'
+    assert len(ledger.sends("postNote")) == 2
+
+
+@BOTH_AGENTS
+async def test_calls_without_tool_call_ids_fail_the_model_step_instead_of_guessing(
+    connector_harness: ScriptedAgentHarness,
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    ledger = _ledger(harness)
+    session_id = harness.new_session_id()
+    first = {"accountId": "a-1", "text": "first gate-after-accept:withdraw"}
+    later = [
+        ["hiding_note", {"accountId": "a-1", "text": "second"}, None],
+        ["post_note", {"accountId": "a-1", "text": "live"}, None],
+    ]
+    await harness.sessions.start_session(
+        session_id, _calls(("hiding_note", first)) + " then " + json.dumps(later)
+    )
+    await harness.gate("withdraw").wait_until_reached()
+    (harness.state_dir / WITHDRAWN_FILE_NAME).write_text("empty")
+    harness.gate("withdraw").release()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.state is not None
+    assert "without a tool call ID" in (snapshot.state.last_turn_error or "")
+    assert len(ledger.sends("postNote")) == 1
+
+
+def test_calls_without_ids_never_share_one_refusal(tmp_path: Path) -> None:
+    connector_source = build_connector_source(tmp_path)
+    withdrawing_source = build_withdrawing_source(tmp_path)
+    [post_note] = [tool for tool in connector_source.cached_tools() if tool.name == "post_note"]
+    [hiding_note] = withdrawing_source.cached_tools()
+    listing = SourceToolListing(
+        {"post_note": _ListedSourceTool(connector_source, post_note)},
+        {"hiding_note": _ListedSourceTool(withdrawing_source, hiding_note)},
+        "dex_tool_source",
+    )
+    binding = _RunModelBinding(turn=_turn(), tools_by_name={}, source_tool_listing=listing)
+    calls = [
+        ToolCall(name="hiding_note", args={}, id=None, type="tool_call"),
+        ToolCall(name="post_note", args={}, id=None, type="tool_call"),
+    ]
+    # Keyed by ID, the live call would read the withdrawn call's refusal and never run.
+    with pytest.raises(RuntimeError, match="without a tool call ID"):
+        _defer_tool_calls(binding, calls, None)
 
 
 @BOTH_AGENTS

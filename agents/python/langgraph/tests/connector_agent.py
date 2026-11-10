@@ -156,7 +156,10 @@ class ConnectorChatModel(BaseChatModel):
                     ToolCall(
                         name=request[0],
                         args=request[1],
-                        id=scripted_tool_call_id(finished_rounds, index, request),
+                        # A null third item leaves the ID out, as LangChain allows.
+                        id=None
+                        if len(request) > 2 and request[2] is None
+                        else scripted_tool_call_id(finished_rounds, index, request),
                         type="tool_call",
                     )
                     for index, request in enumerate(requested)

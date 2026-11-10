@@ -485,13 +485,17 @@ def _defer_tool_calls(
     request_tool: BaseTool | None,
     node_tools_by_name: Mapping[str, BaseTool] | None = None,
 ) -> list[ToolMessage]:
-    refusals = {
-        tool_call["id"] or "": refusal
-        for tool_call in tool_calls
-        if (refusal := _source_tool_refusal(binding, tool_call["id"] or "", tool_call["name"]))
-    }
-    requests = [
-        _DeferredToolCallRequest(
+    for tool_call in tool_calls:
+        if not tool_call["id"]:
+            # The session records and runs each call by its ID, so it cannot guess one.
+            raise RuntimeError(
+                f"the model called tool {tool_call['name']} without a tool call ID; a Dex "
+                "agent session needs one to record the call"
+            )
+    # One entry per call, in model order: a refusal text, or the request that is deferred.
+    entries: list[str | _DeferredToolCallRequest] = [
+        _source_tool_refusal(binding, tool_call["id"] or "", tool_call["name"])
+        or _DeferredToolCallRequest(
             tool_call_id=tool_call["id"] or "",
             tool_name=tool_call["name"],
             arguments=json.dumps(tool_call["args"], ensure_ascii=False, default=to_jsonable_python),
@@ -505,8 +509,8 @@ def _defer_tool_calls(
             ),
         )
         for tool_call in tool_calls
-        if (tool_call["id"] or "") not in refusals
     ]
+    requests = [entry for entry in entries if isinstance(entry, _DeferredToolCallRequest)]
     # No side effect may precede interrupt(): LangGraph reruns this node from its start.
     recorded = (
         _recorded_outcomes_from_resume_value(
@@ -516,23 +520,18 @@ def _defer_tool_calls(
         else {}
     )
     tool_messages: list[ToolMessage] = []
-    requests_by_id = {request.tool_call_id: request for request in requests}
-    for tool_call in tool_calls:
-        tool_call_id = tool_call["id"] or ""
-        refusal = refusals.get(tool_call_id)
-        if refusal is not None:
+    for tool_call, entry in zip(tool_calls, entries, strict=True):
+        if isinstance(entry, _DeferredToolCallRequest):
+            tool_messages.append(_recorded_tool_message(binding, entry, recorded))
+        else:
             tool_messages.append(
                 ToolMessage(
-                    content=refusal,
-                    tool_call_id=tool_call_id,
+                    content=entry,
+                    tool_call_id=tool_call["id"] or "",
                     name=tool_call["name"],
                     status="error",
                 )
             )
-            continue
-        tool_messages.append(
-            _recorded_tool_message(binding, requests_by_id[tool_call_id], recorded)
-        )
     return tool_messages
 
 

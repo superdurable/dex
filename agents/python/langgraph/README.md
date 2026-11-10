@@ -253,7 +253,9 @@ flow = langchain_agent_session_flow(
   reaches a tool Step.
 - A recorded result replays once, for the call that paused, and only under the
   tool name it was recorded for; a later call that reuses its tool call ID
-  fails the `RunModel` attempt instead of reading that result.
+  fails the `RunModel` attempt instead of reading that result. A tool call
+  without a tool call ID fails the attempt too, because the session records
+  each call by its ID.
 
 ## How a turn runs
 
