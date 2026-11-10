@@ -37,7 +37,7 @@
             }
           ],
           "default": "auto",
-          "description": "auto: reuse the running dexcli dev server of this machine, or start one. Otherwise the http or https URL of a Dex server, without user info. Its host is a DNS name whose last label starts with a letter, a dotted IPv4 address, or a bracketed IPv6 address. After the schema, the runtime also checks that each IPv4 part is at most 255, that an IPv6 address is valid, that no DNS label starts with xn--, and that the port is at most 65535."
+          "description": "auto: reuse the running dexcli dev server of this machine, or start one. Otherwise the http or https URL of a Dex server, without user info. Its host is a DNS name whose last label starts with a letter, a dotted IPv4 address, or a bracketed IPv6 address. After the schema, the runtime also checks that each IPv4 part is 0 or a decimal from 1 to 255 without a leading zero, that an IPv6 address is valid, that no DNS label starts with xn--, and that the port is at most 65535."
         }
       }
     },

@@ -79,8 +79,8 @@ no user info (`user:pass@`). The host is a DNS name whose last label starts
 with a letter, a four-part IPv4 address, or a bracketed IPv6 address;
 `connectors.mcp` allows only `127.0.0.1`, `localhost`, and `[::1]`. A port is
 optional. The schema checks this shape. After the schema, the command rejects
-the URL with `invalid_url` when an IPv4 part is over 255, the IPv6 address is
-invalid, a DNS label starts with `xn--`, or the port is over 65535. Every URL
+the URL with `invalid_url` when an IPv4 part is over 255 or has a leading
+zero (`010` would mean 8 to a WHATWG parser), the IPv6 address is invalid, a DNS label starts with `xn--`, or the port is over 65535. Every URL
 that passes both checks parses with a WHATWG URL parser.
 
 ### Connectors

@@ -114,7 +114,8 @@ def resolve_config(
 
 
 def raise_invalid_url(url: str, path: str) -> None:
-    """Reject a schema-valid URL that a WHATWG URL parser refuses or that has a port over 65535."""
+    """Reject a schema-valid URL that a WHATWG URL parser refuses, reinterprets, or that has a port
+    over 65535."""
     if url == "auto":
         return
     parts = URL_PARTS.fullmatch(url)
@@ -128,7 +129,11 @@ def raise_invalid_url(url: str, path: str) -> None:
         except ValueError as error:
             raise ConfigError("invalid_url", path) from error
     elif re.fullmatch(r"[0-9.]+", host):
-        if any(int(part) > 255 for part in host.split(".")):
+        # A leading zero means octal to a WHATWG parser, so only canonical decimals pass.
+        if any(
+            not re.fullmatch(r"0|[1-9][0-9]{0,2}", part) or int(part) > 255
+            for part in host.split(".")
+        ):
             raise ConfigError("invalid_url", path)
     elif any(label.lower().startswith("xn--") for label in host.split(".")):
         raise ConfigError("invalid_url", path)
