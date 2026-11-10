@@ -236,7 +236,8 @@ A decision can also close the Flow or end a branch:
 - **DeadEnd** ends this branch without closing the Flow.
 
 Completing decisions can return the Flow output, which a client reads as the
-Flow result. Only a Flow that completes keeps these outputs. If the Flow does
+Flow result. When several completing decisions return an output, the result
+keeps each one. Only a Flow that completes keeps these outputs. If the Flow does
 not complete because it fails, is canceled, is terminated, or times out, its
 result has no outputs.
 A decision can also cancel other active Steps. A canceled Step
@@ -276,6 +277,13 @@ Each **WaitFor** or **Execute** call is a separate commit. Dex commits its
 Attribute writes and Channel publications together with its result, and only
 when the method succeeds. Calls to external systems are outside this commit.
 
+A commit is atomic, but it is not isolated. A method reads the Flow state that
+was committed when Dex handed it to a Worker. Other Steps and RPCs can commit
+before the method does. Dex does not check that the values the method read are
+still current. So two Steps or RPCs that read and then write the same Attribute
+can overwrite each other's update. Give each of them the same
+[Attribute lock](/concepts/primitives/attribute#locking).
+
 <a id="failure-and-redelivery"></a>
 <a id="heartbeats-not-acknowledged"></a>
 <a id="same-attempt-redelivery"></a>
@@ -290,8 +298,32 @@ by your own business key. See
 Dex cannot tell.
 
 When retries run out, the recovery Step learns whether the work certainly did
-not run, or may have run. Cancellation is cooperative. A canceled method should
-check for cancellation and return.
+not run, or may have run.
+
+Canceling a Step discards everything its current method has not committed: its
+Attribute writes, its Channel publications, and its decision. What its earlier
+methods committed stays. A decision or an RPC never cancels the Steps that it
+starts itself. [Channel guarantees](/concepts/primitives/channel#guarantees)
+say what happens to the messages a canceled Step consumed.
+
+Cancellation is cooperative. A canceled method should check for cancellation
+and return. Until it does, its code keeps running. Its calls to external
+systems still take effect, even after the Flow has closed.
+
+**GracefulComplete** ends its own branch and asks Dex to complete the Flow. The
+Flow completes as soon as no Step is active. Until then, other Steps and RPCs
+can still start new Steps, and those Steps delay completion too. The request
+stays in force. A later branch that ends with **DeadEnd** does not withdraw it.
+
+Without a pending **GracefulComplete**, a Flow with no active Step keeps
+running. An RPC can still start new Steps in it. It closes only in one of the
+ways listed under [Lifecycle](/concepts/flow#lifecycle). End the last branch
+with a completing decision. Give a Flow that must not wait forever a Flow
+timeout.
+
+Dex starts ready Steps roughly in the order they became ready, but not
+strictly. Do not rely on the order in which parallel Steps start or finish.
+Use a Channel or an Attribute lock when the order matters.
 
 ## Reference
 

@@ -3,6 +3,15 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.0.7 - 2026-11-10
+
+- Add the commit isolation rule to `dex-sdk`: a Step method or RPC commits atomically but reads a snapshot, so a read-modify-write without a shared Attribute lock can lose an update, also in a transactional RPC.
+- Add Attribute lock order: Steps get a lock in the order they started waiting, while an RPC takes a free lock ahead of queued Steps.
+- Add Channel waiter order: waiting Steps get new messages in the order they started waiting, and a wait that needs more messages than are pending is skipped, so it can be starved.
+- Add that a GracefulComplete request stays in force until no Step is active, that cancellation keeps what earlier methods committed, and that a canceled handler's external calls take effect even after the Flow closed.
+- Add SubFlow lifecycle rules: a later run of the same parent Flow ID reuses the earlier run's running or completed child under the default reuse policy, and a child keeps running when its parent Step is canceled or its parent Flow closes.
+- Correct the Channel message deletion rule: a missing message fails only a transactional RPC or a direct delete from dexcli or Dex Web; from a Step or a non-transactional RPC it is a no-op.
+
 ## 1.0.6 - 2026-11-10
 
 - Correct the Channel and Step cancellation rules in `dex-sdk`: a Step canceled after its wait consumed messages, before its Execute committed, returns them to the front of their Channels in their original order. Dex drops them only when the Flow close itself cancels the Step, such as a StopFlow request or a Flow timeout; after any other cancellation they stay pending, even in a run that GracefulComplete then closes. A Step that a commit cancels never takes that commit's own publications, unless the commit also closes the Flow at once.

@@ -219,7 +219,7 @@ impl Step for StepSecond {
 - **ForceFail** 立即让 Flow 失败。
 - **DeadEnd** 结束这个分支，但不关闭 Flow。
 
-完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。只有最终完成的 Flow 才保留这些 output。如果 Flow 没有完成（失败、被取消、被终止或超时），它的 result 不含任何 output。决定还可以取消其他 active Step。被取消的 Step 会放回它的 wait 消费的 Channel 消息，除非这个决定同时用 **ForceComplete** 或 **ForceFail** 关闭 Flow。被这个决定取消的 Step，不会拿到同一个结果发布的消息，除非这个决定也立即关闭了 Flow。见 [Parallel Steps](/design-patterns/parallel) 和 [Parallel SubFlows](/design-patterns/parallel-subflows) 模式。
+完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。多个完成类的决定都返回 output 时，result 会保留每一个。只有最终完成的 Flow 才保留这些 output。如果 Flow 没有完成（失败、被取消、被终止或超时），它的 result 不含任何 output。决定还可以取消其他 active Step。被取消的 Step 会放回它的 wait 消费的 Channel 消息，除非这个决定同时用 **ForceComplete** 或 **ForceFail** 关闭 Flow。被这个决定取消的 Step，不会拿到同一个结果发布的消息，除非这个决定也立即关闭了 Flow。见 [Parallel Steps](/design-patterns/parallel) 和 [Parallel SubFlows](/design-patterns/parallel-subflows) 模式。
 
 ## StepOptions {#stepoptions}
 
@@ -238,6 +238,8 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 
 每次 **WaitFor** 或 **Execute** 调用是一个独立的提交。Dex 把它的 Attribute 写入和 Channel 发布与结果一起提交，而且只在方法成功时提交。对外部系统的调用不在这个提交里。
 
+提交是原子的，但不是隔离的。方法读到的是 Dex 把它交给 Worker 时已经 commit 的 Flow 状态。在这个方法 commit 之前，其他 Step 和 RPC 可以先 commit。Dex 不检查方法读到的值在 commit 时是否仍然是最新的。所以两个先读后写同一个 Attribute 的 Step 或 RPC，可能互相覆盖对方的更新。让它们都声明同一个 [Attribute lock](/concepts/primitives/attribute#locking)。
+
 <a id="failure-and-redelivery"></a>
 <a id="heartbeats-not-acknowledged"></a>
 <a id="same-attempt-redelivery"></a>
@@ -246,7 +248,17 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 
 一个 Step 方法可能运行不止一次：失败后的重试会再运行它。Dex 不一定知道失败的 attempt 有没有执行工作。请让每个外部副作用都幂等，用 Flow ID 加 StepExecutionID，或你自己的业务 key 作为幂等 key。Dex 无法判断的情况见 [Failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery)。
 
-重试用完时，recovery Step 能知道工作是肯定没有运行，还是可能运行过。取消是协作式的：被取消的方法应检查取消状态并返回。
+重试用完时，recovery Step 能知道工作是肯定没有运行，还是可能运行过。
+
+取消一个 Step，会丢弃它当前方法还没有 commit 的一切：Attribute 写入、Channel 发布和它的决定。它之前的方法已经 commit 的内容保留。一个决定或 RPC 永远不会取消它自己启动的 Step。被取消的 Step 已经消费的消息会怎样，见 [Channel 的保证](/concepts/primitives/channel#保证)。
+
+取消是协作式的。被取消的方法应检查取消状态并返回。在它返回之前，它的代码会继续运行。它对外部系统的调用仍然会生效，即使 Flow 已经关闭。
+
+**GracefulComplete** 结束它自己的分支，并请求 Dex 完成 Flow。一旦没有 active Step，Flow 就完成。在这之前，其他 Step 和 RPC 仍然可以启动新的 Step，这些 Step 也会推迟完成。这个请求一直有效。之后某个分支以 **DeadEnd** 结束，也不会撤回它。
+
+没有待处理的 **GracefulComplete** 时，一个没有 active Step 的 Flow 会继续运行。RPC 仍然可以在里面启动新的 Step。它只会按 [生命周期](/concepts/flow#lifecycle) 里列出的方式关闭。用一个完成类的决定结束最后一个分支。不能无限等待的 Flow，要设置 Flow timeout。
+
+Dex 大致按 Step 就绪的顺序启动它们，但不严格保证。不要依赖并行 Step 启动或结束的顺序。顺序重要时，用 Channel 或 Attribute lock。
 
 ## 参考
 

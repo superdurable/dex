@@ -49,7 +49,10 @@ accepted the publication and stored the message.
 
 **SetAttributes** and RPCs that are neither transactional nor locking are
 still accepted while a Flow closes. An RPC that commits during the close,
-including one admitted before it, keeps its Channel publications.
+including one admitted before it, keeps its Attribute writes and Channel
+publications. It starts and cancels no Steps.
+
+The Flow reports **RUNNING** until the server records the close.
 
 Each SDK exposes a typed Flow closing error. Re-read the retained terminal Flow
 state before you decide whether any further action is needed. The error does

@@ -24,6 +24,8 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 | AtLeastAtMost(min, max) | at least min are pending | from min up to max |
 
 - AtMost does not wait by itself. To wait for at least one message and take up to a limit, use AtLeastAtMost with a minimum of 1.
+- When several Steps wait on one Channel, Dex offers new messages to them in the order they started waiting. A Step whose wait needs more messages than are pending is skipped, and a later Step can take them. A Step that starts waiting while enough messages are pending takes them at once, even ahead of earlier waiters that need more.
+- So a ForN or AtLeast wait can be starved while ForOne waits on the same Channel keep taking messages. Give each Channel one kind of consumer; use a ChannelMap instance per consumer when they need different counts.
 - Only the winning alternative of AnyOf or AnyCombinationOf consumes. See [step.md](step.md#waits-and-conditions).
 - In Execute, check that the Channel result is present before reading it. When another Condition won, nothing was consumed.
 - Consumed messages leave the queue. Publication and consumption remain visible only in the run's recent history window. Pending queue state is not history.
@@ -49,7 +51,7 @@ For a durable queue UI, expose a typed read-only RPC that loads the Channel and 
 
 ## Delete, move, or edit pending messages
 
-- Only a pending message can be deleted. Deleting a consumed or already deleted message returns the Channel-message-not-found error.
+- Only a pending message can be deleted. Deleting a consumed or already deleted message from a transactional RPC, or directly from dexcli or Dex Web, returns the Channel-message-not-found error. From a Step or a non-transactional RPC it is a no-op.
 - Steps and timeout handlers may delete a pending message in the same result as Attribute writes, publications, and a decision. A known message ID can be deleted without loading the envelope.
 - Deletion is a result side effect, not part of the Step decision. From a Step, deletion of an absent message is best effort and the other effects still apply.
 - Dex applies a successful handler's effects in this order: Attribute writes, then pending-message deletions, then publications, then the decision. Waiting Steps take the publications after the decision's cancellations, so no Step the decision cancels receives them.

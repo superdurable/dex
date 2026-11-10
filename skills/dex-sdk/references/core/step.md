@@ -13,6 +13,7 @@ Each WaitFor call, each Execute call, and each RPC call is a separate commit bou
 
 - Dex stages the Attribute writes, Channel publications, and pending-message deletes a method makes. It commits them together with the method's Wait or decision, only after the method returns successfully.
 - If the method fails, none of its staged changes commit.
+- A commit is atomic but not isolated. The method reads the state committed when Dex handed its first attempt to a Worker. Other Steps and RPCs can commit before it does, and Dex does not check at commit time that the values it read are still current. Two Steps or RPCs that read and then write the same value can lose an update unless both declare the same Attribute lock.
 - WaitFor and Execute never share a commit.
 - External API calls are outside this boundary. Dex cannot roll them back.
 - Heartbeat checkpoints and Stream messages sent before the result are not part of the commit.
@@ -76,11 +77,13 @@ Rules:
 | GoTo | Start one next Step with typed input. |
 | GoToMany | Start several next Steps, each with its own input and optional StepOptions. This is how a Flow runs work in parallel. |
 | GracefulComplete | End this branch and request completion. The Flow completes when every branch has stopped. |
-| DeadEnd | End this branch only. A Flow with no active Steps keeps running, for example while RPCs can still move it. |
+| DeadEnd | End this branch only. Without a pending GracefulComplete, a Flow with no active Steps keeps running, for example while RPCs can still move it. |
 | ForceComplete | Complete the Flow at once and abandon other active Steps. |
 | ForceFail | Fail the Flow at once with a reason. |
 | ForceCompleteIfChannelsEmpty | Atomically check the named Channels. If all are empty, complete; otherwise take the supplied movement. |
 
+- A GracefulComplete request stays in force. The Flow completes as soon as no Step is active, even when a later branch ends with DeadEnd. Until then, other Steps and RPCs can still start new Steps, and those delay completion too.
+- A Flow with no active Step and no pending GracefulComplete closes only when its Flow timeout fires, a client stops it, or an RPC starts a Step that later closes it. End the last branch with a completing decision, and give a Flow that must not wait forever a Flow timeout.
 - GracefulComplete and ForceComplete can carry output. The Flow result lists each output with its Step type and Step execution ID.
 - Only a COMPLETED Flow keeps these outputs. A Flow that fails, is canceled, is terminated, or times out has no outputs, even after an earlier GracefulComplete carried one. Do not read a partial result from an unsuccessful Flow; keep data that must survive a failure in an Attribute.
 - A Channel stays non-empty for ForceCompleteIfChannelsEmpty while a consumed message's Step has not finished Execute. A message that a canceled Step returned is pending again, so it also keeps the Channel non-empty.
@@ -88,7 +91,8 @@ Rules:
 - Dex selects the Steps to cancel after the decision commits. Steps that the same decision starts are never canceled by it, so one decision can cancel a Step type and start a fresh execution of it.
 - A canceled Step whose wait consumed Channel messages before its Execute committed returns them to the front of their Channels, in their original order. Another wait can take them, so a message can reach Execute twice; keep Execute idempotent. Dex drops them only when the Flow close itself cancels the Step: a StopFlow request, a Flow timeout, a failure that closes the Flow, or a decision that cancels and closes with ForceComplete or ForceFail. After any other cancellation they stay pending, even in a run that GracefulComplete then closes.
 - A Step that a decision or RPC cancels never takes the Channel messages published in that same commit. The next Steps or other waiting Steps receive them. The exception is a decision that also closes the Flow at once, with ForceComplete, ForceFail, or a ForceCompleteIfChannelsEmpty that closes: the close cancels every Step and drops what they consumed, including that commit's publications.
-- Cancellation is cooperative. The SDK signals it to the handler, and Dex discards the canceled Step's later result, writes, retries, and recovery routes. A handler that ignores the signal keeps running and its external calls still take effect.
+- Cancellation is cooperative. The SDK signals it to the handler, and Dex discards the canceled Step's later result, writes, retries, and recovery routes. A handler that ignores the signal keeps running and its external calls still take effect, even after the Flow has closed.
+- Cancellation discards only what the current method has not committed. What the Step's earlier methods committed, such as its WaitFor writes, stays.
 - A movement can override StepOptions for that one Step execution.
 
 ## Durability: SYNC and ASYNC
