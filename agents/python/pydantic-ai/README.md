@@ -160,6 +160,52 @@ a tool comes from, in order:
 A tool declared with Pydantic AI's `requires_approval=True` always waits for
 approval, whatever its policy says.
 
+## Tool sources and connector tools
+
+`tool_sources` takes the core's tool sources, such as `ConnectorToolSource`,
+which offers reviewed Connector operations (install `dex-agents[connectors]`).
+See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks/deploy-agents.mdx#connector-tools)
+for what the manifest decides.
+
+```python
+from dex_agents.connectors import ConnectorToolSource, connector_tool
+
+stripe = new_project_connection(project, "billing-stripe")
+flow = pydantic_ai_session_flow(
+    agent,
+    flow_type="SupportAgent",
+    tool_sources=[
+        ConnectorToolSource([
+            connector_tool(stripe.operations.create_refund(), stripe.reference),
+        ]),
+    ],
+)
+```
+
+- Each `RunModel` lists every source and passes its tools to the run as an
+  `ExternalToolset`, with the source's name, description, and JSON Schema.
+  Pydantic AI never runs an external tool, so a source call ends the run.
+- Every call of a source tool defers, reads included, and runs once in its own
+  tool Step through the source's `execute_deferred_tool_call`, never inside
+  the framework. A connector call derives its Call ID from the Step execution
+  ID and keeps its fence marker in the Step's heartbeat checkpoint.
+- The source builds each call, so it decides the effect class, the approval,
+  and whether the call is an ordered write; `tool_call_step_options` gives the
+  tool Step the operation's timeout and retry policy. A `tool_policies` entry
+  for a connector tool changes only its approval.
+- Writes of one model response run one at a time in the model's order, as in a
+  Stepwise agent. Once one does not succeed, the later ones record `failed`
+  with `skipped`.
+- Definition fails with `ValueError` when two sources share a `source_name`,
+  or a source's `declared_tool_names` repeat a function tool of the agent, or
+  another source's tool. The same names listed at run time fail that
+  `RunModel` attempt.
+- The runner polls no tool tasks. A source call that starts one records
+  `failed` for a `read` call and `outcome_unknown` otherwise. A source whose
+  listing fails or takes longer than `tool_source_listing_timeout` offers no
+  tools in that model call, except tools the turn already called, which come
+  from the source's `cached_tools()` so the resumed run still finds them.
+
 ## How it works
 
 **One model call per Step.** Each `RunModel` runs the agent with a Pydantic AI
@@ -389,3 +435,11 @@ during `RunModel` or a tool Step. Tests assert the Step shape of each turn
 from the Flow's history with `dex_agents.testing.read_step_history`, and count
 real model and tool calls across Worker processes. The tracing test runs its
 Worker in the test process, so an in-memory exporter receives the spans.
+
+`tests/test_connector_tools.py` runs connector tools from a copy of the core
+tests' fake ledger Connector (`tests/fake_ledger`): a Query in its tool
+Step, an approved Mutation that runs once, a session policy that changes only
+approval, a `retry: safe` Mutation retried with the same Call ID, `uncertain`
+writes recorded `outcome_unknown`, two writes of one response in the model's
+order, the operation's tool Step options, an unexposed operation, and refused
+name collisions.
