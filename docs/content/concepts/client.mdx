@@ -33,7 +33,7 @@ Use a Client at the boundary between your application and its Flows:
 - [Flow](/concepts/flow): **StartFlow** creates a Flow execution under a **Flow ID** that you
   choose. The Flow ID is the business identity, such as an order number. Dex
   creates the Run ID. Later calls address the Flow by its Flow ID.
-- [RPC](/concepts/primitives/rpc): an RPC is the write boundary. To change Attribute,
+- [RPC](/concepts/primitives/rpc): change a running Flow through RPCs. To change Attribute,
   AttributeMap, Channel, or ChannelMap state, define a typed RPC for each
   command and call it with **InvokeRPC**. Validation, authorization, locks, and
   transactions then stay inside the Flow.
@@ -56,15 +56,15 @@ Use a Client at the boundary between your application and its Flows:
 
 - When **StartFlow** returns, Dex has stored the Flow. It runs even if your
   process exits.
-- **GetAttributes** returns every value from the same commit. It sees only
-  committed state.
-- A wait observes durable state. It returns when the condition holds, when the
+- **GetAttributes** returns values that Dex saved together, at one point in
+  time. It never returns changes that Dex has not saved yet.
+- A wait checks the Flow's saved state. It returns when the condition holds, when the
   Flow closes, or when its request timeout expires. A later call waits again
   from the current state.
 - A wait is not a final result. Read the Flow result or the business state to
   decide what happened.
-- An error about a closing Flow does not prove that an earlier request
-  succeeded. Read the retained state before you act again.
+- An error that says the Flow is closing does not prove that an earlier request
+  succeeded. Read the Flow's stored state before you act again.
 
 ## Example
 
