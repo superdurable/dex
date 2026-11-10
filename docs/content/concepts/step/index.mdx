@@ -316,9 +316,8 @@ can still start new Steps, and those Steps delay completion too. The request
 stays in force. A later branch that ends with **DeadEnd** does not withdraw it.
 
 Without a pending **GracefulComplete**, a Flow with no active Step keeps
-running. An RPC can still start new Steps in it. It closes only in one of the
-ways listed under [Lifecycle](/concepts/flow#lifecycle). End the last branch
-with a completing decision. Give a Flow that must not wait forever a Flow
+running. An RPC can still start new Steps in it. Dex never closes a Flow
+because no Step is active. End the last branch with a completing decision. Give a Flow that must not wait forever a Flow
 timeout.
 
 Dex starts ready Steps roughly in the order they became ready, but not

@@ -1643,8 +1643,7 @@ without failing the Step.
 ### Firing time {#timer-firing-time}
 
 A Timer's firing time is the commit time of the **WaitFor** that declared it,
-plus its duration in whole seconds. Each SDK documents how it converts a
-duration that is not a whole number of seconds.
+plus its duration in whole seconds.
 
 A Timer never fires before its firing time. It can fire later, for example
 while the server is busy or failing over. Until the Timer fires, another

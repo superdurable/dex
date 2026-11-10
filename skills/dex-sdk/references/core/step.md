@@ -83,7 +83,7 @@ Rules:
 | ForceCompleteIfChannelsEmpty | Atomically check the named Channels. If all are empty, complete; otherwise take the supplied movement. |
 
 - A GracefulComplete request stays in force. The Flow completes as soon as no Step is active, even when a later branch ends with DeadEnd. Until then, other Steps and RPCs can still start new Steps, and those delay completion too.
-- A Flow with no active Step and no pending GracefulComplete closes only when its Flow timeout fires, a client stops it, or an RPC starts a Step that later closes it. End the last branch with a completing decision, and give a Flow that must not wait forever a Flow timeout.
+- Dex never closes a Flow because no Step is active. Without a pending GracefulComplete, such a Flow keeps running until something else closes it, such as its Flow timeout, a stop, or a Step that an RPC starts. End the last branch with a completing decision, and give a Flow that must not wait forever a Flow timeout.
 - GracefulComplete and ForceComplete can carry output. The Flow result lists each output with its Step type and Step execution ID.
 - Only a COMPLETED Flow keeps these outputs. A Flow that fails, is canceled, is terminated, or times out has no outputs, even after an earlier GracefulComplete carried one. Do not read a partial result from an unsuccessful Flow; keep data that must survive a failure in an Attribute.
 - A Channel stays non-empty for ForceCompleteIfChannelsEmpty while a consumed message's Step has not finished Execute. A message that a canceled Step returned is pending again, so it also keeps the Channel non-empty.
