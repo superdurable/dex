@@ -6,17 +6,17 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # Advanced: Multiple Parents with Partitioning
 
-Route requests across several parent Flow IDs so the total number of active SubFlows can grow beyond one parent's concurrency limit.
+Spread requests across several parent Flow IDs, so the total number of running SubFlows can exceed one parent's concurrency limit.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-Use a stable partition key, such as a request ID hash modulo the number of parents. Every request with the same key reaches the same parent. Each parent independently applies its Channel buffer and SubFlow concurrency limit. Increasing the parent count therefore increases total capacity without making one Flow execution unbounded.
+Use a stable partition key, such as a request ID hash modulo the number of parents. Every request with the same key reaches the same parent. Each parent applies its own Channel buffer limit and SubFlow concurrency limit. Adding parents adds total capacity, and no single Flow grows without limit.
 
-Changing the number or order of partitions remaps keys. Use a versioned parent set or consistent hashing when stable affinity matters during scaling.
+Changing the number or order of parents sends some keys to a different parent. If each key must keep reaching the same parent while you scale, use a versioned parent set or consistent hashing.
 
 ## Core implementation
 
-The submitter first invokes the selected parent's RPC. If that parent is absent or no longer active, it starts the parent with the request as its initial input. If another submitter wins the start race, the start fails and **SubmitStep** retries. Its next execution invokes the RPC on the active parent. The initial request is not lost because the parent's **Init** publishes it to **RequestChannel**.
+**SubmitStep** first invokes the RPC of the selected parent. If that parent does not exist or is no longer running, **SubmitStep** starts it with the request as its initial input. The parent's **Init** publishes that input to **RequestChannel**, so the request is not lost. If another submitter starts the parent first, the start fails with **FlowAlreadyStarted** and **SubmitStep** retries. Its next execution invokes the RPC on the running parent.
 
 <SdkTabs
   examples={{

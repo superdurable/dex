@@ -7,13 +7,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # 高级：短生命周期父 Flow
 
-排空当前工作后完成父 Flow，同时避免与新请求产生竞态。
+处理完排队的请求后完成父 Flow，不会丢掉最后时刻到达的请求。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**HandleRequest.Execute** 持有 **CurrSubFlowNum** 的 Attribute lock 并加一；**HandleSubFlow.Execute** 持有同一把 lock 并减一。
+**Init** 向 **RequestChannel** 写入请求，初始化 **CurrSubFlowNum**，并启动 N 个 worker。**CurrSubFlowNum** 记录正在运行的 SubFlow 数量。**HandleRequest.Execute** 持有它的 Attribute lock 并加一；**HandleSubFlow.Execute** 持有同一把 lock 并减一。
 
-最后一个 active worker 使用 **ForceCompleteIfChannelsEmpty**。Dex 原子检查 **RequestChannel**：为空才完成；如果 RPC 已先发布新请求，则再次调度 **HandleRequest**。这里不能用应用代码先查 size 再完成，否则两次操作之间会产生竞态。
+最后一个 active worker 返回 **ForceCompleteIfChannelsEmpty**。Dex 检查 **RequestChannel**，只有为空才完成 Flow。如果 RPC 已先发布新请求，Dex 改为再调度一个 **HandleRequest**。检查和完成一起发生，中间不会插进新请求。在应用代码里先查 size 再完成做不到这一点。
 
 ## 核心实现
 

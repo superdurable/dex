@@ -6,13 +6,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # Advanced: Long-lived Parent
 
-Keep a bounded pool of parent Steps alive while the Flow accepts more requests.
+Keep a fixed pool of worker Steps running while the Flow accepts more requests.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** publishes the initial requests to **RequestChannel**, sets **Stopped** to false, and starts N **HandleRequest** executions. Each worker takes one FIFO message and moves to **HandleSubFlow**. That Step starts and waits for **ExampleSubFlow**. When the child completes, it either loops to **HandleRequest** or gracefully completes after **Stop** has set **Stopped** to true.
+**Init** publishes the initial requests to **RequestChannel**, sets **Stopped** to false, and starts N **HandleRequest** executions. Each worker takes the oldest message and moves to **HandleSubFlow**. That Step starts **ExampleSubFlow** and waits for it. When the child completes, the Step loops back to **HandleRequest**. If the **Stop** RPC has set **Stopped** to true, it completes gracefully instead.
 
-**SendRequest** checks the Channel size before publishing. It returns false when the buffer threshold is reached, so callers can apply back pressure instead of overloading the parent.
+**SendRequest** checks the Channel size before it publishes. When the Channel reaches the buffer threshold, it returns false. The caller can then back off and retry, and the parent is not overloaded.
 
 ## Core implementation
 

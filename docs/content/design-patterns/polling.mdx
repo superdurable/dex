@@ -28,7 +28,7 @@ loop:
 
 "Not ready yet" is a normal branch of the loop. It is never an error.
 
-A plain sleep is enough. The loop does not need to watch for cancellation. The external call has its own timeout, and after Dex cancels an attempt, the next call fails fast.
+A plain sleep is enough. The loop does not need to watch for cancellation. When Dex cancels the attempt, it cancels the context that the Step passes to the external call, so the next call fails at once and the loop ends.
 
 ## Interval and timeouts
 
@@ -54,13 +54,15 @@ The polling Step can use either durability. See [Step options](/reference/python
 
 When **ExecuteMethodTimeout** expires, Dex fails the attempt with a timeout. If **TotalDuration** leaves no time for another retry, the Step fails. Route that failure with the **ExecuteFailure** option to a short Step that records the business failure. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
 
-The failure record does not include the last observed status. The progress Stream and the logs show it. A business condition that is not a fixed duration, such as a lease the Flow does not own, still belongs in the loop.
+The failure record does not include the last observed status. The progress Stream and the logs show it.
+
+The timeouts bound only a fixed duration. Check any other business condition inside the loop, such as a lease that another system owns and that can expire.
 
 ## Checkpoint and progress
 
 A new attempt resumes from the last checkpoint, which **GetLastHeartbeatValue** returns. In the example, the checkpoint is the last reported job status, so a retry does not repeat a progress message.
 
-Write a Stream message when the observed status changes, and record a heartbeat otherwise. Unchanged rounds should not fill the Stream. Stream messages are best effort, so consumers recover from durable state, such as Attributes, a read RPC, or the Flow result. See [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) and [Stream](/concepts/primitives/stream).
+Write a Stream message only when the observed status changes, and record a heartbeat otherwise. Stream messages are best effort, so consumers recover from durable state, such as Attributes, a read RPC, or the Flow result. See [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) and [Stream](/concepts/primitives/stream).
 
 ## Locks
 
@@ -448,7 +450,7 @@ impl Step for RecordJobWaitFailure {
 - A long loop that never records a heartbeat or writes progress.
 - An external call without its own timeout.
 - A hand-written deadline that duplicates **ExecuteMethodTimeout** or **TotalDuration**.
-- Iterating over pages by passing a page token to a new run.
+- Starting a new Flow for each page of results. Keep the page token in the loop instead.
 
 ## Related
 

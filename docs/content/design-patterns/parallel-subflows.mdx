@@ -6,19 +6,19 @@ title: Parallel SubFlows
 
 Use SubFlows when:
 
-1. You need to run parallel work with independent execution histories, retries, and lifecycle control.
-2. You need to fan out concurrent actions beyond the concurrency limit of one Flow execution.
+1. Each piece of parallel work needs its own history, retries, and lifecycle.
+2. You need more concurrent work than the concurrency limit of one Flow allows.
 
 ## Choose a pattern
 
 - [Basic parent Flow](/design-patterns/parallel-subflows/basic) — Start a runtime-sized group and wait for every SubFlow.
 - [Wait for half](/design-patterns/parallel-subflows/wait-for-half) — Wait for half of the SubFlows, then let each unfinished Step stop its own child.
 - [Advanced: long-lived parent](/design-patterns/parallel-subflows/long-lived-parent) — Keep a fixed worker pool alive and accept requests through an RPC that publishes to a Channel.
-- [Advanced: short-lived parent](/design-patterns/parallel-subflows/short-lived-parent) — Drain queued requests and atomically complete when the last SubFlow and Channel are both empty.
-- [Advanced: multiple parents with partitioning](/design-patterns/parallel-subflows/partitioning) — Route requests across multiple parents so total SubFlow concurrency can grow horizontally.
-- [Advanced: back pressure for high availability](/design-patterns/parallel-subflows/back-pressure) — Submit through a retrying Flow when a parent rejects an overloaded request.
+- [Advanced: short-lived parent](/design-patterns/parallel-subflows/short-lived-parent) — Drain queued requests, then complete when no SubFlow is running and the Channel is empty, without losing a request that arrives at the end.
+- [Advanced: multiple parents with partitioning](/design-patterns/parallel-subflows/partitioning) — Spread requests across several parent Flows, so total SubFlow concurrency grows with the number of parents.
+- [Advanced: back pressure for high availability](/design-patterns/parallel-subflows/back-pressure) — When an overloaded parent rejects a request, submit it through a Flow that retries until a parent accepts it.
 
-The first four pages define parent Flow shapes. Partitioning and back pressure extend those shapes for higher scale and availability.
+The first four pages are parent Flow shapes. Partitioning and back pressure build on them.
 
 ## Related
 
