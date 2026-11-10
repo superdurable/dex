@@ -8,6 +8,20 @@ sidebar_label: Change log
 
 This page lists user-visible changes to Dex Web, newest first; each section covers the changes since the previous release of this component.
 
+## 1.43 {#v1-43}
+
+Not released yet. The next minor release, web/v1.43.0, ships these changes.
+
+### Added
+
+- The **Agent session** tab has **Session settings**, which shows the session's settings as JSON and saves an edit through **update_session_settings**. The change applies from the next turn. [Reference](/reference/web/dex-web#agent-session-settings).
+- **New session** starts a Dex Agents session with a session ID, a first message, and the **model**, **system_prompt**, and other settings. It is on the **Agent session** tab, and in **Work Queue** on a session Flow type. [Reference](/reference/web/dex-web#agent-new-session).
+- **POST /api/v2/agent-sessions/start**, **/messages**, and **/settings** start a session, call **send_user_message**, and call **update_session_settings**. [Reference](/reference/web/dex-web#agent-session-controls).
+
+### Changed
+
+- The **Agent session** message box sends between turns through **send_user_message**. While a turn runs, **Queue** keeps the message for the next turn and **Steer** steers the running turn. [Reference](/reference/web/dex-web#agent-session-view).
+
 ## 1.42 {#v1-42}
 
 Released 2026-11-10 as [web/v1.42.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.42.0).

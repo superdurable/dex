@@ -14,13 +14,15 @@ import {
   SplitHandle,
   useCollapsibleColumn,
 } from '../workspace/SplitHandle';
-import { AGENT_INBOX_VIEW, RUN_VIEW_PARAM, runPath, workQueuePath } from '../routes';
+import { AGENT_INBOX_VIEW, RUN_VIEW_PARAM, runPath, sessionRunPath, workQueuePath } from '../routes';
 import '../workspace/css/workspace.css';
 import '../workspace/css/experimental.css';
 import { RUN_COPY } from '../workspace/runCopy';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
 import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import { StartFlowDialog } from '../start/StartFlowDialog';
+import { SESSION_COPY } from '../agents/copy';
+import { agentSessionFlowTypes, NewSessionDialog } from '../agents/NewSessionDialog';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
 import {
@@ -61,6 +63,7 @@ function RunQueueWorkspace() {
   } = useWebCatalog();
   const [startOpen, setStartOpen] = useState(false);
   const [startNotice, setStartNotice] = useState('');
+  const [isNewSessionOpen, setNewSessionOpen] = useState(false);
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   // A work queue opens on active work; the control widens it.
   const runQuery = useRunQuery(
@@ -88,6 +91,7 @@ function RunQueueWorkspace() {
   useEffect(() => {
     if (definitionUpdateKey > 0) {
       setStartOpen(false);
+      setNewSessionOpen(false);
       navigate(workQueuePath(flowType || undefined), { replace: true });
     }
   }, [definitionUpdateKey, flowType, navigate]);
@@ -116,6 +120,8 @@ function RunQueueWorkspace() {
   if (!entry) return <Navigate to={workQueuePath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
+  const sessionFlowTypes = agentSessionFlowTypes(catalog, definitions);
+  const isSessionFlowType = sessionFlowTypes.includes(entry.flowType);
   const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
@@ -134,6 +140,11 @@ function RunQueueWorkspace() {
               {entry.definition.start && (
                 <button className="button primary sq-start" onClick={() => setStartOpen(true)} type="button">
                   Start Flow
+                </button>
+              )}
+              {!entry.definition.start && isSessionFlowType && (
+                <button className="button primary sq-start" onClick={() => setNewSessionOpen(true)} type="button">
+                  {SESSION_COPY.newSession}
                 </button>
               )}
               <WorkQueueModeSwitch
@@ -216,6 +227,19 @@ function RunQueueWorkspace() {
         </section>
       </div>
       {startNotice && <div className="sfd-notice" role="status">{startNotice}</div>}
+      {isNewSessionOpen && isSessionFlowType && (
+        <NewSessionDialog
+          definitionRevision={catalog.definitionRevision}
+          flowTypes={sessionFlowTypes}
+          initialFlowType={entry.flowType}
+          onClose={() => setNewSessionOpen(false)}
+          onDefinitionChanged={handleDefinitionError}
+          onStarted={(_startedFlowType, sessionId) => {
+            setNewSessionOpen(false);
+            navigate(sessionRunPath(sessionId));
+          }}
+        />
+      )}
       {startOpen && entry.definition.start && (
         <StartFlowDialog
           definition={entry.definition.start}
