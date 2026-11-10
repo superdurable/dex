@@ -13,11 +13,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -35,32 +37,71 @@ const readyPollInterval = 50 * time.Millisecond
 
 // FindFreePorts returns count distinct free TCP ports on 127.0.0.1.
 //
-// A port can still be taken after this call returns, which is rare enough for
-// tests. It returns an error when count is not positive or a port cannot be
-// probed.
+// Ports come from 20000-32767, below the Linux and macOS ephemeral ranges, so
+// outbound connections and listeners on port 0 cannot take one before it is
+// used. No port is returned twice in one process. Another process can still
+// bind a returned port. It returns an error when count is not positive or
+// too few ports are free.
 func FindFreePorts(count int) ([]int, error) {
 	if count < 1 {
 		return nil, errors.New("count must be at least one")
 	}
-	listeners := make([]net.Listener, 0, count)
-	defer func() {
-		for _, listener := range listeners {
-			// Closing a probe listener cannot lose data; a failure only leaks one test socket.
-			if err := listener.Close(); err != nil {
-				fmt.Fprintf(os.Stderr, "close port probe: %v\n", err)
-			}
-		}
-	}()
+	return testPorts.allocate(count)
+}
+
+const (
+	firstTestPort = 20000
+	lastTestPort  = 32767
+)
+
+var testPorts = &testPortAllocator{handedOut: map[int]bool{}}
+
+// testPortAllocator hands out each free port at most once per process.
+type testPortAllocator struct {
+	mu        sync.Mutex
+	handedOut map[int]bool
+}
+
+func (allocator *testPortAllocator) allocate(count int) ([]int, error) {
+	allocator.mu.Lock()
+	defer allocator.mu.Unlock()
+	portCount := lastTestPort - firstTestPort + 1
+	// A random start keeps test processes running side by side from probing the same ports first.
+	offset := rand.IntN(portCount)
 	ports := make([]int, 0, count)
-	for range count {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			return nil, fmt.Errorf("probe a free port: %w", err)
+	for index := 0; index < portCount && len(ports) < count; index++ {
+		port := firstTestPort + (offset+index)%portCount
+		if allocator.handedOut[port] {
+			continue
 		}
-		listeners = append(listeners, listener)
-		ports = append(ports, listener.Addr().(*net.TCPAddr).Port)
+		isFree, err := isPortFree(port)
+		if err != nil {
+			return nil, err
+		}
+		if isFree {
+			allocator.handedOut[port] = true
+			ports = append(ports, port)
+		}
+	}
+	if len(ports) < count {
+		return nil, fmt.Errorf("found %d of %d free ports in %d-%d", len(ports), count, firstTestPort, lastTestPort)
 	}
 	return ports, nil
+}
+
+// isPortFree reports whether a listener can bind port on 127.0.0.1.
+//
+// It returns an error only when the probe listener cannot be closed.
+func isPortFree(port int) (bool, error) {
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		// A failed bind is the answer: something else holds the port.
+		return false, nil
+	}
+	if err := listener.Close(); err != nil {
+		return false, fmt.Errorf("close the probe listener on port %d: %w", port, err)
+	}
+	return true, nil
 }
 
 // ResolveDexcliPath returns $DEXCLI when set, otherwise dexcli from PATH.
@@ -157,7 +198,13 @@ func (process *KillableProcess) Start(
 		select {
 		case exitErr := <-process.exited:
 			process.command = nil
-			return fmt.Errorf("%s exited before it was ready (%v):\n%s", process.name, exitErr, output)
+			// Re-read: the child may have written its failure after the read above.
+			finalOutput, readErr := process.ReadLog()
+			if readErr != nil {
+				return fmt.Errorf("%s exited before it was ready (%v); read its log: %w", process.name, exitErr, readErr)
+			}
+			return fmt.Errorf("%s exited before it was ready (%v); output tail of %s:\n%s",
+				process.name, exitErr, process.logPath, tailOfOutput(finalOutput))
 		case <-ctx.Done():
 			process.Kill()
 			return ctx.Err()
@@ -169,7 +216,22 @@ func (process *KillableProcess) Start(
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("%s was not ready in %s:\n%s", process.name, readyTimeout, output)
+	return fmt.Errorf("%s was not ready in %s; output tail of %s:\n%s",
+		process.name, readyTimeout, process.logPath, tailOfOutput(output))
+}
+
+// startFailureOutputTailBytes bounds the child output quoted in a Start error.
+const startFailureOutputTailBytes = 8000
+
+// tailOfOutput returns the last startFailureOutputTailBytes of output, or a placeholder for no output.
+func tailOfOutput(output string) string {
+	if output == "" {
+		return "(no output)"
+	}
+	if len(output) > startFailureOutputTailBytes {
+		return "..." + output[len(output)-startFailureOutputTailBytes:]
+	}
+	return output
 }
 
 // IsRunning reports whether the child runs.
@@ -230,7 +292,9 @@ type PrivateDexEngine struct {
 	serverZDConfig string
 	dexPort        int
 	webPort        int
-	process        *KillableProcess
+	// hasStarted is set once the engine was ready; its ports never change after that.
+	hasStarted bool
+	process    *KillableProcess
 }
 
 // NewPrivateDexEngine describes an engine without starting it.
@@ -273,6 +337,9 @@ func NewPrivateDexEngineWithServerZDConfig(stateDir string, serverZDConfigPath s
 }
 
 // Address returns "127.0.0.1:<dex port>".
+//
+// The first Start can move the engine to new ports when another process took
+// one, so read the address after Start returns.
 func (engine *PrivateDexEngine) Address() string {
 	return fmt.Sprintf("127.0.0.1:%d", engine.dexPort)
 }
@@ -283,18 +350,12 @@ func (engine *PrivateDexEngine) Dexcli() string {
 }
 
 // Start runs dexcli dev and waits up to a minute for it to be ready.
+//
+// When the first Start fails because another process took one of the engine's
+// ports, it retries on new ports. A later Start keeps the ports, so a
+// restarted engine has the same address. It returns an error when dexcli dev
+// does not become ready.
 func (engine *PrivateDexEngine) Start(ctx context.Context) error {
-	arguments := []string{
-		engine.dexcli, "dev",
-		"-engine", "zd",
-		"-zd-binary", engine.serverZD,
-		"-zd-data-dir", filepath.Join(engine.stateDir, "zd"),
-		"-connector-config-dir", filepath.Join(engine.stateDir, "connectors"),
-		"-bind-address", "127.0.0.1",
-		"-dex-port", fmt.Sprint(engine.dexPort),
-		"-web-port", fmt.Sprint(engine.webPort),
-		"-open=false",
-	}
 	configPath := engine.serverZDConfig
 	if configPath == "" {
 		configPath = filepath.Join(engine.stateDir, "zd-overrides.yaml")
@@ -305,8 +366,61 @@ func (engine *PrivateDexEngine) Start(ctx context.Context) error {
 			return fmt.Errorf("write the dex-server-zd durability config: %w", err)
 		}
 	}
-	arguments = append(arguments, "-zd-config", configPath)
-	return engine.process.Start(ctx, arguments, nil, EngineReadyLine, time.Minute)
+	for attempt := 1; ; attempt++ {
+		startErr := engine.process.Start(ctx, engine.devArguments(configPath), nil, EngineReadyLine, time.Minute)
+		if startErr == nil {
+			engine.hasStarted = true
+			return nil
+		}
+		if engine.hasStarted || attempt == maxEngineStartAttempts || ctx.Err() != nil {
+			return startErr
+		}
+		hasLostAPort, err := engine.hasLostAPort()
+		if err != nil {
+			return errors.Join(startErr, err)
+		}
+		if !hasLostAPort {
+			return startErr
+		}
+		ports, err := FindFreePorts(2)
+		if err != nil {
+			return errors.Join(startErr, err)
+		}
+		engine.dexPort, engine.webPort = ports[0], ports[1]
+	}
+}
+
+// maxEngineStartAttempts bounds how often the first Start moves to new ports.
+const maxEngineStartAttempts = 3
+
+// portInUseText appears in dexcli's and dex-server-zd's errors for a port another process holds.
+const portInUseText = "already in use"
+
+func (engine *PrivateDexEngine) devArguments(configPath string) []string {
+	return []string{
+		engine.dexcli, "dev",
+		"-engine", "zd",
+		"-zd-binary", engine.serverZD,
+		"-zd-data-dir", filepath.Join(engine.stateDir, "zd"),
+		"-connector-config-dir", filepath.Join(engine.stateDir, "connectors"),
+		"-bind-address", "127.0.0.1",
+		"-dex-port", fmt.Sprint(engine.dexPort),
+		"-web-port", fmt.Sprint(engine.webPort),
+		"-open=false",
+		"-zd-config", configPath,
+	}
+}
+
+// hasLostAPort reports whether the last start exited because one of its ports was in use.
+func (engine *PrivateDexEngine) hasLostAPort() (bool, error) {
+	if engine.process.IsRunning() {
+		return false, nil
+	}
+	output, err := engine.process.ReadLog()
+	if err != nil {
+		return false, fmt.Errorf("read the dexcli dev log: %w", err)
+	}
+	return strings.Contains(output, portInUseText), nil
 }
 
 // Kill SIGKILLs the engine.
