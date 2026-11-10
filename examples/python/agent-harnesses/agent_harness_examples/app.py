@@ -32,6 +32,7 @@ from dex import (
     open_blob_cache,
 )
 from dex_agents import AgentSessionFlow
+from dex_connectors import slack
 from google.adk.models.base_llm import BaseLlm
 from langchain_core.language_models import BaseChatModel
 from pydantic_ai.models import Model as PydanticAIModel
@@ -70,16 +71,22 @@ class AgentHarnessExample:
 
 
 class AgentHarnessExamplesApp:
-    def __init__(self, config: AgentHarnessExamplesConfig) -> None:
+    def __init__(
+        self, config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+    ) -> None:
+        """Builds every agent; ``slack_connection`` None leaves out the Slack connector tools.
+
+        The caller owns ``slack_connection`` and closes it after ``close``.
+        """
         self.config = config
         examples = [
-            _new_openai_agents_example(config),
-            _new_pydantic_ai_example(config),
-            _new_langchain_example(config),
-            _new_google_adk_example(config),
+            _new_openai_agents_example(config, slack_connection),
+            _new_pydantic_ai_example(config, slack_connection),
+            _new_langchain_example(config, slack_connection),
+            _new_google_adk_example(config, slack_connection),
         ]
         if config.has_anthropic_api_key:
-            examples.insert(0, _new_claude_agent_sdk_example(config))
+            examples.insert(0, _new_claude_agent_sdk_example(config, slack_connection))
         else:
             # Without a key, the Claude Code CLI could fall back to a developer's own login.
             _logger.warning("ANTHROPIC_API_KEY is not set; the Claude Agent SDK agent is off")
@@ -109,50 +116,83 @@ class AgentHarnessExamplesApp:
         await self.worker.wait_pull_registered(timeout=PULL_REGISTRATION_TIMEOUT_SECONDS)
 
     async def close(self) -> None:
-        """Closes the Client, the Worker, and the BlobCache, in that order."""
-        await self.client.close()
-        await self.worker.close()
+        """Closes the Client, the Worker, and the BlobCache; every step runs even after a failure.
+
+        The caller owns the Slack connection and closes it.
+
+        Raises:
+            Exception: The first failure from a close step.
+        """
+        close_errors: list[Exception] = []
+        try:
+            await self.client.close()
+        except Exception as error:
+            close_errors.append(error)
+        try:
+            await self.worker.close()
+        except Exception as error:
+            close_errors.append(error)
         if self._worker_task is not None:
             try:
                 await asyncio.wait_for(self._worker_task, timeout=10)
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._worker_task.cancel()
             except Exception:
                 _logger.exception("Worker task failed")
-        self.blob_cache.close()
+            self._worker_task = None
+        try:
+            self.blob_cache.close()
+        except Exception as error:
+            close_errors.append(error)
+        for other_error in close_errors[1:]:
+            _logger.error("another close step failed", exc_info=other_error)
+        if close_errors:
+            raise close_errors[0]
 
 
-def _new_claude_agent_sdk_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+def _new_claude_agent_sdk_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
     order_desk = OrderDesk()
-    flow = build_claude_agent_sdk_order_support_flow(order_desk, config.claude_agent_sdk_model)
+    flow = build_claude_agent_sdk_order_support_flow(
+        order_desk, config.claude_agent_sdk_model, slack_connection
+    )
     return AgentHarnessExample("claude-agent-sdk", flow, order_desk)
 
 
-def _new_openai_agents_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+def _new_openai_agents_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
     order_desk = OrderDesk()
     model = _openai_agents_model(config.openai_agents_model)
-    flow = build_openai_agents_order_support_flow(order_desk, model)
+    flow = build_openai_agents_order_support_flow(order_desk, model, slack_connection)
     return AgentHarnessExample("openai-agents", flow, order_desk)
 
 
-def _new_pydantic_ai_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+def _new_pydantic_ai_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
     order_desk = OrderDesk()
     model = _pydantic_ai_model(config.pydantic_ai_model)
-    flow = build_pydantic_ai_order_support_flow(order_desk, model)
+    flow = build_pydantic_ai_order_support_flow(order_desk, model, slack_connection)
     return AgentHarnessExample("pydantic-ai", flow, order_desk)
 
 
-def _new_langchain_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+def _new_langchain_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
     order_desk = OrderDesk()
     model = _langchain_model(config.langchain_model)
-    flow = build_langchain_order_support_flow(order_desk, model)
+    flow = build_langchain_order_support_flow(order_desk, model, slack_connection)
     return AgentHarnessExample("langchain", flow, order_desk)
 
 
-def _new_google_adk_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+def _new_google_adk_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
     order_desk = OrderDesk()
     model = _google_adk_model(config.google_adk_model)
-    flow = build_google_adk_order_support_flow(order_desk, model)
+    flow = build_google_adk_order_support_flow(order_desk, model, slack_connection)
     return AgentHarnessExample("google-adk", flow, order_desk)
 
 

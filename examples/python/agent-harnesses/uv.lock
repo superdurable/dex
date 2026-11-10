@@ -89,6 +89,34 @@ wheels = [
 ]
 
 [[package]]
+name = "boto3"
+version = "1.43.127"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "botocore" },
+    { name = "jmespath" },
+    { name = "s3transfer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ca/6b/2bc953d6f0b87505636d0a7c16e46a47ab6c49df4a278ac9c0b1c1732e65/boto3-1.43.127.tar.gz", hash = "sha256:b5417e81d439b35ccf3a1eb51fa06cf9c97167c9a6beaa1929175ee9840d505a", size = 112783, upload-time = "2026-11-09T20:52:17.411Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/40/48/f562f1240da499614a19bdf5d54dbdbfea5cffabbdd2703c3a413e0c13a1/boto3-1.43.127-py3-none-any.whl", hash = "sha256:47f87f89b10e62f5191bd98674beb0dd52ed368c19fcdfef2ef38ead31126f49", size = 140187, upload-time = "2026-11-09T20:52:15.845Z" },
+]
+
+[[package]]
+name = "botocore"
+version = "1.43.127"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jmespath" },
+    { name = "python-dateutil" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8f/45/b4e606b0f66c11c6bd44e91381aa562c6b4dacf478b97b461a429036a89a/botocore-1.43.127.tar.gz", hash = "sha256:93bae360fb3a6f1b8e36593faa8bbbfa05b19866f7a37e9606a98f13394156f8", size = 16559749, upload-time = "2026-11-09T20:52:12.475Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4b/db/bee0401fd3f8cf1e2404044a4e3156dc7e064c2b1fc7162df2d795941cd8/botocore-1.43.127-py3-none-any.whl", hash = "sha256:aa0e3188679a2164a2098a14ea9b59520520cb573aaee9999d852480691e134a", size = 16257630, upload-time = "2026-11-09T20:52:09.488Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.10.23"
 source = { registry = "https://pypi.org/simple" }
@@ -450,19 +478,24 @@ wheels = [
 
 [[package]]
 name = "dex-agents"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dex-python-sdk" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d6/f5/5cbc784d7d7ae2e027349d46155ca14f01f7dc5037c14c569a1e2204c0ff/dex_agents-0.3.0.tar.gz", hash = "sha256:eb35ce29dba643124aa496139369e77981215744d1a02e6d93a6228e50eacf98", size = 257236, upload-time = "2026-11-09T22:28:48.095Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/d4/7777d41e7653c2340c40986b4116d560a5a7f1c293a7e7e272b5182a3314/dex_agents-0.4.0.tar.gz", hash = "sha256:8ffe023107d638df604b55b13ee09961030ea164394a54ea6f09cfe288fdefe5", size = 283340, upload-time = "2026-11-10T11:25:34.099Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/c9/dc335068e5270ca20b24ff015dfecc7867a4e157b6387e0a53700b5a1d69/dex_agents-0.3.0-py3-none-any.whl", hash = "sha256:197c71b105316644bdebd28cc341532ddc1e959124684b32deb1e4b873a195b4", size = 251316, upload-time = "2026-11-09T22:28:46.823Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/ba/319d195fbb19feaff4e0271aa7fa1dc7d2aa97ad200a6e67f4c4957fa942/dex_agents-0.4.0-py3-none-any.whl", hash = "sha256:96bfdac5122f491f0fa1560e35631523e865fae727461ebc9c0ed006a95cbd6a", size = 278484, upload-time = "2026-11-10T11:25:32.751Z" },
+]
+
+[package.optional-dependencies]
+connectors = [
+    { name = "dex-connectors-sdk" },
 ]
 
 [[package]]
 name = "dex-agents-claude-agent-sdk"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "claude-agent-sdk" },
@@ -471,14 +504,14 @@ dependencies = [
     { name = "jsonschema" },
     { name = "mcp" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/da/a9/4fe2bc6c22c846c19dd303f9f3c9e969f5859567fc61243c05dc6578c1c4/dex_agents_claude_agent_sdk-0.3.0.tar.gz", hash = "sha256:60f404be272a4f10aecf0ffad03652983cf429c6474a9bf9a8647cd50ebc95eb", size = 39944, upload-time = "2026-11-09T22:28:59.124Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/30/53/453aaf0ad32a984025509c723b601908c8454808cbddbe67543eef98fe61/dex_agents_claude_agent_sdk-0.4.0.tar.gz", hash = "sha256:cc1c3a82c272c3af70bb0e234b8f7f998c57e8e4a98686a01ae799446139b6fe", size = 49901, upload-time = "2026-11-10T11:25:44.253Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bf/05/691433db61745616117f4ca213ec754dabe5403328d23966c9342f0ed87a/dex_agents_claude_agent_sdk-0.3.0-py3-none-any.whl", hash = "sha256:d221bdc2145693c854ff82a29a746f053d3057a449d18a90bb9cddd2a934e1e1", size = 36524, upload-time = "2026-11-09T22:28:58.273Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/80/ed6103e038b1c4f9a1e5f6e434b9a99588d3efbb775890af453ba118111d/dex_agents_claude_agent_sdk-0.4.0-py3-none-any.whl", hash = "sha256:4fed2bf4d12bc29164e2266353fd583dc10ac0fbc3fc772ce258cc7ed10a3cfc", size = 45050, upload-time = "2026-11-10T11:25:43.201Z" },
 ]
 
 [[package]]
 name = "dex-agents-google-adk"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dex-agents" },
@@ -486,14 +519,14 @@ dependencies = [
     { name = "google-adk" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/7b/057eaa3c9355933b14d8ab6878003b4272ee2ac4d537cacdf52968590f65/dex_agents_google_adk-0.3.0.tar.gz", hash = "sha256:b253c57a1cc23813314dc3ce5ce83f2e991e14bb8e3bb1545f16ee28d14a1979", size = 31397, upload-time = "2026-11-09T22:28:57.001Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/57/e5/ddc3a0a9621444b2e5f870eb12b73ac1c02170c35321c02cea020a908e84/dex_agents_google_adk-0.4.0.tar.gz", hash = "sha256:5cc2c9fd81be11878a2a78c425c57d0821593ad6baa14ec7a0338889841dc2cf", size = 43120, upload-time = "2026-11-10T11:25:42.158Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c5/a7/b38c2b0e1162b964a3dc89a9116f3257f6758e077662b4bc0dac5a5a96af/dex_agents_google_adk-0.3.0-py3-none-any.whl", hash = "sha256:865123ce51a9ff5710366b7f05ab67dc6905dfd8fba578081e93d354d9a4ce3c", size = 36704, upload-time = "2026-11-09T22:28:56.123Z" },
+    { url = "https://files.pythonhosted.org/packages/64/78/6bb8b34a1a9313e3ce1fd39fe2a9feece9c9bcc2bdeba64de6fad0d007ad/dex_agents_google_adk-0.4.0-py3-none-any.whl", hash = "sha256:6d6757962fa17e62a7ee5e94a03bc0d5ca65e1c64e64342cacd47aa1d6626726", size = 42133, upload-time = "2026-11-10T11:25:41.106Z" },
 ]
 
 [[package]]
 name = "dex-agents-langgraph"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dex-agents" },
@@ -502,37 +535,74 @@ dependencies = [
     { name = "langchain-core" },
     { name = "langgraph" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1b/65/4c366135a2e76671c445629b6a651f2f1b6d037dc79dbbe9e9ace427b66b/dex_agents_langgraph-0.3.0.tar.gz", hash = "sha256:2c8b52ce77b45eb8bba7aeae32e29932f1b290ba4c87271df19d7970703d15e3", size = 36208, upload-time = "2026-11-09T22:28:54.938Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/1c/d59eec780e4033b9cd1daa2c21ac2908167cb1ae24ce08328cbbe9c6cb1c/dex_agents_langgraph-0.4.0.tar.gz", hash = "sha256:bd2aea381b3df18c69ceac1edd364cc02cfcd8a3b21b3b7c673fcf497fcfe76d", size = 42384, upload-time = "2026-11-10T11:25:40.1Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/1e/2edcb79dc58e6149750f0125a36ca3384e05d2c1426049dfe81131d01990/dex_agents_langgraph-0.3.0-py3-none-any.whl", hash = "sha256:348989da1ba679faf9e49b9741145e3d18dec5ed7f7ea5ced3f23d8733ef9fb5", size = 34873, upload-time = "2026-11-09T22:28:53.975Z" },
+    { url = "https://files.pythonhosted.org/packages/70/71/d337406c10e132ef88a5367b69c687888105a2871ac671ca3d6f8688007e/dex_agents_langgraph-0.4.0-py3-none-any.whl", hash = "sha256:e924012cf64986f0131f235c2bf2f94bb8ea1429563007ea7c9da8e5f66d69e1", size = 39430, upload-time = "2026-11-10T11:25:39.222Z" },
 ]
 
 [[package]]
 name = "dex-agents-openai-agents"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dex-agents" },
     { name = "dex-python-sdk" },
     { name = "openai-agents" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/42/13/f99fd5bcfaa2ff32d24e3e93dc13c36aed21cc6926c27429463aa8407b18/dex_agents_openai_agents-0.3.0.tar.gz", hash = "sha256:0f7ecaaedaada77e356dc27433190023ca8f5fe19bdbc1ef55cdc603e2489301", size = 25685, upload-time = "2026-11-09T22:28:50.697Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/88/dee10b6d8a445d37aa39b5abbcfd8330706d78a674fc0c1d2baa3a85a9ea/dex_agents_openai_agents-0.4.0.tar.gz", hash = "sha256:121bbcac6f87df00a63bc6dda515fbc29d44737d5e5f9d014b9a4b224e995ccc", size = 30659, upload-time = "2026-11-10T11:25:36.144Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cc/43/051bb07fba070bccf05afb428557774635615c2283ac91dc73c850972811/dex_agents_openai_agents-0.3.0-py3-none-any.whl", hash = "sha256:cca7daf39cb82b4e1776796e776ee040a90b5d3fd5b8ba96844d8789a0d4ad46", size = 30369, upload-time = "2026-11-09T22:28:49.743Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/8e/7e059dff889477ab4b42fd105ed4a3c2312acd2a32adf556cf26eab3eab9/dex_agents_openai_agents-0.4.0-py3-none-any.whl", hash = "sha256:e14d44422162ba1129c9e87d27019b31491964729af897eae19fc321503d8585", size = 34752, upload-time = "2026-11-10T11:25:35.331Z" },
 ]
 
 [[package]]
 name = "dex-agents-pydantic-ai"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dex-agents" },
     { name = "dex-python-sdk" },
     { name = "pydantic-ai-slim" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/99/36/c3ad6bd0289c8738af201f7cb40a271b96501e398967ae9ed1dd552dd84c/dex_agents_pydantic_ai-0.3.0.tar.gz", hash = "sha256:2964fc6f919b907454135d2bee833b189a91e4df6920e05b6d348b37cc01c24c", size = 24043, upload-time = "2026-11-09T22:28:52.776Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/05/51/bcd8a6587a0f6000260e930041750811565cae1fbb859f1b8d4c128f7199/dex_agents_pydantic_ai-0.4.0.tar.gz", hash = "sha256:27f966b54c73cfe5ce9004ba2d7f07386d3c13d9974e3279685bc87cbae04aac", size = 34350, upload-time = "2026-11-10T11:25:38.09Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c5/13/bc412a2350c0abc188468b1d4cf22547d8e18226ce4eb395997f2d543997/dex_agents_pydantic_ai-0.3.0-py3-none-any.whl", hash = "sha256:dcc9fe0485a2c7e02df79c1348fcc345ecbbf6bc48936ebcb1fccbb196787550", size = 27346, upload-time = "2026-11-09T22:28:51.894Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/e6/68c9f848f68633971406704c200e74d835dc55b0c45a13a486b73f49bf8a/dex_agents_pydantic_ai-0.4.0-py3-none-any.whl", hash = "sha256:04fc5dcd69e39335eb9b168413ddf60f8dcf276d1591ae476afae6d67eaf6221", size = 30488, upload-time = "2026-11-10T11:25:37.265Z" },
+]
+
+[[package]]
+name = "dex-connector-slack"
+version = "0.2.0"
+source = { url = "https://github.com/superdurable/dex-connectors-library/releases/download/connectors%2Fslack%2Fpython%2Fv0.2.0/dex_connector_slack-0.2.0-py3-none-any.whl" }
+dependencies = [
+    { name = "dex-connectors-sdk" },
+    { name = "dex-python-sdk" },
+    { name = "httpx" },
+]
+wheels = [
+    { url = "https://github.com/superdurable/dex-connectors-library/releases/download/connectors%2Fslack%2Fpython%2Fv0.2.0/dex_connector_slack-0.2.0-py3-none-any.whl", hash = "sha256:df82651d748d69bdf906b71fc965098e408d40e86f28b3b27ff493240cfaf320" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dex-connectors-sdk", specifier = "==0.9.0" },
+    { name = "dex-python-sdk", specifier = ">=1.28.0" },
+    { name = "httpx", specifier = ">=0.27" },
+]
+
+[[package]]
+name = "dex-connectors-sdk"
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "boto3" },
+    { name = "cryptography" },
+    { name = "dex-python-sdk" },
+    { name = "httpcore" },
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e0/1c/6a5cf67124d1ebb9fa4068c63d23f37e09945cf4fb084bab09718cd86472/dex_connectors_sdk-0.9.0.tar.gz", hash = "sha256:bb5f5f3408e304504aeb086ca49fad405932f7e7e55df0cbe931d05ef2183b66", size = 230639, upload-time = "2026-11-10T06:50:26.104Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/d1/6b294e6f7a3724c8d43da429bca143010db21024344d6712444efcc986dd/dex_connectors_sdk-0.9.0-py3-none-any.whl", hash = "sha256:b75ff95a1aaa247d198b04b4fc417a6e00b776c6a87b4ada0a47b42fe42d005c", size = 121111, upload-time = "2026-11-10T06:50:25.105Z" },
 ]
 
 [[package]]
@@ -540,12 +610,13 @@ name = "dex-examples-python-agent-harnesses"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "dex-agents" },
+    { name = "dex-agents", extra = ["connectors"] },
     { name = "dex-agents-claude-agent-sdk" },
     { name = "dex-agents-google-adk" },
     { name = "dex-agents-langgraph" },
     { name = "dex-agents-openai-agents" },
     { name = "dex-agents-pydantic-ai" },
+    { name = "dex-connector-slack" },
     { name = "dex-python-sdk" },
     { name = "langchain-openai" },
     { name = "pydantic-ai-slim", extra = ["openai"] },
@@ -561,12 +632,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dex-agents", specifier = "==0.3.0" },
-    { name = "dex-agents-claude-agent-sdk", specifier = "==0.3.0" },
-    { name = "dex-agents-google-adk", specifier = "==0.3.0" },
-    { name = "dex-agents-langgraph", specifier = "==0.3.0" },
-    { name = "dex-agents-openai-agents", specifier = "==0.3.0" },
-    { name = "dex-agents-pydantic-ai", specifier = "==0.3.0" },
+    { name = "dex-agents", extras = ["connectors"], specifier = "==0.4.0" },
+    { name = "dex-agents-claude-agent-sdk", specifier = "==0.4.0" },
+    { name = "dex-agents-google-adk", specifier = "==0.4.0" },
+    { name = "dex-agents-langgraph", specifier = "==0.4.0" },
+    { name = "dex-agents-openai-agents", specifier = "==0.4.0" },
+    { name = "dex-agents-pydantic-ai", specifier = "==0.4.0" },
+    { name = "dex-connector-slack", url = "https://github.com/superdurable/dex-connectors-library/releases/download/connectors%2Fslack%2Fpython%2Fv0.2.0/dex_connector_slack-0.2.0-py3-none-any.whl" },
     { name = "dex-python-sdk", specifier = "==1.38.0" },
     { name = "langchain-openai", specifier = ">=1.1,<2" },
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.64,<3" },
@@ -1107,6 +1179,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/43/f7adc61beb4d2f9990ad802856324cfa5968f6b54c9dff91e16acc866b0b/jiter-0.19.0-graalpy313-graalpy253_313_native-macosx_11_0_arm64.whl", hash = "sha256:50f9e5bde6bef0eef6a12315088e635b19d50cbceec745615eb8614f6bf4b52c", size = 277105, upload-time = "2026-11-06T15:03:29.514Z" },
     { url = "https://files.pythonhosted.org/packages/5d/56/9d34c6a580f010259c136a1354d0e51cbe1293aef4def5f6c42347c73727/jiter-0.19.0-graalpy313-graalpy253_313_native-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:42efe1a711c0745b6098b8bff931b0a2e7fff36098cbc2dc16b76497f1cbe834", size = 300134, upload-time = "2026-11-06T15:03:30.774Z" },
     { url = "https://files.pythonhosted.org/packages/e7/b7/dd4360ad780ea1455ff2607b43cd9fcd0fd785ae366c8a632785010e92ff/jiter-0.19.0-graalpy313-graalpy253_313_native-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:2c82005ee84b348cee72a8df6672b5d6c9fe9db4b81c98b84a28155d447d2348", size = 300943, upload-time = "2026-11-06T15:03:32.042Z" },
+]
+
+[[package]]
+name = "jmespath"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/59/322338183ecda247fb5d1763a6cbe46eff7222eaeebafd9fa65d4bf5cb11/jmespath-1.1.0.tar.gz", hash = "sha256:472c87d80f36026ae83c6ddd0f1d05d4e510134ed462851fd5f754c8c3cbb88d", size = 27377, upload-time = "2026-01-22T16:35:26.279Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl", hash = "sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64", size = 20419, upload-time = "2026-01-22T16:35:24.919Z" },
 ]
 
 [[package]]
@@ -2184,6 +2265,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-dateutil"
+version = "2.9.0.post0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3", size = 342432, upload-time = "2024-03-01T18:36:20.211Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
+]
+
+[[package]]
 name = "python-dotenv"
 version = "1.2.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2593,6 +2686,27 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ba/a5/9672e532fe02cd3b92c78cfd8743abca939d96853006c63835009a1ecb6f/rpds_py-2026.9.1-pp312-pypy312_pp73-musllinux_1_2_x86_64.whl", hash = "sha256:6b9bf3135b4ad5981df9a73d71a35272d650a2985ae9c2746357b24d59de2448", size = 591126, upload-time = "2026-10-04T16:32:29.274Z" },
     { url = "https://files.pythonhosted.org/packages/80/ef/3a9f8e4279c7920af561deed4cb7ebebed2794a8f608cf404d5eef14a105/rpds_py-2026.9.1-pp312-pypy312_pp80-macosx_10_12_x86_64.whl", hash = "sha256:56c6952a9b15047466d0c2347c446a761d4527f89976156341e68f0ce5cc08b0", size = 357108, upload-time = "2026-10-04T16:32:31.641Z" },
     { url = "https://files.pythonhosted.org/packages/b7/55/4b2fa381a583760aea5c92841e4e928a358e1c6511b129219e9c2826a226/rpds_py-2026.9.1-pp312-pypy312_pp80-macosx_11_0_arm64.whl", hash = "sha256:b242c27c8f836305a4a72df9cdd564386ac57b807bd252a063223331c9316b37", size = 346877, upload-time = "2026-10-04T16:32:34.061Z" },
+]
+
+[[package]]
+name = "s3transfer"
+version = "0.19.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "botocore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/49/c5/0a5ce655109cb96b8dfad36908a4e108d15f5dc2eff8fbc3146c4312e704/s3transfer-0.19.3.tar.gz", hash = "sha256:8326acc3d056d7f7b8a37110c7d2aea41f67e83f6ae79cd3b5fbcca34c726406", size = 166087, upload-time = "2026-10-19T19:19:49.751Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e2/a4/88f9e10498759121060b8050a1554753dfc04df39bbbcc7aad9ecc8d9440/s3transfer-0.19.3-py3-none-any.whl", hash = "sha256:24eb7535804306355e31c952a90022bf5b2f9d760f9a11062c7493a217c08553", size = 90252, upload-time = "2026-10-19T19:19:48.309Z" },
+]
+
+[[package]]
+name = "six"
+version = "1.17.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
 ]
 
 [[package]]

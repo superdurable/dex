@@ -30,17 +30,27 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from dex import DexServiceError
+from dex_connectors.slack import slackmock
 
 from agent_harness_examples.app import AgentHarnessExamplesApp
 from agent_harness_examples.config import AgentHarnessExamplesConfig
+from agent_harness_examples.slack_connector_tools import SLACK_CONNECTION_NAME
 
 WAIT_TIMEOUT = timedelta(seconds=60)
 SERVER_READY_TIMEOUT = timedelta(seconds=20)
 POLL_INTERVAL_SECONDS = 0.25
 
 
+@pytest.fixture(scope="session")
+def slack_mock() -> slackmock.Mock:
+    """The Slack connector's mock; it records every call and never reaches Slack."""
+    return slackmock.Mock(connection_name=SLACK_CONNECTION_NAME)
+
+
 @pytest_asyncio.fixture(scope="session")
-async def app(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[AgentHarnessExamplesApp]:
+async def app(
+    tmp_path_factory: pytest.TempPathFactory, slack_mock: slackmock.Mock
+) -> AsyncIterator[AgentHarnessExamplesApp]:
     """Boots one app whose Worker serves every order support agent."""
     config = AgentHarnessExamplesConfig(
         server_address=os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801"),
@@ -49,7 +59,7 @@ async def app(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[AgentHa
         # The Claude Agent SDK test points the CLI at a local stub with a dummy key.
         has_anthropic_api_key=True,
     )
-    app_state = AgentHarnessExamplesApp(config)
+    app_state = AgentHarnessExamplesApp(config, slack_mock.connection())
     try:
         if not await _is_server_ready(app_state):
             message = f"no Dex server at {config.server_address}; set DEX_FLOW_SERVICE_ADDRESS"

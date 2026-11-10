@@ -15,11 +15,14 @@
 """Each framework's order support agent, through the HTTP routes, on a real Dex server.
 
 A turn reads an order with the READ tool. The next turn cancels an order: the
-write waits for approval, runs nothing before it, and runs once after it.
+write waits for approval, runs nothing before it, and runs once after it. A
+Slack thread reply through the Slack Connector's mock does the same, in its
+own tool Step under the connector's Call ID.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -27,10 +30,17 @@ from typing import Any
 
 import pytest
 from dex_agents import AgentInterrupt, AgentSessionClient, AgentSessionStatus, AgentSnapshot
+from dex_agents.testing import EXECUTE_COMPLETED_EVENT, read_step_history
+from dex_connectors.sdk import derive_call_id
+from dex_connectors.sdk.connectormock import RecordedCall
+from dex_connectors.slack import PostThreadReplyInput, slackmock
 from quart.typing import TestClientProtocol as QuartTestClient
 
 from agent_harness_examples.app import AgentHarnessExamplesApp
-from agent_harness_examples.demo_model_script import DEMO_REPLY_PREFIX
+from agent_harness_examples.demo_model_script import (
+    DEMO_REPLY_PREFIX,
+    SLACK_POST_THREAD_REPLY_TOOL,
+)
 from agent_harness_examples.http_app import create_app
 from agent_harness_examples.http_routes import SESSION_TOKEN_HEADER
 from tests.claude_messages_api_stub import ClaudeMessagesApiStub
@@ -40,6 +50,11 @@ HARNESS_NAMES = ["claude-agent-sdk", "openai-agents", "pydantic-ai", "langchain"
 STUB_API_KEY = "sk-ant-stub-not-a-real-key"
 # A refused port, so a request that skips the stub fails instead of reaching the network.
 UNREACHABLE_PROXY = "http://127.0.0.1:9"
+SLACK_CHANNEL_ID = "C0123456789"
+SLACK_THREAD_TIMESTAMP = "1710000000.000100"
+# The timestamp of the reply that the mock's default postThreadReply case returns.
+SLACK_MOCK_REPLY_TIMESTAMP = "1710000011.000600"
+SINGLE_ATTEMPT_TOOL_STEP_TYPE = "CallSingleAttemptTool"
 
 
 @pytest.fixture()
@@ -139,6 +154,61 @@ async def test_order_support_agent_never_runs_a_rejected_cancellation(
     outputs = _tool_outputs(turn, "cancel_order")
     assert not any("is cancelled" in output for output in outputs), outputs
 
+
+@pytest.mark.parametrize("harness_name", HARNESS_NAMES)
+async def test_order_support_agent_posts_a_slack_thread_reply_once_after_approval(
+    app: AgentHarnessExamplesApp,
+    slack_mock: slackmock.Mock,
+    harness_name: str,
+    request: pytest.FixtureRequest,
+) -> None:
+    if harness_name == "claude-agent-sdk":
+        request.getfixturevalue("claude_messages_api")
+    example = next(item for item in app.examples if item.harness_name == harness_name)
+    sessions = AgentSessionClient(app.client, example.session_flow)
+    routes = _SessionRoutes(create_app(app).test_client(), harness_name)
+    session_id = await routes.start_session()
+    reply_text = "Order 1002 ships on Thursday."
+
+    await routes.send_user_message(
+        session_id,
+        f"Reply in Slack thread {SLACK_CHANNEL_ID} {SLACK_THREAD_TIMESTAMP}: {reply_text}",
+    )
+    interrupt = await _wait_for_pending_interrupt(sessions, session_id)
+    assert interrupt.tool_name == SLACK_POST_THREAD_REPLY_TOOL
+    assert _slack_thread_replies(slack_mock, session_id) == []
+
+    await routes.resolve_interrupt(session_id, interrupt.interrupt_id, approved=True)
+    turn = await _wait_for_idle_turn(sessions, session_id, 1)
+    replies = _slack_thread_replies(slack_mock, session_id)
+    assert len(replies) == 1
+    reply = replies[0]
+    assert reply.input == PostThreadReplyInput(
+        channel_id=SLACK_CHANNEL_ID, thread_timestamp=SLACK_THREAD_TIMESTAMP, text=reply_text
+    )
+    assert (reply.branch, reply.retry, reply.replay) == ("sent", False, False)
+
+    # The Call ID comes from the tool Step's execution ID, so every attempt of that Step shares it.
+    history = await read_step_history(
+        app.config.server_address, session_id, dexcli=_dexcli_path()
+    )
+    tool_steps = [
+        entry
+        for entry in history
+        if entry.event_type == EXECUTE_COMPLETED_EVENT
+        and entry.step_type == SINGLE_ATTEMPT_TOOL_STEP_TYPE
+    ]
+    assert len(tool_steps) == 1
+    operation = slack_mock.post_thread_reply_script.definition().operation
+    assert reply.call_id == derive_call_id(session_id, tool_steps[0].step_execution_id, operation)
+
+    outputs = _tool_outputs(turn, SLACK_POST_THREAD_REPLY_TOOL)
+    assert len(outputs) == 1
+    assert json.loads(outputs[0])["message"]["timestamp"] == SLACK_MOCK_REPLY_TIMESTAMP
+    assert turn.messages[-1].text is not None
+    assert turn.messages[-1].text.startswith(DEMO_REPLY_PREFIX)
+
+
 class _SessionRoutes:
     def __init__(self, http: QuartTestClient, harness_name: str) -> None:
         self._http = http
@@ -218,3 +288,14 @@ async def _wait_for_pending_interrupt(
     interrupt: AgentInterrupt = await wait_until(f"{session_id} approval", pending_interrupt)
     return interrupt
 
+
+def _slack_thread_replies(
+    slack_mock: slackmock.Mock, session_id: str
+) -> list[RecordedCall[PostThreadReplyInput]]:
+    return [call for call in slack_mock.post_thread_reply_script.calls() if call.flow_id == session_id]
+
+
+def _dexcli_path() -> Path | None:
+    """Returns the dexcli that run-integ-tests.sh built, or None to use $DEXCLI or PATH."""
+    configured = os.environ.get("DEXCLI_PATH")
+    return Path(configured) if configured else None

@@ -31,25 +31,33 @@ from dex_examples.patterns.cron.cron_schedule_flow import (
     Interval,
     IntervalUnit,
 )
+from dex_examples.products.ai_agent.slack_connector_tools import (
+    open_slack_project_connection,
+)
 
 
 async def main() -> None:
     load_dotenv(Path(__file__).resolve().parents[1] / ".env")
     config = ExamplesConfig.from_env()
-    app_state = ExampleApp(config)
+    slack_setup = await open_slack_project_connection()
     try:
-        await app_state.start_worker()
-        await start_cron_schedule(app_state)
+        app_state = ExampleApp(config, slack_setup.connection if slack_setup else None)
+        try:
+            await app_state.start_worker()
+            await start_cron_schedule(app_state)
 
-        host, port = parse_http_address(config.http_address)
-        worker_description = "pull Worker"
-        print(
-            f"Dex Python examples listening on http://{config.http_address} "
-            f"({worker_description})"
-        )
-        await create_app(app_state).run_task(host=host, port=port)
+            host, port = parse_http_address(config.http_address)
+            worker_description = "pull Worker"
+            print(
+                f"Dex Python examples listening on http://{config.http_address} "
+                f"({worker_description})"
+            )
+            await create_app(app_state).run_task(host=host, port=port)
+        finally:
+            await app_state.close()
     finally:
-        await app_state.close()
+        if slack_setup is not None:
+            await slack_setup.aclose()
 
 
 async def start_cron_schedule(app_state: ExampleApp) -> None:

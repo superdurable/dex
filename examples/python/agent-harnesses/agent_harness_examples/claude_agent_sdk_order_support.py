@@ -20,6 +20,10 @@ NON_IDEMPOTENT_WRITE, the CLI stops before running it. The call waits in
 AwaitToolApproval and runs at most once in its own Step. Then the next
 RunModel Step continues the same Claude conversation. The Worker
 authenticates with ANTHROPIC_API_KEY.
+
+With a Slack connection, the agent also has slack_post_thread_reply, a
+Slack Connector tool from tool_sources. It waits for approval and runs once
+in its own tool Step.
 """
 
 from __future__ import annotations
@@ -31,8 +35,10 @@ from typing import Any
 from claude_agent_sdk import ClaudeAgentOptions, tool
 from dex_agents import AgentSessionFlow, ToolEffect, ToolPolicy
 from dex_agents_claude_agent_sdk import ClaudeAgentOptionsContext, claude_agent_session_flow
+from dex_connectors import slack
 
 from agent_harness_examples.order_desk import ORDER_SUPPORT_INSTRUCTIONS, OrderDesk
+from agent_harness_examples.slack_connector_tools import build_slack_tool_sources
 
 CLAUDE_AGENT_SDK_ORDER_SUPPORT_FLOW_TYPE = "ClaudeAgentSDKOrderSupport"
 # Anthropic settings the CLI keeps from the Worker environment.
@@ -46,7 +52,9 @@ OTHER_CLAUDE_SIGN_IN_SETTINGS = (
 )
 
 
-def build_claude_agent_sdk_order_support_flow(order_desk: OrderDesk, model: str) -> AgentSessionFlow:
+def build_claude_agent_sdk_order_support_flow(
+    order_desk: OrderDesk, model: str, slack_connection: slack.Connection | None
+) -> AgentSessionFlow:
     """Builds the session Flow; ``model`` is a Claude model name, such as "claude-opus-5-5"."""
 
     # The tools are closures, so they call the OrderDesk passed in here.
@@ -84,6 +92,7 @@ def build_claude_agent_sdk_order_support_flow(order_desk: OrderDesk, model: str)
         build_options,
         [look_up_order, cancel_order],
         flow_type=CLAUDE_AGENT_SDK_ORDER_SUPPORT_FLOW_TYPE,
+        tool_sources=build_slack_tool_sources(slack_connection),
         tool_policies={
             "look_up_order": ToolPolicy(ToolEffect.READ),
             "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Integration coverage for the AI Agent: chat, MCP tools, questions, plans, and steering."""
+"""Integration coverage for the AI Agent: chat, MCP and Slack tools, questions, plans, and steering."""
 
 from __future__ import annotations
 
@@ -33,7 +33,11 @@ from dex_agents import (
     PlanTaskStatus,
 )
 from dex_agents.mcp import McpToolSource
-from tests.integ.conftest import WAIT_TIMEOUT
+from dex_agents.testing import EXECUTE_COMPLETED_EVENT, read_step_history
+from dex_connectors.sdk import derive_call_id
+from dex_connectors.sdk.connectormock import RecordedCall
+from dex_connectors.slack import PostThreadReplyInput, slackmock
+from tests.integ.conftest import WAIT_TIMEOUT, server_address
 from tests.integ.ai_agent_sessions import (
     draft_revision,
     is_idle,
@@ -45,6 +49,7 @@ from tests.integ.ai_agent_sessions import (
     wait_for_message_text,
     wait_for_snapshot,
 )
+from tests.integ.flow_smoke_helper import dexcli_path
 
 from dex_examples.app import ExampleApp
 from dex_examples.http_app import create_app
@@ -52,6 +57,11 @@ from dex_examples.products.ai_agent.ai_agent_session import load_mcp_servers
 from dex_examples.products.ai_agent.http_routes import SESSION_TOKEN_HEADER, sign_session_id
 
 PLANNING_REJECTION = "a planning turn can only call write_todos"
+SLACK_THREAD_REPLY = PostThreadReplyInput(
+    channel_id="C0123456789", thread_timestamp="1710000000.000100", text="Order 1002 ships on Thursday."
+)
+# The timestamp of the reply that the mock's default postThreadReply case returns.
+SLACK_MOCK_REPLY_TIMESTAMP = "1710000011.000600"
 
 
 @pytest.fixture()
@@ -148,6 +158,54 @@ async def test_ai_agent_runs_mcp_tools_resources_prompts_and_approvals(
     await wait_for_message_text(sessions, session_id, "unknown tool test__missing")
     snapshot = await sessions.get_agent_snapshot(session_id)
     assert not snapshot.pending_interrupts
+
+
+async def test_ai_agent_posts_a_slack_thread_reply_once_after_approval(
+    sessions: AgentSessionClient,
+    slack_mock: slackmock.Mock,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    session_id = new_flow_id("ai-agent-slack")
+    await sessions.start_session(session_id)
+    arguments = {
+        "channelId": SLACK_THREAD_REPLY.channel_id,
+        "threadTimestamp": SLACK_THREAD_REPLY.thread_timestamp,
+        "text": SLACK_THREAD_REPLY.text,
+    }
+    await send_user_message(
+        sessions, session_id, f"/tool slack_post_thread_reply {json.dumps(arguments)}"
+    )
+    approval = await wait_for_snapshot(
+        sessions,
+        session_id,
+        "Slack post approval",
+        lambda snapshot: pending_interrupt(snapshot, InterruptKind.TOOL_APPROVAL),
+    )
+    assert approval.tool_name == "slack_post_thread_reply"
+    assert _slack_thread_replies(slack_mock, session_id) == []
+
+    assert await sessions.resolve_interrupt(session_id, approval.interrupt_id, approved=True)
+    await wait_for_message_text(sessions, session_id, SLACK_MOCK_REPLY_TIMESTAMP)
+    await wait_for_snapshot(sessions, session_id, "idle after the Slack post", is_idle)
+    replies = _slack_thread_replies(slack_mock, session_id)
+    assert len(replies) == 1
+    assert replies[0].input == SLACK_THREAD_REPLY
+    assert (replies[0].branch, replies[0].retry, replies[0].replay) == ("sent", False, False)
+
+    # The Call ID comes from the tool Step's execution ID, so every attempt of that Step shares it.
+    history = await read_step_history(
+        server_address(), session_id, dexcli=Path(dexcli_path())
+    )
+    tool_steps = [
+        entry
+        for entry in history
+        if entry.event_type == EXECUTE_COMPLETED_EVENT
+        and entry.step_type == "CallSingleAttemptTool"
+    ]
+    assert len(tool_steps) == 1
+    operation = slack_mock.post_thread_reply_script.definition().operation
+    expected_call_id = derive_call_id(session_id, tool_steps[0].step_execution_id, operation)
+    assert replies[0].call_id == expected_call_id
 
 
 async def test_ai_agent_asks_a_question_inside_an_executing_plan(
@@ -610,3 +668,9 @@ async def test_ai_agent_session_runs_the_model_its_start_form_picked(
         snapshot = await sessions.get_agent_snapshot(session_id)
         # Only the model name is stored; the Worker owns the client and its key.
         assert snapshot.session_settings == {"model": model}
+
+
+def _slack_thread_replies(
+    slack_mock: slackmock.Mock, session_id: str
+) -> list[RecordedCall[PostThreadReplyInput]]:
+    return [call for call in slack_mock.post_thread_reply_script.calls() if call.flow_id == session_id]

@@ -448,6 +448,7 @@ async def test_ai_agent_settings_show_the_worker_configuration(
     effects = {tool["name"]: tool["effect"] for tool in settings["mcp_tools"]}
     assert effects["test__lookup"] == "read"
     assert effects["test__publish"] == "unclassified"
+    assert settings["connector_tools"] == ["slack_post_thread_reply"]
     assert settings["built_in_tools"] == ["ask_user", "durable_wait", "write_todos"]
 
 

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The AIAgentSession Flow: a Dex Agents Stepwise agent with the Worker's MCP tools.
+"""The AIAgentSession Flow: a Dex Agents Stepwise agent with the Worker's MCP and Slack tools.
 
 The models the Worker allows, the system prompt, the context window, and the
 MCP servers are Worker configuration, shared by every session of this Worker.
@@ -43,6 +43,9 @@ from dex_agents.stepwise import CONTEXT_SUMMARY_INSTRUCTIONS, AgentDefinition, M
 from dex_agents.stepwise import ModelRequest
 from dex_agents.stepwise import ScriptedModelClient, ScriptedModelReply, ScriptedToolCall
 from dex_agents.stepwise import stepwise_agent_session_flow
+from dex_connectors import slack
+
+from dex_examples.products.ai_agent.slack_connector_tools import build_slack_tool_sources
 
 AI_AGENT_SESSION_FLOW_TYPE = "AIAgentSession"
 DEMO_MODEL = "mock/dex"
@@ -63,18 +66,23 @@ def build_ai_agent_session_flow(
     system_prompt: str,
     context_window_tokens: int,
     mcp_servers: Sequence[McpServerConfig],
+    slack_connection: slack.Connection | None,
 ) -> AgentSessionFlow:
-    """Builds the agent; ``models`` are the allowed model names, and the first is the default."""
+    """Builds the agent; ``models`` are the allowed model names, and the first is the default.
+
+    ``slack_connection`` None leaves out the Slack connector tools.
+    """
     clients = {model: _model_client(model) for model in models}
+    mcp_tool_sources = (
+        [McpToolSource(mcp_servers, resource_and_prompt_tools_enabled=True)] if mcp_servers else []
+    )
     definition = AgentDefinition(
         name="ai-agent",
         instructions=system_prompt,
         model=clients[models[0]],
         # Settings hold only a model name; an unknown one gets the default, never a new client.
         resolve_model=lambda settings: clients.get(str(settings.get("model")), clients[models[0]]),
-        tool_sources=[McpToolSource(mcp_servers, resource_and_prompt_tools_enabled=True)]
-        if mcp_servers
-        else [],
+        tool_sources=[*mcp_tool_sources, *build_slack_tool_sources(slack_connection)],
         built_in_tools=frozenset(BuiltInTool),
         plan_mode_enabled=True,
         compaction=CompactionPolicy(context_window_tokens=context_window_tokens),

@@ -8,7 +8,7 @@ so a crash repeats at most the one call that was running.
 
 The application code is short because the library owns the session: the
 conversation, the message queue, steering, approvals, questions, durable
-waits, plans, context compaction, and live events. The example adds four
+waits, plans, context compaction, and live events. The example adds five
 things:
 
 - **Worker configuration**: the models a session may pick, the system prompt,
@@ -17,6 +17,9 @@ things:
 - **MCP tools**: the library's MCP tool source, passed to the agent as a tool
   source, offers each server's tools and three tools that read MCP resources
   and prompts.
+- **Slack Connector tools**: the Slack Connector's agent-exposed operation,
+  passed to the agent as a second tool source, when the project configuration
+  holds the Slack connection. See [Slack connector tools](#slack-connector-tools).
 - **A local demo model**, `mock/dex`, a script for the library's
   `ScriptedModelClient`, so the example and its tests run without a provider
   key.
@@ -160,6 +163,7 @@ credential or server command ever comes from a browser or from Flow input.
 | `DEX_AGENT_CONTEXT_TOKENS` | `32000` | The context window that compaction keeps the model input under |
 | `DEX_AGENT_MCP_CONFIG` | none | The MCP server file |
 | `DEX_AGENT_SESSION_KEY` | random at each start | The key that signs session tokens; keep it set so tokens survive a restart |
+| `DEX_CONNECTOR_CONFIG_FILE` | none | The Dex Web `connections.json` that holds the Slack connection `support-slack`; see [Slack connector tools](#slack-connector-tools) |
 
 Add the provider credential that LiteLLM reads to `examples/.env`, for example
 `OPENAI_API_KEY="..."`, and restart the Worker. The credential stays in the
@@ -207,6 +211,58 @@ is left out of the model call and tried again on the next one; when every
 server is down, the agent answers without MCP tools. MCP sampling and roots
 are not enabled.
 
+## Slack connector tools
+
+The agent can post a reply in a Slack thread through the Slack Connector
+(`dex-connector-slack`). `ConnectorToolSource` offers the Connector's
+operations as tools, next to the MCP tool source in `tool_sources`. The wiring
+is in
+[`slack_connector_tools.py`](../dex_examples/products/ai-agent/slack_connector_tools.py).
+
+| Tool | Slack operation | What Dex does |
+| --- | --- | --- |
+| `slack_post_thread_reply(channelId, threadTimestamp, text)` | `postThreadReply` | Waits for approval, then runs once in its own tool Step under the Connector's Call ID. |
+
+Only operations that the Connector's manifest marks `agent.exposed` can become
+tools, and the Slack Connector exposes only `postThreadReply`. The manifest
+does not ask for approval, so the example passes `requires_approval=True`:
+every post waits for **Approve**.
+
+The Worker opens the Slack connection `support-slack` from the project
+configuration, as any Dex application opens a Connector connection. It holds
+no Slack token: the Connector resolves the connection's credentials each time
+it calls Slack, so they never enter Flow state.
+
+- **Local development**: set `DEX_CONNECTOR_CONFIG_FILE` to the
+  `connections.json` that Dex Web saves, by default
+  `$HOME/.dex/connectors/connections.json`. It must hold an authorized Slack
+  connection named `support-slack`. See
+  [Local Connector setup](https://docs.superdurable.io/reference/web/local-connector-setup).
+- **Deployed**: the `DEX_PROJECT_*` variables select the project configuration
+  in object storage instead.
+
+Setting `DEX_CONNECTOR_CONFIG_FILE` or any `DEX_PROJECT_*` variable requests a
+project configuration. An incomplete or invalid one fails startup instead of
+turning the Slack tool off.
+
+The Slack app needs the bot scope `chat:write`, and its bot must be a member
+of the channel. The Connector also uses the user scopes `channels:history`
+and `groups:history`: when a Worker stopped during a post, it reads the thread
+back to learn whether the reply was sent. Without a project configuration, or
+without a Slack connection named `support-slack` in it, the Worker logs one line
+and the agent runs without the Slack tool. The configuration is read at startup, so
+restart the Worker after you change it.
+
+Keep the same connector configuration on every Worker while sessions wait for
+approval of a connector call: the approved call runs on whichever Worker takes
+its tool Step, and that Worker needs the same tool and connection.
+
+Try it with the demo model:
+
+```text
+/tool slack_post_thread_reply {"channelId":"C0123456789","threadTimestamp":"1710000000.000100","text":"Hello from Dex"}
+```
+
 ## Crashes and restarts
 
 Dex stores the conversation, the plan, and each pending approval, timer, and
@@ -252,7 +308,8 @@ Keep the Flow type, `AIAgentSession`, stable: running sessions resume by it.
 ## Tests
 
 `tests/integ/test_ai_agent.py` runs every feature against a real Dex engine
-with the demo model. `tests/integ/test_ai_agent_restarts.py` starts a private
+with the demo model. Its Slack test uses the Slack Connector's mock
+(`slackmock`), so it needs no Slack token. `tests/integ/test_ai_agent_restarts.py` starts a private
 server-zd through **dexcli dev**, runs `main.py` as the only Worker, and
 hard-kills them. Set **DEX_SERVER_ZD_BINARY** to a `dex-server-zd` executable;
 without it the restart tests are skipped. Set **DEXCLI_PATH** to a `dexcli`

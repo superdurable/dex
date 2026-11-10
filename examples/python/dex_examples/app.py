@@ -28,6 +28,7 @@ from dex import (
     WorkerOptions,
     open_blob_cache,
 )
+from dex_connectors import slack
 
 from dex_examples.config import ExamplesConfig
 from dex_examples.patterns.cancel_case.credit_check_flow import CreditCheckFlow
@@ -155,7 +156,13 @@ from dex_examples.shared.worker_options import (
 
 
 class ExampleApp:
-    def __init__(self, config: ExamplesConfig) -> None:
+    def __init__(
+        self, config: ExamplesConfig, ai_agent_slack_connection: slack.Connection | None = None
+    ) -> None:
+        """Builds every example; ``ai_agent_slack_connection`` gives the AI Agent Slack tools.
+
+        The caller owns ``ai_agent_slack_connection`` and closes it after ``close``.
+        """
         self.config = config
         self._client: AsyncClient | None = None
         client_provider: Callable[[], AsyncClient] = self.require_client
@@ -242,6 +249,7 @@ class ExampleApp:
             config.agent_system_prompt,
             config.agent_context_tokens,
             self.ai_agent_mcp_servers,
+            ai_agent_slack_connection,
         )
 
         flows: list[Flow[Any]] = [
