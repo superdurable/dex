@@ -1,5 +1,6 @@
 import DexExpressiveness.Core.Assoc
 import DexExpressiveness.Core.TransitionSystem
+import DexExpressiveness.Core.BlockRun
 import DexExpressiveness.Dex.Syntax
 import DexExpressiveness.Dex.Config
 import DexExpressiveness.Dex.MetaFunctions
@@ -33,6 +34,13 @@ import DexExpressiveness.Simulation.DexToLObserved
 import DexExpressiveness.Simulation.DexToL
 import DexExpressiveness.Simulation
 import DexExpressiveness.FiniteTraces
+import DexExpressiveness.Liveness.Statements
+import DexExpressiveness.Liveness.Silent
+import DexExpressiveness.Liveness.DexToLRun
+import DexExpressiveness.Liveness.DexToLFair
+import DexExpressiveness.Liveness.LToDexRun
+import DexExpressiveness.Liveness.LToDexFair
+import DexExpressiveness.Liveness
 import DexExpressiveness.Theorems
 import DexExpressiveness.Examples.Schedule
 import DexExpressiveness.Examples.Lockstep
@@ -43,6 +51,7 @@ import DexExpressiveness.Examples.LockstepChecks
 import DexExpressiveness.Examples.ForgedHandleInput
 import DexExpressiveness.Examples.RelatedCheck
 import DexExpressiveness.Examples.Inductiveness
+import DexExpressiveness.Examples.LivenessChecks
 import DexExpressiveness.L.LockDiscipline
 import DexExpressiveness.L.LockDisciplineSound
 import DexExpressiveness.Examples.WellFormed

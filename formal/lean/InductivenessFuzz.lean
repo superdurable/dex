@@ -1,12 +1,14 @@
-import DexExpressiveness.Examples.Inductiveness
+import DexExpressiveness.Examples.LivenessChecks
 
 /-!
 # The inductiveness fuzz as a program
 
 `lake exe inductiveness-fuzz [fuel period walkLength seeds]` runs the fuzz of
 `DexExpressiveness/Examples/Inductiveness.lean` compiled, on every example
-program, and prints the failures and the coverage. It exits with status 1
-when a failure was found. This file is test tooling, not part of the theorem.
+program, and prints the failures and the coverage. With the extra argument
+`liveness` it runs the checks of `DexExpressiveness/Examples/LivenessChecks.lean`
+instead. It exits with status 1 when a failure was found. This file is test
+tooling, not part of the theorem.
 -/
 
 open DexExpressiveness DexExpressiveness.Examples DexExpressiveness.Examples.LockstepChecks
@@ -25,6 +27,26 @@ def fuzzPrograms : List (String × L.Program) :=
 def addCounts (counts more : AssocList String Nat) : AssocList String Nat :=
   more.foldl (fun total entry => total.set entry.1 ((total.get? entry.1).getD 0 + entry.2)) counts
 
+/-- Run the liveness checks on every example program. -/
+def runLivenessChecks (fuel period seeds : Nat) : IO UInt32 := do
+  IO.println s!"liveness checks: fuel {fuel}, period {period}, seeds {seeds}"
+  let mut failureCount := 0
+  let mut pairCount := 0
+  let mut settledCount := 0
+  let mut closedCount := 0
+  for (name, program) in fuzzPrograms do
+    let coverage := livenessCoverage program fuel period seeds
+    let failures := livenessFailures program fuel period seeds
+    IO.println s!"{name}: {coverage.1} pairs, {coverage.2.1} settled, {coverage.2.2} settled after the close, {failures.length} failures"
+    for failure in failures do
+      IO.println s!"  {failure}"
+    failureCount := failureCount + failures.length
+    pairCount := pairCount + coverage.1
+    settledCount := settledCount + coverage.2.1
+    closedCount := closedCount + coverage.2.2
+  IO.println s!"total: {pairCount} pairs, {settledCount} settled, {closedCount} settled after the close, {failureCount} failures"
+  return (if failureCount = 0 then 0 else 1)
+
 /-- Run the fuzz on every example program. -/
 def main (arguments : List String) : IO UInt32 := do
   let numbers := arguments.filterMap String.toNat?
@@ -32,6 +54,8 @@ def main (arguments : List String) : IO UInt32 := do
   let period := numbers.getD 1 5
   let walkLength := numbers.getD 2 6
   let seeds := numbers.getD 3 2
+  if arguments.contains "liveness" then
+    return (← runLivenessChecks fuel period seeds)
   IO.println s!"fuel {fuel}, period {period}, walk length {walkLength}, seeds {seeds}"
   let mut failureCount := 0
   let mut kept : AssocList String Nat := []
