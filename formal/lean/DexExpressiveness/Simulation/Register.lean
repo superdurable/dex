@@ -1390,4 +1390,166 @@ theorem wp3a_channels_cancel {program : Program} {lConfig lNext : L.Config}
     cancelBefore := fun _ => by simp [hasMessage]
     cancelAfter := fun _ => Or.inr rfl }
 
+/-! ## The three kinds of registration -/
+
+/-- The prepared run finds the Step without its invocation. -/
+theorem wp3a_findStep?_preparedRun {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {tid : Tid} {thread : L.Thread}
+    {run : Dex.Run signature} {record : Dex.StepRecord signature} {task : Dex.Task signature}
+    (context : wp3a_Context program lConfig dexConfig tid thread run record task) :
+    (wp3a_preparedRun run record.id).findStep? record.id =
+      some { record with invocation := none } :=
+  Dex.Run.findStep?_updateStep_self ({ run with seq := run.seq + 1 } : Dex.Run signature)
+    record.id _ record
+    (Dex.Run.findStep?_of_mem_nodup run record context.isRecord
+      (context.state.dexInvariant.runInvariant run context.hasRun).idsNodup) rfl
+
+/-- A wait with no condition: the thread is woken with the decoded outcome. -/
+theorem wp3a_simulated_empty {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {tid : Tid} {thread : L.Thread}
+    {run : Dex.Run signature} {record : Dex.StepRecord signature} {task : Dex.Task signature}
+    (context : wp3a_Context program lConfig dexConfig tid thread run record task)
+    (hasNoCondition : (wp3a_wait thread).hasNoCondition = true) (outcome : WakeOutcome)
+    (isOutcome : decodeOutcome thread (some { timersDone := [], channelMessages := [] }) =
+      outcome) :
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) []
+      (lConfig.wakeThread tid outcome).stamp := by
+  have related := context.state.isRelated.running run context.hasRun context.isRunning
+  have lInvariant := context.state.lInvariant
+  exact wp3a_simulated_of_run context (.woken outcome) rfl (by simp) _
+    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ _
+    (wp3a_registerWait_empty _ _ _ _ hasNoCondition)
+    (fun candidate => wp3a_toExecute { timersDone := [], channelMessages := [] }
+      { candidate with invocation := none })
+    (wp3a_map_changeStep run.steps record.id _ _ (fun _ => rfl))
+    (fun _ => rfl) ⟨rfl, rfl, rfl⟩ rfl rfl rfl context.isRunning
+    (wp3a_channels_same related (wp3a_noBoot lInvariant context.isFound context.isWaitStarted)
+      tid _ rfl rfl rfl rfl (fun _ => rfl))
+    (wp3a_timers_same related lInvariant context.isFound context.isWaitStarted _
+      (by intro _ _ _ _ isBlocked; cases isBlocked) rfl _ (fun _ _ => Iff.rfl))
+    (fun _ _ isBlocked => by cases isBlocked)
+    (fun _ => by
+      simp only [PhaseMatchesStep]
+      exact ⟨rfl, rfl, isOutcome⟩)
+
+/-- A wait on empty Channels: the thread blocks and its Step waits. -/
+theorem wp3a_simulated_blocked {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {tid : Tid} {thread : L.Thread}
+    {run : Dex.Run signature} {record : Dex.StepRecord signature} {task : Dex.Task signature}
+    (context : wp3a_Context program lConfig dexConfig tid thread run record task)
+    (isSupported : Dex.IsSupportedWait (wp3a_wait thread))
+    (hasChannel : (wp3a_wait thread).channels ≠ [])
+    (isQuiet : ∀ chan, chan ∈ (wp3a_wait thread).channels → run.pendingMessages chan = [])
+    (on : BlockedOn)
+    (hasKind : (wp3a_wait thread).kind = (expectedWaitShape thread.core.tid on).1)
+    (hasTimerCount : (wp3a_wait thread).timerSeconds.length =
+      (expectedWaitShape thread.core.tid on).2.1)
+    (hasChannels : (wp3a_wait thread).channels = (expectedWaitShape thread.core.tid on).2.2)
+    (timerCase :
+      ((wp3a_wait thread).timerSeconds = [] ∧
+        ∀ number deadline chan, on ≠ .timed number deadline chan) ∨
+      ∃ number seconds chan, thread.timer = some (number, seconds) ∧
+        (wp3a_wait thread).timerSeconds = [seconds] ∧
+        on = .timed number (lConfig.clock + seconds * 1000000) chan) :
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) []
+      (lConfig.blockThread tid on).stamp := by
+  have state := context.state
+  have related := state.isRelated.running run context.hasRun context.isRunning
+  have lInvariant := state.lInvariant
+  have runInvariant := state.dexInvariant.runInvariant run context.hasRun
+  refine wp3a_simulated_of_run context (.blocked on lConfig.blockCounter) rfl (by simp) _
+    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ _
+    (wp3a_registerWait_blocks _ _ _ (wp3a_findStep?_preparedRun context) _ _ isSupported
+      hasChannel isQuiet)
+    (fun candidate => wp3a_toWaiting (wp3a_wait thread) dexConfig.clock (run.seq + 1)
+      { candidate with invocation := none })
+    (wp3a_map_changeStep run.steps record.id _ _ (fun _ => rfl))
+    (fun _ => rfl) ⟨rfl, rfl, rfl⟩ rfl rfl rfl context.isRunning
+    (wp3a_channels_same related (wp3a_noBoot lInvariant context.isFound context.isWaitStarted)
+      tid _ rfl rfl rfl rfl (fun _ => rfl))
+    ?_
+    (fun _ _ isBlocked => by
+      injection isBlocked with _ sameSince
+      rw [← sameSince]
+      exact ⟨fun other isOther otherOn otherSince otherBlocked =>
+          lInvariant.sinceBelowCounter other isOther otherOn otherSince otherBlocked,
+        _, rfl, fun other isOther isWaiting otherWait hasWait =>
+          (runInvariant.waitsSupported other otherWait ⟨isOther, isWaiting, hasWait⟩).2.2.2⟩)
+    (fun _ => by
+      simp only [PhaseMatchesStep]
+      exact ⟨rfl, rfl, _, rfl, hasKind, hasTimerCount, hasChannels, rfl⟩)
+  rcases timerCase with ⟨hasNoTimer, isNotTimed⟩ | ⟨number, seconds, chan, hasTimer, hasSeconds, isOn⟩
+  · refine wp3a_timers_same related lInvariant context.isFound context.isWaitStarted _
+      (by
+        intro number deadline chan since isBlocked
+        injection isBlocked with sameOn
+        exact isNotTimed number deadline chan sameOn) rfl _ (fun timer fireTime => ?_)
+    show AssocList.get? (Dex.Run.armTimers record.id
+      ((wp3a_wait thread).timerSeconds.map (fun seconds => dexConfig.clock + seconds * 1000000))
+      0 run.timers) timer = some fireTime ↔ _
+    rw [hasNoTimer]
+    rfl
+  · intro timer fireTime
+    show AssocList.get? (Dex.Run.armTimers record.id
+      ((wp3a_wait thread).timerSeconds.map (fun seconds => dexConfig.clock + seconds * 1000000))
+      0 run.timers) timer = some fireTime ↔ _
+    rw [hasSeconds, ← state.isRelated.clock]
+    exact wp3a_timers_armed related lInvariant context.isFound context.isWaitStarted
+      context.carries number seconds hasTimer (lConfig.clock + seconds * 1000000) chan
+      lConfig.blockCounter (by rw [isOn]; rfl) timer fireTime
+
+/-- A wait that consumes the head of one Channel: the thread is woken with
+the decoded outcome. The caller relates the Channels. -/
+theorem wp3a_simulated_consumed {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {tid : Tid} {thread : L.Thread}
+    {run : Dex.Run signature} {record : Dex.StepRecord signature} {task : Dex.Task signature}
+    (context : wp3a_Context program lConfig dexConfig tid thread run record task)
+    (chan : Chan) (remaining : List DexVal) (results : Dex.ConditionResults signature)
+    (isNewRun : (wp3a_preparedRun run record.id).registerWait record.id (wp3a_wait thread)
+        dexConfig.clock =
+      wp3a_consumedRun (wp3a_preparedRun run record.id) record.id (wp3a_wait thread)
+        dexConfig.clock chan remaining results)
+    (outcome : WakeOutcome) (isOutcome : decodeOutcome thread (some results) = outcome)
+    (lNext : L.Config) (frame : wp3a_LFrame lConfig lNext tid (.woken outcome))
+    (channels : ∀ newRun : Dex.Run signature, newRun.pendingMessages chan = remaining →
+      (∀ other, other ≠ chan → newRun.pendingMessages other = run.pendingMessages other) →
+      wp3a_ChannelsRelated lNext run newRun tid (.woken outcome)) :
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) [] lNext := by
+  have related := context.state.isRelated.running run context.hasRun context.isRunning
+  have lInvariant := context.state.lInvariant
+  refine wp3a_simulated_of_run context (.woken outcome) rfl (by simp) lNext frame _ isNewRun
+    (fun candidate => wp3a_toExecute results
+      (wp3a_toWaiting (wp3a_wait thread) dexConfig.clock (run.seq + 1)
+        { candidate with invocation := none }))
+    ((wp3a_map_changeStep (run.steps.map (wp3a_changeStep record.id
+        (fun candidate => { candidate with invocation := none }))) record.id
+        (wp3a_toWaiting (wp3a_wait thread) dexConfig.clock (run.seq + 1))
+        (wp3a_toExecute results) (fun _ => rfl)).trans
+      (wp3a_map_changeStep run.steps record.id
+        (fun candidate => { candidate with invocation := none })
+        (fun candidate => wp3a_toExecute results
+          (wp3a_toWaiting (wp3a_wait thread) dexConfig.clock (run.seq + 1) candidate))
+        (fun _ => rfl)))
+    (fun _ => rfl) ⟨rfl, rfl, rfl⟩ rfl rfl rfl context.isRunning
+    (channels _ ?_ ?_)
+    (wp3a_timers_same related lInvariant context.isFound context.isWaitStarted _
+      (by intro _ _ _ _ isBlocked; cases isBlocked) frame.threads _ (fun timer fireTime => ?_))
+    (fun _ _ isBlocked => by cases isBlocked)
+    (fun _ => by
+      simp only [PhaseMatchesStep]
+      exact ⟨rfl, rfl, isOutcome⟩)
+  · simp [wp3a_consumedRun, Dex.Run.pendingMessages, Dex.Run.updateStep,
+      Dex.Run.setPendingMessages, AssocList.get?_set_self]
+  · intro other isOther
+    show (AssocList.get? (AssocList.set run.channels chan remaining) other).getD [] = _
+    rw [AssocList.get?_set_other _ _ _ _ isOther]
+    rfl
+  · show AssocList.get? ((Dex.Run.armTimers record.id
+        ((wp3a_wait thread).timerSeconds.map
+          (fun seconds => dexConfig.clock + seconds * 1000000)) 0 run.timers).filter
+        (fun entry => !decide (entry.1.step = record.id))) timer = some fireTime ↔ _
+    rw [Dex.Run.filter_armTimers]
+    exact wp3a_get?_disarmed related lInvariant context.isFound context.isWaitStarted
+      context.carries timer fireTime
+
 end DexExpressiveness
