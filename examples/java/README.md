@@ -88,7 +88,10 @@ after E2E tests for manual HTTP exploration.
 
 Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 
+- [Cancel case: stop a running child Flow](./src/main/java/io/superdurable/dex/patterns/cancelcase)
+- [Critical section: a one-message Channel token](./src/main/java/io/superdurable/dex/patterns/criticalsection)
 - Cron schedule
+- [Deferred choice: the first response or expiry wins](./src/main/java/io/superdurable/dex/patterns/deferredchoice)
 - Drain internal / externally published channels
 - Interruptible execution
 - Manual recovery
