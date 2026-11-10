@@ -10,13 +10,13 @@ Recover after **WaitFor** exhausts its retry policy.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**WaitForFailureRecoveryFlow** starts **FailingStep**. Its **WaitFor** method returns the interval to wait on, but the sample deliberately fails that method. After **WaitForRetry** is exhausted, its **WaitForFailure** policy proceeds to **FailingStep.Execute**. Execute reads the wait failure from its context, then moves to **RecoveryStep**, which completes the Flow.
+**WaitForFailureRecoveryFlow** starts **FailingStep**. Its **WaitFor** method would normally return what to wait for. The sample makes it fail on purpose. After the **WaitForRetry** retries run out, the **WaitForFailure** policy proceeds to **FailingStep.Execute**. **Execute** reads the wait failure from its context, then moves to **RecoveryStep**, which completes the Flow.
 
-Use this pattern when a failed condition lookup is recoverable and the Flow can decide what to do in normal Step code.
+Use this pattern when the Flow can still go on after **WaitFor** fails, and Step code can decide what to do next.
 
 ## Core implementation
 
-**WaitForFailure** must be set to proceed after a bounded **WaitForRetry** policy. That makes Dex call **FailingStep.Execute** with the failure recorded in the context. The Step checks that state, then moves to **RecoveryStep**.
+Set **WaitForFailure** to proceed, and give **WaitForRetry** a bounded retry policy.
 
 <SdkTabs
   examples={{
