@@ -124,8 +124,15 @@ theorem endToEnd_safety (program : L.Program) (isWellFormed : program.IsWellForm
     (∀ requests failureTrace,
       IsFailureFiniteTrace (Program.ofFlow ⟦program⟧) environment requests failureTrace →
       ∃ lTrace, IsLFiniteTrace program lTrace ∧
-        IsOutRepetition (failureTrace.filterMap (fun event => project event.toDex)) lTrace) := by
-  sorry
+        IsOutRepetition (failureTrace.filterMap (fun event => project event.toDex)) lTrace) :=
+  wpf7_endToEnd_safety_of program isWellFormed
+    (fun requests trace isFree =>
+      freeFiniteTrace_isFailureFiniteTrace (Program.ofFlow ⟦program⟧)
+        (wpf7_ignoresAttemptContext_ofFlow ⟦program⟧) environment requests trace isFree)
+    (fun requests trace isTrace =>
+      safety_failure_repetition (Program.ofFlow ⟦program⟧)
+        (wpf7_hasNoFailurePolicy_ofFlow ⟦program⟧) (wpf7_isSyncOnly_ofFlow ⟦program⟧)
+        (wpf7_ignoresAttemptContext_ofFlow ⟦program⟧) environment requests trace isTrace)
 
 /-- **WP-F7, end to end, liveness**: for every well-formed L program `S`,
 every admissible L word, and every admissible outcome word `w` whose `w↓` is
@@ -147,7 +154,11 @@ theorem endToEnd_liveness (program : L.Program) (isWellFormed : program.IsWellFo
     (HasNoRetry word → IsLFairMaximalTrace program lWord trace marker →
       ∃ failureTrace,
         IsFailureFairMaximalTrace (Program.ofFlow ⟦program⟧) word failureTrace marker ∧
-        IsErasedProjection project failureTrace trace) := by
-  sorry
+        IsErasedProjection project failureTrace trace) :=
+  wpf7_endToEnd_liveness_of program isWellFormed lWord isAdmissible word trace marker
+    (fun dexTrace =>
+      liveness_failure (Program.ofFlow ⟦program⟧) (wpf7_hasNoFailurePolicy_ofFlow ⟦program⟧)
+        (wpf7_isSyncOnly_ofFlow ⟦program⟧) (wpf7_ignoresAttemptContext_ofFlow ⟦program⟧)
+        environment word isAdmissibleOutcome (lWord.map encodeRequest) isErasure dexTrace marker)
 
 end DexExpressiveness.DexF

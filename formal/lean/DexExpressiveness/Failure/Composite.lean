@@ -1,3 +1,5 @@
+import DexExpressiveness.Failure.Composite.WPF7EndToEnd
+
 /-!
 # Helper lemmas of the main statements
 
