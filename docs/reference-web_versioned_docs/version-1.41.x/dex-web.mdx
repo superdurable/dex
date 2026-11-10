@@ -1,0 +1,526 @@
+---
+title: Dex Web
+sidebar_label: Dex Web
+---
+
+# Dex Web
+
+Dex Web is the operator UI for Dex. It runs as a separate **dex-web** process that
+connects to a FlowService, such as [server-zd](/reference/server/).
+For local development, **dexcli dev** starts server-zd and Dex Web together.
+
+## Run dex-web {#run-dex-web}
+
+**dex-web** is a standalone binary with an embedded UI. It serves the UI,
+**/api/**, **/healthz**, and **/readyz**, and it does not start a server.
+
+~~~bash
+dex-web --flow-service-address 127.0.0.1:8801
+~~~
+
+Open [http://127.0.0.1:8802](http://127.0.0.1:8802). The **superdurable/dex-web**
+container image runs the same binary. It binds to **0.0.0.0:8802**, runs as UID
+and GID 65532, and includes the system CA bundle. Each push to the main branch
+publishes **superdurable/dex-web:latest**, and each **web/vX.Y.Z** release
+publishes **superdurable/dex-web:vX.Y.Z**. Mount Flow Definition Graph
+directories and token files read-only, with permissions that let that UID read
+them.
+
+~~~bash
+docker run --rm -p 8802:8802 \
+  -e DEX_WEB_FLOW_SERVICE_ADDRESS=host.docker.internal:8801 \
+  superdurable/dex-web:latest
+~~~
+
+Every setting accepts a flag or an environment variable. A flag overrides its
+environment variable. Settings do not change after startup, except the contents
+of the credential file. Other environment variables are ignored, including
+Kubernetes service-link variables such as **DEX_WEB_PORT**.
+
+| Flag | Environment variable | Default and meaning |
+| --- | --- | --- |
+| **--bind-address** | **DEX_WEB_BIND_ADDRESS** | **127.0.0.1**; the image sets **0.0.0.0**. Pass **0.0.0.0** when remote clients must connect. |
+| **--port** | **DEX_WEB_HTTP_PORT_NUMBER** | **8802**; the HTTP port. |
+| **--flow-service-address** | **DEX_WEB_FLOW_SERVICE_ADDRESS** | **127.0.0.1:8801**; the FlowService gRPC address. |
+| **--flow-rendering-dir** | **DEX_WEB_FLOW_RENDERING_DIRECTORY** | Empty; the Flow Definition Graph JSON directory. The **Design** tab, **Actions**, **Agent session**, **Designs**, and **Work Queue** read their definitions from it. |
+| **--tls** | **DEX_WEB_TLS** | **false**; encrypts and verifies the FlowService connection. |
+| **--tls-ca-file** | **DEX_WEB_TLS_CA_FILE** | Empty; a PEM file added to the system roots. Requires **--tls**. |
+| **--tls-server-name** | **DEX_WEB_TLS_SERVER_NAME** | Empty; overrides the name checked against the server certificate. Requires **--tls**. |
+| **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** | Empty; a file with the bearer token that Dex Web sends to FlowService. |
+
+Start Flow always uses pull Workers. Two legacy Worker routing options are deprecated and have no effect: **--start-flow-worker-target-pull** (**DEX_WEB_START_FLOW_WORKER_TARGET_PULL**) and **--start-flow-worker-target-headless** (**DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS**). Dex Web still accepts them and prints a startup warning when one is provided.
+
+The credential file holds one bearer token. Surrounding whitespace is ignored.
+A missing or empty file fails startup. If the file later becomes empty or
+unreadable, RPCs fail until it is restored. Dex Web checks the file for a new
+token at most once per second, so an external agent can rotate short-lived
+tokens through it. The token stays in the Dex Web process and never reaches the
+browser. Use **--tls** when you send a credential to a remote FlowService.
+
+~~~bash
+dex-web --flow-service-address dex.example.com:443 --tls \
+  --flow-service-credential-file /var/run/secrets/dex/token
+~~~
+
+**/healthz** reports only that the process is alive. **/readyz** validates the
+current definition snapshot and then calls FlowService **HealthCheck** with the
+configured credential. Use **/readyz** to gate traffic and **/healthz** for
+liveness, so a FlowService outage does not restart Dex Web. On shutdown, Dex Web
+waits up to ten seconds for open HTTP requests.
+
+### Access control {#dex-web-access-control}
+
+Dex Web has no end-user authentication. Anyone who can reach its port acts with
+the configured FlowService credential, and Dex Web can show Flow inputs, outputs,
+Attributes, and Worker stack traces. Place it behind TLS and an
+authentication-enforcing reverse proxy or gateway, and authorize access by role.
+Do not expose Dex Web or FlowService directly to the public Internet. Audit
+access to production Flow details according to your data-handling policy.
+
+### The /api requests {#api-requests}
+
+**POST**, **PUT**, **PATCH**, and **DELETE** requests under **/api/**, including
+Flow search, must send **Content-Type: application/json**. A missing or
+different media type returns HTTP 415. Add the header to **curl** calls that use
+**-d**:
+
+~~~bash
+curl -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8802/api/...
+~~~
+
+Cross-origin browser requests return HTTP 403. Dex Web uses the browser's fetch
+metadata, so a same-origin request works behind a proxy that terminates TLS or
+rewrites the **Host** header. It needs no trusted-origin setting. The proxy must
+pass the **Sec-Fetch-Site** and **Origin** headers through unchanged. For a
+client that sends no fetch metadata, the **Origin** host must equal the request
+**Host**, so configure the proxy to keep the public **Host**. Forwarded headers
+do not override these checks. A client that sends neither **Origin** nor
+**Sec-Fetch-Site**, such as **curl**, is accepted when it sends JSON.
+
+These checks do not stop DNS rebinding. Restrict accepted host names at the
+reverse proxy, and keep direct access to the Dex Web port limited to trusted
+clients. When FlowService fails, the browser sees a generic message and the
+original error goes to the Dex Web log.
+
+Changed in 1.41: Dex Web has one UI. The **v1** and **v2** version picker is gone, and **/** opens **/v1/flows**. Every **/v2** URL redirects to its **/v1** equivalent and keeps its query and hash. The Run workspace of the former **v2** and its **Debug** view no longer exist. The **v1** run tabs cover them.
+
+Features that need Flow Definition Graphs, and features that are still changing, are **Experimental**. Each carries an **Experimental** label and appears only when it applies. The header has one **Experimental** menu with **Designs**, **Work Queue**, and **Connectors**. The run page shows **Design**, **Agent session**, and **Actions** as extra tabs. See [Flows and Run pages](#v1-pages).
+
+```bash
+dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
+dexcli dev --flow-rendering-dir ./build
+```
+
+The **Design** tab and **Work Queue** search current runs by Flow type, using the generated definition of that Flow type, so you do not pick a JSON file again. Historical runs open on the Run page.
+
+Each definition uses the Flow type and Step types that your Workers register, as described in [Flow and Step names](/reference/web/1.41.x/flow-visualization#flow-and-step-names). Go Flows need no **GetFlowType** or **GetStepType** override unless the analyzer reports one of the name diagnostics listed there. Generate definitions with the **dexcli** release that matches your Dex Web, and regenerate them after upgrading.
+
+Version 1 remains the default analyzer schema. Versions 1 and 2 support Go, Python, and TypeScript. Python and TypeScript support a subset of the Go analyzer features; see [Flow source visualization](/reference/web/1.41.x/flow-visualization). Version 1 and Version 2 definition files can coexist. Dex Web rejects malformed Version 2 files and duplicate valid definitions for the same Flow type at startup. For example, two package-main binaries that both define **main.Flow** resolve to one Flow type, and the error names both files. An analyzer result with **valid: false** remains available on **Designs** but does not appear as a Flow type in **Work Queue**, and the Run page shows no **Design** tab for it.
+
+## View a remote server with dexcli web {#dexcli-web}
+
+**dexcli web** serves the same embedded UI against an existing server. It does
+not start a server. It connects to the global **--server** address with the
+same TLS and credential settings as other **dexcli** commands.
+
+When the FlowService port of a remote server is bound only to the remote host's
+loopback address, reach it through an SSH tunnel. **ssh -N** keeps running in
+the foreground, so open the tunnel in one terminal and leave it running:
+
+~~~bash
+ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+~~~
+
+In another terminal, start Dex Web:
+
+~~~bash
+dexcli --server 127.0.0.1:8801 web
+~~~
+
+Open [http://127.0.0.1:8802](http://127.0.0.1:8802). The command accepts
+**--bind-address** (default **127.0.0.1**), **--web-port** (default **8802**),
+**--flow-rendering-dir**, and **--open** (default true; pass **--open=false** to
+skip the browser). Ctrl+C stops Dex Web, and the server keeps running.
+
+A running **dexcli dev** also uses ports 8801 and 8802. To run both, choose
+another local tunnel port and another Dex Web port:
+
+~~~bash
+ssh -N -L 18801:127.0.0.1:8801 operator@dex-host
+dexcli --server 127.0.0.1:18801 web --web-port 18802
+~~~
+
+Before it prints its address, **dexcli web** calls FlowService **HealthCheck**.
+It fails when the server or the tunnel is unreachable. It also checks protocol
+compatibility and prints a warning on a mismatch. **--timeout** bounds only these
+startup checks, not the running Dex Web. Connector setup is disabled, because
+Connector configuration belongs to a local **dexcli dev** environment.
+
+Dex Web has no authentication. Anyone who can reach its port can operate Flows
+on the server with your credential. Keep **--bind-address** on a loopback
+address; **dexcli web** prints a warning for any other address. Keep the server's
+FlowService port bound to the remote host's loopback address too, so the SSH
+tunnel stays the only way in.
+
+## v1 Flows and Run pages {#v1-pages}
+
+Changed in 1.40: the **v1** Flows page and Run page were redesigned. Labels keep their written case. The logo links to the Super Durable website, and every **v1** page starts with a **Flows** breadcrumb that leads back to the Flows page.
+
+The Flows page has two tabs. **Filters** builds a search query from filter rows and shows it as **Generated query**. **Query** takes a hand-written **Search query**. Both use the query syntax of [Search](/reference/server/search). The list pages results and lets you save queries and choose columns.
+
+The Run page shows the Flow ID and Run ID in the breadcrumb, each with a copy button. A summary row shows the run status, **Started**, **Closed** for a closed run, **Duration**, and the **Run attempt** selector. See [Run attempts](#run-attempts).
+
+The **Events** tile in the summary row names the latest event, such as **Latest #120**, and the event range on screen. It pages through events with **Latest page**, **Newer page**, **Older page**, and **Oldest page**. **Page size** sets 100 or 1000 events per page. The default is 1000, and the browser remembers each viewer's choice. **Execution graph** and **Timeline** show the same page. **Overview** and **Streams** always read the newest events. **Live** adds new events to the latest page only. An older page stays in place, and **Latest page** returns to the live page.
+
+**Overview** starts with **Active steps**: each active Step's phase, Step type, and what it waits for. A closed run shows its **Outcome** instead, with the failure type and message when it failed. **Attributes**, **Channels**, **Queued steps**, **Completed outputs**, and **Start input** follow. **Channels** groups pending messages by Channel name. **Details** shows the Flow type, **Task queue**, **Sticky Worker ID**, request ID, and the first run ID when it differs from the run ID. **History settings** shows the run's **Retention window**, read as "Last N events", or **Server default**. While the run is active, **Edit** changes it through **UpdateFlowConfig**. See [history window](/reference/server/configuration#history-window).
+
+On screens wider than 760 pixels, **Timeline** is a horizontal strip with the oldest event on the left. Each event label names its subject, such as the Step type, Channel name, or RPC name. The icon shows the event kind, and only waiting, failed, and canceled events are colored. A legend explains the icons and colors. The arrow keys, Page Up, Page Down, Home, and End move the selection. On narrower screens, Timeline is a vertical list.
+
+Changed in 1.41: the overview above the strip is a histogram of the page. Bars count events over time, so bursts and quiet gaps show. When timestamps would crowd the events, bars follow event order instead, and the axis says "spaced by event order". A page with fewer events than bars gets one wide bar per event. Red marks failed events and Steps that were retried after a failed attempt, waiting events are amber, and canceled events are grey. Hover a bar to see its time range, event count, and failures. The shaded brush shows the events in the strip. Drag it to scroll, or click elsewhere to jump there. With the overview focused, the arrow keys, Page Up, Page Down, Home, and End move the brush. In the strip, a Step event that succeeded only after failed attempts carries a red retry badge.
+
+The selected event panel sits below the strip at full width. **Input**, **Output**, and **Context** are columns on wide screens, and empty sections are hidden. [Troubleshoot a Flow run](/reference/web/1.41.x/debugging#read-only-debugging-workflow) shows how to read them. **Execution graph** keeps the same panel beside the graph.
+
+### Run tabs {#run-tabs}
+
+Changed in 1.41: the run tabs are **Overview**, **Execution graph**, **Timeline**, and **Streams**. Three **Experimental** tabs follow, and each appears only when it applies:
+
+| Tab | Appears when | Open it directly with |
+| --- | --- | --- |
+| **Design** | A loaded Flow Definition Graph matches the run's Flow type. | **?view=design** |
+| **Agent session** | The run is a Dex Agents session, by the rule in [Compatibility](#agent-session-compatibility). | **?view=session** |
+| **Actions** | The Flow Definition Graph declares Actions for the Flow type. | **?view=actions** |
+
+**?view=** also accepts the other tab names. A tab that does not apply to the run opens **Execution graph** instead. A run without a matching definition shows only the four base tabs.
+
+## Named directives
+
+Version 2 directives use named values. Parameter position within one line has no meaning. Quote strings containing spaces as JSON strings, and write multiple values as a JSON array.
+
+<SdkTabs examples={{go: 'examples/go/products/customer-refund/agentic/workflow.go'}}>
+<SdkSnippet lang="go">
+
+```go
+// dex:field attribute-key:customer-email value-type:string editable:false description:"Customer email" ui-slot:title
+// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" ui-slot:status
+// dex:field attribute-key:in-email value-type:string editable:false description:"Customer request" ui-slot:subtitle
+// dex:field attribute-key:in-charge-ref value-type:string editable:false description:"Charge reference"
+// dex:field attribute-key:evidence-state value-type:string editable:false description:"Evidence state"
+// dex:field attribute-key:recommended-action value-type:string editable:false description:"Recommendation" ui-slot:recommendation
+// dex:field attribute-key:recommendation-rationale value-type:string editable:false description:"Recommendation rationale" ui-slot:reason
+// dex:field attribute-key:guardrail-verdict value-type:string editable:false description:"Guardrail verdict"
+// dex:field attribute-key:guardrail-rule value-type:string editable:false description:"Guardrail rule" ui-slot:reason
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Unknown or repeated parameters, missing required parameters, and invalid JSON are blocking diagnostics. Separate indexed Attribute, field, Action, and input lines keep source order. This order becomes column, detail-field, Action, and form order. There is no separate order property.
+
+Every registered Step has one group declaration and one explanation declaration. The explanation is one sentence that states what the Step does. Group order follows the first member's registration position in **GetSteps**. Step order within a group also follows **GetSteps**.
+
+A group should do one thing. Make it either one run of Steps that lead to each other, or one choice that a single Step makes between its Steps, such as the tools an agent picks from. The analyzer warns about any other group with **v2_step_group_shape** and names the group's separate parts, so you can split it. The warning does not make the definition invalid.
+
+The analyzer judges a group by its main story only. A failure-handling Step is a Step that only failure transitions reach, directly or through other failure-handling Steps. A record of exhausted retries and a repair after a crash are examples. These Steps belong to no group on the canvas, and failure transitions never join a group. Failure-handling Steps do not need a group of their own.
+
+## Flow canvas {#flow-canvas}
+
+Changed in 1.41: one Flow design graph draws every Flow Definition Graph, both schema 1.0 and 2.0. It appears on the **Design** tab of a run and on **Designs**. The **Design** tab reads only the loaded definition. It loads no history, blobs, or Summary, and it is for reading and understanding the Flow.
+
+<img
+  src="/img/production/dex-web-run-design.png"
+  alt="Dex Web Design tab with the Flow design graph and the Step panel open on a Step that waits for a person"
+/>
+
+The canvas draws one card per Step. The card's icon says who acts at the Step: a person, a message from outside, time, a child Flow, an AI model, an app through a Connector, or the Flow itself.
+
+A group of two or more Steps that forms one run or one choice is a stage. Any other group shows its Steps in its labeled band instead. **Collapsed** draws each stage as one card. Select the card or its **⊕** to open the stage in place, and select **⊖** on the open stage to close it. **Expanded** opens every stage. Both buttons also return the view to where the canvas opened.
+
+Each Step is drawn with one line in: the transition from the latest Step that leads to it, preferring a Step in its own group. Every other transition is a **↪** chip on the card it leaves. Select a chip to show where it leads. The Actions that answer a waiting Step and the RPC that starts a Step are also chips on its card.
+
+Changed in 1.41: Step cards no longer show outcome chips such as "can fail the Flow", "can stop this branch", or "completes". Select a Step to open its panel. **Paths out** lists each outcome in plain words.
+
+The canvas draws the Flow's main story first. The main story is every Step that the Flow reaches on purpose, however rarely. It includes business rejections, failed checks, and Steps that an RPC moves the Flow to. Failure handling is hidden in both **Collapsed** and **Expanded**. A Step card that a failure transition leaves shows **⚠** and the number of its failure transitions. Stage cards do not show this count, so the collapsed view stays quiet.
+
+Select a card with **⚠** to draw its failure handling beside it. The Steps its failures lead to appear in dashed cards. A failure that goes straight to a main-story Step appears as a dashed **↪** pointer, and **↩** chips lead back to the main story. Nothing else moves. Select anything else to hide the failure handling again.
+
+A Step that catches its own error and then chooses the next Step makes an ordinary decision, so it stays in the main story. To hide that handling, return the error so the Step's failure route runs.
+
+The **Design** tab does not mark where the run is. Use **Execution graph** to follow the run through its Steps.
+
+## Start Flow
+
+Changed in 1.41: **Start Flow** is a button in the header of the **Work Queue** list. It shows when the selected Flow type's definition contains a generated start schema. The dialog asks for a Flow ID and the start input. The Flow runs on a [pull Worker](/components/application) that is connected to the server. It renders nested objects, arrays, string-key maps, enums, booleans, datetime values, optional fields, and explicit null values. Fixed arrays keep their declared length. Integer values remain decimal text in the browser until serialization, so int64 values keep their exact precision.
+
+The Go analyzer derives the schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. It supports nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps. A recursive or unsupported input produces a warning and omits the start schema without hiding the rest of the definition.
+
+The Server reloads the current definition revision and validates the complete input before calling **StartFlow**. It rejects unknown object fields, missing required fields, invalid nulls, type, enum, range, datetime, array, and map errors. The Server selects the start Step type and creates the request ID.
+
+The **POST /api/v2/start** request does not need a Worker target. Dex Web starts the Flow on a pull Worker. **workerTargetPull: true** is accepted. **workerTargetPull: false** returns HTTP 400. Dex Web does not check for a registered pull Worker before starting, because registrations can change before dispatch. See [Run against server-zd](#run-against-server-zd).
+
+## Worker routing
+
+Flow detail shows the **Flow type** exactly as registered. It also shows **Task queue**, named after its Flow type, and **Sticky Worker ID**, the last app Worker recorded as serving the Flow.
+
+Active Steps and Step history show routing for **WaitFor** and **Execute**. **Serving Worker ID** identifies the Worker that served the method. **Queue source** shows the queue that served the task: **Sticky queue** or **Task queue**. A Worker may serve a task from the Task queue even when its ID matches the **Dispatch sticky Worker ID**. For older records without queue metadata, Dex infers the source from those IDs. A pending dispatch shows **—** until its queue is known. A failed dispatch may show its queue even if no serving Worker is known.
+
+A Step that no Worker takes waits in the queue instead of failing. A dispatch failure for no available Worker, or for an unknown RPC name that exhausted the dispatch wait, applies to RPCs only. A Worker disconnect still fails a handed-out attempt. Older Step failure records may show **Unknown Step type: dispatch timed out**. RPC history shows the serving Worker ID for recorded invocations. Older runs without routing metadata show **—**.
+
+Active Steps show the current **WaitFor invocation** and **Execute invocation**. **Phase** is **Pending**, **Running**, or **Backoff**. **Attempt** is the attempt that waits or runs. During **Backoff**, it is the next attempt. A pending attempt shows its **Pending reason** and **Pending since**, with how long it has waited. The reason is one of these:
+
+- **Waiting for locks**: another Step or a transactional RPC holds one of its locks, or an earlier Step waits for one.
+- **Waiting for a Worker**: no Worker of the Flow type has taken the attempt yet.
+- **Waiting for a Worker that supports this Step type**: Workers of the Flow type are connected, but none of them supports the Step type. The Step stays queued until such a Worker connects, the Flow times out, or the Flow is stopped.
+
+A running attempt shows **Attempt started**. A backoff shows **Backoff ends**. Older Servers do not report invocations, so Dex Web hides them.
+
+Step history shows **Scheduled**, the time the final attempt became pending. The time from **Scheduled** to **Started** is the wait for locks and a Worker.
+
+## Search and Summary
+
+An indexed Attribute declaration binds the Dex Attribute key, physical search index key, index type, application value type, and description. The analyzer compares every value with the Go definition and the SDK's effective index configuration.
+
+The physical key can be a generic namespace slot such as **keyword2**. The selected Flow type scopes its meaning in this workspace, so the UI behavior does not change when different Flow types reuse that slot.
+
+The **Work Queue** list searches the page's Flow type. Filters include Flow ID, execution status, start and close time, active Step types, and the declared indexed Attributes. Dex Web compiles these controls into a search query. It does not accept a raw query from the browser. Different fields use AND; multiple values for one field use OR.
+
+### Search several Flow types {#search-several-flow-types}
+
+Changed in 1.41: this search is in **Work Queue**. Under **Advanced search**, tick more **Flow types** to search them in one query. The page's own Flow type stays ticked. **POST /api/v2/search** accepts **flowTypes** in place of **flowType**, and rejects a request that sends both. Every Flow type needs a valid definition.
+
+Each row then shows its Flow type and reads its indexed Attributes, Summary, and UI slots from that Flow type's definition. Opening a row moves the page to its Flow type and keeps the list. Choosing a Flow type from the picker returns to that one Flow type, and so does moving to a Flow type outside the selection, such as with Back. **Working as** resets when the Flow types searched no longer declare the chosen permission.
+
+The list shows one page of up to 50 runs. When more runs match, it says so.
+
+A search of several Flow types accepts only built-in fields: Flow ID, execution status, start and close time, and active Step types. An indexed Attribute belongs to one Flow type, and the same physical key can mean something else in another. The API rejects such a filter, and the UI hides the Attribute control. **Working as** still applies, and offers the permissions of every Flow type searched.
+
+Only a search of one Flow type uses the builtin search backend's per-type index. A search of several reads every run and fails when that exceeds the backend's scan budget. SQL search backends have no such budget.
+
+### Find runs at a Step {#find-runs-at-a-step}
+
+Changed in 1.41: this filter is in **Work Queue**. Under **Advanced search**, **Waiting at Step** lists the Step types of the Flow types being searched. Tick several to match a run at any of them. The API takes the built-in filter field **activeStepTypes** with the operator **eq** or **in**. It searches the **ActiveStepTypes** field, the same one that **dexcli flow search --query** reads.
+
+A run appears only if its Flow set **ActiveStepSearchMode**, which the server does not turn on by default. See [FlowConfig](/reference/python/flows-and-steps/flow-config). With the wait-for mode, a run appears only at Steps that ran **WaitFor**. A Flow can turn the mode on while it runs with **UpdateFlowConfig**. When this filter finds nothing, the list says that runs may still be waiting, because runs without the mode cannot match.
+
+The field holds the Step types active now. A run leaves the search when it moves on, after the search index catches up.
+
+Each row calls **GetDexSummary** for the logical Flow ID's current run. Since 1.39, a Summary or Display with no fields calls no RPC, because the RPC could only return an empty object. Such a Flow needs no Worker to be listed or shown. The RPC accepts **dex.None** and returns a **map[string]any**. Dex Web loads at most eight summaries concurrently, applies a five-second timeout to each call, and isolates a failure to its row. Indexed Attributes appear before Summary fields.
+
+## Display and edits
+
+Selecting a row keeps the Flow ID in the URL, not a run ID. **GetDexDisplay**, Attribute reads, edits, and Actions omit the run ID, so Dex resolves the current run. Refreshing the same URL always addresses the Flow's current run.
+
+Changed in 1.41: Step panels differ by tab. On the **Design** tab, selecting a Step opens a panel with the Step **explanation**, WaitFor, and **Paths out** from the Flow Definition Graph, and no execution data. The rest of this paragraph describes the panel of a Step in a run that has execution history, split into **Definition** and **Execution**. Definition shows the Step **explanation**, WaitFor, and Execute branches from the Flow Definition Graph. Long Definition content scrolls so Execution stays visible. When a Step has more than three Execute branches, the branch list starts collapsed. Execution has a dropdown when the Step ran more than once, then **Input**, **Output**, and **Context** for the selected WaitFor or Execute history event in the same structured form as the selected event panel of the Run page. The execution payload defaults to Details and can switch to Raw JSON of the hydrated payload. AttributeMap and ChannelMap instances that are decimal numbers sort by numeric value, matching the Run page. Execute shows the live next Steps from that run's decision, not every FDG exit. Use **Load more from previous run** to see earlier executions of a Step.
+
+A field can also name the UI slot it fills: **title**, **subtitle**, **status**, **recommendation**, or **reason**. A UI slot says what part the field plays, so one template serves every Flow while each Flow maps its own Attributes onto it. UI slots are optional and most fields fill none.
+
+Dex Web reads **title** and **status** for each row in the run list, and falls back to the Flow ID and the execution status when a Flow declares neither. The selected-run panel reads all five, in UI slot order, ahead of the remaining fields. **title**, **subtitle**, **status**, and **recommendation** admit one field each. **reason** admits several, because a recommendation can rest on more than one.
+
+A row carries indexed Attributes and Summary fields only. A UI slot on an Attribute that appears in neither is read in the panel and not in the row. A UI slot is not an index: it says where a value belongs, never that it is searchable.
+
+Display fields are otherwise ordered by their directive lines. Primitive string, integer, double, boolean, and datetime fields can be editable. JSON, objects, arrays, and AttributeMap values remain read-only. Missing fields must be returned as null. The backend rejects omitted, undeclared, or mistyped values.
+
+Edits are available only while the current run is active. Dex Web writes the Attribute through **SetAttributes** and includes its declared index configuration when the Attribute is indexed. When the edited Attribute is an Action condition source, Dex Web also sends the Action permission mapping of every Action with a condition. Other edits omit it.
+
+## Actions
+
+An Action is an RPC that declares one in its registration options. Each SDK takes a label, one required permission, and an Attribute condition:
+
+| SDK | Declaration |
+| --- | --- |
+| Go | **RPCOptions.Action** set to **DefineAction**, with a **WhenAttributeMatches** condition and one **ActionRequiresPermission** option |
+| Python | **action=Action(...)** on the **rpc** decorator, with **required_permission** and an optional **condition** from **when_attribute_matches** |
+| TypeScript | **action: new Action(options)** in the **rpc** decorator or **declareRPCMethod** options, with **requiredPermission** and an optional **condition** from **whenAttributeMatches** |
+
+Python and TypeScript Actions are available since 1.39. A condition matches one scalar Attribute against one or more values, each made with **AttributeMatch** equality. The per-language rules are in each SDK's API reference. The visualizer reads these typed registrations directly; see [Flow visualization](/reference/web/1.41.x/flow-visualization#actions-in-python-and-typescript). Dex Web re-reads the condition Attribute before invoking the RPC, and answers **409** without running it when the condition no longer matches.
+
+The Go SDK requires a condition. Python and TypeScript accept an Action without one. A Flow Definition Graph from another source can also omit **condition** from an Action when its RPC checks current state itself. Dex Web then reads no Attribute before invoking the RPC, and offers the Action while the run is active. The permission check is unchanged. An omitted condition gives the Action no permission mapping, so its permission enters **DexWorkQueuePermissions** only through another Action with a condition. The Action is offered on every active run instead, so **Working as** does not filter that Flow type by permission history. See the rule below. A malformed condition, including an empty object, still makes the graph invalid.
+
+Changed in 1.41: Actions are a tab on the run page, shown only when the Flow Definition Graph declares Actions for the Flow type. The tab offers a **Working as** choice for the run. The **POST /api/v2/actions** endpoint is unchanged.
+
+<img
+  src="/img/production/dex-web-run-actions.png"
+  alt="Dex Web Actions tab with Working as chosen and one Action ready to run"
+/>
+
+**POST /api/v2/actions** answers with **invoked** set to true and **output** set to the value the RPC returned, or null when it returned none. An integer output is decimal text so it keeps its exact value. Numbers inside an object stay JSON numbers. Dex Web reads a large output from its blob first. If that read fails, the RPC has still run: the response stays **200** and **output** holds a blob reference for **POST /api/blobs/load**. The Actions tab does not display the output.
+
+An Action without input accepts **dex.None** in Go, or takes no input parameter in Python and TypeScript. It renders as a direct button. An Action with input accepts a named Go struct, a Python dataclass, or a TypeScript interface or object type alias, declared in the Flow's source file. Describe every input field with one **dex:input** directive on the RPC method: a **//** comment above the Go method or TypeScript method or **declareRPCMethod** call, or a **#** comment above the Python decorators. A field is optional when it is a Go pointer, a Python dataclass field with a default, or an optional TypeScript property; set **required** to match. User-sourced fields render controls in directive order. Attribute-sourced fields stay hidden and use the selected run's Attribute snapshot.
+
+A user-sourced string field can declare **capture:qr-code**. Dex Web keeps the text field for scanners, paste, and manual entry, and adds **Scan QR code**. Opening the scanner requests the camera and loads the QR reader. A successful scan copies the decoded text into the field; it does not submit the Action. The user can review the value before choosing the Action.
+
+Camera capture requires HTTPS or localhost. A denied permission, missing camera, unsupported environment, or host policy leaves manual entry available. Closing the scanner, changing runs, or leaving the page releases its camera tracks. Scanning does not grant permission, bypass the Action condition, or change the RPC protocol.
+
+Each Action requires one permission such as **refund.manage**. Permission keys begin with a lowercase letter and contain lowercase letters, digits, dots, or hyphens. When a successful Worker invocation writes an Action condition source, the Worker sends the complete mapping with that response. Unrelated writes and query-only RPCs omit it. Go, Python, and TypeScript Workers send the same mapping: one entry per Action with a condition, with its Attribute name, its values, and its permission. A Client or SubFlow start also writes **DexWorkQueuePermissions** for each Action whose condition the initial Attributes already match.
+
+The Server overlays the business writes on authoritative Attribute state and evaluates the mapping atomically with those writes. It sorts and deduplicates the permissions of currently available Actions, then adds newly matching permissions to the internal **DexWorkQueuePermissions** KeywordList Search Attribute. Once added, a permission remains for that Flow execution even when no Action currently matches it. Projection maintenance does not require application Steps to lock every Action source.
+
+The permission history lasts for the Flow execution and remains searchable after completion. A Server upgrade preserves permissions that are still stored but does not reconstruct permissions removed before the upgrade. A new, independent Flow execution starts from its own initial Attributes. A changed Action definition is first evaluated when a later source write sends its mapping or a new Flow starts. Removing or renaming an Action permission does not clear the old value from existing permission history.
+
+Work Queue offers the permissions declared by the Flow types being searched. Choosing **Working as** one permission sends it as **workQueuePermissions** to **POST /api/v2/search**. The API also accepts several permissions for callers that derive them from multiple user roles. A run matches when its permission history contains any requested permission. This permission group is joined with the Flow types and other filters using AND.
+
+Since 1.39, the permission filter applies per Flow type. When a searched Flow type offers a requested permission through an Action without a condition, every run of that Flow type matches, because that Action is offered whenever the run is active. Other Flow types still match only through their permission history. Before 1.39, choosing such a permission listed no run of that Flow type, because no Worker records it. A Flow type that declares the permission only on Actions with a condition behaves as before.
+
+A matching permission means an Action is or was available; it does not mean the Action is available now. A keyed gate also needs its current key, and the list reads an eventually consistent index. The run decides which Actions are currently available once it is open.
+
+The browser condition only controls presentation. Every Action RPC must check the current state again before changing durable state or publishing a Channel message. Use locks when that check and the effect must be atomic.
+
+Since 1.39, Dex Web takes the Attribute locks that the invoked RPC declares, as the SDK Clients do. It reads them from the graph's **resource_lock** edges from the RPC's node, and sends their Attribute names as **lock_attribute_keys**. A locking RPC runs transactionally. Summary and Display RPCs follow the same rule. Regenerate a Go graph with this release of **dexcli visualize**: an older one records no RPC locks, so Dex Web invokes its RPCs without them. Python graphs recorded RPC locks before 1.39, keyed by method name; regenerate one whose RPC sets **name** so the locks follow the RPC name. TypeScript graphs record RPC locks since 1.39.
+
+Dex Web refuses an Action with **422** and code **rpc_locks_unresolved**, without invoking the RPC, when the graph names a lock it cannot take:
+
+- The RPC locks an AttributeMap instance. The graph records the map but not the instance. Invoke such an RPC with an SDK Client.
+- A lock edge names a node that is not an Attribute of the graph.
+
+When another Step or RPC holds a lock, the Server rejects the call before the RPC runs, and nothing is committed. Dex Web answers **409** with code **rpc_lock_conflict** and **grpcCode** 10. The call is safe to retry.
+
+Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.
+
+## Agent session view {#agent-session-view}
+
+Since 1.39, the run page of a Dex Agents session has a session view that reads the session as one conversation. Changed in 1.41: it is the **Experimental** **Agent session** tab, next to **Overview**, **Execution graph**, **Timeline**, **Streams**, **Design**, and **Actions**. Each tool call is drawn as a card where the agent made it. Add **?view=session** to a run URL to open the tab directly.
+
+<img
+  src="/img/production/dex-web-agent-session.png"
+  alt="Dex Web Agent session tab with a turn waiting at two tool call approvals"
+/>
+
+The header shows the session status, the active turn, and the token usage from **AgentUsage**. A tool call card shows the tool name, its effect class, its arguments, and its state:
+
+| State | Meaning |
+| --- | --- |
+| **waiting for approval** | The call waits for **resolve_interrupt**. The card has **Approve** and **Reject**. A rejection can carry a reason, which the model sees. |
+| **waiting for an answer** | A question waits for **answer_question**. The card offers its choices, free text when allowed, and **Decline**. |
+| **queued for a Worker** | The call's Step is pending. The card names the pending reason and how long it waited. On the first attempt it says the call has not run. This is information only. |
+| **running** | A Worker runs the call. The card shows **Attempt n of m** from the Step's retry policy. |
+| **retrying** | An attempt failed, and the next one starts after a backoff. |
+| **recording the result** | The Step's attempts ended without a result, and a recovery Step is pending. The call may have run. |
+| **done**, **failed** | The tool ran and returned a result or an error. |
+| **outcome unknown** | The call may have run. Check the system it writes to. **Tell the agent** fills the steer box. |
+| **skipped** | The tool did not run, so it is safe to call again. |
+| **rejected**, **not run** | A person or a deadline rejected the call, or steering or **cancel_turn** abandoned it. |
+
+The bottom of the tab has a message box with **Steer** and **Stop turn**. **Steer** calls **steer_user_message**. While no turn runs, the button reads **Send** and the message starts the next turn. **Stop turn** calls **cancel_turn** for the active turn.
+
+### Read path {#agent-session-read-path}
+
+The tab reads the session's Attributes with **GET /api/flows/state** and loads their stored values with **POST /api/blobs/load**. It reads the active Steps from the same response and the newest Flow history window with **GET /api/flows/history**. It calls no session RPC, so it works while the session's Workers are down. When a value cannot be read, the tab lists each missing Attribute or message. It never shows an empty conversation in place of a failed read.
+
+A session deletes its tool call records when a turn ends, and only the message text stays. A past call inside the loaded history window shows the last record that history holds. An older call shows only what its message text keeps: tool name, arguments, and result. The card then reads **effect not kept**, and the tab says why.
+
+**AgentMessageChunks** holds older messages. The tab loads them only when you select **Show earlier messages**.
+
+### Session controls {#agent-session-controls}
+
+Every control is an Action and goes through **POST /api/v2/actions** with its own input. Each approval card sends its own **interrupt_id**, so nobody copies one by hand. Each Action requires the permission the session graph declares. The tab asks you to choose **Working as** that permission, and offers a button for it on narrow screens.
+
+A control is disabled, with the reason, when:
+
+- the Flow Definition Graph declares no such Action;
+- the session is closed; or
+- **Working as** does not include the Action's permission.
+
+**Stop turn** is also disabled while no turn runs, or when the turn does not accept steering or stopping.
+
+A queued tool call does not disable the controls. A Step waits for a Worker whenever every Step task slot is busy, while RPCs use the Worker's [reserved RPC capacity](/reference/server/workers#reserved-rpc-capacity). So the controls stay enabled when the Step queue is backed up, which is when most approvals wait. If an Action's RPC finds no connected Worker, or loses its Worker, **POST /api/v2/actions** answers **502** with **grpcCode** 14, and the card reads "No Worker is connected to run this. Try again when Workers are back." Other failures show the route's error text.
+
+When **resolve_interrupt** or **answer_question** returns false, another operator or a deadline answered the call first. The card says **Already handled** and the tab reloads from committed state. An RPC that cannot take its locks commits nothing, so Dex Web retries it after 200, 500, and 1000 ms. If it still conflicts, the card says "The session is busy. Try again." and keeps its controls.
+
+### Compatibility {#agent-session-compatibility}
+
+Dex Web shows the **Agent session** tab for a valid Flow Definition Graph 2.0 that declares the Attributes **AgentState**, **AgentMessages**, **AgentToolCalls**, and **PendingInterrupts**. **AgentMessages** and **AgentToolCalls** must be AttributeMaps. The [session graph](/agent-frameworks/deploy-agents#dex-web) that Dex Agents renders declares them.
+
+Dex Web reads the session schema by name. It reads these Attributes: **AgentState**, **AgentMessages**, **AgentMessageChunks**, **AgentMessageIndex**, **AgentToolCalls**, **PendingInterrupts**, and **AgentUsage**. It reads the Step types **CallTool**, **CallSingleAttemptTool**, **PollToolTask**, **RecordToolFailure**, and **RecordToolOutcomeUnknown**, whose input is a tool call ID. It reads the Actions **resolve_interrupt**, **answer_question**, **steer_user_message**, and **cancel_turn**.
+
+The rule for the schema is additive. Dex Agents may add fields, enum values, Steps, and Actions, and Dex Web ignores what it does not know. An unknown status shows as its raw value. Renaming or removing a name above, or changing what a field means, breaks the tab. Such a change needs a matching Dex Web release.
+
+Python and TypeScript sessions get the full tab. A Go session has no questions, steering, or stopping. Its tab shows messages, tool calls, approvals, and usage. Each control its graph does not declare is disabled with the reason.
+
+## Agent inbox {#agent-inbox}
+
+Since 1.39, Work Queue has an agent mode for [Dex Agents](/agent-frameworks/deploy-agents) sessions. Choose **Agents** at the top of the Work Queue list. The switch appears when at least one Flow type is a session Flow, by the rule in [Compatibility](#agent-session-compatibility), and declares the **resolve_interrupt** Action. Changed in 1.41: the mode's URL is **/v1/work-queue?view=agents**, and **Work Queue** is in the **Experimental** menu. The former **/v2/work-queue** URL redirects.
+
+<img
+  src="/img/production/dex-web-agent-inbox.png"
+  alt="Dex Web Work Queue in agent mode, with sessions grouped by agent and an approval open in the side panel"
+/>
+
+The list shows each session that waits for a person. It searches every session Flow type in one query for runs at **AwaitToolApproval** or **AwaitQuestionAnswer**, through the built-in **activeStepTypes** field. See [Find runs at a Step](#find-runs-at-a-step). A session appears only while its Flow searches by active Step type. Rows are grouped by agent, which is the session's Flow type, and each group shows its count.
+
+Each row says what is asked: the tool and a short summary of its arguments, or the question. It also shows the session ID, and the time left before the deadline or, without one, how long the session has waited. Dex Web reads these from **PendingInterrupts** after the search. Inside a group, the earliest deadline comes first, then the longest wait. The deadline is not indexed, so this order covers the loaded page only. When more sessions match, the list says so.
+
+Selecting a row opens the side panel. It shows each waiting call as the same card the [Agent session tab](#agent-session-view) draws: tool, effect class, arguments, deadline, and **Approve** and **Reject** or the question's answers. Below the calls is the last message with text. **Open session** opens the run page on its **Agent session** tab (**?view=session**). On a narrow screen, the panel replaces the list, and its close button returns to the list.
+
+The panel reads the session as the Agent session tab does, so it works while Workers are down. Its controls follow [Session controls](#agent-session-controls): each answer is an Action through **POST /api/v2/actions**, offered while **Working as** names its permission, and a queued Step does not disable it.
+
+After each answer, the panel and the row read the session again, and the row leaves the list when nothing waits. When another operator or a deadline answered the call first, the card says **Already handled**.
+
+The inbox does not show a tool call whose outcome is unknown or a draft plan that waits for **execute_plan**. No Step waits on either, so the search cannot find them. Open the session to see them.
+
+## Run against server-zd {#run-against-server-zd}
+
+[server-zd](/reference/server/) does not serve Dex Web. Point **--flow-service-address** at the server-zd
+gRPC address. When server-zd authentication is on, pass **--flow-service-credential-file**
+with a static token or service JWT. Dex Web also supports TLS for the upstream
+connection through **--tls**, **--tls-ca-file**, and **--tls-server-name**.
+
+~~~bash
+dex-web --bind-address 0.0.0.0 --port 8802 \
+  --flow-service-address dex-server-zd:8801 \
+  --flow-service-credential-file /etc/dex/web-token
+~~~
+
+For local development, **dexcli dev** starts server-zd and Dex Web.
+**--engine zd** remains accepted for existing scripts. The dexcli release package includes **dex-server-zd**, so a
+Homebrew install of dexcli needs no separate download. To use another
+**dex-server-zd** binary, pass **--zd-binary** or set **DEX_SERVER_ZD_BINARY**.
+Without either, dexcli uses the **dex-server-zd** next to the dexcli executable,
+then the one on your PATH. Pass
+**--zd-config** with a server-zd YAML file to override settings such as closed
+Flow retention, Streams, or the search backend. The
+[CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md#start-locally)
+lists every flag.
+
+The **--durability** flag of **dexcli dev** chooses how server-zd stores
+acknowledged writes. It accepts three modes:
+
+- **strict** is the default. server-zd flushes every write to disk with fsync
+  before it replies. A killed process, a host crash, or a power loss loses no
+  acknowledged Flow, and the next start resumes from the same state directory.
+- **process-crash-safe** writes every acknowledged write to its files without
+  fsync. A killed process loses no Flows, but a host crash or power loss can
+  lose recent writes.
+- **relaxed** keeps writes in memory until a graceful stop. After a crash or
+  kill in relaxed mode, server-zd refuses to start until you delete the state
+  directory.
+
+Each fsync waits for the disk, so **strict** is slower. On macOS a Flow takes
+several times longer than with **process-crash-safe**, which suits short-lived
+test servers. The flag overrides **dev.durabilityMode** in the **--zd-config**
+file. Without the flag, server-zd uses that setting, or **strict**.
+
+~~~bash
+dexcli dev --flow-rendering-dir ./build
+~~~
+
+Start Flow uses pull Workers, as described in [Start Flow](#start-flow).
+
+### Run attempts {#run-attempts}
+
+Time travel keeps the run ID and creates a new run attempt. Run attempts are
+numbered from 1.
+
+The run details page shows a **Run attempt** selector in place of **Run
+chain**. The page opens from a run on the Run page.
+Choosing an earlier attempt adds **?runAttempt=N** to the page URL and shows
+that attempt's history. Live history stops for an earlier attempt. Live state
+always belongs to the current attempt. Time travel from that view searches the
+selected attempt. A **TimeTravelFork** event links to the previous run attempt.
+
+When the run attempt changes, the page reloads the whole history. Events after
+the fork point no longer belong to the current attempt.
+
+**GET /api/flows/history** accepts an optional **runAttempt**. Zero or absent
+selects the current attempt. Each event and **GET /api/flows/summary** report
+**runAttempt**. **POST
+/api/flows/time-travel** accepts an optional **runAttempt** and returns the new
+one.

@@ -1450,5 +1450,165 @@
   {
     "from": "/zh-Hans/reference/server/0.1.18/workers/",
     "to": "/zh-Hans/reference/server/workers/"
+  },
+  {
+    "from": "/reference/java/1.31.x/changelog/",
+    "to": "/reference/java/changelog/"
+  },
+  {
+    "from": "/reference/java/1.31.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/reference/java/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/reference/java/1.31.x/flows-and-steps/flow-config/",
+    "to": "/reference/java/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/reference/java/1.31.x/flows-and-steps/flow-definition/",
+    "to": "/reference/java/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/reference/java/1.31.x/flows-and-steps/",
+    "to": "/reference/java/flows-and-steps/"
+  },
+  {
+    "from": "/reference/java/1.31.x/flows-and-steps/start-flow-options/",
+    "to": "/reference/java/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/reference/java/1.31.x/flows-and-steps/step-decisions/",
+    "to": "/reference/java/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/reference/java/1.31.x/flows-and-steps/step-methods/",
+    "to": "/reference/java/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/reference/java/1.31.x/flows-and-steps/step-options/",
+    "to": "/reference/java/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/reference/java/1.31.x/flows-and-steps/waits/",
+    "to": "/reference/java/flows-and-steps/waits/"
+  },
+  {
+    "from": "/reference/java/1.31.x/",
+    "to": "/reference/java/"
+  },
+  {
+    "from": "/reference/java/1.31.x/workers/",
+    "to": "/reference/java/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/changelog/",
+    "to": "/zh-Hans/reference/java/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/flows-and-steps/flow-config/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/flows-and-steps/flow-definition/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/flows-and-steps/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/flows-and-steps/start-flow-options/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/flows-and-steps/step-decisions/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/flows-and-steps/step-methods/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/flows-and-steps/step-options/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/flows-and-steps/waits/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/waits/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/",
+    "to": "/zh-Hans/reference/java/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.31.x/workers/",
+    "to": "/zh-Hans/reference/java/workers/"
+  },
+  {
+    "from": "/reference/web/1.30.x/changelog/",
+    "to": "/reference/web/changelog/"
+  },
+  {
+    "from": "/reference/web/1.30.x/debugging/",
+    "to": "/reference/web/debugging/"
+  },
+  {
+    "from": "/reference/web/1.30.x/dex-web/",
+    "to": "/reference/web/dex-web/"
+  },
+  {
+    "from": "/reference/web/1.30.x/flow-visualization/",
+    "to": "/reference/web/flow-visualization/"
+  },
+  {
+    "from": "/reference/web/1.30.x/",
+    "to": "/reference/web/"
+  },
+  {
+    "from": "/reference/web/1.30.x/local-connector-setup/",
+    "to": "/reference/web/local-connector-setup/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.30.x/changelog/",
+    "to": "/zh-Hans/reference/web/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.30.x/debugging/",
+    "to": "/zh-Hans/reference/web/debugging/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.30.x/dex-web/",
+    "to": "/zh-Hans/reference/web/dex-web/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.30.x/flow-visualization/",
+    "to": "/zh-Hans/reference/web/flow-visualization/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.30.x/",
+    "to": "/zh-Hans/reference/web/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.30.x/local-connector-setup/",
+    "to": "/zh-Hans/reference/web/local-connector-setup/"
+  },
+  {
+    "from": "/reference/cli/1.34.x/changelog/",
+    "to": "/reference/cli/changelog/"
+  },
+  {
+    "from": "/reference/cli/1.34.x/",
+    "to": "/reference/cli/"
+  },
+  {
+    "from": "/zh-Hans/reference/cli/1.34.x/changelog/",
+    "to": "/zh-Hans/reference/cli/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/cli/1.34.x/",
+    "to": "/zh-Hans/reference/cli/"
   }
 ]

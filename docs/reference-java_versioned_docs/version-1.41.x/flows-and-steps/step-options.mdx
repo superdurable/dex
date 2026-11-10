@@ -17,15 +17,11 @@ execution by default. To override them for one Step execution, provide the
 **StepOptions** override when a **StepDecision** goes to the next Steps.
 
 ```java
-public StepDecision execute(final Context context, final String input) {
-    final StepOptions override = StepOptions.newBuilder()
-            .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
-            .waitForFailure(WaitForFailurePolicy.PROCEED)
-            .build();
-    final String payload = input + "_state1";
-    return StepDecision.goToMany(
-            StepMovement.of(OverrideSecond.class, payload, override));
-}
+final StepOptions options = StepOptions.newBuilder()
+        .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
+        .waitForFailure(WaitForFailurePolicy.PROCEED)
+        .build();
+return StepDecision.goToMany(StepMovement.of(OverrideSecond.class, output, options));
 ```
 
 Example: [examples/java/src/main/java/io/superdurable/dex/primitives/optionsoverride/OptionsOverrideFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/optionsoverride/OptionsOverrideFlow.java)
@@ -39,6 +35,21 @@ Example: [examples/java/src/main/java/io/superdurable/dex/primitives/optionsover
 - **Failure policy** decides what happens **after** retries end. The default
   fails the Flow. **WaitFor** can run **Execute** anyway, and **Execute** can
   go to a recovery Step.
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeRetry(RetryPolicy.newBuilder()
+                    .initialInterval(Duration.ofSeconds(1))
+                    .backoffCoefficient(2)
+                    .maximumAttempts(5)
+                    .build())
+            .build();
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/step/RetryFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/step/RetryFlow.java)
 
 ### WaitFor failure policy {#waitfor-failure-policy}
 
@@ -96,7 +107,7 @@ Example: [examples/java/src/main/java/io/superdurable/dex/patterns/recovery/Fail
 
 The recovery Step receives the failed Step's durable input unchanged.
 **getRecoveryError()** has the error type and detail from the final failed
-**Execute** attempt. See the
+**Execute** attempt, and its [attempt progress](./failure-and-redelivery.mdx#unknown-outcome). See the
 [Failure Handling](/design-patterns/failure-handling) pattern and the
 [money-transfer](/use-cases/money-transfer) use case.
 
@@ -119,8 +130,8 @@ Retries recover from failed attempts. Do not use **RetryAfter** to wait for an
 external system; use the [Polling](/design-patterns/polling) pattern.
 
 A retry of one **Execute** call reuses the
-[state snapshot](#selective-state-loading) loaded for its first attempt, so it
-does not see Attribute writes made after that load.
+[state snapshot](#selective-state-loading) that Dex took when it handed the
+first attempt to a Worker, so it does not see Attribute writes made after that.
 To wait for an external write, have the writer also publish a
 [Channel](/concepts/primitives/channel) message, directly or from an RPC handler, and
 wait on that message in the **WaitFor** of the next Step. Alternatively, the
@@ -128,14 +139,9 @@ next Step can wait on a [Timer](/concepts/primitives/timer) and read fresh state
 runs.
 
 ```java
-public StepDecision execute(final Context context, final Integer readyAfterAttempt) {
-    if (context.getAttempt() < readyAfterAttempt) {
-        final IllegalStateException cause =
-                new IllegalStateException("not ready on attempt " + context.getAttempt());
-        throw RetryAfterException.after(Duration.ofSeconds(7), cause);
-    }
-    return StepDecision.gracefulComplete("ready");
-}
+throw RetryAfterException.after(
+        Duration.ofSeconds(7),
+        new IllegalStateException("not ready on attempt " + context.getAttempt()));
 ```
 
 Example: [examples/java/src/main/java/io/superdurable/dex/primitives/customretry/CustomRetryFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/customretry/CustomRetryFlow.java)
@@ -143,21 +149,36 @@ Example: [examples/java/src/main/java/io/superdurable/dex/primitives/customretry
 ## Durability {#durability}
 
 **SYNC** durability records the Step completion in Dex Server and persists it
-to storage synchronously.
+to storage synchronously. It also makes the attempt start durable in storage
+before the Worker receives the task.
 
-**ASYNC** durability does this asynchronously. Dex Server starts the next work
-before the Step completion is persisted, and it batches these commits within
-about 20 milliseconds.
+**ASYNC** durability does this asynchronously. Dex Server hands the task to the
+Worker and starts the next work before the start and the completion are
+persisted, and it batches these commits within about 20 milliseconds.
+Sustained server throughput is about the same for both modes. **ASYNC** has
+lower latency, and a single Flow runs faster. On object storage with low write
+latency, **ASYNC** also makes far fewer requests.
 
 If a Dex Server node fails before the commit, a recent **ASYNC** result is
 lost. The method runs again, and so does any later work that started from that
-result. Make **ASYNC** methods and the work they start idempotent.
+result. If the node fails before the **ASYNC** start was persisted, Dex rolls
+the start back and runs the same attempt number again. This consumes no retry,
+and the attempt can see different input. Two executions of the same attempt
+number can overlap, and Step Stream writes can repeat in the same source. Make
+**ASYNC** methods and the work they start idempotent.
+
+Choose **SYNC** for effects that need the tightest guarantees. Choose **ASYNC**
+for short Steps where latency matters and a rare rerun is acceptable. See
+[Failure and redelivery](./failure-and-redelivery.mdx) for the full comparison.
 
 **SYNC** is the default. Dex resolves durability in this order: a method
-override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**.
+override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**. Dex pins
+the durability when a method call becomes pending. Changing
+**step_durability** in the Flow config affects only method calls scheduled
+afterward.
 
-Durability changes only when Dex Server persists a result. Retry policy, method
-timeout, and heartbeat settings apply to every attempt in both modes.
+Retry policy, method timeout, and heartbeat settings apply to every attempt in
+both modes.
 
 ```java
 @Override
@@ -177,17 +198,33 @@ Three options bound the time a Step method can take.
 | Limit | Option | Default | Enforcement |
 | --- | --- | --- | --- |
 | Longest single attempt | **WaitForMethodTimeout** or **ExecuteMethodTimeout** | Two hours. The server has no hard cap. | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
-| Longest total time, including every retry | **TotalDuration** in the retry policy | Four hours, for both durability modes. | The budget starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
+| Time budget for retries | **TotalDuration** in the retry policy | Four hours, for both durability modes. | After an attempt fails, Dex retries only while the budget has time left. It never stops an attempt in progress. |
 | Stalled Worker | **HeartbeatTimeout** | One minute. The default allowed minimum is 10 seconds. | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. See [Heartbeat](#heartbeat). |
 
-An attempt's deadline is the method timeout, shortened to the time left in
-**TotalDuration**. An attempt that **TotalDuration** stops fails with the
-RETRY_DEADLINE failure kind.
+The method timeout and the heartbeat timeout start when Dex sends the task to
+the Worker. Waiting for locks or for a Worker, including time in the task
+queue, does not count. The deadline in the task is the send time plus the
+method timeout.
+
+**TotalDuration** starts when Dex first hands attempt 1 to a Worker. If attempt
+1 was returned without running, the clock resets. Dex does not check
+**TotalDuration** while a Step waits in the task queue, so a retry that waited
+past it still runs. A retry waits in the queue again. Dex dispatches queued
+tasks roughly in the order they became ready, with no strict order. That wait
+counts toward **TotalDuration**. After a long backlog, a failed retry may have
+no time left.
+
+Dex uses **TotalDuration** only after an attempt fails, to decide whether to
+retry. It never cuts a running attempt, so the last attempt can start or end
+after **TotalDuration**. Only the method timeout limits a single attempt. To
+bound one long attempt, set **ExecuteMethodTimeout** or
+**WaitForMethodTimeout**, not **TotalDuration**.
 
 To bound a long wait, set the method timeout and **TotalDuration** to the same
-maximum. Dex enforces both, so the Step does not need its own deadline. Give
-the retry policy a few attempts with backoff for transient errors and Worker
-crashes.
+maximum. Dex enforces both, so the Step does not need its own deadline. With
+Workers available, the total wait is at most about **TotalDuration** plus one
+method timeout. Give the retry policy a few attempts with backoff for transient
+errors and Worker crashes.
 
 When a timeout expires, Dex fails the attempt with a timeout error. After
 retries end, the failure policy decides what happens next. If no failure route
@@ -279,16 +316,18 @@ Attribute lock controls concurrency but does not load the AttributeMap value.
 
 The two methods receive independent snapshots. **Execute** reads its snapshot
 after the winning Wait conditions consume their messages, so it does not see
-those consumed messages again. Retries of one logical method call reuse its
-first snapshot.
+those consumed messages again. Dex takes the snapshot of attempt 1 when it
+hands the attempt to a Worker. Retries of one logical method call, and attempts
+that return to pending, reuse that snapshot.
 
-This Step loads pending queued messages only for **Execute**. It deletes the
+This Step loads pending **Queued** messages only for **Execute**. It deletes the
 first pending message in the same successful handler response.
 
 ```java
+@Override
 public StepOptions getStepOptions() {
     return StepOptions.newBuilder()
-            .addExecuteLoadChannel(queuedMessages)
+            .addExecuteLoadChannel(queued)
             .build();
 }
 ```

@@ -20,3 +20,16 @@ signature of one API, read the [Java SDK API reference](../index.mdx#api-referen
 - [Step decisions](./step-decisions.mdx)<a id="gotomulti"></a><a id="close-decisions"></a><a id="cancellation-on-stepdecision"></a><a id="forcecompleteifchannelsempty"></a><a id="step-decisions"></a>
 - [StepOptions](./step-options.mdx)<a id="stepoptions-override-per-stepexecution"></a><a id="retry-and-failure-policies"></a><a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="last-failure-info"></a><a id="retry-after"></a><a id="durability"></a><a id="timeouts-and-total-duration"></a><a id="heartbeat"></a><a id="cancellation"></a><a id="selective-state-loading"></a><a id="attribute-locks"></a><a id="step-options"></a>
 - [Failure and redelivery](./failure-and-redelivery.mdx)<a id="heartbeats-not-acknowledged"></a><a id="same-attempt-redelivery"></a><a id="unknown-outcome"></a><a id="design-for-redelivery"></a><a id="failure-and-redelivery"></a>
+
+## Version notes {#version-notes}
+
+Changed in 0.1.17 (Server protocol 4, required by SDK 1.35):
+
+- A Step attempt deadline is the hand-out time plus the method timeout. It is
+  no longer shortened to the remaining retry budget. Queue and lock waits are
+  excluded.
+- An interrupted attempt that was handed out consumes a retry.
+- **TotalDuration** never ends a running attempt. The server no longer
+  produces the RETRY_DEADLINE failure kind. The SDK helper
+  **IsRetryTotalDurationExceeded**, and its equivalent in other SDKs, can be
+  true only for records written before the upgrade.
