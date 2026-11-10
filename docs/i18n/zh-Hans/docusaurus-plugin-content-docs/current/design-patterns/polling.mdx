@@ -39,17 +39,17 @@ loop:
 interval + call timeout <= HeartbeatTimeout - 10s
 ```
 
-示例使用一分钟的 **HeartbeatTimeout** 和 10 秒的调用 timeout，所以间隔最多 40 秒。默认值和最小值见 [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat)。
+示例使用一分钟的 **HeartbeatTimeout** 和 10 秒的调用 timeout，所以间隔最多 40 秒。默认值和最小值见 [Heartbeat](/reference/python/step-options#heartbeat)。
 
 根据等待场景选择间隔。用户正在等待时（例如等待刚启动的资源就绪），用几秒。构建这类长任务，用几十秒。
 
 ## 限定等待时间 {#limits}
 
-**ExecuteMethodTimeout** 和 **TotalDuration** 使用同一个最长等待时间。Dex 会强制执行它们，所以 Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/reference/python/flows-and-steps/step-options#timeouts-and-total-duration)。
+**ExecuteMethodTimeout** 和 **TotalDuration** 使用同一个最长等待时间。Dex 会强制执行它们，所以 Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/reference/python/step-options#timeouts-and-total-duration)。
 
 **TotalDuration** 只在失败之后决定是否 retry，所以最后一次 attempt 可能在它之后结束。有 Worker 可用时，总等待时间最多约为 **TotalDuration** 加一个 **ExecuteMethodTimeout**。
 
-Polling Step 可以使用任一种 durability。见 [Step options](/reference/python/flows-and-steps/step-options#durability)。
+Polling Step 可以使用任一种 durability。见 [Step options](/reference/python/step-options#durability)。
 
 ## 等待超时之后
 
@@ -63,7 +63,7 @@ Polling Step 可以使用任一种 durability。见 [Step options](/reference/py
 
 新的 attempt 从上一个 checkpoint 继续，用 **GetLastHeartbeatValue** 读取它。示例中的 checkpoint 是上一次报告的 job 状态，所以 retry 不会重复发送进度消息。
 
-只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。Stream message 是 best-effort，所以消费方从 durable 状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。见 [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) 和 [Stream](/concepts/primitives/stream)。
+只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。Stream message 是 best-effort，所以消费方从 durable 状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。见 [Heartbeat](/reference/python/step-options#heartbeat) 和 [Stream](/concepts/primitives/stream)。
 
 ## 锁
 
@@ -455,7 +455,7 @@ impl Step for RecordJobWaitFailure {
 
 ## 相关内容
 
-- [Step options](/reference/python/flows-and-steps/step-options#timeouts-and-total-duration)
+- [Step options](/reference/python/step-options#timeouts-and-total-duration)
 - [Stream](/concepts/primitives/stream)
 - [Failure Handling](/design-patterns/failure-handling)
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)

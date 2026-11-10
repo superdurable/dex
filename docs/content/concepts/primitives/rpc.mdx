@@ -205,8 +205,8 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 <a id="typescript-codecs"></a>
 
 Java, Kotlin, and TypeScript have extra RPC rules. See
-[RPC stubs and Kotlin](/reference/java/#rpc-stubs-and-kotlin) and
-[RPC codecs](/reference/typescript/#rpc-codecs).
+[RPC stubs and Kotlin](/reference/java/rpc#rpc-stubs-and-kotlin) and
+[RPC codecs](/reference/typescript/rpc#rpc-codecs).
 
 ## Cancel running Steps {#cancel-running-steps}
 
@@ -250,6 +250,9 @@ large collections out of RPCs that do not use them. See
 [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances).
 
 ## Reference
+
+The [RPC](/reference/python/rpc) page of each SDK reference lists the
+API names in that language.
 
 [Data primitive semantics](/reference/server/runtime-data#rpcs) covers
 cancellation, read-only RPCs on closed Flows, state loading, transactional

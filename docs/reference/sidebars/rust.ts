@@ -1,24 +1,25 @@
 import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
+// Topic pages follow the Concepts sidebar, so a reader finds each concept under the same name.
 const sidebars: SidebarsConfig = {
   reference: [
     {type: 'link', label: '← Developer Reference', href: '/reference/'},
     'index',
+    'flow',
+    'start-flow-options',
     {
       type: 'category',
-      label: 'Flows and Steps',
-      link: {type: 'doc', id: 'flows-and-steps/index'},
-      items: [
-        'flows-and-steps/flow-definition',
-        'flows-and-steps/start-flow-options',
-        'flows-and-steps/flow-config',
-        'flows-and-steps/step-methods',
-        'flows-and-steps/waits',
-        'flows-and-steps/step-decisions',
-        'flows-and-steps/step-options',
-        'flows-and-steps/failure-and-redelivery',
-      ],
+      label: 'Step',
+      link: {type: 'doc', id: 'step'},
+      items: ['step-options', 'step-decisions', 'waits'],
     },
+    {
+      type: 'category',
+      label: 'Primitives',
+      items: ['attribute', 'rpc', 'channel', 'stream', 'timer', 'subflow'],
+    },
+    'client',
+    'failure-and-retries',
     'workers',
     'changelog',
   ],

@@ -4,7 +4,7 @@ title: Failure Handling
 
 # Failure Handling
 
-Dex retries a failed Step method with exponential backoff. See [Step options](/reference/python/flows-and-steps/step-options#retry-and-failure-policies). To wait for an external system, use [Polling](/design-patterns/polling) instead.
+Dex retries a failed Step method with exponential backoff. See [Retry and failure policies](/reference/python/failure-and-retries#retry-and-failure-policies). To wait for an external system, use [Polling](/design-patterns/polling) instead.
 
 When retries alone do not meet the requirement, choose one of these recovery patterns.
 
@@ -15,5 +15,5 @@ When retries alone do not meet the requirement, choose one of these recovery pat
 
 ## Related
 
-- [Step options](/reference/python/flows-and-steps/step-options#retry-and-failure-policies)
+- [Retry and failure policies](/reference/python/failure-and-retries#retry-and-failure-policies)
 - [Timer](/concepts/primitives/timer)
