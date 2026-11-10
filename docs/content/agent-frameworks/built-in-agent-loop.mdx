@@ -330,7 +330,7 @@ Without **DEX_AGENT_SESSION_KEY**, the process picks a random key when it starts
 
 ## Run it locally {#run-the-example}
 
-Start Dex with **dexcli dev**. Then start the example. Both examples serve the AI Agent page at **http://127.0.0.1:8080/products/ai-agent/**, so run one at a time.
+In a first terminal, start Dex with **dexcli dev**. It stays in the foreground. In a second terminal, start the example. Both examples serve the AI Agent page at **http://127.0.0.1:8080/products/ai-agent/**, so run one at a time.
 
 <SdkTabs
   examples={{
@@ -340,7 +340,6 @@ Start Dex with **dexcli dev**. Then start the example. Both examples serve the A
 <SdkSnippet lang="python">
 
 ```bash
-dexcli dev
 cd examples/python
 uv sync --locked
 cd ai-agent
@@ -356,7 +355,6 @@ uv run --frozen python main.py
 <SdkSnippet lang="typescript">
 
 ```bash
-dexcli dev
 cd examples/typescript
 npm install
 npm start
@@ -365,9 +363,11 @@ npm start
 </SdkSnippet>
 </SdkTabs>
 
+The Python Flow and HTTP routes are under [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent). Its React UI, the MCP configuration examples, and the run instructions are under [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent). The TypeScript Flow, routes, and React UI are under [examples/typescript/src/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/ai-agent).
+
 The first page shows the Worker's model, prompt, context window, and MCP tools. The start form picks the session's model from the models the Worker allows.
 
-The default demo model needs no credential. It reads slash commands such as **/ask**, **/choose**, **/wait**, and **/tool**, so you can try every feature without a key. In TypeScript, **/model** names the session's model.
+The default demo model needs no credential. It reads slash commands such as **/ask**, **/choose**, **/wait**, and **/tool**, so you can try every feature without a key. In TypeScript, the demo models are **mock/dex** and **mock/dex-mini**, and **/model** names the session's model.
 
 To use real models, set these variables and restart the Worker:
 
@@ -386,7 +386,7 @@ The example page has its own approval buttons. To approve from Dex Web instead, 
 
 ### Approve in Dex Web {#approve-in-dex-web}
 
-Dex Web needs the session graph to show the **Agent session** tab and its controls. Render it once for the Flow type, then point **dexcli dev** at the directory:
+Dex Web needs the session graph to show the **Agent session** tab and its controls. Dex Web reads the graph only when it starts. So stop **dexcli dev**, render the graph once for the Flow type, and start **dexcli dev** again with **--flow-rendering-dir**:
 
 ```bash
 mkdir -p definitions

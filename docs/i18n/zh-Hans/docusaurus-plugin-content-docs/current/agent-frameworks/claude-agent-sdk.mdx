@@ -17,7 +17,7 @@ Claude Agent SDK 把 Claude Code 作为 Agent 运行。它的 agent loop 运行�
 
 Claude Code 一次运行整个 turn，因此 adapter 把一个 turn 拆成多个 segment。一个 **RunModel** Step 为一个 segment 运行 CLI。模型调用在 segment 内运行。Read tool 也在 segment 内运行：把 read 移出 segment 会让 CLI 重新启动。
 
-写操作的 tool call 会结束当前 segment。需要审批时，它在 **AwaitToolApproval** 中等待。然后它在自己的 Step 中运行：idempotent write 用 **CallTool**，其他写操作用 **CallSingleAttemptTool**。下一个 **RunModel** Step 恢复同一个 Claude session。CLI 拿到记录下来的结果，不会再次运行这个 tool。
+写操作的 tool call 会结束当前 segment。需要审批时，它在 **AwaitToolApproval** 中等待。然后它在自己的 Step 中运行：idempotent write 用 **CallTool**，其他写操作用 **CallSingleAttemptTool**。然后 **ResumeTurn** 回到 **RunModel**，由它恢复同一个 Claude session。CLI 拿到记录下来的结果，不会再次运行这个 tool。
 
 失败的 segment 会重试，最多三次，并且整体重跑。其中的模型调用和 read 会再次运行。已经在自己的 Step 中运行过的写操作不会再次运行。
 
@@ -210,6 +210,7 @@ def _new_claude_agent_sdk_example(config: AgentHarnessExamplesConfig) -> AgentHa
 ```typescript
 // One order desk for the four agent harness examples; each harness registers its own session Flow type.
 const orderDesk = new OrderDesk();
+// ...
 const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
   ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel(), buildClaudeCliEnvironment())
   : undefined;
@@ -257,6 +258,20 @@ const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
             session_id, interrupt_id, approved=approved, rejection_message=rejection_message
         )
         return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
 ```
 
 </SdkSnippet>
@@ -294,6 +309,8 @@ const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
 
 ### 启动 Dex 与 example {#start-dex-and-the-example}
 
+在第一个终端中，渲染 session graph 并启动 Dex：
+
 <SdkTabs
   examples={{
     python: 'examples/python/agent-harnesses/README.md',
@@ -308,9 +325,6 @@ mkdir -p definitions
 uv run --frozen dex-agents-session-graph --flow-type ClaudeAgentSDKOrderSupport \
   --permission order-support.operate --out definitions/claude-agent-sdk.json
 dexcli dev --flow-rendering-dir ./definitions
-
-# 在第二个终端中，从 examples/python/agent-harnesses 运行：
-ANTHROPIC_API_KEY=... uv run --frozen python -m agent_harness_examples
 ```
 
 </SdkSnippet>
@@ -323,8 +337,30 @@ mkdir -p definitions
 npx dex-agents-session-graph --flow-type ClaudeAgentSdkOrderSupportAgent \
   --permission order-support.operate --out definitions/claude-agent-sdk.json
 dexcli dev --flow-rendering-dir ./definitions
+```
 
-# 在第二个终端中，从 examples/typescript 运行：
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** 会一直在前台运行。在第二个终端中启动 example：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+ANTHROPIC_API_KEY=... uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
 ANTHROPIC_API_KEY=... npm start
 ```
 

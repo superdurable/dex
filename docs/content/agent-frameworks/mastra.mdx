@@ -98,6 +98,7 @@ One Worker serves the session Flows of every harness in the example. Build the s
 ```typescript
 // One order desk for the four agent harness examples; each harness registers its own session Flow type.
 const orderDesk = new OrderDesk();
+// ...
 const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel());
 ```
 
@@ -146,6 +147,8 @@ Run the example against a local Dex. Render the session graph first. Dex Web rea
 
 ### Start Dex and the example
 
+In a first terminal, render the session graph and start Dex:
+
 <SdkTabs
   examples={{
     typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
@@ -159,8 +162,21 @@ mkdir -p definitions
 npx dex-agents-session-graph --flow-type MastraOrderSupportAgent \
   --permission order-support.operate --out definitions/mastra.json
 dexcli dev --flow-rendering-dir ./definitions
+```
 
-# In a second terminal, from examples/typescript:
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
 OPENAI_API_KEY=... MASTRA_TELEMETRY_DISABLED=1 npm start
 ```
 

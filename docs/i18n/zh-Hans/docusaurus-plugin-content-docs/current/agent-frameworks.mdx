@@ -14,9 +14,14 @@ Dex 把 AI Agent 作为 durable agent session 运行。你可以用 Dex Agents �
 
 Session 把对话保存在 Attribute 中。Session 等待下一条用户消息时不占用 Worker，可以等上好几天。
 
-模型调用在 **RunModel** Step 中运行。Tool call 在自己的 Step 中运行。同一次模型回复中的 tool call 并行运行。它们完成后，session 带着结果回到模型。
+模型调用在 **RunModel** Step 中运行。在大多数 harness 中，每个 **RunModel** Step 调用一次模型，每个 tool call 在自己的 Step 中运行。同一次模型回复中的 tool call 并行运行。它们完成后，session 带着结果回到模型。
 
-崩溃时只会重跑当时正在运行的那一次调用，不会重放整个循环。因此 Agent 代码不需要遵守确定性规则，代码改动会在下一个 Step 生效。
+崩溃时只会重跑当时正在运行的那个 Step，不会重放整个循环。因此 Agent 代码不需要遵守确定性规则，代码改动会在下一个 Step 生效。在大多数 harness 中，这个 Step 只包含一次模型调用或一次 tool call。
+
+有两个 harness 不同：
+
+- **Claude Agent SDK。** Claude Code CLI 在一个 **RunModel** Step 中运行一个 turn segment。Segment 包含模型调用和 read tool call，失败的 segment 会整体重跑。写操作逐个离开 segment，每个都在自己的 Step 中运行，因此它们永远不会并行。
+- **LangChain 和 LangGraph。** 一个 **RunModel** Step 把 graph 运行到下一批 tool call 为止。Graph 在途中可能多次调用模型，重试会把这些调用一起重复。
 
 ## Tool policy 和审批 {#tool-policies-and-approvals}
 

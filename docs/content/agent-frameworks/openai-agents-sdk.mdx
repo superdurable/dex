@@ -172,6 +172,7 @@ def _new_openai_agents_example(config: AgentHarnessExamplesConfig) -> AgentHarne
     flow = build_openai_agents_order_support_flow(order_desk, model)
     return AgentHarnessExample("openai-agents", flow, order_desk)
 
+# ...
 
 def _openai_agents_model(model: str) -> str | Model:
     return OpenAIAgentsDemoModel() if is_demo_model(model) else model
@@ -183,6 +184,7 @@ def _openai_agents_model(model: str) -> str | Model:
 ```typescript
 // One order desk for the four agent harness examples; each harness registers its own session Flow type.
 const orderDesk = new OrderDesk();
+// ...
 const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(orderDesk, loadOpenAIAgentsOrderSupportModel());
 ```
 
@@ -228,6 +230,20 @@ Every harness serves the same HTTP routes. Each route is one call on the session
             session_id, interrupt_id, approved=approved, rejection_message=rejection_message
         )
         return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
 ```
 
 </SdkSnippet>
@@ -265,6 +281,8 @@ Run the example against a local Dex. Render the session graph first. Dex Web rea
 
 ### Start Dex and the example
 
+In a first terminal, render the session graph and start Dex:
+
 <SdkTabs
   examples={{
     python: 'examples/python/agent-harnesses/README.md',
@@ -279,9 +297,6 @@ mkdir -p definitions
 uv run --frozen dex-agents-session-graph --flow-type OpenAIAgentsOrderSupport \
   --permission order-support.operate --out definitions/openai-agents-sdk.json
 dexcli dev --flow-rendering-dir ./definitions
-
-# In a second terminal, from examples/python/agent-harnesses:
-uv run --frozen python -m agent_harness_examples
 ```
 
 </SdkSnippet>
@@ -294,8 +309,30 @@ mkdir -p definitions
 npx dex-agents-session-graph --flow-type OpenAIAgentsOrderSupportAgent \
   --permission order-support.operate --out definitions/openai-agents-sdk.json
 dexcli dev --flow-rendering-dir ./definitions
+```
 
-# In a second terminal, from examples/typescript:
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
 OPENAI_API_KEY=... npm start
 ```
 

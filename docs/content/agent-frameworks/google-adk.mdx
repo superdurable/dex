@@ -123,6 +123,7 @@ def _new_google_adk_example(config: AgentHarnessExamplesConfig) -> AgentHarnessE
     flow = build_google_adk_order_support_flow(order_desk, model)
     return AgentHarnessExample("google-adk", flow, order_desk)
 
+# ...
 
 def _google_adk_model(model: str) -> str | BaseLlm:
     return GoogleADKDemoModel() if is_demo_model(model) else model
@@ -169,6 +170,20 @@ Every harness serves the same HTTP routes. Each route is one call on the session
             session_id, interrupt_id, approved=approved, rejection_message=rejection_message
         )
         return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
 ```
 
 </SdkSnippet>
@@ -179,6 +194,8 @@ Every harness serves the same HTTP routes. Each route is one call on the session
 Run the example against a local Dex. Render the session graph first. Dex Web reads it when it starts, and needs it to show the session and its approval controls.
 
 ### Start Dex and the example
+
+In a first terminal, render the session graph and start Dex:
 
 <SdkTabs
   examples={{
@@ -193,8 +210,21 @@ mkdir -p definitions
 uv run --frozen dex-agents-session-graph --flow-type GoogleADKOrderSupport \
   --permission order-support.operate --out definitions/google-adk.json
 dexcli dev --flow-rendering-dir ./definitions
+```
 
-# In a second terminal, from examples/python/agent-harnesses:
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
 uv run --frozen python -m agent_harness_examples
 ```
 

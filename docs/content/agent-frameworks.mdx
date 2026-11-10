@@ -14,9 +14,14 @@ One Flow execution is one agent session. The Flow ID is the session ID. Dex Agen
 
 The session stores the conversation in Attributes. A session waits for the next user message without holding a Worker. It can wait for days.
 
-Model calls run in a **RunModel** Step. A tool call runs in its own Step. The tool calls of one model response run in parallel. When they finish, the session goes back to the model with their results.
+Model calls run in a **RunModel** Step. In most harnesses, each **RunModel** Step makes one model call, and each tool call runs in its own Step. The tool calls of one model response run in parallel. When they finish, the session goes back to the model with their results.
 
-A crash repeats only the call that was running. Nothing replays the loop. So the agent code needs no determinism rules, and a code change takes effect at the next Step.
+A crash repeats only the Step that was running. Nothing replays the loop. So the agent code needs no determinism rules, and a code change takes effect at the next Step. In most harnesses, that Step holds one model call or one tool call.
+
+Two harnesses differ:
+
+- **Claude Agent SDK.** The Claude Code CLI runs a turn segment in one **RunModel** Step. The segment holds the model calls and the read tool calls, and a failed segment reruns as a whole. Writes leave the segment one at a time, each in its own Step, so they never run in parallel.
+- **LangChain and LangGraph.** One **RunModel** Step runs the graph to its next tool calls. A graph can make several model calls on the way, and a retry repeats them together.
 
 ## Tool policies and approvals
 

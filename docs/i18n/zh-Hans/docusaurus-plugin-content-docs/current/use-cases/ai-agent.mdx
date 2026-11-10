@@ -10,7 +10,7 @@ AI Agent 与用户对话、调用 tool，并操作其他系统。真实的 agent
 ## Dex 为 Agent 带来什么 {#what-dex-adds-to-an-agent}
 
 - **对话是 durable 的。** Dex 把每条 message 保存在 Attribute 中。Worker 重启不会丢失任何内容。
-- **崩溃只重复一次调用。** 每次模型调用和每次 tool call 都是独立的 Step。崩溃只会重复当时正在运行的那一次调用，不会重放整个循环。
+- **崩溃只重复很少的工作。** 模型调用和 tool call 都在 Step 中运行。崩溃只会重复当时正在运行的那个 Step，不会重放整个循环。
 - **写操作只运行一次。** Tool policy 把每个 tool 标记为读操作或写操作。不能重复的写操作只尝试一次。
 - **审批可以等待。** 需要审批的 tool call 在自己的 Step 中等待，等多久都可以。等待期间不占用 Worker。
 - **人可以查看并操作。** Dex Web 把每个 session 显示为一段对话。运维人员可以在那里批准或拒绝 tool call。

@@ -17,7 +17,7 @@ Use the [built-in agent loop](/agent-frameworks/built-in-agent-loop) when you wa
 
 Claude Code runs a whole turn, so the adapter splits a turn into segments. One **RunModel** Step runs the CLI for one segment. Model calls run inside the segment. So do read tools: a deferred read would restart the CLI.
 
-A write tool call ends the segment. It waits in **AwaitToolApproval** when it needs approval. Then it runs in its own Step: **CallTool** for an idempotent write, **CallSingleAttemptTool** for any other write. The next **RunModel** Step resumes the same Claude session. The CLI gets the recorded result and does not run the tool again.
+A write tool call ends the segment. It waits in **AwaitToolApproval** when it needs approval. Then it runs in its own Step: **CallTool** for an idempotent write, **CallSingleAttemptTool** for any other write. **ResumeTurn** then returns to **RunModel**, which resumes the same Claude session. The CLI gets the recorded result and does not run the tool again.
 
 A failed segment retries, up to three attempts, and reruns whole. Model calls and reads inside it run again. A write that ran in its own Step never runs again.
 
@@ -210,6 +210,7 @@ def _new_claude_agent_sdk_example(config: AgentHarnessExamplesConfig) -> AgentHa
 ```typescript
 // One order desk for the four agent harness examples; each harness registers its own session Flow type.
 const orderDesk = new OrderDesk();
+// ...
 const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
   ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel(), buildClaudeCliEnvironment())
   : undefined;
@@ -257,6 +258,20 @@ Every harness serves the same HTTP routes. Each route is one call on the session
             session_id, interrupt_id, approved=approved, rejection_message=rejection_message
         )
         return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
 ```
 
 </SdkSnippet>
@@ -294,6 +309,8 @@ Run the example against a local Dex. Render the session graph first. Dex Web rea
 
 ### Start Dex and the example
 
+In a first terminal, render the session graph and start Dex:
+
 <SdkTabs
   examples={{
     python: 'examples/python/agent-harnesses/README.md',
@@ -308,9 +325,6 @@ mkdir -p definitions
 uv run --frozen dex-agents-session-graph --flow-type ClaudeAgentSDKOrderSupport \
   --permission order-support.operate --out definitions/claude-agent-sdk.json
 dexcli dev --flow-rendering-dir ./definitions
-
-# In a second terminal, from examples/python/agent-harnesses:
-ANTHROPIC_API_KEY=... uv run --frozen python -m agent_harness_examples
 ```
 
 </SdkSnippet>
@@ -323,8 +337,30 @@ mkdir -p definitions
 npx dex-agents-session-graph --flow-type ClaudeAgentSdkOrderSupportAgent \
   --permission order-support.operate --out definitions/claude-agent-sdk.json
 dexcli dev --flow-rendering-dir ./definitions
+```
 
-# In a second terminal, from examples/typescript:
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/README.md',
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+ANTHROPIC_API_KEY=... uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
 ANTHROPIC_API_KEY=... npm start
 ```
 

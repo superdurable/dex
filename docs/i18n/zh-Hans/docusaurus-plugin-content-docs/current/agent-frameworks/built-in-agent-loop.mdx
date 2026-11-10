@@ -1,6 +1,6 @@
 ---
 title: 内置 Agent Loop
-sidebar_label: 内置 Agent Loop
+sidebar_label: Built-in Agent Loop
 ---
 
 # 内置 Agent Loop
@@ -330,7 +330,7 @@ Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 
 
 ## 在本地运行 {#run-the-example}
 
-用 **dexcli dev** 启动 Dex，然后启动 example。两个 example 都在 **127.0.0.1:8080/products/ai-agent/** 提供 AI Agent 页面，因此一次只运行一个。
+在第一个终端中，用 **dexcli dev** 启动 Dex。它会一直在前台运行。在第二个终端中启动 example。两个 example 都在 **127.0.0.1:8080/products/ai-agent/** 提供 AI Agent 页面，因此一次只运行一个。
 
 <SdkTabs
   examples={{
@@ -340,7 +340,6 @@ Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 
 <SdkSnippet lang="python">
 
 ```bash
-dexcli dev
 cd examples/python
 uv sync --locked
 cd ai-agent
@@ -356,7 +355,6 @@ uv run --frozen python main.py
 <SdkSnippet lang="typescript">
 
 ```bash
-dexcli dev
 cd examples/typescript
 npm install
 npm start
@@ -365,9 +363,11 @@ npm start
 </SdkSnippet>
 </SdkTabs>
 
+Python 版的 Flow 与 HTTP route 位于 [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent)。它的 React UI、MCP 配置示例与运行说明位于 [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent)。TypeScript 版的 Flow、route 与 React UI 位于 [examples/typescript/src/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/ai-agent)。
+
 第一页会显示 Worker 的 model、prompt、context window 与 MCP tool。启动表单从 Worker 允许的 model 中为 session 选择 model。
 
-默认的 demo model 不需要 credential。它支持 **/ask**、**/choose**、**/wait** 与 **/tool** 等斜杠命令，因此无需 key 就能体验所有功能。在 TypeScript 中，**/model** 会说出 session 的模型。
+默认的 demo model 不需要 credential。它支持 **/ask**、**/choose**、**/wait** 与 **/tool** 等斜杠命令，因此无需 key 就能体验所有功能。在 TypeScript 中，demo model 是 **mock/dex** 与 **mock/dex-mini**，**/model** 会说出 session 的模型。
 
 要使用真实模型，设置下面的变量并重启 Worker：
 
@@ -386,7 +386,7 @@ Example 页面有自己的审批按钮。如果想在 Dex Web 中审批，请按
 
 ### 在 Dex Web 中审批 {#approve-in-dex-web}
 
-Dex Web 需要 session graph 才能显示 **Agent session** tab 及其控件。为 Flow type 渲染一次 graph，然后让 **dexcli dev** 指向这个目录：
+Dex Web 需要 session graph 才能显示 **Agent session** tab 及其控件。Dex Web 只在启动时读取 graph。因此先停止 **dexcli dev**，为 Flow type 渲染一次 graph，再用 **--flow-rendering-dir** 重新启动 **dexcli dev**：
 
 ```bash
 mkdir -p definitions
