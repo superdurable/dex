@@ -2100,6 +2100,14 @@ checked against the code at `55721e878`.
 | F17 | The `seq` table missed `AttributeRecord.written_seq`, `SearchDocumentRecord.version`, `HistoryRecord.seq`, and the checkpoint `seq` fields. | **Fixed.** Added with evidence, together with hard-delete, outbox, inbox, and attempt-record `seq` fields. The table now says which modules were searched and which were not audited. Section 11.6. |
 | F18 | "Attempt 1 has no snapshot yet" confused the attempt number with whether the invocation ever started: a returned attempt is Pending with attempt 1 and keeps its snapshot. | **Fixed.** The text now speaks of an invocation that has never started (`step_results.rs:138-145`, `step_results.rs:509-530`). Section 11.3. |
 
+A further re-review found two definitional gaps, both accepted and checked
+against the code at `55721e878`.
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| F19 | The command classes were incomplete. StepAttemptQueued is applied but never finishes its run cursor, so it takes no run `seq`; "every applied command takes a run `seq`" was false. | **Fixed.** Section 11.2 has four classes: normal, failure, bookkeeping (applied, no run `seq`), and ignored or rejected. A search for handlers that skip `RunCursor::finish` found StepAttemptQueued and eight commands of excluded features; all are listed. Bookkeeping commands leave `n` and `ζ` unchanged and are stutters. |
+| F20 | The `seq` table could not be made exhaustive: it missed Attribute Sync outbox entries, the search index value, and history window fields, and it cited `attribute_sync.rs:151`, which compares an outbox entry's `written_seq`, not the Attribute's. | **Fixed.** The table is inverted. It lists only the `seq`-derived values of the failure-free model and how α restores each. Every other persisted field has no counterpart in the model and is outside α by construction, sound for the same reason as the failure-free model. The completeness claim and the wrong citation are removed. Section 11.6. |
+
 ## 11. Failures
 
 Sections 1 to 10 describe runs without failures. This section adds failures
@@ -2283,10 +2291,50 @@ n : ℕ                                  -- ghost: number of applied normal comm
 - `h`, `v`, `ps₀`, `n`, and `ζ` are history variables. No rule reads them;
   only α does. Under H2 each pair `(e, m)` has at most one invocation in its
   life, so they need no reset.
-- A **normal command** is an applied command that α maps to a Dex commit
-  (the transition map of Section 11.6). Every applied normal command with
-  run `seq` `s` sets `n := n + 1` and `ζ[s] := n`. Every other command, a
-  failure command or an ignored or rejected one, leaves `n` and `ζ`
+- **Command classes.** Every command in the log is a log commit with a
+  stamp (Section 11.3). Apply's outcome puts it in one of four classes. Only
+  a command that persists its run cursor takes a run `seq`: the cursor bumps
+  `next_run_seq` in memory when it opens
+  (`dexzd-apply/src/command_handlers/run_cursor.rs:153-156`), and only
+  `RunCursor::finish` writes the run record (`run_cursor.rs:225`).
+
+  | Class | Run `seq` | α | Commands |
+  | --- | --- | --- | --- |
+  | **Normal** | taken | a Dex commit | FlowStart, ChannelPublish, a first [STEP-START], a Complete rule, a TimersFired that fires a wait timer |
+  | **Failure** | taken | stutter | a [STEP-START] that reuses a snapshot, [ATTEMPT-LOST], [RECOVER-INTERRUPT], [ATTEMPT-RETURNED], [ATTEMPT-HEARTBEAT], a TimersFired that fires only retry timers or stale timers |
+  | **Bookkeeping** | not taken | stutter | applied, but writes no run row: see below |
+  | **Ignored or rejected** | not taken | stutter | [RESULT-STALE], [START-RETRY], any rejected input |
+
+  **Bookkeeping commands** are applied without finishing a run cursor. A
+  search of `dexzd-apply` at `55721e878` for handlers that build their
+  output without `RunCursor::finish` found these:
+  - StepAttemptQueued (`dexzd-apply/src/steps/dispatch_queue.rs:106-164`).
+    It opens a cursor (`:111`) but only writes a DispatchQueue index row
+    (`:150-157`), so after the start `next_run_seq` stays 2. The fragment's
+    engine proposes it whenever no Worker takes a pending attempt at once
+    (`attempt_handout.rs:362`, `attempt_handout.rs:381-392`). It is in the
+    fragment, and it is a stutter: dispatch order is nondeterministic in the
+    model (F3).
+  - SetSearchProjectionMode and SearchOutboxAck
+    (`dexzd-apply/src/projections/search_outbox.rs:155`), SetHistoryOffloadMode
+    (`dexzd-apply/src/history_offload/offload_mode.rs:101`),
+    HistorySegmentUploaded (`dexzd-apply/src/history_offload/segment_upload.rs:105`),
+    HistorySegmentObjectsDeleted (`dexzd-apply/src/history_offload/segment_expiry.rs:230`),
+    TimeTravelStage (`dexzd-apply/src/history/time_travel/staging.rs:108`),
+    ValueRevive (`dexzd-apply/src/history_offload/value_revive.rs:84`),
+    HistoryLocalCleanup (`dexzd-apply/src/history/local_cleanup.rs:112`), and
+    RunPurge (`dexzd-apply/src/cross_flow/run_purge.rs:229`). They serve
+    search, history, time travel, and retention, which Section 1.3 excludes.
+    Background work may still propose them during a run of the fragment; each
+    is a stutter.
+
+  The routing of these commands is at
+  `dexzd-apply/src/command_handlers/mod.rs:116-170`. Step commands and
+  TimersFired finish their cursor
+  (`dexzd-apply/src/command_handlers/step_commands.rs:80-89`,
+  `step_commands.rs:201-206`).
+- Every applied normal command with run `seq` `s` sets `n := n + 1` and
+  `ζ[s] := n`. Every command of the other three classes leaves `n` and `ζ`
   unchanged. So `ζ` is strictly increasing on its domain. It is part of the
   configuration, because the configuration alone cannot tell which past
   commands were normal: two runs can reach the same `R`, `Θ`, `Z`, `I`, `h`,
@@ -2923,55 +2971,46 @@ reuses the snapshot, 6 the completion. After 4 the invocation's
 `invocations.rs:109-125`). The Dex run has commits 1, 2, and 3 for DexF's 1,
 2, and 6, and its invocation keeps the `ps` of its first pend.
 
-So α uses `ζ` only on values that applied **normal** commands wrote. `ζ` is
-the ghost map of Section 11.2, part of the configuration: it maps the `seq`
-of the `k`-th applied normal command to `k`, and it is strictly
-order-preserving. Each other value is either ignored or restored from a
-ghost. Field by field:
+So α is defined on the state of the failure-free model, not on every field
+the code persists. It names only the `seq`-derived values that **exist in
+the model** (Sections 3.1, 3.2, and 4.2), and says how it restores each from
+the ghosts `n`, `ζ`, and `ps₀` of Section 11.2. `ζ` maps the run `seq` of the
+`k`-th applied normal command to `k`, and it is strictly order-preserving.
 
-| Field | Written by | α |
-| --- | --- | --- |
-| Run `seq` of the last applied command, and `next_run_seq` | every applied command; a cursor takes `seq = max(next_run_seq, 1)` and sets `next_run_seq := seq + 1` (`dexzd-apply/src/command_handlers/run_cursor.rs:153-156`) | restored from the ghost counter: `n` and `n + 1`. With only the start applied, `n = 1`, so `seq = 1` and `next_run_seq = 2` |
-| `AttributeRecord.written_seq` (`flow_data.rs:216-225`, `flow_data.rs:253-264`) | Attribute writes of normal commands only; failure commands write no Attribute | `ζ`; also ignorable: only the search projection and Attribute Sync read it (`dexzd-apply/src/projections/search_document.rs:73`, `dexzd-apply/src/projections/attribute_sync.rs:151`), both excluded (Section 1.3) |
-| `HardDeleteObjectRecord.written_seq` (`flow_data.rs:245-251`, `flow_data.rs:319-326`) | hard-delete Attribute writes | ignored: hard-delete Attributes are excluded (Section 1.3) |
-| `SearchDocumentRecord.version` (`search_document.rs:125-126`) | the search projection | ignored: the search projection is excluded (Section 1.3) |
-| `HistoryRecord.seq` (`run_cursor.rs:270-278`) | every applied command that records history | ignored: history is excluded (Section 1.3) |
-| `CheckpointRecord.seq`, `AttemptRecord.checkpoint_seqs`, `RunRecord.last_checkpoint_seq` (`dexzd-apply/src/history/checkpoints.rs:122-146`), `AttemptRecord.start_seq` (`flow_start.rs:179-189`) | history checkpoints for time travel | ignored: time travel and history are excluded (Section 1.3) |
-| Outbox and inbox `seq` values (`dexzd-apply/src/cross_flow/outbox.rs:93`, `outbox.rs:368`, `outbox.rs:471`, `outbox.rs:576`, `dexzd-apply/src/cross_flow/inbox.rs:229`, `inbox.rs:362`, `inbox.rs:366`) | SubFlow messages | ignored: SubFlows are outside the fragment (D1) |
-| `sws`, stored as `started_waiting_seq` (Section 3.1; `dexzd-apply/src/steps/wait_conditions/mod.rs:119`, `wait_conditions/mod.rs:130`) | wait registration in a WaitFor completion only | `ζ` |
-| Enqueue `q = seq · 10⁶ + i` (`dexzd-apply/src/command_handlers/flow_data.rs:79`, `flow_data.rs:540`) | publications of completions and client publications only; failure commands publish nothing | `ζ(seq) · 10⁶ + i` |
-| `pending_since_seq` of an invocation (`invocations.rs:114`) | `pend` in normal commands, and the retry part of [RETRY-FIRE] | restored from a ghost copy `ps₀(e, m)`, the `ζ`-image of the value its first `pend` wrote; retries never change `ps₀` |
-| `pending_since_seq` of a lock waiter (`invocations.rs:73-76`) | `pend`, including a re-queue after a before-start failure | ignored in the fragment, which has no Attribute locks; outside it, the open point at the end of this section |
-| `created_seq` of a Step (`dexzd-apply/src/steps/step_creation.rs:91`) | Step creation, only in normal commands; the failure path that creates a Step is excluded by H2 (`step_results.rs:407-416`) | `ζ` |
-| `completed_seq` of a Step (`dexzd-apply/src/steps/step_decisions.rs:401`) | `finish_step` in decisions, cancels, and closes; the exhaustion path is excluded by H1 (`step_results.rs:456-458`) | `ζ`; a close compares it with its own `seq` for equality (`flow_close.rs:441-445`), which `ζ` keeps |
-| Value IDs (`dexzd-apply/src/values/mod.rs:96-98`) | values stored by a command | `ζ` for normal commands; failure commands store only heartbeat checkpoints (`step_results.rs:240-252`), which α forgets; snapshot retention moves pins and allocates no ID (`invocations.rs:350-370`) |
-| `recorded_seq` of a request-table entry (`client_writes.rs:92`) | SetAttributes, DeleteChannelMessage, RPCs | ignored: the fragment never writes the table |
-| Storage accounting and value garbage stamped with a `seq` (`dexzd-apply/src/values/garbage.rs:210`, the `release_stored_value` calls) | releases of stored values | ignored: not part of the semantics |
+| Value in the model | Code field | Written by | α |
+| --- | --- | --- | --- |
+| The run's `seq` (Section 3.2) | the cursor's `seq`; `next_run_seq` is one more (`run_cursor.rs:153-156`) | every command that finishes its cursor | `n`; the code's `next_run_seq` corresponds to `n + 1`. With only the start applied, `n = 1` and `next_run_seq = 2` |
+| `sws` of a wait (Section 3.1) | `started_waiting_seq` (`dexzd-apply/src/steps/wait_conditions/mod.rs:119`, `wait_conditions/mod.rs:130`) | wait registration in a WaitFor completion, a normal command | `ζ` |
+| Enqueue `q = seq · 10⁶ + i` of a message (Section 3.2) | `flow_data.rs:79`, `flow_data.rs:540` | publications of completions and of clients, normal commands; failure commands publish nothing | `ζ(seq) · 10⁶ + i` |
+| `ps` of an invocation (Section 3.1) | `pending_since_seq` (`invocations.rs:114`) | `pend` in normal commands, and the retry part of [RETRY-FIRE] (`step_results.rs:844-852`) | `ps₀(e, m)`; retries never change it |
+| `ps` of a lock waiter in `L[k].ws` (Section 3.2) | `invocations.rs:73-76` | `pend`, including a re-queue after a before-start failure | not in the Lean fragment, which has no Attribute locks; outside it, `ps₀` for an invocation that started, and the open point at the end of this section for one that never started |
+| The created `seq` that orders the cancels of a close (Section 4.2, `close`) | `created_seq` (`dexzd-apply/src/steps/step_creation.rs:91`) | Step creation, only in normal commands; the failure path that creates a Step is excluded by H2 (`step_results.rs:407-416`) | `ζ` |
 
-**How complete this table is.** At `55721e878`, revision 9 searched
-`server-zd/crates/dexzd-apply/src/` for writes of `cursor.seq` and reads of
-`.seq` in `command_handlers/`, `steps/`, `projections/`, `values/`,
-`state_access/`, `cross_flow/`, and in `history/checkpoints.rs`,
-`history/window.rs`, and `history/lineage.rs`. Every write found is in the
-table. It did not audit `history_offload/`, `history/time_travel/`,
-`history/state_rebuild.rs`, `history/reset_target.rs`,
-`history/diagnostics.rs`, or `read_model/` field by field. The first four
-serve history offload and time travel, which Section 1.3 excludes, so α
-ignores every record they write. The last two only read. The table is
-exhaustive only for the modules named here.
+**Every other persisted field is outside α by construction.** It has no
+counterpart in the model, so α has nothing to map it to. Examples are the
+search projection, history and its checkpoints, Attribute Sync, hard-delete
+objects, time travel, retention, and storage accounting (all excluded in
+Section 1.3); the outbox and inbox (SubFlows, outside the fragment by D1);
+the request table (fresh request IDs, Section 1.3); the dispatch queue index
+(dispatch order is nondeterministic, F3); and value IDs and `completed_seq`,
+which the model does not keep (Section 3.2 stores values directly). This is
+sound for the same reason the failure-free model is: the failure-free rules
+in the fragment never read these fields, and Section 1.3 records why each
+feature that reads them is excluded. α adds no new abstraction here; it
+inherits the one Sections 1 to 4 already make. So this section makes no
+claim to list every `seq`-derived field the code writes.
 
-In the fragment, `pending_since_seq` of an invocation is read only to order
-lock queues, which the fragment lacks; dispatch order is nondeterministic
-in the model (F3). So α may also ignore it there. The ghost copy keeps α
-exact outside the fragment.
+In the fragment, `ps` of an invocation orders only lock queues, which the
+fragment lacks, and dispatch order is nondeterministic in the model (F3). So
+α may also ignore it there. The ghost copy keeps α exact outside the
+fragment.
 
 [assumption, to check in Stage 1] Apply reads the `ζ`-mapped values only to
-compare them: queue order, waiter order, the cancel order at a close
-(`flow_close.rs:315-318`). Value IDs are compared only for equality. Value
-IDs also reach the Worker as value references (`method_request.rs:551-593`);
-the assumption then also needs that the SDK resolves a reference to its
-value before user code sees it, so `U` never sees an ID. If so, α preserves
-every apply result and every argument of `U`.
+compare them: waiter order, queue order, and the cancel order at a close
+(`flow_close.rs:315-318`). Value IDs are not in the model, but they reach the
+Worker as value references (`method_request.rs:551-593`). So the model also
+needs that the SDK resolves a reference to its value before user code sees
+it: then `U` never sees an ID, and α preserves every argument of `U`.
 
 Other values:
 
@@ -3002,9 +3041,10 @@ proof (plan Section 4.2), and the inductiveness fuzz must test them.
   keys, and its snapshot is the snapshot of its first start. An invocation
   without a snapshot has never started, holds no lock key, and has
   `h(e, m) = 0`.
-- **I5, same apply state.** `α(R)` equals the Dex apply state, with the
-  fields of the `seq` table above mapped by `ζ`, restored from ghosts, or
-  ignored as the table says.
+- **I5, same apply state.** `α(R)` equals the Dex apply state on every
+  component of the model, with the `seq`-derived values restored as the
+  table above says. Fields without a counterpart in the model are outside
+  α.
 - **I6, retry timers.** Each armed retry timer belongs to a Backoff
   invocation with that attempt number, or it is stale and its firing is a
   no-op.
