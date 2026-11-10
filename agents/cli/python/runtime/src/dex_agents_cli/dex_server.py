@@ -76,7 +76,6 @@ def resolve_dex_server(
     server: str,
     environment: RuntimeEnvironment,
     *,
-    is_connectors_mcp_needed: bool,
     report: Callable[[str], None],
 ) -> DexServerEndpoint:
     """Find the Dex server of a ``dex.server`` value, starting ``dexcli dev`` when needed.
@@ -89,9 +88,6 @@ def resolve_dex_server(
     Args:
         server: ``auto`` or a Dex server URL.
         environment: The machine settings.
-        is_connectors_mcp_needed: Whether ``connectors.mcp`` is ``auto``. When
-            it is not, a started ``dexcli dev`` that supports
-            ``--connectors-mcp`` gets ``--connectors-mcp=false``.
         report: Prints one progress line for the user.
 
     Returns:
@@ -108,7 +104,7 @@ def resolve_dex_server(
     if reused is not None:
         report(f"Using the running dexcli dev at {reused.address} (Dex Web {reused.web_url}).")
         return reused
-    return _start_dev_server(environment, is_connectors_mcp_needed, report)
+    return _start_dev_server(environment, report)
 
 
 def _reuse_started_server(environment: RuntimeEnvironment) -> DexServerEndpoint | None:
@@ -135,7 +131,7 @@ def _reuse_default_server(environment: RuntimeEnvironment) -> DexServerEndpoint 
 
 
 def _start_dev_server(
-    environment: RuntimeEnvironment, is_connectors_mcp_needed: bool, report: Callable[[str], None]
+    environment: RuntimeEnvironment, report: Callable[[str], None]
 ) -> DexServerEndpoint:
     dexcli = locate_dexcli(environment)
     if dexcli is None:
@@ -148,8 +144,6 @@ def _start_dev_server(
     if environment.has_custom_dev_ports:
         arguments += [f"-dex-port={environment.dev_dex_port}"]
         arguments += [f"-web-port={environment.dev_web_port}"]
-    if not is_connectors_mcp_needed and _supports_connectors_mcp_flag(dexcli):
-        arguments.append("-connectors-mcp=false")
     environment.agents_directory.mkdir(parents=True, exist_ok=True)
     log_path = environment.agents_directory / "dexcli-dev.log"
     report(f"Starting dexcli dev in the background (log: {log_path}).")
@@ -212,16 +206,6 @@ def _parse_ready_fields(text: str) -> dict[str, str]:
             if stripped.startswith(prefix):
                 fields[name] = stripped.removeprefix(prefix).strip()
     return fields
-
-
-def _supports_connectors_mcp_flag(dexcli: Path) -> bool:
-    try:
-        completed = subprocess.run(
-            [str(dexcli), "dev", "-h"], capture_output=True, text=True, timeout=30, check=False
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return "connectors-mcp" in completed.stdout + completed.stderr
 
 
 def _is_process_alive(pid: int) -> bool:

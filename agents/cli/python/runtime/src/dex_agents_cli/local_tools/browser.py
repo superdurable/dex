@@ -161,7 +161,7 @@ class BrowserSessions:
     def _page(self, session_id: str) -> Page:
         page = self._pages.get(session_id)
         if page is None or page.is_closed():
-            raise ToolExecutionError("no page is open in this session; call browser_open first")
+            raise ToolExecutionError("no page is open in this session; call browser_navigate first")
         return page
 
     async def _ensure_browser(self) -> Browser:

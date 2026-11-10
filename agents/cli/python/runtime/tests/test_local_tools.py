@@ -252,16 +252,16 @@ async def test_browser_reads_run_at_once_and_a_form_submit_waits_for_approval(
 ) -> None:
     url, submissions = form_site
     sessions = local_tools_stack.sessions
-    session_id = await start_turn(sessions, "call browser_open " + json.dumps({"url": url}))
+    session_id = await start_turn(sessions, "call browser_navigate " + json.dumps({"url": url}))
     opened = tool_outputs(await wait_for_turn_end(sessions, session_id))
-    assert opened[0][0] == "browser_open"
+    assert opened[0][0] == "browser_navigate"
     assert "title: Sign up" in opened[0][1]
     assert 'heading "Newsletter"' in opened[0][1]
 
     assert await sessions.send_user_message(
-        session_id, 'call browser_submit {"selector": "role=button[name=\\"Subscribe\\"]"}'
+        session_id, 'call browser_submit_form {"selector": "role=button[name=\\"Subscribe\\"]"}'
     )
-    interrupt = await wait_for_approval(sessions, session_id, "browser_submit")
+    interrupt = await wait_for_approval(sessions, session_id, "browser_submit_form")
     assert submissions == []
     assert await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=True)
 
@@ -273,6 +273,6 @@ async def test_browser_reads_run_at_once_and_a_form_submit_waits_for_approval(
         sessions, session_id, second_turn_done, description="the submit turn"
     )
     submitted = tool_outputs(snapshot)[-1]
-    assert submitted[0] == "browser_submit"
+    assert submitted[0] == "browser_submit_form"
     assert "title: Thanks" in submitted[1]
     assert submissions == ["email=me%40example.com"]

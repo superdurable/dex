@@ -8,8 +8,8 @@
 
 """The test command: ``python -m tests.scripted_cli`` runs the runtime with the scripted harness."""
 
-from dex_agents_cli import main
+from dex_agents_cli import run_agent_cli
 from tests.scripted_harness import ScriptedHarness
 
 if __name__ == "__main__":
-    raise SystemExit(main(ScriptedHarness()))
+    raise SystemExit(run_agent_cli(ScriptedHarness()))

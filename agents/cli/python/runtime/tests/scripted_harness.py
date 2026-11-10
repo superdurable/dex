@@ -42,7 +42,7 @@ from dex_agents.stepwise import (
 )
 from dex_agents_cli import (
     AgentHarness,
-    HarnessBuildContext,
+    HarnessContext,
     LocalToolGroup,
     TurnConfigResolver,
     resolve_config,
@@ -58,25 +58,24 @@ _MAX_SHOWN_OUTPUT = 300
 class ScriptedHarness:
     """The test harness: a Stepwise agent on a scripted model, with every local tool group."""
 
-    command_name = "dex-agents-scripted"
-    config_name = "scripted"
+    name = "scripted"
     config_section = "builtin"
     flow_type = SCRIPTED_FLOW_TYPE
     default_model = DEFAULT_SCRIPTED_MODEL
-    replaced_local_tool_groups: frozenset[LocalToolGroup] = frozenset()
+    replaced_local_tools: frozenset[LocalToolGroup] = frozenset()
 
-    def build_session_flow(self, context: HarnessBuildContext) -> AgentSessionFlow:
+    def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         models: dict[str, ScriptedModelClient] = {}
 
         def resolve_model(session_settings: Mapping[str, Any]) -> ScriptedModelClient:
-            model_name = context.turn_config(session_settings).model
+            model_name = context.resolve_turn(session_settings).model
             if model_name not in models:
                 models[model_name] = ScriptedModelClient(_responder(model_name))
             return models[model_name]
 
         def instructions(instruction_context: InstructionContext) -> str:
-            turn_config = context.turn_config(instruction_context.session_settings)
-            return context.instructions(turn_config) or DEFAULT_INSTRUCTIONS
+            turn = context.resolve_turn(instruction_context.session_settings)
+            return turn.instructions or DEFAULT_INSTRUCTIONS
 
         definition = AgentDefinition(
             name="scripted",
@@ -86,21 +85,22 @@ class ScriptedHarness:
             tool_sources=list(context.tool_sources),
             built_in_tools=frozenset({BuiltInTool.ASK_USER}),
         )
-        return stepwise_agent_session_flow(definition, flow_type=self.flow_type)
+        return stepwise_agent_session_flow(definition, flow_type=context.flow_type)
 
 
 def build_session_flow_without_tools() -> AgentSessionFlow:
     """Build the harness's Flow for a test's Client, which only needs its type and RPCs."""
     config = resolve_config({}, ScriptedHarness.config_section, DEFAULT_SCRIPTED_MODEL)
-    context = HarnessBuildContext(
+    context = HarnessContext(
+        flow_type=SCRIPTED_FLOW_TYPE,
         config=config,
-        config_path=None,
         workspace=Path.cwd(),
+        instructions=None,
+        harness_options={},
         tool_sources=(),
-        system_prompt_file_text=None,
-        resolver=TurnConfigResolver(config),
+        resolver=TurnConfigResolver(config, None, lambda warnings: None),
     )
-    return ScriptedHarness().build_session_flow(context)
+    return ScriptedHarness().create_session_flow(context)
 
 
 def _responder(model_name: str) -> Any:

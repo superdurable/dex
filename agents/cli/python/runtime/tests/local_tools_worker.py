@@ -26,7 +26,7 @@ import dex_agents_cli  # noqa: F401  Imported first, before gRPC, as a command d
 from dex_agents import AgentSessionFlow
 from dex_agents.testing import run_agent_worker
 from dex_agents_cli import (
-    HarnessBuildContext,
+    HarnessContext,
     LocalToolGroup,
     LocalToolSource,
     TurnConfigResolver,
@@ -43,17 +43,18 @@ def build_local_tools_flow(workspace: Path, values: dict[str, Any]) -> AgentSess
     """Build the scripted harness's Flow with every local tool group."""
     harness = ScriptedHarness()
     config = resolve_config(values, harness.config_section, DEFAULT_SCRIPTED_MODEL)
-    resolver = TurnConfigResolver(config)
+    resolver = TurnConfigResolver(config, None, lambda warnings: None)
     source = LocalToolSource(workspace, frozenset(LocalToolGroup), resolver)
-    context = HarnessBuildContext(
+    context = HarnessContext(
+        flow_type=harness.flow_type,
         config=config,
-        config_path=None,
         workspace=workspace,
+        instructions=None,
+        harness_options={},
         tool_sources=(source,),
-        system_prompt_file_text=None,
         resolver=resolver,
     )
-    return with_turn_config(harness.build_session_flow(context), resolver)
+    return with_turn_config(harness.create_session_flow(context), resolver)
 
 
 if __name__ == "__main__":

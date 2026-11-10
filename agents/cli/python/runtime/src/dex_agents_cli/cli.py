@@ -18,7 +18,7 @@ import secrets
 import sys
 import webbrowser
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -58,7 +58,7 @@ from dex_agents_cli.connectors import (
 )
 from dex_agents_cli.dex_server import DexServerEndpoint, DexServerError, resolve_dex_server
 from dex_agents_cli.environment import RuntimeEnvironment
-from dex_agents_cli.harness import AgentHarness, HarnessBuildContext, LocalToolGroup
+from dex_agents_cli.harness import AgentHarness, HarnessContext, LocalToolGroup
 from dex_agents_cli.local_tools import LocalToolSource
 from dex_agents_cli.turns import TurnConfigResolver, with_turn_config
 
@@ -73,7 +73,11 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class CommandError(Exception):
-    """Report a failure the user can fix; the command prints it and exits with code 2."""
+    """Report a usage or configuration error; the command prints it and exits with code 2."""
+
+
+class CommandFailure(Exception):
+    """Report a failure at run time; the command prints it and exits with code 1."""
 
 
 @dataclass(frozen=True)
@@ -82,24 +86,26 @@ class _Arguments:
     config_path: Path | None
     is_yes: bool
     resume_session_id: str | None
+    model: str | None
 
 
-def main(harness: AgentHarness, argv: Sequence[str] | None = None) -> int:
+def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> int:
     """Run a harness command: parse arguments, then run its subcommand.
 
     Call it from a harness package's console script:
 
     Example:
         >>> def run() -> None:
-        ...     raise SystemExit(main(ClaudeHarness()))
+        ...     raise SystemExit(run_agent_cli(ClaudeHarness()))
 
     Args:
         harness: The command's harness.
         argv: The arguments without the program name; ``None`` reads ``sys.argv``.
 
     Returns:
-        The exit code: 0 on success, 1 when the connectors MCP server is
-        unavailable for ``connectors``, and 2 for an error the user can fix.
+        The exit code: 0 on success, 1 for a failure at run time, such as a
+        Dex server or an explicit connectors MCP server that is unavailable,
+        and 2 for a usage or configuration error.
     """
     arguments = _parse_arguments(harness, argv)
     environment = RuntimeEnvironment.from_environment()
@@ -114,43 +120,58 @@ def main(harness: AgentHarness, argv: Sequence[str] | None = None) -> int:
                 return asyncio.run(_list_connectors(arguments, environment, harness))
             case _:
                 return asyncio.run(_run(arguments, environment, harness))
-    except (CommandError, ConfigFileError, DexServerError) as error:
-        print(f"{harness.command_name}: {error}", file=sys.stderr)
+    except (CommandError, ConfigFileError) as error:
+        print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
+    except (CommandFailure, DexServerError) as error:
+        print(f"{command_name(harness)}: {error}", file=sys.stderr)
+        return 1
+
+
+def command_name(harness: AgentHarness) -> str:
+    """Return a harness's command name, ``dex-agents-<name>``.
+
+    Args:
+        harness: The harness.
+
+    Returns:
+        The console script name.
+    """
+    return f"dex-agents-{harness.name}"
 
 
 def _parse_arguments(harness: AgentHarness, argv: Sequence[str] | None) -> _Arguments:
     parser = argparse.ArgumentParser(
-        prog=harness.command_name,
+        prog=command_name(harness),
         description="Chat with a durable Dex agent in the terminal.",
     )
     parser.add_argument(
-        "--config", type=Path, help="configuration file (default: %(default)s)", default=None
+        "command",
+        nargs="?",
+        default="run",
+        choices=("run", "init", "connectors", "sessions"),
+        help="run (the default) chats; init writes the configuration file; connectors lists "
+        "the connector tools; sessions lists this agent's sessions",
     )
+    parser.add_argument("-c", "--config", type=Path, default=None, help="configuration file")
     parser.add_argument(
-        "--yes", action="store_true", help="use the defaults instead of asking questions"
+        "-y", "--yes", action="store_true", help="write and use the defaults instead of asking"
     )
-    parser.add_argument("--resume", metavar="SESSION_ID", help="continue an existing session")
-    commands = parser.add_subparsers(dest="command")
-    commands.add_parser("init", help="create or replace the configuration file")
-    run = commands.add_parser("run", help="chat with the agent (the default)")
-    run.add_argument(
-        "--resume", metavar="SESSION_ID", dest="run_resume", help="continue an existing session"
-    )
-    commands.add_parser("connectors", help="list the connector tools and connections")
-    commands.add_parser("sessions", help="list this agent's sessions")
+    parser.add_argument("-r", "--resume", metavar="SESSION_ID", help="continue a session")
+    parser.add_argument("-m", "--model", help="override the configured model")
     namespace = parser.parse_args(argv)
     return _Arguments(
-        command=namespace.command or "run",
+        command=namespace.command,
         config_path=namespace.config,
         is_yes=namespace.yes,
-        resume_session_id=getattr(namespace, "run_resume", None) or namespace.resume,
+        resume_session_id=namespace.resume,
+        model=namespace.model,
     )
 
 
 def _configure_logging(environment: RuntimeEnvironment, harness: AgentHarness) -> None:
     environment.agents_directory.mkdir(parents=True, exist_ok=True)
-    log_path = environment.agents_directory / f"{harness.config_name}.log"
+    log_path = environment.agents_directory / f"{harness.name}.log"
     handler = logging.FileHandler(log_path, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
@@ -193,7 +214,7 @@ def _load_config(
         return loaded
     print(
         f"No configuration at {path}; using the defaults. "
-        f"Run `{harness.command_name} init` to create one."
+        f"Run `{command_name(harness)} init` to create one."
     )
     return defaults_without_file(harness, environment.home)
 
@@ -211,32 +232,37 @@ async def _run(
     arguments: _Arguments, environment: RuntimeEnvironment, harness: AgentHarness
 ) -> int:
     loaded = _load_config(arguments, environment, harness)
-    config = loaded.config
+    config = _with_model_override(loaded.config, arguments)
     prompt_text = _read_system_prompt_file(config, loaded, environment)
     workspace = environment.expand_path(config.workspace, loaded.directory)
     workspace.mkdir(parents=True, exist_ok=True)
-    resolver = TurnConfigResolver(config)
+    resolver = TurnConfigResolver(
+        config,
+        config.system_prompt if config.system_prompt is not None else prompt_text,
+        _report_ignored_settings,
+    )
     endpoint = _resolve_server(config, environment)
     connectors = await _connect_connectors(config, endpoint, resolver)
     local_tools = _local_tool_source(config, workspace, harness, resolver)
     tool_sources: list[ToolSource] = [
         source for source in (connectors, local_tools) if source is not None
     ]
-    context = HarnessBuildContext(
+    context = HarnessContext(
+        flow_type=harness.flow_type,
         config=config,
-        config_path=loaded.path,
-        workspace=workspace,
+        workspace=workspace.resolve(),
+        instructions=resolver.file_instructions,
+        harness_options=config.harness_options,
         tool_sources=tuple(tool_sources),
-        system_prompt_file_text=prompt_text,
         resolver=resolver,
     )
-    flow = with_turn_config(harness.build_session_flow(context), resolver)
+    flow = with_turn_config(harness.create_session_flow(context), resolver)
     if flow.get_flow_type() != harness.flow_type:
         raise CommandError(
             f"the harness built Flow type {flow.get_flow_type()}, not {harness.flow_type}"
         )
     registry = Registry([flow], allow_async_handlers=True)
-    cache_directory = environment.agents_directory / "cache" / harness.config_name
+    cache_directory = environment.agents_directory / "cache" / harness.name
     cache_directory.mkdir(parents=True, exist_ok=True)
     blob_cache = open_blob_cache(BlobCacheConfig(str(cache_directory), _BLOB_CACHE_BYTES))
     tls = FlowServiceTlsOptions() if endpoint.is_tls else None
@@ -262,7 +288,7 @@ async def _run(
         if endpoint.web_url is not None:
             print(f"Dex Web: {endpoint.web_url}/v1/flows/{session_id}?view=session")
         terminal.start()
-        chat = TerminalChat(client, sessions, session_id, resolver, terminal, harness.command_name)
+        chat = TerminalChat(client, sessions, session_id, terminal, command_name(harness))
         await chat.run()
     finally:
         with contextlib.suppress(RuntimeError):
@@ -275,6 +301,14 @@ async def _run(
         await client.close()
         blob_cache.close()
     return 0
+
+
+def _with_model_override(config: EffectiveConfig, arguments: _Arguments) -> EffectiveConfig:
+    return config if arguments.model is None else replace(config, model=arguments.model)
+
+
+def _report_ignored_settings(warnings: Sequence[str]) -> None:
+    print(f"Session settings keys ignored: {', '.join(warnings)}", file=sys.stderr)
 
 
 def _read_system_prompt_file(
@@ -290,12 +324,7 @@ def _read_system_prompt_file(
 
 
 def _resolve_server(config: EffectiveConfig, environment: RuntimeEnvironment) -> DexServerEndpoint:
-    return resolve_dex_server(
-        config.dex.server,
-        environment,
-        is_connectors_mcp_needed=config.connectors.mcp == AUTO,
-        report=print,
-    )
+    return resolve_dex_server(config.dex.server, environment, report=print)
 
 
 def _connectors_mcp_url(config: EffectiveConfig, endpoint: DexServerEndpoint) -> str | None:
@@ -309,9 +338,9 @@ async def _connect_connectors(
 ) -> ConnectorsMcpToolSource | None:
     """Check the connectors MCP server and return its source, or ``None`` for no connector tools.
 
-    An unavailable server fails the command when ``connectors.enabled``
-    names connectors, and only warns otherwise; the source still lists the
-    server again on later turns, so a server that is starting comes alive.
+    An unavailable ``auto`` server only warns: the source lists it again on
+    every turn, so a server that is still starting comes alive. An explicit
+    URL that is unavailable fails the command with exit code 1.
     """
     if config.connectors.enabled == ():
         return None
@@ -326,8 +355,8 @@ async def _connect_connectors(
         catalog = await read_connector_catalog(url)
     except ConnectorsMcpUnavailableError as error:
         message = f"The connectors MCP server is unavailable: {error}"
-        if config.connectors.enabled:
-            raise CommandError(message) from error
+        if config.connectors.mcp != AUTO:
+            raise CommandFailure(message) from error
         print(f"{message}. Continuing without connector tools until it answers.")
         return ConnectorsMcpToolSource(url, resolver)
     _report_unauthorized(config, catalog, endpoint.web_url)
@@ -375,7 +404,7 @@ def _local_tool_source(
     groups = frozenset(
         group
         for group, is_enabled in switches.items()
-        if is_enabled and group not in harness.replaced_local_tool_groups
+        if is_enabled and group not in harness.replaced_local_tools
     )
     return LocalToolSource(workspace, groups, resolver) if groups else None
 
@@ -388,12 +417,12 @@ async def _open_session(
             snapshot = await sessions.get_agent_snapshot(resume_session_id)
         except FlowNotActiveOrNotFoundError as error:
             raise CommandError(
-                f"there is no {harness.command_name} session {resume_session_id}"
+                f"there is no {command_name(harness)} session {resume_session_id}"
             ) from error
         if snapshot.state is None:
-            raise CommandError(f"there is no {harness.command_name} session {resume_session_id}")
+            raise CommandError(f"there is no {command_name(harness)} session {resume_session_id}")
         return resume_session_id
-    session_id = f"{harness.config_name}-{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
+    session_id = f"{harness.name}-{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
     await sessions.start_session(session_id)
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _SESSION_START_TIMEOUT_SECONDS
@@ -431,7 +460,7 @@ async def _list_sessions(
     for entry in page.flows:
         started = entry.started_at.astimezone().strftime("%Y-%m-%d %H:%M")
         print(f"{entry.flow_id}  {entry.status.name.lower()}  started {started}")
-    print(f"Resume one with: {harness.command_name} --resume <session-id>")
+    print(f"Resume one with: {command_name(harness)} --resume <session-id>")
     return 0
 
 

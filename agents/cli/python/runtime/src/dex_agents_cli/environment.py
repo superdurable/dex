@@ -29,11 +29,11 @@ DEFAULT_DEV_WEB_PORT = 8802
 #: A ``dexcli`` executable to use instead of searching ``PATH``.
 DEXCLI_ENVIRONMENT_VARIABLE = "DEXCLI"
 #: The Dex port a command probes for, and passes to, ``dexcli dev``.
-DEV_DEX_PORT_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEV_DEX_PORT"
+DEX_PORT_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEX_PORT"
 #: The Dex Web port a command probes for, and passes to, ``dexcli dev``.
-DEV_WEB_PORT_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEV_WEB_PORT"
+WEB_PORT_ENVIRONMENT_VARIABLE = "DEX_AGENTS_WEB_PORT"
 #: A mirror of the ``dexcli`` release downloads.
-DEXCLI_RELEASE_URL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEXCLI_RELEASE_URL"
+DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEXCLI_DOWNLOAD_URL"
 
 
 @dataclass(frozen=True)
@@ -74,15 +74,15 @@ class RuntimeEnvironment:
         """
         values = os.environ if environ is None else environ
         dexcli = values.get(DEXCLI_ENVIRONMENT_VARIABLE)
-        dex_port = values.get(DEV_DEX_PORT_ENVIRONMENT_VARIABLE)
-        web_port = values.get(DEV_WEB_PORT_ENVIRONMENT_VARIABLE)
+        dex_port = values.get(DEX_PORT_ENVIRONMENT_VARIABLE)
+        web_port = values.get(WEB_PORT_ENVIRONMENT_VARIABLE)
         return cls(
             home=Path(values.get("HOME") or Path.home()),
             dexcli=Path(dexcli) if dexcli else None,
             dev_dex_port=_parse_port(dex_port, DEFAULT_DEV_DEX_PORT),
             dev_web_port=_parse_port(web_port, DEFAULT_DEV_WEB_PORT),
             has_custom_dev_ports=bool(dex_port or web_port),
-            dexcli_release_base_url=values.get(DEXCLI_RELEASE_URL_ENVIRONMENT_VARIABLE)
+            dexcli_release_base_url=values.get(DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE)
             or DEXCLI_RELEASE_BASE_URL,
         )
 

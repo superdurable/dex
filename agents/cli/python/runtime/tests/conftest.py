@@ -97,8 +97,8 @@ class CliHome:
         }
         environment.update(
             HOME=str(self.home),
-            DEX_AGENTS_DEV_DEX_PORT=str(self.dex_port),
-            DEX_AGENTS_DEV_WEB_PORT=str(self.web_port),
+            DEX_AGENTS_DEX_PORT=str(self.dex_port),
+            DEX_AGENTS_WEB_PORT=str(self.web_port),
             BROWSER=str(PACKAGE_DIR / "tests" / "record_browser_url.sh"),
             DEX_AGENTS_TEST_OPENED_URLS=str(self.opened_urls),
             PLAYWRIGHT_BROWSERS_PATH=playwright_browsers_path(),

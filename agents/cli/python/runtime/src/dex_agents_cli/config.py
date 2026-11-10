@@ -60,15 +60,21 @@ class ConfigError(Exception):
             ``duplicate_connection``, ``model_required``,
             ``widens_connectors``, or ``widens_local_tools``.
         path: JSON Pointer of the first problem, ``""`` for the whole value.
+        keyword: For ``schema``, the JSON Schema keyword of the first error,
+            such as ``anyOf``; ``None`` otherwise.
         schema_errors: For ``schema``, the instance location and keyword of
             every schema error, nested ones included; empty otherwise.
+
+    Its message is ``<code> at "<pointer>"``, followed by
+    `` (schema keyword <keyword>)`` for a schema error, as in the TypeScript runtime.
     """
 
     def __init__(
         self,
         code: str,
         path: str,
-        detail: str = "",
+        *,
+        keyword: str | None = None,
         schema_errors: frozenset[tuple[str, str]] = frozenset(),
     ) -> None:
         """Create the error.
@@ -76,13 +82,14 @@ class ConfigError(Exception):
         Args:
             code: The stable error code.
             path: JSON Pointer of the first problem.
-            detail: Optional human-readable detail.
+            keyword: The failed JSON Schema keyword of a schema error.
             schema_errors: Every schema error's location and keyword.
         """
-        message = f"{code} at {path or '/'}"
-        super().__init__(f"{message}: {detail}" if detail else message)
+        message = f"{code} at {json.dumps(path)}"
+        super().__init__(message if keyword is None else f"{message} (schema keyword {keyword})")
         self.code = code
         self.path = path
+        self.keyword = keyword
         self.schema_errors = schema_errors
 
 
@@ -307,7 +314,7 @@ def parse_config_yaml(text: str) -> object:
     try:
         return yaml.load(text)
     except YAMLError as error:
-        raise ConfigError("yaml", "", str(error)) from error
+        raise ConfigError("yaml", "") from error
 
 
 def resolve_config(
@@ -342,7 +349,7 @@ def resolve_config(
     entries = None if enabled is None else _parse_connector_entries(enabled, None)
     model = config.get("model", harness_default_model)
     if model is None:
-        raise ConfigError("model_required", "/model", "set model in the configuration file")
+        raise ConfigError("model_required", "/model")
     local_tools = config.get("local_tools", {})
     shell = local_tools.get("shell", {})
     return EffectiveConfig(
@@ -490,8 +497,8 @@ def _raise_first_schema_error(validator: Draft202012Validator, instance: object)
         raise ConfigError(
             "schema",
             _json_pointer(first.absolute_path),
-            first.message,
-            schema_error_locations(errors),
+            keyword=str(first.validator),
+            schema_errors=schema_error_locations(errors),
         )
 
 
@@ -502,21 +509,21 @@ def _raise_invalid_url(url: str, path: str) -> None:
     assert parts is not None, "the schema admits only URLs of this shape"
     host, port = parts["host"], parts["port"]
     if port is not None and int(port) > _MAX_PORT:
-        raise ConfigError("invalid_url", path, f"port {port} is over {_MAX_PORT}")
+        raise ConfigError("invalid_url", path)
     if host.startswith("["):
         try:
             ipaddress.IPv6Address(host[1:-1])
         except ValueError as error:
-            raise ConfigError("invalid_url", path, f"{host} is not an IPv6 address") from error
+            raise ConfigError("invalid_url", path) from error
     elif re.fullmatch(r"[0-9.]+", host):
         # A leading zero means octal to a WHATWG parser, so only canonical decimals pass.
         if any(
             not re.fullmatch(r"0|[1-9][0-9]{0,2}", part) or int(part) > _MAX_IPV4_PART
             for part in host.split(".")
         ):
-            raise ConfigError("invalid_url", path, f"{host} is not an IPv4 address")
+            raise ConfigError("invalid_url", path)
     elif any(label.lower().startswith("xn--") for label in host.split(".")):
-        raise ConfigError("invalid_url", path, f"{host} has a punycode label")
+        raise ConfigError("invalid_url", path)
 
 
 def _parse_connector_entries(
@@ -529,9 +536,9 @@ def _parse_connector_entries(
         path = f"/connectors/enabled/{index}"
         entry = _parse_connector_entry(raw_entry, path)
         if any(_covers_same_connection(earlier, entry) for earlier in parsed):
-            raise ConfigError("duplicate_connection", path, "two entries cover one connection")
+            raise ConfigError("duplicate_connection", path)
         if bounds is not None and not any(_bounds_entry(bound, entry) for bound in bounds):
-            raise ConfigError("widens_connectors", path, "the file does not enable this entry")
+            raise ConfigError("widens_connectors", path)
         parsed.append(entry)
     return tuple(parsed)
 
@@ -543,7 +550,7 @@ def _parse_connector_entry(raw_entry: str | Mapping[str, Any], path: str) -> Con
         ((key, options),) = raw_entry.items()
         tools = tuple(canonical_operation_name(name) for name in options["tools"])
         if len(set(tools)) != len(tools):
-            raise ConfigError("duplicate_tool", path, "an operation is named twice")
+            raise ConfigError("duplicate_tool", path)
     connector, _, connection = key.partition("/")
     return ConnectorEntry(connector=connector, connection=connection or None, tools=tools)
 
@@ -579,11 +586,7 @@ def _narrow_local_tools(
     if "allow" in session_shell:
         for index, command in enumerate(session_shell["allow"]):
             if command not in file_tools.shell.allow:
-                raise ConfigError(
-                    "widens_local_tools",
-                    f"/local_tools/shell/allow/{index}",
-                    "the file does not allow this command",
-                )
+                raise ConfigError("widens_local_tools", f"/local_tools/shell/allow/{index}")
         allow = tuple(session_shell["allow"])
     web_fetch = _narrow_switch(file_tools.web_fetch, session_tools, "web_fetch", "/local_tools")
     browser = _narrow_switch(file_tools.browser, session_tools, "browser", "/local_tools")
@@ -602,9 +605,7 @@ def _narrow_switch(
         return file_value
     session_value = bool(session_section[switch])
     if session_value and not file_value:
-        raise ConfigError(
-            "widens_local_tools", f"{parent_path}/{switch}", "the file switches this tool off"
-        )
+        raise ConfigError("widens_local_tools", f"{parent_path}/{switch}")
     return session_value
 
 

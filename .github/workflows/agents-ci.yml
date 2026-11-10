@@ -35,7 +35,8 @@ jobs:
       packages: ${{ steps.discover.outputs.packages }}
     steps:
       - uses: actions/checkout@v7
-      # Every package with an executable agents/<language>/<package>/ci.sh gets a matrix job.
+      # Every package with an executable agents/<language>/<package>/ci.sh or
+      # agents/cli/<language>/<package>/ci.sh gets a matrix job.
       - name: List packages with an executable ci.sh
         id: discover
         run: |
@@ -56,7 +57,10 @@ jobs:
           packages="$(printf '%s\n' "${package_paths[@]}" | jq -R -s -c '
             split("\n")
             | map(select(length > 0))
-            | map({path: ., language: (split("/")[1]), name: (split("/")[2])})
+            | map(if (split("/") | length) == 4
+                  then {path: ., language: (split("/")[2]), name: ("cli-" + split("/")[3])}
+                  else {path: ., language: (split("/")[1]), name: (split("/")[2])}
+                  end)
           ')"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
           jq . <<<"$packages"

@@ -34,8 +34,9 @@ from dex_agents import (
     InterruptKind,
     MessageRole,
 )
-from dex_agents_cli.turns import SessionSettingsRejectedError, TurnConfigResolver
 
+#: The line that ends the chat, like Ctrl-D.
+EXIT_COMMAND = "/exit"
 _POLL_INTERVAL_SECONDS = 0.3
 _EVENT_LONG_POLL = timedelta(seconds=5)
 _MAX_SHOWN_ARGUMENT_CHARACTERS = 2000
@@ -144,8 +145,8 @@ class TerminalChat:
 
     Each line is a user message. Replies and tool calls stream from the
     session's events. Approvals and questions are answered inline. The first
-    Ctrl-C during a turn cancels it; another Ctrl-C, or Ctrl-C or Ctrl-D
-    while idle, exits. Exiting never ends the session.
+    Ctrl-C during a turn cancels it; another Ctrl-C, or Ctrl-C, Ctrl-D, or
+    ``/exit`` while idle, exits. Exiting never ends the session.
     """
 
     def __init__(
@@ -153,7 +154,6 @@ class TerminalChat:
         client: AsyncClient,
         sessions: AgentSessionClient,
         session_id: str,
-        resolver: TurnConfigResolver,
         terminal: Terminal,
         resume_command: str,
     ) -> None:
@@ -163,14 +163,12 @@ class TerminalChat:
             client: The Dex Client, to find the newest session event.
             sessions: The session client.
             session_id: The session.
-            resolver: The turn configuration resolver, to report settings problems.
             terminal: The terminal.
             resume_command: The command that resumes this session, shown on exit.
         """
         self._client = client
         self._sessions = sessions
         self._session_id = session_id
-        self._resolver = resolver
         self._terminal = terminal
         self._resume_command = resume_command
         self._typeahead: deque[str] = deque()
@@ -179,7 +177,9 @@ class TerminalChat:
 
     async def run(self) -> None:
         """Chat until the user exits."""
-        self._terminal.write("Ctrl-C cancels a turn; Ctrl-C again, or Ctrl-D, exits.\n")
+        self._terminal.write(
+            f"Type a message; {EXIT_COMMAND} quits. Ctrl-C cancels a turn, and again exits.\n"
+        )
         snapshot = await self._sessions.get_agent_snapshot(self._session_id)
         if snapshot.state is not None and snapshot.state.active_turn_id is not None:
             self._terminal.write("A turn is running; following it.\n")
@@ -191,10 +191,12 @@ class TerminalChat:
                 break
             if not line.strip():
                 continue
+            if line.strip() == EXIT_COMMAND:
+                break
             await self._send(line)
         self._terminal.write(
-            f"\nThe session is kept. Resume it with: {self._resume_command} --resume "
-            f"{self._session_id}\n"
+            f"\nSession {self._session_id} keeps running. Resume it with: "
+            f"{self._resume_command} --resume {self._session_id}\n"
         )
 
     async def _send(self, text: str) -> None:
@@ -204,22 +206,11 @@ class TerminalChat:
             self._terminal.write(f"[session failed] {reason}\n")
             self._is_exit_requested = True
             return
-        self._report_settings(snapshot)
         tail = await self._event_tail()
         if not await self._sessions.send_user_message(self._session_id, text):
             self._terminal.write("[not sent]\n")
             return
         await self._follow_turn(snapshot.state.turn_count, tail)
-
-    def _report_settings(self, snapshot: AgentSnapshot) -> None:
-        try:
-            resolution = self._resolver.resolve(snapshot.session_settings)
-        except SessionSettingsRejectedError as error:
-            self._terminal.write(f"[settings] {error}; the turn fails until they are fixed\n")
-            return
-        if resolution.warnings:
-            ignored = ", ".join(resolution.warnings)
-            self._terminal.write(f"[settings] ignoring session settings keys {ignored}\n")
 
     async def _follow_turn(self, turn_count_before: int, event_tail: str) -> None:
         view = _TurnView()

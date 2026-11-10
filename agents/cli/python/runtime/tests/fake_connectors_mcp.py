@@ -8,8 +8,8 @@
 
 """A fake connectors MCP server: ``python -m tests.fake_connectors_mcp <port>``.
 
-Each tool's ``_meta`` names its connector, connection, and operation, as the
-connectors MCP server does. Every real run appends ``<tool> <idempotency
+Each tool's ``_meta`` names its connector, connection, and operation with the
+keys of the connectors library's MCP server. Every real run appends ``<tool> <idempotency
 key>`` to ``mcp-invocations.log`` in ``$FAKE_MCP_STATE_DIR``.
 
 * ``hackernews_get_top_stories`` (``readOnlyHint``): hackernews/default getTopStories.
@@ -30,7 +30,7 @@ from mcp_types import ToolAnnotations
 
 from dex_agents.mcp import IDEMPOTENCY_KEY_META_KEY
 from dex_agents.testing import InvocationLog
-from dex_agents_cli.connectors import CONNECTION_META_KEY, CONNECTOR_META_KEY, OPERATION_META_KEY
+from dex_agents_cli import canonical_operation_name
 
 STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_MCP_STATE_DIR"
 INVOCATION_LOG_NAME = "mcp-invocations.log"
@@ -40,10 +40,13 @@ server = MCPServer("fake-connectors")
 
 
 def _meta(connector: str, connection: str, operation: str) -> dict[str, Any]:
+    # The keys the connectors library's MCP server sends, spelled out to pin the contract.
     return {
-        CONNECTOR_META_KEY: connector,
-        CONNECTION_META_KEY: connection,
-        OPERATION_META_KEY: operation,
+        "io.superdurable.connectors/connector": connector,
+        "io.superdurable.connectors/connection": connection,
+        "io.superdurable.connectors/operation": operation,
+        "io.superdurable.connectors/operationName": canonical_operation_name(operation),
+        "io.superdurable.connectors/connectorVersion": "v0.1.0",
     }
 
 

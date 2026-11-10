@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -19,7 +19,7 @@ from typing import Any, Protocol
 from dex_agents import AgentSessionFlow
 from dex_agents.stepwise import ToolSource
 from dex_agents_cli.config import EffectiveConfig
-from dex_agents_cli.turns import TurnConfigResolver, current_turn_config
+from dex_agents_cli.turns import ResolvedTurn, TurnConfigResolver
 
 
 class LocalToolGroup(StrEnum):
@@ -41,36 +41,30 @@ class LocalToolGroup(StrEnum):
 class AgentHarness(Protocol):
     """Describe one harness command and build its agent session Flow.
 
-    A harness package implements this and calls ``dex_agents_cli.main`` with
-    it from its console script. The runtime owns everything else: the
-    configuration file, the Dex server, connector and local tools, sessions,
-    the Worker, and the terminal chat.
+    A harness package implements this and calls ``run_agent_cli`` with it from
+    its console script. The runtime owns everything else: the configuration
+    file, the Dex server, connector and local tools, sessions, the Worker, and
+    the terminal chat.
 
     Example:
         >>> class ClaudeHarness:
-        ...     command_name = "dex-agents-claude-sdk"
-        ...     config_name = "claude-sdk"
+        ...     name = "claude-sdk"
         ...     config_section = "claude"
-        ...     flow_type = "DexAgentsClaudeSdk"
+        ...     flow_type = "DexAgentsClaudeSdkCliSession"
         ...     default_model = "claude-opus-5-5"
-        ...     replaced_local_tool_groups = frozenset(
+        ...     replaced_local_tools = frozenset(
         ...         {LocalToolGroup.FILES, LocalToolGroup.SHELL, LocalToolGroup.WEB_FETCH})
         ...
-        ...     def build_session_flow(self, context: HarnessBuildContext) -> AgentSessionFlow:
+        ...     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         ...         return claude_agent_session_flow(
-        ...             build_options_factory(context), flow_type=self.flow_type,
+        ...             options_factory_for(context), flow_type=context.flow_type,
         ...             tool_sources=context.tool_sources)
-        >>> raise SystemExit(main(ClaudeHarness()))
+        >>> raise SystemExit(run_agent_cli(ClaudeHarness()))
     """
 
     @property
-    def command_name(self) -> str:
-        """Return the console script name, such as ``dex-agents-claude-sdk``."""
-        ...
-
-    @property
-    def config_name(self) -> str:
-        """Return the configuration file stem: ``~/.dex/agents/<config_name>.yaml``."""
+    def name(self) -> str:
+        """Return the name: command ``dex-agents-<name>``, file ``~/.dex/agents/<name>.yaml``."""
         ...
 
     @property
@@ -89,101 +83,79 @@ class AgentHarness(Protocol):
         ...
 
     @property
-    def replaced_local_tool_groups(self) -> frozenset[LocalToolGroup]:
+    def replaced_local_tools(self) -> frozenset[LocalToolGroup]:
         """Return the local tool groups the harness provides itself.
 
-        The runtime leaves these groups out of its local tool source. The
-        harness must still honor ``local_tools`` and the workspace for them,
-        reading each turn's switches from ``current_turn_config``.
+        The runtime leaves these groups out of ``HarnessContext.tool_sources``.
+        The harness switches its own tools on from ``config.local_tools`` and
+        gives them the same policy: reads run at once, writes and shell
+        commands wait for approval unless the shell allow list has the exact
+        command, and the working directory is the workspace.
         """
         ...
 
-    def build_session_flow(self, context: HarnessBuildContext) -> AgentSessionFlow:
+    def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         """Build the agent session Flow from the effective configuration.
 
         Called once per command run, before the Worker starts. Offer every
         source in ``context.tool_sources`` to the model; a runner-based
         adapter passes them as ``tool_sources``, and a Stepwise harness puts
-        them in ``AgentDefinition.tool_sources``. Choose each turn's model and
-        instructions from ``context.turn_config()``.
+        them in ``AgentDefinition.tool_sources``. Choose each model call's
+        model and instructions with ``context.resolve_turn``.
 
         Args:
             context: The configuration, workspace, and tool sources.
 
         Returns:
-            The Flow, with ``flow_type`` as its type. The runtime registers it.
+            The Flow, with ``context.flow_type`` as its type. The runtime registers it.
         """
         ...
 
 
 @dataclass(frozen=True)
-class HarnessBuildContext:
+class HarnessContext:
     """Everything a harness needs to build its session Flow.
 
     Attributes:
-        config: The configuration file's effective configuration. It bounds
-            every turn; read a turn's own values with ``turn_config``.
-        config_path: The configuration file, or ``None`` when defaults are used.
-        workspace: The expanded workspace directory, which exists.
-        tool_sources: The runtime's connector and local tool sources, already
-            narrowed per turn. Offer all of them.
-        system_prompt_file_text: The text of ``system_prompt_file``, read at
-            startup, or ``None``.
-        resolver: The turn configuration resolver.
+        flow_type: The harness's Flow type.
+        config: The configuration file's effective configuration, with any
+            ``--model`` applied. It bounds every turn.
+        workspace: The absolute workspace directory, which exists.
+        instructions: The file's ``system_prompt``, or the text of its
+            ``system_prompt_file``, or ``None`` for the harness's default.
+        harness_options: The harness's own configuration section, ``{}`` when omitted.
+        tool_sources: The connector and local tool sources, which apply each
+            turn's session settings themselves. Offer all of them.
+        resolver: The turn configuration resolver behind ``resolve_turn``.
     """
 
+    flow_type: str
     config: EffectiveConfig
-    config_path: Path | None
     workspace: Path
+    instructions: str | None
+    harness_options: Mapping[str, Any]
     tool_sources: Sequence[ToolSource]
-    system_prompt_file_text: str | None
-    resolver: TurnConfigResolver
+    resolver: TurnConfigResolver = field(repr=False)
 
-    @property
-    def harness_options(self) -> Mapping[str, Any]:
-        """Return the harness's own configuration section, ``{}`` when the file omits it."""
-        return self.config.harness_options
+    def resolve_turn(self, session_settings: Mapping[str, Any] | None) -> ResolvedTurn:
+        """Return a turn's model, instructions, and narrowed configuration.
 
-    def turn_config(self, session_settings: Mapping[str, Any] | None = None) -> EffectiveConfig:
-        """Return the configuration of the running turn, or of some session settings.
+        Call it in each model call with the turn's session settings, such as
+        ``AgentTurnContext.session_settings`` or a Stepwise ``resolve_model``
+        argument.
 
-        Inside a model call with no argument, it is the running turn's
-        configuration. Pass ``session_settings`` where a turn context gives
-        them but no model call runs, such as a Stepwise ``resolve_model``.
+        Example:
+            >>> turn = context.resolve_turn(instruction_context.session_settings)
+            >>> instructions = turn.instructions or "You are a helpful assistant."
 
         Args:
-            session_settings: Settings to resolve; ``None`` reads the running turn.
+            session_settings: The turn's settings; ``None`` or ``{}`` for none.
 
         Returns:
-            The turn's configuration.
+            The turn's configuration and instructions.
 
         Raises:
-            SessionSettingsRejectedError: If the given settings are rejected.
-            RuntimeError: If no settings are given outside a model call. Read
-                the file's bounds from ``config`` instead; a turn never
-                silently gets them.
+            ConfigError: If the settings fail the schema or widen the file, so
+                the model call fails with ``<code> at "<pointer>"``.
         """
-        if session_settings is not None:
-            return self.resolver.resolve(session_settings).config
-        turn_config = current_turn_config()
-        if turn_config is None:
-            raise RuntimeError(
-                "turn_config() without session settings works only inside a model call"
-            )
-        return turn_config
-
-    def instructions(self, turn_config: EffectiveConfig) -> str | None:
-        """Return a turn's instructions.
-
-        Args:
-            turn_config: The turn's configuration.
-
-        Returns:
-            ``system_prompt``, else the text of ``system_prompt_file``, else
-            ``None`` for the harness's own default instructions.
-        """
-        if turn_config.system_prompt is not None:
-            return turn_config.system_prompt
-        if turn_config.system_prompt_file is not None:
-            return self.system_prompt_file_text
-        return None
+        return self.resolver.resolve(session_settings)

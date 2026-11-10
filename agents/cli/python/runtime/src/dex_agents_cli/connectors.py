@@ -38,10 +38,6 @@ from dex_agents_cli.turns import TurnConfigResolver, current_turn_config
 
 #: The connector source's ``source_name``; stored calls are routed by it.
 CONNECTORS_TOOL_SOURCE_NAME = "dex_connectors"
-#: ``_meta`` keys that name a connector tool's connector, connection, and operation.
-CONNECTOR_META_KEY = "io.superdurable.dex/connector"
-CONNECTION_META_KEY = "io.superdurable.dex/connection"
-OPERATION_META_KEY = "io.superdurable.dex/operation"
 
 _MCP_SERVER_NAME = "connectors"
 _CLIENT_NAME = "dex-agents-cli"
@@ -51,18 +47,64 @@ _LISTING_PAGE_LIMIT = 100
 
 
 @dataclass(frozen=True)
+class ConnectorToolMetaKeys:
+    """The ``_meta`` keys that name what one connectors MCP server tool runs.
+
+    Attributes:
+        connector: Key of the connector ID, such as ``slack``.
+        connection: Key of the Dex Web connection name, such as ``work``.
+        operation: Key of the operationId, such as ``getMessage``.
+        operation_name: Key of the snake-case operation name, such as ``get_message``.
+    """
+
+    connector: str
+    connection: str
+    operation: str
+    operation_name: str
+
+
+#: The keys the connectors MCP server puts in the top-level ``_meta`` of every tool.
+CONNECTOR_TOOL_META_KEYS = ConnectorToolMetaKeys(
+    connector="io.superdurable.connectors/connector",
+    connection="io.superdurable.connectors/connection",
+    operation="io.superdurable.connectors/operation",
+    operation_name="io.superdurable.connectors/operationName",
+)
+
+
+@dataclass(frozen=True)
 class ConnectorToolIdentity:
     """Which connector operation on which connection one MCP tool runs.
 
     Attributes:
         connector: Connector ID, such as ``slack``.
         connection: Connection name.
-        operation: The operationId or snake-case name the server reports.
+        operation: The operationId, such as ``getMessage``.
+        operation_name: The snake-case operation name, such as ``get_message``,
+            or ``None`` when the server did not send it.
     """
 
     connector: str
     connection: str
     operation: str
+    operation_name: str | None = None
+
+    def is_enabled_by(self, connectors: ConnectorsConfig) -> bool:
+        """Report whether a configuration enables this operation on this connection.
+
+        Args:
+            connectors: The ``connectors`` section of a turn.
+
+        Returns:
+            ``True`` when an entry covers the connection and the operation, by
+            its snake-case name or its operationId.
+        """
+        names = (
+            [self.operation]
+            if self.operation_name is None
+            else [self.operation_name, self.operation]
+        )
+        return any(connectors.allows_tool(self.connector, self.connection, name) for name in names)
 
 
 @dataclass(frozen=True)
@@ -256,22 +298,29 @@ class ConnectorsMcpToolSource:
 def _is_enabled(connectors: ConnectorsConfig, identity: ConnectorToolIdentity | None) -> bool:
     if connectors.enabled is None:
         return True
-    if identity is None:
-        return False
-    return connectors.allows_tool(identity.connector, identity.connection, identity.operation)
+    return identity is not None and identity.is_enabled_by(connectors)
 
 
 def _identity(meta: Mapping[str, Any] | None) -> ConnectorToolIdentity | None:
     if not meta:
         return None
-    connector = meta.get(CONNECTOR_META_KEY)
-    connection = meta.get(CONNECTION_META_KEY)
-    operation = meta.get(OPERATION_META_KEY)
+    keys = CONNECTOR_TOOL_META_KEYS
+    connector = meta.get(keys.connector)
+    connection = meta.get(keys.connection)
+    operation = meta.get(keys.operation)
+    operation_name = meta.get(keys.operation_name)
     if not all(isinstance(value, str) and value for value in (connector, connection, operation)):
         return None
     assert isinstance(connector, str) and isinstance(connection, str)
     assert isinstance(operation, str)
-    return ConnectorToolIdentity(connector=connector, connection=connection, operation=operation)
+    return ConnectorToolIdentity(
+        connector=connector,
+        connection=connection,
+        operation=operation,
+        operation_name=operation_name
+        if isinstance(operation_name, str) and operation_name
+        else None,
+    )
 
 
 async def _describe_unavailable(url: str, error: Exception) -> str:

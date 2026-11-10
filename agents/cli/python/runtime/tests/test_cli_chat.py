@@ -97,7 +97,9 @@ async def test_ctrl_c_cancels_the_turn_and_ctrl_c_while_idle_exits(cli_home: Cli
     await expect(child, "> ")
     child.sendintr()
     await expect(
-        child, f"The session is kept. Resume it with: dex-agents-scripted --resume {session_id}"
+        child,
+        f"Session {session_id} keeps running. "
+        f"Resume it with: dex-agents-scripted --resume {session_id}",
     )
     assert await wait_for_exit(child) == 0
 

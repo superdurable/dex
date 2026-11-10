@@ -39,7 +39,7 @@ async def test_tty_without_a_config_asks_the_init_questions_then_chats(cli_home:
     child.sendline("prompt")
     await expect(child, "prompt: You answer in haiku.")
     child.sendeof()
-    await expect(child, "The session is kept. Resume it with: dex-agents-scripted --resume")
+    await expect(child, "keeps running. Resume it with: dex-agents-scripted --resume")
     assert await wait_for_exit(child) == 0
     written = parse_config_yaml(cli_home.config_path.read_text())
     assert written == {
@@ -77,6 +77,8 @@ async def test_without_a_terminal_it_runs_on_defaults_and_writes_no_file(cli_hom
     assert "Run `dex-agents-scripted init` to create one." in completed.stdout
     assert f"Using the running dexcli dev at {cli_home.address}" in completed.stdout
     assert "echo: hello there" in completed.stdout
+    # This dexcli dev serves no connectors MCP server, so connectors.mcp: auto only warns.
+    assert "The connectors MCP server is unavailable" in completed.stdout
     assert not cli_home.config_path.exists()
     # The default workspace is a dedicated directory under the home, not the home itself.
     assert (cli_home.home / "dex-agent-workspace").is_dir()
@@ -86,7 +88,7 @@ async def test_an_invalid_config_names_the_error_code_and_pointer(cli_home: CliH
     cli_home.write_config(config_yaml({"local_tools": {"shell": {"allow": "ls"}}}))
     completed = cli_home.run()
     assert completed.returncode == 2
-    assert "schema at /local_tools/shell/allow" in completed.stderr
+    assert 'schema at "/local_tools/shell/allow" (schema keyword type)' in completed.stderr
 
 
 async def test_auto_starts_dexcli_dev_when_none_runs_and_later_commands_reuse_it(

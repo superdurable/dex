@@ -161,7 +161,7 @@ LOCAL_TOOL_DEFINITIONS: tuple[LocalToolDefinition, ...] = (
         requires_approval=True,
     ),
     LocalToolDefinition(
-        name="web_fetch",
+        name="fetch_web_page",
         description="Fetch a web page with GET. Returns its text.",
         input_schema=_schema({"url": {"type": "string"}}, ["url"]),
         group=LocalToolGroup.WEB_FETCH,
@@ -169,7 +169,7 @@ LOCAL_TOOL_DEFINITIONS: tuple[LocalToolDefinition, ...] = (
         requires_approval=False,
     ),
     LocalToolDefinition(
-        name="browser_open",
+        name="browser_navigate",
         description="Open a URL in this session's browser page. Returns a text snapshot.",
         input_schema=_schema({"url": {"type": "string"}}, ["url"]),
         group=LocalToolGroup.BROWSER,
@@ -203,7 +203,7 @@ LOCAL_TOOL_DEFINITIONS: tuple[LocalToolDefinition, ...] = (
         requires_approval=True,
     ),
     LocalToolDefinition(
-        name="browser_submit",
+        name="browser_submit_form",
         description="Submit the form that contains an element. Returns a text snapshot.",
         input_schema=_schema({"selector": _SELECTOR}, ["selector"]),
         group=LocalToolGroup.BROWSER,
@@ -350,9 +350,9 @@ class LocalToolSource:
                     self._workspace,
                     min(timeout or DEFAULT_SHELL_TIMEOUT_SECONDS, MAX_SHELL_TIMEOUT_SECONDS),
                 )
-            case "web_fetch":
+            case "fetch_web_page":
                 return await fetch_web_page(_text(arguments, "url"))
-            case "browser_open":
+            case "browser_navigate":
                 return await self._browser.open_page(session_id, _text(arguments, "url"))
             case "browser_snapshot":
                 return await self._browser.snapshot(session_id)
@@ -362,7 +362,7 @@ class LocalToolSource:
                 return await self._browser.fill(
                     session_id, _text(arguments, "selector"), _text(arguments, "value")
                 )
-            case "browser_submit":
+            case "browser_submit_form":
                 return await self._browser.submit(session_id, _text(arguments, "selector"))
         raise ToolExecutionError(f"unknown local tool {tool_name}")
 

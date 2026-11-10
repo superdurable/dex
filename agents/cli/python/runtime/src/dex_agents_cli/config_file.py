@@ -49,7 +49,7 @@ class ConfigFileError(Exception):
 
 
 def default_config_path(environment: RuntimeEnvironment, harness: AgentHarness) -> Path:
-    """Return ``~/.dex/agents/<config_name>.yaml``.
+    """Return ``~/.dex/agents/<name>.yaml``.
 
     Args:
         environment: The machine settings.
@@ -58,7 +58,7 @@ def default_config_path(environment: RuntimeEnvironment, harness: AgentHarness) 
     Returns:
         The default path.
     """
-    return environment.agents_directory / f"{harness.config_name}.yaml"
+    return environment.agents_directory / f"{harness.name}.yaml"
 
 
 def load_config_file(path: Path, harness: AgentHarness) -> LoadedConfig:
@@ -173,8 +173,8 @@ def write_config_file(path: Path, values: dict[str, Any], harness: AgentHarness)
     buffer = io.StringIO()
     yaml.dump(values, buffer)
     header = (
-        f"# The configuration of {harness.command_name}; regenerate it with "
-        f"`{harness.command_name} init`.\n"
+        f"# The configuration of dex-agents-{harness.name}; regenerate it with "
+        f"`dex-agents-{harness.name} init`.\n"
         "# Provider keys stay in the environment. Schema: agents/cli/config.schema.json "
         "in the Dex repository.\n"
     )
@@ -200,7 +200,7 @@ def defaults_without_file(harness: AgentHarness, directory: Path) -> LoadedConfi
         config = resolve_config({}, harness.config_section, harness.default_model)
     except ConfigError as error:
         raise ConfigFileError(
-            f"{harness.command_name} has no default model; run `{harness.command_name} init`"
+            f"dex-agents-{harness.name} has no default model; run `dex-agents-{harness.name} init`"
         ) from error
     return LoadedConfig(config=config, path=None, directory=directory)
 

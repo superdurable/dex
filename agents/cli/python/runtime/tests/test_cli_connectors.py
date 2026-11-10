@@ -98,7 +98,7 @@ async def test_session_settings_narrow_the_next_turn_and_widening_fails_it(
         }
         assert await sessions.update_session_settings(session_id, narrowed)
         child.sendline("tools")
-        await expect(child, "[settings] ignoring session settings keys /theme")
+        await expect(child, "Session settings keys ignored: /theme")
         await expect(
             child,
             "tools: ask_user,edit_file,hackernews_get_top_stories,list_directory,read_file,"
@@ -114,34 +114,23 @@ async def test_session_settings_narrow_the_next_turn_and_widening_fails_it(
         widened = {"connectors": {"enabled": ["gmail/work"]}}
         assert await sessions.update_session_settings(session_id, widened)
         child.sendline("tools")
-        await expect(
-            child,
-            "[settings] session settings rejected: widens_connectors at /connectors/enabled/0",
-        )
         await expect(child, "[turn failed]", timeout=120)
-        await expect(child, "session settings rejected: widens_connectors at /connectors/enabled/0")
+        await expect(child, 'widens_connectors at "/connectors/enabled/0"')
         await expect(child, "> ")
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert fake_mcp.runs("gmail_get_message") == 0
 
 
-async def test_an_unreachable_mcp_server_fails_a_command_that_enables_connectors(
+async def test_an_unreachable_explicit_mcp_server_fails_the_command(
     cli_home: CliHome,
 ) -> None:
     (closed_port,) = find_free_ports(1)
     cli_home.write_config(
-        config_yaml(
-            {
-                "connectors": {
-                    "mcp": f"http://127.0.0.1:{closed_port}/mcp",
-                    "enabled": ["hackernews"],
-                }
-            }
-        )
+        config_yaml({"connectors": {"mcp": f"http://127.0.0.1:{closed_port}/mcp"}})
     )
     completed = cli_home.run()
-    assert completed.returncode == 2
+    assert completed.returncode == 1
     assert "The connectors MCP server is unavailable: cannot reach" in completed.stderr
 
 
@@ -174,7 +163,7 @@ def unavailable_mcp_server(reason: str) -> Iterator[str]:
         server.shutdown()
 
 
-async def test_a_starting_mcp_server_shows_its_reason_and_the_chat_still_runs(
+async def test_an_explicit_mcp_server_that_is_starting_fails_with_its_reason(
     cli_home: CliHome,
 ) -> None:
     with unavailable_mcp_server("the connectors MCP server is starting") as url:
@@ -182,10 +171,8 @@ async def test_a_starting_mcp_server_shows_its_reason_and_the_chat_still_runs(
             config_yaml({"connectors": {"mcp": url}, "local_tools": NO_LOCAL_TOOLS})
         )
         completed = await asyncio.to_thread(cli_home.run, stdin="tools\n")
-    assert completed.returncode == 0, completed.stderr
-    assert "is not ready: the connectors MCP server is starting" in completed.stdout
-    assert "Continuing without connector tools until it answers." in completed.stdout
-    assert "tools: ask_user" in completed.stdout
+    assert completed.returncode == 1
+    assert "is not ready: the connectors MCP server is starting" in completed.stderr
 
 
 async def test_an_unauthorized_connection_prints_a_hint_and_opens_the_connectors_page(

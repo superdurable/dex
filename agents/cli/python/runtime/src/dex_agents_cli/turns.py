@@ -10,25 +10,17 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
-import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any
 
 from dex_agents import AgentSessionFlow, AgentTurnContext, AgentTurnOutcome
-from dex_agents_cli.config import (
-    ConfigError,
-    EffectiveConfig,
-    TurnConfigResolution,
-    resolve_turn_config,
-)
+from dex_agents_cli.config import EffectiveConfig, resolve_turn_config
 
-#: Prefix of the error a turn fails with when its session settings are rejected.
-SESSION_SETTINGS_REJECTED_PREFIX = "session settings rejected"
-
-_LOGGER = logging.getLogger(__name__)
-_CURRENT_TURN_CONFIG: ContextVar[EffectiveConfig] = ContextVar("dex_agents_cli_turn_config")
+_CURRENT_TURN: ContextVar[ResolvedTurn] = ContextVar("dex_agents_cli_turn")
 # Optional runner members the session finds with isinstance checks; a wrapper must keep them.
 _OPTIONAL_RUNNER_METHODS = (
     "build_unfinished_turn_messages",
@@ -42,73 +34,90 @@ _OPTIONAL_RUNNER_METHODS = (
 _RESOLUTION_CACHE_SIZE = 64
 
 
-class SessionSettingsRejectedError(Exception):
-    """Fail a turn whose session settings fail the schema or widen the file.
+@dataclass(frozen=True)
+class ResolvedTurn(EffectiveConfig):
+    """One turn's configuration, narrowed by its session settings, with its instructions.
 
     Attributes:
-        code: The configuration error code, such as ``widens_connectors``.
-        path: JSON Pointer of the first problem.
+        instructions: ``system_prompt``, else the text of ``system_prompt_file``,
+            else ``None`` for the harness's own default instructions.
     """
 
-    def __init__(self, error: ConfigError) -> None:
-        """Wrap the configuration error.
-
-        Args:
-            error: The rejection.
-        """
-        super().__init__(f"{SESSION_SETTINGS_REJECTED_PREFIX}: {error.code} at {error.path or '/'}")
-        self.code = error.code
-        self.path = error.path
+    instructions: str | None = None
 
 
 class TurnConfigResolver:
     """Resolve each turn's configuration from the file's and the turn's session settings.
 
-    Resolutions are cached by the settings' JSON text, so resolving the same
-    settings again in a turn is cheap.
+    Resolutions are cached by the settings' JSON text, so the ignored keys of
+    one set of settings are reported once.
     """
 
-    def __init__(self, file_config: EffectiveConfig) -> None:
+    def __init__(
+        self,
+        file_config: EffectiveConfig,
+        file_instructions: str | None,
+        report_warnings: Callable[[Sequence[str]], None],
+    ) -> None:
         """Bound every turn by the file's configuration.
 
         Args:
             file_config: The file's effective configuration.
+            file_instructions: The file's instructions: ``system_prompt``, else
+                the text of ``system_prompt_file``, else ``None``.
+            report_warnings: Called once per distinct settings with the JSON
+                Pointers of their ignored keys.
         """
         self._file_config = file_config
-        self._cache: dict[str, TurnConfigResolution] = {}
+        self._file_instructions = file_instructions
+        self._report_warnings = report_warnings
+        self._cache: dict[str, ResolvedTurn] = {}
 
     @property
     def file_config(self) -> EffectiveConfig:
         """Return the file's configuration, which bounds every turn."""
         return self._file_config
 
-    def resolve(self, session_settings: Mapping[str, Any] | None) -> TurnConfigResolution:
+    @property
+    def file_instructions(self) -> str | None:
+        """Return the file's instructions."""
+        return self._file_instructions
+
+    def resolve(self, session_settings: Mapping[str, Any] | None) -> ResolvedTurn:
         """Return the turn configuration for some session settings.
 
         Args:
             session_settings: The turn's settings; ``None`` or ``{}`` for none.
 
         Returns:
-            The turn's configuration and its warnings.
+            The turn's configuration and instructions.
 
         Raises:
-            SessionSettingsRejectedError: If the settings fail the schema or widen the file.
+            ConfigError: If the settings fail the schema or widen the file. Its
+                message is ``<code> at "<pointer>"``.
         """
         settings = dict(session_settings) if session_settings else None
         key = json.dumps(settings, sort_keys=True)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        try:
-            resolution = resolve_turn_config(self._file_config, settings)
-        except ConfigError as error:
-            raise SessionSettingsRejectedError(error) from error
+        resolution = resolve_turn_config(self._file_config, settings)
+        if resolution.warnings:
+            self._report_warnings(resolution.warnings)
+        turn = resolution.config
+        instructions = turn.system_prompt
+        if instructions is None and turn.system_prompt_file is not None:
+            instructions = self._file_instructions
+        resolved = ResolvedTurn(
+            **{field.name: getattr(turn, field.name) for field in dataclasses.fields(turn)},
+            instructions=instructions,
+        )
         if len(self._cache) >= _RESOLUTION_CACHE_SIZE:
             self._cache.clear()
-        self._cache[key] = resolution
-        return resolution
+        self._cache[key] = resolved
+        return resolved
 
-    def resolve_turn(self, turn: AgentTurnContext) -> EffectiveConfig:
+    def resolve_turn(self, turn: AgentTurnContext) -> ResolvedTurn:
         """Return the configuration of the turn a ``RunModel`` Step runs.
 
         Args:
@@ -118,30 +127,29 @@ class TurnConfigResolver:
             The turn's configuration.
 
         Raises:
-            SessionSettingsRejectedError: If the turn's settings are rejected.
+            ConfigError: If the turn's settings are rejected.
         """
-        return self.resolve(turn.session_settings).config
+        return self.resolve(turn.session_settings)
 
 
-def current_turn_config() -> EffectiveConfig | None:
+def current_turn_config() -> ResolvedTurn | None:
     """Return the configuration of the turn whose model call is running in this task.
 
     The runtime sets it around every ``run_model_step``, and tasks that the
-    runner starts inherit it, such as tool source listings. A harness reads it
-    to choose the turn's model and instructions.
+    runner starts inherit it, such as tool source listings.
 
     Returns:
         The turn's configuration, or ``None`` outside a model call.
     """
-    return _CURRENT_TURN_CONFIG.get(None)
+    return _CURRENT_TURN.get(None)
 
 
 def with_turn_config(flow: AgentSessionFlow, resolver: TurnConfigResolver) -> AgentSessionFlow:
     """Return the same agent session Flow, with each turn's configuration resolved first.
 
     Every ``run_model_step`` resolves the turn's session settings, which fails
-    the model call with ``SessionSettingsRejectedError`` when they are
-    rejected, and runs the harness's runner with ``current_turn_config`` set.
+    the model call with ``ConfigError`` when they are rejected, and runs the
+    harness's runner with ``current_turn_config`` set.
 
     Args:
         flow: The Flow a harness built.
@@ -163,16 +171,11 @@ class _TurnConfiguredRunner:
         return self._inner.build_user_message(text)
 
     async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
-        resolution = self._resolver.resolve(turn.session_settings)
-        if resolution.warnings and turn.attempt == 1:
-            _LOGGER.warning(
-                "session %s ignores settings keys %s", turn.flow_id, ", ".join(resolution.warnings)
-            )
-        token = _CURRENT_TURN_CONFIG.set(resolution.config)
+        token = _CURRENT_TURN.set(self._resolver.resolve_turn(turn))
         try:
             outcome: AgentTurnOutcome = await self._inner.run_model_step(turn)
         finally:
-            _CURRENT_TURN_CONFIG.reset(token)
+            _CURRENT_TURN.reset(token)
         return outcome
 
     async def execute_deferred_tool_call(self, call: Any) -> Any:
