@@ -1,0 +1,129 @@
+---
+title: Workers and timeouts
+sidebar_label: Workers and timeouts
+---
+
+# Workers and timeouts
+
+## Size Workers {#size-workers}
+
+Each running model call, tool call, and RPC handler holds one Worker task slot.
+A session that waits for a user message, an approval, or tool results holds
+none; the wait lives in Dex Server. Size each Worker pool for the turns that
+call the model at the same time, plus the tool calls that run at the same time,
+plus the RPC reserve.
+
+The tool calls of one model response run as parallel Steps. Give a Worker at
+least enough slots for the largest batch of tool calls that a model makes. The
+default task limit is the CPU count. Model calls mostly wait on the network, so
+agent Workers usually need a higher **maxConcurrentTasks**. See
+[capacity and shutdown](/reference/server/workers#capacity-and-shutdown) for the
+option names in each SDK.
+
+Keep the [RPC reserve](/reference/server/workers#reserved-rpc-capacity). A UI
+calls **get_agent_snapshot**, **send_user_message**, and **resolve_interrupt**
+as RPCs. Without a reserve, they wait behind model calls that fill the Worker.
+When you do not set it, the reserve is one slot if the task limit is at least
+two, otherwise zero. Steps never use reserved slots. A growing Step task queue
+means Steps need more capacity. See
+[Step task queue](/reference/server/workers#step-task-queue) for its metrics.
+
+server-zd allows 256 streams for each app Worker ID by default
+(**matching.maxConcurrentTasksCap**). A Worker opens one stream per task slot,
+so its task limit must fit within it. To grow past it, run more Worker
+processes.
+
+Keep headroom. When no Worker has a free slot, a Step waits in the queue. The
+wait uses no attempt and counts toward neither the method timeout nor the
+heartbeat timeout. A turn or tool call that waits for a slot takes longer.
+
+## Keep tool Steps dispatchable {#dispatchable}
+
+When no Worker accepts a tool Step, the call waits in the queue. This happens
+when every Worker of the Flow type is at its task limit, or when none is
+running. The call does not fail and does not use an attempt. It runs when a
+Worker takes it. If the Flow times out or stops first, the call never runs.
+
+To keep calls from waiting long:
+
+- Size each Worker pool as in [Size Workers](#size-workers), with headroom for
+  the largest batch of tool calls.
+- Keep at least one Worker of every agent Flow type running. When a pool scales
+  to zero, a tool call waits in the queue until a Worker starts.
+- During a deploy, start the new Workers and wait for them to
+  [register](/reference/server/workers#readiness) before you stop the old ones.
+
+## Step timeouts {#timeouts}
+
+The packages set these Step options. **run_model_limit** in the Python
+**AgentSessionOptions**, or **runModelLimit** in TypeScript, changes the method
+timeout and attempts of **RunModel**. **AgentSessionOptions** does not change
+the others.
+
+| Step | Method timeout | Heartbeat timeout | Attempts | Failure route |
+| --- | --- | --- | --- | --- |
+| **RunModel** | 15 minutes | 2 minutes | 3 within 30 minutes | **RecordTurnFailure** |
+| **CompactContext** | 15 minutes | 2 minutes | 3 within 30 minutes | **RecordTurnFailure** |
+| **CallTool** | 2 hours, the Dex default | 1 minute, the Dex default | 3 | **RecordToolFailure** |
+| **CallSingleAttemptTool** | 2 hours, the Dex default | 1 minute, the Dex default | 1 | **RecordToolOutcomeUnknown** |
+
+**RunModel**, **CompactContext**, and both tool Steps send a heartbeat every 20
+seconds while the runner works. So a slow model or tool call that sends no
+output stays within its heartbeat timeout. The method timeout still ends a hung
+call. In Python, keep runner and tool code non-blocking: a blocking call on the
+event loop also stops the background heartbeat.
+
+One model call must finish within 15 minutes. Set the provider or framework
+request timeout below that. A slow call then fails with the provider's error,
+and later attempts still fit in the 30-minute retry window. See
+[Heartbeat](/reference/python/step-options#heartbeat) for how Dex detects a
+lost attempt.
+
+A Connector tool's Step uses the operation's own Execute timeout and retry
+policy instead. See [Connector tools](/reference/agents/0.4.x/connector-tools#step-options).
+
+### Long Claude Agent SDK turns {#long-model-calls}
+
+A Claude Agent SDK session runs a whole turn segment in one **RunModel**:
+several model calls and inline tool calls, until the CLI answers or defers a
+tool call. By default that segment must finish within 15 minutes. Raise the
+limit for a longer one. Any runner can use the option, but a runner that makes
+one model call per **RunModel** rarely needs it.
+
+- Heartbeats continue through the segment, so the method timeout is the only
+  cap. A hung segment holds its Worker slot until then, so do not set it higher
+  than needed.
+- The retry budget moves with the limit. It is the method timeout times one
+  less than the attempts, and at least twice the method timeout, so a timed-out
+  attempt can still retry. Dex checks it only after an attempt fails.
+- A failed segment reruns whole and pays for its model calls again. Set the
+  attempts to 1 if that costs more than a failed turn.
+- **CompactContext** keeps its own limits. It makes one model call.
+- A changed limit applies to each **RunModel** scheduled after the Worker
+  restarts. An attempt in flight, and its retries, keep their limit.
+
+## Separate Worker pools {#worker-pools}
+
+Dex routes work by Flow type. Every Worker that registers an agent's Flow type
+can receive its model calls, tool calls, and RPCs. The packages register every
+session Step together, so one agent's model calls and tool calls share a Worker
+pool. Split along these lines when one kind of work crowds out another:
+
+- Give each agent its own Flow type and its own Worker deployment, so a busy
+  agent cannot take the slots of another.
+- Run heavy or special tool work, such as a browser, a sandbox, or a GPU job,
+  in a service with its own hosts and scaling. The tool calls that service with
+  the call's idempotency key. The session Worker then only waits on the
+  network, and the service scales on its own.
+
+## Graceful stop {#graceful-stop}
+
+A graceful Worker stop waits for active handlers for the drain timeout, 30
+seconds by default. Then it cancels them. A cancelled model call runs again,
+and a cancelled **CallTool** retries. A single-attempt tool that stops on
+cancellation records **outcome_unknown**.
+
+Set the drain timeout above your usual model and tool call times. Set the
+container's termination grace period above the drain timeout. Wait for the new
+Workers to [register](/reference/server/workers#readiness) before you stop the
+old ones.

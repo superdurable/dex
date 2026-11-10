@@ -1,0 +1,108 @@
+---
+title: Connector tools
+sidebar_label: Connector tools
+---
+
+# Connector tools
+
+An agent session can call [Connector](/components/connector) operations as
+tools. [Connectors as tools](/agent-frameworks#connectors-as-tools) explains the
+rules: which operations an agent can use, which Step runs a call, approval,
+outcomes, write order, and crashes. This page covers the packages and settings.
+
+**ConnectorToolSource** offers the operations, the way **McpToolSource** offers
+an MCP server's tools. The Python and TypeScript cores ship it. The built-in
+agent loop and every Python and TypeScript framework adapter take it, through
+**tool_sources** in Python and **toolSources** in TypeScript. The Go core has
+function tools only.
+
+## Install {#install}
+
+Install the core with the Connector SDK, and each Connector package an agent
+uses:
+
+```bash
+pip install 'dex-agents[connectors]' dex-connector-stripe
+npm i @superdurable/dex-agents @superdurable/connectors-sdk @superdurable/connector-stripe
+```
+
+Some Python Connector packages are released on GitHub before PyPI. Install one
+from its release tag. The release notes give the exact command:
+
+```bash
+pip install "dex-connector-<name> @ git+https://github.com/superdurable/dex-connectors-library@<tag>#subdirectory=connectors/<name>/python"
+```
+
+Pin the versions you tested. Connector tools need Connector packages whose
+**dex-connector.json** carries agent metadata. To analyze a Flow that imports
+them, use a Dex CLI that reads this metadata. The
+[CLI change log](/reference/cli/changelog) names the release.
+
+## Name the tools {#connector-tools-offered}
+
+Name each operation an agent may use with **connector_tool** in Python or
+**connectorTool** in TypeScript. The operation must be marked
+**agent.exposed** in its **dex-connector.json**. Otherwise the agent definition
+fails when it is built.
+
+The tool name defaults to the Connector ID and the operation in snake case,
+such as **stripe_create_refund**. The description and the argument schema come
+from the manifest.
+
+## Step options {#step-options}
+
+A Connector tool's Step uses the operation's own Execute timeout and retry
+policy, with at most three attempts. A session's **tool_policies**
+(**toolPolicies**) entry for a Connector tool changes only its approval. The
+manifest decides the effect class.
+
+To override approval, pass **requires_approval** in Python or
+**requiresApproval** in TypeScript to the tool. It takes a bool or a predicate
+over the call's arguments.
+
+## Result size {#connector-tools-result-size}
+
+A result reaches the model as compact JSON with sorted keys. A result larger
+than 64 KiB of text is cut, and the model reads the note "[Dex] truncated, N
+bytes" after it. The record's **truncated_output_bytes** holds the full size.
+Change the bound on the source or on one tool.
+
+## Connections {#connector-tools-connection}
+
+A Connector tool uses a Connector connection, as a Connector Step does. The
+application opens it by its connection name from the project configuration,
+once at Worker startup:
+
+- **Local development.** Set **DEX_CONNECTOR_CONFIG_FILE** to the
+  **connections.json** file of your local Connector configuration, by default
+  **$HOME/.dex/connectors/connections.json**. It must hold an authorized
+  connection with the name the application opens. To create it, run **dexcli
+  dev**, open **Connectors** in Dex Web, add a connection with that name, and
+  authorize it. See
+  [Add a connection](/reference/web/local-connector-setup#add-a-connection).
+- **Deployed.** The **DEX_PROJECT_\*** settings select the project
+  configuration that the hosting platform or operator writes.
+
+Setting **DEX_CONNECTOR_CONFIG_FILE** or any **DEX_PROJECT_\*** setting
+requests a project configuration. An incomplete or invalid one fails at
+startup. The Worker reads the configuration at startup, so restart it after a
+change.
+
+Keep the same configuration on every Worker while Connector calls wait for
+approval. Any Worker may run an approved call, and it needs the same tool and
+connection.
+
+A Connector tool stores only the logical connection name with the call, as a
+Connector Step does. The credentials stay with the Worker.
+
+## The Slack tool in the examples {#slack-example}
+
+The agent examples open the Slack connection **support-slack**. Without a
+project configuration, or without that connection in it, they log one line and
+run without the Slack tool.
+
+The Slack app needs the bot scope **chat:write**, and its bot must be a member
+of the channel. After a Worker stops during a post, the Connector reads the
+thread back to learn whether the reply was sent. That needs the user scopes
+**channels:history** and **groups:history**. Without them, such a post records
+**outcome_unknown**.
