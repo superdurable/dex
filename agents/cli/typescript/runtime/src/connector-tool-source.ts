@@ -222,7 +222,12 @@ export class ConnectorsMcpToolSource implements ToolSource {
       [expectedIdentityReferenceKey]:
         identity === undefined
           ? null
-          : { connector: identity.connector, connection: identity.connection, operation: identity.operation },
+          : {
+              connector: identity.connector,
+              connection: identity.connection,
+              operation: identity.operation,
+              operationName: identity.operationName,
+            },
     };
     return {
       ...inner,
@@ -245,11 +250,10 @@ export class ConnectorsMcpToolSource implements ToolSource {
     throwWhenDisabled(call.toolCall);
     const reference = readConnectorCallReference(call.toolCall);
     const mcpCall = withMcpReference(call, reference);
-    // Resuming a task an earlier attempt started sends nothing new, so a changed or unavailable listing must not stop it.
-    const isResumingTask = this.mcp.hasStartedToolTask(mcpCall);
-    await this.authorizeOnThisWorker(call, isResumingTask);
     const expected = reference[expectedIdentityReferenceKey];
-    if (expected !== null && !isResumingTask) {
+    await this.authorizeOnThisWorker(call, expected);
+    // Only a resume that never sends may skip the listing, so a changed catalog cannot block it.
+    if (!this.mcp.willResumeToolTaskWithoutSending(mcpCall)) {
       await this.requireSameBinding(call.toolCall.toolName, expected);
     }
     return this.mcp.executeDeferredToolCall(mcpCall, {
@@ -269,7 +273,11 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * Checks, with a fresh listing, that the tool name still names the connector, connection, and operation it named
    * when the call was built, so a name rebound to another connection meanwhile never sends.
    */
-  private async requireSameBinding(toolName: string, expected: ExpectedConnectorIdentity): Promise<void> {
+  private async requireSameBinding(toolName: string, expected: ExpectedConnectorIdentity | null): Promise<void> {
+    if (expected === null) {
+      // A tool without identity keys has nothing to compare; authorization already refused it under connectors.enabled.
+      return;
+    }
     let current: ConnectorToolIdentity | undefined;
     try {
       current = (await this.readIdentities(true)).get(toolName);
@@ -292,10 +300,14 @@ export class ConnectorsMcpToolSource implements ToolSource {
   }
 
   /**
-   * Checks the call again on the Worker that runs it: its connection and operation must be enabled by this
-   * Worker's file and the turn's settings, and a call without approval must not be in `approval.always`.
+   * Checks the call again on the Worker that runs it, without a listing: the connection and operation recorded
+   * when the call was built must be enabled by this Worker's file and the turn's committed settings, and a call
+   * without approval must not be in `approval.always`.
    */
-  private async authorizeOnThisWorker(call: DeferredToolExecution, isResumingTask: boolean): Promise<void> {
+  private async authorizeOnThisWorker(
+    call: DeferredToolExecution,
+    expected: ExpectedConnectorIdentity | null,
+  ): Promise<void> {
     const { toolName } = call.toolCall;
     let permissions: TurnConfig;
     try {
@@ -306,20 +318,15 @@ export class ConnectorsMcpToolSource implements ToolSource {
         { cause: error },
       );
     }
-    if (permissions.connectors.enabled !== null && !isResumingTask) {
-      let identities: ReadonlyMap<string, ConnectorToolIdentity>;
-      try {
-        identities = await this.readIdentities();
-      } catch (error: unknown) {
-        throw new ToolExecutionError(`tool ${toolName} did not run: its connection cannot be checked: ${describeError(error)}`, {
-          cause: error,
-        });
-      }
-      if (!this.isToolEnabled(toolName, identities, permissions)) {
-        throw new ToolExecutionError(
-          `tool ${toolName} is not enabled in the configuration of the Worker that ran it; it did not run`,
-        );
-      }
+    const enabled = permissions.connectors.enabled;
+    if (
+      enabled !== null &&
+      (expected === null ||
+        !enabled.some((entry) => isConnectorToolEnabledBy(entry, { toolName, ...expected, connectorVersion: null })))
+    ) {
+      throw new ToolExecutionError(
+        `tool ${toolName} is not enabled in the configuration of the Worker that ran it; it did not run`,
+      );
     }
     if (!call.toolCall.requiresApproval && permissions.approval.always.includes(toolName)) {
       throw new ToolExecutionError(`tool ${toolName} now needs approval, and this call had none; it did not run`);
@@ -566,6 +573,7 @@ interface ExpectedConnectorIdentity {
   readonly connector: string;
   readonly connection: string;
   readonly operation: string | null;
+  readonly operationName: string | null;
 }
 
 /** A connector call's stored reference: `McpToolSource`'s own reference and the expected identity. */

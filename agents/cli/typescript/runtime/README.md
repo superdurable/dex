@@ -281,10 +281,17 @@ The `tools/call` request also carries the recorded identity in `_meta` as
 `io.superdurable.connectors/expectedConnector`, `expectedConnection`, and
 `expectedOperation`. The client-side check only narrows the window between
 the listing and the send; the connectors MCP server enforces the expected
-identity atomically from the release that supports these keys. A retried
-attempt that resumes an MCP task an earlier attempt started sends no new
-`tools/call`, so it skips the listing checks and recovers even while the
-server's catalog changed or is unavailable.
+identity atomically from the release that supports these keys.
+
+The check that the connection and operation are enabled on the executing
+Worker needs no listing and always runs, from the identity recorded in the
+call. The listing check is skipped only when the core says the retry can
+never send (`McpToolSource.willResumeToolTaskWithoutSending`): it resumes a
+task that an earlier attempt started and the session polls, so it recovers
+even while the catalog changed or is unavailable. A task polled inside the
+tool Step, such as one bound to an MCP protocol session, may be called again
+when the server lost it, so its retry lists the server first and fails closed
+when the catalog is unavailable.
 
 A configured connection that the server
 does not list is reported as not authorized, and at a terminal the command

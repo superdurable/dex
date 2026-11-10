@@ -126,7 +126,7 @@ describe("terminal chat with connectors and session settings", () => {
     assert.equal(await cli.waitForExit(), 0);
   });
 
-  test("a retried attempt resumes its started connector task without a binding check or a new call", async () => {
+  test("a retried attempt resumes a session-polled connector task without a listing; other retries are checked", async () => {
     const effective = resolveConfig({ connectors: { mcp: connectorsUrl, enabled: ["reports"] } }, "builtin", "scripted/default");
     const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined));
     const source = new ConnectorsMcpToolSource(connectorsUrl, turns, () => undefined);
@@ -144,7 +144,7 @@ describe("terminal chat with connectors and session settings", () => {
       listedTool: listed,
     });
     const checkpoints: string[] = [];
-    const execution = (heartbeatCheckpoint?: string): DeferredToolExecution =>
+    const execution = (heartbeatCheckpoint?: string, supportsToolTasks = true): DeferredToolExecution =>
       ({
         flowId: "resume-session",
         toolCall: {
@@ -175,7 +175,7 @@ describe("terminal chat with connectors and session settings", () => {
         cancellationSignal: new AbortController().signal,
         deadline: undefined,
         heartbeat: () => Promise.resolve(),
-        supportsToolTasks: true,
+        supportsToolTasks,
         ...(heartbeatCheckpoint === undefined
           ? {
               saveHeartbeatCheckpoint: async (checkpoint: string) => {
@@ -203,6 +203,28 @@ describe("terminal chat with connectors and session settings", () => {
 
       // A new send after the rebind is still refused.
       await assert.rejects(source.executeDeferredToolCall(execution()), /now names reports\/other-reports longReport; it did not run/);
+      // A task polled inside the tool Step, such as a session-bound one, may be called again when lost, so it is checked.
+      const polledInStep = JSON.stringify({ ...JSON.parse(checkpoints[0] ?? "{}"), mcp_task_polled_by_session: false });
+      await assert.rejects(source.executeDeferredToolCall(execution(polledInStep)), /now names reports\/other-reports/);
+      await assert.rejects(source.executeDeferredToolCall(execution(checkpoints[0], false)), /now names reports\/other-reports/);
+      connectors.unavailableReason = "the connectors MCP server is restarting";
+      await assert.rejects(source.executeDeferredToolCall(execution(polledInStep)), /its connection cannot be checked/);
+      connectors.unavailableReason = undefined;
+      assert.equal(connectors.runsOf("reports_long_report").length, 1);
+
+      // A Worker whose configuration does not enable the connector refuses even a resume, without a listing.
+      const otherEffective = resolveConfig({ connectors: { mcp: connectorsUrl, enabled: ["gmail"] } }, "builtin", "scripted/default");
+      const otherWorker = new ConnectorsMcpToolSource(
+        connectorsUrl,
+        new TurnConfigResolver(otherEffective, null, () => undefined, () => Promise.resolve(undefined)),
+        () => undefined,
+      );
+      connectors.unavailableReason = "the connectors MCP server is restarting";
+      await assert.rejects(
+        otherWorker.executeDeferredToolCall(execution(checkpoints[0])),
+        /is not enabled in the configuration of the Worker that ran it; it did not run/,
+      );
+      connectors.unavailableReason = undefined;
       assert.equal(connectors.runsOf("reports_long_report").length, 1);
     } finally {
       connectors.reportsConnection = "default";
