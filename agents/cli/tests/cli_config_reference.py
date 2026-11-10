@@ -16,7 +16,9 @@ in their own code; they do not import this module.
 from __future__ import annotations
 
 import copy
+import ipaddress
 import json
+import re
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,8 @@ SESSION_SETTINGS_VALIDATOR = Draft202012Validator(SESSION_SETTINGS_SCHEMA)
 DEFAULT_DEX_SERVER = "auto"
 DEFAULT_CONNECTORS_MCP = "auto"
 DEFAULT_WORKSPACE = "~/dex-agent-workspace"
+MAX_PORT = 65535
+URL_PARTS = re.compile(r"https?://(?P<host>\[[^\]]*\]|[^:/]+)(?::(?P<port>[0-9]+))?(?:/.*)?", re.S)
 
 
 class ConfigError(Exception):
@@ -68,14 +72,16 @@ def resolve_config(
     """Return the effective configuration of a parsed configuration file; an empty file is {}.
 
     Raises:
-        ConfigError: ``schema``, ``duplicate_tool``, ``duplicate_connection``, or
-            ``model_required``.
+        ConfigError: ``schema``, ``invalid_url``, ``duplicate_tool``,
+            ``duplicate_connection``, or ``model_required``.
     """
     if config is None:
         config = {}
     raise_first_schema_error(CONFIG_VALIDATOR, config)
     assert isinstance(config, Mapping)
     connectors = config.get("connectors", {})
+    raise_invalid_url(config.get("dex", {}).get("server", DEFAULT_DEX_SERVER), "/dex/server")
+    raise_invalid_url(connectors.get("mcp", DEFAULT_CONNECTORS_MCP), "/connectors/mcp")
     enabled = connectors.get("enabled")
     entries = None if enabled is None else parse_connector_entries(enabled)
     model = config.get("model", harness_default_model)
@@ -105,6 +111,27 @@ def resolve_config(
         },
         "harness_options": copy.deepcopy(config.get(harness_section, {})),
     }
+
+
+def raise_invalid_url(url: str, path: str) -> None:
+    """Reject a schema-valid URL that a WHATWG URL parser refuses or that has a port over 65535."""
+    if url == "auto":
+        return
+    parts = URL_PARTS.fullmatch(url)
+    assert parts is not None, "the schema admits only URLs of this shape"
+    host, port = parts["host"], parts["port"]
+    if port is not None and int(port) > MAX_PORT:
+        raise ConfigError("invalid_url", path)
+    if host.startswith("["):
+        try:
+            ipaddress.IPv6Address(host[1:-1])
+        except ValueError as error:
+            raise ConfigError("invalid_url", path) from error
+    elif re.fullmatch(r"[0-9.]+", host):
+        if any(int(part) > 255 for part in host.split(".")):
+            raise ConfigError("invalid_url", path)
+    elif any(label.lower().startswith("xn--") for label in host.split(".")):
+        raise ConfigError("invalid_url", path)
 
 
 def resolve_turn(

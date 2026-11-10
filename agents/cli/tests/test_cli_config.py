@@ -26,6 +26,7 @@ from cli_config_reference import (
     ConfigError,
     canonical_operation_name,
     is_shell_command_allowed,
+    json_pointer,
     parse_config_yaml,
     resolve_config,
     resolve_turn,
@@ -166,16 +167,19 @@ def expect_error(
 ) -> None:
     errors = schema_errors(validator, instance)
     if expected["code"] == "schema":
-        assert (expected["path"], expected["keyword"]) in errors, errors
-        assert len({path for path, _ in errors if not is_nested_in(path, expected["path"])}) == 0
+        # Exactly one violation: one top-level error, and every nested error lies inside it.
+        top_level_errors = [
+            (json_pointer(error), error.validator) for error in validator.iter_errors(instance)
+        ]
+        assert top_level_errors == [(expected["path"], expected["keyword"])], top_level_errors
+        assert all(is_nested_in(path, expected["path"]) for path, _ in errors), errors
     else:
         assert errors == set(), "a non-schema error case must pass the schema"
     with pytest.raises(ConfigError) as raised:
         resolve()
     assert raised.value.code == expected["code"]
-    if expected["code"] != "schema":
-        assert raised.value.path == expected["path"]
+    assert raised.value.path == expected["path"]
 
 
 def is_nested_in(path: str, parent: str) -> bool:
-    return path == parent or path.startswith(parent + "/")
+    return parent == "" or path == parent or path.startswith(parent + "/")

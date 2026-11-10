@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Dex Agents CLI configuration",
-  "description": "The configuration file of a Dex Agents CLI command, ~/.dex/agents/<harness>.yaml by default. It is YAML 1.2; this schema checks the parsed value. Every harness command in Python and TypeScript reads the same common fields and its own harness section. The file holds no secrets: provider keys come from the environment, and connector credentials stay in the connections that Dex Web authorizes. Omit a field to take its default; null is never a valid value. The settings of one session may change model and system_prompt and may only narrow the rest; see session-settings.schema.json.",
+  "description": "The configuration file of a Dex Agents CLI command, ~/.dex/agents/<harness>.yaml by default. It is YAML 1.2; this schema checks the parsed value. Every harness command in Python and TypeScript reads the same common fields and its own harness section. Do not put secrets in this file: provider keys come from the environment, and connector credentials stay in the connections that Dex Web authorizes. The schema cannot enforce this inside the open harness sections. Omit a field to take its default; null is never a valid value. The settings of one session may change model and system_prompt and may only narrow the rest; see session-settings.schema.json.",
   "$comment": "Patterns end with (?![\\s\\S]) rather than $, because Python's re lets $ match before a trailing newline and ECMAScript does not. The not schema repeats properties so that Ajv's strictRequired mode accepts it.",
   "type": "object",
   "additionalProperties": false,
@@ -33,11 +33,11 @@
             },
             {
               "type": "string",
-              "pattern": "^https?://[!-.0-~]+(?:/[!-~]*)?(?![\\s\\S])"
+              "pattern": "^https?://(?:(?:[A-Za-z0-9-]+\\.)*[A-Za-z][A-Za-z0-9-]*|[0-9]{1,3}(?:\\.[0-9]{1,3}){3}|\\[[0-9A-Fa-f:.]+\\])(?::[0-9]{1,5})?(?:/[!-~]*)?(?![\\s\\S])"
             }
           ],
           "default": "auto",
-          "description": "auto: reuse the running dexcli dev server of this machine, or start one. Otherwise the http or https URL of a Dex server."
+          "description": "auto: reuse the running dexcli dev server of this machine, or start one. Otherwise the http or https URL of a Dex server, without user info. Its host is a DNS name whose last label starts with a letter, a dotted IPv4 address, or a bracketed IPv6 address. After the schema, the runtime also checks that each IPv4 part is at most 255, that an IPv6 address is valid, that no DNS label starts with xn--, and that the port is at most 65535."
         }
       }
     },
@@ -60,7 +60,7 @@
             }
           ],
           "default": "auto",
-          "description": "The connectors MCP server. auto: the server that dexcli dev provides. Otherwise its http or https URL on a loopback host: 127.0.0.1, localhost, or [::1]."
+          "description": "The connectors MCP server. auto: the server that dexcli dev provides. Otherwise its http or https URL on a loopback host: 127.0.0.1, localhost, or [::1], without user info. After the schema, the runtime also checks that the port is at most 65535."
         },
         "enabled": {
           "$ref": "#/$defs/connector_entries",
@@ -178,6 +178,7 @@
     }
   },
   "not": {
+    "type": "object",
     "properties": {
       "system_prompt": true,
       "system_prompt_file": true

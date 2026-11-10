@@ -26,7 +26,7 @@ passes all four parts below.
 | [`session_graph.json`](session_graph.json) | The session Flow Definition Graph that Dex Web loads, with placeholders for the Flow type and the Action permission |
 | [`session_graph_renderings.json`](session_graph_renderings.json) | The hash of the graph text each core must render |
 | [`connector_tools.json`](connector_tools.json) | Connector tools: argument checks against `inputSchema`, refused schemas, branch mapping, result text, and truncation. Hand-written, not generated |
-| [`cli_config.json`](cli_config.json) | CLI configuration: YAML parsing, schema errors, file defaults, session settings narrowing, operation names, and the shell allow list. Hand-written for the CLI runtimes; see [`../cli/README.md`](../cli/README.md) |
+| [`cli_config.json`](cli_config.json) | CLI configuration: YAML parsing, schema errors, URL checks, file defaults, session settings narrowing, operation names, and the shell allow list. Hand-written for the CLI runtimes; see [`../cli/README.md`](../cli/README.md) |
 | [`generate.py`](generate.py) | Writes all of the above from the Python core |
 | [`session_graph.py`](session_graph.py) | Derives the session graph from the Python core's registered Flow and source |
 

@@ -50,8 +50,8 @@ claude: {}
 | `model` | the command's default model | Any non-empty model ID in the harness's format, such as `claude-opus-5-5` or `openai/gpt-5-mini`. A command without a default model refuses to run until it is set. |
 | `system_prompt` | the harness's instructions | The agent's instructions. |
 | `system_prompt_file` | none | A UTF-8 file whose text is the instructions. Use either this or `system_prompt`, not both. |
-| `dex.server` | `auto` | `auto` reuses this machine's running `dexcli dev` or starts one. Otherwise an `http` or `https` URL of a Dex server. |
-| `connectors.mcp` | `auto` | The connectors MCP server. `auto` uses the one `dexcli dev` provides. Otherwise an `http` or `https` URL on `127.0.0.1`, `localhost`, or `[::1]`. |
+| `dex.server` | `auto` | `auto` reuses this machine's running `dexcli dev` or starts one. Otherwise an `http` or `https` URL of a Dex server. See URLs below. |
+| `connectors.mcp` | `auto` | The connectors MCP server. `auto` uses the one `dexcli dev` provides. Otherwise an `http` or `https` URL on `127.0.0.1`, `localhost`, or `[::1]`. See URLs below. |
 | `connectors.enabled` | every authorized connection | Which connections, and which of their operations, the agent may call. See below. |
 | `approval.always` | `[]` | Tool names, as the agent sees them, whose every call waits for approval. This adds to what the connectors and local tools already require. |
 | `workspace` | `~/dex-agent-workspace` | The only directory the local file tools use, and the working directory of shell commands. |
@@ -67,8 +67,21 @@ take its default. In `system_prompt_file` and `workspace`, a leading `~` is the
 home directory and a relative path is relative to the file's directory. The
 command expands them when it uses them.
 
-The file holds no secrets. Provider keys come from the environment. Connector
-credentials stay in the connections you authorize in Dex Web.
+Do not put secrets in the file. Provider keys come from the environment.
+Connector credentials stay in the connections you authorize in Dex Web. The
+schema rejects user info in URLs, but it cannot check the harness sections,
+which each harness command defines.
+
+### URLs
+
+`dex.server` and `connectors.mcp` take `auto` or an `http` or `https` URL with
+no user info (`user:pass@`). The host is a DNS name whose last label starts
+with a letter, a four-part IPv4 address, or a bracketed IPv6 address;
+`connectors.mcp` allows only `127.0.0.1`, `localhost`, and `[::1]`. A port is
+optional. The schema checks this shape. After the schema, the command rejects
+the URL with `invalid_url` when an IPv4 part is over 255, the IPv6 address is
+invalid, a DNS label starts with `xn--`, or the port is over 65535. Every URL
+that passes both checks parses with a WHATWG URL parser.
 
 ### Connectors
 
@@ -123,6 +136,12 @@ expected effective configuration or error, and session settings with the
 expected turn configuration and warnings, or error. Its `error_codes`,
 `warnings`, and `check_order` fields define how errors and warnings are
 reported.
+
+Schema validators report errors in different orders, so the contract does not
+fix one. Every `schema` case has exactly one violation, and a runtime passes it
+when the expected instance location and keyword are among its validator's
+errors. Warnings are sorted by key in Unicode code point order; in
+TypeScript, compare code points instead of using the default `sort()`.
 
 `tests/` checks the schemas, the examples, and every case against a test-only
 reference resolver. Agents CI runs it through `tests/ci.sh`:

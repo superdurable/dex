@@ -6,15 +6,16 @@
   },
   "error_codes": {
     "yaml": "The file is not one YAML 1.2 document with unique keys. path is always \"\".",
-    "schema": "The value fails the schema. A case passes when validation fails and one of the validator's errors, nested anyOf errors included, has instance location path and keyword keyword.",
+    "schema": "The value fails the schema. Runtimes may report schema errors in any order. Each schema case has exactly one violation, and a runtime passes it when validation fails and the expected instance location path and keyword are among its validator's errors, nested anyOf errors included.",
+    "invalid_url": "dex.server or connectors.mcp passes the schema but is not a URL a WHATWG URL parser accepts with a port of at most 65535: an IPv4 part over 255, an invalid IPv6 address, a DNS label starting with xn--, or a port over 65535. path is the field.",
     "duplicate_tool": "One entry names the same operation twice, in two spellings. path is the entry.",
     "duplicate_connection": "Two entries cover the same connection. path is the later entry.",
     "model_required": "Neither the file nor the harness command gives a model.",
     "widens_connectors": "A session entry is not inside any entry of the file. path is the entry.",
     "widens_local_tools": "A session switches on what the file switches off, or allows a command the file does not."
   },
-  "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings.",
-  "check_order": "Report the first failure in this order: yaml; schema; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser.",
+  "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings. A TypeScript runtime must compare code points: the default Array sort compares UTF-16 code units and puts U+10000 before U+E000.",
+  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then connectors.mcp; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser.",
   "harness_sections": [
     "claude",
     "openai",
@@ -506,6 +507,120 @@
       }
     },
     {
+      "name": "server-host-forms",
+      "description": "dex.server takes a DNS name, an IPv4 address, or a bracketed IPv6 address, with any port up to 65535.",
+      "harness_section": "builtin",
+      "harness_default_model": "openai/gpt-5-mini",
+      "config": {
+        "dex": {
+          "server": "http://[2001:db8::1]:65535/dex"
+        },
+        "connectors": {
+          "mcp": "http://127.0.0.1:65535"
+        }
+      },
+      "effective": {
+        "model": "openai/gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "http://[2001:db8::1]:65535/dex"
+        },
+        "connectors": {
+          "mcp": "http://127.0.0.1:65535",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "server-ipv4-and-numbered-names",
+      "description": "An IPv4 address with every part at most 255.",
+      "harness_section": "builtin",
+      "harness_default_model": "openai/gpt-5-mini",
+      "config": {
+        "dex": {
+          "server": "https://10.0.0.255:7233"
+        }
+      },
+      "effective": {
+        "model": "openai/gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://10.0.0.255:7233"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "server-dns-name",
+      "description": "A DNS name with numbered labels.",
+      "harness_section": "builtin",
+      "harness_default_model": "openai/gpt-5-mini",
+      "config": {
+        "dex": {
+          "server": "http://dex-1.2nd.internal:7233"
+        }
+      },
+      "effective": {
+        "model": "openai/gpt-5-mini",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "http://dex-1.2nd.internal:7233"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "harness_options": {}
+      }
+    },
+    {
       "name": "no-connector-tools",
       "description": "An empty list offers no connector tools; it is not the same as omitting the list.",
       "harness_section": "claude",
@@ -786,8 +901,8 @@
       }
     },
     {
-      "name": "no-secret-fields",
-      "description": "There is no field for a key; provider keys come from the environment.",
+      "name": "no-provider-key-field",
+      "description": "There is no field for a provider key; it comes from the environment.",
       "harness_section": "claude",
       "harness_default_model": "claude-opus-5-5",
       "config": {
@@ -927,13 +1042,154 @@
       "harness_default_model": "claude-opus-5-5",
       "config": {
         "connectors": {
-          "mcp": "http://user@127.0.0.1/mcp"
+          "mcp": "http://user:pass@127.0.0.1:8899/mcp"
         }
       },
       "error": {
         "code": "schema",
         "path": "/connectors/mcp",
         "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "server-userinfo",
+      "description": "No user info in dex.server; do not put credentials in the file.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://user:pass@dex.example.com"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/server",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "server-numeric-last-label",
+      "description": "A host whose last label is a number must be a four-part IPv4 address.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://1.2.3/"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/server",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "server-port-six-digits",
+      "description": "A port has at most five digits.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://localhost:123456"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/dex/server",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "mcp-port-out-of-range",
+      "description": "A port over 65535 passes the schema and fails the URL check.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "mcp": "http://localhost:65536/mcp"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/connectors/mcp"
+      }
+    },
+    {
+      "name": "server-port-out-of-range",
+      "description": "A port over 65535 passes the schema and fails the URL check.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://localhost:99999"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "server-ipv4-part-out-of-range",
+      "description": "An IPv4 part over 255 does not parse.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://999.0.0.1:7233"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "server-invalid-ipv6",
+      "description": "A bracketed host must be a valid IPv6 address.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://[1:2]:8080/"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "server-punycode-label",
+      "description": "A DNS label that starts with xn-- is refused: URL parsers check punycode differently.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://xn--a.example.com"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
+      }
+    },
+    {
+      "name": "server-checked-before-mcp",
+      "description": "dex.server is checked before connectors.mcp.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "http://localhost:70000"
+        },
+        "connectors": {
+          "mcp": "http://localhost:70000"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/dex/server"
       }
     },
     {
@@ -2246,6 +2502,71 @@
         "/Account",
         "/a~1b~0c",
         "/note"
+      ]
+    },
+    {
+      "name": "warnings-sort-by-code-point",
+      "description": "U+E000 sorts before U+10000 by code point, though its UTF-16 code unit is larger.",
+      "config": "bounded",
+      "session_settings": {
+        "𐀀": 1,
+        "": 2,
+        "z": 3
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "harness_options": {}
+      },
+      "warnings": [
+        "/z",
+        "/",
+        "/𐀀"
       ]
     },
     {
