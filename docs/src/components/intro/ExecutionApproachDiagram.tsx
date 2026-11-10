@@ -121,7 +121,7 @@ const EN: Record<ExecutionApproach, Copy> = {
       {node: {title: 'Ship consumer', detail: 'Call ship API, maybe write status row.'}},
     ],
     problems: [
-      'Queue 2 can succeed while queue 1 times out — both steps run twice.',
+      'The ship message is sent, but the charge ack times out: charge and ship both run twice.',
       'Step 3 means queue 3 and another consumer fleet.',
       'Backoff, DLQ, saga rollback, and approval waits become more queues and cron.',
     ],
@@ -204,7 +204,7 @@ const ZH: Record<ExecutionApproach, Copy> = {
       {node: {title: '发货 consumer', detail: '调发货 API，也许再写一行状态。'}},
     ],
     problems: [
-      '第二个队列写入成功、第一个超时，重试时两步会同时跑。',
+      '发货消息已发出，扣款消息的确认却超时：扣款和发货都会执行两次。',
       '第三步就要第三套队列和另一批 consumer。',
       'Backoff、DLQ、SAGA 回滚、审批等待，往往又是更多队列和 cron。',
     ],
