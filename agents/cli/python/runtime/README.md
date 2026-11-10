@@ -160,10 +160,14 @@ At startup the command lists the server once:
 The local tool source offers these tools in their own Dex tool Steps. Paths
 are relative to `workspace`, or absolute inside it.
 
-The file tools walk each path from the workspace one directory at a time,
-opening each component relative to its parent with `O_NOFOLLOW`. So `..`, a
-symbolic link anywhere in a path, and a directory swapped for a link while a
-tool runs all fail the call. Each opened file or directory is checked against
+The file tools resolve a path's symbolic links one hop at a time, reading each
+link relative to its directory's descriptor, and every hop must stay inside the
+workspace, so a link such as `node_modules/.bin/tool` that points inside works
+and one that points outside fails the call. `..` may not climb above the
+workspace. An absolute path may spell the workspace in another case on a
+case-insensitive disk. The resolved path is then opened from the workspace one
+directory at a time, each component relative to its parent with `O_NOFOLLOW`,
+so a directory swapped for a link while a tool runs fails the call. Each opened file or directory is checked against
 the workspace again by the path the kernel reports for it, which also holds on
 a case-insensitive disk. A file with more than one hard link is refused,
 because the other link may be outside; `search_files` skips such files and

@@ -8,9 +8,11 @@
 
 """File tools confined to the workspace.
 
-Every path is walked from the workspace one component at a time with
-``O_NOFOLLOW`` opens relative to the parent directory's descriptor, so no
-symbolic link is ever followed and a path swapped while a tool runs cannot
+A path's symbolic links are first resolved one hop at a time with
+``readlink`` relative to their directory's descriptor, and every hop must stay
+inside the workspace. The resolved path is then opened from the workspace one
+component at a time with ``O_NOFOLLOW`` opens relative to the parent
+directory's descriptor, so a path swapped for a link while a tool runs cannot
 lead outside. Each opened descriptor's real path is checked against the
 workspace again, and a file with more than one hard link is refused, because
 a hard link can name a file outside the workspace.
@@ -36,6 +38,7 @@ from dex_agents import ToolExecutionError
 MAX_FILE_TOOL_OUTPUT_CHARACTERS = 100_000
 _MAX_SEARCH_MATCHES = 200
 _MAX_LISTED_ENTRIES = 1000
+_MAX_LINK_HOPS = 40
 _MAX_READ_BYTES = 16 * 1024 * 1024
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | getattr(os, "O_NONBLOCK", 0)
@@ -63,6 +66,8 @@ class WorkspaceFiles:
             self._canonical_root = _descriptor_path(root_fd) or str(self._root)
         finally:
             os.close(root_fd)
+        swapped = Path(str(self._root).swapcase())
+        self._is_case_insensitive = swapped != self._root and swapped.exists()
 
     def read_file(self, path: str, offset: int = 0, limit: int | None = None) -> str:
         """Return a text file's lines.
@@ -94,7 +99,7 @@ class WorkspaceFiles:
         Returns:
             What was written.
         """
-        parts = self._parts(path, is_file=True)
+        parts = self._parts(path, is_file=True, is_final_link_followed=False)
         self._replace(path, parts, content)
         return f"wrote {len(content.encode('utf-8'))} bytes to {'/'.join(parts)}"
 
@@ -112,7 +117,7 @@ class WorkspaceFiles:
         Returns:
             What was changed.
         """
-        parts = self._parts(path, is_file=True)
+        parts = self._parts(path, is_file=True, is_final_link_followed=False)
         if not old_text:
             raise ToolExecutionError("old_text must not be empty")
         text, read_identity = self._read_text_and_identity(path)
@@ -327,22 +332,103 @@ class WorkspaceFiles:
         if opened != root and not opened.startswith(root.rstrip("/") + "/"):
             raise ToolExecutionError(f"{path} is outside the workspace {self._root}")
 
-    def _parts(self, path: str, *, is_file: bool) -> list[str]:
-        """Return a path's components below the workspace, refusing ``..`` and outside paths."""
+    def _parts(self, path: str, *, is_file: bool, is_final_link_followed: bool = True) -> list[str]:
+        """Return a path's real components below the workspace, refusing every way out.
+
+        Symbolic links are resolved one hop at a time with ``readlink``
+        relative to their directory's descriptor, and every hop must stay
+        inside the workspace. ``..`` may not climb above it. With
+        ``is_final_link_followed`` false, a link as the last component is left
+        as it is, so a writer can refuse it.
+        """
         if "\x00" in path:
             raise ToolExecutionError("the path contains a NUL character")
         candidate = PurePosixPath(path)
-        if candidate.is_absolute():
-            try:
-                candidate = candidate.relative_to(self._root)
-            except ValueError as error:
-                raise ToolExecutionError(f"{path} is outside the workspace {self._root}") from error
-        parts = [part for part in candidate.parts if part not in ("", ".")]
-        if ".." in parts:
-            raise ToolExecutionError(f"{path} is outside the workspace {self._root}: it uses ..")
+        relative = self._relative_to_root(candidate) if candidate.is_absolute() else candidate
+        if relative is None:
+            raise ToolExecutionError(f"{path} is outside the workspace {self._root}")
+        parts = self._resolve_links(path, list(relative.parts), is_final_link_followed)
         if is_file and not parts:
             raise ToolExecutionError(f"{path} is a directory")
         return parts
+
+    def _resolve_links(
+        self, path: str, pending: list[str], is_final_link_followed: bool
+    ) -> list[str]:
+        resolved: list[str] = []
+        hops = 0
+        while pending:
+            part = pending.pop(0)
+            if part in ("", "."):
+                continue
+            if part == "..":
+                if not resolved:
+                    raise ToolExecutionError(f"{path} is outside the workspace {self._root}")
+                resolved.pop()
+                continue
+            with self._open_directory(path, resolved) as directory_fd:
+                try:
+                    status = os.stat(part, dir_fd=directory_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    return self._append_missing(path, resolved, [part, *pending])
+                is_last = not pending
+                if not stat.S_ISLNK(status.st_mode) or (is_last and not is_final_link_followed):
+                    resolved.append(part)
+                    continue
+                target = os.readlink(part, dir_fd=directory_fd)
+            hops += 1
+            if hops > _MAX_LINK_HOPS:
+                raise ToolExecutionError(f"{path} has too many symbolic links")
+            target_path = PurePosixPath(target)
+            if target_path.is_absolute():
+                inside = self._relative_to_root(target_path)
+                if inside is None:
+                    raise ToolExecutionError(
+                        f"{path} is outside the workspace {self._root}: "
+                        "a symbolic link leads outside"
+                    )
+                resolved = []
+                pending = [*inside.parts, *pending]
+            else:
+                pending = [*target_path.parts, *pending]
+        return resolved
+
+    def _append_missing(self, path: str, resolved: list[str], rest: list[str]) -> list[str]:
+        """Return the components of a path whose remaining components do not exist yet."""
+        parts = list(resolved)
+        for part in rest:
+            if part == "..":
+                if not parts:
+                    raise ToolExecutionError(f"{path} is outside the workspace {self._root}")
+                parts.pop()
+            elif part not in ("", "."):
+                parts.append(part)
+        return parts
+
+    def _relative_to_root(self, absolute: PurePosixPath) -> PurePosixPath | None:
+        """Return an absolute path below the workspace relative to it, or ``None`` outside.
+
+        The workspace may be spelled by its real path, its canonical case on a
+        case-insensitive disk, or a path whose directories resolve to it.
+        """
+        roots = (self._root.as_posix(), self._canonical_root)
+        for root in roots:
+            with contextlib.suppress(ValueError):
+                return absolute.relative_to(root)
+        if self._is_case_insensitive:
+            text = absolute.as_posix()
+            for root in roots:
+                prefix = root.rstrip("/") + "/"
+                if text.lower() == root.lower():
+                    return PurePosixPath(".")
+                if text.lower().startswith(prefix.lower()):
+                    return PurePosixPath(text[len(prefix) :])
+        # Directories outside the workspace, such as /var on macOS, may be links to it.
+        parent = Path(absolute.parent).resolve()
+        for root_path in (self._root, Path(self._canonical_root)):
+            with contextlib.suppress(ValueError):
+                return PurePosixPath(parent.relative_to(root_path)) / absolute.name
+        return None
 
     def _refusal(
         self, path: str, error: OSError, name: str, directory_fd: int

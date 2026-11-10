@@ -150,6 +150,32 @@ async def test_paths_outside_the_workspace_are_refused(local_tools_stack: LocalT
     assert not (outside / "planted.txt").exists()
 
 
+async def test_links_that_stay_inside_work_and_links_that_leave_fail(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    workspace, outside = local_tools_stack.workspace, local_tools_stack.outside
+    (workspace / "tools" / "bin").mkdir(parents=True, exist_ok=True)
+    (workspace / "tools" / "bin" / "tool").write_text("internal tool")
+    (workspace / "links").mkdir(exist_ok=True)
+    (workspace / "links" / "bin").symlink_to("../tools/bin", target_is_directory=True)
+    (workspace / "links" / "absolute.txt").symlink_to(workspace / "tools" / "bin" / "tool")
+    (outside / "leaked.txt").write_text("leaked")
+    (workspace / "links" / "leaving.txt").symlink_to("../../outside/leaked.txt")
+    calls: list[list[Any]] = [
+        ["read_file", {"path": "links/bin/tool"}],
+        ["read_file", {"path": "links/absolute.txt"}],
+        ["list_directory", {"path": "links/bin"}],
+        ["read_file", {"path": "links/leaving.txt"}],
+    ]
+    sessions = local_tools_stack.sessions
+    session_id = await start_turn(sessions, "calls " + json.dumps(calls))
+    outputs = tool_outputs(await wait_for_turn_end(sessions, session_id))
+    assert outputs[0] == ("read_file", "internal tool")
+    assert outputs[1] == ("read_file", "internal tool")
+    assert outputs[2] == ("list_directory", "tool")
+    assert "outside the workspace" in outputs[3][1]
+
+
 async def test_hard_links_and_swapped_symbolic_links_never_reach_outside(
     local_tools_stack: LocalToolsStack,
 ) -> None:
@@ -251,7 +277,7 @@ async def test_a_case_variant_path_never_leaves_the_workspace(
     session_id = await start_turn(sessions, "calls " + json.dumps(calls))
     outputs = tool_outputs(await wait_for_turn_end(sessions, session_id))
     assert outputs[0] == ("read_file", "inside case")
-    assert outputs[1][1] in ("inside case",) or "outside the workspace" in outputs[1][1]
+    assert outputs[1] == ("read_file", "inside case")
     assert "outside the workspace" in outputs[2][1]
 
 
