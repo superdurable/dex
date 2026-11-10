@@ -29,7 +29,7 @@ loop:
 
 “尚未就绪”是循环里的正常分支，绝不是错误。
 
-普通的 sleep 就够了。循环不需要监听取消。外部调用有自己的 timeout；Dex 取消一次 attempt 后，下一次调用会很快失败。
+普通的 sleep 就够了。循环不需要监听取消。Dex 取消这次 attempt 时，会取消 Step 传给外部调用的 context，所以下一次调用会立即失败，循环随之结束。
 
 ## 间隔和 timeout
 
@@ -451,7 +451,7 @@ impl Step for RecordJobWaitFailure {
 - 长时间循环却从不记录 heartbeat，也不写进度。
 - 外部调用没有自己的 timeout。
 - 手写一个截止时间，重复 **ExecuteMethodTimeout** 或 **TotalDuration** 已经提供的限制。
-- 通过把 page token 传给新的 run 来逐页迭代。
+- 每一页结果都启动一个新的 Flow。应该把 page token 留在循环里。
 
 ## 相关内容
 

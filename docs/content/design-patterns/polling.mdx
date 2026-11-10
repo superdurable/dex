@@ -28,7 +28,7 @@ loop:
 
 "Not ready yet" is a normal branch of the loop. It is never an error.
 
-A plain sleep is enough. The loop does not need to watch for cancellation. The external call has its own timeout, and after Dex cancels an attempt, the next call fails fast.
+A plain sleep is enough. The loop does not need to watch for cancellation. When Dex cancels the attempt, it cancels the context that the Step passes to the external call, so the next call fails at once and the loop ends.
 
 ## Interval and timeouts
 
@@ -450,7 +450,7 @@ impl Step for RecordJobWaitFailure {
 - A long loop that never records a heartbeat or writes progress.
 - An external call without its own timeout.
 - A hand-written deadline that duplicates **ExecuteMethodTimeout** or **TotalDuration**.
-- Iterating over pages by passing a page token to a new run.
+- Starting a new Flow for each page of results. Keep the page token in the loop instead.
 
 ## Related
 

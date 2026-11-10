@@ -11,7 +11,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inte
 
 这个模式适合长时间循环运行的工作，例如批处理。如果要等待外部系统，请改用 [Polling](/design-patterns/polling)。
 
-**InterruptibleFlow** 并行启动 **WorkA** 和 **WorkB**。要中断它们，客户端调用 **interrupt** RPC，由它写入 **interruptSignal** Attribute。每个分支先做完当前的工作单元，在开始下一个单元前读取这个信号，然后 graceful complete。
+**InterruptibleFlow** 并行启动 **WorkA** 和 **WorkB**。要中断它们，客户端调用 **interrupt** RPC，由它写入 **interruptSignal** Attribute。每个分支先做完当前的工作单元，在开始下一个单元前读取这个信号，然后返回 **GracefulComplete**。两个分支都停下后，Flow 才完成。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
