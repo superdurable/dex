@@ -44,6 +44,11 @@ from dex_agents.compaction import (
     build_context_summary_note,
     build_context_summary_omission_note,
 )
+from dex_agents.stepwise.framework_tool_sources import (
+    FRAMEWORK_TOOL_SOURCE_ENVELOPE_KEY,
+    FrameworkToolSourceRouter,
+    SourceToolListing,
+)
 from dex_agents.stepwise.function_tools import FunctionTool, ToolCallContext, function_tool
 from dex_agents.stepwise.model import (
     ModelClient,
@@ -98,6 +103,7 @@ __all__ = [
     "DEFAULT_MAX_MODEL_CALLS_PER_TURN",
     "DEFAULT_MAX_RECORDED_REQUESTS",
     "DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT",
+    "FRAMEWORK_TOOL_SOURCE_ENVELOPE_KEY",
     "MODEL_OUTPUT_ITEM_TYPE",
     "SCRIPTED_MODEL_API",
     "SCRIPTED_MODEL_PROVIDER",
@@ -105,6 +111,7 @@ __all__ = [
     "TOOL_RESULT_ITEM_TYPE",
     "USER_TEXT_ITEM_TYPE",
     "AgentDefinition",
+    "FrameworkToolSourceRouter",
     "FunctionTool",
     "InstructionContext",
     "ModelClient",
@@ -124,6 +131,7 @@ __all__ = [
     "ScriptedModelResponder",
     "ScriptedToolCall",
     "SourceToolDefinition",
+    "SourceToolListing",
     "StepwiseAgentRunner",
     "ToolCallContext",
     "ToolChoice",
