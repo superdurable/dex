@@ -172,7 +172,6 @@ fn evaluates_all_operators_and_types() {
         "double1 NOT IN ('14000.5')",
         "bool1 = false",
         "StartTime < '2026-07-02T00:00:00Z'",
-        "ExecutionStatus = 'ContinuedAsNew'",
     ] {
         assert!(!evaluate(&check(query), &document), "{query}");
     }
@@ -265,6 +264,16 @@ fn errors_have_byte_offsets_and_specific_reasons() {
         (
             "ExecutionStatus = 'Unknown'",
             18,
+            "unsupported ExecutionStatus",
+        ),
+        (
+            "ExecutionStatus = 'ContinuedAsNew'",
+            18,
+            "unsupported ExecutionStatus",
+        ),
+        (
+            "ExecutionStatus != 'ContinuedAsNew'",
+            19,
             "unsupported ExecutionStatus",
         ),
         ("bool1 = 'maybe'", 8, "expected Bool literal"),
@@ -542,8 +551,6 @@ fn repository_query_corpus_parses_and_type_checks() {
         "FlowType = 'CheckoutFlow' AND (DexWorkQueuePermissions = 'refund.manage' OR DexWorkQueuePermissions = 'refund.message')", // Web v2 permission union.
         "FlowType = 'CheckoutFlow' AND StartTime >= '2026-07-01T00:00:00.123456789Z'", // Web v2 datetime filter.
         "(WorkflowId = 'a' OR WorkflowId = 'b') AND WorkflowType = 'Engine'", // Web search wrapper.
-        "WorkflowId = 'a' AND ExecutionStatus != \"ContinuedAsNew\"",         // Server integration.
-        "WorkflowId = 'a' AND ExecutionStatus = \"ContinuedAsNew\"",          // Server integration.
         "WorkflowId = 'a' OR WorkflowId = 'b'",                               // Server integration.
         "CustomDatetimeField='2026-07-03T00:00:00Z' AND CustomDoubleField='0.01'", // Server persistence integration.
         "",

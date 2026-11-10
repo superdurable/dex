@@ -248,10 +248,6 @@ const (
 type FlowConfig struct {
 	// ActiveStepSearchMode controls active Step indexing.
 	ActiveStepSearchMode *ActiveStepSearchMode
-	// ContinueAsNewThreshold is the event-count threshold for Continue-As-New.
-	ContinueAsNewThreshold *int32
-	// ContinueAsNewPageSizeBytes caps history bytes carried into Continue-As-New.
-	ContinueAsNewPageSizeBytes *int32
 	// StepDurability sets the default persistence durability for Step writes.
 	StepDurability *StepDurability
 	// AttributeStoreNames selects Server-configured Attribute Stores for opted-in writes.
@@ -568,54 +564,38 @@ type WaitForFlowOptions struct {
 
 // WaitForStepCompletionOptions configures one durable Step completion wait.
 //
-// When RequestID is empty, the server derives a stable ID from the Step
-// execution. Reuse an override only when retrying the same Step completion
-// wait. RequestTimeout bounds the caller-visible request across transparent
+// The Server does not read RequestID for this wait. RequestTimeout bounds the caller-visible request across transparent
 // transport reattachments. Leave it zero to wait indefinitely.
-// The Server caps each transport wait; the SDK reattaches with the same RequestID without
-// resetting RequestTimeout. A caller disconnect releases its wait slot.
-// InternalHandlerTimeout is retained for compatibility and has no effect on the current Server.
-// Both durations must use whole seconds within int32 range.
+// The Server caps each transport wait; the SDK reattaches without resetting RequestTimeout. A caller disconnect releases its wait slot.
+// RequestTimeout must use whole seconds within int32 range.
 //
 //	options := dex.WaitForStepCompletionOptions{
 //		RequestTimeout: time.Second * 10,
 //	}
 type WaitForStepCompletionOptions struct {
-	// RequestID overrides the stable ID derived from the Step execution.
+	// RequestID is sent with the wait request; the Server does not read it.
 	RequestID string
 	// RequestTimeout bounds the caller-visible request. Zero waits indefinitely.
 	RequestTimeout time.Duration
-	// InternalHandlerTimeout is accepted and validated for compatibility but ignored by the current Server.
-	// Zero is the default. Negative or fractional-second values are invalid, as are values above int32 seconds.
-	//
-	// Deprecated: leave this field zero; use RequestTimeout or ctx to bound the wait.
-	InternalHandlerTimeout time.Duration
 }
 
 // WaitForAttributeOptions configures one durable Attribute match wait.
 //
-// When RequestID is empty, the server derives a stable ID from the Attribute
-// condition. Reuse an override only when retrying the same Attribute match.
+// The Server does not read RequestID for this wait.
 // RequestTimeout bounds the caller-visible request across transparent transport
 // reattachments. Leave it zero to wait indefinitely. The Server caps each transport wait;
-// the SDK reattaches with the same RequestID without resetting RequestTimeout.
+// the SDK reattaches without resetting RequestTimeout.
 // A caller disconnect releases its wait slot.
-// InternalHandlerTimeout is retained for compatibility and has no effect on the current Server.
-// Both durations must use whole seconds within int32 range.
+// RequestTimeout must use whole seconds within int32 range.
 //
 //	options := dex.WaitForAttributeOptions{
 //		RequestTimeout: time.Second * 10,
 //	}
 type WaitForAttributeOptions struct {
-	// RequestID overrides the stable ID derived from the Attribute condition.
+	// RequestID is sent with the wait request; the Server does not read it.
 	RequestID string
 	// RequestTimeout bounds the caller-visible request. Zero waits indefinitely.
 	RequestTimeout time.Duration
-	// InternalHandlerTimeout is accepted and validated for compatibility but ignored by the current Server.
-	// Zero is the default. Negative or fractional-second values are invalid, as are values above int32 seconds.
-	//
-	// Deprecated: leave this field zero; use RequestTimeout or ctx to bound the wait.
-	InternalHandlerTimeout time.Duration
 }
 
 // StopType selects how StopFlow ends an active Flow.
@@ -694,10 +674,4 @@ type TimeTravelOptions struct {
 	StepMethod TimeTravelStepMethod
 	// SkipWritesReapply prevents replay of later RPCs, Channel publications, and Attribute writes; false reapplies them.
 	SkipWritesReapply bool
-}
-
-// SearchFlowsOptions selects whether visibility searches include earlier runs replaced during history maintenance.
-type SearchFlowsOptions struct {
-	// IncludeContinuedAsNew disables the server's default exclusion without changing the caller's query.
-	IncludeContinuedAsNew bool
 }

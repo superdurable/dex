@@ -32,7 +32,6 @@ func verifySearchRunInclusion(t *testing.T) {
 
 	runtime := startDexService(t, cfg)
 	flowClient := runtime.FlowClient
-	// C3: server-zd never returns CONTINUED_AS_NEW runs.
 
 	completedID := "search-completed-" + uuid.NewString()
 	workerTarget := startWorker(t, basic.NewHandler())
@@ -40,7 +39,7 @@ func verifySearchRunInclusion(t *testing.T) {
 		FlowId: completedID, FlowType: basic.FlowType, RequestId: newRequestID(),
 		StartStepType: basic.Step1,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
-			FlowConfigOverride: minimumContinueAsNewAsyncDurabilityConfig(),
+			FlowConfigOverride: asyncDurabilityConfig(),
 		}, workerTarget),
 	})
 	require.NoError(t, err)
@@ -98,37 +97,18 @@ func verifySearchRunInclusion(t *testing.T) {
 	var allRuns []*dexpb.SearchFlowsResponseEntry
 	require.Eventually(t, func() bool {
 		var err error
-		allRuns, err = searchRunPages(ctx, flowClient, query, true, 2)
+		allRuns, err = searchRunPages(ctx, flowClient, query, 2)
 		if err != nil {
 			return false
 		}
 		statuses := map[string]dexpb.FlowStatus{}
-		continued := 0
 		for _, run := range allRuns {
-			if run.GetFlowStatus() == dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW {
-				continued++
-			} else {
-				statuses[run.GetFlowId()] = run.GetFlowStatus()
-			}
+			statuses[run.GetFlowId()] = run.GetFlowStatus()
 		}
-		return (continued > 0) == false && len(statuses) == len(expected) && sameSearchStatuses(statuses, expected)
-	}, 30*time.Second, 200*time.Millisecond, "expected full visible execution chain and other statuses")
+		return len(statuses) == len(expected) && sameSearchStatuses(statuses, expected)
+	}, 30*time.Second, 200*time.Millisecond, "expected search results with all statuses")
 
-	for _, explicitFalse := range []bool{false, true} {
-		t.Run(fmt.Sprintf("default-explicit-false-%t", explicitFalse), func(t *testing.T) {
-			request := &dexpb.SearchFlowsRequest{Query: query, PageSize: 100}
-			if explicitFalse {
-				request.IncludeContinuedAsNew = false
-			}
-			response, err := flowClient.SearchFlows(ctx, request)
-			require.NoError(t, err)
-			require.Len(t, response.GetFlowRuns(), len(expected))
-			for _, run := range response.GetFlowRuns() {
-				require.Equal(t, expected[run.GetFlowId()], run.GetFlowStatus())
-			}
-		})
-	}
-	currentRuns, err := searchRunPages(ctx, flowClient, query, false, 1)
+	currentRuns, err := searchRunPages(ctx, flowClient, query, 1)
 	require.NoError(t, err)
 	require.Len(t, currentRuns, len(expected))
 	allRunIDs := map[string]bool{}
@@ -137,63 +117,32 @@ func verifySearchRunInclusion(t *testing.T) {
 		allRunIDs[run.GetRunId()] = true
 	}
 	for _, run := range currentRuns {
-		require.True(t, allRunIDs[run.GetRunId()], "missing current run from inclusive pages")
+		require.True(t, allRunIDs[run.GetRunId()], "missing run from paginated search")
 	}
 	orQuery := fmt.Sprintf("%s = '%s' OR %s = '%s'", workflowIDField, completedID, workflowIDField, runningID)
 	page, err := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{Query: orQuery, PageSize: 100})
 	require.NoError(t, err)
-	require.Len(t, page.GetFlowRuns(), 2, "OR must not bypass the default exclusion")
+	require.Len(t, page.GetFlowRuns(), 2)
 
-	continuedFilter := `ExecutionStatus = "ContinuedAsNew"`
-
-	continuedQuery := fmt.Sprintf("%s = '%s' AND %s", workflowIDField, completedID, continuedFilter)
-	page, err = flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{Query: continuedQuery, PageSize: 100})
-	require.NoError(t, err)
-	require.Empty(t, page.GetFlowRuns())
-	page, err = flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-		Query: continuedQuery, PageSize: 100, IncludeContinuedAsNew: true,
-	})
-	require.NoError(t, err)
-
-	require.Empty(t, page.GetFlowRuns())
-
-	for _, run := range page.GetFlowRuns() {
-		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW, run.GetFlowStatus())
-	}
-	// Inclusion must retain caller exclusions rather than force earlier runs into the results.
-	currentQuery := fmt.Sprintf("%s = '%s' AND ExecutionStatus != \"ContinuedAsNew\"", workflowIDField, completedID)
-	page, err = flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-		Query: currentQuery, PageSize: 100, IncludeContinuedAsNew: true,
-	})
+	completedQuery := fmt.Sprintf("%s = '%s' AND ExecutionStatus = \"Completed\"", workflowIDField, completedID)
+	page, err = flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{Query: completedQuery, PageSize: 100})
 	require.NoError(t, err)
 	require.Len(t, page.GetFlowRuns(), 1)
-	page, err = flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-		PageSize: 1000, IncludeContinuedAsNew: true,
-	})
-	require.NoError(t, err)
-	foundContinued := false
-	for _, run := range page.GetFlowRuns() {
-		foundContinued = foundContinued || run.GetFlowStatus() == dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW
-	}
-
-	require.False(t, foundContinued)
 
 	for _, emptyQuery := range []string{"", "   "} {
 		page, err = flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{Query: emptyQuery, PageSize: 10})
 		require.NoError(t, err)
-		for _, run := range page.GetFlowRuns() {
-			require.NotEqual(t, dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW, run.GetFlowStatus())
-		}
+		require.NotEmpty(t, page.GetFlowRuns())
 	}
 }
 
-func searchRunPages(ctx context.Context, client dexpb.FlowServiceClient, query string, include bool, pageSize int32) ([]*dexpb.SearchFlowsResponseEntry, error) {
+func searchRunPages(ctx context.Context, client dexpb.FlowServiceClient, query string, pageSize int32) ([]*dexpb.SearchFlowsResponseEntry, error) {
 	var runs []*dexpb.SearchFlowsResponseEntry
 	seen := map[string]bool{}
 	token := ""
 	for pageNumber := 0; pageNumber < 100; pageNumber++ {
 		response, err := client.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-			Query: query, PageSize: pageSize, NextPageToken: token, IncludeContinuedAsNew: include,
+			Query: query, PageSize: pageSize, NextPageToken: token,
 		})
 		if err != nil {
 			return nil, err

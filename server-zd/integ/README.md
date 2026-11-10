@@ -58,11 +58,11 @@ they do not require MinIO or external S3. Redis package tests were not copied.
 
 ## Extraction scope
 
-The source baseline has 326 top-level tests. This module copies 136 names:
-134 passing rows and the two applicable unsupported/harness-gap rows. The
-original Go Server suite has been retired.
-Temporal suffixes and some ContinueAsNew variant names remain for continuity;
-these scenarios use only Dex APIs here and do not run backend-only assertions.
+The source baseline had 326 top-level tests. At extraction, this module copied
+136 names: 134 passing rows and the two applicable unsupported/harness-gap rows.
+Obsolete API variants have since been removed. The original Go Server suite has
+been retired.
+Temporal suffixes remain for continuity; these scenarios use Dex APIs.
 
 The other 190 names were retired: 174 skipped Go Server tests, 13 direct Go
 Stream Store package tests, the Temporal authentication startup validation,
@@ -145,11 +145,9 @@ concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 | Test | Result | Classification | Reason and evidence |
 | --- | --- | --- | --- |
 | TestAnyCommandCloseFlowTemporal | pass |  | |
-| TestAnyCommandCloseFlowTemporalContinueAsNew | pass |  | |
 | TestAnyCommandCombinationFlowTemporal | pass |  | Runs against dex-server-zd. |
 | TestAnyCommandCompletedTemporal | pass |  | |
 | TestAnyTimerSignalFlowTemporal | pass |  | |
-| TestAnyTimerSignalFlowTemporalContinueAsNew | pass |  | |
 | TestAttributeIndexSyncTemporal | pass |  | Runs against dex-server-zd. |
 | TestAttributeSyncFlowTimeoutTemporal | pass |  | |
 | TestAttributeSyncInvokeRPCGracefulCompleteTemporal | pass |  | |
@@ -169,9 +167,7 @@ concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 | TestChannelMultivalueTemporal | pass |  | Runs against dex-server-zd. |
 | TestCommandThreadCompletionTemporal | pass |  | |
 | TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporal | pass |  | |
-| TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporalContinueAsNew | pass |  | |
 | TestCreateFlowTemporal | pass |  | |
-| TestCreateFlowTemporalContinueAsNew | pass |  | |
 | TestDeadEndFlowTemporal | pass |  | |
 | TestFlowForceFailTemporal | pass |  | |
 | TestFlowTimeoutTemporal | pass | behavior-difference | Asserts that server-zd rejects the Flow retry policy. zd-bug 7 (#1006) fixed by #1019, so the timeout handler retry runs the Go Server assertion. |
@@ -180,7 +176,6 @@ concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 | TestGeneralAuthenticationTemporal | pass |  | |
 | TestGetHistoryEventsNotFoundTemporal | pass |  | |
 | TestGreedyAnyTimerSignalFlowTemporal | pass |  | |
-| TestGreedyAnyTimerSignalFlowTemporalContinueAsNew | pass |  | |
 | TestGreedyTimerFlowBaseTemporal | pass |  | Runs against dex-server-zd. |
 | TestGreedyTimerFlowTemporal | pass | behavior-difference | Asserts the reset difference. zd-bug 6 (#1007) fixed by #1037, so the skipped timer status runs the Go Server assertion. |
 | TestHardDeleteAttributeResetTemporal | pass |  | |
@@ -197,7 +192,6 @@ concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 | TestParallelFlowTemporal | pass |  | |
 | TestPersistenceLoadingPolicy | pass |  | |
 | TestPersistenceWorkflowTemporal | pass |  | |
-| TestPersistenceWorkflowTemporalContinueAsNew | pass |  | |
 | TestPublishToChannelNoFlowId | pass |  | |
 | TestPullAdapterBasicTemporal | pass |  | |
 | TestPullAdapterReconnects | pass |  | |
@@ -237,9 +231,6 @@ concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 | TestRpcSelectedChannelExternalStorageTemporal | pass |  | Runs against dex-server-zd. |
 | TestRpcStepCancellationTemporal | pass |  | |
 | TestRpcWorkflowTemporal | pass |  | |
-| TestRpcWorkflowTemporalContinueAsNew | pass |  | |
-| TestRpcWorkflowTemporalContinueAsNewWithMemo | pass |  | |
-| TestRpcWorkflowTemporalContinueAsNewWithMemoAndEncryption | pass |  | |
 | TestRpcWorkflowTemporalWithMemo | pass |  | |
 | TestRpcWorkflowTemporalWithMemoAndEncryption | pass |  | |
 | TestS3GetSetDataAttributesTemporal | pass |  | Runs against dex-server-zd. |
@@ -254,7 +245,6 @@ concurrent transactional RPC request IDs (#1005/#1038), skipped timer state
 | TestSetSearchAttributes | pass |  | Runs against dex-server-zd. |
 | TestSignalWorkflowTemporal | pass |  | Runs against dex-server-zd. |
 | TestSkipStartFlowTemporal | pass |  | |
-| TestSkipStartFlowTemporalContinueAsNew | pass |  | |
 | TestStartDelayTemporal | pass | behavior-difference | Passes; asserts that server-zd rejects flow_start_delay_seconds > 0 with InvalidArgument (C8). |
 | TestStartFlowNoOptionsTemporal | pass |  | |
 | TestStateApiFailAndProceedTemporal | pass |  | |

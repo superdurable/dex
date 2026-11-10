@@ -1106,8 +1106,6 @@ function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig {
   return ProtoFlowConfig.create({
     activeStepSearchMode: mapActiveStepSearchMode(config),
     attributeStoreNames: mapAttributeStoreNames(config),
-    continueAsNewThreshold: config?.continueAsNewThreshold,
-    continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     historyWindowEvents: config?.historyWindowEvents,
     offloadHistory: config?.offloadHistory,
     stepDurability:

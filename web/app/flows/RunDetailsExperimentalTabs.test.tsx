@@ -373,7 +373,6 @@ describe('Run page experimental tabs', () => {
   });
 
   it.each([
-    ['a continued run', { flowStatus: 'Continued as new', flowStatusCode: 7 } as Partial<FlowSummary>, '', 'run-2'],
     ['an earlier run attempt', { runAttempt: 2 } as Partial<FlowSummary>, '&runAttempt=1', 'run-1'],
     ['a run its Flow ID no longer resolves to', {} as Partial<FlowSummary>, '', 'run-2'],
   ])('offers no Agent session or Actions on %s', async (_name, summary, search, currentRunId) => {

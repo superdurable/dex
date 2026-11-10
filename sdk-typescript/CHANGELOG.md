@@ -133,3 +133,12 @@
   For an active Flow created with a Worker address by an older SDK, keep the old
   Worker available until the Flow finishes or migrate its target separately
   before removing the listener.
+
+- Removed `Client.triggerContinueAsNew`, the `continuedAsNew` Flow status,
+  `FlowConfig.continueAsNewThreshold`, `FlowConfig.continueAsNewPageSizeBytes`,
+  `SearchFlowsOptions`, and the fourth `Client.searchFlows` argument.
+- Removed `WaitForStepCompletionOptions.internalHandlerTimeoutMs` and
+  `WaitForAttributeOptions.internalHandlerTimeoutMs`. Request IDs remain
+  accepted, but the server does not read them for these waits.
+- Generated bindings rename `FlowExecutionID` to `FlowRunID` and
+  `flowExecutionId` to `flowRunId`. ProtoJSON uses `flowRunId`.

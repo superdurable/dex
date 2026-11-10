@@ -67,8 +67,6 @@ func (c *flowCommand) Execute(ctx context.Context, args []string, options option
 		return executeWaitStep(c, ctx, args[1:], options)
 	case "update-config":
 		return executeUpdateConfig(c, ctx, args[1:], options)
-	case "trigger-continue-as-new":
-		return executeTriggerContinueAsNew(c, ctx, args[1:], options)
 	case "time-travel":
 		return executeTimeTravel(c, ctx, args[1:], options)
 	case "help", "--help", "-h":
@@ -354,7 +352,7 @@ func resolveRunID(
 	if err != nil {
 		return "", err
 	}
-	resolved := response.GetFlowExecutionId().GetRunId()
+	resolved := response.GetFlowRunId().GetRunId()
 	if resolved == "" {
 		return "", fmt.Errorf("GetFlowSummary response has no run ID")
 	}
@@ -362,7 +360,7 @@ func resolveRunID(
 }
 
 func flowSummary(response *dexpb.GetFlowSummaryResponse) map[string]any {
-	execution := response.GetFlowExecutionId()
+	execution := response.GetFlowRunId()
 	return map[string]any{
 		"flowId": execution.GetFlowId(), "runId": execution.GetRunId(),
 		"firstRunId": response.GetFirstRunId(), "requestId": response.GetRequestId(),
@@ -382,7 +380,7 @@ func protoTimestamp(timestamp *timestamppb.Timestamp) any {
 func (c *flowCommand) printUsage() {
 	fmt.Fprintln(c.stdout, "Usage: dexcli flow <command>")
 	fmt.Fprintln(c.stdout)
-	fmt.Fprintln(c.stdout, "Commands: start, wait, search, summary, state, history, channel-messages, delete-channel-message, inspect, watch, stop, skip-timer, wait-step, update-config, trigger-continue-as-new, time-travel")
+	fmt.Fprintln(c.stdout, "Commands: start, wait, search, summary, state, history, channel-messages, delete-channel-message, inspect, watch, stop, skip-timer, wait-step, update-config, time-travel")
 }
 
 func parseInt32(value string, name string) (int32, error) {

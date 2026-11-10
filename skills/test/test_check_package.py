@@ -118,6 +118,7 @@ class BoundaryTest(unittest.TestCase):
         for text in (
             "The Flow uses Continue-As-New.",
             "Call ContinueAsNew.",
+            "The Flow uses Continue - As - New.",
             "Temporal stores the history.",
             "Set the StartToClose timeout.",
             "Cadence is not supported.",

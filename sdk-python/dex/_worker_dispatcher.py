@@ -781,12 +781,6 @@ class WorkerDispatcher:
                 ),
                 ActiveStepSearchMode.DISABLED: pb.ACTIVE_STEP_SEARCH_MODE_DISABLED,
             }[config.active_step_search_mode]
-        if config.continue_as_new_threshold is not None:
-            mapped.continue_as_new_threshold = config.continue_as_new_threshold
-        if config.continue_as_new_page_size_bytes is not None:
-            mapped.continue_as_new_page_size_in_bytes = (
-                config.continue_as_new_page_size_bytes
-            )
         if config.step_durability is not None:
             mapped.step_durability = {
                 StepDurability.DEFAULT: pb.STEP_DURABILITY_UNSPECIFIED,

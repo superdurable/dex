@@ -44,14 +44,6 @@ public enum FlowStatus
    * <code>FLOW_STATUS_CANCELED = 6;</code>
    */
   FLOW_STATUS_CANCELED(6),
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never returns this status.
-   * </pre>
-   *
-   * <code>FLOW_STATUS_CONTINUED_AS_NEW = 7;</code>
-   */
-  FLOW_STATUS_CONTINUED_AS_NEW(7),
   UNRECOGNIZED(-1),
   ;
 
@@ -97,14 +89,6 @@ public enum FlowStatus
    * <code>FLOW_STATUS_CANCELED = 6;</code>
    */
   public static final int FLOW_STATUS_CANCELED_VALUE = 6;
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never returns this status.
-   * </pre>
-   *
-   * <code>FLOW_STATUS_CONTINUED_AS_NEW = 7;</code>
-   */
-  public static final int FLOW_STATUS_CONTINUED_AS_NEW_VALUE = 7;
 
 
   public final int getNumber() {
@@ -138,7 +122,6 @@ public enum FlowStatus
       case 4: return FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY;
       case 5: return FLOW_STATUS_TERMINATED;
       case 6: return FLOW_STATUS_CANCELED;
-      case 7: return FLOW_STATUS_CONTINUED_AS_NEW;
       default: return null;
     }
   }

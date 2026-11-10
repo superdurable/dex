@@ -76,64 +76,6 @@ private static final long serialVersionUID = 0L;
     return result == null ? io.superdurable.gen.ActiveStepSearchMode.UNRECOGNIZED : result;
   }
 
-  public static final int CONTINUE_AS_NEW_THRESHOLD_FIELD_NUMBER = 2;
-  private int continueAsNewThreshold_ = 0;
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-   * value in the Flow configuration, and otherwise ignores it.
-   * </pre>
-   *
-   * <code>optional int32 continue_as_new_threshold = 2;</code>
-   * @return Whether the continueAsNewThreshold field is set.
-   */
-  @java.lang.Override
-  public boolean hasContinueAsNewThreshold() {
-    return ((bitField0_ & 0x00000002) != 0);
-  }
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-   * value in the Flow configuration, and otherwise ignores it.
-   * </pre>
-   *
-   * <code>optional int32 continue_as_new_threshold = 2;</code>
-   * @return The continueAsNewThreshold.
-   */
-  @java.lang.Override
-  public int getContinueAsNewThreshold() {
-    return continueAsNewThreshold_;
-  }
-
-  public static final int CONTINUE_AS_NEW_PAGE_SIZE_IN_BYTES_FIELD_NUMBER = 3;
-  private int continueAsNewPageSizeInBytes_ = 0;
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-   * value in the Flow configuration, and otherwise ignores it.
-   * </pre>
-   *
-   * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
-   * @return Whether the continueAsNewPageSizeInBytes field is set.
-   */
-  @java.lang.Override
-  public boolean hasContinueAsNewPageSizeInBytes() {
-    return ((bitField0_ & 0x00000004) != 0);
-  }
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-   * value in the Flow configuration, and otherwise ignores it.
-   * </pre>
-   *
-   * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
-   * @return The continueAsNewPageSizeInBytes.
-   */
-  @java.lang.Override
-  public int getContinueAsNewPageSizeInBytes() {
-    return continueAsNewPageSizeInBytes_;
-  }
-
   public static final int STEP_DURABILITY_FIELD_NUMBER = 4;
   private int stepDurability_ = 0;
   /**
@@ -141,7 +83,7 @@ private static final long serialVersionUID = 0L;
    * @return Whether the stepDurability field is set.
    */
   @java.lang.Override public boolean hasStepDurability() {
-    return ((bitField0_ & 0x00000008) != 0);
+    return ((bitField0_ & 0x00000002) != 0);
   }
   /**
    * <code>optional .dex.StepDurability step_durability = 4;</code>
@@ -167,7 +109,7 @@ private static final long serialVersionUID = 0L;
    */
   @java.lang.Override
   public boolean hasWorkerTarget() {
-    return ((bitField0_ & 0x00000010) != 0);
+    return ((bitField0_ & 0x00000004) != 0);
   }
   /**
    * <code>.dex.WorkerTarget worker_target = 5;</code>
@@ -197,7 +139,7 @@ private static final long serialVersionUID = 0L;
    */
   @java.lang.Override
   public boolean hasAttributeStoreNames() {
-    return ((bitField0_ & 0x00000020) != 0);
+    return ((bitField0_ & 0x00000008) != 0);
   }
   /**
    * <pre>
@@ -262,7 +204,7 @@ private static final long serialVersionUID = 0L;
    */
   @java.lang.Override
   public boolean hasHistoryWindowEvents() {
-    return ((bitField0_ & 0x00000040) != 0);
+    return ((bitField0_ & 0x00000010) != 0);
   }
   /**
    * <pre>
@@ -327,7 +269,7 @@ private static final long serialVersionUID = 0L;
    */
   @java.lang.Override
   public boolean hasDeleteExpiredHistoryObjects() {
-    return ((bitField0_ & 0x00000080) != 0);
+    return ((bitField0_ & 0x00000020) != 0);
   }
   /**
    * <pre>
@@ -391,7 +333,7 @@ private static final long serialVersionUID = 0L;
    */
   @java.lang.Override
   public boolean hasOffloadHistory() {
-    return ((bitField0_ & 0x00000100) != 0);
+    return ((bitField0_ & 0x00000040) != 0);
   }
   /**
    * <pre>
@@ -450,27 +392,21 @@ private static final long serialVersionUID = 0L;
       output.writeEnum(1, activeStepSearchMode_);
     }
     if (((bitField0_ & 0x00000002) != 0)) {
-      output.writeInt32(2, continueAsNewThreshold_);
-    }
-    if (((bitField0_ & 0x00000004) != 0)) {
-      output.writeInt32(3, continueAsNewPageSizeInBytes_);
-    }
-    if (((bitField0_ & 0x00000008) != 0)) {
       output.writeEnum(4, stepDurability_);
     }
-    if (((bitField0_ & 0x00000010) != 0)) {
+    if (((bitField0_ & 0x00000004) != 0)) {
       output.writeMessage(5, getWorkerTarget());
     }
-    if (((bitField0_ & 0x00000020) != 0)) {
+    if (((bitField0_ & 0x00000008) != 0)) {
       output.writeMessage(6, getAttributeStoreNames());
     }
-    if (((bitField0_ & 0x00000040) != 0)) {
+    if (((bitField0_ & 0x00000010) != 0)) {
       output.writeInt32(7, historyWindowEvents_);
     }
-    if (((bitField0_ & 0x00000080) != 0)) {
+    if (((bitField0_ & 0x00000020) != 0)) {
       output.writeBool(8, deleteExpiredHistoryObjects_);
     }
-    if (((bitField0_ & 0x00000100) != 0)) {
+    if (((bitField0_ & 0x00000040) != 0)) {
       output.writeBool(9, offloadHistory_);
     }
     getUnknownFields().writeTo(output);
@@ -483,33 +419,25 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(2, continueAsNewThreshold_);
+        .computeEnumSize(4, stepDurability_);
     }
     if (((bitField0_ & 0x00000004) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(3, continueAsNewPageSizeInBytes_);
+        .computeMessageSize(5, getWorkerTarget());
     }
     if (((bitField0_ & 0x00000008) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeEnumSize(4, stepDurability_);
+        .computeMessageSize(6, getAttributeStoreNames());
     }
     if (((bitField0_ & 0x00000010) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(5, getWorkerTarget());
+        .computeInt32Size(7, historyWindowEvents_);
     }
     if (((bitField0_ & 0x00000020) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(6, getAttributeStoreNames());
-    }
-    if (((bitField0_ & 0x00000040) != 0)) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(7, historyWindowEvents_);
-    }
-    if (((bitField0_ & 0x00000080) != 0)) {
-      size += com.google.protobuf.CodedOutputStream
         .computeBoolSize(8, deleteExpiredHistoryObjects_);
     }
-    if (((bitField0_ & 0x00000100) != 0)) {
+    if (((bitField0_ & 0x00000040) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeBoolSize(9, offloadHistory_);
     }
@@ -540,16 +468,6 @@ private static final long serialVersionUID = 0L;
     if (hasActiveStepSearchMode() != other.hasActiveStepSearchMode()) return false;
     if (hasActiveStepSearchMode()) {
       if (activeStepSearchMode_ != other.activeStepSearchMode_) return false;
-    }
-    if (hasContinueAsNewThreshold() != other.hasContinueAsNewThreshold()) return false;
-    if (hasContinueAsNewThreshold()) {
-      if (getContinueAsNewThreshold()
-          != other.getContinueAsNewThreshold()) return false;
-    }
-    if (hasContinueAsNewPageSizeInBytes() != other.hasContinueAsNewPageSizeInBytes()) return false;
-    if (hasContinueAsNewPageSizeInBytes()) {
-      if (getContinueAsNewPageSizeInBytes()
-          != other.getContinueAsNewPageSizeInBytes()) return false;
     }
     if (hasStepDurability() != other.hasStepDurability()) return false;
     if (hasStepDurability()) {
@@ -594,14 +512,6 @@ private static final long serialVersionUID = 0L;
     if (hasActiveStepSearchMode()) {
       hash = (37 * hash) + ACTIVE_STEP_SEARCH_MODE_FIELD_NUMBER;
       hash = (53 * hash) + activeStepSearchMode_;
-    }
-    if (hasContinueAsNewThreshold()) {
-      hash = (37 * hash) + CONTINUE_AS_NEW_THRESHOLD_FIELD_NUMBER;
-      hash = (53 * hash) + getContinueAsNewThreshold();
-    }
-    if (hasContinueAsNewPageSizeInBytes()) {
-      hash = (37 * hash) + CONTINUE_AS_NEW_PAGE_SIZE_IN_BYTES_FIELD_NUMBER;
-      hash = (53 * hash) + getContinueAsNewPageSizeInBytes();
     }
     if (hasStepDurability()) {
       hash = (37 * hash) + STEP_DURABILITY_FIELD_NUMBER;
@@ -768,8 +678,6 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       activeStepSearchMode_ = 0;
-      continueAsNewThreshold_ = 0;
-      continueAsNewPageSizeInBytes_ = 0;
       stepDurability_ = 0;
       workerTarget_ = null;
       if (workerTargetBuilder_ != null) {
@@ -823,40 +731,32 @@ private static final long serialVersionUID = 0L;
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.continueAsNewThreshold_ = continueAsNewThreshold_;
+        result.stepDurability_ = stepDurability_;
         to_bitField0_ |= 0x00000002;
       }
       if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.continueAsNewPageSizeInBytes_ = continueAsNewPageSizeInBytes_;
-        to_bitField0_ |= 0x00000004;
-      }
-      if (((from_bitField0_ & 0x00000008) != 0)) {
-        result.stepDurability_ = stepDurability_;
-        to_bitField0_ |= 0x00000008;
-      }
-      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.workerTarget_ = workerTargetBuilder_ == null
             ? workerTarget_
             : workerTargetBuilder_.build();
-        to_bitField0_ |= 0x00000010;
+        to_bitField0_ |= 0x00000004;
       }
-      if (((from_bitField0_ & 0x00000020) != 0)) {
+      if (((from_bitField0_ & 0x00000008) != 0)) {
         result.attributeStoreNames_ = attributeStoreNamesBuilder_ == null
             ? attributeStoreNames_
             : attributeStoreNamesBuilder_.build();
+        to_bitField0_ |= 0x00000008;
+      }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.historyWindowEvents_ = historyWindowEvents_;
+        to_bitField0_ |= 0x00000010;
+      }
+      if (((from_bitField0_ & 0x00000020) != 0)) {
+        result.deleteExpiredHistoryObjects_ = deleteExpiredHistoryObjects_;
         to_bitField0_ |= 0x00000020;
       }
       if (((from_bitField0_ & 0x00000040) != 0)) {
-        result.historyWindowEvents_ = historyWindowEvents_;
-        to_bitField0_ |= 0x00000040;
-      }
-      if (((from_bitField0_ & 0x00000080) != 0)) {
-        result.deleteExpiredHistoryObjects_ = deleteExpiredHistoryObjects_;
-        to_bitField0_ |= 0x00000080;
-      }
-      if (((from_bitField0_ & 0x00000100) != 0)) {
         result.offloadHistory_ = offloadHistory_;
-        to_bitField0_ |= 0x00000100;
+        to_bitField0_ |= 0x00000040;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -875,12 +775,6 @@ private static final long serialVersionUID = 0L;
       if (other == io.superdurable.gen.FlowConfig.getDefaultInstance()) return this;
       if (other.hasActiveStepSearchMode()) {
         setActiveStepSearchModeValue(other.getActiveStepSearchModeValue());
-      }
-      if (other.hasContinueAsNewThreshold()) {
-        setContinueAsNewThreshold(other.getContinueAsNewThreshold());
-      }
-      if (other.hasContinueAsNewPageSizeInBytes()) {
-        setContinueAsNewPageSizeInBytes(other.getContinueAsNewPageSizeInBytes());
       }
       if (other.hasStepDurability()) {
         setStepDurabilityValue(other.getStepDurabilityValue());
@@ -931,48 +825,38 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 8
-            case 16: {
-              continueAsNewThreshold_ = input.readInt32();
-              bitField0_ |= 0x00000002;
-              break;
-            } // case 16
-            case 24: {
-              continueAsNewPageSizeInBytes_ = input.readInt32();
-              bitField0_ |= 0x00000004;
-              break;
-            } // case 24
             case 32: {
               stepDurability_ = input.readEnum();
-              bitField0_ |= 0x00000008;
+              bitField0_ |= 0x00000002;
               break;
             } // case 32
             case 42: {
               input.readMessage(
                   internalGetWorkerTargetFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000010;
+              bitField0_ |= 0x00000004;
               break;
             } // case 42
             case 50: {
               input.readMessage(
                   internalGetAttributeStoreNamesFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000020;
+              bitField0_ |= 0x00000008;
               break;
             } // case 50
             case 56: {
               historyWindowEvents_ = input.readInt32();
-              bitField0_ |= 0x00000040;
+              bitField0_ |= 0x00000010;
               break;
             } // case 56
             case 64: {
               deleteExpiredHistoryObjects_ = input.readBool();
-              bitField0_ |= 0x00000080;
+              bitField0_ |= 0x00000020;
               break;
             } // case 64
             case 72: {
               offloadHistory_ = input.readBool();
-              bitField0_ |= 0x00000100;
+              bitField0_ |= 0x00000040;
               break;
             } // case 72
             default: {
@@ -1051,133 +935,13 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private int continueAsNewThreshold_ ;
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-     * value in the Flow configuration, and otherwise ignores it.
-     * </pre>
-     *
-     * <code>optional int32 continue_as_new_threshold = 2;</code>
-     * @return Whether the continueAsNewThreshold field is set.
-     */
-    @java.lang.Override
-    public boolean hasContinueAsNewThreshold() {
-      return ((bitField0_ & 0x00000002) != 0);
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-     * value in the Flow configuration, and otherwise ignores it.
-     * </pre>
-     *
-     * <code>optional int32 continue_as_new_threshold = 2;</code>
-     * @return The continueAsNewThreshold.
-     */
-    @java.lang.Override
-    public int getContinueAsNewThreshold() {
-      return continueAsNewThreshold_;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-     * value in the Flow configuration, and otherwise ignores it.
-     * </pre>
-     *
-     * <code>optional int32 continue_as_new_threshold = 2;</code>
-     * @param value The continueAsNewThreshold to set.
-     * @return This builder for chaining.
-     */
-    public Builder setContinueAsNewThreshold(int value) {
-
-      continueAsNewThreshold_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-     * value in the Flow configuration, and otherwise ignores it.
-     * </pre>
-     *
-     * <code>optional int32 continue_as_new_threshold = 2;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearContinueAsNewThreshold() {
-      bitField0_ = (bitField0_ & ~0x00000002);
-      continueAsNewThreshold_ = 0;
-      onChanged();
-      return this;
-    }
-
-    private int continueAsNewPageSizeInBytes_ ;
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-     * value in the Flow configuration, and otherwise ignores it.
-     * </pre>
-     *
-     * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
-     * @return Whether the continueAsNewPageSizeInBytes field is set.
-     */
-    @java.lang.Override
-    public boolean hasContinueAsNewPageSizeInBytes() {
-      return ((bitField0_ & 0x00000004) != 0);
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-     * value in the Flow configuration, and otherwise ignores it.
-     * </pre>
-     *
-     * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
-     * @return The continueAsNewPageSizeInBytes.
-     */
-    @java.lang.Override
-    public int getContinueAsNewPageSizeInBytes() {
-      return continueAsNewPageSizeInBytes_;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-     * value in the Flow configuration, and otherwise ignores it.
-     * </pre>
-     *
-     * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
-     * @param value The continueAsNewPageSizeInBytes to set.
-     * @return This builder for chaining.
-     */
-    public Builder setContinueAsNewPageSizeInBytes(int value) {
-
-      continueAsNewPageSizeInBytes_ = value;
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-     * value in the Flow configuration, and otherwise ignores it.
-     * </pre>
-     *
-     * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearContinueAsNewPageSizeInBytes() {
-      bitField0_ = (bitField0_ & ~0x00000004);
-      continueAsNewPageSizeInBytes_ = 0;
-      onChanged();
-      return this;
-    }
-
     private int stepDurability_ = 0;
     /**
      * <code>optional .dex.StepDurability step_durability = 4;</code>
      * @return Whether the stepDurability field is set.
      */
     @java.lang.Override public boolean hasStepDurability() {
-      return ((bitField0_ & 0x00000008) != 0);
+      return ((bitField0_ & 0x00000002) != 0);
     }
     /**
      * <code>optional .dex.StepDurability step_durability = 4;</code>
@@ -1193,7 +957,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder setStepDurabilityValue(int value) {
       stepDurability_ = value;
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
@@ -1214,7 +978,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder setStepDurability(io.superdurable.gen.StepDurability value) {
       if (value == null) { throw new NullPointerException(); }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000002;
       stepDurability_ = value.getNumber();
       onChanged();
       return this;
@@ -1224,7 +988,7 @@ private static final long serialVersionUID = 0L;
      * @return This builder for chaining.
      */
     public Builder clearStepDurability() {
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000002);
       stepDurability_ = 0;
       onChanged();
       return this;
@@ -1238,7 +1002,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the workerTarget field is set.
      */
     public boolean hasWorkerTarget() {
-      return ((bitField0_ & 0x00000010) != 0);
+      return ((bitField0_ & 0x00000004) != 0);
     }
     /**
      * <code>.dex.WorkerTarget worker_target = 5;</code>
@@ -1263,7 +1027,7 @@ private static final long serialVersionUID = 0L;
       } else {
         workerTargetBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
@@ -1277,7 +1041,7 @@ private static final long serialVersionUID = 0L;
       } else {
         workerTargetBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
@@ -1286,7 +1050,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeWorkerTarget(io.superdurable.gen.WorkerTarget value) {
       if (workerTargetBuilder_ == null) {
-        if (((bitField0_ & 0x00000010) != 0) &&
+        if (((bitField0_ & 0x00000004) != 0) &&
           workerTarget_ != null &&
           workerTarget_ != io.superdurable.gen.WorkerTarget.getDefaultInstance()) {
           getWorkerTargetBuilder().mergeFrom(value);
@@ -1297,7 +1061,7 @@ private static final long serialVersionUID = 0L;
         workerTargetBuilder_.mergeFrom(value);
       }
       if (workerTarget_ != null) {
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000004;
         onChanged();
       }
       return this;
@@ -1306,7 +1070,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.WorkerTarget worker_target = 5;</code>
      */
     public Builder clearWorkerTarget() {
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000004);
       workerTarget_ = null;
       if (workerTargetBuilder_ != null) {
         workerTargetBuilder_.dispose();
@@ -1319,7 +1083,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.WorkerTarget worker_target = 5;</code>
      */
     public io.superdurable.gen.WorkerTarget.Builder getWorkerTargetBuilder() {
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000004;
       onChanged();
       return internalGetWorkerTargetFieldBuilder().getBuilder();
     }
@@ -1363,7 +1127,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the attributeStoreNames field is set.
      */
     public boolean hasAttributeStoreNames() {
-      return ((bitField0_ & 0x00000020) != 0);
+      return ((bitField0_ & 0x00000008) != 0);
     }
     /**
      * <pre>
@@ -1396,7 +1160,7 @@ private static final long serialVersionUID = 0L;
       } else {
         attributeStoreNamesBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
@@ -1414,7 +1178,7 @@ private static final long serialVersionUID = 0L;
       } else {
         attributeStoreNamesBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
@@ -1427,7 +1191,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeAttributeStoreNames(io.superdurable.gen.AttributeStoreNames value) {
       if (attributeStoreNamesBuilder_ == null) {
-        if (((bitField0_ & 0x00000020) != 0) &&
+        if (((bitField0_ & 0x00000008) != 0) &&
           attributeStoreNames_ != null &&
           attributeStoreNames_ != io.superdurable.gen.AttributeStoreNames.getDefaultInstance()) {
           getAttributeStoreNamesBuilder().mergeFrom(value);
@@ -1438,7 +1202,7 @@ private static final long serialVersionUID = 0L;
         attributeStoreNamesBuilder_.mergeFrom(value);
       }
       if (attributeStoreNames_ != null) {
-        bitField0_ |= 0x00000020;
+        bitField0_ |= 0x00000008;
         onChanged();
       }
       return this;
@@ -1451,7 +1215,7 @@ private static final long serialVersionUID = 0L;
      * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
      */
     public Builder clearAttributeStoreNames() {
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000008);
       attributeStoreNames_ = null;
       if (attributeStoreNamesBuilder_ != null) {
         attributeStoreNamesBuilder_.dispose();
@@ -1468,7 +1232,7 @@ private static final long serialVersionUID = 0L;
      * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
      */
     public io.superdurable.gen.AttributeStoreNames.Builder getAttributeStoreNamesBuilder() {
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000008;
       onChanged();
       return internalGetAttributeStoreNamesFieldBuilder().getBuilder();
     }
@@ -1546,7 +1310,7 @@ private static final long serialVersionUID = 0L;
      */
     @java.lang.Override
     public boolean hasHistoryWindowEvents() {
-      return ((bitField0_ & 0x00000040) != 0);
+      return ((bitField0_ & 0x00000010) != 0);
     }
     /**
      * <pre>
@@ -1626,7 +1390,7 @@ private static final long serialVersionUID = 0L;
     public Builder setHistoryWindowEvents(int value) {
 
       historyWindowEvents_ = value;
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
@@ -1666,7 +1430,7 @@ private static final long serialVersionUID = 0L;
      * @return This builder for chaining.
      */
     public Builder clearHistoryWindowEvents() {
-      bitField0_ = (bitField0_ & ~0x00000040);
+      bitField0_ = (bitField0_ & ~0x00000010);
       historyWindowEvents_ = 0;
       onChanged();
       return this;
@@ -1694,7 +1458,7 @@ private static final long serialVersionUID = 0L;
      */
     @java.lang.Override
     public boolean hasDeleteExpiredHistoryObjects() {
-      return ((bitField0_ & 0x00000080) != 0);
+      return ((bitField0_ & 0x00000020) != 0);
     }
     /**
      * <pre>
@@ -1742,7 +1506,7 @@ private static final long serialVersionUID = 0L;
     public Builder setDeleteExpiredHistoryObjects(boolean value) {
 
       deleteExpiredHistoryObjects_ = value;
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
@@ -1766,7 +1530,7 @@ private static final long serialVersionUID = 0L;
      * @return This builder for chaining.
      */
     public Builder clearDeleteExpiredHistoryObjects() {
-      bitField0_ = (bitField0_ & ~0x00000080);
+      bitField0_ = (bitField0_ & ~0x00000020);
       deleteExpiredHistoryObjects_ = false;
       onChanged();
       return this;
@@ -1809,7 +1573,7 @@ private static final long serialVersionUID = 0L;
      */
     @java.lang.Override
     public boolean hasOffloadHistory() {
-      return ((bitField0_ & 0x00000100) != 0);
+      return ((bitField0_ & 0x00000040) != 0);
     }
     /**
      * <pre>
@@ -1887,7 +1651,7 @@ private static final long serialVersionUID = 0L;
     public Builder setOffloadHistory(boolean value) {
 
       offloadHistory_ = value;
-      bitField0_ |= 0x00000100;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
@@ -1926,7 +1690,7 @@ private static final long serialVersionUID = 0L;
      * @return This builder for chaining.
      */
     public Builder clearOffloadHistory() {
-      bitField0_ = (bitField0_ & ~0x00000100);
+      bitField0_ = (bitField0_ & ~0x00000040);
       offloadHistory_ = false;
       onChanged();
       return this;

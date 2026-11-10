@@ -646,7 +646,7 @@ func testPullStepQueuesWithoutWorker(t *testing.T) {
 	require.NoError(t, err)
 	require.Never(t, func() bool {
 		history, historyErr := runtime.FlowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
-			FlowId: flowID, RunId: summary.GetFlowExecutionId().GetRunId(), EstimatePageSize: 100,
+			FlowId: flowID, RunId: summary.GetFlowRunId().GetRunId(), EstimatePageSize: 100,
 		})
 		if historyErr != nil {
 			return false
@@ -1433,7 +1433,7 @@ func requirePullHistoryRouting(t *testing.T, ctx context.Context, client dexpb.F
 	t.Helper()
 	summary, err := client.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
 	require.NoError(t, err)
-	history, err := client.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{FlowId: flowID, RunId: summary.GetFlowExecutionId().GetRunId(), EstimatePageSize: 100})
+	history, err := client.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{FlowId: flowID, RunId: summary.GetFlowRunId().GetRunId(), EstimatePageSize: 100})
 	require.NoError(t, err)
 	var waitRouting, executeRouting *dexpb.PullRouting
 	for _, event := range history.GetEvents() {

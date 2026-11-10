@@ -30,7 +30,7 @@ func TestParallelFlowTemporal(t *testing.T) {
 		doTestParallelFlow(
 			t,
 
-			minimumContinueAsNewAsyncDurabilityConfig(),
+			asyncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 	}

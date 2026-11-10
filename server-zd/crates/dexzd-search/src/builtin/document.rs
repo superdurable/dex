@@ -249,7 +249,6 @@ fn status_name(status: FlowStatus) -> &'static str {
         FlowStatus::Canceled => "Canceled",
         FlowStatus::Terminated => "Terminated",
         FlowStatus::ServerSideTimeoutInternalOnly => "TimedOut",
-        FlowStatus::ContinuedAsNew => "ContinuedAsNew",
         FlowStatus::Unspecified => "Unspecified",
     }
 }

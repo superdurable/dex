@@ -116,7 +116,7 @@ class WaitForFlowService(dex_pb2_grpc.FlowServiceServicer):
     ) -> pb.GetFlowSummaryResponse:
         del context
         return pb.GetFlowSummaryResponse(
-            flow_execution_id=pb.FlowExecutionID(
+            flow_run_id=pb.FlowRunID(
                 flow_id=request.flow_id,
                 run_id="run-failed",
             ),

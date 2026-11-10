@@ -12,6 +12,10 @@ This page lists user-visible changes to Dex Web, newest first; each section cove
 
 Not released yet. The next minor release, web/v1.43.0, ships these changes.
 
+### Breaking
+
+- The **/api/flows/search** request no longer forwards **includeContinuedAsNew**. Run lists no longer offer **Continued as new** as a status. [Reference](/reference/web/dex-web#v1-pages).
+
 ### Added
 
 - **--base-path** (**DEX_WEB_BASE_PATH**) serves the pages, assets, and **/api** routes under a URL path prefix, such as **/dex**. Requests outside the prefix get HTTP 404, and **/healthz** and **/readyz** stay at the root. [Reference](/reference/web/dex-web#base-path).

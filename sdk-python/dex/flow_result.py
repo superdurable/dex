@@ -149,7 +149,7 @@ class FlowResult:
         Returns:
             ``True`` for a terminal snapshot; otherwise ``False``.
         """
-        return self.status not in (FlowStatus.RUNNING, FlowStatus.CONTINUED_AS_NEW)
+        return self.status is not FlowStatus.RUNNING
 
     @property
     def completions(self) -> tuple[StepCompletion, ...]:
@@ -191,7 +191,6 @@ def flow_result_from_proto(result: pb.FlowResult, decoder: _Decoder) -> FlowResu
         pb.FLOW_STATUS_CANCELED: FlowStatus.CANCELED,
         pb.FLOW_STATUS_TERMINATED: FlowStatus.TERMINATED,
         pb.FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY: FlowStatus.SERVER_SIDE_TIMEOUT_INTERNAL_ONLY,
-        pb.FLOW_STATUS_CONTINUED_AS_NEW: FlowStatus.CONTINUED_AS_NEW,
     }
     errors = {
         pb.FLOW_ERROR_TYPE_UNSPECIFIED: None,

@@ -20,56 +20,36 @@ from dex.runtime_errors import ErrorSubStatus, RequestTimeoutError
 
 @dataclass(frozen=True)
 class WaitForStepCompletionOptions:
-    """Configure one durable Step completion wait.
+    """Configure one Step completion wait.
 
-    The server derives a stable Request ID from the Step execution when
-    ``request_id`` is empty. Reuse an override only for the same logical wait.
-    ``request_timeout`` bounds the entire SDK call across transparent transport
-    reattachments. Temporal permits 10 in-flight Updates per Workflow Execution.
-    ``internal_handler_timeout`` reclaims accepted waits that outlive callers and
-    could consume those slots. Active callers transparently start another
-    generation, which adds another Update to history.
+    The Server does not read ``request_id`` for this wait. The SDK reattaches
+    after a transport long poll expires without resetting ``request_timeout``.
+    Disconnecting releases the wait slot.
 
     Attributes:
-        request_id: An optional override for the server-derived stable ID.
-        request_timeout: The total SDK call budget. Zero waits indefinitely.
-        internal_handler_timeout: The Temporal Update handler generation lifetime.
-            Set it only when abandoned waits can approach Temporal's in-flight
-            Update limit. Zero disables rollover. Prefer a value longer than normal
-            request timeouts and reconnect gaps because every generation counts
-            toward Temporal's 2,000-Update history limit.
+        request_id: Optional request identifier sent with the wait.
+        request_timeout: Total SDK call budget. Zero waits indefinitely.
     """
 
     request_id: str = ""
     request_timeout: timedelta = timedelta(0)
-    internal_handler_timeout: timedelta = timedelta(0)
 
 
 @dataclass(frozen=True)
 class WaitForAttributeOptions:
-    """Configure one durable Attribute match wait.
+    """Configure one Attribute match wait.
 
-    The server derives a stable Request ID from the Attribute condition when
-    ``request_id`` is empty. Reuse an override only for the same logical predicate.
-    ``request_timeout`` bounds the entire SDK call across transparent transport
-    reattachments. Temporal permits 10 in-flight Updates per Workflow Execution.
-    ``internal_handler_timeout`` reclaims accepted waits that outlive callers and
-    could consume those slots. Active callers transparently start another
-    generation, which adds another Update to history.
+    The Server does not read ``request_id`` for this wait. The SDK reattaches
+    after a transport long poll expires without resetting ``request_timeout``.
+    Disconnecting releases the wait slot.
 
     Attributes:
-        request_id: An optional override for the server-derived stable ID.
-        request_timeout: The total SDK call budget. Zero waits indefinitely.
-        internal_handler_timeout: The Temporal Update handler generation lifetime.
-            Set it only when abandoned waits can approach Temporal's in-flight
-            Update limit. Zero disables rollover. Prefer a value longer than normal
-            request timeouts and reconnect gaps because every generation counts
-            toward Temporal's 2,000-Update history limit.
+        request_id: Optional request identifier sent with the wait.
+        request_timeout: Total SDK call budget. Zero waits indefinitely.
     """
 
     request_id: str = ""
     request_timeout: timedelta = timedelta(0)
-    internal_handler_timeout: timedelta = timedelta(0)
 
 
 @dataclass(frozen=True)

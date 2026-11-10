@@ -240,7 +240,7 @@ func fullMethodName(service protoreflect.ServiceDescriptor, method protoreflect.
 func isMutatingMethod(name protoreflect.Name) bool {
 	switch name {
 	case "StartFlow", "PublishToChannel", "WriteStream", "StopFlow", "SetAttributes", "SyncAttributeIndexes",
-		"ResetFlow", "InvokeRPC", "SkipTimer", "UpdateFlowConfig", "TriggerContinueAsNew", "DeleteChannelMessage":
+		"ResetFlow", "InvokeRPC", "SkipTimer", "UpdateFlowConfig", "DeleteChannelMessage":
 		return true
 	default:
 		return false

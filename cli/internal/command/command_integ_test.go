@@ -30,30 +30,28 @@ import (
 type testFlowService struct {
 	dexpb.UnimplementedFlowServiceServer
 
-	mu                   sync.Mutex
-	loadCalls            int
-	loadRequest          *dexpb.LoadBlobsRequest
-	startCalls           int
-	stopCalls            int
-	streamWriteCalls     int
-	skipTimerCalls       int
-	waitStepCalls        int
-	updateConfigCalls    int
-	continueAsNewCalls   int
-	startRequest         *dexpb.StartFlowRequest
-	stopRequest          *dexpb.StopFlowRequest
-	streamWriteRequest   *dexpb.WriteStreamRequest
-	waitRequest          *dexpb.WaitForFlowRequest
-	skipTimerRequest     *dexpb.SkipTimerRequest
-	waitStepRequest      *dexpb.WaitForStepCompletionRequest
-	updateConfigRequest  *dexpb.UpdateFlowConfigRequest
-	continueAsNewRequest *dexpb.TriggerContinueAsNewRequest
-	timeTravelCalls      int
-	timeTravelRequest    *dexpb.ResetFlowRequest
-	waitStarted          chan struct{}
-	waitOnce             sync.Once
-	serverInfo           *dexpb.ServerInfo
-	serverInfoFailure    error
+	mu                  sync.Mutex
+	loadCalls           int
+	loadRequest         *dexpb.LoadBlobsRequest
+	startCalls          int
+	stopCalls           int
+	streamWriteCalls    int
+	skipTimerCalls      int
+	waitStepCalls       int
+	updateConfigCalls   int
+	startRequest        *dexpb.StartFlowRequest
+	stopRequest         *dexpb.StopFlowRequest
+	streamWriteRequest  *dexpb.WriteStreamRequest
+	waitRequest         *dexpb.WaitForFlowRequest
+	skipTimerRequest    *dexpb.SkipTimerRequest
+	waitStepRequest     *dexpb.WaitForStepCompletionRequest
+	updateConfigRequest *dexpb.UpdateFlowConfigRequest
+	timeTravelCalls     int
+	timeTravelRequest   *dexpb.ResetFlowRequest
+	waitStarted         chan struct{}
+	waitOnce            sync.Once
+	serverInfo          *dexpb.ServerInfo
+	serverInfoFailure   error
 }
 
 func (s *testFlowService) GetServerInfo(
@@ -188,17 +186,6 @@ func (s *testFlowService) UpdateFlowConfig(
 	return &emptypb.Empty{}, nil
 }
 
-func (s *testFlowService) TriggerContinueAsNew(
-	_ context.Context,
-	request *dexpb.TriggerContinueAsNewRequest,
-) (*emptypb.Empty, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.continueAsNewCalls++
-	s.continueAsNewRequest = request
-	return &emptypb.Empty{}, nil
-}
-
 func (s *testFlowService) ResetFlow(
 	_ context.Context,
 	request *dexpb.ResetFlowRequest,
@@ -219,8 +206,8 @@ func (s *testFlowService) GetFlowSummary(
 		flowStatus = dexpb.FlowStatus_FLOW_STATUS_COMPLETED
 	}
 	return &dexpb.GetFlowSummaryResponse{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: request.GetFlowId(), RunId: "run-1"},
-		FirstRunId:      "run-1", FlowType: "OrderFlow", FlowStatus: flowStatus,
+		FlowRunId:  &dexpb.FlowRunID{FlowId: request.GetFlowId(), RunId: "run-1"},
+		FirstRunId: "run-1", FlowType: "OrderFlow", FlowStatus: flowStatus,
 	}, nil
 }
 
@@ -403,7 +390,7 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	startResult := executeTestCommand(t, nil,
 		"flow", "start", "flow-1", "--flow-type", "OrderFlow", "--start-step-type", "StartOrder",
 		"--input", `{"order":42}`, "--attributes", `[{"key":"status","value":"new","index":{"type":"keyword"},"sync":true}]`,
-		"--config", `{"activeStepSearchMode":"all","continueAsNewThreshold":12,"stepDurability":"sync","offloadHistory":false}`,
+		"--config", `{"activeStepSearchMode":"all","stepDurability":"sync","offloadHistory":false}`,
 		"--retry-policy", `{"initialInterval":"1500ms","backoffCoefficient":2,"maximumInterval":"5s","maximumAttempts":3}`,
 		"--step-options", `{"skipWaitFor":true}`, "--timeout-handler-options", `{"methodTimeoutSeconds":20,"loadChannelNames":["commands"]}`,
 		"--flow-timeout", "90s", "--flow-timeout-policy", "handler",
@@ -424,8 +411,7 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 
 	executeTestCommand(t, nil, "flow", "skip-timer", "flow-1", "--step-type", "WaitForPayment", "--execution", "2", "--condition-index", "3", "--yes", "--server", address)
 	executeTestCommand(t, nil, "flow", "wait-step", "flow-1", "--step-type", "ShipOrder", "--execution", "2", "--request-timeout", "1500ms", "--server", address)
-	executeTestCommand(t, nil, "flow", "update-config", "flow-1", "--config", `{"continueAsNewPageSizeInBytes":1024,"attributeStoreNames":[],"historyWindowEvents":5000,"deleteExpiredHistoryObjects":false}`, "--yes", "--server", address)
-	executeTestCommand(t, nil, "flow", "trigger-continue-as-new", "flow-1", "--yes", "--server", address)
+	executeTestCommand(t, nil, "flow", "update-config", "flow-1", "--config", `{"attributeStoreNames":[],"historyWindowEvents":5000,"deleteExpiredHistoryObjects":false}`, "--yes", "--server", address)
 
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -459,12 +445,10 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	if service.waitStepRequest.GetStepExecutionNumber() != "2" || service.waitStepRequest.GetRequestTimeoutSeconds() != 2 || service.waitStepRequest.GetRequestId() == "" {
 		t.Fatalf("unexpected wait-step request: %#v", service.waitStepRequest)
 	}
-	if service.updateConfigRequest.GetFlowConfig().GetContinueAsNewPageSizeInBytes() != 1024 || service.updateConfigRequest.GetFlowConfig().AttributeStoreNames == nil || len(service.updateConfigRequest.GetFlowConfig().GetAttributeStoreNames().GetNames()) != 0 || service.updateConfigRequest.GetFlowConfig().GetHistoryWindowEvents() != 5000 || service.updateConfigRequest.GetFlowConfig().DeleteExpiredHistoryObjects != nil || service.updateConfigRequest.GetFlowConfig().OffloadHistory != nil {
+	if service.updateConfigRequest.GetFlowConfig().AttributeStoreNames == nil || len(service.updateConfigRequest.GetFlowConfig().GetAttributeStoreNames().GetNames()) != 0 || service.updateConfigRequest.GetFlowConfig().GetHistoryWindowEvents() != 5000 || service.updateConfigRequest.GetFlowConfig().DeleteExpiredHistoryObjects != nil || service.updateConfigRequest.GetFlowConfig().OffloadHistory != nil {
 		t.Fatalf("unexpected update-config request: %#v", service.updateConfigRequest)
 	}
-	if service.continueAsNewRequest.GetFlowId() != "flow-1" {
-		t.Fatalf("unexpected continue-as-new request: %#v", service.continueAsNewRequest)
-	}
+
 }
 
 func TestFlowConfigRejectsWorkerTarget(t *testing.T) {
@@ -499,7 +483,6 @@ func TestFlowMutationsRequireConfirmation(t *testing.T) {
 		{"flow", "start", "flow-1", "--flow-type", "OrderFlow", "--server", address},
 		{"flow", "skip-timer", "flow-1", "--step-type", "Wait", "--condition-id", "timer", "--server", address},
 		{"flow", "update-config", "flow-1", "--config", `{}`, "--server", address},
-		{"flow", "trigger-continue-as-new", "flow-1", "--server", address},
 	} {
 		app := NewApp(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
 		if err := app.Execute(context.Background(), args); err == nil || ExitCode(err) != 2 {
@@ -508,7 +491,7 @@ func TestFlowMutationsRequireConfirmation(t *testing.T) {
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	if service.startCalls != 0 || service.skipTimerCalls != 0 || service.updateConfigCalls != 0 || service.continueAsNewCalls != 0 {
+	if service.startCalls != 0 || service.skipTimerCalls != 0 || service.updateConfigCalls != 0 {
 		t.Fatalf("mutation reached service without confirmation: %#v", service)
 	}
 }

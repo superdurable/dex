@@ -528,7 +528,7 @@ async fn applies_compatibility_and_attribute_values() {
         1,
         7,
         2,
-        record(7, 2, "Checkout", FlowStatus::ContinuedAsNew, 2, 3),
+        record(7, 2, "Checkout", FlowStatus::Completed, 2, 3),
     );
     let backend =
         BuiltinSearchBackend::new(MemoryViewProvider::new(Arc::new(state)), 2).expect("backend");
@@ -556,16 +556,6 @@ async fn applies_compatibility_and_attribute_values() {
         permissions.value.as_ref().and_then(|value| value.kind.as_ref()),
         Some(dex::value::Kind::ObjValue(object)) if object.payload == br#"["charge"]"#
     ));
-    let continued = backend
-        .search(request(
-            "ExecutionStatus = 'ContinuedAsNew'",
-            None,
-            10,
-            &fields,
-        ))
-        .await
-        .expect("status compatibility");
-    assert!(continued.entries.is_empty());
     let array = backend
         .search(request("Tags = 'ship'", None, 10, &fields))
         .await

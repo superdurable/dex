@@ -193,8 +193,7 @@ draws the Flow Definition Graph only; it reads no history and no stored values.
 The design graph draws one card per Step. A Flow with no Steps renders
 one card per RPC. Each card lists the Attributes the RPC reads and writes and
 the Channels it publishes to. Action RPCs show their Action label and required
-permission, and Summary and Display RPCs are marked as views. Run lists omit
-executions closed by continue-as-new. Summary, Display, edits, and
+permission, and Summary and Display RPCs are marked as views. Summary, Display, edits, and
 Actions target the current run without accepting a Run ID. Version 1 and
 Version 2 files can coexist. Each definition's Flow type is the one Workers
 register, so Go Flows need no `GetFlowType` or `GetStepType` override unless
@@ -857,8 +856,6 @@ do not appear there. The Execution graph starts a Step whose source is before
 the page from an
 **Earlier events, not loaded** node, never from Flow start.
 
-A continued-as-new run remains on screen until the
-operator follows **Next run**; Dex Web never combines two runs into one graph or timeline.
 Timeline and Execution graph show an animated loading indicator while waiting
 for history. Empty states appear after loading finishes. Refreshing retains
 events already on screen. The loading indicator respects reduced-motion settings.
@@ -881,9 +878,8 @@ the page's time zone preference and sent as RFC 3339 UTC. A Time Travel-created 
 event whose source run links back to the preserved history.
 AttributeMap and ChannelMap instances with decimal-only names appear before
 other instances and sort by numeric value in live state and event details.
-Continued runs link to their previous run from Timeline and Execution graph.
 Timeline connects each Step execution's first method event to the Flow start,
-Flow continued, RPC, Step decision, or recovery event that scheduled it.
+RPC, Step decision, or recovery event that scheduled it.
 Selecting the first event reveals that source link; selecting a
 WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Execution graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
@@ -894,8 +890,7 @@ horizontally and scale down to fit when possible, with a minimum one-third zoom.
 Persisted Step decisions add planned graph branches. A selector-matched branch without a Step event appears Canceled with no execution ID.
 SubFlow conditions appear as linked leaf nodes and compact WaitFor cards. Running
 and terminal nodes display and link by their generated Flow ID. Original WaitFor
-events retain the configured reuse policy; continue-as-new state retains only
-the Condition ID and stable list position.
+events retain the configured reuse policy and Condition ID.
 Methods interrupted by a forced close remain visible as Pending Timeline events
 with their last persisted Scheduled or Started phase.
 Timeline and Execution graph share structured event details for flow, step method, RPC,

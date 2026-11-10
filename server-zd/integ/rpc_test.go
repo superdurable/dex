@@ -33,9 +33,9 @@ func TestRpcWorkflowTemporal(t *testing.T) {
 	}
 }
 
-func TestRpcWorkflowTemporalContinueAsNew(t *testing.T) {
+func TestRpcWorkflowTemporalSyncDurability(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, minimumContinueAsNewSyncDurabilityConfig())
+		doTestRpcWorkflow(t, syncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -54,16 +54,16 @@ func TestRpcWorkflowTemporalWithMemoAndEncryption(t *testing.T) {
 	}
 }
 
-func TestRpcWorkflowTemporalContinueAsNewWithMemo(t *testing.T) {
+func TestRpcWorkflowTemporalSyncDurabilityWithMemo(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, minimumContinueAsNewSyncDurabilityConfig())
+		doTestRpcWorkflow(t, syncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
 
-func TestRpcWorkflowTemporalContinueAsNewWithMemoAndEncryption(t *testing.T) {
+func TestRpcWorkflowTemporalSyncDurabilityWithMemoAndEncryption(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestRpcWorkflow(t, minimumContinueAsNewSyncDurabilityConfig())
+		doTestRpcWorkflow(t, syncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

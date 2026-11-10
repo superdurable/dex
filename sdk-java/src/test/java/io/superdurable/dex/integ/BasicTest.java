@@ -74,8 +74,6 @@ public final class BasicTest {
             new SubFlowAlwaysRestartParentWorkflow();
     private static final SubFlowAbnormalRestartParentWorkflow SUB_FLOW_ABNORMAL_PARENT_WORKFLOW =
             new SubFlowAbnormalRestartParentWorkflow();
-    private static final SubFlowContinueAsNewParentWorkflow SUB_FLOW_CAN_PARENT_WORKFLOW =
-            new SubFlowContinueAsNewParentWorkflow();
 
     @TempDir
     Path cacheDirectory;
@@ -207,51 +205,6 @@ public final class BasicTest {
     }
 
     @Test
-    @Disabled("server-zd never continues a run as new")
-    void testSubFlowPartialResultsSurviveContinueAsNewWithoutRestart() throws Exception {
-        // C3: server-zd never continues a run as new.
-        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
-                cacheDirectory,
-                SUB_FLOW_CAN_PARENT_WORKFLOW,
-                WORKFLOW,
-                new TimerWorkflow())) {
-            final String flowId = flowId("sub-flow-can");
-            final String completedChildId = "SubFlow:" + flowId + "-ParentStep-1-0";
-            final String delayedChildId = "SubFlow:" + flowId + "-ParentStep-1-1";
-            final String firstParentRunId = environment.client().startFlow(
-                    SUB_FLOW_CAN_PARENT_WORKFLOW,
-                    flowId,
-                    4,
-                    StartFlowOptions.newBuilder()
-                            .configOverride(FlowConfig.newBuilder()
-                                    .continueAsNewThreshold(1)
-                                    .build())
-                            .build());
-
-            awaitFlowRun(environment.client(), flowId, firstParentRunId);
-            final String completedChildRunId =
-                    environment.client().describeFlow(completedChildId).getRunId();
-            environment.client().skipTimer(
-                    delayedChildId,
-                    StepExecutionId.of("TimerStep"),
-                    TimerId.byConditionId("test-timer-id"));
-
-            final String[] output = environment.client()
-                    .waitForFlow(flowId, Duration.ofSeconds(30))
-                    .getSingleOutput(String.class)
-                    .split("\\|", -1);
-            assertEquals(4, output.length);
-            assertEquals(completedChildId, output[0]);
-            assertEquals("6", output[1]);
-            assertEquals(delayedChildId, output[2]);
-            assertEquals("COMPLETED", output[3]);
-            assertEquals(
-                    completedChildRunId,
-                    environment.client().describeFlow(completedChildId).getRunId());
-        }
-    }
-
-    @Test
     void testParallelBranchesReturnHeterogeneousStepCompletions() throws Exception {
         final MultiOutputWorkflow workflow = new MultiOutputWorkflow();
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
@@ -363,7 +316,7 @@ public final class BasicTest {
             final String flowId = flowId("config-override");
             final StartFlowOptions options = StartFlowOptions.newBuilder()
                     .configOverride(FlowConfig.newBuilder()
-                            .continueAsNewThreshold(1)
+                            .historyWindowEvents(2500)
                             .build())
                     .build();
             environment.client().startFlow(WORKFLOW, flowId, 0, options);

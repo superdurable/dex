@@ -33,7 +33,7 @@ func TestWorkflowCanceledTemporal(t *testing.T) {
 		doTestWorkflowCancelWaitsForProducer(
 			t,
 
-			minimumContinueAsNewSyncDurabilityConfig(),
+			syncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 		// Cancel and Fail must wake a step suspended on a channel.
@@ -42,18 +42,18 @@ func TestWorkflowCanceledTemporal(t *testing.T) {
 		doTestWorkflowStopWhileSuspended(
 			t,
 
-			minimumContinueAsNewSyncDurabilityConfig(),
+			syncDurabilityConfig(),
 		)
 		smallWaitForFastTest()
 
 		doTestWorkflowTerminated(t, nil)
 		smallWaitForFastTest()
-		doTestWorkflowTerminated(t, minimumContinueAsNewSyncDurabilityConfig())
+		doTestWorkflowTerminated(t, syncDurabilityConfig())
 		smallWaitForFastTest()
 
 		doTestWorkflowFail(t, nil)
 		smallWaitForFastTest()
-		doTestWorkflowFail(t, minimumContinueAsNewSyncDurabilityConfig())
+		doTestWorkflowFail(t, syncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

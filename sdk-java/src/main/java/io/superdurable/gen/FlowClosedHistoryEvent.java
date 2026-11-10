@@ -32,7 +32,6 @@ private static final long serialVersionUID = 0L;
     results_ = java.util.Collections.emptyList();
     errorType_ = 0;
     errorMessage_ = "";
-    continuedToRunId_ = "";
     stickyAppWorkerId_ = "";
   }
 
@@ -170,53 +169,6 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int CONTINUED_TO_RUN_ID_FIELD_NUMBER = 5;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object continuedToRunId_ = "";
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never sets this.
-   * </pre>
-   *
-   * <code>string continued_to_run_id = 5;</code>
-   * @return The continuedToRunId.
-   */
-  @java.lang.Override
-  public java.lang.String getContinuedToRunId() {
-    java.lang.Object ref = continuedToRunId_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      continuedToRunId_ = s;
-      return s;
-    }
-  }
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never sets this.
-   * </pre>
-   *
-   * <code>string continued_to_run_id = 5;</code>
-   * @return The bytes for continuedToRunId.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getContinuedToRunIdBytes() {
-    java.lang.Object ref = continuedToRunId_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      continuedToRunId_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
   public static final int STICKY_APP_WORKER_ID_FIELD_NUMBER = 6;
   @SuppressWarnings("serial")
   private volatile java.lang.Object stickyAppWorkerId_ = "";
@@ -282,9 +234,6 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorMessage_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 4, errorMessage_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(continuedToRunId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 5, continuedToRunId_);
-    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stickyAppWorkerId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 6, stickyAppWorkerId_);
     }
@@ -311,9 +260,6 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorMessage_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(4, errorMessage_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(continuedToRunId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, continuedToRunId_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stickyAppWorkerId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(6, stickyAppWorkerId_);
@@ -348,8 +294,6 @@ private static final long serialVersionUID = 0L;
     if (errorType_ != other.errorType_) return false;
     if (!getErrorMessage()
         .equals(other.getErrorMessage())) return false;
-    if (!getContinuedToRunId()
-        .equals(other.getContinuedToRunId())) return false;
     if (!getStickyAppWorkerId()
         .equals(other.getStickyAppWorkerId())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -373,8 +317,6 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + errorType_;
     hash = (37 * hash) + ERROR_MESSAGE_FIELD_NUMBER;
     hash = (53 * hash) + getErrorMessage().hashCode();
-    hash = (37 * hash) + CONTINUED_TO_RUN_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getContinuedToRunId().hashCode();
     hash = (37 * hash) + STICKY_APP_WORKER_ID_FIELD_NUMBER;
     hash = (53 * hash) + getStickyAppWorkerId().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
@@ -518,7 +460,6 @@ private static final long serialVersionUID = 0L;
       bitField0_ = (bitField0_ & ~0x00000002);
       errorType_ = 0;
       errorMessage_ = "";
-      continuedToRunId_ = "";
       stickyAppWorkerId_ = "";
       return this;
     }
@@ -576,9 +517,6 @@ private static final long serialVersionUID = 0L;
         result.errorMessage_ = errorMessage_;
       }
       if (((from_bitField0_ & 0x00000010) != 0)) {
-        result.continuedToRunId_ = continuedToRunId_;
-      }
-      if (((from_bitField0_ & 0x00000020) != 0)) {
         result.stickyAppWorkerId_ = stickyAppWorkerId_;
       }
     }
@@ -632,14 +570,9 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000008;
         onChanged();
       }
-      if (!other.getContinuedToRunId().isEmpty()) {
-        continuedToRunId_ = other.continuedToRunId_;
-        bitField0_ |= 0x00000010;
-        onChanged();
-      }
       if (!other.getStickyAppWorkerId().isEmpty()) {
         stickyAppWorkerId_ = other.stickyAppWorkerId_;
-        bitField0_ |= 0x00000020;
+        bitField0_ |= 0x00000010;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -696,14 +629,9 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 34
-            case 42: {
-              continuedToRunId_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000010;
-              break;
-            } // case 42
             case 50: {
               stickyAppWorkerId_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000020;
+              bitField0_ |= 0x00000010;
               break;
             } // case 50
             default: {
@@ -1139,98 +1067,6 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private java.lang.Object continuedToRunId_ = "";
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>string continued_to_run_id = 5;</code>
-     * @return The continuedToRunId.
-     */
-    public java.lang.String getContinuedToRunId() {
-      java.lang.Object ref = continuedToRunId_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        continuedToRunId_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>string continued_to_run_id = 5;</code>
-     * @return The bytes for continuedToRunId.
-     */
-    public com.google.protobuf.ByteString
-        getContinuedToRunIdBytes() {
-      java.lang.Object ref = continuedToRunId_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        continuedToRunId_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>string continued_to_run_id = 5;</code>
-     * @param value The continuedToRunId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setContinuedToRunId(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      continuedToRunId_ = value;
-      bitField0_ |= 0x00000010;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>string continued_to_run_id = 5;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearContinuedToRunId() {
-      continuedToRunId_ = getDefaultInstance().getContinuedToRunId();
-      bitField0_ = (bitField0_ & ~0x00000010);
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>string continued_to_run_id = 5;</code>
-     * @param value The bytes for continuedToRunId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setContinuedToRunIdBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      continuedToRunId_ = value;
-      bitField0_ |= 0x00000010;
-      onChanged();
-      return this;
-    }
-
     private java.lang.Object stickyAppWorkerId_ = "";
     /**
      * <code>string sticky_app_worker_id = 6;</code>
@@ -1274,7 +1110,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       stickyAppWorkerId_ = value;
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
@@ -1284,7 +1120,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder clearStickyAppWorkerId() {
       stickyAppWorkerId_ = getDefaultInstance().getStickyAppWorkerId();
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000010);
       onChanged();
       return this;
     }
@@ -1298,7 +1134,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       stickyAppWorkerId_ = value;
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }

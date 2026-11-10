@@ -18,6 +18,7 @@ mod older_backend_error;
 mod older_run_window;
 mod pre_offload_choice_log;
 mod recording;
+mod removed_flow_config_fields;
 mod scripted_clock;
 mod seeded_id_source;
 mod state_dump;

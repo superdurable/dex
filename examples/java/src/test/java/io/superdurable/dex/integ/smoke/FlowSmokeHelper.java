@@ -268,7 +268,6 @@ final class FlowSmokeHelper {
             if (statusNode.isTextual()) {
                 return switch (statusNode.asText()) {
                     case "FLOW_STATUS_COMPLETED",
-                            "FLOW_STATUS_CONTINUED_AS_NEW",
                             "FLOW_STATUS_RUNNING",
                             "FLOW_STATUS_UNSPECIFIED",
                             "" -> false;

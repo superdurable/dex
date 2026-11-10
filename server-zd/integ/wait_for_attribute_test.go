@@ -56,7 +56,7 @@ func TestWaitForAttributeTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWaitForAttributeConcurrent(t)
 		smallWaitForFastTest()
-		// These cover Temporal Update handlers, Update counters, Continue-As-New (C3), and two Servers
+		// These cover Temporal Update handlers, Update counters, and two Servers
 		// sharing one Flow, which binary mode cannot start.
 
 		continue
@@ -291,11 +291,6 @@ func doTestWaitForAttributeOperators(t *testing.T) {
 			FlowId:                flowId,
 			Match:                 equalAttributeMatch("match-string", stringValue("ready")),
 			RequestTimeoutSeconds: -1,
-		},
-		{
-			FlowId:                        flowId,
-			Match:                         equalAttributeMatch("match-string", stringValue("ready")),
-			InternalHandlerTimeoutSeconds: -1,
 		},
 	} {
 		_, waitErr := flowClient.WaitForAttribute(ctx, waitRequest)

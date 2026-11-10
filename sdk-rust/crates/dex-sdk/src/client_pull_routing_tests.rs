@@ -33,14 +33,14 @@ fn start_flow_override_always_maps_pull_target() {
 
 #[test]
 fn update_flow_config_leaves_worker_target_unset() {
-    for (config, expected_threshold) in [
+    for (config, expected_window_events) in [
         (FlowConfig::new(), None),
-        (FlowConfig::new().continue_as_new_threshold(100), Some(100)),
+        (FlowConfig::new().history_window_events(100), Some(100)),
     ] {
         assert_eq!(
             map_flow_config(Some(&config)).expect("map Flow config update"),
             dex_protocol::dex::FlowConfig {
-                continue_as_new_threshold: expected_threshold,
+                history_window_events: expected_window_events,
                 worker_target: None,
                 ..Default::default()
             }

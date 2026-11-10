@@ -78,8 +78,8 @@ its own repository; nothing here refers to it.
 
 ## Dex concept boundary
 
-Skills describe Dex concepts and guarantees only. Never mention
-Continue-As-New in any skill file, including its threshold and trigger. Do not
+Skills describe Dex concepts and guarantees only. Never mention retired
+workflow rollover controls, thresholds, or triggers in skill files. Do not
 describe Temporal or Cadence internals (activity timeout names, Signals,
 Queries, Updates, workflow history mechanics) in application guidance; state the
 Dex behavior and guarantee instead. When a guarantee differs by backend, say so

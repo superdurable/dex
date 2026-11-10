@@ -70,7 +70,6 @@ impl Default for ValidationConfig {
             minimum_step_heartbeat_timeout: Duration::from_secs(10),
             default_flow_config: FlowConfig {
                 active_step_search_mode: Some(ActiveStepSearchMode::Disabled as i32),
-                continue_as_new_threshold: Some(100),
                 step_durability: Some(StepDurability::Sync as i32),
                 ..FlowConfig::default()
             },
@@ -570,22 +569,6 @@ pub(crate) fn validate_flow_config(
     config: &ValidationConfig,
     should_require_target: bool,
 ) -> Result<(), ValidationError> {
-    if let Some(threshold) = flow_config.continue_as_new_threshold
-        && threshold < 0
-    {
-        return Err(invalid(
-            format!("{path}.continue_as_new_threshold"),
-            format!("continue_as_new_threshold must be >= 0, got {threshold}"),
-        ));
-    }
-    if let Some(page_size) = flow_config.continue_as_new_page_size_in_bytes
-        && page_size < 0
-    {
-        return Err(invalid(
-            format!("{path}.continue_as_new_page_size_in_bytes"),
-            format!("continue_as_new_page_size_in_bytes must be >= 0, got {page_size}"),
-        ));
-    }
     if let Some(window_events) = flow_config.history_window_events
         && (window_events <= 0 || window_events.unsigned_abs() > config.max_history_window_events)
     {
@@ -654,13 +637,6 @@ pub(crate) fn validate_flow_config(
 pub(crate) fn apply_flow_config_override(effective: &mut FlowConfig, override_config: &FlowConfig) {
     if override_config.active_step_search_mode.is_some() {
         effective.active_step_search_mode = override_config.active_step_search_mode;
-    }
-    if override_config.continue_as_new_threshold.is_some() {
-        effective.continue_as_new_threshold = override_config.continue_as_new_threshold;
-    }
-    if override_config.continue_as_new_page_size_in_bytes.is_some() {
-        effective.continue_as_new_page_size_in_bytes =
-            override_config.continue_as_new_page_size_in_bytes;
     }
     if override_config.step_durability.is_some() {
         effective.step_durability = override_config.step_durability;

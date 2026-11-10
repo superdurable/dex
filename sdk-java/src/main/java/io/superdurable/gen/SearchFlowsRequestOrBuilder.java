@@ -39,14 +39,4 @@ public interface SearchFlowsRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getNextPageTokenBytes();
-
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and ignores this field.
-   * </pre>
-   *
-   * <code>bool include_continued_as_new = 4;</code>
-   * @return The includeContinuedAsNew.
-   */
-  boolean getIncludeContinuedAsNew();
 }
