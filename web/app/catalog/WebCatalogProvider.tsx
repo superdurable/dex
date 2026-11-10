@@ -17,6 +17,7 @@ import {
 } from 'react';
 import { DexAPIError, readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog, V2Catalog } from '@/lib/types';
+import { webURL } from '@/lib/basePath';
 
 interface WebCatalogValue {
   ready: boolean;
@@ -44,9 +45,9 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
   const loadCatalog = useCallback(async (signal?: AbortSignal) => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const [nextDefinitions, nextCatalog] = await Promise.all([
-        fetch('/api/flow-definitions', { signal })
+        fetch(webURL('/api/flow-definitions'), { signal })
           .then((response) => readResponseJSON<FlowDefinitionCatalog>(response)),
-        fetch('/api/v2/catalog', { signal })
+        fetch(webURL('/api/v2/catalog'), { signal })
           .then((response) => readResponseJSON<V2Catalog>(response))
           .then((value) => ({ ok: true as const, value }))
           .catch(() => ({

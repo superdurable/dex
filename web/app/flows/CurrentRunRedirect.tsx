@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
+import { webURL } from '@/lib/basePath';
 
 export function CurrentRunRedirect({ flowId }: { flowId: string }) {
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ export function CurrentRunRedirect({ flowId }: { flowId: string }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, {
+    void fetch(webURL(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`), {
       signal: controller.signal,
     })
       .then(async (response) => {

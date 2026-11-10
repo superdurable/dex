@@ -18,6 +18,7 @@ import { ExperimentalMenu, type ExperimentalPage } from './ExperimentalMenu';
 import { CONNECTORS_PATH, DESIGNS_PATH, WORK_QUEUE_PATH } from '../routes';
 import { DexMark } from './DexMark';
 import { ThemeToggle } from './ThemeToggle';
+import { webURL } from '@/lib/basePath';
 
 /** The company site that the header logo opens in the same tab. */
 export const COMPANY_HOME_URL = 'https://superdurable.io';
@@ -38,7 +39,7 @@ function useHasLoadedFlowDefinitions(pathname: string): boolean {
   const [hasDefinitions, setHasDefinitions] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/flow-definitions', { signal: controller.signal })
+    fetch(webURL('/api/flow-definitions'), { signal: controller.signal })
       .then((response) => readResponseJSON<FlowDefinitionCatalog>(response))
       .then((catalog) => setHasDefinitions(hasLoadedFlowDefinitions(catalog)))
       // A failed read keeps the last known answer; the next navigation retries.
@@ -71,7 +72,7 @@ function useHasConnectorSetup(canUseOperatorAPI: boolean): boolean {
       return undefined;
     }
     const controller = new AbortController();
-    fetch('/api/v2/connector-connections', { signal: controller.signal })
+    fetch(webURL('/api/v2/connector-connections'), { signal: controller.signal })
       .then((response) => readResponseJSON<ConnectorSetupListing>(response))
       .then((listing) => setHasConnectors(isConnectorSetupApplicable(listing)))
       // Without local Connector setup the route does not exist, so the link stays hidden.

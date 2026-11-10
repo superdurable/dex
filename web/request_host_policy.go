@@ -25,16 +25,21 @@ func newRequestHostPolicy(cfg *Config) requestHostPolicy {
 	if bindAddress == "" {
 		bindAddress = "127.0.0.1"
 	}
-	allowedHosts := map[string]bool{canonicalRequestHost(bindAddress): true}
-	for _, host := range cfg.AllowedHosts {
+	policy := newAllowedHostsPolicy(cfg.AllowedHosts)
+	policy.allowedHosts[canonicalRequestHost(bindAddress)] = true
+	policy.isRestricted = cfg.ConnectorSetupEnabled || len(cfg.AllowedHosts) > 0
+	return policy
+}
+
+// newAllowedHostsPolicy restricts Host only when allowedHosts has an entry; an embedding host has no bind address.
+func newAllowedHostsPolicy(allowedHosts []string) requestHostPolicy {
+	canonicalHosts := map[string]bool{}
+	for _, host := range allowedHosts {
 		if canonical := canonicalRequestHost(host); canonical != "" {
-			allowedHosts[canonical] = true
+			canonicalHosts[canonical] = true
 		}
 	}
-	return requestHostPolicy{
-		isRestricted: cfg.ConnectorSetupEnabled || len(cfg.AllowedHosts) > 0,
-		allowedHosts: allowedHosts,
-	}
+	return requestHostPolicy{isRestricted: len(allowedHosts) > 0, allowedHosts: canonicalHosts}
 }
 
 // allows reports whether a request's Host header names this server. A DNS name works only when it is a loopback

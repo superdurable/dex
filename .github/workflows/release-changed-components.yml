@@ -390,6 +390,16 @@ jobs:
       version: ${{ needs.plan.outputs.version }}
     secrets: inherit
 
+  # Runs after create-releases, so an sdk-go release in the same run is the version the module requires.
+  publish-web-embedded:
+    name: Publish embedded Dex Web Go module
+    needs: [plan, create-releases]
+    if: needs.plan.outputs.web == 'true'
+    uses: ./.github/workflows/web-embedded-module-release.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+    secrets: inherit
+
   publish-cli:
     name: Publish CLI
     needs: [plan, create-releases]
@@ -411,6 +421,7 @@ jobs:
       - publish-rust
       - publish-typescript
       - publish-web
+      - publish-web-embedded
       - publish-cli
       - publish-agents
     runs-on: ubuntu-latest
@@ -432,6 +443,7 @@ jobs:
           CLI_SELECTED: ${{ needs.plan.outputs.cli }}
           WEB_SELECTED: ${{ needs.plan.outputs.web }}
           WEB_RESULT: ${{ needs.publish-web.result }}
+          WEB_EMBEDDED_RESULT: ${{ needs.publish-web-embedded.result }}
           CLI_RESULT: ${{ needs.publish-cli.result }}
           AGENTS_SELECTED: ${{ needs.plan.outputs.agents }}
           AGENTS_RESULT: ${{ needs.publish-agents.result }}
@@ -448,6 +460,7 @@ jobs:
               "Rust SDK:${RUST_SELECTED}:${RUST_RESULT}" \
               "TypeScript SDK:${TYPESCRIPT_SELECTED}:${TYPESCRIPT_RESULT}" \
               "Dex Web:${WEB_SELECTED}:${WEB_RESULT}" \
+              "Embedded Dex Web Go module:${WEB_SELECTED}:${WEB_EMBEDDED_RESULT}" \
               "CLI:${CLI_SELECTED}:${CLI_RESULT}" \
               "Agents packages:${AGENTS_SELECTED}:${AGENTS_RESULT}"; do
               name="${result%%:*}"
@@ -468,6 +481,7 @@ jobs:
             "${RUST_SELECTED}:${RUST_RESULT}" \
             "${TYPESCRIPT_SELECTED}:${TYPESCRIPT_RESULT}" \
             "${WEB_SELECTED}:${WEB_RESULT}" \
+            "${WEB_SELECTED}:${WEB_EMBEDDED_RESULT}" \
             "${CLI_SELECTED}:${CLI_RESULT}" \
             "${AGENTS_SELECTED}:${AGENTS_RESULT}"; do
             if [[ "${result%%:*}" == "true" && "${result#*:}" != "success" ]]; then

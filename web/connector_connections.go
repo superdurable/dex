@@ -33,10 +33,12 @@ const connectorCSRFHeader = "X-Dex-CSRF-Token"
 const connectorDisplayNameTimeout = 5 * time.Second
 
 type connectorSetup struct {
-	store              *connectorConnectionStore
-	flowDefinitions    FlowDefinitionProvider
-	releases           *connectorReleaseResolver
-	csrfToken          string
+	store           *connectorConnectionStore
+	flowDefinitions FlowDefinitionProvider
+	releases        *connectorReleaseResolver
+	csrfToken       string
+	// basePath is the canonical Dex Web base path that OAuth redirects and UI session URLs start with.
+	basePath           string
 	uiSessions         map[string]connectorUISession
 	uiSessionsMu       sync.Mutex
 	oauthSessions      map[string]connectorOAuthSession
@@ -52,6 +54,8 @@ type connectorSetup struct {
 	connectionGenerations map[string]uint64
 	// connectionsMu guards both maps and orders their changes with connection file writes and deletes.
 	connectionsMu sync.Mutex
+	// uiFrameAncestors is the frame-ancestors source list for Connector UI assets.
+	uiFrameAncestors string
 }
 
 type connectorUISession struct {
@@ -222,6 +226,10 @@ func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*co
 	if !cfg.ConnectorSetupEnabled {
 		return nil, nil
 	}
+	basePath, err := ValidateBasePath(cfg.BasePath)
+	if err != nil {
+		return nil, err
+	}
 	bindIP := net.ParseIP(cfg.BindAddress)
 	if bindIP == nil || !bindIP.IsLoopback() {
 		return nil, fmt.Errorf("local Connector setup requires a loopback Dex Web bind address")
@@ -240,7 +248,7 @@ func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*co
 	}
 	endpointPolicy := defaultConnectorAddressPolicy()
 	return &connectorSetup{
-		store: store, flowDefinitions: flowDefinitions, releases: releases, csrfToken: csrfToken,
+		store: store, flowDefinitions: flowDefinitions, releases: releases, csrfToken: csrfToken, basePath: basePath,
 		uiSessions: make(map[string]connectorUISession), oauthSessions: make(map[string]connectorOAuthSession),
 		providerHTTPClient:    newConnectorProviderHTTPClient(),
 		endpointPolicy:        endpointPolicy,
@@ -248,6 +256,7 @@ func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*co
 		publicCatalog:         newConnectorPublicCatalog(),
 		pendingConnections:    make(map[string]connectorDefinitionIdentity),
 		connectionGenerations: make(map[string]uint64),
+		uiFrameAncestors:      connectorUIFrameAncestors(cfg.FrameAncestors),
 	}, nil
 }
 
@@ -418,7 +427,7 @@ func (setup *connectorSetup) handleCreateUISession(response http.ResponseWriter,
 		ConnectorID: body.ConnectorID, ConnectionName: body.ConnectionName, Manifest: resolved.release.Manifest,
 	}
 	if resolved.release.Manifest.Spec.Auth.supportsOAuth2() {
-		result.OAuthRedirectURI = connectorOAuthRedirectURI(request)
+		result.OAuthRedirectURI = setup.connectorOAuthRedirectURI(request)
 	}
 	bindings, err := store.listTriggerBindings(body.ConnectorID, body.ConnectionName)
 	if err != nil {
@@ -457,7 +466,7 @@ func (setup *connectorSetup) handleCreateUISession(response http.ResponseWriter,
 		}
 		setup.uiSessionsMu.Unlock()
 		result.SessionNonce = nonce
-		result.EntrypointURL = "/api/v2/connector-ui-sessions/" + nonce + "/" + resolved.release.UI.Entrypoint
+		result.EntrypointURL = joinBasePath(setup.basePath, "/api/v2/connector-ui-sessions/"+nonce+"/"+resolved.release.UI.Entrypoint)
 	}
 	writeWebJSON(response, http.StatusOK, result)
 }
@@ -559,7 +568,9 @@ func (setup *connectorSetup) handleUIAsset(response http.ResponseWriter, request
 		api.WriteCodedError(response, http.StatusNotFound, "CONNECTOR_UI_SESSION_NOT_FOUND", "Connector UI session is missing or expired")
 		return
 	}
-	serveConnectorUIAsset(response, request, request.PathValue("assetPath"), session.root, session.canWriteConnection)
+	serveConnectorUIAsset(
+		response, request, request.PathValue("assetPath"), session.root, session.canWriteConnection, setup.uiFrameAncestors,
+	)
 }
 
 func (setup *connectorSetup) deleteExpiredUISessions(now time.Time) {

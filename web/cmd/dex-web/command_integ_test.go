@@ -218,6 +218,29 @@ func TestStandaloneCommandDeprecatedRoutingOptions(t *testing.T) {
 	}
 }
 
+func TestStandaloneCommandBasePathAndFrameAncestors(t *testing.T) {
+	defaults, err := parseCommandConfig(nil, io.Discard)
+	if err != nil || defaults.web.BasePath != "/" || len(defaults.web.FrameAncestors) != 0 {
+		t.Fatalf("default config: %+v, %v", defaults, err)
+	}
+	t.Setenv("DEX_WEB_BASE_PATH", "/dex/web/")
+	t.Setenv("DEX_WEB_FRAME_ANCESTORS", "'self' https://host.example")
+	fromEnvironment, err := parseCommandConfig(nil, io.Discard)
+	if err != nil || fromEnvironment.web.BasePath != "/dex/web" ||
+		!reflect.DeepEqual(fromEnvironment.web.FrameAncestors, []string{"'self'", "https://host.example"}) {
+		t.Fatalf("environment config: %+v, %v", fromEnvironment, err)
+	}
+	fromFlags, err := parseCommandConfig([]string{"--base-path", "/console", "--frame-ancestors", "'self'"}, io.Discard)
+	if err != nil || fromFlags.web.BasePath != "/console" || !reflect.DeepEqual(fromFlags.web.FrameAncestors, []string{"'self'"}) {
+		t.Fatalf("flag config: %+v, %v", fromFlags, err)
+	}
+	for _, arguments := range [][]string{{"--base-path", "console"}, {"--base-path", "/a/../b"}, {"--frame-ancestors", "*"}} {
+		if _, err := parseCommandConfig(arguments, io.Discard); err == nil {
+			t.Fatalf("accepted invalid arguments: %v", arguments)
+		}
+	}
+}
+
 func TestStandaloneCommandEnvironmentFlagsAndShutdown(t *testing.T) {
 	t.Setenv("DEX_WEB_PORT", "tcp://10.0.0.1:8802")
 	t.Setenv("DEX_WEB_SERVICE_HOST", "10.0.0.1")

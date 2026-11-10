@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { webURL } from '@/lib/basePath';
 import { definitionRevisionHeaders, readResponseJSON } from '@/lib/http';
 import { SESSION_COPY } from './copy';
 import { classifyActionFailure, type SessionActionOutcome, type SessionControlContext } from './sessionActions';
@@ -51,7 +52,7 @@ export interface StartSessionRequest {
 
 /** Starts one session with the session start input; resolves to its Flow ID. */
 export async function startAgentSession(request: StartSessionRequest, fetcher: typeof fetch = fetch): Promise<string> {
-  const response = await fetcher(`${AGENT_SESSIONS_API}/start`, {
+  const response = await fetcher(webURL(`${AGENT_SESSIONS_API}/start`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...definitionRevisionHeaders(request.definitionRevision) },
     body: JSON.stringify({
@@ -73,7 +74,7 @@ async function postSessionRoute(
 ): Promise<SessionActionOutcome> {
   let output: unknown;
   try {
-    const response = await fetcher(`${AGENT_SESSIONS_API}/${route}`, {
+    const response = await fetcher(webURL(`${AGENT_SESSIONS_API}/${route}`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...definitionRevisionHeaders(context.definitionRevision) },
       body: JSON.stringify({

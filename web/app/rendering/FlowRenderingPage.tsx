@@ -13,6 +13,7 @@ import { FlowDesignGraph } from '../design/FlowDesignGraph';
 import { ExperimentalBadge } from '../components/ExperimentalBadge';
 import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import { FlowDefinitionDiagnostics } from './FlowDefinitionDiagnostics';
+import { webURL } from '@/lib/basePath';
 
 export function FlowRenderingPage() {
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
@@ -154,7 +155,7 @@ async function loadCatalog(
   setError: (message: string) => void,
 ): Promise<void> {
   try {
-    const response = await fetch('/api/flow-definitions', { signal });
+    const response = await fetch(webURL('/api/flow-definitions'), { signal });
     setCatalog(await readResponseJSON<FlowDefinitionCatalog>(response));
   } catch (loadError) {
     if (signal.aborted) return;
