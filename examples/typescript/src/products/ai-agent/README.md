@@ -74,7 +74,7 @@ tools until it is back.
 
 ## Run it
 
-The example installs the published Dex Agents library, `@superdurable/dex-agents` 0.2.0, from npm:
+The example installs the published Dex Agents library, `@superdurable/dex-agents` 0.3.0, from npm:
 
 ```bash
 dexcli dev

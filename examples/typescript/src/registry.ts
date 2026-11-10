@@ -72,6 +72,25 @@ import { timerFlow } from "./primitives/timer/timer-flow.js";
 import { waitTypesFlow } from "./primitives/wait-types/wait-types-flow.js";
 import { loadAiAgentConfig } from "./products/ai-agent/ai-agent-config.js";
 import { createAiAgentFlow } from "./products/ai-agent/ai-agent-flow.js";
+import {
+  buildClaudeCliEnvironment,
+  createClaudeAgentSdkOrderSupportFlow,
+  hasAnthropicApiKey,
+  loadClaudeAgentSdkOrderSupportModel,
+} from "./products/agent-harnesses/claude-agent-sdk/claude-agent-sdk-order-support-flow.js";
+import {
+  createMastraOrderSupportFlow,
+  loadMastraOrderSupportModel,
+} from "./products/agent-harnesses/mastra/mastra-order-support-flow.js";
+import {
+  createOpenAIAgentsOrderSupportFlow,
+  loadOpenAIAgentsOrderSupportModel,
+} from "./products/agent-harnesses/openai-agents/openai-agents-order-support-flow.js";
+import { OrderDesk } from "./products/agent-harnesses/order-support/order-desk.js";
+import {
+  createVercelAiOrderSupportFlow,
+  loadVercelAiOrderSupportModel,
+} from "./products/agent-harnesses/vercel-ai/vercel-ai-order-support-flow.js";
 import { engagementFlow } from "./products/engagement/engagement-flow.js";
 import { dealDSLFlow } from "./products/deal-dsl/deal-dsl-flow.js";
 import { jobPostingFlow } from "./products/job-post/job-post-flow.js";
@@ -88,6 +107,18 @@ const pollingFlow = new PollingFlow(pollingJobs);
 const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
 const aiAgentConfig = loadAiAgentConfig();
 const aiAgentFlow = createAiAgentFlow(aiAgentConfig);
+// One order desk for the four agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk();
+// Without the key the Claude Code CLI could fall back to a developer's own login, so skip the harness.
+const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
+  ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel(), buildClaudeCliEnvironment())
+  : undefined;
+if (claudeAgentSdkOrderSupportFlow === undefined) {
+  console.warn("ANTHROPIC_API_KEY is not set, so the Claude Agent SDK order support example is not registered");
+}
+const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(orderDesk, loadOpenAIAgentsOrderSupportModel());
+const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadVercelAiOrderSupportModel());
+const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel());
 
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,
@@ -99,6 +130,10 @@ export const allExampleFlows: readonly Flow<any>[] = [
   jobPostingFlow,
   dealDSLFlow,
   aiAgentFlow,
+  ...(claudeAgentSdkOrderSupportFlow === undefined ? [] : [claudeAgentSdkOrderSupportFlow]),
+  openAIAgentsOrderSupportFlow,
+  vercelAiOrderSupportFlow,
+  mastraOrderSupportFlow,
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
@@ -165,6 +200,10 @@ export {
   dealDSLFlow,
   aiAgentConfig,
   aiAgentFlow,
+  claudeAgentSdkOrderSupportFlow,
+  openAIAgentsOrderSupportFlow,
+  vercelAiOrderSupportFlow,
+  mastraOrderSupportFlow,
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
