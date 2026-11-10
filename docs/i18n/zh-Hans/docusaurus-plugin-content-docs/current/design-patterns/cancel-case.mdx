@@ -1,0 +1,573 @@
+---
+title: 连同子 Flow 一起取消
+sidebar_label: Cancel with Child Flows
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/cancel-case.json';
+
+# 连同子 Flow 一起取消
+
+当取消一个 Flow 时也必须停止它启动的子 Flow，使用这个模式。
+
+例如一个贷款申请把信用检查作为子 Flow 运行。申请人撤回申请时，申请关闭，信用检查也必须停止。
+
+父 Flow 关闭时，自己从不会停止子 Flow。父 Flow 完成、失败、超时或被停止后，SubFlow 仍会继续运行。父 Flow 必须在关闭前逐个停止子 Flow。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## 工作方式
+
+- 取消 RPC 把原因发布到一个取消 Channel。
+- 启动 SubFlow 的 Step 用 **AnyOf** 同时等待 SubFlow 和取消 Channel。
+- 如果子 Flow 先结束，**Execute** 读取它的结果并继续。
+- 如果取消消息胜出，**Execute** 用 **SubFlowID** 读取子 Flow ID，用 Client 的 **StopFlow** 停止子 Flow，再用 **ForceFail** 关闭父 Flow。
+- 之后每个需要等待的 Step 也同时等待取消 Channel。子 Flow 结束后再取消，仍然能关闭这个 case。
+- 在每个等待中把取消 Condition 放在第一位。取消消息和另一个 Condition 同时就绪时，先声明的 Condition 胜出。放在第一位后，已在等待的取消不会被正常完成吞掉。
+- 最后的决定已被消费之后，或者 Flow 已经关闭之后才到达的取消，不能再改变结果。
+
+```pseudocode
+rpc cancelApplication(reason) -> ApplicationCanceled.publish(reason)
+
+RunCreditCheck.waitFor -> AnyOf(ApplicationCanceled.ForOne(),     // cancel first
+                                SubFlow(CreditCheckFlow, request, timeout: 7 days))
+RunCreditCheck.execute
+    if ApplicationCanceled has a result:
+        client.stopFlow(subFlowID())    // not found, not active, or closing counts as stopped
+        forceFail("application canceled: " + reason)
+    goTo(AwaitUnderwriterDecision, subFlowResult().output)
+
+AwaitUnderwriterDecision.waitFor -> AnyOf(ApplicationCanceled.ForOne(), UnderwriterDecided.ForOne())
+AwaitUnderwriterDecision.execute
+    if ApplicationCanceled has a result: forceFail("application canceled: " + reason)
+    gracefulComplete(decision)
+```
+
+## 停止子 Flow
+
+- **Execute** 可能被重试，子 Flow 也可能恰好同时结束。把 **StopFlow** 返回的“未找到”“不活跃”和“正在关闭”都当作已经停止。
+- Worker 需要一个 Client 才能调用 **StopFlow**。把 Client provider 传给 Flow 的构造函数。
+- 如果运维人员或测试需要找到被停止的子 Flow，把它的 Flow ID 记录在 Attribute 中。
+
+## 限制
+
+只有取消通过取消 Channel 到达时，这个模式才会停止子 Flow。父 Flow 以其他方式关闭时，子 Flow 会继续运行：
+
+- 对父 Flow 调用 Client 的 **StopFlow**；
+- 父 Flow 的 Flow timeout；
+- 父 Flow 中另一个 Step 返回的 **ForceFail** 或 **ForceComplete**。
+
+给每个子 Flow 设置自己的 Flow timeout 作为兜底。示例给信用检查设置了 7 天的 timeout。客户端取消 case 时调用取消 RPC，而不是 **StopFlow**。
+
+## 多个子 Flow
+
+一条取消消息只满足一个等待。如果多个 Step 同时各自持有一个子 Flow，每个 Step 都需要自己的取消消息。
+
+- 使用 ChannelMap，每个 Step 一个 key。取消 RPC 向每个 key 发布，每个 Step 等待自己的 key。
+- 或者让取消 RPC 向同一个 Channel 为每个等待中的 Step 各发布一条消息。
+
+不要在第一个看到取消消息的 Step 中关闭 Flow。它的 **ForceFail** 会在其他 Step 停止各自子 Flow 之前取消它们。每个持有子 Flow 的 Step 都必须在任何东西关闭 Flow 之前，先停止自己的子 Flow。
+
+## 示例
+
+**LoanApplicationFlow** 以申请人 ID 启动。**RunCreditCheck** 以 7 天的 Flow timeout 启动 **CreditCheckFlow**，并等待它或 **cancelApplication** RPC。**AwaitUnderwriterDecision** 等待 **decideApplication** RPC 或之后到达的取消。取消停止了信用检查时，Flow 把子 Flow ID 存入 **stoppedCreditCheckFlowId** Attribute。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/cancel-case/loan_application_flow.py',
+    go: 'examples/go/patterns/cancel-case/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/cancelcase/LoanApplicationFlow.java',
+    typescript: 'examples/typescript/src/patterns/cancel-case/loan-application-flow.ts',
+    rust: 'examples/rust/src/control_patterns/cancel_case/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class RunCreditCheck(Step[LoanApplication]):
+    """Waits for its child Flow or a cancellation, whichever comes first."""
+
+    def __init__(
+        self,
+        client_provider: Callable[[], AsyncClient],
+        credit_check_flow: CreditCheckFlow,
+    ) -> None:
+        self.client_provider = client_provider
+        self.credit_check_flow = credit_check_flow
+
+    def wait_for(self, context: Context, application: LoanApplication) -> Wait:
+        request = CreditCheckRequest(
+            applicant_id=application.applicant_id,
+            report_delay_seconds=application.credit_report_delay_seconds,
+        )
+        # The cancel condition comes first: it wins when both are ready.
+        return Wait.any_of(
+            APPLICATION_CANCELED.for_one(),
+            SubFlow.run(
+                self.credit_check_flow,
+                request,
+                SubFlowOptions(
+                    timeout=CREDIT_CHECK_TIMEOUT,
+                    reuse_policy=SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY,
+                ),
+            ),
+        )
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, application: LoanApplication
+    ) -> StepDecision:
+        reasons = APPLICATION_CANCELED.results(context)
+        if reasons:
+            child_flow_id = SubFlow.get_flow_id(context)
+            await self.stop_credit_check(child_flow_id)
+            STOPPED_CREDIT_CHECK_FLOW_ID.set(context, child_flow_id)
+            return force_fail(APPLICATION_CANCELED_PREFIX + reasons[0])
+        result = SubFlow.get_condition_results(context)
+        if result.status is not FlowStatus.COMPLETED:
+            return force_fail(f"credit check ended with status {result.status.value}")
+        return go_to(AwaitUnderwriterDecision, result.single_output(str))
+
+    async def stop_credit_check(self, child_flow_id: str) -> None:
+        """Cancels the child; a missing or already closed child counts as stopped."""
+        try:
+            await self.client_provider().stop_flow(
+                child_flow_id,
+                StopFlowOptions(type=StopType.CANCEL, reason="loan application canceled"),
+            )
+        except (FlowNotFoundError, FlowNotActiveOrNotFoundError, FlowClosingError):
+            return
+
+
+class AwaitUnderwriterDecision(Step[str]):
+    """Also waits for the cancel Channel, so a late cancellation still closes the application."""
+
+    def wait_for(self, context: Context, report: str) -> Wait:
+        return Wait.any_of(APPLICATION_CANCELED.for_one(), UNDERWRITER_DECIDED.for_one())
+
+    def execute(self, context: Context, report: str) -> StepDecision:
+        reasons = APPLICATION_CANCELED.results(context)
+        if reasons:
+            return force_fail(APPLICATION_CANCELED_PREFIX + reasons[0])
+        decisions = UNDERWRITER_DECIDED.results(context)
+        return graceful_complete(f"{decisions[0]} after {report}")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// RunCreditCheck waits for its child Flow or a cancellation, whichever comes first.
+type RunCreditCheck struct {
+	dex.StepDefaults
+	getClient       func() *dex.Client
+	creditCheckFlow *CreditCheckFlow
+}
+
+func (step RunCreditCheck) WaitFor(_ dex.Context, application LoanApplication) (*dex.Wait, error) {
+	timeout := CreditCheckTimeout
+	request := CreditCheckRequest{
+		ApplicantID:        application.ApplicantID,
+		ReportDelaySeconds: application.CreditReportDelaySeconds,
+	}
+	// The cancel condition comes first: it wins when both are ready.
+	return dex.AnyOf(
+		ApplicationCanceled.ForOne(),
+		dex.SubFlow(step.creditCheckFlow, request, dex.SubFlowOptions{
+			Timeout:     &timeout,
+			ReusePolicy: dex.RestartSubFlowIfPreviousExitedAbnormally,
+		}),
+	), nil
+}
+
+func (step RunCreditCheck) Execute(ctx dex.Context, _ LoanApplication) (*dex.StepDecision, error) {
+	reasons, err := ApplicationCanceled.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(reasons) > 0 {
+		childFlowID, err := dex.SubFlowID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := step.stopCreditCheck(ctx, childFlowID); err != nil {
+			return nil, err
+		}
+		if err := StoppedCreditCheckFlowID.Set(ctx, childFlowID); err != nil {
+			return nil, err
+		}
+		return dex.ForceFail(applicationCanceledPrefix + reasons[0]), nil
+	}
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if result.Status != dex.FlowCompleted {
+		return dex.ForceFail(fmt.Sprintf("credit check ended with status %v", result.Status)), nil
+	}
+	var report string
+	if err := result.DecodeSingleOutput(&report); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(AwaitUnderwriterDecision{}, report), nil
+}
+
+// stopCreditCheck cancels the child; a missing or already closed child counts as stopped.
+func (step RunCreditCheck) stopCreditCheck(ctx dex.Context, childFlowID string) error {
+	client := step.getClient()
+	if client == nil {
+		return errClientUnavailable
+	}
+	err := client.StopFlow(ctx, childFlowID, dex.StopOptions{
+		Type:   dex.CancelFlow,
+		Reason: "loan application canceled",
+	})
+	var notFound *dex.FlowNotFoundError
+	var notActive *dex.FlowNotActiveOrNotFoundError
+	var closing *dex.FlowClosingError
+	if errors.As(err, &notFound) || errors.As(err, &notActive) || errors.As(err, &closing) {
+		return nil
+	}
+	return err
+}
+
+// AwaitUnderwriterDecision also waits for the cancel Channel, so a cancellation
+// after the credit check still closes the application.
+type AwaitUnderwriterDecision struct{ dex.StepDefaults }
+
+func (AwaitUnderwriterDecision) WaitFor(dex.Context, string) (*dex.Wait, error) {
+	return dex.AnyOf(ApplicationCanceled.ForOne(), UnderwriterDecided.ForOne()), nil
+}
+
+func (AwaitUnderwriterDecision) Execute(ctx dex.Context, report string) (*dex.StepDecision, error) {
+	reasons, err := ApplicationCanceled.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(reasons) > 0 {
+		return dex.ForceFail(applicationCanceledPrefix + reasons[0]), nil
+	}
+	decisions, err := UnderwriterDecided.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(decisions[0] + " after " + report), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+/** Waits for its child Flow or a cancellation, whichever comes first. */
+static final class RunCreditCheck implements Step<LoanApplication> {
+    private final ObjectProvider<Client> clientProvider;
+
+    RunCreditCheck(final ObjectProvider<Client> clientProvider) {
+        this.clientProvider = clientProvider;
+    }
+
+    @Override
+    public Class<LoanApplication> getInputType() {
+        return LoanApplication.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final LoanApplication application) {
+        final CreditCheckRequest request = new CreditCheckRequest(
+                application.applicantId(), application.creditReportDelaySeconds());
+        // The cancel condition comes first: it wins when both are ready.
+        return Wait.anyOf(
+                applicationCanceled.forOne(),
+                SubFlow.run(CreditCheckFlow.class, request, SubFlowOptions.newBuilder()
+                        .timeout(CREDIT_CHECK_TIMEOUT)
+                        .reusePolicy(SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY)
+                        .build()));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final LoanApplication application) {
+        final List<String> reasons = applicationCanceled.getConditionResults(context);
+        if (!reasons.isEmpty()) {
+            final String childFlowId = SubFlow.getFlowId(context);
+            stopCreditCheck(childFlowId);
+            stoppedCreditCheckFlowId.set(context, childFlowId);
+            return StepDecision.forceFail(APPLICATION_CANCELED_PREFIX + reasons.get(0));
+        }
+        final FlowResult result = SubFlow.getConditionResults(context);
+        if (result.getStatus() != FlowStatus.COMPLETED) {
+            return StepDecision.forceFail(
+                    "credit check ended with status " + result.getStatus());
+        }
+        final String report = result.getSingleOutput(String.class);
+        return StepDecision.goTo(AwaitUnderwriterDecision.class, report);
+    }
+
+    /** Cancels the child; a missing or already closed child counts as stopped. */
+    private void stopCreditCheck(final String childFlowId) {
+        try {
+            clientProvider.getObject().stopFlow(childFlowId,
+                    new StopFlowOptions(StopType.CANCEL, "loan application canceled"));
+        } catch (final FlowNotFoundException
+                | FlowNotActiveOrNotFoundException
+                | FlowClosingException alreadyStopped) {
+            // The child is already gone or closing.
+        }
+    }
+}
+
+/**
+ * Also waits for the cancel Channel, so a cancellation after the credit check still closes the
+ * application.
+ */
+static final class AwaitUnderwriterDecision implements Step<String> {
+    @Override
+    public Class<String> getInputType() {
+        return String.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final String report) {
+        return Wait.anyOf(applicationCanceled.forOne(), underwriterDecided.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final String report) {
+        final List<String> reasons = applicationCanceled.getConditionResults(context);
+        if (!reasons.isEmpty()) {
+            return StepDecision.forceFail(APPLICATION_CANCELED_PREFIX + reasons.get(0));
+        }
+        final String decision = underwriterDecided.getConditionResults(context).get(0);
+        return StepDecision.gracefulComplete(decision + " after " + report);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+/** Waits for its child Flow or a cancellation, whichever comes first. */
+class RunCreditCheck implements Step<LoanApplication> {
+  public constructor(
+    private readonly getClient: () => Client,
+    private readonly creditCheckFlow: CreditCheckFlow,
+  ) {}
+
+  public getStepType(): string {
+    return "RunCreditCheck";
+  }
+
+  public waitFor(_context: Context, application: LoanApplication): Wait {
+    // The cancel condition comes first: it wins when both are ready.
+    return Wait.anyOf(
+      applicationCanceled.forOne(),
+      SubFlow.run(
+        this.creditCheckFlow,
+        {
+          applicantId: application.applicantId,
+          reportDelaySeconds: application.creditReportDelaySeconds,
+        },
+        {
+          timeoutMs: CREDIT_CHECK_TIMEOUT_MS,
+          reusePolicy: SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY,
+        },
+      ),
+    );
+  }
+
+  public async execute(context: Context, _application: LoanApplication): Promise<StepDecision> {
+    const reasons = applicationCanceled.results(context);
+    if (reasons.length > 0) {
+      const childFlowId = SubFlow.getFlowId(context);
+      await this.stopCreditCheck(childFlowId);
+      stoppedCreditCheckFlowId.set(context, childFlowId);
+      return forceFail(APPLICATION_CANCELED_PREFIX + reasons[0]);
+    }
+    const result = SubFlow.getConditionResults(context);
+    if (result.status !== "completed") {
+      return forceFail(`credit check ended with status ${result.status}`);
+    }
+    return goTo(AwaitUnderwriterDecision, result.singleOutput(stringCodec));
+  }
+
+  /** Cancels the child; a missing or already closed child counts as stopped. */
+  private async stopCreditCheck(childFlowId: string): Promise<void> {
+    // Calling a field through this would hide the Step class from the Flow visualizer.
+    const getClient = this.getClient;
+    try {
+      await getClient().stopFlow(childFlowId, {
+        type: StopType.CANCEL,
+        reason: "loan application canceled",
+      });
+    } catch (error) {
+      if (
+        !(error instanceof FlowNotFoundError) &&
+        !(error instanceof FlowNotActiveOrNotFoundError) &&
+        !(error instanceof FlowClosingError)
+      ) {
+        throw error;
+      }
+    }
+  }
+}
+
+/**
+ * Also waits for the cancel Channel, so a cancellation after the credit check
+ * still closes the application.
+ */
+class AwaitUnderwriterDecision implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "AwaitUnderwriterDecision";
+  }
+
+  public waitFor(_context: Context, _report: string): Wait {
+    return Wait.anyOf(applicationCanceled.forOne(), underwriterDecided.forOne());
+  }
+
+  public execute(context: Context, report: string): StepDecision {
+    const reasons = applicationCanceled.results(context);
+    if (reasons.length > 0) {
+      return forceFail(APPLICATION_CANCELED_PREFIX + reasons[0]);
+    }
+    return gracefulComplete(`${underwriterDecided.results(context)[0]} after ${report}`);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+/// Waits for its child Flow or a cancellation, whichever comes first.
+#[derive(Default)]
+pub struct RunCreditCheck {
+    client: Option<Arc<Client>>,
+}
+
+impl RunCreditCheck {
+    /// Cancels the child; a missing or already closed child counts as stopped.
+    fn stop_credit_check(&self, child_flow_id: &str) -> HandlerResult<()> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| HandlerError::new("ClientUnavailable", "the Dex Client is not ready"))?;
+        match client.stop_flow(
+            child_flow_id,
+            StopFlowOptions::cancel().reason("loan application canceled"),
+        ) {
+            Ok(())
+            | Err(
+                SdkError::FlowNotFound { .. }
+                | SdkError::FlowNotActiveOrNotFound { .. }
+                | SdkError::FlowClosing { .. },
+            ) => Ok(()),
+            Err(error) => Err(HandlerError::from_error(error)),
+        }
+    }
+}
+
+impl Step for RunCreditCheck {
+    type Input = LoanApplication;
+
+    fn wait_for(&self, _context: &mut Context, application: Self::Input) -> HandlerResult<Wait> {
+        let request = CreditCheckRequest {
+            applicant_id: application.applicant_id,
+            report_delay_seconds: application.credit_report_delay_seconds,
+        };
+        let credit_check = SubFlow::run_with_options(
+            &CreditCheckFlow::default(),
+            request,
+            SubFlowOptions::new()
+                .timeout(CREDIT_CHECK_TIMEOUT)
+                .reuse_policy(SubFlowReusePolicy::RestartIfPreviousExitsAbnormally),
+        )
+        .map_err(HandlerError::from_error)?;
+        // The cancel condition comes first: it wins when both are ready.
+        Ok(Wait::any_of([APPLICATION_CANCELED.for_one(), credit_check]))
+    }
+
+    fn execute(
+        &self,
+        context: &mut Context,
+        _application: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        if let Some(reason) = APPLICATION_CANCELED
+            .condition_results(context)?
+            .into_iter()
+            .next()
+        {
+            let child_flow_id = SubFlow::flow_id(context)?;
+            self.stop_credit_check(&child_flow_id)?;
+            STOPPED_CREDIT_CHECK_FLOW_ID.set(context, child_flow_id)?;
+            return Ok(StepDecision::force_fail(format!(
+                "{APPLICATION_CANCELED_PREFIX}{reason}"
+            )));
+        }
+        let result = SubFlow::condition_result(context)?;
+        if result.status() != FlowStatus::Completed {
+            return Ok(StepDecision::force_fail(format!(
+                "credit check ended with status {:?}",
+                result.status()
+            )));
+        }
+        let report: String = result.single_output().map_err(HandlerError::from_error)?;
+        Ok(StepDecision::go_to(&AwaitUnderwriterDecision, report))
+    }
+}
+
+/// Also waits for the cancel Channel, so a cancellation after the credit
+/// check still closes the application.
+#[derive(Default)]
+struct AwaitUnderwriterDecision;
+
+impl Step for AwaitUnderwriterDecision {
+    type Input = String;
+
+    fn wait_for(&self, _context: &mut Context, _report: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            APPLICATION_CANCELED.for_one(),
+            UNDERWRITER_DECIDED.for_one(),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, report: Self::Input) -> HandlerResult<StepDecision> {
+        if let Some(reason) = APPLICATION_CANCELED
+            .condition_results(context)?
+            .into_iter()
+            .next()
+        {
+            return Ok(StepDecision::force_fail(format!(
+                "{APPLICATION_CANCELED_PREFIX}{reason}"
+            )));
+        }
+        let decision = UNDERWRITER_DECIDED
+            .condition_results(context)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                HandlerError::new("MissingUnderwriterDecision", "no decision consumed")
+            })?;
+        Ok(StepDecision::graceful_complete(format!(
+            "{decision} after {report}"
+        )))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 反模式
+
+- 用 Client 的 **StopFlow** 停止父 Flow，并以为子 Flow 也会停止。
+- 子 Flow 没有自己的 Flow timeout。
+- 多个各自持有子 Flow 的 Step 共用一条取消消息。
+- 等待中把取消 Condition 放在其他 Condition 之后。
+- 取消 RPC 只设置一个 Attribute。没有任何东西会唤醒正在等待的 Step。
+
+## 相关内容
+
+- [SubFlow](/concepts/primitives/subflow)
+- [Channel](/concepts/primitives/channel)
+- [Parallel SubFlows](/design-patterns/parallel-subflows)
+- [Workflow Patterns 评估：WCP-20 Cancel Case](/concepts/correctness-and-expressiveness/workflow-patterns#wcp-20)

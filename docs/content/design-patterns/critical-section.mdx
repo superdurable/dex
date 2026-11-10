@@ -1,0 +1,656 @@
+---
+title: Critical Section
+---
+
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/critical-section.json';
+
+# Critical Section
+
+Use a Critical Section when parallel branches of one Flow must take turns on a sequence of Steps. Only one branch may be inside the sequence at a time.
+
+An example is several reviewers who edit the same contract. Each edit takes three Steps. The first takes the turn. The second makes the change. The third saves it and hands the turn on. Two edits must never interleave.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
+
+## Why not an Attribute lock
+
+An Attribute lock, such as **ExecuteLockAttributes**, covers one Step method. It does not cover a **WaitFor**, and it does not span several Steps. Use a lock when the protected work fits in one **Execute**. Use a token when the section spans Steps.
+
+## How it works
+
+A Channel holds exactly one message. That message is the token.
+
+- One Step publishes the token once, before any branch enters.
+- A handoff Step waits for the token with **ForOne**. One message satisfies one wait, so only one branch gets it. The other branches keep waiting.
+- The handoff Step does no protected work. Its **Execute** only moves to the first Step that works.
+- The last Step of the section publishes the token back. One waiting branch consumes it and enters.
+
+```pseudocode
+StartContractEdits.execute(edits)
+    ContractEditToken.publish("contract")
+    goToMany(for each edit: EnterContractEdit(edit), FinishContractEdits(count))
+
+EnterContractEdit.waitFor   -> Until(ContractEditToken.ForOne())
+EnterContractEdit.execute   -> goTo(EditContract)           // handoff only, no protected work
+EditContract.execute        -> edit the contract; goTo(SaveContractEdit)
+SaveContractEdit.execute    -> save the edit; ContractEditToken.publish("contract"); deadEnd()
+
+ReleaseContractEditToken.execute -> ContractEditToken.publish("contract"); deadEnd()
+    // the ExecuteFailure route of EnterContractEdit, EditContract, and SaveContractEdit
+```
+
+Dex does not promise which waiting branch gets the token next. Do not rely on an order of entry.
+
+## Every exit returns the token
+
+The token is an ordinary message. A branch that leaves the section without publishing it back blocks every other branch forever. List each way out of the section, and publish the token on each one.
+
+- **Normal exit.** The last Step of the section publishes the token.
+- **Execute failure.** Route it with **ExecuteFailure** to a Step that publishes the token. Give every Step of the section that route. In the example, **EnterContractEdit**, **EditContract**, and **SaveContractEdit** all move to **ReleaseContractEditToken**.
+- **WaitFor failure.** When a later Step of the section has its own **WaitFor**, give it a **WaitForFailure** policy that proceeds to its **Execute**. That **Execute** sees the failure and publishes the token.
+- **Early exit.** An **Execute** that leaves the section with a business decision publishes the token in the same **Execute**.
+- **Cancellation of the handoff.** Canceling the handoff Step is safe, because it does no protected work. When Dex cancels it after its wait consumed the token but before its **Execute** committed, Dex returns the token to the front of the Channel. Another branch enters.
+- **Cancellation inside the section.** Never cancel a Step that does protected work. A canceled Step publishes nothing, and its failure route does not run. The canceller cannot publish the token for it either. Dex picks the Steps to cancel when it commits, so the Step may already have published the token, and a second token would break mutual exclusion. To stop a branch early, send it a stop request that its Steps check, such as an Attribute an RPC sets. The Step that sees it leaves through an early exit that publishes the token.
+- **Closing the Flow.** **ForceComplete**, **ForceFail**, a Flow timeout, and a Client **StopFlow** end every branch. No branch waits for the token any more.
+
+Publications commit with the method that makes them, or not at all. A failed attempt never publishes a token, so a retry cannot create a second one.
+
+Dex cannot fence the external writes of a canceled method. Cancellation is cooperative, so a canceled **Execute** can keep writing after Dex returns its token. The section stays exclusive only if no Step that does protected work is canceled.
+
+## Rules
+
+- Publish exactly one token. Publish it in the Step that starts the branches, or before.
+- Make the Step that takes the token a pure handoff. Do the protected work in later Steps.
+- Use the token Channel for the token only.
+- Keep the section short. Every other branch waits while one branch is inside.
+- Keep the token value meaningless. Put the protected state in Attributes.
+
+## Example
+
+**ContractEditFlow** starts with a list of edits, one per reviewer. **StartContractEdits** publishes the token and starts one **EnterContractEdit** per edit, plus the join **FinishContractEdits**. **EnterContractEdit** hands off to **EditContract**, which records when the edit started. The join completes the Flow with every edit's record. The edit intervals never overlap.
+
+Flags on an edit simulate the other exits. A failed handoff and an edit whose **SaveContractEdit** fails twice both go to **ReleaseContractEditToken**. A withdrawn edit leaves early from **EditContract**. Each of these returns the token, and the other reviewers still get their turn.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/critical-section/contract_edit_flow.py',
+    go: 'examples/go/patterns/critical-section/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/criticalsection/ContractEditFlow.java',
+    typescript: 'examples/typescript/src/patterns/critical-section/contract-edit-flow.ts',
+    rust: 'examples/rust/src/control_patterns/critical_section/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+CONTRACT_EDIT_TOKEN = Channel("contractEditToken", str)
+CONTRACT_EDIT_FINISHED = Channel("contractEditFinished", ContractEditRecord)
+CONTRACT_EDIT_RETRY = RetryPolicy(
+    initial_interval=timedelta(seconds=1), maximum_attempts=2
+)
+
+
+class EnterContractEdit(Step[ContractEdit]):
+    """Takes the token and hands off; it does no protected work, so canceling it is safe."""
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=CONTRACT_EDIT_RETRY).on_execute_failure_proceed_to(
+            ReleaseContractEditToken
+        )
+
+    def wait_for(self, context: Context, edit: ContractEdit) -> Wait:
+        return Wait.until(CONTRACT_EDIT_TOKEN.for_one())
+
+    def execute(self, context: Context, edit: ContractEdit) -> StepDecision:
+        if edit.should_fail_handoff:
+            raise ContractEditError("contract handoff failed")
+        return go_to(EditContract, edit)
+
+
+class EditContract(Step[ContractEdit]):
+    """The first Step that works on the contract. Never cancel it."""
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=CONTRACT_EDIT_RETRY).on_execute_failure_proceed_to(
+            ReleaseContractEditToken
+        )
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, edit: ContractEdit
+    ) -> StepDecision:
+        started_edit = replace(edit, started_at_millis=current_time_millis())
+        if started_edit.should_withdraw:
+            CONTRACT_EDIT_FINISHED.publish(
+                context, finish_contract_edit(started_edit, "withdrawn")
+            )
+            CONTRACT_EDIT_TOKEN.publish(context, "contract")
+            return dead_end()
+        await asyncio.sleep(CONTRACT_EDIT_SECONDS)
+        return go_to(SaveContractEdit, started_edit)
+
+
+class SaveContractEdit(Step[ContractEdit]):
+    """The last Step of the section; it records the edit and publishes the token back."""
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=CONTRACT_EDIT_RETRY).on_execute_failure_proceed_to(
+            ReleaseContractEditToken
+        )
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, edit: ContractEdit
+    ) -> StepDecision:
+        await asyncio.sleep(CONTRACT_EDIT_SECONDS)
+        if edit.should_fail_edit:
+            raise ContractEditError("contract edit failed")
+        CONTRACT_EDIT_FINISHED.publish(context, finish_contract_edit(edit, "saved"))
+        CONTRACT_EDIT_TOKEN.publish(context, "contract")
+        return dead_end()
+
+
+class ReleaseContractEditToken(Step[ContractEdit]):
+    """The failure exit of the section."""
+
+    def execute(self, context: Context, edit: ContractEdit) -> StepDecision:
+        CONTRACT_EDIT_FINISHED.publish(context, finish_contract_edit(edit, "failed"))
+        CONTRACT_EDIT_TOKEN.publish(context, "contract")
+        return dead_end()
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var (
+	ContractEditToken    = dex.DefineChannel[string]("contractEditToken")
+	ContractEditFinished = dex.DefineChannel[ContractEditRecord]("contractEditFinished")
+	errContractHandoff   = errors.New("contract handoff failed")
+	errContractEdit      = errors.New("contract edit failed")
+	contractEditRetry    = &dex.RetryPolicy{InitialInterval: time.Second, MaximumAttempts: 2}
+)
+
+// EnterContractEdit takes the token and hands off; it does no protected work,
+// so canceling it is safe.
+type EnterContractEdit struct{ dex.StepDefaults }
+
+func (EnterContractEdit) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry:   contractEditRetry,
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(ReleaseContractEditToken{}, nil),
+	}
+}
+
+func (EnterContractEdit) WaitFor(dex.Context, ContractEdit) (*dex.Wait, error) {
+	return dex.Until(ContractEditToken.ForOne()), nil
+}
+
+func (EnterContractEdit) Execute(_ dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
+	if edit.ShouldFailHandoff {
+		return nil, errContractHandoff
+	}
+	return dex.GoTo(EditContract{}, edit), nil
+}
+
+// EditContract is the first Step that works on the contract. Never cancel it.
+type EditContract struct {
+	dex.StepDefaultsNoWaitFor[ContractEdit]
+}
+
+func (EditContract) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry:   contractEditRetry,
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(ReleaseContractEditToken{}, nil),
+	}
+}
+
+func (EditContract) Execute(ctx dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
+	edit.StartedAtMillis = time.Now().UnixMilli()
+	if edit.ShouldWithdraw {
+		if err := leaveContractEdit(ctx, edit, "withdrawn"); err != nil {
+			return nil, err
+		}
+		return dex.DeadEnd(), nil
+	}
+	time.Sleep(contractEditDuration)
+	return dex.GoTo(SaveContractEdit{}, edit), nil
+}
+
+// SaveContractEdit is the last Step of the section; it publishes the token back.
+type SaveContractEdit struct {
+	dex.StepDefaultsNoWaitFor[ContractEdit]
+}
+
+func (SaveContractEdit) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry:   contractEditRetry,
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(ReleaseContractEditToken{}, nil),
+	}
+}
+
+func (SaveContractEdit) Execute(ctx dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
+	time.Sleep(contractEditDuration)
+	if edit.ShouldFailEdit {
+		return nil, errContractEdit
+	}
+	if err := leaveContractEdit(ctx, edit, "saved"); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
+}
+
+// ReleaseContractEditToken is the failure exit of the section.
+type ReleaseContractEditToken struct {
+	dex.StepDefaultsNoWaitFor[ContractEdit]
+}
+
+func (ReleaseContractEditToken) Execute(ctx dex.Context, edit ContractEdit) (*dex.StepDecision, error) {
+	if err := leaveContractEdit(ctx, edit, "failed"); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
+}
+
+// leaveContractEdit records the edit and publishes the token for the next reviewer.
+// An edit that never started has an empty interval at its finish time.
+func leaveContractEdit(ctx dex.Context, edit ContractEdit, outcome string) error {
+	finishedAtMillis := time.Now().UnixMilli()
+	startedAtMillis := edit.StartedAtMillis
+	if startedAtMillis == 0 {
+		startedAtMillis = finishedAtMillis
+	}
+	record := ContractEditRecord{
+		Reviewer:         edit.Reviewer,
+		Outcome:          outcome,
+		StartedAtMillis:  startedAtMillis,
+		FinishedAtMillis: finishedAtMillis,
+	}
+	if err := ContractEditFinished.Publish(ctx, record); err != nil {
+		return err
+	}
+	return ContractEditToken.Publish(ctx, "contract")
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public static final Channel<String> contractEditToken =
+        Channel.define("contractEditToken", String.class);
+public static final Channel<ContractEditRecord> contractEditFinished =
+        Channel.define("contractEditFinished", ContractEditRecord.class);
+
+/** Routes an execute failure after the token was consumed to the Step that returns it. */
+private static StepOptions contractEditOptions() {
+    return StepOptions.newBuilder()
+            .executeRetry(RetryPolicy.newBuilder()
+                    .initialInterval(Duration.ofSeconds(1))
+                    .maximumAttempts(2)
+                    .build())
+            .onExecuteFailureProceedTo(ReleaseContractEditToken.class)
+            .build();
+}
+
+/** Takes the token and hands off; it does no protected work, so canceling it is safe. */
+static final class EnterContractEdit implements Step<ContractEdit> {
+    @Override
+    public Class<ContractEdit> getInputType() {
+        return ContractEdit.class;
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return contractEditOptions();
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final ContractEdit edit) {
+        return Wait.until(contractEditToken.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final ContractEdit edit) {
+        if (edit.shouldFailHandoff()) {
+            throw new IllegalStateException("contract handoff failed");
+        }
+        return StepDecision.goTo(EditContract.class, edit);
+    }
+}
+
+/** The first Step that works on the contract. Never cancel it. */
+static final class EditContract implements Step<ContractEdit> {
+    @Override
+    public Class<ContractEdit> getInputType() {
+        return ContractEdit.class;
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return contractEditOptions();
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final ContractEdit edit) {
+        final ContractEdit started = edit.withStartedAtMillis(System.currentTimeMillis());
+        if (started.shouldWithdraw()) {
+            leaveContractEdit(context, started, "withdrawn");
+            return StepDecision.deadEnd();
+        }
+        holdContract();
+        return StepDecision.goTo(SaveContractEdit.class, started);
+    }
+}
+
+/** The last Step of the section; it publishes the token back. */
+static final class SaveContractEdit implements Step<ContractEdit> {
+    @Override
+    public Class<ContractEdit> getInputType() {
+        return ContractEdit.class;
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return contractEditOptions();
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final ContractEdit edit) {
+        holdContract();
+        if (edit.shouldFailEdit()) {
+            throw new IllegalStateException("contract edit failed");
+        }
+        leaveContractEdit(context, edit, "saved");
+        return StepDecision.deadEnd();
+    }
+}
+
+/** The failure exit of the section. */
+static final class ReleaseContractEditToken implements Step<ContractEdit> {
+    @Override
+    public Class<ContractEdit> getInputType() {
+        return ContractEdit.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final ContractEdit edit) {
+        leaveContractEdit(context, edit, "failed");
+        return StepDecision.deadEnd();
+    }
+}
+
+/**
+ * Records the edit and publishes the token for the next reviewer. An edit that never started
+ * has an empty interval at its finish time.
+ */
+private static void leaveContractEdit(
+        final Context context, final ContractEdit edit, final String outcome) {
+    final long finishedAtMillis = System.currentTimeMillis();
+    final long startedAtMillis =
+            edit.startedAtMillis() == 0 ? finishedAtMillis : edit.startedAtMillis();
+    contractEditFinished.publish(context, new ContractEditRecord(
+            edit.reviewer(), outcome, startedAtMillis, finishedAtMillis));
+    contractEditToken.publish(context, TOKEN);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export const contractEditToken = new Channel("contractEditToken", stringCodec);
+export const contractEditFinished = new Channel(
+  "contractEditFinished",
+  jsonCodec<ContractEditRecord>({ typeName: "ContractEditRecord" }),
+);
+
+/**
+ * Takes the token and hands off; it does no protected work, so canceling it
+ * is safe.
+ */
+class EnterContractEdit implements Step<ContractEdit> {
+  public getStepType(): string {
+    return "EnterContractEdit";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: { initialIntervalMs: 1_000, maximumAttempts: 2 },
+      executeFailure: ExecuteFailure.proceedTo(ReleaseContractEditToken),
+    };
+  }
+
+  public waitFor(_context: Context, _edit: ContractEdit): Wait {
+    return Wait.until(contractEditToken.forOne());
+  }
+
+  public execute(_context: Context, edit: ContractEdit): StepDecision {
+    if (edit.shouldFailHandoff) {
+      throw new Error("contract handoff failed");
+    }
+    return goTo(EditContract, edit);
+  }
+}
+
+/** The first Step that works on the contract. Never cancel it. */
+class EditContract implements Step<ContractEdit> {
+  public getStepType(): string {
+    return "EditContract";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: { initialIntervalMs: 1_000, maximumAttempts: 2 },
+      executeFailure: ExecuteFailure.proceedTo(ReleaseContractEditToken),
+    };
+  }
+
+  public async execute(context: Context, edit: ContractEdit): Promise<StepDecision> {
+    const startedEdit = { ...edit, startedAtMillis: Date.now() };
+    if (startedEdit.shouldWithdraw) {
+      leaveContractEdit(context, startedEdit, "withdrawn");
+      return deadEnd();
+    }
+    await sleep(CONTRACT_EDIT_DURATION_MS);
+    return goTo(SaveContractEdit, startedEdit);
+  }
+}
+
+/** The last Step of the section; it publishes the token back. */
+class SaveContractEdit implements Step<ContractEdit> {
+  public getStepType(): string {
+    return "SaveContractEdit";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: { initialIntervalMs: 1_000, maximumAttempts: 2 },
+      executeFailure: ExecuteFailure.proceedTo(ReleaseContractEditToken),
+    };
+  }
+
+  public async execute(context: Context, edit: ContractEdit): Promise<StepDecision> {
+    await sleep(CONTRACT_EDIT_DURATION_MS);
+    if (edit.shouldFailEdit) {
+      throw new Error("contract edit failed");
+    }
+    leaveContractEdit(context, edit, "saved");
+    return deadEnd();
+  }
+}
+
+/** The failure exit of the section. */
+class ReleaseContractEditToken implements Step<ContractEdit> {
+  public getStepType(): string {
+    return "ReleaseContractEditToken";
+  }
+
+  public execute(context: Context, edit: ContractEdit): StepDecision {
+    leaveContractEdit(context, edit, "failed");
+    return deadEnd();
+  }
+}
+
+/**
+ * Records the edit and publishes the token for the next reviewer.
+ * An edit that never started has an empty interval at its finish time.
+ */
+function leaveContractEdit(context: Context, edit: ContractEdit, outcome: string): void {
+  const finishedAtMillis = Date.now();
+  contractEditFinished.publish(context, {
+    reviewer: edit.reviewer,
+    outcome,
+    startedAtMillis: edit.startedAtMillis || finishedAtMillis,
+    finishedAtMillis,
+  });
+  contractEditToken.publish(context, "contract");
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+pub static CONTRACT_EDIT_TOKEN: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("contractEditToken"));
+pub static CONTRACT_EDIT_FINISHED: LazyLock<Channel<ContractEditRecord>> =
+    LazyLock::new(|| Channel::new("contractEditFinished"));
+
+/// Takes the token and hands off; it does no protected work, so canceling
+/// it is safe.
+#[derive(Default)]
+struct EnterContractEdit;
+
+impl Step for EnterContractEdit {
+    type Input = ContractEdit;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        contract_edit_options()
+    }
+
+    fn wait_for(&self, _context: &mut Context, _edit: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(CONTRACT_EDIT_TOKEN.for_one()))
+    }
+
+    fn execute(&self, _context: &mut Context, edit: Self::Input) -> HandlerResult<StepDecision> {
+        if edit.should_fail_handoff {
+            return Err(HandlerError::new(
+                "ContractHandoffFailed",
+                "contract handoff failed",
+            ));
+        }
+        Ok(StepDecision::go_to(&EditContract, edit))
+    }
+}
+
+/// The first Step that works on the contract. Never cancel it.
+#[derive(Default)]
+struct EditContract;
+
+impl Step for EditContract {
+    type Input = ContractEdit;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        contract_edit_options()
+    }
+
+    fn execute(&self, context: &mut Context, mut edit: Self::Input) -> HandlerResult<StepDecision> {
+        edit.started_at_millis = current_unix_millis()?;
+        if edit.should_withdraw {
+            leave_contract_edit(context, edit, "withdrawn")?;
+            return Ok(StepDecision::dead_end());
+        }
+        thread::sleep(CONTRACT_EDIT_DURATION);
+        Ok(StepDecision::go_to(&SaveContractEdit, edit))
+    }
+}
+
+/// The last Step of the section; it publishes the token back.
+#[derive(Default)]
+struct SaveContractEdit;
+
+impl Step for SaveContractEdit {
+    type Input = ContractEdit;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        contract_edit_options()
+    }
+
+    fn execute(&self, context: &mut Context, edit: Self::Input) -> HandlerResult<StepDecision> {
+        thread::sleep(CONTRACT_EDIT_DURATION);
+        if edit.should_fail_edit {
+            return Err(HandlerError::new(
+                "ContractEditFailed",
+                "contract edit failed",
+            ));
+        }
+        leave_contract_edit(context, edit, "saved")?;
+        Ok(StepDecision::dead_end())
+    }
+}
+
+/// The failure exit of the section.
+#[derive(Default)]
+struct ReleaseContractEditToken;
+
+impl Step for ReleaseContractEditToken {
+    type Input = ContractEdit;
+
+    fn execute(&self, context: &mut Context, edit: Self::Input) -> HandlerResult<StepDecision> {
+        leave_contract_edit(context, edit, "failed")?;
+        Ok(StepDecision::dead_end())
+    }
+}
+
+fn contract_edit_options() -> StepOptions<ContractEdit> {
+    StepOptions::new()
+        .execute_retry(
+            RetryPolicy::new()
+                .initial_interval(Duration::from_secs(1))
+                .maximum_attempts(2),
+        )
+        .on_execute_failure_proceed_to(&ReleaseContractEditToken)
+}
+
+/// Records the edit and publishes the token for the next reviewer.
+/// An edit that never started has an empty interval at its finish time.
+fn leave_contract_edit(
+    context: &mut Context,
+    edit: ContractEdit,
+    outcome: &str,
+) -> HandlerResult<()> {
+    let finished_at_millis = current_unix_millis()?;
+    let started_at_millis = if edit.started_at_millis == 0 {
+        finished_at_millis
+    } else {
+        edit.started_at_millis
+    };
+    CONTRACT_EDIT_FINISHED.publish(
+        context,
+        ContractEditRecord {
+            reviewer: edit.reviewer,
+            outcome: outcome.to_string(),
+            started_at_millis,
+            finished_at_millis,
+        },
+    )?;
+    CONTRACT_EDIT_TOKEN.publish(context, CONTRACT_TOKEN.to_string())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Anti-patterns
+
+- An Attribute lock used to protect several Steps.
+- Protected work in the Step that waits for the token.
+- A boolean Attribute such as "isEditing" that Steps check and set. Nothing waits on it, and two branches can both see it clear.
+- Returning the token only on the success path.
+- Canceling a Step that does protected work, or publishing the token from the RPC that cancels it.
+- Publishing a new token to recover from a lost one while the old one may still exist. Two tokens break mutual exclusion.
+
+## Related
+
+- [Channel](/concepts/primitives/channel)
+- [Step](/concepts/step)
+- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
+- [Workflow Patterns evaluation: WCP-39 Critical Section](/concepts/correctness-and-expressiveness/workflow-patterns#wcp-39)

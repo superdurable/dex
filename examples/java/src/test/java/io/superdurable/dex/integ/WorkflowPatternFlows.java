@@ -18,6 +18,10 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.patterns.cancelcase.CreditCheckFlow;
+import io.superdurable.dex.patterns.cancelcase.LoanApplicationFlow;
+import io.superdurable.dex.patterns.criticalsection.ContractEditFlow;
+import io.superdurable.dex.patterns.deferredchoice.OfferResponseFlow;
 import io.superdurable.dex.patterns.workflowpatterns.BackgroundCheckFlow;
 import io.superdurable.dex.patterns.workflowpatterns.ArbitraryCyclesFlow;
 import io.superdurable.dex.patterns.workflowpatterns.BlockingPartialJoinFlow;
@@ -61,7 +65,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** The registered instance of every Workflow Patterns Flow, keyed by its class. */
+/**
+ * The registered instance of every Workflow Patterns and control-structure pattern Flow, keyed by
+ * its class.
+ */
 final class WorkflowPatternFlows {
     private final Map<Class<?>, Flow<?>> flowsByClass = new LinkedHashMap<Class<?>, Flow<?>>();
 
@@ -102,7 +109,11 @@ final class WorkflowPatternFlows {
                 new ImplicitTerminationFlow(),
                 new ExplicitTerminationFlow(),
                 new TransientTriggerFlow(),
-                new PersistentTriggerFlow())) {
+                new PersistentTriggerFlow(),
+                new OfferResponseFlow(),
+                new ContractEditFlow(),
+                new LoanApplicationFlow(clientProvider),
+                new CreditCheckFlow())) {
             flowsByClass.put(flow.getClass(), flow);
         }
     }

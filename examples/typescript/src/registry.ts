@@ -16,7 +16,12 @@
 
 import { Registry, type Flow } from "@superdurable/dex";
 
+import { getClient } from "./client-holder.js";
+import { creditCheckFlow } from "./patterns/cancel-case/credit-check-flow.js";
+import { LoanApplicationFlow } from "./patterns/cancel-case/loan-application-flow.js";
+import { contractEditFlow } from "./patterns/critical-section/contract-edit-flow.js";
 import { cronScheduleFlow } from "./patterns/cron/cron-schedule-flow.js";
+import { offerResponseFlow } from "./patterns/deferred-choice/offer-response-flow.js";
 import { drainInternalChannelFlow } from "./patterns/drain-channels/internal/drain-internal-channels-flow.js";
 import { drainingExternalChannelFlow } from "./patterns/drain-channels/external-publishing/draining-channel-flow.js";
 import { userProfileFlow } from "./patterns/entity-store/user-profile-flow.js";
@@ -80,6 +85,7 @@ import { MyDependencyService } from "./shared/my-dependency-service.js";
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const pollingJobs = new FakeJobService();
 const pollingFlow = new PollingFlow(pollingJobs);
+const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
 const aiAgentConfig = loadAiAgentConfig();
 const aiAgentFlow = createAiAgentFlow(aiAgentConfig);
 
@@ -117,6 +123,10 @@ export const allExampleFlows: readonly Flow<any>[] = [
   customerDirectoryFlow,
   flowGracefulTimeout,
   waitForStepCompletionFlow,
+  offerResponseFlow,
+  contractEditFlow,
+  creditCheckFlow,
+  loanApplicationFlow,
   exampleFlow,
   stepFlow,
   retryFlow,
@@ -180,6 +190,10 @@ export {
   customerDirectoryFlow,
   flowGracefulTimeout,
   waitForStepCompletionFlow,
+  offerResponseFlow,
+  contractEditFlow,
+  creditCheckFlow,
+  loanApplicationFlow,
   exampleFlow,
   stepFlow,
   retryFlow,

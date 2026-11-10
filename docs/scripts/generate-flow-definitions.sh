@@ -56,3 +56,6 @@ generate_flow_definition examples/python/dex_examples/patterns/parallel/dynamic_
 generate_flow_definition examples/python/dex_examples/patterns/parallel/first_win_parallel_steps_flow.py design-patterns/parallel-first-win
 generate_flow_definition examples/python/dex_examples/patterns/parallel/static_parallel_steps_flow.py design-patterns/parallel-static
 generate_flow_definition examples/python/dex_examples/patterns/polling/polling_flow.py design-patterns/polling
+generate_flow_definition examples/python/dex_examples/patterns/deferred-choice/offer_response_flow.py design-patterns/deferred-choice
+generate_flow_definition examples/python/dex_examples/patterns/critical-section/contract_edit_flow.py design-patterns/critical-section
+generate_flow_definition examples/python/dex_examples/patterns/cancel-case/loan_application_flow.py design-patterns/cancel-case

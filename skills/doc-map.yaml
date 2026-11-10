@@ -79,6 +79,9 @@ mappings:
   - skill: dex-sdk/references/core/patterns.md
     docs:
       - docs/content/design-patterns/attribute-map-partitioning.mdx
+      - docs/content/design-patterns/cancel-case.mdx
+      - docs/content/design-patterns/critical-section.mdx
+      - docs/content/design-patterns/deferred-choice.mdx
       - docs/content/design-patterns/drain-channels.mdx
       - docs/content/design-patterns/drain-internal-channels.mdx
       - docs/content/design-patterns/draining-channel-for-external-publishing.mdx

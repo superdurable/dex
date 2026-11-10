@@ -14,6 +14,7 @@
 
 //! Runnable Rust examples for Dex Flows, Steps, and application patterns.
 
+pub mod control_patterns;
 pub mod patterns;
 pub mod primitives;
 pub mod production;
@@ -65,6 +66,14 @@ pub const PATTERN_FLOW_TYPES: [&str; 23] = [
     "WaitForStepCompletionFlow",
 ];
 
+/// Control-structure pattern Flows, one per Design pattern page.
+pub const CONTROL_PATTERN_FLOW_TYPES: [&str; 4] = [
+    "OfferResponseFlow",
+    "ContractEditFlow",
+    "CreditCheckFlow",
+    "LoanApplicationFlow",
+];
+
 /// Workflow Patterns Flows, in `examples/workflow-patterns-mapping.md` group order.
 pub const WORKFLOW_PATTERN_FLOW_TYPES: [&str; 36] = [
     "SequenceFlow",
@@ -108,6 +117,7 @@ pub const WORKFLOW_PATTERN_FLOW_TYPES: [&str; 36] = [
 pub fn create_example_registry(polling_jobs: Arc<FakeJobService>) -> SdkResult<Registry> {
     products::register(Registry::new())
         .and_then(|registry| patterns::register(registry, polling_jobs))
+        .and_then(control_patterns::register)
         .and_then(primitives::register)
         .and_then(workflow_patterns::register)
 }
@@ -118,6 +128,7 @@ pub fn create_worker_registry(
 ) -> SdkResult<Registry> {
     products::register(Registry::new())
         .and_then(|registry| patterns::register_worker(registry, Arc::clone(&client), polling_jobs))
+        .and_then(|registry| control_patterns::register_worker(registry, Arc::clone(&client)))
         .and_then(primitives::register)
         .and_then(|registry| workflow_patterns::register_worker(registry, client))
 }
