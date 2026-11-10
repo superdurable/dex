@@ -253,7 +253,7 @@ theorem wp3a_registerWait_blocks (run : Dex.Run signature) (step : Dex.StepExecI
     cases channelCase : wait.channels with
     | nil => exact absurd channelCase hasChannel
     | cons chan laterChans => simp [Dex.Wait.hasNoCondition, channelCase]
-  simp only [Dex.Run.registerWait, hasCondition, Bool.false_eq_true, ↓reduceIte]
+  simp only [Dex.Run.registerWait, hasCondition, Bool.false_eq_true, Bool.false_eq_true, ↓reduceIte]
   exact Dex.Run.evalStep_of_plan_none (wp3a_storedRun run step wait now) step _ _
     (wp3a_findStep?_storedRun run step record isFound wait now) rfl
     (wp2_plan_none_of_quiet wait _ _ isSupported hasChannel (by simp)
@@ -276,7 +276,7 @@ theorem wp3a_registerWait_planned (run : Dex.Run signature) (step : Dex.StepExec
           { timersDone := wait.timerSeconds.map (fun _ => false)
             channelMessages := (Dex.Run.consumeMessages wait.channels consumeFlags
               ((wp3a_storedRun run step wait now).disarmTimersOf step)).2 }) := by
-  simp only [Dex.Run.registerWait, hasCondition, Bool.false_eq_true, ↓reduceIte]
+  simp only [Dex.Run.registerWait, hasCondition, Bool.false_eq_true, Bool.false_eq_true, ↓reduceIte]
   exact Dex.Run.evalStep_of_plan_some (wp3a_storedRun run step wait now) step _ _ consumeFlags
     (wp3a_findStep?_storedRun run step record isFound wait now) rfl rfl isPlanned
 
@@ -1551,5 +1551,495 @@ theorem wp3a_simulated_consumed {program : Program} {lConfig : L.Config}
     rw [Dex.Run.filter_armTimers]
     exact wp3a_get?_disarmed related lInvariant context.isFound context.isWaitStarted
       context.carries timer fireTime
+
+/-! ## Reading the outcome from the condition results -/
+
+/-- `lock` and the re-lock of `wait`: one consumed token means granted. -/
+theorem wp3a_decode_lock (core : ThreadCore) (code : Code) (mutex : MutexId)
+    (isRequest : waitRequest core code = some (.lock mutex)) (timersDone : List Bool)
+    (message : DexVal) :
+    decodeBlockedOutcome code
+      (some { timersDone := timersDone, channelMessages := [some message] }) = .granted := by
+  cases code with
+  | nil => simp [waitRequest] at isRequest
+  | cons instr rest =>
+    cases instr with
+    | source statement =>
+      cases statement
+      all_goals first
+        | (simp [decodeBlockedOutcome]; done)
+        | (simp [waitRequest] at isRequest; done)
+        | (simp only [waitRequest] at isRequest
+           split at isRequest <;> cases isRequest)
+    | park cv => simp [waitRequest] at isRequest
+    | relock held => simp [decodeBlockedOutcome]
+
+/-- The park of `wait`: one consumed wake means granted. -/
+theorem wp3a_decode_park (core : ThreadCore) (code : Code) (cv : CvId)
+    (isRequest : waitRequest core code = some (.park cv)) (timersDone : List Bool)
+    (message : DexVal) :
+    decodeBlockedOutcome code
+      (some { timersDone := timersDone, channelMessages := [some message] }) = .granted := by
+  cases code with
+  | nil => simp [waitRequest] at isRequest
+  | cons instr rest =>
+    cases instr with
+    | source statement =>
+      cases statement
+      all_goals first
+        | (simp [waitRequest] at isRequest; done)
+        | (simp only [waitRequest] at isRequest
+           split at isRequest <;> cases isRequest)
+    | park parked => simp [decodeBlockedOutcome]
+    | relock held => simp [waitRequest] at isRequest
+
+/-- `recv`: the first condition is the message, the second the cancel request. -/
+theorem wp3a_decode_recv (core : ThreadCore) (code : Code) (chan : ExtChan)
+    (isRequest : waitRequest core code = some (.recv chan)) (timersDone : List Bool)
+    (message : DexVal) :
+    (∀ other, decodeBlockedOutcome code
+      (some { timersDone := timersDone, channelMessages := [some message, other] }) =
+        .received (decodeMessage message)) ∧
+    decodeBlockedOutcome code
+      (some { timersDone := timersDone, channelMessages := [none, some message] }) =
+        .canceled := by
+  cases code with
+  | nil => simp [waitRequest] at isRequest
+  | cons instr rest =>
+    cases instr with
+    | source statement =>
+      cases statement
+      all_goals first
+        | (simp [decodeBlockedOutcome]; done)
+        | (simp [waitRequest] at isRequest; done)
+        | (simp only [waitRequest] at isRequest
+           split at isRequest <;> cases isRequest)
+    | park parked => simp [waitRequest] at isRequest
+    | relock held => simp [waitRequest] at isRequest
+
+/-- `join`: the first condition is the join notice, the second the cancel request. -/
+theorem wp3a_decode_join (core : ThreadCore) (code : Code) (target : Tid)
+    (isRequest : waitRequest core code = some (.join target)) (timersDone : List Bool)
+    (message : DexVal) :
+    (∀ other, decodeBlockedOutcome code
+      (some { timersDone := timersDone, channelMessages := [some message, other] }) =
+        .granted) ∧
+    decodeBlockedOutcome code
+      (some { timersDone := timersDone, channelMessages := [none, some message] }) =
+        .canceled := by
+  cases code with
+  | nil => simp [waitRequest] at isRequest
+  | cons instr rest =>
+    cases instr with
+    | source statement =>
+      cases statement
+      all_goals first
+        | (simp [decodeBlockedOutcome]; done)
+        | (simp [waitRequest] at isRequest; done)
+        | (simp only [waitRequest] at isRequest
+           split at isRequest <;> cases isRequest)
+    | park parked => simp [waitRequest] at isRequest
+    | relock held => simp [waitRequest] at isRequest
+
+/-- No wait request and no result: the outcome is invalid. -/
+theorem wp3a_decode_invalid (code : Code) (timersDone : List Bool) :
+    decodeBlockedOutcome code (some { timersDone := timersDone, channelMessages := [] }) =
+      .invalid := by
+  simp only [decodeBlockedOutcome]
+
+/-- Outside a timed operation the outcome is read as that of a blocking statement. -/
+theorem wp3a_decodeOutcome_blocked (thread : L.Thread) (hasNoTimer : thread.timer = none)
+    (results : Option (Dex.ConditionResults signature)) :
+    decodeOutcome thread results = decodeBlockedOutcome thread.code results := by
+  simp [decodeOutcome, hasNoTimer]
+
+/-! ## Every registration -/
+
+/-- The registration of a `waitStarted` thread is simulated, by cases on the
+wait and on what `Config.registerWait` finds (spec §8.3). -/
+theorem wp3a_registerWait_simulated {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {tid : Tid} {thread : L.Thread}
+    {run : Dex.Run signature} {record : Dex.StepRecord signature} {task : Dex.Task signature}
+    (context : wp3a_Context program lConfig dexConfig tid thread run record task) :
+    IsSimulatedByActions program lConfig dexConfig (.thread tid) []
+      (lConfig.registerWait thread).stamp := by
+  have state := context.state
+  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? context.isFound
+  subst hasTid
+  have related := state.isRelated.running run context.hasRun context.isRunning
+  have lInvariant := state.lInvariant
+  have areBooted := wp3a_noBoot lInvariant context.isFound context.isWaitStarted
+  have foundPrepared := wp3a_findStep?_preparedRun context
+  have fitsCode := lInvariant.phasesFitCode thread isMember
+  unfold L.Thread.PhaseFitsCode at fitsCode
+  simp only [context.isWaitStarted] at fitsCode
+  -- A set cancel flag of this thread is a pending request, and conversely.
+  have cancelPending : lConfig.cancelFlags.contains thread.core.tid = true →
+      ∃ message remaining,
+        run.pendingMessages (Chan.cancelRequest thread.core.tid) = message :: remaining := by
+    intro isFlagged
+    rcases related.cancelFlagsAreRequests _ isFlagged with
+      isPending | ⟨current, isCurrent, isCanceled⟩ | ⟨isGone, _⟩
+    · cases pendingCase : run.pendingMessages (Chan.cancelRequest thread.core.tid) with
+      | nil => exact absurd pendingCase isPending
+      | cons message remaining => exact ⟨message, remaining, rfl⟩
+    · rw [context.isFound] at isCurrent
+      cases isCurrent
+      rw [context.isWaitStarted] at isCanceled
+      rcases isCanceled with isPhase | isPhase <;> cases isPhase
+    · rw [context.isFound] at isGone
+      cases isGone
+  have cancelQuiet : ¬ lConfig.cancelFlags.contains thread.core.tid = true →
+      run.pendingMessages (Chan.cancelRequest thread.core.tid) = [] := by
+    intro isNotFlagged
+    cases pendingCase : run.pendingMessages (Chan.cancelRequest thread.core.tid) with
+    | nil => rfl
+    | cons message remaining =>
+      exact absurd (related.cancelRequestsAreFlags thread.core.tid (by rw [pendingCase]; simp))
+        isNotFlagged
+  cases timerCase : thread.timer with
+  | some entry =>
+    obtain ⟨number, seconds⟩ := entry
+    cases chanCase : timedChan thread.code with
+    | none =>
+      have isNext : lConfig.registerWait thread = lConfig.wakeThread thread.core.tid .invalid := by
+        simp [L.Config.registerWait, timerCase, chanCase]
+      have isWait : wp3a_wait thread = Dex.Wait.empty signature := by
+        simp [wp3a_wait, timerCase, chanCase]
+      rw [isNext]
+      exact wp3a_simulated_empty context (by rw [isWait]; rfl) .invalid
+        (by simp [decodeOutcome, timerCase, decodeTimedOutcome, chanCase])
+    | some selected =>
+      cases selected with
+      | none =>
+        have isWait : wp3a_wait thread =
+            { kind := .any, timerSeconds := [seconds]
+              channels := [Chan.cancelRequest thread.core.tid] } := by
+          simp [wp3a_wait, timerCase, chanCase]
+        by_cases isCanceled : lConfig.cancelFlags.contains thread.core.tid = true
+        · have isNext : lConfig.registerWait thread =
+              lConfig.wakeThread thread.core.tid .canceled := by
+            simp only [L.Config.registerWait, timerCase, chanCase, isCanceled, ↓reduceIte]
+          obtain ⟨message, remaining, hasMessage⟩ := cancelPending isCanceled
+          rw [isNext]
+          exact wp3a_simulated_consumed context (Chan.cancelRequest thread.core.tid) remaining _
+            (by
+              rw [isWait]
+              exact wp3a_registerWait_any_first _ _ _ foundPrepared [seconds] _ [] _ message
+                remaining hasMessage)
+            .canceled (by simp [decodeOutcome, timerCase, decodeTimedOutcome, chanCase])
+            _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+            (fun _ _ sameOthers => wp3a_channels_cancel related areBooted _ rfl rfl rfl rfl
+              message remaining hasMessage sameOthers)
+        · have isNext : lConfig.registerWait thread =
+              lConfig.blockThread thread.core.tid
+                (.timed number (lConfig.clock + seconds * 1000000) none) := by
+            simp only [L.Config.registerWait, timerCase, chanCase, isCanceled, Bool.false_eq_true, ↓reduceIte]
+          rw [isNext]
+          exact wp3a_simulated_blocked context (by rw [isWait]; exact Or.inr (Or.inl rfl))
+            (by rw [isWait]; simp)
+            (by
+              rw [isWait]
+              intro chan isNamed
+              simp only [List.mem_singleton] at isNamed
+              rw [isNamed]
+              exact cancelQuiet isCanceled)
+            _ (by rw [isWait]; rfl) (by rw [isWait]; rfl) (by rw [isWait]; rfl)
+            (Or.inr ⟨number, seconds, none, timerCase, by rw [isWait], rfl⟩)
+      | some chan =>
+        have isWait : wp3a_wait thread =
+            { kind := .any, timerSeconds := [seconds]
+              channels := [Chan.external chan, Chan.cancelRequest thread.core.tid] } := by
+          simp [wp3a_wait, timerCase, chanCase]
+        cases inputCase : lConfig.pendingInput chan with
+        | cons message later =>
+          have isNext : lConfig.registerWait thread =
+              { lConfig with inputQueues := lConfig.inputQueues.set chan later }.wakeThread
+                thread.core.tid (.received message) := by
+            simp [L.Config.registerWait, timerCase, chanCase, inputCase]
+          have hasMessage : run.pendingMessages (Chan.external chan) =
+              DexVal.value message :: later.map DexVal.value := by
+            rw [related.inputQueues, inputCase]
+            rfl
+          rw [isNext]
+          exact wp3a_simulated_consumed context (Chan.external chan) (later.map DexVal.value) _
+            (by
+              rw [isWait]
+              exact wp3a_registerWait_any_first _ _ _ foundPrepared [seconds] _ _ _ _ _
+                hasMessage)
+            (.received message)
+            (by simp [decodeOutcome, timerCase, decodeTimedOutcome, chanCase, decodeMessage])
+            _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+            (fun _ isPopped sameOthers => wp3a_channels_external related areBooted _ _ chan later
+              rfl rfl rfl rfl isPopped sameOthers)
+        | nil =>
+          have isInputEmpty : run.pendingMessages (Chan.external chan) = [] := by
+            rw [related.inputQueues, inputCase]
+            rfl
+          by_cases isCanceled : lConfig.cancelFlags.contains thread.core.tid = true
+          · have isNext : lConfig.registerWait thread =
+                lConfig.wakeThread thread.core.tid .canceled := by
+              simp only [L.Config.registerWait, timerCase, chanCase, inputCase, isCanceled, ↓reduceIte]
+            obtain ⟨message, remaining, hasMessage⟩ := cancelPending isCanceled
+            rw [isNext]
+            exact wp3a_simulated_consumed context (Chan.cancelRequest thread.core.tid) remaining
+              _
+              (by
+                rw [isWait]
+                exact wp3a_registerWait_any_second _ _ _ foundPrepared [seconds] _ _ _ message
+                  remaining isInputEmpty hasMessage)
+              .canceled (by simp [decodeOutcome, timerCase, decodeTimedOutcome, chanCase])
+              _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+              (fun _ _ sameOthers => wp3a_channels_cancel related areBooted _ rfl rfl rfl rfl
+                message remaining hasMessage sameOthers)
+          · have isNext : lConfig.registerWait thread =
+                lConfig.blockThread thread.core.tid
+                  (.timed number (lConfig.clock + seconds * 1000000) (some chan)) := by
+              simp only [L.Config.registerWait, timerCase, chanCase, inputCase, isCanceled, Bool.false_eq_true, ↓reduceIte]
+            rw [isNext]
+            exact wp3a_simulated_blocked context (by rw [isWait]; exact Or.inr (Or.inl rfl))
+              (by rw [isWait]; simp)
+              (by
+                rw [isWait]
+                intro named isNamed
+                simp only [List.mem_cons, List.not_mem_nil, or_false] at isNamed
+                rcases isNamed with isNamed | isNamed <;> rw [isNamed]
+                · exact isInputEmpty
+                · exact cancelQuiet isCanceled)
+              _ (by rw [isWait]; rfl) (by rw [isWait]; rfl) (by rw [isWait]; rfl)
+              (Or.inr ⟨number, seconds, some chan, timerCase, by rw [isWait], rfl⟩)
+  | none =>
+    cases requestCase : waitRequest thread.core thread.code with
+    | none =>
+      have isNext : lConfig.registerWait thread = lConfig.wakeThread thread.core.tid .invalid := by
+        simp [L.Config.registerWait, timerCase, requestCase]
+      have isWait : wp3a_wait thread = Dex.Wait.empty signature := by
+        simp [wp3a_wait, timerCase, requestCase, encodeWaitRequest]
+      rw [isNext]
+      exact wp3a_simulated_empty context (by rw [isWait]; rfl) .invalid
+        (by
+          rw [wp3a_decodeOutcome_blocked thread timerCase]
+          exact wp3a_decode_invalid _ _)
+    | some request =>
+      cases request with
+      | lock mutex =>
+        have isWait : wp3a_wait thread =
+            { kind := .all, timerSeconds := [], channels := [Chan.mutexToken mutex] } := by
+          simp [wp3a_wait, timerCase, requestCase, encodeWaitRequest]
+        have hasTokens := related.mutexTokens areBooted mutex
+        have blocks : lConfig.mutexOwners.get? mutex ≠ some none →
+            lConfig.registerWait thread = lConfig.blockThread thread.core.tid (.lock mutex) →
+            IsSimulatedByActions program lConfig dexConfig (.thread thread.core.tid) []
+              (lConfig.registerWait thread).stamp := by
+          intro isHeld isNext
+          simp only [isHeld, ↓reduceIte] at hasTokens
+          rw [isNext]
+          exact wp3a_simulated_blocked context
+            (by rw [isWait]; exact Or.inr (Or.inr ⟨rfl, rfl, _, rfl⟩))
+            (by rw [isWait]; simp)
+            (by
+              rw [isWait]
+              intro chan isNamed
+              simp only [List.mem_singleton] at isNamed
+              rw [isNamed]
+              exact List.eq_nil_of_length_eq_zero hasTokens)
+            _ (by rw [isWait]; rfl) (by rw [isWait]; rfl) (by rw [isWait]; rfl)
+            (Or.inl ⟨by rw [isWait], by intro _ _ _ isTimed; cases isTimed⟩)
+        cases ownerCase : lConfig.mutexOwners.get? mutex with
+        | none =>
+          exact blocks (by rw [ownerCase]; simp)
+            (by simp [L.Config.registerWait, timerCase, requestCase, ownerCase])
+        | some owner =>
+          cases owner with
+          | some holder =>
+            exact blocks (by rw [ownerCase]; simp)
+              (by simp [L.Config.registerWait, timerCase, requestCase, ownerCase])
+          | none =>
+            have isNext : lConfig.registerWait thread =
+                { lConfig with
+                  mutexOwners := lConfig.mutexOwners.set mutex (some thread.core.tid)
+                }.wakeThread thread.core.tid .granted := by
+              simp [L.Config.registerWait, timerCase, requestCase, ownerCase]
+            rw [ownerCase] at hasTokens
+            simp only [↓reduceIte] at hasTokens
+            obtain ⟨message, hasMessage⟩ := List.length_eq_one_iff.mp hasTokens
+            rw [isNext]
+            exact wp3a_simulated_consumed context (Chan.mutexToken mutex) [] _
+              (by
+                rw [isWait]
+                exact wp3a_registerWait_all_single _ _ _ foundPrepared _ _ message [] hasMessage)
+              .granted
+              (by simp [decodeOutcome, timerCase, wp3a_decode_lock _ _ _ requestCase])
+              _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+              (fun _ isPopped sameOthers => wp3a_channels_mutex related areBooted _ _ mutex
+                rfl rfl rfl rfl isPopped sameOthers)
+      | recv chan =>
+        have isWait : wp3a_wait thread =
+            { kind := .any, timerSeconds := []
+              channels := [Chan.external chan, Chan.cancelRequest thread.core.tid] } := by
+          simp [wp3a_wait, timerCase, requestCase, encodeWaitRequest]
+        cases inputCase : lConfig.pendingInput chan with
+        | cons message later =>
+          have isNext : lConfig.registerWait thread =
+              { lConfig with inputQueues := lConfig.inputQueues.set chan later }.wakeThread
+                thread.core.tid (.received message) := by
+            simp [L.Config.registerWait, timerCase, requestCase, inputCase]
+          have hasMessage : run.pendingMessages (Chan.external chan) =
+              DexVal.value message :: later.map DexVal.value := by
+            rw [related.inputQueues, inputCase]
+            rfl
+          rw [isNext]
+          exact wp3a_simulated_consumed context (Chan.external chan) (later.map DexVal.value) _
+            (by
+              rw [isWait]
+              exact wp3a_registerWait_any_first _ _ _ foundPrepared [] _ _ _ _ _ hasMessage)
+            (.received message)
+            (by simp [decodeOutcome, timerCase, (wp3a_decode_recv _ _ _ requestCase _ _).1,
+              decodeMessage])
+            _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+            (fun _ isPopped sameOthers => wp3a_channels_external related areBooted _ _ chan later
+              rfl rfl rfl rfl isPopped sameOthers)
+        | nil =>
+          have isInputEmpty : run.pendingMessages (Chan.external chan) = [] := by
+            rw [related.inputQueues, inputCase]
+            rfl
+          by_cases isCanceled : lConfig.cancelFlags.contains thread.core.tid = true
+          · have isNext : lConfig.registerWait thread =
+                lConfig.wakeThread thread.core.tid .canceled := by
+              simp only [L.Config.registerWait, timerCase, requestCase, inputCase, isCanceled, ↓reduceIte]
+            obtain ⟨message, remaining, hasMessage⟩ := cancelPending isCanceled
+            rw [isNext]
+            exact wp3a_simulated_consumed context (Chan.cancelRequest thread.core.tid) remaining
+              _
+              (by
+                rw [isWait]
+                exact wp3a_registerWait_any_second _ _ _ foundPrepared [] _ _ _ message
+                  remaining isInputEmpty hasMessage)
+              .canceled
+              (by simp [decodeOutcome, timerCase, (wp3a_decode_recv _ _ _ requestCase _ _).2])
+              _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+              (fun _ _ sameOthers => wp3a_channels_cancel related areBooted _ rfl rfl rfl rfl
+                message remaining hasMessage sameOthers)
+          · have isNext : lConfig.registerWait thread =
+                lConfig.blockThread thread.core.tid (.recv chan) := by
+              simp only [L.Config.registerWait, timerCase, requestCase, inputCase, isCanceled, Bool.false_eq_true, ↓reduceIte]
+            rw [isNext]
+            exact wp3a_simulated_blocked context (by rw [isWait]; exact Or.inr (Or.inl rfl))
+              (by rw [isWait]; simp)
+              (by
+                rw [isWait]
+                intro named isNamed
+                simp only [List.mem_cons, List.not_mem_nil, or_false] at isNamed
+                rcases isNamed with isNamed | isNamed <;> rw [isNamed]
+                · exact isInputEmpty
+                · exact cancelQuiet isCanceled)
+              _ (by rw [isWait]; rfl) (by rw [isWait]; rfl) (by rw [isWait]; rfl)
+              (Or.inl ⟨by rw [isWait], by intro _ _ _ isTimed; cases isTimed⟩)
+      | join target =>
+        have isWait : wp3a_wait thread =
+            { kind := .any, timerSeconds := []
+              channels := [Chan.joinDone target, Chan.cancelRequest thread.core.tid] } := by
+          simp [wp3a_wait, timerCase, requestCase, encodeWaitRequest]
+        have hasTokens := related.joinTokens target
+        by_cases isJoinable : lConfig.joinable.contains target = true
+        · have isNext : lConfig.registerWait thread =
+              { lConfig with joinable := lConfig.joinable.erase target }.wakeThread
+                thread.core.tid .granted := by
+            simp only [L.Config.registerWait, timerCase, requestCase, isJoinable, ↓reduceIte]
+          simp only [isJoinable, ↓reduceIte] at hasTokens
+          obtain ⟨message, hasMessage⟩ := List.length_eq_one_iff.mp hasTokens
+          rw [isNext]
+          exact wp3a_simulated_consumed context (Chan.joinDone target) [] _
+            (by
+              rw [isWait]
+              exact wp3a_registerWait_any_first _ _ _ foundPrepared [] _ _ _ message [] hasMessage)
+            .granted
+            (by simp [decodeOutcome, timerCase, (wp3a_decode_join _ _ _ requestCase _ _).1])
+            _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+            (fun _ isPopped sameOthers => wp3a_channels_join related areBooted
+              lInvariant.joinableNodup _ _ target rfl rfl rfl rfl isPopped sameOthers)
+        · simp only [isJoinable, Bool.false_eq_true, ↓reduceIte] at hasTokens
+          have isJoinEmpty : run.pendingMessages (Chan.joinDone target) = [] :=
+            List.eq_nil_of_length_eq_zero hasTokens
+          by_cases isCanceled : lConfig.cancelFlags.contains thread.core.tid = true
+          · have isNext : lConfig.registerWait thread =
+                lConfig.wakeThread thread.core.tid .canceled := by
+              simp only [L.Config.registerWait, timerCase, requestCase, isJoinable, isCanceled, Bool.false_eq_true, ↓reduceIte]
+            obtain ⟨message, remaining, hasMessage⟩ := cancelPending isCanceled
+            rw [isNext]
+            exact wp3a_simulated_consumed context (Chan.cancelRequest thread.core.tid) remaining
+              _
+              (by
+                rw [isWait]
+                exact wp3a_registerWait_any_second _ _ _ foundPrepared [] _ _ _ message
+                  remaining isJoinEmpty hasMessage)
+              .canceled
+              (by simp [decodeOutcome, timerCase, (wp3a_decode_join _ _ _ requestCase _ _).2])
+              _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+              (fun _ _ sameOthers => wp3a_channels_cancel related areBooted _ rfl rfl rfl rfl
+                message remaining hasMessage sameOthers)
+          · have isNext : lConfig.registerWait thread =
+                lConfig.blockThread thread.core.tid (.join target) := by
+              simp only [L.Config.registerWait, timerCase, requestCase, isJoinable, isCanceled, Bool.false_eq_true, ↓reduceIte]
+            rw [isNext]
+            exact wp3a_simulated_blocked context (by rw [isWait]; exact Or.inr (Or.inl rfl))
+              (by rw [isWait]; simp)
+              (by
+                rw [isWait]
+                intro named isNamed
+                simp only [List.mem_cons, List.not_mem_nil, or_false] at isNamed
+                rcases isNamed with isNamed | isNamed <;> rw [isNamed]
+                · exact isJoinEmpty
+                · exact cancelQuiet isCanceled)
+              _ (by rw [isWait]; rfl) (by rw [isWait]; rfl) (by rw [isWait]; rfl)
+              (Or.inl ⟨by rw [isWait], by intro _ _ _ isTimed; cases isTimed⟩)
+      | park cv =>
+        have isWait : wp3a_wait thread =
+            { kind := .all, timerSeconds := []
+              channels := [Chan.cvWake cv thread.core.tid] } := by
+          simp [wp3a_wait, timerCase, requestCase, encodeWaitRequest]
+        have hasWakes := related.cvWakes cv thread.core.tid
+        by_cases hasWake : lConfig.cvWakes.contains (cv, thread.core.tid) = true
+        · have isNext : lConfig.registerWait thread =
+              { lConfig with cvWakes := lConfig.cvWakes.erase (cv, thread.core.tid) }.wakeThread
+                thread.core.tid .granted := by
+            simp only [L.Config.registerWait, timerCase, requestCase, hasWake, ↓reduceIte]
+          have isCounted : 0 < lConfig.cvWakes.count (cv, thread.core.tid) :=
+            List.count_pos_iff.mpr (by simpa using hasWake)
+          cases pendingCase : run.pendingMessages (Chan.cvWake cv thread.core.tid) with
+          | nil =>
+            rw [pendingCase] at hasWakes
+            simp only [List.length_nil] at hasWakes
+            omega
+          | cons message remaining =>
+            rw [isNext]
+            exact wp3a_simulated_consumed context (Chan.cvWake cv thread.core.tid) remaining _
+              (by
+                rw [isWait]
+                exact wp3a_registerWait_all_single _ _ _ foundPrepared _ _ message remaining
+                  pendingCase)
+              .granted
+              (by simp [decodeOutcome, timerCase, wp3a_decode_park _ _ _ requestCase])
+              _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+              (fun _ isPopped sameOthers => wp3a_channels_cvWake related areBooted _ _ cv
+                rfl rfl rfl rfl message remaining pendingCase isPopped sameOthers)
+        · have isNext : lConfig.registerWait thread =
+              lConfig.blockThread thread.core.tid (.park cv) := by
+            simp only [L.Config.registerWait, timerCase, requestCase, hasWake, Bool.false_eq_true, ↓reduceIte]
+          have isNotCounted : lConfig.cvWakes.count (cv, thread.core.tid) = 0 :=
+            List.count_eq_zero.mpr (by simpa using hasWake)
+          rw [isNotCounted] at hasWakes
+          rw [isNext]
+          exact wp3a_simulated_blocked context
+            (by rw [isWait]; exact Or.inr (Or.inr ⟨rfl, rfl, _, rfl⟩))
+            (by rw [isWait]; simp)
+            (by
+              rw [isWait]
+              intro chan isNamed
+              simp only [List.mem_singleton] at isNamed
+              rw [isNamed]
+              exact List.eq_nil_of_length_eq_zero hasWakes)
+            _ (by rw [isWait]; rfl) (by rw [isWait]; rfl) (by rw [isWait]; rfl)
+            (Or.inl ⟨by rw [isWait], by intro _ _ _ isTimed; cases isTimed⟩)
 
 end DexExpressiveness
