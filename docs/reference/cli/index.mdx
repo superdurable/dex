@@ -37,6 +37,10 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 | **--connector-config-dir** | **$HOME/.dex/connectors**; local Connector credentials. |
 | **--connector-release-override** | Repeatable **connector-id=artifact-directory** for a local Connector release. |
 | **--allowed-hosts** | Empty; comma-separated host names that Dex Web **/api** requests may name besides loopback names and IP addresses. Since 1.42. See [Allowed hosts](/reference/web/dex-web#allowed-hosts). |
+| **--connectors-mcp** | **true**; finds or starts the Dex Connectors MCP server and serves it at **/mcp** on the Dex Web port. Only a loopback **--bind-address** serves **/mcp**. Since 1.43. See [Connectors MCP server](#connectors-mcp). |
+| **--connectors-mcp-version** | Empty; the newest compatible release. Set **X.Y.Z** to pin a release. Since 1.43. |
+| **--connectors-mcp-binary** | **DEX_CONNECTORS_MCP_BINARY**; a local **dex-connectors-mcp** executable to run instead of a downloaded release. Since 1.43. |
+| **--connectors-mcp-connection** | Repeatable **connectorId/connectionName[=tool,...]**; the connections the server offers, optionally narrowed to tools. Empty offers every authorized connection. Since 1.43. |
 
 If a default port is occupied, Dex selects the next available port and prints
 its addresses. An explicitly requested occupied port fails. The state directory
@@ -56,6 +60,51 @@ The Temporal engine was removed. **--engine temporal**, all
 names server-zd as the only engine. Remove those flags and use **--zd-data-dir**
 and **--zd-config** instead. Start with a new server-zd data directory;
 Temporal SQLite files cannot be used as server-zd state.
+
+## Connectors MCP server {#connectors-mcp}
+
+Since 1.43. **dexcli dev** serves the agent tools of authorized Connector
+connections at **http://127.0.0.1:8802/mcp**, the **/mcp** path of the Dex Web
+port. An agent that connects to Connectors through MCP uses this URL. The URL
+stays the same while the server behind it restarts or updates.
+
+The tools come from the Dex Connectors MCP server, **dex-connectors-mcp**, which
+the Connectors library releases. dexcli does not compile any Connector in.
+**dexcli dev** prepares the server in this order:
+
+1. It reuses a compatible server that already runs for the same state
+   directory and **connections.json**. A server is compatible when its process
+   is alive, its **/healthz** answers, and dexcli supports its launch contract.
+2. Otherwise it runs **--connectors-mcp-binary** when set. Without it, dexcli
+   reads the release index at
+   **https://connectors.superdurable.io/connectors-mcp/index.json** at most once
+   a day. It picks the newest release whose launch contract it supports, and
+   downloads the archive for this platform. It checks the archive's SHA-256
+   against the index before it extracts the binary. Releases are cached in
+   **$HOME/.dex/tools/dex-connectors-mcp/&lt;version&gt;**. When the index cannot be
+   fetched, dexcli uses the newest cached release.
+3. It starts the server on a free loopback port. The server reads the
+   **connections.json** in **--connector-config-dir**, the file the Dex Web
+   Connectors page writes. Its state directory is
+   **$HOME/.dex/connectors-mcp**. With another **--connector-config-dir**, it is
+   **$HOME/.dex/connectors-mcp-&lt;digest&gt;**, so each **connections.json** has its
+   own server. dexcli restarts a server that stops, with a
+   delay that grows from 1 second to 30 seconds. The server exits when
+   **dexcli dev** exits.
+
+The ready output prints the **/mcp** URL. Readiness of Dex Server and Dex Web
+does not wait for the Connectors MCP server. Until it is ready, and while it
+restarts, **/mcp** answers HTTP 503. When no server can run, for example
+offline with an empty cache, on a platform without a release, or after 5
+failed starts in a row, **dexcli dev** keeps running and prints a hint to
+stderr. Pass **--connectors-mcp=false** to turn the server off.
+
+Tool calls carry no credentials. **/mcp** therefore accepts only loopback
+**Host** names: **localhost**, ***.localhost**, and loopback IP addresses. Other
+names get HTTP 403, which stops DNS rebinding. **--allowed-hosts** does not
+apply to **/mcp**, so a tunnel name added for Dex Web does not expose tool
+calls. A request whose **Origin** is not an **http** loopback origin, or that a
+browser marks as cross-site, also gets HTTP 403.
 
 ## Connect to Dex
 

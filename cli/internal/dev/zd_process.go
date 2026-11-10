@@ -34,9 +34,24 @@ type zdRunResources struct {
 	process         *zdProcess
 	connection      *grpc.ClientConn
 	web             *dexweb.Server
+	// webListener serves the Dex Web listener when /mcp is mounted on it.
+	webListener *webListenerServer
+	// connectorsMCP keeps the Connectors MCP server behind /mcp running.
+	connectorsMCP *connectorsMCPManager
 }
 
 func (resources *zdRunResources) closeInto(runErr *error) {
+	if resources.webListener != nil {
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(resources.ctx), resources.shutdownTimeout)
+		listenerErr := resources.webListener.Shutdown(shutdownCtx)
+		cancelShutdown()
+		if listenerErr != nil && !errors.Is(listenerErr, context.Canceled) {
+			*runErr = errors.Join(*runErr, fmt.Errorf("stop Dex Web and /mcp: %w", listenerErr))
+		}
+	}
+	if resources.connectorsMCP != nil {
+		*runErr = errors.Join(*runErr, resources.connectorsMCP.Stop())
+	}
 	if resources.web != nil {
 		shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(resources.ctx), resources.shutdownTimeout)
 		webErr := resources.web.Shutdown(shutdownCtx)
