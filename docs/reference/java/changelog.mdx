@@ -10,14 +10,13 @@ This page lists user-visible changes to the Java SDK, newest first; each section
 
 ## 1.42 {#v1-42}
 
-Unreleased.
+Not released yet. The next minor release, sdk-java/v1.42.0, ships these changes.
 
 ### Breaking
 
-- Removed **Client.triggerContinueAsNew**, **FlowStatus.CONTINUED_AS_NEW**, **FlowConfig.Builder.continueAsNewThreshold**, **FlowConfig.Builder.continueAsNewPageSizeBytes**, **SearchFlowsOptions**, and the four-argument **Client.searchFlows** overload. Use the three-argument search method.
-- Removed **WaitForStepCompletionOptions.Builder.internalHandlerTimeout** and **WaitForAttributeOptions.Builder.internalHandlerTimeout**. Request IDs remain accepted but the server does not read them for these waits.
-- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **getFlowExecutionId** to **getFlowRunId**. ProtoJSON uses **flowRunId**.
-
+- Removed **Client.triggerContinueAsNew**, **FlowStatus.CONTINUED_AS_NEW**, **FlowConfig.Builder.continueAsNewThreshold**, **FlowConfig.Builder.continueAsNewPageSizeBytes**, **SearchFlowsOptions**, and the four-argument **Client.searchFlows** overload. Use the three-argument search method. [Reference](/reference/java/flows-and-steps/flow-config).
+- Removed **WaitForStepCompletionOptions.Builder.internalHandlerTimeout** and **WaitForAttributeOptions.Builder.internalHandlerTimeout**. Request IDs remain accepted but the server does not read them for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **getFlowExecutionId** to **getFlowRunId**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
 
 ## 1.41 {#v1-41}
 

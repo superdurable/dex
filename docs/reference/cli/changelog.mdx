@@ -14,8 +14,10 @@ Not released yet. The next minor release, cli-v1.43.0, ships these changes.
 
 ### Breaking
 
-- Removed **dexcli flow trigger-continue-as-new** and the **--follow-runs** flag from **dexcli flow watch**.
-- **dexcli flow start --config** and **dexcli flow update-config --config** no longer send **continueAsNewThreshold** or **continueAsNewPageSizeInBytes**. Remove those JSON properties.
+- Removed **dexcli flow trigger-continue-as-new** and the **--follow-runs** flag from **dexcli flow watch**. **dexcli flow watch** stops when the watched run closes. [Reference](/reference/cli/#friendly-flow-operations).
+- **dexcli flow start --config** and **dexcli flow update-config --config** ignore **continueAsNewThreshold** and **continueAsNewPageSizeInBytes** and no longer send them. Remove those JSON properties. [Reference](/reference/cli/#friendly-flow-operations).
+- **dexcli api** request and response JSON uses **flowRunId** instead of **flowExecutionId**. **dexcli api call** rejects a request that still names a removed field, such as **flowExecutionId** or **includeContinuedAsNew**. [Reference](/reference/cli/#complete-public-api-access).
+- History output from **dexcli flow history**, **dexcli flow inspect**, **dexcli flow watch**, and **dexcli api** no longer contains **continuedStart** or **continuedToRunId**. Flow status is never **FLOW_STATUS_CONTINUED_AS_NEW**. [Reference](/reference/cli/#complete-public-api-access).
 
 ### Added
 

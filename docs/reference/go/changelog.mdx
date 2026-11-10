@@ -10,14 +10,13 @@ This page lists user-visible changes to the Go SDK, newest first; each section c
 
 ## 1.41 {#v1-41}
 
-Unreleased.
+Not released yet. The next minor release, sdk-go/v1.41.0, ships these changes.
 
 ### Breaking
 
-- Removed **Client.TriggerContinueAsNew**, **FlowContinuedAsNew**, **FlowConfig.ContinueAsNewThreshold**, **FlowConfig.ContinueAsNewPageSizeBytes**, **SearchFlowsOptions**, **Client.SearchFlowsWithOptions**, and **IncludeContinuedAsNew**. Use **Client.SearchFlows** for run searches.
-- Removed **WaitForStepCompletionOptions.InternalHandlerTimeout** and **WaitForAttributeOptions.InternalHandlerTimeout**. **RequestID** remains accepted but the server does not read it for these waits.
-- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **FlowExecutionId** to **FlowRunId** on response and history messages. ProtoJSON uses **flowRunId**.
-
+- Removed **Client.TriggerContinueAsNew**, **FlowContinuedAsNew**, **FlowConfig.ContinueAsNewThreshold**, **FlowConfig.ContinueAsNewPageSizeBytes**, **SearchFlowsOptions**, **Client.SearchFlowsWithOptions**, and **IncludeContinuedAsNew**. Use **Client.SearchFlows** for run searches. [Reference](/reference/go/flows-and-steps/flow-config).
+- Removed **WaitForStepCompletionOptions.InternalHandlerTimeout** and **WaitForAttributeOptions.InternalHandlerTimeout**. **RequestID** remains accepted but the server does not read it for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **FlowExecutionId** to **FlowRunId** on response and history messages. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
 
 ## 1.40 {#v1-40}
 

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Breaking
+
+- Removed `Client.trigger_continue_as_new`, `AsyncClient.trigger_continue_as_new`,
+  `FlowStatus.CONTINUED_AS_NEW`, `FlowConfig.continue_as_new_threshold`,
+  `FlowConfig.continue_as_new_page_size_bytes`, and `include_continued_as_new`
+  from both clients' `search_flows` methods.
+- `FlowConfig` is a dataclass, and the two removed fields were its second and
+  third fields. Every later field moves two positions forward, so a positional
+  `FlowConfig(...)` call can set the wrong field. Construct `FlowConfig` with
+  keyword arguments.
+- Removed `WaitForStepCompletionOptions.internal_handler_timeout` and
+  `WaitForAttributeOptions.internal_handler_timeout`. `request_id` remains
+  accepted, but the server does not read it for these waits.
+- Generated bindings rename `FlowExecutionID` to `FlowRunID` and
+  `flow_execution_id` to `flow_run_id`. ProtoJSON uses `flowRunId`.
+
 ### Deprecated
 
 - Deprecated `FlowConfig.delete_expired_history_objects`. It has no effect, and the SDK no longer sends it.
