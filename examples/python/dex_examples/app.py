@@ -30,7 +30,17 @@ from dex import (
 )
 
 from dex_examples.config import ExamplesConfig
+from dex_examples.patterns.cancel_case.credit_check_flow import CreditCheckFlow
+from dex_examples.patterns.cancel_case.loan_application_flow import (
+    LoanApplicationFlow,
+)
+from dex_examples.patterns.critical_section.contract_edit_flow import (
+    ContractEditFlow,
+)
 from dex_examples.patterns.cron.cron_schedule_flow import CronScheduleFlow
+from dex_examples.patterns.deferred_choice.offer_response_flow import (
+    OfferResponseFlow,
+)
 from dex_examples.patterns.drain_channels.internal.drain_internal_channels_flow import (
     DrainInternalChannelFlow,
 )
@@ -196,6 +206,12 @@ class ExampleApp:
         self.timeout = FlowGracefulTimeout()
         self.wait_for_step_completion = WaitForStepCompletionFlow(pattern_service)
         self.workflow_patterns = WorkflowPatternFlows(client_provider)
+        self.offer_response = OfferResponseFlow()
+        self.contract_edit = ContractEditFlow()
+        self.credit_check = CreditCheckFlow()
+        self.loan_application = LoanApplicationFlow(
+            client_provider, self.credit_check
+        )
 
         self.example_flow = ExampleFlow()
         self.step = StepFlow()
@@ -262,6 +278,10 @@ class ExampleApp:
             self.timeout,
             self.wait_for_step_completion,
             *self.workflow_patterns.all_flows(),
+            self.offer_response,
+            self.contract_edit,
+            self.credit_check,
+            self.loan_application,
             self.example_flow,
             self.step,
             self.step_retry,
