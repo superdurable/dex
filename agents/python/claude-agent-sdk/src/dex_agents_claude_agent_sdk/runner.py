@@ -62,6 +62,7 @@ from dex_agents_claude_agent_sdk.tool_gate import (
 from dex_agents_claude_agent_sdk.tool_sources import ToolSourceRouter
 from dex_agents_claude_agent_sdk.transcript import (
     TranscriptEntry,
+    answered_tool_use_ids,
     build_turn_prompt_content,
     decode_run_state,
     encode_run_state,
@@ -355,9 +356,8 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             session_id = suspended_turn.session_id
             earlier_turn_entries = suspended_turn.turn_entries
             prompt_content = None
-        session_store = TurnSegmentSessionStore(
-            session_id, [*committed_transcript.entries, *earlier_turn_entries]
-        )
+        stored_entries = [*committed_transcript.entries, *earlier_turn_entries]
+        session_store = TurnSegmentSessionStore(session_id, stored_entries)
         # A source's listing may lack a tool the turn already called; its record must still replay.
         tool_catalog = self._tool_catalog.with_source_tools(
             await self._tool_sources.list_source_tools(),
@@ -367,7 +367,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 if self._tool_sources.is_source_call(record)
             },
         )
-        tool_call_gate = ToolCallGate(turn, tool_catalog)
+        tool_call_gate = ToolCallGate(turn, tool_catalog, answered_tool_use_ids(stored_entries))
         options = self._build_turn_options(
             turn, session_id, session_store, tool_catalog, tool_call_gate
         )

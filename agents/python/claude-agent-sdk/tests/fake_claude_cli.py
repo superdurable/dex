@@ -33,6 +33,8 @@ A scripted model reads commands from the last text block of the turn's prompt:
   reply with several tool uses. A refused call that must run alone is
   called again by itself. ``;; pause <gate>`` waits at a gate before
   answering, and ``;; fail`` fails once every tool call has a result.
+  ``;; reuse <tool> <json>`` then calls that tool under the tool use ID of
+  the turn's first call and answers ``reused <tool>: <result>``.
 * ``stall <gate>`` calls ``lookup``, streams text, and waits at a gate.
 * An ``Agent`` tool call runs a subagent: one assistant message, answered by
   ``SUBAGENT_RESPONSE_MODEL_NAME``, with ``parent_tool_use_id`` set to the call
@@ -93,6 +95,7 @@ class ToolRequest:
     request_index: int
     tool_name: str
     tool_input: dict[str, Any]
+    reused_tool_use_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -359,6 +362,8 @@ class ScriptedModel:
         summary = "; ".join(
             f"{request.tool_name}: {results[request.request_index][0]}" for request in requests
         )
+        if after_tools.startswith("reuse "):
+            return _reuse_first_tool_use_id(after_tools, tail)
         if after_tools == "fail":
             raise ScriptedModelFailure("scripted failure after tool calls")
         if after_tools.startswith("pause "):
@@ -556,7 +561,8 @@ class FakeClaudeCli:
                 return
             tool_uses = [
                 ToolUse(
-                    f"toolu_{request.request_index}_{uuid.uuid4().hex[:12]}",
+                    request.reused_tool_use_id
+                    or f"toolu_{request.request_index}_{uuid.uuid4().hex[:12]}",
                     self._require_mcp().cli_tool_name(request.tool_name),
                     request.tool_input,
                 )
@@ -958,6 +964,25 @@ def _parse_tool_requests(script: str) -> list[ToolRequest]:
         _, tool_name, tool_input = call.split(" ", 2)
         requests.append(ToolRequest(request_index, tool_name, json.loads(tool_input)))
     return requests
+
+
+def _reuse_first_tool_use_id(after_tools: str, tail: list[dict[str, Any]]) -> ModelAction:
+    _, tool_name, tool_input = after_tools.split(" ", 2)
+    first_tool_use_id = next(
+        str(block["id"])
+        for entry in tail
+        for block in _content_blocks(entry)
+        if block.get("type") == "tool_use"
+    )
+    results = [
+        str(block.get("content", ""))
+        for entry in tail
+        for block in _content_blocks(entry)
+        if block.get("type") == "tool_result" and block.get("tool_use_id") == first_tool_use_id
+    ]
+    if len(results) < 2:
+        return ToolCalls([ToolRequest(0, tool_name, json.loads(tool_input), first_tool_use_id)])
+    return FinalAnswer(f"reused {tool_name}: {results[-1]}")
 
 
 def _tool_results_by_request(tail: list[dict[str, Any]]) -> dict[int, tuple[str, bool]]:

@@ -237,6 +237,16 @@ def tool_result_text(content: object) -> str:
     return json.dumps(content, ensure_ascii=False)
 
 
+def answered_tool_use_ids(entries: Iterable[Mapping[str, Any]]) -> frozenset[str]:
+    """Return the IDs of the tool uses that have a ``tool_result`` in ``entries``."""
+    return frozenset(
+        str(block["tool_use_id"])
+        for entry in entries
+        for block in _content_blocks(entry)
+        if block.get("type") == "tool_result" and "tool_use_id" in block
+    )
+
+
 def _principal_kind(entry: Mapping[str, Any]) -> MessageRole | None:
     entry_type = entry.get("type")
     if entry_type not in ("assistant", "user"):

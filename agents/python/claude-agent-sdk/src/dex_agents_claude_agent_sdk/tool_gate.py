@@ -112,6 +112,22 @@ UNLISTED_SOURCE_TOOL_MESSAGE = (
 BUILT_IN_TOOL_NAME_COLLISION_MESSAGE = (
     "{tool_name} did not run: a custom tool and a Claude Code tool share this name."
 )
+MISMATCHED_REPLAY_MESSAGE = (
+    "{tool_name} did not run: tool use ID {tool_use_id} belongs to a recorded call of "
+    "{recorded_tool_name}."
+)
+REPEATED_REPLAY_MESSAGE = (
+    "{tool_name} did not run: the recorded call {tool_use_id} was already resumed in this "
+    "turn segment."
+)
+DECIDED_TOOL_USE_ID_MESSAGE = (
+    "{tool_name} did not run: tool use ID {tool_use_id} was already decided in this turn "
+    "segment."
+)
+SETTLED_REPLAY_MESSAGE = (
+    "{tool_name} did not run: the recorded call {tool_use_id} was already resumed in an "
+    "earlier turn segment."
+)
 
 
 class ToolCatalog:
@@ -239,12 +255,20 @@ class _CustomToolCallPlan:
 
 
 class ToolCallGate:
-    def __init__(self, turn: AgentTurnContext, tool_catalog: ToolCatalog) -> None:
+    def __init__(
+        self,
+        turn: AgentTurnContext,
+        tool_catalog: ToolCatalog,
+        settled_tool_use_ids: Collection[str],
+    ) -> None:
         self._turn = turn
         self._tool_catalog = tool_catalog
+        # Calls the stored transcript already answers: only a pending deferral may replay.
+        self._settled_tool_use_ids = frozenset(settled_tool_use_ids)
+        self._replayed_tool_use_ids: set[str] = set()
+        self._decided_tool_use_ids: set[str] = set()
         self._segment_deferral: DeferredToolCall | None = None
         self._segment_deferral_source_tool: ListedSourceTool | None = None
-        self._permitted_tool_use_ids: set[str] = set()
         self._running_tool_names: dict[str, str] = {}
         self._custom_tool_call_plans: dict[str, _CustomToolCallPlan] = {}
         self.built_in_tool_name_collisions: set[str] = set()
@@ -295,6 +319,9 @@ class ToolCallGate:
         call_id = str(fields.get("tool_use_id") or tool_use_id or "")
         if not call_id:
             raise RuntimeError(f"the CLI sent PreToolUse for {cli_tool_name} without a tool_use_id")
+        # One decision per tool use ID and segment: a later one never replaces it.
+        is_decided = call_id in self._decided_tool_use_ids
+        self._decided_tool_use_ids.add(call_id)
         served_tool_name = self._tool_catalog.served_tool_name_for(cli_tool_name)
         if served_tool_name is None and self._tool_catalog.is_served_tool_name(cli_tool_name):
             self.built_in_tool_name_collisions.add(cli_tool_name)
@@ -304,7 +331,12 @@ class ToolCallGate:
         policy_tool_name = served_tool_name or cli_tool_name
         record = self._turn.recorded_tool_call(call_id)
         if record is not None:
-            return self._replay_recorded_tool_call(record, served_tool_name)
+            return self._replay_recorded_tool_call(record, policy_tool_name, served_tool_name)
+        if is_decided:
+            return _pre_tool_use_decision(
+                "deny",
+                DECIDED_TOOL_USE_ID_MESSAGE.format(tool_name=policy_tool_name, tool_use_id=call_id),
+            )
         if served_tool_name is not None and self._tool_catalog.is_replay_only_tool(
             served_tool_name
         ):
@@ -353,13 +385,16 @@ class ToolCallGate:
         tool_input: dict[str, Any],
         context: ToolPermissionContext,
     ) -> PermissionResult:
+        """Answer a permission ask; only a replay the hook did not decide may be allowed."""
         policy_tool_name = self._tool_catalog.policy_tool_name(cli_tool_name)
         call_id = context.tool_use_id or ""
         record = self._turn.recorded_tool_call(call_id)
         # A resumed call can skip the hook if the CLI starts it before the hooks exist.
-        if record is not None and call_id not in self._permitted_tool_use_ids:
+        if record is not None:
             served_tool_name = self._tool_catalog.served_tool_name_for(cli_tool_name)
-            return _permission_result(self._replay_recorded_tool_call(record, served_tool_name))
+            return _permission_result(
+                self._replay_recorded_tool_call(record, policy_tool_name, served_tool_name)
+            )
         # The CLI asks for permission when it ignores a defer, so that call never left the turn.
         if self._segment_deferral is not None and self._segment_deferral.tool_call_id == call_id:
             self._segment_deferral = None
@@ -367,8 +402,7 @@ class ToolCallGate:
             return PermissionResultDeny(
                 message=ONE_DEFERRAL_PER_REPLY_MESSAGE.format(tool_name=policy_tool_name)
             )
-        if call_id in self._permitted_tool_use_ids:
-            return PermissionResultAllow()
+        # A hook allow is the call's one decision, so no later ask confirms it.
         return PermissionResultDeny(
             message=UNPERMITTED_TOOL_CALL_MESSAGE.format(tool_name=policy_tool_name)
         )
@@ -427,27 +461,51 @@ class ToolCallGate:
         return replace(self._segment_deferral, arguments=arguments)
 
     def _replay_recorded_tool_call(
-        self, record: AgentToolCall, custom_tool_name: str | None
+        self, record: AgentToolCall, policy_tool_name: str, served_tool_name: str | None
     ) -> HookJSONOutput:
-        if not record.status.is_final:
-            raise RuntimeError(f"tool call {record.tool_call_id} resumed before it was final")
-        # The CLI prefixes a hook denial, so a custom tool returns even its rejection itself.
-        if custom_tool_name is not None:
-            self._custom_tool_call_plans[record.tool_call_id] = _CustomToolCallPlan(
-                custom_tool_name, record
+        """Replay the pending deferral once, as its own tool; deny any other use of its ID."""
+        call_id = record.tool_call_id
+        if call_id in self._replayed_tool_use_ids:
+            return _pre_tool_use_decision(
+                "deny",
+                REPEATED_REPLAY_MESSAGE.format(tool_name=policy_tool_name, tool_use_id=call_id),
             )
-            self._permitted_tool_use_ids.add(record.tool_call_id)
-            return _pre_tool_use_decision("allow")
+        if not record.status.is_final:
+            raise RuntimeError(f"tool call {call_id} resumed before it was final")
+        self._replayed_tool_use_ids.add(call_id)
+        if call_id in self._settled_tool_use_ids:
+            return _pre_tool_use_decision(
+                "deny",
+                SETTLED_REPLAY_MESSAGE.format(tool_name=policy_tool_name, tool_use_id=call_id),
+            )
+        # A served record never replays as a CLI tool, nor the reverse, so its input stays put.
+        is_served_record = self._tool_catalog.is_served_tool_name(record.tool_name)
+        if record.tool_name != policy_tool_name or is_served_record != (
+            served_tool_name is not None
+        ):
+            return _pre_tool_use_decision(
+                "deny",
+                MISMATCHED_REPLAY_MESSAGE.format(
+                    tool_name=policy_tool_name,
+                    tool_use_id=call_id,
+                    recorded_tool_name=record.tool_name,
+                ),
+            )
+        # The CLI prefixes a hook denial, so a custom tool returns even its rejection itself.
+        # Application hooks are skipped on replay, so every allow carries the approved input.
+        if served_tool_name is not None:
+            recorded_input = _recorded_tool_input(record)
+            self._custom_tool_call_plans[call_id] = _CustomToolCallPlan(served_tool_name, record)
+            return _pre_tool_use_decision("allow", updated_input=recorded_input)
         if record.status is ToolCallStatus.SUCCEEDED:
-            self._permit_inline_tool_call(record.tool_call_id, record.tool_name, None)
-            # Application hooks are skipped on replay, so the CLI must run the approved input.
-            return _pre_tool_use_decision("allow", updated_input=_recorded_tool_input(record))
+            recorded_input = _recorded_tool_input(record)
+            self._permit_inline_tool_call(call_id, record.tool_name, None)
+            return _pre_tool_use_decision("allow", updated_input=recorded_input)
         return _pre_tool_use_decision("deny", describe_tool_call_outcome(record))
 
     def _permit_inline_tool_call(
         self, tool_use_id: str, policy_tool_name: str, custom_tool_name: str | None
     ) -> None:
-        self._permitted_tool_use_ids.add(tool_use_id)
         if custom_tool_name is not None:
             self._custom_tool_call_plans[tool_use_id] = _CustomToolCallPlan(custom_tool_name, None)
         self._running_tool_names[tool_use_id] = policy_tool_name
@@ -479,9 +537,13 @@ def _recorded_tool_input(record: AgentToolCall) -> dict[str, Any]:
 
 
 def _permission_result(hook_output: HookJSONOutput) -> PermissionResult:
+    """Convert a replay decision; an allow without the recorded input is denied."""
     hook_specific_output = cast(dict[str, Any], hook_output).get("hookSpecificOutput") or {}
-    if hook_specific_output.get("permissionDecision") == "allow":
-        return PermissionResultAllow(updated_input=hook_specific_output.get("updatedInput"))
+    updated_input = hook_specific_output.get("updatedInput")
+    if hook_specific_output.get("permissionDecision") == "allow" and isinstance(
+        updated_input, dict
+    ):
+        return PermissionResultAllow(updated_input=updated_input)
     return PermissionResultDeny(
         message=str(hook_specific_output.get("permissionDecisionReason", ""))
     )

@@ -313,7 +313,16 @@ flow = claude_agent_session_flow(
 The adapter's MCP server matches a call to its permission decision by
 `_meta["claudecode/toolUseId"]`, which the CLI sends on every `tools/call`, so
 an application hook that rewrites the input cannot make a recorded write look
-new. A call without a decision for that ID does not run.
+new. A call without a decision for that ID does not run. A recorded call
+replays only as its own tool, with the same name and the same kind (a custom or
+source tool, or a Claude Code tool), only while the stored transcript has no
+result for it, and once per segment; every replay `allow` carries the recorded
+arguments as the input. The hook or `can_use_tool` denies any other call that
+reuses its ID. Each tool use ID gets one PreToolUse decision per segment:
+allow, deny, defer, or a replay. A later PreToolUse for the same ID is denied and
+never replaces it, and a `can_use_tool` ask after the hook decided is denied.
+Only a resumed call whose hook the CLI skipped is decided by `can_use_tool`, and
+that answer is its one decision.
 
 Usage comes from `ResultMessage.usage` per segment: input tokens include cache
 reads and cache writes, `cached_input_tokens` are cache reads, and
@@ -469,6 +478,10 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
   recorded result. An approved Claude Code tool, such as `Bash`, therefore
   runs with its recorded arguments, the input your hooks produced and the
   approval saw, not the model's original input.
+- The adapter decides an inline custom tool call by its name, and the tool runs
+  with the input the CLI passes after all hooks. A deferred call is rebuilt from
+  the final input the CLI reports, so its policy, its approval, and the approval
+  interrupt all use that input.
 - `CLAUDE_CODE_BUILT_IN_TOOL_NAMES` lists the CLI 2.1 tool names. If a newer
   CLI adds a tool whose name a custom tool uses, the hook denies that call and
   the segment fails with an error naming the collision.
@@ -530,8 +543,9 @@ write whose attempts run out, tool error results, input validation in the
 Step, approved and rejected `Bash`, a READ and a write in one reply, two writes
 in one reply, an input-rewriting application hook, a hook that rewrites every
 call including the resumed one, an approved `Bash` call that runs its
-hook-rewritten input on resume, with and without the hook, custom tools named
-like Claude Code tools, a resumed call that skips the hook, SIGKILL during a resumed
+hook-rewritten input on resume, with and without the hook, later calls that
+reuse a recorded call's ID in the same segment, under another tool, or after an
+earlier segment answered it, custom tools named like Claude Code tools, a resumed call that skips the hook, SIGKILL during a resumed
 segment, a CLI error result, and a resumed turn that fails after a write and
 leaves a note for the next prompt. `tests/test_tracing.py` runs an in-process
 Worker with an in-memory span exporter and checks the `chat` span metadata of
@@ -544,6 +558,11 @@ Worker restart, four resumes in one session including a plain-text rejection,
 two writes in one reply under `dontAsk`, custom and connector, and an approved
 `Bash` call whose command an application hook rewrote: the resumed CLI runs
 the rewritten command.
+
+`tests/test_replayed_tool_call_ids.py` drives the gate directly for requests
+no CLI run sends: a record asked for under another tool or kind, repeated and
+mismatched `can_use_tool` asks, an ask after the hook allowed a call, and a
+second PreToolUse for one tool use ID.
 
 `tests/test_connector_tools.py` runs connector tools from a copy of the core
 tests' fake ledger Connector (`tests/fake_ledger`): a Query in its tool Step, a

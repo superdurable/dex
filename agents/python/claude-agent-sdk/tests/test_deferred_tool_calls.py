@@ -27,6 +27,7 @@ from dex_agents import (
 )
 from dex_agents.testing import wait_for_agent_snapshot
 from dex_agents_claude_agent_sdk import APPROVED_CLI_TOOL_OUTPUT, CLAUDE_TRANSCRIPT_ITEM_KIND
+from dex_agents_claude_agent_sdk.tool_gate import REPEATED_REPLAY_MESSAGE, SETTLED_REPLAY_MESSAGE
 from tests.claude_test_agent import (
     DENY_FLAG_FILE_NAME,
     ORIGINAL_BASH_COMMAND,
@@ -150,6 +151,87 @@ async def test_resumed_cli_tool_runs_the_hook_rewritten_input_it_was_approved_wi
     snapshot = await harness.wait_for_turns(session_id, 1)
     assert snapshot.messages[-1].text == f"Bash: ran {REWRITTEN_BASH_COMMAND}"
     assert harness.invocations.count("Bash") == 1
+
+
+@pytest.mark.parametrize("does_resume_skip_hooks", [False, True])
+async def test_call_reusing_the_replayed_call_id_in_its_segment_is_denied(
+    harness: ClaudeAgentHarness, does_resume_skip_hooks: bool
+) -> None:
+    await harness.stack.start_worker(
+        {RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE: "1"} if does_resume_skip_hooks else {}
+    )
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call Bash {"command": "echo hi"} ;; reuse Bash {"command": "echo again"}'
+    )
+    interrupt = await harness.wait_for_pending_interrupt(session_id)
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == (
+        "reused Bash: PreToolUse:Bash hook error: "
+        + REPEATED_REPLAY_MESSAGE.format(tool_name="Bash", tool_use_id=interrupt.tool_call_id)
+    )
+    assert harness.invocations.count("Bash") == 1
+
+
+async def test_call_reusing_a_recorded_call_id_under_another_tool_is_denied(
+    harness: ClaudeAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call Bash {"command": "echo hi"} ;; reuse lookup {"query": "again"}'
+    )
+    interrupt = await harness.wait_for_pending_interrupt(session_id)
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == (
+        "reused lookup: PreToolUse:mcp__tools__lookup hook error: "
+        + REPEATED_REPLAY_MESSAGE.format(tool_name="lookup", tool_use_id=interrupt.tool_call_id)
+    )
+    assert harness.invocations.count("Bash") == 1
+    assert harness.invocations.count("lookup") == 0
+
+
+async def test_call_reusing_a_call_id_answered_in_an_earlier_segment_is_denied(
+    harness: ClaudeAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        'call Bash {"command": "echo hi"} && call publish {"message": "p"}'
+        ' ;; reuse Bash {"command": "echo again"}',
+    )
+    bash = await harness.wait_for_pending_interrupt(session_id)
+    assert bash.tool_name == "Bash"
+    assert await harness.sessions.resolve_interrupt(session_id, bash.interrupt_id, approved=True)
+    publish = await wait_for_agent_snapshot(
+        harness.sessions,
+        session_id,
+        lambda snapshot: next(
+            (
+                interrupt
+                for interrupt in snapshot.pending_interrupts
+                if interrupt.interrupt_id != bash.interrupt_id
+            ),
+            None,
+        ),
+        description="the publish interrupt",
+    )
+    assert publish.tool_name == "publish"
+    assert await harness.sessions.resolve_interrupt(session_id, publish.interrupt_id, approved=True)
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == (
+        "reused Bash: PreToolUse:Bash hook error: "
+        + SETTLED_REPLAY_MESSAGE.format(tool_name="Bash", tool_use_id=bash.tool_call_id)
+    )
+    assert harness.invocations.count("Bash") == 1
+    assert harness.invocations.count("publish") == 1
 
 
 async def test_resolve_interrupt_returns_false_the_second_time(
