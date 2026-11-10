@@ -18,10 +18,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dex_agents import AgentTurnContext, ToolCallStatus, ToolEffect, ToolPolicy
-from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import AnyMessage, ToolCall, ToolMessage
+from dex_agents.stepwise import SourceToolDefinition
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain_core.messages import AIMessage, AnyMessage, ToolCall, ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
@@ -36,6 +37,8 @@ _DEFERRED_TOOL_CALLS_INTERRUPT_TYPE = "dex_deferred_tool_calls"
 
 #: The callable a ``wrap_tool_call`` hook receives to run the tool.
 ToolCallExecutor = Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
+
+_ModelCallResult = ModelResponse[Any] | AIMessage
 
 
 class DurableToolCallMiddleware(AgentMiddleware):
@@ -53,6 +56,11 @@ class DurableToolCallMiddleware(AgentMiddleware):
     Put it first in ``middleware`` so it is the outermost tool wrapper.
     Middleware listed before it see every tool call. Middleware listed after it
     never see a call inside a session, because the tool runs outside the graph.
+
+    Inside a session it also adds the tools of the session's tool sources,
+    such as ``ConnectorToolSource``, to every model request, after the
+    agent's own tools, so the model can call them. Their calls are deferred
+    like any other call and run through their source in their own Step.
 
     The middleware works only while an agent session runs the graph. Invoking
     the agent outside a session raises ``RuntimeError`` on the first tool call,
@@ -97,6 +105,48 @@ class DurableToolCallMiddleware(AgentMiddleware):
             RuntimeError: If no agent session runs the graph.
         """
         return await awrap_durable_tool_call(request, handler)
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], _ModelCallResult],
+    ) -> _ModelCallResult:
+        """Add the session's tool source tools to one model request.
+
+        ``create_agent`` calls this hook for every model call; applications do
+        not call it. Outside a session the request passes unchanged.
+
+        .. versionadded:: 0.4.0
+
+        Args:
+            request: The model request.
+            handler: Runs the model, or the next wrapper.
+
+        Returns:
+            What ``handler`` returns.
+        """
+        return handler(_with_source_tools(request))
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], Awaitable[_ModelCallResult]],
+    ) -> _ModelCallResult:
+        """Add the session's tool source tools to one model request.
+
+        ``create_agent`` calls this hook for every model call; applications do
+        not call it. Outside a session the request passes unchanged.
+
+        .. versionadded:: 0.4.0
+
+        Args:
+            request: The model request.
+            handler: Runs the model, or the next wrapper.
+
+        Returns:
+            What ``handler`` returns.
+        """
+        return await handler(_with_source_tools(request))
 
 
 async def awrap_durable_tool_call(
@@ -238,6 +288,35 @@ def durable_tool_node(
     return DurableToolNode(tools, **tool_node_options)
 
 
+def get_current_tool_source_tools() -> list[BaseTool]:
+    """Return the tools that the session's tool sources offer to the current model call.
+
+    Call it in the model node of a custom graph and bind the tools next to the
+    graph's own, so the model can call them. ``DurableToolCallMiddleware``
+    adds them to a ``create_agent`` agent by itself. Each tool has the
+    source's name, description, and JSON Schema. Its body never runs: a
+    ``durable_tool_node`` defers every call, and the session runs it through
+    its source in its own Step.
+
+    .. versionadded:: 0.4.0
+
+    Example:
+        >>> async def call_model(state: MessagesState) -> dict[str, list[AIMessage]]:
+        ...     tools = [search_orders, *get_current_tool_source_tools()]
+        ...     reply = await model.bind_tools(tools).ainvoke(state["messages"])
+        ...     return {"messages": [reply]}
+
+    Returns:
+        The tools of the ``RunModel`` that runs the graph, in the order the
+        sources list them; empty outside a session, in a tool Step, and when
+        the session has no tool sources.
+    """
+    binding = _ACTIVE_TOOL_BINDING.get()
+    if not isinstance(binding, _RunModelBinding):
+        return []
+    return list(binding.source_tools)
+
+
 def tool_effect_from_metadata(tool: BaseTool) -> ToolEffect | None:
     """Return the effect a tool's metadata declares, as MCP annotations do.
 
@@ -299,6 +378,7 @@ def get_tool_call_idempotency_key(config: RunnableConfig) -> str | None:
 class _RunModelBinding:
     turn: AgentTurnContext
     tools_by_name: Mapping[str, BaseTool]
+    source_tools: Sequence[BaseTool] = ()
     resumed_tool_call_ids: set[str] = field(default_factory=set)
 
 
@@ -438,6 +518,32 @@ def _resolve_deferred_tool_policy(
         return ToolPolicy(ToolEffect.READ, requires_approval=False)
     framework_effect = None if tool is None else tool_effect_from_metadata(tool)
     return binding.turn.resolve_tool_policy(tool_name, framework_effect)
+
+
+def _with_source_tools(request: ModelRequest[Any]) -> ModelRequest[Any]:
+    binding = _ACTIVE_TOOL_BINDING.get()
+    if not isinstance(binding, _RunModelBinding) or not binding.source_tools:
+        return request
+    return request.override(tools=[*request.tools, *binding.source_tools])
+
+
+def _source_tool_as_langchain_tool(definition: SourceToolDefinition) -> BaseTool:
+    # The model sees the source's schema; the body never runs, because every call defers.
+    return StructuredTool(
+        name=definition.name,
+        description=definition.description,
+        args_schema=dict(definition.input_schema),
+        func=_refuse_inline_source_tool_call,
+        coroutine=_refuse_inline_source_tool_call_async,
+    )
+
+
+def _refuse_inline_source_tool_call(**arguments: Any) -> str:
+    raise RuntimeError("a tool source's tool runs only in its own Dex tool Step")
+
+
+async def _refuse_inline_source_tool_call_async(**arguments: Any) -> str:
+    raise RuntimeError("a tool source's tool runs only in its own Dex tool Step")
 
 
 @contextlib.contextmanager

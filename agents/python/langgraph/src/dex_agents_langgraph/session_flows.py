@@ -23,6 +23,7 @@ from dex_agents import (
     ToolEffect,
     ToolPolicy,
 )
+from dex_agents.stepwise import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.serde.base import SerializerProtocol
@@ -44,6 +45,8 @@ def langchain_agent_session_flow(
     compaction: CompactionPolicy | None = None,
     retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT,
     summary_model: BaseChatModel | None = None,
+    tool_sources: Sequence[ToolSource] = (),
+    tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for a ``create_agent`` agent.
 
@@ -56,6 +59,11 @@ def langchain_agent_session_flow(
     Pass a factory instead of the agent to build it lazily on the Worker, for
     example when the model client needs credentials that only Workers hold or
     when MCP tools load asynchronously. Client processes then never call it.
+
+    ``tool_sources``, such as ``ConnectorToolSource``, add tools that
+    ``DurableToolCallMiddleware`` offers to every model request. Each call
+    runs in its own tool Step through its source, which picks the effect
+    class, approval, timeout, and retry policy, as in a Stepwise agent.
 
     Example:
         >>> from langchain.agents import create_agent
@@ -118,6 +126,16 @@ def langchain_agent_session_flow(
             not expose its own model.
 
             .. versionadded:: 0.3.0
+        tool_sources: Tool sources, such as ``ConnectorToolSource``, whose
+            tools every ``RunModel`` offers to the model. See
+            ``LangGraphAgentRunner``. A ``tool_policies`` entry for a connector
+            tool changes only its approval. Defaults to none.
+
+            .. versionadded:: 0.4.0
+        tool_source_listing_timeout: How long one ``RunModel`` waits for each
+            source's ``list_tools``. Defaults to 10 seconds.
+
+            .. versionadded:: 0.4.0
 
     Returns:
         The session Flow.
@@ -127,8 +145,11 @@ def langchain_agent_session_flow(
             ``compaction`` is set without ``summary_model``, or a
             compiled ``agent`` has no ``messages`` channel, uses a
             ``DeltaChannel``, or has two tool nodes whose different tools share
-            a name that ``tools`` does not settle.
-        TypeError: If ``agent`` is neither a compiled graph nor callable.
+            a name that ``tools`` does not settle, or a tool source is invalid
+            as ``LangGraphAgentRunner`` describes.
+        TypeError: If ``agent`` is neither a compiled graph nor callable, or
+            a tool source lacks a ``ToolSource`` method or a non-blank
+            ``source_name``.
     """
     return _graph_session_flow(
         agent,
@@ -146,6 +167,8 @@ def langchain_agent_session_flow(
         tools=tools,
         checkpoint_serializer=checkpoint_serializer,
         summary_model=summary_model,
+        tool_sources=tool_sources,
+        tool_source_listing_timeout=tool_source_listing_timeout,
     )
 
 
@@ -164,6 +187,8 @@ def langgraph_agent_session_flow(
     compaction: CompactionPolicy | None = None,
     retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT,
     summary_model: BaseChatModel | None = None,
+    tool_sources: Sequence[ToolSource] = (),
+    tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for a custom LangGraph graph.
 
@@ -171,7 +196,9 @@ def langgraph_agent_session_flow(
     ``messages_key`` with the ``add_messages`` reducer, as ``MessagesState``
     does. Build every ``ToolNode`` with ``durable_tool_node``. Each turn starts
     the graph with the stored messages as its only input; other state keys
-    start from their defaults on every turn.
+    start from their defaults on every turn. With ``tool_sources``, bind
+    ``get_current_tool_source_tools()`` next to the graph's own tools in the
+    model node, so the model can call the sources' tools.
 
     Example:
         >>> from langgraph.graph import START, MessagesState, StateGraph
@@ -229,6 +256,16 @@ def langgraph_agent_session_flow(
             not expose its own model.
 
             .. versionadded:: 0.3.0
+        tool_sources: Tool sources, such as ``ConnectorToolSource``, whose
+            tools every ``RunModel`` offers to the model. See
+            ``LangGraphAgentRunner``. A ``tool_policies`` entry for a connector
+            tool changes only its approval. Defaults to none.
+
+            .. versionadded:: 0.4.0
+        tool_source_listing_timeout: How long one ``RunModel`` waits for each
+            source's ``list_tools``. Defaults to 10 seconds.
+
+            .. versionadded:: 0.4.0
 
     Returns:
         The session Flow.
@@ -238,8 +275,11 @@ def langgraph_agent_session_flow(
             ``compaction`` is set without ``summary_model``, or a
             compiled ``graph`` has no ``messages_key`` channel, uses a
             ``DeltaChannel``, or has two tool nodes whose different tools share
-            a name that ``tools`` does not settle.
-        TypeError: If ``graph`` is neither a compiled graph nor callable.
+            a name that ``tools`` does not settle, or a tool source is invalid
+            as ``LangGraphAgentRunner`` describes.
+        TypeError: If ``graph`` is neither a compiled graph nor callable, or
+            a tool source lacks a ``ToolSource`` method or a non-blank
+            ``source_name``.
     """
     return _graph_session_flow(
         graph,
@@ -257,6 +297,8 @@ def langgraph_agent_session_flow(
         tools=tools,
         checkpoint_serializer=checkpoint_serializer,
         summary_model=summary_model,
+        tool_sources=tool_sources,
+        tool_source_listing_timeout=tool_source_listing_timeout,
     )
 
 
@@ -269,6 +311,8 @@ def _graph_session_flow(
     tools: Sequence[BaseTool],
     checkpoint_serializer: SerializerProtocol | None,
     summary_model: BaseChatModel | None,
+    tool_sources: Sequence[ToolSource],
+    tool_source_listing_timeout: timedelta,
 ) -> AgentSessionFlow:
     if options.compaction is not None and summary_model is None:
         raise ValueError("compaction needs a summary_model")
@@ -278,5 +322,7 @@ def _graph_session_flow(
         messages_key=messages_key,
         checkpoint_serializer=checkpoint_serializer,
         summary_model=summary_model,
+        tool_sources=tool_sources,
+        tool_source_listing_timeout=tool_source_listing_timeout,
     )
     return AgentSessionFlow(runner, flow_type=flow_type, options=options)

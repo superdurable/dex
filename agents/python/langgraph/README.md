@@ -199,6 +199,55 @@ Pass `messages_key` when the message list has another state key.
 `durable_tool_node` defers all calls of one model message with one interrupt,
 so they run as parallel Steps.
 
+## Tool sources and connector tools
+
+`tool_sources` takes the core's tool sources, such as `ConnectorToolSource`,
+which offers reviewed Connector operations (install `dex-agents[connectors]`).
+See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks/deploy-agents.mdx#connector-tools)
+for what the manifest decides.
+
+```python
+from dex_agents.connectors import ConnectorToolSource, connector_tool
+
+stripe = new_project_connection(project, "billing-stripe")
+flow = langchain_agent_session_flow(
+    build_support_agent,
+    flow_type="SupportAgent",
+    tool_sources=[
+        ConnectorToolSource([
+            connector_tool(stripe.operations.create_refund(), stripe.reference),
+        ]),
+    ],
+)
+```
+
+- Each `RunModel` lists every source. `DurableToolCallMiddleware` adds the
+  listed tools to every model request of a `create_agent` agent, after the
+  agent's own tools. A custom graph binds `get_current_tool_source_tools()`
+  next to its own tools in its model node; `durable_tool_node` defers their
+  calls like any other. The tools carry the source's name, description, and
+  JSON Schema; their bodies never run.
+- Every call of a source tool defers, reads included, and runs once in its own
+  tool Step through the source's `execute_deferred_tool_call`, never inside
+  the framework. A connector call derives its Call ID from the Step execution
+  ID and keeps its fence marker in the Step's heartbeat checkpoint.
+- The source builds each call, so it decides the effect class, the approval,
+  and whether the call is an ordered write; `tool_call_step_options` gives the
+  tool Step the operation's timeout and retry policy. A `tool_policies` entry
+  for a connector tool changes only its approval.
+- Writes of one model response run one at a time in the model's order, as in a
+  Stepwise agent. Once one does not succeed, the later ones record `failed`
+  with `skipped`.
+- Definition fails with `ValueError` when two sources share a `source_name`,
+  or a source's `declared_tool_names` repeat a tool of the graph or of
+  `tools`, or another source's tool. The same names listed at run time fail
+  that `RunModel` attempt.
+- The runner polls no tool tasks. A source call that starts one records
+  `failed` for a `read` call and `outcome_unknown` otherwise. A source whose
+  listing fails or takes longer than `tool_source_listing_timeout` offers no
+  tools in that model call, except tools the turn already called, which come
+  from the source's `cached_tools()` so the resumed run still finds them.
+
 ## How a turn runs
 
 ```text
@@ -364,6 +413,14 @@ idempotency keys, the snapshot, an agent without the middleware, and the
 model and response that name each `chat` span, with an in-process Worker and
 an in-memory span exporter. Construction tests cover two tool nodes with one
 tool name.
+
+`tests/test_connector_tools.py` runs connector tools from a copy of the core
+tests' fake ledger Connector (`tests/fake_ledger`), once with a `create_agent` agent and once with a custom graph: a Query in its tool
+Step, an approved Mutation that runs once, a session policy that changes only
+approval, a `retry: safe` Mutation retried with the same Call ID, `uncertain`
+writes recorded `outcome_unknown`, two writes of one response in the model's
+order, the operation's tool Step options, an unexposed operation, and refused
+name collisions.
 
 ## Compaction
 

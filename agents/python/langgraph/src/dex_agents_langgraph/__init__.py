@@ -34,6 +34,7 @@ from dex_agents_langgraph.tool_deferral import (
     ToolCallExecutor,
     awrap_durable_tool_call,
     durable_tool_node,
+    get_current_tool_source_tools,
     get_tool_call_idempotency_key,
     tool_effect_from_metadata,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "durable_tool_node",
     "framework_message_to_langchain_message",
     "framework_messages_to_langchain_messages",
+    "get_current_tool_source_tools",
     "get_tool_call_idempotency_key",
     "langchain_agent_session_flow",
     "langchain_message_to_framework_message",
