@@ -21,42 +21,40 @@ The process accepts an employer ID, job seeker ID, and initial notes. It must:
 7. Complete with **timeout** if no acceptance arrives within 60 days.
 8. Expose the current status and notes through an RPC, and make status searchable through an indexed Attribute.
 
-The overall branch waits for either the 60-day Timer or a message on **CompleteProcess**. The reminder branch independently waits for either a five-second Timer or a message on **OptOutReminder**. Workers can stop during either wait without losing the deadline, reminder schedule, or external events.
+The deadline branch waits for the 60-day Timer or a message on **CompleteProcess**, whichever comes first. The reminder branch separately waits for a five-second Timer or a message on **OptOutReminder**.
 
-Potential failures and exceptional outcomes include:
+Failures and other outcomes to handle:
 
 - No acceptance arrives before the deadline. This is an expected **timeout** result, not an infrastructure failure.
 - A decline is requested after the status has changed, or an acceptance is requested after completion. The RPC rejects the invalid transition without scheduling a notification Step.
-- Email or recruiting-system calls can fail transiently. Their adapters should surface those errors so Dex can retry the owning Step.
-- A dependency can commit a side effect before the Worker records success. Email and notification calls therefore need idempotency keys or equivalent deduplication in production.
+- Email and recruiting-system calls can fail temporarily. Their adapters should return the error so that Dex retries the Step that made the call.
+- A dependency can complete a call and the Worker can then fail before Dex records success. In production, send email and notifications with an idempotency key or another way to drop duplicates.
 - Reminder opt-out stops only future reminders. The status and overall acceptance deadline remain active.
 
-The Go, Java, Python, and TypeScript examples implement the full 60-day process. The Rust released-SDK example keeps the same end-to-end start, describe, accept, decline, opt-out, notification, and search endpoints, but uses one decision Channel with a 24-hour Timer so its integration path stays compact.
+The Go, Java, Python, and TypeScript examples implement the full 60-day process. The Rust example has the same start, describe, accept, decline, opt-out, notification, and search endpoints. To keep its integration test short, it uses one decision Channel and a 24-hour Timer instead.
 
 ## Flow design
 
-This interactive definition graph is generated from the runnable Python Flow.
-
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The main topology fans out after initialization:
+After **Initialize**, the Flow splits into three parallel branches:
 
 **Initialize** → **ProcessTimeout** ∥ **Reminder** ∥ **NotifyExternalSystem**
 
 It combines these design patterns:
 
-- [**Static parallel Steps**](/design-patterns/parallel/static) separate the overall deadline, reminder loop, and external notification. A slow branch does not block the others.
+- [**Static parallel Steps**](/design-patterns/parallel/static) separate the deadline, the reminder loop, and the external notification. A slow branch does not block the others.
 - [**Durable reminder**](/design-patterns/durable-timer/reminder) moves **Reminder** back to itself after each Timer fires.
 - [**Interruptible wait**](/design-patterns/interruptible) uses **AnyOf** so a Channel message can wake a Step before its Timer.
 - [**Responsive update**](/design-patterns/responsive-update) lets **Accept** and **Decline** RPCs validate and change persisted state while the Flow is waiting.
-- [**Attribute match**](/design-patterns/responsive-update/attribute-match) lets callers wait until durable state is visible.
-- **Graceful completion** lets the timeout branch produce either **done** or **timeout** while the other branches finish or become dead ends.
+- [**Attribute match**](/design-patterns/responsive-update/attribute-match) lets a caller wait until an Attribute reaches the value it expects.
+- **Completion by one branch**: **ProcessTimeout** completes the Flow with **done** or **timeout**. The other branches finish or end as dead ends.
 
-The reminder and overall timeout use separate Channels because opting out of email must not accept, decline, or finish the opportunity. Status, notes, and timestamps live in Attributes so every branch and RPC observes the same durable state.
+The reminder and deadline branches use separate Channels. Opting out of reminders therefore cannot accept, decline, or finish the opportunity. Status, notes, and timestamps live in Attributes, so every branch and RPC reads the same values.
 
 ## Core implementation
 
-Each tab starts with the Flow signature and topology, then shows the durable waits that control completion and reminders. The linked runnable example contains the complete RPC handlers, request models, controller, and integration test.
+Each tab first declares the Flow and its Steps. It then shows the waits that control completion and reminders. The linked example also has the full RPC handlers, request models, controller, and integration test.
 
 <SdkTabs
   examples={{
@@ -419,8 +417,6 @@ impl Step for WaitForDecision {
 ## Demo
 
 Run Dex and any language example server, then start Job seeker engagement from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). The demo below uses the Go example. It initializes an employer and job seeker, opts out of reminders, records a decline, then accepts the opportunity. The Flow finishes with **done** after the acceptance message wakes **ProcessTimeout**.
-
-Select the image to inspect the original 2370 × 1050 capture.
 
 <a href="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" target="_blank" rel="noreferrer">
   <img src="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" alt="Completed Job seeker engagement Step execution graph" />

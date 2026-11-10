@@ -7,41 +7,39 @@ import flowDefinition from '@site/src/data/flow-definitions/job-post.json';
 
 # 职位发布
 
-持久化并检索一条职位发布信息，同时把每个已接受的更新按顺序发送到 LinkedIn 和 Indeed。
+保存一条职位信息并支持搜索，同时把每个已接受的更新按顺序发送到 LinkedIn 和 Indeed。
 
 ## 产品需求
 
-这个流程在职位发布信息的整个生命周期内代表同一个实体。它必须：
+每个 Flow 在整个生命周期内代表一条职位信息。它必须：
 
-1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称使用 **text1** 全文检索 Search Attribute。描述会持久化，但不会建立索引。
-2. 只运行一次 **InitStep**，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。之后每个 Step 在自己的 Channel 上等待，且不会占用 Worker。
+1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称保存在 **text1** 全文检索 Search Attribute 中。描述会保存，但不建索引。
+2. 只运行一次 **InitStep**，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。之后每个 Step 在自己的 Channel 上等待。
 3. 通过读取 RPC 返回当前名称、描述和备注。
-4. 通过更新 RPC 接收新的名称、描述和备注。RPC 使用专用且值为 null 的 **UpdatePostingLock** Attribute，确保同一时间只有一个已接受的更新可以分配版本并发布消息。
+4. 通过更新 RPC 接收新的名称、描述和备注。RPC 声明对 **UpdatePostingLock** 的 lock。这个 Attribute 没有值，只用来加 lock。这样 Dex 一次只运行一个更新，同一时间只有一个更新能分配版本并发布消息。
 5. 递增 **UpdateVersion**，持久化当前职位信息，并把同一个不可变 **PostingUpdate** 发布到 **LinkedInPostingUpdates** 和 **IndeedPostingUpdates**。消息包含版本、稳定的幂等键和职位快照。
-6. 从每个 FIFO Channel 一次消费一条消息。外部调用成功后，consumer 回到自身的新 execution，等待下一条消息。
+6. 每个 consumer Step 每次从自己的 FIFO Channel 取一条消息。招聘网站调用成功后，Step 回到自身，等待下一条消息。
 7. 独立重试两个招聘网站的调用：首次间隔三秒，最大间隔 60 秒，最多 100 次，总时长不超过一小时。
 8. 删除职位时停止 Flow。搜索操作通过建立索引的 Attribute 查找活跃职位。
 
-当任一 Channel 为空时，Flow 会持久化等待；Step 失败时还会在重试之间等待。更新 RPC 不等待 LinkedIn 或 Indeed。当前状态和两条 Channel 消息持久化提交后，它会返回已提交的版本。
+更新 RPC 不等待 LinkedIn 或 Indeed。Dex 保存好职位信息和两条 Channel 消息后，RPC 立即返回新版本。
 
-潜在失败包括：
+需要处理的故障：
 
-- 创建时可能缺少必需的初始 Attribute，或者值无法编码。此时不会留下部分创建的 Flow。
+- 如果缺少必需的初始 Attribute，或者值无法编码，创建 Flow 会失败。这时 Dex 不会创建 Flow，也不会留下只有部分状态的 Flow。
 - Flow ID 不存在、Flow 已停止、输入无法持久化，或者另一个 RPC 持有 **UpdatePostingLock** 时，更新 RPC 会失败。lock conflict 可以安全重试。
 - LinkedIn 或 Indeed 可能不可用、超时、限流或拒绝职位信息。一个 consumer 可以继续运行，而另一个仍在重试或最终失败。
-- 远端请求可能已经成功，但响应丢失。由版本生成的幂等键让外部适配器可以对重试去重。
-- 某个 consumer 失败后，该目标的后续消息会等待它成功或耗尽重试。这可以保持 FIFO 顺序，避免较新的职位状态越过旧状态。
-- 删除可能与已接受的更新竞争。停止策略必须按照产品的删除约定取消或完成排队中和执行中的工作。
+- 远端请求可能已经成功，但响应丢失。幂等键由版本生成，外部适配器可以据此丢弃重复的重试。
+- consumer 重试期间，发往该招聘网站的后续消息会一直等到它成功或用完重试。这样能保持 FIFO 顺序：较新的职位信息不会越过较旧的。
+- 删除请求到达时，已接受的更新可能还在排队或正在发送。按产品的删除规则，决定停止 Flow 时取消这些工作还是让它们完成。
 
-lock 决定成功提交的 RPC 顺序，而不是客户端请求到达顺序。并发调用方可能竞争 lock。返回的版本是权威的接受顺序，每个目标都会按照 FIFO 顺序观察这些版本。
+lock 按 Dex 接受更新的先后排序，而不是按客户端发出请求的先后。两个调用方同时更新时，谁先拿到 lock 都有可能。返回的版本就是接受的顺序，每个招聘网站都按这个顺序收到更新。
 
 ## Flow 设计
 
-这个交互式 definition graph 由可运行的 Python Flow 生成。
-
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-这个 Flow 使用一个带 lock 的 producer 和两个持久化、独立推进的 consumer：
+一个带 lock 的 RPC 产生更新，两个 consumer Step 各自按自己的进度投递：
 
 ```text
 创建职位（版本 0）
@@ -65,23 +63,18 @@ lock 决定成功提交的 RPC 顺序，而不是客户端请求到达顺序。�
              └── 返回版本 N
 ```
 
-设计使用了以下模式：
+它用到以下模式：
 
 - [**实体存储**](/design-patterns/entity-store)为每条职位信息分配稳定的 Flow ID，并使用 Attribute 保存可检索的当前状态。
-- **初始化扇出**使用 **InitStep** 恰好创建一次两个长期运行的 consumer 分支。
-- **带 lock 的 producer**通过 **UpdatePostingLock** 串行处理版本分配、状态替换和消息发布。
-- **Flow 内的事务型 outbox**把当前状态和两条 Channel 消息作为一个 RPC 结果提交，因此已接受的更新不会只发给一个目标。
-- **不可变版本消息**让每个 consumer 获得触发它的 RPC 中的准确职位快照，而不是稍后读取可变的共享 Attribute。
-- **FIFO Channel consumer 循环**每次处理一条消息，再回到同一个 Step。即使 RPC 快速连续到达，每个目标也会先观察 v1，再观察 v2。
-- **并行故障隔离**让 LinkedIn 和 Indeed 拥有独立的等待、execution、重试历史和进度。较慢的目标不会阻塞另一个目标。
-- **持久化重试**处理临时外部故障，在进程重启后也不会丢失进度。
-- **索引状态**直接支持名称搜索，不需要应用维护第二份目录。
+- **状态和消息一起保存**：Dex 把职位信息和两条 Channel 消息作为同一个 RPC 结果保存。已接受的更新不会只发到一个招聘网站。
+- **消息自带快照**：每条消息都带着 RPC 当时看到的职位信息。consumer 不会事后再读可能已经改变的 Attribute。
+- **FIFO consumer 循环**：每个 consumer 处理一条消息后回到自身。即使更新连续快速到达，每个招聘网站也总是先收到 v1，再收到 v2。
 
-目标 Step 不需要 Attribute lock。每个目标只有一条串行 consumer 链，顺序由 Channel 提供。增加目标 lock 可以避免重叠，但它本身无法保存更新快照或保证 FIFO 交付。
+consumer Step 不需要 Attribute lock。每个招聘网站同一时间只有一个 consumer 在运行，顺序由 Channel 保证。在这里加 lock 可以避免重叠，但单靠它既保不住快照，也保证不了 FIFO 顺序。
 
 ## 核心实现
 
-下面的标签页包含每种语言的 Flow 签名和完整机制：**InitStep**、RPC lock、带版本的双路发布、单消息 Channel 等待、consumer 循环和重试策略。所有片段都来自链接的可运行示例。
+每个标签页展示链接的可运行示例中的 Flow：**InitStep**、带 lock 并向两个 Channel 发布的更新 RPC、consumer 循环和重试策略。
 
 <SdkTabs
   examples={{

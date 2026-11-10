@@ -20,22 +20,20 @@ Flow 以客户和订阅计划作为输入。计划包含试用时长、计费周
 6. 在最后一个计费周期后结束订阅，并通知客户。
 7. 在 Flow 仍处于活动状态时，通过 **Describe** RPC 返回已存储的计划。
 
-Flow 等待两类持久条件：试用期和每个计费周期的 Timer，以及取消和金额更新的 Channel 消息。Flow 可以在任一等待中停留数天或数月；Worker 重启不会重新开始试用期，也不会丢失已被接受的消息。
+Flow 用 Timer 等待试用期和每个计费周期结束，用 Channel 消息接收取消和金额更新。一次等待可以持续几天甚至几个月。Worker 重启不会让试用期重新开始，也不会丢失已接收的消息。
 
-潜在故障需要产品层面的决策：
+你需要决定产品如何处理这些故障：
 
-- 欢迎邮件、扣费或结束通知可能在外部提供方已经接受后失败。这些操作必须是幂等的，因为重试的 Step 可能再次调用提供方。
-- 金额更新必须恰好包含一个金额。无效或意外消息会让更新 Step 失败，而不是静默选择一个金额。
-- 取消可能与即将触发的计费 Timer 竞争。支付提供方和取消策略必须能够安全处理该竞争，包括退款或权益策略。
-- 取消或正常完成后再发布消息不能重新打开 Flow。客户端应将其视为终态，并在需要时启动新的订阅。
+- 欢迎邮件、扣费或结束通知可能在提供方已经接受之后才失败。这时 Dex 会重试 Step，再次调用提供方。所以这些调用必须是幂等的。
+- 金额更新必须恰好包含一个金额。消息无效时，更新 Step 会失败，不会自行猜一个金额。
+- 取消请求可能恰好在计费 Timer 触发时到达。支付提供方和取消策略必须能处理这种情况，包括退款和权益的处理。
+- Flow 被取消或完成之后，再发布消息也不能让它重新运行。客户端应把订阅视为已结束，需要时启动新的订阅。
 
 ## Flow 设计
 
-这个交互式 definition graph 由可运行的 Python Flow 生成。
-
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-初始化 Step 扇出为三个长期运行的分支：
+**Initialize** 启动三个长期运行的分支：
 
 **Initialize** → **Trial** → **ChargeCurrentBill** ↻
 
@@ -43,21 +41,15 @@ Flow 等待两类持久条件：试用期和每个计费周期的 Timer，以及
 
 **Initialize** → **UpdateChargeAmount** ↻
 
-**Trial** 管理试用期 Timer，并把控制权交给计费循环。**ChargeCurrentBill** 在下一个 Timer 前递增持久化的计费周期 Attribute；计划结束时强制完成，否则扣除当期费用。**Cancel** 和 **UpdateChargeAmount** 与该路径并行运行，二者每次各等待一条 Channel 消息。
+**Trial** 等待试用期 Timer 触发，然后进入计费循环。每次 **ChargeCurrentBill** 执行都会先把计费周期 Attribute 加一，再等待本周期的 Timer。Timer 触发后，它扣除本期费用。最后一个周期结束后，它改为完成整个 Flow。**Cancel** 和 **UpdateChargeAmount** 与这条路径并行运行，每次各等待一条 Channel 消息。
 
-它组合了以下设计模式：
+计费计划是一个每期结束后回到自身的 Step，两次扣费之间不需要任何进程常驻内存。客户、计划和计费计数器保存在 Attribute 中，所以每个分支读到的都是当前值，而不是 Worker 内存里的副本。**Cancel** 和最后一次 **ChargeCurrentBill** 会强制完成 Flow，其他分支中的等待也随之结束。
 
-- **扇出并发** 从一个初始化 Step 独立启动计费、取消和价格控制职责。
-- **持久 Timer 循环** 用自迁移表达周期计费计划，而不是依赖常驻内存的进程。
-- **事件驱动控制面** 用 Channel 处理客户发起的取消和运营发起的价格调整。
-- **持久状态** 将客户和计费计数器保存在 Attribute 中，使每个分支读取当前计划，而不是保留可变的 Worker 内存。
-- **强制完成** 让取消和订阅结束成为停止 sibling 等待的终态决定。
-
-Rust 示例拥有同样的持久状态、计费循环和控制分支。它的公开金额更新和取消 RPC 会向内部 Channel 发布命令；其他 SDK 示例直接向 Channel 发布。
+Rust 示例的状态、计费循环和控制分支都相同，只有一点不同：客户端通过 RPC 更新金额或取消订阅，RPC 再把消息发布到内部 Channel。其他 SDK 示例由客户端直接向 Channel 发布。
 
 ## 核心实现
 
-每个标签页都包含可运行的 Flow 实现：签名、Step 拓扑、持久化 schema 和读取 RPC。链接的示例还包含请求模型、依赖服务、HTTP controller 和端到端测试。
+每个标签页展示可运行示例中的 Flow。链接的示例还包含请求模型、依赖服务、HTTP controller 和端到端测试。
 
 <SdkTabs
   examples={{
@@ -322,9 +314,7 @@ impl Flow for SubscriptionFlow {
 
 ## 演示
 
-下方完成的 Go 运行存储了订阅，扇出 **Trial**、**Cancel** 和 **UpdateChargeAmount**，应用价格更新，然后通过取消完成。已完成节点是已完成的 Step execution；等待节点展示了取消关闭 Flow 时仍处于活动状态的持久条件。
-
-打开图片可按原始分辨率查看。
+在这次 Go 运行中，Flow 保存了订阅，并启动 **Trial**、**Cancel** 和 **UpdateChargeAmount**。它应用了一次价格更新，随后因订阅被取消而完成。已完成的节点是执行完毕的 Step execution。等待中的节点显示取消结束 Flow 时，各 Step 仍在等待什么。
 
 <a href="/img/use-cases/subscription-step-execution-graph.jpg" target="_blank" rel="noreferrer">
   <img
