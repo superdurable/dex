@@ -266,6 +266,16 @@ fn errors_have_byte_offsets_and_specific_reasons() {
             18,
             "unsupported ExecutionStatus",
         ),
+        (
+            "ExecutionStatus = 'ContinuedAsNew'",
+            18,
+            "unsupported ExecutionStatus",
+        ),
+        (
+            "ExecutionStatus != 'ContinuedAsNew'",
+            19,
+            "unsupported ExecutionStatus",
+        ),
         ("bool1 = 'maybe'", 8, "expected Bool literal"),
         ("array1 = true", 9, "expected KeywordArray literal"),
         ("keyword1 BETWEEN 'a' b", 21, "expected AND"),
@@ -551,8 +561,8 @@ fn repository_query_corpus_parses_and_type_checks() {
 }
 
 #[test]
-fn legacy_query_spellings_are_rejected() {
-    for query in ["WorkflowID = 'flow-1'"] {
+fn cadence_only_query_spellings_are_rejected() {
+    for query in ["WorkflowID = 'flow-1'", "CloseStatus = 'CONTINUED_AS_NEW'"] {
         let error = parse_and_check(query, &registry()).expect_err(query);
         assert!(
             error.message.contains("unknown visibility field"),
