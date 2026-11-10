@@ -2147,6 +2147,16 @@ points, all accepted and checked against the code at `55721e878`.
 | F28 | α built a virtual task only for an invocation holding a snapshot. A close clears the invocation and releases the snapshot (`flow_close.rs:323-328`, `step_decisions.rs:373-374`, `invocations.rs:344-381`), while a real task may still emit its first effect. | **Fixed.** A ghost `par` keeps `U`'s arguments from the first start. A canceled invocation keeps a virtual task, built from `par`, `v`, and `h`, while any real task of it is in `Θ` or `Z`; it leaves with the last one. This matches Dex's canceled tasks (Section 4.4, F4, F5). Section 11.6. |
 | F29 | `Σ_F` had no up or down state, yet rules, fairness, and `δ` depend on it. | **Fixed.** `Σ_F` has `up`. Every commit and engine rule needs it; Worker rules and [TICK] do not. [CRASH] and [RECOVER] flip it (`registry.rs:774-778`, `node_start.rs:450-455`). With FF and FR the server is eventually up for good; F3, F5, and `δ` say how they treat a down server. Sections 11.2, 11.3, and 11.5. |
 
+A last pass found one blocker and three major points, all accepted and
+checked against the code at `55721e878`.
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| F30 | Internal stutters still counted as progress, and nothing bounded them: a stale StepMethodCompleted replayed forever (`step_results.rs:863-872`) gave `∞` in DexF where Dex gives `✓`. | **Fixed** [decision]: one uniform rule. A DexF step is a progress step if and only if its image under the transition map is a Dex progress step. The per-class items are now consequences. The theorem says nothing about internal livelock of the engine. Section 11.5; Appendix A, items 59 and 67. |
+| F31 | "Every engine rule requires `up`" contradicted [RECOVER], which requires `¬up`. | **Fixed.** [RECOVER] is exempt. Section 11.2. |
+| F32 | [ENGINE-REJECT] lacked the premise that the request is targeted; StartFlow is always proposed (`client_operations/mod.rs:72-86`). A "committed word" was left in Section 11.5. | **Fixed.** Premise added, with citations; the leftover now says outcome word. Sections 11.3 and 11.5. |
+| F33 | Retries were defined through the rule [START-RETRY] having fired. | **Fixed.** A retry is a StartFlow request with the request ID of the word's first StartFlow and `ignore_already_started_error`. `w↓` removes those requests; HP orders their commands before the original run's RunPurge and holds trivially without one. Under HP each retry takes [START-RETRY]; without it, a retry after the purge starts a new run (`flow_start.rs:91-124`, `:139-155`; `run_purge.rs:216-227`). Section 11.3; Appendix A, item 66. |
+
 ## 11. Failures
 
 Sections 1 to 10 describe runs without failures. This section adds failures
@@ -2334,8 +2344,9 @@ Rc : FlowId ⇀ Run                      -- ghost: a run as RunPurge found it
 par : (e, m) ⇀ ⟨input, snap, locals, cr⟩  -- ghost: the arguments of U at the first start
 ```
 
-- `up` is whether the server serves. Every commit rule, every engine rule,
-  and [ENGINE-REJECT] require `up`. Worker rules ([WORKER-EFFECT],
+- `up` is whether the server serves. Every commit rule, every engine rule
+  except [RECOVER], and [ENGINE-REJECT] require `up`. [RECOVER] requires
+  `¬up`. Worker rules ([WORKER-EFFECT],
   [ZOMBIE-EFFECT], [WORKER-ABANDON]) and [TICK] do not: Workers and clocks
   run outside the server. [CRASH] sets `up := false` and [RECOVER] sets
   `up := true`. The code has the same split: the registry refuses work once
@@ -2721,7 +2732,8 @@ Events `τ`, or `[closed(...)]` as in Section 4.5.
   handler does nothing (`step_commands.rs:161-170`,
   `step_commands.rs:194-206`, `step_results.rs:831-838`). In the fragment
   the only cancel is the Flow close, so a stale retry timer exists only
-  after the close. Its commit is one more progress step after the close.
+  after the close. Its commit maps to a stutter, so it is not a progress
+  step (Section 11.5).
 - **Failures add nothing to the timer-order gap.** A row enters the timer
   service's retry delay only after its TimersFired command committed: the
   proposal returns only after the commit, or fails when the node stops
@@ -2862,9 +2874,11 @@ retry while the run is only marked purging still finds the directory entry
 and is deduplicated.
 
 - **HP, retries come before the purge.** A predicate on runs: in the
-  committed log, every [START-RETRY] command is ordered before the RunPurge
-  of the run that its request started. It is a condition on the execution,
-  not a property of the input word. Arriving at the server first is not
+  committed log, the command of every retry (a StartFlow request that
+  carries the request ID of the word's first StartFlow, defined below) is
+  ordered before the RunPurge of the original run. HP holds trivially in a
+  run with no RunPurge. It is a condition on the execution, not a property
+  of the input word. Arriving at the server first is not
   enough. The registry submits a command to the log before its outcome is
   durable (`dexzd-engine/src/flow_coordination/registry.rs:619-635`,
   `registry.rs:651-654`). So a RunPurge can be ahead in the log while it is
@@ -2889,21 +2903,36 @@ lets the caller fix the request ID (`sdk-go/dex/client.go:510-512`,
 - Without `ignore_already_started_error`, or with another request ID, the
   request is rejected with ALREADY_EXISTS (`flow_start.rs:126-130`). That
   produces `rejected(...)`, which `E_adm` does not admit.
-- **`E_adm` with retries.** The input word is the outcome word (D7). Its first StartFlow is the start of Section 5.3, and it is
-  the first request of the word. Any number of [START-RETRY] requests may
-  follow anywhere in the word. Each one is a request of the word that
-  produces no event. The start uses the default reuse policy and sets
-  `ignore_already_started_error`. Two rules of the failure-free sections are
-  relaxed, only for these retries: Section 5.3's "no other StartFlow
-  follows", and the requirement that every request ID is fresh (Sections
-  1.3, 4.6, and 5.3). A [START-RETRY] reuses the start's request ID. Every
-  other request ID stays fresh.
+- **StartFlow retries, by request identity.** A **retry** is a StartFlow
+  request of the word whose request ID equals the request ID of the word's
+  first StartFlow, with `ignore_already_started_error` set. This defines
+  retries by the request, not by the rule that applies to it.
+- **`E_adm` with retries.** The input word is the outcome word (D7). Its
+  first StartFlow is the start of Section 5.3, and it is the first request
+  of the word. Any number of retries may follow anywhere in the word. Every
+  other request is a PublishToChannel as in Section 5.3. The start uses the
+  default reuse policy and sets `ignore_already_started_error`. Two rules of
+  the failure-free sections are relaxed, only for retries: Section 5.3's "no
+  other StartFlow follows", and the requirement that every request ID is
+  fresh (Sections 1.3, 4.6, and 5.3). Every other request ID stays fresh.
+- **What a retry does.** Under HP, every retry takes [START-RETRY]. Without
+  HP, a retry ordered after the RunPurge finds an empty directory and
+  creates and starts a new run (`flow_start.rs:91-124`,
+  `flow_start.rs:139-155`, `run_purge.rs:216-227`). Admissibility does not
+  depend on which of the two happens; HP, a hypothesis on runs, rules out
+  the second.
 - A client's re-sent PublishToChannel is a new request of the word (D7). The
   rule [PUBLISH] is unchanged.
 
 **[ENGINE-REJECT]** (engine, client input) Events `[rejected(input, err)]`.
-Premise: the server is up, and the request's Flow ID has no run in the
-Flow directory. In the fragment this happens only after RunPurge (Section
+Premise: the server is up; the request is a **targeted** request, one that
+names an existing run (PublishToChannel in the fragment); and its Flow ID
+has no run in the Flow directory. StartFlow is never engine-rejected this
+way: the engine always proposes it
+(`dexzd-engine/src/flow_coordination/client_operations/mod.rs:72-86`). Only
+targeted requests resolve their run before proposing
+(`client_operations/mod.rs:286-296`,
+`dexzd-engine/src/flow_coordination/read_operations/state_rows.rs:119-126`). In the fragment this happens only after RunPurge (Section
 1.3). Effect: none. There is no log entry and no stamp, so the partition
 clock does not move. The engine resolves the target run while it builds the
 command, and returns NOT_FOUND with FLOW_NOT_EXISTS before anything is
@@ -2968,16 +2997,16 @@ carries more state: attempt numbers, task IDs, `Z`, `I`, and `h`. The lemma
 must show that the extended rules agree with Dex on states that no failure
 reached.
 
-**Word mapping.** A DexF outcome word may contain [START-RETRY] requests,
-and a Dex word of `E_adm` does not. For an outcome word `w`, write
-`w↓` for the Dex word obtained by deleting its [START-RETRY] requests. Each
-deleted request produced no event.
+**Word mapping.** A DexF outcome word may contain retries (Section 11.3),
+and a Dex word of `E_adm` does not. For an outcome word `w`, write `w↓` for
+the Dex word obtained by deleting its retries. Under HP each deleted request
+took [START-RETRY] and produced no event.
 
 **Erasure.** For a DexF trace `t`, `erase(t)` removes every repeated `fx`
 (the ghost form of Section 11.4). Then `t` is a repetition of `erase(t)`.
 
 **Safety, forward.** For every program `P` of the fragment and every finite
-DexF trace `t` for a committed word `w`, `erase(t)` is a finite Dex trace for
+DexF trace `t` for an outcome word `w`, `erase(t)` is a finite Dex trace for
 `w↓`. Hence `t` is a repetition of a finite Dex trace.
 
 **Safety, backward.** Only the Lemma: every Dex trace is a DexF trace. The
@@ -3016,16 +3045,26 @@ FR, and FI:
   zombie whose result can no longer reach any server is dropped instead
   (F4).
 
-**Progress steps.** Every DexF transition other than [TICK], [START-RETRY],
-and post-close housekeeping (Section 11.2) is a progress step. [decision] A
-[START-RETRY] counts like [TICK]: it writes no run state, emits no event, and
-only advances the partition clock. [decision] Post-close housekeeping counts
-the same way: it emits no event and changes nothing the model reads after
-the close, and F2 does not apply to the retention timer. Without this, a word made of the start and infinitely many
-legal retries (`flow_start.rs:99-124` answers each one, also after the
-close) would give `∞` in DexF where Dex, for `w↓`, gives `δ` or `✓`. The
-alternative, counting retries among the finitely many failures of FF,
-would restrict the client instead of the classification; it was not taken.
+**Progress steps.** [decision] One uniform rule: a DexF step is a
+**progress step** if and only if its image under the transition map of
+Section 11.6 is a Dex progress step, that is, a non-empty Dex step other
+than [TICK]. The DexF marker is defined with this rule, exactly as Section
+5.5 defines the Dex marker. Consequences:
+
+- Every step that maps to a stutter is not a progress step: every failure
+  rule, [RESULT-STALE], [START-RETRY], bookkeeping, post-close housekeeping,
+  and repeated `fx`. In particular, infinitely many retries, which apply
+  answers any number of times (`flow_start.rs:99-124`), do not make a run
+  `∞`.
+- So the theorem says nothing about internal livelock of the engine. An
+  infinite run whose only steps other than [TICK] are internal stutters is
+  classified by its Dex image, as `✓` or `δ`. For example, a stale
+  StepMethodCompleted replayed forever after a normal completion is ignored
+  each time (`step_results.rs:863-872`). The real engine stops resubmitting
+  once a proposal succeeds (`dexzd-engine/src/effects/mod.rs:427-456`), but
+  the fairness assumptions do not forbid such a run. Internal livelock is
+  outside the observable model.
+
 Markers:
 
 - `✓` needs the root Flow closed and finitely many progress steps. By F4 and
@@ -3439,8 +3478,9 @@ hypothesis.
 58. Safety is stated as two inclusions, not an equality: erasing repeated
     `fx` from a DexF trace gives a Dex trace, and every Dex trace is a DexF
     trace [decision] (11.5).
-59. A [START-RETRY] is not a progress step: like [TICK], it only advances
-    the partition clock [decision] (11.5).
+59. A DexF step is a progress step if and only if its image under α is a
+    Dex progress step. So the theorem says nothing about internal livelock
+    of the engine [decision] (11.5).
 60. Both theorems use the prefix rule [TIMER-FIRE] of Section 4.5 as an
     explicit modeling idealization; the code's [TIMER-FIRE-SCAN] is
     documented and used by neither. They do not cover runs where timers due
@@ -3461,12 +3501,14 @@ hypothesis.
     retention or purge. Under `E_adm` this changes no event: a publication
     is rejected with NOT_FOUND and FLOW_NOT_EXISTS before and after the
     purge (1.3).
-66. HP, a predicate on runs: in the committed log, every [START-RETRY]
-    command is ordered before the RunPurge of the run its request started.
-    It is not a property of the input word (11.3, 11.5).
-67. Post-close housekeeping (the retention TimersFired and RunPurge) and
-    [START-RETRY] are not progress steps; F2 does not apply to the retention
-    timer [decision] (11.2, 11.5).
+66. HP, a predicate on runs: in the committed log, the command of every
+    retry, a StartFlow request with the request ID of the word's first
+    StartFlow, is ordered before the RunPurge of the original run. It holds
+    trivially without a RunPurge. It is not a property of the input word
+    (11.3, 11.5).
+67. F2 does not apply to the retention timer. That post-close
+    housekeeping and [START-RETRY] are not progress steps follows from item
+    59 (11.2, 11.5).
 68. [ENGINE-REJECT]: after RunPurge the engine rejects a request with
     NOT_FOUND before any proposal; it has no log entry and no stamp, and it
     produces the same event as apply's rejection (11.3).
