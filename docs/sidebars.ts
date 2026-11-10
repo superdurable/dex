@@ -45,7 +45,10 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Correctness and Expressiveness',
           link: {type: 'doc', id: 'concepts/correctness-and-expressiveness/index'},
-          items: ['concepts/correctness-and-expressiveness/workflow-patterns'],
+          items: [
+            'concepts/correctness-and-expressiveness/workflow-patterns',
+            'concepts/correctness-and-expressiveness/expressiveness-proof',
+          ],
         },
       ],
     },
