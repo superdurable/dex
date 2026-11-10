@@ -630,4 +630,99 @@ describe('horizontal Timeline', () => {
     expect(tooltip?.textContent).toContain('#3 · Charge');
     expect(tooltip?.querySelector('strong')?.textContent).toMatch(/\d{2}:\d{2}:\d{2}/);
   });
+
+  describe('selecting from the overview', () => {
+    /** Client pixels equal chart pixels at the 1200 px fallback width; the plot is inset 10 px. */
+    const clientXAt = (ratio: number) => 10 + ratio * 1180;
+    const selectedOptions = () => document.querySelectorAll('[role="option"][aria-selected="true"]');
+
+    function renderOverview(pageEvents: FlowHistoryEvent[]): HTMLElement {
+      render(<Harness pageEvents={pageEvents} />);
+      vi.stubGlobal('PointerEvent', class extends MouseEvent {
+        pointerId = 1;
+      });
+      const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+      overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+      return overview;
+    }
+
+    function click(overview: HTMLElement, clientX: number) {
+      fireEvent.pointerDown(overview, { button: 0, clientX, pointerId: 1 });
+      fireEvent.pointerUp(overview, { clientX, pointerId: 1 });
+    }
+
+    it('selects the event of a single-event bar and centers it in the strip', () => {
+      // A short page draws one bar per event; event #20 sits at the center of the twentieth of 100 slots.
+      const overview = renderOverview(events(100));
+      const barX = clientXAt(19.5 / 100);
+      fireEvent.pointerMove(overview, { clientX: barX, pointerId: 1 });
+      expect(document.querySelector('.htl-overview-tooltip-hint')?.textContent).toBe('Click to select #20');
+      expect(overview.classList.contains('is-over-brush')).toBe(false);
+
+      click(overview, barX);
+      expect(option(20)?.getAttribute('aria-selected')).toBe('true');
+      expect(Number(overview.getAttribute('aria-valuenow'))).toBe(Math.round(19 - visibleCount / 2));
+
+      // A bar inside the brush selects too, and the view recenters on the new event.
+      const insideX = clientXAt(23.5 / 100);
+      fireEvent.pointerMove(overview, { clientX: insideX, pointerId: 1 });
+      expect(overview.classList.contains('is-over-brush')).toBe(false);
+      click(overview, insideX);
+      expect(option(24)?.getAttribute('aria-selected')).toBe('true');
+      expect(selectedOptions()).toHaveLength(1);
+      expect(Number(overview.getAttribute('aria-valuenow'))).toBe(Math.round(23 - visibleCount / 2));
+    });
+
+    it('selects the failed event of a multi-event bar', () => {
+      // 1,000 events fill 168 bars by event order; the bar holding index 500 holds indexes 500 to 505.
+      const pageEvents = events(1000);
+      pageEvents[503] = { ...pageEvents[503], type: 'StepExecuteFailed' };
+      const overview = renderOverview(pageEvents);
+      click(overview, clientXAt(500.5 / 1000));
+      expect(option(504)?.getAttribute('aria-selected')).toBe('true');
+      expect(selectedOptions()).toHaveLength(1);
+      expect(Number(overview.getAttribute('aria-valuenow'))).toBe(Math.round(503 - visibleCount / 2));
+    });
+
+    it('moves the view without selecting when the press becomes a drag', () => {
+      const overview = renderOverview(events(1000));
+      fireEvent.pointerDown(overview, { button: 0, clientX: clientXAt(0.5), pointerId: 1 });
+      fireEvent.pointerMove(overview, { clientX: clientXAt(0.6), pointerId: 1 });
+      fireEvent.pointerUp(overview, { clientX: clientXAt(0.6), pointerId: 1 });
+      expect(selectedOptions()).toHaveLength(0);
+      const moved = Math.round(600 - visibleCount / 2) + 1;
+      expect(overview.getAttribute('aria-valuetext')).toBe(`Events #${moved} to #${moved + visibleCount - 1}`);
+
+      // A press inside the brush that drags past the click slop is a drag, even if it returns near the press.
+      fireEvent.pointerDown(overview, { button: 0, clientX: clientXAt(0.6), pointerId: 1 });
+      fireEvent.pointerMove(overview, { clientX: clientXAt(0.6) + 10, pointerId: 1 });
+      fireEvent.pointerMove(overview, { clientX: clientXAt(0.6) + 1, pointerId: 1 });
+      fireEvent.pointerUp(overview, { clientX: clientXAt(0.6) + 1, pointerId: 1 });
+      expect(selectedOptions()).toHaveLength(0);
+    });
+
+    it('jumps without selecting when the click lands on empty plot space', () => {
+      // A quiet gap in the middle of the time axis leaves bars missing there.
+      const start = Date.parse('2026-10-24T17:00:00Z');
+      const pageEvents = events(1000).map((event, index) => ({
+        ...event,
+        eventTime: new Date(start + (index < 500 ? index : index + 500) * 1000).toISOString(),
+      }));
+      const overview = renderOverview(pageEvents);
+      expect(overview.getAttribute('data-axis')).toBe('time');
+      const before = overview.getAttribute('aria-valuenow');
+      fireEvent.pointerMove(overview, { clientX: clientXAt(0.55), pointerId: 1 });
+      expect(document.querySelector('.htl-overview-tooltip')).toBeNull();
+      click(overview, clientXAt(0.55));
+      expect(selectedOptions()).toHaveLength(0);
+      expect(overview.getAttribute('aria-valuenow')).not.toBe(before);
+    });
+
+    it('selects the event at the brush center with Enter', () => {
+      const overview = renderOverview(events(1000));
+      fireEvent.keyDown(overview, { key: 'Home' });
+      fireEvent.keyDown(overview, { key: 'Enter' });
+      expect(option(Math.floor(visibleCount / 2) + 1)?.getAttribute('aria-selected')).toBe('true');
+    });
+  });
 });

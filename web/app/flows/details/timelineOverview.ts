@@ -178,6 +178,38 @@ export function bucketOverviewEvents(
   return buckets;
 }
 
+/** The status order a bar click follows to pick the event it selects; earlier ranks win. */
+const selectionStatusRanks: Record<EventStatus | 'retried', number> = {
+  failed: 0,
+  retried: 1,
+  waiting: 2,
+  canceled: 3,
+  normal: 4,
+};
+
+/**
+ * Returns the index of the event a click on a bar selects, or -1 for an empty bar.
+ * It is the bar's first failed event, then its first retried, waiting, or canceled event, else its first event.
+ */
+export function overviewBucketSelectionIndex(
+  bucket: OverviewBucket,
+  statuses: readonly EventStatus[],
+  retried: readonly boolean[],
+): number {
+  if (bucket.count === 0) return -1;
+  let bestIndex = bucket.firstEventIndex;
+  let bestRank = selectionStatusRanks.normal;
+  for (let index = bucket.firstEventIndex; index <= bucket.lastEventIndex && bestRank > 0; index += 1) {
+    const status = statuses[index] ?? 'normal';
+    const rank = status !== 'failed' && retried[index] ? selectionStatusRanks.retried : selectionStatusRanks[status];
+    if (rank < bestRank) {
+      bestRank = rank;
+      bestIndex = index;
+    }
+  }
+  return bestIndex;
+}
+
 /** Maps a fractional event index, such as the view's first slot, to its x ratio in [0, 1]. */
 export function eventIndexToRatio(axis: OverviewAxis, eventIndex: number): number {
   const lastEdge = axis.edges.length - 1;

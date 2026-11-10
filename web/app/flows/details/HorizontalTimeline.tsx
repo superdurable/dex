@@ -51,6 +51,7 @@ import {
   eventIndexToRatio,
   hasRetriedFailure,
   minimumPositionGap,
+  overviewBucketSelectionIndex,
   ratioToEventIndex,
   type EventStatus,
   type OverviewAxis,
@@ -90,6 +91,8 @@ const overviewStatusCapHeight = 5;
 const overviewMinBrushWidth = 24;
 /** The brush grips reach this far outside either brush edge, so pressing one grabs the brush. */
 const overviewBrushGripReach = 6;
+/** A press that moves farther than this is a drag, not a click on a bar. */
+const overviewClickSlop = 4;
 /** Room at both ends, so the first and last bars clear the brush handles. */
 const overviewPlotInset = 10;
 /** On a short page each event gets its own bar; time spacing must leave neighbors this many pixels apart. */
@@ -437,7 +440,7 @@ export function HorizontalTimeline({
   const isAtNewestEnd = useRef(true);
   const isDraggingMinimap = useRef(false);
   /** The press: view start, plus its left edge and the pointer in plot pixels. A drag shifts the edge by the pointer delta. */
-  const brushDragOrigin = useRef({ windowStart: 0, pointerX: 0, windowLeftX: 0 });
+  const brushDragOrigin = useRef({ windowStart: 0, pointerX: 0, windowLeftX: 0, hasDragged: false });
   const [hoveredBucket, setHoveredBucket] = useState<number | null>(null);
   const [isPointerOverBrush, setIsPointerOverBrush] = useState(false);
   const timezone = useTimezonePreference();
@@ -455,12 +458,14 @@ export function HorizontalTimeline({
     ? Math.max(3, Math.min(overviewFewEventMaxBarWidth, minimumPositionGap(overviewAxis) * plotWidth - 3))
     : 0;
   const retriedFlags = useMemo(() => chronological.map(hasRetriedFailure), [chronological]);
-  const overviewBuckets = useMemo(() => bucketOverviewEvents(
-    overviewAxis,
-    chronological.map((event) => states.get(event.eventId)?.status ?? 'normal'),
-    retriedFlags,
-    bucketCount,
-  ), [overviewAxis, chronological, states, retriedFlags, bucketCount]);
+  const statusList = useMemo(
+    () => chronological.map((event) => states.get(event.eventId)?.status ?? 'normal'),
+    [chronological, states],
+  );
+  const overviewBuckets = useMemo(
+    () => bucketOverviewEvents(overviewAxis, statusList, retriedFlags, bucketCount),
+    [overviewAxis, statusList, retriedFlags, bucketCount],
+  );
 
   const clampStart = useCallback((start: number) => Math.min(maxStart, Math.max(0, start)), [maxStart]);
   const moveWindow = useCallback((start: number) => {
@@ -574,6 +579,10 @@ export function HorizontalTimeline({
     const { left, right } = brushSpan();
     return plotXValue >= left - overviewBrushGripReach && plotXValue <= right + overviewBrushGripReach;
   };
+  const isOverBrushGrip = (plotXValue: number) => {
+    const { left, right } = brushSpan();
+    return Math.abs(plotXValue - left) <= overviewBrushGripReach || Math.abs(plotXValue - right) <= overviewBrushGripReach;
+  };
   /** The bar under the pointer; on a short page, the nearest event's bar within reach. */
   const bucketAtRatio = (ratio: number): number | null => {
     if (!isFewEvents) {
@@ -584,7 +593,8 @@ export function HorizontalTimeline({
     const nearest = Math.min(chronological.length - 1, Math.floor(ratioToEventIndex(overviewAxis, ratio)));
     const distance = Math.abs(overviewAxis.positions[nearest] - ratio) * plotWidth;
     if (distance > fewEventBarWidth / 2 + 3) return null;
-    return overviewBuckets.findIndex((bucket) => bucket.firstEventIndex <= nearest && bucket.lastEventIndex >= nearest);
+    const bucketIndex = overviewBuckets.findIndex((bucket) => bucket.firstEventIndex <= nearest && bucket.lastEventIndex >= nearest);
+    return bucketIndex >= 0 ? bucketIndex : null;
   };
 
   // Pressing inside the brush drags it from where it was grabbed; pressing outside jumps there first.
@@ -600,25 +610,46 @@ export function HorizontalTimeline({
       moveWindow(start);
     }
     // The real window edge, not the widened brush edge, so a press never moves the view.
-    brushDragOrigin.current = { windowStart: start, pointerX, windowLeftX: eventIndexToRatio(overviewAxis, start) * plotWidth };
+    brushDragOrigin.current = {
+      windowStart: start,
+      pointerX,
+      windowLeftX: eventIndexToRatio(overviewAxis, start) * plotWidth,
+      hasDragged: false,
+    };
   };
 
   const handleMinimapPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const pointerX = pointerPlotX(event.clientX);
     if (isDraggingMinimap.current) {
       const origin = brushDragOrigin.current;
+      if (Math.abs(pointerX - origin.pointerX) > overviewClickSlop) origin.hasDragged = true;
       // Back at the press point, restore the exact start; the pixel round trip may differ by float noise.
       moveWindow(pointerX === origin.pointerX
         ? origin.windowStart
         : ratioToEventIndex(overviewAxis, plotXToRatio(origin.windowLeftX + pointerX - origin.pointerX)));
       return;
     }
-    setHoveredBucket(bucketAtRatio(plotXToRatio(pointerX)));
-    setIsPointerOverBrush(maxStart > 0 && isOverBrush(pointerX));
+    const bucketIndex = bucketAtRatio(plotXToRatio(pointerX));
+    setHoveredBucket(bucketIndex);
+    // Over a bar the cursor offers the click; the grips and empty brush space offer the drag.
+    setIsPointerOverBrush(maxStart > 0 && (isOverBrushGrip(pointerX) || (bucketIndex === null && isOverBrush(pointerX))));
   };
 
   const endMinimapDrag = () => {
     isDraggingMinimap.current = false;
+  };
+
+  // A press that never became a drag is a click; on a bar it selects that bar's event.
+  const handleMinimapPointerUp = () => {
+    const isClick = isDraggingMinimap.current && !brushDragOrigin.current.hasDragged;
+    endMinimapDrag();
+    if (!isClick) return;
+    const bucketIndex = bucketAtRatio(plotXToRatio(brushDragOrigin.current.pointerX));
+    if (bucketIndex === null) return;
+    const eventIndex = overviewBucketSelectionIndex(overviewBuckets[bucketIndex], statusList, retriedFlags);
+    if (eventIndex < 0) return;
+    centerOn(eventIndex);
+    selectIndex(eventIndex);
   };
 
   const handleMinimapKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -629,7 +660,11 @@ export function HorizontalTimeline({
     else if (event.key === 'PageDown') next = windowStart + visibleCount;
     else if (event.key === 'Home') next = 0;
     else if (event.key === 'End') next = maxStart;
-    else return;
+    else if (event.key === 'Enter') {
+      event.preventDefault();
+      selectIndex(Math.floor(windowStart + visibleCount / 2));
+      return;
+    } else return;
     event.preventDefault();
     moveWindow(next);
   };
@@ -665,6 +700,9 @@ export function HorizontalTimeline({
   const hovered = hoveredBucket !== null && overviewBuckets[hoveredBucket]?.count
     ? overviewBucketLines(overviewAxis, overviewBuckets[hoveredBucket], hoveredBucket, bucketCount, chronological, timezone)
     : null;
+  const hoveredSelectionIndex = hovered && hoveredBucket !== null
+    ? overviewBucketSelectionIndex(overviewBuckets[hoveredBucket], statusList, retriedFlags)
+    : -1;
   const hoveredCenterRatio = hoveredBucket === null || !overviewBuckets[hoveredBucket]?.count
     ? 0
     : barCenterX(overviewBuckets[hoveredBucket], hoveredBucket) / stripWidth;
@@ -696,7 +734,7 @@ export function HorizontalTimeline({
           setIsPointerOverBrush(false);
         }}
         onPointerMove={handleMinimapPointerMove}
-        onPointerUp={endMinimapDrag}
+        onPointerUp={handleMinimapPointerUp}
         ref={minimapRef}
         role="slider"
         tabIndex={0}
@@ -816,6 +854,9 @@ export function HorizontalTimeline({
             {hovered.problems.map((problem) => (
               <span className={`htl-overview-tooltip-problem htl-status-${problem.tone}`} key={problem.text}>{problem.text}</span>
             ))}
+            {hoveredSelectionIndex >= 0 && (
+              <span className="htl-overview-tooltip-hint">Click to select #{chronological[hoveredSelectionIndex].eventId}</span>
+            )}
           </div>
         )}
       </div>
