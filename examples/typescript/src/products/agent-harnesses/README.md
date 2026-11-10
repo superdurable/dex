@@ -91,8 +91,15 @@ same Connector configuration, with the `support-slack` connection, on every Work
 Flow types while sessions wait for approval. A Worker without it offers no Slack tool and cannot
 run an approved post.
 
-With the demo model, send `Reply in Slack thread <channel ID> <thread timestamp>: <text>`, such as
-`Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursday.`
+Ask the agent to reply in a Slack thread and give it the channel ID and the thread timestamp, such
+as "Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursday." The model
+calls `slack_post_thread_reply`, and the post waits for approval like `cancel_order`. The
+[AI Agent](../ai-agent) example's demo model takes the call directly:
+`/tool slack_post_thread_reply {"channelId":"C0123456789","threadTimestamp":"1710000000.000100","text":"Order 1002 ships on Thursday."}`.
+
+An invalid project configuration stops the process at startup, so a broken Slack setup is never
+silent. Examples are a `connections.json` that is not mode `0600`, `DEX_CONNECTOR_CONFIG_FILE` set
+together with `DEX_PROJECT_*` variables, or an incomplete set of `DEX_PROJECT_*` variables.
 
 ## Configuration
 

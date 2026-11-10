@@ -42,6 +42,10 @@ describe("Slack connector tools", () => {
     assert.deepEqual(createSlackConnectorToolSources(undefined), []);
   });
 
+  it("fails on an incomplete hosted project configuration", async () => {
+    await assert.rejects(openSlackConnectionFromProject({ DEX_PROJECT_SCOPE: "live" }));
+  });
+
   it("offers no tool when the project has no support-slack connection", async () => {
     const path = await writeLocalConnectionsFile("other-slack.json", "other-slack");
     assert.equal(await openSlackConnectionFromProject({ DEX_CONNECTOR_CONFIG_FILE: path }), undefined);

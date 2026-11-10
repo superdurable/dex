@@ -191,37 +191,50 @@ export async function startSampleServer(): Promise<SampleServer> {
     worker,
     httpServer,
     async close() {
-      try {
-        await new Promise<void>((resolve, reject) => {
-          httpServer.close((error) => {
-            if (error !== undefined) {
-              reject(error);
-              return;
-            }
-            resolve();
-          });
-        });
-      } finally {
-        // Each later close still runs when an earlier one throws.
-        await Promise.race([
-          (async () => {
-            try {
-              await client.close();
-            } finally {
-              try {
-                await worker.close();
-              } finally {
-                blobCache.close();
+      const httpServerCloseErrors = await runCloseSteps([
+        () =>
+          new Promise<void>((resolve, reject) => {
+            httpServer.close((error) => {
+              if (error !== undefined) {
+                reject(error);
+                return;
               }
-            }
-          })(),
-          new Promise<void>((resolve) => {
-            setTimeout(resolve, 3_000);
+              resolve();
+            });
           }),
-        ]);
+      ]);
+      const dexCloseErrors = await Promise.race([
+        runCloseSteps([() => client.close(), () => worker.close(), () => blobCache.close()]),
+        new Promise<unknown[]>((resolve) => {
+          setTimeout(() => resolve([]), 3_000);
+        }),
+      ]);
+      const [firstError, ...laterErrors] = [...httpServerCloseErrors, ...dexCloseErrors];
+      for (const laterError of laterErrors) {
+        console.error("another close step failed", laterError);
+      }
+      if (firstError !== undefined) {
+        throw firstError;
       }
     },
   };
+}
+
+/**
+ * Runs every close step in order, even after one throws.
+ *
+ * @returns The errors the steps threw, in order; empty when all succeeded.
+ */
+async function runCloseSteps(steps: readonly (() => Promise<void> | void)[]): Promise<unknown[]> {
+  const errors: unknown[] = [];
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  return errors;
 }
 
 function allowCors(

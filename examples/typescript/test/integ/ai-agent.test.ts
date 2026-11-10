@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 
 import express from "express";
 
+import { GeneratedMock } from "@superdurable/connector-slack/mock";
 import { Client, Registry, openBlobCache, type BlobCache } from "@superdurable/dex";
 import type { AgentSnapshot } from "@superdurable/dex-agents";
 import { AgentSessionTestClient, KillableWorkerProcess, pollUntil } from "@superdurable/dex-agents/testing";
@@ -33,6 +34,7 @@ import { AgentSessionTestClient, KillableWorkerProcess, pollUntil } from "@super
 import { loadAiAgentConfig, loadMcpServers } from "../../src/products/ai-agent/ai-agent-config.js";
 import { createAiAgentFlow, type AiAgentFlow } from "../../src/products/ai-agent/ai-agent-flow.js";
 import { createAiAgentRouter, sessionTokenHeaderName } from "../../src/products/ai-agent/controller.js";
+import { slackConnectionName } from "../../src/shared/slack-connector-tools.js";
 
 // The demo model needs no key. A small window makes compaction reachable.
 const workerEnvironment: Record<string, string> = { DEX_AGENT_MODEL: "mock/dex", DEX_AGENT_CONTEXT_TOKENS: "600" };
@@ -123,7 +125,8 @@ test("aiAgentPostsAnApprovedSlackThreadReplyOnce", async () => {
   assert.equal(providerCall?.retry, undefined);
   assert.equal(providerCall?.replay, undefined);
   // Slack deduplicates on a key derived from the Call ID, which the tool Step keeps across attempts.
-  assert.equal(providerCall?.idempotencyKey, providerCall?.callId);
+  const postThreadReply = new GeneratedMock(slackConnectionName).postThreadReply();
+  assert.equal(providerCall?.idempotencyKey, postThreadReply.idempotencyKey(providerCall?.callId ?? ""));
 
   // The demo model repeats the tool result: the message Slack sent.
   assert.match(lastText(await sessions.getAgentSnapshot(sessionId)), /"timestamp":"1710000011\.000600"/);

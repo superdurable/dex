@@ -33,11 +33,13 @@ export const slackConnectionName = "support-slack";
  *
  * @param environment - Selects the project configuration: `DEX_CONNECTOR_CONFIG_FILE` or the `DEX_PROJECT_*` settings.
  * @returns The connection, or `undefined` after logging one line when the project has no such connection.
+ * @throws When the selected project configuration is invalid, such as an incomplete `DEX_PROJECT_*` set.
  */
 export async function openSlackConnectionFromProject(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<Connection | undefined> {
-  if (!environment[LocalConnectionsFileEnvironment] && !environment.DEX_PROJECT_ID) {
+  const isHostedConfigurationRequested = Object.keys(environment).some((name) => name.startsWith("DEX_PROJECT_"));
+  if (!environment[LocalConnectionsFileEnvironment] && !isHostedConfigurationRequested) {
     console.warn("No Dex project configuration is set, so the agent examples offer no Slack connector tools");
     return undefined;
   }
