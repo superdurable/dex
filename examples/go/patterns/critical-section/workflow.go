@@ -48,7 +48,7 @@ var (
 	ContractEditToken    = dex.DefineChannel[string]("contractEditToken")
 	ContractEditFinished = dex.DefineChannel[ContractEditRecord]("contractEditFinished")
 	errContractEdit      = errors.New("contract edit failed")
-	contractEditRetry    = &dex.RetryPolicy{InitialInterval: 100 * time.Millisecond, MaximumAttempts: 2}
+	contractEditRetry    = &dex.RetryPolicy{InitialInterval: time.Second, MaximumAttempts: 2}
 )
 
 // ContractEditFlow lets several reviewers edit one contract, one at a time.

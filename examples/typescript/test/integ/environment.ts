@@ -26,6 +26,10 @@ import { HOUR_MS } from "../../src/config/env.js";
 import {
   startExampleWorker,
 } from "../../src/config/worker.js";
+import { creditCheckFlow } from "../../src/patterns/cancel-case/credit-check-flow.js";
+import { loanApplicationFlow } from "../../src/patterns/cancel-case/loan-application-flow.js";
+import { contractEditFlow } from "../../src/patterns/critical-section/contract-edit-flow.js";
+import { offerResponseFlow } from "../../src/patterns/deferred-choice/offer-response-flow.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
 import { workflowPatternFlows } from "../../src/patterns/workflow-patterns/workflow-pattern-flows.js";
 import { channelFlow } from "../../src/primitives/channel/channel-flow.js";
@@ -97,6 +101,10 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     subscriptionFlow,
     userOnboardingFlow,
     ...workflowPatternFlows,
+    offerResponseFlow,
+    contractEditFlow,
+    creditCheckFlow,
+    loanApplicationFlow,
   ];
   const registry = new Registry(flows);
   const cacheDirectory = await mkdtemp(join(tmpdir(), "dex-typescript-examples-integ-"));
