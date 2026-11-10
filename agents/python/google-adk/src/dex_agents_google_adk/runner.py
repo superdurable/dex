@@ -38,6 +38,7 @@ from dex_agents import (
     AgentEventWriter,
     AgentSessionFlow,
     AgentSessionOptions,
+    AgentToolCall,
     AgentTracingOptions,
     AgentTurnContext,
     AgentTurnOutcome,
@@ -47,11 +48,13 @@ from dex_agents import (
     ContextSummaryResult,
     DeferredToolCall,
     DeferredToolExecution,
+    DeferredToolOutcome,
     FrameworkMessage,
     MessageRole,
     ModelCallMetadata,
     ToolCallsRequested,
     ToolCallStatus,
+    ToolCallStepOptions,
     ToolEffect,
     ToolExecutionError,
     ToolExecutionResult,
@@ -60,6 +63,11 @@ from dex_agents import (
     build_context_summary_prompt,
     estimate_stored_input_tokens,
     select_turn_boundary_cutoff,
+)
+from dex_agents.stepwise import (
+    DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    FrameworkToolSourceRouter,
+    ToolSource,
 )
 from dex_agents_google_adk._compaction import (
     build_summary_events,
@@ -81,11 +89,14 @@ from dex_agents_google_adk._run_state import SuspendedAdkTurn
 from dex_agents_google_adk._session_service import TurnSessionService
 from dex_agents_google_adk._tool_deferral import (
     ToolDeferralPlugin,
+    adk_framework_tool_names,
     encode_tool_output,
     find_agent_tool,
+    install_source_toolset,
     require_distinct_tool_names,
     require_supported_agent_tree,
 )
+from dex_agents_google_adk._tool_sources import offer_source_tools
 from dex_agents_google_adk.tools import IDEMPOTENCY_KEY_CUSTOM_METADATA_KEY
 
 #: ADK user ID of every session unless ``AdkAgentRunner`` gets another.
@@ -111,6 +122,19 @@ class AdkAgentRunner:
     Dex Step, in parallel. The next ``RunModel`` answers each
     ``adk_request_confirmation`` call, and the plugin gives ADK the recorded
     result instead of running the tool.
+
+    Tool sources, such as ``ConnectorToolSource``, add tools that every
+    ``RunModel`` lists and offers to every ``LlmAgent`` of the tree. ADK
+    resumes a confirmed call only with one of the agent's own tools, so the
+    runner adds one toolset to each ``LlmAgent``'s ``tools`` when it is
+    built; outside this runner's ``RunModel`` that toolset lists nothing.
+    Every call of a source tool, reads included, pauses like any other call
+    and runs once in its own tool Step through the source that built it. The
+    source picks the effect class, the approval, the write ordering, and the
+    tool Step's timeout and retry policy. The agent's ``before_tool_callback``
+    chain still sees the call first. The runner polls no tool tasks, so a
+    source call that starts one records ``FAILED`` for a ``READ`` call and
+    ``OUTCOME_UNKNOWN`` otherwise.
 
     The runner implements ``ContextCompactionRunner``. Set
     ``AgentSessionOptions.compaction`` to compact at turn boundaries: the summary
@@ -142,6 +166,8 @@ class AdkAgentRunner:
         memory_service: BaseMemoryService | None = None,
         credential_service: BaseCredentialService | None = None,
         summary_model: BaseLlm | str | None = None,
+        tool_sources: Sequence[ToolSource] = (),
+        tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     ) -> None:
         """Wrap an ADK agent or App.
 
@@ -168,21 +194,50 @@ class AdkAgentRunner:
                 first ``LlmAgent`` of the tree.
 
                 .. versionadded:: 0.3.0
+            tool_sources: Tool sources, such as ``ConnectorToolSource``, whose
+                tools every ``RunModel`` lists and offers to every ``LlmAgent``
+                of the tree. Each source has a unique ``source_name``, which
+                the runner stores with every call it builds, so the tool Step
+                reaches that source on any Worker. A ``tool_policies`` entry
+                for a connector tool changes only its approval. With sources,
+                the runner adds a toolset to each ``LlmAgent``'s ``tools``.
+                Defaults to none.
+
+                .. versionadded:: 0.4.0
+            tool_source_listing_timeout: How long one ``RunModel`` waits for
+                each source's ``list_tools``. A source that fails or takes
+                longer offers no tools in that model call, except tools the
+                turn already called. Defaults to 10 seconds.
+
+                .. versionadded:: 0.4.0
 
         Raises:
-            TypeError: If the App's root is not a ``BaseAgent``.
+            TypeError: If the App's root is not a ``BaseAgent``, or a tool
+                source lacks a ``ToolSource`` method or a non-blank
+                ``source_name``.
             ValueError: If two agents of the tree declare different tools with
                 one name, because a tool Step finds its tool by name; if an
                 agent has a code executor other than ``BuiltInCodeExecutor``,
                 because it would run code inside ``RunModel``; or if a
                 ``task`` or ``single_turn`` sub-agent sits under a root that is
-                not an ``LlmAgent``, which ADK does not support.
+                not an ``LlmAgent``, which ADK does not support. Also if two
+                tool sources share a ``source_name``, a source's
+                ``declared_tool_names`` repeat a tool, an agent name, or an
+                ADK control tool of the tree, or another source's tool, or
+                ``tool_source_listing_timeout`` is not positive.
         """
         app = agent if isinstance(agent, App) else App(name=agent.name, root_agent=agent)
         if not isinstance(app.root_agent, BaseAgent):
             raise TypeError("the ADK App root must be a BaseAgent")
         require_supported_agent_tree(app.root_agent)
         require_distinct_tool_names(app.root_agent)
+        self._tool_sources = FrameworkToolSourceRouter(
+            tool_sources,
+            reserved_tool_names=adk_framework_tool_names(app.root_agent),
+            listing_timeout=tool_source_listing_timeout,
+        )
+        if tool_sources:
+            install_source_toolset(app.root_agent, self._tool_sources)
         self._app = app
         self._root_agent: BaseAgent = app.root_agent
         self._run_config = run_config or RunConfig(streaming_mode=StreamingMode.SSE)
@@ -261,6 +316,9 @@ class AdkAgentRunner:
                 branches of a root ``ParallelAgent``; or if a resumed call did
                 not get its
                 recorded result.
+            ValueError: If a tool source listed a name that another source
+                lists, or that a tool, an agent, or an ADK control tool of the
+                tree uses.
             Exception: Any exception from ADK, the model, or a control tool.
         """
         user_message_index = _turn_user_message_index(turn)
@@ -284,7 +342,8 @@ class AdkAgentRunner:
                 events=[*earlier_events, *resumed_events],
             )
         )
-        deferral_plugin = ToolDeferralPlugin(turn, turn.flow_id, self._root_agent)
+        source_tools = await self._tool_sources.list_source_tools(turn)
+        deferral_plugin = ToolDeferralPlugin(turn, turn.flow_id, self._root_agent, source_tools)
         live_events = _LiveAdkEventWriter(turn.events, deferral_plugin.control_tool_names)
         runner = Runner(
             app=self._app.model_copy(
@@ -298,15 +357,16 @@ class AdkAgentRunner:
             memory_service=self._memory_service,
             credential_service=self._credential_service,
         )
-        for new_message in new_messages:
-            async for event in runner.run_async(
-                user_id=self._user_id,
-                session_id=turn.flow_id,
-                invocation_id=None if suspended is None else suspended.invocation_id,
-                new_message=new_message,
-                run_config=self._run_config,
-            ):
-                live_events.write(event)
+        with offer_source_tools(self._tool_sources, source_tools):
+            for new_message in new_messages:
+                async for event in runner.run_async(
+                    user_id=self._user_id,
+                    session_id=turn.flow_id,
+                    invocation_id=None if suspended is None else suspended.invocation_id,
+                    new_message=new_message,
+                    run_config=self._run_config,
+                ):
+                    live_events.write(event)
         segment_events = session_service.appended_events
         if suspended is not None:
             _raise_for_missing_recorded_responses(segment_events, suspended)
@@ -316,7 +376,7 @@ class AdkAgentRunner:
         else:
             invocation_id, user_event_id = suspended.invocation_id, suspended.user_event_id
         turn_events = [*resumed_events, *segment_events]
-        deferred = deferral_plugin.deferred_tool_calls
+        deferred = _in_model_order(segment_events, deferral_plugin.deferred_tool_calls)
         _raise_for_control_tools_beside_deferred_calls(
             segment_events, deferral_plugin.control_tool_names, deferred
         )
@@ -444,8 +504,12 @@ class AdkAgentRunner:
             model_call_metadata=_model_call_metadata([llm.model], responses),
         )
 
-    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
         """Run one tool call once, in its Dex tool Step, outside the ADK run.
+
+        A call that a tool source built goes to that source instead, found by
+        the source name stored with the call, with the source's own reference
+        and the tool Step's live context.
 
         The tool is the first tool with the record's name in a depth-first walk
         of the agent tree; ``RunModel`` already failed the turn when that is not
@@ -463,17 +527,24 @@ class AdkAgentRunner:
 
         Returns:
             The tool result: a bare string as is, any other result as the JSON
-            text of its ADK function response.
+            text of its ADK function response. For a source call, the source's
+            outcome.
 
         Raises:
-            ToolExecutionError: If the tool raised it, or asked for a
-                confirmation or credential inside its Step.
-            LookupError: If no agent in the tree has the tool.
+            ToolExecutionError: If the tool or source raised it, or the tool
+                asked for a confirmation or credential inside its Step.
+            ToolOutcomeUnknownError: The source cannot tell whether the call
+                took effect. The session records ``OUTCOME_UNKNOWN``.
+            LookupError: If no agent in the tree has the tool, or a source
+                built the call but no source of that name is configured on
+                this Worker.
             Exception: Any other exception from the tool fails the Step attempt;
                 after the last attempt the session records ``failed`` for a
                 read and ``outcome_unknown`` for a write.
         """
         record = call.tool_call
+        if self._tool_sources.is_source_tool_call(record):
+            return await self._tool_sources.execute_deferred_tool_call(call)
         session = build_adk_session(
             app_name=self._app.name, user_id=self._user_id, session_id=call.flow_id, events=[]
         )
@@ -519,6 +590,29 @@ class AdkAgentRunner:
             )
         return ToolExecutionResult(output=encode_tool_output(result))
 
+    def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        """Return a tool source's options for one call's tool Step.
+
+        A source that defines ``tool_call_step_options(tool_call)`` gives its
+        calls their own timeout and retry policy, as ``ConnectorToolSource``
+        does from each operation's manifest. ADK tools keep the tool Steps'
+        defaults.
+
+        .. versionadded:: 0.4.0
+
+        Args:
+            tool_call: The record whose tool Step starts.
+
+        Returns:
+            The source's options, or ``None`` for the defaults.
+
+        Raises:
+            LookupError: If a source built the call but no source of that name
+                is configured on this Worker. The session then uses the
+                defaults.
+        """
+        return self._tool_sources.tool_call_step_options(tool_call)
+
 
 def adk_agent_session_flow(
     agent: BaseAgent | App,
@@ -537,6 +631,8 @@ def adk_agent_session_flow(
     compaction: CompactionPolicy | None = None,
     retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT,
     summary_model: BaseLlm | str | None = None,
+    tool_sources: Sequence[ToolSource] = (),
+    tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
 ) -> AgentSessionFlow:
     """Build the durable Dex agent session Flow for one Google ADK agent.
 
@@ -545,6 +641,11 @@ def adk_agent_session_flow(
     once per agent at startup, with a Flow type unique within the Registry.
     Build the same Flow, with the same Flow type, in every process that starts
     sessions or calls their RPCs.
+
+    Tool sources add tools that always run in their own tool Step, reads
+    included. ``ConnectorToolSource`` offers reviewed Connector operations
+    this way: each call gets the operation's effect class, approval, Call ID,
+    timeout, and retry policy from its manifest, as in a Stepwise agent.
 
     Example:
         >>> from google.adk.agents import LlmAgent
@@ -594,6 +695,16 @@ def adk_agent_session_flow(
         summary_model: Model of the summary call. See ``AdkAgentRunner``.
 
             .. versionadded:: 0.3.0
+        tool_sources: Tool sources, such as ``ConnectorToolSource``, whose
+            tools every ``LlmAgent`` of the tree offers. See
+            ``AdkAgentRunner``. A ``tool_policies`` entry for a connector tool
+            changes only its approval. Defaults to none.
+
+            .. versionadded:: 0.4.0
+        tool_source_listing_timeout: How long one ``RunModel`` waits for each
+            source's ``list_tools``. Defaults to 10 seconds.
+
+            .. versionadded:: 0.4.0
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with an ``AdkAgentRunner``.
@@ -614,6 +725,8 @@ def adk_agent_session_flow(
             memory_service=memory_service,
             credential_service=credential_service,
             summary_model=summary_model,
+            tool_sources=tool_sources,
+            tool_source_listing_timeout=tool_source_listing_timeout,
         ),
         flow_type=flow_type,
         options=AgentSessionOptions(
@@ -670,6 +783,21 @@ class _LiveAdkEventWriter:
 def _event_parts(event: Event) -> Iterator[types.Part]:
     if event.content is not None:
         yield from event.content.parts or []
+
+
+def _in_model_order(
+    segment_events: Sequence[Event], deferred_tool_calls: Sequence[DeferredToolCall]
+) -> list[DeferredToolCall]:
+    # ADK runs the calls of one response concurrently; ordered writes need the model's order.
+    model_order: dict[str, int] = {}
+    for event in segment_events:
+        for function_call in event.get_function_calls():
+            if function_call.id is not None:
+                model_order.setdefault(function_call.id, len(model_order))
+    return sorted(
+        deferred_tool_calls,
+        key=lambda call: model_order.get(call.tool_call_id, len(model_order)),
+    )
 
 
 def _turn_user_message_index(turn: AgentTurnContext) -> int:

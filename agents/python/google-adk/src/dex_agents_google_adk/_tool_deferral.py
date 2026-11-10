@@ -37,6 +37,8 @@ from dex_agents import (
     ToolPolicy,
     describe_tool_call_outcome,
 )
+from dex_agents.stepwise import FrameworkToolSourceRouter, SourceToolListing
+from dex_agents_google_adk._tool_sources import SourceTool, SourceToolset
 
 TOOL_DEFERRAL_PLUGIN_NAME = "dex_tool_deferral"
 DEFERRAL_CONFIRMATION_HINT = (
@@ -69,11 +71,18 @@ class ToolDeferralPlugin(BasePlugin):
     ADK invocation; ADK control tools run inline because they steer it.
     """
 
-    def __init__(self, turn: AgentTurnContext, session_id: str, root_agent: BaseAgent) -> None:
+    def __init__(
+        self,
+        turn: AgentTurnContext,
+        session_id: str,
+        root_agent: BaseAgent,
+        source_tools: SourceToolListing,
+    ) -> None:
         super().__init__(name=TOOL_DEFERRAL_PLUGIN_NAME)
         self._turn = turn
         self._session_id = session_id
         self._root_agent = root_agent
+        self._source_tools = source_tools
         self.deferred_tool_calls: list[DeferredToolCall] = []
         self.control_tool_names: dict[str, str] = {}
         self.model_call_count = 0
@@ -120,6 +129,8 @@ class ToolDeferralPlugin(BasePlugin):
             self._turn.events.write_tool_call_started(tool_call_id, tool.name)
             self.control_tool_names[tool_call_id] = tool.name
             return None
+        if isinstance(tool, SourceTool):
+            return await self._defer_source_tool_call(tool, tool_args, tool_context, tool_call_id)
         policy = await self._resolve_policy(tool, tool_args, tool_context)
         await self._require_deferrable_tool(tool, policy, tool_context)
         callback_response = await run_agent_before_tool_callbacks(tool, tool_args, tool_context)
@@ -135,6 +146,30 @@ class ToolDeferralPlugin(BasePlugin):
                 policy=policy,
             )
         )
+        return dict(DEFERRED_TOOL_RESPONSE)
+
+    async def _defer_source_tool_call(
+        self,
+        tool: SourceTool,
+        tool_args: dict[str, Any],
+        tool_context: ToolContext,
+        tool_call_id: str,
+    ) -> dict[str, Any]:
+        """Defer a tool source call; its source, not ADK, picks the effect class and approval."""
+        callback_response = await run_agent_before_tool_callbacks(tool, tool_args, tool_context)
+        if callback_response is not None:
+            return callback_response
+        deferred = self._source_tools.deferred_tool_call(
+            self._turn,
+            tool_call_id=tool_call_id,
+            tool_name=tool.name,
+            arguments=json.dumps(tool_args, ensure_ascii=False),
+        )
+        if deferred is None:
+            raise RuntimeError(f"tool source tool {tool.name} is not in this model call's listing")
+        tool_context.request_confirmation(hint=DEFERRAL_CONFIRMATION_HINT)
+        tool_context.actions.skip_summarization = True
+        self.deferred_tool_calls.append(deferred)
         return dict(DEFERRED_TOOL_RESPONSE)
 
     async def _resolve_policy(
@@ -336,6 +371,35 @@ def require_distinct_tool_names(root_agent: BaseAgent) -> None:
                     f"agents {owner[0]} and {agent.name} both have a tool named {tool.name}; "
                     "a Dex tool Step finds its tool by name, so give tools distinct names"
                 )
+
+
+def install_source_toolset(root_agent: BaseAgent, router: FrameworkToolSourceRouter) -> None:
+    """Add one runner's ``SourceToolset`` to every ``LlmAgent`` of the tree.
+
+    ADK resumes a confirmed call only with a tool of the agent's own tools,
+    so the source tools must be there. Outside this runner's ``RunModel`` the
+    toolset lists nothing, so the agents behave as before.
+    """
+    toolset = SourceToolset(router)
+    for agent in walk_agent_tree(root_agent):
+        if isinstance(agent, LlmAgent):
+            agent.tools = [*agent.tools, toolset]
+
+
+def adk_framework_tool_names(root_agent: BaseAgent) -> set[str]:
+    """Return the tool names of the tree that ADK knows before a run, and its control tools."""
+    names = set(ADK_CONTROL_TOOL_NAMES)
+    for agent in walk_agent_tree(root_agent):
+        names.add(agent.name)
+        if not isinstance(agent, LlmAgent):
+            continue
+        for tool_union in agent.tools:
+            if isinstance(tool_union, BaseToolset):
+                continue
+            tool = tool_union if isinstance(tool_union, BaseTool) else FunctionTool(tool_union)
+            if not is_adk_control_tool(tool):
+                names.add(tool.name)
+    return names
 
 
 def walk_agent_tree(agent: BaseAgent) -> Iterator[BaseAgent]:
