@@ -310,7 +310,7 @@ RPC 的锁由调用方发送。SDK Client 和 Dex Web 会带上 RPC 声明的锁
 
 ## Connector tool {#connector-tools}
 
-Stepwise agent 可以把 [Connector](/primitives/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供这些 tool，方式和 **McpToolSource** 提供 MCP server 的 tool 一样。每次调用在自己的 tool Step 中通过 Connector SDK 运行一个 operation，所以 Call ID、幂等键、凭证处理和 single-dispatch fence 的行为和 Connector Step 中相同。Python 和 TypeScript core 提供这项功能。Go core 只支持 function tool，framework adapter 暂时也不提供 connector tool。
+Stepwise agent 可以把 [Connector](/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供这些 tool，方式和 **McpToolSource** 提供 MCP server 的 tool 一样。每次调用在自己的 tool Step 中通过 Connector SDK 运行一个 operation，所以 Call ID、幂等键、凭证处理和 single-dispatch fence 的行为和 Connector Step 中相同。Python 和 TypeScript core 提供这项功能。Go core 只支持 function tool，framework adapter 暂时也不提供 connector tool。
 
 安装带 Connector SDK 的 core，以及 agent 用到的每个 Connector 包：
 
