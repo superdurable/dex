@@ -96,9 +96,9 @@ theorem wp3b_effect_broadcast (mid : MidState program lConfig dexConfig run tid 
     apply eq_of_nodup_map (fun candidate => candidate.core.tid) lConfig.threads
       mid.threads.threadIdsNodup isFirst isSecond
     show first.core.tid = second.core.tid
-    rw [← wp3b_threadOfInput_of_carries program first record (mid.threads.noBoot first isFirst).1
+    rw [← threadOfInput_of_carries_of_booted program first record (mid.threads.noBoot first isFirst).1
         (mid.threads.noBoot first isFirst).2 firstCarries,
-      wp3b_threadOfInput_of_carries program second record (mid.threads.noBoot second isSecond).1
+      threadOfInput_of_carries_of_booted program second record (mid.threads.noBoot second isSecond).1
         (mid.threads.noBoot second isSecond).2 secondCarries]
   have parkOfChan : ∀ self on waiter, Chan.cvWake cv waiter ∈ (expectedWaitShape self on).2.2 →
       on = .park cv ∧ self = waiter := by
@@ -148,7 +148,7 @@ theorem wp3b_effect_broadcast (mid : MidState program lConfig dexConfig run tid 
         obtain ⟨thread, on, since, isThread, isBlocked, carries, isMatch⟩ :=
           mid.threads.blockedOfWaiting other isOther isWaiting
         obtain ⟨_, _, found, foundWait, hasKind, hasLength, hasChannels, hasDone⟩ :=
-          wp3b_waiting_of_blocked program lConfig dexConfig thread other on since isBlocked isMatch
+          waiting_of_phaseMatchesStep program lConfig dexConfig thread other on since isBlocked isMatch
         rw [waitCase] at foundWait
         cases foundWait
         rw [hasChannels, ← isWake] at isChan
@@ -256,7 +256,7 @@ theorem wp3b_effect_broadcast (mid : MidState program lConfig dexConfig run tid 
   obtain ⟨lThreads, lTaken, lOther, lSame, lCounter, _, _⟩ :=
     wp3b_broadcast_fold cv waiters lConfig mid.threads.threadIdsNodup
   obtain ⟨sameAttributes, sameCounters, sameStatus, sameOutputs⟩ :=
-    wp3b_applyEffects_frame run { publications := broadcastPublications cv waiters }
+    Dex.Run.applyEffects_keeps_data run { publications := broadcastPublications cv waiters }
   have wokenWereBlocked : ∀ thread, thread ∈ lConfig.threads → ∀ outcome,
       broadcastWoken cv waiters thread = some outcome →
       ∃ on since, thread.phase = .blocked on since := by

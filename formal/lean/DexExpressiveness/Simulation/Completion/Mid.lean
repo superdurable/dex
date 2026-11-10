@@ -1,4 +1,4 @@
-import DexExpressiveness.Simulation.Completion.Basics
+import DexExpressiveness.Simulation.Frame
 
 /-!
 # The relation while an Execute commits
@@ -102,9 +102,9 @@ theorem threadOfStep (mid : MidThreads program lConfig dexConfig run tid stepId)
   obtain ⟨found, isFound, foundActive, foundCarries, isMatch⟩ :=
     mid.threadsHaveSteps thread isThread isOtherThread isLive
   have sameThread : threadOfInput record.input = threadOfInput found.input := by
-    rw [wp3b_threadOfInput_of_carries program thread record (mid.noBoot thread isThread).1
+    rw [threadOfInput_of_carries_of_booted program thread record (mid.noBoot thread isThread).1
         (mid.noBoot thread isThread).2 carries,
-      wp3b_threadOfInput_of_carries program thread found (mid.noBoot thread isThread).1
+      threadOfInput_of_carries_of_booted program thread found (mid.noBoot thread isThread).1
         (mid.noBoot thread isThread).2 foundCarries]
   have isSame := mid.activeStepsHaveDistinctThreads record isMember found isFound isActive
     foundActive sameThread
@@ -120,9 +120,9 @@ theorem stepOfThread_unique (mid : MidThreads program lConfig dexConfig run tid 
     (firstCarries : StepCarriesThread program thread first)
     (secondCarries : StepCarriesThread program thread second) : first = second := by
   apply mid.activeStepsHaveDistinctThreads first isFirst second isSecond firstActive secondActive
-  rw [wp3b_threadOfInput_of_carries program thread first (mid.noBoot thread isThread).1
+  rw [threadOfInput_of_carries_of_booted program thread first (mid.noBoot thread isThread).1
       (mid.noBoot thread isThread).2 firstCarries,
-    wp3b_threadOfInput_of_carries program thread second (mid.noBoot thread isThread).1
+    threadOfInput_of_carries_of_booted program thread second (mid.noBoot thread isThread).1
       (mid.noBoot thread isThread).2 secondCarries]
 
 /-- A blocked thread has a waiting Step with the wait its statement asks for. -/
@@ -141,7 +141,7 @@ theorem stepOfBlocked (mid : MidThreads program lConfig dexConfig run tid stepId
   obtain ⟨record, isRecord, isActive, carries, isMatch⟩ :=
     mid.threadsHaveSteps thread isThread isOther (by simp [isBlocked])
   obtain ⟨isWaiting, _, waitState, hasWait, shape⟩ :=
-    wp3b_waiting_of_blocked program lConfig dexConfig thread record on since isBlocked isMatch
+    waiting_of_phaseMatchesStep program lConfig dexConfig thread record on since isBlocked isMatch
   exact ⟨record, waitState, isRecord, isActive, carries, isWaiting, hasWait, shape⟩
 
 /-- A waiting Step carries a blocked thread. -/
@@ -155,7 +155,7 @@ theorem blockedOfWaiting (mid : MidThreads program lConfig dexConfig run tid ste
     (mid.ownStep record isMember isOwn).1 isWaiting
   obtain ⟨thread, isThread, _, _, carries, isMatch⟩ :=
     mid.threadOfStep record isMember (by simp [isWaiting, Dex.Phase.isActive]) isOther
-  obtain ⟨on, since, isBlocked⟩ := wp3b_blocked_of_waiting program lConfig dexConfig thread record
+  obtain ⟨on, since, isBlocked⟩ := blocked_of_phaseMatchesStep program lConfig dexConfig thread record
     isMatch isWaiting
   exact ⟨thread, on, since, isThread, isBlocked, carries, isMatch⟩
 
@@ -175,7 +175,7 @@ theorem timedStep (mid : MidThreads program lConfig dexConfig run tid stepId)
   unfold Thread.PhaseFitsCode at fits
   simp only [isBlocked] at fits
   obtain ⟨⟨seconds, hasTimer⟩, _⟩ := fits
-  have shape := (wp3b_carries_iff program thread record (mid.noBoot thread isThread).1
+  have shape := (stepCarriesThread_iff_of_booted program thread record (mid.noBoot thread isThread).1
     (mid.noBoot thread isThread).2).mp carries
   simp only [hasTimer] at shape
   rw [shape.1, ← isTimed]
@@ -188,7 +188,7 @@ theorem ne_ownStep (mid : MidThreads program lConfig dexConfig run tid stepId)
   intro isOwn
   apply isOther
   rw [← (mid.ownStep record isRecord isOwn).2.2]
-  exact (wp3b_threadOfInput_of_carries program thread record (mid.noBoot thread isThread).1
+  exact (threadOfInput_of_carries_of_booted program thread record (mid.noBoot thread isThread).1
     (mid.noBoot thread isThread).2 carries).symm
 
 end MidThreads
@@ -308,7 +308,7 @@ theorem MidThreads.wake {program : Program} {lConfig : L.Config}
       StepCarriesThread program thread (wakeRecordBy results record) →
       StepCarriesThread program thread record := by
     intro thread isThread record carries
-    exact wp3b_carries_congr program thread thread _ record (mid.noBoot thread isThread).1
+    exact stepCarriesThread_congr_of_booted program thread thread _ record (mid.noBoot thread isThread).1
       (mid.noBoot thread isThread).2 (mid.noBoot thread isThread).1 (mid.noBoot thread isThread).2
       rfl rfl rfl (recordFacts record).1.symm (recordFacts record).2.1.symm
       (recordFacts record).2.2.1.symm carries
@@ -332,7 +332,7 @@ theorem MidThreads.wake {program : Program} {lConfig : L.Config}
       intro threadKept recordKept
       rw [keptThread thread threadKept, keptRecord record recordKept]
       refine ⟨carries, ?_, isActive, isLive⟩
-      exact wp3b_phaseMatches_congr program lConfig lNext dexConfig dexNext thread record
+      exact phaseMatchesStep_congr program lConfig lNext dexConfig dexNext thread record
         (fun task isMember _ => by rw [sameTasks]; exact isMember)
         (fun loaded isRunning cv isOperand =>
           sameQueues thread isThread isOther loaded isRunning cv isOperand) isMatch
@@ -351,7 +351,7 @@ theorem MidThreads.wake {program : Program} {lConfig : L.Config}
           simp [wakeRecordBy, isFired]
         rw [isThreadNext, isRecordNext]
         refine ⟨?_, ?_, rfl, by simp⟩
-        · exact wp3b_carries_congr program thread _ record _ (mid.noBoot thread isThread).1
+        · exact stepCarriesThread_congr_of_booted program thread _ record _ (mid.noBoot thread isThread).1
             (mid.noBoot thread isThread).2 (by simp) (by simp) rfl rfl rfl rfl rfl rfl carries
         · simp only [PhaseMatchesStep, true_and]
           exact isDecoded
@@ -359,7 +359,7 @@ theorem MidThreads.wake {program : Program} {lConfig : L.Config}
         fun on since isBlockedOn => isBlocked ⟨on, since, isBlockedOn⟩
       have isNotWaiting : record.phase ≠ .waiting := by
         intro isWaiting
-        obtain ⟨on, since, isBlockedOn⟩ := wp3b_blocked_of_waiting program lConfig dexConfig
+        obtain ⟨on, since, isBlockedOn⟩ := blocked_of_phaseMatchesStep program lConfig dexConfig
           thread record isMatch isWaiting
         exact isNotBlocked on since isBlockedOn
       exact unchanged (unblockedKept thread isThread isNotBlocked)
@@ -379,7 +379,7 @@ theorem MidThreads.wake {program : Program} {lConfig : L.Config}
     unfold Thread.PhaseFitsCode at fits
     simp only [isBlocked] at fits
     obtain ⟨⟨seconds, hasTimer⟩, _⟩ := fits
-    have shape := (wp3b_carries_iff program thread record (mid.noBoot thread isThread).1
+    have shape := (stepCarriesThread_iff_of_booted program thread record (mid.noBoot thread isThread).1
       (mid.noBoot thread isThread).2).mp carries
     simp only [hasTimer] at shape
     rw [shape.1, ← isTimed]

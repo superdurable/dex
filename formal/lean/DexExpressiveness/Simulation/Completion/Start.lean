@@ -28,40 +28,6 @@ def releasedRun (run : Dex.Run signature) (stepId : Dex.StepExecId signature) :
   ({ run with seq := run.seq + 1 } : Dex.Run signature).updateStep stepId
     (fun record => { record with invocation := none })
 
-/-- A Step that carries a thread of a configuration with the L invariant has
-the thread's ID in its input, also during the start action. -/
-theorem wp3b_threadOfInput_of_invariant (program : Program) (lConfig : L.Config)
-    (lInvariant : L.Invariant program lConfig) (thread : L.Thread)
-    (isThread : thread ∈ lConfig.threads) (record : Dex.StepRecord signature)
-    (carries : StepCarriesThread program thread record) :
-    threadOfInput record.input = thread.core.tid := by
-  by_cases isBoot : thread.phase = .bootPending ∨ thread.phase = .bootRunning
-  · obtain ⟨_, _, _, input, isCore⟩ := lInvariant.bootIsInitial thread isThread isBoot
-    unfold StepCarriesThread at carries
-    rcases isBoot with isPending | isRunning
-    · simp only [isPending] at carries
-      obtain ⟨_, value, hasInput, _⟩ := carries
-      simp [threadOfInput, hasInput, isCore]
-    · simp only [isRunning] at carries
-      obtain ⟨_, value, hasInput, _⟩ := carries
-      simp [threadOfInput, hasInput, isCore]
-  · exact wp3b_threadOfInput_of_carries program thread record (fun isPending => isBoot (Or.inl isPending))
-      (fun isRunning => isBoot (Or.inr isRunning)) carries
-
-/-- While a thread is outside the start action, no thread is in it. -/
-theorem wp3b_noBoot_of_other (program : Program) (lConfig : L.Config)
-    (lInvariant : L.Invariant program lConfig) (thread other : L.Thread)
-    (isThread : thread ∈ lConfig.threads) (isOther : other ∈ lConfig.threads)
-    (isDistinct : other ≠ thread) :
-    other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning := by
-  have notBoot : ¬ (other.phase = .bootPending ∨ other.phase = .bootRunning) := by
-    intro isBoot
-    obtain ⟨isOnly, _⟩ := lInvariant.bootIsInitial other isOther isBoot
-    rw [isOnly] at isThread
-    have isSame : thread = other := by simpa using isThread
-    exact isDistinct isSame.symm
-  exact ⟨fun isPending => notBoot (Or.inl isPending), fun isRunning => notBoot (Or.inr isRunning)⟩
-
 /-- The thread-and-Step part of the relation after the commit released the
 invocation of the Step that carries `thread`. `lMid` is any L configuration
 with the other threads unchanged and the committing thread, if still there,
@@ -117,11 +83,11 @@ theorem wp3b_start_threads (program : Program) (lConfig lMid : L.Config)
   have threadTid : ∀ other, other ∈ lConfig.threads → ∀ candidate,
       StepCarriesThread program other candidate →
       threadOfInput candidate.input = other.core.tid := fun other isOther candidate =>
-    wp3b_threadOfInput_of_invariant program lConfig lInvariant other isOther candidate
+    threadOfInput_of_mem lInvariant isOther
   have otherNoBoot : ∀ other, other ∈ lConfig.threads → other.core.tid ≠ thread.core.tid →
       other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning := by
     intro other isOther isDistinct
-    exact wp3b_noBoot_of_other program lConfig lInvariant thread other isThread isOther
+    exact noBoot_of_other program lConfig lInvariant thread other isThread isOther
       (fun isSame => isDistinct (by rw [isSame]))
   have blockedIsOld : ∀ other, other ∈ lMid.threads → ∀ on since,
       other.phase = .blocked on since →
@@ -169,7 +135,7 @@ theorem wp3b_start_threads (program : Program) (lConfig lMid : L.Config)
         refine ⟨candidate, ?_, candidateActive, otherCarries, ?_⟩
         · rw [stepsReleased]
           exact List.mem_map.mpr ⟨candidate, isCandidate, releaseOther candidate isOtherStep⟩
-        · apply wp3b_phaseMatches_congr program lConfig lMid dexConfig dexMid other candidate
+        · apply phaseMatchesStep_congr program lConfig lMid dexConfig dexMid other candidate
             ?_ (fun _ _ cv _ => by rw [sameQueues]) isMatch
           intro otherTask isOtherTask otherHasStep
           rw [tasksMid]
@@ -236,10 +202,10 @@ theorem wp3b_start_threads (program : Program) (lConfig lMid : L.Config)
           (blockedIsOld first isFirst firstOn firstSince firstBlocked).1
           (blockedIsOld second isSecond secondOn secondSince secondBlocked).1 isFirstOld
           isSecondOld firstActive secondActive
-          (wp3b_carries_congr program first first _ firstOld firstNoBoot.1 firstNoBoot.2
+          (stepCarriesThread_congr_of_booted program first first _ firstOld firstNoBoot.1 firstNoBoot.2
             firstNoBoot.1 firstNoBoot.2 rfl rfl rfl (releaseFacts firstOld).1.symm
             (releaseFacts firstOld).2.1.symm (releaseFacts firstOld).2.2.1.symm firstCarries)
-          (wp3b_carries_congr program second second _ secondOld secondNoBoot.1 secondNoBoot.2
+          (stepCarriesThread_congr_of_booted program second second _ secondOld secondNoBoot.1 secondNoBoot.2
             secondNoBoot.1 secondNoBoot.2 rfl rfl rfl (releaseFacts secondOld).1.symm
             (releaseFacts secondOld).2.1.symm (releaseFacts secondOld).2.2.1.symm secondCarries)
           firstBlocked secondBlocked firstHasWait secondHasWait
@@ -362,7 +328,7 @@ theorem wp3b_start_data (program : Program) (lConfig lMid : L.Config)
         intro target isOther isFlagged
         rw [sameData.cancelFlags] at isFlagged
         have sameFound : lConfig.findThread? target = lMid.findThread? target :=
-          wp3b_findThread?_congr lConfig lMid target nodupMid (fun candidate hasId =>
+          findThread?_congr lConfig lMid target nodupMid (fun candidate hasId =>
             (others candidate (by rw [hasId]; exact isOther)).symm)
         rw [← sameFound]
         rcases related.cancelFlagsAreRequests target isFlagged with hasRequest | isCanceled |

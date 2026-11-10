@@ -60,7 +60,7 @@ theorem wp3b_wakeCvWaiter_cases (config : L.Config)
   by_cases isParked : ∃ thread since, config.findThread? waiter = some thread ∧
       thread.phase = .blocked (.park cv) since
   · obtain ⟨thread, since, isFound, isBlocked⟩ := isParked
-    obtain ⟨isThread, hasId⟩ := wp3b_findThread?_some config waiter thread isFound
+    obtain ⟨isThread, hasId⟩ := mem_of_findThread? isFound
     left
     exact ⟨thread, isThread, hasId, (wp3b_parkedOn_iff cv thread).mpr ⟨since, isBlocked⟩, by
       simp [L.Config.wakeCvWaiter, isFound, isBlocked]⟩
@@ -73,7 +73,7 @@ theorem wp3b_wakeCvWaiter_cases (config : L.Config)
         obtain ⟨since, isBlocked⟩ := (wp3b_parkedOn_iff cv thread).mp parkedCase
         exact absurd ⟨thread, since, by
           rw [← hasId]
-          exact wp3b_findThread?_of_mem config thread idsNodup isThread, isBlocked⟩ isParked
+          exact findThread?_of_mem_of_nodup config thread idsNodup isThread, isBlocked⟩ isParked
     · cases foundCase : config.findThread? waiter with
       | none => simp [L.Config.wakeCvWaiter, foundCase]
       | some thread =>

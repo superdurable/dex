@@ -107,6 +107,21 @@ theorem RunningRelated.blocked_of_waiting {program : Program} {lConfig : L.Confi
          | cases isPhase
          | (split at isPhase <;> cases isPhase))
 
+/-- A waiting Step carries a blocked thread, whose phase it matches. -/
+theorem RunningRelated.blockedThread_of_waiting {program : Program} {lConfig : L.Config}
+    {dexConfig : Dex.Config signature} {run : Dex.Run signature}
+    (related : RunningRelated program lConfig dexConfig run)
+    (record : Dex.StepRecord signature) (isRecord : record ∈ run.steps)
+    (isWaiting : record.phase = .waiting) :
+    ∃ thread on since, thread ∈ lConfig.threads ∧ thread.phase = .blocked on since ∧
+      StepCarriesThread program thread record ∧
+      PhaseMatchesStep program lConfig dexConfig thread record := by
+  obtain ⟨_, thread, on, since, isThread, isBlocked, carries⟩ :=
+    related.blocked_of_waiting record isRecord isWaiting
+  refine ⟨thread, on, since, isThread, isBlocked, carries,
+    related.phaseMatchesStep_of_carries thread isThread (by rw [isBlocked]; simp) record isRecord
+      (by rw [isWaiting]; rfl) carries⟩
+
 /-! ## Facts about the Dex configuration of a simulation state -/
 
 /-- A waiting Step has no invocation, while the Flow runs and after the close. -/

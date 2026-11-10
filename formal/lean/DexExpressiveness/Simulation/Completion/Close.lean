@@ -167,7 +167,7 @@ theorem wp3b_pendingEffects_perm (program : Program) (lConfig : L.Config)
   have threadTid : ∀ other, other ∈ lConfig.threads → ∀ candidate,
       StepCarriesThread program other candidate →
       threadOfInput candidate.input = other.core.tid := fun other isOther candidate =>
-    wp3b_threadOfInput_of_invariant program lConfig lInvariant other isOther candidate
+    threadOfInput_of_mem lInvariant isOther
   have sameThread : ∀ first, first ∈ lConfig.threads → ∀ second, second ∈ lConfig.threads →
       first.core.tid = second.core.tid → first = second := fun first isFirst second isSecond =>
     eq_of_nodup_map (fun other => other.core.tid) lConfig.threads lInvariant.threadIdsNodup
@@ -449,7 +449,7 @@ theorem wp3b_close_related (program : Program) (lConfig : L.Config)
     apply List.filter_eq_nil_iff.mpr
     intro entry isEntry
     obtain ⟨isOld, isOther⟩ := finishedTimers entry isEntry
-    obtain ⟨fireTime, isArmed⟩ := AssocList.wp3b_get?_isSome_of_mem run.timers entry isOld
+    obtain ⟨fireTime, isArmed⟩ := AssocList.get?_isSome_of_mem run.timers entry isOld
     obtain ⟨blocked, chan, since, isBlockedThread, isBlocked, isTimed, _⟩ :=
       (related.timers entry.1 fireTime).mp isArmed
     obtain ⟨candidate, isCandidate, isActive, carries, _⟩ :=
@@ -458,7 +458,7 @@ theorem wp3b_close_related (program : Program) (lConfig : L.Config)
     unfold Thread.PhaseFitsCode at fits
     simp only [isBlocked] at fits
     obtain ⟨⟨seconds, hasTimer⟩, _⟩ := fits
-    have shape := (wp3b_carries_iff program blocked candidate (by simp [isBlocked])
+    have shape := (stepCarriesThread_iff_of_booted program blocked candidate (by simp [isBlocked])
       (by simp [isBlocked])).mp carries
     simp only [hasTimer] at shape
     have hasId : candidate.id = entry.1.step := by

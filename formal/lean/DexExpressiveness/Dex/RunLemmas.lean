@@ -128,6 +128,38 @@ theorem mem_of_contains (map : AssocList κ ν) (key : κ) (isContained : contai
       obtain ⟨value, isMember⟩ := inductionHypothesis restContains
       exact ⟨value, List.mem_cons_of_mem _ isMember⟩
 
+/-- Lookup in a map filtered by a predicate on keys. -/
+theorem get?_filter (isKept : κ → Bool) (map : AssocList κ ν) (wanted : κ) :
+    get? (map.filter (fun entry => isKept entry.1)) wanted =
+      if isKept wanted then get? map wanted else none := by
+  induction map with
+  | nil => simp [get?]
+  | cons entry rest inductionHypothesis =>
+    obtain ⟨key, value⟩ := entry
+    by_cases isWanted : key = wanted
+    · subst isWanted
+      by_cases keepsKey : isKept key = true
+      · simp [keepsKey, get?]
+      · simp [keepsKey, inductionHypothesis]
+    · by_cases keepsKey : isKept key = true
+      · simp [keepsKey, get?, isWanted, inductionHypothesis]
+      · simp [keepsKey, get?, isWanted, inductionHypothesis]
+
+/-- The key of an entry is bound. -/
+theorem get?_isSome_of_mem (map : AssocList κ ν) (entry : κ × ν) (isMember : entry ∈ map) :
+    ∃ value, get? map entry.1 = some value := by
+  induction map with
+  | nil => cases isMember
+  | cons head rest inductionHypothesis =>
+    obtain ⟨key, value⟩ := head
+    by_cases isKey : key = entry.1
+    · exact ⟨value, by simp [get?, isKey]⟩
+    · rcases List.mem_cons.mp isMember with isHead | isInRest
+      · subst isHead
+        exact absurd rfl isKey
+      · obtain ⟨found, isFound⟩ := inductionHypothesis isInRest
+        exact ⟨found, by simp [get?, isKey, isFound]⟩
+
 end AssocList
 
 /-- Two members with the same image are equal, when the images have no duplicates. -/
@@ -207,6 +239,81 @@ theorem head?_sortStable_of_least {α : Type} (isAtMost : α → α → Bool) (l
         · subst isSame
           simp [insertSorted, isReflexive]
         · simp [insertSorted, isBefore]
+
+/-- The head after an insertion is the new element or the old head. -/
+theorem head?_insertSorted {α : Type} (isAtMost : α → α → Bool) (newElement : α)
+    (elements : List α) :
+    (insertSorted isAtMost newElement elements).head? =
+      some (match elements.head? with
+        | none => newElement
+        | some head => if isAtMost newElement head then newElement else head) := by
+  cases elements with
+  | nil => rfl
+  | cons head rest =>
+    by_cases isBefore : isAtMost newElement head = true <;> simp [insertSorted, isBefore]
+
+/-- The head of a sorted list is at most every element. -/
+theorem le_of_head?_sortStable {α : Type} (isAtMost : α → α → Bool)
+    (isReflexive : ∀ element, isAtMost element element = true)
+    (isTransitive : ∀ first second third, isAtMost first second = true →
+      isAtMost second third = true → isAtMost first third = true)
+    (isTotal : ∀ first second, isAtMost first second = true ∨ isAtMost second first = true)
+    (elements : List α) (least : α)
+    (isHead : (sortStable isAtMost elements).head? = some least) :
+    ∀ other, other ∈ elements → isAtMost least other = true := by
+  induction elements generalizing least with
+  | nil => intro other isMember; cases isMember
+  | cons head rest inductionHypothesis =>
+    simp only [sortStable] at isHead
+    rw [head?_insertSorted] at isHead
+    cases restCase : (sortStable isAtMost rest).head? with
+    | none =>
+      simp only [restCase, Option.some.injEq] at isHead
+      subst isHead
+      intro other isMember
+      rcases List.mem_cons.mp isMember with isSame | isInRest
+      · subst isSame
+        exact isReflexive _
+      · have isSorted : other ∈ sortStable isAtMost rest := (mem_sortStable _ _ _).mpr isInRest
+        cases sortedCase : sortStable isAtMost rest with
+        | nil => rw [sortedCase] at isSorted; cases isSorted
+        | cons first later => rw [sortedCase] at restCase; simp at restCase
+    | some restLeast =>
+      simp only [restCase, Option.some.injEq] at isHead
+      have restIsLeast := inductionHypothesis restLeast restCase
+      intro other isMember
+      by_cases isBefore : isAtMost head restLeast = true
+      · simp only [isBefore, ↓reduceIte] at isHead
+        subst isHead
+        rcases List.mem_cons.mp isMember with isSame | isInRest
+        · subst isSame
+          exact isReflexive _
+        · exact isTransitive _ _ _ isBefore (restIsLeast other isInRest)
+      · simp only [isBefore, Bool.false_eq_true, ↓reduceIte] at isHead
+        subst isHead
+        rcases List.mem_cons.mp isMember with isSame | isInRest
+        · subst isSame
+          rcases isTotal other restLeast with isFirst | isSecond
+          · exact absurd isFirst isBefore
+          · exact isSecond
+        · exact restIsLeast other isInRest
+
+/-- A sorted list with no head has no element. -/
+theorem not_mem_of_head?_sortStable_none {α : Type} (isAtMost : α → α → Bool)
+    (elements : List α) (isNone : (sortStable isAtMost elements).head? = none) (element : α) :
+    element ∉ elements := by
+  intro isMember
+  have isSorted : element ∈ sortStable isAtMost elements := (mem_sortStable _ _ _).mpr isMember
+  cases sortedCase : sortStable isAtMost elements with
+  | nil => rw [sortedCase] at isSorted; cases isSorted
+  | cons first later => rw [sortedCase] at isNone; simp at isNone
+
+/-- Filtering a map by a predicate on keys removes a key the predicate rejects. -/
+theorem AssocList.get?_filter_of_rejected {κ ν : Type} [DecidableEq κ] (isKept : κ → Bool)
+    (map : AssocList κ ν) (wanted : κ) (isRejected : isKept wanted = false) :
+    AssocList.get? (map.filter (fun entry => isKept entry.1)) wanted = none := by
+  rw [AssocList.get?_filter]
+  simp [isRejected]
 
 namespace Dex
 

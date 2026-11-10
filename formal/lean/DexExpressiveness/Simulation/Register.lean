@@ -14,90 +14,6 @@ open DexExpressiveness.L DexExpressiveness.Translation
 
 /-! ## The Dex actions of a WaitFor commit -/
 
-/-- A run followed by one more step. -/
-theorem wp3a_exec_snoc {State Label Event Request : Type}
-    (system : TransitionSystem State Label Event Request) (state : State)
-    (labels : List Label) (label : Label) (events lastEvents : List Event)
-    (middle final : State)
-    (isFirst : system.exec state labels = some (events, middle))
-    (isLast : system.step middle label = some (lastEvents, final)) :
-    system.exec state (labels ++ [label]) = some (events ++ lastEvents, final) := by
-  induction labels generalizing state events with
-  | nil =>
-    simp only [TransitionSystem.exec] at isFirst
-    cases isFirst
-    simp [TransitionSystem.exec, isLast]
-  | cons head laterLabels inductionHypothesis =>
-    simp only [TransitionSystem.exec, List.cons_append] at isFirst ⊢
-    split at isFirst
-    · cases isFirst
-    · rename_i stepEvents next isStep
-      split at isFirst
-      · cases isFirst
-      · rename_i laterEvents reached isLater
-        cases isFirst
-        rw [inductionHypothesis next laterEvents isLater]
-        simp
-
-/-- The task after its handler returned. -/
-def wp3a_returnTask (program : Program) (task : Dex.Task signature)
-    (current : Dex.Task signature) : Dex.Task signature :=
-  { current with phase := .returned (task.compute ⟦program⟧).2 }
-
-/-- A task that holds no effect returns by `returnTaskActions`, silently. -/
-theorem wp3a_exec_returnTask (program : Program) (config : Dex.Config signature)
-    (tasksDistinct : TasksAreDistinct config) (task : Dex.Task signature)
-    (isMember : task ∈ config.tasks) (isComputed : IsTaskComputed program task)
-    (noEffects : pendingEffects ⟦program⟧ task = []) :
-    (Dex.system ⟦program⟧).exec config (returnTaskActions task) =
-      some ([], config.updateTask task.id (wp3a_returnTask program task)) := by
-  have isFound := wp2_findTask?_of_mem tasksDistinct isMember
-  unfold pendingEffects at noEffects
-  unfold IsTaskComputed at isComputed
-  cases phaseCase : task.phase with
-  | started =>
-    simp only [phaseCase] at noEffects
-    let ranTask : Dex.Task signature → Dex.Task signature := fun current =>
-      { current with phase := .running (task.compute ⟦program⟧).1 (task.compute ⟦program⟧).2 }
-    have isFoundNext : (config.updateTask task.id ranTask).findTask? task.id =
-        some { task with phase := .running [] (task.compute ⟦program⟧).2 } := by
-      rw [wp2_findTask?_updateTask config task.id task.id ranTask (fun _ => rfl), isFound]
-      simp [ranTask, noEffects]
-    have isReturned : (config.updateTask task.id ranTask).updateTask task.id
-          (wp3a_returnTask program task) =
-        config.updateTask task.id (wp3a_returnTask program task) := by
-      rw [wp2_updateTask_updateTask config task.id ranTask _ (fun _ => rfl)]
-      rfl
-    simp only [ranTask] at isFoundNext isReturned
-    simp only [returnTaskActions, phaseCase, TransitionSystem.exec, Dex.system, Dex.step,
-      isFound, isFoundNext, List.append_nil]
-    exact congrArg (fun next => some ([], next)) isReturned
-  | running remaining response =>
-    simp only [phaseCase] at noEffects isComputed
-    subst noEffects
-    simp only [returnTaskActions, phaseCase, TransitionSystem.exec, Dex.system, Dex.step,
-      isFound, List.append_nil, isComputed.1]
-    rfl
-  | returned response =>
-    simp only [phaseCase] at isComputed
-    simp only [returnTaskActions, phaseCase, TransitionSystem.exec]
-    have isSame : config.updateTask task.id (wp3a_returnTask program task) = config := by
-      have sameTasks : config.tasks.map (fun candidate =>
-          if candidate.id = task.id then wp3a_returnTask program task candidate else candidate) =
-          config.tasks := by
-        conv => rhs; rw [← List.map_id config.tasks]
-        apply List.map_congr_left
-        intro candidate isCandidate
-        by_cases isChanged : candidate.id = task.id
-        · have isTask : candidate = task :=
-            eq_of_nodup_map (fun current => current.id) config.tasks tasksDistinct.1 isCandidate
-              isMember isChanged
-          subst isTask
-          simp only [↓reduceIte, wp3a_returnTask, id, ← isComputed, ← phaseCase]
-        · simp [isChanged]
-      simp only [Dex.Config.updateTask, sameTasks]
-    rw [isSame]
-
 /-- The run after [STEP-COMPLETE-WAITFOR] of `step` with response `response`. -/
 def wp3a_completedRun (run : Dex.Run signature) (step : Dex.StepExecId signature)
     (response : Dex.WaitForResponse signature) (now : Nat) : Dex.Run signature :=
@@ -123,26 +39,26 @@ theorem wp3a_exec_completeWaitFor (program : Program) (config : Dex.Config signa
       some (Dex.Config.closeEvents run (wp3a_completedRun run task.step response config.clock),
         wp3a_completedConfig config task
           (wp3a_completedRun run task.step response config.clock)) := by
-  have isFound := wp2_findTask?_of_mem tasksDistinct isMember
-  have isReturned := wp3a_exec_returnTask program config tasksDistinct task isMember isComputed
+  have isFound := findTask?_of_mem tasksDistinct isMember
+  have isReturned := exec_returnTaskActions program config tasksDistinct task isMember isComputed
     noEffects
-  have isFoundNext : (config.updateTask task.id (wp3a_returnTask program task)).findTask? task.id =
+  have isFoundNext : (config.updateTask task.id (returnedTask program task)).findTask? task.id =
       some { task with phase := .returned (.waitFor response) } := by
-    rw [wp2_findTask?_updateTask config task.id task.id (wp3a_returnTask program task)
+    rw [findTask?_updateTask config task.id task.id (returnedTask program task)
       (fun _ => rfl), isFound]
-    simp [wp3a_returnTask, isResponse]
-  have sameRemoved : (config.updateTask task.id (wp3a_returnTask program task)).removeTask task.id =
+    simp [returnedTask, isResponse]
+  have sameRemoved : (config.updateTask task.id (returnedTask program task)).removeTask task.id =
       config.removeTask task.id := by
     have sameFilter : List.filter ((fun candidate => !decide (candidate.id = task.id)) ∘
-        fun candidate => if candidate.id = task.id then wp3a_returnTask program task candidate
+        fun candidate => if candidate.id = task.id then returnedTask program task candidate
           else candidate) config.tasks =
         List.filter (fun candidate => !decide (candidate.id = task.id)) config.tasks := by
       apply List.filter_congr
       intro candidate _
-      by_cases isChanged : candidate.id = task.id <;> simp [isChanged, wp3a_returnTask]
+      by_cases isChanged : candidate.id = task.id <;> simp [isChanged, returnedTask]
     have isIdentity : ∀ candidate,
         candidate ∈ List.filter (fun candidate => !decide (candidate.id = task.id)) config.tasks →
-        (if candidate.id = task.id then wp3a_returnTask program task candidate else candidate) =
+        (if candidate.id = task.id then returnedTask program task candidate else candidate) =
           id candidate := by
       intro candidate isCandidate
       have isOther := (List.mem_filter.mp isCandidate).2
@@ -151,14 +67,14 @@ theorem wp3a_exec_completeWaitFor (program : Program) (config : Dex.Config signa
     simp only [Dex.Config.removeTask, Dex.Config.updateTask, List.filter_map]
     congr 1
     rw [sameFilter, List.map_congr_left isIdentity, List.map_id]
-  have isCurrentNext : (config.updateTask task.id (wp3a_returnTask program task)).isTaskCurrent
+  have isCurrentNext : (config.updateTask task.id (returnedTask program task)).isTaskCurrent
       { task with phase := .returned (.waitFor response) } = true := isCurrent
-  have canCommitNext : (config.updateTask task.id (wp3a_returnTask program task)).canCommit =
+  have canCommitNext : (config.updateTask task.id (returnedTask program task)).canCommit =
       true := canCommit
-  have hasRunNext : (config.updateTask task.id (wp3a_returnTask program task)).run = some run :=
+  have hasRunNext : (config.updateTask task.id (returnedTask program task)).run = some run :=
     hasRun
   have isLast : (Dex.system ⟦program⟧).step
-      (config.updateTask task.id (wp3a_returnTask program task)) (.stepComplete task.id) =
+      (config.updateTask task.id (returnedTask program task)) (.stepComplete task.id) =
       some (Dex.Config.closeEvents run (wp3a_completedRun run task.step response config.clock),
         wp3a_completedConfig config task
           (wp3a_completedRun run task.step response config.clock)) := by
@@ -166,16 +82,10 @@ theorem wp3a_exec_completeWaitFor (program : Program) (config : Dex.Config signa
     simp only [Dex.system, Dex.step, hasRunNext, isFoundNext, isWaitFor, isCurrentNext,
       canCommitNext, Bool.and_self, ↓reduceIte, sameRemoved]
     rfl
-  have isExec := wp3a_exec_snoc (Dex.system ⟦program⟧) config _ _ _ _ _ _ isReturned isLast
+  have isExec := TransitionSystem.exec_snoc (Dex.system ⟦program⟧) config _ _ _ _ _ _ isReturned isLast
   simpa using isExec
 
 /-! ## The three results of `register(e, W)` -/
-
-/-- A response with no effect wakes no Step. -/
-theorem wp3a_applyEffects_empty (run : Dex.Run signature) : run.applyEffects {} = run := by
-  show ((run.applyWrites []).applyPublications []).wake [] = run
-  simp only [Dex.Run.applyWrites, Dex.Run.applyPublications, List.foldl_nil]
-  exact wp2_wake_of_no_waiter run [] (fun _ _ _ _ _ _ _ => by simp)
 
 /-- The run of a WaitFor commit before `register(e, W)`. -/
 def wp3a_preparedRun (run : Dex.Run signature) (step : Dex.StepExecId signature) :
@@ -189,7 +99,7 @@ theorem wp3a_completedRun_eq (run : Dex.Run signature) (step : Dex.StepExecId si
     wp3a_completedRun run step { effects := {}, wait := wait } now =
       (wp3a_preparedRun run step).registerWait step wait now := by
   show (Dex.Run.applyEffects _ {}).registerWait step wait now = _
-  rw [wp3a_applyEffects_empty]
+  rw [applyEffects_empty]
   rfl
 
 /-- The Step record once its wait is satisfied. -/
@@ -256,7 +166,7 @@ theorem wp3a_registerWait_blocks (run : Dex.Run signature) (step : Dex.StepExecI
   simp only [Dex.Run.registerWait, hasCondition, Bool.false_eq_true, Bool.false_eq_true, ↓reduceIte]
   exact Dex.Run.evalStep_of_plan_none (wp3a_storedRun run step wait now) step _ _
     (wp3a_findStep?_storedRun run step record isFound wait now) rfl
-    (wp2_plan_none_of_quiet wait _ _ isSupported hasChannel (by simp)
+    (Dex.Run.plan_none_of_quiet wait _ _ isSupported hasChannel (by simp)
       (fun chan isNamed => by
         show (run.pendingMessages chan).length = 0
         rw [isQuiet chan isNamed]
@@ -386,8 +296,8 @@ theorem wp3a_compute_waitFor (program : Program) (thread : L.Thread)
     (carries : StepCarriesThread program thread record) (hasStep : task.step = record.id)
     (isWaitFor : task.method = .waitFor) (hasInput : task.input = record.input) :
     (task.compute ⟦program⟧).2 = .waitFor { effects := {}, wait := wp3a_wait thread } := by
-  rw [wp2_stepCarriesThread_iff] at carries
-  simp only [isWaitStarted, wp2_isBootPhase, Bool.false_eq_true, ↓reduceIte] at carries
+  rw [stepCarriesThread_iff] at carries
+  simp only [isWaitStarted, isBootPhase, Bool.false_eq_true, ↓reduceIte] at carries
   unfold L.Thread.PhaseFitsCode at fitsCode
   simp only [isWaitStarted] at fitsCode
   cases timerCase : thread.timer with
@@ -451,7 +361,7 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
     {record : Dex.StepRecord signature} (isRecord : record ∈ run.steps)
     (isActive : record.phase.isActive = true)
     (carries : StepCarriesThread program thread record)
-    (newPhase : Phase) (isNotBoot : wp2_isBootPhase newPhase = false)
+    (newPhase : Phase) (isNotBoot : isBootPhase newPhase = false)
     (isNotHalted : newPhase ≠ .halted)
     (sameThreads : lNext.threads = (lConfig.setPhase tid newPhase).threads)
     (sameShared : lNext.shared = lConfig.shared)
@@ -482,31 +392,31 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
       (change record))
     (tasksAreCurrent : ∀ task, task ∈ dexNext.tasks → dexNext.isTaskCurrent task = true) :
     RunningRelated program lNext dexNext newRun := by
-  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  obtain ⟨isMember, hasTid⟩ := mem_of_findThread? isFound
   have memNew : ∀ candidate, candidate ∈ lNext.threads ↔
       (candidate ∈ lConfig.threads ∧ candidate.core.tid ≠ tid) ∨
       candidate = { thread with phase := newPhase } := by
     intro candidate
     rw [sameThreads]
-    exact wp2_mem_setPhase lInvariant isFound newPhase candidate
-  have sameBoot : wp2_isBootPhase newPhase = wp2_isBootPhase thread.phase := by
+    exact mem_setPhase lInvariant isFound newPhase candidate
+  have sameBoot : isBootPhase newPhase = isBootPhase thread.phase := by
     rw [isNotBoot, isWaitStarted]
     rfl
   have findNew : ∀ other, lNext.findThread? other =
       (lConfig.findThread? other).map (fun current =>
         if current.core.tid = tid then { current with phase := newPhase } else current) := by
     intro other
-    rw [← wp2_findThread?_setPhase]
+    rw [← findThread?_setPhase]
     show lNext.threads.find? _ = (lConfig.setPhase tid newPhase).threads.find? _
     rw [sameThreads]
   -- No thread boots: a booting `main` is the only thread.
-  have noBoot : ∀ other, other ∈ lConfig.threads → wp2_isBootPhase other.phase = false := by
+  have noBoot : ∀ other, other ∈ lConfig.threads → isBootPhase other.phase = false := by
     intro other isOther
-    cases bootCase : wp2_isBootPhase other.phase with
+    cases bootCase : isBootPhase other.phase with
     | false => rfl
     | true =>
       have isBootPhase : other.phase = .bootPending ∨ other.phase = .bootRunning := by
-        cases phaseCase : other.phase <;> simp [phaseCase, wp2_isBootPhase] at bootCase ⊢
+        cases phaseCase : other.phase <;> simp [phaseCase, isBootPhase] at bootCase ⊢
       have isOnly := (lInvariant.bootIsInitial other isOther isBootPhase).1
       rw [isOnly] at isMember
       have isThread : thread = other := by simpa using isMember
@@ -543,8 +453,8 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
       eq_of_nodup_map (fun candidate => candidate.id) run.steps idsNodup isOtherRecord
         isRecord sameId
     rw [sameRecord] at otherCarries
-    have otherInput := wp2_threadOfInput_of_mem lInvariant isOther otherCarries
-    have threadInput := wp2_threadOfInput_of_mem lInvariant isMember carries
+    have otherInput := threadOfInput_of_mem lInvariant isOther otherCarries
+    have threadInput := threadOfInput_of_mem lInvariant isMember carries
     exact otherTid ((otherInput.symm.trans threadInput).trans hasTid)
   have imageMem : ∀ candidate, candidate ∈ run.steps →
       wp3a_changeStep record.id change candidate ∈ newRun.steps := by
@@ -556,8 +466,8 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
         StepCarriesThread program other (wp3a_changeStep record.id change candidate)) := by
     intro other candidate isCandidate
     obtain ⟨sameId, sameInput, sameOptions, _⟩ := imageKeeps candidate isCandidate
-    exact ⟨wp2_stepCarriesThread_congr sameId sameInput sameOptions,
-      wp2_stepCarriesThread_congr sameId.symm sameInput.symm sameOptions.symm⟩
+    exact ⟨stepCarriesThread_congr sameId sameInput sameOptions,
+      stepCarriesThread_congr sameId.symm sameInput.symm sameOptions.symm⟩
   -- The active Step that carries the changed thread is `record`.
   have recordOfNew : ∀ candidate, candidate ∈ run.steps → candidate.phase.isActive = true →
       StepCarriesThread program { thread with phase := newPhase }
@@ -565,7 +475,7 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
     intro candidate isCandidate candidateActive candidateCarries
     have oldCarries : StepCarriesThread program thread candidate := by
       have newCarries := (carriesImage _ candidate isCandidate).mpr candidateCarries
-      rw [wp2_stepCarriesThread_iff] at newCarries ⊢
+      rw [stepCarriesThread_iff] at newCarries ⊢
       dsimp only at newCarries
       rw [isNotBoot] at newCarries
       rw [← sameBoot, isNotBoot]
@@ -594,7 +504,7 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
       inputQueues := channels.inputQueues
       mutexTokens := fun _ => channels.mutexTokens
       mutexesBeforeBoot := fun other isOther isBooting => by
-        have isBoot : wp2_isBootPhase other.phase = true := by
+        have isBoot : isBootPhase other.phase = true := by
           rcases isBooting with isPhase | isPhase <;> rw [isPhase] <;> rfl
         rcases (memNew other).mp isOther with ⟨wasMember, _⟩ | isNew
         · rw [noBoot other wasMember] at isBoot
@@ -632,7 +542,7 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
         · rcases related.cancelFlagsAreRequests target isFlagged with
             isPending | ⟨current, isCurrent, isCanceled⟩ | ⟨isGone, isFresh⟩
           · exact Or.inl (by rw [channels.cancelOther target isSelf]; exact isPending)
-          · have currentTid := (wp2_mem_of_findThread? isCurrent).2
+          · have currentTid := (mem_of_findThread? isCurrent).2
             refine Or.inr (Or.inl ⟨current, ?_, isCanceled⟩)
             rw [isCurrent]
             simp [currentTid, isSelf]
@@ -657,7 +567,7 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
           · have isImage := imageMem otherRecord isOtherRecord
             rw [imageOther otherRecord isOtherId] at isImage
             exact isImage
-          · exact wp2_phaseMatchesStep_transfer sameQueues
+          · exact phaseMatchesStep_transfer sameQueues
               (fun task isTask isTaskStep =>
                 keepsTasks task isTask (by rw [isTaskStep]; exact isOtherId))
               otherMatch
@@ -666,9 +576,9 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
           · have isImage := imageMem record isRecord
             rw [imageRecord] at isImage
             exact isImage
-          · exact wp2_stepCarriesThread_congr changeKeeps.1 changeKeeps.2.1 changeKeeps.2.2.1
-              (wp2_stepCarriesThread_setPhase newPhase sameBoot carries)
-          · exact wp2_phaseMatchesStep_transfer sameQueues (fun _ isTask _ => isTask) newMatch
+          · exact stepCarriesThread_congr changeKeeps.1 changeKeeps.2.1 changeKeeps.2.2.1
+              (stepCarriesThread_setPhase newPhase sameBoot carries)
+          · exact phaseMatchesStep_transfer sameQueues (fun _ isTask _ => isTask) newMatch
       stepsHaveThreads := fun changed isChanged changedActive => by
         rw [sameSteps] at isChanged
         obtain ⟨candidate, isCandidate, isImage⟩ := List.mem_map.mp isChanged
@@ -678,11 +588,11 @@ theorem wp3a_runningRelated_register {program : Program} {lConfig lNext : L.Conf
           related.stepsHaveThreads candidate isCandidate changedActive
         by_cases isChangedThread : owner.core.tid = tid
         · have isThread : owner = thread :=
-            wp2_thread_eq_of_tid lInvariant isOwner isMember (isChangedThread.trans hasTid.symm)
+            thread_eq_of_tid lInvariant isOwner isMember (isChangedThread.trans hasTid.symm)
           rw [isThread] at ownerCarries
           exact ⟨_, (memNew _).mpr (Or.inr rfl), isNotHalted,
             (carriesImage _ candidate isCandidate).mp
-              (wp2_stepCarriesThread_setPhase newPhase sameBoot ownerCarries)⟩
+              (stepCarriesThread_setPhase newPhase sameBoot ownerCarries)⟩
         · exact ⟨owner, (memNew owner).mpr (Or.inl ⟨isOwner, isChangedThread⟩), ownerNotHalted,
             (carriesImage owner candidate isCandidate).mp ownerCarries⟩
       activeStepsHaveDistinctThreads := fun first isFirst second isSecond firstActive
@@ -851,7 +761,7 @@ theorem wp3a_simulated_of_run {program : Program} {lConfig : L.Config}
     {dexConfig : Dex.Config signature} {tid : Tid} {thread : L.Thread}
     {run : Dex.Run signature} {record : Dex.StepRecord signature} {task : Dex.Task signature}
     (context : wp3a_Context program lConfig dexConfig tid thread run record task)
-    (newPhase : Phase) (isNotBoot : wp2_isBootPhase newPhase = false)
+    (newPhase : Phase) (isNotBoot : isBootPhase newPhase = false)
     (isNotHalted : newPhase ≠ .halted) (lNext : L.Config)
     (frame : wp3a_LFrame lConfig lNext tid newPhase) (newRun : Dex.Run signature)
     (isNewRun : (wp3a_preparedRun run record.id).registerWait record.id (wp3a_wait thread)
@@ -881,7 +791,7 @@ theorem wp3a_simulated_of_run {program : Program} {lConfig : L.Config}
       { thread with phase := newPhase } (change record)) :
     IsSimulatedByActions program lConfig dexConfig (.thread tid) [] lNext := by
   have state := context.state
-  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? context.isFound
+  obtain ⟨isMember, hasTid⟩ := mem_of_findThread? context.isFound
   have related := state.isRelated.running run context.hasRun context.isRunning
   have idsNodup := (state.dexInvariant.runInvariant run context.hasRun).idsNodup
   have isResponse := wp3a_compute_waitFor program thread record task context.isWaitStarted
@@ -891,14 +801,14 @@ theorem wp3a_simulated_of_run {program : Program} {lConfig : L.Config}
     context.isTask (state.dexInvariant.tasksComputed task context.isTask) context.noEffects
     context.isWaitFor _ isResponse run context.hasRun
     (related.tasksAreCurrent task context.isTask)
-    (wp2_canCommit_of_canStamp state.isRelated context.canStamp)
+    (Related.canCommit_of_canStamp state.isRelated context.canStamp)
   rw [context.hasStep, wp3a_completedRun_eq, isNewRun] at isExec
   have hasActions := simulatingActions_complete related context.hasRun state.tasksDistinct
     context.isFound record context.isRecord context.isActive
-    ((wp2_threadOfInput_of_mem state.lInvariant isMember context.carries).trans hasTid)
+    ((threadOfInput_of_mem state.lInvariant isMember context.carries).trans hasTid)
     .waitFor task context.isTask context.hasInvocation
     (Or.inr (Or.inr (Or.inr (Or.inl context.isWaitStarted))))
-  have statusL := (wp2_run_of_thread state thread isMember).1
+  have statusL := (IsSimulationState.run_of_thread state thread isMember).1
   -- Every other task stays.
   have taskOfStep : ∀ other, other ∈ dexConfig.tasks → other.id = task.id → other = task :=
     fun other isOther sameId =>
@@ -973,11 +883,11 @@ theorem wp3a_no_timer_of_record {program : Program} {lConfig : L.Config}
     {record : Dex.StepRecord signature} (carries : StepCarriesThread program thread record)
     (timer : Dex.TimerId signature) (fireTime : Nat)
     (isArmed : run.timers.get? timer = some fireTime) : timer.step ≠ record.id := by
-  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
+  obtain ⟨isMember, hasTid⟩ := mem_of_findThread? isFound
   obtain ⟨owner, chan, since, isOwner, isBlocked, isTimed, _⟩ :=
     (related.timers timer fireTime).mp isArmed
   intro sameStep
-  have isNotBoot : wp2_isBootPhase thread.phase = false := by
+  have isNotBoot : isBootPhase thread.phase = false := by
     rw [isWaitStarted]
     rfl
   cases timerCase : thread.timer with
@@ -1014,8 +924,8 @@ theorem wp3a_timers_same {program : Program} {lConfig lNext : L.Config}
       ∃ owner chan since, owner ∈ lNext.threads ∧
         owner.phase = .blocked (.timed timer.step.number fireTime chan) since ∧
         timer.step.stepType = StepType.timed ∧ timer.index = 0 := by
-  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
-  have memNew := wp2_mem_setPhase lInvariant isFound newPhase
+  obtain ⟨isMember, hasTid⟩ := mem_of_findThread? isFound
+  have memNew := mem_setPhase lInvariant isFound newPhase
   intro timer fireTime
   rw [hasTimers, related.timers, sameThreads]
   constructor
@@ -1023,7 +933,7 @@ theorem wp3a_timers_same {program : Program} {lConfig lNext : L.Config}
     refine ⟨owner, chan, since, (memNew owner).mpr (Or.inl ⟨isOwner, ?_⟩), isBlocked, rest⟩
     intro isChanged
     have isThread : owner = thread :=
-      wp2_thread_eq_of_tid lInvariant isOwner isMember (isChanged.trans hasTid.symm)
+      thread_eq_of_tid lInvariant isOwner isMember (isChanged.trans hasTid.symm)
     rw [isThread, isWaitStarted] at isBlocked
     cases isBlocked
   · rintro ⟨owner, chan, since, isOwner, isBlocked, rest⟩
@@ -1047,7 +957,7 @@ theorem wp3a_get?_disarmed {program : Program} {lConfig : L.Config}
   by_cases isStep : timer.step = record.id
   · constructor
     · intro isKept
-      rw [wp2_get?_filter_of_rejected
+      rw [AssocList.get?_filter_of_rejected
         (fun key : Dex.TimerId signature => !decide (key.step = record.id)) run.timers timer
         (by simp [isStep])] at isKept
       cases isKept
@@ -1076,9 +986,9 @@ theorem wp3a_timers_armed {program : Program} {lConfig lNext : L.Config}
         ∃ owner ownerChan ownerSince, owner ∈ lNext.threads ∧
           owner.phase = .blocked (.timed timer.step.number fireTime ownerChan) ownerSince ∧
           timer.step.stepType = StepType.timed ∧ timer.index = 0 := by
-  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
-  have memNew := wp2_mem_setPhase lInvariant isFound (.blocked (.timed number fireAt chan) since)
-  have isNotBoot : wp2_isBootPhase thread.phase = false := by
+  obtain ⟨isMember, hasTid⟩ := mem_of_findThread? isFound
+  have memNew := mem_setPhase lInvariant isFound (.blocked (.timed number fireAt chan) since)
+  have isNotBoot : isBootPhase thread.phase = false := by
     rw [isWaitStarted]
     rfl
   have isRecordId := wp2_record_of_timer carries isNotBoot hasTimer
@@ -1118,7 +1028,7 @@ theorem wp3a_timers_armed {program : Program} {lConfig lNext : L.Config}
         rest⟩
       intro isChanged
       have isThread : owner = thread :=
-        wp2_thread_eq_of_tid lInvariant isOwner isMember (isChanged.trans hasTid.symm)
+        thread_eq_of_tid lInvariant isOwner isMember (isChanged.trans hasTid.symm)
       rw [isThread, isWaitStarted] at isBlocked
       cases isBlocked
     · rintro ⟨owner, ownerChan, ownerSince, isOwner, isBlocked, isTimed, isIndex⟩
@@ -1134,28 +1044,6 @@ theorem wp3a_timers_armed {program : Program} {lConfig lNext : L.Config}
         rw [isRecordId, isTimed, isIndex, sameNumber]
 
 /-! ## The Channel clauses -/
-
-/-- No thread boots while another thread has begun a wait. -/
-theorem wp3a_noBoot {program : Program} {lConfig : L.Config}
-    (lInvariant : L.Invariant program lConfig) {tid : Tid} {thread : L.Thread}
-    (isFound : lConfig.findThread? tid = some thread)
-    (isWaitStarted : thread.phase = .waitStarted) :
-    ∀ other, other ∈ lConfig.threads →
-      other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning := by
-  obtain ⟨isMember, _⟩ := wp2_mem_of_findThread? isFound
-  intro other isOther
-  rw [← wp2_isBootPhase_eq_false]
-  cases bootCase : wp2_isBootPhase other.phase with
-  | false => rfl
-  | true =>
-    have isBootPhase : other.phase = .bootPending ∨ other.phase = .bootRunning := by
-      cases phaseCase : other.phase <;> simp [phaseCase, wp2_isBootPhase] at bootCase ⊢
-    have isOnly := (lInvariant.bootIsInitial other isOther isBootPhase).1
-    rw [isOnly] at isMember
-    have isThread : thread = other := by simpa using isMember
-    rw [isThread] at isWaitStarted
-    rcases isBootPhase with isPhase | isPhase <;> rw [isPhase] at isWaitStarted <;>
-      cases isWaitStarted
 
 /-- The Channel clauses when no Channel and no L queue changes. -/
 theorem wp3a_channels_same {program : Program} {lConfig lNext : L.Config}
@@ -1423,7 +1311,7 @@ theorem wp3a_simulated_empty {program : Program} {lConfig : L.Config}
       { candidate with invocation := none })
     (wp3a_map_changeStep run.steps record.id _ _ (fun _ => rfl))
     (fun _ => rfl) ⟨rfl, rfl, rfl⟩ rfl rfl rfl context.isRunning
-    (wp3a_channels_same related (wp3a_noBoot lInvariant context.isFound context.isWaitStarted)
+    (wp3a_channels_same related (noBoot_of_waitStarted lInvariant context.isFound context.isWaitStarted)
       tid _ rfl rfl rfl rfl (fun _ => rfl))
     (wp3a_timers_same related lInvariant context.isFound context.isWaitStarted _
       (by intro _ _ _ _ isBlocked; cases isBlocked) rfl _ (fun _ _ => Iff.rfl))
@@ -1465,7 +1353,7 @@ theorem wp3a_simulated_blocked {program : Program} {lConfig : L.Config}
       { candidate with invocation := none })
     (wp3a_map_changeStep run.steps record.id _ _ (fun _ => rfl))
     (fun _ => rfl) ⟨rfl, rfl, rfl⟩ rfl rfl rfl context.isRunning
-    (wp3a_channels_same related (wp3a_noBoot lInvariant context.isFound context.isWaitStarted)
+    (wp3a_channels_same related (noBoot_of_waitStarted lInvariant context.isFound context.isWaitStarted)
       tid _ rfl rfl rfl rfl (fun _ => rfl))
     ?_
     (fun _ _ isBlocked => by
@@ -1664,11 +1552,11 @@ theorem wp3a_registerWait_simulated {program : Program} {lConfig : L.Config}
     IsSimulatedByActions program lConfig dexConfig (.thread tid) []
       (lConfig.registerWait thread).stamp := by
   have state := context.state
-  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? context.isFound
+  obtain ⟨isMember, hasTid⟩ := mem_of_findThread? context.isFound
   subst hasTid
   have related := state.isRelated.running run context.hasRun context.isRunning
   have lInvariant := state.lInvariant
-  have areBooted := wp3a_noBoot lInvariant context.isFound context.isWaitStarted
+  have areBooted := noBoot_of_waitStarted lInvariant context.isFound context.isWaitStarted
   have foundPrepared := wp3a_findStep?_preparedRun context
   have fitsCode := lInvariant.phasesFitCode thread isMember
   unfold L.Thread.PhaseFitsCode at fitsCode

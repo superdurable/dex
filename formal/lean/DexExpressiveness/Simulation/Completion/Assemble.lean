@@ -138,7 +138,7 @@ theorem wp3b_updateThread_spec (config : L.Config) (thread : L.Thread)
       sameId
   refine ⟨?_, ?_, ?_, ?_⟩
   · intro other isOther
-    rw [wp3b_mem_updateThread]
+    rw [mem_updateThread]
     constructor
     · rintro ⟨original, isOriginal, isChanged⟩
       by_cases isOwn : original.core.tid = thread.core.tid
@@ -152,14 +152,14 @@ theorem wp3b_updateThread_spec (config : L.Config) (thread : L.Thread)
     · intro isMember
       exact ⟨other, isMember, by simp [isOther]⟩
   · intro own isOwn ownTid
-    obtain ⟨original, isOriginal, isChanged⟩ := (wp3b_mem_updateThread _ _ _ _).mp isOwn
+    obtain ⟨original, isOriginal, isChanged⟩ := (mem_updateThread _ _ _ _).mp isOwn
     by_cases isSame : original.core.tid = thread.core.tid
     · simp only [isSame, ↓reduceIte] at isChanged
       rw [isChanged, sameThread original isOriginal isSame]
     · simp only [isSame, ↓reduceIte] at isChanged
       rw [isChanged] at ownTid
       exact absurd ownTid isSame
-  · exact (wp3b_mem_updateThread _ _ _ _).mpr ⟨thread, isThread, by simp⟩
+  · exact (mem_updateThread _ _ _ _).mpr ⟨thread, isThread, by simp⟩
   · have sameIds : (config.updateThread thread.core.tid change).threads.map
         (fun other => other.core.tid) = config.threads.map (fun other => other.core.tid) := by
       simp only [L.Config.updateThread, List.map_map]
@@ -237,7 +237,7 @@ theorem wp3b_begin_drop (program : Program) (lConfig : L.Config)
   · exact wp3b_start_data program lConfig _ dexConfig run state start.hasRun start.isRunning
       thread start.isThread record.id ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ rfl others
       (fun own isOwn ownTid => absurd ownTid (ownGone own isOwn)) nodupMid
-      (fun _ => Or.inr ((wp3b_findThread?_none _ _).mpr ownGone))
+      (fun _ => Or.inr ((findThread?_eq_none_iff _ _).mpr ownGone))
 
 /-- `Related` after a commit that keeps the run running, from `RunningRelated`. -/
 theorem wp3b_related_of_running (program : Program) (lConfig lNext : L.Config)

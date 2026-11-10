@@ -1066,6 +1066,111 @@ theorem Invariant.bumpSeq {IsTimerAllowed : TimerId σ → Prop} {run : Run σ}
   invariant.transfer rfl rfl (fun record _ isWaiting => ⟨record, isWaiting, rfl⟩)
     (fun _ isMember => isMember) (fun _ isEmpty => isEmpty)
 
+/-- `eval(e)` changes nothing when a waiting `S[e]` has no plan. -/
+theorem evalStep_of_unplanned (run : Dex.Run σ) (step : Dex.StepExecId σ)
+    (isQuiet : ∀ record waitState, run.findStep? step = some record → record.phase = .waiting →
+      record.waitState = some waitState →
+      Dex.Run.plan waitState.wait (fun chan => (run.pendingMessages chan).length)
+        waitState.timersDone = none) :
+    run.evalStep step = run := by
+  cases foundCase : run.findStep? step with
+  | none => simp [Dex.Run.evalStep, foundCase]
+  | some record =>
+    by_cases isWaiting : record.phase = .waiting
+    · cases waitCase : record.waitState with
+      | none => simp [Dex.Run.evalStep, foundCase, isWaiting, waitCase]
+      | some waitState =>
+        exact Dex.Run.evalStep_of_plan_none run step record waitState foundCase waitCase
+          (isQuiet record waitState foundCase isWaiting waitCase)
+    · exact Dex.Run.evalStep_of_not_waiting run step record foundCase isWaiting
+
+/-- Evaluating Steps that have no plan changes nothing. -/
+theorem foldl_evalStep_of_unplanned (steps : List (StepExecId σ)) (run : Run σ)
+    (isUnplanned : ∀ step, step ∈ steps → ∀ record waitState,
+      run.findStep? step = some record → record.phase = .waiting →
+      record.waitState = some waitState →
+      plan waitState.wait (fun chan => (run.pendingMessages chan).length)
+        waitState.timersDone = none) :
+    steps.foldl Run.evalStep run = run := by
+  induction steps with
+  | nil => rfl
+  | cons head laterSteps inductionHypothesis =>
+    simp only [List.foldl_cons]
+    rw [evalStep_of_unplanned run head (isUnplanned head List.mem_cons_self)]
+    exact inductionHypothesis (fun step isStep => isUnplanned step (List.mem_cons_of_mem _ isStep))
+
+/-- A supported wait that names a Channel has no plan while none of its
+timers is done and every Channel it names is empty. -/
+theorem plan_none_of_quiet (wait : Wait σ) (pendingCount : σ.Chan → Nat)
+    (timersDone : List Bool) (isSupported : Dex.IsSupportedWait wait)
+    (hasChannel : wait.channels ≠ []) (noTimerDone : timersDone.any id = false)
+    (isQuiet : ∀ chan, chan ∈ wait.channels → pendingCount chan = 0) :
+    Dex.Run.plan wait pendingCount timersDone = none := by
+  have hasCondition : wait.hasNoCondition = false := by
+    cases channelCase : wait.channels with
+    | nil => exact absurd channelCase hasChannel
+    | cons chan laterChans => simp [Dex.Wait.hasNoCondition, channelCase]
+  unfold Dex.Run.plan
+  simp only [hasCondition, Bool.false_eq_true, ↓reduceIte]
+  rcases isSupported with isEmpty | isAny | ⟨isAll, _, chan, isOne⟩
+  · rw [hasCondition] at isEmpty
+    cases isEmpty
+  · simp only [isAny, noTimerDone, Bool.false_eq_true, ↓reduceIte]
+    exact Dex.Run.planAnyChannel_eq_none pendingCount wait.channels isQuiet
+  · have isEmptyChan := isQuiet chan (by rw [isOne]; simp)
+    simp [isAll, isOne, isEmptyChan]
+
+/-- `eval(e)` keeps the Attributes, the status, and the outputs. -/
+theorem evalStep_keeps_data (run : Dex.Run σ) (step : Dex.StepExecId σ) :
+    (run.evalStep step).attributes = run.attributes ∧
+    (run.evalStep step).status = run.status ∧
+    (run.evalStep step).outputs = run.outputs := by
+  rcases Dex.Run.evalStep_shape run step with isSame | ⟨chans, consumeFlags, change, _, isEval⟩
+  · rw [isSame]
+    exact ⟨rfl, rfl, rfl⟩
+  · rw [isEval]
+    obtain ⟨_, _, _, _, sameStatus, sameAttributes, sameOutputs⟩ :=
+      Dex.Run.consumeMessages_frame chans consumeFlags (run.disarmTimersOf step)
+    exact ⟨sameAttributes, sameStatus, sameOutputs⟩
+
+/-- Evaluating Steps keeps the Attributes, the counters, the status, and the outputs. -/
+theorem foldl_evalStep_keeps_data (steps : List (Dex.StepExecId σ)) (run : Dex.Run σ) :
+    (steps.foldl Dex.Run.evalStep run).attributes = run.attributes ∧
+    (steps.foldl Dex.Run.evalStep run).counters = run.counters ∧
+    (steps.foldl Dex.Run.evalStep run).status = run.status ∧
+    (steps.foldl Dex.Run.evalStep run).outputs = run.outputs := by
+  induction steps generalizing run with
+  | nil => exact ⟨rfl, rfl, rfl, rfl⟩
+  | cons step laterSteps inductionHypothesis =>
+    simp only [List.foldl_cons]
+    obtain ⟨sameAttributes, sameCounters, sameStatus, sameOutputs⟩ :=
+      inductionHypothesis (run.evalStep step)
+    obtain ⟨evalAttributes, evalStatus, evalOutputs⟩ := evalStep_keeps_data run step
+    rw [sameAttributes, sameCounters, sameStatus, sameOutputs, evalAttributes, evalStatus,
+      evalOutputs, (Dex.Run.evalStep_frame run step).2.1]
+    exact ⟨rfl, rfl, rfl, rfl⟩
+
+/-- `effects` keeps the counters, the status, and the outputs, and changes
+the Attributes by its writes only. -/
+theorem applyEffects_keeps_data (run : Dex.Run σ) (effects : Dex.Effects σ) :
+    (run.applyEffects effects).attributes = (run.applyWrites effects.writes).attributes ∧
+    (run.applyEffects effects).counters = run.counters ∧
+    (run.applyEffects effects).status = run.status ∧
+    (run.applyEffects effects).outputs = run.outputs := by
+  unfold Dex.Run.applyEffects Dex.Run.wake
+  obtain ⟨sameAttributes, sameCounters, sameStatus, sameOutputs⟩ :=
+    foldl_evalStep_keeps_data
+      (((run.applyWrites effects.writes).applyPublications effects.publications).waitersOn
+        (effects.publications.map (fun publication => publication.1)))
+      ((run.applyWrites effects.writes).applyPublications effects.publications)
+  obtain ⟨_, pubCounters, _, _, pubStatus, pubAttributes, pubOutputs, _⟩ :=
+    Dex.Run.applyPublications_frame effects.publications (run.applyWrites effects.writes)
+  obtain ⟨_, writeCounters, _, _, _, writeStatus, writeOutputs⟩ :=
+    Dex.Run.applyWrites_frame effects.writes run
+  rw [sameAttributes, sameCounters, sameStatus, sameOutputs, pubAttributes, pubCounters,
+    pubStatus, pubOutputs, writeCounters, writeStatus, writeOutputs]
+  exact ⟨rfl, rfl, rfl, rfl⟩
+
 end Run
 
 end DexExpressiveness.Dex

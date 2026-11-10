@@ -21,51 +21,6 @@ open DexExpressiveness.L DexExpressiveness.Translation
 
 /-! ## Finite runs -/
 
-/-- A run of `first ++ second` is a run of `first` followed by a run of `second`. -/
-theorem TransitionSystem.exec_append {State Label Event Request : Type}
-    (system : TransitionSystem State Label Event Request) (state : State)
-    (firstLabels secondLabels : List Label) (firstEvents secondEvents : List Event)
-    (middle final : State)
-    (isFirst : system.exec state firstLabels = some (firstEvents, middle))
-    (isSecond : system.exec middle secondLabels = some (secondEvents, final)) :
-    system.exec state (firstLabels ++ secondLabels) =
-      some (firstEvents ++ secondEvents, final) := by
-  induction firstLabels generalizing state firstEvents with
-  | nil =>
-    simp only [TransitionSystem.exec] at isFirst
-    cases isFirst
-    simpa using isSecond
-  | cons label laterLabels inductionHypothesis =>
-    simp only [TransitionSystem.exec, List.cons_append] at isFirst ⊢
-    split at isFirst
-    · cases isFirst
-    · rename_i stepEvents next isStep
-      split at isFirst
-      · cases isFirst
-      · rename_i laterEvents reached isLater
-        cases isFirst
-        rw [inductionHypothesis next laterEvents isLater]
-        simp
-
-/-- A run of one more label from a run's end. -/
-theorem TransitionSystem.exec_cons {State Label Event Request : Type}
-    (system : TransitionSystem State Label Event Request) (state : State) (label : Label)
-    (laterLabels : List Label) (events : List Event) (final : State)
-    (isExec : system.exec state (label :: laterLabels) = some (events, final)) :
-    ∃ stepEvents next laterEvents,
-      system.step state label = some (stepEvents, next) ∧
-      system.exec next laterLabels = some (laterEvents, final) ∧
-      events = stepEvents ++ laterEvents := by
-  simp only [TransitionSystem.exec] at isExec
-  split at isExec
-  · cases isExec
-  · rename_i stepEvents next isStep
-    split at isExec
-    · cases isExec
-    · rename_i laterEvents reached isLater
-      cases isExec
-      exact ⟨stepEvents, next, laterEvents, isStep, isLater, rfl⟩
-
 /-- A state reached by a run from a reachable state is reachable. -/
 theorem TransitionSystem.Reachable.exec {State Label Event Request : Type}
     {system : TransitionSystem State Label Event Request} {state final : State}

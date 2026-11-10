@@ -1,4 +1,4 @@
-import DexExpressiveness.Simulation.Relation
+import DexExpressiveness.Simulation.Frame
 
 /-!
 # The Dex actions that complete an Execute
@@ -23,17 +23,6 @@ theorem wp3b_completionActions_requests (program : Program) (task : Dex.Task sig
     (completionActions task).filterMap (Dex.system ⟦program⟧).requestOf = [] := by
   unfold completionActions returnTaskActions
   cases task.phase <;> simp [Dex.system]
-
-/-- A task of the configuration is what lookup by its ID finds. -/
-theorem wp3b_findTask?_of_mem (config : Dex.Config signature) (task : Dex.Task signature)
-    (tasksDistinct : TasksAreDistinct config) (isMember : task ∈ config.tasks) :
-    config.findTask? task.id = some task := by
-  cases foundCase : config.findTask? task.id with
-  | none =>
-    have noMatch := List.find?_eq_none.mp foundCase task isMember
-    simp at noMatch
-  | some found =>
-    rw [eq_of_isFound config task.id task found tasksDistinct isMember rfl foundCase]
 
 /-- Set the phase of a task. -/
 def setTaskPhase (config : Dex.Config signature) (taskId : Nat)
@@ -70,15 +59,6 @@ theorem wp3b_filter_setTaskPhase (config : Dex.Config signature) (taskId : Nat)
     by_cases isTask : head.id = taskId
     · simp [isTask, inductionHypothesis]
     · simp [isTask, inductionHypothesis]
-
-/-- Whether a task is current does not depend on the other tasks. -/
-theorem wp3b_isTaskCurrent_congr (config other : Dex.Config signature)
-    (task changed : Dex.Task signature) (sameRun : other.run = config.run)
-    (sameStep : changed.step = task.step) (sameMethod : changed.method = task.method)
-    (sameId : changed.id = task.id) :
-    other.isTaskCurrent changed = config.isTaskCurrent task := by
-  unfold Dex.Config.isTaskCurrent
-  rw [sameRun, sameStep, sameMethod, sameId]
 
 /-- The run after the commit that completes an Execute with this response
 (spec §4.4 [STEP-COMPLETE-EXECUTE]): `seq := seq + 1`, `S[e].inv := ⊥`,
@@ -127,7 +107,7 @@ theorem wp3b_exec_completionActions (program : Program) (config : Dex.Config sig
           run := some (completedRun run task.step (executeResponse program task))
           lastCommitAt := some config.clock
           tasks := config.tasks.filter (fun other => !decide (other.id = task.id)) }) := by
-  have isFound := wp3b_findTask?_of_mem config task tasksDistinct isMember
+  have isFound := findTask?_of_mem tasksDistinct isMember
   have isComputation : task.compute ⟦program⟧ =
       (((⟦program⟧.stepDef task.step.stepType).execute task.context task.input task.snapshot
         task.conditionResults).1, .execute (executeResponse program task)) := by
@@ -151,7 +131,7 @@ theorem wp3b_exec_completionActions (program : Program) (config : Dex.Config sig
     intro returned returnedTask returnedRun sameClock sameCommit sameNext returnedFound sameId
       sameStep returnedExecute returnedPhase sameTasks
     have returnedCurrent : returned.isTaskCurrent returnedTask = true := by
-      rw [wp3b_isTaskCurrent_congr config returned task returnedTask (returnedRun.trans hasRun.symm)
+      rw [isTaskCurrent_congr config returned task returnedTask (returnedRun.trans hasRun.symm)
         sameStep (returnedExecute.trans isExecute.symm) sameId]
       exact isCurrent
     have returnedCommit : returned.canCommit = true := by

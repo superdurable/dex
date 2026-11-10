@@ -42,7 +42,7 @@ theorem l_thread_register_simulated (program : Program) (lConfig : L.Config)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
-  obtain ⟨isMember, _⟩ := wp2_mem_of_findThread? isFound
+  obtain ⟨isMember, _⟩ := mem_of_findThread? isFound
   simp only [L.system, L.step, isFound, stepThread, isWaitStarted] at isStep
   split at isStep
   · rename_i canStamp
@@ -50,7 +50,7 @@ theorem l_thread_register_simulated (program : Program) (lConfig : L.Config)
     injection isPair with isEvents isNext
     subst isEvents
     subst isNext
-    obtain ⟨_, run, hasRun, isRunning⟩ := wp2_run_of_thread state thread isMember
+    obtain ⟨_, run, hasRun, isRunning⟩ := IsSimulationState.run_of_thread state thread isMember
     obtain ⟨record, isRecord, isActive, carries, phaseMatches⟩ :=
       (state.isRelated.running run hasRun isRunning).threadsHaveSteps thread isMember
         (by rw [isWaitStarted]; simp)

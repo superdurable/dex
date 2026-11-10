@@ -241,8 +241,8 @@ theorem wp2_invariant_wake_fired {program : Program} {config : L.Config}
     {chan : Option ExtChan}
     (isBlocked : thread.phase = .blocked (.timed number deadline chan) since) :
     L.Invariant program (config.setPhase tid (.woken .fired)) := by
-  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
-  have memNew := wp2_mem_setPhase invariant isFound (.woken .fired)
+  obtain ⟨isMember, hasTid⟩ := mem_of_findThread? isFound
+  have memNew := mem_setPhase invariant isFound (.woken .fired)
   -- Every thread keeps its core, code, and timer.
   have origin : ∀ candidate, candidate ∈ (config.setPhase tid (.woken .fired)).threads →
       ∃ original, original ∈ config.threads ∧ candidate.core = original.core ∧
@@ -363,14 +363,6 @@ theorem wp2_invariant_wake_fired {program : Program} {config : L.Config}
 
 /-! ## The run during [TIMER-FIRE] -/
 
-/-- `eval(e)` keeps the status. -/
-theorem wp2_status_evalStep (run : Dex.Run signature) (step : Dex.StepExecId signature) :
-    (run.evalStep step).status = run.status := by
-  rcases Dex.Run.evalStep_shape run step with isSame | ⟨chans, consumeFlags, change, _, isEval⟩
-  · rw [isSame]
-  · rw [isEval]
-    exact (Dex.Run.consumeMessages_frame chans consumeFlags (run.disarmTimersOf step)).2.2.2.2.1
-
 /-- [TIMER-FIRE] of one timer keeps the status. -/
 theorem wp2_status_fireTimer (run : Dex.Run signature) (timer : Dex.TimerId signature) :
     (run.fireTimer timer).status = run.status := by
@@ -382,7 +374,7 @@ theorem wp2_status_fireTimer (run : Dex.Run signature) (timer : Dex.TimerId sign
     · split
       · split
         · rfl
-        · rw [wp2_status_evalStep]
+        · rw [(Dex.Run.evalStep_keeps_data _ _).2.1]
           rfl
       · rfl
   · rfl
@@ -405,7 +397,7 @@ theorem wp2_firedRun_timers (run : Dex.Run signature) (timer : Dex.TimerId signa
       (run.timers.erase timer).filter (fun entry => !decide (entry.1.step = timer.step)) := rfl
   rw [hasTimers]
   by_cases isTimerStep : other.step = timer.step
-  · have isRejected := wp2_get?_filter_of_rejected
+  · have isRejected := AssocList.get?_filter_of_rejected
       (fun (key : Dex.TimerId signature) => !decide (key.step = timer.step))
       (run.timers.erase timer) other (by simp [isTimerStep])
     rw [isRejected]
@@ -451,11 +443,11 @@ theorem wp2_fire_one {program : Program} {lConfig : L.Config}
         (wp2_firedRun run timer waitState) := by
   obtain ⟨thread, chan, since, isMember, isBlocked, isTimed, isIndex⟩ :=
     (related.timers timer fireTime).mp isArmed
-  have isFound := wp2_findThread?_of_mem lInvariant isMember
+  have isFound := findThread?_of_mem lInvariant isMember
   obtain ⟨⟨seconds, hasTimer⟩, _⟩ := wp2_timer_of_blocked_timed lInvariant isMember isBlocked
   obtain ⟨record, isRecord, isActive, carries, isMatch⟩ :=
     related.threadsHaveSteps thread isMember (by simp [isBlocked])
-  have isNotBoot : wp2_isBootPhase thread.phase = false := by rw [isBlocked]; rfl
+  have isNotBoot : isBootPhase thread.phase = false := by rw [isBlocked]; rfl
   have isRecordId := wp2_record_of_timer carries isNotBoot hasTimer
   have isStep : timer.step = record.id := by
     rw [isRecordId]
@@ -612,7 +604,7 @@ theorem wp2_fire_batch (program : Program) (dexConfig : Dex.Config signature) (s
       obtain ⟨isArmed, isDue⟩ := (entriesMem timer fireTime).mp List.mem_cons_self
       obtain ⟨thread, chan, since, waitState, isMember, isBlocked, isTimed, isIndex, isFire,
         newRelated⟩ := wp2_fire_one lInvariant runInvariant related timer fireTime isArmed
-      have isFound := wp2_findThread?_of_mem lInvariant isMember
+      have isFound := findThread?_of_mem lInvariant isMember
       simp only [List.map_cons, List.nodup_cons] at entriesNodup
       obtain ⟨headFresh, restNodup⟩ := entriesNodup
       obtain ⟨headIsLeast, restPairwise⟩ := List.pairwise_cons.mp entriesPairwise
@@ -741,7 +733,7 @@ theorem wp2_runningRelated_firing {program : Program} {lConfig : L.Config}
       obtain ⟨record, isRecord, isActive, carries, isMatch⟩ :=
         related.threadsHaveSteps thread isMember isNotHalted
       exact ⟨record, isRecord, isActive, carries,
-        wp2_phaseMatchesStep_transfer rfl (fun _ isTask _ => isTask) isMatch⟩
+        phaseMatchesStep_transfer rfl (fun _ isTask _ => isTask) isMatch⟩
     stepsHaveThreads := related.stepsHaveThreads
     activeStepsHaveDistinctThreads := related.activeStepsHaveDistinctThreads
     invocationsAreActive := related.invocationsAreActive
@@ -795,10 +787,10 @@ theorem wp2_fire_exec (program : Program) (lConfig : L.Config)
       have noThread := state.lInvariant.closedHasNoThread statusCase
       simp [L.Config.fireTimers, wp2_leastDueTimerThread_eq, wp2_dueCandidates, noThread,
         sortStable] at isFired
-  obtain ⟨run, hasRun, isRunning⟩ := wp2_run_of_running state.isRelated isRunningL
+  obtain ⟨run, hasRun, isRunning⟩ := Related.run_of_running state.isRelated isRunningL
   have related := state.isRelated.running run hasRun isRunning
   have keysNodup := timerKeysNodup run hasRun
-  have canCommit := wp2_canCommit_of_canStamp state.isRelated canStamp
+  have canCommit := Related.canCommit_of_canStamp state.isRelated canStamp
   have entriesNodup : ((sortStable Dex.Run.isTimerEntryAtMost
       (run.timers.filter (fun entry => decide (entry.2 ≤ dexConfig.clock)))).map
         (fun entry => entry.1)).Nodup :=

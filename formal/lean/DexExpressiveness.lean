@@ -21,6 +21,7 @@ import DexExpressiveness.L.Invariant
 import DexExpressiveness.L.InvariantStep
 import DexExpressiveness.Simulation.Relation
 import DexExpressiveness.Simulation.RelationLemmas
+import DexExpressiveness.Simulation.Frame
 import DexExpressiveness.Simulation.LToDexBasicLemmas
 import DexExpressiveness.Simulation.LToDexBasicWake
 import DexExpressiveness.Simulation.LToDexBasicFire

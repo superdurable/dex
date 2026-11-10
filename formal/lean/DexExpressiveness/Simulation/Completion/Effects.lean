@@ -206,7 +206,7 @@ theorem wp3b_wake_one (mid : MidThreads program lConfig dexConfig run tid stepId
     (withRun dexConfig (publishedRun run chan message)) rfl rfl
     (fun _ _ _ _ _ cv _ => by rw [sameQueues]) threadsNext
   obtain ⟨sameAttributes, sameCounters, sameStatus, sameOutputs⟩ :=
-    wp3b_applyEffects_frame run { publications := [(chan, message)] }
+    Dex.Run.applyEffects_keeps_data run { publications := [(chan, message)] }
   refine ⟨midNext, ?_, ?_, samePending, sameAttributes, sameCounters, sameStatus, sameOutputs⟩
   · rw [threadsNext]
     exact wp3b_wakeThread_threads lConfig thread.core.tid outcome
@@ -287,7 +287,7 @@ theorem wp3b_effect_release (mid : MidState program lConfig dexConfig run tid st
   split at isNext
   · rename_i next earliestCase
     obtain ⟨thread, on, since, isThread, isNextThread, isBlocked, isWanted, isEarliest⟩ :=
-      wp3b_earliestBlocked_some lConfig _ next earliestCase
+      exists_of_earliestBlocked_some lConfig _ next earliestCase
     have isLock : on = .lock mutex := by
       cases on <;> simp_all
     subst isLock
@@ -328,7 +328,7 @@ theorem wp3b_effect_release (mid : MidState program lConfig dexConfig run tid st
     have noLocker : ∀ thread, thread ∈ lConfig.threads → ∀ since,
         thread.phase ≠ .blocked (.lock mutex) since := by
       intro thread isThread since isBlocked
-      have isNotWanted := wp3b_earliestBlocked_none lConfig _ earliestCase thread isThread _ since
+      have isNotWanted := not_isWanted_of_earliestBlocked_none lConfig _ earliestCase thread isThread _ since
         isBlocked
       simp at isNotWanted
     rw [isNext]
@@ -350,7 +350,7 @@ theorem wp3b_effect_wakeCvWaiter (mid : MidState program lConfig dexConfig run t
   by_cases isParked : ∃ thread since, lConfig.findThread? waiter = some thread ∧
       thread.phase = .blocked (.park cv) since
   · obtain ⟨thread, since, isFound, isBlocked⟩ := isParked
-    obtain ⟨isThread, hasId⟩ := wp3b_findThread?_some lConfig waiter thread isFound
+    obtain ⟨isThread, hasId⟩ := mem_of_findThread? isFound
     have isNext : lConfig.wakeCvWaiter cv waiter = lConfig.wakeThread thread.core.tid .granted := by
       simp [L.Config.wakeCvWaiter, isFound, isBlocked, hasId]
     have fits := mid.threads.blockedFit thread isThread _ since isBlocked
@@ -407,7 +407,7 @@ theorem wp3b_effect_wakeCvWaiter (mid : MidState program lConfig dexConfig run t
           apply isParked
           refine ⟨thread, since, ?_, isBlocked⟩
           rw [← hasId]
-          exact wp3b_findThread?_of_mem lConfig thread mid.threads.threadIdsNodup isThread)
+          exact findThread?_of_mem_of_nodup lConfig thread mid.threads.threadIdsNodup isThread)
         (lConfig.wakeCvWaiter cv waiter) (by rw [isNext]) (by rw [isNext])
     refine ⟨⟨midNext, ?_, ?_⟩, wp3b_ownKept_of_eq _ _ tid (by rw [isNext])⟩
     · exact mid.data.transfer _ _ (fun _ => none)

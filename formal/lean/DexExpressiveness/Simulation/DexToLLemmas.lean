@@ -1,4 +1,4 @@
-import DexExpressiveness.Simulation.RelationLemmas
+import DexExpressiveness.Simulation.Frame
 
 /-!
 # Dex to L: the Dex actions that need no L→Dex lemma
@@ -110,11 +110,11 @@ theorem TaskAgrees.refl (program : Program) (task : Dex.Task signature) :
   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 /-- Whether a task is current depends only on its ID, Step, and method. -/
-theorem wp4_isTaskCurrent_of_agrees (program : Program) (config next : Dex.Config signature)
+theorem isTaskCurrent_of_agrees (program : Program) (config next : Dex.Config signature)
     (sameRun : next.run = config.run) (task changed : Dex.Task signature)
     (agrees : TaskAgrees program task changed) :
-    next.isTaskCurrent changed = config.isTaskCurrent task := by
-  simp only [Dex.Config.isTaskCurrent, sameRun, agrees.step, agrees.method, agrees.id]
+    next.isTaskCurrent changed = config.isTaskCurrent task :=
+  isTaskCurrent_congr config next task changed sameRun agrees.step agrees.method agrees.id
 
 /-- A running task is still there after tasks were replaced by tasks that agree. -/
 theorem wp4_hasRunningTask_of_agrees (program : Program) (config next : Dex.Config signature)
@@ -185,7 +185,7 @@ theorem wp4_related_of_tasks_agree (program : Program) (lConfig : L.Config)
               isMatch⟩
         tasksAreCurrent := fun changed isMember => by
           obtain ⟨task, isTaskMember, agrees⟩ := backward changed isMember
-          rw [wp4_isTaskCurrent_of_agrees program config next sameRun task changed agrees]
+          rw [isTaskCurrent_of_agrees program config next sameRun task changed agrees]
           exact related.tasksAreCurrent task isTaskMember }
     closed := fun run status hasRun isClosed =>
       let related := isRelated.closed run status (sameRun ▸ hasRun) isClosed
@@ -193,7 +193,7 @@ theorem wp4_related_of_tasks_agree (program : Program) (lConfig : L.Config)
         lateEmits := sameEffects ▸ related.lateEmits
         tasksAreStale := fun changed isMember => by
           obtain ⟨task, isTaskMember, agrees⟩ := backward changed isMember
-          rw [wp4_isTaskCurrent_of_agrees program config next sameRun task changed agrees]
+          rw [isTaskCurrent_of_agrees program config next sameRun task changed agrees]
           exact related.tasksAreStale task isTaskMember } }
 
 /-- The relation is kept when one task is replaced by a task that agrees with it. -/
@@ -284,18 +284,6 @@ theorem wp4_closed_of_stale_task (program : Program) (lConfig : L.Config)
       rw [(isRelated.running run hasRun isStatus).tasksAreCurrent task isMember] at isStale
       cases isStale
     | closed status => exact ⟨run, status, rfl, isStatus⟩
-
-/-- When the Flow is closed, the L program is closed. -/
-theorem wp4_l_closed (program : Program) (lConfig : L.Config) (config : Dex.Config signature)
-    (isRelated : Related program lConfig config) (run : Dex.Run signature)
-    (status : Dex.CloseStatus) (hasRun : config.run = some run)
-    (isClosed : run.status = .closed status) : lConfig.status = .closed := by
-  have isStatus := isRelated.status
-  rw [hasRun] at isStatus
-  cases lStatus : lConfig.status with
-  | notStarted => simp [lStatus] at isStatus
-  | running => simp [lStatus, isClosed] at isStatus
-  | closed => rfl
 
 /-- After the close, the relation holds again when the L side changed only
 its late emits, the Dex side only its tasks, and the late emits are still the
@@ -408,7 +396,7 @@ theorem wp4_removeTask_simulated (program : Program) (lConfig : L.Config)
         wp4_exists_removeAt lConfig.lateEmits effect isLateMember
       have isRest := List.Perm.cons_inv
         ((by simpa using isPerm : (effect :: _).Perm lConfig.lateEmits).trans isLatePerm)
-      have lClosed := wp4_l_closed program lConfig dexConfig state.isRelated run status hasRun
+      have lClosed := Related.status_of_closed_run program lConfig dexConfig state.isRelated run status hasRun
         isClosed
       refine ⟨[.lateDrop index], { lConfig with lateEmits := removeAt lConfig.lateEmits index },
         Nat.le_refl 1, ?_, ?_⟩
@@ -491,7 +479,7 @@ theorem dex_workerEffect_closed_simulated (program : Program) (lConfig : L.Confi
       have isRest := (by simpa [pendingEffects] using afterPerm :
           List.Perm _ (laterEffects ++ _)).trans (List.Perm.cons_inv
         ((by simpa using beforePerm : (effect :: _).Perm lConfig.lateEmits).trans isLatePerm))
-      have lClosed := wp4_l_closed program lConfig dexConfig state.isRelated run status hasRun
+      have lClosed := Related.status_of_closed_run program lConfig dexConfig state.isRelated run status hasRun
         isClosed
       have backward : ∀ changed, changed ∈ (dexConfig.updateTask taskId (fun current =>
             { current with phase := .running laterEffects response })).tasks →
@@ -525,7 +513,7 @@ theorem dex_publish_closed_simulated (program : Program) (lConfig : L.Config)
   subst isMessage
   simp only [Dex.system, Dex.step, hasRun, isClosed] at isStep
   cases isStep
-  have lClosed := wp4_l_closed program lConfig dexConfig state.isRelated run status hasRun isClosed
+  have lClosed := Related.status_of_closed_run program lConfig dexConfig state.isRelated run status hasRun isClosed
   refine ⟨[.request (.input externalChan literal)], lConfig, Nat.le_refl 1, ?_, state.isRelated⟩
   simp [TransitionSystem.exec, L.system, L.step, lClosed, project]
 

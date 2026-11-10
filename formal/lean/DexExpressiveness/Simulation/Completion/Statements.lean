@@ -242,7 +242,7 @@ theorem wp3b_completedRun_status (run : Dex.Run signature) (step : Dex.StepExecI
     (isNotClosing : response.decision.close = none ∨ response.decision.close = some .deadEnd) :
     (completedRun run step response).status = .running := by
   have effectStatus : ((releasedRun run step).applyEffects response.effects).status = .running := by
-    rw [(wp3b_applyEffects_frame (releasedRun run step) response.effects).2.2.1]
+    rw [(Dex.Run.applyEffects_keeps_data (releasedRun run step) response.effects).2.2.1]
     exact isRunning
   rw [wp3b_completedRun_eq]
   unfold Dex.Run.applyDecision
@@ -259,23 +259,6 @@ theorem wp3b_closeEvents_running (before after : Dex.Run signature)
   unfold Dex.Config.closeEvents
   rw [isRunning]
   cases before.status <;> rfl
-
-/-- `effects` with nothing to write or publish changes nothing, for any run. -/
-theorem wp3b_applyEffects_empty (run : Dex.Run signature) : run.applyEffects {} = run := by
-  have noWaiters : run.waitersOn [] = [] := by
-    apply List.eq_nil_iff_forall_not_mem.mpr
-    intro step isWaiter
-    simp only [Dex.Run.waitersOn, List.mem_map] at isWaiter
-    obtain ⟨pair, isSorted, _⟩ := isWaiter
-    obtain ⟨record, _, isPair⟩ := List.mem_filterMap.mp ((mem_sortStable _ _ _).mp isSorted)
-    cases phaseCase : record.phase <;> simp only [phaseCase] at isPair <;> try (cases isPair)
-    cases waitCase : record.waitState with
-    | none => simp [waitCase] at isPair
-    | some waitState => simp [waitCase] at isPair
-  show (run.wake []) = run
-  unfold Dex.Run.wake
-  rw [noWaiters]
-  rfl
 
 /-- Canceling Steps keeps the outputs. -/
 theorem wp3b_outputs_foldl_finishStep (steps : List (Dex.StepExecId signature))
@@ -297,27 +280,5 @@ theorem wp3b_closeRun_running (run : Dex.Run signature) (status : Dex.CloseStatu
   refine ⟨by simp [Dex.Run.closeRun, isRunning], ?_⟩
   simp only [Dex.Run.closeRun, isRunning]
   exact wp3b_outputs_foldl_finishStep _ run
-
-/-! ## The run of a configuration with a thread -/
-
-/-- A configuration with a thread is related to a running run. -/
-theorem wp3b_running_of_thread (program : Program) (lConfig : L.Config)
-    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
-    (thread : L.Thread) (isThread : thread ∈ lConfig.threads) :
-    ∃ run, dexConfig.run = some run ∧ run.status = .running := by
-  have status := state.isRelated.status
-  cases statusCase : lConfig.status with
-  | notStarted =>
-    rw [(state.lInvariant.notStartedIsInitial statusCase).1] at isThread
-    cases isThread
-  | closed =>
-    rw [state.lInvariant.closedHasNoThread statusCase] at isThread
-    cases isThread
-  | running =>
-    cases runCase : dexConfig.run with
-    | none => simp [statusCase, runCase] at status
-    | some run =>
-      simp only [statusCase, runCase] at status
-      exact ⟨run, rfl, status⟩
 
 end DexExpressiveness

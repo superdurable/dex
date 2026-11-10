@@ -155,7 +155,7 @@ theorem MidData.transfer {lConfig : L.Config} {run : Dex.Run signature} {tid : T
           · exact Or.inl hasRequest
           · right
             left
-            have isCurrent := (wp3b_findThread?_some lConfig thread current isFound).1
+            have isCurrent := (mem_of_findThread? isFound).1
             have isKept : woken current = none := by
               cases wokenCase : woken current with
               | none => rfl

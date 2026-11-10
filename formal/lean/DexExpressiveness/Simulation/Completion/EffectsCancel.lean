@@ -57,7 +57,7 @@ theorem wp3b_effect_cancel (mid : MidState program lConfig dexConfig run tid ste
       thread.phase = .blocked on since ∧
       Chan.cancelRequest target ∈ (expectedWaitShape target on).2.2
   · obtain ⟨thread, on, since, isFound, isBlocked, isNamed⟩ := isAtPoint
-    obtain ⟨isThread, hasId⟩ := wp3b_findThread?_some lConfig target thread isFound
+    obtain ⟨isThread, hasId⟩ := mem_of_findThread? isFound
     have isFoundFlagged : (flagThread lConfig target).findThread? target = some thread := isFound
     have isNext : (flagThread lConfig target).cancelBlockedThread target =
         (flagThread lConfig target).wakeThread target .canceled := by
@@ -148,7 +148,7 @@ theorem wp3b_effect_cancel (mid : MidState program lConfig dexConfig run tid ste
           apply isAtPoint
           refine ⟨thread, on, since, ?_, isBlocked, by rw [hasId] at isNamed; exact isNamed⟩
           rw [← hasId]
-          exact wp3b_findThread?_of_mem lConfig thread mid.threads.threadIdsNodup isThread)
+          exact findThread?_of_mem_of_nodup lConfig thread mid.threads.threadIdsNodup isThread)
         ((flagThread lConfig target).cancelBlockedThread target) (by rw [isNext]; rfl)
         (by rw [isNext]; rfl)
     have otherPending : ∀ other, other ≠ target →
@@ -218,7 +218,7 @@ theorem wp3b_effect_join_some (mid : MidState program lConfig dexConfig run tid 
     intro self on isNamed
     rcases on with _ | _ | _ | _ | ⟨_, _, _ | _⟩ <;> simp_all [expectedWaitShape]
   obtain ⟨thread, on, since, isThread, isJoiner, isBlocked, isWantedOn, isEarliest⟩ :=
-    wp3b_earliestBlocked_some lConfig isWanted joiner earliestCase
+    exists_of_earliestBlocked_some lConfig isWanted joiner earliestCase
   have isJoin := (wantedSpec on).mp isWantedOn
   subst isJoin
   subst isJoiner
@@ -268,7 +268,7 @@ theorem wp3b_effect_join_none (mid : MidState program lConfig dexConfig run tid 
       (by
         intro thread isThread on since isBlocked isNamed
         have isJoin := joinOfChan _ _ isNamed
-        have isNotWanted := wp3b_earliestBlocked_none lConfig isWanted earliestCase thread isThread
+        have isNotWanted := not_isWanted_of_earliestBlocked_none lConfig isWanted earliestCase thread isThread
           on since isBlocked
         rw [(wantedSpec on).mpr isJoin] at isNotWanted
         cases isNotWanted)

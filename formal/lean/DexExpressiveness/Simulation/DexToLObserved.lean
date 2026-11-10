@@ -48,40 +48,6 @@ theorem wp4_simulated_of_single_action (program : Program) (lConfig : L.Config)
   refine ⟨[label], lNext, Nat.le_refl 1, ?_, isRelated⟩
   simp only [TransitionSystem.exec, isLStep, List.append_nil, sameEvents]
 
-/-! ## Clocks and status -/
-
-/-- A stamped L action may happen when a Dex commit may. -/
-theorem wp4_canStamp_of_canCommit {program : Program} {lConfig : L.Config}
-    {dexConfig : Dex.Config signature} (isRelated : Related program lConfig dexConfig)
-    (canCommit : dexConfig.canCommit = true) : lConfig.canStamp = true := by
-  unfold Dex.Config.canCommit at canCommit
-  unfold L.Config.canStamp
-  rw [isRelated.stamp, isRelated.clock]
-  exact canCommit
-
-/-- When the Flow runs, the L program runs. -/
-theorem wp4_l_running {program : Program} {lConfig : L.Config}
-    {dexConfig : Dex.Config signature} (isRelated : Related program lConfig dexConfig)
-    (run : Dex.Run signature) (hasRun : dexConfig.run = some run)
-    (isRunning : run.status = .running) : lConfig.status = .running := by
-  have isStatus := isRelated.status
-  rw [hasRun] at isStatus
-  cases lStatus : lConfig.status with
-  | notStarted => simp [lStatus] at isStatus
-  | running => rfl
-  | closed => simp [lStatus, isRunning] at isStatus
-
-/-- Before the Flow starts, the L program has not started. -/
-theorem wp4_l_notStarted {program : Program} {lConfig : L.Config}
-    {dexConfig : Dex.Config signature} (isRelated : Related program lConfig dexConfig)
-    (hasNoRun : dexConfig.run = none) : lConfig.status = .notStarted := by
-  have isStatus := isRelated.status
-  rw [hasNoRun] at isStatus
-  cases lStatus : lConfig.status with
-  | notStarted => rfl
-  | running => simp [lStatus] at isStatus
-  | closed => simp [lStatus] at isStatus
-
 /-! ## Requests -/
 
 /-- [FLOW-START] is simulated by `begin(v)`. -/
@@ -103,8 +69,8 @@ theorem dex_startFlow_simulated (program : Program) (lConfig : L.Config)
       · rename_i canCommit
         exact ⟨hasNoRun, canCommit⟩
       · cases isStep
-  have lStatus := wp4_l_notStarted state.isRelated isEnabled.1
-  have canStamp := wp4_canStamp_of_canCommit state.isRelated isEnabled.2
+  have lStatus := Related.status_of_no_run state.isRelated isEnabled.1
+  have canStamp := Related.canStamp_of_canCommit state.isRelated isEnabled.2
   have isLStep : (L.system program).step lConfig (.request (.start literal)) =
       some ([Event.begin literal.toVal], (lConfig.begun program literal.toVal).stamp) := by
     simp [L.system, L.step, lStatus, canStamp]
@@ -128,8 +94,8 @@ theorem dex_publish_running_simulated (program : Program) (lConfig : L.Config)
     · rename_i canCommit
       exact canCommit
     · cases isStep
-  have lStatus := wp4_l_running state.isRelated run hasRun isRunning
-  have canStamp := wp4_canStamp_of_canCommit state.isRelated canCommit
+  have lStatus := Related.status_of_running_run state.isRelated run hasRun isRunning
+  have canStamp := Related.canStamp_of_canCommit state.isRelated canCommit
   have isLStep : (L.system program).step lConfig (.request (.input externalChan literal)) =
       some ([Event.input externalChan literal.toVal],
         (lConfig.deliverInput externalChan literal.toVal).stamp) := by
@@ -254,7 +220,7 @@ theorem wp4_thread_of_task {program : Program} {lConfig : L.Config}
   have isActive := related.invocationsAreActive record isRecord (by rw [hasInvocation]; simp)
   obtain ⟨thread, isThread, isLive, carries⟩ := related.stepsHaveThreads record isRecord isActive
   exact ⟨record, thread, isRecord, isActive, isThread, hasInvocation,
-    wp2_threadOfInput_of_mem state.lInvariant isThread carries,
+    threadOfInput_of_mem state.lInvariant isThread carries,
     related.phaseMatchesStep_of_carries thread isThread isLive record isRecord isActive carries⟩
 
 /-! ## The L thread step is enabled -/
@@ -325,11 +291,11 @@ theorem dex_stepStart_simulated (program : Program) (lConfig : L.Config)
   have phaseMatches :=
     related.phaseMatchesStep_of_carries thread isThread isLive record isRecord isActive carries
   have isPending := wp4_pending_of_invocation phaseMatches hasInvocation
-  have isFound := wp2_findThread?_of_mem state.lInvariant isThread
+  have isFound := findThread?_of_mem state.lInvariant isThread
   have isActions := simulatingActions_begin (program := program) related hasRun isFound record
-    isRecord isActive (wp2_threadOfInput_of_mem state.lInvariant isThread carries) isPending
+    isRecord isActive (threadOfInput_of_mem state.lInvariant isThread carries) isPending
   rw [isId] at isActions
-  have canStamp := wp4_canStamp_of_canCommit state.isRelated canCommit
+  have canStamp := Related.canStamp_of_canCommit state.isRelated canCommit
   obtain ⟨⟨lEvents, lNext⟩, isThreadStep⟩ :=
     wp4_stepThread_begin_enabled program lConfig thread canStamp isPending
       (fun isReady isNotWaiting => by
@@ -381,7 +347,7 @@ theorem dex_workerEffect_running_simulated (program : Program) (lConfig : L.Conf
     simp [pendingEffects, isPhase]
   rcases wp4_phase_of_running_task state.tasksDistinct phaseMatches task isTask task.method
     hasInvocation with ⟨emitted, isEmitting, _⟩ | ⟨hasNoEffect, _⟩
-  · have isFound := wp2_findThread?_of_mem state.lInvariant isThread
+  · have isFound := findThread?_of_mem state.lInvariant isThread
     have isActions := simulatingActions_deliver (program := program) related hasRun
       state.tasksDistinct isFound record isRecord isActive isThreadInput task.method task isTask
       hasInvocation emitted isEmitting
@@ -434,13 +400,13 @@ theorem dex_stepComplete_simulated (program : Program) (lConfig : L.Config)
     hasInvocation with ⟨emitted, _, hasEffect⟩ | ⟨_, isCompleting⟩
   · rw [isEffects] at hasEffect
     cases hasEffect
-  · have isFound := wp2_findThread?_of_mem state.lInvariant isThread
+  · have isFound := findThread?_of_mem state.lInvariant isThread
     have isActions := simulatingActions_complete (program := program) related hasRun
       state.tasksDistinct isFound record isRecord isActive isThreadInput task.method task isTask
       hasInvocation isCompleting
     have hasReturned : returnTaskActions task = [] := by simp [returnTaskActions, isPhase]
     rw [hasReturned, isId, List.nil_append] at isActions
-    have canStamp := wp4_canStamp_of_canCommit state.isRelated canCommit
+    have canStamp := Related.canStamp_of_canCommit state.isRelated canCommit
     obtain ⟨⟨lEvents, lNext⟩, isThreadStep⟩ :=
       wp4_stepThread_complete_enabled program lConfig thread canStamp isCompleting
     have isLStep : (L.system program).step lConfig (.thread thread.core.tid) =
@@ -539,7 +505,7 @@ theorem wp4_fireTimers_enabled (program : Program) :
       obtain ⟨deadline, number, tid⟩ := entry
       obtain ⟨thread, chan, since, isMember, isBlocked, _, rfl⟩ :=
         (wp2_mem_dueCandidates config deadline number tid).mp isCandidate
-      have isFound := wp2_findThread?_of_mem invariant isMember
+      have isFound := findThread?_of_mem invariant isMember
       have nextInvariant := wp2_invariant_wake_fired invariant isFound isBlocked
       have nextLength : (wp2_dueCandidates config).length ≤
           (wp2_dueCandidates (config.setPhase thread.core.tid (.woken .fired))).length + 1 :=
@@ -614,7 +580,7 @@ theorem dex_timerFire_simulated (program : Program) (lConfig : L.Config)
     · rename_i isEnabled
       simpa [and_assoc] using isEnabled
     · cases isStepCopy
-  have canStamp := wp4_canStamp_of_canCommit state.isRelated canCommit
+  have canStamp := Related.canStamp_of_canCommit state.isRelated canCommit
   obtain ⟨final, isFired⟩ := wp4_fireTimers_enabled program count lConfig state.lInvariant
     (Nat.le_trans isEnough (wp4_dueTimers_length_le state run hasRun isRunning))
   have isLStep : (L.system program).step lConfig (.fire count) = some ([], final.stamp) := by

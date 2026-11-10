@@ -90,7 +90,7 @@ theorem wp3b_finish (program : Program) (lConfig : L.Config)
       (dropThread lConfig tid).findThread? thread = lConfig.findThread? thread := by
     intro thread isOther
     symm
-    apply wp3b_findThread?_congr lConfig (dropThread lConfig tid) thread
+    apply findThread?_congr lConfig (dropThread lConfig tid) thread
       (wp3b_nodup_dropThread lConfig tid mid.threadIdsNodup)
     intro candidate hasId
     rw [wp3b_mem_dropThread]
@@ -112,7 +112,7 @@ theorem wp3b_finish (program : Program) (lConfig : L.Config)
         intro thread isFlagged
         by_cases isOwn : thread = tid
         · refine Or.inr (Or.inr ⟨?_, ?_⟩)
-          · apply (wp3b_findThread?_none _ _).mpr
+          · apply (findThread?_eq_none_iff _ _).mpr
             intro candidate isCandidate
             rw [isOwn]
             exact ((wp3b_mem_dropThread lConfig tid candidate).mp isCandidate).2
@@ -132,7 +132,7 @@ theorem wp3b_finish (program : Program) (lConfig : L.Config)
         intro timer fireTime
         have isFiltered : (run.finishStep stepId .completed).timers.get? timer =
             if (!decide (timer.step = stepId)) = true then run.timers.get? timer else none :=
-          AssocList.wp3b_get?_filter (fun (candidate : Dex.TimerId signature) =>
+          AssocList.get?_filter (fun (candidate : Dex.TimerId signature) =>
             !decide (candidate.step = stepId)) run.timers timer
         constructor
         · intro isArmed
@@ -164,7 +164,7 @@ theorem wp3b_finish (program : Program) (lConfig : L.Config)
           mid.threadsHaveSteps thread isOld isOther isLive
         refine ⟨record, keptStep record isRecord
           (mid.ne_ownStep thread isOld isOther record isRecord carries), isActive, carries, ?_⟩
-        exact wp3b_phaseMatches_congr program lConfig _ dexConfig finished thread record
+        exact phaseMatchesStep_congr program lConfig _ dexConfig finished thread record
           (fun task isTask _ => by rw [sameTasks]; exact isTask) (fun _ _ _ _ => rfl) isMatch
       stepsHaveThreads := by
         intro record isRecord isActive
@@ -263,12 +263,12 @@ theorem wp3b_spawn (program : Program) (lConfig lNext : L.Config)
     rw [isReady]
     exact ⟨by simp, by simp⟩
   have createdThread : threadOfInput (createdRecord run move origin).input = thread.core.tid :=
-    wp3b_threadOfInput_of_carries program thread _ isNotBoot.1 isNotBoot.2 carries
+    threadOfInput_of_carries_of_booted program thread _ isNotBoot.1 isNotBoot.2 carries
   have oldThread : ∀ record, record ∈ run.steps → record.phase.isActive = true →
       threadOfInput record.input ≠ thread.core.tid := by
     intro record isRecord isActive
     obtain ⟨other, isOther, _, otherCarries⟩ := related.stepsHaveThreads record isRecord isActive
-    rw [wp3b_threadOfInput_of_carries program other record (noBoot other isOther).1
+    rw [threadOfInput_of_carries_of_booted program other record (noBoot other isOther).1
       (noBoot other isOther).2 otherCarries]
     exact isFresh other isOther
   have blockedIsOld : ∀ other, other ∈ lNext.threads → ∀ on since,
@@ -287,16 +287,16 @@ theorem wp3b_spawn (program : Program) (lConfig lNext : L.Config)
     · exact isOld
     · have isCreated : record = createdRecord run move origin := by simpa using isNew
       rw [isCreated] at otherCarries
-      have sameThread := wp3b_threadOfInput_of_carries program other _ (noBoot other isOther).1
+      have sameThread := threadOfInput_of_carries_of_booted program other _ (noBoot other isOther).1
         (noBoot other isOther).2 otherCarries
       rw [createdThread] at sameThread
       exact absurd sameThread.symm (isFresh other isOther)
   have findOld : ∀ target current, lConfig.findThread? target = some current →
       lNext.findThread? target = some current := by
     intro target current isFound
-    obtain ⟨isCurrent, hasId⟩ := wp3b_findThread?_some lConfig target current isFound
+    obtain ⟨isCurrent, hasId⟩ := mem_of_findThread? isFound
     rw [← hasId]
-    exact wp3b_findThread?_of_mem lNext current nodupNext
+    exact findThread?_of_mem_of_nodup lNext current nodupNext
       ((threadsNext current).mpr (Or.inl isCurrent))
   exact
     { shared := by
@@ -349,10 +349,10 @@ theorem wp3b_spawn (program : Program) (lConfig lNext : L.Config)
           · exact Or.inr (Or.inl ⟨current, findOld target current isFound, isCanceled⟩)
           · by_cases isEmpty : run.pendingMessages (Chan.cancelRequest target) = []
             · refine Or.inr (Or.inr ⟨?_, ?_⟩)
-              · apply (wp3b_findThread?_none _ _).mpr
+              · apply (findThread?_eq_none_iff _ _).mpr
                 intro other isOther
                 rcases (threadsNext other).mp isOther with isOld | isCreated
-                · exact (wp3b_findThread?_none _ _).mp isGone other isOld
+                · exact (findThread?_eq_none_iff _ _).mp isGone other isOld
                 · rw [isCreated]
                   exact fun sameId => isNew sameId.symm
               · intro live isLive index isAbove
@@ -385,7 +385,7 @@ theorem wp3b_spawn (program : Program) (lConfig lNext : L.Config)
             related.threadsHaveSteps other isOld isLive
           refine ⟨record, by rw [stepsNext]; exact List.mem_append_left _ isRecord, isActive,
             otherCarries, ?_⟩
-          exact wp3b_phaseMatches_congr program lConfig lNext dexConfig dexNext other record
+          exact phaseMatchesStep_congr program lConfig lNext dexConfig dexNext other record
             (fun task isTask _ => by rw [sameTasks]; exact isTask)
             (fun _ _ cv _ => by rw [sameData.cvQueues]) isMatch
         · rw [isNew]
@@ -490,9 +490,9 @@ theorem wp3b_addHalted (program : Program) (lConfig lNext : L.Config)
   have findOld : ∀ target current, lConfig.findThread? target = some current →
       lNext.findThread? target = some current := by
     intro target current isFound
-    obtain ⟨isCurrent, hasId⟩ := wp3b_findThread?_some lConfig target current isFound
+    obtain ⟨isCurrent, hasId⟩ := mem_of_findThread? isFound
     rw [← hasId]
-    exact wp3b_findThread?_of_mem lNext current nodupNext
+    exact findThread?_of_mem_of_nodup lNext current nodupNext
       ((threadsNext current).mpr (Or.inl isCurrent))
   exact
     { shared := by
@@ -546,10 +546,10 @@ theorem wp3b_addHalted (program : Program) (lConfig lNext : L.Config)
             exact (extraHalted other isOther).2.1 (by rw [hasId]; exact isFlagged)
           · by_cases isEmpty : run.pendingMessages (Chan.cancelRequest target) = []
             · refine Or.inr (Or.inr ⟨?_, ?_⟩)
-              · apply (wp3b_findThread?_none _ _).mpr
+              · apply (findThread?_eq_none_iff _ _).mpr
                 intro other isOther hasId
                 rcases (threadsNext other).mp isOther with isOld | isNew
-                · exact (wp3b_findThread?_none _ _).mp isGone other isOld hasId
+                · exact (findThread?_eq_none_iff _ _).mp isGone other isOld hasId
                 · exact isExtra ⟨other, isNew, hasId⟩
               · intro live isLive index isAbove
                 rcases (threadsNext live).mp isLive with isOld | isNew
@@ -580,7 +580,7 @@ theorem wp3b_addHalted (program : Program) (lConfig lNext : L.Config)
         obtain ⟨record, isRecord, isActive, otherCarries, isMatch⟩ :=
           related.threadsHaveSteps other (liveIsOld other isOther isLive) isLive
         refine ⟨record, isRecord, isActive, otherCarries, ?_⟩
-        exact wp3b_phaseMatches_congr program lConfig lNext dexConfig dexNext other record
+        exact phaseMatchesStep_congr program lConfig lNext dexConfig dexNext other record
           (fun task isTask _ => by rw [sameTasks]; exact isTask)
           (fun _ _ cv _ => by rw [sameData.cvQueues]) isMatch
       stepsHaveThreads := by

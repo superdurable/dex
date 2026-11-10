@@ -86,32 +86,6 @@ theorem wp3b_plan_fire (wait : Dex.Wait σ) (pendingCount : σ.Chan → Nat)
     have isEnough : 1 ≤ pendingCount chan := hasMessage
     simp [isAll, noneDone, oneChan, isEnough]
 
-/-- The plan of a supported wait with a Channel condition, no timer done, and
-only empty Channels: none. -/
-theorem wp3b_plan_none_of_quiet (wait : Dex.Wait σ) (pendingCount : σ.Chan → Nat)
-    (timersDone : List Bool) (isSupported : Dex.IsSupportedWait wait)
-    (hasChannel : wait.channels ≠ []) (noTimerDone : timersDone.any id = false)
-    (sameLength : timersDone.length = wait.timerSeconds.length)
-    (isQuiet : ∀ chan, chan ∈ wait.channels → pendingCount chan = 0) :
-    Dex.Run.plan wait pendingCount timersDone = none := by
-  have hasCondition : wait.hasNoCondition = false := by
-    cases channelCase : wait.channels with
-    | nil => exact absurd channelCase hasChannel
-    | cons head later => simp [Dex.Wait.hasNoCondition, channelCase]
-  unfold Dex.Run.plan
-  simp only [hasCondition, Bool.false_eq_true, ↓reduceIte]
-  rcases isSupported with isEmpty | isAny | ⟨isAll, noTimers, only, oneChan⟩
-  · rw [hasCondition] at isEmpty
-    cases isEmpty
-  · simp only [isAny, noTimerDone, Bool.false_eq_true, ↓reduceIte]
-    exact Dex.Run.planAnyChannel_eq_none pendingCount wait.channels isQuiet
-  · have noneDone : timersDone = [] := by
-      apply List.length_eq_zero_iff.mp
-      rw [sameLength, noTimers]
-      rfl
-    have isEmptyChan : pendingCount only = 0 := isQuiet only (by rw [oneChan]; simp)
-    simp [isAll, noneDone, oneChan, isEmptyChan]
-
 /-- Consuming by the plan of `wp3b_plan_fire` takes the oldest message of
 that Channel. -/
 theorem wp3b_consume_fire (chans : List σ.Chan) (chan : σ.Chan) (run : Dex.Run σ)
@@ -152,89 +126,6 @@ theorem wp3b_consume_fire (chans : List σ.Chan) (chan : σ.Chan) (run : Dex.Run
       rw [inductionHypothesis laterNodup]
       have isOther : ¬ chan = head := fun isSame => isHead isSame.symm
       simp [isOther]
-
-/-- `eval(e)` changes nothing when a waiting `S[e]` has no plan. -/
-theorem wp3b_evalStep_quiet (run : Dex.Run σ) (step : Dex.StepExecId σ)
-    (isQuiet : ∀ record waitState, run.findStep? step = some record → record.phase = .waiting →
-      record.waitState = some waitState →
-      Dex.Run.plan waitState.wait (fun chan => (run.pendingMessages chan).length)
-        waitState.timersDone = none) :
-    run.evalStep step = run := by
-  cases foundCase : run.findStep? step with
-  | none => simp [Dex.Run.evalStep, foundCase]
-  | some record =>
-    by_cases isWaiting : record.phase = .waiting
-    · cases waitCase : record.waitState with
-      | none => simp [Dex.Run.evalStep, foundCase, isWaiting, waitCase]
-      | some waitState =>
-        exact Dex.Run.evalStep_of_plan_none run step record waitState foundCase waitCase
-          (isQuiet record waitState foundCase isWaiting waitCase)
-    · exact Dex.Run.evalStep_of_not_waiting run step record foundCase isWaiting
-
-/-- Evaluating Steps changes nothing when no waiting Step has a plan. -/
-theorem wp3b_foldl_evalStep_quiet (steps : List (Dex.StepExecId σ)) (run : Dex.Run σ)
-    (isQuiet : ∀ step record waitState, run.findStep? step = some record →
-      record.phase = .waiting → record.waitState = some waitState →
-      Dex.Run.plan waitState.wait (fun chan => (run.pendingMessages chan).length)
-        waitState.timersDone = none) :
-    steps.foldl Dex.Run.evalStep run = run := by
-  induction steps with
-  | nil => rfl
-  | cons step laterSteps inductionHypothesis =>
-    simp only [List.foldl_cons]
-    rw [wp3b_evalStep_quiet run step (isQuiet step)]
-    exact inductionHypothesis
-
-/-- `eval(e)` keeps the Attributes, the status, and the outputs. -/
-theorem wp3b_evalStep_frame (run : Dex.Run σ) (step : Dex.StepExecId σ) :
-    (run.evalStep step).attributes = run.attributes ∧
-    (run.evalStep step).status = run.status ∧
-    (run.evalStep step).outputs = run.outputs := by
-  rcases Dex.Run.evalStep_shape run step with isSame | ⟨chans, consumeFlags, change, _, isEval⟩
-  · rw [isSame]
-    exact ⟨rfl, rfl, rfl⟩
-  · rw [isEval]
-    obtain ⟨_, _, _, _, sameStatus, sameAttributes, sameOutputs⟩ :=
-      Dex.Run.consumeMessages_frame chans consumeFlags (run.disarmTimersOf step)
-    exact ⟨sameAttributes, sameStatus, sameOutputs⟩
-
-/-- Evaluating Steps keeps the Attributes, the counters, the status, and the outputs. -/
-theorem wp3b_foldl_evalStep_frame (steps : List (Dex.StepExecId σ)) (run : Dex.Run σ) :
-    (steps.foldl Dex.Run.evalStep run).attributes = run.attributes ∧
-    (steps.foldl Dex.Run.evalStep run).counters = run.counters ∧
-    (steps.foldl Dex.Run.evalStep run).status = run.status ∧
-    (steps.foldl Dex.Run.evalStep run).outputs = run.outputs := by
-  induction steps generalizing run with
-  | nil => exact ⟨rfl, rfl, rfl, rfl⟩
-  | cons step laterSteps inductionHypothesis =>
-    simp only [List.foldl_cons]
-    obtain ⟨sameAttributes, sameCounters, sameStatus, sameOutputs⟩ :=
-      inductionHypothesis (run.evalStep step)
-    obtain ⟨evalAttributes, evalStatus, evalOutputs⟩ := wp3b_evalStep_frame run step
-    rw [sameAttributes, sameCounters, sameStatus, sameOutputs, evalAttributes, evalStatus,
-      evalOutputs, (Dex.Run.evalStep_frame run step).2.1]
-    exact ⟨rfl, rfl, rfl, rfl⟩
-
-/-- `effects` keeps the counters, the status, and the outputs, and changes
-the Attributes by its writes only. -/
-theorem wp3b_applyEffects_frame (run : Dex.Run σ) (effects : Dex.Effects σ) :
-    (run.applyEffects effects).attributes = (run.applyWrites effects.writes).attributes ∧
-    (run.applyEffects effects).counters = run.counters ∧
-    (run.applyEffects effects).status = run.status ∧
-    (run.applyEffects effects).outputs = run.outputs := by
-  unfold Dex.Run.applyEffects Dex.Run.wake
-  obtain ⟨sameAttributes, sameCounters, sameStatus, sameOutputs⟩ :=
-    wp3b_foldl_evalStep_frame
-      (((run.applyWrites effects.writes).applyPublications effects.publications).waitersOn
-        (effects.publications.map (fun publication => publication.1)))
-      ((run.applyWrites effects.writes).applyPublications effects.publications)
-  obtain ⟨_, pubCounters, _, _, pubStatus, pubAttributes, pubOutputs, _⟩ :=
-    Dex.Run.applyPublications_frame effects.publications (run.applyWrites effects.writes)
-  obtain ⟨_, writeCounters, _, _, _, writeStatus, writeOutputs⟩ :=
-    Dex.Run.applyWrites_frame effects.writes run
-  rw [sameAttributes, sameCounters, sameStatus, sameOutputs, pubAttributes, pubCounters,
-    pubStatus, pubOutputs, writeCounters, writeStatus, writeOutputs]
-  exact ⟨rfl, rfl, rfl, rfl⟩
 
 /-- The pending messages after one publication. -/
 theorem wp3b_pendingMessages_publish (run : Dex.Run σ) (chan other : σ.Chan) (message : σ.Val) :
@@ -325,7 +216,7 @@ theorem wp3b_publish_noWaiter {program : Program} {lConfig : L.Config}
         obtain ⟨thread, on, since, isThread, isBlocked, _, isMatch⟩ :=
           mid.blockedOfWaiting record isRecord phaseCase
         obtain ⟨_, _, found, hasWait, _, _, hasChannels, _⟩ :=
-          wp3b_waiting_of_blocked program lConfig dexConfig thread record on since isBlocked isMatch
+          waiting_of_phaseMatchesStep program lConfig dexConfig thread record on since isBlocked isMatch
         rw [waitCase] at hasWait
         cases hasWait
         obtain ⟨chan, isChan, isPublished⟩ := List.any_eq_true.mp namesPublished
@@ -391,7 +282,7 @@ theorem wp3b_publish_wake {program : Program} {lConfig : L.Config}
     obtain ⟨otherThread, otherOn, otherSince, isOtherThread, otherBlocked, otherCarries,
       otherMatch⟩ := mid.blockedOfWaiting other isOther otherWaiting
     obtain ⟨_, _, found, foundWait, _, _, foundChannels, _⟩ :=
-      wp3b_waiting_of_blocked program lConfig dexConfig otherThread other otherOn otherSince
+      waiting_of_phaseMatchesStep program lConfig dexConfig otherThread other otherOn otherSince
         otherBlocked otherMatch
     rw [otherHasWait] at foundWait
     cases foundWait
@@ -527,8 +418,8 @@ theorem wp3b_publish_wake {program : Program} {lConfig : L.Config}
       subst isRecordFirst
       simp only [List.foldl_cons]
       rw [isEvaluated']
-      apply wp3b_foldl_evalStep_quiet
-      intro step other otherWait otherFound otherWaiting otherHasWait
+      apply Dex.Run.foldl_evalStep_of_unplanned
+      intro step _ other otherWait otherFound otherWaiting otherHasWait
       obtain ⟨isOtherWoken, otherId⟩ := Dex.Run.mem_of_findStep? woken step other otherFound
       rw [stepsWoken] at isOtherWoken
       obtain ⟨original, isOriginal, isChanged⟩ := List.mem_map.mp isOtherWoken
@@ -538,19 +429,18 @@ theorem wp3b_publish_wake {program : Program} {lConfig : L.Config}
         cases otherWaiting
       · simp only [isOwn, ↓reduceIte] at isChanged
         subst isChanged
-        obtain ⟨otherSupported, otherNoTimer, otherLength, _⟩ :=
+        obtain ⟨otherSupported, otherNoTimer, _, _⟩ :=
           mid.runInvariant.waitsSupported original otherWait
             ⟨isOriginal, otherWaiting, otherHasWait⟩
         obtain ⟨otherThread, otherOn, otherSince, _, otherBlocked, _, otherMatch⟩ :=
           mid.blockedOfWaiting original isOriginal otherWaiting
         obtain ⟨_, _, found, foundWait, _, _, foundChannels, _⟩ :=
-          wp3b_waiting_of_blocked program lConfig dexConfig otherThread original otherOn
+          waiting_of_phaseMatchesStep program lConfig dexConfig otherThread original otherOn
             otherSince otherBlocked otherMatch
         rw [otherHasWait] at foundWait
         cases foundWait
-        apply wp3b_plan_none_of_quiet otherWait.wait _ otherWait.timersDone otherSupported
+        apply Dex.Run.plan_none_of_quiet otherWait.wait _ otherWait.timersDone otherSupported
           (by rw [foundChannels]; exact wp3b_expectedWaitShape_ne_nil _ _) otherNoTimer
-          otherLength
         intro named isNamedByOther
         rw [pendingWoken named]
         exact List.length_eq_zero_iff.mpr
@@ -606,14 +496,14 @@ theorem wp3b_publish_wake {program : Program} {lConfig : L.Config}
         intro sameId
         rw [sameRecord otherRecord isOtherRecord sameId] at otherCarries
         apply isOwn
-        rw [← wp3b_threadOfInput_of_carries program other record (mid.noBoot other isOther).1
+        rw [← threadOfInput_of_carries_of_booted program other record (mid.noBoot other isOther).1
             (mid.noBoot other isOther).2 otherCarries,
-          wp3b_threadOfInput_of_carries program thread record (mid.noBoot thread isThread).1
+          threadOfInput_of_carries_of_booted program thread record (mid.noBoot thread isThread).1
             (mid.noBoot thread isThread).2 carries]
       simp [isOtherStep]
   · intro timer allKept
     rw [timersWoken]
-    have isFiltered := AssocList.wp3b_get?_filter
+    have isFiltered := AssocList.get?_filter
       (fun (candidate : Dex.TimerId signature) => !decide (candidate.step = record.id))
       run.timers timer
     rw [isFiltered]
@@ -628,7 +518,7 @@ theorem wp3b_publish_wake {program : Program} {lConfig : L.Config}
       · exact isOwn
       · simp [isOwn] at isFired
     rw [timersWoken]
-    have isFiltered := AssocList.wp3b_get?_filter
+    have isFiltered := AssocList.get?_filter
       (fun (candidate : Dex.TimerId signature) => !decide (candidate.step = record.id))
       run.timers timer
     rw [isFiltered]

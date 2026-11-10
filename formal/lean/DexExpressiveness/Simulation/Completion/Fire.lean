@@ -95,7 +95,7 @@ theorem wp3b_evalStep_fire (chanOf : Dex.StepExecId σ → σ.Chan) (step : Dex.
           Dex.Run.disarmTimersOf, AssocList.get?_set_other _ _ _ _ isChan, isChan]
     · intro timer
       show AssocList.get? (run.timers.filter (fun entry => !decide (entry.1.step = step))) timer = _
-      rw [AssocList.wp3b_get?_filter (fun candidate : Dex.TimerId σ =>
+      rw [AssocList.get?_filter (fun candidate : Dex.TimerId σ =>
         !decide (candidate.step = step)) run.timers timer]
       by_cases isStep : timer.step = step
       · simp only [isStep, decide_true, Bool.not_true, Bool.false_eq_true, ↓reduceIte]
@@ -231,7 +231,7 @@ theorem wp3b_foldl_evalStep_fire (chanOf : Dex.StepExecId σ → σ.Chan)
       · intro timer
         rw [laterTimers, firstTimers]
     · have isSkipped : run.evalStep step = run := by
-        apply wp3b_evalStep_quiet
+        apply Dex.Run.evalStep_of_unplanned
         intro record waitState isFound isWaiting _
         obtain ⟨isRecord, hasId⟩ := Dex.Run.mem_of_findStep? run step record isFound
         exact absurd ⟨record, isRecord, hasId, isWaiting⟩ isFiring

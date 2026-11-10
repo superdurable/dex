@@ -21,7 +21,7 @@ theorem wp3b_carries_point (program : Program) (thread : L.Thread)
     (hasInput : record.input = some (DexVal.thread thread.core))
     (hasOptions : record.options.executeLoadMaps = executeLoadMaps thread.core thread.code) :
     StepCarriesThread program thread record := by
-  rw [wp3b_carries_iff program thread record (by simp [isReady]) (by simp [isReady])]
+  rw [stepCarriesThread_iff_of_booted program thread record (by simp [isReady]) (by simp [isReady])]
   simp only [noTimer]
   exact ⟨hasType, hasInput, hasOptions⟩
 
@@ -49,7 +49,7 @@ theorem wp3b_findThread?_dropThread (config : L.Config) (tid target : Tid)
     (isOther : target ≠ tid) :
     (dropThread config tid).findThread? target = config.findThread? target := by
   symm
-  apply wp3b_findThread?_congr config (dropThread config tid) target
+  apply findThread?_congr config (dropThread config tid) target
     (wp3b_nodup_dropThread config tid idsNodup)
   intro candidate hasId
   rw [wp3b_mem_dropThread]
@@ -71,7 +71,7 @@ theorem wp3b_own_isNoParent {program : Program} {lEff : L.Config}
   · rw [isOwnTarget] at isFlagged isEmpty
     rcases data.ownFlag isFlagged with hasRequest | ownGone
     · exact absurd isEmpty hasRequest
-    · exact absurd ownTid ((wp3b_findThread?_none lEff tid).mp ownGone own isOwn)
+    · exact absurd ownTid ((findThread?_eq_none_iff lEff tid).mp ownGone own isOwn)
   · rw [wp3b_findThread?_dropThread lEff tid target mid.threadIdsNodup isOwnTarget] at isGone
     rcases data.cancelFlagsAreRequests target isOwnTarget isFlagged with hasRequest |
       ⟨current, isFound, _⟩ | ⟨_, isNoChild⟩
@@ -115,7 +115,7 @@ theorem wp3b_decide_goto (program : Program) (lEff lNext : L.Config)
       rw [ownTid] at isFlagged ⊢
       rcases data.ownFlag isFlagged with hasRequest | isGone
       · exact hasRequest
-      · exact absurd ownTid ((wp3b_findThread?_none lEff tid).mp isGone own isOwn))
+      · exact absurd ownTid ((findThread?_eq_none_iff lEff tid).mp isGone own isOwn))
     (wp3b_own_isNoParent mid data own isOwn ownTid)
     (wp3b_carries_point program own _ isReady noTimer rfl rfl rfl)
     (by
@@ -191,7 +191,7 @@ theorem wp3b_decide_fork (program : Program) (lEff lNext : L.Config)
       rw [ownTid] at isFlagged ⊢
       rcases data.ownFlag isFlagged with hasRequest | isGone
       · exact hasRequest
-      · exact absurd ownTid ((wp3b_findThread?_none lEff tid).mp isGone own isOwn))
+      · exact absurd ownTid ((findThread?_eq_none_iff lEff tid).mp isGone own isOwn))
     (wp3b_own_isNoParent mid data own isOwn ownTid)
     (wp3b_carries_point program own _ isReady noTimer rfl rfl rfl)
     (by
@@ -294,10 +294,10 @@ theorem wp3b_decide_timed (program : Program) (lEff lNext : L.Config)
       rw [ownTid] at isFlagged ⊢
       rcases data.ownFlag isFlagged with hasRequest | isGone
       · exact hasRequest
-      · exact absurd ownTid ((wp3b_findThread?_none lEff tid).mp isGone own isOwn))
+      · exact absurd ownTid ((findThread?_eq_none_iff lEff tid).mp isGone own isOwn))
     (wp3b_own_isNoParent mid data own isOwn ownTid)
     (by
-      rw [wp3b_carries_iff program own _ (by simp [isReady]) (by simp [isReady])]
+      rw [stepCarriesThread_iff_of_booted program own _ (by simp [isReady]) (by simp [isReady])]
       simp only [hasTimer]
       refine ⟨?_, rfl⟩
       show ({ stepType := StepType.timed
@@ -350,7 +350,7 @@ theorem wp3b_decide_halt (program : Program) (lEff lNext : L.Config)
       rw [ownTid] at isFlagged ⊢
       rcases data.ownFlag isFlagged with hasRequest | isGone
       · exact hasRequest
-      · exact absurd ownTid ((wp3b_findThread?_none lEff tid).mp isGone own isOwn))
+      · exact absurd ownTid ((findThread?_eq_none_iff lEff tid).mp isGone own isOwn))
     rfl hasRunNext
 
 /-- DeadEnd of an ended thread: the thread is gone. -/

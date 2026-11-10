@@ -20,12 +20,12 @@ to return the handler of the thread's task, then one
 [STEP-COMPLETE-EXECUTE]. It is the sequence `simulatingActions` names
 (`simulatingActions_complete`).
 
-The files under `Simulation/Completion/` hold the parts:
+The files under `Simulation/Completion/` hold the parts. The lemmas shared
+with the other step simulations are in `Simulation/Frame.lean`.
 
 | File | Content |
 | --- | --- |
 | `Exec.lean` | The action sequence and the configuration it ends in. |
-| `Basics.lean` | Sorting, maps, thread lookup, `StepCarriesThread`, `PhaseMatchesStep`. |
 | `Mid.lean` | `MidThreads`, `MidData`: the relation while the Execute commits; the frame lemma for `wake`. |
 | `Start.lean` | From `IsSimulationState` to the relation after `S[e].inv := ⊥`. |
 | `Wake.lean`, `Fire.lean` | `effects` on the Dex side: publications and `wake`. |
@@ -78,8 +78,7 @@ theorem Completing.toActions {program : Program} {lConfig : L.Config}
   have isActions := simulatingActions_complete
     (state.isRelated.running run start.hasRun start.isRunning) start.hasRun state.tasksDistinct
     isFound record start.isRecord start.isActive
-    (wp3b_threadOfInput_of_invariant program lConfig state.lInvariant thread start.isThread record
-      start.carries) .execute task start.isTask start.hasInvocation isCompleting
+    (threadOfInput_of_mem state.lInvariant start.isThread start.carries) .execute task start.isTask start.hasInvocation isCompleting
   exact ⟨dexEvents, dexNext, by rw [isActions]; exact isExec, sameEvents, isRelated⟩
 
 variable {program : Program} {lConfig : L.Config} {dexConfig : Dex.Config signature}
@@ -132,7 +131,7 @@ theorem wp3b_simulated_close
           (some (DexVal.exitTag value))).closeRun .completed := by
       rw [wp3b_completedRun_eq]
       simp only [closeDecision]
-      rw [wp3b_applyEffects_empty]
+      rw [applyEffects_empty]
       rfl
     have finishedRunning :
         (((releasedRun run record.id).finishStep record.id .completed).collectOutput record.id
@@ -162,7 +161,7 @@ theorem wp3b_simulated_close
           (.failed message) := by
       rw [wp3b_completedRun_eq]
       simp only [closeDecision]
-      rw [wp3b_applyEffects_empty]
+      rw [applyEffects_empty]
       rfl
     have finishedRunning :
         ((releasedRun run record.id).finishStep record.id .completed).status = .running :=
@@ -255,24 +254,10 @@ theorem wp3b_thread_context (program : Program) (lConfig : L.Config)
     ∃ run record, dexConfig.run = some run ∧ run.status = .running ∧ record ∈ run.steps ∧
       record.phase.isActive = true ∧ StepCarriesThread program thread record ∧
       PhaseMatchesStep program lConfig dexConfig thread record := by
-  obtain ⟨run, hasRun, isRunning⟩ := wp3b_running_of_thread program lConfig dexConfig state thread
-    isThread
+  obtain ⟨run, hasRun, isRunning⟩ := (IsSimulationState.run_of_thread state thread isThread).2
   obtain ⟨record, isRecord, isActive, carries, isMatch⟩ :=
     (state.isRelated.running run hasRun isRunning).threadsHaveSteps thread isThread isLive
   exact ⟨run, record, hasRun, isRunning, isRecord, isActive, carries, isMatch⟩
-
-/-- No thread is in the start action while some thread is outside it. -/
-theorem wp3b_noBoot (program : Program) (lConfig : L.Config)
-    (lInvariant : L.Invariant program lConfig) (thread : L.Thread)
-    (isThread : thread ∈ lConfig.threads)
-    (isNotBoot : thread.phase ≠ .bootPending ∧ thread.phase ≠ .bootRunning) :
-    ∀ other, other ∈ lConfig.threads →
-      other.phase ≠ .bootPending ∧ other.phase ≠ .bootRunning := by
-  intro other isOther
-  by_cases isSame : other = thread
-  · rw [isSame]
-    exact isNotBoot
-  · exact wp3b_noBoot_of_other program lConfig lInvariant thread other isThread isOther isSame
 
 /-- The cancel flag of a thread that has not observed it is a pending request. -/
 theorem wp3b_ownFlag (program : Program) (lConfig : L.Config) (dexConfig : Dex.Config signature)
@@ -384,7 +369,7 @@ theorem wp3b_complete_running (program : Program) (lConfig : L.Config)
         (completeStatement program thread.core thread.code loaded)).1
       (lConfig.applyIntent thread.core.tid
         (completeStatement program thread.core thread.code loaded)).2.stamp := by
-  obtain ⟨isThread, _⟩ := wp3b_findThread?_some lConfig _ thread isFound
+  obtain ⟨isThread, _⟩ := mem_of_findThread? isFound
   have lInvariant := state.lInvariant
   obtain ⟨run, record, hasRun, isRunning, isRecord, isActive, carries, isMatch⟩ :=
     wp3b_thread_context program lConfig dexConfig state thread isThread (by simp [isPhase])
@@ -398,7 +383,7 @@ theorem wp3b_complete_running (program : Program) (lConfig : L.Config)
   unfold Thread.PhaseFitsCode at fits
   simp only [isPhase] at fits
   obtain ⟨noTimer, isNotBlocking, isNotEmit⟩ := fits
-  have shape := (wp3b_carries_iff program thread record (by simp [isPhase])
+  have shape := (stepCarriesThread_iff_of_booted program thread record (by simp [isPhase])
     (by simp [isPhase])).mp carries
   simp only [noTimer] at shape
   have isResponse := wp3b_response_running program thread record task loaded completing.hasStep
@@ -409,7 +394,7 @@ theorem wp3b_complete_running (program : Program) (lConfig : L.Config)
     wp3b_completeStatement_facts program thread.core thread.code loaded
   have requiredEq := requiredMutex_eq_of_intent program thread.core thread.code loaded
   have holdsRequired := lInvariant.runningHoldsRequiredMutex thread isThread loaded isPhase
-  have noBoot := wp3b_noBoot program lConfig lInvariant thread isThread
+  have noBoot := noBoot_of_booted program lConfig lInvariant thread isThread
     ⟨by simp [isPhase], by simp [isPhase]⟩
   have start : IntentStart program lConfig dexConfig run thread record task
       (completeStatement program thread.core thread.code loaded) :=
@@ -452,7 +437,7 @@ theorem wp3b_complete_running (program : Program) (lConfig : L.Config)
       rcases related.cancelFlagsAreRequests child.tid isFlagged with hasRequest |
         ⟨current, isCurrent, _⟩ | ⟨_, isNoChild⟩
       · exact hasRequest
-      · obtain ⟨isMember, hasId⟩ := wp3b_findThread?_some lConfig child.tid current isCurrent
+      · obtain ⟨isMember, hasId⟩ := mem_of_findThread? isCurrent
         exact absurd (by rw [hasId]; exact List.prefix_refl _) (childFresh current isMember)
       · exact absurd (by rw [childTid]; exact List.prefix_refl _)
           (isNoChild thread isThread thread.core.freshCounter (Nat.le_refl _))
@@ -461,7 +446,7 @@ theorem wp3b_complete_running (program : Program) (lConfig : L.Config)
       rcases related.cancelFlagsAreRequests target isFlagged with hasRequest |
         ⟨current, isCurrent, _⟩ | ⟨_, isNoChild⟩
       · exact hasRequest isEmpty
-      · obtain ⟨isMember, hasId⟩ := wp3b_findThread?_some lConfig target current isCurrent
+      · obtain ⟨isMember, hasId⟩ := mem_of_findThread? isCurrent
         exact childFresh current isMember (by rw [hasId]; exact isChildPrefix)
       · rw [childTid] at isChildPrefix
         exact isNoChild thread isThread thread.core.freshCounter (Nat.le_refl _) isChildPrefix
@@ -493,7 +478,7 @@ theorem wp3b_complete_emitted (program : Program) (lConfig : L.Config)
         (completeStatement program thread.core thread.code .null)).1
       (lConfig.applyIntent thread.core.tid
         (completeStatement program thread.core thread.code .null)).2.stamp := by
-  obtain ⟨isThread, _⟩ := wp3b_findThread?_some lConfig _ thread isFound
+  obtain ⟨isThread, _⟩ := mem_of_findThread? isFound
   have lInvariant := state.lInvariant
   obtain ⟨run, record, hasRun, isRunning, isRecord, isActive, carries, isMatch⟩ :=
     wp3b_thread_context program lConfig dexConfig state thread isThread (by simp [isPhase])
@@ -506,7 +491,7 @@ theorem wp3b_complete_emitted (program : Program) (lConfig : L.Config)
   unfold Thread.PhaseFitsCode at fits
   simp only [isPhase] at fits
   obtain ⟨noTimer, isNotBlocking, effect, isEmit⟩ := fits
-  have shape := (wp3b_carries_iff program thread record (by simp [isPhase])
+  have shape := (stepCarriesThread_iff_of_booted program thread record (by simp [isPhase])
     (by simp [isPhase])).mp carries
   simp only [noTimer] at shape
   have isResponse := wp3b_response_emitted program thread record task effect completing.hasStep
@@ -517,7 +502,7 @@ theorem wp3b_complete_emitted (program : Program) (lConfig : L.Config)
     ⟨state, state.waitingHasNoInvocation, completing,
       (wp3b_completeStatement_facts program thread.core thread.code .null).1,
       wp3b_completeStatement_counter program thread.core thread.code .null,
-      wp3b_noBoot program lConfig lInvariant thread isThread
+      noBoot_of_booted program lConfig lInvariant thread isThread
         ⟨by simp [isPhase], by simp [isPhase]⟩⟩
   apply completing.toActions state isFound (Or.inr (Or.inr (Or.inl isPhase)))
   exact wp3b_simulated_of_goal start isResponse (by simp [intentCase]) (by simp [intentCase])
@@ -533,7 +518,7 @@ theorem wp3b_complete_simulated (program : Program) (lConfig : L.Config)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
-  obtain ⟨_, hasId⟩ := wp3b_findThread?_some lConfig tid thread isFound
+  obtain ⟨_, hasId⟩ := mem_of_findThread? isFound
   subst hasId
   have isStepThread : stepThread program lConfig thread = some (lEvents, lNext) := by
     simpa [L.system, L.step, isFound] using isStep
@@ -593,7 +578,7 @@ theorem wp3b_resume_thread_simulated (program : Program) (lConfig : L.Config)
     (isResuming : thread.phase = .resuming outcome) (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
-  obtain ⟨isThread, hasId⟩ := wp3b_findThread?_some lConfig tid thread isFound
+  obtain ⟨isThread, hasId⟩ := mem_of_findThread? isFound
   subst hasId
   have isStepThread : stepThread program lConfig thread = some (lEvents, lNext) := by
     simpa [L.system, L.step, isFound] using isStep
@@ -614,9 +599,9 @@ theorem wp3b_resume_thread_simulated (program : Program) (lConfig : L.Config)
     have fits := lInvariant.phasesFitCode thread isThread
     unfold Thread.PhaseFitsCode at fits
     simp only [isResuming] at fits
-    have noBoot := wp3b_noBoot program lConfig lInvariant thread isThread
+    have noBoot := noBoot_of_booted program lConfig lInvariant thread isThread
       ⟨by simp [isResuming], by simp [isResuming]⟩
-    have shape := (wp3b_carries_iff program thread record (by simp [isResuming])
+    have shape := (stepCarriesThread_iff_of_booted program thread record (by simp [isResuming])
       (by simp [isResuming])).mp carries
     have isDecodedOutcome := holds.2
     unfold decodeOutcome at isDecodedOutcome
@@ -736,7 +721,7 @@ theorem wp3b_boot_simulated (program : Program) (lConfig : L.Config)
     (isBootRunning : thread.phase = .bootRunning) (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
-  obtain ⟨isThread, hasId⟩ := wp3b_findThread?_some lConfig tid thread isFound
+  obtain ⟨isThread, hasId⟩ := mem_of_findThread? isFound
   subst hasId
   have isStepThread : stepThread program lConfig thread = some (lEvents, lNext) := by
     simpa [L.system, L.step, isFound] using isStep

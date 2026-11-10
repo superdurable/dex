@@ -110,7 +110,7 @@ theorem l_start_simulated (program : Program) (lConfig : L.Config)
         | none => rfl
         | some run => simp [isNotStarted, hasRun] at isStatus
       have hasNoTask : dexConfig.tasks = [] := state.isRelated.notStarted hasNoRun
-      have canCommit := wp2_canCommit_of_canStamp state.isRelated canStamp
+      have canCommit := Related.canCommit_of_canStamp state.isRelated canStamp
       obtain ⟨noThread, noShared, noMutex, noQueue, noWake, noInput, noFlag, noJoinable,
         noTimer⟩ := state.lInvariant.notStartedIsInitial isNotStarted
       let startRecord : Dex.StepRecord signature :=
@@ -236,10 +236,10 @@ theorem wp2_input_exec_running (program : Program) (lConfig : L.Config)
         [.request (.publish (Chan.external chan) (DexVal.value value.toVal))] =
         some ([Dex.Obs.pub (Chan.external chan) (DexVal.value value.toVal)], dexNext) ∧
       Related program (lConfig.deliverInput chan value.toVal).stamp dexNext := by
-  obtain ⟨run, hasRun, isRunning⟩ := wp2_run_of_running state.isRelated isRunningL
+  obtain ⟨run, hasRun, isRunning⟩ := Related.run_of_running state.isRelated isRunningL
   have related := state.isRelated.running run hasRun isRunning
   have invariant := state.dexInvariant.runInvariant run hasRun
-  have canCommit := wp2_canCommit_of_canStamp state.isRelated canStamp
+  have canCommit := Related.canCommit_of_canStamp state.isRelated canStamp
   have noInvocation := waitingHasNoInvocation run hasRun
   -- What the wait of a waiting Step looks like.
   have waitOfWaiting : ∀ record, record ∈ run.steps → ∀ waitState, record.phase = .waiting →
@@ -252,7 +252,7 @@ theorem wp2_input_exec_running (program : Program) (lConfig : L.Config)
         waitState.timersDone = waitState.wait.timerSeconds.map (fun _ => false) := by
     intro record isRecord waitState isWaiting hasWait
     obtain ⟨thread, on, since, isMember, isBlocked, carries, isMatch⟩ :=
-      wp2_blocked_of_waiting state hasRun isRunning noInvocation record isRecord isWaiting
+      RunningRelated.blockedThread_of_waiting (state.isRelated.running _ hasRun isRunning) record isRecord isWaiting
     unfold PhaseMatchesStep at isMatch
     simp only [isBlocked] at isMatch
     obtain ⟨_, _, found, hasFound, isKind, hasLength, hasChannels, hasTimersDone⟩ := isMatch
@@ -295,11 +295,11 @@ theorem wp2_input_exec_running (program : Program) (lConfig : L.Config)
   · -- The earliest receiver takes the message.
     obtain ⟨anyThread, anyOn, anySince, isAny, isAnyBlocked, isAnyWanted⟩ := hasReceiver
     obtain ⟨thread, on, since, isMember, isBlocked, isWanted, isEarliest⟩ :=
-      wp2_exists_earliest lConfig (wp2_isReceiveOn chan) anyThread isAny anyOn anySince
+      exists_earliestBlocked lConfig (wp2_isReceiveOn chan) anyThread isAny anyOn anySince
         isAnyBlocked isAnyWanted
-    rw [wp2_earliestBlocked_eq_some lConfig state.lInvariant (wp2_isReceiveOn chan) thread
+    rw [earliestBlocked_eq_some lConfig state.lInvariant (wp2_isReceiveOn chan) thread
       isMember on since isBlocked isWanted isEarliest]
-    have isFound := wp2_findThread?_of_mem state.lInvariant isMember
+    have isFound := findThread?_of_mem state.lInvariant isMember
     obtain ⟨record, isRecord, isActive, carries, isMatch⟩ :=
       related.threadsHaveSteps thread isMember (by simp [isBlocked])
     unfold PhaseMatchesStep at isMatch
@@ -326,8 +326,8 @@ theorem wp2_input_exec_running (program : Program) (lConfig : L.Config)
       · subst isThread
         exact Or.inl (related.activeStepsHaveDistinctThreads other isOther record isRecord
           otherActive isActive
-          ((wp2_threadOfInput_of_mem state.lInvariant isOwner ownerCarries).trans
-            (wp2_threadOfInput_of_mem state.lInvariant isOwner carries).symm))
+          ((threadOfInput_of_mem state.lInvariant isOwner ownerCarries).trans
+            (threadOfInput_of_mem state.lInvariant isOwner carries).symm))
       · have isAtMost := isEarliest owner isOwner ownerOn ownerSince isOwnerBlocked isOwnerWanted
         have isNotSame : since ≠ ownerSince := by
           intro sameSince
@@ -373,7 +373,7 @@ theorem wp2_input_exec_running (program : Program) (lConfig : L.Config)
     · apply wp2_timers_of_wake related state.lInvariant isFound carries isBlocked
       intro timer fireTime
       by_cases isRecordTimer : timer.step = record.id
-      · have isDisarmed := wp2_get?_filter_of_rejected
+      · have isDisarmed := AssocList.get?_filter_of_rejected
           (fun (key : Dex.TimerId signature) => !decide (key.step = record.id)) run.timers timer
           (by simp [isRecordTimer])
         constructor
@@ -458,7 +458,7 @@ theorem wp2_input_exec_running (program : Program) (lConfig : L.Config)
       cases wantedCase : wp2_isReceiveOn chan on with
       | false => rfl
       | true => exact absurd ⟨thread, on, since, isMember, isBlocked, wantedCase⟩ hasReceiver
-    rw [wp2_earliestBlocked_eq_none lConfig (wp2_isReceiveOn chan) noneBlocked]
+    rw [earliestBlocked_eq_none lConfig (wp2_isReceiveOn chan) noneBlocked]
     have isWake : (({ run with seq := run.seq + 1 } : Dex.Run signature).applyPublications
         [(Chan.external chan, DexVal.value value.toVal)]).wake [Chan.external chan] =
         ({ run with seq := run.seq + 1 } : Dex.Run signature).setPendingMessages
@@ -499,7 +499,7 @@ theorem wp2_input_exec_closed (program : Program) (lConfig : L.Config)
     (Dex.system ⟦program⟧).exec dexConfig
       [.request (.publish (Chan.external chan) (DexVal.value value.toVal))] =
       some ([Dex.Obs.rejectedPub (Chan.external chan) (DexVal.value value.toVal)], dexConfig) := by
-  obtain ⟨run, status, hasRun, isClosedRun⟩ := wp2_run_of_closed state.isRelated isClosed
+  obtain ⟨run, status, hasRun, isClosedRun⟩ := Related.run_of_closed state.isRelated isClosed
   simp [TransitionSystem.exec, Dex.system, Dex.step, hasRun, isClosedRun]
 
 /-- `l_input_simulated` under the hypothesis that a waiting Step has no invocation. -/
@@ -591,7 +591,7 @@ theorem wp2_lateDeliver_exec (program : Program) (lConfig : L.Config)
         dexConfig.updateTask task.id (fun _ => wp2_deliveredTask program task)) ∧
     Related program { lConfig with lateEmits := removeAt lConfig.lateEmits index }
       (dexConfig.updateTask task.id (fun _ => wp2_deliveredTask program task)) := by
-  obtain ⟨run, status, hasRun, isClosedRun⟩ := wp2_run_of_closed state.isRelated isClosed
+  obtain ⟨run, status, hasRun, isClosedRun⟩ := Related.run_of_closed state.isRelated isClosed
   have closedRelated := state.isRelated.closed run status hasRun isClosedRun
   obtain ⟨before, after, hasEffect, isSplit, beforeOther, afterOther, isPerm⟩ :=
     wp2_late_task state singleEffects hasRun isClosedRun index effect isLate task isTask
@@ -650,7 +650,7 @@ theorem wp2_lateDeliver_simulated_of_singleEffects (program : Program) (lConfig 
     injection isPair with isEvents isNext
     subst isEvents
     subst isNext
-    obtain ⟨_, _, hasRun, isClosedRun⟩ := wp2_run_of_closed state.isRelated isClosed
+    obtain ⟨_, _, hasRun, isClosedRun⟩ := Related.run_of_closed state.isRelated isClosed
     obtain ⟨task, isPicked, isTask, holdsEffect⟩ :=
       (state.isRelated.closed _ _ hasRun isClosedRun).exists_lateTask isLate
     obtain ⟨isExec, isRelated⟩ := wp2_lateDeliver_exec program lConfig dexConfig state
@@ -678,12 +678,12 @@ theorem wp2_lateDrop_exec (program : Program) (lConfig : L.Config)
       some ([], dexConfig.removeTask task.id) ∧
     Related program { lConfig with lateEmits := removeAt lConfig.lateEmits index }
       (dexConfig.removeTask task.id) := by
-  obtain ⟨run, status, hasRun, isClosedRun⟩ := wp2_run_of_closed state.isRelated isClosed
+  obtain ⟨run, status, hasRun, isClosedRun⟩ := Related.run_of_closed state.isRelated isClosed
   have closedRelated := state.isRelated.closed run status hasRun isClosedRun
   obtain ⟨before, after, _, isSplit, beforeOther, afterOther, isPerm⟩ :=
     wp2_late_task state singleEffects hasRun isClosedRun index effect isLate task isTask
       holdsEffect
-  have isFound := wp2_findTask?_of_mem state.tasksDistinct isTask
+  have isFound := findTask?_of_mem state.tasksDistinct isTask
   have isStale := closedRelated.tasksAreStale task isTask
   refine ⟨?_, ?_⟩
   · simp [TransitionSystem.exec, Dex.system, Dex.step, isFound, isStale]
@@ -727,7 +727,7 @@ theorem wp2_lateDrop_simulated_of_singleEffects (program : Program) (lConfig : L
     injection isPair with isEvents isNext
     subst isEvents
     subst isNext
-    obtain ⟨_, _, hasRun, isClosedRun⟩ := wp2_run_of_closed state.isRelated isClosed
+    obtain ⟨_, _, hasRun, isClosedRun⟩ := Related.run_of_closed state.isRelated isClosed
     obtain ⟨task, isPicked, isTask, holdsEffect⟩ :=
       (state.isRelated.closed _ _ hasRun isClosedRun).exists_lateTask isLate
     obtain ⟨isExec, isRelated⟩ := wp2_lateDrop_exec program lConfig dexConfig state
@@ -769,8 +769,8 @@ theorem l_thread_begin_simulated (program : Program) (lConfig : L.Config)
     (lEvents : List Event) (lNext : L.Config)
     (isStep : (L.system program).step lConfig (.thread tid) = some (lEvents, lNext)) :
     IsSimulatedByActions program lConfig dexConfig (.thread tid) lEvents lNext := by
-  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
-  obtain ⟨_, run, hasRun, isRunning⟩ := wp2_run_of_thread state thread isMember
+  obtain ⟨isMember, hasTid⟩ := mem_of_findThread? isFound
+  obtain ⟨_, run, hasRun, isRunning⟩ := IsSimulationState.run_of_thread state thread isMember
   have related := state.isRelated.running run hasRun isRunning
   have idsNodup := (state.dexInvariant.runInvariant run hasRun).idsNodup
   have fitsCode := state.lInvariant.phasesFitCode thread isMember
@@ -785,12 +785,12 @@ theorem l_thread_begin_simulated (program : Program) (lConfig : L.Config)
   have isActions : simulatingActions program lConfig dexConfig (.thread tid) =
       [.stepStart record.id] :=
     simulatingActions_begin related hasRun isFound record isRecord isActive
-      ((wp2_threadOfInput_of_mem state.lInvariant isMember carries).trans hasTid) isPending
+      ((threadOfInput_of_mem state.lInvariant isMember carries).trans hasTid) isPending
   -- [STEP-START] of the Step that carries the thread simulates the begin.
   have finish : ∀ (method : Dex.Method) (newPhase : Phase),
       record.invocation = some { method := method, state := .pending } →
       lConfig.canStamp = true →
-      wp2_isBootPhase newPhase = wp2_isBootPhase thread.phase →
+      isBootPhase newPhase = isBootPhase thread.phase →
       (∀ on since, newPhase ≠ .blocked on since) → newPhase ≠ .halted →
       (thread.phase = .woken .canceled ∨ thread.phase = .resuming .canceled →
         newPhase = .woken .canceled ∨ newPhase = .resuming .canceled) →
@@ -803,18 +803,18 @@ theorem l_thread_begin_simulated (program : Program) (lConfig : L.Config)
     exact ⟨[], _,
       isActions ▸ wp2_exec_stepStart ⟦program⟧ dexConfig run hasRun isRunning record
         isFoundRecord method isPendingInvocation
-        (wp2_canCommit_of_canStamp state.isRelated canStamp),
+        (Related.canCommit_of_canStamp state.isRelated canStamp),
       rfl,
       wp2_stepStart_related state isFound hasRun isRunning isRecord isActive carries method
         isPendingInvocation newPhase sameBoot wasNotBlocked isNotBlocked isNotHalted
         keepsCanceled newMatch⟩
   simp only [L.system, L.step, isFound, stepThread, hasTid] at isStep
   unfold PhaseMatchesStep at isMatch
-  rw [wp2_stepCarriesThread_iff] at carries
+  rw [stepCarriesThread_iff] at carries
   rcases isPending with phaseCase | phaseCase | ⟨outcome, phaseCase⟩
   · -- The start action of `main` begins.
     simp only [phaseCase] at isStep isMatch
-    simp only [phaseCase, wp2_isBootPhase, ↓reduceIte] at carries
+    simp only [phaseCase, isBootPhase, ↓reduceIte] at carries
     obtain ⟨isStart, _⟩ := carries
     by_cases canStamp : lConfig.canStamp = true
     · simp only [canStamp, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at isStep
@@ -828,7 +828,7 @@ theorem l_thread_begin_simulated (program : Program) (lConfig : L.Config)
     · simp [canStamp] at isStep
   · -- A statement, or the wait of a blocking statement, begins.
     simp only [phaseCase] at isStep isMatch
-    simp only [phaseCase, wp2_isBootPhase] at carries
+    simp only [phaseCase, isBootPhase] at carries
     obtain ⟨isPhase, noResults, isPendingInvocation⟩ := isMatch
     by_cases waitsFirst : (thread.timer.isSome || isBlockingHead thread.code) = true
     · simp only [waitsFirst, ↓reduceIte] at isStep isPendingInvocation isPhase
@@ -912,7 +912,7 @@ theorem l_thread_begin_simulated (program : Program) (lConfig : L.Config)
       · simp [holdsMutex] at isStep
   · -- The continuation after a decided wait begins.
     simp only [phaseCase] at isStep isMatch
-    simp only [phaseCase, wp2_isBootPhase] at carries
+    simp only [phaseCase, isBootPhase] at carries
     obtain ⟨isPhase, isPendingInvocation, isOutcome⟩ := isMatch
     by_cases canStamp : lConfig.canStamp = true
     · simp only [canStamp, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at isStep
@@ -953,8 +953,8 @@ theorem wp2_thread_deliver_exec (program : Program) (lConfig : L.Config)
           dexConfig.updateTask task.id (fun _ => wp2_deliveredTask program task)) ∧
       Related program (lConfig.setPhase tid .emitted)
         (dexConfig.updateTask task.id (fun _ => wp2_deliveredTask program task)) := by
-  obtain ⟨isMember, hasTid⟩ := wp2_mem_of_findThread? isFound
-  obtain ⟨_, run, hasRun, isRunning⟩ := wp2_run_of_thread state thread isMember
+  obtain ⟨isMember, hasTid⟩ := mem_of_findThread? isFound
+  obtain ⟨_, run, hasRun, isRunning⟩ := IsSimulationState.run_of_thread state thread isMember
   have related := state.isRelated.running run hasRun isRunning
   have idsNodup := (state.dexInvariant.runInvariant run hasRun).idsNodup
   obtain ⟨record, isRecord, isActive, carries, isMatch⟩ :=
@@ -965,7 +965,7 @@ theorem wp2_thread_deliver_exec (program : Program) (lConfig : L.Config)
     noResults⟩ := isMatch
   refine ⟨task, isTask,
     (simulatingActions_deliver related hasRun state.tasksDistinct isFound record isRecord
-      isActive ((wp2_threadOfInput_of_mem state.lInvariant isMember carries).trans hasTid)
+      isActive ((threadOfInput_of_mem state.lInvariant isMember carries).trans hasTid)
       .execute task isTask hasInvocation effect isEmitting).trans (wp2_deliverActions_eq task).symm,
     wp2_exec_deliver program dexConfig state.tasksDistinct task isTask
       (state.dexInvariant.tasksComputed task isTask) effect hasEffect, ?_⟩
@@ -1030,7 +1030,7 @@ theorem l_thread_deliver_simulated (program : Program) (lConfig : L.Config)
   subst isNext
   obtain ⟨task, _, isActions, isExec, isRelated⟩ :=
     wp2_thread_deliver_exec program lConfig dexConfig state tid thread isFound effect isEmitting
-  rw [(wp2_mem_of_findThread? isFound).2]
+  rw [(mem_of_findThread? isFound).2]
   refine ⟨[Dex.Obs.fx task.step task.method effect], _, ?_, rfl, isRelated⟩
   rw [isActions]
   exact isExec
