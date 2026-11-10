@@ -6,6 +6,26 @@ for the Dex SDK and framework versions each release supports.
 
 ## Unreleased
 
+### Changed
+
+- Breaking, Python and TypeScript cores: a connector tool's default name now
+  uses the Connector library's snake case (connectorctl `lowerCamelToSnake`),
+  which also names the Python Step factories. An acronym run stays one word:
+  `listStoryIDs` is `list_story_ids`, not `list_story_i_d_s`, and
+  `getHTTPResponse` is `get_http_response`. Only operation IDs with two or more
+  capitals in a row change; digits alone do not. A call stored under the old
+  name ends as a removed tool's call does, unless the application keeps the old
+  name with `name`. `agents/conformance/connector_tools.json` adds
+  `toolNameCases`.
+- Breaking, Python and TypeScript cores: `classify_connector_branch`
+  (`classifyConnectorBranch`) reads `agent.branches` first, as the Connector
+  library's manifest guide says. An unlisted `defect` of a Mutation now records
+  `outcome_unknown` instead of `failed` and is not retried, because the
+  Connector SDK can select `defect` after it called the provider. A listed
+  `defect` follows its listing, and an unlisted Query `defect` still records
+  `failed`. An `uncertain` branch listed as `rejected` now records `failed` as
+  a rejection instead of `outcome_unknown`.
+
 ### Fixed
 
 - Python and TypeScript Claude Agent SDK adapters: when the Claude Code CLI

@@ -204,8 +204,8 @@ after an approval runs in its first tool Step execution, so its key is stable.
 | Optional branch listed `rejected` in `agent.branches` | Completed with an error result, so the model can react. The session does not fail |
 | Optional branch listed `unknown`, or a Mutation branch not listed | `outcome_unknown` |
 | Query branch not listed | `failed` |
-| `uncertain` | `outcome_unknown` |
-| `defect` | `failed` |
+| `uncertain` not listed | `outcome_unknown` |
+| `defect` | As any optional branch: its listing, else `outcome_unknown` for a Mutation (the SDK can select it after the provider call) and `failed` for a Query |
 | Retry | Raises through the Step, so Execute retry applies. Exhausted retries reach `RecordToolFailure` |
 
 The connector contract has no fixed outcome enum, so a branch name does not say whether the

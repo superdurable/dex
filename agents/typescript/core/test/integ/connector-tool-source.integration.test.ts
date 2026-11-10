@@ -31,7 +31,7 @@ import {
   type ConnectorBranchOutcome,
   type ConnectorPackageManifest,
 } from "../../src/connectors/index.js";
-import { isProvenNotSent } from "../../src/connectors/connector-tool-source.js";
+import { isProvenNotSent, lowerCamelToSnake } from "../../src/connectors/connector-tool-source.js";
 import type { AgentToolCall, AgentTurnContext, ToolPolicy } from "../../src/index.js";
 import { ledgerConnection, readFakeLedgerManifest, retriedNoteManifest } from "../fixtures/connector-test-agent.js";
 import { conformanceSuiteDirectory } from "../fixtures/conformance-suite.js";
@@ -58,6 +58,7 @@ interface ConformanceCases {
     readonly agentBranches: Readonly<Record<string, string>>;
     readonly outcome: ConnectorBranchOutcome;
   }[];
+  readonly toolNameCases: readonly { readonly operationId: string; readonly snakeName: string }[];
   readonly resultCases: readonly { readonly json: string; readonly text: string }[];
   readonly truncationCases: readonly {
     readonly output: string;
@@ -103,6 +104,12 @@ describe("connector tools follow the shared conformance cases", () => {
         testCase.outcome,
         JSON.stringify(testCase),
       );
+    }
+  });
+
+  test("operation IDs become snake case as the conformance suite says", () => {
+    for (const testCase of conformance.toolNameCases) {
+      assert.equal(lowerCamelToSnake(testCase.operationId), testCase.snakeName, testCase.operationId);
     }
   });
 

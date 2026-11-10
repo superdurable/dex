@@ -458,7 +458,9 @@ Only an operation that its Connector author reviewed for agent use, marked
 **agent.exposed** in **dex-connector.json**, can become a tool. Any other
 operation is refused when the agent definition is built. The tool name defaults
 to the Connector ID and the operation in snake case, such as
-**stripe_create_refund**. The description and the argument schema come from
+**stripe_create_refund**. The snake case matches the Connector library's own
+Python names: an acronym stays one word, so **listStoryIDs** becomes
+**list_story_ids**. The description and the argument schema come from
 the manifest.
 
 The model's arguments are checked against the operation's **inputSchema**
@@ -505,15 +507,19 @@ the schema check never wait for approval, because they never run.
 The branch the operation selects becomes the tool call's record. A Connector
 author lists the branches that need it under **agent.branches**, as
 **rejected** (nothing took effect) or **unknown** (the write may have taken
-effect). The rule fails closed:
+effect). The listing comes first. The first matching row wins, and the rule
+fails closed:
 
 | Branch | Record | The model sees |
 | --- | --- | --- |
 | A success branch, such as **sent** or **refunded** | **succeeded** | The result value |
 | Listed as **rejected**, such as **providerRejected** | **failed** | The branch and the provider's message |
-| **defect** | **failed** | The branch and the message |
-| A Query branch not listed | **failed** | The branch and the message |
-| **uncertain**, a branch listed as **unknown**, or a Mutation branch not listed | **outcome_unknown** | That the outcome is unknown |
+| Listed as **unknown**, or **uncertain** | **outcome_unknown** | That the outcome is unknown |
+| A Mutation branch not listed, including **defect** | **outcome_unknown** | That the outcome is unknown |
+| A Query branch not listed, including **defect** | **failed** | The branch and the message |
+
+A Mutation's **defect** can come after the provider was called, so the write
+may have happened.
 
 A rejected or failed call does not fail the session. The model reads it and
 can react. Reconcile **outcome_unknown** as for any tool; see

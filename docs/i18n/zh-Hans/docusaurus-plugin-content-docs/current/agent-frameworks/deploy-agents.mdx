@@ -331,7 +331,7 @@ pip install "dex-connector-<name> @ git+https://github.com/superdurable/dex-conn
 
 ### 提供哪些 operation {#connector-tools-offered}
 
-默认不暴露任何 operation。应用用 Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 列出 agent 可以使用的每个 operation。只有 Connector 作者审查过、在 **dex-connector.json** 中标记了 **agent.exposed** 的 operation 才能成为 tool。其他 operation 在构建 agent 定义时就会被拒绝。tool 名称默认是 Connector ID 加上 snake case 形式的 operation，例如 **stripe_create_refund**。描述和参数 schema 来自 manifest。
+默认不暴露任何 operation。应用用 Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 列出 agent 可以使用的每个 operation。只有 Connector 作者审查过、在 **dex-connector.json** 中标记了 **agent.exposed** 的 operation 才能成为 tool。其他 operation 在构建 agent 定义时就会被拒绝。tool 名称默认是 Connector ID 加上 snake case 形式的 operation，例如 **stripe_create_refund**。snake case 和 Connector library 自己的 Python 名称一致：缩写词保持为一个词，所以 **listStoryIDs** 变成 **list_story_ids**。描述和参数 schema 来自 manifest。
 
 模型给出的参数先按 operation 的 **inputSchema** 检查，再解码成 operation 的输入类型。拼错的字段、错误的类型或缺少的字段会让这次调用失败，并给出模型可以据此修正的消息。operation 不会运行。
 
@@ -357,15 +357,17 @@ session 的 **tool_policies**（**toolPolicies**）中针对 connector tool 的�
 
 ### 结果 {#connector-tools-outcomes}
 
-operation 选中的 branch 决定 tool call 的记录。Connector 作者在 **agent.branches** 中列出需要说明的 branch：**rejected**（什么都没有生效）或 **unknown**（写入可能已经生效）。规则在不确定时按最保守的方式处理：
+operation 选中的 branch 决定 tool call 的记录。Connector 作者在 **agent.branches** 中列出需要说明的 branch：**rejected**（什么都没有生效）或 **unknown**（写入可能已经生效）。列表优先。按顺序取第一个匹配的行，规则在不确定时按最保守的方式处理：
 
 | Branch | 记录 | 模型看到 |
 | --- | --- | --- |
 | 成功 branch，例如 **sent** 或 **refunded** | **succeeded** | 结果值 |
 | 列为 **rejected** 的 branch，例如 **providerRejected** | **failed** | branch 和 provider 的消息 |
-| **defect** | **failed** | branch 和消息 |
-| 未列出的 Query branch | **failed** | branch 和消息 |
-| **uncertain**、列为 **unknown** 的 branch，或未列出的 Mutation branch | **outcome_unknown** | 结果未知 |
+| 列为 **unknown** 的 branch，或 **uncertain** | **outcome_unknown** | 结果未知 |
+| 未列出的 Mutation branch，包括 **defect** | **outcome_unknown** | 结果未知 |
+| 未列出的 Query branch，包括 **defect** | **failed** | branch 和消息 |
+
+Mutation 的 **defect** 可能发生在调用 provider 之后，所以写入可能已经生效。
 
 被拒绝或失败的调用不会让 session 失败。模型读到结果后可以做出反应。和其他 tool 一样处理 **outcome_unknown**，见[核对 outcome_unknown](#reconcile-outcome-unknown)。
 

@@ -1,5 +1,5 @@
 {
-  "description": "Connector tool behavior every core must match: argument checks, branch mapping, result text, and truncation. Hand-written; see README.md.",
+  "description": "Connector tool behavior every core must match: argument checks, branch mapping, result text, truncation, and default tool names. Hand-written; see README.md.",
   "inputSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -322,7 +322,7 @@
       "agentBranches": {
         "defect": "rejected"
       },
-      "outcome": "failed"
+      "outcome": "rejected"
     },
     {
       "kind": "mutation",
@@ -384,7 +384,7 @@
       "agentBranches": {
         "uncertain": "rejected"
       },
-      "outcome": "outcome_unknown"
+      "outcome": "rejected"
     },
     {
       "kind": "mutation",
@@ -393,7 +393,160 @@
         "done"
       ],
       "agentBranches": {},
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "query",
+      "branch": "defect",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
       "outcome": "failed"
+    },
+    {
+      "kind": "mutation",
+      "branch": "defect",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "defect": "rejected"
+      },
+      "outcome": "rejected"
+    },
+    {
+      "kind": "mutation",
+      "branch": "defect",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "defect": "unknown"
+      },
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "uncertain",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "uncertain",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "uncertain": "unknown"
+      },
+      "outcome": "outcome_unknown"
+    }
+  ],
+  "toolNameCases": [
+    {
+      "operationId": "createRefund",
+      "snakeName": "create_refund"
+    },
+    {
+      "operationId": "postThreadReply",
+      "snakeName": "post_thread_reply"
+    },
+    {
+      "operationId": "notFound",
+      "snakeName": "not_found"
+    },
+    {
+      "operationId": "listStoryIDs",
+      "snakeName": "list_story_ids"
+    },
+    {
+      "operationId": "getHTTPResponse",
+      "snakeName": "get_http_response"
+    },
+    {
+      "operationId": "readIDToken",
+      "snakeName": "read_id_token"
+    },
+    {
+      "operationId": "readIDsFromCache",
+      "snakeName": "read_ids_from_cache"
+    },
+    {
+      "operationId": "getAPISettings",
+      "snakeName": "get_api_settings"
+    },
+    {
+      "operationId": "getUserByID",
+      "snakeName": "get_user_by_id"
+    },
+    {
+      "operationId": "getURLs",
+      "snakeName": "get_urls"
+    },
+    {
+      "operationId": "sendSMS",
+      "snakeName": "send_sms"
+    },
+    {
+      "operationId": "getHTTPSURL",
+      "snakeName": "get_httpsurl"
+    },
+    {
+      "operationId": "getV2Items",
+      "snakeName": "get_v2_items"
+    },
+    {
+      "operationId": "uploadFileV2",
+      "snakeName": "upload_file_v2"
+    },
+    {
+      "operationId": "listS3Buckets",
+      "snakeName": "list_s3_buckets"
+    },
+    {
+      "operationId": "oauth2Token",
+      "snakeName": "oauth2_token"
+    },
+    {
+      "operationId": "getOAuth2Token",
+      "snakeName": "get_o_auth2_token"
+    },
+    {
+      "operationId": "get2FACode",
+      "snakeName": "get2_fa_code"
+    },
+    {
+      "operationId": "getIDs3",
+      "snakeName": "get_ids3"
+    },
+    {
+      "operationId": "listIDsV2",
+      "snakeName": "list_ids_v2"
+    },
+    {
+      "operationId": "getItem2",
+      "snakeName": "get_item2"
+    },
+    {
+      "operationId": "ListUsers",
+      "snakeName": "list_users"
+    },
+    {
+      "operationId": "getX",
+      "snakeName": "get_x"
+    },
+    {
+      "operationId": "get_value",
+      "snakeName": "get_value"
+    },
+    {
+      "operationId": "fetchÜberData",
+      "snakeName": "fetchÜber_data"
     }
   ],
   "resultCases": [

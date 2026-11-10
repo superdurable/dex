@@ -146,6 +146,42 @@ async def test_each_branch_kind_maps_to_its_record_and_the_session_continues(
     assert snapshot.state is not None and snapshot.state.last_turn_error is None
 
 
+async def test_an_unlisted_mutation_defect_is_unknown_and_a_query_defect_fails(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id,
+        _calls(
+            ("get_balance", {"accountId": "defect"}),
+            ("create_payout", {"accountId": "a-1", "amount": 5, "memo": "defect"}),
+            hold="defects",
+        ),
+    )
+    records = await _held_records(harness, session_id, "defects")
+    assert records["call-0"].status is ToolCallStatus.FAILED
+    assert records["call-0"].error == (
+        "fake-ledger getBalance returned defect: LOCAL_DEFECT: query returned an unknown branch"
+    )
+    # The defect follows the provider call, so the payout may exist and must not run again.
+    assert records["call-1"].status is ToolCallStatus.OUTCOME_UNKNOWN
+    assert records["call-1"].error == (
+        "fake-ledger createPayout returned defect: "
+        "LOCAL_DEFECT: mutation returned an unknown branch"
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert _answer_lines(snapshot) == [
+        f"get_balance: {FAILED}fake-ledger getBalance returned defect: "
+        "LOCAL_DEFECT: query returned an unknown branch",
+        f"create_payout: {OUTCOME_UNKNOWN_TOOL_RESULT}",
+    ]
+    assert len(ledger.sends("createPayout")) == 1
+    assert len(ledger.writes("createPayout")) == 1
+    assert snapshot.state is not None and snapshot.state.last_turn_error is None
+
+
 # Schema validation before decoding
 
 

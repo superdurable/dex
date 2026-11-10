@@ -236,6 +236,9 @@ class GetBalanceOperation:
                 Receipt(),
                 _failure("getBalance", "bad body"),
             )
+        if input.account_id == "defect":
+            # The Connector SDK turns an undeclared branch into defect.
+            return QueryAttempt.branch_result("undeclared", Balance(input.account_id, 0), Receipt())
         payouts = sum(1 for _ in self._provider.writes("createPayout"))
         return QueryAttempt.branch_result(
             "found", Balance(input.account_id, 100 - payouts, "x" * input.padding), Receipt()
@@ -284,6 +287,9 @@ class CreatePayoutOperation:
             return MutationAttempt.branch_result(
                 "invalidResponse", Payout(), Receipt(), _failure("createPayout", "bad body")
             )
+        if "defect" in words:
+            # After the provider accepted it, the SDK turns an undeclared branch into defect.
+            return MutationAttempt.branch_result("undeclared", Payout(), Receipt())
         if "uncertain" in words:
             return MutationAttempt.uncertain(
                 Payout(), _failure("createPayout", "server error after send"), Receipt()

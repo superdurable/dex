@@ -187,6 +187,38 @@ describe("connector tools on a Dex engine", () => {
     assert.equal((await sessions.readAgentState(sessionId))?.lastTurnError, null);
   });
 
+  test("an unlisted Mutation defect is unknown and a Query defect fails", async () => {
+    const harness = newHarness();
+    await harness.startWorker();
+    const sessionId = `connector-${randomUUID()}`;
+    await sessions.startSession(
+      sessionId,
+      calls(
+        [
+          ["get_balance", { accountId: "defect" }],
+          ["create_payout", { accountId: "a-1", amount: 5, memo: "defect" }],
+        ],
+        "defects",
+      ),
+    );
+    const records = await heldRecords(harness, sessionId, "defects", 2);
+    assert.equal(records[0]?.status, "failed");
+    assert.equal(records[0]?.error, "fake-ledger getBalance returned defect: LOCAL_DEFECT: query returned an unknown branch");
+    // The defect follows the provider call, so the payout may exist and must not run again.
+    assert.equal(records[1]?.status, "outcome_unknown");
+    assert.equal(
+      records[1]?.error,
+      "fake-ledger createPayout returned defect: LOCAL_DEFECT: mutation returned an unknown branch",
+    );
+    assert.deepEqual(await answerLines(sessionId, 1), [
+      `get_balance: ${failed}fake-ledger getBalance returned defect: LOCAL_DEFECT: query returned an unknown branch`,
+      `create_payout: ${outcomeUnknownToolResult}`,
+    ]);
+    assert.equal(harness.ledger.sends("createPayout").length, 1);
+    assert.equal(harness.ledger.writes("createPayout").length, 1);
+    assert.equal((await sessions.readAgentState(sessionId))?.lastTurnError, null);
+  });
+
   test("arguments that break the schema fail without running the operation", async () => {
     const harness = newHarness();
     await harness.startWorker();

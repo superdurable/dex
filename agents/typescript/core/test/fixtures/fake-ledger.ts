@@ -182,6 +182,10 @@ export class GetBalanceOperation implements Query<GetBalanceInput, Balance> {
     if (input.accountId === "garbled") {
       return newQueryBranch("invalidResponse", { accountId: input.accountId, amount: 0 }, {}, failure("getBalance", "bad body"));
     }
+    if (input.accountId === "defect") {
+      // The Connector SDK turns an undeclared branch into defect.
+      return newQueryBranch("undeclared", { accountId: input.accountId, amount: 0 });
+    }
     const payouts = this.provider.writes("createPayout").length;
     const padding = input.padding ?? 0;
     return newQueryBranch("found", {
@@ -222,6 +226,10 @@ export class CreatePayoutOperation implements Mutation<CreatePayoutInput, Payout
     await this.provider.waitAt(words, "gate-after-accept", attempt);
     if (words.includes("invalid")) {
       return newMutationBranch("invalidResponse", {}, {}, failure("createPayout", "bad body"));
+    }
+    if (words.includes("defect")) {
+      // After the provider accepted the payout, the SDK turns an undeclared branch into defect.
+      return newMutationBranch("undeclared", {});
     }
     if (words.includes("uncertain")) {
       return newMutationUncertain({}, failure("createPayout", "server error after send"));

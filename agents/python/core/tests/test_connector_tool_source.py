@@ -39,7 +39,7 @@ from dex_agents.connectors import (
     format_connector_result,
 )
 from dex_agents.connectors._schema import check_input_schema, find_input_violation
-from dex_agents.connectors._source import _is_proven_not_sent
+from dex_agents.connectors._source import _is_proven_not_sent, _lower_camel_to_snake
 from tests.connector_agent import CONNECTION, read_fake_ledger_manifest
 from tests.fake_ledger import (
     CloseAccountOperation,
@@ -87,6 +87,13 @@ def test_branches_map_as_the_conformance_suite_says(case: dict[str, Any]) -> Non
         agent_branches=case["agentBranches"],
     )
     assert outcome is ConnectorBranchOutcome(case["outcome"])
+
+
+@pytest.mark.parametrize("case", CONFORMANCE["toolNameCases"])
+def test_operation_ids_become_snake_case_as_the_conformance_suite_says(
+    case: dict[str, Any],
+) -> None:
+    assert _lower_camel_to_snake(case["operationId"]) == case["snakeName"]
 
 
 @pytest.mark.parametrize("case", CONFORMANCE["resultCases"])

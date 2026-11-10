@@ -79,7 +79,6 @@ CONNECTOR_MANIFEST_FILE_NAME = "dex-connector.json"
 
 # The most CallTool attempts of any tool; a connector's own policy can only narrow it.
 _MAXIMUM_TOOL_ATTEMPTS = 3
-_DEFECT_BRANCH = "defect"
 _UNCERTAIN_BRANCH = "uncertain"
 _CODECS = CodecRegistry()
 
@@ -99,13 +98,20 @@ class ConnectorBranchOutcome(StrEnum):
             ``agent.branches``, such as ``providerRejected``. Nothing took
             effect. The record is ``FAILED`` with an error the model reads, and
             the session continues.
-        FAILED: ``defect``, or an optional branch of a Query that
-            ``agent.branches`` does not list. The record is ``FAILED``.
-        OUTCOME_UNKNOWN: ``uncertain``, a branch listed as ``unknown``, or an
-            optional branch of a Mutation that ``agent.branches`` does not list.
-            The write may have taken effect. The record is ``OUTCOME_UNKNOWN``.
+        FAILED: An optional branch of a Query that ``agent.branches`` does
+            not list, including ``defect``. The record is ``FAILED``.
+        OUTCOME_UNKNOWN: A branch listed as ``unknown``, ``uncertain``, or an
+            optional branch of a Mutation that ``agent.branches`` does not list,
+            including ``defect``. The write may have taken effect. The record
+            is ``OUTCOME_UNKNOWN``.
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.5.0
+        ``defect`` no longer maps to ``FAILED`` before ``agent.branches`` is
+        read. A Mutation's ``defect`` can follow a provider call, so an
+        unlisted one is ``OUTCOME_UNKNOWN``. A listed ``uncertain`` follows its
+        listing.
     """
 
     SUCCEEDED = "succeeded"
@@ -123,9 +129,32 @@ def classify_connector_branch(
 ) -> ConnectorBranchOutcome:
     """Return what a connector tool call records for one selected branch.
 
+    The rules apply in this order, as the Connector library's manifest
+    authoring guide defines them:
+
+    1. A required branch is ``SUCCEEDED``.
+    2. A branch that ``agent.branches`` lists as ``rejected`` is ``REJECTED``.
+    3. A branch that ``agent.branches`` lists as ``unknown`` is
+       ``OUTCOME_UNKNOWN``.
+    4. An unlisted ``uncertain`` is ``OUTCOME_UNKNOWN``.
+    5. Any other optional branch of a Mutation is ``OUTCOME_UNKNOWN``. This
+       includes ``defect``: the Connector SDK can select ``defect`` after the
+       provider was called, so the write may have happened.
+    6. Any other optional branch of a Query, including ``defect``, is
+       ``FAILED``.
+
     The rule fails closed: an optional branch of a Mutation that the manifest
     does not classify is ``OUTCOME_UNKNOWN``, because the write may have
     happened.
+
+    Example:
+        >>> classify_connector_branch(
+        ...     kind="mutation",
+        ...     branch="defect",
+        ...     required_branches=frozenset({"refunded"}),
+        ...     agent_branches={},
+        ... )
+        <ConnectorBranchOutcome.OUTCOME_UNKNOWN: 'outcome_unknown'>
 
     Args:
         kind: Whether the operation is a Query or a Mutation.
@@ -138,17 +167,19 @@ def classify_connector_branch(
         The outcome to record.
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.5.0
+        ``agent.branches`` is read before ``defect`` and ``uncertain``. An
+        unlisted ``defect`` of a Mutation is ``OUTCOME_UNKNOWN`` instead of
+        ``FAILED``, and an ``uncertain`` listed as ``rejected`` is
+        ``REJECTED``.
     """
-    if branch == _DEFECT_BRANCH:
-        return ConnectorBranchOutcome.FAILED
-    if branch == _UNCERTAIN_BRANCH:
-        return ConnectorBranchOutcome.OUTCOME_UNKNOWN
     if branch in required_branches:
         return ConnectorBranchOutcome.SUCCEEDED
     listed = agent_branches.get(branch)
     if listed == "rejected":
         return ConnectorBranchOutcome.REJECTED
-    if listed == "unknown" or kind == "mutation":
+    if listed == "unknown" or branch == _UNCERTAIN_BRANCH or kind == "mutation":
         return ConnectorBranchOutcome.OUTCOME_UNKNOWN
     return ConnectorBranchOutcome.FAILED
 
@@ -256,7 +287,11 @@ def connector_tool(
         connection: The logical connection reference the call runs with.
             Only the reference is stored; the Worker resolves credentials.
         name: Tool name; defaults to ``<connectorId>_<operation in snake case>``,
-            such as ``stripe_create_refund``.
+            such as ``stripe_create_refund``. The snake case is the one the
+            Connector library uses for Python Step factory names: an acronym
+            run stays one word, so ``listStoryIDs`` becomes
+            ``list_story_ids`` and ``getHTTPResponse`` becomes
+            ``get_http_response``.
         description: Model-facing description; defaults to the manifest's.
         requires_approval: The application's approval choice, as above.
         max_result_bytes: Bound on the result the model reads; defaults to the
@@ -279,6 +314,11 @@ def connector_tool(
             exported by the package.
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.5.0
+        The default name keeps an acronym run as one word, as the Connector
+        library does: ``listStoryIDs`` became ``list_story_ids``, not
+        ``list_story_i_d_s``.
     """
     definition = operation.definition()
     kind: Literal["query", "mutation"] = (
@@ -345,7 +385,8 @@ def connector_tool(
     )
     step_defaults = definition.step_defaults
     return ConnectorTool(
-        name=name or f"{operation_ref.connector_id}_{_snake_case(operation_ref.operation_id)}",
+        name=name
+        or f"{operation_ref.connector_id}_{_lower_camel_to_snake(operation_ref.operation_id)}",
         description=description or str(factory.get("description") or ""),
         input_schema=schema,
         connector_id=operation_ref.connector_id,
@@ -812,5 +853,35 @@ def _input_type(package: str, input_type_name: object, label: str) -> type[Any]:
     raise LookupError(f"{label}: package {package} does not export {input_type_name}")
 
 
-def _snake_case(identifier: str) -> str:
-    return "".join(f"_{c.lower()}" if c.isupper() else c for c in identifier).lstrip("_")
+def _lower_camel_to_snake(operation_id: str) -> str:
+    # Same algorithm as connectorctl lowerCamelToSnake, which names the Python Step factories.
+    converted: list[str] = []
+    for index, character in enumerate(operation_id):
+        if not _is_ascii_upper(character):
+            converted.append(character)
+            continue
+        previous = operation_id[index - 1] if index > 0 else ""
+        following = operation_id[index + 1] if index + 1 < len(operation_id) else ""
+        after_following = operation_id[index + 2] if index + 2 < len(operation_id) else ""
+        is_previous_lower_or_digit = _is_ascii_lower(previous) or _is_ascii_digit(previous)
+        # A trailing lowercase s pluralizes the acronym, as in listStoryIDs.
+        is_acronym_plural = following == "s" and not _is_ascii_lower(after_following)
+        is_end_of_acronym = (
+            _is_ascii_upper(previous) and _is_ascii_lower(following) and not is_acronym_plural
+        )
+        if is_previous_lower_or_digit or is_end_of_acronym:
+            converted.append("_")
+        converted.append(character.lower())
+    return "".join(converted)
+
+
+def _is_ascii_upper(character: str) -> bool:
+    return "A" <= character <= "Z"
+
+
+def _is_ascii_lower(character: str) -> bool:
+    return "a" <= character <= "z"
+
+
+def _is_ascii_digit(character: str) -> bool:
+    return "0" <= character <= "9"

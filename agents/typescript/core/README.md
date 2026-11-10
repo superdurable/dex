@@ -1438,7 +1438,10 @@ an operation whose entry lacks `agent.exposed: true`, an `agent` value it does
 not know, an `agent.branches` key that is not an optional branch (or an
 `unknown` one on a Query), or an `inputSchema` keyword it cannot check. The
 tool name defaults to `<connectorId>_<operation in snake case>`; the
-description and argument schema come from the manifest. A Mutation is any
+description and argument schema come from the manifest. The snake case is
+connectorctl's, which also names the Python Step factories: an acronym run
+stays one word, so `listStoryIDs` becomes `list_story_ids`.
+`agents/conformance/connector_tools.json` pins it. A Mutation is any
 operation with an `idempotencyKey` method.
 
 | Operation | Effect | Tool Step | Retries |
@@ -1467,13 +1470,20 @@ back. A `RetryError` goes through `throwDexRetry`, except for a single-attempt w
 whose fence saved `notSent` or `canResend` in this attempt: that records `failed` with
 `connectorNotSentRetryLater` instead of `outcome_unknown`.
 
+The first matching row wins, and `agent.branches` comes before the branch's
+name:
+
 | Branch | Record | The model reads |
 | --- | --- | --- |
 | A required (success) branch | `succeeded` | The value as compact JSON, keys sorted |
 | Listed `rejected` under `agent.branches` | `failed` (`ToolExecutionError`) | `<connector> <operation> returned <branch>: <kind>: <message>` |
-| `defect` | `failed` | The same text |
-| A Query branch not listed | `failed` | The same text |
-| `uncertain`, listed `unknown`, or a Mutation branch not listed | `outcome_unknown` (`ToolOutcomeUnknownError`) | `outcomeUnknownToolResult` |
+| Listed `unknown`, or `uncertain` | `outcome_unknown` (`ToolOutcomeUnknownError`) | `outcomeUnknownToolResult` |
+| A Mutation branch not listed, including `defect` | `outcome_unknown` | The same text |
+| A Query branch not listed, including `defect` | `failed` | `<connector> <operation> returned <branch>: <kind>: <message>` |
+
+A Mutation's `defect` is not always local: the Connector SDK turns some
+attempts that already called the provider into `defect`, so the write may have
+happened.
 
 A result over `maxResultBytes` (default `defaultConnectorResultMaxBytes`,
 64 KiB of UTF-8 text, set per source or per tool) is cut, followed by

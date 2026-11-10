@@ -68,7 +68,6 @@ export const connectorNotSentRetryLater = "not sent; the provider asked to retry
 
 // The most CallTool attempts of any tool; a connector's own policy can only narrow it.
 const maximumToolAttempts = 3;
-const defectBranch = "defect";
 const uncertainBranch = "uncertain";
 
 /**
@@ -83,9 +82,12 @@ export type ApprovalPredicate = (toolArguments: Readonly<Record<string, unknown>
  * - `succeeded`: a required branch, such as `sent` or `refunded`. The model reads the result value.
  * - `rejected`: a branch the manifest lists as `rejected` under `agent.branches`, such as `providerRejected`.
  *   Nothing took effect. The record is `failed` with an error the model reads, and the session continues.
- * - `failed`: `defect`, or an optional branch of a Query that `agent.branches` does not list.
- * - `outcome_unknown`: `uncertain`, a branch listed as `unknown`, or an optional branch of a Mutation that
- *   `agent.branches` does not list. The write may have taken effect.
+ * - `failed`: an optional branch of a Query that `agent.branches` does not list, including `defect`.
+ * - `outcome_unknown`: a branch listed as `unknown`, `uncertain`, or an optional branch of a Mutation that
+ *   `agent.branches` does not list, including `defect`. The write may have taken effect.
+ *
+ * Changed in 0.5.0: `defect` no longer maps to `failed` before `agent.branches` is read. A Mutation's `defect`
+ * can follow a provider call, so an unlisted one is `outcome_unknown`. A listed `uncertain` follows its listing.
  * @since 0.4.0
  */
 export type ConnectorBranchOutcome = "succeeded" | "rejected" | "failed" | "outcome_unknown";
@@ -152,7 +154,14 @@ export interface ConnectorToolOptions<Input> {
   readonly manifest: ConnectorPackageManifest;
   /** The validator the package exports for the operation's input, such as `CreateRefundInputSchema`. */
   readonly inputValidator: ConnectorInputValidator<Input>;
-  /** Tool name; defaults to `<connectorId>_<operation in snake case>`, such as `stripe_create_refund`. */
+  /**
+   * Tool name; defaults to `<connectorId>_<operation in snake case>`, such as `stripe_create_refund`. The snake
+   * case is the one the Connector library uses for Python Step factory names: an acronym run stays one word, so
+   * `listStoryIDs` becomes `list_story_ids` and `getHTTPResponse` becomes `get_http_response`.
+   *
+   * Changed in 0.5.0: the default keeps an acronym run as one word; it used to split `listStoryIDs` into
+   * `list_story_i_d_s`.
+   */
   readonly name?: string;
   /** Model-facing description; defaults to the manifest's. */
   readonly description?: string;
@@ -210,8 +219,21 @@ export interface ConnectorTool {
 /**
  * Returns what a connector tool call records for one selected branch.
  *
+ * The rules apply in this order, as the Connector library's manifest authoring guide defines them:
+ *
+ * 1. A required branch is `succeeded`.
+ * 2. A branch that `agent.branches` lists as `rejected` is `rejected`.
+ * 3. A branch that `agent.branches` lists as `unknown` is `outcome_unknown`.
+ * 4. An unlisted `uncertain` is `outcome_unknown`.
+ * 5. Any other optional branch of a Mutation is `outcome_unknown`. This includes `defect`: the Connector SDK can
+ *    select `defect` after the provider was called, so the write may have happened.
+ * 6. Any other optional branch of a Query, including `defect`, is `failed`.
+ *
  * The rule fails closed: an optional branch of a Mutation that the manifest does not classify is
  * `outcome_unknown`, because the write may have happened.
+ *
+ * Changed in 0.5.0: `agent.branches` is read before `defect` and `uncertain`. An unlisted `defect` of a Mutation
+ * is `outcome_unknown` instead of `failed`, and an `uncertain` listed as `rejected` is `rejected`.
  *
  * @example
  * ```ts
@@ -229,12 +251,6 @@ export function classifyConnectorBranch(options: {
   readonly agentBranches: Readonly<Record<string, string>>;
 }): ConnectorBranchOutcome {
   const { kind, branch, requiredBranches, agentBranches } = options;
-  if (branch === defectBranch) {
-    return "failed";
-  }
-  if (branch === uncertainBranch) {
-    return "outcome_unknown";
-  }
   if (requiredBranches.has(branch)) {
     return "succeeded";
   }
@@ -242,7 +258,7 @@ export function classifyConnectorBranch(options: {
   if (listed === "rejected") {
     return "rejected";
   }
-  if (listed === "unknown" || kind === "mutation") {
+  if (listed === "unknown" || branch === uncertainBranch || kind === "mutation") {
     return "outcome_unknown";
   }
   return "failed";
@@ -264,6 +280,9 @@ export function classifyConnectorBranch(options: {
  * A call waits for `resolve_interrupt` when the manifest says `agent.approval: recommended`;
  * {@link ConnectorToolOptions.requiresApproval} overrides that. Arguments that break the schema never run, so
  * they never wait for approval.
+ *
+ * Changed in 0.5.0: the default tool name keeps an acronym run as one word, as the Connector library does:
+ * `listStoryIDs` becomes `list_story_ids`, not `list_story_i_d_s`.
  *
  * @example
  * ```ts
@@ -351,7 +370,7 @@ export function connectorTool<Input, Output>(
   const effect: ToolEffect =
     kind === "query" ? "read" : retry === "safe" ? "idempotent_write" : "non_idempotent_write";
   const inputValidator = options.inputValidator;
-  const toolName = options.name ?? `${connectorId}_${snakeCase(operationId)}`;
+  const toolName = options.name ?? `${connectorId}_${lowerCamelToSnake(operationId)}`;
   const invoke = async (call: Call, toolArguments: Readonly<Record<string, unknown>>): Promise<QueryResult<unknown>> => {
     const parsed = inputValidator.safeParse(toolArguments);
     if (!parsed.success) {
@@ -755,8 +774,43 @@ function boundedRetryPolicy(policy: {
   };
 }
 
-function snakeCase(identifier: string): string {
-  return identifier.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`).replace(/^_+/, "");
+/**
+ * Returns an operation ID in snake case, as connectorctl `lowerCamelToSnake` names the Python Step factories.
+ * @param operationId - The lower camel case operation ID, such as `listStoryIDs`.
+ * @returns The snake case name, such as `list_story_ids`.
+ */
+export function lowerCamelToSnake(operationId: string): string {
+  const characters = Array.from(operationId);
+  let converted = "";
+  for (const [index, character] of characters.entries()) {
+    if (!isAsciiUpper(character)) {
+      converted += character;
+      continue;
+    }
+    const previous = characters[index - 1];
+    const following = characters[index + 1];
+    const isPreviousLowerOrDigit = isAsciiLower(previous) || isAsciiDigit(previous);
+    // A trailing lowercase s pluralizes the acronym, as in listStoryIDs.
+    const isAcronymPlural = following === "s" && !isAsciiLower(characters[index + 2]);
+    const isEndOfAcronym = isAsciiUpper(previous) && isAsciiLower(following) && !isAcronymPlural;
+    if (isPreviousLowerOrDigit || isEndOfAcronym) {
+      converted += "_";
+    }
+    converted += character.toLowerCase();
+  }
+  return converted;
+}
+
+function isAsciiUpper(character: string | undefined): boolean {
+  return character !== undefined && character >= "A" && character <= "Z";
+}
+
+function isAsciiLower(character: string | undefined): boolean {
+  return character !== undefined && character >= "a" && character <= "z";
+}
+
+function isAsciiDigit(character: string | undefined): boolean {
+  return character !== undefined && character >= "0" && character <= "9";
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

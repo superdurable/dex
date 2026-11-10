@@ -1367,7 +1367,10 @@ in its package's `dex-connector.json`, read as package data, and refuses an
 operation whose entry lacks `agent.exposed: true`, an `agent` value it does
 not know, or an `inputSchema` keyword it cannot check. The tool name defaults
 to `<connectorId>_<operation in snake case>`, such as `stripe_create_refund`;
-the description and argument schema come from the manifest.
+the description and argument schema come from the manifest. The snake case is
+connectorctl's, which also names the Python Step factories: an acronym run
+stays one word, so `listStoryIDs` becomes `list_story_ids`.
+`agents/conformance/connector_tools.json` pins it.
 
 | Operation | Effect | Tool Step | Retries |
 | --- | --- | --- | --- |
@@ -1408,15 +1411,20 @@ What a call does:
    retry would then record `OUTCOME_UNKNOWN`. When its fence saved `notSent` or
    `canResend` in this attempt, which proves the provider did not process it, it
    records `FAILED` with `CONNECTOR_NOT_SENT_RETRY_LATER` instead.
-5. Map the selected branch with `classify_connector_branch`:
+5. Map the selected branch with `classify_connector_branch`. The first
+   matching row wins, and `agent.branches` comes before the branch's name:
 
 | Branch | Record | The model reads |
 | --- | --- | --- |
 | A required (success) branch | `SUCCEEDED` | The value as compact JSON, keys sorted |
 | Listed `rejected` under `agent.branches` | `FAILED` (`ToolExecutionError`) | `"<connector> <operation> returned <branch>: <kind>: <message>"` |
-| `defect` | `FAILED` | The same text |
-| A Query branch not listed | `FAILED` | The same text |
-| `uncertain`, listed `unknown`, or a Mutation branch not listed | `OUTCOME_UNKNOWN` (`ToolOutcomeUnknownError`) | `OUTCOME_UNKNOWN_TOOL_RESULT` |
+| Listed `unknown`, or `uncertain` | `OUTCOME_UNKNOWN` (`ToolOutcomeUnknownError`) | `OUTCOME_UNKNOWN_TOOL_RESULT` |
+| A Mutation branch not listed, including `defect` | `OUTCOME_UNKNOWN` | The same text |
+| A Query branch not listed, including `defect` | `FAILED` | `"<connector> <operation> returned <branch>: <kind>: <message>"` |
+
+A Mutation's `defect` is not always local: the Connector SDK turns some
+attempts that already called the provider into `defect`, so the write may have
+happened.
 
 A result over `max_result_bytes` (default `DEFAULT_CONNECTOR_RESULT_MAX_BYTES`,
 64 KiB of UTF-8 text, set per source or per tool) is cut, followed by
