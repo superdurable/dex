@@ -6,7 +6,7 @@ slug: /concepts/correctness-and-expressiveness/expressiveness-proof
 
 # 表达能力证明
 
-Dex 有一个经计算机检查的证明，说明它能表达什么。本页说明这个证明讲了什么、是怎样检查的。完整论证见论文。
+Dex 有一个经计算机检查的证明，说明它能表达什么。完整论证见论文。
 
 - [下载论文（PDF）](/papers/dex-expressiveness.pdf)
 - [GitHub 上的形式化源码](https://github.com/superdurable/dex/tree/main/formal)
@@ -63,8 +63,7 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 
 ## 如何验证 {#how-it-was-checked}
 
-- **对 Dex 的精确描述。** Flow、Step、Channel、Attribute 和 Timer 的每条行为规则都写了下来，并注明实现它的 server 代码。评审者对照代码逐条检查了这些规则。
-- **经计算机检查的证明。** 证明用 Lean 4 证明助手写成，它检查每一步。没有任何一步被跳过或未经检查就被接受。
+证明用 Lean 4 证明助手写成，它检查每一步。没有任何一步被跳过或未经检查就被接受。
 
 ## 故障 {#what-it-does-not-cover}
 

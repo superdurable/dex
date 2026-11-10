@@ -37,6 +37,8 @@ from dex_examples.patterns.parallel_subflows.models import (
 )
 
 
+# dex:group group-id:submit group-label:"Submit"
+# dex:explanation text:"Pick a parent Flow by partition and queue the request on it."
 class SubmitStep(Step[SubmitRequestInput]):
     def __init__(
         self,

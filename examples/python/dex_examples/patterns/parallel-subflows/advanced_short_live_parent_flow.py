@@ -40,6 +40,8 @@ from dex_examples.patterns.parallel_subflows.models import (
 )
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Queue the requests and start the request handlers."
 class ShortLiveInit(Step[ParentInput]):
     def __init__(
         self,
@@ -62,6 +64,8 @@ class ShortLiveInit(Step[ParentInput]):
         )
 
 
+# dex:group group-id:requests group-label:"Requests"
+# dex:explanation text:"Take the next queued request and count it as running."
 class ShortLiveHandleRequest(Step[None]):
     def __init__(
         self,
@@ -86,6 +90,8 @@ class ShortLiveHandleRequest(Step[None]):
         return go_to(ShortLiveHandleSubFlow, request)
 
 
+# dex:group group-id:child-flow group-label:"Child Flow"
+# dex:explanation text:"Run a child Flow for the request, then complete once no work remains."
 class ShortLiveHandleSubFlow(Step[str]):
     def __init__(
         self,

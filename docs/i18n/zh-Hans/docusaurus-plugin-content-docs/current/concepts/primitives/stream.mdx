@@ -43,7 +43,7 @@ Stream 有稳定的名字、消息类型和容量。把它加到 Flow 的 persis
 
 <a id="buffer-text-chunk"></a>
 
-这个例子通过 buffered text writer 写入进度文本。Dex 在 Step 结果之前 flush 缓冲的文本。Step 不等待 server 保存文本。见 [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text)。
+这个例子通过 buffered text writer 写入进度文本。Dex 在保存 Step 结果之前发出缓冲的文本。Step 不等待 server 保存文本。见 [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text)。
 
 <SdkTabs examples={{
 python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
@@ -253,5 +253,7 @@ Client 有两种方式读取 Stream：
 Client 也可以写入 Stream，Flow 关闭后也可以。RPC handler 通过注入的 Client 写入。
 
 ## 参考
+
+每个 SDK 参考的 [Stream](/reference/python/stream) 页列出该语言的 API 名称。
 
 [Data primitive semantics](/reference/server/runtime-data#streams) 详细说明写入语义、buffered text、读取、列表、容量和存储。server 配置见 [Streams](/reference/server/configuration#streams)。

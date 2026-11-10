@@ -667,6 +667,10 @@ export type ToolTaskPollOutcome = ToolExecutionResult | ToolInputRequested | Too
  * `error`, does not retry, and the model sees {@link outcomeUnknownToolResult}. A later ordered write of
  * the turn is skipped.
  *
+ * {@link AgentFrameworkRunner.pollToolTask} may throw it too, for a task that ended without a known
+ * outcome. The session then records `outcome_unknown` the same way and stops polling. Changed in 0.5.0:
+ * `pollToolTask` may throw it.
+ *
  * @example
  * ```ts
  * throw new ToolOutcomeUnknownError("the provider timed out after receiving the refund");
@@ -864,6 +868,9 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * the call's result.
    * @throws {ToolExecutionError} When the task failed in a way the model should see; the call is
    * recorded as `failed`.
+   * @throws {ToolOutcomeUnknownError} When the task ended and may or may not have taken effect; the call is
+   * recorded as `outcome_unknown` and not polled again. Changed in 0.5.0: this error is recorded instead of
+   * failing the poll attempt.
    * @throws Any other error to fail the poll attempt; after three attempts the record becomes `failed`
    * for a `read` call and `outcome_unknown` otherwise, because the task may still run.
    */

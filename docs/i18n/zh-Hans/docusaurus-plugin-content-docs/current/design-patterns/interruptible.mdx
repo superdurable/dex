@@ -9,15 +9,15 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inte
 
 在收到 durable 中断信号后，安全地停止长时间工作。
 
-这个模式适合会长时间循环运行的工作，例如批处理。如果要等待外部系统，请改用 [Polling](/design-patterns/polling)。工作运行期间，用户可以请求中断。每个分支会完成当前工作单元，在下一轮循环前读取 durable 信号，然后安全地结束。
+这个模式适合长时间循环运行的工作，例如批处理。如果要等待外部系统，请改用 [Polling](/design-patterns/polling)。
 
-**InterruptibleFlow** 会并行启动 **WorkA** 和 **WorkB**。每个 Step 会在安排下一项工作前检查 durable 的 **interruptSignal**。**interrupt** RPC 写入该信号，使任一分支都能优雅地完成 Flow。
+**InterruptibleFlow** 并行启动 **WorkA** 和 **WorkB**。要中断它们，客户端调用 **interrupt** RPC，由它写入 **interruptSignal** Attribute。每个分支先做完当前的工作单元，在开始下一个单元前读取这个信号，然后返回 **GracefulComplete**。两个分支都停下后，Flow 才完成。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## 核心实现
 
-每个示例展示 **WorkA**。它在工作单元之间等待；收到中断信号时完成，否则安排下一轮循环。**WorkB** 采用相同模式。可运行示例还包含 Flow 注册和 **interrupt** RPC。
+每个示例展示 **WorkA**，**WorkB** 与它相同。**WaitFor** 在两个工作单元之间等待。**Execute** 在信号已写入时完成，否则进入下一个单元。可运行示例还包含 Flow 注册和 **interrupt** RPC。
 
 <SdkTabs
   examples={{

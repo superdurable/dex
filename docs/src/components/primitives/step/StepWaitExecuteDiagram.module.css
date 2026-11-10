@@ -1,0 +1,139 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Narrow: a vertical rail of stages. Wide: the same stages in one row. */
+
+.stepper {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  column-gap: 0.9rem;
+}
+
+.stage,
+.link {
+  display: contents;
+}
+
+.rail {
+  display: flex;
+  grid-column: 1;
+  grid-row: var(--row);
+  flex-direction: column;
+  align-items: center;
+}
+
+.tail {
+  width: 2px;
+  min-height: 0.5rem;
+  margin-top: 0.4rem;
+  flex: 1 1 auto;
+}
+
+.toneWait {
+  --tone: var(--cd-wait);
+  color: var(--cd-wait);
+}
+
+.toneAccent {
+  --tone: var(--cd-accent);
+  color: var(--cd-accent);
+}
+
+.tail.toneWait {
+  background: var(--tone);
+}
+
+.tail.toneAccent {
+  background: repeating-linear-gradient(to bottom, var(--tone) 0 6px, transparent 6px 10px);
+  animation: step-rail-flow 0.9s linear infinite;
+}
+
+@keyframes step-rail-flow {
+  from { background-position: 0 0; }
+  to { background-position: 0 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tail.toneAccent {
+    animation: none;
+  }
+}
+
+.body {
+  display: flex;
+  min-width: 0;
+  grid-column: 2;
+  grid-row: var(--row);
+}
+
+.body > * {
+  flex: 1 1 auto;
+}
+
+.stepper .link > .linkNarrow {
+  grid-column: 1;
+  grid-row: var(--row);
+}
+
+.linkNarrowLabel {
+  grid-column: 2;
+  grid-row: var(--row);
+  align-self: center;
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.stepper .link > .linkWide {
+  display: none;
+}
+
+.inlineChip {
+  display: inline-flex;
+  margin: 0.1rem 0;
+  vertical-align: middle;
+}
+
+@container (min-width: 46rem) {
+  .stepper {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    column-gap: 1rem;
+    row-gap: 0.75rem;
+  }
+
+  .rail {
+    grid-column: var(--col);
+    grid-row: 1;
+    flex-direction: row;
+    padding-top: 1.5rem;
+  }
+
+  .tail,
+  .stepper .link > .linkNarrow,
+  .linkNarrowLabel {
+    display: none;
+  }
+
+  .body {
+    grid-column: var(--col);
+    grid-row: 2;
+  }
+
+  .link {
+    display: block;
+    grid-column: var(--col);
+    grid-row: 1;
+    align-self: end;
+    margin: 0 -0.55rem calc(1.125rem - 1px) 2.8rem;
+  }
+
+  .stepper .link > .linkWide {
+    display: flex;
+  }
+}

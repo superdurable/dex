@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "AdvancedLongLiveParentFlow",
     "startStepId": "step:Init",
     "span": {
-      "startLine": 99,
+      "startLine": 105,
       "startColumn": 1,
-      "endLine": 125,
+      "endLine": 131,
       "endColumn": 40
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "rpc:send_request",
       "phase": "rpc",
       "span": {
-        "startLine": 117,
+        "startLine": 123,
         "startColumn": 5,
-        "endLine": 121,
+        "endLine": 127,
         "endColumn": 31
       }
     },
@@ -36,23 +36,23 @@
       "parentId": "step:HandleSubFlow",
       "phase": "execute",
       "span": {
-        "startLine": 93,
+        "startLine": 99,
         "startColumn": 5,
-        "endLine": 96,
+        "endLine": 102,
         "endColumn": 50
       }
     },
     {
-      "id": "decision:rpc:send_request:119:20",
+      "id": "decision:rpc:send_request:125:20",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:send_request",
       "condition": "self.request_channel.size(context) \u003e= MAX_BUFFERED_REQUESTS",
       "phase": "rpc",
       "span": {
-        "startLine": 119,
+        "startLine": 125,
         "startColumn": 20,
-        "endLine": 119,
+        "endLine": 125,
         "endColumn": 36
       },
       "decision": {
@@ -60,16 +60,16 @@
       }
     },
     {
-      "id": "decision:rpc:send_request:121:16",
+      "id": "decision:rpc:send_request:127:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:send_request",
       "condition": "not (self.request_channel.size(context) \u003e= MAX_BUFFERED_REQUESTS)",
       "phase": "rpc",
       "span": {
-        "startLine": 121,
+        "startLine": 127,
         "startColumn": 16,
-        "endLine": 121,
+        "endLine": 127,
         "endColumn": 31
       },
       "decision": {
@@ -77,15 +77,15 @@
       }
     },
     {
-      "id": "decision:step:HandleRequest:75:16",
+      "id": "decision:step:HandleRequest:79:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:HandleRequest",
       "phase": "execute",
       "span": {
-        "startLine": 75,
+        "startLine": 79,
         "startColumn": 16,
-        "endLine": 75,
+        "endLine": 79,
         "endColumn": 86
       },
       "decision": {
@@ -93,16 +93,16 @@
       }
     },
     {
-      "id": "decision:step:HandleSubFlow:95:20",
+      "id": "decision:step:HandleSubFlow:101:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:HandleSubFlow",
       "condition": "self.stopped.get(context)",
       "phase": "execute",
       "span": {
-        "startLine": 95,
+        "startLine": 101,
         "startColumn": 20,
-        "endLine": 95,
+        "endLine": 101,
         "endColumn": 39
       },
       "decision": {
@@ -110,16 +110,16 @@
       }
     },
     {
-      "id": "decision:step:HandleSubFlow:96:16",
+      "id": "decision:step:HandleSubFlow:102:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:HandleSubFlow",
       "condition": "not (self.stopped.get(context))",
       "phase": "execute",
       "span": {
-        "startLine": 96,
+        "startLine": 102,
         "startColumn": 16,
-        "endLine": 96,
+        "endLine": 102,
         "endColumn": 50
       },
       "decision": {
@@ -127,15 +127,15 @@
       }
     },
     {
-      "id": "decision:step:Init:59:16",
+      "id": "decision:step:Init:61:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:Init",
       "phase": "execute",
       "span": {
-        "startLine": 59,
+        "startLine": 61,
         "startColumn": 16,
-        "endLine": 61,
+        "endLine": 63,
         "endColumn": 10
       },
       "decision": {
@@ -147,9 +147,9 @@
       "kind": "attribute",
       "name": "Stopped",
       "span": {
-        "startLine": 101,
+        "startLine": 107,
         "startColumn": 5,
-        "endLine": 101,
+        "endLine": 107,
         "endColumn": 41
       },
       "resource": {
@@ -161,9 +161,9 @@
       "kind": "channel",
       "name": "RequestChannel",
       "span": {
-        "startLine": 100,
+        "startLine": 106,
         "startColumn": 5,
-        "endLine": 100,
+        "endLine": 106,
         "endColumn": 53
       },
       "resource": {
@@ -175,9 +175,9 @@
       "kind": "rpc",
       "name": "send_request",
       "span": {
-        "startLine": 117,
+        "startLine": 123,
         "startColumn": 5,
-        "endLine": 121,
+        "endLine": 127,
         "endColumn": 31
       }
     },
@@ -186,9 +186,9 @@
       "kind": "rpc",
       "name": "stop",
       "span": {
-        "startLine": 124,
+        "startLine": 130,
         "startColumn": 5,
-        "endLine": 125,
+        "endLine": 131,
         "endColumn": 40
       }
     },
@@ -198,10 +198,13 @@
       "name": "HandleRequest",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 110,
+        "startLine": 116,
         "startColumn": 13,
-        "endLine": 110,
+        "endLine": 116,
         "endColumn": 32
+      },
+      "metadata": {
+        "explanation": "Wait for the next queued request."
       }
     },
     {
@@ -210,10 +213,13 @@
       "name": "HandleSubFlow",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 110,
+        "startLine": 116,
         "startColumn": 34,
-        "endLine": 110,
+        "endLine": 116,
         "endColumn": 53
+      },
+      "metadata": {
+        "explanation": "Run a child Flow for the request, then take the next request."
       }
     },
     {
@@ -223,34 +229,37 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 109,
+        "startLine": 115,
         "startColumn": 36,
-        "endLine": 109,
+        "endLine": 115,
         "endColumn": 45
+      },
+      "metadata": {
+        "explanation": "Queue the requests and start the request handlers."
       }
     },
     {
-      "id": "subflow:self.example_subflow:91",
+      "id": "subflow:self.example_subflow:97",
       "kind": "subflow",
       "name": "self.example_subflow",
       "external": true,
       "span": {
-        "startLine": 91,
+        "startLine": 97,
         "startColumn": 27,
-        "endLine": 91,
+        "endLine": 97,
         "endColumn": 69
       }
     },
     {
-      "id": "wait:HandleRequest:72:16:0",
+      "id": "wait:HandleRequest:76:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:HandleRequest",
       "phase": "wait_for",
       "span": {
-        "startLine": 72,
+        "startLine": 76,
         "startColumn": 16,
-        "endLine": 72,
+        "endLine": 76,
         "endColumn": 58
       },
       "wait": {
@@ -261,9 +270,9 @@
             "label": "RequestChannel.for 1",
             "resourceId": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
             "span": {
-              "startLine": 72,
+              "startLine": 76,
               "startColumn": 27,
-              "endLine": 72,
+              "endLine": 76,
               "endColumn": 57
             }
           }
@@ -271,15 +280,15 @@
       }
     },
     {
-      "id": "wait:HandleSubFlow:91:16:0",
+      "id": "wait:HandleSubFlow:97:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:HandleSubFlow",
       "phase": "wait_for",
       "span": {
-        "startLine": 91,
+        "startLine": 97,
         "startColumn": 16,
-        "endLine": 91,
+        "endLine": 97,
         "endColumn": 70
       },
       "wait": {
@@ -288,11 +297,11 @@
           {
             "kind": "subflow",
             "label": "self.example_subflow",
-            "subFlowId": "subflow:self.example_subflow:91",
+            "subFlowId": "subflow:self.example_subflow:97",
             "span": {
-              "startLine": 91,
+              "startLine": 97,
               "startColumn": 27,
-              "endLine": 91,
+              "endLine": 97,
               "endColumn": 69
             }
           }
@@ -304,40 +313,40 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:HandleRequest:75:16",
+      "from": "decision:step:HandleRequest:79:16",
       "to": "step:HandleSubFlow",
       "label": "go_to",
       "span": {
-        "startLine": 75,
+        "startLine": 79,
         "startColumn": 16,
-        "endLine": 75,
+        "endLine": 79,
         "endColumn": 86
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:HandleSubFlow:96:16",
+      "from": "decision:step:HandleSubFlow:102:16",
       "to": "step:HandleRequest",
       "label": "go_to",
       "span": {
-        "startLine": 96,
+        "startLine": 102,
         "startColumn": 16,
-        "endLine": 96,
+        "endLine": 102,
         "endColumn": 50
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:Init:59:16",
+      "from": "decision:step:Init:61:16",
       "to": "step:HandleRequest",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
-        "startLine": 60,
+        "startLine": 62,
         "startColumn": 15,
-        "endLine": 60,
+        "endLine": 62,
         "endColumn": 59
       }
     },
@@ -348,9 +357,9 @@
       "to": "step:HandleSubFlow",
       "label": "get",
       "span": {
-        "startLine": 94,
+        "startLine": 100,
         "startColumn": 12,
-        "endLine": 94,
+        "endLine": 100,
         "endColumn": 37
       },
       "metadata": {
@@ -364,9 +373,9 @@
       "to": "rpc:send_request",
       "label": "size",
       "span": {
-        "startLine": 118,
+        "startLine": 124,
         "startColumn": 12,
-        "endLine": 118,
+        "endLine": 124,
         "endColumn": 46
       },
       "metadata": {
@@ -380,9 +389,9 @@
       "to": "step:HandleRequest",
       "label": "results",
       "span": {
-        "startLine": 75,
+        "startLine": 79,
         "startColumn": 45,
-        "endLine": 75,
+        "endLine": 79,
         "endColumn": 82
       },
       "metadata": {
@@ -393,12 +402,12 @@
       "id": "edge:0007",
       "kind": "wait_condition",
       "from": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
-      "to": "wait:HandleRequest:72:16:0",
+      "to": "wait:HandleRequest:76:16:0",
       "label": "RequestChannel.for 1",
       "span": {
-        "startLine": 72,
+        "startLine": 76,
         "startColumn": 27,
-        "endLine": 72,
+        "endLine": 76,
         "endColumn": 57
       }
     },
@@ -409,9 +418,9 @@
       "to": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
       "label": "publish",
       "span": {
-        "startLine": 120,
+        "startLine": 126,
         "startColumn": 9,
-        "endLine": 120,
+        "endLine": 126,
         "endColumn": 55
       },
       "metadata": {
@@ -425,9 +434,9 @@
       "to": "resource:attribute:AdvancedLongLiveParentFlow.stopped",
       "label": "set",
       "span": {
-        "startLine": 125,
+        "startLine": 131,
         "startColumn": 9,
-        "endLine": 125,
+        "endLine": 131,
         "endColumn": 40
       },
       "metadata": {
@@ -441,9 +450,9 @@
       "to": "resource:attribute:AdvancedLongLiveParentFlow.stopped",
       "label": "set",
       "span": {
-        "startLine": 57,
+        "startLine": 59,
         "startColumn": 9,
-        "endLine": 57,
+        "endLine": 59,
         "endColumn": 41
       },
       "metadata": {
@@ -457,9 +466,9 @@
       "to": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
       "label": "publish",
       "span": {
-        "startLine": 56,
+        "startLine": 58,
         "startColumn": 13,
-        "endLine": 56,
+        "endLine": 58,
         "endColumn": 59
       },
       "metadata": {
@@ -469,16 +478,51 @@
     {
       "id": "edge:0012",
       "kind": "subflow",
-      "from": "wait:HandleSubFlow:91:16:0",
-      "to": "subflow:self.example_subflow:91",
+      "from": "wait:HandleSubFlow:97:16:0",
+      "to": "subflow:self.example_subflow:97",
       "label": "start",
       "span": {
-        "startLine": 91,
+        "startLine": 97,
         "startColumn": 27,
-        "endLine": 91,
+        "endLine": 97,
         "endColumn": 69
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "requests",
+      "label": "Requests",
+      "stepIds": [
+        "step:HandleRequest"
+      ]
+    },
+    {
+      "id": "child-flow",
+      "label": "Child Flow",
+      "stepIds": [
+        "step:HandleSubFlow"
+      ]
+    },
+    {
+      "id": "setup",
+      "label": "Setup",
+      "stepIds": [
+        "step:Init"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

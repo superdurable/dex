@@ -66,7 +66,7 @@ Released 2026-11-06 as [sdk-java/v1.35.0](https://github.com/superdurable/dex/re
 - Worker startup fails when **maxConcurrentTasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/java/workers#capacity-and-shutdown).
 - **RetryPolicy.Builder.totalDuration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/java/1.35/io/superdurable/dex/RetryPolicy.Builder.html).
 - A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
-- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/java/flows-and-steps/failure-and-redelivery#same-attempt-redelivery).
+- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/java/failure-and-retries#same-attempt-redelivery).
 
 ### Added
 

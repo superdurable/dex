@@ -11,7 +11,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/canc
 
 例如一个贷款申请把信用检查作为子 Flow 运行。申请人撤回申请时，申请关闭，信用检查也必须停止。
 
-父 Flow 关闭时，自己从不会停止子 Flow。父 Flow 完成、失败、超时或被停止后，SubFlow 仍会继续运行。父 Flow 必须在关闭前逐个停止子 Flow。
+父 Flow 关闭时，Dex 不会停止它的 SubFlow。父 Flow 完成、失败、超时或被停止后，SubFlow 仍会继续运行。父 Flow 必须在关闭前逐个停止子 Flow。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -21,9 +21,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/canc
 - 启动 SubFlow 的 Step 用 **AnyOf** 同时等待 SubFlow 和取消 Channel。
 - 如果子 Flow 先结束，**Execute** 读取它的结果并继续。
 - 如果取消消息胜出，**Execute** 用 **SubFlowID** 读取子 Flow ID，用 Client 的 **StopFlow** 停止子 Flow，再用 **ForceFail** 关闭父 Flow。
-- 之后每个需要等待的 Step 也同时等待取消 Channel。子 Flow 结束后再取消，仍然能关闭这个 case。
-- 在每个等待中把取消 Condition 放在第一位。取消消息和另一个 Condition 同时就绪时，先声明的 Condition 胜出。放在第一位后，已在等待的取消不会被正常完成吞掉。
-- 最后的决定已被消费之后，或者 Flow 已经关闭之后才到达的取消，不能再改变结果。
+- 之后每个需要等待的 Step 也同时等待取消 Channel。子 Flow 结束后才到达的取消，仍然能关闭这个 case。
+- 在每个等待中把取消 Condition 放在第一位。取消消息和另一个 Condition 同时就绪时，先声明的 Condition 胜出。这样，已经到达的取消总是优先于正常完成。
+- 如果最后一个 Step 已经消费了它的决定消息，或者 Flow 已经关闭，之后到达的取消不能再改变结果。
 
 ```pseudocode
 rpc cancelApplication(reason) -> ApplicationCanceled.publish(reason)
@@ -65,7 +65,7 @@ AwaitUnderwriterDecision.execute
 - 使用 ChannelMap，每个 Step 一个 key。取消 RPC 向每个 key 发布，每个 Step 等待自己的 key。
 - 或者让取消 RPC 向同一个 Channel 为每个等待中的 Step 各发布一条消息。
 
-不要在第一个看到取消消息的 Step 中关闭 Flow。它的 **ForceFail** 会在其他 Step 停止各自子 Flow 之前取消它们。每个持有子 Flow 的 Step 都必须在任何东西关闭 Flow 之前，先停止自己的子 Flow。
+不要在第一个看到取消消息的 Step 中关闭 Flow。它的 **ForceFail** 会在其他 Step 停止各自子 Flow 之前取消它们。在 Flow 被关闭之前，每个持有子 Flow 的 Step 都必须先停止自己的子 Flow。
 
 ## 示例
 
@@ -559,10 +559,6 @@ impl Step for AwaitUnderwriterDecision {
 
 ## 反模式
 
-- 用 Client 的 **StopFlow** 停止父 Flow，并以为子 Flow 也会停止。
-- 子 Flow 没有自己的 Flow timeout。
-- 多个各自持有子 Flow 的 Step 共用一条取消消息。
-- 等待中把取消 Condition 放在其他 Condition 之后。
 - 取消 RPC 只设置一个 Attribute。没有任何东西会唤醒正在等待的 Step。
 
 ## 相关内容

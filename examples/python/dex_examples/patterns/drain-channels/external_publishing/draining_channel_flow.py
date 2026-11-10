@@ -35,6 +35,8 @@ from dex import (
 DRAIN_WINDOW_SECONDS = 20
 
 
+# dex:group group-id:messages group-label:"Messages"
+# dex:explanation text:"Process one queued message, then complete once no message waits."
 class ProcessMessage(Step[str]):
     def __init__(self, queue_channel: Channel[str]) -> None:
         self.queue_channel = queue_channel

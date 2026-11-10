@@ -2397,6 +2397,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     failed = replace(tool_call, status=ToolCallStatus.FAILED, error=str(error))
                     poll_span.record_finished(failed)
                     return _finish_tool_call(context, failed, events)
+                except ToolOutcomeUnknownError as error:
+                    unknown = replace(
+                        tool_call, status=ToolCallStatus.OUTCOME_UNKNOWN, error=str(error)
+                    )
+                    poll_span.record_finished(unknown)
+                    return _finish_tool_call(context, unknown, events)
             polled = self._record_tool_task_poll(tool_call, outcome)
             poll_span.record_finished(polled)
         if polled.status.is_final:

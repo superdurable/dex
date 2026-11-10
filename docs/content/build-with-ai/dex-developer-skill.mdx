@@ -7,43 +7,43 @@ slug: /build-with-ai/dex-developer-skill
 
 # Build with AI using Dex Skills
 
-Dex Skills is the official coding-agent guidance for Dex. It is distributed as
-a Plugin or as a standalone bundle of three Skills. It helps Codex, Claude
-Code, and Cursor design and build Dex applications, work directly with the
-public Dex SDK, and contribute official
-[Connectors](/components/connector).
+Dex Skills is the official guidance that teaches a coding agent, such as Codex,
+Claude Code, or Cursor, to work with Dex. With it, the agent can design and
+build Dex applications, use the public Dex SDK directly, and contribute
+official [Connectors](/components/connector). You install it as a Plugin or as
+a standalone bundle of three Skills.
 
-The plugin contains developer guidance, not runtime code. Dex Server, Workers,
-and applications do not load it.
+The Skills are guidance for the agent only. They contain no runtime code. Dex
+Server, Workers, and applications never load them.
 
 :::tip Start with Dex App Builder
 
 For a product, application, or business-process request, start with
-**dex-app-builder**. It owns the end-to-end workflow and loads the specialist
-skills when SDK or Connector work is required.
+**dex-app-builder**. It runs the whole job from start to finish. It loads the
+other skills when the job needs SDK or Connector work.
 
 :::
 
 ## Requires a coding workspace
 
-Dex Skills is a developer plugin, not a hosted application builder. To create
-or modify an application, run it in Codex or another coding-agent host with a
-writable repository or project workspace, file-editing tools, and command
-execution. An existing repository or a new empty repository both work.
+Dex Skills is not a hosted application builder. To create or change an
+application, run it in Codex or another coding-agent host that gives the agent
+a writable repository or project, file-editing tools, and command execution.
+The repository can be an existing one or a new, empty one.
 
-In an ordinary chat without repository and command access, the skills can still
-help with business discovery, architecture, and an implementation handoff. They
-cannot create project files, run tests, build artifacts, or deploy the
-application. Move the confirmed plan into a repository-backed coding workspace
-before implementation.
+In a plain chat without repository and command access, the skills can still
+help you work out the business process, design the architecture, and write a
+plan for implementation. They cannot create project files, run tests, build
+artifacts, or deploy the application. Move the agreed plan into a coding
+workspace with a repository before you implement it.
 
 ## Choose a skill
 
 | Skill | Role | Use it for |
 | --- | --- | --- |
-| [**Dex App Builder**](./dex-developer-skill/dex-app-builder.mdx) | **Primary skill** | Discover, prototype, implement, and locally verify an end-to-end process product with a Go backend. |
-| [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | Specialist sub-skill | Implement, debug, test, and operate Dex applications in Python, Go, Java, TypeScript, or Rust. |
-| [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | Specialist sub-skill | Create, verify, and upstream official Connector operations, Triggers, and configuration UI units. |
+| [**Dex App Builder**](./dex-developer-skill/dex-app-builder.mdx) | **Primary skill** | Work out a process, prototype it, then build and test it locally as a complete application with a Go backend. |
+| [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | Specialist sub-skill | Build, debug, test, and run Dex applications in Python, Go, Java, TypeScript, or Rust. |
+| [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | Specialist sub-skill | Create, test, and contribute official Connector operations, Triggers, and configuration UI units. |
 
 Use **dex-sdk** directly only for a standalone SDK task. Use
 **dex-connector-contributor** directly only for standalone work in the official
@@ -51,27 +51,28 @@ Dex Connectors Library.
 
 ## How the skills work together
 
-Dex App Builder is the primary coordinator. It loads Dex SDK when backend
-design and implementation begin, uses released Connectors directly, and routes
-a confirmed official Connector gap to Dex Connector Contributor. Connector
-Contributor also loads Dex SDK when it needs shared Flow and Step semantics.
+Dex App Builder is the main skill. It loads Dex SDK when it starts to design
+and build the backend. It uses released Connectors directly. When it confirms
+that an official Connector lacks something the application needs, it hands
+that work to Dex Connector Contributor. Connector Contributor also loads Dex
+SDK when it needs the rules for Flows and Steps.
 
-Install all three Skills together so the agent can route between them. The
-source and releases are maintained in
+Install all three Skills together, so that the agent can move between them.
+The source and releases are in
 [superdurable/dex-skills](https://github.com/superdurable/dex-skills).
 
 ## Choose one installation path
 
 Use one of these paths, not both:
 
-1. **Plugin (recommended)** installs all three Skills and uses the host's
-   marketplace lifecycle.
+1. **Plugin (recommended)** installs all three Skills. You install, update,
+   and remove them through the host's plugin marketplace.
 2. **Standalone Skills** installs all three Skills directly with the Agent
    Skills CLI.
 
-Installing both can leave duplicate copies with ambiguous versions. Plugin and
-standalone installations can also use different invocation syntax on the same
-host.
+If you install both, the agent can end up with duplicate copies, and you
+cannot tell which version it uses. On the same host, the two installations can
+also be invoked with different syntax.
 
 ## Install and use Dex Skills
 
@@ -79,12 +80,12 @@ host.
 
 ## Trust and permissions
 
-Install agent extensions only from sources you trust. Dex declares no MCP
-server, credentials, or application runtime code. Its optional lifecycle hook
-reads the installed version and public GitHub release metadata, then reports a
-newer release without installing it. Creating a GitHub fork, publishing a
-branch, opening a pull request, and mutating a running Flow remain permissioned
-actions.
+Install agent extensions only from sources you trust. Dex Skills adds no MCP
+server, asks for no credentials, and contains no application runtime code. Its
+optional hook reads the installed version and the public GitHub release
+metadata. If a newer release exists, the hook tells you, but it does not
+install it. The agent still needs your permission to create a GitHub fork,
+push a branch, open a pull request, or change a running Flow.
 
-Continue with [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx), the
-primary workflow.
+Next, read [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx), the
+primary skill.

@@ -1,0 +1,34 @@
+---
+id: attribute
+title: Attribute
+sidebar_label: Attribute
+---
+
+# Attribute
+
+This page lists the Go SDK names for [Attributes](/concepts/primitives/attribute).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Go SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Go API | Dex behavior |
+| --- | --- | --- |
+| Define a singleton Attribute | **DefineAttribute**, which returns an **Attribute** | [Attributes](/reference/server/runtime-data#attributes) |
+| Define an AttributeMap | **DefineAttributeMap**, which returns an **AttributeMap** | [Attributes](/reference/server/runtime-data#attributes) |
+| Declare it in the Flow | **Attributes** of **PersistenceSchema**, returned from **GetPersistenceSchema** | [Flow definition](./flow.mdx#flow-definition) |
+| Read, write, and delete a value in a Step or RPC | **Get**, **Set**, and **Delete** | [Commits](./step.mdx#commit-boundary) |
+| Address one AttributeMap instance | The instance argument of **AttributeMap.Get**, **AttributeMap.Set**, and **AttributeMap.Delete** | [Attributes](/reference/server/runtime-data#attributes) |
+| Count AttributeMap instances and list their keys | **AttributeMap.MapSize** and **AttributeMap.AllInstanceKeys** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Load AttributeMap values for a method | **AttributeMap.Load**, with the load fields of **StepOptions** or **RPCOptions** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Lock a value for a read-modify-write | **LockAttribute** and **LockAttributeMap**, with the lock fields of **StepOptions** or **LockAttributes** of **RPCOptions** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Index a value for search | **Indexed**, with **AttributeIndex** and **IndexType** | [Indexes](/reference/server/runtime-data#attribute-indexes) |
+| Project writes to an Attribute Store | **SyncToAttributeStore** | [Attribute sync](/reference/server/attribute-store-sync) |
+| Store a value that can be erased | **HardDeleteOnNull** | [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes) |
+| Set a value when the Flow starts | **InitialAttribute** and **InitialAttributeMapValue** in **StartFlowOptions.Attributes** | [Attributes at start](./start-flow-options.mdx#attributes) |
+| Read values from outside the Flow | **Client.GetAttributes**, with **ReadAttribute** and **ReadAttributeMapInstance** | [Read Attributes](/reference/server/runtime-client#read-attributes) |
+| Wait until a value matches | **Client.WaitForAttributeMatch** and **Client.WaitForAttributeMapInstanceMatch**, with an **AttributeMatch** such as **AttributeMatchEqual** | [Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match) |
+
+## Example {#example}
+
+Example: [examples/go/primitives/attribute/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/attribute/workflow.go)

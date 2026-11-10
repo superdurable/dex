@@ -1,0 +1,26 @@
+---
+id: subflow
+title: SubFlow
+sidebar_label: SubFlow
+---
+
+# SubFlow
+
+This page lists the Go SDK names for [SubFlows](/concepts/primitives/subflow).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Go SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Go API | Dex behavior |
+| --- | --- | --- |
+| Start a child Flow and wait for it | **SubFlow** in **WaitFor** | [SubFlows](/reference/server/runtime-data#subflows) |
+| Set the child timeout, Attributes, and configuration | **SubFlowOptions** | [SubFlowOptions](/reference/server/runtime-data#subflow-options) |
+| Choose what happens to an existing child | **ReusePolicy** of **SubFlowOptions**, with **SubFlowReusePolicy** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Read the child result | **SubFlowResult** in **Execute**. It returns a **FlowResult**. | [SubFlow results](./waits.mdx#subflow-results) |
+| Read the generated child Flow ID | **SubFlowID** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Stop a child that lost an **AnyOf** | **Client.StopFlow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+
+## Example {#example}
+
+Example: [examples/go/primitives/subflow/parent_flow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/subflow/parent_flow.go)

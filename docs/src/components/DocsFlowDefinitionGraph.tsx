@@ -9,12 +9,9 @@
 import {lazy, Suspense, useEffect, useState} from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import {
-  FlowDefinitionGraphView,
-  type FlowDefinitionGraph,
-} from '@superdurable/flow-definition-renderer';
+import type {FlowDefinitionGraph} from '@superdurable/flow-definition-renderer';
 
-// Loaded only on pages that draw a Version 2.0 definition, with its layout engine and styles.
+// Loaded only on pages that draw a Flow, with its layout engine and styles.
 const DocsFlowCanvas = lazy(() => import('./DocsFlowCanvas'));
 
 interface DocsFlowDefinitionGraphProps {
@@ -37,10 +34,10 @@ export default function DocsFlowDefinitionGraph({graph}: DocsFlowDefinitionGraph
 
   return (
     <div
-      aria-label={isExpanded ? graph.flow.name : undefined}
+      aria-label={graph.flow.name}
       aria-modal={isExpanded || undefined}
       className={`docs-flow-definition-graph${isExpanded ? ' is-expanded' : ''}`}
-      role={isExpanded ? 'dialog' : undefined}
+      role={isExpanded ? 'dialog' : 'figure'}
     >
       <div className="docs-flow-definition-graph-actions">
         <button
@@ -53,17 +50,13 @@ export default function DocsFlowDefinitionGraph({graph}: DocsFlowDefinitionGraph
             : (isChinese ? '展开 diagram' : 'Expand diagram')}
         </button>
       </div>
-      {graph.schemaVersion === '2.0' ? (
-        <BrowserOnly fallback={<div className="docs-flow-canvas" />}>
-          {() => (
-            <Suspense fallback={<div className="docs-flow-canvas" />}>
-              <DocsFlowCanvas graph={graph} />
-            </Suspense>
-          )}
-        </BrowserOnly>
-      ) : (
-        <FlowDefinitionGraphView displayName={graph.flow.name} graph={graph} />
-      )}
+      <BrowserOnly fallback={<div className="docs-flow-canvas-placeholder" />}>
+        {() => (
+          <Suspense fallback={<div className="docs-flow-canvas-placeholder" />}>
+            <DocsFlowCanvas graph={graph} />
+          </Suspense>
+        )}
+      </BrowserOnly>
     </div>
   );
 }

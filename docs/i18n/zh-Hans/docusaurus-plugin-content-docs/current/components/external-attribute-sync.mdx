@@ -5,7 +5,7 @@ sidebar_label: External Attribute Sync
 
 # External Attribute Sync
 
-External Attribute Sync 会把选定的 Flow Attribute 写入你自己的 PostgreSQL 表。每个目标称为一个 Attribute Store。Dex 以异步方式逐个 Flow 写入最新状态，并采用至少一次尝试语义，因此每种目标写入都具有幂等性。
+External Attribute Sync 把选定的 Flow Attribute 复制到你自己的 PostgreSQL 表中。每个目标称为一个 Attribute Store。
 
 目前只支持 PostgreSQL 作为 Attribute Store。Redis 支持由 [issue 616](https://github.com/superdurable/dex/issues/616) 跟踪。
 
@@ -45,13 +45,13 @@ attributeStore:
     totalDuration: 1h
 ```
 
-每个 store 都必须配置 **type: postgres**、**tableName** 和 DSN（**dsn** 或环境变量）。server-zd 绝不会记录 DSN。**tableName** 接受 **table** 或 **schema.table**。Dex 会解析并引用标识符，Attribute value 始终通过 driver 参数传递。每个键及其默认值见英文的 [Attribute Store sync configuration](/reference/server/attribute-store-sync#attribute-store-configuration)。
+每个 store 都必须配置 **type: postgres**、**tableName** 和 DSN（写在 **dsn** 或环境变量中）。server-zd 从不把 DSN 写进日志。**tableName** 接受 **table** 或 **schema.table**。Dex 会解析表名和列名并加引号，Attribute 的值始终作为 driver 参数传递。每个键及其默认值见英文的 [Attribute Store sync configuration](/reference/server/attribute-store-sync#attribute-store-configuration)。
 
 ## 交付与重试
 
-Attribute Sync 保存最新状态，而不是 event history。发生不确定失败后，后续写入可能重复。因此 upsert 使用 Flow ID 作为幂等 key。
+Dex 在后台分批写入。同一个 Flow ID 的写入保持顺序。表中的一行保存 Attribute 的最新值，而不是事件历史。结果未知的失败之后，同一次写入可能重复，所以 Dex 按 Flow ID 对行做 upsert。
 
-写入从不阻塞 Step、RPC 或 SetAttributes 的提交。失败的写入会重试到 **syncRetryPolicy.totalDuration**，之后丢弃并输出 error log。Dex 不会自动重放旧 Attribute，也不会为新配置的 store 自动 backfill。过滤写入、目标缺失和重试耗尽都会输出 error log。
+同步写入从不拖慢 Step、RPC 或 SetAttributes 调用。失败的写入会一直重试到 **syncRetryPolicy.totalDuration**，之后丢弃并输出 error 日志。Dex 不会自动重放旧的 Attribute，也不会为新配置的 store 回填数据。被过滤的写入、目标缺失和重试耗尽都会输出 error 日志。
 
 fencing 表、关闭行为、重试、metrics、row key、AttributeMap 表和 SQL 类型契约详见英文 Server 参考中的 [Attribute Store sync](/reference/server/attribute-store-sync)。
 

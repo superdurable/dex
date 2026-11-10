@@ -6,8 +6,8 @@ slug: /concepts/correctness-and-expressiveness/expressiveness-proof
 
 # Expressiveness proof
 
-Dex has a computer-checked proof of what it can express. This page explains
-what the proof says and how it was checked. The full argument is in the paper.
+Dex has a computer-checked proof of what it can express. The full argument is
+in the paper.
 
 - [Download the paper (PDF)](/papers/dex-expressiveness.pdf)
 - [Formal sources on GitHub](https://github.com/superdurable/dex/tree/main/formal)
@@ -79,11 +79,8 @@ across many Steps and waits.
 
 ## How it was checked {#how-it-was-checked}
 
-- **A precise description of Dex.** Every rule for how Flows, Steps,
-  Channels, Attributes, and Timers behave is written down, with the server
-  code that implements it. Reviewers checked each rule against the code.
-- **A computer-checked proof.** The proof is written in the Lean 4 proof
-  assistant, which checks every step. No step is skipped or taken on trust.
+The proof is written in the Lean 4 proof assistant, which checks every step.
+No step is skipped or taken on trust.
 
 ## Failures {#what-it-does-not-cover}
 

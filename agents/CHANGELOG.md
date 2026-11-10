@@ -6,6 +6,37 @@ for the Dex SDK and framework versions each release supports.
 
 ## Unreleased
 
+### Dex MCP conventions
+
+- Python and TypeScript cores: **McpToolSource** follows the Dex MCP
+  conventions, so an MCP server built for Dex carries connector guarantees
+  across MCP. A tool definition's `_meta` key `io.superdurable.dex/effect`
+  (`read`, `idempotent_write`, `non_idempotent_write`) fixes the tool's effect
+  class, whatever its annotations say, and `io.superdurable.dex/approval:
+  recommended` asks for approval, as a connector manifest does. A session tool
+  policy for such a tool may raise its effect class or its approval but never
+  lowers its effect class: the call gets the more conservative of the two
+  effects. Its writes run in the model's order. Servers without these keys
+  behave as before.
+- New `McpToolSource.merge_tool_policies` (`mergeToolPolicies`) gives a
+  framework adapter the application's tool policies merged by the same rule.
+  Use it instead of spreading your policies after `tool_policies()`
+  (`toolPolicies()`), which would let them lower a declared effect.
+- A tool result's `_meta` key `io.superdurable.dex/outcome` (or a JSON-RPC
+  error's `data._meta`) set to `unknown` records `outcome_unknown` and never
+  sends the call again; `rejected` records `failed`. Either wins over `isError`.
+- New constants: `TOOL_EFFECT_META_KEY`, `TOOL_APPROVAL_META_KEY`,
+  `TOOL_OUTCOME_META_KEY` and their values in `dex_agents.mcp`;
+  `mcpToolEffectMetaKey`, `mcpToolApprovalMetaKey`, `mcpToolOutcomeMetaKey`
+  and their values in `@superdurable/dex-agents/mcp`. New `McpTool` fields
+  `dex_effect` / `dexEffect` and `is_approval_recommended` /
+  `isApprovalRecommended`.
+- Both cores: `poll_tool_task` (`pollToolTask`) may raise
+  `ToolOutcomeUnknownError`; the session records `outcome_unknown` and stops
+  polling. It used to fail the poll attempt.
+- `agents/conformance/mcp_dex_conventions.json` fixes the conventions for every
+  core.
+
 ### Images
 
 - Python and TypeScript cores: user messages and tool results can carry

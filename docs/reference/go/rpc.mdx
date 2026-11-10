@@ -1,0 +1,31 @@
+---
+id: rpc
+title: RPC
+sidebar_label: RPC
+---
+
+# RPC
+
+This page lists the Go SDK names for [RPCs](/concepts/primitives/rpc).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Go SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Go API | Dex behavior |
+| --- | --- | --- |
+| Define an RPC handler | **DefineRPC** with a bound Flow method, returned from **GetRPCs** | [Flow definition](./flow.mdx#flow-definition) |
+| Set the durable RPC name | **Name** of **RPCOptions**. It defaults to the Go method name. | [Flow definition](./flow.mdx#flow-definition) |
+| Set the RPC timeout | **Timeout** of **RPCOptions** | [RPC timeout](/reference/server/runtime-data#rpc-timeout) |
+| Lock Attributes for the whole call | **LockAttributes** of **RPCOptions** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Request transactional reads and writes without locks | **IsTransactional** of **RPCOptions** | [Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes) |
+| Load AttributeMap values and Channel messages | **LoadAttributeMaps**, **LoadAttributeMapInstances**, **LoadChannels**, **LoadChannelMaps**, and **LoadChannelMapInstances** of **RPCOptions** | [Selective state loading](/reference/server/runtime-data#load-collection-state) |
+| Return the output and start next Steps | **RPCResult**, with **Output** and **NextSteps** | [RPCs](/reference/server/runtime-data#rpcs) |
+| Cancel running Steps | **RPCResult.CancelSteps** | [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) |
+| Let a person invoke the RPC from Dex Web | **Action** of **RPCOptions**, with **DefineAction** | [Actions](/reference/web/dex-web#actions) |
+| Invoke the RPC from a Client | **Client.InvokeRPC** | [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc) |
+| Lock or load map instances chosen at call time | **RPCInvokeOptions**, with **Client.InvokeRPCWithOptions** | [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances) |
+
+## Example {#example}
+
+Example: [examples/go/primitives/rpc/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/rpc/workflow.go)

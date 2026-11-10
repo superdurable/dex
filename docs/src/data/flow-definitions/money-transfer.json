@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "MoneyTransferFlow",
     "startStepId": "step:CheckBalance",
     "span": {
-      "startLine": 162,
+      "startLine": 174,
       "startColumn": 1,
-      "endLine": 183,
+      "endLine": 195,
       "endColumn": 38
     }
   },
@@ -23,23 +23,23 @@
       "parentId": "step:CheckBalance",
       "phase": "execute",
       "span": {
-        "startLine": 156,
+        "startLine": 168,
         "startColumn": 5,
-        "endLine": 159,
+        "endLine": 171,
         "endColumn": 45
       }
     },
     {
-      "id": "decision:step:CheckBalance:158:20",
+      "id": "decision:step:CheckBalance:170:20",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:CheckBalance",
       "condition": "not self.service.check_balance(input.from_account, input.amount)",
       "phase": "execute",
       "span": {
-        "startLine": 158,
+        "startLine": 170,
         "startColumn": 20,
-        "endLine": 158,
+        "endLine": 170,
         "endColumn": 52
       },
       "decision": {
@@ -47,16 +47,16 @@
       }
     },
     {
-      "id": "decision:step:CheckBalance:159:16",
+      "id": "decision:step:CheckBalance:171:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:CheckBalance",
       "condition": "not (not self.service.check_balance(input.from_account, input.amount))",
       "phase": "execute",
       "span": {
-        "startLine": 159,
+        "startLine": 171,
         "startColumn": 16,
-        "endLine": 159,
+        "endLine": 171,
         "endColumn": 45
       },
       "decision": {
@@ -64,15 +64,15 @@
       }
     },
     {
-      "id": "decision:step:Compensate:57:16",
+      "id": "decision:step:Compensate:59:16",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:Compensate",
       "phase": "execute",
       "span": {
-        "startLine": 57,
+        "startLine": 59,
         "startColumn": 16,
-        "endLine": 60,
+        "endLine": 62,
         "endColumn": 10
       },
       "decision": {
@@ -80,15 +80,15 @@
       }
     },
     {
-      "id": "decision:step:CreateCreditMemo:106:16",
+      "id": "decision:step:CreateCreditMemo:112:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:CreateCreditMemo",
       "phase": "execute",
       "span": {
-        "startLine": 106,
+        "startLine": 112,
         "startColumn": 16,
-        "endLine": 106,
+        "endLine": 112,
         "endColumn": 36
       },
       "decision": {
@@ -96,15 +96,15 @@
       }
     },
     {
-      "id": "decision:step:CreateDebitMemo:144:16",
+      "id": "decision:step:CreateDebitMemo:154:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:CreateDebitMemo",
       "phase": "execute",
       "span": {
-        "startLine": 144,
+        "startLine": 154,
         "startColumn": 16,
-        "endLine": 144,
+        "endLine": 154,
         "endColumn": 35
       },
       "decision": {
@@ -112,15 +112,15 @@
       }
     },
     {
-      "id": "decision:step:Credit:84:16",
+      "id": "decision:step:Credit:88:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:Credit",
       "phase": "execute",
       "span": {
-        "startLine": 84,
+        "startLine": 88,
         "startColumn": 16,
-        "endLine": 87,
+        "endLine": 91,
         "endColumn": 10
       },
       "decision": {
@@ -128,15 +128,15 @@
       }
     },
     {
-      "id": "decision:step:Debit:125:16",
+      "id": "decision:step:Debit:133:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:Debit",
       "phase": "execute",
       "span": {
-        "startLine": 125,
+        "startLine": 133,
         "startColumn": 16,
-        "endLine": 125,
+        "endLine": 133,
         "endColumn": 46
       },
       "decision": {
@@ -150,10 +150,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 174,
+        "startLine": 186,
         "startColumn": 36,
-        "endLine": 174,
+        "endLine": 186,
         "endColumn": 54
+      },
+      "metadata": {
+        "explanation": "Check that the source account can cover the amount."
       }
     },
     {
@@ -162,10 +165,13 @@
       "name": "Compensate",
       "phase": "execute",
       "span": {
-        "startLine": 179,
+        "startLine": 191,
         "startColumn": 13,
-        "endLine": 179,
+        "endLine": 191,
         "endColumn": 28
+      },
+      "metadata": {
+        "explanation": "Undo every transfer change after a Step fails, then fail the Flow."
       }
     },
     {
@@ -174,10 +180,13 @@
       "name": "CreateCreditMemo",
       "phase": "execute",
       "span": {
-        "startLine": 177,
+        "startLine": 189,
         "startColumn": 13,
-        "endLine": 177,
+        "endLine": 189,
         "endColumn": 36
+      },
+      "metadata": {
+        "explanation": "Record a credit memo on the destination account."
       }
     },
     {
@@ -186,10 +195,13 @@
       "name": "CreateDebitMemo",
       "phase": "execute",
       "span": {
-        "startLine": 175,
+        "startLine": 187,
         "startColumn": 13,
-        "endLine": 175,
+        "endLine": 187,
         "endColumn": 35
+      },
+      "metadata": {
+        "explanation": "Record a debit memo on the source account."
       }
     },
     {
@@ -198,10 +210,13 @@
       "name": "Credit",
       "phase": "execute",
       "span": {
-        "startLine": 178,
+        "startLine": 190,
         "startColumn": 13,
-        "endLine": 178,
+        "endLine": 190,
         "endColumn": 24
+      },
+      "metadata": {
+        "explanation": "Credit the amount to the destination account and complete."
       }
     },
     {
@@ -210,10 +225,13 @@
       "name": "Debit",
       "phase": "execute",
       "span": {
-        "startLine": 176,
+        "startLine": 188,
         "startColumn": 13,
-        "endLine": 176,
+        "endLine": 188,
         "endColumn": 23
+      },
+      "metadata": {
+        "explanation": "Debit the amount from the source account."
       }
     }
   ],
@@ -221,52 +239,52 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:CheckBalance:159:16",
+      "from": "decision:step:CheckBalance:171:16",
       "to": "step:CreateDebitMemo",
       "label": "go_to",
       "span": {
-        "startLine": 159,
+        "startLine": 171,
         "startColumn": 16,
-        "endLine": 159,
+        "endLine": 171,
         "endColumn": 45
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:CreateCreditMemo:106:16",
+      "from": "decision:step:CreateCreditMemo:112:16",
       "to": "step:Credit",
       "label": "go_to",
       "span": {
-        "startLine": 106,
+        "startLine": 112,
         "startColumn": 16,
-        "endLine": 106,
+        "endLine": 112,
         "endColumn": 36
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:CreateDebitMemo:144:16",
+      "from": "decision:step:CreateDebitMemo:154:16",
       "to": "step:Debit",
       "label": "go_to",
       "span": {
-        "startLine": 144,
+        "startLine": 154,
         "startColumn": 16,
-        "endLine": 144,
+        "endLine": 154,
         "endColumn": 35
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:Debit:125:16",
+      "from": "decision:step:Debit:133:16",
       "to": "step:CreateCreditMemo",
       "label": "go_to",
       "span": {
-        "startLine": 125,
+        "startLine": 133,
         "startColumn": 16,
-        "endLine": 125,
+        "endLine": 133,
         "endColumn": 46
       }
     },
@@ -277,9 +295,9 @@
       "to": "step:Compensate",
       "label": "Execute failure",
       "span": {
-        "startLine": 66,
+        "startLine": 68,
         "startColumn": 12,
-        "endLine": 71,
+        "endLine": 73,
         "endColumn": 6
       },
       "metadata": {
@@ -293,9 +311,9 @@
       "to": "step:Compensate",
       "label": "Execute failure",
       "span": {
-        "startLine": 66,
+        "startLine": 68,
         "startColumn": 12,
-        "endLine": 71,
+        "endLine": 73,
         "endColumn": 6
       },
       "metadata": {
@@ -309,9 +327,9 @@
       "to": "step:Compensate",
       "label": "Execute failure",
       "span": {
-        "startLine": 66,
+        "startLine": 68,
         "startColumn": 12,
-        "endLine": 71,
+        "endLine": 73,
         "endColumn": 6
       },
       "metadata": {
@@ -325,9 +343,9 @@
       "to": "step:Compensate",
       "label": "Execute failure",
       "span": {
-        "startLine": 66,
+        "startLine": 68,
         "startColumn": 12,
-        "endLine": 71,
+        "endLine": 73,
         "endColumn": 6
       },
       "metadata": {
@@ -335,5 +353,49 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "debit",
+      "label": "Debit",
+      "stepIds": [
+        "step:CreateDebitMemo",
+        "step:Debit"
+      ]
+    },
+    {
+      "id": "credit",
+      "label": "Credit",
+      "stepIds": [
+        "step:CreateCreditMemo",
+        "step:Credit"
+      ]
+    },
+    {
+      "id": "compensation",
+      "label": "Compensation",
+      "stepIds": [
+        "step:Compensate"
+      ]
+    },
+    {
+      "id": "balance-check",
+      "label": "Balance check",
+      "stepIds": [
+        "step:CheckBalance"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

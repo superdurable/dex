@@ -7,7 +7,15 @@ sidebar_label: Parallel Steps
 
 选择启动和协调并发 Step execution 的四种方式。
 
+## 问题与做法
+
+每种模式都用 **GoToMany** 启动并发的 Step execution。它们的区别在于运行哪些 Step，以及 Flow 何时继续。
+
 - [静态并行 Step](/design-patterns/parallel/static) — 启动固定的一组不同 Step 类型。
 - [动态并行 Step](/design-patterns/parallel/dynamic) — 按运行时数量启动同一 Step 类型的 execution。
 - [等待并行 Step](/design-patterns/parallel/await) — 等待所有动态 execution 发布完成消息。
 - [首个获胜的并行 Step](/design-patterns/parallel/first-win) — 用第一个完成的 execution 取消其 sibling。
+
+## 相关内容
+
+- [并行 SubFlow](/design-patterns/parallel-subflows)

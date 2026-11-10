@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,23 +9,23 @@
     "name": "ProceedOnWaitFailureFlow",
     "startStepId": "step:FailingWait",
     "span": {
-      "startLine": 58,
+      "startLine": 62,
       "startColumn": 1,
-      "endLine": 64,
+      "endLine": 68,
       "endColumn": 79
     }
   },
   "nodes": [
     {
-      "id": "decision:step:FailingWait:55:16",
+      "id": "decision:step:FailingWait:59:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:FailingWait",
       "phase": "execute",
       "span": {
-        "startLine": 55,
+        "startLine": 59,
         "startColumn": 16,
-        "endLine": 55,
+        "endLine": 59,
         "endColumn": 51
       },
       "decision": {
@@ -33,15 +33,15 @@
       }
     },
     {
-      "id": "decision:step:Finish:36:16",
+      "id": "decision:step:Finish:38:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:Finish",
       "phase": "execute",
       "span": {
-        "startLine": 36,
+        "startLine": 38,
         "startColumn": 16,
-        "endLine": 36,
+        "endLine": 38,
         "endColumn": 40
       },
       "decision": {
@@ -55,10 +55,13 @@
       "phase": "wait_for+execute",
       "start": true,
       "span": {
-        "startLine": 64,
+        "startLine": 68,
         "startColumn": 36,
-        "endLine": 64,
+        "endLine": 68,
         "endColumn": 53
+      },
+      "metadata": {
+        "explanation": "Run Execute after WaitFor fails and pass a recovered value on."
       }
     },
     {
@@ -67,22 +70,25 @@
       "name": "Finish",
       "phase": "execute",
       "span": {
-        "startLine": 64,
+        "startLine": 68,
         "startColumn": 67,
-        "endLine": 64,
+        "endLine": 68,
         "endColumn": 78
+      },
+      "metadata": {
+        "explanation": "Complete the Flow with the recovered value."
       }
     },
     {
-      "id": "wait:FailingWait:49:5:0",
+      "id": "wait:FailingWait:53:5:0",
       "kind": "wait",
       "name": "failure",
       "parentId": "step:FailingWait",
       "phase": "wait_for",
       "span": {
-        "startLine": 49,
+        "startLine": 53,
         "startColumn": 5,
-        "endLine": 50,
+        "endLine": 54,
         "endColumn": 54
       },
       "wait": {
@@ -95,16 +101,44 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:FailingWait:55:16",
+      "from": "decision:step:FailingWait:59:16",
       "to": "step:Finish",
       "label": "go_to",
       "span": {
-        "startLine": 55,
+        "startLine": 59,
         "startColumn": 16,
-        "endLine": 55,
+        "endLine": 59,
         "endColumn": 51
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "finish",
+      "label": "Finish",
+      "stepIds": [
+        "step:Finish"
+      ]
+    },
+    {
+      "id": "wait",
+      "label": "Wait",
+      "stepIds": [
+        "step:FailingWait"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

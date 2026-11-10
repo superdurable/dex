@@ -43,11 +43,21 @@ Versioned snapshots: [1.37.0](pathname:///api/python/1.37/), [1.35.0](pathname:/
 
 ## Pages
 
-- [Flows and Steps](/reference/python/flows-and-steps): Flow and Step behavior
-  with Python code: start options, waits, Step decisions, Step options, and
-  failure handling.
-- [Workers](/reference/python/workers): Python names for Worker readiness,
-  capacity, and shutdown settings.
+- [Flow](./flow.mdx)<a id="flow-definition"></a><a id="flow-config"></a><a id="update-flow-config-with-a-client"></a>: The Flow definition and **FlowConfig**.
+- [StartFlowOptions](./start-flow-options.mdx)<a id="start-flow-options"></a><a id="timeout-and-timeout-policy"></a><a id="flow-id-request-id-and-already-started"></a><a id="how-these-options-work-together"></a><a id="这些选项如何一起工作"></a><a id="start-request-server-behavior"></a><a id="what-dex-server-does"></a><a id="dex-server-的逻辑"></a><a id="start-flow-best-practices"></a><a id="wait-for-required-milestone"></a><a id="start-error-reconciliation"></a><a id="durable-dependent-starts"></a><a id="retry-policy"></a><a id="start-delay"></a><a id="attributes"></a>: The Flow timeout, Flow ID and RequestID handling, and start best practices.
+- [Step methods](./step.mdx)<a id="commit-boundary"></a><a id="step-execution-local"></a>: What a Step method commits, and Step execution local values.
+- [StepOptions](./step-options.mdx)<a id="step-options"></a><a id="stepoptions-override-per-stepexecution"></a><a id="durability"></a><a id="timeouts-and-total-duration"></a><a id="heartbeat"></a><a id="cancellation"></a><a id="selective-state-loading"></a><a id="attribute-locks"></a>: Durability, timeouts, heartbeats, cancellation, state loading, and Attribute locks.
+- [Step decisions](./step-decisions.mdx)<a id="step-decisions"></a><a id="gotomulti"></a><a id="close-decisions"></a><a id="cancellation-on-stepdecision"></a><a id="forcecompleteifchannelsempty"></a>: Next Steps, close decisions, and canceling other Steps.
+- [Waits](./waits.mdx)<a id="waits"></a><a id="condition-results"></a><a id="channel-results"></a><a id="channel-结果"></a><a id="subflow-results"></a><a id="subflow-结果"></a><a id="anycombinationof"></a><a id="skip-immediately"></a>: Timer, Channel, and SubFlow conditions, and how to combine them.
+- [Attribute](./attribute.mdx): Python names for Attributes and AttributeMaps.
+- [RPC](./rpc.mdx): Python names for RPC handlers and their results.
+- [Channel](./channel.mdx): Python names for Channels and ChannelMaps.
+- [Stream](./stream.mdx): Python names for writing and reading Streams.
+- [Timer](./timer.mdx): Python names for Timer conditions.
+- [SubFlow](./subflow.mdx): Python names for SubFlow conditions and results.
+- [Client](./client.mdx): Python names for Client calls.
+- [Failure and retries](./failure-and-retries.mdx)<a id="retry-and-failure-policies"></a><a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="last-failure-info"></a><a id="retry-after"></a><a id="failure-and-redelivery"></a><a id="heartbeats-not-acknowledged"></a><a id="same-attempt-redelivery"></a><a id="unknown-outcome"></a><a id="design-for-redelivery"></a><a id="version-notes"></a>: Retry and failure policies, redelivery, and unknown outcomes.
+- [Workers](./workers.mdx): Python names for Worker readiness, capacity, and shutdown settings.
 
 ## Release notes
 

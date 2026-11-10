@@ -12,6 +12,14 @@ export {
   type McpStreamableHttpServerConfig,
 } from "./mcp-server-config.js";
 export {
+  mcpToolApprovalMetaKey,
+  mcpToolApprovalRecommended,
+  mcpToolEffectMetaKey,
+  mcpToolOutcomeMetaKey,
+  mcpToolOutcomeRejected,
+  mcpToolOutcomeUnknown,
+} from "./mcp-dex-conventions.js";
+export {
   mcpGetPromptToolName,
   mcpListResourcesAndPromptsToolName,
   mcpReadResourceToolName,

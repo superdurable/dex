@@ -50,6 +50,8 @@ def current_time_millis() -> int:
     return int(time.time() * 1000)
 
 
+# dex:group group-id:notification group-label:"Notification"
+# dex:explanation text:"Tell the external system about the engagement status."
 class NotifyExternalSystem(Step[Status]):
     def __init__(self, flow: "EngagementFlow") -> None:
         self.flow = flow
@@ -62,6 +64,8 @@ class NotifyExternalSystem(Step[Status]):
         return dead_end()
 
 
+# dex:group group-id:reminders group-label:"Reminders"
+# dex:explanation text:"Remind the job seeker until they respond or opt out."
 class Reminder(Step[None]):
     def __init__(self, flow: "EngagementFlow") -> None:
         self.flow = flow
@@ -87,6 +91,8 @@ class Reminder(Step[None]):
         return go_to(Reminder, None)
 
 
+# dex:group group-id:closing group-label:"Closing"
+# dex:explanation text:"Wait for completion or the 60-day timeout, then report the final status."
 class ProcessTimeout(Step[None]):
     def __init__(self, flow: "EngagementFlow") -> None:
         self.flow = flow
@@ -110,6 +116,8 @@ class ProcessTimeout(Step[None]):
         return graceful_complete(result)
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Store the engagement and start the timeout, reminder, and notification paths."
 class Initialize(Step[EngagementInput]):
     def __init__(self, flow: "EngagementFlow") -> None:
         self.flow = flow

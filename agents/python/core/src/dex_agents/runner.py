@@ -858,10 +858,17 @@ class ToolOutcomeUnknownError(Exception):
     ``OUTCOME_UNKNOWN_TOOL_RESULT``. A later ordered write of the turn is
     skipped.
 
+    ``ToolTaskPoller.poll_tool_task`` may raise it too, for a task that
+    ended without a known outcome. The session then records
+    ``OUTCOME_UNKNOWN`` the same way and stops polling.
+
     Example:
         >>> raise ToolOutcomeUnknownError("the provider timed out after receiving the refund")
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.5.0
+        ``poll_tool_task`` may raise it.
     """
 
 
@@ -1160,9 +1167,15 @@ class ToolTaskPoller(Protocol):
         Raises:
             ToolExecutionError: The task failed in a way the model should see.
                 The session records ``FAILED``.
+            ToolOutcomeUnknownError: The task ended, and it may or may not
+                have taken effect. The session records ``OUTCOME_UNKNOWN``
+                and does not poll again.
             Exception: Any other exception fails the poll attempt. After three
                 attempts the record becomes ``FAILED`` for a ``READ`` call and
                 ``OUTCOME_UNKNOWN`` otherwise, because the task may still run.
+
+        .. versionchanged:: 0.5.0
+            ``ToolOutcomeUnknownError`` records ``OUTCOME_UNKNOWN``.
         """
         ...
 

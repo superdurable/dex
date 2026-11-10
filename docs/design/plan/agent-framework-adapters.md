@@ -275,8 +275,9 @@ Follow-ups:
 
 Framework adapters use the source when they accept tools defined by a JSON
 Schema: each MCP tool becomes a framework tool that calls `call_tool` with the
-idempotency key from the adapter's tool context, and `tool_policies()` feeds
-the adapter's `tool_policies`. The Claude Agent SDK harness runs read tools
+idempotency key from the adapter's tool context, and
+`merge_tool_policies(application_policies)` feeds the adapter's
+`tool_policies`. The Claude Agent SDK harness runs read tools
 inline, so only its write calls become Steps.
 
 ## Session Flow contract

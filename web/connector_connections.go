@@ -390,6 +390,10 @@ func writeConnectorConfigurationStoreError(response http.ResponseWriter, err err
 		api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONFIGURATION_REVISION_CONFLICT", "Connector configuration changed; reload before saving")
 		return
 	}
+	if errors.Is(err, errConnectorConnectionsFileBusy) {
+		api.WriteCodedError(response, http.StatusServiceUnavailable, "CONNECTOR_CONNECTIONS_FILE_BUSY", "Another process is writing the Connector connections file; try again")
+		return
+	}
 	api.WriteCodedError(response, http.StatusInternalServerError, code, message)
 }
 
