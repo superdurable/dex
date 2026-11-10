@@ -49,13 +49,14 @@ function displayValue(value: unknown): string {
 const dexValueKeys = new Set(['stringValue', 'intValue', 'doubleValue', 'boolValue', 'nullValue', 'objValue']);
 
 /** Whether a value is one Dex Value envelope, such as a Channel message or a stored blob reference. */
-function isDexValue(value: unknown): boolean {
+export function isDexValue(value: unknown): boolean {
   if (isBlobReferenceValue(value) || isStoredValueUnavailable(value)) return true;
   const keys = Object.keys(asData(value));
   return keys.length === 1 && dexValueKeys.has(keys[0]);
 }
 
-function decodedValue(value: unknown): unknown {
+/** The payload of one Dex Value envelope, with JSON objects parsed; other values are returned unchanged. */
+export function decodedValue(value: unknown): unknown {
   if (isBlobReferenceValue(value)) return 'Loading stored value…';
   if (isStoredValueUnavailable(value)) return VALUE_BLOB_UNAVAILABLE;
   const message = asData(value);

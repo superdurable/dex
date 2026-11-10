@@ -1678,21 +1678,6 @@ body:has(.v1-page) {
   background: var(--ui-surface);
 }
 
-.v1-page .stream-panel-header h2 {
-  margin: 0 0 4px;
-  font-size: var(--ui-text-xl);
-}
-
-.v1-page .stream-panel-header p:not(.eyebrow) {
-  color: var(--ui-ink-3);
-}
-
-.v1-page .stream-listening-status {
-  border: 0;
-  color: var(--tone-accent-ink);
-  background: var(--tone-accent-soft);
-}
-
 .v1-page .stream-form > label {
   color: var(--ui-ink-2);
   font-size: var(--ui-text-sm);
@@ -1714,19 +1699,379 @@ body:has(.v1-page) {
   color: var(--ui-ink-3);
 }
 
+.v1-page .stream-session {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.v1-page .stream-session-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.v1-page .stream-session-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v1-page .stream-session-count {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.v1-page .stream-session-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.v1-page .stream-session-actions .button {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: var(--ui-text-xs);
+}
+
+.v1-page .stream-status {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+}
+
+.v1-page .stream-status--listening {
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+}
+
+.v1-page .stream-status--stopped {
+  color: var(--tone-neutral-ink);
+  background: var(--tone-neutral-soft);
+}
+
+.v1-page .stream-status--error {
+  color: var(--tone-fail-ink);
+  background: var(--tone-fail-soft);
+}
+
+.v1-page .stream-status-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone-accent);
+  animation: live-toggle-pulse 2s ease-out infinite;
+}
+
 .v1-page .stream-empty {
-  border: 0;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 28px 20px;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-3);
   background: var(--ui-well);
+  font-size: var(--ui-text-sm);
+  line-height: 1.5;
+  text-align: center;
 }
 
-.v1-page .stream-message {
-  border: 0;
-  background: var(--ui-well);
-  box-shadow: none;
+.v1-page .stream-empty strong {
+  color: var(--ui-ink);
+  font-size: var(--ui-text-md);
 }
 
-.v1-page .stream-message-meta code {
+.v1-page .stream-empty span {
+  max-width: 460px;
+}
+
+.v1-page .stream-output {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.v1-page .stream-view-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.v1-page .stream-view-switch > button[aria-pressed] {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-3);
+  background: transparent;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.v1-page .stream-view-switch > button[aria-pressed='true'] {
+  color: var(--ui-ink);
   background: var(--ui-chip);
+}
+
+.v1-page .stream-view-switch > .copy-button {
+  margin-left: auto;
+}
+
+.v1-page .stream-scroll {
+  max-height: min(60vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-well);
+}
+
+.v1-page .stream-transcript {
+  margin: 0;
+  padding: 16px 18px;
+  color: var(--ui-ink);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-text-sm);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.v1-page .stream-transcript > span:last-of-type:not(.stream-transcript-caret) {
+  animation: stream-chunk-arrive 0.6s ease-out;
+}
+
+.v1-page .stream-transcript-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--tone-accent);
+  animation: stream-caret-blink 1.1s steps(1) infinite;
+}
+
+.v1-page .stream-entries {
+  display: grid;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+}
+
+.v1-page .stream-entry {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 16px;
+}
+
+.v1-page .stream-entry + .stream-entry {
+  box-shadow: inset 0 1px 0 var(--ui-hairline);
+}
+
+.v1-page .stream-entry:last-child {
+  animation: stream-chunk-arrive 0.6s ease-out;
+}
+
+.v1-page .stream-entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.v1-page .stream-entry-sequence {
+  font-family: var(--ui-font-mono);
+}
+
+.v1-page .stream-entry-meta code {
+  min-width: 0;
+  overflow: hidden;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--ui-chip);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v1-page .stream-entry-meta .copy-button {
+  margin-left: auto;
+  opacity: 0.55;
+}
+
+.v1-page .stream-entry:is(:hover, :focus-within) .stream-entry-meta .copy-button {
+  opacity: 1;
+}
+
+.v1-page .stream-entry-text {
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: var(--ui-text-md);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.v1-page .stream-json > summary {
+  width: fit-content;
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.v1-page .stream-json > pre {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink);
+  background: var(--ui-chip);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-text-xs);
+  line-height: 1.55;
+}
+
+.v1-page .stream-progress {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.v1-page .stream-progress-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ui-ink);
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .stream-progress-label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.v1-page .stream-progress-label > strong {
+  color: var(--tone-accent-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.v1-page .stream-progress-track {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ui-chip);
+}
+
+.v1-page .stream-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tone-accent);
+  transition: width 0.4s ease;
+}
+
+.v1-page .stream-progress-track.is-indeterminate > span {
+  width: 30%;
+  animation: stream-progress-sweep 1.4s ease-in-out infinite;
+}
+
+.v1-page .stream-progress-phase {
+  color: var(--ui-ink-3);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-text-xs);
+}
+
+.v1-page .stream-progress-focus {
+  padding: 14px 16px;
+  border-radius: var(--ui-radius-control);
+  background: color-mix(in srgb, var(--tone-accent-soft) 55%, var(--ui-surface));
+}
+
+.v1-page .stream-progress-focus .stream-progress-label {
+  font-size: var(--ui-text-md);
+  font-weight: 600;
+}
+
+.v1-page .stream-progress-focus .stream-progress-track {
+  height: 8px;
+  background: var(--ui-surface);
+}
+
+.v1-page .stream-jump-latest {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--tone-accent-on);
+  background: var(--tone-accent);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transform: translateX(-50%);
+}
+
+@keyframes stream-chunk-arrive {
+  from { background: color-mix(in srgb, var(--tone-accent-soft) 70%, transparent); }
+  to { background: transparent; }
+}
+
+@keyframes stream-caret-blink {
+  50% { opacity: 0; }
+}
+
+@keyframes stream-progress-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v1-page :is(.stream-status-pulse, .stream-transcript-caret, .stream-entry, .stream-transcript > span, .stream-progress-track > span) {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .v1-page .stream-panel {
+    padding: 14px;
+  }
+
+  .v1-page .stream-entry {
+    padding: 10px 12px;
+  }
+
+  .v1-page .stream-transcript {
+    padding: 12px;
+  }
 }
 
 /* ---------------------------------------------------------------- dialogs */

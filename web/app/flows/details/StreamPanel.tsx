@@ -8,13 +8,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Waves } from 'lucide-react';
+import { Eraser, Square, Waves } from 'lucide-react';
 import { hydrateBlobs } from '@/lib/blobs';
-import { formatDate } from '@/lib/format';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionEntry, StreamMessage } from '@/lib/types';
-import { StructuredValue } from '../../components/StructuredValue';
 import { usePreferences } from '../../providers';
+import { StreamOutput, StreamStatusBadge } from './StreamOutput';
+import type { StreamListeningStatus } from './StreamOutput';
 
 interface StreamPanelProps {
   flowId: string;
@@ -92,13 +92,15 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
   const [activeStreamName, setActiveStreamName] = useState('');
   const [messages, setMessages] = useState<StreamMessage[]>([]);
   const [isListening, setIsListening] = useState(false);
-  const [error, setError] = useState('');
+  const [isStopped, setIsStopped] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [readError, setReadError] = useState('');
   const [blobWarning, setBlobWarning] = useState('');
   const [session, setSession] = useState(0);
   const blobCache = useRef(new Map<string, unknown>());
 
   useEffect(() => {
-    if (!activeStreamName) return;
+    if (!activeStreamName || isStopped) return;
     const controller = new AbortController();
     let isActive = true;
 
@@ -124,7 +126,7 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
         });
       } catch (readError) {
         if (controller.signal.aborted) return;
-        setError(readError instanceof Error ? readError.message : 'Stream read failed');
+        setReadError(readError instanceof Error ? readError.message : 'Stream read failed');
         setIsListening(false);
       }
     };
@@ -133,35 +135,37 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
       isActive = false;
       controller.abort();
     };
-  }, [activeStreamName, flowId, flowType, session]);
+  }, [activeStreamName, flowId, flowType, isStopped, session]);
 
   const startListening = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextStreamName = isTypingStreamName ? streamName.trim() : streamChoice;
     if (!nextStreamName) {
-      setError(isTypingStreamName ? 'Enter a Stream name.' : 'Choose a Stream.');
+      setFormError(isTypingStreamName ? 'Enter a Stream name.' : 'Choose a Stream.');
       return;
     }
     blobCache.current.clear();
     setMessages([]);
-    setError('');
+    setFormError('');
+    setReadError('');
+    setIsStopped(false);
     setBlobWarning('');
     setActiveStreamName(nextStreamName);
     setSession((current) => current + 1);
   };
 
+  const stopListening = () => {
+    setIsStopped(true);
+    setIsListening(false);
+  };
+
+  const listeningStatus: StreamListeningStatus = readError
+    ? 'error'
+    : isListening && !isStopped ? 'listening' : 'stopped';
+
   return (
     <section className="stream-panel">
-      <div className="stream-panel-header">
-        <h2 className="sr-only">Stream messages</h2>
-        {activeStreamName && (
-          <span className="stream-listening-status" aria-live="polite">
-            <span className={isListening ? 'stream-listening-dot' : ''} />
-            {isListening ? 'Listening' : 'Stopped'}
-          </span>
-        )}
-      </div>
-
+      <h2 className="sr-only">Stream messages</h2>
       <form className="stream-form" onSubmit={startListening}>
         <label htmlFor={hasDefinedStreams ? 'stream-choice' : 'stream-name'}>Stream name</label>
         <div>
@@ -173,7 +177,7 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
                 name="streamChoice"
                 onChange={(event) => {
                   setPickedStreamChoice(event.target.value);
-                  setError('');
+                  setFormError('');
                 }}
                 value={streamChoice}
               >
@@ -204,23 +208,55 @@ export function StreamPanel({ flowId, flowType, definition }: StreamPanelProps) 
         </div>
       </form>
 
-      {error && <div className="error-banner">{error}</div>}
-      {blobWarning && <div className="warning-banner">{blobWarning}</div>}
+      {formError && <div className="error-banner">{formError}</div>}
 
-      {activeStreamName && messages.length === 0 && !error && (
-        <p className="stream-empty">Listening for messages in <code>{activeStreamName}</code>…</p>
-      )}
-      {messages.length > 0 && (
-        <div className="stream-message-list" aria-live="polite">
-          {messages.map((message) => (
-            <article className="stream-message" key={message.resumeToken}>
-              <div className="stream-message-meta">
-                <span>{formatDate(message.createdTime, timezone)}</span>
-                {message.source && <code>{message.source}</code>}
+      {activeStreamName ? (
+        <div className="stream-session">
+          <div className="stream-session-header">
+            <StreamStatusBadge status={listeningStatus} />
+            <code className="stream-session-name">{activeStreamName}</code>
+            {messages.length > 0 && (
+              <span className="stream-session-count">
+                {messages.length} {messages.length === 1 ? 'message' : 'messages'}
+              </span>
+            )}
+            <span className="stream-session-actions">
+              {listeningStatus === 'listening' && (
+                <button className="button ghost" onClick={stopListening} type="button">
+                  <Square aria-hidden="true" size={13} />
+                  Stop
+                </button>
+              )}
+              {messages.length > 0 && (
+                <button className="button ghost" onClick={() => setMessages([])} type="button">
+                  <Eraser aria-hidden="true" size={13} />
+                  Clear
+                </button>
+              )}
+            </span>
+          </div>
+          {readError && <div className="error-banner">{readError}</div>}
+          {blobWarning && <div className="warning-banner">{blobWarning}</div>}
+          {messages.length > 0 ? (
+            <StreamOutput messages={messages} timezone={timezone} />
+          ) : (
+            !readError && (
+              <div className="stream-empty">
+                <strong>{listeningStatus === 'listening' ? 'Waiting for the first message' : 'No messages'}</strong>
+                <span>
+                  {listeningStatus === 'listening'
+                    ? 'Each message the Flow writes to this Stream appears here as it arrives. Text reads as a live transcript, and progress updates show a bar.'
+                    : 'Start listening again to read this Stream.'}
+                </span>
               </div>
-              <StructuredValue value={message.value} />
-            </article>
-          ))}
+            )
+          )}
+        </div>
+      ) : (
+        <div className="stream-empty">
+          <Waves aria-hidden="true" size={20} />
+          <strong>Choose a Stream to watch</strong>
+          <span>Messages the Flow writes to it appear here live, newest at the bottom.</span>
         </div>
       )}
     </section>

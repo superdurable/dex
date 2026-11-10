@@ -185,6 +185,42 @@ describe('StreamPanel', () => {
     await waitFor(() => expect(streamNamesRequested(fetcher)).toEqual(['dynamic-progress-7']));
   });
 
+  it('shows live messages and stops and clears on request', async () => {
+    let fetchCount = 0;
+    const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return Promise.resolve(new Response(JSON.stringify({
+          value: { stringValue: 'Drafting the summary' },
+          resumeToken: 'token-1',
+          createdTime: '2026-11-09T12:00:00Z',
+          source: '#Summarize-1',
+        }), { status: 200 }));
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    renderPanel(definitionWithStreams([{ name: 'summary-text', valueType: 'string' }]));
+    expect(screen.getByText('Choose a Stream to watch')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start listening' }));
+    await waitFor(() => expect(screen.getByText('Drafting the summary')).toBeTruthy());
+    expect(screen.getByText('Live')).toBeTruthy();
+    expect(screen.getByText('1 message')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(screen.getByText('Stopped')).toBeTruthy();
+    expect(screen.getByText('Drafting the summary')).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(screen.queryByText('Drafting the summary')).toBeNull();
+    expect(screen.getByText('No messages')).toBeTruthy();
+  });
+
   it('keeps the text box when no definition matches or it declares no Streams', async () => {
     const fetcher = stubPendingFetch();
     const { unmount } = renderPanel(definitionWithStreams([]));
