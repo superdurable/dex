@@ -20,6 +20,9 @@ import {
 
 const apiReferenceLinkPrefix = 'pathname:///api/';
 
+// Docusaurus copies files linked from Markdown, such as PDFs, here.
+const markdownAssetFilePath = /\/assets\/files\/[^/]+\.[a-z0-9]+$/i;
+
 // Every SDK reference carries this page; docs link to the default SDK's copy.
 const defaultSdkReferenceLink = new RegExp(
   `^/reference/${DEFAULT_SDK}/(flows-and-steps)(?=[/#?]|$)`,
@@ -50,6 +53,10 @@ function PreferredSdkReferenceLink(props: ComponentProps<'a'>): ReactNode {
 export default function MDXAWrapper(props: ComponentProps<'a'>): ReactNode {
   if (props.href?.startsWith(apiReferenceLinkPrefix)) {
     return <Link {...props} autoAddBaseUrl={false} target="_self" />;
+  }
+  // Link would append the trailing slash of page routes and break the file URL.
+  if (props.href && markdownAssetFilePath.test(props.href)) {
+    return <a {...props} />;
   }
   // A link named after the SDK, such as "Python", promises that SDK and keeps it.
   if (props.href && defaultSdkReferenceLink.test(props.href) && props.children !== defaultSdkLabel) {
