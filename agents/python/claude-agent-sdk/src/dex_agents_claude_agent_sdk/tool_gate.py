@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -300,10 +301,13 @@ class ToolCallGate:
         tool_catalog: ToolCatalog,
         settled_tool_use_ids: Collection[str],
         claude_code_tool_permission: ClaudeCodeToolPermission | None = None,
+        recorded_images: Mapping[str, bytes] | None = None,
     ) -> None:
         self._turn = turn
         self._tool_catalog = tool_catalog
         self._claude_code_tool_permission = claude_code_tool_permission
+        # Loaded before the CLI starts: a store failure must fail the attempt, not reach the model.
+        self._recorded_images = dict(recorded_images or {})
         # Calls the stored transcript already answers: only a pending deferral may replay.
         self._settled_tool_use_ids = frozenset(settled_tool_use_ids)
         self._replayed_tool_use_ids: set[str] = set()
@@ -484,7 +488,7 @@ class ToolCallGate:
                 UNPERMITTED_TOOL_CALL_MESSAGE.format(tool_name=custom_tool_name), is_error=True
             )
         if plan.recorded_tool_call is not None:
-            return recorded_tool_call_result(plan.recorded_tool_call)
+            return self._recorded_tool_call_result_with_images(plan.recorded_tool_call)
         if run_handler is None:
             return _text_tool_result(
                 UNPERMITTED_TOOL_CALL_MESSAGE.format(tool_name=custom_tool_name), is_error=True
@@ -495,6 +499,21 @@ class ToolCallGate:
         if validation_error is not None:
             return _text_tool_result(validation_error, is_error=True)
         return await run_handler(arguments)
+
+    def _recorded_tool_call_result_with_images(self, record: AgentToolCall) -> dict[str, Any]:
+        result = recorded_tool_call_result(record)
+        if not self._recorded_images:
+            return result
+        # MCP image content, which the CLI passes to the model inside the tool_result.
+        result["content"] += [
+            {
+                "type": "image",
+                "data": base64.b64encode(self._recorded_images[image.sha256]).decode("ascii"),
+                "mimeType": image.mime_type,
+            }
+            for image in record.images
+        ]
+        return result
 
     def record_tool_result(self, tool_use_id: str, is_error: bool) -> None:
         tool_name = self._running_tool_names.pop(tool_use_id, None)

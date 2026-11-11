@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -31,6 +32,9 @@ const connectorCSRFHeader = "X-Dex-CSRF-Token"
 
 // connectorDisplayNameTimeout bounds how long a connection list waits for uncached release metadata.
 const connectorDisplayNameTimeout = 5 * time.Second
+
+// maxConnectorDisplayNameLookups bounds the distinct releases one connection list looks up; the rest show IDs.
+const maxConnectorDisplayNameLookups = 64
 
 type connectorSetup struct {
 	store           *connectorConnectionStore
@@ -56,6 +60,15 @@ type connectorSetup struct {
 	connectionsMu sync.Mutex
 	// uiFrameAncestors is the frame-ancestors source list for Connector UI assets.
 	uiFrameAncestors string
+	// catalogCache keeps the last decoded catalog, so an unchanged definition revision is not parsed again.
+	catalogCache connectorCatalogCache
+}
+
+// connectorCatalogCache holds one decoded catalog and the definition revision it came from.
+type connectorCatalogCache struct {
+	mu       sync.Mutex
+	revision string
+	document *connectorCatalogDocument
 }
 
 type connectorUISession struct {
@@ -72,6 +85,29 @@ type connectorUISession struct {
 type connectorCatalogDocument struct {
 	DefinitionRevision string                       `json:"definitionRevision"`
 	Definitions        []connectorCatalogDefinition `json:"definitions"`
+}
+
+// UnmarshalJSON decodes each definition on its own and skips one it cannot read, so a single bad
+// definition never hides the connections of the others.
+func (document *connectorCatalogDocument) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		DefinitionRevision string            `json:"definitionRevision"`
+		Definitions        []json.RawMessage `json:"definitions"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	document.DefinitionRevision = raw.DefinitionRevision
+	document.Definitions = make([]connectorCatalogDefinition, 0, len(raw.Definitions))
+	for index, rawDefinition := range raw.Definitions {
+		var definition connectorCatalogDefinition
+		if err := json.Unmarshal(rawDefinition, &definition); err != nil {
+			slog.Warn("Connector setup skips a Flow definition it cannot read", "definitionIndex", index, "error", err)
+			continue
+		}
+		document.Definitions = append(document.Definitions, definition)
+	}
+	return nil
 }
 
 type connectorCatalogDefinition struct {
@@ -659,10 +695,11 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 	}
 	overrides := setup.releases.overrideIdentities()
 	now := time.Now()
-	views, err := connectorViewsFromCatalog(snapshot.Response, stored, now, overrides)
+	catalog, err := setup.catalogCache.decode(snapshot)
 	if err != nil {
 		return nil, "", err
 	}
+	views := connectorViewsFromDocument(catalog, stored, now, overrides)
 	views = append(views, standaloneConnectorViews(views, stored, setup.pendingConnectionSnapshot(), now, overrides)...)
 	sortConnectorConnectionViews(views)
 	setup.applyConnectorDisplayNames(ctx, views)
@@ -703,28 +740,78 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 	return views, snapshot.DefinitionRevision, nil
 }
 
-// applyConnectorDisplayNames resolves every view's release metadata concurrently, bounded by one timeout.
+// decode returns the catalog of snapshot, parsing it only when the definition revision changed.
+func (cache *connectorCatalogCache) decode(snapshot *FlowDefinitionSnapshot) (*connectorCatalogDocument, error) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.document != nil && cache.revision == snapshot.DefinitionRevision {
+		return cache.document, nil
+	}
+	var catalog connectorCatalogDocument
+	if err := json.Unmarshal(snapshot.Response, &catalog); err != nil {
+		return nil, fmt.Errorf("decode Flow Definition catalog for Connector connections: %w", err)
+	}
+	cache.revision, cache.document = snapshot.DefinitionRevision, &catalog
+	return cache.document, nil
+}
+
+// applyConnectorDisplayNames looks up each distinct release once, with a fixed number of workers and one
+// timeout. Past maxConnectorDisplayNameLookups releases, views keep their Connector IDs.
 func (setup *connectorSetup) applyConnectorDisplayNames(ctx context.Context, views []connectorConnectionView) {
 	ctx, cancel := context.WithTimeout(ctx, connectorDisplayNameTimeout)
 	defer cancel()
-	var wg sync.WaitGroup
-	for viewIndex := range views {
-		wg.Add(1)
-		go setup.applyConnectorDisplayName(ctx, &views[viewIndex], &wg)
+	viewsByRelease := make(map[string][]int)
+	releases := make([]connectorDefinitionIdentity, 0)
+	releaseKeys := make([]string, 0)
+	for viewIndex, view := range views {
+		key := view.ConnectorID + "\x00" + view.ModulePath + "\x00" + view.ModuleVersion
+		if _, isKnown := viewsByRelease[key]; !isKnown {
+			if len(releases) == maxConnectorDisplayNameLookups {
+				continue
+			}
+			releases = append(releases, connectorDefinitionIdentity{
+				ConnectorID: view.ConnectorID, ModulePath: view.ModulePath, ModuleVersion: view.ModuleVersion,
+			})
+			releaseKeys = append(releaseKeys, key)
+		}
+		viewsByRelease[key] = append(viewsByRelease[key], viewIndex)
 	}
+	displayNames := make([]string, len(releases))
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for worker := 0; worker < min(connectorReleaseMetadataConcurrency, len(releases)); worker++ {
+		wg.Add(1)
+		go setup.lookUpConnectorDisplayNames(ctx, releases, displayNames, next, &wg)
+	}
+	for releaseIndex := range releases {
+		next <- releaseIndex
+	}
+	close(next)
 	wg.Wait()
+	for releaseIndex, key := range releaseKeys {
+		for _, viewIndex := range viewsByRelease[key] {
+			views[viewIndex].DisplayName = displayNames[releaseIndex]
+		}
+	}
 }
 
-func (setup *connectorSetup) applyConnectorDisplayName(ctx context.Context, view *connectorConnectionView, wg *sync.WaitGroup) {
+// lookUpConnectorDisplayNames resolves the releases whose indexes arrive on next, until next closes.
+func (setup *connectorSetup) lookUpConnectorDisplayNames(
+	ctx context.Context,
+	releases []connectorDefinitionIdentity,
+	displayNames []string,
+	next <-chan int,
+	wg *sync.WaitGroup,
+) {
 	defer wg.Done()
-	release, err := setup.releases.releaseMetadata(ctx, connectorDefinitionIdentity{
-		ConnectorID: view.ConnectorID, ModulePath: view.ModulePath, ModuleVersion: view.ModuleVersion,
-	})
-	if err != nil {
-		// The name is presentational: the page shows the Connector ID, and opening the connection reports the error.
-		return
+	for releaseIndex := range next {
+		release, err := setup.releases.releaseMetadata(ctx, releases[releaseIndex])
+		if err != nil {
+			// The name is presentational: the page shows the Connector ID, and opening the connection reports the error.
+			continue
+		}
+		displayNames[releaseIndex] = strings.TrimSpace(release.Manifest.Metadata.DisplayName)
 	}
-	view.DisplayName = strings.TrimSpace(release.Manifest.Metadata.DisplayName)
 }
 
 func connectorViewsFromCatalog(
@@ -737,6 +824,15 @@ func connectorViewsFromCatalog(
 	if err := json.Unmarshal(catalogJSON, &catalog); err != nil {
 		return nil, fmt.Errorf("decode Flow Definition catalog for Connector connections: %w", err)
 	}
+	return connectorViewsFromDocument(&catalog, stored, now, overrides), nil
+}
+
+func connectorViewsFromDocument(
+	catalog *connectorCatalogDocument,
+	stored map[string]storedConnectorConnection,
+	now time.Time,
+	overrides map[string]connectorDefinitionIdentity,
+) []connectorConnectionView {
 	type aggregate struct {
 		view     connectorConnectionView
 		versions map[string]bool
@@ -843,7 +939,7 @@ func connectorViewsFromCatalog(
 		views = append(views, current.view)
 	}
 	sortConnectorConnectionViews(views)
-	return views, nil
+	return views
 }
 
 func sortConnectorConnectionViews(views []connectorConnectionView) {

@@ -62,9 +62,16 @@ jobs:
           else
             release_version="${DISPATCH_VERSION}"
             publish="${DISPATCH_PUBLISH}"
+            # The release tag is allowed too, so a dispatched run publishes exactly the released commit.
             if [[ "${publish}" == "true" && "${RELEASE_REF}" != "refs/heads/main" ]]; then
-              echo "Manual publishing is allowed only from main" >&2
-              exit 1
+              if [[ "${RELEASE_REF}" != "refs/tags/agents/v${release_version}" ]]; then
+                echo "Manual publishing is allowed only from main or the tag agents/v${release_version}" >&2
+                exit 1
+              fi
+              if ! git merge-base --is-ancestor HEAD origin/main; then
+                echo "Release tag must point to a commit on main" >&2
+                exit 1
+              fi
             fi
           fi
           if [[ ! "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
@@ -152,6 +159,7 @@ jobs:
           name: agents-typescript-tarballs
           path: dist
       # The core publishes first so every adapter's peer dependency on it resolves.
+      # The CLI runtime and commands follow the adapters.
       - name: Publish tarballs with trusted publishing
         shell: bash
         env:
@@ -160,7 +168,9 @@ jobs:
         run: |
           set -euo pipefail
           for package in dex-agents dex-agents-vercel-ai dex-agents-openai-agents \
-            dex-agents-mastra dex-agents-claude-agent-sdk dex-agents-pi; do
+            dex-agents-mastra dex-agents-claude-agent-sdk dex-agents-pi \
+            dex-agents-cli dex-agents-claude-sdk-cli dex-agents-openai-sdk-cli \
+            dex-agents-vercel-ai-cli dex-agents-mastra-cli dex-agents-builtin-cli; do
             tarball="./dist/superdurable-${package}-${RELEASE_VERSION}.tgz"
             [[ -f "${tarball}" ]] || { echo "Missing ${tarball}" >&2; exit 1; }
             if npm view "@superdurable/${package}@${RELEASE_VERSION}" version >/dev/null 2>&1; then

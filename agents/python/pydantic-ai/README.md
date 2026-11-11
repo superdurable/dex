@@ -380,6 +380,40 @@ started before the upgrade starts compacting once its Worker has one.
 
 See [Compaction and the storage bound](https://docs.superdurable.io/reference/agents/session-limits#compaction).
 
+## Images
+
+Since 0.5.0 a session can show images to the model. Pass a media store, such
+as `S3MediaStore` or `LocalDirectoryMediaStore`, as `media_store` to
+`pydantic_ai_session_flow` or `PydanticAIRunner`, and use the same store in
+the clients that upload images:
+
+```python
+store = S3MediaStore("agent-media", "sessions")
+flow = pydantic_ai_session_flow(agent, flow_type="SupportAgent", media_store=store)
+reference = await store.put_image(Path("chart.png").read_bytes())
+await sessions.send_user_message("session-42", "What does this chart show?", images=[reference])
+```
+
+- **What the model sees.** A user message is one `UserPromptPart` whose
+  content is the text, then each image as `BinaryContent` with the image's
+  MIME type, in order.
+- **Tool results.** A tool call record's images go into its
+  `ToolReturnPart` content, after the output text, as `BinaryContent`. This
+  is Pydantic AI's native form for images in a tool result; each provider
+  sends it as its API allows. Images come from a tool source's
+  `ToolExecutionResult.images`, or from a tool of the agent that returns
+  image `BinaryContent`: its tool Step uploads the image and records the
+  reference.
+- **What is stored.** Stored messages and the run state hold each image as an
+  `ImageUrl` placeholder: its `url` is the reference's `uri`, and its
+  `vendor_metadata` holds the reference under `"dex_image_reference"`. The
+  model Step capability replaces the placeholders with the bytes, read with
+  `load_images`, right before each model request, so a replay after a Worker
+  restart sends the same bytes. A failed read fails the model call, which
+  retries.
+- **Without a store** the runner has no `build_user_message_with_images`, so
+  `send_user_message` refuses images, as before.
+
 ## Limits
 
 - Retries that Pydantic AI sends to the model itself make another model call
@@ -391,7 +425,8 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
 - Provider-run tools, such as `MCPServerTool`, `WebSearchTool`, and code
   execution, run at the provider during the model call. A `RunModel` retry
   repeats them.
-- A deferred tool returns text to the model. Images, files,
+- A deferred tool returns text to the model, and with a `media_store` also
+  its image `BinaryContent` (see [Images](#images)). Other files, image URLs,
   `ToolReturn.content`, and `ToolReturn.metadata` are lost; typed tool parts,
   such as tool search results, are restored from their JSON.
 - In a tool Step, `RunContext.messages` holds only the tool call,
@@ -451,3 +486,10 @@ writes recorded `outcome_unknown`, two writes of one response in the model's
 order, an unknown or rejected write that skips the later write, a withdrawn
 tool whose new call is refused, a reused call ID, the operation's tool Step
 options, an unexposed operation, and refused name collisions.
+
+`tests/test_images.py` runs an agent with a `LocalDirectoryMediaStore` shared
+by the test and the Worker. Its `FunctionModel` records the parts and image
+bytes it receives: user images and tool images arrive as `BinaryContent`, a
+Worker killed in the resumed model call sends the same input again, stored
+messages and run state hold no image bytes, and a runner without a store
+refuses images.

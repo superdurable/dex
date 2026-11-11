@@ -17,6 +17,9 @@ import (
 
 const agentSessionStartStepType = "StartAgentSession"
 
+// agentSessionQuestionStepType is the Step that waits for an answer; a Go session has none.
+const agentSessionQuestionStepType = "AwaitQuestionAnswer"
+
 // agentSessionAttributes maps each required session Attribute to whether it is an AttributeMap.
 var agentSessionAttributes = map[string]bool{
 	"AgentState":        false,
@@ -26,7 +29,7 @@ var agentSessionAttributes = map[string]bool{
 }
 
 // loadAgentSession returns the session parts of a graph, or nil when the graph is not a Dex Agents session.
-func loadAgentSession(rawNodes []json.RawMessage) (*api.V2AgentSession, error) {
+func loadAgentSession(rawNodes []json.RawMessage, language string) (*api.V2AgentSession, error) {
 	type graphNode struct {
 		Kind     string `json:"kind"`
 		Name     string `json:"name"`
@@ -38,7 +41,7 @@ func loadAgentSession(rawNodes []json.RawMessage) (*api.V2AgentSession, error) {
 	}
 	foundAttributes := make(map[string]bool, len(agentSessionAttributes))
 	isStartStepFound := false
-	session := &api.V2AgentSession{RPCNames: make(map[string]bool)}
+	session := &api.V2AgentSession{RPCNames: make(map[string]bool), Language: language}
 	for _, raw := range rawNodes {
 		var node graphNode
 		if err := json.Unmarshal(raw, &node); err != nil {
@@ -51,6 +54,9 @@ func loadAgentSession(rawNodes []json.RawMessage) (*api.V2AgentSession, error) {
 				foundAttributes[node.Name] = true
 			}
 		case "step":
+			if node.Name == agentSessionQuestionStepType {
+				session.HasQuestions = true
+			}
 			if node.Name == agentSessionStartStepType && node.Start {
 				isStartStepFound = true
 				session.StartStepSkipWaitFor = node.Phase == "execute"

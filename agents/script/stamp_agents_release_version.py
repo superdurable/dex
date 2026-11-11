@@ -7,7 +7,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""Stamp one release version, and the adapters' core constraints, across every agents package."""
+"""Stamp one release version, and the internal dependency constraints, across every agents package."""
 
 from __future__ import annotations
 
@@ -19,16 +19,33 @@ import tomllib
 from pathlib import Path
 
 AGENTS_DIR = Path(__file__).resolve().parents[1]
-PYTHON_PACKAGES = ("core", "openai-agents", "pydantic-ai", "langgraph", "google-adk", "claude-agent-sdk")
-TYPESCRIPT_PACKAGES = ("core", "vercel-ai", "openai-agents", "mastra", "claude-agent-sdk", "pi")
+# A "cli/<name>" package lives in agents/cli/<language>/<name>; the others in agents/<language>/<name>.
+PYTHON_PACKAGES = (
+    "core", "openai-agents", "pydantic-ai", "langgraph", "google-adk", "claude-agent-sdk",
+    "cli/runtime", "cli/claude-sdk", "cli/openai-sdk", "cli/pydantic-ai", "cli/deepagents", "cli/google-adk",
+    "cli/builtin",
+    # Never published, but it pins the runtime, so it carries the release version too.
+    "cli/testing",
+)
+TYPESCRIPT_PACKAGES = (
+    "core", "vercel-ai", "openai-agents", "mastra", "claude-agent-sdk", "pi",
+    "cli/runtime", "cli/claude-sdk", "cli/openai-sdk", "cli/vercel-ai", "cli/mastra", "cli/builtin",
+)
 PYTHON_CORE_DISTRIBUTION = "dex-agents"
 TYPESCRIPT_CORE_PACKAGE = "@superdurable/dex-agents"
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$")
-PYTHON_CORE_CONSTRAINT_PATTERN = re.compile(r'"dex-agents==[^"]*"')
+PYTHON_INTERNAL_CONSTRAINT_PATTERN = re.compile(r'"(dex-agents(?:-[a-z0-9-]+)?)(\[[a-z0-9,-]+\])?==[^"]*"')
+TYPESCRIPT_LOCAL_PACKAGE_KEY_PATTERN = re.compile(r"^node_modules/@superdurable/dex-agents(-[a-z0-9-]+)?$")
 
 
 class StampMismatchError(Exception):
     """A file does not carry the requested version."""
+
+
+def package_directory(language: str, package: str) -> Path:
+    if package.startswith("cli/"):
+        return AGENTS_DIR / "cli" / language / package.removeprefix("cli/")
+    return AGENTS_DIR / language / package
 
 
 def stamp_pyproject(path: Path, version: str, is_core: bool, check_only: bool) -> None:
@@ -39,11 +56,15 @@ def stamp_pyproject(path: Path, version: str, is_core: bool, check_only: bool) -
     if version_count != 1:
         raise StampMismatchError(f"{path}: no project.version line")
     if not is_core:
-        updated, constraint_count = PYTHON_CORE_CONSTRAINT_PATTERN.subn(
-            f'"{PYTHON_CORE_DISTRIBUTION}=={version}"', updated
+        core_constraint_count = sum(
+            1 for match in PYTHON_INTERNAL_CONSTRAINT_PATTERN.finditer(updated)
+            if match.group(1) == PYTHON_CORE_DISTRIBUTION
         )
-        if constraint_count != 1:
+        if core_constraint_count != 1:
             raise StampMismatchError(f"{path}: expected one dex-agents==<version> dependency")
+        updated = PYTHON_INTERNAL_CONSTRAINT_PATTERN.sub(
+            lambda match: f'"{match.group(1)}{match.group(2) or ""}=={version}"', updated
+        )
     write_or_compare(path, text, updated, check_only)
     project = tomllib.loads(updated)["project"]
     if project["version"] != version:
@@ -68,7 +89,7 @@ def stamp_package_json(path: Path, version: str, is_core: bool, check_only: bool
         peers = manifest.get("peerDependencies", {})
         if TYPESCRIPT_CORE_PACKAGE not in peers:
             raise StampMismatchError(f"{path}: {TYPESCRIPT_CORE_PACKAGE} must be a peerDependency")
-        peers[TYPESCRIPT_CORE_PACKAGE] = f"^{version}"
+        stamp_internal_peers(peers, version)
     write_or_compare(path, text, json.dumps(manifest, indent=2) + "\n", check_only)
 
 
@@ -79,11 +100,19 @@ def stamp_package_lock(path: Path, version: str, is_core: bool, check_only: bool
     root = lock["packages"][""]
     root["version"] = version
     if not is_core:
-        root["peerDependencies"][TYPESCRIPT_CORE_PACKAGE] = f"^{version}"
-        local_core = lock["packages"].get(f"node_modules/{TYPESCRIPT_CORE_PACKAGE}")
-        if local_core is not None and local_core.get("resolved") == "file:../core":
-            local_core["version"] = version
+        stamp_internal_peers(root["peerDependencies"], version)
+        # The local agents packages this one installs from file: paths carry the release version too.
+        for key, locked in lock["packages"].items():
+            if TYPESCRIPT_LOCAL_PACKAGE_KEY_PATTERN.match(key) and locked.get("resolved", "").startswith("file:"):
+                locked["version"] = version
+                stamp_internal_peers(locked.get("peerDependencies", {}), version)
     write_or_compare(path, text, json.dumps(lock, indent=2) + "\n", check_only)
+
+
+def stamp_internal_peers(peers: dict[str, str], version: str) -> None:
+    for name in peers:
+        if name == TYPESCRIPT_CORE_PACKAGE or name.startswith(f"{TYPESCRIPT_CORE_PACKAGE}-"):
+            peers[name] = f"^{version}"
 
 
 def write_or_compare(path: Path, original: str, updated: str, check_only: bool) -> None:
@@ -96,11 +125,11 @@ def write_or_compare(path: Path, original: str, updated: str, check_only: bool) 
 
 def stamp_all_packages(version: str, check_only: bool) -> None:
     for package in PYTHON_PACKAGES:
-        package_dir = AGENTS_DIR / "python" / package
+        package_dir = package_directory("python", package)
         stamp_pyproject(package_dir / "pyproject.toml", version, package == "core", check_only)
         stamp_uv_lock(package_dir / "uv.lock", version, check_only)
     for package in TYPESCRIPT_PACKAGES:
-        package_dir = AGENTS_DIR / "typescript" / package
+        package_dir = package_directory("typescript", package)
         is_core = package == "core"
         stamp_package_json(package_dir / "package.json", version, is_core, check_only)
         stamp_package_lock(package_dir / "package-lock.json", version, is_core, check_only)

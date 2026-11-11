@@ -55,6 +55,11 @@ from dex.credential import (
 )
 from dex.flow import Flow, PersistenceSchema, Registry, RPCResult, rpc
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
+from dex.flow_definition import (
+    FlowDefinitionDocument,
+    FlowDefinitionUploadOutcome,
+    FlowDefinitionUploadResult,
+)
 from dex.flow_info import (
     FlowInfo,
     FlowStatus,
@@ -191,6 +196,9 @@ __all__ = [
     "FlowAlreadyStartedError",
     "FlowClosingError",
     "FlowConfig",
+    "FlowDefinitionDocument",
+    "FlowDefinitionUploadOutcome",
+    "FlowDefinitionUploadResult",
     "FlowDefinitionError",
     "FlowErrorType",
     "FlowInfo",
