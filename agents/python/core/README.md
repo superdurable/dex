@@ -755,9 +755,16 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   `MediaStoreError`. Reads check the file's size first, read at most one byte past `size_bytes`, and run
   `verify_image_bytes`. It needs a POSIX file system. Deleting a session
   deletes no file.
-- **Built-in runners.** In this release no built-in runner shows images to a
-  model: Stepwise and the framework adapters do not implement
-  `ImageUserMessageBuilder`, so their sessions refuse images.
+- **Built-in runners.** The framework adapters show images to their model
+  when built with a `media_store`: they implement
+  `ImageUserMessageBuilder`, keep references in their stored items, and load
+  the bytes for each model call. Without a store they do not, and their
+  sessions refuse images. Stepwise does not implement it yet, so its sessions
+  refuse images.
+- **MCP tools.** `McpToolSource(..., media_store=store)` uploads the `image`
+  content of a successful result inside the tool Step and returns the
+  references in `ToolExecutionResult.images`; see
+  [MCP tools](#mcp-tools-dex_agentsmcp). Give it the store the runner reads.
 - **Retention.** Deleting a session deletes no object. A runner reads the
   images again whenever a model call replays them, so a bucket lifecycle rule
   must keep each object at least as long as any session that references it
@@ -1340,6 +1347,7 @@ every `tools/call` only when this is `True`.
 | What happens | Recorded | Re-issued? |
 | --- | --- | --- |
 | A result | `succeeded`: text blocks joined with newlines, other content as JSON | - |
+| A result with `image` content, on a source built with `media_store` | `succeeded`: each image uploaded and recorded in `images`; the text shows `[image <n>]` in its place, counting from 1. More than 20 images, invalid base64, or bytes that are not a supported image: `failed` (`ToolExecutionError`) | - |
 | An `isError` result, or a JSON-RPC error response other than `-32603` | `failed` with the text (`ToolExecutionError`) | No |
 | A result or error with the Dex `outcome` key | `outcome_unknown` or `failed`; see [Dex MCP conventions](#dex-mcp-conventions) | No |
 | The call was never sent: its server is not configured, or 3 connection attempts failed | `failed` | No |
