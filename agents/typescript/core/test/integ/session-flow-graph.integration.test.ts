@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 import type { Codec, Flow, Step, StepOptions } from "@superdurable/dex";
 
-import { renderSessionFlowGraph } from "../../src/index.js";
+import { renderSessionFlowGraph, sessionFlowDefinitionDocument } from "../../src/index.js";
 import type { AgentSessionPersistence } from "../../src/agent-session-persistence.js";
 import { toolStepOptions, toolTaskPollMovement } from "../../src/agent-session-steps.js";
 import { agentSessionStepTypes } from "../../src/agent-session-step-types.js";
@@ -79,6 +79,8 @@ const { registeredRPCs } = (await import(
 const graph = readConformanceJson<SessionGraph>("session_graph.json");
 const renderings = readConformanceJson<{
   readonly cases: readonly { readonly flow_type: string; readonly action_permission: string; readonly sha256: string }[];
+  readonly generated_at: string;
+  readonly template_sha256: string;
 }>("session_graph_renderings.json");
 const flow = createBuiltinAgentSessionFlow(
   { name: "graph-manifest", instructions: "Describe the session Flow.", model: new ScriptedModelClient(() => ({ text: "ok" })) },
@@ -172,6 +174,26 @@ describe("the session Flow Definition Graph", () => {
       });
       assert.equal(createHash("sha256").update(text).digest("hex"), renderingCase.sha256, renderingCase.flow_type);
     }
+  });
+
+  test("the Flow definition document carries the rendered graph and the template's time", () => {
+    for (const renderingCase of renderings.cases) {
+      const options = { flowType: renderingCase.flow_type, actionPermission: renderingCase.action_permission };
+      const document = sessionFlowDefinitionDocument(options);
+      assert.equal(document.flowType, renderingCase.flow_type);
+      assert.equal(document.content, renderSessionFlowGraph(options));
+      assert.equal(createHash("sha256").update(document.content).digest("hex"), renderingCase.sha256);
+      assert.equal(document.generatedAt.toISOString(), renderings.generated_at);
+    }
+    const template = readFileSync(`${conformanceSuiteDirectory}session_graph.json`, "utf8");
+    assert.equal(createHash("sha256").update(template).digest("hex"), renderings.template_sha256);
+    const first = sessionFlowDefinitionDocument({ flowType: "A", actionPermission: "a" });
+    first.generatedAt.setTime(0);
+    assert.equal(
+      sessionFlowDefinitionDocument({ flowType: "A", actionPermission: "a" }).generatedAt.toISOString(),
+      renderings.generated_at,
+    );
+    assert.throws(() => sessionFlowDefinitionDocument({ flowType: "A", actionPermission: "Bad Permission" }), TypeError);
   });
 
   test("the renderer fills in the Flow type and the permission, and rejects bad ones", () => {

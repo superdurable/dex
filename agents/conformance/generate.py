@@ -28,6 +28,7 @@ import json
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from types import NoneType, UnionType
 from typing import Any, Union, get_args, get_origin
@@ -177,6 +178,7 @@ from dex_agents.session_flow import (
     MISSING_TOOL_TASK_POLLER,
     SNAPSHOT_MESSAGE_LIMIT,
 )
+from dex_agents.session_graph import SESSION_FLOW_GRAPH_GENERATED_AT
 from dex_agents.testing import ScriptedModelClient, ScriptedModelReply
 
 SUITE_DIR = Path(__file__).resolve().parent
@@ -1363,10 +1365,37 @@ def build_session_graph_renderings(graph: Mapping[str, Any]) -> dict[str, Any]:
                 "sha256": hashlib.sha256(render_json(rendered).encode()).hexdigest(),
             }
         )
+    template_sha256 = hashlib.sha256(render_json(graph).encode()).hexdigest()
+    generated_at = SESSION_FLOW_GRAPH_GENERATED_AT.isoformat(timespec="milliseconds")
+    generated_at = generated_at.replace("+00:00", "Z")
+    require_later_generated_at_for_changed_template(template_sha256)
     return {
         "description": "The SHA-256 of the UTF-8 graph text that every core must render.",
         "cases": cases,
+        "generated_at": generated_at,
+        "generated_at_description": (
+            "The generated_at of every session Flow definition document a core returns. "
+            "It changes to a later time whenever template_sha256 changes."
+        ),
+        "template_sha256": template_sha256,
     }
+
+
+def require_later_generated_at_for_changed_template(template_sha256: str) -> None:
+    # The Dex Server keeps a stored graph unless the upload has a later generated_at.
+    if not SESSION_GRAPH_RENDERINGS_FILE.exists():
+        return
+    previous = json.loads(SESSION_GRAPH_RENDERINGS_FILE.read_text(encoding="utf-8"))
+    previous_sha256 = previous.get("template_sha256")
+    if previous_sha256 is None or previous_sha256 == template_sha256:
+        return
+    previous_generated_at = datetime.fromisoformat(previous["generated_at"])
+    if SESSION_FLOW_GRAPH_GENERATED_AT <= previous_generated_at:
+        raise SystemExit(
+            "the session graph changed; set SESSION_FLOW_GRAPH_GENERATED_AT in "
+            "dex_agents/session_graph.py and sessionFlowGraphGeneratedAt in "
+            "agent-session-flow-graph.ts to the same later time, then run generate.py again"
+        )
 
 
 def persistence_kind(definition: object) -> str:

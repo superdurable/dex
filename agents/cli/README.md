@@ -137,6 +137,17 @@ Vercel AI SDK, and Mastra commands do. With another harness, such as the
 built-in commands for now, the command says the message was not sent and
 removes the attached images; send the message again without them.
 
+## Sessions in Dex Web
+
+The command uploads the session Flow Definition Graph of its session Flow
+type when it starts, so Dex Web shows each session's Steps and its
+**Agent session** tab without `--flow-rendering-dir`. The session Actions
+require the permission `dex-agents-cli.operate` in every CLI runtime: choose it
+in **Working as** to answer a session's approvals and questions in Dex Web.
+Uploading needs server-zd 0.1.26 or later, which `dexcli dev` 1.45.0 runs. The
+outcome, and a failure such as on an older server, go to the log file
+`~/.dex/agents/<harness>.log`, not the terminal, and the command still starts.
+
 ## Session settings
 
 Each session has a settings JSON object of at most 16 KiB, set when it starts

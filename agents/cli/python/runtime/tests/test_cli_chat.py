@@ -11,23 +11,27 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
+import re
 import signal
 import socket
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pexpect
 
-from dex_agents import AgentSnapshot, MessageRole
+from dex_agents import AgentSnapshot, MessageRole, render_session_flow_graph
+from dex_agents.session_graph import SESSION_FLOW_GRAPH_GENERATED_AT
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
     read_step_history,
     resolve_dexcli_path,
     wait_for_agent_snapshot,
 )
-from dex_agents_cli import session_flow_type
+from dex_agents_cli import SESSION_ACTION_PERMISSION, session_flow_type
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
 from tests.scripted_harness import SCRIPTED_FLOW_TYPE
 
@@ -115,6 +119,52 @@ async def test_a_new_session_records_where_the_command_runs(cli_home: CliHome) -
         "config_identity": os.path.realpath(cli_home.config_path),
         "workspace": os.path.realpath(workspace),
     }
+
+
+async def read_flow_definitions(cli_home: CliHome, flow_type: str) -> list[dict[str, Any]]:
+    process = await asyncio.create_subprocess_exec(
+        str(resolve_dexcli_path()),
+        "api",
+        "call",
+        "GetFlowDefinitions",
+        "--server",
+        cli_home.address,
+        "--data",
+        json.dumps({"flowTypes": [flow_type]}),
+        stdout=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await process.communicate()
+    assert process.returncode == 0
+    definitions: list[dict[str, Any]] = json.loads(stdout).get("definitions", [])
+    return definitions
+
+
+async def test_the_worker_uploads_the_session_graph_for_dex_web(cli_home: CliHome) -> None:
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    workspace = cli_home.home / "dex-agent-workspace"
+    child = cli_home.spawn()
+    await read_session_id(child)
+    await expect(child, "> ")
+    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    definitions = await read_flow_definitions(cli_home, flow_type)
+    for _ in range(50):
+        if definitions:
+            break
+        await asyncio.sleep(0.1)
+        definitions = await read_flow_definitions(cli_home, flow_type)
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert len(definitions) == 1, definitions
+    (definition,) = definitions
+    expected = render_session_flow_graph(flow_type, SESSION_ACTION_PERMISSION)
+    assert base64.b64decode(definition["content"]).decode() == expected
+    assert definition["info"]["flowType"] == flow_type
+    generated_at = datetime.fromisoformat(definition["info"]["generatedAt"])
+    assert generated_at == SESSION_FLOW_GRAPH_GENERATED_AT
+    log_text = (cli_home.home / ".dex" / "agents" / "scripted.log").read_text(encoding="utf-8")
+    assert re.search(
+        f"session Flow definition (created|unchanged): flowType={flow_type} ", log_text
+    )
 
 
 async def test_a_question_is_answered_in_the_terminal(cli_home: CliHome) -> None:

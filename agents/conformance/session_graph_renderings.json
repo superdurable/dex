@@ -11,5 +11,8 @@
       "action_permission": "a.b-c1",
       "sha256": "67924720969db5a8f52944f85fe7f37e5492b27e9e7c5271208a2f5faa8661c8"
     }
-  ]
+  ],
+  "generated_at": "2026-11-10T07:43:04.000Z",
+  "generated_at_description": "The generated_at of every session Flow definition document a core returns. It changes to a later time whenever template_sha256 changes.",
+  "template_sha256": "1ce042a06781614311db772ab21f14644f21c9459ad1248454042798bf4629e3"
 }

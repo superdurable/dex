@@ -196,6 +196,14 @@ commit the result. These tests fail otherwise:
   conditions, routes, and publishes.
 - Both cores render `session_graph_renderings.json` byte for byte.
 
+`session_graph_renderings.json` also records `template_sha256`, the hash of
+`session_graph.json`, and `generated_at`, the time each core's session Flow
+definition document carries. Workers upload that document, and the Dex Server
+replaces a stored graph only with a later `generated_at`. So a change to the
+graph also sets `SESSION_FLOW_GRAPH_GENERATED_AT` in the Python core and
+`sessionFlowGraphGeneratedAt` in the TypeScript core to the same later time.
+`generate.py` refuses a changed `template_sha256` without a later time.
+
 The Go core registers fewer Steps and RPCs than the graph shows, so it ships no
 graph yet.
 

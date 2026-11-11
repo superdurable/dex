@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { namespaceSessionFlowType } from "../../src/index.js";
+import { namespaceSessionFlowType, sessionActionPermission } from "../../src/index.js";
 
 const sharedCliDirectory = fileURLToPath(new URL("../../../../../", import.meta.url));
 const fixture = JSON.parse(
@@ -21,6 +21,7 @@ const fixture = JSON.parse(
 
 interface SessionFlowTypeFixture {
   readonly harness_flow_type: string;
+  readonly session_action_permission: string;
   readonly cases: readonly {
     readonly name: string;
     readonly host_name: string;
@@ -32,6 +33,10 @@ interface SessionFlowTypeFixture {
 }
 
 describe("CLI session Flow type conformance", () => {
+  test("the session Action permission matches every CLI runtime's", () => {
+    assert.equal(sessionActionPermission, fixture.session_action_permission);
+  });
+
   for (const testCase of fixture.cases) {
     test(`session Flow type: ${testCase.name}`, () => {
       const identity = {
