@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
@@ -115,7 +115,7 @@ describe("terminal chat with connectors and session settings", () => {
     });
   });
 
-  test("the Worker uploads the session graph for Dex Web", async () => {
+  test("the command uploads the session graph for Dex Web and logs the outcome only to its log file", async () => {
     const home = newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
     const cli = start(home);
     await cli.waitForSession();
@@ -144,6 +144,10 @@ describe("terminal chat with connectors and session settings", () => {
     );
     const { generatedAt } = sessionFlowDefinitionDocument({ flowType, actionPermission: sessionActionPermission });
     assert.equal(new Date(definition.info.generatedAt).toISOString(), generatedAt.toISOString());
+    // The upload outcome goes to the log file, never into the terminal chat.
+    assert.doesNotMatch(cli.stdout.all + cli.stderr.all, /Flow definition|dex info/);
+    const logFile = readFileSync(join(home.directory, ".dex", "agents", `${home.harness.name}.log`), "utf8");
+    assert.match(logFile, new RegExp(`session Flow definition (created|unchanged): flowType=${flowType} `));
   });
 
   test("one chat turn streams the reply, reusing the running dexcli dev", async () => {

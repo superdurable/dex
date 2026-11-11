@@ -139,13 +139,14 @@ removes the attached images; send the message again without them.
 
 ## Sessions in Dex Web
 
-The command's Worker uploads the session Flow Definition Graph of its session
-Flow type when it starts, so Dex Web shows each session's Steps and its
+The command uploads the session Flow Definition Graph of its session Flow
+type when it starts, so Dex Web shows each session's Steps and its
 **Agent session** tab without `--flow-rendering-dir`. The session Actions
 require the permission `dex-agents-cli.operate` in every CLI runtime: choose it
 in **Working as** to answer a session's approvals and questions in Dex Web.
-Uploading needs server-zd 0.1.26 or later, which `dexcli dev` 1.45.0 runs. An
-older server only logs a warning, and the command still starts.
+Uploading needs server-zd 0.1.26 or later, which `dexcli dev` 1.45.0 runs. The
+outcome, and a failure such as on an older server, go to the log file
+`~/.dex/agents/<harness>.log`, not the terminal, and the command still starts.
 
 ## Session settings
 

@@ -8,7 +8,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -321,11 +321,10 @@ class AgentCliCommand {
     this.worker = new Worker(registry, this.blobCache, {
       ...connection,
       pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
-      // Dex Web then shows the session without --flow-rendering-dir.
-      flowDefinitions: [sessionFlowDefinitionDocument({ flowType, actionPermission: sessionActionPermission })],
     });
     await this.worker.start();
     await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
+    await this.uploadSessionFlowDefinition(this.client, flowType);
     const sessionId = await this.openSession(this.client, flow, flowType, identity);
     this.io.stdout.write(
       `Session ${sessionId}. Type a message; /image <path> attaches an image to the next one; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
@@ -337,6 +336,39 @@ class AgentCliCommand {
     const isFailed = await chat.run();
     this.io.stdout.write(`\nSession ${sessionId} keeps running. Resume it with: dex-agents-${this.harness.name} --resume ${sessionId}\n`);
     return isFailed ? 1 : 0;
+  }
+
+  /**
+   * Uploads the session graph so Dex Web shows the session without `--flow-rendering-dir`.
+   *
+   * The Client uploads it instead of `WorkerOptions.flowDefinitions`, because the Worker's upload writes its outcome
+   * and errors to the terminal. The outcome and any failure go to the log file only, as in the Python runtime.
+   */
+  private async uploadSessionFlowDefinition(client: Client, flowType: string): Promise<void> {
+    const document = sessionFlowDefinitionDocument({ flowType, actionPermission: sessionActionPermission });
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`no answer within ${sessionFlowDefinitionUploadTimeoutMs} ms`)),
+        sessionFlowDefinitionUploadTimeoutMs,
+      );
+    });
+    let line: string;
+    try {
+      const [result] = await Promise.race([client.uploadFlowDefinitions([document]), timeout]);
+      line = `session Flow definition ${result?.outcome ?? "unspecified"}: flowType=${flowType} storedDigest=${result?.storedDigest ?? ""}`;
+    } catch (error: unknown) {
+      line = `session Flow definition upload failed; Dex Web shows this session only with --flow-rendering-dir: flowType=${flowType} ${describe(error)}`;
+    } finally {
+      clearTimeout(timer);
+    }
+    mkdirSync(this.environment.agentsDirectory, { recursive: true });
+    appendFileSync(this.logFilePath(), `${new Date().toISOString()} ${line}\n`);
+  }
+
+  /** `~/.dex/agents/<harness>.log`, the log file the Python runtime also writes. */
+  private logFilePath(): string {
+    return join(this.environment.agentsDirectory, `${this.harness.name}.log`);
   }
 
   /** Reads a session's committed turn settings through the command's Client. */
@@ -636,8 +668,11 @@ export interface SessionEnvironmentIdentity {
   readonly workspace: string;
 }
 
+/** How long the command waits for the session graph upload before it logs a failure and continues. */
+const sessionFlowDefinitionUploadTimeoutMs = 10_000;
+
 /**
- * The permission every session Action requires in the session graph that the Worker uploads for Dex Web.
+ * The permission every session Action requires in the session graph that the command uploads for Dex Web.
  *
  * In Dex Web, choose it in Working as to answer a CLI session's approvals and questions. Every CLI runtime uses this
  * text, so runtimes of two languages that share a session Flow type upload the same graph.

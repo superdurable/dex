@@ -31,7 +31,7 @@ from dex_agents_cli.turns import (
 )
 
 #: The permission every session Action requires in the session graph that the
-#: Worker uploads for Dex Web. In Dex Web, choose it in Working as to answer a
+#: command uploads for Dex Web. In Dex Web, choose it in Working as to answer a
 #: CLI session's approvals and questions. Every CLI runtime uses this text.
 SESSION_ACTION_PERMISSION = "dex-agents-cli.operate"
 
