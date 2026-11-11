@@ -734,6 +734,27 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   `require_short_image_uris`, build each reference with
   `build_image_reference(data, store_uri)`, and check reads with
   `require_store_image_reference` and `verify_image_bytes`.
+- **Local directory.** `LocalDirectoryMediaStore(root)` keeps images on one
+  machine, for a client and Workers that share a file system, such as a
+  command-line tool in local mode; use `S3MediaStore` across machines. `root`
+  must be an absolute path. An image's file is `<root>/sha256/<sha256>`, and
+  its `uri` is `file://<root>/sha256/<sha256>`: the root is made absolute as
+  text, without resolving symbolic links or normalizing Unicode, and every
+  byte other than ASCII letters, digits, `-._~`, and `/` is percent-encoded,
+  the same in every core. `put_image` copies the bytes into a temporary file
+  in the same directory and renames it into place; an existing file with the
+  same bytes is success. Directories it creates get mode `0700` and files
+  `0600`. A write syncs the image file before the rename. Before every
+  `put_image` returns, even when an identical file already existed and nothing
+  was written, it syncs the `sha256` directory, the root, and the root's
+  parent; it also syncs the parent of each directory it creates. Directories
+  above the root's parent must already be durable; a concurrent creator of a
+  deeper missing ancestor is out of scope. It opens every path relative to an
+  open directory, so it follows no symbolic link under the root. It refuses a symbolic link, a
+  special file, or an image file with more than one hard link there with
+  `MediaStoreError`. Reads check the file's size first, read at most one byte past `size_bytes`, and run
+  `verify_image_bytes`. It needs a POSIX file system. Deleting a session
+  deletes no file.
 - **Built-in runners.** In this release no built-in runner shows images to a
   model: the built-in loop and the framework adapters do not implement
   `ImageUserMessageBuilder`, so their sessions refuse images.

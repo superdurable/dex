@@ -81,7 +81,7 @@ spurious wakeups.
 
 \paragraph{Durable execution and workflow engines.}
 The academic literature on durable execution is mostly about the
-proposition we leave to future work: that a program behaves under failures
+proposition of our second theorem: that a program behaves under failures
 as it would without them. Sagas \cite{garciamolina1987sagas} introduced
 long-lived transactions built from steps with compensations. Ramalingam and
 Vaswani \cite{ramalingam2013idempotence} gave a language-based account of
@@ -94,10 +94,17 @@ platform with formal guarantees that the generated implementations are
 correct. Jangda et al.\ \cite{jangda2019serverless} give an operational
 semantics of serverless platforms and characterize when a simpler, naive
 semantics coincides with it. These works compare a failure-prone
-execution with an ideal one for the \emph{same} program. Ours compares two
-\emph{different} programming models in the ideal setting: threads on one
-side, Steps on the other. We are not aware of a prior machine-checked
-theorem that a durable workflow model expresses a conventional concurrent
-language up to trace equivalence. For crash safety itself, mechanized
-frameworks such as Perennial \cite{chajed2019perennial} show what the
-complementary proof could build on.
+execution with an ideal one for the \emph{same} program, as our failure
+theorem does. Our first theorem compares two \emph{different} programming
+models in the ideal setting: threads on one side, Steps on the other. We
+are not aware of a prior machine-checked theorem that a durable workflow
+model expresses a conventional concurrent language up to trace
+equivalence. Our failure theorem differs from the works above in three
+ways. It is about a model written against an existing
+server, rule by rule, rather than about a calculus or a system designed
+for the proof. It allows zombie Workers that keep emitting effects after
+the server gave them up. And it states what repeats: every extra effect
+equals an earlier one, and the first occurrences of each method's effects
+come in order. Mechanized frameworks for crash safety of implementations,
+such as Perennial \cite{chajed2019perennial}, address the gap between
+our model and the code.

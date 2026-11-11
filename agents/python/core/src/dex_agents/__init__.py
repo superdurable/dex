@@ -51,6 +51,7 @@ from dex_agents.compaction import (
     select_turn_boundary_cutoff,
 )
 from dex_agents.events import AgentEventType, AgentEventWriter
+from dex_agents.local_directory_media import LocalDirectoryMediaStore
 from dex_agents.media import (
     MAX_IMAGE_BYTES,
     MAX_IMAGE_URI_LENGTH,
@@ -353,6 +354,7 @@ __all__ = [
     "InteractionMode",
     "InterruptKind",
     "ListAgentMessagesRequest",
+    "LocalDirectoryMediaStore",
     "MediaStore",
     "MediaStoreError",
     "MessageRole",

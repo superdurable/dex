@@ -34,7 +34,7 @@ import java.util.Objects;
  *
  * <p>See {@link Join} for a complete split, branch, join, and reset example.
  *
- * @since 1.43.0
+ * @since 1.44.0
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public final class JoinRound {

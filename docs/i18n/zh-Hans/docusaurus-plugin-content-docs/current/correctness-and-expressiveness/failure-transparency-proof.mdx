@@ -1,0 +1,96 @@
+---
+title: Failure transparency proof
+sidebar_label: Failure transparency proof
+slug: /correctness-and-expressiveness/failure-transparency-proof
+---
+
+# 故障透明性证明
+
+Dex 有一个经计算机检查的证明：故障唯一能带来的可观察变化，是外部副作用的重复。证明在[证明依赖的假设](#what-the-proof-assumes)列出的条件下成立。
+
+- [下载论文（PDF）](/papers/dex-expressiveness.pdf)
+- [GitHub 上的形式化源码](https://github.com/superdurable/dex/tree/main/formal)
+
+## 结论 {#the-claim}
+
+这个证明覆盖以下故障：
+
+- server 崩溃，然后从持久日志恢复；
+- 备用 server 接管；
+- Step 方法的一次 attempt 失败，例如 Worker 报错、超时或 Worker 断开，然后 Dex 重试；
+- Dex 已经放弃某次 attempt，Worker 却还在继续运行它；
+- Worker 的结果到达两次，或在它的 attempt 被替换之后才到达；
+- 客户端再次发送同一个 **StartFlow** 请求。
+
+证明把有这些故障的运行，与同一个 Flow 没有故障的运行相比较，分三部分。
+
+- **去掉重复，剩下的就是无故障的序列。** 从一次有故障的运行到目前为止的事件中，去掉每个重复的外部副作用。剩下的，是这个 Flow 在没有故障时、对同样的请求（去掉 **StartFlow** 重试）能产生的序列。
+- **每个无故障的序列仍然可能发生。** 一次恰好没出故障的运行就会产生它。
+- **公平的运行以相同方式结束。** 取一次有故障的公平运行的完整事件序列，去掉重复。结果是一次无故障公平运行的完整事件序列。两次运行要么都完成，要么都卡住，要么都一直运行。反方向在请求中没有 **StartFlow** 重试时得到证明。一次重试会推进 server 的时钟，因此可能改变哪个 Timer 先到期。
+
+每个重复的副作用，都是同一个 Step 方法先前某个副作用的精确副本。
+
+与[表达能力证明](/correctness-and-expressiveness/expressiveness-proof)合起来，它覆盖那门小型并发语言中每个格式良好（well-formed）的程序。这样的程序在 Dex 上产生的是一次无故障运行的事件，只是外部副作用可能重复。对这些程序，每个多出来的副作用都与先前某个副作用的值相同。
+
+## 为什么重复仍然简单 {#why-repeats-stay-simple}
+
+一个 Step 方法可能分几次 attempt 运行。每次 attempt 读到的是同一个快照：Dex 在第一次 attempt 时取快照，之后每次重试都复用它。
+
+证明假设 Step 方法的副作用只取决于 Dex 传给它的内容，与当前是第几次 attempt 无关。这样，每次 attempt 都以相同的顺序算出相同的外部副作用。
+
+一次 attempt 依次产生它的副作用，所以各个副作用按列表顺序首次出现。首个副本可能来自任何一次 attempt，包括 Dex 已经放弃的旧 attempt。之后的每个副本都是重复。没有哪次 attempt 会产生新的副作用，或改变首个副本的顺序。
+
+## 这对你的代码意味着什么 {#what-it-means-for-you}
+
+让每个外部调用既能安全地重复，也能安全地迟到。一次重试可能再次执行 Step 方法的外部调用。较旧的 attempt 也可能迟到：在较新的 attempt 已经做过同一个调用之后，它才发出这个调用。证明并不阻止这些重复。
+
+要做到这一点，一种常见做法是使用幂等键（idempotency key），由外部系统按它去重。用 Flow 的这次运行、Step 执行、方法和副作用来构造它。[Step 的保证](/concepts/step#guarantees)对键有更多说明。
+
+客户端重试请求时：
+
+- **StartFlow**：复用第一次启动的 request ID；第一次启动和重试都设置返回已有运行的选项；保持默认的 ID 复用策略。这样，只要 server 的日志把重试排在 Dex 清除已关闭的运行之前，证明就覆盖这次重试。先到达 server 并不够。见[启动选项](/concepts/flow#start-options)。
+- **PublishToChannel**：响应丢失后再次发送的请求是第二个请求，可能把消息发布两次。通过 RPC request ID 只发布一次的做法已在计划中，见 [issue 1519](https://github.com/superdurable/dex/issues/1519)。
+- **StopFlow**：不带 run ID 的重试，可能停掉同一 Flow ID 较新的一次运行。传入 run ID 的做法已在计划中，见 [issue 1520](https://github.com/superdurable/dex/issues/1520)。
+
+## 证明依赖的假设 {#what-the-proof-assumes}
+
+证明在以下条件下成立：
+
+- **与表达能力证明相同的范围。** 一个 Flow 启动一次，并接收 Channel 消息。故障下的 RPC、SubFlow、**StopFlow** 和 Attribute 锁不在证明范围内。
+- **只覆盖 SYNC 方法。** **ASYNC** 方法可能在 server 崩溃时丢失它的启动。它随后会在新的快照上再次运行，所以副作用可能不同。
+- **重试不会用完，所有错误都可重试。** 重试用完或遇到不可重试的错误，Flow 都会失败。没有故障时，Flow 只有在它自己的代码让它失败时才会失败。server 长时间停机可能耗尽重试时间。
+- **没有失败策略。** 失败后继续执行的策略会改变接下来运行什么。
+- **代码不关心自己是第几次 attempt。** 副作用和结果不依赖 attempt 编号、第一次 attempt 的时间、上一次错误或上一次心跳值。从心跳检查点恢复的代码不在证明范围内。
+- **不使用 hard-delete Attribute。** Dex 在每次 attempt 时都重新读取它们。
+- **每个 attempt 命令都标明它的任务。** server 给已启动 attempt 的每个命令（例如它的结果、心跳或失败）标上运行它的任务。日志中每个这类命令都带有这个标记。
+- **时钟不回退。** 在单个 server 上，从检查某个 Timer 到期到给触发它的命令打时间戳，这期间时钟不回退。
+- **Timer 按顺序触发。** 每次触发都先取最早到期的 Timer：按到期时间排序，同时到期的按固定顺序排序。真实的 server 有一个很短的窗口，可能先触发一个 Timer，而另一个更早到期的 Timer 仍在等待。两个证明都不覆盖这个窗口。
+- **同一时刻只有一个 server。** 备用 server 接管在覆盖范围内。多个 server 同时拥有同一批 Flow 则不在范围内。
+
+结论中关于结局的部分对公平的运行成立。一次运行是公平的，指它满足：
+
+- outcome word 中的每个请求都会按顺序得到最终结果。outcome word 按最终结果的顺序列出客户端请求。在得到任何结果之前就丢失的请求不在其中。
+- server 的时钟会无限增长。
+- 故障只发生有限多次，而且每次崩溃后 server 都会恢复。
+- 一直处于已设置且已到期状态的 Timer 最终会触发。
+- server 在线时，一直可以启动的 Step 方法最终会启动。
+- 每个 Worker 任务，包括已被放弃的，最终都会结束或被丢弃。
+- 每个已结束的结果最终都会提交或被忽略。
+- 每个被崩溃中断的 attempt 最终都会得到处理，或被之后的崩溃清除。
+
+## server 时间与真实时间 {#what-it-does-not-say}
+
+证明用 server 的时间戳衡量时间。按这些时间戳，Timer 绝不会提前触发。但时钟走快的 server 仍可能在真实时间上提前触发它。
+
+## 如何验证 {#how-it-was-checked}
+
+- **成文的故障模型。** 每条故障规则都写了下来，并注明实现它的 server 代码。评审者对照代码逐条检查了这些规则。
+- **经计算机检查的证明。** 证明用 Lean 证明助手写成，它检查每一步。
+- **先测试，再证明。** 一个 fuzzer 遍历了带有崩溃、重试和迟到 attempt 的随机运行，并在每一步检查论证是否成立。
+- **示例和反例。** 证明助手检查了带有崩溃、重试和迟到的重复副作用的示例运行，并把证明应用到这些运行上。它还检查了违反某条假设的运行，例如读取 attempt 编号的代码，并表明这时结论不成立。
+
+## 相关页面 {#related-pages}
+
+- [Correctness and expressiveness](/correctness-and-expressiveness)
+- [表达能力证明](/correctness-and-expressiveness/expressiveness-proof)
+- [Step 的保证](/concepts/step#guarantees)

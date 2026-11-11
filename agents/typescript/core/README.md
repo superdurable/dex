@@ -683,6 +683,25 @@ return { output: "Took a screenshot.", images: [reference] };
   on each read. A store of your own implements `MediaStore`: check its location with `requireShortImageUris`, build
   each reference with `buildImageReference(data, storeUri)`, and check reads with `requireStoreImageReference` and
   `verifyImageBytes`.
+- **Local directory.** `new LocalDirectoryMediaStore(root)`, from the main export, keeps images on one machine, for a
+  client and Workers that share a file system, such as a command-line tool in local mode; use `S3MediaStore` across
+  machines. `root` must be an absolute path. An image's file is `<root>/sha256/<sha256>`, and its `uri` is
+  `file://<root>/sha256/<sha256>`: the root is made absolute as text, without resolving symbolic links or normalizing
+  Unicode, and every byte other than ASCII letters, digits, `-._~`, and `/` is percent-encoded, the same in every core.
+  `putImage` copies the bytes into a temporary file in the same directory and renames it into place; an existing file
+  with the same bytes is success. Directories it creates get mode `0700` and files `0600`. A write syncs the image file
+  before the rename. Before every `putImage` returns, even when an identical file already existed and nothing was
+  written, it syncs the `sha256` directory, the root, and the root's parent; it also syncs the parent of each directory
+  it creates. Directories above the root's parent must already be durable; a concurrent creator of a deeper missing
+  ancestor is out of scope. It refuses a symbolic link, a special file, or an image file
+  with more than one hard link under the root with `MediaStoreError`. Node.js has no `openat`, so it opens files by path
+  and checks before and after each operation: `lstat` on the `sha256` directory and `O_NOFOLLOW` on the file before,
+  then the directory's real path and the file's device and inode after. A read that fails the check returns nothing;
+  a write that fails it removes the file it wrote when it can and throws. A process of the same user that can write the
+  `0700` root can still race a directory swap between these checks, so this store does not guarantee that it never
+  follows a symbolic link. The Python core opens every path relative to an open directory and has no such window.
+  Reads check the file's size first, read at most one byte past `sizeBytes`, and run `verifyImageBytes`. It needs a POSIX file system. Deleting a
+  session deletes no file.
 - **Built-in runners.** In this release no built-in runner shows images to a model: the built-in loop and the framework
   adapters do not implement `buildUserMessageWithImages`, so their sessions refuse images.
 - **Retention.** Deleting a session deletes no object. A runner reads the images again whenever a model call replays

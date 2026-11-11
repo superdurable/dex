@@ -64,6 +64,7 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'correctness-and-expressiveness/index'},
       items: [
         'correctness-and-expressiveness/expressiveness-proof',
+        'correctness-and-expressiveness/failure-transparency-proof',
         'correctness-and-expressiveness/workflow-patterns',
       ],
     },
