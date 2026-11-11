@@ -14,11 +14,17 @@ revision 8. "Spec" below means that document.
 
 `safety_of_isWellFormed`, `liveness_of_isWellFormed`, and
 `expressiveness_of_isWellFormed` are proved. No file of the expressiveness
-proof has a `sorry`. The failure-transparency statements of
-`DexExpressiveness/Failure/Statements/Leaf.lean` and
-`DexExpressiveness/Failure/Statements/Main.lean` end in `sorry` by design:
-they are the fixed statements of the next proof. See
-[Failure transparency (issue 1514), Stage 1](#failure-transparency-issue-1514-stage-1).
+proof has a `sorry`.
+
+The failure-transparency proof (issue 1514) is also done. Stage 2 proved all
+12 statements of `DexExpressiveness/Failure/Statements/Leaf.lean` and
+`DexExpressiveness/Failure/Statements/Main.lean`, and no file under
+`DexExpressiveness/Failure/` has a `sorry`. Liveness is stated and proved as
+two inclusions: forward for every admissible outcome word, backward for words
+without retries. See
+[Failure transparency (issue 1514), Stage 1](#failure-transparency-issue-1514-stage-1),
+[Stage 2: the proofs](#stage-2-the-proofs), and
+[Stage 3: witnesses and counterexamples](#failure-transparency-stage-3-witnesses-and-counterexamples).
 
 ```text
 'DexExpressiveness.safety_of_isWellFormed' depends on axioms:
@@ -642,7 +648,7 @@ load selection from the translation failed `readWaiters_snapshot_of_cvOperand`.
 Empty for the expressiveness proof. Stage 1 left 12 `sorry`, Stage 2a proved
 the 10 of safety, and Stage 2b proved the 2 of liveness through the 32
 statements of its work packages. The failure-transparency proof has its own
-inventory: see
+inventory, now empty too: see
 [The `sorry` inventory of Stage 1](#the-sorry-inventory-of-stage-1).
 
 ## Decided in Stage 2a: handles are unforgeable
@@ -1063,10 +1069,10 @@ binary `formal/lean/.lake/build/bin/failure-fuzz` is in `.gitignore` and
 | `Failure/Abstraction.lean` | α (`abstractConfig`, spec §11.6): virtual tasks from `h`, `v`, `par`; `seq` relabeled by `n` and `ζ`; canceled invocations keep a virtual task while a real task remains. | Fixed |
 | `Failure/Relation.lean` | The transition map `dexActionsOf`, `eraseStepEvents`, `IsStepSimulated`, `SimulationKind`, the effect history `HasEffectHistory`, and the invariants I1 to I7 (`Invariant`, `RunInvariant`). | Fixed |
 | `Failure/Observation.lean` | `DexF.system` with the progress rule of spec §11.5; outcome words, `IsAdmissibleOutcomeWord`, `w↓` (`eraseRetries`, `IsRetryErasure`); fairness F1 to F6, FF, FR, FI (`DexF.IsFair`); the hypotheses H1 to H4, SYNC, D6, HP; the trace sets `IsFailureFiniteTrace`, `IsFreeFiniteTrace`, `IsFailureFairMaximalTrace`. | Fixed |
-| `Failure/Statements/Leaf.lean` | The step lemmas of WP-F1 to WP-F4 and WP-F6, each in its own section, and `step_simulated`. | Statements |
-| `Failure/Statements/Main.lean` | The safety, liveness, and end-to-end statements of WP-F5 to WP-F7. | Statements |
+| `Failure/Statements/Leaf.lean` | The step lemmas of WP-F1 to WP-F4 and WP-F6, each in its own section, and `step_simulated`. | Proved |
+| `Failure/Statements/Main.lean` | The safety, liveness, and end-to-end statements of WP-F5 to WP-F7. | Proved |
 | `Failure/Statements.lean` | A re-export of `Failure/Statements/Main.lean`. | Re-export |
-| `Failure/Proofs.lean`, `Failure/Composite.lean` | Empty import aggregators for the proofs of Stage 2; see [Stage 2: work packages](#stage-2-work-packages). | Empty |
+| `Failure/Proofs.lean`, `Failure/Composite.lean` | Import aggregators for the proofs of Stage 2; see [Stage 2: work packages](#stage-2-work-packages) and [Stage 2: the proofs](#stage-2-the-proofs). | Aggregators |
 | `Failure/Equality.lean`, `Failure/Check.lean` | Test tooling: decidable equality of configurations; `checkStepSimulated`, the decision of `IsStepSimulated`; `checkInvariant`, the Boolean mirror of `Invariant`, clause by clause. | Tooling |
 | `Failure/Examples/Script.lean`, `Failure/Examples/CrashRetryZombie.lean` | Two DexF runs of `main(x): emit(1); exit(0)`, checked in the kernel: one with a crash, two retries, a zombie effect, an interrupt, a stale result, a zombie drop, and a StartFlow retry; one in which a zombie's result commits before its interrupt, which apply then ignores. | Proved, no `sorry` |
 | `Failure/Examples/Fuzz.lean`, `FailureFuzz.lean` | The inductiveness fuzz and its executable `lake exe failure-fuzz`. | Tooling |
@@ -1140,10 +1146,9 @@ theorem endToEnd_safety (program : L.Program) (isWellFormed : program.IsWellForm
 Every step lemma and theorem assumes H3, `IgnoresAttemptContext program`.
 I2 and I3 are false without it.
 
-`#print axioms` on every statement shows `propext` and `sorryAx` only;
-`invariant_initial`, `isRepetitionAfter_sound`, and every theorem of
-`Failure/Examples/CrashRetryZombie.lean` and `Failure/Examples/ReviewProbes.lean`
-show no `sorryAx`.
+At the end of Stage 1, `#print axioms` on every statement showed `propext`
+and `sorryAx` only. After Stage 2 no statement depends on `sorryAx`; see
+[Stage 2: the proofs](#stage-2-the-proofs) for the output.
 
 ### Lean decisions
 
@@ -1235,9 +1240,11 @@ marked "Lean decision" at its definition.
 
 ### Liveness is two inclusions
 
-Spec §11.5 states liveness as an equality for every admissible outcome word.
-The backward inclusion is false for words with retries, and the statement
-says so (`liveness_failure`, `endToEnd_liveness`).
+Spec §11.5 first stated liveness as an equality for every admissible outcome
+word. The backward inclusion is false for words with retries, and the
+statement says so (`liveness_failure`, `endToEnd_liveness`). The spec now
+states the same two inclusions: the forward inclusion for every word, the
+reverse inclusion for words without retries (spec Review log, F36).
 
 - A deduplicated StartFlow retry is a log commit whose stamp strictly
   advances the partition clock (spec §11.3, "Log commit versus run `seq`").
@@ -1266,12 +1273,15 @@ failures (spec §11.3, "Over-approximation").
 
 ### The `sorry` inventory of Stage 1
 
-Twelve. Six in `Failure/Statements/Leaf.lean`: `normalStep_simulated`,
+Stage 1 left twelve. Six in `Failure/Statements/Leaf.lean`: `normalStep_simulated`,
 `failureStep_isStutter`, `workerStep_simulated`, `effectHistory_of_exec`,
 `invariant_step`, `isProgress_eq_dexProgress`. Six in
 `Failure/Statements/Main.lean`: `freeFiniteTrace_isFailureFiniteTrace`,
 `safety_failure_forward`, `safety_failure_repetition`, `liveness_failure`,
 `endToEnd_safety`, `endToEnd_liveness`. No other file has a `sorry`.
+
+Empty now: Stage 2 proved all twelve. No file under
+`DexExpressiveness/Failure/` has a `sorry`.
 
 ### The executable checks and the inductiveness fuzz
 
@@ -1345,10 +1355,10 @@ import cycles and of edits to the same lines:
 ```text
 Failure/Observation.lean            definitions (fixed)
 Failure/Proofs/WPFn*.lean           proofs of leaf statements; import definitions only
-Failure/Proofs.lean                 imports every Failure/Proofs/*.lean (empty today)
+Failure/Proofs.lean                 imports every Failure/Proofs/*.lean
 Failure/Statements/Leaf.lean        leaf statements; imports Observation and Proofs
 Failure/Composite/WPFn*.lean        helpers of main statements; may import Leaf, never Main
-Failure/Composite.lean              imports every Failure/Composite/*.lean (empty today)
+Failure/Composite.lean              imports every Failure/Composite/*.lean
 Failure/Statements/Main.lean        main statements; imports Leaf, Composite, Theorems
 Failure/Statements.lean             re-export of Main
 ```
@@ -1389,6 +1399,50 @@ package may add lemmas only in the files it creates. `invariant_initial` and
   `resultStale`, which does.
 - `effectHistory_of_exec` is what connects the per-step erasure of
   `IsStepSimulated` to `erase` of whole traces in `safety_failure_forward`.
+
+### Stage 2: the proofs
+
+Stage 2 is done. Every work package proved its statements without changing a
+definition or the text of a statement. The import layout of
+[Stage 2: work packages](#stage-2-work-packages) holds: proofs of leaf
+statements under `Failure/Proofs/`, helpers of main statements under
+`Failure/Composite/`.
+
+| Package | Statements | Proof files | Files | Lines |
+| --- | --- | --- | --- | --- |
+| WP-F1 | `normalStep_simulated` | `Failure/Proofs/WPF1*.lean` | 13 | 4,611 |
+| WP-F2 | `failureStep_isStutter` | `Failure/Proofs/WPF2FailureSteps.lean` | 1 | 954 |
+| WP-F3 | `workerStep_simulated`, `effectHistory_of_exec` | `Failure/Proofs/WPF3*.lean` | 10 | 4,858 |
+| WP-F4 | `invariant_step` | `Failure/Proofs/WPF4*.lean` | 22 | 7,010 |
+| WP-F5 | `freeFiniteTrace_isFailureFiniteTrace`, `safety_failure_forward`, `safety_failure_repetition` | `Failure/Composite/WPF5*.lean` | 10 | 2,768 |
+| WP-F6 | `isProgress_eq_dexProgress`, `liveness_failure` | `Failure/Proofs/WPF6*.lean`, `Failure/Composite/WPF6*.lean` | 9 | 6,748 |
+| WP-F7 | `endToEnd_safety`, `endToEnd_liveness` | `Failure/Composite/WPF7EndToEnd.lean` | 1 | 296 |
+| Total | 12 statements | | 66 | 27,245 |
+
+`invariant_initial` and `step_simulated` were proved in Stage 1.
+
+Liveness is two inclusions (`liveness_failure`, `endToEnd_liveness`). The
+forward inclusion holds for every admissible outcome word: `erase(t)` of a
+fair maximal DexF trace for `w` is a fair maximal Dex trace for `w↓` with the
+same marker. The backward inclusion holds for words without retries
+(`HasNoRetry`): every fair maximal Dex trace for `w↓` is such an `erase(t)`.
+See [Liveness is two inclusions](#liveness-is-two-inclusions) for why the
+backward inclusion is false for words with retries.
+
+```text
+'DexExpressiveness.DexF.normalStep_simulated' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.failureStep_isStutter' depends on axioms: [propext, Quot.sound]
+'DexExpressiveness.DexF.workerStep_simulated' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.effectHistory_of_exec' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.invariant_step' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.isProgress_eq_dexProgress' depends on axioms: [propext, Quot.sound]
+'DexExpressiveness.DexF.freeFiniteTrace_isFailureFiniteTrace' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.safety_failure_forward' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.safety_failure_repetition' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.liveness_failure' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.endToEnd_safety' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.endToEnd_liveness' depends on axioms: [propext, Classical.choice, Quot.sound]
+```
 
 ## Failure transparency, Stage 3: witnesses and counterexamples
 
