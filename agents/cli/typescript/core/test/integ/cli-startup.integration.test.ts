@@ -138,17 +138,20 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.equal(home.hasConfig(), false);
   });
 
-  test("after the first-run setup at a terminal, the chat reads the terminal", async () => {
+  test("after the first-run setup at a terminal, the chat reads a message typed with the last answer", async () => {
     const home = new TestHome(enginePorts(engine));
     const cli = startAtTerminal(home);
-    for (const question of ["Model", "System prompt", "Connectors", "Workspace", "Local tools"]) {
+    for (const question of ["Model", "System prompt", "Connectors", "Workspace"]) {
       await cli.terminal.waitFor(question);
       cli.type("\r");
     }
+    await cli.terminal.waitFor("Local tools");
+    cli.type("\rhello\r");
     await cli.terminal.waitFor(/Session \S+\. Type a message/);
     assert.equal(home.hasConfig(), true);
-    cli.type("hello\r");
     await cli.terminal.waitFor("echo: hello");
+    cli.type("again\r");
+    await cli.terminal.waitFor("echo: again");
     cli.type("/exit\r");
     assert.equal(await cli.waitForExit(), 0);
   });

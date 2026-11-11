@@ -77,6 +77,28 @@ async def test_yes_writes_the_default_config_without_questions(cli_home: CliHome
     assert written["model"] == "scripted-model"
 
 
+async def test_a_message_typed_with_the_last_answer_reaches_the_chat(cli_home: CliHome) -> None:
+    child = cli_home.spawn()
+    for question in (
+        "Model",
+        "System prompt",
+        "Connectors to enable",
+        "Workspace",
+        "Allow file tools",
+        "Allow shell commands",
+        "Commands that run without approval",
+        "Allow web fetching",
+    ):
+        await expect(child, question)
+        child.sendline("")
+    await expect(child, "Allow a local browser")
+    child.send("\nhello\n")
+    await expect(child, f"Wrote {cli_home.config_path}.")
+    await expect(child, "echo: hello")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+
+
 async def test_ctrl_c_at_the_first_init_question_exits_with_130_and_writes_no_file(
     cli_home: CliHome,
 ) -> None:

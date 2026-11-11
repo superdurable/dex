@@ -187,6 +187,7 @@ class AgentCliCommand {
   private readonly environment: CliEnvironment;
   private input: TerminalInput | undefined;
   private isInitInterrupted = false;
+  private linesTypedAhead: readonly string[] = [];
   private worker: Worker | undefined;
   private client: Client | undefined;
   private blobCache: BlobCache | undefined;
@@ -618,7 +619,7 @@ class AgentCliCommand {
   }
 
   private terminalInput(): TerminalInput {
-    this.input ??= new TerminalInput(this.io.stdin, this.io.stdout);
+    this.input ??= new TerminalInput(this.io.stdin, this.io.stdout, this.linesTypedAhead);
     return this.input;
   }
 
@@ -627,7 +628,7 @@ class AgentCliCommand {
       return await askInitQuestions(this.harness, (question) => this.ask(question), this.log);
     } finally {
       // Closing leaves raw mode, so Ctrl-C during startup ends the process until the chat reads again.
-      this.input?.close();
+      this.linesTypedAhead = this.input?.close() ?? [];
       this.input = undefined;
     }
   }
