@@ -77,8 +77,8 @@ from dex_agents import (
     ToolTaskPoll,
     ToolTaskPollOutcome,
 )
+from dex_agents.builtin_loop import SourceToolDefinition
 from dex_agents.connectors import ConnectorToolSource, connector_tool
-from dex_agents.stepwise import SourceToolDefinition
 from dex_agents.testing import FileGate, InvocationLog
 from dex_agents_claude_agent_sdk import (
     ClaudeAgentOptionsContext,

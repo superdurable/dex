@@ -37,9 +37,9 @@ from dex_agents import (
     ToolTaskPollOutcome,
     TurnCompleted,
 )
-from dex_agents.mcp import DEFAULT_MCP_SOURCE_NAME, McpStdioServerConfig, McpToolSource
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     AgentDefinition,
+    BuiltinLoopAgentRunner,
     ModelOutputWriter,
     ModelRequest,
     ModelRequestMetadata,
@@ -49,8 +49,8 @@ from dex_agents.stepwise import (
     ScriptedModelReply,
     ScriptedToolCall,
     SourceToolDefinition,
-    StepwiseAgentRunner,
 )
+from dex_agents.mcp import DEFAULT_MCP_SOURCE_NAME, McpStdioServerConfig, McpToolSource
 from dex_agents.testing import ScriptedModelClient as ScriptedModelClientOfTesting
 from dex_agents.testing import ScriptedModelReply as ScriptedModelReplyOfTesting
 from tests.fake_mcp_server import INVOCATION_LOG_NAME, STATE_DIR_ENVIRONMENT_VARIABLE
@@ -238,7 +238,7 @@ async def test_an_unlisted_source_tool_fails_as_unknown_without_approval_and_nev
             ]
         )
     )
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(name="agent", instructions="Help.", model=model, tool_sources=[source])
     )
 
@@ -268,7 +268,7 @@ async def test_an_unlisted_source_tool_fails_as_unknown_without_approval_and_nev
 async def test_a_call_reaches_the_source_that_built_it_without_a_listing() -> None:
     search = _InMemoryToolSource("search")
     fetch = _InMemoryToolSource("fetch")
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent", instructions="Help.", model=_calls("fetch"), tool_sources=[search, fetch]
         )
@@ -283,7 +283,7 @@ async def test_a_call_reaches_the_source_that_built_it_without_a_listing() -> No
 
     # A new Worker runs the tool Step while neither source can list.
     search.is_listing_broken = fetch.is_listing_broken = True
-    fresh_runner = StepwiseAgentRunner(runner.definition)
+    fresh_runner = BuiltinLoopAgentRunner(runner.definition)
     assert await fresh_runner.execute_deferred_tool_call(
         _execution(_record(call))
     ) == ToolExecutionResult(output="ran fetch")
@@ -297,7 +297,7 @@ async def test_a_call_reaches_the_source_that_built_it_without_a_listing() -> No
 
 
 async def test_a_call_whose_source_cannot_be_told_is_retried_not_failed() -> None:
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent",
             instructions="Help.",
@@ -305,7 +305,7 @@ async def test_a_call_whose_source_cannot_be_told_is_retried_not_failed() -> Non
             tool_sources=[_InMemoryToolSource("search")],
         )
     )
-    shrunk_runner = StepwiseAgentRunner(runner.definition)
+    shrunk_runner = BuiltinLoopAgentRunner(runner.definition)
     moved = AgentToolCall(
         tool_call_id="call-1",
         turn_id="turn-1",
@@ -319,7 +319,7 @@ async def test_a_call_whose_source_cannot_be_told_is_retried_not_failed() -> Non
     # A LookupError is not a ToolExecutionError, so the effect class decides the outcome.
     with pytest.raises(LookupError, match="memory:gone, .* is not configured on this Worker"):
         await shrunk_runner.execute_deferred_tool_call(_execution(moved))
-    several = StepwiseAgentRunner(
+    several = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent",
             instructions="Help.",
@@ -364,7 +364,7 @@ async def test_down_servers_offer_no_tools_without_failing_the_turn_or_being_ret
         listing_failure_backoff=timedelta(minutes=5),
     )
     model = _answers()
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent",
             instructions="Help.",
@@ -395,7 +395,7 @@ async def test_down_servers_offer_no_tools_without_failing_the_turn_or_being_ret
 
 
 async def test_a_hanging_source_is_bounded_per_model_call() -> None:
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent",
             instructions="Help.",
@@ -460,7 +460,7 @@ async def test_a_source_tool_name_collision_fails_the_model_step_before_any_mode
     sources: list[_InMemoryToolSource], message: str
 ) -> None:
     model = _answers()
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent",
             instructions="Help.",
@@ -532,7 +532,7 @@ class _CachedToolSource(_InMemoryToolSource):
 
 def test_the_estimate_counts_a_source_listing_cached_before_any_model_call() -> None:
     model = _EstimateRecordingModel()
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent",
             instructions="Help.",
@@ -594,7 +594,7 @@ def _stdio_server(name: str, state_dir: Path) -> McpStdioServerConfig:
 async def test_a_stored_call_reaches_its_source_after_sources_are_reordered_or_added() -> None:
     search = _InMemoryToolSource("search")
     fetch = _InMemoryToolSource("fetch")
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent", instructions="Help.", model=_calls("fetch"), tool_sources=[search, fetch]
         )
@@ -604,7 +604,7 @@ async def test_a_stored_call_reaches_its_source_after_sources_are_reordered_or_a
     (call,) = outcome.tool_calls
 
     for sources in ([fetch, search], [_InMemoryToolSource("crm"), search, fetch]):
-        deployed = StepwiseAgentRunner(
+        deployed = BuiltinLoopAgentRunner(
             AgentDefinition(
                 name="agent", instructions="Help.", model=_answers(), tool_sources=sources
             )
@@ -631,7 +631,7 @@ async def test_swapped_mcp_sources_still_run_the_call_on_its_server(tmp_path: Pa
             ]
         )
     )
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent", instructions="Help.", model=model, tool_sources=[files, other]
         )
@@ -639,7 +639,7 @@ async def test_swapped_mcp_sources_still_run_the_call_on_its_server(tmp_path: Pa
     outcome = await runner.run_model_step(_turn_context())
     assert isinstance(outcome, ToolCallsRequested)
     (call,) = outcome.tool_calls
-    swapped = StepwiseAgentRunner(
+    swapped = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent", instructions="Help.", model=model, tool_sources=[other, files]
         )
@@ -666,7 +666,7 @@ async def test_a_refresh_during_the_model_call_does_not_fail_the_model_step(
         )
 
     model = ScriptedModelClient(respond)
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(name="agent", instructions="Help.", model=model, tool_sources=[source])
     )
     outcome = await runner.run_model_step(_turn_context())
@@ -717,7 +717,7 @@ async def test_a_stored_call_still_routes_after_a_server_is_added_to_its_source(
     )
     before = McpToolSource([_stdio_server("files", tmp_path / "f")], connection_attempts=1)
     assert before.source_name == DEFAULT_MCP_SOURCE_NAME == "mcp"
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(name="agent", instructions="Help.", model=model, tool_sources=[before])
     )
     outcome = await runner.run_model_step(_turn_context())
@@ -730,7 +730,7 @@ async def test_a_stored_call_still_routes_after_a_server_is_added_to_its_source(
         connection_attempts=1,
     )
     assert after.source_name == before.source_name
-    deployed = StepwiseAgentRunner(
+    deployed = BuiltinLoopAgentRunner(
         AgentDefinition(name="agent", instructions="Help.", model=model, tool_sources=[after])
     )
     result = await deployed.execute_deferred_tool_call(_execution(_record(call)))

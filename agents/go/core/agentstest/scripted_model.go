@@ -17,8 +17,8 @@ import (
 	"sync"
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
+	"github.com/superdurable/dex/agents/go/core/builtinloop"
 	"github.com/superdurable/dex/agents/go/core/internal/pythonjson"
-	"github.com/superdurable/dex/agents/go/core/stepwise"
 )
 
 // ScriptedModelProvider is the ModelOutputItem.Provider of every item ScriptedModelClient returns.
@@ -53,7 +53,7 @@ type ScriptedModelReply struct {
 }
 
 // ScriptedModelResponder returns the reply for one request. An error fails the RunModel attempt.
-type ScriptedModelResponder func(request stepwise.ModelRequest) (ScriptedModelReply, error)
+type ScriptedModelResponder func(request builtinloop.ModelRequest) (ScriptedModelReply, error)
 
 // ScriptedModelClient answers every model call from a script, for tests without a model key.
 //
@@ -63,7 +63,7 @@ type ScriptedModelResponder func(request stepwise.ModelRequest) (ScriptedModelRe
 // byte those of the Python core's ScriptedModelClient, so a session scripted
 // in one core continues in another.
 //
-//	model := agentstest.NewScriptedModelClient(func(request stepwise.ModelRequest) (agentstest.ScriptedModelReply, error) {
+//	model := agentstest.NewScriptedModelClient(func(request builtinloop.ModelRequest) (agentstest.ScriptedModelReply, error) {
 //		if len(agentstest.ToolResults(request)) > 0 {
 //			return agentstest.ScriptedModelReply{Text: "done"}, nil
 //		}
@@ -74,7 +74,7 @@ type ScriptedModelResponder func(request stepwise.ModelRequest) (ScriptedModelRe
 type ScriptedModelClient struct {
 	respond  ScriptedModelResponder
 	mutex    sync.Mutex
-	requests []stepwise.ModelRequest
+	requests []builtinloop.ModelRequest
 }
 
 // NewScriptedModelClient creates a client around a script. respond must not be nil.
@@ -86,10 +86,10 @@ func NewScriptedModelClient(respond ScriptedModelResponder) *ScriptedModelClient
 }
 
 // Requests returns every request this client received in this process, in call order.
-func (client *ScriptedModelClient) Requests() []stepwise.ModelRequest {
+func (client *ScriptedModelClient) Requests() []builtinloop.ModelRequest {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
-	return append([]stepwise.ModelRequest(nil), client.requests...)
+	return append([]builtinloop.ModelRequest(nil), client.requests...)
 }
 
 // CallModel runs the script for one request and streams its reply.
@@ -98,41 +98,41 @@ func (client *ScriptedModelClient) Requests() []stepwise.ModelRequest {
 // for the parts the reply has.
 func (client *ScriptedModelClient) CallModel(
 	_ context.Context,
-	request stepwise.ModelRequest,
-	output stepwise.ModelOutputWriter,
-) (stepwise.ModelResponse, error) {
+	request builtinloop.ModelRequest,
+	output builtinloop.ModelOutputWriter,
+) (builtinloop.ModelResponse, error) {
 	client.mutex.Lock()
 	client.requests = append(client.requests, request)
 	client.mutex.Unlock()
 	reply, err := client.respond(request)
 	if err != nil {
-		return stepwise.ModelResponse{}, err
+		return builtinloop.ModelResponse{}, err
 	}
-	items := []stepwise.ModelOutputItem{}
+	items := []builtinloop.ModelOutputItem{}
 	if reply.Reasoning != nil {
 		if err := output.WriteReasoningDelta(*reply.Reasoning); err != nil {
-			return stepwise.ModelResponse{}, err
+			return builtinloop.ModelResponse{}, err
 		}
 		item, err := scriptedItem(pythonjson.Object{{Key: "type", Value: "reasoning"}, {Key: "summary", Value: *reply.Reasoning}}, nil, nil)
 		if err != nil {
-			return stepwise.ModelResponse{}, err
+			return builtinloop.ModelResponse{}, err
 		}
 		items = append(items, item)
 	}
 	if reply.Text != "" {
 		if err := output.WriteTextDelta(reply.Text); err != nil {
-			return stepwise.ModelResponse{}, err
+			return builtinloop.ModelResponse{}, err
 		}
 		text := reply.Text
 		item, err := scriptedItem(pythonjson.Object{{Key: "type", Value: "message"}, {Key: "text", Value: text}}, &text, nil)
 		if err != nil {
-			return stepwise.ModelResponse{}, err
+			return builtinloop.ModelResponse{}, err
 		}
 		items = append(items, item)
 	}
-	toolCalls := []stepwise.ModelToolCall{}
+	toolCalls := []builtinloop.ModelToolCall{}
 	for index, scripted := range reply.ToolCalls {
-		call := stepwise.ModelToolCall{ToolCallID: scripted.ToolCallID, ToolName: scripted.ToolName, Arguments: scripted.Arguments}
+		call := builtinloop.ModelToolCall{ToolCallID: scripted.ToolCallID, ToolName: scripted.ToolName, Arguments: scripted.Arguments}
 		if call.ToolCallID == "" {
 			call.ToolCallID = fmt.Sprintf("%s-%d", request.Metadata.StepExecutionID, index)
 		}
@@ -145,9 +145,9 @@ func (client *ScriptedModelClient) CallModel(
 			{Key: "call_id", Value: call.ToolCallID},
 			{Key: "name", Value: call.ToolName},
 			{Key: "arguments", Value: call.Arguments},
-		}, nil, []stepwise.ModelToolCall{call})
+		}, nil, []builtinloop.ModelToolCall{call})
 		if err != nil {
-			return stepwise.ModelResponse{}, err
+			return builtinloop.ModelResponse{}, err
 		}
 		items = append(items, item)
 	}
@@ -159,22 +159,22 @@ func (client *ScriptedModelClient) CallModel(
 	if len(toolCalls) > 0 {
 		finishReason = "tool_calls"
 	}
-	return stepwise.ModelResponse{
+	return builtinloop.ModelResponse{
 		OutputItems: items, Text: reply.Text, ToolCalls: toolCalls, Usage: usage,
 		ResponseModel: "scripted", FinishReason: finishReason,
 	}, nil
 }
 
 // EstimateInputTokens estimates four characters per token over the request text.
-func (client *ScriptedModelClient) EstimateInputTokens(request stepwise.ModelRequest) int64 {
+func (client *ScriptedModelClient) EstimateInputTokens(request builtinloop.ModelRequest) int64 {
 	characters := len([]rune(request.Instructions))
 	for _, item := range request.InputItems {
 		switch typed := item.(type) {
-		case stepwise.UserTextItem:
+		case builtinloop.UserTextItem:
 			characters += len([]rune(typed.Text))
-		case stepwise.ToolResultItem:
+		case builtinloop.ToolResultItem:
 			characters += len([]rune(typed.Output))
-		case stepwise.ModelOutputItem:
+		case builtinloop.ModelOutputItem:
 			characters += len([]rune(typed.Item))
 		}
 	}
@@ -182,10 +182,10 @@ func (client *ScriptedModelClient) EstimateInputTokens(request stepwise.ModelReq
 }
 
 // UserTexts returns the text of every user item in a request, oldest first, Dex notes included.
-func UserTexts(request stepwise.ModelRequest) []string {
+func UserTexts(request builtinloop.ModelRequest) []string {
 	texts := []string{}
 	for _, item := range request.InputItems {
-		if userText, isUserText := item.(stepwise.UserTextItem); isUserText {
+		if userText, isUserText := item.(builtinloop.UserTextItem); isUserText {
 			texts = append(texts, userText.Text)
 		}
 	}
@@ -193,13 +193,13 @@ func UserTexts(request stepwise.ModelRequest) []string {
 }
 
 // ToolResults returns the tool results after the last user item of a request, oldest first.
-func ToolResults(request stepwise.ModelRequest) []stepwise.ToolResultItem {
-	results := []stepwise.ToolResultItem{}
+func ToolResults(request builtinloop.ModelRequest) []builtinloop.ToolResultItem {
+	results := []builtinloop.ToolResultItem{}
 	for _, item := range request.InputItems {
 		switch typed := item.(type) {
-		case stepwise.UserTextItem:
-			results = []stepwise.ToolResultItem{}
-		case stepwise.ToolResultItem:
+		case builtinloop.UserTextItem:
+			results = []builtinloop.ToolResultItem{}
+		case builtinloop.ToolResultItem:
 			results = append(results, typed)
 		}
 	}
@@ -216,12 +216,12 @@ func JSONArguments(arguments map[string]any) (string, error) {
 	return pythonjson.Marshal(json.RawMessage(encoded), pythonjson.Options{ShouldEscapeNonASCII: true})
 }
 
-func scriptedItem(item pythonjson.Object, text *string, toolCalls []stepwise.ModelToolCall) (stepwise.ModelOutputItem, error) {
+func scriptedItem(item pythonjson.Object, text *string, toolCalls []builtinloop.ModelToolCall) (builtinloop.ModelOutputItem, error) {
 	encoded, err := pythonjson.Marshal(item, pythonjson.Options{IsCompact: true, ShouldEscapeNonASCII: true})
 	if err != nil {
-		return stepwise.ModelOutputItem{}, err
+		return builtinloop.ModelOutputItem{}, err
 	}
-	return stepwise.ModelOutputItem{
+	return builtinloop.ModelOutputItem{
 		Provider: ScriptedModelProvider, API: ScriptedModelAPI, Item: encoded, Text: text, ToolCalls: toolCalls,
 	}, nil
 }

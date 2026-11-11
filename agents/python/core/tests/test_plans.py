@@ -38,7 +38,7 @@ from dex_agents import (
     PlanTaskStatus,
     build_plan_execution_message,
 )
-from dex_agents.stepwise import AgentDefinition
+from dex_agents.builtin_loop import AgentDefinition
 from dex_agents.testing import ScriptedModelClient, ScriptedModelReply
 from tests.conftest import ScriptedAgentHarness
 from tests.plan_agent import (

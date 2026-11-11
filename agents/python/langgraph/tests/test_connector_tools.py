@@ -30,9 +30,9 @@ from dex_agents import (
     ToolEffect,
     ToolPolicy,
 )
+from dex_agents.builtin_loop import FrameworkToolSourceRouter, SourceToolListing
+from dex_agents.builtin_loop.framework_tool_sources import _ListedSourceTool
 from dex_agents.connectors import ConnectorToolSource, connector_tool
-from dex_agents.stepwise import FrameworkToolSourceRouter, SourceToolListing
-from dex_agents.stepwise.framework_tool_sources import _ListedSourceTool
 from langchain_core.messages import ToolCall
 
 from dex_agents_langgraph import LangGraphAgentRunner, langchain_agent_session_flow

@@ -23,11 +23,11 @@ import type { AgentSessionFlow } from "../../src/index.js";
 import { FileGate } from "../../src/testing/index.js";
 import {
   ScriptedModelClient,
-  createStepwiseAgentSessionFlow,
+  createBuiltinAgentSessionFlow,
   type ModelRequest,
   type ScriptedModelReply,
-  type StepwiseAgentRunner,
-} from "../../src/stepwise/index.js";
+  type BuiltinLoopAgentRunner,
+} from "../../src/builtin-loop/index.js";
 import {
   CreatePayoutInputSchema,
   CreatePayoutOperation,
@@ -120,7 +120,7 @@ export function createConnectorAgentFlow(
   stateDirectory: string,
   maxResultBytes?: number,
   droppedTools: ReadonlySet<string> = new Set(),
-): AgentSessionFlow<StepwiseAgentRunner> {
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const reply = async (request: ModelRequest): Promise<ScriptedModelReply> => {
     let command = ScriptedModelClient.userTexts(request).at(-1) ?? "";
     const firstWord = command.split(" ", 1)[0] ?? "";
@@ -149,7 +149,7 @@ export function createConnectorAgentFlow(
       })),
     };
   };
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "connector-agent",
       instructions: "You are a scripted test agent.",

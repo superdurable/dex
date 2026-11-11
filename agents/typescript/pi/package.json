@@ -1,0 +1,52 @@
+{
+  "name": "@superdurable/dex-agents-pi",
+  "version": "0.1.0",
+  "description": "Durable Pi agents on Dex: Dex runs the agent loop, pi-ai calls the model",
+  "license": "LicenseRef-Sustainable-Use-1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superdurable/dex.git",
+    "directory": "agents/typescript/pi"
+  },
+  "homepage": "https://github.com/superdurable/dex/tree/main/agents/typescript/pi#readme",
+  "bugs": {
+    "url": "https://github.com/superdurable/dex/issues"
+  },
+  "type": "module",
+  "types": "./dist/src/index.d.ts",
+  "engines": {
+    "node": "^22.19.0 || ^24.0.0"
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:integration": "npm run build && node --test --test-concurrency=1 --test-timeout=240000 'dist/test/integ/*.integration.test.js'"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "^1.5.1",
+    "@superdurable/dex": "1.38.0",
+    "@superdurable/dex-agents": "^0.1.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "1.5.1",
+    "@superdurable/dex": "1.38.0",
+    "@superdurable/dex-agents": "file:../core",
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

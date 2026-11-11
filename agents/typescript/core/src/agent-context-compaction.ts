@@ -17,7 +17,7 @@ import type { AgentMessage, AgentUsage, ContextSummary, SessionSettings } from "
 
 /**
  * When a session summarizes its earlier messages so the model input stays under the context window, passed
- * as {@link AgentSessionOptions.compaction} or as `AgentDefinition.compaction` for a Stepwise agent.
+ * as {@link AgentSessionOptions.compaction} or as `AgentDefinition.compaction` for a built-in loop agent.
  *
  * Before each model call, `RunModel` asks the runner for the size of the next model input. When it reaches
  * {@link triggerRatio} of {@link contextWindowTokens}, `RunModel` makes no model call and moves to

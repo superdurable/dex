@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-// Package anthropicmodel connects Stepwise agents to Claude models through the official
+// Package anthropicmodel connects built-in agent loop agents to Claude models through the official
 // anthropic-sdk-go SDK.
 //
 // MessagesModelClient makes one streaming Messages API request per RunModel
@@ -30,8 +30,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
+	"github.com/superdurable/dex/agents/go/core/builtinloop"
 	"github.com/superdurable/dex/agents/go/core/internal/pythonjson"
-	"github.com/superdurable/dex/agents/go/core/stepwise"
 )
 
 // ChatCompletionsAPI is the ModelOutputItem.API of the items this client returns.
@@ -83,7 +83,7 @@ func WithRequestOptions(requestOptions ...option.RequestOption) MessagesModelCli
 // 2048}}. ProviderOptions set top-level request fields last.
 //
 //	model := anthropicmodel.NewMessagesModelClient(anthropic.NewClient(), "claude-sonnet-4-5")
-//	definition, err := stepwise.NewAgentDefinition("support", "You help customers.", model)
+//	definition, err := builtinloop.NewAgentDefinition("support", "You help customers.", model)
 type MessagesModelClient struct {
 	client         anthropic.Client
 	model          string
@@ -143,24 +143,24 @@ type contentBlockBuilder struct {
 // event, or the stream ends without message_stop.
 func (client *MessagesModelClient) CallModel(
 	ctx context.Context,
-	request stepwise.ModelRequest,
-	output stepwise.ModelOutputWriter,
-) (stepwise.ModelResponse, error) {
+	request builtinloop.ModelRequest,
+	output builtinloop.ModelOutputWriter,
+) (builtinloop.ModelResponse, error) {
 	requestOptions, maxTokens, err := client.requestBody(request)
 	if err != nil {
-		return stepwise.ModelResponse{}, err
+		return builtinloop.ModelResponse{}, err
 	}
 	stream := client.client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
 		Model: anthropic.Model(client.model), MaxTokens: maxTokens,
 	}, requestOptions...)
 	blocks := map[int]*contentBlockBuilder{}
 	blockOrder := []int{}
-	response := stepwise.ModelResponse{ToolCalls: []stepwise.ModelToolCall{}, Usage: dexagents.AgentUsage{ModelCalls: 1}}
+	response := builtinloop.ModelResponse{ToolCalls: []builtinloop.ModelToolCall{}, Usage: dexagents.AgentUsage{ModelCalls: 1}}
 	isStopped := false
 	for stream.Next() {
 		var event messagesStreamEvent
 		if err := json.Unmarshal([]byte(stream.Current().RawJSON()), &event); err != nil {
-			return stepwise.ModelResponse{}, errors.Join(fmt.Errorf("decode a Messages API event: %w", err), stream.Close())
+			return builtinloop.ModelResponse{}, errors.Join(fmt.Errorf("decode a Messages API event: %w", err), stream.Close())
 		}
 		err = nil
 		switch event.Type {
@@ -189,14 +189,14 @@ func (client *MessagesModelClient) CallModel(
 			isStopped = true
 		}
 		if err != nil {
-			return stepwise.ModelResponse{}, errors.Join(err, stream.Close())
+			return builtinloop.ModelResponse{}, errors.Join(err, stream.Close())
 		}
 	}
 	if err := errors.Join(stream.Err(), stream.Close()); err != nil {
-		return stepwise.ModelResponse{}, err
+		return builtinloop.ModelResponse{}, err
 	}
 	if !isStopped {
-		return stepwise.ModelResponse{}, errors.New("the Messages API stream ended without message_stop")
+		return builtinloop.ModelResponse{}, errors.New("the Messages API stream ended without message_stop")
 	}
 	return finishResponse(response, blocks, blockOrder)
 }
@@ -230,7 +230,7 @@ func newContentBlockBuilder(raw json.RawMessage) (*contentBlockBuilder, error) {
 	return builder, nil
 }
 
-func applyDelta(builder *contentBlockBuilder, event messagesStreamEvent, output stepwise.ModelOutputWriter) error {
+func applyDelta(builder *contentBlockBuilder, event messagesStreamEvent, output builtinloop.ModelOutputWriter) error {
 	if builder == nil {
 		return fmt.Errorf("a %s arrived for unknown content block %d", event.Delta.Type, event.Index)
 	}
@@ -257,10 +257,10 @@ func applyDelta(builder *contentBlockBuilder, event messagesStreamEvent, output 
 // tool call, or signed thinking stores nothing: the API rejects an empty
 // assistant message on every later request.
 func finishResponse(
-	response stepwise.ModelResponse,
+	response builtinloop.ModelResponse,
 	blocks map[int]*contentBlockBuilder,
 	blockOrder []int,
-) (stepwise.ModelResponse, error) {
+) (builtinloop.ModelResponse, error) {
 	toolCalls := []any{}
 	thinkingBlocks := []any{}
 	for _, index := range blockOrder {
@@ -283,7 +283,7 @@ func finishResponse(
 		case "tool_use":
 			toolCall, storedArguments, err := builder.toolCall()
 			if err != nil {
-				return stepwise.ModelResponse{}, err
+				return builtinloop.ModelResponse{}, err
 			}
 			response.ToolCalls = append(response.ToolCalls, toolCall)
 			toolCalls = append(toolCalls, pythonjson.Object{
@@ -295,7 +295,7 @@ func finishResponse(
 			})
 		}
 	}
-	response.OutputItems = []stepwise.ModelOutputItem{}
+	response.OutputItems = []builtinloop.ModelOutputItem{}
 	if response.Text == "" && len(toolCalls) == 0 && len(thinkingBlocks) == 0 {
 		return response, nil
 	}
@@ -311,14 +311,14 @@ func finishResponse(
 	}
 	item, err := pythonjson.Marshal(message, pythonjson.Options{IsCompact: true})
 	if err != nil {
-		return stepwise.ModelResponse{}, err
+		return builtinloop.ModelResponse{}, err
 	}
-	outputItem := stepwise.ModelOutputItem{Provider: ProviderName, API: ChatCompletionsAPI, Item: item, ToolCalls: response.ToolCalls}
+	outputItem := builtinloop.ModelOutputItem{Provider: ProviderName, API: ChatCompletionsAPI, Item: item, ToolCalls: response.ToolCalls}
 	if response.Text != "" {
 		text := response.Text
 		outputItem.Text = &text
 	}
-	response.OutputItems = []stepwise.ModelOutputItem{outputItem}
+	response.OutputItems = []builtinloop.ModelOutputItem{outputItem}
 	return response, nil
 }
 
@@ -327,7 +327,7 @@ func finishResponse(
 // The stored text is what was streamed, as the Python core stores it; the
 // call's arguments are "{}" then. Input that arrived whole in
 // content_block_start counts when no delta came.
-func (builder *contentBlockBuilder) toolCall() (stepwise.ModelToolCall, string, error) {
+func (builder *contentBlockBuilder) toolCall() (builtinloop.ModelToolCall, string, error) {
 	var identity struct {
 		ID    string          `json:"id"`
 		Name  string          `json:"name"`
@@ -335,10 +335,10 @@ func (builder *contentBlockBuilder) toolCall() (stepwise.ModelToolCall, string, 
 	}
 	raw, err := pythonjson.Marshal(builder.start, pythonjson.Options{IsCompact: true})
 	if err != nil {
-		return stepwise.ModelToolCall{}, "", err
+		return builtinloop.ModelToolCall{}, "", err
 	}
 	if err := json.Unmarshal([]byte(raw), &identity); err != nil {
-		return stepwise.ModelToolCall{}, "", err
+		return builtinloop.ModelToolCall{}, "", err
 	}
 	storedArguments := builder.inputJSON
 	if storedArguments == "" && len(identity.Input) > 0 && string(identity.Input) != "{}" {
@@ -349,9 +349,9 @@ func (builder *contentBlockBuilder) toolCall() (stepwise.ModelToolCall, string, 
 		arguments = "{}"
 	}
 	if !json.Valid([]byte(arguments)) {
-		return stepwise.ModelToolCall{}, "", fmt.Errorf("tool_use %s input is not JSON", identity.ID)
+		return builtinloop.ModelToolCall{}, "", fmt.Errorf("tool_use %s input is not JSON", identity.ID)
 	}
-	return stepwise.ModelToolCall{ToolCallID: identity.ID, ToolName: identity.Name, Arguments: arguments}, storedArguments, nil
+	return builtinloop.ModelToolCall{ToolCallID: identity.ID, ToolName: identity.Name, Arguments: arguments}, storedArguments, nil
 }
 
 func addUsage(usage *dexagents.AgentUsage, reported messagesUsage) {
@@ -369,7 +369,7 @@ func addUsage(usage *dexagents.AgentUsage, reported messagesUsage) {
 	}
 }
 
-func (client *MessagesModelClient) requestBody(request stepwise.ModelRequest) ([]option.RequestOption, int64, error) {
+func (client *MessagesModelClient) requestBody(request builtinloop.ModelRequest) ([]option.RequestOption, int64, error) {
 	messages, err := anthropicMessages(request.InputItems)
 	if err != nil {
 		return nil, 0, err
@@ -402,15 +402,15 @@ func (client *MessagesModelClient) requestBody(request stepwise.ModelRequest) ([
 }
 
 // EstimateInputTokens estimates four characters per token over the request text and items.
-func (client *MessagesModelClient) EstimateInputTokens(request stepwise.ModelRequest) int64 {
+func (client *MessagesModelClient) EstimateInputTokens(request builtinloop.ModelRequest) int64 {
 	characters := len(request.Instructions)
 	for _, item := range request.InputItems {
 		switch typed := item.(type) {
-		case stepwise.UserTextItem:
+		case builtinloop.UserTextItem:
 			characters += len(typed.Text)
-		case stepwise.ToolResultItem:
+		case builtinloop.ToolResultItem:
 			characters += len(typed.Output)
-		case stepwise.ModelOutputItem:
+		case builtinloop.ModelOutputItem:
 			characters += len(typed.Item)
 		}
 	}
@@ -426,7 +426,7 @@ type anthropicMessage struct {
 	Content []any  `json:"content"`
 }
 
-func anthropicMessages(items []stepwise.ModelInputItem) ([]anthropicMessage, error) {
+func anthropicMessages(items []builtinloop.ModelInputItem) ([]anthropicMessage, error) {
 	messages := []anthropicMessage{}
 	appendBlocks := func(role string, blocks []any) {
 		if len(blocks) == 0 {
@@ -442,11 +442,11 @@ func anthropicMessages(items []stepwise.ModelInputItem) ([]anthropicMessage, err
 	}
 	for _, item := range items {
 		switch typed := item.(type) {
-		case stepwise.UserTextItem:
+		case builtinloop.UserTextItem:
 			appendBlocks("user", []any{map[string]any{"type": "text", "text": typed.Text}})
-		case stepwise.ToolResultItem:
+		case builtinloop.ToolResultItem:
 			appendBlocks("user", []any{map[string]any{"type": "tool_result", "tool_use_id": typed.ToolCallID, "content": typed.Output}})
-		case stepwise.ModelOutputItem:
+		case builtinloop.ModelOutputItem:
 			blocks, err := assistantBlocks(typed)
 			if err != nil {
 				return nil, err
@@ -458,7 +458,7 @@ func anthropicMessages(items []stepwise.ModelInputItem) ([]anthropicMessage, err
 }
 
 // assistantBlocks converts one stored item, keeping thinking signatures for every Anthropic format.
-func assistantBlocks(item stepwise.ModelOutputItem) ([]any, error) {
+func assistantBlocks(item builtinloop.ModelOutputItem) ([]any, error) {
 	switch {
 	case item.Provider == ProviderName && item.API == ChatCompletionsAPI:
 		return chatCompletionsBlocks(item.Item)
@@ -571,13 +571,13 @@ func toolUseBlock(toolCallID string, toolName string, arguments string) map[stri
 	return map[string]any{"type": "tool_use", "id": toolCallID, "name": toolName, "input": input}
 }
 
-func anthropicToolChoice(choice stepwise.ToolChoice) map[string]any {
+func anthropicToolChoice(choice builtinloop.ToolChoice) map[string]any {
 	switch choice.Mode {
-	case stepwise.ToolChoiceModeNone:
+	case builtinloop.ToolChoiceModeNone:
 		return map[string]any{"type": "none"}
-	case stepwise.ToolChoiceModeRequired:
+	case builtinloop.ToolChoiceModeRequired:
 		return map[string]any{"type": "any"}
-	case stepwise.ToolChoiceModeNamed:
+	case builtinloop.ToolChoiceModeNamed:
 		return map[string]any{"type": "tool", "name": choice.ToolName}
 	default:
 		return map[string]any{"type": "auto"}

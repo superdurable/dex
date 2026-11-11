@@ -30,7 +30,7 @@ import type {
   ModelResponse,
   ModelToolCall,
   ModelToolChoice,
-} from "../stepwise/model-client.js";
+} from "../builtin-loop/model-client.js";
 
 /** API name recorded on every output item of this client. */
 export const aiSdkModelClientApi = "ai-sdk";
@@ -57,7 +57,7 @@ export interface AiSdkModelClientOptions {
 }
 
 /**
- * Creates a Stepwise {@link ModelClient} for any AI SDK language model.
+ * Creates a built-in agent loop {@link ModelClient} for any AI SDK language model.
  *
  * Each `callModel` makes exactly one model call: one `streamText` call with `stopWhen: stepCountIs(1)`,
  * `maxRetries: 0`, and the agent's tools as definitions without `execute`. The AI SDK therefore runs no
@@ -80,7 +80,7 @@ export interface AiSdkModelClientOptions {
  * import { createAiSdkModelClient } from "@superdurable/dex-agents/ai-sdk";
  *
  * const model = createAiSdkModelClient(anthropic("claude-sonnet-4-5"));
- * const flow = createStepwiseAgentSessionFlow({ name: "support", instructions, model, tools }, "SupportAgent");
+ * const flow = createBuiltinAgentSessionFlow({ name: "support", instructions, model, tools }, "SupportAgent");
  * ```
  * @param model - Any AI SDK `LanguageModel`: a provider model or a model ID string.
  * @param options - Request headers.

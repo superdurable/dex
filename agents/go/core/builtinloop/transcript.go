@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-package stepwise
+package builtinloop
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 	"github.com/superdurable/dex/agents/go/core/internal/pythonjson"
 )
 
-// The framework_item "type" values of stored Stepwise messages, shared with the other cores.
+// The framework_item "type" values of stored built-in loop messages, shared with the other cores.
 const (
 	// UserTextItemType marks stored user text.
 	UserTextItemType = "user_text"
@@ -26,13 +26,15 @@ const (
 	ToolResultItemType = "tool_result"
 )
 
-// EncodeStepwiseMessage returns the session message that stores one model input item.
+// EncodeBuiltinLoopMessage returns the session message that stores one model input item.
 //
 // The framework_item is a compact JSON object with a "type" of user_text,
 // model_output, or tool_result, byte for byte as the Python core writes it. A
 // model output item keeps the provider's item as a JSON string, so its bytes
 // survive storage. It returns an error for an unknown item type.
-func EncodeStepwiseMessage(item ModelInputItem) (dexagents.FrameworkMessage, error) {
+//
+// Since 0.5.0. It replaces stepwise.EncodeStepwiseMessage.
+func EncodeBuiltinLoopMessage(item ModelInputItem) (dexagents.FrameworkMessage, error) {
 	switch typed := item.(type) {
 	case UserTextItem:
 		frameworkItem, err := compactJSON(pythonjson.Object{
@@ -82,7 +84,7 @@ func EncodeStepwiseMessage(item ModelInputItem) (dexagents.FrameworkMessage, err
 	}
 }
 
-type storedStepwiseItem struct {
+type storedBuiltinLoopItem struct {
 	Type       string  `json:"type"`
 	Text       *string `json:"text"`
 	ToolCallID *string `json:"tool_call_id"`
@@ -98,17 +100,19 @@ type storedStepwiseItem struct {
 	} `json:"tool_calls"`
 }
 
-// DecodeStepwiseMessage returns the model input item that one stored session message holds.
+// DecodeBuiltinLoopMessage returns the model input item that one stored session message holds.
 //
 // A model output item's provider JSON is returned unchanged. It returns an
-// error when the message was not stored by Stepwise in any core.
-func DecodeStepwiseMessage(message dexagents.AgentMessage) (ModelInputItem, error) {
-	var stored storedStepwiseItem
+// error when the message was not stored by the built-in agent loop in any core.
+//
+// Since 0.5.0. It replaces stepwise.DecodeStepwiseMessage.
+func DecodeBuiltinLoopMessage(message dexagents.AgentMessage) (ModelInputItem, error) {
+	var stored storedBuiltinLoopItem
 	if err := json.Unmarshal([]byte(message.FrameworkItem), &stored); err != nil {
-		return nil, fmt.Errorf("message %d is not a Stepwise item: %w", message.Sequence, err)
+		return nil, fmt.Errorf("message %d is not a built-in agent loop item: %w", message.Sequence, err)
 	}
 	missing := func(field string) error {
-		return fmt.Errorf("message %d is not a Stepwise item: missing %s", message.Sequence, field)
+		return fmt.Errorf("message %d is not a built-in agent loop item: missing %s", message.Sequence, field)
 	}
 	switch stored.Type {
 	case UserTextItemType:
@@ -136,7 +140,7 @@ func DecodeStepwiseMessage(message dexagents.AgentMessage) (ModelInputItem, erro
 		}
 		return item, nil
 	default:
-		return nil, fmt.Errorf("message %d has unknown Stepwise item type %q", message.Sequence, stored.Type)
+		return nil, fmt.Errorf("message %d has unknown built-in agent loop item type %q", message.Sequence, stored.Type)
 	}
 }
 

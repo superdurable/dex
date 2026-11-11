@@ -21,7 +21,7 @@ from pathlib import Path
 from dex import AsyncClient, BlobCacheConfig, ClientOptions, Registry, open_blob_cache
 
 from dex_agents import AgentSessionClient
-from dex_agents.stepwise import AgentDefinition, stepwise_agent_session_flow
+from dex_agents.builtin_loop import AgentDefinition, builtin_agent_session_flow
 from dex_agents.testing import ScriptedModelClient, ScriptedModelReply
 from dex_agents.ui_stream import agent_snapshot_to_json
 
@@ -42,7 +42,7 @@ async def wait_for(sessions: AgentSessionClient, session_id: str, description: s
 
 async def main(address: str, state_dir: Path, session_id: str) -> None:
     # The Flow only types the Client calls; the Go Worker runs the Steps.
-    flow = stepwise_agent_session_flow(
+    flow = builtin_agent_session_flow(
         AgentDefinition(
             name="scripted",
             instructions="unused",

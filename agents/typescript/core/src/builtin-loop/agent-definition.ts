@@ -44,9 +44,9 @@ export interface InstructionContext {
 }
 
 /**
- * An agent defined in Dex terms, run by the built-in Stepwise loop.
+ * An agent defined in Dex terms, run by the built-in agent loop.
  *
- * Pass it to {@link createStepwiseAgentSessionFlow}. The session Flow, its Steps, approvals, events,
+ * Pass it to {@link createBuiltinAgentSessionFlow}. The session Flow, its Steps, approvals, events,
  * and RPCs are the ones every adapter uses: each model call is one `RunModel` Step, and each function
  * tool call is its own Step. Nothing replays a loop, so no code follows a determinism rule, and a
  * deployed change to the definition takes effect at the next model call.
@@ -55,9 +55,9 @@ export interface InstructionContext {
  * ```ts
  * import { openai } from "@ai-sdk/openai";
  * import { createAiSdkModelClient } from "@superdurable/dex-agents/ai-sdk";
- * import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
+ * import { createBuiltinAgentSessionFlow } from "@superdurable/dex-agents/builtin-loop";
  *
- * export const supportAgentFlow = createStepwiseAgentSessionFlow(
+ * export const supportAgentFlow = createBuiltinAgentSessionFlow(
  *   {
  *     name: "support",
  *     instructions: "You help customers with their orders.",

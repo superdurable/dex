@@ -838,8 +838,8 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * Such a runner reads {@link AgentTurnContext.interactionMode} in every `runModelStep`. In a `planning`
    * turn it offers only the `write_todos` definition from {@link builtInToolDefinitions}. It may force
    * `write_todos` on the turn's first model call while the plan is not a draft yet, where the model accepts a
-   * forced tool choice; Stepwise does with `planningToolChoice: "required"`. In every
-   * turn it shows the plan with {@link buildPlanNote} as user text before the turn's messages. The Stepwise
+   * forced tool choice; the built-in loop does with `planningToolChoice: "required"`. In every
+   * turn it shows the plan with {@link buildPlanNote} as user text before the turn's messages. The built-in loop
    * runner implements it; a framework adapter that cannot change the tools it offers between turns leaves
    * plan mode off.
    */
@@ -900,7 +900,7 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
   /**
    * Returns the timeout and retry policy of one call's tool Step. Optional.
    *
-   * Implement it when some tools need options other than the tool Steps' defaults, as the Stepwise runner
+   * Implement it when some tools need options other than the tool Steps' defaults, as the built-in loop runner
    * does for a tool source that defines `toolCallStepOptions`. The session calls it whenever it starts a
    * call's tool Step, including after an approval, so it must answer from the record alone. A method that
    * throws leaves the defaults.

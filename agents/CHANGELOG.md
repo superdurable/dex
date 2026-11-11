@@ -1,6 +1,6 @@
 # Changelog
 
-All eleven Dex agents packages share this changelog and one version line. A
+All twelve Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
@@ -82,6 +82,20 @@ for the Dex SDK and framework versions each release supports.
   **ClaudeCodeToolDenial** to refuse it, or nothing for the session's policies,
   so `Bash` can run allow-listed commands without approval. See
   [Per-call decisions for Claude Code tools](python/claude-agent-sdk/README.md#per-call-decisions-for-claude-code-tools).
+- New npm package `@superdurable/dex-agents-pi` (not published yet) runs Pi
+  agents on the Stepwise session Flow. Dex runs the agent loop; pi-ai makes
+  each model call and Pi tools run as Dex tool Steps. It peer-depends on
+  `@earendil-works/pi-ai@^1.5.1`, tested with 1.5.1.
+  **createPiAiModelClient(model, { apiKey, headers, prepareRequest })** makes
+  one pi-ai request per `RunModel` attempt, stores the replay fields of pi-ai's
+  assistant message with the pi-ai version, and replays them to every later
+  model call.
+  **piAgentFunctionTool(tool, { effect, requiresApproval })** wraps a Pi
+  `AgentTool`; without an effect, `replay: "safe"` gives `idempotent_write`,
+  `replay: "never"` gives `non_idempotent_write`, and a tool with neither
+  fails when the definition is built. **piDurableFunctionTool(tool, { effect })**
+  wraps a `pi-durable` tool that does not use the Harness `api`. See
+  [typescript/pi](typescript/pi/README.md).
 
 ### Images
 
@@ -145,6 +159,40 @@ for the Dex SDK and framework versions each release supports.
 
 ### Changed
 
+- The built-in agent loop has new names that say what it is. The old names
+  still work for one release, refer to the same objects, and are deprecated.
+  Stored sessions, Flow types, and wire values are unchanged, so a running
+  session resumes after the upgrade. Migrate as follows:
+  - Python core: module `dex_agents.stepwise` -> `dex_agents.builtin_loop`;
+    `StepwiseAgentRunner` -> `BuiltinLoopAgentRunner`;
+    `stepwise_agent_session_flow` -> `builtin_agent_session_flow`;
+    `stepwise_agent_session_options` -> `builtin_agent_session_options`;
+    `encode_stepwise_message` -> `encode_builtin_loop_message`;
+    `decode_stepwise_message` -> `decode_builtin_loop_message`. Every other
+    name keeps its name in the new module. Each name read from
+    `dex_agents.stepwise` or its submodules emits a `DeprecationWarning`.
+  - TypeScript core: subpath `@superdurable/dex-agents/stepwise` ->
+    `@superdurable/dex-agents/builtin-loop`; `StepwiseAgentRunner` ->
+    `BuiltinLoopAgentRunner`; `createStepwiseAgentSessionFlow` ->
+    `createBuiltinAgentSessionFlow`. The old subpath and names are marked
+    `@deprecated`.
+  - Go core: package `github.com/superdurable/dex/agents/go/core/stepwise` ->
+    `github.com/superdurable/dex/agents/go/core/builtinloop`;
+    `StepwiseAgentRunner` -> `BuiltinLoopAgentRunner`;
+    `NewStepwiseAgentRunner` -> `NewBuiltinLoopAgentRunner`;
+    `NewStepwiseAgentSessionFlow` -> `NewBuiltinAgentSessionFlow`;
+    `EncodeStepwiseMessage` -> `EncodeBuiltinLoopMessage`;
+    `DecodeStepwiseMessage` -> `DecodeBuiltinLoopMessage`. Package `stepwise`
+    forwards to `builtinloop` and is marked `Deprecated:`.
+  - The framework adapters and the agents CLI runtime import the new names.
+- The error text for a session message that the built-in agent loop cannot
+  read now says "built-in agent loop item" (Python and Go cores) or "built-in
+  loop item" (TypeScript core) instead of "Stepwise item", and the
+  error for a framework run state it cannot read says "built-in loop" instead
+  of "Stepwise" (Go and TypeScript cores). The
+  Python loggers are now named `dex_agents.builtin_loop.*`, and the Go core's
+  panic messages for a nil model client or definition start with
+  `builtinloop:` instead of `stepwise:`.
 - Breaking, Python and TypeScript cores: a connector tool's default name now
   uses the Connector library's snake case (connectorctl `lowerCamelToSnake`),
   which also names the Python Step factories. An acronym run stays one word.
