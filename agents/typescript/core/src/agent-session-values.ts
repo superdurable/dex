@@ -181,6 +181,16 @@ export interface AgentSessionStartInput {
    * dex-agents 0.2.0, because a 0.1.0 Worker drops them. Wire field: `session_settings`.
    */
   readonly sessionSettings?: SessionSettings | null;
+  /**
+   * Where the program that started the session ran, as string keys and values, such as a host name and a workspace
+   * path. Absent or `null` records nothing. The session never reads it: it stays in the Flow's start input, so a run
+   * shows the environment that started it. The Dex Agents CLI records its host, user, configuration file, and
+   * workspace here. Never put a secret in it. Workers before dex-agents 0.5.0 ignore it. Wire field:
+   * `start_environment`.
+   *
+   * @since 0.5.0
+   */
+  readonly startEnvironment?: Readonly<Record<string, string>> | null;
 }
 
 /** Small durable summary of an agent session, stored in the `AgentState` Attribute. */

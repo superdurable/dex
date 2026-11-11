@@ -57,7 +57,7 @@ Do not split only because there is another API call. Keep consecutive work in on
 | Condition | Meaning |
 | --- | --- |
 | Timer | a durable delay. See [timer.md](timer.md). |
-| Channel | enough pending messages on a Channel or ChannelMap instance. See [channel.md](channel.md#wait-and-consume). |
+| Channel | enough pending messages on a Channel or ChannelMap instance. See [channel.md](channel.md#wait-and-consume). A Join's conditions are Channel conditions on its ChannelMap; see [patterns.md](patterns.md#await-parallel-steps). |
 | SubFlow | a child Flow finishes. WaitFor starts the child. See [subflow.md](subflow.md). |
 
 Rules:

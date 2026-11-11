@@ -118,11 +118,25 @@ export enum ExecuteMethodFailurePolicy {
   UNRECOGNIZED = -1,
 }
 
+/**
+ * Decides whether StartFlow may start a new run for a Flow ID that already has a run.
+ * Dex checks the latest run only. A Flow ID without runs always starts.
+ * A retry of the latest run's start request skips this policy; see StartFlowRequest.request_id.
+ */
 export enum IdReusePolicy {
+  /** ID_REUSE_POLICY_UNSPECIFIED - Same as ID_REUSE_POLICY_DISALLOW_REUSE. */
   ID_REUSE_POLICY_UNSPECIFIED = 0,
+  /**
+   * ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY - Starts a new run when the latest run closed as FAILED, CANCELED, or TERMINATED.
+   * Rejects the start when the latest run is RUNNING or COMPLETED.
+   * A Flow timeout closes a run as FAILED or CANCELED under FAIL or CANCEL; under HANDLER, the handler decides.
+   */
   ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY = 1,
+  /** ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING - Starts a new run when the latest run is closed, whatever its status. */
   ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING = 2,
+  /** ID_REUSE_POLICY_DISALLOW_REUSE - Rejects the start whenever the Flow ID has a run. */
   ID_REUSE_POLICY_DISALLOW_REUSE = 3,
+  /** ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING - Terminates a running latest run, then starts a new run. Never rejects a new request. */
   ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING = 4,
   UNRECOGNIZED = -1,
 }
@@ -717,7 +731,12 @@ export interface FlowTimeoutHandlerOptions {
   loadChannelMapInstances: string[];
 }
 
+/** Chooses the StartFlow result when Dex does not start a new run. */
 export interface FlowAlreadyStartedOptions {
+  /**
+   * True returns the latest run's ID when the request ID matches that run's start request ID.
+   * Otherwise, and whenever this is false, StartFlow fails with ALREADY_EXISTS (FLOW_ALREADY_STARTED).
+   */
   ignoreAlreadyStartedError: boolean;
 }
 
@@ -842,7 +861,14 @@ export interface StartFlowRequest {
   startStepType: string;
   stepInput: Value | undefined;
   stepOptions: StepOptions | undefined;
-  flowStartOptions: FlowStartOptions | undefined;
+  flowStartOptions:
+    | FlowStartOptions
+    | undefined;
+  /**
+   * Required. Identifies one logical start; Dex records it on the run it starts.
+   * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+   * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+   */
   requestId: string;
 }
 

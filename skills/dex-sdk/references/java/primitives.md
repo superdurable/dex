@@ -480,7 +480,7 @@ building blocks:
 | --- | --- | --- |
 | Static parallel Steps | `goToMany(StepMovement.of(A.class, x), StepMovement.of(B.class, x))` | `patterns/parallel` |
 | Dynamic parallel Steps | build `StepMovement<?>[]` from input | `patterns/parallel` |
-| Await all Steps | branches publish to a Channel and `deadEnd()`; joiner waits `forN(count)` | `patterns/parallel` |
+| Await all Steps | `goToMany(join.fork(context, workers, round -> StepMovement.of(Await.class, round)))`; each worker returns `join.endBranch(context, round, result)`; the join Step waits `join.forAllBranches(round)` | `patterns/parallel` |
 | First win | winner returns `.withCancelingSiblingSteps(Same.class)` | `patterns/parallel` |
 | Parallel SubFlows | `Wait.allOf(SubFlow.run(...), ...)` | `patterns/parallelsubflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |

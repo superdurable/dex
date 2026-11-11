@@ -46,14 +46,25 @@ usage or configuration error.
 
 ### Sessions and Flow types
 
-The command registers its sessions under `<flow_type>-<12 hex digits>`, the
+The command registers its sessions under `<flow_type>-<suffix>`, the
 harness's Flow type namespaced by this machine, user, configuration file, and
-workspace. The digits are the start of the SHA-256 of
+workspace. The suffix is 6 lowercase base36 characters (`0-9a-z`). Take the
+SHA-256 of the UTF-8 text
 `"<hostname>\n<user>\n<config identity>\n<workspace>"`: the user is the
 numeric user ID, or the user name where there is none; the config identity is
 the configuration file's real path, or `defaults` without a file; and the
-workspace is its real path. Tool settings do not count. `session_flow_type`
-computes it. Two commands that differ in any of these never take each other's
+workspace is its real path. Read the digest's first 8 bytes as an unsigned
+big-endian integer, reduce it modulo 36**6, write it in base36, and left-pad
+it with `0` to 6 characters. Tool settings do not count.
+`namespace_session_flow_type` computes it, `session_flow_type` gathers the
+values of this process, and every CLI runtime passes the cases in
+[`agents/conformance/cli_session_flow_types.json`](../../../conformance/cli_session_flow_types.json).
+
+Each new session records these values in its start input,
+`AgentSessionStartInput.start_environment`, so a run shows where it was
+started: `host_name`, `user_id`, `config_identity`, and `workspace` are the
+hashed values, and `user_name` is the user's name, left out when the system
+cannot tell it. They are not session settings and cannot change. Two commands that differ in any of these never take each other's
 tool Steps, so an approved write runs only with the workspace, tools, and
 connections it was approved under. `sessions` lists, and `--resume` continues,
 only sessions of the same Flow type; resuming another one exits with code 2

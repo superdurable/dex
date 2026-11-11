@@ -3,6 +3,18 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.1.0 - 2026-11-10
+
+- Join parallel branches with the Join in `dex-sdk`. The Await parallel Steps skeleton in `patterns.md` and the Go, Python, and TypeScript pattern guidance now fork a Join, end each branch with endBranch, and wait forAllBranches, instead of counting Channel signals.
+- Add the Partial join and reset pattern: the join waits forBranches or forFirstBranch, the next round's split Step resets the previous round with forRemainingBranches, and a cancelling join cancels its sibling branches.
+- Add the Join rules: each branch reports exactly once per round on every exit path; a multi-Step branch passes the round token to its last Step; fork one Join at most once per Step method, while explicit-round-key forks may repeat with distinct keys and are what an RPC uses; reset every looping round whose other branches keep running, but never a cancelling join's round, whose canceled branches never report; branches of an RPC-forked round are siblings of every Step that RPC name started, so cancel them by Step type; a first-branch or n-branch wait on an empty round fails; a canceled branch never reports, so cancel the join with the branches or add a Timer; never publish to the Join's ChannelMap.
+- `dex-app-builder` maps the n8n Merge node and fan-out to a Join instead of a Channel count.
+- `channel.md`, `step.md`, the Java and Rust primitives tables, and `dex-app-builder` product discovery point joins to the Join, which is built on a ChannelMap.
+
+## 1.0.13 - 2026-11-10
+
+- Correct the ID reuse table in `dex-sdk` `flow.md`: allow-if-previous-failed starts a new run after a failed, canceled, or terminated run, not only a failed one.
+
 ## 1.0.12 - 2026-11-10
 
 - Correct the start identity rule in `dex-sdk` `error-handling.md`: a StartFlow retry whose Request ID matches the latest run's start returns that run under every ID reuse policy and never starts a second run or terminates the first. A rejecting policy still keeps the original run the latest one.
