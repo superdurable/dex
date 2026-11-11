@@ -35,9 +35,12 @@ from dex import (
 )
 from dex._flow_definition_upload import (
     PreparedFlowDefinition,
+    _InvalidFlowDefinition,
     encode_json_string,
+    parse_flow_definition_content,
     parse_rfc3339_milliseconds,
     prepare_flow_definitions,
+    rewrite_source_path,
     shareable_source_path,
     upload_worker_flow_definitions,
 )
@@ -80,6 +83,44 @@ def test_generated_at_conformance(case: dict[str, Any]) -> None:
         milliseconds=1
     )
     assert milliseconds == case["unixMillis"]
+
+
+@pytest.mark.parametrize(
+    "case", CONFORMANCE["documentValidity"], ids=lambda case: case["name"]
+)
+def test_document_validity_conformance(case: dict[str, Any]) -> None:
+    content = case["document"].encode("utf-8")
+    if case["valid"]:
+        parse_flow_definition_content(content, "test")
+        return
+    with pytest.raises(ValueError) as failure:
+        parse_flow_definition_content(content, "test")
+    # A generatedAt error is a configuration error, never a skippable non-FDG file.
+    assert isinstance(failure.value, _InvalidFlowDefinition) != bool(
+        case.get("generatedAtError")
+    )
+
+
+@pytest.mark.parametrize(
+    "case", CONFORMANCE["documentRewrite"], ids=lambda case: case["name"]
+)
+def test_document_rewrite_conformance(case: dict[str, Any]) -> None:
+    content = case["document"].encode("utf-8")
+    expected = content if case["expected"] is None else case["expected"].encode("utf-8")
+    assert rewrite_source_path(content, case["cwd"]) == expected
+
+
+def test_in_memory_document_with_malformed_generated_at_is_rejected() -> None:
+    content = fdg("MemoryFlow", generatedAt="2026-11-01T00:00:00+00:99")
+    with pytest.raises(ValueError, match="not RFC 3339"):
+        prepare_flow_definitions(
+            (),
+            (
+                FlowDefinitionDocument(
+                    "MemoryFlow", content, datetime(2026, 11, 1, tzinfo=timezone.utc)
+                ),
+            ),
+        )
 
 
 def fdg(flow_type: str, schema_version: str = "2.0", **fields: Any) -> str:

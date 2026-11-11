@@ -1,5 +1,5 @@
 {
-  "description": "Cross-SDK conformance cases for Worker-side Flow Definition Graph upload. Every SDK must produce exactly these results.",
+  "description": "Cross-SDK conformance cases for Worker-side Flow Definition Graph upload. Every SDK must produce exactly these results. documentRewrite.expected null means the original bytes are sent unchanged. documentValidity applies to explicit files and in-memory documents (invalid = configuration error); in a directory walk, an invalid document is skipped with an info log unless generatedAtError is true (configuration error).",
   "sourcePathRewrite": [
     {
       "name": "absolute under cwd",
@@ -124,6 +124,167 @@
     {
       "value": "2026-11-01T00:00:00+0200",
       "error": true
+    },
+    {
+      "value": "2026-10-31T18:30:00-05:30",
+      "unixMillis": 1793491200000
+    },
+    {
+      "value": "2026-11-01T00:00:00+00:99",
+      "error": true
+    },
+    {
+      "value": "2026-11-01T00:00:00+24:00",
+      "error": true
+    },
+    {
+      "value": "2026-11-01T24:00:00Z",
+      "error": true
+    },
+    {
+      "value": "2026-11-01T00:60:00Z",
+      "error": true
+    },
+    {
+      "value": "2026-11-01T00:00:60Z",
+      "error": true
+    },
+    {
+      "value": "2026-02-30T00:00:00Z",
+      "error": true
+    },
+    {
+      "value": "2026-13-01T00:00:00Z",
+      "error": true
+    },
+    {
+      "value": "2026-11-01T00:00:00.Z",
+      "error": true
+    }
+  ],
+  "documentValidity": [
+    {
+      "name": "minimal valid",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"A\"}}",
+      "valid": true
+    },
+    {
+      "name": "schema 2.1 with trailing whitespace",
+      "document": "{\"schemaVersion\":\"2.1\",\"flow\":{\"name\":\"A\"}}\n  ",
+      "valid": true
+    },
+    {
+      "name": "NaN is not JSON",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"A\"},\"x\":NaN}",
+      "valid": false
+    },
+    {
+      "name": "Infinity is not JSON",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"A\"},\"x\":Infinity}",
+      "valid": false
+    },
+    {
+      "name": "trailing garbage",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"A\"}} garbage",
+      "valid": false
+    },
+    {
+      "name": "two top-level values",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"A\"}} {}",
+      "valid": false
+    },
+    {
+      "name": "top-level array",
+      "document": "[]",
+      "valid": false
+    },
+    {
+      "name": "schema 1.0",
+      "document": "{\"schemaVersion\":\"1.0\",\"flow\":{\"name\":\"A\"}}",
+      "valid": false
+    },
+    {
+      "name": "missing flow.name",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{}}",
+      "valid": false
+    },
+    {
+      "name": "empty flow.name",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"\"}}",
+      "valid": false
+    },
+    {
+      "name": "flow.name not a string",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{\"name\":1}}",
+      "valid": false
+    },
+    {
+      "name": "malformed generatedAt is a configuration error even in a directory",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"A\"},\"generatedAt\":\"bad\"}",
+      "valid": false,
+      "generatedAtError": true
+    },
+    {
+      "name": "generatedAt not a string",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"A\"},\"generatedAt\":5}",
+      "valid": false,
+      "generatedAtError": true
+    }
+  ],
+  "documentRewrite": [
+    {
+      "name": "replaces only the path string",
+      "cwd": "/work",
+      "document": "{\"schemaVersion\":\"2.0\",\"source\":{\"language\":\"go\",\"path\":\"/work/a/b.go\"},\"flow\":{\"name\":\"A\"}}",
+      "expected": "{\"schemaVersion\":\"2.0\",\"source\":{\"language\":\"go\",\"path\":\"a/b.go\"},\"flow\":{\"name\":\"A\"}}"
+    },
+    {
+      "name": "whitespace preserved",
+      "cwd": "/work",
+      "document": "{\n  \"source\" : { \"path\" : \"/work/dir/f.go\" },\n  \"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"A\"}\n}",
+      "expected": "{\n  \"source\" : { \"path\" : \"dir/f.go\" },\n  \"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"A\"}\n}"
+    },
+    {
+      "name": "escaped original path is decoded first",
+      "cwd": "/work",
+      "document": "{\"schemaVersion\":\"2.0\",\"source\":{\"path\":\"\\/work\\/a.go\"},\"flow\":{\"name\":\"A\"}}",
+      "expected": "{\"schemaVersion\":\"2.0\",\"source\":{\"path\":\"a.go\"},\"flow\":{\"name\":\"A\"}}"
+    },
+    {
+      "name": "relative path unchanged",
+      "cwd": "/work",
+      "document": "{\"schemaVersion\":\"2.0\",\"source\":{\"path\":\"a.go\"},\"flow\":{\"name\":\"A\"}}",
+      "expected": null
+    },
+    {
+      "name": "duplicate top-level source keys: no rewrite",
+      "cwd": "/work",
+      "document": "{\"schemaVersion\":\"2.0\",\"source\":{\"path\":\"/work/a.go\"},\"flow\":{\"name\":\"A\"},\"source\":{\"path\":\"b.go\"}}",
+      "expected": null
+    },
+    {
+      "name": "duplicate path keys inside source: no rewrite",
+      "cwd": "/work",
+      "document": "{\"schemaVersion\":\"2.0\",\"source\":{\"path\":\"/work/a.go\",\"path\":\"/work/b.go\"},\"flow\":{\"name\":\"A\"}}",
+      "expected": null
+    },
+    {
+      "name": "source not an object",
+      "cwd": "/work",
+      "document": "{\"schemaVersion\":\"2.0\",\"source\":\"/work/a.go\",\"flow\":{\"name\":\"A\"}}",
+      "expected": null
+    },
+    {
+      "name": "path not a string",
+      "cwd": "/work",
+      "document": "{\"schemaVersion\":\"2.0\",\"source\":{\"path\":42},\"flow\":{\"name\":\"A\"}}",
+      "expected": null
+    },
+    {
+      "name": "nested source.path is not top-level",
+      "cwd": "/work",
+      "document": "{\"schemaVersion\":\"2.0\",\"flow\":{\"name\":\"A\",\"source\":{\"path\":\"/work/x\"}}}",
+      "expected": null
     }
   ]
 }

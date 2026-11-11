@@ -62,7 +62,7 @@ interface JsonObjectMember {
 }
 
 /** A file that is not a Flow Definition Graph 2.x document. */
-class InvalidFlowDefinitionError extends Error {}
+export class InvalidFlowDefinitionError extends Error {}
 
 /**
  * Loads, validates, and merges the configured Flow definitions.
@@ -247,7 +247,8 @@ export function parseRfc3339Milliseconds(value: string): Date {
     && local.getUTCMinutes() === fields[4]
     && local.getUTCSeconds() === fields[5];
   const offsetMinutes = sign === undefined ? 0 : (Number(offsetHour) * 60 + Number(offsetMinute)) * (sign === "-" ? -1 : 1);
-  if (!isValidCalendarTime || Math.abs(offsetMinutes) >= 24 * 60) {
+  const isValidOffset = sign === undefined || (Number(offsetHour) <= 23 && Number(offsetMinute) <= 59);
+  if (!isValidCalendarTime || !isValidOffset) {
     throw new Error(`${JSON.stringify(value)} is not an RFC 3339 time`);
   }
   return new Date(localMillis - offsetMinutes * 60_000);
@@ -358,10 +359,8 @@ function loadFlowDefinitionFile(filePath: string, workingDirectory: string | und
   } catch (failure) {
     throw new Error(`cannot read Flow definition ${origin}`, { cause: failure });
   }
-  const { text, document } = parseFlowDefinition(content, origin);
-  const flowType = flowName(document, origin);
-  const generatedAt = "generatedAt" in document ? parseGeneratedAt(document.generatedAt, origin) : modifiedAt;
-  return { flowType, content: rewriteSourcePath(content, text, document, workingDirectory), generatedAt, origin };
+  const { flowType, generatedAt } = parseFlowDefinitionContent(content, origin);
+  return { flowType, content: rewriteSourcePath(content, workingDirectory), generatedAt: generatedAt ?? modifiedAt, origin };
 }
 
 function prepareDocument(document: FlowDefinitionDocument, workingDirectory: string | undefined): PreparedFlowDefinition {
@@ -380,17 +379,33 @@ function prepareDocument(document: FlowDefinitionDocument, workingDirectory: str
   } else {
     throw new TypeError(`Flow definition ${origin} content must be a string or Uint8Array`);
   }
-  const { text, document: parsed } = parseFlowDefinition(content, origin);
-  const name = flowName(parsed, origin);
+  // The content's generatedAt must be valid even though the caller's time is used.
+  const { flowType: name } = parseFlowDefinitionContent(content, origin);
   if (name !== document.flowType) {
     throw new Error(`Flow definition ${origin} has flow.name ${JSON.stringify(name)}; it must equal the Flow type`);
   }
   return {
     flowType: document.flowType,
-    content: rewriteSourcePath(content, text, parsed, workingDirectory),
+    content: rewriteSourcePath(content, workingDirectory),
     generatedAt: new Date(Math.floor(document.generatedAt.getTime())),
     origin,
   };
+}
+
+/**
+ * Validates a Flow Definition Graph 2.x document.
+ * @returns The Flow type and the generatedAt time truncated to milliseconds, or `undefined` without one.
+ * @throws {InvalidFlowDefinitionError} The content is not a strict JSON FDG 2.x object with a flow.name.
+ * @throws {Error} The document is an FDG 2.x document with an invalid generatedAt.
+ */
+export function parseFlowDefinitionContent(
+  content: Uint8Array,
+  origin: string,
+): { readonly flowType: string; readonly generatedAt: Date | undefined } {
+  const { document } = parseFlowDefinition(content, origin);
+  const flowType = flowName(document, origin);
+  const generatedAt = "generatedAt" in document ? parseGeneratedAt(document.generatedAt, origin) : undefined;
+  return { flowType, generatedAt };
 }
 
 function parseFlowDefinition(
@@ -435,36 +450,31 @@ function parseGeneratedAt(value: unknown, origin: string): Date {
   }
 }
 
-function rewriteSourcePath(
-  content: Uint8Array,
-  text: string,
-  document: Record<string, unknown>,
-  workingDirectory: string | undefined,
-): Uint8Array {
-  const source = document.source;
-  if (!isJsonObject(source) || typeof source.path !== "string") {
+/**
+ * Rewrites an absolute top-level `source.path` in validated FDG content.
+ * @returns `content` itself unless the top-level object has exactly one `source` key whose object value
+ * has exactly one string `path` key that is absolute; then the content with only that string replaced.
+ */
+export function rewriteSourcePath(content: Uint8Array, workingDirectory: string | undefined): Uint8Array {
+  const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content);
+  const sources = [...jsonObjectMembers(text, skipJsonWhitespace(text, 0))].filter((member) => member.key === "source");
+  const [source] = sources;
+  if (sources.length !== 1 || source === undefined || text[source.valueStart] !== "{") {
     return content;
   }
-  const replacements: { readonly start: number; readonly end: number; readonly encodedPath: string }[] = [];
-  for (const member of jsonObjectMembers(text, skipJsonWhitespace(text, 0))) {
-    if (member.key !== "source" || text[member.valueStart] !== "{") continue;
-    for (const sourceMember of jsonObjectMembers(text, member.valueStart)) {
-      if (sourceMember.key !== "path" || text[sourceMember.valueStart] !== "\"") continue;
-      const originalPath = JSON.parse(text.slice(sourceMember.valueStart, sourceMember.valueEnd)) as string;
-      const sharedPath = shareableSourcePath(originalPath, workingDirectory);
-      if (sharedPath !== undefined && sharedPath !== originalPath) {
-        replacements.push({ start: sourceMember.valueStart, end: sourceMember.valueEnd, encodedPath: encodeJsonString(sharedPath) });
-      }
-    }
-  }
-  if (replacements.length === 0) {
+  const paths = [...jsonObjectMembers(text, source.valueStart)].filter((member) => member.key === "path");
+  const [sourcePath] = paths;
+  if (paths.length !== 1 || sourcePath === undefined || text[sourcePath.valueStart] !== "\"") {
     return content;
   }
-  let rewritten = text;
-  for (const replacement of replacements.reverse()) {
-    rewritten = rewritten.slice(0, replacement.start) + replacement.encodedPath + rewritten.slice(replacement.end);
+  const originalPath = JSON.parse(text.slice(sourcePath.valueStart, sourcePath.valueEnd)) as string;
+  const sharedPath = shareableSourcePath(originalPath, workingDirectory);
+  if (sharedPath === undefined) {
+    return content;
   }
-  return new TextEncoder().encode(rewritten);
+  return new TextEncoder().encode(
+    text.slice(0, sourcePath.valueStart) + encodeJsonString(sharedPath) + text.slice(sourcePath.valueEnd),
+  );
 }
 
 function currentWorkingDirectory(): string | undefined {

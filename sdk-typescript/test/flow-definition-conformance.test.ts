@@ -17,9 +17,12 @@ import { Server, ServerCredentials, type sendUnaryData } from "@grpc/grpc-js";
 
 import { Registry, StepList, Worker, type BlobCache, type Flow } from "../src/index.js";
 import {
+  InvalidFlowDefinitionError,
   encodeJsonString,
+  parseFlowDefinitionContent,
   parseRfc3339Milliseconds,
   prepareFlowDefinitions,
+  rewriteSourcePath,
   shareableSourcePath,
   uploadWorkerFlowDefinitions,
   type PreparedFlowDefinition,
@@ -43,6 +46,18 @@ interface SourcePathCase {
 }
 
 interface Conformance {
+  readonly documentValidity: readonly {
+    readonly name: string;
+    readonly document: string;
+    readonly valid: boolean;
+    readonly generatedAtError?: boolean;
+  }[];
+  readonly documentRewrite: readonly {
+    readonly name: string;
+    readonly cwd: string;
+    readonly document: string;
+    readonly expected: string | null;
+  }[];
   readonly sourcePathRewrite: readonly SourcePathCase[];
   readonly jsonStringEncoding: readonly { readonly value: string; readonly encoded: string }[];
   readonly generatedAt: readonly { readonly value: string; readonly unixMillis?: number; readonly error?: boolean }[];
@@ -73,6 +88,41 @@ test("generatedAt conformance", () => {
       assert.equal(parseRfc3339Milliseconds(testCase.value).getTime(), testCase.unixMillis, testCase.value);
     }
   }
+});
+
+for (const testCase of conformance.documentValidity) {
+  test(`document validity conformance: ${testCase.name}`, () => {
+    const content = new TextEncoder().encode(testCase.document);
+    if (testCase.valid) {
+      parseFlowDefinitionContent(content, "test");
+      return;
+    }
+    assert.throws(() => parseFlowDefinitionContent(content, "test"), (failure: unknown) => {
+      // A generatedAt error is a configuration error, never a skippable non-FDG file.
+      assert.equal(failure instanceof InvalidFlowDefinitionError, testCase.generatedAtError !== true);
+      return true;
+    });
+  });
+}
+
+for (const testCase of conformance.documentRewrite) {
+  test(`document rewrite conformance: ${testCase.name}`, () => {
+    const content = new TextEncoder().encode(testCase.document);
+    const rewritten = rewriteSourcePath(content, testCase.cwd);
+    if (testCase.expected === null) {
+      assert.equal(rewritten, content);
+    } else {
+      assert.equal(Buffer.from(rewritten).toString(), testCase.expected);
+    }
+  });
+}
+
+test("in-memory document with malformed generatedAt is rejected", () => {
+  const content = fdg("MemoryFlow", "2.0", { generatedAt: "2026-11-01T00:00:00+00:99" });
+  assert.throws(
+    () => prepareFlowDefinitions([], [{ flowType: "MemoryFlow", content, generatedAt: new Date("2026-11-01T00:00:00Z") }]),
+    /not RFC 3339/,
+  );
 });
 
 function fdg(flowType: string, schemaVersion = "2.0", fields: Record<string, unknown> = {}): string {

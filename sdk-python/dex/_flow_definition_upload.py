@@ -310,6 +310,8 @@ def parse_rfc3339_milliseconds(value: str) -> datetime:
     ) = match.groups()
     offset = timedelta(0)
     if sign is not None:
+        if int(offset_hour) > 23 or int(offset_minute) > 59:
+            raise ValueError(f"{value!r} has an offset outside -23:59..+23:59")
         offset = timedelta(hours=int(offset_hour), minutes=int(offset_minute))
         if sign == "-":
             offset = -offset
@@ -478,16 +480,14 @@ def _load_flow_definition_file(
         raise ValueError(
             f"cannot read Flow definition {origin}: {failure}"
         ) from failure
-    document = _parse_flow_definition(content, origin)
-    flow_type = _flow_name(document, origin)
-    generated_at = datetime.fromtimestamp(0, timezone.utc) + timedelta(
-        milliseconds=modified_at_milliseconds
+    flow_type, document_generated_at = parse_flow_definition_content(content, origin)
+    generated_at = document_generated_at or (
+        datetime.fromtimestamp(0, timezone.utc)
+        + timedelta(milliseconds=modified_at_milliseconds)
     )
-    if "generatedAt" in document:
-        generated_at = _parse_generated_at(document["generatedAt"], origin)
     return PreparedFlowDefinition(
         flow_type=flow_type,
-        content=_rewrite_source_path(content, document, working_directory),
+        content=rewrite_source_path(content, working_directory),
         generated_at=generated_at,
         origin=origin,
     )
@@ -503,8 +503,8 @@ def _prepare_document(
         else bytes(document.content)
     )
     try:
-        parsed = _parse_flow_definition(content, origin)
-        flow_name = _flow_name(parsed, origin)
+        # The content's generatedAt must be valid even though the caller's time is used.
+        flow_name, _ = parse_flow_definition_content(content, origin)
     except _InvalidFlowDefinition as failure:
         raise ValueError(str(failure)) from failure
     if flow_name != document.flow_type:
@@ -513,15 +513,39 @@ def _prepare_document(
         )
     return PreparedFlowDefinition(
         flow_type=document.flow_type,
-        content=_rewrite_source_path(content, parsed, working_directory),
+        content=rewrite_source_path(content, working_directory),
         generated_at=truncate_to_milliseconds(document.generated_at),
         origin=origin,
     )
 
 
+def parse_flow_definition_content(
+    content: bytes, origin: str
+) -> tuple[str, datetime | None]:
+    """Validate a Flow Definition Graph 2.x document.
+
+    Returns:
+        The Flow type from ``flow.name`` and the ``generatedAt`` time truncated
+        to milliseconds, or None when the document has no generatedAt.
+
+    Raises:
+        _InvalidFlowDefinition: The content is not strict UTF-8 JSON, not an
+            object, has no 2.x schemaVersion, or has no non-empty flow.name.
+        ValueError: The document is an FDG 2.x document with an invalid
+            generatedAt.
+    """
+    document = _parse_flow_definition(content, origin)
+    flow_type = _flow_name(document, origin)
+    if "generatedAt" not in document:
+        return flow_type, None
+    return flow_type, _parse_generated_at(document["generatedAt"], origin)
+
+
 def _parse_flow_definition(content: bytes, origin: str) -> dict[str, Any]:
     try:
-        document = json.loads(content.decode("utf-8"))
+        document = json.loads(
+            content.decode("utf-8"), parse_constant=_reject_json_constant
+        )
     except (UnicodeDecodeError, json.JSONDecodeError) as failure:
         raise _InvalidFlowDefinition(
             f"Flow definition {origin} is not UTF-8 JSON: {failure}"
@@ -537,6 +561,10 @@ def _parse_flow_definition(content: bytes, origin: str) -> dict[str, Any]:
             'start with "2."'
         )
     return document
+
+
+def _reject_json_constant(constant: str) -> Any:
+    raise json.JSONDecodeError(f"{constant} is not JSON", constant, 0)
 
 
 def _flow_name(document: dict[str, Any], origin: str) -> str:
@@ -562,31 +590,38 @@ def _parse_generated_at(value: object, origin: str) -> datetime:
         ) from failure
 
 
-def _rewrite_source_path(
-    content: bytes, document: dict[str, Any], working_directory: str | None
-) -> bytes:
-    source = document.get("source")
-    if not isinstance(source, dict) or not isinstance(source.get("path"), str):
-        return content
+def rewrite_source_path(content: bytes, working_directory: str | None) -> bytes:
+    """Rewrite an absolute top-level ``source.path`` in validated FDG content.
+
+    Returns:
+        ``content`` itself unless the top-level object has exactly one
+        ``source`` key whose object value has exactly one string ``path`` key
+        that is absolute; then the content with only that string replaced.
+    """
     text = content.decode("utf-8")
-    replacements: list[tuple[int, int, str]] = []
-    for key, source_start, _ in _object_members(text, _skip_whitespace(text, 0)):
-        if key != "source" or text[source_start] != "{":
-            continue
-        for member_key, value_start, value_end in _object_members(text, source_start):
-            if member_key != "path" or text[value_start] != '"':
-                continue
-            original_path, _ = _JSON_DECODER.raw_decode(text, value_start)
-            shared_path = shareable_source_path(original_path, working_directory)
-            if shared_path is not None and shared_path != original_path:
-                replacements.append(
-                    (value_start, value_end, encode_json_string(shared_path))
-                )
-    if not replacements:
+    source_members = [
+        (value_start, value_end)
+        for key, value_start, value_end in _object_members(
+            text, _skip_whitespace(text, 0)
+        )
+        if key == "source"
+    ]
+    if len(source_members) != 1 or text[source_members[0][0]] != "{":
         return content
-    for value_start, value_end, encoded_path in reversed(replacements):
-        text = text[:value_start] + encoded_path + text[value_end:]
-    return text.encode("utf-8")
+    path_members = [
+        (value_start, value_end)
+        for key, value_start, value_end in _object_members(text, source_members[0][0])
+        if key == "path"
+    ]
+    if len(path_members) != 1 or text[path_members[0][0]] != '"':
+        return content
+    value_start, value_end = path_members[0]
+    original_path, _ = _JSON_DECODER.raw_decode(text, value_start)
+    shared_path = shareable_source_path(original_path, working_directory)
+    if shared_path is None:
+        return content
+    rewritten = text[:value_start] + encode_json_string(shared_path) + text[value_end:]
+    return rewritten.encode("utf-8")
 
 
 def _working_directory() -> str | None:

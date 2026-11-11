@@ -191,8 +191,8 @@ class WorkerOptions:
         path, an explicitly listed file or an in-memory document that is not a
         JSON object with a ``schemaVersion`` starting with ``"2."`` and a
         ``flow.name`` string, a ``generatedAt`` that is not strict RFC 3339
-        (``T`` separator and a ``Z`` or ``+HH:MM`` offset are required), an
-        in-memory document whose ``flow.name`` differs from its Flow type, or
+        (``T`` or ``t``, then ``Z``, ``z``, ``+HH:MM``, or ``-HH:MM``), also
+        inside an in-memory document, an in-memory document whose ``flow.name`` differs from its Flow type, or
         two definitions for the same Flow type from any sources.
 
     Examples:

@@ -131,15 +131,19 @@ how the server stores them.
 **flow_definition_paths** accepts files and directories:
 
 - An explicitly listed file must be an FDG 2.x document, whatever its
-  extension: a UTF-8 JSON object whose **schemaVersion** starts with **2.** and
-  that has a **flow.name** string.
+  extension: a strict UTF-8 JSON object, without **NaN**, **Infinity**, or text
+  after it, whose **schemaVersion** starts with **2.** and that has a
+  **flow.name** string.
 - A directory is searched recursively for files whose extension is **.json** in
   any letter case. A file there that is not an FDG 2.x document, such as
   **package.json** or an FDG 1.x file, is skipped and logged.
 - Each file's **flow.name** is its Flow type. Its top-level **generatedAt** is
-  the generation time. It must be strict RFC 3339: a **T** separator and a
-  **Z** or **+HH:MM** offset, as in **2026-11-01T08:00:00Z**. A file without it
-  uses its modification time.
+  the generation time. It must be strict RFC 3339: a **T** or **t** separator,
+  an optional fraction with at least one digit, and a **Z**, **z**, **+HH:MM**,
+  or **-HH:MM** offset, as in **2026-11-01T08:00:00Z** or
+  **2026-11-01T03:00:00.5-05:00**. Every field must be in range: no leap second,
+  no hour 24, and offsets up to 23:59. A file without it uses its modification
+  time.
 - Every Dex SDK truncates the generation time to whole milliseconds, including
   the time of an in-memory document.
 
@@ -152,7 +156,9 @@ one deadline, **attribute_index_sync_timeout**, and **stop** cancels an upload i
 
 - Only documents whose Flow type the Worker registers are uploaded. The others
   are skipped and logged.
-- An absolute top-level **source.path** (one that starts with **/**, a drive
+- **source.path** is rewritten only when the top-level object has exactly one
+  **source** key, its value is an object with exactly one **path** key, and that
+  value is a string. An absolute top-level **source.path** (one that starts with **/**, a drive
   such as **C:\\**, or **\\\\**) is replaced by a path relative to the
   working directory, joined with **/**. The comparison is lexical: **.** and
   **..** are resolved and symbolic links are not. A path outside the working
@@ -165,7 +171,8 @@ one deadline, **attribute_index_sync_timeout**, and **stop** cancels an upload i
 
 The Worker constructor raises **ValueError** for a missing or unreadable path,
 an explicitly listed file or an in-memory document that is not an FDG 2.x
-document, a **generatedAt** that is not strict RFC 3339, an in-memory document
+document, a **generatedAt** that is not strict RFC 3339 (also inside an
+in-memory document, whose caller-supplied time is still the one uploaded), an in-memory document
 whose **flow.name** differs from its Flow type, or the same Flow type in two
 documents.
 
