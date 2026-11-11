@@ -582,7 +582,7 @@ export interface PersistenceSchema {
    * Singleton Channel, ChannelMap, and Join definitions with unique names.
    *
    * A {@link Join} registers as the ChannelMap that carries its branch results.
-   * Changed in 1.43.0: also accepts Join definitions.
+   * Changed in 1.44.0: also accepts Join definitions.
    */
   readonly channels?: readonly (Channel<unknown> | ChannelMap<unknown> | Join<unknown>)[];
   /** Best-effort Stream definitions with unique names. */

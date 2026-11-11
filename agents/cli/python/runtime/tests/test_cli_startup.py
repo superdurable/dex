@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -128,6 +129,35 @@ async def test_auto_starts_dexcli_dev_when_none_runs_and_later_commands_reuse_it
         assert second.returncode == 0, second.stdout + second.stderr
         assert f"Using the running dexcli dev at 127.0.0.1:{dex_port}" in second.stdout
         assert "echo: second" in second.stdout
+    finally:
+        home.close()
+
+
+@pytest.mark.parametrize(
+    "recorded_url",
+    ["started server 9.9.9 with 0 tools at http://127.0.0.1:1/mcp", "http://[bad"],
+    ids=["log-line", "malformed-url"],
+)
+async def test_auto_reuse_tolerates_a_recorded_connectors_url_that_is_not_a_url(
+    tmp_path: Path, recorded_url: str
+) -> None:
+    dex_port, web_port = find_free_ports(2)
+    home = CliHome(tmp_path / "home", dex_port, web_port, tmp_path / "opened-urls.txt")
+    home.home.mkdir()
+    home.write_config(config_yaml({"connectors": {"mcp": "auto"}}))
+    state_path = home.home / ".dex" / "agents" / "dexcli-dev.json"
+    try:
+        first = await asyncio.to_thread(home.run, stdin="tools\n")
+        assert first.returncode == 0, first.stdout + first.stderr
+        recorded = json.loads(state_path.read_text())
+        # A dexcli without the Connectors MCP proxy prints no such ready line.
+        assert recorded["connectors_mcp_url"] in (f"http://127.0.0.1:{web_port}/mcp", None)
+        recorded["connectors_mcp_url"] = recorded_url
+        state_path.write_text(json.dumps(recorded))
+        second = await asyncio.to_thread(home.run, stdin="tools\n")
+        assert second.returncode == 0, second.stdout + second.stderr
+        assert f"Using the running dexcli dev at 127.0.0.1:{dex_port}" in second.stdout
+        assert "tools: ask_user" in second.stdout
     finally:
         home.close()
 

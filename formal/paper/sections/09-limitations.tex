@@ -22,18 +22,72 @@ has changed since, including the two fixes of
 \S\ref{sec:server-bugs}; the second changes what happens to the messages of
 a canceled Step, a behavior that a translated Flow reaches only at its
 close, where it is unobservable. That last sentence is an argument, not a
-theorem.
+theorem. The failure rules cite a later commit of the server and went
+through their own adversarial reviews, with the same caveat.
 
-\paragraph{Failure-free environment.}
-There are no crashes, no Worker failures, no retries, no timeouts, and no
-redelivery in the model. Durability is the reason a workflow engine exists,
-and this theorem says nothing about it. The intended complement is a
-separate proposition, correctness under crashes: roughly, that crashes,
-retries, and redelivery add no observable behavior beyond what the
-failure-free semantics allows, apart from repeated external effects. Its
-precise statement is itself future work. The server has a
-deterministic simulation harness with injected crashes, which is relevant
-evidence but is not a proof.
+\paragraph{Failures: scope and hypotheses.}
+The failure theorem of \S\ref{sec:failures} replaces the failure-free
+assumption of the first theorem with a list of narrower ones. Each is a
+place where a real deployment can leave the theorem.
+\begin{itemize}
+\item \emph{The Lean fragment.} One Flow, a start and publications, and
+  StartFlow retries. RPCs, SubFlows, StopFlow, and Attribute locks under
+  failures are not covered.
+\item \emph{SYNC only.} An ASYNC Step method can lose a start in a crash
+  and run the same attempt again with a new snapshot, so its effects can
+  differ. That is the real ASYNC behavior, and the theorem excludes it.
+\item \emph{H1 to H4.} No method exhausts its retries, no Step uses a
+  failure policy, user code ignores the attempt number, the first attempt
+  time, the last error, and the last heartbeat value, and no failure is
+  non-retryable. A long outage can break H1: an interrupt after an outage
+  longer than the total retry duration exhausts the method. Code that
+  resumes from a heartbeat checkpoint breaks H3. The Lean model leaves
+  failure policies and ASYNC starts out, so H2 and SYNC hold there by
+  construction. The theorem does not cover Flows that use those features.
+\item \emph{Finitely many failures for liveness.} Liveness also assumes
+  that the server comes back after every crash and that every interrupt
+  eventually leaves the interrupted set. Progress is defined through the abstraction map, so the theorem
+  says nothing about an internal livelock of the engine.
+\item \emph{The clock.} On one node the wall clock must not step back
+  between the timer service's due check and the stamping of its command.
+  The theorem speaks of stamps: a host clock that runs ahead can fire a
+  timer early in real time.
+\item \emph{Publications retried by the client.} A publication has no
+  request ID. A client that sends it again after a lost response has sent a
+  second request, and the message can be published twice. That is outside
+  failure transparency. Exactly-once publication through RPC request IDs is
+  planned.
+\item \emph{StartFlow retries after the purge.} The first StartFlow and
+  every retry set \kw{ignore\_already\_started\_error}, and a retry reuses
+  the first request ID. A retry deduplicates only while the run is still in
+  the Flow directory; after the purge it starts a new run. The theorem
+  assumes that every retry's command is ordered in the committed log before
+  the purge; a retry that reaches the server first can still be ordered
+  after it. The Lean model, which keeps a closed run forever, makes this
+  hold by construction.
+\item \emph{Liveness backward only without retries.} Every fair DexF trace
+  erases to a fair Dex trace, but the converse holds only for input words
+  without StartFlow retries, because stamped retries move the clock
+  (\S\ref{sec:failure-theorems}).
+\item \emph{Timer order is idealized.} Both theorems fire timers as a
+  prefix of the due timers. The server can fire a timer while an earlier-due
+  timer, armed by a command applied just before the scan's command, is
+  still armed. We kept the prefix rule, because no distributed
+  system guarantees the order of timers due at almost the same time.
+  Neither theorem covers runs in that window.
+\item \emph{One owner at a time.} A standby takeover is in scope.
+  Multi-node partition ownership is not: the server runs one node per
+  cluster, and the model has one log writer at a time.
+\end{itemize}
+The theorem guarantees only that every extra external call
+repeats an earlier one. A retry can run a Step method's external calls
+again, and an older attempt can make a call late, after a newer attempt's
+call. An application must therefore make each external call safe to repeat and safe to arrive late, for
+example with an idempotency key that the external system deduplicates on,
+built from the Flow run, the Step execution, the method, and the effect.
+The server's deterministic simulation harness
+with injected crashes checks that a recovered store equals one that never
+crashed; it is complementary evidence and is not connected to the model.
 
 \paragraph{Fairness is assumed, not provided.}
 Liveness holds for fair runs, and the fairness conditions of
@@ -46,9 +100,13 @@ one most worth stating plainly: it assumes that every Worker task
 eventually settles, by returning or by being abandoned after its invocation
 was canceled. The server does not guarantee this on its own. Cancellation
 of a running handler is cooperative, and in the failure-free model there is
-no method timeout to end a handler that never returns. A deployment in
-which a handler can hang is outside the liveness theorem; the safety
-theorem still applies to it. The fair runs that the development exhibits
+no method timeout to end a handler that never returns. Under failures a
+timeout fails the attempt, but the handler can keep running as a zombie,
+so the failure theorem's liveness keeps the assumption for zombies. Its F4
+lets any real task be dropped, so it excludes only runs in which some task
+never returns and is never dropped: a handler that hangs is allowed once
+its attempt fails and its zombie is dropped. The first theorem's liveness excludes runs in which a task of a
+live invocation never returns. The safety theorems apply to every run. The fair runs that the development exhibits
 (\S\ref{sec:nonvacuity}) cover termination, deadlock, and divergence by an
 infinite input word. A fair run of a program that diverges on its own, on a
 finite word, is not exhibited, and no lemma says that every reachable
@@ -112,7 +170,8 @@ could tell a translated Flow from its source program.
 
 \paragraph{Trust in the statements.}
 The kernel checks proofs, not intentions. A reader who wants to rely on the
-theorem must read the model, the translation, and the statements, about
-3,450 lines, against the specification. The development maps every section
+first theorem must read the model, the translation, and the statements,
+about 3,450 lines, against the specification; the failure theorem adds
+about 1,900 lines of definitions and statements. The development maps every section
 and every numbered assumption of the specification to its Lean definition
 to make that reading possible.

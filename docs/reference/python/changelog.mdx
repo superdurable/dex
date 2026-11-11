@@ -8,6 +8,14 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Python SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.44 {#v1-44}
+
+Released 2026-11-10 as [sdk-python/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.44.0).
+
+### Added
+
+- **Join** and **JoinRound** synchronize parallel branches of a Flow. **Join.fork** starts a round from the split Step and builds the branch and join movements, so the application keeps no branch count or round key. Branches report with **end_branch** or **report_branch_result**. The join Step waits with **for_all_branches**, **for_first_branch**, or **for_branches**, and the next round resets the previous one with **for_remaining_branches**. RPC handlers use **fork_with_round_key**. **Join.channel_map** returns the registered ChannelMap, so an RPC can load and read a round's pending results. [Reference](/reference/python/waits).
+
 ## 1.43 {#v1-43}
 
 Released 2026-11-10 as [sdk-python/v1.43.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.43.0).
@@ -18,10 +26,6 @@ Released 2026-11-10 as [sdk-python/v1.43.0](https://github.com/superdurable/dex/
 - **FlowConfig** is a dataclass, and the two removed fields were its second and third fields. Every later field moves two positions forward, so a positional **FlowConfig** call can set the wrong field. Construct **FlowConfig** with keyword arguments. [Reference](/reference/python/flow#flow-config).
 - Removed **WaitForStepCompletionOptions.internal_handler_timeout** and **WaitForAttributeOptions.internal_handler_timeout**. **request_id** remains accepted but the server does not read it for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
 - Generated bindings rename **FlowExecutionID** to **FlowRunID** and **flow_execution_id** to **flow_run_id**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
-
-### Added
-
-- **Join** and **JoinRound** synchronize parallel branches of a Flow. **Join.fork** starts a round from the split Step and builds the branch and join movements, so the application keeps no branch count or round key. Branches report with **end_branch** or **report_branch_result**. The join Step waits with **for_all_branches**, **for_first_branch**, or **for_branches**, and the next round resets the previous one with **for_remaining_branches**. RPC handlers use **fork_with_round_key**. **Join.channel_map** returns the registered ChannelMap, so an RPC can load and read a round's pending results. [Reference](/reference/python/waits).
 
 ## 1.40 {#v1-40}
 

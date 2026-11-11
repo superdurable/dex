@@ -48,9 +48,13 @@ tools; the runtime's browser tools and connector tools stay:
 | `shell` | `Bash` | Unless `local_tools.shell.allow` has the whole command text. A background command always waits. |
 | `web_fetch` | `WebFetch` | No |
 
-Each turn offers only the groups its session settings switch on. File tools
-refuse paths outside the workspace, `approval.always` adds approval by tool
-name, Claude Code reads no settings files, and the tool Step checks an approved
+Each turn offers only the groups its session settings switch on. A resumed
+segment also lists the Claude Code tools the turn already recorded calls of, so
+the CLI can replay those records; a new call of such a tool is still refused
+while its group is off. File tools
+refuse paths outside the workspace, counting a dangling symbolic link as its
+target, and `Glob` and `Grep` patterns must not contain `..`. `approval.always`
+adds approval by tool name, Claude Code reads no settings files, and the tool Step checks an approved
 call again on the Worker that runs it. These tools run inside the Claude Code
 CLI, so a Worker that dies during a turn segment can run one of them twice.
 

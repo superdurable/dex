@@ -6,8 +6,7 @@ slug: /correctness-and-expressiveness/expressiveness-proof
 
 # Expressiveness proof
 
-Dex has a computer-checked proof of what it can express. The full argument is
-in the paper.
+Dex has a computer-checked proof of what it can express.
 
 - [Download the paper (PDF)](/papers/dex-expressiveness.pdf)
 - [Formal sources on GitHub](https://github.com/superdurable/dex/tree/main/formal)
@@ -46,9 +45,8 @@ set of Steps that read and write Attributes, publish and consume Channel
 messages, and wait on Timers. So you may wonder whether some concurrent logic
 cannot be written as a Flow.
 
-The proof answers that. Any concurrent logic you can write with the
-constructs above can also be written as a Flow. The table below shows how
-each construct is built.
+The proof shows that any concurrent logic you can write with the constructs
+above can also be written as a Flow.
 
 The translation is a construction for the proof, not a compiler that Dex
 ships. It uses about one Step for each statement, which is not how to model
@@ -56,8 +54,6 @@ an application. Model your own Flow with the
 [design patterns](/design-patterns).
 
 ## How each construct is built {#how-each-construct-is-built}
-
-This table summarizes the translation in the paper.
 
 | Construct | Dex building blocks | Related design pattern |
 | --- | --- | --- |
@@ -73,27 +69,27 @@ This table summarizes the translation in the paper.
 | Exit or failure | **ForceComplete** with the result, or **ForceFail** with the error. | |
 | External effect | An **Execute** whose only effect is that external call. | |
 
-The mutex shows why the details matter. An Attribute lock would not work,
-because it covers one Step method and not a wait. A Channel token can be held
+An Attribute lock would not work for the mutex, because it covers one Step
+method and not a wait. A Channel token can be held
 across many Steps and waits.
 
 ## How it was checked {#how-it-was-checked}
 
-The proof is written in the Lean 4 proof assistant, which checks every step.
-No step is skipped or taken on trust.
+The proof is written in the Lean proof assistant, which checks every step.
 
 ## Failures {#what-it-does-not-cover}
 
-This proof assumes no crashes, retries, or redelivery. A second proof will
-show that these failures do not change what a Flow does. Together, the two
-proofs say that a program runs on Dex as if no failure had happened. The
-second proof is tracked in
-[issue 1514](https://github.com/superdurable/dex/issues/1514).
+This proof covers runs without failures. The
+[Failure transparency proof](/correctness-and-expressiveness/failure-transparency-proof)
+extends it to crashes, recovery, retries, and redelivery. Under the conditions
+on that page, removing the repeated external effects from a run with failures
+leaves a run without failures. Combined, the two proofs show that a
+well-formed program of the language runs on Dex with the events of a run
+without failures, except that external effects can repeat.
 
 ## Related evidence {#related-evidence}
 
 The [Workflow Patterns evaluation](/correctness-and-expressiveness/workflow-patterns)
-is complementary evidence. It rates Dex against 43 workflow patterns, each
-with a runnable example and a test against a real server. The patterns test
-the real server on common cases. The proof covers every program of the
-language.
+rates Dex against 43 workflow patterns, each with a runnable example and a
+test against a real server. The patterns test the real server on common
+cases. The proof covers every program of the language.
