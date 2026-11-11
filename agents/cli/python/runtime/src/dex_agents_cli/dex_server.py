@@ -17,7 +17,7 @@ import secrets
 import subprocess
 import tempfile
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from enum import Enum
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -38,6 +38,7 @@ from dex_agents_cli.environment import RuntimeEnvironment
 
 #: The line ``dexcli dev`` prints once Dex Server and Dex Web are ready.
 DEXCLI_DEV_READY_LINE = "Dex development environment is ready"
+_READY_BLOCK_END_LINE = "Press Ctrl+C to stop."
 _READY_FIELD_PREFIXES = {
     "web_url": "Dex Web:",
     "dex_address": "Dex Server:",
@@ -158,6 +159,9 @@ def _read_started_server(
         return None
     if state.web_url != web_url or state.dex_address != address:
         return None
+    if not _is_http_url(state.connectors_mcp_url):
+        # Earlier releases could record a later log line here instead of the URL.
+        state = replace(state, connectors_mcp_url=None)
     return state if _is_process_alive(state.pid) else None
 
 
@@ -236,13 +240,26 @@ async def _wait_for_ready_output(
 
 
 def _parse_ready_fields(text: str) -> dict[str, str]:
+    # Later log lines, such as "Connectors MCP: started server ...", reuse these prefixes.
+    _, _, ready_block = text.rpartition(DEXCLI_DEV_READY_LINE)
     fields: dict[str, str] = {}
-    for line in text.splitlines():
+    for line in ready_block.splitlines():
         stripped = line.strip()
+        if stripped == _READY_BLOCK_END_LINE:
+            break
         for name, prefix in _READY_FIELD_PREFIXES.items():
-            if stripped.startswith(prefix):
+            if name not in fields and stripped.startswith(prefix):
                 fields[name] = stripped.removeprefix(prefix).strip()
+    if not _is_http_url(fields.get("connectors_mcp_url")):
+        fields.pop("connectors_mcp_url", None)
     return fields
+
+
+def _is_http_url(value: str | None) -> bool:
+    if not value or any(character.isspace() for character in value):
+        return False
+    parts = urlsplit(value)
+    return parts.scheme in ("http", "https") and bool(parts.netloc)
 
 
 async def _read_readiness(web_url: str) -> _Readiness:

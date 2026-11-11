@@ -11,15 +11,35 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
-from dex_agents.testing import find_free_ports
+from dex_agents.testing import DEXCLI_ENVIRONMENT_VARIABLE, find_free_ports
 from dex_agents_cli import parse_config_yaml
-from tests.conftest import CliHome, config_yaml, expect, wait_for_exit
+from tests.conftest import (
+    CLI_TIMEOUT_SECONDS,
+    PACKAGE_DIR,
+    CliHome,
+    config_yaml,
+    expect,
+    wait_for_exit,
+)
+
+# Prints a later "Connectors MCP:" log line with the ready output, as a fast server start does.
+_DEXCLI_WITH_LATER_CONNECTORS_LINE = r"""#!/bin/sh
+"$REAL_DEXCLI" "$@" 2>&1 | awk '{ print; fflush() }
+/^Press Ctrl\+C to stop\./ {
+  print "Connectors MCP: started server 9.9.9 with 0 tools at http://127.0.0.1:1/mcp, proxied at x"
+  fflush()
+}'
+"""
 
 
 async def test_tty_without_a_config_asks_the_init_questions_then_chats(cli_home: CliHome) -> None:
@@ -114,6 +134,54 @@ async def test_auto_starts_dexcli_dev_when_none_runs_and_later_commands_reuse_it
         assert second.returncode == 0, second.stdout + second.stderr
         assert f"Using the running dexcli dev at 127.0.0.1:{dex_port}" in second.stdout
         assert "echo: second" in second.stdout
+    finally:
+        home.close()
+
+
+async def test_auto_records_the_ready_connectors_url_not_a_later_log_line(tmp_path: Path) -> None:
+    dex_port, web_port = find_free_ports(2)
+    home = CliHome(tmp_path / "home", dex_port, web_port, tmp_path / "opened-urls.txt")
+    home.home.mkdir()
+    home.write_config(config_yaml({"connectors": {"mcp": "auto"}}))
+    wrapper = tmp_path / "dexcli"
+    wrapper.write_text(_DEXCLI_WITH_LATER_CONNECTORS_LINE)
+    wrapper.chmod(0o755)
+    environment = {
+        **home.environment(),
+        "REAL_DEXCLI": os.environ[DEXCLI_ENVIRONMENT_VARIABLE],
+        DEXCLI_ENVIRONMENT_VARIABLE: str(wrapper),
+        # No Connectors MCP server starts, so the test downloads no release.
+        "DEX_CONNECTORS_MCP_BINARY": str(tmp_path / "missing-dex-connectors-mcp"),
+    }
+    state_path = home.home / ".dex" / "agents" / "dexcli-dev.json"
+
+    def run_tools() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "tests.scripted_cli"],
+            cwd=PACKAGE_DIR,
+            env=environment,
+            input="tools\n",
+            capture_output=True,
+            text=True,
+            timeout=CLI_TIMEOUT_SECONDS * 2,
+            check=False,
+        )
+
+    try:
+        first = await asyncio.to_thread(run_tools)
+        assert first.returncode == 0, first.stdout + first.stderr
+        assert "tools: ask_user" in first.stdout
+        recorded = json.loads(state_path.read_text())
+        assert recorded["connectors_mcp_url"] == f"http://127.0.0.1:{web_port}/mcp"
+        # A state file that recorded a log line instead of the URL still works.
+        recorded["connectors_mcp_url"] = (
+            "started server 9.9.9 with 0 tools at http://127.0.0.1:1/mcp"
+        )
+        state_path.write_text(json.dumps(recorded))
+        second = await asyncio.to_thread(run_tools)
+        assert second.returncode == 0, second.stdout + second.stderr
+        assert f"Using the running dexcli dev at 127.0.0.1:{dex_port}" in second.stdout
+        assert "tools: ask_user" in second.stdout
     finally:
         home.close()
 
