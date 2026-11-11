@@ -61,3 +61,18 @@ with the caller's `iss` and `sub`: successes at info level and step down failure
 Denied calls are logged at warn level, at most once every 10 seconds, with a count of the skipped
 ones. Without an authenticator, every call passes, as on a development server, so anyone who can
 reach the listener can step the node down.
+
+## Flow definitions
+
+`FlowDefinitions` serves `UploadFlowDefinitions`, `ListFlowDefinitions`, and `GetFlowDefinitions`.
+Each Flow type's FDG document is one `dexzd.v1.FlowDefinitionRecord` object at
+`registry/flow-definitions/<tenant_id>/types/<percent-encoded Flow type>` in the primary object
+store. The objects are outside the apply log, and the handler keeps no cache.
+
+An upload validates every item first, then decides each item alone. A missing object is created
+with `If-None-Match: *`. A record with the same SHA-256 digest is left unwritten. A record with an
+older `generated_at`, or any different record when `force` is set, is replaced with `If-Match` on
+the ETag that was read. A failed precondition re-reads the object and decides again. An unknown
+write outcome re-reads it and succeeds when it finds this call's record. List pages through a key
+listing and never reads objects. Get reads the objects and stops when the response would exceed
+the gRPC message limit.

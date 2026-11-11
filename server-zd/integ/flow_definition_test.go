@@ -311,7 +311,9 @@ func TestFlowDefinitionListPagination(t *testing.T) {
 	defer cancel()
 	now := time.Now()
 
-	flowTypes := []string{"alpha", "Beta", "gamma.v2", "delta-flow", "with space", "slash/name", "é-flow"}
+	flowTypes := []string{
+		"alpha", "Beta", "gamma.v2", "delta-flow", "with space", "slash/name", "pct%2Fname", "é-flow", ".", "..",
+	}
 	uploads := make([]*dexpb.FlowDefinitionUpload, 0, len(flowTypes))
 	for _, flowType := range flowTypes {
 		uploads = append(uploads, flowDefinitionUpload(flowType, 1, now))
@@ -322,6 +324,9 @@ func TestFlowDefinitionListPagination(t *testing.T) {
 	sort.Strings(expected)
 	for _, pageSize := range []int32{1, 2, 3, 1000} {
 		require.Equal(t, expected, listAllFlowDefinitionTypes(t, ctx, client, pageSize), "page size %d", pageSize)
+	}
+	for _, flowType := range flowTypes {
+		require.Equal(t, flowType, getFlowDefinition(t, ctx, client, flowType).GetInfo().GetFlowType())
 	}
 	response, err := client.ListFlowDefinitions(ctx, &dexpb.ListFlowDefinitionsRequest{})
 	require.NoError(t, err)

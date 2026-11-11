@@ -192,19 +192,19 @@ async fn concurrent_uploads_retry_conflicts_and_keep_the_newest_document() {
         },
     )));
     let definitions = Arc::new(flow_definitions(store.clone()));
-    let handles: Vec<_> = (1..=3)
-        .map(|revision| {
-            let definitions = definitions.clone();
-            tokio::spawn(async move {
-                definitions
-                    .upload_flow_definitions(
-                        TenantId::DEFAULT,
-                        request(vec![upload("RaceFlow", revision, i64::from(revision))]),
-                    )
-                    .await
-            })
-        })
-        .collect();
+    let mut handles = Vec::new();
+    for revision in 1..=3 {
+        let definitions = definitions.clone();
+        let handle = tokio::spawn(async move {
+            definitions
+                .upload_flow_definitions(
+                    TenantId::DEFAULT,
+                    request(vec![upload("RaceFlow", revision, i64::from(revision))]),
+                )
+                .await
+        });
+        handles.push(handle);
+    }
     let mut outcomes = Vec::new();
     for handle in handles {
         let response = handle.await.unwrap().unwrap();
@@ -259,7 +259,7 @@ async fn an_unknown_write_outcome_is_resolved_by_reading_the_object() {
 async fn list_pages_through_decoded_flow_types() {
     let store = Arc::new(InMemoryObjectStore::new());
     let definitions = flow_definitions(store.clone());
-    let flow_types = ["a/b", "Alpha", "beta.v2", "é"];
+    let flow_types = ["a/b", "Alpha", "beta.v2", "é", "pct%2Fname", "."];
     definitions
         .upload_flow_definitions(
             TenantId::DEFAULT,
