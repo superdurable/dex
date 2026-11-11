@@ -2,6 +2,7 @@
 title: Step
 sidebar_label: Step
 slug: /concepts/step
+description: "A Step is one unit of background work in a Flow. It can wait durably for something to happen, then do its work, then choose what runs next. Dex runs Steps on your Workers and records each result."
 ---
 
 import StepWaitExecuteDiagram from '@site/src/components/primitives/step/StepWaitExecuteDiagram';
@@ -273,6 +274,22 @@ A **StepDecision** can override the options for one Step execution.
 
 ## Guarantees {#guarantees}
 
+Four rules matter most:
+
+- **A finished Step does not run again.** Dex saves its result together with
+  the move to the next Step.
+- **A Step that was cut off can run again.** A crash, a timeout, or a retry
+  can repeat a method that already called an external system. So a Step runs
+  at least once, not exactly once. Send an idempotency key with each external
+  call, built from the Flow ID and the StepExecutionID or from your own
+  business key.
+- **A retry sees the state of its first attempt.** A retry of **Execute**
+  reuses the state snapshot of the first attempt. It does not see Attribute
+  writes made since then. To wait for such a write, have the writer publish a
+  Channel message, and wait for it in the next Step's **WaitFor**.
+- **Parallel writers can overwrite each other.** Two Steps or RPCs that read
+  and then write the same Attribute need a lock on it. The details follow.
+
 Dex saves each **WaitFor** or **Execute** call on its own. It saves the call's
 Attribute writes and Channel publications together with its result, and only
 when the method succeeds. Calls to external systems are not part of this save.
@@ -295,9 +312,31 @@ See [Attribute locks](/concepts/primitives/attribute#locking).
 A Step method can run more than once. A retry runs it again after a failure.
 Dex cannot always tell whether a failed attempt ran the work. Make each
 external effect idempotent. Key it by the Flow ID and the StepExecutionID, or
-by your own business key. See
-[Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery) for the cases where
-Dex cannot tell.
+by your own business key. Send the key to the service that applies the effect.
+
+### Failure and redelivery {#failure-and-redelivery-summary}
+
+These cases repeat a method or leave its outcome unknown. They hold for every
+SDK:
+
+- **A Worker stops in the middle of a method.** The attempt fails, and the
+  retry policy runs the method again. Its external calls may already have
+  happened. A server restart or failover does the same to every attempt that
+  a Worker had.
+- **Heartbeats are not acknowledged.** A heartbeat checkpoint can be lost, so a
+  rerun can start from an older checkpoint.
+- **A canceled method keeps running.** Dex does not stop its code. Its
+  external calls still take effect.
+- **ASYNC durability can repeat an attempt.** An ASYNC Step does not wait for
+  its start to reach object storage. If the server node crashes first, the same
+  attempt runs again, possibly with different input.
+- **Retries can run out without an answer.** The recovery Step then learns
+  that the work certainly did not run (**NOT_STARTED**) or that it may have
+  run (**NOT_COMPLETED**). On **NOT_COMPLETED**, check the target system by
+  the idempotency key before you repeat or report the effect.
+
+[Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery)
+in the SDK reference gives the exact rules for each case.
 
 When retries run out, the recovery Step learns whether the work certainly did
 not run, or may have run.

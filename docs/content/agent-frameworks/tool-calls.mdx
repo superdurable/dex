@@ -6,11 +6,11 @@ slug: /agent-frameworks/tool-calls
 
 # Tool Calls
 
-Every tool gets a policy, whatever framework runs the agent. The policy's effect class decides whether Dex may run a call again after a failure. So a read can retry, and a write runs at most once.
+Every tool gets a policy, whatever framework runs the agent. The policy's effect class decides whether Dex may run a call again after a failure. So a read can retry, and a non-idempotent write runs at most once.
 
 ## Tool policies {#tool-policies-and-approvals}
 
-Each tool gets a **ToolPolicy**. The policy sets the tool's effect class, which decides whether Dex may run a call again. It also says whether a call waits for approval.
+Each tool gets a **ToolPolicy**. The policy sets the tool's effect class, which decides whether Dex may run a call again. It also decides whether a call waits for approval, as [Require approval](#require-approval) shows.
 
 ### Effect classes {#effect-classes}
 
@@ -22,6 +22,21 @@ Each tool gets a **ToolPolicy**. The policy sets the tool's effect class, which 
 | **unclassified** | Nothing is known about it. Dex treats it as a non-idempotent write. | **CallSingleAttemptTool**, once |
 
 Every attempt of a call gets the same idempotency key: the session's Flow ID, the turn ID, and the tool call ID, joined by slashes, such as **session-42/turn-3/call-7**. Pass it to the service that the tool writes to. When the service drops a repeated key, classify the tool as **idempotent_write**, so Dex can retry it after a failure.
+
+### Require approval {#require-approval}
+
+A policy has two fields: the effect class, and **requires_approval** (**requiresApproval** in TypeScript). When you leave **requires_approval** unset, the effect class decides:
+
+| Effect class | Waits for approval by default |
+| --- | --- |
+| **read** | No |
+| **idempotent_write** | No |
+| **non_idempotent_write** | Yes |
+| **unclassified** | Yes |
+
+Set **requires_approval** to true to ask a person before any call, such as a refund with an idempotency key. Set it to false to let a non-idempotent write run without approval. The call still runs at most once. A policy wins over framework metadata, such as an MCP read-only hint, and over the session's default effect.
+
+In the [Agent Quick Start](/agent-frameworks/quick-start), **cancel_order** has the **non_idempotent_write** effect and no **requires_approval**, so each call waits for approval. [Approvals](/agent-frameworks/approvals) explains the wait and how to answer it.
 
 A recorded tool call keeps the effect class and approval rule that applied when the model asked for it. A changed policy applies to later calls.
 

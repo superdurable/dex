@@ -19,6 +19,8 @@ slug: /use-cases/order-processing
 
 把 mock 的支付和发货 API 传给 Flow 的 constructor。不要事后用 setter 设置，也不要从全局变量读取。
 
+mock service 扣款时不带幂等键。真实的支付调用必须带上幂等键，因为一个 Step 可能运行不止一次。用 Flow ID 生成这个键，这样 Charge 重新运行时会发送同一个键。[Step 的保证](/concepts/step#guarantees)列出了 Step 会再次运行的情况。
+
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/products/order-processing',

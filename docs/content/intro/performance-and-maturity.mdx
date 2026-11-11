@@ -1,0 +1,78 @@
+---
+id: performance-and-maturity
+title: Performance and Maturity
+sidebar_label: Performance and Maturity
+slug: /intro/performance-and-maturity
+description: Measured throughput and latency of one Dex Server node on AWS with S3, what SYNC and ASYNC Steps cost, the release status of Dex, and the license it ships under.
+---
+
+# Performance and Maturity
+
+This page gives measured numbers for one Dex Server node, the release status of Dex, and its license. It states facts only. The [benchmark README](https://github.com/superdurable/dex/blob/main/benchmark/README.md) has every run, its settings, and the steps to repeat it.
+
+## How the benchmark ran
+
+The numbers below were measured on 2026-11-09 in AWS us-west-2:
+
+- **Server:** one Dex Server node on a c7gd.large (2 vCPU) or a c7gd.4xlarge (16 vCPU). Its local store was on the instance's NVMe disk. Its log went to S3 Standard in the same Region.
+- **Load:** a separate c7g.8xlarge in the same Availability Zone ran the benchmark tool with a Go SDK Worker. Its CPU stayed below 38%.
+- **Versions:** server-zd v0.1.23 for Steps, Flows, and Channel wakes; v0.1.25 for RPCs and reads.
+- **Runs:** each point had a 10-second warmup and a 45-second measurement on a new server. Most points ran three times, and the tables show the median. Flow starts ran once per point.
+- **Load model:** a fixed number of concurrent clients, each sending its next request when the last one returns. Latency grows with the client count once the server is busy.
+
+## Peak throughput
+
+| Operation | c7gd.large | c7gd.4xlarge |
+| --- | ---: | ---: |
+| SYNC Steps | 1,772 per second | 8,403 per second |
+| ASYNC Steps | 2,105 per second | 10.1k per second |
+| Flows started and completed, one Step each | 1,111 per second | 5,626 per second |
+| RPCs that read one Attribute | 15,392 per second | 67.3k per second |
+| RPCs that lock and update one Attribute | 2,165 per second | 13.8k per second |
+| Reads of ten 16 KiB Attributes, without a Worker | 5,941 per second | 11.3k per second |
+| Channel messages that wake a waiting Step | 460 per second | 2,278 per second |
+
+## Latency below the peak
+
+These rows ran at about half of peak throughput. Latency is in milliseconds.
+
+| Operation | Instance | Throughput | p50 | p99 |
+| --- | --- | ---: | ---: | ---: |
+| SYNC Step | c7gd.large | 846 per second | 105 | 285 |
+| SYNC Step | c7gd.4xlarge | 4,527 per second | 218 | 382 |
+| ASYNC Step | c7gd.large | 1,224 per second | 1.3 | 4.9 |
+| ASYNC Step | c7gd.4xlarge | 4,766 per second | 1.6 | 3.3 |
+| RPC that reads one Attribute | c7gd.large | 7,501 per second | 0.5 | 0.9 |
+| RPC that reads one Attribute | c7gd.4xlarge | 35.0k per second | 0.6 | 2.1 |
+| Channel wake | c7gd.4xlarge | 1,400 per second | 139 | 308 |
+
+## What the numbers mean
+
+- **A SYNC Step waits for S3.** Dex Server commits a SYNC Step's result to object storage before the Flow moves on. Each commit is one S3 PUT. At the SYNC peaks, a commit took 41 to 98 milliseconds on average. Under load, a SYNC Step also waits for its batch, so it needs many concurrent Flows to reach peak throughput.
+- **An ASYNC Step does not wait.** The Flow moves on before the commit, so a Step takes 1 to 2 milliseconds at low load. If the server node fails before the commit, the Step runs again. [Step guarantees](/concepts/step#guarantees) cover that case.
+- **S3 requests follow batches, not Steps.** Dex Server groups writes into log batches. A busy node made 23 to 98 log PUTs per second, whatever its size. At USD 0.005 per 1,000 PUTs, that is at most about USD 1.8 per busy hour per node. An idle node renews its lease with about 0.3 PUTs per second.
+- **CPU is the limit.** The 2-vCPU node used 93 to 99% of its CPU at every peak. The 16-vCPU node used 68 to 87% at most peaks. Reads of large Attributes on the 16-vCPU node were limited by its 15 Gbps network instead.
+- **Reads need no Worker.** An RPC runs on a Worker. A direct Attribute read goes only to Dex Server.
+
+To repeat a point on your own AWS account, run **benchmark/aws/reproduce.sh**. [Reproduce a result](https://github.com/superdurable/dex/blob/main/benchmark/README.md#reproduce-a-result) lists its inputs.
+
+## Release status
+
+- **Dex is in Beta.** Releases keep published APIs, configuration files, wire formats, and stored data compatible. A breaking change needs an explicit decision and comes with a migration path.
+- **Dex Server is at 0.1.x.** The SDKs are at 1.x. Each release declares a range of protocol versions, and a Worker or Client works with any server whose range overlaps. [Upgrades and compatibility](/reference/server/upgrades) lists the supported pairs.
+- **Upgrades roll forward.** Some server releases need every server process stopped before the new version starts. After a new version writes to storage, an older version must not run on it again. Each release's notes give its upgrade steps.
+- **One node serves a cluster.** One active process holds a lease in object storage. Standby processes take over when it stops. After a crash, a standby starts recovery within the lease duration plus 1 second. The lease is 10 seconds by default. [Lease, hot standby, and step down](/reference/server/high-availability) covers failover.
+- **Some options are not supported yet.** A Flow start delay and a Flow-level retry policy are rejected. The only Attribute Store is PostgreSQL. [Unsupported features](/reference/server#unsupported-features) links each open issue.
+- **Five SDKs.** Go, Python, Java, TypeScript, and Rust have the same Flow model.
+
+## License
+
+Dex is source-available under the **Sustainable Use License 1.0**. You run it yourself.
+
+- **You may** use Dex for your own business operations, whatever your company's size.
+- **You may** use Dex as hidden backend infrastructure for a commercial product. This holds when the product's value comes from other features, and its customers do not get direct access to a substantial set of Dex features.
+- **You may** charge for consulting, installation, workflow development, and support.
+- **You may not**, without a commercial license, white-label, host, or resell Dex. You may not build an automation, process, workflow, or software-building platform whose value comes entirely or mostly from Dex.
+- **You may** distribute Dex or changes to it only free of charge and for non-commercial purposes.
+
+Dex Skills are under the MIT License. The docs and examples keep their own licenses, and earlier material keeps its original license. The [licensing guide](https://github.com/superdurable/dex/blob/main/LICENSING.md) explains these terms, and the license text in the repository is what applies. For questions or a commercial license, write to **licensing@superdurable.io**.

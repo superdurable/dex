@@ -8,7 +8,7 @@ slug: /
 
 Dex is a **Durable Execution** platform. A database stores your data. Dex also stores the progress of your process: which Steps ran, what they returned, and what the process is waiting for. After a crash, a restart, or a long wait, the process continues where it stopped.
 
-You write the process as ordinary application code, with Flows, Steps, Attributes, Channels, RPCs, and Connectors.
+You write the process as a Flow: a set of Steps in your own language, each of which says which Step runs next. Attributes, Channels, RPCs, and Connectors hold its state and connect it to the outside.
 
 ## Build with your coding agent
 
@@ -20,6 +20,8 @@ https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
 ```
 
 ## New to Dex
+
+Not sure where to begin? [Get Started](/get-started) lists the paths.
 
 <div className="docs-home-sections">
   <DocsSection section="intro" to="/quick-start" title="Quick Start">
@@ -40,7 +42,7 @@ https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
 
 <div className="docs-home-sections">
   <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable agents">
-    Keep your agent framework. Tool calls run at most once, and approvals can wait for days.
+    Keep your agent framework. Each tool call runs in its own Step. Writes run at most once, apart from one documented case, and approvals can wait for days.
   </DocsSection>
   <DocsSection section="product-examples" to="/use-cases" title="Business processes">
     Orders, subscriptions, onboarding, and money transfer.
@@ -53,7 +55,7 @@ https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
   </DocsSection>
 </div>
 
-## Compared to
+## Evaluate Dex
 
 <div className="docs-home-sections">
   <DocsSection section="intro" to="/intro/compared-to-database" title="A database and queues">
@@ -61,6 +63,9 @@ https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
   </DocsSection>
   <DocsSection section="intro" to="/intro/compared-to-durable-execution" title="Existing durable execution">
     How Dex differs from replay-based engines, and when to pick another tool.
+  </DocsSection>
+  <DocsSection section="intro" to="/intro/performance-and-maturity" title="Performance and maturity">
+    Measured throughput and latency, release status, and the license.
   </DocsSection>
 </div>
 

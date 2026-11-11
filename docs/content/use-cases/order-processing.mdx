@@ -19,6 +19,8 @@ The Flow charges the buyer, waits for the seller's approval on a Channel, and th
 
 Pass the mock payment and shipping API to the Flow constructor. Do not set them later with a setter, and do not read them from a global variable.
 
+The mock service charges without an idempotency key. A real payment call must pass one, because a Step can run more than once. Derive the key from the Flow ID, so a rerun of Charge sends the same key. [Step guarantees](/concepts/step#guarantees) lists when a Step can run again.
+
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/products/order-processing',

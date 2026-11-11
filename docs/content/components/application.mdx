@@ -1,6 +1,7 @@
 ---
 title: Application (Worker and Client)
 sidebar_label: Your Application
+description: "Your Dex application is the code you deploy."
 ---
 
 # Application (Worker and Client)
@@ -32,6 +33,20 @@ it starts. Dex Web reads them there to draw each Flow.
 Configure the Worker with the server address. A Client needs only the server
 address too. You can also set pull options to tune task capacity,
 registration, and shutdown.
+
+### Registry and blob cache {#blob-cache}
+
+A Worker and a Client each take two more objects:
+
+- **A Registry of your Flows.** The Worker runs the Steps and RPCs of the
+  Flows in it. The Client uses the same definitions to encode a Flow's start
+  input and its RPC arguments, and to decode results. So a Client builds the
+  Flow objects too, even though it never runs a Step.
+- **A blob cache.** Dex sends a large value, such as a big Attribute, as a
+  reference. The blob cache is a local, size-limited directory that keeps
+  those values, so the process does not download them again. Give each Worker
+  and Client process its own directory. The cache holds only copies, so
+  deleting it loses no data.
 
 Each SDK reference has a runnable startup example:
 [Go](/reference/go/workers), [Python](/reference/python/workers),
@@ -116,3 +131,18 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
 
 Only remove the old code after the result is empty or every remaining Flow has
 an explicitly approved retirement plan.
+
+## Recover a Flow with Time Travel {#time-travel}
+
+Time Travel moves a Flow run back to an earlier point in its history and runs
+it again from there. Use it after you deploy a fix for a Step that failed. The
+run keeps its Run ID and starts a new attempt.
+
+Steps after that point run again. So do their external calls. Key each call
+with an idempotency key, as [Step](/concepts/step#guarantees) describes, so a
+repeated call has no second effect.
+
+The target point must be inside the Flow's recent history window. Time Travel
+to the beginning of the run is always available. Start it from Dex Web,
+**dexcli**, or a Client. [Time travel](/reference/server/runtime-client#time-travel)
+in the server reference covers the request options and limits.

@@ -3,6 +3,7 @@ id: index
 title: Concepts
 sidebar_label: Overview
 slug: /concepts
+description: "Dex has a small programming model. A Flow is a durable program. Steps move it forward. Primitives hold its state and connect it to the outside world. Your application drives Flows through a Client."
 ---
 
 # Concepts
@@ -79,8 +80,24 @@ processes that run it:
 
 - Your **application** hosts the Flow code in Workers and calls Dex through
   Clients.
-- **server-zd** stores Flow state and hands Steps and RPCs to Workers.
+- **Dex Server** stores Flow state and hands Steps and RPCs to Workers. Its
+  binary and its reference pages use the name **server-zd**.
 - **dexcli** runs a local Dex, and **Dex Web** lets operators inspect Flows.
+
+## What Dex guarantees {#guarantees}
+
+Dex saves each Step's result together with the move to the next Step. A Step
+that finished does not run again. A Step that was cut off can run again, so
+key each external call with an idempotency key. [Step](/concepts/step#guarantees)
+lists every guarantee and its limits.
+
+## Change Flow code {#change-flow-code}
+
+Dex does not replay your code, so a deploy never fails an open Flow with a
+replay error. Open Flows can still meet changed rules or renamed Steps.
+[Versioning Flow code](/components/application#versioning-flow-code) shows how
+to keep them working. [Time Travel](/components/application#time-travel) runs
+a Flow again from an earlier point after a fix.
 
 ## Where to go next
 

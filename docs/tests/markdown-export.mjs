@@ -104,8 +104,12 @@ const graph = {
       decision: {type: 'forceCompleteIfChannelsEmpty'}},
     {id: 'decision:rpc', kind: 'decision', name: 'rpcResult', parentId: 'rpc:describe', decision: {type: 'rpcResult'}},
     {id: 'rpc:describe', kind: 'rpc', name: 'describe'},
+    {id: 'resource:status', kind: 'attribute', name: 'status'},
   ],
-  edges: [{id: 'edge:1', kind: 'transition', from: 'decision:Begin', to: 'step:Wait', label: 'go_to'}],
+  edges: [{id: 'edge:1', kind: 'transition', from: 'decision:Begin', to: 'step:Wait', label: 'go_to'},
+    {id: 'edge:2', kind: 'resource_write', from: 'step:Begin', to: 'resource:status', label: 'set'},
+    {id: 'edge:3', kind: 'resource_read', from: 'resource:status', to: 'rpc:describe', label: 'get'},
+    {id: 'edge:4', kind: 'failure_transition', from: 'step:Wait', to: 'step:Begin', label: 'Execute failure'}],
 };
 
 try {
@@ -124,17 +128,21 @@ try {
   await writeFile(join(contentPathLocalized, 'translated.mdx'), '# Translated\n');
   await writeFile(join(contentPath, 'translated.mdx'), '# English source\n');
   await writeFile(join(contentPath, 'older.mdx'), '# Earlier version\n');
+  await writeFile(join(contentPath, 'moved.mdx'), '# Moved\n\nThis page moved. See [Home](/zh-Hans/).\n');
   const metadata = (id, source, permalink, title) => ({id, source, permalink, title,
     description: `The ${title}\n  meta description.`, frontMatter: {description: 'Ignored front matter description.'}});
   const fallback = metadata('index', '@site/reference/index.mdx', '/zh-Hans/', 'Home');
   const translated = metadata('translated', '@site/i18n/zh-Hans/reference/translated.mdx', '/zh-Hans/translated/', 'Translated');
   const earlier = metadata('older', '@site/reference/older.mdx', '/zh-Hans/reference/go/1.32/', 'Go reference');
+  // Without a front matter description, Docusaurus keeps only the first source line.
+  const moved = {id: 'moved', source: '@site/reference/moved.mdx', permalink: '/zh-Hans/moved/', title: 'Moved',
+    description: 'This page moved.', frontMatter: {}};
   const sidebars = {docs: [{type: 'category', label: '参考', link: {type: 'doc', id: 'translated'}, items: []}, {type: 'doc', id: 'index'}]};
   const options = {siteDir, outDir, baseUrl: '/zh-Hans/', siteConfig: {url: 'https://docs.example.test', title: 'Fixture', trailingSlash: true},
     i18n: {currentLocale: 'zh-Hans', defaultLocale: 'en', locales: ['en', 'zh-Hans']},
-    routesPaths: ['/zh-Hans/', '/zh-Hans/translated/', '/zh-Hans/reference/go/1.32/', '/zh-Hans/cloud/'],
+    routesPaths: ['/zh-Hans/', '/zh-Hans/translated/', '/zh-Hans/moved/', '/zh-Hans/reference/go/1.32/', '/zh-Hans/cloud/'],
     allContent: {'docusaurus-plugin-content-docs': {
-      primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars, docs: [fallback, translated]}]},
+      primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars, docs: [fallback, translated, moved]}]},
       'reference-go': {loadedVersions: [{isLast: false, contentPath, contentPathLocalized, docs: [earlier]},
         {isLast: true, contentPath, contentPathLocalized, docs: [{...earlier, permalink: '/zh-Hans/reference/go/1.33/'}]}]},
     }}};
@@ -163,14 +171,15 @@ try {
   assert.match(home, /\*\*Go\*\*\n\n```go\nconst fromChild = 1\n```\n\n\*\*Java\*\*\n\n```java\nvar fromProp = 1;\n```\n\n例子: \[examples\/java\/Sample.java\]/);
   assert.doesNotMatch(home, /overridden/);
 
-  // Flow graphs keep the start Step, wait conditions, terminal decisions, and decision conditions.
-  assert.match(home, /\*\*Flow：SampleFlow\*\*\n\n起始 Step：`Begin`\n\n\*\*Step 列表\*\*/);
-  assert.match(home, /- `Begin`：Starts the sample.\n  - `gracefulComplete` 条件 `not needs_wait`\n- `Wait`/);
-  assert.match(home, /  - WaitFor `skipWaitImmediately` 条件 `is_ready\(\)`/);
-  assert.match(home, /  - WaitFor `anyOf`：timer `one_day timer`, channel `approval.for 1` 条件 `not is_ready\(\)`/);
-  assert.match(home, /  - `forceFail`\n  - `forceCompleteIfChannelsEmpty`\n/);
+  // Flow graphs read as a numbered list of Steps, start Step first, with their waits, state, and moves in words.
+  assert.match(home, /\*\*Flow：SampleFlow\*\*\n\n\*\*Step 列表\*\*\n\n1\. `Begin`（起始 Step）：Starts the sample\.\n/);
+  assert.match(home, /   - 写入 `status`\n   - 转到 `Wait` 条件 `needs_wait`\n   - 完成 Flow 条件 `not needs_wait`\n2\. `Wait`\n/);
+  assert.match(home, /   - 不等待 条件 `is_ready\(\)`\n/);
+  assert.match(home, /   - 等待以下任一条件 Timer `one_day timer`、Channel `approval.for 1` 条件 `not is_ready\(\)`\n/);
+  assert.match(home, /   - 让 Flow 失败\n   - Channel 为空时完成 Flow\n   - Execute 失败时转到 `Begin`\n/);
+  assert.match(home, /\*\*RPC 列表\*\*\n\n- `describe`\n  - 读取 `status`\n/);
   assert.doesNotMatch(home, /`rpcResult`/);
-  assert.match(home, /\*\*连接\*\*\n\n- `goTo` \(decision; Begin; 条件 `needs_wait`\) → `Wait` \(step\)：go_to\n/);
+
   assert.match(home, /例子: \[examples\/python\/sample_flow.py\]/);
 
   // Skill hosts sit one level below the surrounding section.
@@ -185,6 +194,8 @@ try {
   assert.match(index, /^# Fixture\n\n> Dex 是 Durable Execution 平台。/);
   // Archived versions keep their Markdown twin but stay out of llms.txt.
   assert.equal((index.match(/^-/gm) ?? []).length, 3);
+  // A moved notice stays out of llms.txt.
+  assert.doesNotMatch(index, /\[Moved\]/);
   assert.doesNotMatch(index, /1\.32\.md/);
   assert.ok(index.indexOf('## 参考\n\n- [Translated]') < index.indexOf('## Home\n\n- [Home]'), 'llms.txt must follow sidebar order');
   assert.match(index, /## 其他页面\n\n- \[Go reference\].*1.33.md\): The Go reference meta description./);

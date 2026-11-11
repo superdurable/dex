@@ -3,11 +3,10 @@ id: compared-to-database
 title: Compared to Database
 sidebar_label: Compared to Database
 slug: /intro/compared-to-database
+description: One order process built on a database, then with queues and a transactional outbox, then as a Dex Flow, with the parts each design needs and the duties that stay with you.
 ---
 
-import ArchitectureComparison from '@site/src/components/intro/ArchitectureComparison';
 import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproachDiagram';
-import RequirementChangeComparison from '@site/src/components/intro/RequirementChangeComparison';
 import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-processing.json';
 
 # Compared to Database
@@ -20,7 +19,12 @@ It waits for the seller's approval before shipping and reminds the seller while 
 It refunds the buyer when shipping still fails after an hour.
 These are the parts each design needs for it:
 
-<ArchitectureComparison markdownDescription="Database and queues: 14 parts you build and run. Tables: an orders table with a status column and an approvals table. Queues: charge-requests, ship-requests, refund-requests, retry topics or visibility timeouts, and a dead-letter queue (DLQ). Services and jobs: charge, ship, and refund consumers, a reminder cron job, an approval endpoint, a status polling endpoint, and DLQ inspect and repair tools. They run on a database and a queue broker. Dex: 5 parts you write and run. One Flow with a Charge Step, a Ship Step, a Refund Step, and an approve RPC, and the Workers that host the Flow. They run on Dex Server, which provides retries per Step, durable Timers, waits on Channels, the Client wait API, and Step history with rerun." />
+| | Database, queues, and outbox | Dex |
+| --- | --- | --- |
+| Tables | Orders with a status column, approvals, and an outbox | None of your own. Flow state lives in Dex. |
+| Queues or topics | charge-requests, ship-requests, refund-requests, retry topics or visibility timeouts, and a dead-letter queue (DLQ) | None |
+| Code you write | Charge, ship, and refund consumers, an outbox relay, a reminder job, an approval endpoint, a status endpoint, and DLQ repair tools | One Flow with Charge, Ship, and Refund Steps and an approve RPC, and the Workers that host it |
+| Infrastructure you run | A database and a queue broker | Dex Server, which stores its state in object storage |
 
 ## What a database does not do
 
@@ -134,6 +138,7 @@ Queues solve the problems of Design 1, but they bring harder ones:
 
 - Most queues cannot commit "charge done" and "enqueue ship" together. If the ship message is published but the acknowledgement of the charge message times out, the queue delivers the charge message again. The charge step then runs again while the ship step runs for the same order.
   - Teams usually add a database row as the source of truth to drop duplicates.
+  - The standard fix is a **transactional outbox**. The consumer writes "charge done" and an outbox row in one database transaction. A relay process reads the outbox and publishes the ship message. The relay can publish a message twice, so each consumer still drops duplicates by order ID.
 - Retries with backoff and a DLQ are often missing.
   - For example, Kafka needs separate retry topics, and SQS needs a visibility timeout as a workaround.
   - You also have to build tools to inspect and recover messages in the DLQ.
@@ -147,10 +152,13 @@ The business also changes over time. The order process often needs to:
 
 Each of these adds queues, consumers, tables, or cron jobs to the queue design.
 
+This design works, and many teams run it well. Its cost is the code around the business logic: the outbox relay, duplicate checks, retry topics, the DLQ tools, and the reminder job. Each service that needs the same guarantees builds them again.
+
 ## The same process as a Dex Flow
 
-In Dex you write only the business logic.
+In Dex you write the business logic as Steps.
 Dex provides the retries, timers, waits, crash recovery, and the record of each Step.
+One duty stays with you: a Step can run more than once, so each external call needs an idempotency key. The [Step guarantees](/concepts/step#guarantees) explain when a Step runs again.
 
 <ExecutionApproachDiagram approach="dex" markdownDescription="The frontend API starts the Flow and waits for the Charge Step with the Client API. Dex Server records each Step result and the move to the next Step together. It provides retries per Step, durable Timers, waits on Channels, and Step history with rerun. It sends each Step task to one of your Workers, and the Steps call the charge, ship, and refund APIs." />
 
@@ -171,14 +179,18 @@ Operators can inspect each order and, after a fix, rerun it from an earlier Step
 
 | Problem | Database and queues | Dex Flow |
 | --- | --- | --- |
-| Crash between two steps | The buyer can be charged while the item never ships | Dex records each Step result and the move to the next Step together |
-| Several workers | You build row claiming or rely on queue delivery | Dex sends each task to one of your Workers |
+| Crash between two steps | An outbox and a relay keep the two steps together. Without them, the buyer can be charged while the item never ships. | Dex records each Step result and the move to the next Step together. |
+| Crash during the charge call | The consumer runs again. The payment API needs an idempotency key. | The Charge Step runs again. The payment API needs an idempotency key. |
+| Several workers | You build row claiming, or rely on queue delivery and duplicate checks. | Dex sends each task to one of your Workers. |
 
 ### When requirements change
 
-Each new requirement adds parts to the queue design.
-In Dex it adds at most one Step or RPC and changes the Ship Step.
+Each new requirement changes both designs:
 
-<RequirementChangeComparison markdownDescription="Refund the buyer after an hour of ship failures: database and queues add a refund-requests queue and refund consumers, and the ship consumers record the first failure and give up after an hour. Dex adds a Refund Step, and the Ship Step retries for one hour and then moves to the Refund Step. Wait for the seller's approval before shipping: database and queues add an approvals table and an approval endpoint, and the approval endpoint, not the charge consumer, publishes to ship-requests. Dex adds an approve RPC, and the Ship Step waits for a message on the seller Channel. Remind the seller: database and queues add a reminder cron job that scans the approvals table for orders that still wait. Dex adds no part: the Ship Step also waits for a Timer, and when it fires, the Step sends a reminder and waits again. In total, database and queues add 5 new parts, and Dex adds 2." />
+| New requirement | Database, queues, and outbox | Dex |
+| --- | --- | --- |
+| Refund the buyer after an hour of ship failures | A refund-requests queue and refund consumers. The ship consumers record the first failure and give up after an hour. | A Refund Step. The Ship Step retries for one hour and then moves to the Refund Step. |
+| Wait for the seller's approval before shipping | An approvals table and an approval endpoint. The approval endpoint, not the charge consumer, publishes to ship-requests. | An approve RPC. The Ship Step waits for a message on the seller Channel. |
+| Remind the seller | A reminder job that scans the approvals table for orders that still wait. | The Ship Step also waits for a Timer. When it fires, the Step sends a reminder and waits again. |
 
-[Why Dex?](/intro/what-is-dex) shows this Flow as Dex code, and the [Quick Start](/quick-start) runs it.
+[Order Processing](/use-cases/order-processing) has this Flow as runnable code in every SDK. The [Quick Start](/quick-start) runs a smaller version with a Charge Step and a Ship Step.

@@ -13,6 +13,10 @@ Short definitions of Dex terms. Use these terms, not the older Workflow and Stat
 
 A durable, typed variable on a Flow. You can index it for search.
 
+#### [Blob cache](/components/application#blob-cache)
+
+A local, size-limited disk cache of large Dex values. Dex sends a large value as a reference, and the cache keeps the value so a Worker or Client does not download it again. Each Worker and Client process opens its own cache directory. Losing the cache loses no data.
+
 #### [Channel](/concepts/primitives/channel)
 
 A durable message pipe. It carries messages from outside a Flow, or between parts of one Flow.
@@ -21,9 +25,17 @@ A durable message pipe. It carries messages from outside a Flow, or between part
 
 What a Step waits for, returned from WaitFor: a Timer, a Channel, or a combination of them.
 
-#### [dexcli](/quick-start)
+#### [Dex Server](/components/server)
 
-The Dex CLI, installed with Homebrew. It runs server-zd and Dex Web on your machine.
+The server that stores every Flow's state and hands work to Workers. Its binary is **dex-server-zd**, and its reference calls it **server-zd**.
+
+#### [dexcli](/components/run-locally)
+
+The Dex CLI. It runs Dex Server and Dex Web on your machine, and it inspects and operates Flows.
+
+#### [Durable Execution](/intro/what-is-dex)
+
+Running a process so that it survives crashes, restarts, and long waits. The engine records the process's progress, so after a failure the process continues where it stopped instead of starting over.
 
 #### [Execute](/concepts/step#waitfor-and-execute)
 
@@ -53,10 +65,6 @@ Making Steps and RPCs that access the same Attributes run one at a time.
 
 A decision to go to another Step, or to complete or fail the Flow.
 
-#### [Time Travel](/components/application)
-
-Restarting a Flow run from an earlier Step, after a fix. The run keeps its Run ID.
-
 #### [RPC](/concepts/primitives/rpc)
 
 A Worker handler that reads or writes a running Flow from outside.
@@ -73,9 +81,17 @@ The unit of durable control flow. It has an optional WaitFor and an Execute.
 
 One run of a Step type, identified by **step_type** and a number.
 
+#### [Time Travel](/components/application#time-travel)
+
+Running a Flow run again from an earlier point in its history, usually after a fix. The run keeps its Run ID. Steps after that point run again, with their external calls.
+
 #### [Timer](/concepts/primitives/timer)
 
 A durable sleep condition. When it fires, the waiting Step resumes.
+
+#### [Versioning](/components/application#versioning-flow-code)
+
+Changing Flow code while Flows are still open. Dex does not replay code, so a deploy causes no replay error. Keep old Step types and RPCs until the Flows that use them finish.
 
 #### [WaitFor](/concepts/step#waitfor-and-execute)
 

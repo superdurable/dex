@@ -1,6 +1,7 @@
 ---
 title: Metrics and alerts
 sidebar_label: Metrics and alerts
+description: "Set metrics.listen to serve plain HTTP GET /metrics on its own listener, separate from api.listen. It is empty by default, which turns the endpoint off. The endpoint has no authentication, so never expose it publicly. In Kubernetes, bind it to 0.0.0.0:9090 and restrict access with a NetworkPolicy."
 ---
 
 # Metrics and alerts

@@ -21,6 +21,7 @@ The mock API prints each call, so the Worker's output shows which Steps ran. You
 
 ## Before you start
 
+- macOS or Linux. **dexcli** does not run on Windows.
 - **dexcli**, installed in step 1.
 - The toolchain for your language: Python 3.11 or later with uv, Go, JDK 17 or later, Node.js 22.18 or later, or Rust 1.97 or later.
 - Git, to get the example code.
@@ -48,14 +49,14 @@ Or follow the steps below yourself.
 
 ## 1. Install Dex and get the code
 
-Install **dexcli** and start Dex on your machine:
+Install **dexcli** with Homebrew and start Dex on your machine. [Run Locally](/components/run-locally) shows how to install it without Homebrew.
 
 ```bash
 brew install superdurable/tap/dexcli
 dexcli dev
 ```
 
-**dexcli dev** starts Dex Server at **127.0.0.1:8801** and Dex Web at [http://127.0.0.1:8802](http://127.0.0.1:8802). Keep it running. [Run Locally](/components/run-locally) lists the options.
+**dexcli dev** starts Dex Server at **127.0.0.1:8801** and Dex Web at [http://127.0.0.1:8802](http://127.0.0.1:8802). Keep it running.
 
 In a second terminal, get the example code:
 
@@ -112,11 +113,13 @@ cd dex/examples/rust/quick-start
 </SdkSnippet>
 </SdkTabs>
 
-## 2. Write the Flow
+## 2. Read the Flow
+
+The code is already in the folder you cloned. This step and the next one walk through it.
 
 A Flow is a process that Dex runs to completion. Each Step is one unit of work in it. Dex saves the result of each Step, so a Step that finished does not run again.
 
-**Charge** calls the payment API and moves to **Ship**. **Ship** waits on a 30-second Timer before it runs. The mock API comes in through the constructor.
+**Charge** calls the payment API with an idempotency key and moves to **Ship**. **Ship** waits on a 30-second Timer before it runs. The mock API comes in through the constructor.
 
 <SdkTabs
   examples={{
@@ -134,7 +137,7 @@ class Charge(Step[str]):
         self.shop = shop
 
     def execute(self, context: Context, input: str) -> StepDecision:
-        self.shop.charge(input)
+        self.shop.charge(input, idempotency_key=f"charge-{input}")
         return go_to(Ship, input)
 
 
@@ -197,7 +200,7 @@ type Charge struct {
 
 // Execute charges the order.
 func (step Charge) Execute(_ dex.Context, orderID string) (*dex.StepDecision, error) {
-	step.shop.Charge(orderID)
+	step.shop.Charge(orderID, "charge-"+orderID)
 	return dex.GoTo(Ship{}, orderID), nil
 }
 
@@ -253,7 +256,7 @@ public final class OrderFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String orderId) {
-            shop.charge(orderId);
+            shop.charge(orderId, "charge-" + orderId);
             return StepDecision.goTo(Ship.class, orderId);
         }
     }
@@ -301,7 +304,7 @@ class Charge implements Step<string> {
   }
 
   public execute(_context: Context, orderId: string): StepDecision {
-    this.shop.charge(orderId);
+    this.shop.charge(orderId, `charge-${orderId}`);
     return goTo(Ship, orderId);
   }
 }
@@ -360,7 +363,7 @@ impl Step for Charge {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, order_id: String) -> HandlerResult<StepDecision> {
-        self.shop.charge(&order_id);
+        self.shop.charge(&order_id, &format!("charge-{order_id}"));
         let ship = Ship {
             shop: self.shop.clone(),
         };
@@ -420,7 +423,9 @@ The Timer is durable. Dex keeps the wait on the server, so the wait does not dep
 
 ## 3. Add a Worker and a Client
 
-The Worker runs the Steps. It connects out to Dex for work, so it needs no open port. The Client starts Flows. Both register the same Flow.
+The Worker runs the Steps. It connects out to Dex for work, so it needs no open port. The Client starts Flows.
+
+Both programs build the same Flow and register it. The Client uses that registration to name the Flow type and encode the input. Its copy of the mock API is never called. Both programs also open a blob cache. This local cache keeps copies of large Flow values, so the program does not download them again.
 
 <SdkTabs
   examples={{
@@ -781,6 +786,8 @@ The Worker prints **Charged order-...**. Ship now waits on its Timer.
 Within 30 seconds, press Ctrl+C in the Worker's terminal. Then start the Worker again with the same command.
 
 When the Timer fires, the new Worker prints **Shipped order-...**. It does not print **Charged** again. Dex had saved the result of Charge, so only Ship ran.
+
+A Step can still run more than once. Suppose the Worker stops in the middle of Charge, after the payment call but before Dex saves the result. Dex then runs Charge again. That is why Charge passes an idempotency key: the payment API charges each key only once. [Step guarantees](/concepts/step#guarantees) lists when a Step can run again.
 
 ## 6. See the run in Dex Web
 

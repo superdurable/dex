@@ -2,6 +2,7 @@
 id: what-is-dex
 title: Why Dex?
 sidebar_label: Why Dex?
+description: Dex records each Step of a process as it runs, so the process continues after a crash, a restart, or a long wait. This page shows the problem with an order process, how Dex models it, and how Dex differs from replay-based durable execution.
 ---
 
 import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
@@ -13,46 +14,67 @@ Dex is a Durable Execution (D-Ex) platform.
 Dex records each Step of your process as it runs.
 After a crash or a restart, the process continues from the last recorded Step. It does not start over or stop halfway.
 
-You build with a few [primitives](/concepts). You write a Flow as ordinary code: Steps, Attributes, RPCs, and durable wait conditions on Channels and Timers. Your Workers host the Flow. Your Client calls Dex Server to start Flow instances and interact with them. Dex Server sends Step and RPC tasks to your Workers.
+## The problem
 
-<DexSystemDiagram markdownDescription="An Application contains a Client, which starts and interacts with Flow instances, and a Worker, which hosts the Flow; both use the Dex SDK. The Application calls Dex Server with startFlow and invokeRPC, and Dex Server invokes Steps and RPCs on the Worker. Dex Server persists Flow instances and their execution." />
+An online store charges the buyer and then ships the item. Between the two calls, the server can crash, a deploy can restart it, or the ship API can time out. The buyer is then charged, and the item never ships.
 
-A **Step** can wait for a condition in **WaitFor**: a **Channel** message, a **Timer**, or both. The wait survives restarts. When the condition is met, Dex calls the Step's **Execute**. A Step without WaitFor runs Execute right away.
+The process also waits. The seller must approve the shipment, maybe a day later. The store reminds the seller while it waits. If shipping keeps failing, the store refunds the buyer.
 
-**Execute** returns a decision: which Steps run next, or that the Flow completes. Code in Steps and RPCs can read and write **Attributes**. It can also publish durable **Channel** messages, to deliver external events or to pass messages between Steps that run in parallel in the same Flow.
+A database stores the order, but it does not run this process. Teams build the rest themselves: status columns, queues, retry topics, a reminder job, and tools to repair stuck orders. [Compared to Database](/intro/compared-to-database) builds that design step by step.
+
+## How Dex models a process
+
+In Dex, the order process is one **Flow**. The order ID is its Flow ID.
+
+A Flow is made of **Steps**. Each Step does one unit of work, such as the charge call. Dex saves the Step's result and its move to the next Step together, so a crash cannot leave the order between two Steps.
+
+A Step has two parts:
+
+- **WaitFor** waits for a condition: a **Channel** message, such as the seller's approval, or a **Timer**, such as the reminder. The wait lives in Dex, so it survives restarts and holds no thread.
+- **Execute** does the work. It returns a decision: the next Steps to run, or that the Flow is complete.
+
+The Flow keeps its data in **Attributes**, such as the order status. An **RPC** lets your application read the Flow or send it a command, such as the approval.
+
+This model has one trade-off. You write the process as Steps and decisions, not as one function. In return, Step code is ordinary code, and Dex never replays it.
 
 ## Example: order processing
 
 The Flow charges the buyer and then waits for the seller's approval, with reminders while it waits. After approval it ships the item. If the ship call still fails after its retries, the Flow refunds the buyer.
-[Compared to Database](/intro/compared-to-database) builds the same process with a database and message queues, and shows where that design breaks.
 
 <DocsFlowDefinitionGraph graph={orderProcessingFlow} />
 
 - **ChargeStep** calls the payment API with a Step retry policy. When it succeeds, it moves to ShipStep.
 - **ShipStep** waits for a message on the seller **Channel** or for a **Timer**. If the Timer fires first, it sends a reminder and keeps waiting. When the approval arrives, it ships. If the ship retries run out, it moves to **RefundStep**.
 - **RPC approve** publishes the approval to the seller Channel.
-- The storefront **start** handler waits for ChargeStep with the Client **wait-for-Step-completion** API. It does not poll a status of its own.
+- The storefront's start handler starts the Flow and waits for ChargeStep with the Client's wait-for-Step-completion API. It then tells the buyer "payment received". It does not poll a status of its own.
 - **Attribute order-status** is indexed, so support staff can search for stuck orders.
+
+A Step can run more than once, for example after a Worker crash in the middle of a call. So the payment call needs an idempotency key, built from the Flow ID and the Step execution ID. The [Step guarantees](/concepts/step#guarantees) list when a Step runs again.
 
 The [Order Processing](/use-cases/order-processing) example has the full code of this Flow and its handlers in every SDK.
 
-The frontend waits for "payment received". The **GET /products/order-processing/start** handler starts the Flow and waits for ChargeStep to complete before it returns.
+## Where your code runs
 
+Your application contains a **Worker** and a **Client**, both built with the Dex SDK. The Worker hosts the Flow and runs its Steps and RPCs. The Client starts Flows and calls their RPCs. **Dex Server** stores each Flow and sends work to your Workers.
 
-Dex records a Step's result and its move to the next Step together, so a crash cannot leave the Flow between two Steps. Timer and Channel waits continue after a Worker restarts. You declare retries and compensation on the Step.
+<DexSystemDiagram markdownDescription="An Application contains a Client, which starts and interacts with Flow instances, and a Worker, which hosts the Flow; both use the Dex SDK. The Application calls Dex Server with startFlow and invokeRPC, and Dex Server invokes Steps and RPCs on the Worker. Dex Server persists Flow instances and their execution." />
 
-## How this differs from traditional Durable Execution
+## How this differs from replay-based durable execution
 
-Traditional Durable Execution engines rebuild a workflow function's state by **replaying** its event history. Side effects must go in **activities**. You split business logic into **workflow code** and **activity code**, and the two follow different programming models. Workflow code must be **deterministic**: it cannot read the clock, use random numbers, or do IO directly. Event history has a **size limit**. It is also a poor place for application data, because large payloads make it expensive and slow.
+Replay-based engines rebuild a workflow function's state by **replaying** its event history. Side effects go in **activities**. Workflow code must be **deterministic**: it cannot read the clock, use random numbers, or do IO directly. The event history has a size limit, so large application data does not belong in it.
 
-Replay-based engines need a large set of special APIs to simulate a normal programming model. Each of these APIs brings implicit rules, which makes the code hard to understand and maintain.
+Dex has no replayed workflow function:
 
-Dex has no replayed workflow function. You declare Steps and the movements between them. Worker handlers are ordinary code. Waits, RPCs, and locking are part of the Flow model; you do not rebuild them from history primitives. **Attribute** data lives in a **blob store**, not in an event history. You can sync it to a database you already run.
+- Step and RPC code is ordinary code. It may read the clock and call any library.
+- A code change does not break a running Flow with a replay error.
+- Waits, RPCs, and locks are part of the Flow model.
+- **Attribute** data lives in a blob store, not in an event history. You can sync it to a database you already run.
+
+[Compared to Existing Durable Execution](/intro/compared-to-durable-execution) maps each tool family's terms onto Dex, and says when another tool fits better.
 
 ## Next steps
 
-- [Order Processing](/use-cases/order-processing) — run this Flow on your machine
-- [Quick Start](/quick-start) — run your first Flow
-- [Concepts](/concepts) — Step, Attribute, Channel, Timer, RPC, Client APIs
-- [Design Patterns](/design-patterns) — reusable Flow shapes
-- [Product Examples](/use-cases) — fuller product examples
+- [Quick Start](/quick-start): run your first Flow.
+- [Order Processing](/use-cases/order-processing): run this Flow on your machine.
+- [Concepts](/concepts): Step, Attribute, Channel, Timer, RPC, and the Client APIs.
+- [Design Patterns](/design-patterns): reusable Flow shapes.

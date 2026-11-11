@@ -1,23 +1,27 @@
 ---
-title: Server (server-zd)
-sidebar_label: Server
+title: Dex Server
+sidebar_label: Dex Server
+description: "Dex Server stores every Flow's state and hands Steps and RPCs to Workers. Its only runtime dependency is object storage, such as Amazon S3 or an S3-compatible store. Dex Server ships as one binary, dex-server-zd. Its releases and reference pages call it server-zd."
 ---
 
-# Server (server-zd)
+# Dex Server
 
-server-zd is the Dex Server. It stores every Flow's state and hands Steps and
-RPCs to Workers. Its only runtime dependency is object storage, such as Amazon
-S3 or an S3-compatible store.
+Dex Server stores every Flow's state and hands Steps and RPCs to Workers. Its
+only runtime dependency is object storage, such as Amazon S3 or an
+S3-compatible store. Dex Server ships as one binary, **dex-server-zd**. Its
+releases and reference pages call it **server-zd**.
 
 ## How it works
 
-server-zd commits every write to object storage before it acknowledges the
+Dex Server commits every write to object storage before it acknowledges the
 write. It keeps a local store as a cache. After a restart, a node rebuilds that
 cache from object storage.
 
 One active process serves a cluster. It holds a lease in object storage, so a
 second process cannot write at the same time. You can run standby processes
-that take over when the active process stops.
+that take over when the active process stops. [Performance and
+Maturity](/intro/performance-and-maturity) gives measured throughput and
+latency for one node.
 
 ## How it fits with the other components
 
@@ -26,17 +30,18 @@ that take over when the active process stops.
 - [Dex Web](/components/web) runs as a separate process and reads
   Flows through the same API.
 - [dexcli](/components/cli) calls the same API. **dexcli dev** also
-  starts server-zd on your machine.
-- server-zd stores one Flow Definition Graph for each Flow type. Workers or
+  starts Dex Server on your machine.
+- Dex Server stores one Flow Definition Graph for each Flow type. That graph
+  is a static map of the Flow's Steps and the moves between them. Workers or
   **dexcli** publish it. Each graph records when it was generated. A graph with
   a later generation time replaces an older one, whatever the upload order. Dex
   Web reads it to draw the Flow.
-- server-zd can write selected Attributes to PostgreSQL. See
+- Dex Server can write selected Attributes to PostgreSQL. See
   [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection).
 
 ## Run it
 
-For local development, run **dexcli dev**. It starts server-zd with embedded
+For local development, run **dexcli dev**. It starts Dex Server with embedded
 object storage, together with Dex Web.
 
 In production, run **dex-server-zd serve** with one YAML configuration file. The

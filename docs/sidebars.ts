@@ -202,6 +202,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'intro/compared-to-database',
         'intro/compared-to-durable-execution',
+        'intro/performance-and-maturity',
         {
           type: 'category',
           label: 'Correctness and Expressiveness',

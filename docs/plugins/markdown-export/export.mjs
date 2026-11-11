@@ -15,6 +15,7 @@ import remarkMdx from 'remark-mdx';
 import remarkFrontmatter from 'remark-frontmatter';
 import remarkGfm from 'remark-gfm';
 import remarkStringify from 'remark-stringify';
+import {toString as mdastToString} from 'mdast-util-to-string';
 import {markdownPath} from '../../src/markdownPath.mjs';
 
 // Matches the tab order of SdkTabs.tsx.
@@ -30,10 +31,20 @@ const localeCopies = {
     separator: ': ',
     example: 'Example',
     flow: 'Flow',
-    startStep: 'Start Step',
     steps: 'Steps',
-    edges: 'Edges',
     when: 'when',
+    graph: {
+      rpcs: 'RPCs', startMarker: ' (start Step)', timeoutMarker: ' (timeout handler)', listJoiner: ', ',
+      goesTo: 'Goes to', cancels: 'cancels', cancelsJoiner: ' and ', startsSubFlow: 'Starts SubFlow',
+      onFailure: label => (label?.endsWith(' failure') ? `If ${label.slice(0, -' failure'.length)} fails, goes to` : 'On failure, goes to'),
+      resource: {resource_write: 'Writes', resource_read: 'Reads', resource_publish: 'Publishes to', resource_lock: 'Locks'},
+      decisions: {gracefulComplete: 'Completes the Flow', forceComplete: 'Completes the Flow at once',
+        forceCompleteIfChannelsEmpty: 'Completes the Flow if its Channels are empty', forceFail: 'Fails the Flow',
+        deadEnd: 'Ends this branch'},
+      waits: {until: 'Waits for', anyOf: 'Waits for any of', allOf: 'Waits for all of', skipWaitImmediately: 'Does not wait',
+        failure: 'Waits after a failure'},
+      conditionKinds: {channel: 'Channel', timer: 'Timer', subflow: 'SubFlow'},
+    },
     summary: 'Dex is a Durable Execution platform. Each entry links to the Markdown export of a documentation page.',
     otherPages: 'Other pages',
     admonitions: {note: 'Note', tip: 'Tip', info: 'Info', warning: 'Warning', danger: 'Danger', caution: 'Caution',
@@ -43,10 +54,19 @@ const localeCopies = {
     separator: '：',
     example: '例子',
     flow: 'Flow',
-    startStep: '起始 Step',
     steps: 'Step 列表',
-    edges: '连接',
     when: '条件',
+    graph: {
+      rpcs: 'RPC 列表', startMarker: '（起始 Step）', timeoutMarker: '（超时处理）', listJoiner: '、',
+      goesTo: '转到', cancels: '取消', cancelsJoiner: '，并', startsSubFlow: '启动 SubFlow',
+      onFailure: label => (label?.endsWith(' failure') ? `${label.slice(0, -' failure'.length)} 失败时转到` : '失败时转到'),
+      resource: {resource_write: '写入', resource_read: '读取', resource_publish: '发布到', resource_lock: '锁定'},
+      decisions: {gracefulComplete: '完成 Flow', forceComplete: '立即完成 Flow',
+        forceCompleteIfChannelsEmpty: 'Channel 为空时完成 Flow', forceFail: '让 Flow 失败', deadEnd: '结束这个分支'},
+      waits: {until: '等待', anyOf: '等待以下任一条件', allOf: '等待以下全部条件', skipWaitImmediately: '不等待',
+        failure: '失败后等待'},
+      conditionKinds: {channel: 'Channel', timer: 'Timer', subflow: 'SubFlow'},
+    },
     summary: 'Dex 是 Durable Execution 平台。每个条目链接到一个文档页面的 Markdown 版本。',
     otherPages: '其他页面',
     admonitions: {note: '备注', tip: '提示', info: '信息', warning: '注意', danger: '危险', caution: '警告',
@@ -97,6 +117,7 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
   const hostData = JSON.parse(await readFile(join(siteDir, 'src/data/dex-skill-hosts.json'), 'utf8'));
   const entries = new Map();
   const writtenPaths = new Set();
+  const movedPages = new Set();
   for (const page of pages) {
     const sourcePath = resolveSiteSource(siteDir, page.source);
     const source = await readFile(sourcePath, 'utf8');
@@ -112,6 +133,7 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
     }
     collectImports(tree, context);
     tree.children = await transformChildren(tree.children, context);
+    const leadText = firstParagraphText(tree);
     const description = singleLine(page.description);
     const frontMatter = {title: page.title,
       ...(description ? {description} : {}),
@@ -124,17 +146,18 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
     if (writtenPaths.has(pathname)) throw new Error(`Duplicate Markdown output: ${pathname}`);
     writtenPaths.add(pathname);
     await writeOutput(outDir, baseUrl, pathname, markdown);
+    if (movedNoticePattern.test(leadText)) movedPages.add(page);
     entries.set(page, `- [${escapeLabel(page.title)}](${new URL(pathname, siteConfig.url).href})${description ? `: ${description}` : ''}`);
   }
   // Archived versions keep Markdown twins but stay out of llms.txt, like the sitemap.
-  const sections = llmsSections(versions.filter(item => item.version.isLast), copy);
+  const sections = llmsSections(versions.filter(item => item.version.isLast), copy, movedPages);
   const index = [`# ${siteConfig.title}`, `> ${copy.summary}`,
     ...sections.map(section => `## ${section.title}\n\n${section.pages.map(page => entries.get(page)).join('\n')}`)];
   await writeOutput(outDir, baseUrl, `${baseUrl}llms.txt`, `${index.join('\n\n')}\n`);
   console.log(`[markdown-export] Exported ${pages.length} pages (${locale}) from ${versions.length} docs version(s).`);
 }
 
-function llmsSections(versions, copy) {
+function llmsSections(versions, copy, movedPages = new Set()) {
   const sections = [];
   const listed = new Set();
   for (const {version, pages} of versions) {
@@ -149,7 +172,8 @@ function llmsSections(versions, copy) {
       }
     }
   }
-  const unlisted = versions.flatMap(item => item.pages).filter(page => !listed.has(page));
+  // A page that only says where its content moved helps no reader of llms.txt.
+  const unlisted = versions.flatMap(item => item.pages).filter(page => !listed.has(page) && !movedPages.has(page));
   if (unlisted.length) sections.push({title: copy.otherPages, pages: unlisted});
   return sections;
 }
@@ -291,14 +315,25 @@ const frameworkLabels = {
   'vercel-ai-sdk': 'Vercel AI SDK', mastra: 'Mastra',
 };
 async function expandFrameworkTabs(node, context) {
-  const output = [];
+  const tabs = [];
   for (const child of node.children.filter(child => child.type === 'mdxJsxFlowElement')) {
     if (child.name !== 'FrameworkTab') fail(context, child, 'FrameworkTabs children must be FrameworkTab elements');
     const framework = attribute(child, 'framework', context);
     if (!Object.hasOwn(frameworkLabels, framework)) fail(context, child, `Unknown agent framework ${framework}`);
-    output.push(paragraph(frameworkLabels[framework], true), ...await transformChildren(child.children, context));
+    tabs.push({framework, content: await transformChildren(child.children, context)});
   }
-  return output;
+  // A block that opens every tab is written once, before the labels, so the export does not repeat it.
+  const shared = [];
+  while (tabs.length > 1 && tabs.every(tab => tab.content.length > 0 &&
+      markdownNodeKey(tab.content[0]) === markdownNodeKey(tabs[0].content[0]))) {
+    shared.push(tabs[0].content[0]);
+    for (const tab of tabs) tab.content.shift();
+  }
+  return [...shared, ...tabs.flatMap(tab => [paragraph(frameworkLabels[tab.framework], true), ...tab.content])];
+}
+
+function markdownNodeKey(node) {
+  return JSON.stringify(node, (key, value) => key === 'position' ? undefined : value);
 }
 
 // Mirrors DocsSection.tsx: a linked section name followed by its description.
@@ -384,42 +419,85 @@ async function expandGraph(node, context) {
     : resolve(dirname(context.sourcePath), importedPath);
   const graph = JSON.parse(await readFile(graphPath, 'utf8'));
   const {copy} = context;
-  const graphState = {context, node, copy, nodes: new Map(graph.nodes.map(item => [item.id, item]))};
-  const edgeSources = new Set(graph.edges.map(edge => edge.from));
-  const start = graphState.nodes.get(graph.flow.startStepId);
+  const nodes = new Map(graph.nodes.map(item => [item.id, item]));
+  const graphState = {context, node, copy, nodes};
+  for (const edge of graph.edges) {
+    for (const id of [edge.from, edge.to]) if (!nodes.has(id)) fail(context, node, `Graph edge references missing node ${id}`);
+  }
+  const start = nodes.get(graph.flow.startStepId);
   if (graph.flow.startStepId && !start) fail(context, node, `Graph start Step ${graph.flow.startStepId} is missing`);
-  const steps = graph.nodes.filter(item => item.kind === 'step').map(step => {
-    const details = [
-      ...graph.nodes.filter(item => item.kind === 'wait' && item.parentId === step.id).map(item => waitPhrasing(item, copy)),
-      // A Step decision without an outgoing edge ends or fails the Flow.
-      ...graph.nodes.filter(item => item.kind === 'decision' && item.parentId === step.id && !edgeSources.has(item.id))
-        .map(item => [inlineCode(item.decision?.type ?? item.name), ...conditionPhrasing(item, copy)]),
-    ];
-    return [inlineCode(step.name), ...(step.metadata?.explanation ? [text(`${copy.separator}${step.metadata.explanation}`)] : []),
-      ...(details.length ? [list(details)] : [])];
-  });
+  const handlers = graph.nodes.filter(item => item.kind === 'step' || item.kind === 'timeout_handler');
+  // The start Step reads first, so the list follows the Flow from its beginning.
+  const ordered = start ? [start, ...handlers.filter(item => item !== start)] : handlers;
+  const steps = ordered.map(item => graphHandlerItem(item, graph, graphState));
+  const rpcs = graph.nodes.filter(item => item.kind === 'rpc').map(item => graphHandlerItem(item, graph, graphState));
   return [paragraph(`${copy.flow}${copy.separator}${graph.flow.name}`, true),
-    ...(start ? [{type: 'paragraph', children: [text(`${copy.startStep}${copy.separator}`), inlineCode(start.name)]}] : []),
-    paragraph(copy.steps, true), list(steps),
-    paragraph(copy.edges, true), list(graph.edges.map(edge => [...graphNodePhrasing(edge.from, graphState), text(' → '),
-      ...graphNodePhrasing(edge.to, graphState), ...(edge.label ? [text(`${copy.separator}${edge.label}`)] : [])])),
+    paragraph(copy.steps, true), orderedList(steps),
+    ...(rpcs.length ? [paragraph(copy.graph.rpcs, true), list(rpcs)] : []),
     ...(graph.source?.path ? [exampleParagraph(graph.source.path, context)] : [])];
 }
 
-function graphNodePhrasing(id, {context, node, copy, nodes}) {
-  const item = nodes.get(id);
-  if (!item) fail(context, node, `Graph edge references missing node ${id}`);
-  const parent = item.parentId ? nodes.get(item.parentId)?.name ?? item.parentId : undefined;
-  const condition = conditionPhrasing(item, copy);
-  return [inlineCode(item.name), text(` (${item.kind}${parent ? `; ${parent}` : ''}${condition.length ? ';' : ''}`),
-    ...condition, text(')')];
+// One list item per Step, RPC, or timeout handler: its name, what it waits for, the state it
+// touches, and where each of its decisions leads, in plain words.
+function graphHandlerItem(handler, graph, graphState) {
+  const {copy, nodes} = graphState;
+  const words = copy.graph;
+  const ownerOf = id => {
+    let item = nodes.get(id);
+    while (item?.parentId && !['step', 'rpc', 'timeout_handler'].includes(item.kind)) item = nodes.get(item.parentId);
+    return item;
+  };
+  const details = [];
+  for (const wait of graph.nodes.filter(item => item.kind === 'wait' && item.parentId === handler.id)) {
+    details.push(waitPhrasing(wait, copy));
+  }
+  const resourceVerbs = new Map();
+  for (const edge of graph.edges.filter(item => item.kind.startsWith('resource_'))) {
+    const handlerEnd = ownerOf(edge.from) === handler ? edge.to : ownerOf(edge.to) === handler ? edge.from : undefined;
+    if (!handlerEnd) continue;
+    const verb = words.resource[edge.kind] ?? edge.label ?? edge.kind;
+    const names = resourceVerbs.get(verb) ?? [];
+    const name = nodes.get(handlerEnd).name;
+    if (!names.includes(name)) names.push(name);
+    resourceVerbs.set(verb, names);
+  }
+  for (const [verb, names] of resourceVerbs) details.push([text(`${verb} `), ...joinCode(names, copy)]);
+  for (const decision of graph.nodes.filter(item => item.kind === 'decision' && item.parentId === handler.id)) {
+    const type = decision.decision?.type ?? decision.name;
+    if (type === 'rpcResult') continue;
+    const targets = graph.edges.filter(edge => edge.from === decision.id && edge.kind === 'transition').map(edge => nodes.get(edge.to).name);
+    const canceled = graph.edges.filter(edge => edge.from === decision.id && edge.kind === 'cancel').map(edge => nodes.get(edge.to).name);
+    const phrase = targets.length ? [text(`${words.goesTo} `), ...joinCode(targets, copy)]
+      : words.decisions[type] ? [text(words.decisions[type])] : [inlineCode(type)];
+    if (canceled.length) phrase.push(text(`${words.cancelsJoiner}${words.cancels} `), ...joinCode(canceled, copy));
+    details.push([...phrase, ...conditionPhrasing(decision, copy)]);
+  }
+  for (const edge of graph.edges.filter(item => item.from === handler.id && item.kind === 'failure_transition')) {
+    details.push([text(`${words.onFailure(edge.label)} `), inlineCode(nodes.get(edge.to).name)]);
+  }
+  for (const edge of graph.edges.filter(item => item.kind === 'subflow' && ownerOf(item.from) === handler)) {
+    details.push([text(`${words.startsSubFlow} `), inlineCode(nodes.get(edge.to).name)]);
+  }
+  const explanation = handler.metadata?.explanation;
+  return [inlineCode(handler.name),
+    ...(handler === nodes.get(graph.flow.startStepId) ? [text(words.startMarker)] : []),
+    ...(handler.kind === 'timeout_handler' ? [text(words.timeoutMarker)] : []),
+    ...(explanation ? [text(`${copy.separator}${explanation}`)] : []),
+    ...(details.length ? [list(details)] : [])];
+}
+
+function joinCode(names, copy) {
+  return names.flatMap((name, index) => [...(index ? [text(copy.graph.listJoiner)] : []), inlineCode(name)]);
 }
 
 function waitPhrasing(item, copy) {
+  const words = copy.graph;
   const conditions = (item.wait?.conditions ?? []).flatMap((condition, index) => [
-    text(`${index ? ', ' : copy.separator}${condition.kind === 'subflow' ? `SubFlow [${condition.index ?? index}]` : condition.kind} `),
+    text(`${index ? copy.graph.listJoiner : ' '}${words.conditionKinds[condition.kind] ?? condition.kind} `),
     inlineCode(condition.label || condition.expression || condition.resourceId || condition.subFlowId || '')]);
-  return [text('WaitFor '), inlineCode(item.wait?.type ?? item.name), ...conditions, ...conditionPhrasing(item, copy)];
+  const type = item.wait?.type ?? item.name;
+  const lead = words.waits[type];
+  return [...(lead ? [text(lead)] : [text('WaitFor '), inlineCode(type)]), ...conditions, ...conditionPhrasing(item, copy)];
 }
 
 function conditionPhrasing(item, copy) {
@@ -544,12 +622,22 @@ function writeText(node, parent, state, info) {
 
 function isWithin(directory, file) { const path = relative(directory, file); return path !== '..' && !path.startsWith('../'); }
 function routeKey(pathname) { return pathname.replace(/\/+$/, '') || '/'; }
+const movedNoticePattern = /^(This page moved|本页已经?移)/;
+
+function firstParagraphText(tree) {
+  const lead = tree.children.find(node => node.type === 'paragraph');
+  return lead ? singleLine(mdastToString(lead)) : '';
+}
+
 function singleLine(value) { return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''; }
 function text(value) { return {type: 'text', value}; }
 function inlineCode(value) { return {type: 'inlineCode', value}; }
 function anchor(id) { return {type: 'html', value: `<a id="${escapeAttribute(id)}"></a>`}; }
 function paragraph(value, bold = false) { return {type: 'paragraph', children: [bold ? {type: 'strong', children: [text(value)]} : text(value)]}; }
 function heading(depth, value) { return {type: 'heading', depth, children: [text(value)]}; }
+function orderedList(items) {
+  return {...list(items), ordered: true, start: 1};
+}
 function list(items) {
   return {type: 'list', ordered: false, spread: false, children: items.map(item => ({type: 'listItem', spread: false,
     children: [{type: 'paragraph', children: item.filter(child => child.type !== 'list')}, ...item.filter(child => child.type === 'list')]}))};

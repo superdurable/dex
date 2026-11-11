@@ -2,6 +2,7 @@
 title: Run Locally
 sidebar_label: Run Locally
 slug: /components/run-locally
+description: "Install dexcli and run Dex Server and Dex Web on your machine with dexcli dev, on macOS or Linux."
 ---
 
 # Run Locally
@@ -10,10 +11,24 @@ slug: /components/run-locally
 
 ## Install dexcli
 
+**dexcli** runs on macOS and Linux, on amd64 and arm64. Windows is not supported.
+
+With Homebrew, on macOS or Linux:
+
 ```bash
 brew install superdurable/tap/dexcli
 brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
 ```
+
+Without Homebrew, download the archive for your system from the [**dexcli** releases](https://github.com/superdurable/dex/releases?q=cli-v&expanded=true). Each release has a **cli-v** tag and one archive per system, such as **dexcli_v1.45.0_linux_amd64.tar.gz**. The archive holds **dexcli** and **dex-server-zd**. Keep both files in the same directory on your **PATH**:
+
+```bash
+tar xzf dexcli_v1.45.0_linux_amd64.tar.gz
+sudo mv dexcli dex-server-zd /usr/local/bin/
+dexcli version
+```
+
+The release also has **checksums.txt** to verify the download.
 
 ## Start Dex
 

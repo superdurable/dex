@@ -14,7 +14,7 @@ One Flow run is one agent session. The Flow ID is the session ID. Dex Agents bui
 
 The session stores the conversation in Attributes. A session waits for the next user message without holding a Worker. It can wait for days.
 
-Model calls run in a **RunModel** Step. In most harnesses, each **RunModel** Step makes one model call, and each tool call runs in its own Step. The tool calls of one model response run in parallel. When they finish, the session sends their results to the model. Each Step adds a round trip to Dex.
+Model calls run in a **RunModel** Step. In most harnesses, each **RunModel** Step makes one model call, and each tool call runs in its own Step. The tool calls of one model response run in parallel. When they finish, the session sends their results to the model. Each Step adds a round trip to Dex. A turn in which the model asks for three tools and then answers takes five Steps: two model calls and three tool calls. [Performance and Maturity](/intro/performance-and-maturity#latency-below-the-peak) lists measured Step latencies.
 
 A crash repeats only the Step that was running. Dex does not replay the loop. So the agent code needs no determinism rules, and a code change takes effect at the next Step.
 
@@ -22,6 +22,14 @@ Two harnesses group more work into one Step:
 
 - **Claude Agent SDK.** The Claude Code CLI runs a turn segment in one **RunModel** Step. The segment holds the model calls and the read tool calls, and a failed segment reruns as a whole. Writes leave the segment one at a time, each in its own Step, so they never run in parallel.
 - **LangChain and LangGraph.** One **RunModel** Step runs the graph to its next tool calls. A graph can make several model calls on the way, and a retry repeats them together.
+
+### What a session remembers {#what-a-session-remembers}
+
+A session keeps one conversation: its messages, its tool calls, and their results. A new session starts empty. Dex Agents has no memory that one session shares with the next.
+
+Keep long-term memory, such as a user's preferences or past orders, in a store that you own. That store can be your database or a Flow that you keep for each user. Give the agent a tool that reads it, and a tool that writes it with the right [policy](/agent-frameworks/tool-calls#tool-policies-and-approvals).
+
+A stopped session stays readable for the retention period, and then Dex deletes it. [History and retention](/reference/agents/session-limits#history) has the defaults.
 
 ## How your framework runs a turn {#how-each-framework-runs-a-turn}
 

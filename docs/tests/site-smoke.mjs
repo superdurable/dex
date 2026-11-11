@@ -579,7 +579,7 @@ for (const [canonical, {html, route}] of canonicalPages) {
     if (node.type === 'html') assert.match(node.value, /^(?:<a id="[^"<>]+">(?:<\/a>)?|<\/a>)$/, `${pathname} contains leftover JSX/HTML`);
     if (node.type === 'text') assert.doesNotMatch(node.value, /^\s*:::/m, `${pathname} contains a leftover admonition fence`);
     if (['link', 'definition', 'image'].includes(node.type)) {
-      assert.match(node.url, /^https?:\/\//, `${pathname} contains non-absolute URL ${node.url}`);
+      assert.match(node.url, /^(?:https?:\/\/|mailto:)/, `${pathname} contains non-absolute URL ${node.url}`);
       const target = new URL(node.url);
       if (target.origin === siteOrigin) {
         assert.ok(canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
@@ -610,7 +610,9 @@ for (const [canonical, {html, route}] of canonicalPages) {
     codeCursor++;
   }
   markdownPages++;
-  if (!archivedCanonicalUrls.has(canonical)) indexableMarkdownUrls.add(new URL(pathname, siteOrigin).href);
+  // A page that only says it moved stays out of llms.txt.
+  const isMovedNotice = /\n# [^\n]+\n\n(?:This page moved|本页已经?移)/.test(markdown);
+  if (!archivedCanonicalUrls.has(canonical) && !isMovedNotice) indexableMarkdownUrls.add(new URL(pathname, siteOrigin).href);
 }
 const indexedMarkdown = new Set();
 for (const localeRoot of ['', 'zh-Hans/']) {
