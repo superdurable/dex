@@ -1,0 +1,144 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to the Rust SDK, newest first; each section covers the changes since the previous release of this component.
+
+## 1.45 {#v1-45}
+
+Released 2026-11-11 as [sdk-rust/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.45.0).
+
+### Added
+
+- **WorkerOptions::flow_definition_paths** and **WorkerOptions::flow_definitions** make a **Worker** upload Flow Definition Graph documents when it starts, so Dex Web can draw the Flow types it registers. **FlowDefinitionDocument** holds an in-memory document. Upload failures, including a Server without Flow definition storage, are logged as warnings and never stop the Worker. [Reference](/reference/rust/1.45.x/workers#upload-flow-definitions).
+- **Client::upload_flow_definitions** uploads documents from a deploy or CI script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. [Reference](/reference/rust/1.45.x/client#api-names).
+
+### Breaking
+
+- A Step whose Step type contains a dash (-) can no longer start SubFlows. When its **wait_for** returns a **SubFlow** Condition, the server rejects the result as an invalid Worker response and fails the attempt without retry, so under the default policy the Flow fails. The Worker logs a warning but still sends the result. A dash made child Flow IDs ambiguous, so two parents could share one child. To migrate, rename the Step type, for example by overriding **Step::step_type** with a name without a dash. [Reference](/reference/rust/1.45.x/subflow#step-type-rule).
+
+### Fixed
+
+- The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [Reference](/reference/rust/1.45.x/waits).
+
+## 1.44 {#v1-44}
+
+Released 2026-11-10 as [sdk-rust/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.44.0).
+
+### Added
+
+- **Join** and **JoinRound** join parallel branches of one Flow. **Join::fork** starts the branches and one join Step from a split Step, keyed by its Step execution ID; **Join::fork_with_round_key** takes an explicit key, as in an RPC. Branches report with **Join::end_branch** or **Join::report_branch_result**. The join Step waits with **Join::for_all_branches**, **Join::for_first_branch**, or **Join::for_branches** and reads **Join::branch_results**. **Join::for_remaining_branches** and **Join::remaining_branch_results** reset a round before the next one. Register a Join with **PersistenceSchema::join**. **Join::channel_map** returns the registered Channel map, for reading a round's pending results. [Reference](/reference/rust/1.45.x/waits).
+
+## 1.43 {#v1-43}
+
+Released 2026-11-10 as [sdk-rust/v1.43.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.43.0).
+
+### Breaking
+
+- Removed **Client::trigger_continue_as_new**, **FlowStatus::ContinuedAsNew**, **FlowConfig::continue_as_new_threshold**, **FlowConfig::continue_as_new_page_size_bytes**, **SearchFlowsOptions**, and **Client::search_flows_with_options**. Use **Client::search_flows_page** for pagination. [Reference](/reference/rust/1.45.x/flow#flow-config).
+- Removed **WaitForStepCompletionOptions::internal_handler_timeout** and **WaitForAttributeOptions::internal_handler_timeout**. Request IDs remain accepted but the server does not read them for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Generated bindings rename **FlowExecutionId** to **FlowRunId** and **flow_execution_id** to **flow_run_id**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
+
+## 1.40 {#v1-40}
+
+Released 2026-11-09 as [sdk-rust/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.40.0).
+
+### Added
+
+- **FlowConfig::offload_history** chooses whether a run offloads its history to object storage. Omitting it means true. Pass false for many short runs that close soon. Set it at start through **StartFlowOptions::config_override** or **SubFlowOptions::config_override**. A SubFlow otherwise inherits its parent's value, and **Client::update_flow_config** rejects it with INVALID_ARGUMENT. It requires server-zd 0.1.23 or later. [Reference](/reference/server/configuration#history-offload).
+
+### Changed
+
+- **FlowConfig::delete_expired_history_objects** is deprecated. It has no effect, and the SDK no longer sends it. Existing code that sets it still compiles.
+
+## 1.39 {#v1-39}
+
+Released 2026-11-09 as [sdk-rust/v1.39.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.39.0).
+
+### Added
+
+- **FlowConfig::delete_expired_history_objects** controls expired history object deletion at start, on update, and for SubFlows. It requires history offload and server-zd 0.1.22 or later.
+
+### Fixed
+
+- Hydrating more than 1,000 values with history offload enabled batches LoadBlobs requests in input order.
+
+## 1.38 {#v1-38}
+
+Released 2026-11-07 as [sdk-rust/v1.38.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.38.0).
+
+### Added
+
+- **FlowConfig::history_window_events** sets about how many of the newest history events a run keeps for history reads and Time Travel. Set it at start, change it with **Client::update_flow_config**, or override it for a SubFlow. Omitting it uses the server's **history.windowEvents** setting. Dex rejects zero or a value above **history.maxWindowEvents** with INVALID_ARGUMENT. A value above **i32::MAX** fails locally with **SdkError::InvalidArgument**. It requires server-zd 0.1.21 or later. [Reference](/reference/server/configuration#history-window).
+
+## 1.37 {#v1-37}
+
+Released 2026-11-06 as [sdk-rust/v1.37.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.37.0). Reference: [1.37.x](/reference/rust/1.37.x/).
+
+### Added
+
+- **FlowServiceTlsOptions** and **flow_service_tls** on Client and Worker option builders enable verified TLS, with optional extra root CAs and a server-name override. Omitting the option keeps plaintext connections. [API reference](https://docs.rs/dex-sdk/1.37.0/dex_sdk/struct.FlowServiceTlsOptions.html).
+
+## 1.35 {#v1-35}
+
+Released 2026-11-06 as [sdk-rust/v1.35.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.35.0). Reference: [1.35.x](/reference/rust/1.35.x/).
+
+### Breaking
+
+- Workers and the Client’s first call now require server-zd 0.1.17 or later (protocol version 4). Upgrade all server processes before upgrading the SDK. [Reference](/reference/server/upgrades).
+- Worker startup fails when **max_concurrent_tasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/rust/1.45.x/workers#capacity-and-shutdown).
+- **RetryPolicy::total_duration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](https://docs.rs/dex-sdk/1.35.0/dex_sdk/struct.RetryPolicy.html#method.total_duration).
+- A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
+- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/rust/1.45.x/failure-and-retries#same-attempt-redelivery).
+
+### Added
+
+- **RecoveryErrorInfo::attempt_progress()** distinguishes a failed Step method that never started from one that may have run. [API reference](https://docs.rs/dex-sdk/1.35.0/dex_sdk/struct.RecoveryErrorInfo.html#method.attempt_progress).
+
+### Changed
+
+- Workers open one execution stream per slot; **reserved_rpc_tasks** selects RPC-only slots. By default, a Worker with at least two slots reserves one for RPCs. [Reference](/reference/rust/1.45.x/workers#capacity-and-shutdown).
+- **stop** drains running handlers and returns tasks that did not start without consuming a retry. [Reference](/reference/rust/1.45.x/workers#capacity-and-shutdown).
+
+### Deprecated
+
+- **idle_streams_per_queue** is accepted but ignored, and **pull_reserved_rpc_declines()** always reports zero. Use execution-slot capacity and queue metrics instead. [Reference](/reference/rust/1.45.x/workers#reserved-rpc-capacity).
+
+## 1.31 {#v1-31}
+
+Released 2026-10-31 as [sdk-rust/v1.31.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.31.0). Reference: [1.31.x](/reference/rust/1.45.x/).
+
+### Added
+
+- **Client::get_attributes** reads committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap::instance** selects an instance, and a tuple of 1–12 reads returns a tuple of **Option** values. [API reference](https://docs.rs/dex-sdk/1.31.0/dex_sdk/struct.Client.html).
+
+## 1.26 {#v1-26}
+
+Released 2026-10-29 as [sdk-rust/v1.26.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.26.0). Reference: [1.26.x](/reference/rust/1.45.x/).
+
+### Breaking
+
+- The SDK supports only server-zd. Migrate the server deployment to server-zd before upgrading. [API reference](https://docs.rs/dex-sdk/1.26.0/dex_sdk/struct.Client.html).
+- **dex-protocol** removes push Worker address fields and obsolete server protocol types. Code using generated protocol structs directly must remove those fields and use the supported server-zd protocol. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.26.0).
+
+## 1.25 {#v1-25}
+
+Released 2026-10-28 as [sdk-rust/v1.25.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.25.0). Reference: [1.25.x](/reference/rust/1.45.x/).
+
+### Breaking
+
+- Push Workers and **WorkerTarget** are removed, along with Worker listener and target settings on **WorkerOptions**, **ClientOptions**, and **FlowConfig**. Delete these settings and use outbound pull Workers. [API reference](https://docs.rs/dex-sdk/1.25.0/dex_sdk/struct.WorkerOptions.html).
+
+### Changed
+
+- **StartFlow** and **SubFlow** always select pull Workers. **UpdateFlowConfig** preserves existing Worker routing instead of replacing it. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.25.0).
+
+### Fixed
+
+- Pull Workers reject late Step progress after cancellation, completion, or task reassignment, while preserving the task’s final result. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.25.0).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=sdk-rust&expanded=true).

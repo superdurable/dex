@@ -27,6 +27,7 @@ dexcli, Dex Web  ------------>  Dex Server
 - Start the Worker and wait for its registration before accepting application requests.
 - Shut down in this order before process exit: stop admitting new requests, stop the Worker and wait for its handlers to drain, then close the Client and the blob cache. See [Graceful shutdown](#graceful-shutdown).
 - Indexed Attributes are registered when the Worker starts. A registration the Server rejects stops the Worker from starting.
+- Give the Worker the Flow Definition Graphs of its Flows. It publishes them to the Server when it starts, and Dex Web reads them there. See [web.md](web.md#flow-definition-graphs).
 
 ## First vertical slice
 

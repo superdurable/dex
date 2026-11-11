@@ -1,0 +1,44 @@
+---
+id: step
+title: Step methods
+sidebar_label: Step methods
+---
+
+# Step methods
+
+For the Step concept, read [Step](/concepts/step).
+
+## Commits {#commit-boundary}
+
+Dex commits each **WaitFor** call and each **Execute** call separately. Dex
+Server holds the Attribute writes and Channel publications of the method. It
+commits them together with the returned **Wait** or **StepDecision**, and only
+after the method returns successfully. If the method fails, Dex commits none of
+them. Calls to external APIs are not part of this commit.
+
+Before it returns, a method can send
+[heartbeat checkpoints](./step-options.mdx#heartbeat) and any number of best-effort
+[Stream messages](/concepts/primitives/stream). They are not part of the
+method's commit. A Stream Store failure does not fail the Step.
+
+## Step execution local {#step-execution-local}
+
+**setStepExecutionLocal** stores a value on the current Step execution.
+**Execute** reads it with **getStepExecutionLocal**. Use it to pass a value from
+**WaitFor** to **Execute** when a Flow-level Attribute is more than you need.
+Both methods already receive the Step input, so do not copy the input into a
+local.
+
+```typescript
+public waitFor(context: Context, input: number): Wait {
+  context.setStepExecutionLocal("note", `approval:${input}`, stringCodec);
+  return Wait.until(approval.forOne());
+}
+
+public execute(context: Context, _input: number): StepDecision {
+  const note = context.getStepExecutionLocal("note", stringCodec) ?? "";
+  return gracefulComplete(note);
+}
+```
+
+Example: [examples/typescript/src/primitives/step-execution-local/step-execution-local-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/step-execution-local/step-execution-local-flow.ts)

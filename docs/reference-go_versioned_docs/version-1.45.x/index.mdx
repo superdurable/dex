@@ -1,0 +1,68 @@
+---
+title: Go SDK reference
+sidebar_label: Overview
+slug: /
+---
+
+# Go SDK reference
+
+This reference covers the Dex Go SDK. Details can change between releases,
+so check which version your application uses:
+
+```bash
+go list -m github.com/superdurable/dex/sdk-go
+```
+
+## Install
+
+The Go SDK is the module **github.com/superdurable/dex/sdk-go**. Pin an exact
+release in **go.mod**:
+
+```bash
+go get github.com/superdurable/dex/sdk-go@v1.37.0
+```
+
+The module requires Go 1.24 or newer. Releases use the tag
+**sdk-go/vX.Y.Z**.
+
+## Supported versions
+
+| SDK minor | Server requirement |
+| --- | --- |
+| 1.37, 1.35 | server-zd 0.1.17 or newer (protocol version 4) |
+| 1.32, 1.30, 1.29 | See the [compatibility matrix](/reference/#compatibility-matrix) |
+
+Minor numbers follow the shared Dex release train. A missing minor means the Go
+SDK did not change in that release.
+
+## API reference
+
+Read the [Go SDK API reference](pathname:///api/go/latest/) for the latest release, 1.44.0.
+
+Versioned snapshots: [1.44.0](pathname:///api/go/1.44/), [1.43.0](pathname:///api/go/1.43/), [1.40.2](pathname:///api/go/1.40/), [1.39.0](pathname:///api/go/1.39/), [1.38.0](pathname:///api/go/1.38/).
+
+pkg.go.dev does not display this module under its license, so the reference
+is hosted here.
+
+## Pages
+
+- [Flow](./flow.mdx)<a id="flow-definition"></a><a id="flow-config"></a><a id="update-flow-config-with-a-client"></a>: The Flow definition and **FlowConfig**.
+- [StartFlowOptions](./start-flow-options.mdx)<a id="start-flow-options"></a><a id="timeout-and-timeout-policy"></a><a id="flow-id-request-id-and-already-started"></a><a id="how-these-options-work-together"></a><a id="这些选项如何一起工作"></a><a id="start-request-server-behavior"></a><a id="what-dex-server-does"></a><a id="dex-server-的逻辑"></a><a id="start-flow-best-practices"></a><a id="wait-for-required-milestone"></a><a id="start-error-reconciliation"></a><a id="durable-dependent-starts"></a><a id="retry-policy"></a><a id="start-delay"></a><a id="attributes"></a>: The Flow timeout, Flow ID and RequestID handling, and start best practices.
+- [Step methods](./step.mdx)<a id="commit-boundary"></a><a id="step-execution-local"></a>: What a Step method commits, and Step execution local values.
+- [StepOptions](./step-options.mdx)<a id="step-options"></a><a id="stepoptions-override-per-stepexecution"></a><a id="durability"></a><a id="timeouts-and-total-duration"></a><a id="heartbeat"></a><a id="cancellation"></a><a id="selective-state-loading"></a><a id="attribute-locks"></a>: Durability, timeouts, heartbeats, cancellation, state loading, and Attribute locks.
+- [Step decisions](./step-decisions.mdx)<a id="step-decisions"></a><a id="gotomulti"></a><a id="close-decisions"></a><a id="cancellation-on-stepdecision"></a><a id="forcecompleteifchannelsempty"></a>: Next Steps, close decisions, and canceling other Steps.
+- [Waits](./waits.mdx)<a id="waits"></a><a id="condition-results"></a><a id="channel-results"></a><a id="channel-结果"></a><a id="subflow-results"></a><a id="subflow-结果"></a><a id="anycombinationof"></a><a id="skip-immediately"></a>: Timer, Channel, and SubFlow conditions, and how to combine them.
+- [Attribute](./attribute.mdx): Go names for Attributes and AttributeMaps.
+- [RPC](./rpc.mdx): Go names for RPC handlers and their results.
+- [Channel](./channel.mdx): Go names for Channels and ChannelMaps.
+- [Stream](./stream.mdx): Go names for writing and reading Streams.
+- [Timer](./timer.mdx): Go names for Timer conditions.
+- [SubFlow](./subflow.mdx): Go names for SubFlow conditions and results.
+- [Client](./client.mdx): Go names for Client calls.
+- [Failure and retries](./failure-and-retries.mdx)<a id="retry-and-failure-policies"></a><a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="last-failure-info"></a><a id="retry-after"></a><a id="failure-and-redelivery"></a><a id="heartbeats-not-acknowledged"></a><a id="same-attempt-redelivery"></a><a id="unknown-outcome"></a><a id="design-for-redelivery"></a><a id="version-notes"></a>: Retry and failure policies, redelivery, and unknown outcomes.
+- [Workers](./workers.mdx): Go names for Worker readiness, capacity, and shutdown settings.
+
+## Release notes
+
+See the [sdk-go releases](https://github.com/superdurable/dex/releases?q=sdk-go&expanded=true)
+on GitHub.

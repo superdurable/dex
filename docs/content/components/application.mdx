@@ -24,6 +24,9 @@ Dex sends every Flow, SubFlow, Step, and RPC call to your Workers. There is no
 Worker address to configure. A Flow that [Dex Web](/components/web)
 or **dexcli** starts also runs on your Workers.
 
+A Worker can publish the Flow Definition Graphs of its Flows to the server when
+it starts. Dex Web reads them there to draw each Flow.
+
 ## Start a Worker {#enable-pull-mode}
 
 Configure the Worker with the server address. A Client needs only the server

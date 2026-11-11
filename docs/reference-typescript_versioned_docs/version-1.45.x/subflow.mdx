@@ -1,0 +1,54 @@
+---
+id: subflow
+title: SubFlow
+sidebar_label: SubFlow
+---
+
+# SubFlow
+
+This page lists the TypeScript SDK names for [SubFlows](/concepts/primitives/subflow).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [TypeScript SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | TypeScript API | Dex behavior |
+| --- | --- | --- |
+| Start a child Flow and wait for it | **SubFlow.run** in **waitFor** | [SubFlows](/reference/server/runtime-data#subflows) |
+| Set the child timeout, Attributes, and configuration | **SubFlowOptions** | [SubFlowOptions](/reference/server/runtime-data#subflow-options) |
+| Choose what happens to an existing child | **reusePolicy** of **SubFlowOptions**, with **SubFlowReusePolicy** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Read the child result | **SubFlow.getConditionResults** in **execute**. It returns a **FlowResult**. | [SubFlow results](./waits.mdx#subflow-results) |
+| Read the generated child Flow ID | **SubFlow.getFlowId** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Stop a child that lost an **AnyOf** | **Client.stopFlow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+
+## Step types that start SubFlows {#step-types-that-start-subflows}
+
+Changed in 1.45: a Step whose Step type contains "-" cannot start SubFlows.
+
+The generated child Flow ID joins the parent Flow ID, the Step execution ID,
+and the SubFlow index with "-". The Step execution ID itself is the Step type,
+"-", and a counter:
+
+```text
+SubFlow:{parent Flow ID}-{Step execution ID}-{index}
+{Step execution ID} = {Step type}-{n}
+```
+
+A dash in the Step type makes the child Flow ID ambiguous. In this example two
+parents would share one child:
+
+```text
+parent Flow ID "a-b", Step type "C"   -> SubFlow:a-b-C-1-0
+parent Flow ID "a",   Step type "b-C" -> SubFlow:a-b-C-1-0
+```
+
+When a **waitFor** whose Step type contains "-" returns a **SubFlow.run**
+condition, the server rejects the result as an invalid Worker response. It fails
+the attempt without retry, so under the default policy the Flow fails. The
+Worker logs a warning that names the Step type. A Step type with "-" that never
+starts SubFlows still works. To fix the error, rename the Step type that
+**getStepType** returns, for example from "b-C" to "bC".
+
+## Example {#example}
+
+Example: [examples/typescript/src/primitives/subflow/subflow-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/subflow/subflow-flow.ts)
