@@ -22,7 +22,8 @@ import pexpect
 APPROVAL_PROMPT = re.compile(r"Approve(?: \S+)?\? \[y/[nN], or n <reason>\]:? ?")
 SESSION_LINE = re.compile(r"Session (\S+?)(?:\.\s|\s)")
 RESUME_LINE = re.compile(r"--resume (\S+)")
-TURN_FAILURE = re.compile(r"\[(?:turn|session) failed\][^\n]*")
+# A failed turn, or the mock's answer when the scenario's tool is not offered.
+TURN_FAILURE = re.compile(r"\[(?:turn|session) failed\][^\n]*|unbound \S+; offered tools: [^\n]*")
 CHAT_PROMPT = "\n> "
 _TRANSCRIPT_TAIL_CHARACTERS = 1500
 

@@ -353,6 +353,15 @@ class CommandRun:
             return
         outcome = self._turn(chat, "e-connector", None)
         problems = self._turn_problems(outcome, "e-connector", expects_approval=False)
+        mcp_name = self.hacker_news.tool.name
+        offered = self._offered_tool_names("e-connector")
+        if offered and not any(
+            name == mcp_name or name.endswith(f"__{mcp_name}") for name in offered
+        ):
+            similar = [name for name in offered if "list_story_ids" in name]
+            problems.append(
+                f"the model was offered {similar} instead of the MCP tool name {mcp_name!r}"
+            )
         self._record_turn("e-connector", problems, f"reply {outcome.reply[:160]!r}")
 
     def _step_resume(
@@ -442,6 +451,16 @@ class CommandRun:
         if not self._logged_tool_results(step):
             problems.append("the mock never received a tool result for this turn")
         return problems
+
+    def _offered_tool_names(self, step: str) -> list[str]:
+        if not self.request_log_path.exists():
+            return []
+        with self.request_log_path.open(encoding="utf-8") as log:
+            for line in log:
+                entry = json.loads(line)
+                if entry.get("prompt") == PROMPTS[step].text:
+                    return [str(name) for name in entry.get("tool_names") or []]
+        return []
 
     def _logged_tool_results(self, step: str) -> list[str]:
         if not self.request_log_path.exists():

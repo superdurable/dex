@@ -8,7 +8,8 @@
 
 """The framework suite: the order support agent harness examples against the mock model API.
 
-Each example app runs every framework's agent behind HTTP session routes.
+Each example app serves every framework's agent behind HTTP session routes;
+the suite starts a fresh app for each framework.
 Per framework, one session looks up an order (a read that needs no
 approval) and cancels another after approval; a second session's
 cancellation is rejected. Each framework gets its own model name, so the
@@ -57,6 +58,7 @@ LOOKUP_PROMPT = "Look up order 1001"
 APPROVED_CANCEL_PROMPT = "Please cancel order 1002"
 REJECTED_CANCEL_PROMPT = "Cancel order 1003"
 SINGLE_ATTEMPT_TOOL_STEP = "CallSingleAttemptTool"
+SUCCESSFUL_CANCEL_TEXT = "Order 1002 is cancelled: requested by the customer."
 _TURN_TIMEOUT_SECONDS = 180.0
 _APP_READY_SECONDS = 300.0
 _PYTHON_ADAPTER_DIRS = (
@@ -330,18 +332,18 @@ def _run_language(
         return
     for case in cases:
         table.record(case.name, "build", StepStatus.PASS, " ".join(argv))
-    try:
-        app = _start_example_app(language, argv, cwd, cases, toolchain, server)
-    except Exception as error:
-        for case in cases:
+    # One app per case: the TypeScript agents share one in-memory order desk.
+    for case in cases:
+        try:
+            app = _start_example_app(language, argv, cwd, case, toolchain, server)
+        except Exception as error:
             table.record(case.name, "start-app", StepStatus.FAIL, str(error))
-        return
-    try:
-        for case in cases:
+            continue
+        try:
             table.record(case.name, "start-app", StepStatus.PASS, app.base_url)
             FrameworkRun(case, app, server, table).run()
-    finally:
-        app.stop()
+        finally:
+            app.stop()
 
 
 def _build_example_app(language: str, toolchain: Toolchain) -> tuple[list[str], Path]:
@@ -406,11 +408,11 @@ def _start_example_app(
     language: str,
     argv: Sequence[str],
     cwd: Path,
-    cases: Sequence[FrameworkCase],
+    case: FrameworkCase,
     toolchain: Toolchain,
     server: DexServer,
 ) -> ExampleApp:
-    app_dir = toolchain.work_dir / "frameworks" / toolchain.source.value / language
+    app_dir = toolchain.work_dir / "frameworks" / toolchain.source.value / case.name
     shutil.rmtree(app_dir, ignore_errors=True)
     home = app_dir / "home"
     home.mkdir(parents=True)
@@ -455,9 +457,8 @@ def _start_example_app(
         )
     else:
         environment["DEX_EXAMPLES_HTTP_ADDRESS"] = f"127.0.0.1:{port}"
-    for case in cases:
-        if case.model_variable is not None:
-            environment[case.model_variable] = case.model
+    if case.model_variable is not None:
+        environment[case.model_variable] = case.model
     log_path = app_dir / "app.log"
     with log_path.open("ab") as log:
         process = subprocess.Popen(
@@ -560,7 +561,7 @@ class FrameworkRun:
             routes.resolve_interrupt(session_id, str(interrupt["interrupt_id"]), is_approved=True)
             snapshot = _wait_for_turn(routes, session_id, 2)
             reply = _last_assistant_text(snapshot)
-            problems = _turn_problems(snapshot, reply, "E2E-CANCEL", "cancelled")
+            problems = _turn_problems(snapshot, reply, "E2E-CANCEL", SUCCESSFUL_CANCEL_TEXT)
             self._record_problems(
                 "b-cancel-approve",
                 problems,

@@ -66,10 +66,11 @@ def main(argv: list[str] | None = None) -> None:
     finally:
         server.stop_if_started()
     report = "\n".join(table.render() for table in tables)
-    report_path = work_dir / f"report-{toolchain.source.value}.md"
+    run_name = f"{arguments.suite}-{toolchain.source.value}"
+    report_path = work_dir / f"report-{run_name}.md"
     report_path.write_text(report, encoding="utf-8")
     for index, table in enumerate(tables):
-        table.write_json(work_dir / f"results-{toolchain.source.value}-{index}.json")
+        table.write_json(work_dir / f"results-{run_name}-{index}.json")
     print("\n" + report)
     print(f"Report: {report_path}")
     sys.exit(1 if any(table.has_failure() for table in tables) else 0)

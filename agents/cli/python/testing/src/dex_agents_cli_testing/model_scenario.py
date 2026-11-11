@@ -22,13 +22,16 @@ gets the same step again. A text may use ``{tool_results}`` (each tool result
 after the prompt, as ``<tool>: <output>`` joined with ``; ``),
 ``{earlier_prompts}`` (the earlier prompts joined with `` | ``), and
 ``{model}``. A tool name matches an offered tool exactly or as its
-``__<name>`` suffix, as Claude Code's ``mcp__<server>__<name>`` names. A
-prompt that no turn matches falls back to ``scripted_reply``.
+``__<name>`` suffix, as Claude Code's ``mcp__<server>__<name>`` names, and
+then with every character other than a letter or digit read as ``_``, as
+frameworks that rewrite tool names offer them. A prompt that no turn matches
+falls back to ``scripted_reply``.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import threading
 import uuid
 from collections.abc import Mapping, Sequence
@@ -45,6 +48,8 @@ from dex_agents_cli_testing.scripted_model import (
     resolve_tool_name,
     scripted_reply,
 )
+
+_NON_WORD_CHARACTERS = re.compile(r"[^A-Za-z0-9]")
 
 
 @dataclass(frozen=True)
@@ -205,7 +210,9 @@ def _parse_step(raw: object) -> ScenarioStep:
 def _step_reply(step: ScenarioStep, conversation: ScriptedConversation) -> ScriptedReply:
     calls: list[ScriptedToolCall] = []
     for call in step.tool_calls:
-        resolved = resolve_tool_name(call.name, conversation.tool_names)
+        resolved = resolve_tool_name(call.name, conversation.tool_names) or _resolve_rewritten_name(
+            call.name, conversation.tool_names
+        )
         if resolved is None:
             offered = ", ".join(conversation.tool_names)
             return ScriptedReply(text=f"unbound {call.name}; offered tools: {offered}")
@@ -214,6 +221,14 @@ def _step_reply(step: ScenarioStep, conversation: ScriptedConversation) -> Scrip
         )
     text = None if step.text is None else _fill_placeholders(step.text, conversation)
     return ScriptedReply(text=text, tool_calls=tuple(calls))
+
+
+def _resolve_rewritten_name(tool_name: str, tool_names: Sequence[str]) -> str | None:
+    rewritten = _NON_WORD_CHARACTERS.sub("_", tool_name)
+    for candidate in tool_names:
+        if _NON_WORD_CHARACTERS.sub("_", candidate.rsplit("__", 1)[-1]) == rewritten:
+            return candidate
+    return None
 
 
 def _fill_placeholders(text: str, conversation: ScriptedConversation) -> str:

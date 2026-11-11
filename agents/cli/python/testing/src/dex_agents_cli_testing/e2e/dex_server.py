@@ -228,7 +228,8 @@ class SessionRecord:
         flow_type: The session's Flow type.
         status: The Flow status.
         user_texts: The text of each stored user message.
-        tool_records: ``(tool name, output)`` of each stored tool result.
+        tool_records: ``(tool name, output)`` of each stored tool result: a tool message,
+            or a message that holds both the call and its output, as Mastra stores them.
         turn_ids: The distinct turn IDs of the stored messages.
         step_type_counts: How many Step executions of each type the history has.
         graph: The uploaded Flow Definition Graph of the Flow type, or ``None``.
@@ -273,6 +274,7 @@ class SessionRecord:
                 (str(message.get("tool_name")), json.dumps(message.get("tool_output")))
                 for message in messages
                 if message.get("role") == "tool"
+                or (message.get("tool_name") and message.get("tool_output") is not None)
             ],
             turn_ids=list(dict.fromkeys(str(message.get("turn_id")) for message in messages)),
             step_type_counts=dict(step_type_counts),
