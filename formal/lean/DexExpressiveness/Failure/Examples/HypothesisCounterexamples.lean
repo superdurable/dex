@@ -13,7 +13,7 @@ are checked in the kernel.
 
 | Hypothesis dropped | Theorem | Run | What fails |
 | --- | --- | --- | --- |
-| H3, `IgnoresAttemptContext` | `attemptSensitive_isNotRepetition` | a handler that emits its attempt number; attempt 1 emits `1` and is lost, attempt 2 emits `2` | the trace is a repetition of no failure-free trace: no failure-free run emits `2` |
+| H3, `IgnoresAttemptContext` | `attemptSensitive_isNotRepetition` | attempt `a` emits `a` copies of `a`; attempt 1 emits `1` and is lost, attempt 2 emits `2, 2` | `erase` keeps a `fx(2)`, and the trace is a repetition of no failure-free trace: no failure-free run emits `2`; both safety conclusions fail |
 | H1, `HasNoExhaustion` | `exhaustion_isNotFailureFree` | the only attempt is lost with the decision Exhausted | `closed(failed "WORKER_API_FAIL")`, which no failure-free run emits; both safety conclusions fail |
 | H4, `HasNoNonRetryableFailure` | `nonRetryableFailure_isNotFailureFree` | the same, with a non-retryable failure | as for H1: in the model H4 is a case of H1 (`isNonRetryableFailure_isExhausting`) |
 | D7, PublishToChannel re-sent | `resentPublication_isTwoRequests` | the client sends one message twice | two `pub` events, two requests of `w↓`; no failure-free trace of the one-publication word is equal to it or has it as a repetition |
@@ -66,18 +66,30 @@ theorem start_isAdmissibleOutcomePrefix (laterRequests : List (Request counterSi
 
 /-! ## H3: a handler that reads its attempt number -/
 
-/-- The handler emits its attempt number: the program breaks H3. -/
+/-- A Flow whose only Step emits `effects` and completes the Flow. -/
+def emitAllThenCompleteFlow (effects : List Nat) : Dex.FlowDef counterSignature :=
+  { stepDef := fun _ =>
+      { waitFor := none
+        execute := fun _ _ _ _ =>
+          (effects, { effects := {}, decision := { moves := [], close := some (.forceComplete none) } }) } }
+
+/-- Attempt `a` emits `a` copies of `a`: the program reads `ctxA` and breaks
+H3. Its handler is an attempt-fenced effect, which spec §11.5 places
+outside H3 (Review log, F37). -/
 def attemptEchoProgram : Program counterSignature :=
-  fun attemptContext => emitThenCompleteFlow attemptContext.attempt
+  fun attemptContext =>
+    emitAllThenCompleteFlow (List.replicate attemptContext.attempt attemptContext.attempt)
 
 /-- Start; attempt 1 emits `1` and is lost ([ATTEMPT-LOST]), its task a
 zombie; the retry timer fires ([RETRY-FIRE]); attempt 2 starts on the
-retained snapshot, emits `2` with the same ghost index 1, and completes. -/
+retained snapshot and emits `2` twice: with ghost index 1, a repeat of
+index 1 with a new label, and with ghost index 2, a first occurrence; then
+it completes. -/
 def attemptEchoLabels : List (Action counterSignature) :=
   [.request (.startFlow 0 0 0), .tick 1, .stepStart firstStep false, .workerRun 0 true,
    .workerEffect 0 true, .tick 1, .attemptFailed firstStep (.retryAfter 5), .tick 10,
    .timerFire 1 false, .tick 1, .stepStart firstStep true, .workerRun 1 false,
-   .workerEffect 1 false, .workerReturn 1 true, .tick 1, .stepComplete 1]
+   .workerEffect 1 false, .workerEffect 1 true, .workerReturn 1 true, .tick 1, .stepComplete 1]
 
 /-- The requests: the start. -/
 def attemptEchoRequests : List (Request counterSignature) :=
@@ -86,13 +98,16 @@ def attemptEchoRequests : List (Request counterSignature) :=
 /-- The trace of the run. -/
 def attemptEchoTrace : List (Obs counterSignature) := scheduleEvents attemptEchoProgram attemptEchoLabels
 
-/-- The run is executable, and its trace has `fx(1)` and then `fx(2)`, both
-with ghost index 1. -/
+/-- The run is executable; its trace has `fx(1)` with index 1, then `fx(2)`
+with indexes 1 and 2; `erase` keeps `fx(2)` with index 2. -/
 theorem attemptEcho_trace :
     ((system attemptEchoProgram).exec (system attemptEchoProgram).init attemptEchoLabels).isSome =
         true ∧
       attemptEchoTrace =
-        [.start 0 0, .fx firstStep .execute 1 1, .fx firstStep .execute 2 1, .closed .completed []] ∧
+        [.start 0 0, .fx firstStep .execute 1 1, .fx firstStep .execute 2 1,
+          .fx firstStep .execute 2 2, .closed .completed []] ∧
+      eraseRepeats attemptEchoTrace =
+        [.start 0 0, .fx firstStep .execute 1, .fx firstStep .execute 2, .closed .completed []] ∧
       attemptEchoRequests = [.startFlow 0 0 0] := by
   decide +kernel
 
@@ -106,28 +121,32 @@ theorem attemptEcho_freeTrace_hasNoTwo (requests : List (Dex.Request counterSign
   intro isMember
   obtain ⟨arguments, index, isComputed⟩ := freeTrace_fx_isComputed _ _ _ _ isFree _ _ _ isMember
   simp only [Arguments.compute, Dex.Task.compute, Arguments.toTask, Program.failureFreeFlow,
-    attemptEchoProgram, emitThenCompleteFlow, AttemptContext.first] at isComputed
+    attemptEchoProgram, emitAllThenCompleteFlow, AttemptContext.first] at isComputed
   cases index with
   | zero => simp at isComputed
   | succ index => simp at isComputed
 
 /-- **H3 is needed.** The program reads `ctxA`, so H3 fails; H2, SYNC, H1, H4,
-and the admissible prefix hold, and the trace is in `Tr_fail` but for H3.
-Yet the trace is a repetition of no failure-free trace: its `fx(2)` is a
-ghost repeat of index 1 with a new label, and no failure-free run emits it.
-This is the conclusion of `safety_failure_repetition` failing. -/
+and the admissible prefix hold, and the trace is in `Tr_fail` except for H3.
+Both safety conclusions fail. `erase` of the trace keeps `fx(2)` with index
+2, a first occurrence, so it is not a failure-free trace
+(`safety_failure_forward`). The trace is a repetition of no failure-free
+trace (`safety_failure_repetition`). No failure-free run emits `fx(2)`. -/
 theorem attemptSensitive_isNotRepetition :
     ¬ IgnoresAttemptContext attemptEchoProgram ∧
     HasNoFailurePolicy attemptEchoProgram ∧ IsSyncOnly attemptEchoProgram ∧
     IsFailureFiniteTrace attemptEchoProgram counterEnvironment attemptEchoRequests attemptEchoTrace ∧
     attemptEchoTrace =
-      [.start 0 0, .fx firstStep .execute 1 1, .fx firstStep .execute 2 1, .closed .completed []] ∧
+      [.start 0 0, .fx firstStep .execute 1 1, .fx firstStep .execute 2 1,
+        .fx firstStep .execute 2 2, .closed .completed []] ∧
+    ¬ IsFreeFiniteTrace attemptEchoProgram.failureFreeFlow counterEnvironment
+        (eraseRetries attemptEchoRequests) (eraseRepeats attemptEchoTrace) ∧
     ¬ ∃ freeTrace,
       IsFreeFiniteTrace attemptEchoProgram.failureFreeFlow counterEnvironment
         (eraseRetries attemptEchoRequests) freeTrace ∧
       IsRepetition (attemptEchoTrace.map Obs.toDex) freeTrace := by
-  obtain ⟨isSome, isTrace, isRequests⟩ := attemptEcho_trace
-  refine ⟨?_, trivial, trivial, ?_, isTrace, ?_⟩
+  obtain ⟨isSome, isTrace, isErased, isRequests⟩ := attemptEcho_trace
+  refine ⟨?_, trivial, trivial, ?_, isTrace, ?_, ?_⟩
   · intro ignoresAttemptContext
     have isSame := congrArg
       (fun flow : Dex.FlowDef counterSignature =>
@@ -135,12 +154,16 @@ theorem attemptSensitive_isNotRepetition :
           none { attributes := [] } none).1)
       (ignoresAttemptContext (AttemptContext.first counterSignature)
         { (AttemptContext.first counterSignature) with attempt := 2 })
-    simp [attemptEchoProgram, emitThenCompleteFlow, AttemptContext.first] at isSame
+    simp [attemptEchoProgram, emitAllThenCompleteFlow, AttemptContext.first] at isSame
   · refine ⟨attemptEchoLabels, scheduleFinal attemptEchoProgram attemptEchoLabels,
       exec_of_isSome _ _ isSome, hasNoExhaustion_of_check _ (by decide +kernel),
       hasNoNonRetryableFailure_of_check _ (by decide +kernel), rfl, ?_⟩
     rw [isRequests]
     exact start_isAdmissibleOutcomePrefix [] (fun _ isMember => by cases isMember)
+  · intro isFree
+    refine attemptEcho_freeTrace_hasNoTwo _ _ isFree ?_
+    rw [isErased]
+    simp
   · rintro ⟨freeTrace, isFree, isRepetition⟩
     refine attemptEcho_freeTrace_hasNoTwo _ freeTrace isFree (isRepetition_mem isRepetition _ ?_)
     rw [isTrace]
