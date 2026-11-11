@@ -168,12 +168,71 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
         )
 
     def test_prepare_rejects_an_older_version_and_a_mismatched_legacy_entry(self) -> None:
+        message = "the newest entry is unreleased 1.45, so main ships it as 1.45.0, not 1.44.1. Release 1.45.0 instead"
         result = self.run_script("prepare", "go", "--version", "1.44.1", "--date", "2026-11-12", check=False)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("the unreleased entry 1.45 does not match release 1.44.1", result.stderr)
+        self.assertIn(message, result.stderr)
+        self.assertIn(message, self.run_script("check-ready", "go", "1.44.1", check=False).stderr)
         self.write("changelog.d/java/fix-000001.md", "---\nsection: Fixed\n---\n- Fix.\n")
         result = self.run_script("prepare", "java", "--version", "1.43.0", "--date", "2026-11-12", check=False)
         self.assertIn("release 1.43.0 is older than the newest entry 1.44", result.stderr)
+
+    def test_a_later_prepare_with_items_drops_the_no_changes_placeholder(self) -> None:
+        java = "docs/reference/java/changelog.mdx"
+        self.run_script("prepare", "java", "--version", "1.45.0", "--date", "2026-11-12", "--allow-empty")
+        self.assertIn("No user-visible changes.", self.read(java))
+        self.write("changelog.d/java/late-000001.md", "---\nsection: Fixed\n---\n- A late fix.\n")
+
+        self.run_script("prepare", "java", "--version", "1.45.0", "--date", "2026-11-12")
+
+        self.assertNotIn("No user-visible changes.", self.read(java))
+        self.assertIn(
+            "Released 2026-11-12 as [sdk-java/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.45.0).\n\n"
+            "### Fixed\n\n- A late fix.\n\n## 1.44 ",
+            self.read(java),
+        )
+
+    def test_check_ready_parses_the_released_line(self) -> None:
+        self.run_script("prepare", "go", "--version", "1.45.0", "--date", "2026-11-12")
+        prepared = self.read(GO_CHANGELOG)
+        url = "https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0"
+        cases = {
+            "unencoded URL": (url, url.replace("%2F", "/"), "URL"),
+            "impossible date": ("Released 2026-11-12", "Released 2026-02-30", "date 2026-02-30"),
+            "wrong tag": ("[sdk-go/v1.45.0]", "[sdk-go-v1.45.0]", "names sdk-go-v1.45.0"),
+            "other version": ("v1.45.0", "v1.45.2", "does not name sdk-go/v1.45.0"),
+            "malformed": ("Released 2026-11-12 as ", "Released on 2026-11-12 as ", "must read 'Released YYYY-MM-DD"),
+            "missing": (f"Released 2026-11-12 as [sdk-go/v1.45.0]({url}).\n\n", "", "exactly one Released line"),
+        }
+        for name, (old, new, message) in cases.items():
+            with self.subTest(name=name):
+                self.write(GO_CHANGELOG, prepared.replace(old, new, 2 if name == "other version" else 1))
+                result = self.run_script("check-ready", "go", "1.45.0", check=False)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(message, result.stderr)
+        self.write(GO_CHANGELOG, prepared)
+        self.assertEqual(self.run_script("check-ready", "go", "1.45.0").returncode, 0)
+
+    def test_check_ready_accepts_a_folded_patch_and_rejects_a_bad_later_mention(self) -> None:
+        self.run_script("prepare", "go", "--version", "1.45.0", "--date", "2026-11-12")
+        self.write("changelog.d/go/patch-000001.md", "---\nsection: Fixed\n---\n- A patch fix.\n")
+        self.run_script("prepare", "go", "--version", "1.45.1", "--date", "2026-11-13")
+        self.assertEqual(self.run_script("check-ready", "go", "1.45.1").returncode, 0)
+        self.write(GO_CHANGELOG, self.read(GO_CHANGELOG).replace("sdk-go%2Fv1.45.1", "sdk-go%2Fv1.45.9"))
+        self.assertIn("URL", self.run_script("check-ready", "go", "1.45.1", check=False).stderr)
+
+    def test_server_binary_release_fails_before_building_without_the_entry(self) -> None:
+        workflow = (DEX_ROOT / ".github/workflows/server-zd-binary-release.yml").read_text(encoding="utf-8")
+        metadata = workflow[workflow.index("  metadata:") : workflow.index("\n  build:")]
+        self.assertIn('python3 script/release/changelog_fragments.py check-ready server "${VERSION}"', metadata)
+        self.assertIn("must be merged to main before the tag", metadata)
+        self.assertIn("exit 1", metadata)
+        self.assertNotIn("::warning::", metadata)
+        for job in ("build", "checksums", "publish", "snapshot-reference"):
+            self.assertRegex(workflow, rf"\n  {job}:\n(?:    .*\n)*?    needs: (?:metadata|\[metadata)")
+        result = self.run_script("check-ready", "server", "0.1.26", check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("prepare server --version 0.1.26", result.stderr)
 
     def test_server_gets_an_entry_per_release(self) -> None:
         self.write("changelog.d/server/fix-000001.md", "---\nsection: Fixed\n---\n- A new fix.\n")
@@ -213,7 +272,7 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
     def test_agents_packages_absorb_a_versioned_unreleased_entry(self) -> None:
         self.write(AGENTS_PACKAGES_CHANGELOG, AGENTS_PACKAGES.replace("## Unreleased\n", "## 0.5.0 (not released yet)\n"))
         result = self.run_script("prepare", "agents", "--version", "0.6.0", "--date", "2026-11-12", check=False)
-        self.assertIn("the unreleased entry 0.5.0 does not match release 0.6.0", result.stderr)
+        self.assertIn("the newest entry is unreleased 0.5.0, so main ships it as 0.5.0, not 0.6.0", result.stderr)
 
         self.run_script("prepare", "agents", "--version", "0.5.0", "--date", "2026-11-12")
 
@@ -309,6 +368,24 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
         reopened = legacy.replace("## 1.45 {#v1-45}", "## 1.44 {#v1-44}")
         self.write(java, DOCS_INTRO + reopened + released[len(DOCS_INTRO) :])
         self.commit("reopen 1.44")
+        self.assertEqual(self.check_pr(pr_number=LEGACY_PR_NUMBER).returncode, 1)
+
+    def test_grace_never_moves_the_unreleased_key_back(self) -> None:
+        self.git("switch", "-c", "move-key")
+        legacy = self.read(GO_CHANGELOG)
+        cases = {"released": ("1.44", "1-44", 1), "older": ("1.43", "1-43", 1), "newer": ("1.46", "1-46", 0)}
+        for name, (key, anchor, returncode) in cases.items():
+            with self.subTest(name=name):
+                self.write(GO_CHANGELOG, legacy.replace("## 1.45 {#v1-45}", f"## {key} {{#v{anchor}}}", 1))
+                self.commit(name)
+                self.assertEqual(self.check_pr(pr_number=LEGACY_PR_NUMBER).returncode, returncode)
+
+        self.git("switch", "main")
+        self.write(GO_CHANGELOG, legacy.replace("## 1.45 {#v1-45}", "## 1.47 {#v1-47}", 1))
+        self.commit("base opens 1.47")
+        self.git("switch", "-c", "regress")
+        self.write(GO_CHANGELOG, legacy)
+        self.commit("back to 1.45")
         self.assertEqual(self.check_pr(pr_number=LEGACY_PR_NUMBER).returncode, 1)
 
     def test_prepare_accepts_every_current_change_log(self) -> None:

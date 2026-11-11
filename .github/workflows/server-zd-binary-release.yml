@@ -86,24 +86,23 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
-      # The tag already exists here, so a missing change-log entry warns instead of blocking the binaries.
-      - name: Warn when the change log does not record this release
+      # Every later job needs metadata, so this stops the assets, the release upload, and the snapshot.
+      - name: Require the change-log entry on the tagged commit
         if: steps.version.outputs.publish == 'true'
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          report="$(mktemp)"
-          if ! python3 script/release/changelog_fragments.py check-ready server "${VERSION}" 2> "${report}"; then
-            echo "::warning::The server change log does not record server-zd/v${VERSION}; see the job summary."
+          if ! python3 script/release/changelog_fragments.py check-ready server "${VERSION}"; then
+            message="The change-log entry for server-zd/v${VERSION} must be merged to main before the tag. Delete the release and its tag, merge the release-prep pull request, then tag again."
+            echo "::error::${message}"
             {
               echo "## Change log not ready for server-zd ${VERSION}"
               echo
-              echo '```text'
-              cat "${report}"
-              echo '```'
+              echo "${message}"
             } >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
           fi
 
   build:

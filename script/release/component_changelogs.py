@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import datetime
 import re
 from dataclasses import dataclass
 from typing import Sequence
@@ -27,6 +28,12 @@ UNRELEASED_HEADING = re.compile(r"^## Unreleased(?: \{#unreleased\})?\s*$")
 DOCS_HEADING = re.compile(r"^## (?P<key>\d+\.\d+(?:\.\d+)?) \{#v[0-9-]+\}\s*$")
 PACKAGES_HEADING = re.compile(r"^## (?P<key>\d+\.\d+\.\d+) \((?P<date>\d{4}-\d{2}-\d{2})\)\s*$")
 PACKAGES_UNRELEASED_HEADING = re.compile(r"^## (?P<key>\d+\.\d+\.\d+) \(not released yet\)\s*$", re.IGNORECASE)
+RELEASED_FIRST = re.compile(
+    r"^Released (?P<date>\S+) as \[(?P<tag>[^\]]+)\]\((?P<url>[^)\s]+)\)(?P<rest>(?:; .*)?)\.$"
+)
+RELEASED_LATER = re.compile(
+    r"; (?P<version>\d+\.\d+\.\d+) released (?P<date>\S+) as \[(?P<tag>[^\]]+)\]\((?P<url>[^)\s]+)\)"
+)
 RELEASED_MENTION = re.compile(r"[Rr]eleased (?P<date>\d{4}-\d{2}-\d{2}) as \[(?P<tag>[^\]]+)\]")
 VERSION = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
@@ -102,10 +109,7 @@ def assemble_release(
         legacy = parse_entry(blocks[0])
         legacy_key = entry_key(target, legacy.heading)
         if legacy_key is not None and legacy_key != key:
-            raise ChangelogError(
-                f"{target.output}: the unreleased entry {legacy_key} does not match release {version}; "
-                "move its items into fragments or release that version"
-            )
+            raise ChangelogError(unreleased_mismatch_message(target, legacy_key, version))
         legacy_sections = [(name, lines) for name, lines in legacy.sections if lines]
         blocks = blocks[1:]
     if not pending and not legacy_sections and not is_empty_allowed:
@@ -119,6 +123,8 @@ def assemble_release(
             entry.preamble = add_release_mention(target, entry.preamble, version, release_date)
             if patch > 0:
                 pending = [with_since(item, version) for item in pending]
+        if pending:
+            entry.preamble = trim_blank_lines([line for line in entry.preamble if line != NO_CHANGES_TEXT])
         entry.sections = merge_sections(entry.sections, pending)
         rest = blocks[1:]
     elif newest_key is None or key_tuple(key) > key_tuple(newest_key):
@@ -138,16 +144,78 @@ def readiness_errors(target: ChangelogTarget, changelog: str, fragment_count: in
     if not blocks:
         return errors + [f"{target.output} has no entries"]
     entry = parse_entry(blocks[0])
-    if is_legacy_entry(entry):
-        return errors + [f"{target.output}: the newest entry is still unreleased"]
     key = release_key(target, version)
+    if is_legacy_entry(entry):
+        legacy_key = entry_key(target, entry.heading)
+        if legacy_key is not None and legacy_key != key:
+            return errors + [unreleased_mismatch_message(target, legacy_key, version)]
+        return errors + [f"{target.output}: the newest entry is still unreleased"]
     if entry_key(target, entry.heading) != key:
-        errors.append(f"{target.output}: the newest entry is not {key}")
-    elif target.style == DOCS_STYLE and f"[{target.tag(version)}](" not in "\n".join(entry.preamble):
-        errors.append(f"{target.output}: the {key} entry does not name {target.tag(version)} on its Released line")
-    elif target.style == PACKAGES_STYLE and not entry.heading.startswith(f"## {version} ("):
-        errors.append(f"{target.output}: the newest entry is not {version}")
-    return errors
+        return errors + [f"{target.output}: the newest entry is not {key}"]
+    if target.style == PACKAGES_STYLE:
+        heading = PACKAGES_HEADING.fullmatch(entry.heading)
+        if heading is None or heading.group("key") != version or not is_calendar_date(heading.group("date")):
+            errors.append(f"{target.output}: the newest entry must be '## {version} (YYYY-MM-DD)'")
+        return errors
+    return errors + released_line_errors(target, entry, key, version)
+
+
+def released_line_errors(target: ChangelogTarget, entry: Entry, key: str, version: str) -> list[str]:
+    """Returns why the entry's Released line does not record version with a valid date, tag, and URL."""
+    lines = [line for line in entry.preamble if line.startswith("Released ")]
+    if len(lines) != 1:
+        return [f"{target.output}: the {key} entry needs exactly one Released line"]
+    mentions = parse_released_line(lines[0])
+    if mentions is None:
+        return [
+            f"{target.output}: the {key} Released line must read 'Released YYYY-MM-DD as [<tag>](<release URL>).', "
+            "with each later patch as '; X.Y.Z released YYYY-MM-DD as [<tag>](<release URL>)'"
+        ]
+    tag = target.tag(version)
+    for mention_version, release_date, mention_tag, url in mentions:
+        if mention_tag != target.tag(mention_version) or url != release_url(mention_tag) or not is_calendar_date(release_date):
+            return [f"{target.output}: the {key} Released line names {mention_tag} with date {release_date} and URL {url}"]
+    if tag not in [mention_tag for _, _, mention_tag, _ in mentions]:
+        return [f"{target.output}: the {key} entry does not name {tag} on its Released line"]
+    return []
+
+
+def parse_released_line(line: str) -> list[tuple[str, str, str, str]] | None:
+    """Returns each recorded release as (version, date, tag, URL), or None when the line is malformed."""
+    first = RELEASED_FIRST.fullmatch(line)
+    if first is None:
+        return None
+    mentions = [(tag_version(first.group("tag")), first.group("date"), first.group("tag"), first.group("url"))]
+    rest = first.group("rest")
+    while rest:
+        later = RELEASED_LATER.match(rest)
+        if later is None:
+            return None
+        mentions.append((later.group("version"), later.group("date"), later.group("tag"), later.group("url")))
+        rest = rest[later.end() :]
+    return mentions
+
+
+def tag_version(tag: str) -> str:
+    return re.sub(r"^.*?v(?=\d)", "", tag, count=1)
+
+
+def is_calendar_date(text: str) -> bool:
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return False
+    try:
+        datetime.date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
+def unreleased_mismatch_message(target: ChangelogTarget, legacy_key: str, version: str) -> str:
+    planned = legacy_key if target.style == PACKAGES_STYLE or legacy_key.count(".") == 2 else f"{legacy_key}.0"
+    return (
+        f"{target.output}: the newest entry is unreleased {legacy_key}, so main ships it as {planned}, not {version}. "
+        f"Release {planned} instead, or move that entry's items into fragments first"
+    )
 
 
 def newest_release(target: ChangelogTarget, changelog: str) -> tuple[str, str] | None:
@@ -170,13 +238,16 @@ def is_legacy_entry_edit(target: ChangelogTarget, base: str, head: str) -> bool:
     head_intro, head_blocks = split_entries(head)
     if not head_blocks or not is_legacy_entry(parse_entry(head_blocks[0])):
         return False
+    head_key = entry_key(target, parse_entry(head_blocks[0]).heading)
     base_intro, base_blocks = split_entries(base)
     if base_blocks and is_legacy_entry(parse_entry(base_blocks[0])):
+        base_key = entry_key(target, parse_entry(base_blocks[0]).heading)
+        if base_key is not None and (head_key is None or key_tuple(head_key) < key_tuple(base_key)):
+            return False
         base_blocks = base_blocks[1:]
-    elif base_blocks:
-        legacy_key = entry_key(target, parse_entry(head_blocks[0]).heading)
+    if base_blocks and head_key is not None:
         released_key = entry_key(target, parse_entry(base_blocks[0]).heading)
-        if legacy_key is not None and released_key is not None and key_tuple(legacy_key) <= key_tuple(released_key):
+        if released_key is not None and key_tuple(head_key) <= key_tuple(released_key):
             return False
     return head_intro == base_intro and "".join(head_blocks[1:]) == "".join(base_blocks)
 
