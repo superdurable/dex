@@ -248,7 +248,7 @@ The dependency-aware paths are:
 | TypeScript SDK | `sdk-typescript/vX.Y.Z` | `sdk-typescript/v0.1.0` | npm [`@superdurable/dex`](https://www.npmjs.com/package/@superdurable/dex) via [`.github/workflows/sdk-typescript-publish.yml`](.github/workflows/sdk-typescript-publish.yml) (version from the tag) |
 | Rust SDK | `sdk-rust/vX.Y.Z` | `sdk-rust/v0.1.0` | crates.io `dex-sdk`, `dex-blob-cache`, and `dex-protocol` via [`.github/workflows/sdk-rust-publish.yml`](.github/workflows/sdk-rust-publish.yml) (version from the tag) |
 | Dex CLI | `cli-vX.Y.Z` | `cli-v0.1.0` | macOS/Linux archives and Homebrew formula input |
-| Agents packages | `agents/vX.Y.Z` | `agents/v0.1.0` | PyPI `dex-agents`, its five adapters, the CLI runtime `dex-agents-cli`, and six CLI commands via [`.github/workflows/agents-python-publish.yml`](.github/workflows/agents-python-publish.yml), and npm `@superdurable/dex-agents`, its five adapters, the CLI runtime `@superdurable/dex-agents-cli`, and five CLI commands via [`.github/workflows/agents-typescript-publish.yml`](.github/workflows/agents-typescript-publish.yml) (one version for all twenty-five; see [`agents/README.md`](agents/README.md#releases)) |
+| Agents packages | `agents/vX.Y.Z` | `agents/v0.1.0` | PyPI `dex-agents`, its five adapters, the CLI runtime `dex-agents-cli`, and six CLI commands via [`.github/workflows/agents-python-publish.yml`](.github/workflows/agents-python-publish.yml), and npm `@superdurable/dex-agents`, its five adapters, the CLI runtime `@superdurable/dex-agents-cli`, and six CLI commands via [`.github/workflows/agents-typescript-publish.yml`](.github/workflows/agents-typescript-publish.yml) (one version for all twenty-six; see [`agents/README.md`](agents/README.md#releases)) |
 
 Notes:
 

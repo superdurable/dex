@@ -1,30 +1,31 @@
 # Changelog
 
-All twenty-five published Dex agents packages share this changelog and one version line. A
+All twenty-six published Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
 ## 0.5.0 (not released yet)
 
-### Dex SDK 1.44.0
+### Dex SDK 1.45.0
 
-- Every package requires Dex SDK 1.44.0 (`dex-python-sdk==1.44.0`,
-  `@superdurable/dex` `1.44.0`, Go `sdk-go` `v1.44.0`) instead of 1.38.0, so an
+- Every package requires Dex SDK 1.45.0 (`dex-python-sdk==1.45.0`,
+  `@superdurable/dex` `1.45.0`, Go `sdk-go` `v1.45.0`) instead of 1.38.0, so an
   application can use the SDK's **Join** helper with the agents packages
-  without overriding the SDK version. The npm adapters peer-depend on
-  `@superdurable/dex` `1.44.0`.
+  without overriding the SDK version, and for Worker-side Flow definition
+  upload. The npm adapters peer-depend on `@superdurable/dex` `1.45.0`.
 - The SDK pin stays exact, because an SDK minor release may break APIs that
   an application shares with the agents packages. The agents packages use
-  none of the APIs that SDK 1.43.0 removed. Before upgrading, read the
-  breaking changes of SDK 1.43 in the
+  none of the APIs that SDK 1.43.0 removed, and start no SubFlows, which a
+  Step type with "-" can no longer do since SDK 1.45.0. Before upgrading, read
+  the breaking changes of SDK 1.43 and 1.45 in the
   [Python](../docs/reference/python/changelog.mdx),
   [TypeScript](../docs/reference/typescript/changelog.mdx), and
   [Go](../docs/reference/go/changelog.mdx) SDK change logs.
-- Dex SDK 1.44.0 still needs a Dex Server with protocol 4: server-zd v0.1.17
+- Dex SDK 1.45.0 still needs a Dex Server with protocol 4: server-zd v0.1.17
   or later.
 - Agents CI, the nightly long run, and the publish workflows test against
-  `dexcli` 1.44.0. The Python and TypeScript CLI runtimes download `dexcli`
-  1.44.0 when none is installed.
+  `dexcli` 1.45.0. The Python and TypeScript CLI runtimes download `dexcli`
+  1.45.0 when none is installed.
 
 ### Dex MCP conventions
 
@@ -77,7 +78,7 @@ for the Dex SDK and framework versions each release supports.
 
 ### Added
 
-- Python CLI runtime (`dex-agents-cli`, not published yet): the shared runtime
+- Python CLI runtime (`dex-agents-cli`, first published in 0.5.0): the shared runtime
   of the Python harness commands. It reads `~/.dex/agents/<harness>.yaml` and
   asks the init questions on first run, reuses or starts `dexcli dev`
   (downloading a checksum-verified `dexcli` when none is installed), offers the
@@ -87,8 +88,8 @@ for the Dex SDK and framework versions each release supports.
   packages implement **AgentHarness**. See
   [cli/python/runtime](cli/python/runtime/README.md).
 - The **dex-agents-claude-sdk** command, in Python (`dex-agents-claude-sdk-cli`)
-  and TypeScript (`@superdurable/dex-agents-claude-sdk-cli`), not published
-  yet: a Claude Agent SDK agent in the terminal on the shared CLI runtime.
+  and TypeScript (`@superdurable/dex-agents-claude-sdk-cli`), first published
+  in 0.5.0: a Claude Agent SDK agent in the terminal on the shared CLI runtime.
   Claude Code's own Read, Grep, Glob, Write, Edit, Bash, and WebFetch tools
   replace the runtime's file, shell, and web fetch tools, with the same rules:
   each turn offers only the groups its session settings switch on, reads run at
@@ -96,8 +97,8 @@ for the Dex SDK and framework versions each release supports.
   has the command, file tools stay in the workspace, and the tool Step checks an
   approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
   [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
-- The **dex-agents-pi** command (`@superdurable/dex-agents-pi-cli`, not
-  published yet): a Pi coding agent in the terminal on the shared CLI runtime,
+- The **dex-agents-pi** command (`@superdurable/dex-agents-pi-cli`, first
+  published in 0.5.0): a Pi coding agent in the terminal on the shared CLI runtime,
   where Dex runs the agent loop and pi-ai makes each model call. The model is
   `<provider>/<model>` from pi-ai's catalog, and the key comes only from the
   provider's API key variable. pi-coding-agent's `read`, `grep`, `find`, `ls`,
@@ -124,8 +125,8 @@ for the Dex SDK and framework versions each release supports.
   files without blocking, so a FIFO in the workspace fails at once as not a
   regular file, or is skipped by a search, instead of hanging the call, as in
   the Python runtime.
-- Python commands for the other harnesses, not published yet, on the shared
-  CLI runtime: **dex-agents-openai-sdk** (OpenAI Agents SDK),
+- Python commands for the other harnesses, first published in 0.5.0, on the
+  shared CLI runtime: **dex-agents-openai-sdk** (OpenAI Agents SDK),
   **dex-agents-pydantic-ai** (Pydantic AI), **dex-agents-deepagents** (Deep
   Agents on the LangGraph adapter), **dex-agents-google-adk** (Google ADK), and
   **dex-agents-builtin** (the Dex built-in agent loop on LiteLLM). Each uses the
@@ -136,7 +137,7 @@ for the Dex SDK and framework versions each release supports.
   `deepagents`. See [cli/python](cli/python).
 - The TypeScript **dex-agents-openai-sdk**, **dex-agents-vercel-ai**,
   **dex-agents-mastra**, and **dex-agents-builtin** commands
-  (`@superdurable/dex-agents-<name>-cli`), not published yet: an OpenAI Agents
+  (`@superdurable/dex-agents-<name>-cli`), first published in 0.5.0: an OpenAI Agents
   SDK, Vercel AI SDK, Mastra, or built-in loop agent in the terminal on the shared
   CLI runtime, with its connector and local tools. Each turn uses the model and
   instructions its session settings resolve to. Provider keys come from each
@@ -248,7 +249,8 @@ for the Dex SDK and framework versions each release supports.
   it; a missing object fails the turn with **MediaStoreError**.
 - `send_user_message` returns `false` for invalid images, or for images when
   the runner does not implement **ImageUserMessageBuilder**
-  (`buildUserMessageWithImages`). The built-in loop does not implement it yet.
+  (`buildUserMessageWithImages`). The built-in loop implements it when its
+  session Flow has a media store; see below.
 - Framework adapters show images to their model when built with a media
   store: a new optional **media_store** (`mediaStore`) on each adapter's
   runner and session-flow factory. With a store, the runner accepts images,
@@ -290,7 +292,8 @@ for the Dex SDK and framework versions each release supports.
   to the same store. The Claude Agent SDK, OpenAI Agents SDK, Pydantic AI,
   Deep Agents, and Google ADK commands in Python and the Claude Agent SDK,
   OpenAI Agents SDK, Vercel AI SDK, and Mastra commands in TypeScript pass the
-  store to their adapter, so their models see the images. See
+  store to their adapter, and the built-in commands in both languages pass it
+  to the built-in loop, so their models see the images. See
   [Images](cli/README.md#images).
 
 ### Changed
