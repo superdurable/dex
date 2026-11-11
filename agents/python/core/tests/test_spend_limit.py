@@ -19,7 +19,7 @@ from dex_agents import (
     AgentSessionStatus,
     MessageRole,
 )
-from dex_agents.stepwise import AgentDefinition, stepwise_agent_session_options
+from dex_agents.builtin_loop import AgentDefinition, builtin_agent_session_options
 from dex_agents.testing import ScriptedModelClient, ScriptedModelReply, wait_for_agent_snapshot
 from tests.conftest import ScriptedAgentHarness
 from tests.file_spend_limit import (
@@ -56,7 +56,7 @@ def test_a_stepwise_definition_carries_the_spend_limit(tmp_path: Path) -> None:
         spend_limit=spend_limit,
     )
 
-    assert stepwise_agent_session_options(definition).spend_limit is spend_limit
+    assert builtin_agent_session_options(definition).spend_limit is spend_limit
 
 
 async def test_every_call_is_checked_before_and_reported_after(

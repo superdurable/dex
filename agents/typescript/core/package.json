@@ -46,6 +46,10 @@
       "types": "./dist/src/ui-stream/index.d.ts",
       "import": "./dist/src/ui-stream/index.js"
     },
+    "./builtin-loop": {
+      "types": "./dist/src/builtin-loop/index.d.ts",
+      "import": "./dist/src/builtin-loop/index.js"
+    },
     "./stepwise": {
       "types": "./dist/src/stepwise/index.d.ts",
       "import": "./dist/src/stepwise/index.js"

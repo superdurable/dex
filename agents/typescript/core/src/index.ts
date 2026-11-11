@@ -206,4 +206,4 @@ export {
   type ListedSourceTool,
   type ToolSourceRouterOptions,
 } from "./tool-source-router.js";
-export { type SourceToolDefinition, type ToolSource } from "./stepwise/tool-source.js";
+export { type SourceToolDefinition, type ToolSource } from "./builtin-loop/tool-source.js";

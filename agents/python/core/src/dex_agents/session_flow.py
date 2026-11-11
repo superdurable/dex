@@ -366,7 +366,7 @@ class AgentSessionOptions:
         ... )
 
     Plan mode needs ``write_todos`` and a ``PlanModeRunner``, such as the
-    Stepwise runner:
+    built-in loop runner:
 
         >>> options = AgentSessionOptions(
         ...     built_in_tools=frozenset({BuiltInTool.WRITE_TODOS}),

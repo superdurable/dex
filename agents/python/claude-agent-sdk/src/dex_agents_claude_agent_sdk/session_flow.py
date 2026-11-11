@@ -26,7 +26,7 @@ from dex_agents import (
     ToolEffect,
     ToolPolicy,
 )
-from dex_agents.stepwise import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
+from dex_agents.builtin_loop import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
 from dex_agents_claude_agent_sdk.runner import (
     DEFAULT_CUSTOM_TOOL_SERVER_NAME,
     ClaudeAgentOptionsFactory,
@@ -71,7 +71,7 @@ def claude_agent_session_flow(
     Tool sources add tools that always run in their own tool Step, reads
     included. ``ConnectorToolSource`` offers reviewed Connector operations
     this way: each call gets the operation's effect class, approval, Call ID,
-    timeout, and retry policy from its manifest, as in a Stepwise agent.
+    timeout, and retry policy from its manifest, as in an agent on the built-in loop.
 
     Example:
         >>> @tool("lookup_order", "Look up an order", {"order_id": str},

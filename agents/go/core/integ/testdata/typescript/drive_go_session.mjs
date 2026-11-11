@@ -15,11 +15,11 @@ import { join } from "node:path";
 
 const [coreDirectory, serverAddress, sessionId] = process.argv.slice(2);
 const load = (path) => import(pathToFileURL(join(coreDirectory, "dist", "src", path)).href);
-const { createStepwiseAgentSessionFlow } = await load("stepwise/index.js");
+const { createBuiltinAgentSessionFlow } = await load("builtin-loop/index.js");
 const { AgentSessionTestClient, AgentTestEnvironment } = await load("testing/index.js");
 
 // The Flow only types the Client calls; the Go Worker runs the Steps.
-const flow = createStepwiseAgentSessionFlow(
+const flow = createBuiltinAgentSessionFlow(
   {
     name: "typing-only",
     instructions: "unused",

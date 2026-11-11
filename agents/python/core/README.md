@@ -40,13 +40,13 @@ module needs a new package name:
 | Module | Install | Contents |
 | --- | --- | --- |
 | `dex_agents` | `dex-agents` | The session Flow, the runner contract, built-in tools, `AgentSessionClient`, and tracing options |
-| `dex_agents.stepwise` | `dex-agents` | Stepwise mode: `AgentDefinition`, function tools, tool sources, the `ModelClient` protocol, `ScriptedModelClient`, and the runner |
+| `dex_agents.builtin_loop` | `dex-agents` | The built-in agent loop: `AgentDefinition`, function tools, tool sources, the `ModelClient` protocol, `ScriptedModelClient`, and the runner |
 | `dex_agents.litellm` | `dex-agents[litellm]` | `LiteLLMModelClient`, a `ModelClient` on LiteLLM |
 | `dex_agents.mcp` | `dex-agents[mcp]` | `McpToolSource`, MCP servers' tools as agent tools |
 | `dex_agents.connectors` | `dex-agents[connectors]` | `ConnectorToolSource`, reviewed Connector operations as agent tools |
 | `dex_agents.s3` | `dex-agents[s3]` | `S3MediaStore`, image bytes in an S3-compatible bucket; see [Images](#images) |
 | `dex_agents.ui_stream` | `dex-agents` | Server-Sent Event frames and snapshot JSON for UIs |
-| `dex_agents.testing` | `dex-agents` | Private engines, Worker processes, gates, Step history, and `ScriptedModelClient` (the same class as `dex_agents.stepwise`'s) |
+| `dex_agents.testing` | `dex-agents` | Private engines, Worker processes, gates, Step history, and `ScriptedModelClient` (the same class as `dex_agents.builtin_loop`'s) |
 
 Spans need the `otel` extra. Importing `dex_agents.litellm` without its extra
 raises `ImportError` that names `dex-agents[litellm]`.
@@ -98,10 +98,10 @@ batch of tool calls a model makes. A session never completes by itself; it
 waits for the next user message after every turn. Stop it with
 `AsyncClient.stop_flow`.
 
-## Stepwise mode
+## Built-in agent loop
 
-Stepwise mode is the built-in agent loop, for agents defined in Dex terms
-without a framework. `StepwiseAgentRunner` implements the runner contract
+The built-in agent loop is for agents defined in Dex terms
+without a framework. `BuiltinLoopAgentRunner` implements the runner contract
 below, so the session Flow, its Steps, approvals, and events are the ones
 every adapter uses. Each `RunModel` makes exactly one model call through a
 `ModelClient`, and every tool call is its own Step.
@@ -110,8 +110,8 @@ every adapter uses. Each `RunModel` makes exactly one model call through a
 from dex import Registry
 from dex_agents import BuiltInTool, ToolEffect
 from dex_agents.litellm import LiteLLMModelClient
-from dex_agents.stepwise import AgentDefinition, ToolCallContext, function_tool
-from dex_agents.stepwise import stepwise_agent_session_flow
+from dex_agents.builtin_loop import AgentDefinition, ToolCallContext, function_tool
+from dex_agents.builtin_loop import builtin_agent_session_flow
 
 
 @function_tool(effect=ToolEffect.READ)
@@ -133,7 +133,7 @@ support_agent = AgentDefinition(
     tools=[lookup_order, refund_order],
     built_in_tools=frozenset({BuiltInTool.ASK_USER, BuiltInTool.DURABLE_WAIT}),
 )
-flow = stepwise_agent_session_flow(support_agent, flow_type="SupportAgent")
+flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent")
 registry = Registry([flow], allow_async_handlers=True)
 ```
 
@@ -149,7 +149,7 @@ while the turn ends), `interrupt_deadline`, `event_stream_capacity_bytes`, and
 A function tool may not share a name with an enabled built-in tool:
 `AgentDefinition` refuses it, and so does `run_model_step`, before any model
 request, when only the session options enable that built-in.
-`stepwise_agent_session_flow` derives the `AgentSessionOptions` from it.
+`builtin_agent_session_flow` derives the `AgentSessionOptions` from it.
 
 `@function_tool(effect=..., requires_approval=None, name=None,
 description=None, parameters_schema=None)` turns a plain sync or async
@@ -259,7 +259,7 @@ with their `signature`. It streams text and reasoning summaries to
 from the Worker's environment, as LiteLLM reads them, or from
 `api_key_provider`; never from Flow input or Attributes.
 
-`ScriptedModelClient(respond)` from `dex_agents.stepwise` answers each call
+`ScriptedModelClient(respond)` from `dex_agents.builtin_loop` answers each call
 from a function of the `ModelRequest`, so an agent runs without a model key: a
 local demo mode, a tutorial, or a test. `respond` returns a
 `ScriptedModelReply` with `text`, `tool_calls` (`ScriptedToolCall`), and
@@ -270,7 +270,7 @@ deterministic, because a crashed `RunModel` reruns it. `dex_agents.testing`
 exports the same class.
 
 ```python
-from dex_agents.stepwise import ModelRequest, ScriptedModelClient, ScriptedModelReply
+from dex_agents.builtin_loop import ModelRequest, ScriptedModelClient, ScriptedModelReply
 
 
 def reply_as_demo_model(request: ModelRequest) -> ScriptedModelReply:
@@ -341,7 +341,7 @@ with `invalid todos: <reason>`.
 Plan mode reviews a plan before it runs. Enable it with
 `AgentSessionOptions(plan_mode_enabled=True)`, which needs `write_todos` and a
 runner that is a `PlanModeRunner` (`supports_plan_mode` is `True`). The
-Stepwise runner is one; `AgentDefinition(plan_mode_enabled=True)` sets the
+built-in loop runner is one; `AgentDefinition(plan_mode_enabled=True)` sets the
 option. `AgentDefinition.planning_tool_choice` is `"auto"` by default: a
 planning turn offers only `write_todos`, the plan note tells the model to write
 the plan with it, and a turn that answers in text, such as with a clarifying
@@ -386,7 +386,7 @@ if snapshot.plan is not None and snapshot.plan.status is PlanStatus.DRAFT:
   user approved plan revision <n>. Execute it and keep the task statuses
   current with write_todos.`.
 - `build_plan_note(plan, interaction_mode)` returns the note that shows the
-  model the plan. Stepwise adds it as user text before the turn's items in
+  model the plan. The built-in loop adds it as user text before the turn's items in
   every model call, so the model always sees the latest plan.
 
 ## Steering and turn cancellation
@@ -514,7 +514,7 @@ its input starts after them with no summary.
 from dataclasses import replace
 
 options = replace(
-    stepwise_agent_session_options(definition),
+    builtin_agent_session_options(definition),
     message_window_size=64,
     message_chunk_size=32,
     message_chunk_max_bytes=1024 * 1024,
@@ -531,7 +531,7 @@ window over several commits.
 
 Compaction keeps the model input under the context window. Set
 `AgentSessionOptions.compaction` (or `AgentDefinition.compaction` for
-Stepwise) to a `CompactionPolicy`:
+the built-in loop) to a `CompactionPolicy`:
 
 ```python
 from dex_agents import AgentSessionOptions, CompactionPolicy
@@ -558,7 +558,7 @@ that is still high finds no new cutoff, so the pair cannot loop.
 Summarized messages stay stored until retention deletes them; see
 [Message storage and retention](#message-storage-and-retention). The runner must implement
 `ContextCompactionRunner`, and `AgentSessionFlow` raises `TypeError` for a
-compaction policy otherwise. `StepwiseAgentRunner` implements it: its input
+compaction policy otherwise. `BuiltinLoopAgentRunner` implements it: its input
 starts with `CONTEXT_SUMMARY_NOTE_HEADER`
 (`[Dex] Summary of the earlier conversation:`) and the summary, it cuts only
 between model responses whose tool calls all have stored results, so a turn
@@ -623,7 +623,7 @@ await sessions.update_session_settings("session-42", {"model": "openai/gpt-5-min
   turn left reads as no settings.
 - A runner reads `AgentTurnContext.session_settings`, an empty mapping when
   there are none, such as in a session started on 0.1.0.
-  `ContextSummaryRequest.session_settings` carries the same value. Stepwise's
+  `ContextSummaryRequest.session_settings` carries the same value. The built-in loop's
   `AgentDefinition.resolve_model` maps it to the `ModelClient` of each model
   call, including summary calls and token estimates, and
   `InstructionContext.session_settings` passes it to an instructions function.
@@ -735,7 +735,7 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   `build_image_reference(data, store_uri)`, and check reads with
   `require_store_image_reference` and `verify_image_bytes`.
 - **Built-in runners.** In this release no built-in runner shows images to a
-  model: Stepwise and the framework adapters do not implement
+  model: the built-in loop and the framework adapters do not implement
   `ImageUserMessageBuilder`, so their sessions refuse images.
 - **Retention.** Deleting a session deletes no object. A runner reads the
   images again whenever a model call replays them, so a bucket lifecycle rule
@@ -1207,7 +1207,7 @@ tools = McpToolSource([
 ])
 ```
 
-A Stepwise agent takes the source in `AgentDefinition.tool_sources`; see
+A built-in loop agent takes the source in `AgentDefinition.tool_sources`; see
 [Tool sources](#tool-sources). Another runner offers the tools and defers
 every call; the tool Step runs it:
 
@@ -1349,7 +1349,7 @@ cannot be reached for three poll attempts, records `failed` for a `read` tool
 and `outcome_unknown` otherwise; the source never calls the tool again from a
 poll. `cancel_turn` abandons the task, and `cancel_tool_task` sends
 `tasks/cancel`; forward it from your runner's `cancel_tool_task`, as the
-Stepwise runner does. Any answer from the server ends the cancellation, so a
+built-in loop runner does. Any answer from the server ends the cancellation, so a
 retried one is harmless.
 
 A stdio task lives in its server process, which ends with the request. The
@@ -1529,7 +1529,7 @@ annotation handling. The OpenAI Agents SDK runs its own MCP servers inline in
 
 ## Connector tools (`dex_agents.connectors`)
 
-`dex_agents.connectors` offers reviewed Connector operations to a Stepwise
+`dex_agents.connectors` offers reviewed Connector operations to a built-in loop
 agent as tools. `ConnectorToolSource` implements `ToolSource`, like
 `McpToolSource`. Each call runs one operation in its own tool Step through
 the Connector SDK's `run_query` or `run_mutation`, so the connector's Call
@@ -1546,7 +1546,7 @@ The extra installs Connector SDK 0.9.0, the first release that exports
 
 ```python
 from dex_agents.connectors import ConnectorToolSource, connector_tool
-from dex_agents.stepwise import AgentDefinition
+from dex_agents.builtin_loop import AgentDefinition
 from dex_connectors.slack import new_project_connection as slack_connection
 from dex_connectors.stripe import new_project_connection as stripe_connection
 
@@ -1675,7 +1675,7 @@ Every Python framework adapter also takes tool sources, through its own
 `tool_sources`; see its README. The Claude Agent SDK adapter runs each source
 call when its whole-turn segment defers it. The Step-mode adapters (OpenAI
 Agents, Pydantic AI, LangGraph, and Google ADK) share
-`dex_agents.stepwise.FrameworkToolSourceRouter`: it lists the sources in each
+`dex_agents.builtin_loop.FrameworkToolSourceRouter`: it lists the sources in each
 `RunModel`, refuses a source tool that repeats a framework tool or another
 source's tool, builds each call through its source, and routes the call and
 its tool Step options back to that source. The adapter only offers the listed
@@ -2162,7 +2162,7 @@ The plan records each of these decisions too.
 - By default nothing from a turn is stored until it completes: `TurnCompleted`
   carries all of the turn's messages and `ToolCallsRequested` keeps them in the
   framework run state. A runner may store them incrementally with
-  `ToolCallsRequested.new_messages`; Stepwise does.
+  `ToolCallsRequested.new_messages`; the built-in loop does.
 - Built-in tools are routed by the session, not the runner, so they work under
   every adapter that offers their definitions.
 - A failed turn that ran tools leaves a note message instead of appending

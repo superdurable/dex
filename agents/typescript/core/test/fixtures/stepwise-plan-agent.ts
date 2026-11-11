@@ -17,13 +17,13 @@ import {
   type FrameworkMessage,
 } from "../../src/index.js";
 import {
-  StepwiseAgentRunner,
+  BuiltinLoopAgentRunner,
   functionTool,
   type AgentDefinition,
   type ModelRequest,
   type PlanningToolChoice,
   type ModelToolResultItem,
-} from "../../src/stepwise/index.js";
+} from "../../src/builtin-loop/index.js";
 import {
   FileGate,
   InvocationLog,
@@ -61,7 +61,7 @@ export interface LoggedPlanModelRequest {
 }
 
 /** Waits at, or fails before, the user message whose text has a prefix, until the gate is released. */
-class GatedPlanRunner extends StepwiseAgentRunner {
+class GatedPlanRunner extends BuiltinLoopAgentRunner {
   private readonly gateMode: string;
   private readonly gatedPrefix: string;
 
@@ -110,7 +110,7 @@ export function createStepwisePlanAgentFlow(
   markerDirectory: string,
   userMessageGate?: string,
   planningToolChoice: PlanningToolChoice = "auto",
-): AgentSessionFlow<StepwiseAgentRunner> {
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const invocations = new InvocationLog(join(markerDirectory, "invocations.log"));
   const modelRequests = new InvocationLog(join(markerDirectory, "model-requests.log"));
   const respond = async (request: ModelRequest): Promise<ScriptedModelReply> => {
@@ -216,9 +216,9 @@ export function createPlanAgentWorkerFlows(
   markerDirectory: string,
   userMessageGate?: string,
 ): [
-  AgentSessionFlow<StepwiseAgentRunner>,
+  AgentSessionFlow<BuiltinLoopAgentRunner>,
   AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
-  AgentSessionFlow<StepwiseAgentRunner>,
+  AgentSessionFlow<BuiltinLoopAgentRunner>,
 ] {
   return [
     createStepwisePlanAgentFlow(markerDirectory, userMessageGate),

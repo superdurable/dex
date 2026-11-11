@@ -109,7 +109,7 @@ export interface FunctionTool {
 }
 
 /**
- * Creates a function tool for a Stepwise agent.
+ * Creates a function tool for a built-in loop agent.
  *
  * Every function tool declares its effect, which picks the tool Step and the default approval exactly
  * as for adapter tools. Each call runs in its own Step, so a crash repeats at most a `read` or

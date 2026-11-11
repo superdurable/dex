@@ -130,7 +130,7 @@ import {
   defaultMaxModelCallsPerTurn,
   readToolSourceEnvelope,
   writeToolSourceEnvelope,
-} from "../../src/stepwise/stepwise-agent-runner.js";
+} from "../../src/builtin-loop/builtin-loop-agent-runner.js";
 import {
   buildResourceAndPromptToolDefinitions,
   readServerName,
@@ -138,7 +138,7 @@ import {
   serializeToolOutputJson,
 } from "../../src/mcp/mcp-resource-and-prompt-tools.js";
 import { renderToolResultText } from "../../src/mcp/mcp-tool-source.js";
-import { createStepwiseAgentSessionFlow } from "../../src/stepwise/index.js";
+import { createBuiltinAgentSessionFlow } from "../../src/builtin-loop/index.js";
 import { ScriptedModelClient } from "../../src/testing/index.js";
 import {
   readConformanceJson,
@@ -236,7 +236,7 @@ const names = readConformanceJson<NamesManifest>("names.json");
 const texts = readConformanceJson<TextTable>("texts.json");
 const documents = new Map(readGoldenValueDocuments().map((document) => [document.type, document]));
 
-const flow = createStepwiseAgentSessionFlow(
+const flow = createBuiltinAgentSessionFlow(
   { name: "conformance-manifest", instructions: "Describe the session Flow.", model: new ScriptedModelClient(() => ({ text: "ok" })) },
   "ConformanceAgent",
 );

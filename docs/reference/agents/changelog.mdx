@@ -32,6 +32,10 @@ Not released yet. The next agents release ships these changes.
 ### Changed
 
 - A tool task poll may raise **ToolOutcomeUnknownError**. The session records **outcome_unknown** and stops polling. It used to fail the poll attempt.
+- The built-in agent loop has new names. The old names still work for one release, refer to the same objects, and are deprecated. Stored sessions, Flow types, and wire values are unchanged. Migrate as follows:
+  - Python: module **dex_agents.stepwise** becomes **dex_agents.builtin_loop**. **StepwiseAgentRunner** becomes **BuiltinLoopAgentRunner**, **stepwise_agent_session_flow** becomes **builtin_agent_session_flow**, **stepwise_agent_session_options** becomes **builtin_agent_session_options**, and **encode_stepwise_message** and **decode_stepwise_message** become **encode_builtin_loop_message** and **decode_builtin_loop_message**. Each name read from the old module emits a **DeprecationWarning**.
+  - TypeScript: subpath **@superdurable/dex-agents/stepwise** becomes **@superdurable/dex-agents/builtin-loop**. **StepwiseAgentRunner** becomes **BuiltinLoopAgentRunner**, and **createStepwiseAgentSessionFlow** becomes **createBuiltinAgentSessionFlow**.
+  - Go: package **stepwise** becomes **builtinloop**. **StepwiseAgentRunner** becomes **BuiltinLoopAgentRunner**, **NewStepwiseAgentRunner** becomes **NewBuiltinLoopAgentRunner**, **NewStepwiseAgentSessionFlow** becomes **NewBuiltinAgentSessionFlow**, and **EncodeStepwiseMessage** and **DecodeStepwiseMessage** become **EncodeBuiltinLoopMessage** and **DecodeBuiltinLoopMessage**.
 
 ### Fixed
 
@@ -82,14 +86,14 @@ Released 2026-11-05 as [agents/v0.2.0](https://github.com/superdurable/dex/relea
 
 ### Added
 
-- The built-in agent loop (Stepwise mode), with questions, durable waits, plans and plan mode, MCP tool sources, and a scripted demo model.
+- The built-in agent loop, with questions, durable waits, plans and plan mode, MCP tool sources, and a scripted demo model.
 - Steering and turn cancellation: **steer_user_message** and **cancel_turn**.
 - Tool tasks: a tool can start long work and the session polls it in **PollToolTask**.
 - Context compaction with the **CompactContext** Step, and message retention through **retained_message_limit**. [Reference](/reference/agents/session-limits#compaction).
 - Messages are stored in chunks (**AgentMessageChunks**), so storing a message writes only that message.
 - UI stream adapters for the AI SDK **useChat** and plain Server-Sent Events, which resume through the Dex resume token.
 - OpenTelemetry GenAI spans for model calls and tool calls.
-- The Go core, with Stepwise mode and OpenAI and Anthropic model clients.
+- The Go core, with the built-in agent loop and OpenAI and Anthropic model clients.
 - A call whose tool Step never reached a Worker records **failed**, with an error that starts "the tool did not run, so it is safe to call again". [Reference](/reference/agents/failures#never-run-outcome-unknown).
 
 ### Changed

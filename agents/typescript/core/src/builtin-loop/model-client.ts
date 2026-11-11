@@ -70,7 +70,7 @@ export interface ModelToolResultItem {
 }
 
 /**
- * One item of a model input. The Stepwise runner stores each one as the `framework_item` of an
+ * One item of a model input. The built-in loop runner stores each one as the `framework_item` of an
  * `AgentMessage`, as snake_case JSON.
  */
 export type ModelInputItem = ModelUserTextItem | ModelOutputItem | ModelToolResultItem;
@@ -115,7 +115,7 @@ export interface ModelRequestMetadata {
   readonly attempt: number;
 }
 
-/** One model call, built by the Stepwise runner from committed session state only. */
+/** One model call, built by the built-in loop runner from committed session state only. */
 export interface ModelRequest {
   /** System instructions for this call. */
   readonly instructions: string;
@@ -149,7 +149,7 @@ export interface ModelResponse {
   readonly finishReason: string;
 }
 
-/** Receives the live text of one model call; the Stepwise runner forwards it to `AgentEvents`. */
+/** Receives the live text of one model call; the built-in loop runner forwards it to `AgentEvents`. */
 export interface ModelOutputWriter {
   /**
    * Writes visible text as a `text_delta` event.
@@ -164,7 +164,7 @@ export interface ModelOutputWriter {
 }
 
 /**
- * Makes one model call for the Stepwise runner.
+ * Makes one model call for the built-in loop runner.
  *
  * Use `createAiSdkModelClient` from `@superdurable/dex-agents/ai-sdk` for any AI SDK provider, or
  * implement this interface for another model API. Every client follows these rules:

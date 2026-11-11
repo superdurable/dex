@@ -25,7 +25,7 @@ import type {
   ToolTaskPollOutcome,
 } from "@superdurable/dex-agents";
 import { ConnectorToolSource, connectorTool, type ConnectorPackageManifest } from "@superdurable/dex-agents/connectors";
-import type { SourceToolDefinition, ToolSource } from "@superdurable/dex-agents/stepwise";
+import type { SourceToolDefinition, ToolSource } from "@superdurable/dex-agents/builtin-loop";
 import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 import { z } from "zod";
 

@@ -102,9 +102,9 @@ first.
 ## Compaction {#compaction}
 
 Compaction keeps the model input under the context window. To turn it on, set
-**compaction** in **AgentSessionOptions**, or in the agent definition of a
-Stepwise agent, with the model's context window in tokens. The runner must
-support compaction. Stepwise does, and so do the adapters for the OpenAI Agents
+**compaction** in **AgentSessionOptions**, or in the agent definition of an
+agent on the built-in agent loop, with the model's context window in tokens. The runner must
+support compaction. The built-in agent loop does, and so do the adapters for the OpenAI Agents
 SDK, Pydantic AI, LangChain and LangGraph, Google ADK, the Vercel AI SDK, and
 Mastra.
 
@@ -113,7 +113,7 @@ session runs a **CompactContext** Step instead. It makes one model call that
 folds the earlier messages into a summary. The next model call receives the
 summary and the newest messages. When the earlier messages do not fit in the
 window, the runner leaves the oldest of them out of the summary call and tells
-the model so. With Stepwise, a long turn with many tool calls compacts in the
+the model so. With the built-in agent loop, a long turn with many tool calls compacts in the
 middle of the turn.
 
 A framework adapter compacts differently, because the framework builds the

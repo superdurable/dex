@@ -13,7 +13,7 @@ import {
   type ToolPolicy,
 } from "@superdurable/dex-agents";
 
-import type { ToolSource } from "@superdurable/dex-agents/stepwise";
+import type { ToolSource } from "@superdurable/dex-agents/builtin-loop";
 
 import {
   ClaudeAgentRunner,
@@ -92,7 +92,7 @@ export type ClaudeAgentSessionOptions = Omit<AgentSessionOptions, "toolPolicies"
  *
  * Tool sources add tools that always run in their own tool Step, reads included. `ConnectorToolSource` offers
  * reviewed Connector operations this way: each call gets the operation's effect class, approval, Call ID, timeout,
- * and retry policy from its manifest, as in a Stepwise agent.
+ * and retry policy from its manifest, as in a built-in loop agent.
  *
  * @example
  * ```ts
