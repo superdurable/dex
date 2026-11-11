@@ -87,12 +87,16 @@ model call on the Worker that runs it, so an edited file applies from the next
 model call, and two turns of one session may see different instructions. Set
 `pi.load_project_context: false` to add none.
 
-Each picked file is read with the runtime's workspace file rules, scoped to the
-directory it is in. A file that is a symbolic link out of its directory, such
-as `~/.pi/agent/AGENTS.md` linked to a dotfiles repository, that has more than
-one hard link, or that is not a regular file is skipped, and the command prints
-a warning. A link to another file in the same directory, or below it, loads.
-This holds whatever `local_tools.files` says.
+Pi skips a candidate that is not a regular file, without a warning. Each
+file it picks is read again with the runtime's workspace file rules, scoped to
+the directory it is in. The command pins the real path of each such directory
+(the workspace, each directory above it, and Pi's global directory) the first
+time it sees it and never derives it again, so a directory later swapped for a
+link elsewhere cannot authorize the new place. A file that is a symbolic link
+out of its pinned directory, such as `~/.pi/agent/AGENTS.md` linked to a
+dotfiles repository, or that has more than one hard link, is skipped, and the
+command prints a warning. A link to another file in the same directory, or
+below it, loads. This holds whatever `local_tools.files` says.
 
 ## Tools and approvals
 
@@ -107,10 +111,13 @@ you questions.
 | `shell` | `bash` | single-attempt write | Unless `local_tools.shell.allow` has the whole command text |
 
 - Each call is one Dex tool Step, recorded in the session. A `write`, `edit`,
-  or `bash` call never runs twice. A failed `write` or `edit` records `failed`
-  and the model sees why. A `bash` call that fails before its command starts,
-  such as with an invalid `timeout`, records `failed`; one that fails after
-  it started, or whose Worker dies while it runs, records `outcome_unknown`.
+  or `bash` call never runs twice. A `write` or `edit` that the workspace file
+  layer refuses before it changes anything, such as an outside path, a link, a
+  hard link, or an edit conflict, records `failed` and the model sees why. Any
+  other failure of a `write` or `edit`, such as one after the rename, records
+  `outcome_unknown`. A `bash` call that fails before its shell process starts,
+  such as with an invalid `timeout`, records `failed`; one that fails after it
+  started, or whose Worker dies while it runs, records `outcome_unknown`.
 - Each turn offers only the groups its session settings switch on.
   `approval.always` adds approval by tool name, such as `read`.
 - Every file access of the file tools goes through the runtime's workspace
@@ -141,10 +148,19 @@ you questions.
   downloads them. They skip `.git` and `node_modules`, never follow links, and
   do not read `.gitignore`. `find` matches Pi's glob rules. `grep` reads each
   regular file through the layer, skipping files with more than one hard link,
-  files outside the workspace, and binary files; it takes Pi's options
-  (`pattern`, `path`, `glob`, `ignoreCase`, `literal`, `context`, `limit`)
-  and matches with JavaScript regular expressions, close to `rg`'s syntax.
-  Both are slower than `fd` and `rg` on large trees.
+  files outside the workspace, FIFOs and other special files, and binary
+  files. It takes Pi's options (`pattern`, `path`, `glob`, `ignoreCase`,
+  `literal`, `context`, `limit`) and matches with JavaScript regular
+  expressions, close to `rg`'s syntax. Matching runs in a worker thread with a
+  10-second budget per call, so a pattern that backtracks without end fails
+  the call with "the pattern took too long to match" instead of blocking. Both
+  are slower than `fd` and `rg` on large trees.
+- `grep`'s `glob` follows `rg --glob` where practical: a pattern without `/`
+  matches names at any depth, one with `/` matches the path below the search
+  directory (a leading `/` anchors it there), a trailing `/` matches only
+  directories, and a leading `!` excludes. A matching directory includes or
+  excludes its whole subtree. Unlike `rg`, globs match case-sensitively with
+  `minimatch` syntax, and only one glob is accepted.
 - Images that `read` returns reach the model as a note naming the image type.
 
 The command imports pi-coding-agent's package root, because the package exports

@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { rename, symlink, unlink } from "node:fs/promises";
 import { setImmediate as setImmediatePromise } from "node:timers/promises";
@@ -14,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 
-import type { AgentTurnContext, DeferredToolExecution, ToolPolicy } from "@superdurable/dex-agents";
+import { ToolExecutionError, type AgentTurnContext, type DeferredToolExecution, type ToolPolicy } from "@superdurable/dex-agents";
 
 import {
   LocalToolSource,
@@ -23,7 +24,7 @@ import {
   resolveConfig,
   resolveTurnToolPolicy,
 } from "../../src/index.js";
-import { WorkspaceFiles } from "../../src/local-tools/workspace-files.js";
+import { WorkspaceFileRefusedError, WorkspaceFiles } from "../../src/local-tools/workspace-files.js";
 
 function newWorkspace(): { root: string; workspace: string; files: WorkspaceFiles } {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "dex-agents-boundary-")));
@@ -168,6 +169,42 @@ describe("the workspace boundary of the file tools", () => {
     await assert.rejects(files.statExisting("notes/a.txt"), /outside the workspace/);
     await assert.rejects(files.readDirectoryEntries("notes"), /outside the workspace/);
     await assert.rejects(files.readFileWithVersion("notes/a.txt"), /outside the workspace/);
+  });
+
+  test("a FIFO in the workspace is refused at once, never blocking a read or a search", async () => {
+    const { workspace, files } = newWorkspace();
+    writeFileSync(join(workspace, "notes.txt"), "inside");
+    const fifoCreation = spawnSync("mkfifo", [join(workspace, "pipe")]);
+    assert.equal(fifoCreation.status, 0, String(fifoCreation.stderr));
+    const startedAt = Date.now();
+    await assert.rejects(files.readFile("pipe"), (error: unknown) => error instanceof WorkspaceFileRefusedError && /not a regular file/.test(error.message));
+    await assert.rejects(files.readFileWithVersion("pipe"), /not a regular file/);
+    assert.equal(await files.searchFiles("inside", "."), "notes.txt:1: inside");
+    assert.ok(Date.now() - startedAt < 5_000, "nothing blocked on the FIFO");
+    const pipeEntry = (await files.readDirectoryEntries(".")).find((entry) => entry.name === "pipe");
+    assert.deepEqual([pipeEntry?.isFile, pipeEntry?.isDirectory, pipeEntry?.isSymbolicLink], [false, false, false]);
+  });
+
+  test("refusals are WorkspaceFileRefusedError, and a failure after the rename is not", async () => {
+    const { root, workspace, files } = newWorkspace();
+    writeFileSync(join(workspace, "draft.txt"), "before");
+    symlinkSync(join(root, "outside.txt"), join(workspace, "secret.txt"));
+    linkSync(join(root, "outside.txt"), join(workspace, "linked.txt"));
+    const isRefusal = (error: unknown): boolean => error instanceof WorkspaceFileRefusedError;
+    await assert.rejects(files.readFileWithVersion("secret.txt"), isRefusal);
+    await assert.rejects(files.writeFile("linked.txt", "x"), isRefusal);
+    await assert.rejects(files.writeFile("secret.txt", "x"), isRefusal);
+    await assert.rejects(files.readDirectoryEntries("draft.txt"), (error: unknown) => isRefusal(error) && /is not a directory/.test(String(error)));
+    const { version } = await files.readFileWithVersion("draft.txt");
+    writeFileSync(join(workspace, "draft.txt"), "changed");
+    await assert.rejects(files.replaceFileIfUnchanged("draft.txt", "after", version), isRefusal);
+
+    // The post-rename check fails as if the directory had been swapped right after the rename.
+    (files as unknown as { isOpenedFileAt: () => Promise<boolean> }).isOpenedFileAt = () => Promise.resolve(false);
+    await assert.rejects(
+      files.writeFile("draft.txt", "after"),
+      (error: unknown) => error instanceof ToolExecutionError && !isRefusal(error) && /changed while it was written/.test(error.message),
+    );
   });
 
   test("replaceFileIfUnchanged writes the read version and refuses a changed file, a link, or a hard link", async () => {

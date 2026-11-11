@@ -106,9 +106,10 @@ const refusalReferenceKey = "refused";
  *   followed, no file with more than one hard link, and writes by temporary file and rename. `edit` fails with a
  *   conflict when the file changed after it read it. `find` and `grep` walk the workspace and read its files
  *   through it instead of running `fd` and `rg`; they do not read ignore files.
- * - A file tool's failure records `failed`, and the model sees why: writes replace the file by rename, so a failed
- *   write leaves it unchanged.
- * - A `bash` call that fails before its command starts records `failed`. A failure after that records
+ * - A read tool's failure records `failed`, and the model sees why. A `write` or `edit` refused before it changed
+ *   anything (`WorkspaceFileRefusedError`) records `failed`; any other failure may come after a change, such as
+ *   after the rename, and records `outcome_unknown`.
+ * - A `bash` call that fails before its shell process starts records `failed`. A failure after that records
  *   `outcome_unknown`, and the call never runs again, except that a command killed by its timeout records `failed`
  *   with its output. A call without `timeout` gets the source's default timeout.
  *
@@ -382,7 +383,7 @@ export class PiCodingToolSource implements ToolSource {
   }
 }
 
-/** Makes an error with a known outcome a failure the model sees: any before the command started, or a timeout kill. */
+/** Records a failure with a known outcome as failed, and one after a possible effect as outcome_unknown. */
 function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolCallOperations): PiAgentToolLike {
   return {
     ...tool,
@@ -390,11 +391,14 @@ function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolC
       try {
         return await tool.execute(toolCallId, params, signal, onUpdate);
       } catch (error: unknown) {
-        const isOutcomeUnknown = operations.hasEffectStarted && !operations.hasTimedOut;
-        if (isOutcomeUnknown || signal?.aborted === true || error instanceof ToolExecutionError) {
+        if (signal?.aborted === true) {
           throw error;
         }
-        throw new ToolExecutionError(describe(error), { cause: error });
+        if (operations.hasEffectStarted && !operations.hasTimedOut) {
+          // A plain error makes a single-attempt call record outcome_unknown.
+          throw error instanceof ToolExecutionError ? new Error(error.message, { cause: error }) : error;
+        }
+        throw error instanceof ToolExecutionError ? error : new ToolExecutionError(describe(error), { cause: error });
       }
     },
   };

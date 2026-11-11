@@ -91,8 +91,13 @@ for the Dex SDK and framework versions each release supports.
 - TypeScript CLI runtime: **WorkspaceFiles**, the workspace file layer of the
   local file tools, is exported for harnesses that bring their own file tools,
   with new methods **readFileWithVersion**, **replaceFileIfUnchanged**,
-  **statExisting**, and **readDirectoryEntries**. See
+  **statExisting**, and **readDirectoryEntries**. A refusal throws the new
+  **WorkspaceFileRefusedError**, a `ToolExecutionError` thrown before anything
+  changed. See
   [cli/typescript/runtime](cli/typescript/runtime/README.md#the-harness-interface).
+- TypeScript CLI runtime: `read_file` and `edit_file` open files without
+  blocking, so a FIFO in the workspace fails at once as not a regular file
+  instead of hanging the call, as in the Python runtime.
 - Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
   (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
   Claude Code CLI from its input. It returns a **ToolPolicy** for that call,

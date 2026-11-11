@@ -6,21 +6,21 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
+import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { ToolExecutionError } from "@superdurable/dex-agents";
-import type { WorkspaceDirectoryEntry, WorkspaceFileVersion, WorkspaceFiles } from "@superdurable/dex-agents-cli";
+import {
+  WorkspaceFileRefusedError,
+  type WorkspaceDirectoryEntry,
+  type WorkspaceFileVersion,
+  type WorkspaceFiles,
+} from "@superdurable/dex-agents-cli";
 import { Minimatch } from "minimatch";
 
-/** Prefix of the error that pi-coding-agent's shell execution throws when its timeout kills the command. */
-const shellTimeoutErrorPrefix = "timeout:";
-/** The largest timer pi-coding-agent's shell execution accepts, in milliseconds. */
-const maximumShellTimeoutMs = 2_147_483_647;
-const skippedFindDirectories = new Set([".git", "node_modules"]);
+import { LocalShellExecution } from "./local-shell-execution.js";
 
-type BashExecution = ReturnType<typeof createLocalBashOperations>;
+const skippedFindDirectories = new Set([".git", "node_modules"]);
 
 /** The stats pi-coding-agent's `ls` reads. */
 interface DirectoryTest {
@@ -34,19 +34,26 @@ type FindMatcher = (relativePath: string, absolutePath: string, name: string) =>
  * One Pi tool call's file and shell operations, which pi-coding-agent's tools take as `operations`.
  *
  * Every file access goes through the runtime's {@link WorkspaceFiles}, with the absolute path Pi finally chose, so
- * the workspace boundary applies to the file Pi opens. The shell operation validates what it can before it spawns
- * and records when the command started.
+ * the workspace boundary applies to the file Pi opens. A write that fails with anything but a refusal may have
+ * changed a file. The shell operation records when the shell process started.
  */
 export class PiToolCallOperations {
-  /** Whether the call started its command, after which a failure has an unknown outcome. */
-  public hasEffectStarted = false;
-  /** Whether the command's timeout killed it, so its outcome is known. */
-  public hasTimedOut = false;
+  private hasMaybeChangedFile = false;
+  private readonly shell = new LocalShellExecution();
   private readonly readFiles = new Map<string, { bytes: Buffer; version: WorkspaceFileVersion }>();
   private readonly listedEntries = new Map<string, WorkspaceDirectoryEntry>();
-  private readonly localBash: BashExecution = createLocalBashOperations();
 
   public constructor(private readonly files: WorkspaceFiles) {}
+
+  /** Whether the call may have changed a file or started its command, after which a failure has an unknown outcome. */
+  public get hasEffectStarted(): boolean {
+    return this.hasMaybeChangedFile || this.shell.hasStarted;
+  }
+
+  /** Whether the command's timeout killed it, so its outcome is known. */
+  public get hasTimedOut(): boolean {
+    return this.shell.hasTimedOut;
+  }
 
   public async requireRegularFile(absolutePath: string): Promise<void> {
     if (!(await this.files.statExisting(absolutePath)).isFile()) {
@@ -63,7 +70,7 @@ export class PiToolCallOperations {
   }
 
   public async writeWholeFile(absolutePath: string, content: string): Promise<void> {
-    await this.files.writeFile(absolutePath, content);
+    await this.recordingMaybeChangedFile(() => this.files.writeFile(absolutePath, content));
   }
 
   public async replaceReadFile(absolutePath: string, content: string): Promise<void> {
@@ -71,7 +78,7 @@ export class PiToolCallOperations {
     if (read === undefined) {
       throw new ToolExecutionError(`${absolutePath} was not read before the edit; it was not changed`);
     }
-    await this.files.replaceFileIfUnchanged(absolutePath, content, read.version);
+    await this.recordingMaybeChangedFile(() => this.files.replaceFileIfUnchanged(absolutePath, content, read.version));
   }
 
   public async requireExisting(absolutePath: string): Promise<boolean> {
@@ -108,23 +115,18 @@ export class PiToolCallOperations {
     return results;
   }
 
-  public async executeCommand(...execution: Parameters<BashExecution["exec"]>): ReturnType<BashExecution["exec"]> {
-    const [, workingDirectory, options] = execution;
-    const timeout = options.timeout;
-    if (timeout !== undefined && (!Number.isFinite(timeout) || timeout <= 0 || timeout * 1000 > maximumShellTimeoutMs)) {
-      throw new ToolExecutionError(
-        `timeout must be a number of seconds above 0 and at most ${Math.floor(maximumShellTimeoutMs / 1000)}`,
-      );
-    }
-    const workingDirectoryStats = await stat(workingDirectory).catch(() => undefined);
-    if (workingDirectoryStats === undefined || !workingDirectoryStats.isDirectory()) {
-      throw new ToolExecutionError(`the working directory ${workingDirectory} does not exist`);
-    }
-    this.hasEffectStarted = true;
+  public executeCommand(...execution: Parameters<BashOperations["exec"]>): ReturnType<BashOperations["exec"]> {
+    return this.shell.execute(...execution);
+  }
+
+  /** Runs a write; any failure but a refusal, which comes before any change, may have changed a file. */
+  private async recordingMaybeChangedFile(write: () => Promise<string>): Promise<void> {
     try {
-      return await this.localBash.exec(...execution);
+      await write();
     } catch (error: unknown) {
-      this.hasTimedOut = error instanceof Error && error.message.startsWith(shellTimeoutErrorPrefix);
+      if (!(error instanceof WorkspaceFileRefusedError)) {
+        this.hasMaybeChangedFile = true;
+      }
       throw error;
     }
   }

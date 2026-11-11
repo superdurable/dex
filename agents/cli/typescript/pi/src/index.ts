@@ -32,4 +32,4 @@ export {
 } from "./pi-coding-tool-source.js";
 export { PiModelClients, parsePiModelId, resolvePiProviderApiKey, type PiModelId } from "./pi-model-clients.js";
 export { ProjectContextFiles, type ProjectContextFile } from "./project-context-files.js";
-export { WorkspaceGrep, type WorkspaceGrepArguments } from "./workspace-grep.js";
+export { WorkspaceGrep, defaultGrepMatchTimeoutMs, type WorkspaceGrepArguments } from "./workspace-grep.js";

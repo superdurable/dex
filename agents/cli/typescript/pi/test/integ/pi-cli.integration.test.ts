@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   linkSync,
@@ -23,12 +24,14 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { CliProcess, RefusingProxy, TestHome, enginePorts, mockApiKey, openSessionClient } from "../fixtures/cli-test-support.js";
 import { MockMessagesApi } from "../fixtures/mock-messages-api.js";
 
+const failAfterRenameHook = fileURLToPath(new URL("../fixtures/fail-after-rename-hook.js", import.meta.url));
 const noConnectors = { connectors: { enabled: [] }, local_tools: { browser: false } };
 const piToolNames = ["read", "grep", "find", "ls", "write", "edit", "bash"];
 
@@ -67,8 +70,8 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     return home;
   }
 
-  function start(home: TestHome, commandArguments: readonly string[] = []): CliProcess {
-    const cli = CliProcess.start(home, commandArguments);
+  function start(home: TestHome, commandArguments: readonly string[] = [], nodeArguments: readonly string[] = []): CliProcess {
+    const cli = CliProcess.start(home, commandArguments, nodeArguments);
     processes.push(cli);
     return cli;
   }
@@ -377,11 +380,21 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     writeFileSync(join(home.workspace, "src", "a.ts"), "const Alpha = 1;\nconst beta = 2;\nconst gamma = 3;\n");
     writeFileSync(join(home.workspace, "src", "b.md"), "alpha in the docs\n");
     writeFileSync(join(home.workspace, "notes.txt"), "a.b is literal\naxb is not\n");
+    mkdirSync(join(home.workspace, "lib", "src"), { recursive: true });
+    writeFileSync(join(home.workspace, "lib", "src", "c.ts"), "alpha nested\n");
+    assert.equal(spawnSync("mkfifo", [join(home.workspace, "pipe")]).status, 0);
     const cli = start(home);
     await cli.waitForSession();
     cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, glob: "*.ts" }));
-    await cli.stdout.waitFor("grep: src/a.ts:1: const Alpha = 1;");
+    await cli.stdout.waitFor("grep: lib/src/c.ts:1: alpha nested\nsrc/a.ts:1: const Alpha = 1;");
     await cli.stdout.waitFor("> ");
+    cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, glob: "/src/*.ts" }));
+    await cli.stdout.waitFor("grep: src/a.ts:1: const Alpha = 1;\n");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, glob: "!src" }));
+    await cli.stdout.waitFor("grep: No matches found");
+    cli.writeLine(call("read", { path: "pipe" }));
+    await cli.stdout.waitFor("is not a regular file");
     cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, limit: 1 }));
     await cli.stdout.waitFor("1 matches limit reached");
     cli.writeLine(call("grep", { pattern: "a.b", literal: true }));
@@ -392,6 +405,23 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
     assert.doesNotMatch(cli.stdout.all, /b\.md|axb|Approve grep/);
+  });
+
+  test("a grep pattern that backtracks without end fails the call instead of blocking the Worker", async () => {
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "slow.txt"), `${"a!".repeat(32)}\n${"a".repeat(32)}!\n`);
+    const cli = start(home);
+    await cli.waitForSession();
+    const startedAt = Date.now();
+    cli.writeLine(call("grep", { pattern: "(a+)+$" }));
+    await cli.stdout.waitFor("the pattern took too long to match", 60_000);
+    await cli.stdout.waitFor("> ");
+    assert.ok(Date.now() - startedAt < 40_000, "the call failed within its budget");
+    cli.writeLine("say still here");
+    await cli.stdout.waitFor("said: still here");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
   });
 
   test("a hard link to an outside file is refused for read, write, and edit, and grep never reads it", async () => {
@@ -418,6 +448,26 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.equal(await cli.waitForExit(), 0);
     assert.equal(readFileSync(join(outside, "secret.txt"), "utf8"), "do not read");
     assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
+  });
+
+  test("a write that fails after its rename records outcome_unknown", async () => {
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "draft.txt"), "before");
+    const cli = start(home, [], ["--import", failAfterRenameHook]);
+    await cli.waitForSession();
+    cli.writeLine(call("write", { path: "draft.txt", content: "after" }));
+    await cli.stdout.waitFor("Approve write?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("write: The tool call's outcome is unknown");
+    cli.writeLine(call("write", { path: "../outside.txt", content: "after" }));
+    await cli.stdout.waitFor("Approve write?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("write: The tool call failed: ");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.match(lastToolResults(), /is outside the workspace/);
   });
 
   test("a bash call with an invalid timeout records a failure and never runs", async () => {
@@ -521,6 +571,27 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     second.writeLine("/exit");
     assert.equal(await second.waitForExit(), 0);
     assert.doesNotMatch(JSON.stringify(api.modelRequests()), /Outside (workspace|ancestor|global) instructions/);
+  });
+
+  test("a workspace swapped for a link after startup never authorizes the new place for project context", async () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
+    writeFileSync(join(outside, "AGENTS.md"), "Outside swapped instructions.\n");
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "AGENTS.md"), "Inside instructions.\n");
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine("say hi");
+    await cli.stdout.waitFor("said: hi");
+    assert.ok(lastSystemPrompt().includes("Inside instructions."));
+    renameSync(home.workspace, `${home.workspace}-old`);
+    symlinkSync(outside, home.workspace);
+    cli.writeLine("say again");
+    await cli.stdout.waitFor("said: again");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /Outside swapped instructions/);
+    assert.match(cli.stderr.all, /skipped the project context file .*AGENTS\.md: .*outside the workspace/);
   });
 
   test("without an API key the command stops and names the variable, even with an OAuth token", async () => {

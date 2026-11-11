@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { createHash } from "node:crypto";
-import { constants, type Stats } from "node:fs";
+import { constants, type Dirent, type Stats } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, type FileHandle } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -21,6 +21,31 @@ const maximumListedEntries = 1000;
 const maximumWholeFileBytes = 64 * 1024 * 1024;
 const skippedDirectories = new Set([".git", "node_modules"]);
 const noFollowFlag = constants.O_NOFOLLOW ?? 0;
+// Opening a FIFO or device for reading must not block before its type is checked; Windows has no such flag.
+const nonBlockingOpenFlag = process.platform === "win32" ? 0 : (constants.O_NONBLOCK ?? 0);
+const readChunkBytes = 64 * 1024;
+
+/**
+ * A file operation that {@link WorkspaceFiles} refused before it changed anything: a path outside the workspace or
+ * missing, a symbolic link, a file with more than one hard link, a file that is not a regular file or is too large,
+ * a path that changed while it was checked, or an edit whose file changed after it was read.
+ *
+ * Every refusal of a write is thrown before the target or any directory changed, so the caller may report the call
+ * as not having run. Any other error of a write may come after a change, such as a failure after the rename.
+ *
+ * @since 0.5.0
+ */
+export class WorkspaceFileRefusedError extends ToolExecutionError {
+  /**
+   * Creates the error.
+   * @param message - Why the operation was refused.
+   * @param options - The underlying error, if any.
+   */
+  public constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "WorkspaceFileRefusedError";
+  }
+}
 
 /**
  * The version of a file that {@link WorkspaceFiles.readFileWithVersion} read: its identity, size, modification time,
@@ -48,6 +73,13 @@ export interface WorkspaceDirectoryEntry {
   readonly isDirectory: boolean;
   /** Whether the entry is a symbolic link. */
   readonly isSymbolicLink: boolean;
+  /** Whether the entry is a regular file. A symbolic link, FIFO, socket, or device is not. */
+  readonly isFile: boolean;
+}
+
+/** Whether a write created a directory, after which its refusals no longer mean nothing changed. */
+interface DirectoryCreation {
+  hasCreatedDirectory: boolean;
 }
 
 /** A regular file opened inside the workspace, with the path it was checked at. */
@@ -73,7 +105,10 @@ interface OpenedFile {
  * the rename and fails loudly instead of being prevented.
  *
  * A harness that replaces the `files` group with its own tools runs their file access through it, so its tools
- * keep the same boundary. Every method throws a {@link ToolExecutionError} for a refused or failed operation.
+ * keep the same boundary. A refused operation throws a {@link WorkspaceFileRefusedError}, a subclass of
+ * {@link ToolExecutionError}. A write that failed after it may have changed a file, such as a failure after its
+ * rename, throws a plain `ToolExecutionError`. An unexpected file system failure, such as a permission error,
+ * throws the file system's error.
  *
  * @example
  * ```ts
@@ -134,7 +169,7 @@ export class WorkspaceFiles {
    */
   public async editFile(path: string, oldText: string, newText: string): Promise<string> {
     if (oldText === "") {
-      throw new ToolExecutionError("old_text must not be empty");
+      throw new WorkspaceFileRefusedError("old_text must not be empty");
     }
     const file = await this.openRegularFile(path);
     let text: string;
@@ -142,7 +177,7 @@ export class WorkspaceFiles {
     try {
       const read = await readText(file.handle, maximumEditBytes);
       if (read.isCut) {
-        throw new ToolExecutionError(`${path} is larger than ${maximumEditBytes} bytes; edit_file does not change it`);
+        throw new WorkspaceFileRefusedError(`${path} is larger than ${maximumEditBytes} bytes; edit_file does not change it`);
       }
       text = read.text;
       readVersion = { stats: file.stats, sha256: sha256Of(read.bytes) };
@@ -151,7 +186,7 @@ export class WorkspaceFiles {
     }
     const occurrences = text.split(oldText).length - 1;
     if (occurrences !== 1) {
-      throw new ToolExecutionError(
+      throw new WorkspaceFileRefusedError(
         occurrences === 0
           ? `old_text does not occur in ${path}`
           : `old_text occurs ${occurrences} times in ${path}; include more surrounding text so that it occurs once`,
@@ -185,17 +220,17 @@ export class WorkspaceFiles {
    *
    * @param path - The file, relative to the workspace or absolute inside it.
    * @returns The content and its version.
-   * @throws {ToolExecutionError} When the path is outside, missing, not a regular file, hard-linked, or larger than
+   * @throws {WorkspaceFileRefusedError} When the path is outside, missing, not a regular file, hard-linked, or larger than
    * 64 MiB.
    * @since 0.5.0
    */
   public async readFileWithVersion(path: string): Promise<{ bytes: Buffer; version: WorkspaceFileVersion }> {
     const file = await this.openRegularFile(path);
     try {
-      if (file.stats.size > maximumWholeFileBytes) {
-        throw new ToolExecutionError(`${path} is larger than ${maximumWholeFileBytes} bytes`);
+      const bytes = await readAtMost(file.handle, maximumWholeFileBytes);
+      if (bytes === undefined) {
+        throw new WorkspaceFileRefusedError(`${path} is larger than ${maximumWholeFileBytes} bytes`);
       }
-      const bytes = await file.handle.readFile();
       return { bytes, version: { stats: file.stats, sha256: sha256Of(bytes) } };
     } finally {
       await file.handle.close();
@@ -214,7 +249,10 @@ export class WorkspaceFiles {
    * @param content - The whole new content, as UTF-8.
    * @param version - The version the caller read.
    * @returns What was written.
-   * @throws {ToolExecutionError} When the path is outside, missing, a link, hard-linked, or changed after the read.
+   * @throws {WorkspaceFileRefusedError} When the path is outside, missing, a link, hard-linked, or changed after the
+   * read; the file is unchanged.
+   * @throws {ToolExecutionError} When the file changed while it was written, after the rename; the new content may
+   * have replaced the file.
    * @since 0.5.0
    */
   public async replaceFileIfUnchanged(path: string, content: string, version: WorkspaceFileVersion): Promise<string> {
@@ -227,7 +265,7 @@ export class WorkspaceFiles {
    *
    * @param path - The path, relative to the workspace or absolute inside it.
    * @returns The stats of the file or directory the path names.
-   * @throws {ToolExecutionError} When the path is outside, missing, or changed while it was checked.
+   * @throws {WorkspaceFileRefusedError} When the path is outside, missing, or changed while it was checked.
    * @since 0.5.0
    */
   public async statExisting(path: string): Promise<Stats> {
@@ -242,15 +280,29 @@ export class WorkspaceFiles {
    *
    * @param path - The directory, relative to the workspace or absolute inside it.
    * @returns Every entry.
-   * @throws {ToolExecutionError} When the path is outside, missing, or changed while it was listed.
+   * @throws {WorkspaceFileRefusedError} When the path is outside, missing, not a directory, or changed while it was
+   * listed.
    * @since 0.5.0
    */
   public async readDirectoryEntries(path: string): Promise<WorkspaceDirectoryEntry[]> {
     const directory = await this.resolveExisting(path);
-    const entries = await readdir(directory, { withFileTypes: true });
+    let entries: Dirent[];
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === "ENOTDIR") {
+        throw new WorkspaceFileRefusedError(`${path} is not a directory`, { cause: error });
+      }
+      throw error;
+    }
     await this.requireUnchanged(directory, path);
     return entries
-      .map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory(), isSymbolicLink: entry.isSymbolicLink() }))
+      .map((entry) => ({
+        name: entry.name,
+        isDirectory: entry.isDirectory(),
+        isSymbolicLink: entry.isSymbolicLink(),
+        isFile: entry.isFile(),
+      }))
       .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
   }
 
@@ -263,7 +315,7 @@ export class WorkspaceFiles {
    */
   public async searchFiles(query: string, path: string): Promise<string> {
     if (query === "") {
-      throw new ToolExecutionError("query must not be empty");
+      throw new WorkspaceFileRefusedError("query must not be empty");
     }
     const root = await this.resolveExisting(path);
     const matches: string[] = [];
@@ -322,15 +374,15 @@ export class WorkspaceFiles {
     const realPath = await this.resolveExisting(path);
     let handle: FileHandle;
     try {
-      handle = await open(realPath, constants.O_RDONLY | noFollowFlag);
+      handle = await open(realPath, constants.O_RDONLY | noFollowFlag | nonBlockingOpenFlag);
     } catch (error: unknown) {
-      throw new ToolExecutionError(`${path} cannot be opened: ${describe(error)}`, { cause: error });
+      throw new WorkspaceFileRefusedError(`${path} cannot be opened: ${describe(error)}`, { cause: error });
     }
     try {
       const stats = await handle.stat();
       await this.requireSameFile(realPath, stats, path);
       if (!stats.isFile()) {
-        throw new ToolExecutionError(`${path} is not a regular file`);
+        throw new WorkspaceFileRefusedError(`${path} is not a regular file`);
       }
       requireSingleLink(stats, path);
       return { handle, realPath, stats };
@@ -353,22 +405,41 @@ export class WorkspaceFiles {
   ): Promise<string> {
     const candidate = resolve(this.workspace, path);
     if (candidate === this.workspace) {
-      throw new ToolExecutionError("the workspace itself is a directory, not a file");
+      throw new WorkspaceFileRefusedError("the workspace itself is a directory, not a file");
     }
+    const progress: DirectoryCreation = { hasCreatedDirectory: false };
+    try {
+      return await this.replaceFileInDirectory(path, candidate, content, isCreatingMissing, progress, expectedVersion);
+    } catch (error: unknown) {
+      if (progress.hasCreatedDirectory && error instanceof WorkspaceFileRefusedError) {
+        throw new ToolExecutionError(`${error.message}; directories for ${path} were already created`, { cause: error });
+      }
+      throw error;
+    }
+  }
+
+  private async replaceFileInDirectory(
+    path: string,
+    candidate: string,
+    content: string,
+    isCreatingMissing: boolean,
+    progress: DirectoryCreation,
+    expectedVersion: WorkspaceFileVersion | undefined,
+  ): Promise<string> {
     const directory = isCreatingMissing
-      ? await this.makeDirectoryInside(dirname(candidate), path)
+      ? await this.makeDirectoryInside(dirname(candidate), path, progress)
       : await this.resolveExisting(dirname(candidate));
     const target = join(directory, basename(candidate));
     const existing = await lstat(target).catch(() => undefined);
     if (existing === undefined && !isCreatingMissing) {
-      throw new ToolExecutionError(`${path} does not exist in the workspace`);
+      throw new WorkspaceFileRefusedError(`${path} does not exist in the workspace`);
     }
     if (existing !== undefined) {
       if (existing.isSymbolicLink()) {
-        throw new ToolExecutionError(`${path} is a symbolic link; write to the file it names instead`);
+        throw new WorkspaceFileRefusedError(`${path} is a symbolic link; write to the file it names instead`);
       }
       if (!existing.isFile()) {
-        throw new ToolExecutionError(`${path} is not a regular file`);
+        throw new WorkspaceFileRefusedError(`${path} is not a regular file`);
       }
       requireSingleLink(existing, path);
     }
@@ -409,7 +480,7 @@ export class WorkspaceFiles {
   /** Checks that a file still has the identity, size, modification time, and content that edit_file read. */
   private async requireVersionUnchanged(target: string, expected: WorkspaceFileVersion, path: string): Promise<void> {
     const conflict = (): never => {
-      throw new ToolExecutionError(`${path} changed after edit_file read it; read the file again and retry the edit`);
+      throw new WorkspaceFileRefusedError(`${path} changed after edit_file read it; read the file again and retry the edit`);
     };
     const current = await lstat(target).catch(() => undefined);
     if (
@@ -421,7 +492,7 @@ export class WorkspaceFiles {
     ) {
       conflict();
     }
-    const handle = await open(target, constants.O_RDONLY | noFollowFlag).catch(() => undefined);
+    const handle = await open(target, constants.O_RDONLY | noFollowFlag | nonBlockingOpenFlag).catch(() => undefined);
     if (handle === undefined) {
       return conflict();
     }
@@ -446,7 +517,7 @@ export class WorkspaceFiles {
   }
 
   /** Creates missing directories one component at a time, refusing links, and returns the real directory. */
-  private async makeDirectoryInside(directory: string, path: string): Promise<string> {
+  private async makeDirectoryInside(directory: string, path: string, progress: DirectoryCreation): Promise<string> {
     const missing: string[] = [];
     let existing = directory;
     while ((await lstat(existing).catch(() => undefined)) === undefined) {
@@ -456,14 +527,19 @@ export class WorkspaceFiles {
     let current = await this.resolveExisting(existing);
     for (const name of missing) {
       const child = join(current, name);
-      await mkdir(child).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== "EEXIST") {
-          throw error;
-        }
-      });
+      const isCreated = await mkdir(child).then(
+        () => true,
+        (error: NodeJS.ErrnoException) => {
+          if (error.code !== "EEXIST") {
+            throw error;
+          }
+          return false;
+        },
+      );
+      progress.hasCreatedDirectory ||= isCreated;
       const stats = await lstat(child);
       if (!stats.isDirectory()) {
-        throw new ToolExecutionError(`${path} goes through ${this.displayPath(child)}, which is not a directory`);
+        throw new WorkspaceFileRefusedError(`${path} goes through ${this.displayPath(child)}, which is not a directory`);
       }
       current = await this.resolveExisting(child);
     }
@@ -473,7 +549,7 @@ export class WorkspaceFiles {
   /** Resolves a path that must exist, following links, and checks it stays inside. */
   private async resolveExisting(path: string): Promise<string> {
     if (typeof path !== "string" || path === "" || path.includes("\0")) {
-      throw new ToolExecutionError("path must be a non-empty string");
+      throw new WorkspaceFileRefusedError("path must be a non-empty string");
     }
     const candidate = resolve(this.workspace, path);
     let real: string;
@@ -488,7 +564,7 @@ export class WorkspaceFiles {
         realAncestor = await realpath(ancestor).catch(() => undefined);
       }
       this.requireInside(realAncestor ?? candidate, path);
-      throw new ToolExecutionError(`${path} does not exist in the workspace`, { cause: error });
+      throw new WorkspaceFileRefusedError(`${path} does not exist in the workspace`, { cause: error });
     }
     this.requireInside(real, path);
     return real;
@@ -498,7 +574,7 @@ export class WorkspaceFiles {
   private async requireUnchanged(realPath: string, path: string): Promise<void> {
     const again = await realpath(realPath).catch(() => undefined);
     if (again !== realPath) {
-      throw new ToolExecutionError(`${path} changed while the tool used it`);
+      throw new WorkspaceFileRefusedError(`${path} changed while the tool used it`);
     }
   }
 
@@ -507,7 +583,7 @@ export class WorkspaceFiles {
     await this.requireUnchanged(realPath, path);
     const current = await lstat(realPath).catch(() => undefined);
     if (current === undefined || current.dev !== opened.dev || current.ino !== opened.ino) {
-      throw new ToolExecutionError(`${path} changed while the tool opened it`);
+      throw new WorkspaceFileRefusedError(`${path} changed while the tool opened it`);
     }
   }
 
@@ -519,10 +595,10 @@ export class WorkspaceFiles {
   private requireInside(candidate: string, path: string): void {
     const fromWorkspace = relative(this.workspace, candidate);
     if (fromWorkspace === "..") {
-      throw new ToolExecutionError(`${path} is outside the workspace ${this.workspace}`);
+      throw new WorkspaceFileRefusedError(`${path} is outside the workspace ${this.workspace}`);
     }
     if (fromWorkspace.startsWith(`..${sep}`) || isAbsolute(fromWorkspace)) {
-      throw new ToolExecutionError(`${path} is outside the workspace ${this.workspace}`);
+      throw new WorkspaceFileRefusedError(`${path} is outside the workspace ${this.workspace}`);
     }
   }
 
@@ -541,6 +617,24 @@ async function readText(
   return { text: bytes.toString("utf8"), bytes, isCut: bytesRead > maximumBytes };
 }
 
+/** Reads a whole file, or returns `undefined` when it has more than `maximumBytes`. */
+async function readAtMost(handle: FileHandle, maximumBytes: number): Promise<Buffer | undefined> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const chunk = Buffer.alloc(Math.min(readChunkBytes, maximumBytes + 1 - total));
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, total);
+    if (bytesRead === 0) {
+      return Buffer.concat(chunks, total);
+    }
+    chunks.push(chunk.subarray(0, bytesRead));
+    total += bytesRead;
+    if (total > maximumBytes) {
+      return undefined;
+    }
+  }
+}
+
 function sha256Of(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -554,7 +648,7 @@ async function removeIfSameFile(path: string, written: Stats): Promise<void> {
 
 function requireSingleLink(stats: Stats, path: string): void {
   if (stats.isFile() && stats.nlink > 1) {
-    throw new ToolExecutionError(
+    throw new WorkspaceFileRefusedError(
       `${path} has ${stats.nlink} hard links; the file tools refuse files with more than one link, because another link may be outside the workspace`,
     );
   }

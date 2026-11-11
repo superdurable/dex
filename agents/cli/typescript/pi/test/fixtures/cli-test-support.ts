@@ -93,10 +93,15 @@ export class CliProcess {
    * Starts the command.
    * @param home - The test home.
    * @param commandArguments - Arguments after the command name.
+   * @param nodeArguments - Node options before the command, such as `--import` of a test hook.
    * @returns The process.
    */
-  public static start(home: TestHome, commandArguments: readonly string[] = []): CliProcess {
-    const child = spawn(process.execPath, [binPath, ...commandArguments], {
+  public static start(
+    home: TestHome,
+    commandArguments: readonly string[] = [],
+    nodeArguments: readonly string[] = [],
+  ): CliProcess {
+    const child = spawn(process.execPath, [...nodeArguments, binPath, ...commandArguments], {
       env: home.environment(),
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
