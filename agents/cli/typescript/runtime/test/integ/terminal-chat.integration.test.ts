@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
@@ -148,6 +148,20 @@ describe("terminal chat with connectors and session settings", () => {
     assert.doesNotMatch(cli.stdout.all + cli.stderr.all, /Flow definition|dex info/);
     const logFile = readFileSync(join(home.directory, ".dex", "agents", `${home.harness.name}.log`), "utf8");
     assert.match(logFile, new RegExp(`session Flow definition (created|unchanged): flowType=${flowType} `));
+  });
+
+  test("an unwritable log file neither stops the chat nor reaches the terminal", async () => {
+    const home = newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+    const logPath = join(home.directory, ".dex", "agents", `${home.harness.name}.log`);
+    mkdirSync(logPath, { recursive: true });
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine("hello there");
+    await cli.stdout.waitFor("echo: hello there");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.ok(statSync(logPath).isDirectory());
+    assert.doesNotMatch(cli.stdout.all + cli.stderr.all, /Flow definition|dex info|EISDIR/);
   });
 
   test("one chat turn streams the reply, reusing the running dexcli dev", async () => {

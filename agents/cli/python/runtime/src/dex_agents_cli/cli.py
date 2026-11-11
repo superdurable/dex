@@ -85,6 +85,8 @@ CONNECTORS_WEB_PATH = "/v1/connectors"
 MEDIA_DIRECTORY = "media"
 _BLOB_CACHE_BYTES = 64 * 1024 * 1024
 _WORKER_REGISTRATION_TIMEOUT_SECONDS = 30.0
+# How long the command waits for the session graph upload before it logs a failure.
+_SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS = 10.0
 _SESSION_LIST_PAGE_SIZE = 50
 _SESSION_START_TIMEOUT_SECONDS = 60.0
 _SESSION_START_POLL_SECONDS = 0.1
@@ -301,16 +303,13 @@ async def _run(
             server_address=endpoint.address,
             flow_service_tls=tls,
             pull=PullWorkerOptions(stop_drain_timeout=timedelta(seconds=5)),
-            # Dex Web then shows the session without --flow-rendering-dir.
-            flow_definitions=[
-                session_flow_definition_document(flow_type, SESSION_ACTION_PERMISSION)
-            ],
         ),
     )
     serving = asyncio.create_task(worker.start())
     terminal = Terminal()
     try:
         await worker.wait_pull_registered(timeout=_WORKER_REGISTRATION_TIMEOUT_SECONDS)
+        await _upload_session_flow_definition(client, flow_type)
         sessions = AgentSessionClient(client, flow)
         session_id = await _open_session(
             client, sessions, arguments.resume_session_id, harness, flow_type, identity
@@ -512,6 +511,41 @@ def _local_tool_source(
         if is_enabled and group not in harness.replaced_local_tools
     )
     return LocalToolSource(workspace, groups, resolver) if groups else None
+
+
+async def _upload_session_flow_definition(client: AsyncClient, flow_type: str) -> None:
+    """Upload the session graph so Dex Web shows the session without ``--flow-rendering-dir``.
+
+    The Client uploads it after the Worker registered, not ``WorkerOptions.flow_definitions``,
+    because the Worker's upload runs inside ``start`` with a two-minute deadline. The outcome
+    and any failure go to the log file only.
+    """
+    document = session_flow_definition_document(flow_type, SESSION_ACTION_PERMISSION)
+    try:
+        (result,) = await asyncio.wait_for(
+            client.upload_flow_definitions([document]),
+            _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS,
+        )
+    except Exception as error:  # Any failure only loses the Dex Web graph of this session.
+        _LOGGER.warning(
+            "session Flow definition upload failed; Dex Web shows this session only with "
+            "--flow-rendering-dir: flowType=%s %s",
+            flow_type,
+            _describe_upload_error(error),
+        )
+        return
+    _LOGGER.info(
+        "session Flow definition %s: flowType=%s storedDigest=%s",
+        result.outcome.value,
+        flow_type,
+        result.stored_digest,
+    )
+
+
+def _describe_upload_error(error: BaseException) -> str:
+    """Return the error's type and text, or its type alone when the text is empty."""
+    text = str(error)
+    return f"{type(error).__name__}: {text}" if text else type(error).__name__
 
 
 async def _open_session(

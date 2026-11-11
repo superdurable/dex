@@ -362,8 +362,12 @@ class AgentCliCommand {
     } finally {
       clearTimeout(timer);
     }
-    mkdirSync(this.environment.agentsDirectory, { recursive: true });
-    appendFileSync(this.logFilePath(), `${new Date().toISOString()} ${line}\n`);
+    try {
+      mkdirSync(this.environment.agentsDirectory, { recursive: true });
+      appendFileSync(this.logFilePath(), `${new Date().toISOString()} ${line}\n`);
+    } catch {
+      // An unwritable log file loses only this diagnostic line; the chat must still start.
+    }
   }
 
   /** `~/.dex/agents/<harness>.log`, the log file the Python runtime also writes. */

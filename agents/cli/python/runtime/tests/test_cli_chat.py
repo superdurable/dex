@@ -14,6 +14,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import signal
 import socket
 from datetime import datetime
@@ -160,6 +161,10 @@ async def test_the_worker_uploads_the_session_graph_for_dex_web(cli_home: CliHom
     assert definition["info"]["flowType"] == flow_type
     generated_at = datetime.fromisoformat(definition["info"]["generatedAt"])
     assert generated_at == SESSION_FLOW_GRAPH_GENERATED_AT
+    log_text = (cli_home.home / ".dex" / "agents" / "scripted.log").read_text(encoding="utf-8")
+    assert re.search(
+        f"session Flow definition (created|unchanged): flowType={flow_type} ", log_text
+    )
 
 
 async def test_a_question_is_answered_in_the_terminal(cli_home: CliHome) -> None:
