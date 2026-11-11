@@ -73,7 +73,11 @@ export function createVercelAiCliSessionFlow(context: HarnessContext): ReturnTyp
   // Fail at startup, not at the first turn, when the file's model has no supported provider.
   createProviderLanguageModel(context.config.model);
   const model = new TurnLanguageModel(() => context.currentTurn(), createProviderLanguageModel, defaultInstructions);
-  return createVercelAiAgentSessionFlow({ model, toolSources: context.toolSources }, context.flowType);
+  return createVercelAiAgentSessionFlow(
+    { model, toolSources: context.toolSources },
+    context.flowType,
+    context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore },
+  );
 }
 
 /**

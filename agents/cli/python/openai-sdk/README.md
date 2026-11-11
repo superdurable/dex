@@ -56,6 +56,13 @@ tools of each turn. Restart the command in two cases:
   still starting. The command warns that this run has no connector tools.
 - You authorized a connection while the command ran.
 
+## Images
+
+`/image <path>` attaches an image file to the next message. The command gives
+the OpenAI Agents SDK adapter the media store of `media.store`, so the model sees the
+image, and images that tools return go to the same store. See
+[Images](../../README.md#images).
+
 ## Development
 
 Develop with uv 0.12.2. The package resolves `dex-agents`, the adapter, the

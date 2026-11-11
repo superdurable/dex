@@ -50,6 +50,13 @@ with the runtime's approval rules. The Mastra agent's model and instructions
 are functions that Mastra calls in every model call, so each turn uses the
 model and instructions its session settings resolve to.
 
+## Images
+
+`/image <path>` attaches an image file to the next message. The command gives
+the Mastra adapter the media store of `media.store`, so the model sees the
+image, and images that tools return go to the same store. See
+[Images](../../README.md#images).
+
 ## Development
 
 `ci.sh` builds the core, the Mastra adapter, and the runtime, which this
