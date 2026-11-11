@@ -38,6 +38,7 @@ from dex import AsyncContext, RetryPolicy
 from dex_agents.built_in_tools import BuiltInTool
 from dex_agents.events import AgentEventWriter
 from dex_agents.values import (
+    AgentImageReference,
     AgentMessage,
     AgentPlan,
     AgentToolCall,
@@ -267,6 +268,13 @@ class FrameworkMessage:
         tool_name: Tool name of a tool request or result item.
         tool_arguments: Tool arguments as JSON text.
         tool_output: Tool result text.
+        images: Images of the item, for display, such as those of a tool
+            result from ``AgentToolCall.images``. The session sets the images of
+            a user message itself, from ``AgentUserMessage.images``. The session
+            checks them with ``validate_image_references`` before it stores
+            the message; invalid ones fail the calling Step. Defaults to none.
+
+            .. versionadded:: 0.5.0
     """
 
     role: MessageRole
@@ -276,6 +284,7 @@ class FrameworkMessage:
     tool_name: str | None = None
     tool_arguments: str | None = None
     tool_output: str | None = None
+    images: Sequence[AgentImageReference] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -597,10 +606,20 @@ class ToolExecutionResult:
             session stores it as ``AgentToolCall.truncated_output_bytes``.
 
             .. versionadded:: 0.4.0
+        images: Images the tool returns with ``output``, uploaded with
+            ``MediaStore.put_image`` inside the call, at most
+            ``MAX_IMAGES_PER_MESSAGE``. The session stores them as
+            ``AgentToolCall.images``; a reference that
+            ``validate_image_reference`` refuses fails the attempt. Upload
+            before returning: a retried attempt uploads the same bytes to the
+            same object. Defaults to none.
+
+            .. versionadded:: 0.5.0
     """
 
     output: str
     truncated_output_bytes: int | None = None
+    images: Sequence[AgentImageReference] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -963,6 +982,47 @@ class AgentFrameworkRunner(Protocol[ToolOutcomeT_co]):
             Exception: Any other exception fails the Step attempt. After the
                 last attempt the record becomes ``FAILED`` for a ``READ`` call
                 and ``OUTCOME_UNKNOWN`` for a write.
+        """
+        ...
+
+
+@runtime_checkable
+class ImageUserMessageBuilder(Protocol):
+    """Let a runner show the images of a user message to its model.
+
+    Implement it next to ``AgentFrameworkRunner`` when the runner can send
+    images to its model. ``send_user_message`` accepts images only for a runner
+    with this method, and the session calls it instead of
+    ``build_user_message`` for a message with images. Put the references,
+    never the bytes, in ``framework_item``; read the bytes with
+    ``dex_agents.load_images`` when the model call builds its input. The
+    session sets the stored message's ``images`` itself.
+
+    Example:
+        >>> class MyRunner:
+        ...     def build_user_message_with_images(self, text, images):
+        ...         item = {"user": text, "images": [asdict(image) for image in images]}
+        ...         return FrameworkMessage(role=MessageRole.USER, text=text,
+        ...                                 framework_item=json.dumps(item))
+
+    .. versionadded:: 0.5.0
+    """
+
+    def build_user_message_with_images(
+        self, text: str, images: Sequence[AgentImageReference]
+    ) -> FrameworkMessage:
+        """Convert user text and its images into the framework item the session stores.
+
+        It must be deterministic and free of side effects, like
+        ``build_user_message``.
+
+        Args:
+            text: The user message text, never blank.
+            images: The message's images, at least one, each valid for
+                ``validate_image_reference``.
+
+        Returns:
+            A ``MessageRole.USER`` message.
         """
         ...
 

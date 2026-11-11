@@ -47,6 +47,52 @@ for the Dex SDK and framework versions each release supports.
   call. A task polled inside the tool Step, such as one bound to a protocol
   session, may be called again when the server no longer knows it.
 
+### Images
+
+- Python and TypeScript cores: user messages and tool results can carry
+  images. Session state stores only an **AgentImageReference**
+  (`{"type": "image", "uri", "mime_type", "sha256", "size_bytes"}`); the bytes
+  live in a **MediaStore**, one object per image under
+  `<prefix>/sha256/<sha256>`, so uploads are idempotent and a replay reads the
+  same bytes.
+- New fields, all empty by default: **AgentUserMessage.images**,
+  **AgentMessage.images** (display copy), **AgentToolCall.images**,
+  **ToolExecutionResult.images**, and **FrameworkMessage.images**. Every
+  writer now stores `"images": []`; earlier Workers ignore the field, so send
+  images only after every Worker of the Flow type runs 0.5.0.
+- **S3MediaStore** (`dex_agents.s3`, extra `dex-agents[s3]`;
+  `@superdurable/dex-agents/s3`, optional peer `@aws-sdk/client-s3`) keeps
+  images in AWS S3 or an S3-compatible bucket, with credentials from the
+  standard AWS chain. **InMemoryMediaStore** is for tests.
+- PNG, JPEG, GIF, and WebP, detected from the bytes with a cheap structural
+  check, up to **MAX_IMAGE_BYTES** (`maxImageBytes`, 3,750,000 bytes,
+  5,000,000 bytes as base64) each, and at most **MAX_IMAGES_PER_MESSAGE**
+  (`maxImagesPerMessage`, 20) per message or tool result. A `uri` is at most
+  **MAX_IMAGE_URI_LENGTH** (`maxImageUriLength`, 1024) bytes as UTF-8.
+  **ImageValidationError** names what is wrong.
+- Reads check the SHA-256, the size, and the type: **verify_image_bytes**
+  (`verifyImageBytes`) refuses bytes that are not a well-formed image of the
+  reference's `mime_type`. **S3MediaStore** uploads with `If-None-Match: *`
+  (412 means stored; a 409 conflict retries, then needs a `HEAD` that finds
+  the object),
+  refuses an object whose `Content-Length` differs from the reference, and
+  reads at most one byte past `size_bytes`. It takes explicit credentials
+  (`access_key_id` and `secret_access_key`; `credentials`) for a local
+  development bucket, and the standard AWS chain by default.
+- The session checks the images of every `FrameworkMessage` a runner returns
+  before it stores any. Keep each object for as long as sessions can replay
+  it; a missing object fails the turn with **MediaStoreError**.
+- `send_user_message` returns `false` for invalid images, or for images when
+  the runner does not implement **ImageUserMessageBuilder**
+  (`buildUserMessageWithImages`). No built-in runner implements it yet; image
+  input for Stepwise and the framework adapters comes later.
+- Runners read bytes with **load_images** (`loadImages`) and may choose them
+  with **collect_turn_images** (`collectTurnImages`).
+- Go core: no image input. Its values carry `images`, so a value written by
+  another core round-trips, and `send_user_message` returns `false` for a
+  message with images.
+- Shared cases: `agents/conformance/images.json`.
+
 ### Changed
 
 - Breaking, Python and TypeScript cores: a connector tool's default name now

@@ -152,6 +152,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Wait for the build.\"}",
+            "images": [],
             "role": "user",
             "sequence": 1,
             "text": "Wait for the build.",
@@ -164,6 +165,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"durable_wait\\\",\\\"arguments\\\":\\\"{\\\\\\\"duration_seconds\\\\\\\": 1, \\\\\\\"reason\\\\\\\": \\\\\\\"the build runs\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"durable_wait\",\"arguments\":\"{\\\"duration_seconds\\\": 1, \\\"reason\\\": \\\"the build runs\\\"}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 2,
             "text": null,
@@ -176,6 +178,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"durable_wait\",\"output\":\"{\\\"status\\\":\\\"completed\\\",\\\"waited_seconds\\\":1,\\\"reason\\\":\\\"the build runs\\\"}\"}",
+            "images": [],
             "role": "tool",
             "sequence": 3,
             "text": null,
@@ -188,6 +191,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"The build should be done.\\\"}\",\"text\":\"The build should be done.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 4,
             "text": "The build should be done.",

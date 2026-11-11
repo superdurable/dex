@@ -24,6 +24,7 @@ import { agentSessionStepTypes } from "./agent-session-step-types.js";
 import { isContextCompactionRunner, type ResolvedCompactionPolicy } from "./agent-context-compaction.js";
 import { StreamAgentEventWriter } from "./agent-event-writer.js";
 import { encodeAgentMessage } from "./agent-session-codecs.js";
+import { validateImageReferences } from "./agent-media.js";
 import {
   resolveToolPolicy,
   type AgentFrameworkRunner,
@@ -549,6 +550,7 @@ export class AgentSessionTransitions {
       if (!Array.isArray(messages) || !messages.every(isFrameworkMessage)) {
         throw new TypeError("buildUnfinishedTurnMessages must return an array of framework messages");
       }
+      messages.forEach((message) => validateImageReferences(message.images ?? []));
       return messages;
     } catch (error: unknown) {
       // A runner defect must not block the end of the turn; the caller's note still tells the model.
@@ -583,6 +585,8 @@ export class AgentSessionTransitions {
       this.writeAgentState(context, state);
       return state;
     }
+    // A runner's images fail the Step here, before any message of the commit is written.
+    frameworkMessages.forEach((message) => validateImageReferences(message.images ?? []));
     const activeTurnId = state.activeTurnId;
     if (!startsTurn && activeTurnId !== null && activeTurnId !== undefined) {
       const stored = this.persistence.turnReplySequence.get(context) as TurnReplySequence | undefined;
@@ -611,6 +615,9 @@ export class AgentSessionTransitions {
         toolOutput: frameworkMessage.toolOutput,
         frameworkItem: frameworkMessage.frameworkItem,
         createdAt,
+        ...(frameworkMessage.images === undefined || frameworkMessage.images.length === 0
+          ? {}
+          : { images: frameworkMessage.images }),
       };
       const key = messageSequenceKey(nextMessageSequence);
       if (messageChunkOverheadBytes + agentMessageBytes(message) > this.config.messageChunkMaxBytes) {
@@ -752,7 +759,7 @@ export class AgentSessionTransitions {
       messageSequenceKey(sequence),
       messages.map((message) => message.text).join("\n"),
       () => {
-        const userMessages = messages.map((message) => this.runner.buildUserMessage(message.text));
+        const userMessages = messages.map((message) => this.buildStoredUserMessage(message));
         if (userMessages.some((userMessage) => userMessage.role !== "user")) {
           throw new TypeError("buildUserMessage must return a message with role user");
         }
@@ -776,6 +783,21 @@ export class AgentSessionTransitions {
         return this.goToRunModel(context);
       },
     );
+  }
+
+  /** Builds the stored item of one user message; the session sets its images itself. */
+  private buildStoredUserMessage(message: AgentUserMessage): FrameworkMessage {
+    const images = message.images ?? [];
+    if (images.length === 0) {
+      const { images: _ignored, ...built } = this.runner.buildUserMessage(message.text);
+      return built;
+    }
+    // A runner redeployed without image support still stores the images, for display.
+    const built =
+      this.runner.buildUserMessageWithImages === undefined
+        ? this.runner.buildUserMessage(message.text)
+        : this.runner.buildUserMessageWithImages(message.text, images);
+    return { ...built, images };
   }
 
   /**

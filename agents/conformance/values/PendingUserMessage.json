@@ -6,8 +6,8 @@
     {
       "name": "full",
       "description": "A pending message with its Channel message ID.",
-      "wire": "{\"message\":{\"plan_mode\":true,\"text\":\"later\"},\"message_id\":\"msg-3\"}",
-      "canonical": "{\"message\":{\"plan_mode\":true,\"text\":\"later\"},\"message_id\":\"msg-3\"}"
+      "wire": "{\"message\":{\"images\":[{\"mime_type\":\"image/png\",\"sha256\":\"4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\",\"size_bytes\":68,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\"}],\"plan_mode\":true,\"text\":\"later\"},\"message_id\":\"msg-3\"}",
+      "canonical": "{\"message\":{\"images\":[{\"mime_type\":\"image/png\",\"sha256\":\"4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\",\"size_bytes\":68,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\"}],\"plan_mode\":true,\"text\":\"later\"},\"message_id\":\"msg-3\"}"
     }
   ]
 }

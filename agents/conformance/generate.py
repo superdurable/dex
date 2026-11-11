@@ -80,6 +80,7 @@ from dex_agents import (
     AgentEvent,
     AgentEventType,
     AgentEventWriter,
+    AgentImageReference,
     AgentInterrupt,
     AgentInterruptResolution,
     AgentMessage,
@@ -210,6 +211,18 @@ FULL_SESSION_SETTINGS: dict[str, Any] = {
 }
 CREATED_AT = "2026-11-02T09:30:00.000Z"
 LATER = "2026-11-02T09:45:30.125Z"
+CHART_IMAGE = AgentImageReference(
+    uri="s3://agent-media/sessions/sha256/" + "4f" * 32,
+    mime_type="image/png",
+    sha256="4f" * 32,
+    size_bytes=68,
+)
+PHOTO_IMAGE = AgentImageReference(
+    uri="s3://agent-media/sessions/sha256/" + "a7" * 32,
+    mime_type="image/jpeg",
+    sha256="a7" * 32,
+    size_bytes=3_750_000,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +233,7 @@ CODECS = CodecRegistry()
 
 # Language-neutral type name -> Python type hint. Scalars use the wire names.
 VALUE_TYPES: dict[str, object] = {
+    "AgentImageReference": AgentImageReference,
     "AgentSessionStartInput": AgentSessionStartInput,
     "AgentState": AgentState,
     "AgentMessage": AgentMessage,
@@ -424,6 +438,7 @@ def full_tool_call(**changes: Any) -> AgentToolCall:
         task_id="task-42",
         task_poll_interval_seconds=5,
         task_answer_pending=True,
+        images=[CHART_IMAGE],
     )
     return replace(record, **changes)
 
@@ -638,6 +653,26 @@ def build_value_documents() -> list[dict[str, Any]]:
 
     documents.append(
         ValueCases(
+            "AgentImageReference",
+            "One element of AgentUserMessage.images, AgentMessage.images, and "
+            "AgentToolCall.images.",
+        )
+        .value("png", "A PNG image.", CHART_IMAGE)
+        .value("jpeg-at-limit", "A JPEG image of MAX_IMAGE_BYTES.", PHOTO_IMAGE)
+        .wire(
+            "without-type",
+            "A reference without type reads as an image.",
+            {
+                "uri": CHART_IMAGE.uri,
+                "mime_type": "image/png",
+                "sha256": CHART_IMAGE.sha256,
+                "size_bytes": 68,
+            },
+        )
+    )
+
+    documents.append(
+        ValueCases(
             "AgentSessionStartInput", "Input of StartAgentSession, the session Flow's start Step."
         )
         .value(
@@ -699,6 +734,16 @@ def build_value_documents() -> list[dict[str, Any]]:
         ),
     )
     messages.value("tool", "A tool result with every tool field set.", tool_message())
+    messages.value(
+        "user-with-images",
+        "A user message with two images.",
+        replace(user_message(), images=[CHART_IMAGE, PHOTO_IMAGE]),
+    )
+    messages.value(
+        "tool-with-image",
+        "A tool result that returned an image.",
+        replace(tool_message(), images=[CHART_IMAGE]),
+    )
     messages.wire("released-0.1.0", "As dex-agents 0.1.0 wrote it.", RELEASED_MESSAGE)
     documents.append(messages)
 
@@ -821,6 +866,11 @@ def build_value_documents() -> list[dict[str, Any]]:
         )
         .value("full", "A plan-mode message.", AgentUserMessage(text=TRICKY_TEXT, plan_mode=True))
         .value("defaults", "An ordinary message.", AgentUserMessage(text="hello"))
+        .value(
+            "images",
+            "A message with two images.",
+            AgentUserMessage(text="What is in these?", images=[CHART_IMAGE, PHOTO_IMAGE]),
+        )
         .wire("released-0.1.0", "As dex-agents 0.1.0 wrote it.", {"text": "hello"})
         .wire(
             "explicit-null-plan-mode",
@@ -834,7 +884,8 @@ def build_value_documents() -> list[dict[str, Any]]:
             "full",
             "A pending message with its Channel message ID.",
             PendingUserMessage(
-                message_id="msg-3", message=AgentUserMessage(text="later", plan_mode=True)
+                message_id="msg-3",
+                message=AgentUserMessage(text="later", plan_mode=True, images=[CHART_IMAGE]),
             ),
         )
     )

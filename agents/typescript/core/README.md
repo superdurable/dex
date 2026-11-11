@@ -54,6 +54,7 @@ the published core. It is for tests only; it needs `DEXCLI` and
 | `@superdurable/dex-agents/mcp` | MCP servers' tools as agent tools; see [MCP tools](#mcp-tools-superdurabledex-agentsmcp) | optional peer `@modelcontextprotocol/sdk@^1.32.2` |
 | `@superdurable/dex-agents/connectors` | Reviewed Connector operations as agent tools; see [Connector tools](#connector-tools-superdurabledex-agentsconnectors) | optional peer `@superdurable/connectors-sdk` |
 | `@superdurable/dex-agents/ui-stream` | Browser streams of live sessions; see [UI streams](#ui-streams) | none |
+| `@superdurable/dex-agents/s3` | `S3MediaStore`, image bytes in an S3-compatible bucket; see [Images](#images) | optional peer `@aws-sdk/client-s3@^3.400.0` |
 | `@superdurable/dex-agents/testing` | Test engine, Worker processes, waits, and `ScriptedModelClient` (the same class as the stepwise entry point's) | none |
 
 Install `ai` and a provider package only for `./ai-sdk`; importing that
@@ -617,6 +618,80 @@ await client.invokeRPC(flow.updateSessionSettings, sessionId, { sessionSettings:
   every Worker of the Flow type runs 0.2.0. A 0.1.0 Worker drops the start
   settings and starts turns without them.
 
+## Images
+
+A user message and a tool result can carry images. Session state holds only an `AgentImageReference` for each image;
+the bytes live in a media store, keyed by their SHA-256. The wire form is the same as the Python core's:
+
+```json
+{"type": "image", "uri": "s3://agent-media/sessions/sha256/9f2c...", "mime_type": "image/png", "sha256": "9f2c...", "size_bytes": 48213}
+```
+
+Upload first, then send the reference:
+
+```ts
+import { sendAgentUserMessage } from "@superdurable/dex-agents";
+import { S3MediaStore } from "@superdurable/dex-agents/s3";
+
+const store = new S3MediaStore({ bucket: "agent-media", prefix: "sessions" }); // credentials from the AWS chain
+const reference = await store.putImage(await readFile("chart.png"));
+await sendAgentUserMessage(client, flow, "session-42", { text: "What does this chart show?", images: [reference] });
+```
+
+A tool returns images the same way, uploading inside its call:
+
+```ts
+const reference = await store.putImage(screenshotPng);
+return { output: "Took a screenshot.", images: [reference] };
+```
+
+- **One object per image.** The object key is `<prefix>/sha256/<sha256>`, and the reference's `uri` ends in
+  `/sha256/<sha256>`. `S3MediaStore.putImage` uploads with `If-None-Match: *` and treats "already exists" (412) as
+  success, so a tool Step that a crash retries, a client that sends again, or two Workers at once write one object.
+  A 409 conflict retries the upload twice; when every attempt conflicts, a `HEAD` must find the object with the
+  image's size, or `putImage` throws `MediaStoreError`. On a
+  service that refuses conditional writes it checks with `HEAD` first; two concurrent uploads may then both write the
+  same content, so deduplication holds for the key and its final content. A replay always reads the bytes the
+  reference was made from: `getImage` reads only references under its own bucket and prefix, refuses an object whose
+  `Content-Length` differs, reads at most one byte past `sizeBytes`, and `verifyImageBytes` checks the SHA-256, the
+  size, and that the bytes are a well-formed image of `mimeType`.
+- **Types and sizes.** PNG, JPEG, GIF, and WebP, detected from the bytes with a cheap structural check (PNG signature
+  and `IHDR`; JPEG SOI, a marker, and EOI at the end; GIF header and screen descriptor; WebP RIFF size and a `VP8`,
+  `VP8L`, or `VP8X` chunk), not a full decode, up to `maxImageBytes` (3,750,000 bytes) each. Its base64 text is 5,000,000 bytes, which fits the per-image limits of Amazon Bedrock (5 MB of base64) and the
+  Claude API (10 MB of base64). One message or tool
+  result carries at most `maxImagesPerMessage` (20). `putImage` throws `ImageValidationError` for other bytes. A `uri`
+  is at most `maxImageUriLength` (1024) bytes as UTF-8 in every core, and a store refuses a bucket, prefix, or name
+  that would make longer ones. `validateImageReferences` checks references, and `sendAgentUserMessage` checks them
+  before it sends.
+- **Where they are stored.** `AgentUserMessage.images`, the session copy on the stored `AgentMessage.images` for
+  display, `ToolExecutionResult.images`, and `AgentToolCall.images`. A runner also keeps the references, never the
+  bytes, in its `frameworkItem`, the replay truth. Decoded values omit `images` when there are none. The browser
+  snapshot JSON includes the `images` of messages and tool calls.
+- **The runner.** `send_user_message` returns `false` for images unless the runner implements
+  `buildUserMessageWithImages`, which the session calls instead of `buildUserMessage` for a message with images.
+  When it builds model input, the runner reads the bytes with `loadImages(store, references)`, choosing the
+  references from its replayed items or from `collectTurnImages(turn)`. The session sets the stored user message's
+  `images` itself; for a tool result message the runner sets `FrameworkMessage.images` from the record. A tool result
+  with an invalid reference fails the tool Step attempt. The session checks the `images` of every `FrameworkMessage` a
+  runner returns before it stores any: an invalid one fails the model call like any runner error, and one from
+  `buildUnfinishedTurnMessages` leaves only the turn's note.
+- **Stores.** `new S3MediaStore({ bucket, prefix, endpoint, region, forcePathStyle, credentials })` or
+  `S3MediaStore.fromStoreUri("s3://bucket/prefix")` for AWS S3 or any S3-compatible service; call `close()` when done.
+  Credentials come from the standard AWS chain by default; pass `credentials` (`accessKeyId`, `secretAccessKey`, and
+  optionally `sessionToken`) only for a bucket whose keys are not secret, such as a local development bucket with
+  fixed loopback keys. The store never logs them. `InMemoryMediaStore` is for tests in one process, and returns a copy
+  on each read. A store of your own implements `MediaStore`: check its location with `requireShortImageUris`, build
+  each reference with `buildImageReference(data, storeUri)`, and check reads with `requireStoreImageReference` and
+  `verifyImageBytes`.
+- **Built-in runners.** In this release no built-in runner shows images to a model: Stepwise and the framework
+  adapters do not implement `buildUserMessageWithImages`, so their sessions refuse images.
+- **Retention.** Deleting a session deletes no object. A runner reads the images again whenever a model call replays
+  them, so a bucket lifecycle rule must keep each object at least as long as any session that references it can
+  still run a turn or replay its history. When an object is gone, the turn that needs it fails with `MediaStoreError`
+  in `lastTurnError`, after its user message, with nothing else stored; later turns that replay the image fail the
+  same way.
+- Send images only after every Worker of the Flow type runs 0.5.0: an earlier Worker drops them.
+
 ## Message storage and retention
 
 > **Upgrading from 0.1.0: stop every 0.1.0 Worker of a Flow type before any
@@ -738,6 +813,7 @@ interface AgentFrameworkRunner<ToolOutcome = ToolExecutionResult> {
   runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome>;
   executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolOutcome>;
   buildUnfinishedTurnMessages?(turn: AgentTurnContext): FrameworkMessage[]; // optional
+  buildUserMessageWithImages?(text: string, images: AgentImageReference[]): FrameworkMessage; // optional; see Images
 }
 
 type AgentTurnOutcome = TurnCompleted | ToolCallsRequested;
@@ -756,6 +832,7 @@ interface FrameworkMessage {
   text: string | null; toolCallId: string | null; toolName: string | null;
   toolArguments: string | null; toolOutput: string | null;
   frameworkItem: string;              // framework-native JSON, replayed unchanged
+  images?: AgentImageReference[];     // optional display projection; see Images
 }
 ```
 
@@ -2261,6 +2338,8 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   attempts, on every `listTools` call until it answers. A server that binds
   tasks to its protocol session, such as a stateful server on the SDK's task
   store, cannot resume a task across attempts; the retry calls the tool again.
+- Images: no built-in runner sends images to a model yet, and the media stores keep no local read cache, so each
+  `loadImages` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
 - The adapters report only the model information their framework exposes, so
