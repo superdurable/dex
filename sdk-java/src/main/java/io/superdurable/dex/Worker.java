@@ -12,6 +12,7 @@ package io.superdurable.dex;
 
 import com.google.protobuf.Empty;
 import io.grpc.Codec;
+import io.grpc.Context;
 import io.grpc.DecompressorRegistry;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -69,6 +70,7 @@ public final class Worker implements AutoCloseable {
     private final List<FlowDefinitionDocument> flowDefinitions;
     private final NegotiatedServerProtocol serverProtocol = new NegotiatedServerProtocol();
     private State state = State.CREATED;
+    private Context.CancellableContext flowDefinitionUpload;
     private boolean hasStartCalled;
 
     /**
@@ -91,7 +93,8 @@ public final class Worker implements AutoCloseable {
      * @throws IllegalArgumentException if any argument is {@code null} or the pull Worker ID
      *     conflicts with a registered Flow type, or TLS settings or the TLS address are invalid.
      *     Changed in 1.45.0: also thrown when two Flow definition sources share a Flow type, or an
-     *     in-memory Flow definition is not JSON or names another Flow type.
+     *     in-memory Flow definition is not a Flow Definition Graph 2.x naming its Flow type, or a
+     *     configured Flow definition path is missing or invalid.
      */
     public Worker(
             final Registry registry,
@@ -282,11 +285,9 @@ public final class Worker implements AutoCloseable {
                 throw new IllegalStateException("cannot synchronize Attribute indexes", failure);
             }
             state = State.RUNNING;
+            flowDefinitionUpload = Context.current().withCancellation();
         }
-        if (!flowDefinitions.isEmpty()) {
-            FlowDefinitionUploads.uploadAtWorkerStart(flowService, options.getCredential(),
-                    options.getAttributeIndexSyncTimeout(), flowDefinitions, registry.getFlowTypes());
-        }
+        uploadFlowDefinitions();
 
         try {
             pullWorker.runBlocking();
@@ -294,6 +295,23 @@ public final class Worker implements AutoCloseable {
             if (Thread.currentThread().isInterrupted()) {
                 stop();
             }
+        }
+    }
+
+    // Runs outside the lifecycle lock; stop cancels the context to end an in-flight upload.
+    private void uploadFlowDefinitions() {
+        final Context.CancellableContext upload;
+        synchronized (this) {
+            upload = flowDefinitionUpload;
+        }
+        try {
+            if (!flowDefinitions.isEmpty() && !upload.isCancelled()) {
+                upload.run(() -> FlowDefinitionUploads.uploadAtWorkerStart(flowService,
+                        options.getCredential(), options.getAttributeIndexSyncTimeout(), flowDefinitions,
+                        registry.getFlowTypes()));
+            }
+        } finally {
+            upload.cancel(null);
         }
     }
 
@@ -328,6 +346,9 @@ public final class Worker implements AutoCloseable {
                 return;
             }
             state = State.STOPPING;
+            if (flowDefinitionUpload != null) {
+                flowDefinitionUpload.cancel(null);
+            }
         }
         shutdownResources();
         synchronized (this) {

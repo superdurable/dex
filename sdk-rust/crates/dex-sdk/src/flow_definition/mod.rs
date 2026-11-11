@@ -14,11 +14,16 @@ use dex_protocol::dex::{
     UploadFlowDefinitionsResponse,
 };
 
+#[cfg(test)]
+mod conformance_tests;
 mod definition_sources;
+mod generated_at;
 mod source_path;
 mod worker_upload;
+#[cfg(test)]
+mod worker_upload_tests;
 
-pub(crate) use definition_sources::collect_flow_definitions;
+pub(crate) use definition_sources::{collect_flow_definitions, validate_document};
 pub(crate) use source_path::{current_working_directory, rewrite_source_paths};
 pub(crate) use worker_upload::upload_flow_definitions_at_worker_start;
 
@@ -71,8 +76,10 @@ impl FlowDefinitionDocument {
     ///
     /// `flow_type` must equal `flow.name` in `content`, and `content` must hold the UTF-8 JSON
     /// bytes of the Flow Definition Graph. The constructor does not validate them.
-    /// [`crate::Worker::try_new`] returns [`crate::SdkError::FlowDefinition`] when a document is
-    /// not JSON or names another Flow type. The Dex Server rejects other invalid documents.
+    /// [`crate::Worker::try_new`] returns [`crate::SdkError::FlowDefinition`], and
+    /// [`crate::Client::upload_flow_definitions`] returns [`crate::SdkError::InvalidArgument`],
+    /// when a document is not a UTF-8 JSON object whose `schemaVersion` starts with `2.` and whose
+    /// `flow.name` equals the Flow type. The Dex Server rejects other invalid documents.
     ///
     /// Since 1.45.0.
     pub fn new(
@@ -194,7 +201,7 @@ impl FlowDefinitionUploadResult {
 }
 
 fn uploader() -> String {
-    format!("rust/{}", crate::server_protocol::SDK_VERSION)
+    format!("sdk-rust/{}", crate::server_protocol::SDK_VERSION)
 }
 
 /// Builds upload requests of at most 256 documents each, in document order.
@@ -222,7 +229,9 @@ pub(crate) fn upload_requests(
         request.definitions.push(FlowDefinitionUpload {
             flow_type: document.flow_type,
             content: document.content,
-            generated_at: Some(prost_types::Timestamp::from(document.generated_at)),
+            generated_at: Some(generated_at::truncate_timestamp_to_millis(
+                prost_types::Timestamp::from(document.generated_at),
+            )),
         });
     }
     requests
@@ -246,7 +255,9 @@ pub(crate) fn map_upload_results(
         .collect()
 }
 
-fn map_upload_result(result: ProtoFlowDefinitionUploadResult) -> FlowDefinitionUploadResult {
+pub(crate) fn map_upload_result(
+    result: ProtoFlowDefinitionUploadResult,
+) -> FlowDefinitionUploadResult {
     let outcome = match ProtoFlowDefinitionUploadOutcome::try_from(result.outcome) {
         Ok(ProtoFlowDefinitionUploadOutcome::Created) => FlowDefinitionUploadOutcome::Created,
         Ok(ProtoFlowDefinitionUploadOutcome::Replaced) => FlowDefinitionUploadOutcome::Replaced,

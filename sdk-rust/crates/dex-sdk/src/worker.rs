@@ -82,7 +82,8 @@ impl Worker {
     /// The connection is lazy; certificate and handshake failures occur during [`Self::start`].
     /// Changed in 1.45.0: this method reads the configured Flow definition files. It returns
     /// [`SdkError::FlowDefinition`] when two Flow definition sources share a Flow type, or an
-    /// in-memory document is not JSON or names another Flow type.
+    /// in-memory document is not a Flow Definition Graph 2.x naming its Flow type, or a
+    /// Flow definition path is missing or invalid.
     pub fn try_new(
         registry: Registry,
         blob_cache: Arc<BlobCache>,
@@ -226,13 +227,19 @@ impl Worker {
             }
         }
         if !self.flow_definitions.is_empty() {
-            self.runtime
-                .block_on(upload_flow_definitions_at_worker_start(
-                    &flow_service,
-                    self.attribute_index_sync_timeout,
-                    &self.flow_definitions,
-                    &self.flow_types,
-                ));
+            let mut upload_shutdown = self.shutdown.subscribe();
+            self.runtime.block_on(async {
+                // Stop cancels an in-flight upload by dropping its future.
+                tokio::select! {
+                    () = upload_flow_definitions_at_worker_start(
+                        &flow_service,
+                        self.attribute_index_sync_timeout,
+                        &self.flow_definitions,
+                        &self.flow_types,
+                    ) => {}
+                    _ = upload_shutdown.wait_for(|is_stopped| *is_stopped) => {}
+                }
+            });
         }
         let result = self.runtime.block_on(self.pull.run(shutdown));
         self.state.store(STOPPED, Ordering::Release);

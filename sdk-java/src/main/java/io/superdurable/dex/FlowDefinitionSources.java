@@ -14,11 +14,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -41,10 +40,13 @@ final class FlowDefinitionSources {
     }
 
     /**
-     * Returns in-memory documents followed by readable file documents, one per Flow type.
+     * Returns in-memory documents followed by file documents, one per Flow type.
      *
-     * <p>Unreadable or non-definition files are logged and skipped. A Flow type configured twice,
-     * or an in-memory document that is not a JSON object naming its Flow type, throws.
+     * <p>A directory entry that is not a Flow Definition Graph 2.x is logged and skipped.
+     *
+     * @throws IllegalArgumentException for a missing or unreadable path, an invalid explicit file,
+     *     a malformed generatedAt, a Flow type configured twice, or an in-memory document that is
+     *     not a Flow Definition Graph 2.x naming its Flow type
      */
     static List<FlowDefinitionDocument> collect(
             final List<Path> paths,
@@ -52,31 +54,56 @@ final class FlowDefinitionSources {
         final Map<String, String> sourceByFlowType = new LinkedHashMap<String, String>();
         final List<FlowDefinitionDocument> collected = new ArrayList<FlowDefinitionDocument>();
         for (FlowDefinitionDocument document : documents) {
-            requireMatchingFlowName(document);
+            requireValidDocument(document);
             recordSource(sourceByFlowType, document.getFlowType(), "an in-memory FlowDefinitionDocument");
             collected.add(document);
         }
-        for (Path file : listDefinitionFiles(paths)) {
-            final FlowDefinitionDocument document = readFile(file);
-            if (document != null) {
-                recordSource(sourceByFlowType, document.getFlowType(), "file " + file);
-                collected.add(document);
+        final Set<Path> seen = new LinkedHashSet<Path>();
+        for (Path configured : paths) {
+            final Path path = configured.toAbsolutePath().normalize();
+            if (Files.isDirectory(path)) {
+                for (Path file : listJsonFiles(path)) {
+                    if (seen.add(file)) {
+                        addDocument(collected, sourceByFlowType, file, readDirectoryEntry(file));
+                    }
+                }
+            } else if (Files.isRegularFile(path) && Files.isReadable(path)) {
+                if (seen.add(path)) {
+                    addDocument(collected, sourceByFlowType, path, readExplicitFile(path));
+                }
+            } else {
+                throw new IllegalArgumentException("Flow definition path " + configured
+                        + " does not exist or cannot be read");
             }
         }
         return Collections.unmodifiableList(collected);
     }
 
-    private static void requireMatchingFlowName(final FlowDefinitionDocument document) {
-        final String flowName;
-        try {
-            flowName = readFlowName(JSON.readTree(document.contentBytes()));
-        } catch (IOException invalid) {
-            throw new IllegalArgumentException("Flow definition for Flow type " + document.getFlowType()
-                    + " is not valid JSON", invalid);
+    private static void addDocument(
+            final List<FlowDefinitionDocument> collected,
+            final Map<String, String> sourceByFlowType,
+            final Path file,
+            final FlowDefinitionDocument document) {
+        if (document != null) {
+            recordSource(sourceByFlowType, document.getFlowType(), "file " + file);
+            collected.add(document);
         }
-        if (!document.getFlowType().equals(flowName)) {
+    }
+
+    /**
+     * Requires an in-memory document to be a Flow Definition Graph 2.x naming its Flow type.
+     *
+     * @throws IllegalArgumentException if the content is not such a document
+     */
+    static void requireValidDocument(final FlowDefinitionDocument document) {
+        final InspectedDefinition inspected = InspectedDefinition.inspect(document.contentBytes());
+        if (inspected.notDefinitionReason != null) {
             throw new IllegalArgumentException("Flow definition for Flow type " + document.getFlowType()
-                    + " has flow.name " + flowName + "; they must be equal");
+                    + " " + inspected.notDefinitionReason);
+        }
+        if (!document.getFlowType().equals(inspected.flowName)) {
+            throw new IllegalArgumentException("Flow definition for Flow type " + document.getFlowType()
+                    + " has flow.name " + inspected.flowName + "; they must be equal");
         }
     }
 
@@ -91,22 +118,6 @@ final class FlowDefinitionSources {
         }
     }
 
-    private static List<Path> listDefinitionFiles(final List<Path> paths) {
-        final Set<Path> files = new LinkedHashSet<Path>();
-        for (Path configured : paths) {
-            final Path path = configured.toAbsolutePath().normalize();
-            if (Files.isDirectory(path)) {
-                files.addAll(listJsonFiles(path));
-            } else if (Files.isRegularFile(path)) {
-                files.add(path);
-            } else {
-                LOGGER.warning("Flow definition path " + configured
-                        + " is not a readable file or directory; skipping it");
-            }
-        }
-        return new ArrayList<Path>(files);
-    }
-
     private static List<Path> listJsonFiles(final Path directory) {
         try (Stream<Path> walk = Files.walk(directory)) {
             return walk
@@ -115,32 +126,63 @@ final class FlowDefinitionSources {
                     .sorted()
                     .collect(Collectors.toList());
         } catch (IOException | RuntimeException failure) {
-            LOGGER.log(Level.WARNING, "cannot list Flow definition directory " + directory
-                    + "; skipping it", failure);
-            return Collections.emptyList();
+            throw new IllegalArgumentException("Flow definition directory " + directory
+                    + " cannot be read", failure);
         }
     }
 
-    private static FlowDefinitionDocument readFile(final Path file) {
-        final byte[] content;
-        final JsonNode root;
+    private static FlowDefinitionDocument readExplicitFile(final Path file) {
+        final byte[] content = readContent(file);
+        final InspectedDefinition inspected = InspectedDefinition.inspect(content);
+        if (inspected.notDefinitionReason != null) {
+            throw new IllegalArgumentException("Flow definition file " + file + " "
+                    + inspected.notDefinitionReason);
+        }
+        return toDocument(file, content, inspected);
+    }
+
+    private static FlowDefinitionDocument readDirectoryEntry(final Path file) {
+        final byte[] content = readContent(file);
+        final InspectedDefinition inspected = InspectedDefinition.inspect(content);
+        if (inspected.notDefinitionReason != null) {
+            LOGGER.info("skipping " + file + " because it " + inspected.notDefinitionReason);
+            return null;
+        }
+        return toDocument(file, content, inspected);
+    }
+
+    private static byte[] readContent(final Path file) {
         try {
-            content = Files.readAllBytes(file);
-            root = JSON.readTree(content);
+            return Files.readAllBytes(file);
         } catch (IOException failure) {
-            LOGGER.log(Level.WARNING, "cannot read Flow definition file " + file + "; skipping it", failure);
-            return null;
+            throw new IllegalArgumentException("Flow definition file " + file + " cannot be read", failure);
         }
-        final String flowName = readFlowName(root);
-        if (flowName == null || flowName.trim().isEmpty()) {
-            LOGGER.info("file " + file + " has no flow.name, so it is not a Flow definition; skipping it");
-            return null;
+    }
+
+    private static FlowDefinitionDocument toDocument(
+            final Path file,
+            final byte[] content,
+            final InspectedDefinition inspected) {
+        final Instant generatedAt;
+        if (inspected.generatedAt == null) {
+            try {
+                generatedAt = FlowDefinitionRules.truncateToMillis(Files.getLastModifiedTime(file).toInstant());
+            } catch (IOException failure) {
+                throw new IllegalArgumentException("cannot read the modification time of Flow definition file "
+                        + file, failure);
+            }
+        } else if (!inspected.generatedAt.isTextual()) {
+            throw new IllegalArgumentException("Flow definition file " + file
+                    + " has a generatedAt that is not a string");
+        } else {
+            try {
+                generatedAt = FlowDefinitionRules.parseGeneratedAt(inspected.generatedAt.asText());
+            } catch (IllegalArgumentException invalid) {
+                throw new IllegalArgumentException("Flow definition file " + file + ": " + invalid.getMessage(),
+                        invalid);
+            }
         }
-        final Instant generatedAt = readGeneratedAt(file, root);
-        if (generatedAt == null) {
-            return null;
-        }
-        return new FlowDefinitionDocument(flowName, content, generatedAt);
+        return new FlowDefinitionDocument(inspected.flowName, content, generatedAt);
     }
 
     private static String readFlowName(final JsonNode root) {
@@ -148,22 +190,45 @@ final class FlowDefinitionSources {
         return flowName != null && flowName.isTextual() ? flowName.asText() : null;
     }
 
-    private static Instant readGeneratedAt(final Path file, final JsonNode root) {
-        final JsonNode generatedAt = root.get("generatedAt");
-        if (generatedAt != null && generatedAt.isTextual()) {
-            try {
-                return OffsetDateTime.parse(generatedAt.asText()).toInstant();
-            } catch (DateTimeParseException invalid) {
-                LOGGER.warning("Flow definition file " + file + " has an invalid generatedAt "
-                        + generatedAt.asText() + "; using the file modification time");
-            }
+    /** Reports whether content is a Flow Definition Graph 2.x and, if so, its fields. */
+    private static final class InspectedDefinition {
+        private final String notDefinitionReason;
+        private final String flowName;
+        private final JsonNode generatedAt;
+
+        private InspectedDefinition(
+                final String notDefinitionReason,
+                final String flowName,
+                final JsonNode generatedAt) {
+            this.notDefinitionReason = notDefinitionReason;
+            this.flowName = flowName;
+            this.generatedAt = generatedAt;
         }
-        try {
-            return Files.getLastModifiedTime(file).toInstant();
-        } catch (IOException failure) {
-            LOGGER.log(Level.WARNING, "cannot read the modification time of Flow definition file "
-                    + file + "; skipping it", failure);
-            return null;
+
+        static InspectedDefinition inspect(final byte[] content) {
+            final JsonNode root;
+            try {
+                StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(content));
+                root = JSON.readTree(content);
+            } catch (IOException invalid) {
+                return notDefinition("is not a UTF-8 JSON object");
+            }
+            if (root == null || !root.isObject()) {
+                return notDefinition("is not a UTF-8 JSON object");
+            }
+            final JsonNode schemaVersion = root.get("schemaVersion");
+            if (schemaVersion == null || !schemaVersion.isTextual() || !schemaVersion.asText().startsWith("2.")) {
+                return notDefinition("has no schemaVersion starting with 2.");
+            }
+            final String flowName = readFlowName(root);
+            if (flowName == null || flowName.isEmpty()) {
+                return notDefinition("has no flow.name");
+            }
+            return new InspectedDefinition(null, flowName, root.get("generatedAt"));
+        }
+
+        private static InspectedDefinition notDefinition(final String reason) {
+            return new InspectedDefinition(reason, null, null);
         }
     }
 }

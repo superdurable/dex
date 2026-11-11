@@ -111,28 +111,40 @@ can draw the graph of each Flow type. Since 1.45.0.
 | Files and directories of documents | **WorkerOptions::flow_definition_paths** |
 | In-memory documents | **WorkerOptions::flow_definitions** |
 
-- A directory is read recursively for **.json** files. A JSON file without
-  **flow.name** is skipped, so a directory may hold other JSON files.
+- Each configured path must exist and be readable. An explicitly listed file
+  must be a Flow Definition Graph 2.x: a UTF-8 JSON object whose
+  **schemaVersion** starts with **2.** and whose **flow.name** is a non-empty
+  string. The file extension is not checked.
+- A directory is read recursively for files whose extension is **.json** in
+  any case. A file that is not a Flow Definition Graph 2.x, such as
+  **package.json** or a 1.x document, is skipped with an info line.
 - A file's Flow type is its **flow.name**. Its generation time is its
-  top-level **generatedAt** (RFC 3339), or the file modification time.
+  top-level **generatedAt**, or the file modification time when it has none.
+  **generatedAt** must be strict RFC 3339, such as
+  **2026-11-01T00:00:00Z** or **2026-11-01T02:00:00.5+02:00**. A space
+  separator, a missing offset, a date alone, or an offset such as **+0200** is
+  an error, also for a file found in a directory.
 - A **FlowDefinitionDocument** carries its Flow type, JSON bytes, and
   generation time. Pass a fixed time for a document built from a template.
-- **Worker::try_new** reads the files. It returns
-  **SdkError::FlowDefinition** when two sources have the same Flow type, or an
-  in-memory document is not JSON or names another Flow type. A missing or
-  unreadable path is logged as a warning and skipped.
-- **Worker::start** uploads the documents after protocol negotiation and Attribute
-  index synchronization, before it opens task streams. It uploads only the Flow
-  types that the **Registry** registers and logs the others at info level.
-- Before upload, an absolute **source.path** in a document becomes a path
-  relative to the working directory, or the file name when the file is
-  elsewhere. Nothing else in the document changes.
-- The uploader is **rust/** followed by the SDK version.
+- Every generation time is truncated to whole milliseconds before upload.
+- **Worker::try_new** reads the files. It returns **SdkError::FlowDefinition** for a missing or unreadable path, an invalid explicit file, an invalid **generatedAt**, two sources with the same Flow type, or an in-memory document that is not a Flow Definition Graph 2.x naming its Flow type.
+- **Worker::start** uploads the documents after protocol negotiation and Attribute index synchronization, before it opens task streams. It uploads only the Flow types that the **Registry** registers
+  and logs the others at info. When nothing is left, it sends no request.
+- Before upload, an absolute top-level **source.path** becomes relative.
+  Paths starting with **/**, a drive such as **C:\\**, or **\\\\** count as
+  absolute on every operating system. Under the working directory, the result
+  is the remaining segments joined with **/**. Elsewhere, or when the working
+  directory is unknown, it is the file name. Only the bytes of that string
+  change. A relative path is sent unchanged.
+- Documents are sent in requests of at most 256 documents and 16 MiB of
+  content. All requests share one deadline, **attribute_index_sync_timeout**. Stopping
+  the Worker cancels an upload in progress.
+- The uploader is **sdk-rust/** followed by the SDK version.
 - Results are logged through **tracing**: CREATED and REPLACED at info,
   UNCHANGED at debug, and KEPT_EXISTING at warn with both digests and
-  generation times.
+  generation times. An outcome the SDK does not know is logged at warn as an
+  unknown upload outcome.
 - Every upload failure is logged at warn and the Worker keeps starting.
-  Each request uses the **attribute_index_sync_timeout** deadline.
   This includes a Server without Flow definition storage, which returns
   UNIMPLEMENTED.
 

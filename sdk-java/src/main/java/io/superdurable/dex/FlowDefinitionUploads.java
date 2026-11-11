@@ -13,9 +13,9 @@ package io.superdurable.dex;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
+import io.grpc.Deadline;
 import io.grpc.Status;
 import io.superdurable.gen.FlowDefinitionUpload;
 import io.superdurable.gen.FlowServiceGrpc;
@@ -24,9 +24,7 @@ import io.superdurable.gen.UploadFlowDefinitionsResponse;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
@@ -47,19 +45,19 @@ final class FlowDefinitionUploads {
 
     private static final Logger LOGGER = Logger.getLogger(FlowDefinitionUploads.class.getName());
     private static final JsonFactory JSON_FACTORY = new JsonFactory();
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     private FlowDefinitionUploads() {
     }
 
     static String uploader() {
-        return "java/" + ServerProtocolCompatibility.sdkVersion();
+        return "sdk-java/" + ServerProtocolCompatibility.sdkVersion();
     }
 
     /**
      * Uploads the registered Flow types' definitions; every failure is logged, never thrown.
      *
-     * <p>Each request gets its own deadline of {@code timeout}.
+     * <p>All requests share one deadline of {@code timeout}. Cancelling the current gRPC context,
+     * as Worker stop does, ends the upload.
      */
     static void uploadAtWorkerStart(
             final FlowServiceGrpc.FlowServiceBlockingStub service,
@@ -76,6 +74,9 @@ final class FlowDefinitionUploads {
                         + " because this Worker does not register it");
             }
         }
+        if (registered.isEmpty()) {
+            return;
+        }
         final List<FlowDefinitionDocument> prepared;
         try {
             prepared = rewriteSourcePaths(registered, workingDirectory());
@@ -84,11 +85,12 @@ final class FlowDefinitionUploads {
                     failure);
             return;
         }
+        final Deadline deadline = Deadline.after(timeout.toMillis(), TimeUnit.MILLISECONDS);
         for (UploadFlowDefinitionsRequest request : requests(prepared, false)) {
             final UploadFlowDefinitionsResponse response;
             try {
                 response = GrpcCredential.callUnaryWithRetry(credential, () -> service
-                        .withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS)
+                        .withDeadline(deadline)
                         .uploadFlowDefinitions(request));
             } catch (RuntimeException failure) {
                 logUploadFailure(failure);
@@ -101,7 +103,7 @@ final class FlowDefinitionUploads {
     /** Returns the documents with each absolute {@code source.path} made relative. */
     static List<FlowDefinitionDocument> rewriteSourcePaths(
             final List<FlowDefinitionDocument> documents,
-            final Path workingDirectory) {
+            final String workingDirectory) {
         final List<FlowDefinitionDocument> rewritten =
                 new ArrayList<FlowDefinitionDocument>(documents.size());
         for (FlowDefinitionDocument document : documents) {
@@ -126,7 +128,7 @@ final class FlowDefinitionUploads {
      * <p>Only the bytes of that string change, so key order, spacing, and numbers stay exact.
      * Returns the same array when nothing changes.
      */
-    static byte[] rewriteSourcePath(final byte[] content, final Path workingDirectory) throws IOException {
+    static byte[] rewriteSourcePath(final byte[] content, final String workingDirectory) throws IOException {
         final List<int[]> spans = new ArrayList<int[]>();
         final List<String> replacements = new ArrayList<String>();
         try (JsonParser parser = JSON_FACTORY.createParser(content)) {
@@ -151,7 +153,8 @@ final class FlowDefinitionUploads {
         for (int index = 0; index < spans.size(); index++) {
             final int[] span = spans.get(index);
             output.write(content, copied, span[0] - copied);
-            output.write(JSON.writeValueAsBytes(replacements.get(index)));
+            output.write(FlowDefinitionRules.encodeJsonString(replacements.get(index))
+                    .getBytes(StandardCharsets.UTF_8));
             copied = span[1];
         }
         output.write(content, copied, content.length - copied);
@@ -160,7 +163,7 @@ final class FlowDefinitionUploads {
 
     private static void collectSourcePathSpans(
             final JsonParser parser,
-            final Path workingDirectory,
+            final String workingDirectory,
             final List<int[]> spans,
             final List<String> replacements) throws IOException {
         while (parser.nextToken() == JsonToken.FIELD_NAME) {
@@ -173,44 +176,17 @@ final class FlowDefinitionUploads {
             final long start = parser.currentTokenLocation().getByteOffset();
             final String sourcePath = parser.getText();
             final long end = parser.currentLocation().getByteOffset();
-            final String relativePath = relativeSourcePath(sourcePath, workingDirectory);
-            if (!relativePath.equals(sourcePath)) {
+            final String relativePath = FlowDefinitionRules.relativeSourcePath(sourcePath, workingDirectory);
+            if (relativePath != null && !relativePath.equals(sourcePath)) {
                 spans.add(new int[] {(int) start, (int) end});
                 replacements.add(relativePath);
             }
         }
     }
 
-    /**
-     * Returns an absolute path relative to the working directory when under it, else its file name.
-     *
-     * <p>A relative path is returned unchanged. Separators in the result are forward slashes.
-     */
-    static String relativeSourcePath(final String sourcePath, final Path workingDirectory) {
-        final Path path;
-        try {
-            path = Paths.get(sourcePath);
-        } catch (InvalidPathException invalid) {
-            return baseName(sourcePath);
-        }
-        if (!path.isAbsolute()) {
-            return sourcePath;
-        }
-        final Path normalized = path.normalize();
-        if (normalized.startsWith(workingDirectory) && !normalized.equals(workingDirectory)) {
-            return workingDirectory.relativize(normalized).toString().replace('\\', '/');
-        }
-        final Path fileName = normalized.getFileName();
-        return fileName == null ? baseName(sourcePath) : fileName.toString();
-    }
-
-    private static String baseName(final String sourcePath) {
-        final int separator = Math.max(sourcePath.lastIndexOf('/'), sourcePath.lastIndexOf('\\'));
-        return sourcePath.substring(separator + 1);
-    }
-
-    static Path workingDirectory() {
-        return Paths.get("").toAbsolutePath().normalize();
+    /** Returns the process working directory, or null when it is unknown. */
+    static String workingDirectory() {
+        return System.getProperty("user.dir");
     }
 
     static List<UploadFlowDefinitionsRequest> requests(
@@ -300,9 +276,13 @@ final class FlowDefinitionUploads {
                     LOGGER.fine("the stored Flow definition of Flow type " + result.getFlowType()
                             + " is unchanged, digest " + result.getStoredDigest());
                     break;
-                default:
+                case KEPT_EXISTING:
                     logKeptExisting(result, index < request.getDefinitionsCount()
                             ? request.getDefinitions(index) : null);
+                    break;
+                default:
+                    LOGGER.warning("unknown upload outcome " + response.getResults(index).getOutcomeValue()
+                            + " for the Flow definition of Flow type " + result.getFlowType());
                     break;
             }
         }
@@ -315,7 +295,7 @@ final class FlowDefinitionUploads {
                 : "digest " + sha256Hex(uploaded.getContent().toByteArray()) + " generated at "
                         + instant(uploaded.getGeneratedAt());
         LOGGER.warning("the Dex Server kept its stored Flow definition of Flow type " + result.getFlowType()
-                + " (" + result.getOutcome() + "): stored digest " + result.getStoredDigest()
+                + ": stored digest " + result.getStoredDigest()
                 + " generated at " + result.getStoredGeneratedAt() + ", uploaded "
                 + uploadedDescription
                 + "; regenerate the document or upload it with force to replace the stored one");
@@ -336,9 +316,10 @@ final class FlowDefinitionUploads {
     }
 
     private static Timestamp timestamp(final Instant instant) {
+        final Instant truncated = FlowDefinitionRules.truncateToMillis(instant);
         return Timestamp.newBuilder()
-                .setSeconds(instant.getEpochSecond())
-                .setNanos(instant.getNano())
+                .setSeconds(truncated.getEpochSecond())
+                .setNanos(truncated.getNano())
                 .build();
     }
 

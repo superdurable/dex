@@ -252,20 +252,28 @@ public final class WorkerOptions {
          * Sets the Flow Definition Graph files that the Worker uploads to the Dex Server at start.
          *
          * <p>Dex Web draws each Flow type's graph from the uploaded document. Generate the files
-         * with {@code dexcli visualize}. Each path is a file or a directory; a directory is read
-         * recursively for {@code *.json} files. The Flow type of a file is its {@code flow.name}.
-         * Its generation time is its top-level {@code generatedAt} (RFC 3339), or the file
-         * modification time when that is missing. A JSON file without {@code flow.name} is skipped,
-         * so a directory may hold other JSON files. A missing or unreadable path is logged as a
-         * warning and skipped.
+         * with {@code dexcli visualize}. Each path must exist and be readable. An explicitly listed
+         * file must be a Flow Definition Graph 2.x: a UTF-8 JSON object whose {@code schemaVersion}
+         * starts with {@code 2.} and whose {@code flow.name} is a non-empty string; its extension
+         * is not checked. A directory is read recursively for files whose extension is
+         * {@code .json} in any case; a file there that is not a Flow Definition Graph 2.x is
+         * skipped with an INFO log, so a directory may hold other JSON files.
+         *
+         * <p>The Flow type of a file is its {@code flow.name}. Its generation time is its top-level
+         * {@code generatedAt}, which must be strict RFC 3339 such as
+         * {@code 2026-11-01T00:00:00Z}, or the file modification time when that is missing. Every
+         * generation time is truncated to whole milliseconds.
          *
          * <p>The Worker reads the files when it is constructed. It uploads only documents for Flow
          * types that its registry registers, after protocol negotiation and before it opens task
-         * streams. An absolute {@code source.path} in a document is replaced by a path relative to
-         * the working directory, or by the file name when the file is elsewhere. An upload failure,
-         * including an older Server without upload support, is logged as a warning; the Worker
-         * still starts. Each upload request uses the {@link #attributeIndexSyncTimeout(Duration)}
-         * deadline. The default is no paths. Each call replaces the previous paths.
+         * streams, and sends nothing when none is left. An absolute top-level {@code source.path},
+         * including a Windows drive or UNC path, is replaced by a path relative to the working
+         * directory, or by the file name when the file is elsewhere or the working directory is
+         * unknown. Requests hold at most 256 documents and 16 MiB of content and share one
+         * {@link #attributeIndexSyncTimeout(Duration)} deadline. {@link Worker#stop()} cancels an
+         * upload in progress. An upload failure, including an older Server without upload support,
+         * is logged as a warning; the Worker still starts. The default is no paths. Each call
+         * replaces the previous paths.
          *
          * <pre>{@code
          * WorkerOptions options = WorkerOptions.newBuilder()
@@ -276,7 +284,9 @@ public final class WorkerOptions {
          *
          * @param value the nonnull files and directories; elements must be nonnull
          * @return this builder
-         * @throws IllegalArgumentException if value or an element is null
+         * @throws IllegalArgumentException if value or an element is null; the {@link Worker}
+         *     constructor throws IllegalArgumentException for a missing or unreadable path, an
+         *     invalid explicit file, an invalid {@code generatedAt}, or a Flow type configured twice
          * @since 1.45.0
          */
         public Builder flowDefinitionPaths(final List<Path> value) {
@@ -303,8 +313,9 @@ public final class WorkerOptions {
          * @param value the nonnull documents; elements must be nonnull
          * @return this builder
          * @throws IllegalArgumentException if value or an element is null; the {@link Worker}
-         *     constructor throws IllegalArgumentException when a document is not JSON, its
-         *     {@code flow.name} differs from its Flow type, or two sources share a Flow type
+         *     constructor throws IllegalArgumentException when a document is not a UTF-8 JSON
+         *     object whose {@code schemaVersion} starts with {@code 2.}, its {@code flow.name}
+         *     differs from its Flow type, or two sources share a Flow type
          * @since 1.45.0
          */
         public Builder flowDefinitions(final List<FlowDefinitionDocument> value) {

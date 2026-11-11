@@ -6,8 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use crate::flow_definition::{map_upload_results, rewrite_source_paths, upload_requests};
-use crate::sdk_error::{FlowTargetRequirement, ServiceError};
+use crate::flow_definition::{
+    map_upload_results, rewrite_source_paths, upload_requests, validate_document,
+};
+use crate::sdk_error::FlowTargetRequirement;
 use crate::{Client, FlowDefinitionDocument, FlowDefinitionUploadResult, SdkError, SdkResult};
 
 const UPLOAD_FLOW_DEFINITIONS: &str = "upload_flow_definitions";
@@ -48,8 +50,9 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns [`SdkError::InvalidArgument`] when a document is not a UTF-8 JSON object, and a
-    /// Service error when the working directory cannot be read. Returns a service-backed
+    /// Returns [`SdkError::InvalidArgument`] before any request when a document is not a UTF-8 JSON
+    /// object whose `schemaVersion` starts with `2.` and whose `flow.name` equals its Flow type.
+    /// Returns a service-backed
     /// [`SdkError`] when Dex rejects a request, for example with `INVALID_ARGUMENT` for an invalid
     /// document, or with `UNIMPLEMENTED` on a Server without Flow definition storage.
     pub fn upload_flow_definitions(
@@ -61,16 +64,11 @@ impl Client {
         if documents.is_empty() {
             return Ok(Vec::new());
         }
-        let working_directory =
-            crate::flow_definition::current_working_directory().map_err(|error| {
-                SdkError::Service {
-                    service: ServiceError::local(
-                        UPLOAD_FLOW_DEFINITIONS,
-                        format!("cannot read the working directory: {error}"),
-                    ),
-                }
-            })?;
-        let prepared = rewrite_source_paths(documents, &working_directory)?;
+        for document in &documents {
+            validate_document(document).map_err(|message| SdkError::InvalidArgument { message })?;
+        }
+        let working_directory = crate::flow_definition::current_working_directory();
+        let prepared = rewrite_source_paths(documents, working_directory.as_deref())?;
         self.require_server_protocol(UPLOAD_FLOW_DEFINITIONS)?;
         let mut results = Vec::new();
         for request in upload_requests(prepared, force) {

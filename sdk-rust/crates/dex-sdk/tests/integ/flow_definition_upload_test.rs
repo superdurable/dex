@@ -31,6 +31,7 @@ fn test_worker_uploads_registered_definitions_from_paths_and_memory() {
     let mtime_flow_type = unique_flow_type("Mtime");
     let memory_flow_type = unique_flow_type("Memory");
     let unregistered_flow_type = unique_flow_type("Unregistered");
+    let old_schema_flow_type = unique_flow_type("OldSchema");
     let working_directory = std::env::current_dir().expect("read working directory");
     let absolute_source_path = working_directory.join("src/path_flow.rs");
     let absolute_source_path = absolute_source_path
@@ -67,6 +68,11 @@ fn test_worker_uploads_registered_definitions_from_paths_and_memory() {
         "{\"name\": \"not-a-flow-definition\"}",
     )
     .expect("write unrelated JSON");
+    std::fs::write(
+        definition_directory.path().join("old-schema.JSON"),
+        old_schema_definition(&old_schema_flow_type),
+    )
+    .expect("write 1.x definition");
     std::fs::write(definition_directory.path().join("notes.txt"), "not JSON")
         .expect("write unrelated file");
     let memory_content = definition(&memory_flow_type, "/opt/elsewhere/app/memory_flow.go", "");
@@ -88,6 +94,9 @@ fn test_worker_uploads_registered_definitions_from_paths_and_memory() {
             })
             .and_then(|registry| {
                 registry.register(FlowDefinitionUploadWorkflow::new(&memory_flow_type))
+            })
+            .and_then(|registry| {
+                registry.register(FlowDefinitionUploadWorkflow::new(&old_schema_flow_type))
             }),
         options,
     );
@@ -97,9 +106,11 @@ fn test_worker_uploads_registered_definitions_from_paths_and_memory() {
         &mtime_flow_type,
         &memory_flow_type,
         &unregistered_flow_type,
+        &old_schema_flow_type,
     ]);
     assert_eq!(3, stored.len());
     assert!(!stored.contains_key(&unregistered_flow_type));
+    assert!(!stored.contains_key(&old_schema_flow_type));
 
     let path_definition = &stored[&path_flow_type];
     assert_eq!(
@@ -108,7 +119,7 @@ fn test_worker_uploads_registered_definitions_from_paths_and_memory() {
     );
     let path_info = path_definition.info.as_ref().expect("path definition info");
     assert_eq!(1_793_491_200, generated_at_seconds(path_definition));
-    assert!(path_info.uploader.starts_with("rust/"));
+    assert!(path_info.uploader.starts_with("sdk-rust/"));
 
     let mtime_definition = &stored[&mtime_flow_type];
     assert_eq!(
@@ -134,20 +145,9 @@ fn test_worker_rejects_one_flow_type_from_two_sources() {
     let content = definition(&duplicate_flow_type, "duplicate.rs", "");
     std::fs::write(definition_directory.path().join("duplicate.json"), &content)
         .expect("write duplicate definition");
-    let cache_directory = tempfile::tempdir().expect("create cache directory");
-    let cache = Arc::new(
-        BlobCache::open(
-            BlobCacheConfig::new(cache_directory.path(), 1024 * 1024, 100)
-                .expect("valid cache config"),
-        )
-        .expect("open cache"),
-    );
 
-    let result = Worker::try_new(
-        Registry::new()
-            .register(FlowDefinitionUploadWorkflow::new(&duplicate_flow_type))
-            .expect("register duplicate-source Flow"),
-        Arc::clone(&cache),
+    let message = worker_configuration_error(
+        &duplicate_flow_type,
         WorkerOptions::new()
             .flow_definition_paths([definition_directory.path()])
             .flow_definitions([FlowDefinitionDocument::new(
@@ -157,36 +157,123 @@ fn test_worker_rejects_one_flow_type_from_two_sources() {
             )]),
     );
 
-    let Err(SdkError::FlowDefinition { message }) = result else {
-        panic!("duplicate Flow definition sources must fail Worker construction");
-    };
     assert!(
         message.contains("more than one Flow definition"),
         "{message}"
     );
     assert!(message.contains(&duplicate_flow_type), "{message}");
+}
+
+#[test]
+fn test_worker_rejects_missing_path_invalid_file_and_malformed_generated_at() {
+    let flow_type = unique_flow_type("Invalid");
+    let definition_directory = tempfile::tempdir().expect("create Flow definition directory");
+
+    let missing = worker_configuration_error(
+        &flow_type,
+        WorkerOptions::new()
+            .flow_definition_paths([definition_directory.path().join("missing.json")]),
+    );
+    assert!(missing.contains("does not exist"), "{missing}");
+
+    let old_schema = definition_directory.path().join("old-schema.txt");
+    std::fs::write(&old_schema, old_schema_definition(&flow_type)).expect("write 1.x definition");
+    let invalid = worker_configuration_error(
+        &flow_type,
+        WorkerOptions::new().flow_definition_paths([&old_schema]),
+    );
+    assert!(invalid.contains("schemaVersion"), "{invalid}");
+
+    let malformed_directory = definition_directory.path().join("malformed");
+    std::fs::create_dir(&malformed_directory).expect("create malformed directory");
+    std::fs::write(
+        malformed_directory.join("flow.json"),
+        definition(
+            &flow_type,
+            "flow.rs",
+            "\"generatedAt\": \"2026-11-01 00:00:00+00:00\", ",
+        ),
+    )
+    .expect("write malformed definition");
+    let malformed = worker_configuration_error(
+        &flow_type,
+        WorkerOptions::new().flow_definition_paths([&malformed_directory]),
+    );
+    assert!(malformed.contains("RFC 3339"), "{malformed}");
+}
+
+fn worker_configuration_error(flow_type: &str, options: WorkerOptions) -> String {
+    let cache_directory = tempfile::tempdir().expect("create cache directory");
+    let cache = Arc::new(
+        BlobCache::open(
+            BlobCacheConfig::new(cache_directory.path(), 1024 * 1024, 100)
+                .expect("valid cache config"),
+        )
+        .expect("open cache"),
+    );
+    let result = Worker::try_new(
+        Registry::new()
+            .register(FlowDefinitionUploadWorkflow::new(flow_type))
+            .expect("register Flow"),
+        Arc::clone(&cache),
+        options,
+    );
     cache.close().expect("close cache");
+    let Err(SdkError::FlowDefinition { message }) = result else {
+        panic!("invalid Flow definition configuration must fail Worker construction");
+    };
+    message
+}
+
+fn old_schema_definition(flow_type: &str) -> String {
+    format!("{{\"schemaVersion\": \"1.0\", \"flow\": {{\"name\": \"{flow_type}\"}}}}")
 }
 
 #[test]
 #[ignore = "requires dexcli dev"]
 fn test_worker_processes_tasks_when_server_rejects_upload() {
     let rejected_flow_type = unique_flow_type("Rejected");
-    let invalid_schema_version =
-        format!("{{\"schemaVersion\": \"1.0\", \"flow\": {{\"name\": \"{rejected_flow_type}\"}}}}");
     let workflow = FlowDefinitionUploadWorkflow::new(&rejected_flow_type);
 
     let environment = DexDevTestEnvironment::start_with_worker_options(
         Registry::new().register(FlowDefinitionUploadWorkflow::new(&rejected_flow_type)),
         WorkerOptions::new().flow_definitions([FlowDefinitionDocument::new(
             rejected_flow_type.as_str(),
-            invalid_schema_version,
-            unix_time(1_793_491_200),
+            definition(&rejected_flow_type, "rejected.rs", ""),
+            SystemTime::now() + Duration::from_secs(3 * 24 * 60 * 60),
         )]),
     );
 
     assert_flow_completes(&environment, &workflow);
     assert!(get_flow_definitions(&[&rejected_flow_type]).is_empty());
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn test_invalid_in_memory_document_fails_worker_and_client_before_any_request() {
+    let invalid_flow_type = unique_flow_type("InMemoryInvalid");
+    let old_schema = FlowDefinitionDocument::new(
+        invalid_flow_type.as_str(),
+        old_schema_definition(&invalid_flow_type),
+        unix_time(1_793_491_200),
+    );
+    let worker_message = worker_configuration_error(
+        &invalid_flow_type,
+        WorkerOptions::new().flow_definitions([old_schema.clone()]),
+    );
+    assert!(worker_message.contains("schemaVersion"), "{worker_message}");
+
+    let environment = DexDevTestEnvironment::start(Registry::new().register(
+        FlowDefinitionUploadWorkflow::new(&unique_flow_type("InMemoryInvalidWorker")),
+    ));
+    let result = environment
+        .client
+        .upload_flow_definitions([old_schema], false);
+    assert!(
+        matches!(result, Err(SdkError::InvalidArgument { .. })),
+        "{result:?}"
+    );
+    assert!(get_flow_definitions(&[&invalid_flow_type]).is_empty());
 }
 
 #[test]

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::path::{Component, Path, PathBuf};
+use std::fmt::Write as _;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -28,12 +28,14 @@ struct SourcePathField<'content> {
 
 /// Returns the documents with an absolute `source.path` made relative to `working_directory`.
 ///
+/// A `None` working directory is unknown, so absolute paths become base names.
+///
 /// # Errors
 ///
 /// Returns [`SdkError::InvalidArgument`] when a document is not a UTF-8 JSON object.
 pub(crate) fn rewrite_source_paths(
     documents: Vec<FlowDefinitionDocument>,
-    working_directory: &Path,
+    working_directory: Option<&str>,
 ) -> SdkResult<Vec<FlowDefinitionDocument>> {
     documents
         .into_iter()
@@ -53,17 +55,19 @@ pub(crate) fn rewrite_source_paths(
         .collect()
 }
 
-/// Returns the working directory used to make `source.path` relative.
-pub(crate) fn current_working_directory() -> Result<PathBuf, std::io::Error> {
-    std::env::current_dir().map(|directory| lexically_normalize(&directory))
+/// Returns the process working directory, or `None` when the OS cannot report it as UTF-8.
+pub(crate) fn current_working_directory() -> Option<String> {
+    // An unknown working directory is valid: absolute paths then become base names.
+    let directory = std::env::current_dir().ok()?;
+    directory.to_str().map(str::to_string)
 }
 
 /// Returns new content when the top-level `source.path` string changes, or `None` otherwise.
 ///
 /// Only the bytes of that string change, so key order, spacing, and numbers stay exact.
-fn rewrite_source_path(
+pub(super) fn rewrite_source_path(
     content: &[u8],
-    working_directory: &Path,
+    working_directory: Option<&str>,
 ) -> Result<Option<Vec<u8>>, String> {
     let text = std::str::from_utf8(content).map_err(|error| format!("is not UTF-8: {error}"))?;
     let definition: DefinitionSourceField<'_> =
@@ -82,59 +86,106 @@ fn rewrite_source_path(
         // A non-string path carries no local path.
         return Ok(None);
     };
-    let relative_path = relative_source_path(&source_path, working_directory);
+    let Some(relative_path) = relative_source_path(&source_path, working_directory) else {
+        return Ok(None);
+    };
     if relative_path == source_path {
         return Ok(None);
     }
     let start = raw_path.get().as_ptr() as usize - text.as_ptr() as usize;
     let end = start + raw_path.get().len();
-    let replacement = serde_json::to_string(&relative_path)
-        .map_err(|error| format!("cannot encode source.path: {error}"))?;
     let mut rewritten = Vec::with_capacity(content.len());
     rewritten.extend_from_slice(&content[..start]);
-    rewritten.extend_from_slice(replacement.as_bytes());
+    rewritten.extend_from_slice(encode_json_string(&relative_path).as_bytes());
     rewritten.extend_from_slice(&content[end..]);
     Ok(Some(rewritten))
 }
 
-/// Returns an absolute path relative to the working directory when under it, else its file name.
-///
-/// A relative path is returned unchanged. Separators in the result are forward slashes.
-fn relative_source_path(source_path: &str, working_directory: &Path) -> String {
-    let path = Path::new(source_path);
-    if !path.is_absolute() {
-        return source_path.to_string();
-    }
-    let normalized = lexically_normalize(path);
-    if let Ok(relative) = normalized.strip_prefix(working_directory)
-        && !relative.as_os_str().is_empty()
-    {
-        return relative
-            .components()
-            .map(|component| component.as_os_str().to_string_lossy())
-            .collect::<Vec<_>>()
-            .join("/");
-    }
-    match normalized.file_name() {
-        Some(file_name) => file_name.to_string_lossy().into_owned(),
-        None => source_path
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or_default()
-            .to_string(),
-    }
+/// Returns whether a source path is absolute on any operating system.
+fn is_absolute_source_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    path.starts_with('/')
+        || path.starts_with("\\\\")
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && (bytes[2] == b'\\' || bytes[2] == b'/'))
 }
 
-fn lexically_normalize(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
+/// Returns the rewritten source path, or `None` when it is relative and stays unchanged.
+///
+/// Inside the working directory the result is the remaining segments joined with `/`;
+/// elsewhere, or when the working directory is unknown, it is the base name.
+pub(super) fn relative_source_path(
+    source_path: &str,
+    working_directory: Option<&str>,
+) -> Option<String> {
+    if !is_absolute_source_path(source_path) {
+        return None;
+    }
+    let path = lexical_segments(source_path);
+    if let Some(directory) =
+        working_directory.filter(|directory| is_absolute_source_path(directory))
+    {
+        let directory = lexical_segments(directory);
+        if path.len() > directory.len() && path[..directory.len()] == directory[..] {
+            return Some(path[directory.len()..].join("/"));
         }
     }
-    normalized
+    Some(if path.len() > 1 {
+        path[path.len() - 1].clone()
+    } else {
+        String::new()
+    })
+}
+
+/// Returns the root marker followed by the lexically normalized segments of an absolute path.
+fn lexical_segments(absolute_path: &str) -> Vec<String> {
+    let (root, rest) = if let Some(rest) = absolute_path.strip_prefix("\\\\") {
+        ("//".to_string(), rest)
+    } else if let Some(rest) = absolute_path.strip_prefix('/') {
+        ("/".to_string(), rest)
+    } else {
+        (
+            format!("{}:", absolute_path[..1].to_ascii_uppercase()),
+            &absolute_path[3..],
+        )
+    };
+    let mut segments = vec![root];
+    for segment in rest.split(['/', '\\']) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if segments.len() > 1 {
+                    segments.pop();
+                }
+            }
+            other => segments.push(other.to_string()),
+        }
+    }
+    segments
+}
+
+/// Encodes a JSON string escaping only quote, backslash, and control characters.
+pub(super) fn encode_json_string(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len() + 2);
+    encoded.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => encoded.push_str("\\\""),
+            '\\' => encoded.push_str("\\\\"),
+            '\u{8}' => encoded.push_str("\\b"),
+            '\u{c}' => encoded.push_str("\\f"),
+            '\n' => encoded.push_str("\\n"),
+            '\r' => encoded.push_str("\\r"),
+            '\t' => encoded.push_str("\\t"),
+            control if u32::from(control) < 0x20 => {
+                write!(encoded, "\\u{:04x}", u32::from(control))
+                    .expect("writing to a String cannot fail");
+            }
+            other => encoded.push(other),
+        }
+    }
+    encoded.push('"');
+    encoded
 }

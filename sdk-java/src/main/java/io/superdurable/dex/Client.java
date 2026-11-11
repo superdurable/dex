@@ -1623,8 +1623,9 @@ public final class Client implements AutoCloseable {
      * @param force whether a different document replaces the stored one whatever its generation
      *     time
      * @return one result for each document, in order
-     * @throws IllegalArgumentException if documents is null or contains null, or a document is not
-     *     valid JSON
+     * @throws IllegalArgumentException before any request if documents is null or contains null, or
+     *     a document is not a UTF-8 JSON object whose {@code schemaVersion} starts with {@code 2.}
+     *     and whose {@code flow.name} equals its Flow type
      * @throws DexServiceException if Dex rejects a request, for example with
      *     {@code INVALID_ARGUMENT} for an invalid document, or with {@code UNIMPLEMENTED} on a Server
      *     without Flow definition storage
@@ -1641,6 +1642,7 @@ public final class Client implements AutoCloseable {
             if (document == null) {
                 throw new IllegalArgumentException("documents must not contain null");
             }
+            FlowDefinitionSources.requireValidDocument(document);
         }
         final List<FlowDefinitionDocument> prepared = FlowDefinitionUploads.rewriteSourcePaths(
                 documents, FlowDefinitionUploads.workingDirectory());

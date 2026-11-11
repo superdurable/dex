@@ -61,6 +61,7 @@ public final class FlowDefinitionUploadTest {
         final String mtimeFlowType = flowType("Mtime");
         final String memoryFlowType = flowType("Memory");
         final String unregisteredFlowType = flowType("Unregistered");
+        final String oldSchemaFlowType = flowType("OldSchema");
         final Path workingDirectory = Paths.get("").toAbsolutePath().normalize();
         final String pathContent = definition(pathFlowType,
                 workingDirectory.resolve("src/main/java/PathFlow.java").toString(),
@@ -77,6 +78,9 @@ public final class FlowDefinitionUploadTest {
                         .getBytes(StandardCharsets.UTF_8));
         Files.write(definitionDirectory.resolve("package.json"),
                 "{\"name\": \"not-a-flow-definition\"}".getBytes(StandardCharsets.UTF_8));
+        Files.write(definitionDirectory.resolve("old-schema.JSON"),
+                ("{\"schemaVersion\": \"1.0\", \"flow\": {\"name\": \"" + oldSchemaFlowType + "\"}}")
+                        .getBytes(StandardCharsets.UTF_8));
         Files.write(definitionDirectory.resolve("notes.txt"), "not JSON".getBytes(StandardCharsets.UTF_8));
         final String memoryContent = definition(memoryFlowType, "/opt/elsewhere/app/memory_flow.go", "");
         final Instant memoryGeneratedAt = Instant.parse("2026-11-02T00:00:00Z");
@@ -91,10 +95,12 @@ public final class FlowDefinitionUploadTest {
                 options,
                 pathWorkflow,
                 new FlowDefinitionUploadWorkflow(mtimeFlowType),
-                new FlowDefinitionUploadWorkflow(memoryFlowType))) {
+                new FlowDefinitionUploadWorkflow(memoryFlowType),
+                new FlowDefinitionUploadWorkflow(oldSchemaFlowType))) {
             final Map<String, FlowDefinition> stored = getFlowDefinitions(
-                    pathFlowType, mtimeFlowType, memoryFlowType, unregisteredFlowType);
+                    pathFlowType, mtimeFlowType, memoryFlowType, unregisteredFlowType, oldSchemaFlowType);
             assertEquals(3, stored.size());
+            assertFalse(stored.containsKey(oldSchemaFlowType));
             assertFalse(stored.containsKey(unregisteredFlowType));
 
             final FlowDefinition pathDefinition = stored.get(pathFlowType);
@@ -104,7 +110,7 @@ public final class FlowDefinitionUploadTest {
                     pathDefinition.getContent().toStringUtf8());
             assertEquals(Instant.parse("2026-11-01T00:00:00Z").getEpochSecond(),
                     pathDefinition.getInfo().getGeneratedAt().getSeconds());
-            assertTrue(pathDefinition.getInfo().getUploader().startsWith("java/"));
+            assertTrue(pathDefinition.getInfo().getUploader().startsWith("sdk-java/"));
 
             final FlowDefinition mtimeDefinition = stored.get(mtimeFlowType);
             assertEquals(definition(mtimeFlowType, "relative/MtimeFlow.java", ""),
@@ -143,22 +149,72 @@ public final class FlowDefinitionUploadTest {
     }
 
     @Test
+    void testWorkerRejectsMissingPathInvalidFileAndMalformedGeneratedAt() throws Exception {
+        final String flowType = flowType("Invalid");
+        final FlowDefinitionUploadWorkflow workflow = new FlowDefinitionUploadWorkflow(flowType);
+        assertConfigurationError(definitionDirectory.resolve("missing.json"), workflow, "does not exist");
+
+        final Path oldSchema = definitionDirectory.resolve("old-schema.txt");
+        Files.write(oldSchema, ("{\"schemaVersion\": \"1.0\", \"flow\": {\"name\": \"" + flowType + "\"}}")
+                .getBytes(StandardCharsets.UTF_8));
+        assertConfigurationError(oldSchema, workflow, "schemaVersion");
+
+        final Path malformedDirectory = Files.createDirectories(definitionDirectory.resolve("malformed"));
+        Files.write(malformedDirectory.resolve("flow.json"),
+                definition(flowType, "Flow.java", "\"generatedAt\": \"2026-11-01 00:00:00+00:00\", ")
+                        .getBytes(StandardCharsets.UTF_8));
+        assertConfigurationError(malformedDirectory, workflow, "RFC 3339");
+    }
+
+    private void assertConfigurationError(
+            final Path path,
+            final FlowDefinitionUploadWorkflow workflow,
+            final String expectedMessage) {
+        final IllegalArgumentException failure = assertThrows(
+                IllegalArgumentException.class,
+                () -> DexDevTestEnvironment.start(cacheDirectory, WorkerOptions.newBuilder()
+                        .flowDefinitionPaths(Collections.singletonList(path)), workflow));
+        assertTrue(failure.getMessage().contains(expectedMessage), failure.getMessage());
+    }
+
+    @Test
     void testWorkerProcessesTasksWhenServerRejectsUpload() throws Exception {
         final String rejectedFlowType = flowType("Rejected");
-        final String invalidSchemaVersion = "{\"schemaVersion\": \"1.0\", \"flow\": {\"name\": \""
-                + rejectedFlowType + "\"}}";
         final FlowDefinitionUploadWorkflow workflow = new FlowDefinitionUploadWorkflow(rejectedFlowType);
         final WorkerOptions.Builder options = WorkerOptions.newBuilder()
                 .flowDefinitions(Collections.singletonList(new FlowDefinitionDocument(
                         rejectedFlowType,
-                        invalidSchemaVersion.getBytes(StandardCharsets.UTF_8),
-                        Instant.parse("2026-11-01T00:00:00Z"))));
+                        definition(rejectedFlowType, "Rejected.java", "").getBytes(StandardCharsets.UTF_8),
+                        Instant.now().plus(Duration.ofDays(3)))));
 
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
                 cacheDirectory, options, workflow)) {
             assertFlowCompletes(environment, workflow);
             assertTrue(getFlowDefinitions(rejectedFlowType).isEmpty());
         }
+    }
+
+    @Test
+    void testInvalidInMemoryDocumentFailsWorkerAndClientBeforeAnyRequest() throws Exception {
+        final String invalidFlowType = flowType("InMemoryInvalid");
+        final FlowDefinitionDocument oldSchema = new FlowDefinitionDocument(
+                invalidFlowType,
+                ("{\"schemaVersion\": \"1.0\", \"flow\": {\"name\": \"" + invalidFlowType + "\"}}")
+                        .getBytes(StandardCharsets.UTF_8),
+                Instant.parse("2026-11-01T00:00:00Z"));
+        final IllegalArgumentException workerFailure = assertThrows(
+                IllegalArgumentException.class,
+                () -> DexDevTestEnvironment.start(cacheDirectory, WorkerOptions.newBuilder()
+                        .flowDefinitions(Collections.singletonList(oldSchema)),
+                        new FlowDefinitionUploadWorkflow(invalidFlowType)));
+        assertTrue(workerFailure.getMessage().contains("schemaVersion"), workerFailure.getMessage());
+
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory, new FlowDefinitionUploadWorkflow(flowType("InMemoryInvalidWorker")))) {
+            assertThrows(IllegalArgumentException.class, () -> environment.client()
+                    .uploadFlowDefinitions(Collections.singletonList(oldSchema), false));
+        }
+        assertTrue(getFlowDefinitions(invalidFlowType).isEmpty());
     }
 
     @Test

@@ -8,23 +8,24 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use serde_json::Value as JsonValue;
 
 use super::FlowDefinitionDocument;
+use super::generated_at::{parse_generated_at, truncate_to_millis};
 use crate::{SdkError, SdkResult};
 
 const IN_MEMORY_SOURCE: &str = "an in-memory FlowDefinitionDocument";
 
-/// Returns in-memory documents followed by readable file documents, one per Flow type.
+/// Returns in-memory documents followed by file documents, one per Flow type.
 ///
-/// Unreadable or non-definition files are logged and skipped.
+/// A directory entry that is not a Flow Definition Graph 2.x is logged and skipped.
 ///
 /// # Errors
 ///
-/// Returns [`SdkError::FlowDefinition`] when two sources share a Flow type, or an in-memory
-/// document is not JSON or its `flow.name` differs from its Flow type.
+/// Returns [`SdkError::FlowDefinition`] for a missing or unreadable path, an invalid explicit
+/// file, a malformed `generatedAt`, a Flow type configured twice, or an in-memory document that is
+/// not a Flow Definition Graph 2.x naming its Flow type.
 pub(crate) fn collect_flow_definitions(
     paths: Vec<PathBuf>,
     documents: Vec<FlowDefinitionDocument>,
@@ -32,7 +33,7 @@ pub(crate) fn collect_flow_definitions(
     let mut source_by_flow_type: BTreeMap<String, String> = BTreeMap::new();
     let mut collected = Vec::with_capacity(documents.len());
     for document in documents {
-        require_matching_flow_name(&document)?;
+        validate_document(&document).map_err(configuration_error)?;
         record_source(
             &mut source_by_flow_type,
             &document.flow_type,
@@ -40,36 +41,66 @@ pub(crate) fn collect_flow_definitions(
         )?;
         collected.push(document);
     }
-    for file in list_definition_files(&paths) {
-        if let Some(document) = read_definition_file(&file) {
-            record_source(
-                &mut source_by_flow_type,
-                &document.flow_type,
-                format!("file {}", file.display()),
-            )?;
-            collected.push(document);
+    let mut seen = BTreeSet::new();
+    for configured in &paths {
+        // Without a working directory, the configured path still identifies the file.
+        let path = std::path::absolute(configured).unwrap_or_else(|_| configured.clone());
+        let candidates = if path.is_dir() {
+            let mut files = Vec::new();
+            collect_json_files(&path, &mut files)?;
+            files.sort();
+            files
+                .into_iter()
+                .map(|file| (file, FileSelection::DirectoryEntry))
+                .collect()
+        } else if path.is_file() {
+            vec![(path, FileSelection::Explicit)]
+        } else {
+            return Err(configuration_error(format!(
+                "Flow definition path {} does not exist or cannot be read",
+                configured.display()
+            )));
+        };
+        for (file, selection) in candidates {
+            if !seen.insert(file.clone()) {
+                continue;
+            }
+            if let Some(document) = read_definition_file(&file, selection)? {
+                record_source(
+                    &mut source_by_flow_type,
+                    &document.flow_type,
+                    format!("file {}", file.display()),
+                )?;
+                collected.push(document);
+            }
         }
     }
     Ok(collected)
 }
 
-fn require_matching_flow_name(document: &FlowDefinitionDocument) -> SdkResult<()> {
-    let root: JsonValue =
-        serde_json::from_slice(&document.content).map_err(|error| SdkError::FlowDefinition {
-            message: format!(
-                "Flow definition for Flow type {} is not valid JSON: {error}",
-                document.flow_type
-            ),
-        })?;
-    let flow_name = read_flow_name(&root);
-    if flow_name != Some(document.flow_type.as_str()) {
-        return Err(SdkError::FlowDefinition {
-            message: format!(
-                "Flow definition for Flow type {} has flow.name {}; they must be equal",
-                document.flow_type,
-                flow_name.unwrap_or("<missing>")
-            ),
-        });
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FileSelection {
+    Explicit,
+    DirectoryEntry,
+}
+
+fn configuration_error(message: String) -> SdkError {
+    SdkError::FlowDefinition { message }
+}
+
+/// Returns why an in-memory document is not a Flow Definition Graph 2.x naming its Flow type.
+pub(crate) fn validate_document(document: &FlowDefinitionDocument) -> Result<(), String> {
+    let (flow_name, _) = inspect_definition(&document.content).map_err(|reason| {
+        format!(
+            "Flow definition for Flow type {} {reason}",
+            document.flow_type
+        )
+    })?;
+    if flow_name != document.flow_type {
+        return Err(format!(
+            "Flow definition for Flow type {} has flow.name {flow_name}; they must be equal",
+            document.flow_type
+        ));
     }
     Ok(())
 }
@@ -80,76 +111,32 @@ fn record_source(
     source: String,
 ) -> SdkResult<()> {
     if let Some(previous) = source_by_flow_type.get(flow_type) {
-        return Err(SdkError::FlowDefinition {
-            message: format!(
-                "Flow type {flow_type} has more than one Flow definition: {previous} and {source}"
-            ),
-        });
+        return Err(configuration_error(format!(
+            "Flow type {flow_type} has more than one Flow definition: {previous} and {source}"
+        )));
     }
     source_by_flow_type.insert(flow_type.to_string(), source);
     Ok(())
 }
 
-/// Returns configured files and the `*.json` files under configured directories, each once.
-fn list_definition_files(paths: &[PathBuf]) -> Vec<PathBuf> {
-    let mut seen = BTreeSet::new();
-    let mut files = Vec::new();
-    for configured in paths {
-        // Without a working directory, the configured path still identifies the file.
-        let path = std::path::absolute(configured).unwrap_or_else(|_| configured.clone());
-        let mut found = Vec::new();
-        if path.is_dir() {
-            collect_json_files(&path, &mut found);
-            found.sort();
-        } else if path.is_file() {
-            found.push(path);
-        } else {
-            tracing::warn!(
-                path = %configured.display(),
-                "Flow definition path is not a readable file or directory; skipping it"
-            );
-        }
-        for file in found {
-            if seen.insert(file.clone()) {
-                files.push(file);
-            }
-        }
-    }
-    files
-}
-
-fn collect_json_files(directory: &Path, files: &mut Vec<PathBuf>) {
-    let entries = match std::fs::read_dir(directory) {
-        Ok(entries) => entries,
-        Err(error) => {
-            tracing::warn!(
-                directory = %directory.display(),
-                %error,
-                "cannot list Flow definition directory; skipping it"
-            );
-            return;
-        }
+fn collect_json_files(directory: &Path, files: &mut Vec<PathBuf>) -> SdkResult<()> {
+    let unreadable = |error: std::io::Error| {
+        configuration_error(format!(
+            "Flow definition directory {} cannot be read: {error}",
+            directory.display()
+        ))
     };
-    for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(error) => {
-                tracing::warn!(
-                    directory = %directory.display(),
-                    %error,
-                    "cannot list Flow definition directory entry; skipping it"
-                );
-                continue;
-            }
-        };
+    for entry in std::fs::read_dir(directory).map_err(unreadable)? {
+        let entry = entry.map_err(unreadable)?;
         let path = entry.path();
-        let is_directory = entry.file_type().is_ok_and(|file_type| file_type.is_dir());
+        let is_directory = entry.file_type().map_err(unreadable)?.is_dir();
         if is_directory {
-            collect_json_files(&path, files);
+            collect_json_files(&path, files)?;
         } else if path.is_file() && has_json_extension(&path) {
             files.push(path);
         }
     }
+    Ok(())
 }
 
 fn has_json_extension(path: &Path) -> bool {
@@ -157,66 +144,79 @@ fn has_json_extension(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
 }
 
-fn read_definition_file(file: &Path) -> Option<FlowDefinitionDocument> {
-    let content = match std::fs::read(file) {
-        Ok(content) => content,
-        Err(error) => {
-            tracing::warn!(file = %file.display(), %error, "cannot read Flow definition file; skipping it");
-            return None;
+fn read_definition_file(
+    file: &Path,
+    selection: FileSelection,
+) -> SdkResult<Option<FlowDefinitionDocument>> {
+    let content = std::fs::read(file).map_err(|error| {
+        configuration_error(format!(
+            "Flow definition file {} cannot be read: {error}",
+            file.display()
+        ))
+    })?;
+    let (flow_type, generated_at) = match inspect_definition(&content) {
+        Ok(fields) => fields,
+        Err(reason) if selection == FileSelection::DirectoryEntry => {
+            tracing::info!(file = %file.display(), reason, "skipping a file that is not a Flow definition");
+            return Ok(None);
+        }
+        Err(reason) => {
+            return Err(configuration_error(format!(
+                "Flow definition file {} {reason}",
+                file.display()
+            )));
         }
     };
-    let root: JsonValue = match serde_json::from_slice(&content) {
-        Ok(root) => root,
-        Err(error) => {
-            tracing::warn!(file = %file.display(), %error, "Flow definition file is not valid JSON; skipping it");
-            return None;
+    let generated_at = match generated_at {
+        None => std::fs::metadata(file)
+            .and_then(|metadata| metadata.modified())
+            .map(truncate_to_millis)
+            .map_err(|error| {
+                configuration_error(format!(
+                    "cannot read the modification time of Flow definition file {}: {error}",
+                    file.display()
+                ))
+            })?,
+        Some(JsonValue::String(value)) => parse_generated_at(&value).map_err(|message| {
+            configuration_error(format!(
+                "Flow definition file {}: {message}",
+                file.display()
+            ))
+        })?,
+        Some(_) => {
+            return Err(configuration_error(format!(
+                "Flow definition file {} has a generatedAt that is not a string",
+                file.display()
+            )));
         }
     };
-    let Some(flow_type) = read_flow_name(&root)
-        .filter(|name| !name.trim().is_empty())
-        .map(str::to_string)
-    else {
-        tracing::info!(file = %file.display(), "file has no flow.name, so it is not a Flow definition; skipping it");
-        return None;
-    };
-    let generated_at = read_generated_at(file, &root)?;
-    Some(FlowDefinitionDocument {
+    Ok(Some(FlowDefinitionDocument {
         flow_type,
         content,
         generated_at,
-    })
+    }))
 }
 
-fn read_flow_name(root: &JsonValue) -> Option<&str> {
-    root.get("flow")?.get("name")?.as_str()
-}
-
-fn read_generated_at(file: &Path, root: &JsonValue) -> Option<SystemTime> {
-    if let Some(generated_at) = root.get("generatedAt").and_then(JsonValue::as_str) {
-        match generated_at
-            .parse::<prost_types::Timestamp>()
-            .map_err(|error| error.to_string())
-            .and_then(|timestamp| {
-                SystemTime::try_from(timestamp).map_err(|error| error.to_string())
-            }) {
-            Ok(time) => return Some(time),
-            Err(error) => tracing::warn!(
-                file = %file.display(),
-                generated_at,
-                %error,
-                "Flow definition file has an invalid generatedAt; using the file modification time"
-            ),
-        }
+/// Returns the Flow type and raw `generatedAt` of a Flow Definition Graph 2.x, or why it is not one.
+fn inspect_definition(content: &[u8]) -> Result<(String, Option<JsonValue>), &'static str> {
+    let not_object = "is not a UTF-8 JSON object";
+    let text = std::str::from_utf8(content).map_err(|_| not_object)?;
+    let JsonValue::Object(mut root) = serde_json::from_str(text).map_err(|_| not_object)? else {
+        return Err(not_object);
+    };
+    let is_version_2 = root
+        .get("schemaVersion")
+        .and_then(JsonValue::as_str)
+        .is_some_and(|version| version.starts_with("2."));
+    if !is_version_2 {
+        return Err("has no schemaVersion starting with 2.");
     }
-    match std::fs::metadata(file).and_then(|metadata| metadata.modified()) {
-        Ok(modified) => Some(modified),
-        Err(error) => {
-            tracing::warn!(
-                file = %file.display(),
-                %error,
-                "cannot read the modification time of a Flow definition file; skipping it"
-            );
-            None
-        }
-    }
+    let flow_type = root
+        .get("flow")
+        .and_then(|flow| flow.get("name"))
+        .and_then(JsonValue::as_str)
+        .filter(|name| !name.is_empty())
+        .ok_or("has no flow.name")?
+        .to_string();
+    Ok((flow_type, root.remove("generatedAt")))
 }

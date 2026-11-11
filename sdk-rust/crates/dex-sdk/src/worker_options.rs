@@ -178,21 +178,30 @@ impl WorkerOptions {
     /// Sets the Flow Definition Graph files that the Worker uploads to the Dex Server at start.
     ///
     /// Dex Web draws each Flow type's graph from the uploaded document. Generate the files with
-    /// `dexcli visualize`. Each path is a file or a directory; a directory is read recursively
-    /// for `*.json` files. The Flow type of a file is its `flow.name`. Its generation time is its
-    /// top-level `generatedAt` (RFC 3339), or the file modification time when that is missing. A
-    /// JSON file without `flow.name` is skipped, so a directory may hold other JSON files. A
-    /// missing or unreadable path is logged as a warning and skipped.
+    /// `dexcli visualize`. Each path must exist and be readable. An explicitly listed file must be
+    /// a Flow Definition Graph 2.x: a UTF-8 JSON object whose `schemaVersion` starts with `2.` and
+    /// whose `flow.name` is a non-empty string; its extension is not checked. A directory is read
+    /// recursively for files whose extension is `.json` in any case; a file there that is not a
+    /// Flow Definition Graph 2.x is skipped with an info log, so a directory may hold other JSON
+    /// files.
     ///
-    /// [`crate::Worker::try_new`] reads the files. [`crate::Worker::start`] uploads only documents
-    /// for Flow types that the Registry registers, after protocol negotiation and Attribute-index
-    /// synchronization and before it opens task streams. An absolute `source.path` in a document
-    /// is replaced by a path relative to the working directory, or by the file name when the file
-    /// is elsewhere. An upload failure, including an older Server without upload support, is
-    /// logged as a warning; the Worker still starts. Each request uses the
-    /// [`Self::attribute_index_sync_timeout`] deadline. The default is no paths. Each call
-    /// replaces the previous paths. [`crate::Worker::try_new`] returns
-    /// [`crate::SdkError::FlowDefinition`] when two sources share a Flow type.
+    /// The Flow type of a file is its `flow.name`. Its generation time is its top-level
+    /// `generatedAt`, which must be strict RFC 3339 such as `2026-11-01T00:00:00Z`, or the file
+    /// modification time when that is missing. Every generation time is truncated to whole
+    /// milliseconds.
+    ///
+    /// [`crate::Worker::try_new`] reads the files and returns [`crate::SdkError::FlowDefinition`]
+    /// for a missing or unreadable path, an invalid explicit file, an invalid `generatedAt`, or a
+    /// Flow type configured twice. [`crate::Worker::start`] uploads only documents for Flow types
+    /// that the Registry registers, after protocol negotiation and Attribute-index synchronization
+    /// and before it opens task streams, and sends nothing when none is left. An absolute
+    /// top-level `source.path`, including a Windows drive or UNC path, is replaced by a path
+    /// relative to the working directory, or by the file name when the file is elsewhere or the
+    /// working directory is unknown. Requests hold at most 256 documents and 16 MiB of content and
+    /// share one [`Self::attribute_index_sync_timeout`] deadline. [`crate::Worker::stop`] cancels
+    /// an upload in progress. An upload failure, including an older Server without upload
+    /// support, is logged as a warning; the Worker still starts. The default is no paths. Each
+    /// call replaces the previous paths.
     ///
     /// Since 1.45.0.
     ///
@@ -217,8 +226,8 @@ impl WorkerOptions {
     /// rewrite, and failure handling work as for [`Self::flow_definition_paths`]. A Flow type may
     /// come from only one document across both settings. The default is no documents. Each call
     /// replaces the previous documents. [`crate::Worker::try_new`] returns
-    /// [`crate::SdkError::FlowDefinition`] when a document is not JSON, its `flow.name` differs
-    /// from its Flow type, or two sources share a Flow type. See [`FlowDefinitionDocument`] for an
+    /// [`crate::SdkError::FlowDefinition`] when a document is not a UTF-8 JSON object whose
+    /// `schemaVersion` starts with `2.`, its `flow.name` differs from its Flow type, or two sources share a Flow type. See [`FlowDefinitionDocument`] for an
     /// example.
     ///
     /// Since 1.45.0.
