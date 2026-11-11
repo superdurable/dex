@@ -188,8 +188,9 @@ from an older or newer pi-ai with extra fields still replays.
 When another model answered earlier in the current tool loop, for example
 after a deploy changed the model during a turn, every later call of that loop
 sends no thinking level. Anthropic rejects thinking that does not start with
-the turn. Each such response is stored with `"thinkingDisabledInToolLoop":
-true` in its envelope, so the loop keeps thinking off even after compaction
+the turn. Every response of such a loop is stored with
+`"thinkingDisabledInToolLoop": true` in its envelope, also when its call had
+no `reasoningEffort`, so the loop keeps thinking off even after compaction
 removed the other model's output. The loop ends at the next user message; the
 calls after it think again.
 

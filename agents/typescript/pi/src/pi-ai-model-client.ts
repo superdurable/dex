@@ -197,7 +197,8 @@ class PiAiModelClient implements ModelClient {
 
   private buildStreamOptions(request: ModelRequest, isThinkingDisabledInToolLoop: boolean): SimpleStreamOptions {
     const settings = request.settings;
-    const reasoning = isThinkingDisabledInToolLoop ? undefined : this.resolveThinkingLevel(request);
+    const thinkingLevel = this.resolveThinkingLevel(request);
+    const reasoning = isThinkingDisabledInToolLoop ? undefined : thinkingLevel;
     // The thinking level comes only from reasoningEffort, so the model-change guard cannot be bypassed.
     const { reasoning: _ignoredReasoning, ...providerOptions } = (settings.providerOptions?.[this.model.provider] ??
       {}) as SimpleStreamOptions;
@@ -227,10 +228,13 @@ class PiAiModelClient implements ModelClient {
     return reasoningEffort as ThinkingLevel;
   }
 
-  /** Whether a thinking call continues a tool loop where another model answered; the stored flag survives compaction. */
+  /**
+   * Whether this call continues a tool loop where another model answered, whatever its thinking setting. Every
+   * response stores the result, so it survives compaction and calls that do not think.
+   */
   private isThinkingDisabledInToolLoop(request: ModelRequest): boolean {
     const items = request.inputItems;
-    if (this.resolveThinkingLevel(request) === undefined || items.at(-1)?.type !== "tool_result") {
+    if (items.at(-1)?.type !== "tool_result") {
       return false;
     }
     const lastUserTextIndex = items.map((item) => item.type).lastIndexOf("user_text");

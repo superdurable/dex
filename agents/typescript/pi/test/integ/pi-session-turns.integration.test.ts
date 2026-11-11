@@ -44,6 +44,7 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
   let compactingSessions: AgentSessionTestClient;
   let markerDirectory: string;
   let anthropicModelId = "claude-fake-1";
+  let anthropicReasoningEffort: string | null | undefined;
   const prepareRequestFailures = new Set<string>();
 
   before(async () => {
@@ -78,6 +79,7 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
       modelServerBaseUrl: modelServer.baseUrl,
       markerDirectory,
       anthropicModelId: () => anthropicModelId,
+      anthropicReasoningEffort: () => anthropicReasoningEffort,
       compaction: { contextWindowTokens: 20_000 },
     });
     const unknownItemFlow = createStepwiseAgentSessionFlow(
@@ -532,6 +534,74 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
         return (JSON.parse(item.item) as { thinkingDisabledInToolLoop?: boolean }).thinkingDisabledInToolLoop ?? false;
       });
     assert.deepEqual(storedFlags, [false, true, true, false]);
+  });
+
+  test("calls without reasoningEffort keep the tool-loop flag, so restored thinking stays off after compaction", async () => {
+    const token = newToken();
+    const sessionId = `pi-unset-effort-${token}`;
+    const switchGate = `gated-huge-1-${token}`;
+    const restoreGate = `gated-3-${token}`;
+    let agentCallCount = 0;
+    modelServer.script(token, (request) => {
+      if (JSON.stringify(request.body).includes(contextSummaryRequest)) {
+        return { text: `summary ${token}` };
+      }
+      agentCallCount += 1;
+      const lookup = (id: string, orderId: string) => ({
+        toolCalls: [{ id, name: "lookup_order", arguments: JSON.stringify({ order_id: orderId }) }],
+      });
+      switch (agentCallCount) {
+        case 1:
+          return { thinking: { text: "Look it up.", signature: `sig-${token}` }, ...lookup("toolu_1", switchGate) };
+        case 2:
+          return lookup("toolu_2", `huge-2-${token}`);
+        case 3:
+          return lookup("toolu_3", restoreGate);
+        default:
+          return { text: `answer ${agentCallCount}` };
+      }
+    });
+    try {
+      await compactingSessions.startSession(sessionId, `unset ${token}`, {}, { model: "anthropic" });
+      await new FileGate(markerDirectory, switchGate).waitUntilReached();
+      anthropicModelId = "claude-fake-2";
+      anthropicReasoningEffort = null;
+      new FileGate(markerDirectory, switchGate).release();
+      await new FileGate(markerDirectory, restoreGate).waitUntilReached();
+      anthropicReasoningEffort = undefined;
+      new FileGate(markerDirectory, restoreGate).release();
+      await compactingSessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+      assert.equal(await compactingSessions.sendUserMessage(sessionId, `next ${token}`), true);
+      await compactingSessions.waitForCompletedTurns(sessionId, 2, { timeoutMs: 120_000 });
+    } finally {
+      anthropicModelId = "claude-fake-1";
+      anthropicReasoningEffort = undefined;
+    }
+
+    const agentRequests = modelServer
+      .requests(token)
+      .filter((request) => !JSON.stringify(request.body).includes(contextSummaryRequest));
+    assert.deepEqual(
+      agentRequests.map((request) => [request.body["model"], request.body["thinking"]?.type === "enabled"]),
+      [
+        ["claude-fake-1", true],
+        ["claude-fake-2", false],
+        ["claude-fake-2", false],
+        ["claude-fake-2", false],
+        ["claude-fake-2", true],
+      ],
+    );
+    const fourthRequest = JSON.stringify(agentRequests[3]?.body);
+    assert.equal(fourthRequest.includes("toolu_1"), false, "compaction removed the first model's output");
+    assert.equal(fourthRequest.includes("toolu_2"), false, "compaction removed the first flagged output");
+    assert.equal(fourthRequest.includes("toolu_3"), true);
+    const storedFlags = (await compactingSessions.getAgentSnapshot(sessionId)).messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => {
+        const item = JSON.parse(message.frameworkItem) as { item: string };
+        return (JSON.parse(item.item) as { thinkingDisabledInToolLoop?: boolean }).thinkingDisabledInToolLoop ?? false;
+      });
+    assert.deepEqual(storedFlags, [false, true, true, true, false]);
   });
 
   test("an AgentTool's replay gives its effect, and a tool with neither replay nor effect fails at definition", async () => {

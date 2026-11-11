@@ -9,7 +9,7 @@
 import { join } from "node:path";
 
 import type { CompactionPolicy } from "@superdurable/dex-agents";
-import type { ModelClient } from "@superdurable/dex-agents/stepwise";
+import type { ModelClient, ModelRequest } from "@superdurable/dex-agents/stepwise";
 import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
 import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 
@@ -47,6 +47,8 @@ export interface PiTestAgentOptions {
   readonly anthropicModelId?: () => string;
   readonly prepareRequest?: PiAiModelClientOptions["prepareRequest"];
   readonly compaction?: CompactionPolicy;
+  /** Read on every Anthropic call: `undefined` keeps `medium`, `null` sends no `reasoningEffort`. */
+  readonly anthropicReasoningEffort?: () => string | null | undefined;
 }
 
 /** A Stepwise agent with Pi tools; session settings `model` picks `openai` (default) or `anthropic`. */
@@ -66,7 +68,7 @@ export function createPiTestAgentFlow(options: PiTestAgentOptions) {
       });
       anthropicModels.set(modelId, model);
     }
-    return model;
+    return withReasoningEffortOverride(model, options.anthropicReasoningEffort);
   };
   const tools = new PiTestTools(options.markerDirectory);
   return createStepwiseAgentSessionFlow(
@@ -254,6 +256,28 @@ class PiTestTools {
       await gate.waitForRelease(signal);
     }
   }
+}
+
+/** A client that replaces the request's `reasoningEffort` on each call when `override` returns a value. */
+function withReasoningEffortOverride(
+  model: ModelClient,
+  override: (() => string | null | undefined) | undefined,
+): ModelClient {
+  if (override === undefined) {
+    return model;
+  }
+  const overrideSettings = (request: ModelRequest): ModelRequest => {
+    const reasoningEffort = override();
+    if (reasoningEffort === undefined) {
+      return request;
+    }
+    const { reasoningEffort: _replaced, ...settings } = request.settings;
+    return { ...request, settings: reasoningEffort === null ? settings : { ...settings, reasoningEffort } };
+  };
+  return {
+    callModel: (request, output) => model.callModel(overrideSettings(request), output),
+    estimateInputTokens: (request) => model.estimateInputTokens(overrideSettings(request)),
+  };
 }
 
 function textResult(text: string): PiAgentToolResultLike {
