@@ -88,7 +88,7 @@ npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/
 
 ## Versions and compatibility
 
-All twenty-five published packages share one version line, starting at 0.1.0. It is
+All twenty-six published packages share one version line, starting at 0.1.0. It is
 independent of the Dex SDK versions and of the Dex Skills: frameworks move
 faster than Dex, and the adapter API is still before 1.0, so a minor release
 may change it. One release publishes the whole family under one tag,
@@ -167,7 +167,7 @@ or later.
 ## Releases
 
 Publishing a GitHub Release with the tag `agents/v<version>` from a commit on
-`main` publishes all twenty-five packages in dependency order: the core, the
+`main` publishes all twenty-six packages in dependency order: the core, the
 adapters, the CLI core, then the CLI commands. `dex-agents-cli-testing`
 is never published.
 [`agents-python-publish.yml`](../.github/workflows/agents-python-publish.yml)

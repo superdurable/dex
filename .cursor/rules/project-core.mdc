@@ -380,6 +380,14 @@ unambiguous. In every language, do not introduce `normalize` or `Normalize`
 identifiers; name the concrete operation, such as `TrimWhitespace`,
 `SortSelections`, or `CanonicalizeURL`.
 
+Directory, package, module, and crate names follow the same rule. Never name
+one `runtime`, `common`, `utils`, `helpers`, or `misc`, and never use one of
+these words as a package or module suffix, such as `dex-agents-cli-runtime`.
+Name what the code does or which product part it serves, such as `core` under
+its product directory. Refuse such a name in a proposal and choose a specific
+one instead. Existing directories with these names keep them until a change
+reworks their code.
+
 ## Go Flow and Step Type Names
 
 The Go SDK registers a Flow or Step by its Go type name without the package.

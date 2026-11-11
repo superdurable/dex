@@ -32,6 +32,3 @@ section: Images
 - **createAiSdkModelClient** sends images as AI SDK `file` parts in user
   messages and in tool result `content` output. `estimateInputTokens` counts
   **estimatedImageInputTokens** per image.
-- Agents CLI: the built-in commands in Python and TypeScript pass the media
-  store to the built-in loop, so images attached with **/image** reach their
-  model.
