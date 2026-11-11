@@ -26,6 +26,9 @@ import { READABLE_ZOOM } from '../views/elkPlacement'
 export const MIN_ZOOM = 0.14
 export const MAX_ZOOM = 2.2
 
+/** The zoom-out limit where a host opens on the whole drawing, however small that makes it. */
+export const WHOLE_DRAWING_MIN_ZOOM = 0.02
+
 /**
  * Fit may zoom past 1:1, up to this. The cap used to be 1, which left a wide canvas mostly
  * empty whenever the graph already fitted; a small flow still must not fill a wall.

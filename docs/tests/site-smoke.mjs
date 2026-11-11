@@ -230,11 +230,11 @@ const componentsPosition = home.indexOf('>Components<');
 const agentFrameworksPosition = home.indexOf('>Agent Frameworks<');
 const agentSkillsPosition = home.indexOf('>Agent Skills<');
 const designPatternsPosition = home.indexOf('>Design Patterns<');
-assert.ok(conceptsPosition >= 0);
+assert.ok(agentSkillsPosition >= 0);
+assert.ok(conceptsPosition > agentSkillsPosition);
 assert.ok(componentsPosition > conceptsPosition);
 assert.ok(agentFrameworksPosition > componentsPosition);
-assert.ok(agentSkillsPosition > agentFrameworksPosition);
-assert.ok(designPatternsPosition > agentSkillsPosition);
+assert.ok(designPatternsPosition > agentFrameworksPosition);
 
 const zhHome = await readFile(join(root, 'zh-Hans', 'index.html'), 'utf8');
 // The browser fills in the star count, so static HTML must hold neither the count nor its label.
