@@ -211,6 +211,35 @@ async def test_real_cli_runs_an_approved_bash_call_with_the_hook_rewritten_input
     _assert_only_the_mock_was_reached(harness)
 
 
+async def test_real_cli_reports_an_approved_bash_call_that_fails_as_failed(
+    real_cli_harness: RealClaudeCliHarness,
+) -> None:
+    harness = real_cli_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, f"call Bash {json.dumps({'command': 'echo broken; exit 3'})}"
+    )
+    interrupt = await harness.wait_for_pending_interrupt(session_id)
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert "broken" in (snapshot.messages[-1].text or "")
+    # The tool Step records the approval; the CLI's failed run writes the one finish.
+    tool_events = [
+        (event.type, json.loads(event.payload).get("status"))
+        for event in await harness.list_events(session_id)
+        if event.type in (AgentEventType.TOOL_CALL_STARTED, AgentEventType.TOOL_CALL_FINISHED)
+    ]
+    assert tool_events == [
+        (AgentEventType.TOOL_CALL_STARTED, None),
+        (AgentEventType.TOOL_CALL_FINISHED, "failed"),
+    ]
+    _assert_only_the_mock_was_reached(harness)
+
+
 async def test_real_cli_shows_a_rejected_bash_call_as_the_users_rejection(
     real_cli_harness: RealClaudeCliHarness,
 ) -> None:

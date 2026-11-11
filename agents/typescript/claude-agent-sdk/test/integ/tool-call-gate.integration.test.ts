@@ -28,6 +28,7 @@ interface GateFixture {
   readonly catalog: ToolCatalog;
   readonly gate: ToolCallGate;
   readonly handlerCalls: string[];
+  readonly writtenEvents: string[][];
 }
 
 async function createGateFixture(
@@ -35,6 +36,7 @@ async function createGateFixture(
   settledToolUseIds: ReadonlySet<string> = new Set(),
 ): Promise<GateFixture> {
   const handlerCalls: string[] = [];
+  const writtenEvents: string[][] = [];
   const customTools = [
     tool(
       "read_note",
@@ -67,9 +69,13 @@ async function createGateFixture(
       effect: frameworkEffect ?? "non_idempotent_write",
       requiresApproval: frameworkEffect !== "read",
     }),
-    events: { writeToolCallStarted: () => undefined, writeToolCallFinished: () => undefined },
+    events: {
+      writeToolCallStarted: (toolCallId: string) => writtenEvents.push(["started", toolCallId]),
+      writeToolCallFinished: (toolCallId: string, _toolName: string, status: string) =>
+        writtenEvents.push(["finished", toolCallId, status]),
+    },
   } as unknown as AgentTurnContext;
-  return { catalog, gate: new ToolCallGate(turn, catalog, settledToolUseIds), handlerCalls };
+  return { catalog, gate: new ToolCallGate(turn, catalog, settledToolUseIds), handlerCalls, writtenEvents };
 }
 
 function preToolUse(cliToolName: string, toolUseId: string, toolInput: Record<string, unknown> = {}): HookInput {
@@ -240,6 +246,43 @@ describe("the Claude tool call gate", () => {
     assert.equal((await callTool(client, "create_payout", "call-1")).isError, true);
     assert.equal((await callTool(client, "post_note", "call-1")).isError, true);
     await client.close();
+  });
+
+  test("a replayed CLI call finishes once, from its result or from the segment's end", async () => {
+    const fixture = await createGateFixture([
+      succeededRecord("call-1", "Bash", { command: "echo one" }),
+      succeededRecord("call-2", "Bash", { command: "echo two" }),
+    ]);
+    for (const callId of ["call-1", "call-2"]) {
+      const replay = decisionOf(await fixture.gate.decidePreToolUse(preToolUse("Bash", callId), callId));
+      assert.equal(replay.decision, "allow");
+    }
+    // The tool Step wrote tool_call_started, so the replay writes no second one.
+    assert.deepEqual(fixture.writtenEvents, []);
+
+    fixture.gate.recordToolResult("call-1", true);
+    fixture.gate.recordToolResult("call-1", false);
+    // A segment that ends before call-2 reports a result closes it as an unknown outcome.
+    fixture.gate.finishUnreportedToolCalls();
+    fixture.gate.finishUnreportedToolCalls();
+    assert.deepEqual(fixture.writtenEvents, [
+      ["finished", "call-1", "failed"],
+      ["finished", "call-2", "outcome_unknown"],
+    ]);
+  });
+
+  test("a stored refusal answers only the tool it was stored for", async () => {
+    const rejected = await createGateFixture([
+      { ...succeededRecord("call-1", "Bash", { command: "rm -rf build" }), status: "rejected", rejectionMessage: "no" },
+    ]);
+    const replay = decisionOf(await rejected.gate.decidePreToolUse(preToolUse("Bash", "call-1"), "call-1"));
+    const rejection = "The user rejected this Bash call: no";
+    assert.deepEqual([replay.decision, replay.reason], ["ask", rejection]);
+    // Another tool under the same ID gets the replay denial, not the Bash refusal.
+    const otherTool = await askPermission(rejected, "Write", "call-1");
+    assert.match(otherTool.behavior === "deny" ? otherTool.message : "", /already resumed/);
+    const bash = await askPermission(rejected, "Bash", "call-1");
+    assert.deepEqual([bash.behavior, bash.behavior === "deny" ? bash.message : undefined], ["deny", rejection]);
   });
 
   test("a recorded call is replayed at most once per segment", async () => {

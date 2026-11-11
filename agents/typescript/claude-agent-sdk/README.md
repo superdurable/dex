@@ -358,8 +358,9 @@ await sendAgentUserMessage(client, flow, "session-42", { text: "What does this c
    the pending `hook_deferred_tool` entry, runs PreToolUse for that call again, and the hook answers
    from the final record: a custom tool is `allow`, and the wrapped MCP handler returns the recorded
    output, failure, rejection, or unknown outcome without running the tool; an approved CLI tool is
-   `allow`, and the CLI runs it without a second pair of tool events; a rejected or unfinished CLI tool
-   is `ask`, and `canUseTool` denies it with "The user rejected this <tool> call: <reason>", or the
+   `allow`, and the CLI runs it. Its tool Step returned `isFinishedByResumedTurn`, so the CLI's tool result
+   writes the call's one `tool_call_finished`, `failed` when the run fails, and a segment that ends without that
+   result writes `outcome_unknown`. A rejected or unfinished CLI tool is `ask`, and `canUseTool` denies it with "The user rejected this <tool> call: <reason>", or the
    record's failure or unknown outcome text. The CLI then adds a hidden "Continue from where you left off." message and makes the next model call.
    The runner closes the CLI's input when the segment's result arrives.
 6. When the CLI produces the final answer, the runner returns `TurnCompleted`. Each assistant API

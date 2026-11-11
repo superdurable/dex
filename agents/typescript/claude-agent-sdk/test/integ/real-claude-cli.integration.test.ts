@@ -379,6 +379,25 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     assert.deepEqual(toolEvents, ["tool_call_started", "tool_call_finished"]);
   });
 
+  test("an approved Bash call that fails is reported as failed", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("real-bash-failed");
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}call Bash {"command":"echo broken; exit 3"}`);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "Bash");
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    assert.match(snapshot.messages.at(-1)?.text ?? "", /broken/);
+    // The tool Step records the approval; the CLI's failed run writes the one finish.
+    const toolEvents = (await agent.listEvents(sessionId))
+      .filter((event) => event.type === "tool_call_started" || event.type === "tool_call_finished")
+      .map((event) => [event.type, (JSON.parse(event.payload) as { status?: string }).status]);
+    assert.deepEqual(toolEvents, [
+      ["tool_call_started", undefined],
+      ["tool_call_finished", "failed"],
+    ]);
+  });
+
   test("a rejected Bash call reaches the model as the user's rejection without a hook prefix", async () => {
     const agent = await startHarness();
     const sessionId = agent.newSessionId("real-bash-rejected");

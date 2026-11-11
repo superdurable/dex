@@ -687,12 +687,28 @@ class ToolExecutionResult:
             stores nothing.
 
             .. versionadded:: 0.5.0
+        is_finished_by_resumed_turn: Whether the tool really runs later,
+            inside the resumed ``run_model_step``, so this Step only records
+            its approval. Set it for a tool that runs inside the framework,
+            such as a Claude Code tool, whose Step returns a placeholder
+            output. The session still records ``SUCCEEDED`` and resumes the
+            turn, and the Step still writes ``tool_call_started``. It writes no
+            ``tool_call_finished``: the runner writes that event when the
+            resumed turn runs the call, with ``FAILED`` when the run fails. The
+            runner must write it for every such call that the resumed turn
+            reaches, including one whose run never reports a result. A turn
+            that ends before it resumes, for example by ``cancel_turn``, leaves
+            the call without a ``tool_call_finished``; its turn-ending event
+            ends it. ``False``, the default, lets the Step write the event.
+
+            .. versionadded:: 0.6.0
     """
 
     output: str
     truncated_output_bytes: int | None = None
     images: Sequence[AgentImageReference] = ()
     runner_tool_state: str | None = None
+    is_finished_by_resumed_turn: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)

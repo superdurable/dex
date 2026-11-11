@@ -133,11 +133,17 @@ async def test_read_runs_at_once_and_write_and_bash_run_after_approval(
     child.sendline("n not now")
     await expect(child, "Bash: The user rejected this Bash call: not now")
     await expect(child, "> ")
+
+    child.sendline(call("Bash", {"command": "echo broken; exit 3"}))
+    await expect(child, "[approval] Bash")
+    child.sendline("y")
+    await expect(child, "[tool] Bash failed")
+    await expect(child, "> ")
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert not (cli_home.workspace / "rejected.txt").exists()
 
-    # The tool Step reports an approved call; the CLI's run in the resumed turn does not.
+    # The tool Step starts an approved call; the CLI's run in the resumed turn finishes it.
     output = terminal.getvalue()
     tool_lines = [line.strip() for line in output.splitlines() if line.startswith("[tool] ")]
     assert tool_lines == [
@@ -148,6 +154,8 @@ async def test_read_runs_at_once_and_write_and_bash_run_after_approval(
         "[tool] Bash started",
         "[tool] Bash succeeded",
         "[tool] Bash rejected",
+        "[tool] Bash started",
+        "[tool] Bash failed",
     ]
     # Claude Code resets the cursor on exit when its standard error is the terminal.
     assert "\x1b[" not in output
@@ -159,7 +167,8 @@ async def test_read_runs_at_once_and_write_and_bash_run_after_approval(
         for block in message["content"]
         if block.get("type") == "tool_result" and block.get("is_error")
     ]
-    assert set(rejected_results) == {"The user rejected this Bash call: not now"}
+    assert "The user rejected this Bash call: not now" in rejected_results
+    assert not [result for result in rejected_results if "hook error" in str(result)]
 
 
 async def test_an_allow_listed_command_runs_at_once_in_the_workspace(cli_home: CliHome) -> None:

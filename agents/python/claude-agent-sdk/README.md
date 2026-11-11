@@ -382,8 +382,11 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
    a custom tool is `allow`, and the adapter's MCP server returns the recorded
    output, failure, unknown outcome, or rejection text without running the
    tool; an approved CLI tool is `allow` with the recorded arguments as
-   `updatedInput`, and the CLI runs that input without a second pair of tool
-   events; a rejected CLI tool is `ask`, and `can_use_tool` denies it with
+   `updatedInput`, and the CLI runs that input. Its tool Step returned
+   `is_finished_by_resumed_turn`, so the CLI's tool result writes the call's
+   one `tool_call_finished`, `failed` when the run fails, and a segment that
+   ends without that result writes `outcome_unknown`. A rejected CLI tool is
+   `ask`, and `can_use_tool` denies it with
    "The user rejected this <tool> call: <reason>", or the record's failure or
    unknown outcome text. If the CLI skips the hook and asks
    `can_use_tool` instead, the adapter answers from the record the same way;
