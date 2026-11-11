@@ -151,6 +151,27 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     }
   });
 
+  test("a server that answers initialize but fails its listing leaves connector tools unavailable, and the chat runs", async () => {
+    connectors.listingFailureReason = "the catalog is not ready";
+    try {
+      const home = new TestHome(enginePorts(engine));
+      home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\nlocal_tools: {browser: false}\n`);
+      const cli = start(home);
+      await cli.waitForSession();
+      cli.writeLine("hello");
+      await cli.stdout.waitFor("echo: hello");
+      cli.writeLine("/exit");
+      assert.equal(await cli.waitForExit(), 0);
+      const connectorLines = cli.stderr.all.split("\n").filter((line) => line.includes("Connector tools are unavailable"));
+      assert.equal(connectorLines.length, 1, cli.stderr.all);
+      assert.match(connectorLines[0] ?? "", /the catalog is not ready/);
+      const logFile = readFileSync(join(home.directory, ".dex", "agents", "scripted.log"), "utf8");
+      assert.match(logFile, /connectors MCP server \S+ could not be listed: .*the catalog is not ready/);
+    } finally {
+      connectors.listingFailureReason = undefined;
+    }
+  });
+
   test("--yes writes the default configuration and init --yes writes it again", async () => {
     const home = new TestHome(enginePorts(engine));
     const cli = start(home, ["--yes"]);

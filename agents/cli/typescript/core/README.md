@@ -303,7 +303,9 @@ the URL from the `Connectors MCP:` line of its output. When an `auto` server is
 not available, such as one answering 503 while it starts, or an older
 `dexcli` without `/mcp`, the command warns and continues; each model call
 lists the server again, so its tools appear once it is ready. An explicit
-`connectors.mcp` URL that is not available stops the command.
+`connectors.mcp` URL that is not available stops the command. A server that
+answers `initialize` but cannot be listed only warns, whichever URL names it;
+the error goes to the command's log file.
 
 A harness whose runner fixes its tools when the Flow is built declares
 `isToolSetFixedAtBuild: true`. The CLI core then lists the connector tools the

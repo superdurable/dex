@@ -362,6 +362,11 @@ class AgentCliCommand {
     } finally {
       clearTimeout(timer);
     }
+    this.writeLogLine(line);
+  }
+
+  /** Appends one timestamped line to the log file. */
+  private writeLogLine(line: string): void {
     try {
       mkdirSync(this.environment.agentsDirectory, { recursive: true });
       appendFileSync(this.logFilePath(), `${new Date().toISOString()} ${line}\n`);
@@ -464,7 +469,16 @@ class AgentCliCommand {
       return source;
     }
     if (!isToolSetFixed) {
-      await this.reportUnauthorizedConnectors(effective, await source.readIdentities(), server, isOpeningConnectorsPage);
+      let startupIdentities: ReadonlyMap<string, ConnectorToolIdentity>;
+      try {
+        startupIdentities = await source.readIdentities();
+      } catch (error: unknown) {
+        this.writeLogLine(`connectors MCP server ${url} could not be listed: ${describe(error)}`);
+        // The source prints the one unavailability line and stays quiet while the next turns fail the same way.
+        await source.listTools();
+        return source;
+      }
+      await this.reportUnauthorizedConnectors(effective, startupIdentities, server, isOpeningConnectorsPage);
       return source;
     }
     let identities: ReadonlyMap<string, ConnectorToolIdentity>;

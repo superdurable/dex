@@ -59,6 +59,7 @@ from dex_agents_cli_core.config_file import (
 )
 from dex_agents_cli_core.connectors import (
     ConnectorCatalogTool,
+    ConnectorsMcpListingError,
     ConnectorsMcpToolSource,
     ConnectorsMcpUnavailableError,
     read_connector_catalog,
@@ -415,8 +416,9 @@ async def _connect_connectors(
     An unavailable ``auto`` server only warns: the source lists it again on
     every turn, so a server that is still starting comes alive. A harness
     whose tool set is fixed at build time gets no connector tools in this run
-    then, and the warning says to restart it. An explicit URL that is
-    unavailable fails the command with exit code 1.
+    then, and the warning says to restart it. An explicit URL that does not
+    answer ``initialize`` fails the command with exit code 1; one that answers
+    but cannot be listed only warns, as ``auto`` does.
     """
     if config.connectors.enabled == ():
         return None
@@ -432,8 +434,10 @@ async def _connect_connectors(
         catalog = await read_connector_catalog(url)
     except ConnectorsMcpUnavailableError as error:
         message = f"The connectors MCP server is unavailable: {error}"
-        if config.connectors.mcp != AUTO:
+        # An explicit server that answers initialize stays configured; each turn lists it again.
+        if config.connectors.mcp != AUTO and not isinstance(error, ConnectorsMcpListingError):
             raise CommandFailure(message) from error
+        _LOGGER.warning("connectors MCP server %s could not be listed", url, exc_info=error)
         if is_tool_set_fixed:
             print(f"{message}. {_restart_for_connector_tools(harness)}")
         else:
