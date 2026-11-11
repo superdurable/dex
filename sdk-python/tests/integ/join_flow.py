@@ -48,15 +48,18 @@ JOIN_RELEASE = Channel("joinRelease", str)
 REQUIRED_QUOTES = 2
 LAST_QUOTE_ROUND = 2
 
+
 @dataclass
 class JoinOutcome:
     branch_count: int
     results: list[str]
 
+
 @dataclass
 class ReviewInput:
     reviewer: str
     join_round: JoinRound
+
 
 @dataclass
 class QuoteRequest:
@@ -65,15 +68,18 @@ class QuoteRequest:
     accepted_rounds: list[list[str]] = field(default_factory=list)
     late_rounds: list[list[str]] = field(default_factory=list)
 
+
 @dataclass
 class QuoteJoinInput:
     request: QuoteRequest
     join_round: JoinRound
 
+
 @dataclass
 class JoinDeadlineOutcome:
     has_timer_fired: bool
     results: list[str]
+
 
 class ReleasedBranch(Step[JoinRound]):
     label = ""
@@ -84,22 +90,28 @@ class ReleasedBranch(Step[JoinRound]):
     def execute(self, context: Context, input: JoinRound) -> StepDecision:
         return BRANCH_RESULT.end_branch(context, input, self.label)
 
+
 class JoinBranchA(ReleasedBranch):
     label = "A"
+
 
 class JoinBranchB(ReleasedBranch):
     label = "B"
 
+
 class JoinBranchC(ReleasedBranch):
     label = "C"
+
 
 def build_branch(
     step: type[ReleasedBranch],
 ) -> Callable[[JoinRound], StepMovement[Any]]:
     return lambda join_round: StepMovement.of(step, join_round)
 
+
 def build_collect_all(join_round: JoinRound) -> StepMovement[Any]:
     return StepMovement.of(CollectAllBranches, join_round)
+
 
 class CollectAllBranches(Step[JoinRound]):
     def wait_for(self, context: Context, input: JoinRound) -> Wait:
@@ -108,6 +120,7 @@ class CollectAllBranches(Step[JoinRound]):
     def execute(self, context: Context, input: JoinRound) -> StepDecision:
         results = BRANCH_RESULT.branch_results(context, input)
         return graceful_complete(JoinOutcome(input.branch_count, list(results)))
+
 
 class ReleasableJoinFlow(Flow[StartT]):
     @rpc
@@ -120,6 +133,7 @@ class ReleasableJoinFlow(Flow[StartT]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(BRANCH_RESULT, BRANCH_RELEASE, JOIN_RELEASE)
+
 
 class SplitWithHeldJoin(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
@@ -134,12 +148,14 @@ class SplitWithHeldJoin(Step[None]):
         )
         return go_to_many(*movements)
 
+
 class HoldJoin(Step[JoinRound]):
     def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(JOIN_RELEASE.for_one())
 
     def execute(self, context: Context, input: JoinRound) -> StepDecision:
         return go_to(CollectAllBranches, input)
+
 
 class AllBranchesJoinFlow(ReleasableJoinFlow[None]):
     def get_flow_type(self) -> str:
@@ -154,10 +170,12 @@ class AllBranchesJoinFlow(ReleasableJoinFlow[None]):
             CollectAllBranches(),
         )
 
+
 def build_review(reviewer: str) -> Callable[[JoinRound], StepMovement[Any]]:
     return lambda join_round: StepMovement.of(
         ReviewBranch, ReviewInput(reviewer, join_round)
     )
+
 
 class SplitReviews(Step[list[str]]):
     def execute(self, context: Context, input: list[str]) -> StepDecision:
@@ -168,9 +186,11 @@ class SplitReviews(Step[list[str]]):
         )
         return go_to_many(*movements)
 
+
 class ReviewBranch(Step[ReviewInput]):
     def execute(self, context: Context, input: ReviewInput) -> StepDecision:
         return BRANCH_RESULT.end_branch(context, input.join_round, input.reviewer)
+
 
 class MultiInstanceJoinFlow(Flow[list[str]]):
     def get_flow_type(self) -> str:
@@ -183,6 +203,7 @@ class MultiInstanceJoinFlow(Flow[list[str]]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(BRANCH_RESULT)
+
 
 class RequestQuotes(Step[QuoteRequest]):
     def wait_for(self, context: Context, input: QuoteRequest) -> Wait:
@@ -211,6 +232,7 @@ class RequestQuotes(Step[QuoteRequest]):
         )
         return go_to_many(*movements)
 
+
 class AcceptQuotes(Step[QuoteJoinInput]):
     def wait_for(self, context: Context, input: QuoteJoinInput) -> Wait:
         return Wait.until(BRANCH_RESULT.for_branches(input.join_round, REQUIRED_QUOTES))
@@ -229,6 +251,7 @@ class AcceptQuotes(Step[QuoteJoinInput]):
         )
         return go_to(RequestQuotes, next_request)
 
+
 class PartialJoinRoundsFlow(ReleasableJoinFlow[QuoteRequest]):
     def get_flow_type(self) -> str:
         return "PythonPartialJoinRoundsFlow"
@@ -238,12 +261,14 @@ class PartialJoinRoundsFlow(ReleasableJoinFlow[QuoteRequest]):
             JoinBranchA(), JoinBranchB(), JoinBranchC(), AcceptQuotes()
         )
 
+
 class SplitOneBranch(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         movements = BRANCH_RESULT.fork(
             context, [build_branch(JoinBranchA)], build_collect_all
         )
         return go_to_many(*movements)
+
 
 class KeyIsolationJoinFlow(ReleasableJoinFlow[None]):
     def get_flow_type(self) -> str:
@@ -258,6 +283,7 @@ class KeyIsolationJoinFlow(ReleasableJoinFlow[None]):
             JoinBranchA(), CollectAllBranches()
         )
 
+
 class SplitWithFirstBranchJoin(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         movements = BRANCH_RESULT.fork(
@@ -271,6 +297,7 @@ class SplitWithFirstBranchJoin(Step[None]):
         )
         return go_to_many(*movements)
 
+
 class AcceptFirstBranch(Step[JoinRound]):
     def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.all_of(
@@ -283,6 +310,7 @@ class AcceptFirstBranch(Step[JoinRound]):
             JoinBranchA, JoinBranchB, JoinBranchC
         )
 
+
 class AwaitFinish(Step[str]):
     def wait_for(self, context: Context, input: str) -> Wait:
         return Wait.until(JOIN_RELEASE.for_one())
@@ -290,16 +318,18 @@ class AwaitFinish(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         return graceful_complete(input)
 
+
 class CancellingFirstBranchJoinFlow(ReleasableJoinFlow[None]):
     def get_flow_type(self) -> str:
         return "PythonCancellingFirstBranchJoinFlow"
 
-    @rpc
-    def get_pending_result_count(
+    # Join exposes no pending-message API; the test reads its underlying ChannelMap.
+    @rpc(load_channel_maps=(BRANCH_RESULT._channel_map,))
+    def get_pending_results(
         self, context: Context, round_key: str
-    ) -> RPCResult[int]:
-        # Join exposes no size API; the test reads its underlying ChannelMap.
-        return RPCResult(BRANCH_RESULT._channel_map.size(context, round_key))
+    ) -> RPCResult[list[str]]:
+        pending = BRANCH_RESULT._channel_map.pending_messages(context, round_key)
+        return RPCResult([message.value for message in pending])
 
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(SplitWithFirstBranchJoin()).other_steps(
@@ -310,6 +340,7 @@ class CancellingFirstBranchJoinFlow(ReleasableJoinFlow[None]):
             AwaitFinish(),
         )
 
+
 class SplitTwoBranches(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         movements = BRANCH_RESULT.fork(
@@ -318,6 +349,7 @@ class SplitTwoBranches(Step[None]):
             build_collect_all,
         )
         return go_to_many(*movements)
+
 
 class ReportForCanceledBranchJoinFlow(ReleasableJoinFlow[None]):
     def get_flow_type(self) -> str:
@@ -335,6 +367,7 @@ class ReportForCanceledBranchJoinFlow(ReleasableJoinFlow[None]):
             JoinBranchA(), JoinBranchB(), CollectAllBranches()
         )
 
+
 class ForkTwice(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         BRANCH_RESULT.fork(context, [build_branch(JoinBranchA)], build_collect_all)
@@ -348,11 +381,13 @@ class ForkTwice(Step[None]):
             execute_retry=RetryPolicy(maximum_attempts=1)
         ).on_execute_failure_proceed_to(RecordForkFailure)
 
+
 class RecordForkFailure(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         recovery_error = context.recovery_error
         detail = "" if recovery_error is None else recovery_error.detail
         return graceful_complete(detail)
+
 
 class ForkTwiceJoinFlow(Flow[None]):
     def get_flow_type(self) -> str:
@@ -366,9 +401,11 @@ class ForkTwiceJoinFlow(Flow[None]):
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(BRANCH_RESULT, BRANCH_RELEASE)
 
+
 class IdleStart(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         return dead_end()
+
 
 class RpcForkJoinFlow(ReleasableJoinFlow[None]):
     def get_flow_type(self) -> str:
@@ -393,10 +430,16 @@ class RpcForkJoinFlow(ReleasableJoinFlow[None]):
             JoinBranchA(), CollectAllBranches()
         )
 
+
 MANUAL_ROUND = JoinRound("manual-round", 2)
+
 
 class ValidateJoinCondition(Step[str]):
     def wait_for(self, context: Context, input: str) -> Wait:
+        if input == "first-of-zero-branches":
+            return Wait.until(
+                BRANCH_RESULT.for_first_branch(JoinRound("empty-round", 0))
+            )
         if input == "branches-zero":
             return Wait.until(BRANCH_RESULT.for_branches(MANUAL_ROUND, 0))
         if input == "branches-over":
@@ -420,6 +463,7 @@ class ValidateJoinCondition(Step[str]):
             wait_for_failure=WaitForFailurePolicy.PROCEED,
         )
 
+
 class JoinConditionValidationFlow(Flow[str]):
     def get_flow_type(self) -> str:
         return "PythonJoinConditionValidationFlow"
@@ -429,6 +473,7 @@ class JoinConditionValidationFlow(Flow[str]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(BRANCH_RESULT)
+
 
 class DuplicateJoinNameFlow(Flow[None]):
     def get_flow_type(self) -> str:
@@ -442,6 +487,7 @@ class DuplicateJoinNameFlow(Flow[None]):
             Join("duplicateName", str), ChannelMap("duplicateName", str)
         )
 
+
 class SplitWithDeadlineJoin(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         movements = BRANCH_RESULT.fork(
@@ -450,6 +496,7 @@ class SplitWithDeadlineJoin(Step[None]):
             lambda join_round: StepMovement.of(CollectWithDeadline, join_round),
         )
         return go_to_many(*movements)
+
 
 class CollectWithDeadline(Step[JoinRound]):
     def wait_for(self, context: Context, input: JoinRound) -> Wait:
@@ -463,6 +510,7 @@ class CollectWithDeadline(Step[JoinRound]):
         return force_complete(
             JoinDeadlineOutcome(context.has_timer_fired(), list(results))
         )
+
 
 class JoinDeadlineFlow(ReleasableJoinFlow[None]):
     def get_flow_type(self) -> str:

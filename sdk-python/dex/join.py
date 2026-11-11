@@ -119,14 +119,26 @@ class Join(Generic[ResultT]):
       :meth:`~dex.StepDecision.with_canceling_sibling_steps` and the branch Step
       types. A canceled branch does not report. Sibling selection matches only the
       first Step of each branch. When :meth:`fork_with_round_key` runs in an RPC,
-      every Step started by any call of that RPC is a sibling.
+      every Step started by any call of that RPC is a sibling, so cancel those
+      branches explicitly with :meth:`~dex.StepDecision.with_canceling_steps`
+      while only one round is active.
+    - A canceled branch never reports, so a canceling join's round cannot be
+      fully reset by :meth:`for_remaining_branches` alone. Its
+      ``received_count`` is still the number of results the join consumed, not
+      a count that includes canceled branches. To reset such a round, report a
+      result for each canceled branch, for example from an RPC with
+      :meth:`report_branch_result`. Otherwise start the next round without
+      the reset; the late results stay pending until the Flow ends.
     - A branch canceled from outside never reports, so an all-branches join waits
       forever. Cancel the join Step too, report a result for the canceled branch
       from the RPC that cancels it with :meth:`report_branch_result`, or give the
       join a Timer deadline.
-    - Canceling a join Step after its wait matched but before its ``execute``
-      committed loses the results that wait consumed. A new join for the same
-      round never sees them.
+    - When a join Step is canceled after its wait matched but before its
+      ``execute`` committed, what happens to the results that wait consumed
+      depends on the server version. A server that requeues consumed messages
+      on cancellation returns them to the round, so a new join for the round
+      sees them. An older server drops them, and a new join waits forever. See
+      the server change log at https://docs.superdurable.io/reference/server/changelog.
 
     .. versionadded:: 1.41.0
 
@@ -139,7 +151,7 @@ class Join(Generic[ResultT]):
             from dex import (
                 Channel, Context, Flow, Join, JoinRound, PersistenceSchema, Step,
                 StepDecision, StepList, StepMovement, Wait, go_to_many,
-                graceful_complete,
+                graceful_complete, rpc,
             )
 
             QUOTE_RECEIVED = Join("quoteReceived", str)
@@ -209,6 +221,10 @@ class Join(Generic[ResultT]):
                     return go_to_many(StepMovement.of(RequestQuotes, next_request))
 
             class QuoteFlow(Flow[QuoteRequest]):
+                @rpc
+                def release_supplier(self, context: Context, supplier: str) -> None:
+                    SUPPLIER_RELEASED.publish(context, supplier)
+
                 def get_steps(self) -> StepList[QuoteRequest]:
                     return StepList.start_step(RequestQuotes()).other_steps(
                         QuoteFromSupplier(), AcceptQuotes()
@@ -217,20 +233,61 @@ class Join(Generic[ResultT]):
                 def get_persistence_schema(self) -> PersistenceSchema:
                     return PersistenceSchema.of(QUOTE_RECEIVED, SUPPLIER_RELEASED)
 
-        For a run-time number of branches, map the inputs to builders. A helper
-        function binds each input; a lambda in a comprehension would see only the
-        last one::
+        A run-time number of branches. Map the inputs to builders with a helper
+        function, which binds each input; a lambda written directly in the
+        comprehension would see only the last input::
+
+            from dataclasses import dataclass
+            from typing import Callable
+
+            from dex import (
+                Context, Flow, Join, JoinRound, PersistenceSchema, Step,
+                StepDecision, StepList, StepMovement, Wait, go_to_many,
+                graceful_complete,
+            )
+
+            REVIEW_DONE = Join("reviewDone", str)
+
+            @dataclass
+            class ReviewInput:
+                reviewer: str
+                join_round: JoinRound
 
             def build_review(reviewer: str) -> Callable[[JoinRound], StepMovement[ReviewInput]]:
                 return lambda join_round: StepMovement.of(
                     ReviewDocument, ReviewInput(reviewer, join_round)
                 )
 
-            movements = REVIEW_DONE.fork(
-                context,
-                [build_review(reviewer) for reviewer in input.reviewers],
-                lambda join_round: StepMovement.of(CollectReviews, join_round),
-            )
+            class RequestReviews(Step[list[str]]):
+                def execute(self, context: Context, input: list[str]) -> StepDecision:
+                    movements = REVIEW_DONE.fork(
+                        context,
+                        [build_review(reviewer) for reviewer in input],
+                        lambda join_round: StepMovement.of(CollectReviews, join_round),
+                    )
+                    return go_to_many(*movements)
+
+            class ReviewDocument(Step[ReviewInput]):
+                def execute(self, context: Context, input: ReviewInput) -> StepDecision:
+                    return REVIEW_DONE.end_branch(
+                        context, input.join_round, f"approved by {input.reviewer}"
+                    )
+
+            class CollectReviews(Step[JoinRound]):
+                def wait_for(self, context: Context, input: JoinRound) -> Wait:
+                    return Wait.until(REVIEW_DONE.for_all_branches(input))
+
+                def execute(self, context: Context, input: JoinRound) -> StepDecision:
+                    return graceful_complete(list(REVIEW_DONE.branch_results(context, input)))
+
+            class ReviewFlow(Flow[list[str]]):
+                def get_steps(self) -> StepList[list[str]]:
+                    return StepList.start_step(RequestReviews()).other_steps(
+                        ReviewDocument(), CollectReviews()
+                    )
+
+                def get_persistence_schema(self) -> PersistenceSchema:
+                    return PersistenceSchema.of(REVIEW_DONE)
     """
 
     def __init__(self, name: str, result_type: type[ResultT]) -> None:
@@ -412,7 +469,9 @@ class Join(Generic[ResultT]):
 
         It consumes exactly one result, the earliest committed one. Results that
         were already pending stay for :meth:`for_remaining_branches`. Put the
-        winner's identity in the result when the join needs it.
+        winner's identity in the result when the join needs it. A round with
+        zero branches raises ``ValueError``, because the wait would never
+        complete. It behaves like ``for_branches(join_round, 1)``.
 
         Args:
             join_round: The round to wait for. It needs at least one branch.

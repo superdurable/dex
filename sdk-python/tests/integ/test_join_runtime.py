@@ -49,8 +49,10 @@ from .shared import unique_id
 WAIT_TIMEOUT = timedelta(seconds=30)
 NOT_STARTED_TIMEOUT = timedelta(seconds=2)
 
+
 def test_all_branches_join_reads_results_reported_before_it_waits() -> None:
     asyncio.run(_all_branches_join_reads_results_reported_before_it_waits())
+
 
 async def _all_branches_join_reads_results_reported_before_it_waits() -> None:
     flow = AllBranchesJoinFlow()
@@ -64,6 +66,7 @@ async def _all_branches_join_reads_results_reported_before_it_waits() -> None:
         await client.invoke_rpc(flow.release_join, flow_id)
         result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         assert result.single_output(JoinOutcome) == JoinOutcome(3, ["C", "A", "B"])
+
 
 @pytest.mark.parametrize(
     "reviewers",
@@ -83,8 +86,10 @@ def test_multi_instance_join_counts_branches_from_the_input_list(
         assert outcome.branch_count == len(reviewers)
         assert sorted(outcome.results) == reviewers
 
+
 def test_partial_join_rounds_reset_and_block_the_next_round() -> None:
     asyncio.run(_partial_join_rounds_reset_and_block_the_next_round())
+
 
 async def _partial_join_rounds_reset_and_block_the_next_round() -> None:
     flow = PartialJoinRoundsFlow()
@@ -114,8 +119,10 @@ async def _partial_join_rounds_reset_and_block_the_next_round() -> None:
         assert request.accepted_rounds == [["A", "B"], ["A", "B"]]
         assert request.late_rounds == [["C"]]
 
+
 def test_results_for_another_round_key_do_not_satisfy_the_join() -> None:
     asyncio.run(_results_for_another_round_key_do_not_satisfy_the_join())
+
 
 async def _results_for_another_round_key_do_not_satisfy_the_join() -> None:
     flow = KeyIsolationJoinFlow()
@@ -131,8 +138,10 @@ async def _results_for_another_round_key_do_not_satisfy_the_join() -> None:
         result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         assert result.single_output(JoinOutcome) == JoinOutcome(1, ["A"])
 
+
 def test_first_branch_join_cancels_siblings_and_keeps_late_results_pending() -> None:
     asyncio.run(_first_branch_join_cancels_siblings_and_keeps_late_results_pending())
+
 
 async def _first_branch_join_cancels_siblings_and_keeps_late_results_pending() -> None:
     flow = CancellingFirstBranchJoinFlow()
@@ -149,17 +158,19 @@ async def _first_branch_join_cancels_siblings_and_keeps_late_results_pending() -
 
         await client.invoke_rpc(flow.release_branch, flow_id, "C")
         await _wait_for_step(client, flow_id, "JoinBranchC")
-        pending_count = await client.invoke_rpc(
-            flow.get_pending_result_count, flow_id, "SplitWithFirstBranchJoin-1"
+        pending_results = await client.invoke_rpc(
+            flow.get_pending_results, flow_id, "SplitWithFirstBranchJoin-1"
         )
-        assert pending_count == 1
+        assert pending_results == ["B"]
 
         await client.invoke_rpc(flow.release_join, flow_id)
         result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         assert result.single_output(str) == "A"
 
+
 def test_rpc_reports_for_a_canceled_branch_so_the_join_fires() -> None:
     asyncio.run(_rpc_reports_for_a_canceled_branch_so_the_join_fires())
+
 
 async def _rpc_reports_for_a_canceled_branch_so_the_join_fires() -> None:
     flow = ReportForCanceledBranchJoinFlow()
@@ -176,8 +187,10 @@ async def _rpc_reports_for_a_canceled_branch_so_the_join_fires() -> None:
         result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         assert result.single_output(JoinOutcome) == JoinOutcome(2, ["B-canceled", "A"])
 
+
 def test_second_fork_of_one_join_in_an_invocation_fails_the_step() -> None:
     asyncio.run(_second_fork_of_one_join_in_an_invocation_fails_the_step())
+
 
 async def _second_fork_of_one_join_in_an_invocation_fails_the_step() -> None:
     flow = ForkTwiceJoinFlow()
@@ -188,8 +201,10 @@ async def _second_fork_of_one_join_in_an_invocation_fails_the_step() -> None:
         detail = result.single_output(str)
         assert "Join branchResult was already forked in this Step execution" in detail
 
+
 def test_rpc_forks_only_with_an_explicit_round_key() -> None:
     asyncio.run(_rpc_forks_only_with_an_explicit_round_key())
+
 
 async def _rpc_forks_only_with_an_explicit_round_key() -> None:
     flow = RpcForkJoinFlow()
@@ -211,18 +226,28 @@ async def _rpc_forks_only_with_an_explicit_round_key() -> None:
         result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         assert result.single_output(JoinOutcome) == JoinOutcome(1, ["A"])
 
+
 @pytest.mark.parametrize(
     "validation_case",
-    ["branches-zero", "branches-over", "remaining-negative", "remaining-over"],
+    [
+        "branches-zero",
+        "branches-over",
+        "remaining-negative",
+        "remaining-over",
+        "first-of-zero-branches",
+    ],
 )
 def test_invalid_join_counts_fail_wait_for(validation_case: str) -> None:
     assert _run_join_condition_validation(validation_case) == ["wait_for failed"]
 
+
 def test_reset_with_nothing_remaining_completes_immediately() -> None:
     assert _run_join_condition_validation("remaining-none") == []
 
+
 def _run_join_condition_validation(validation_case: str) -> list[str]:
     return asyncio.run(_join_condition_validation(validation_case))
+
 
 async def _join_condition_validation(validation_case: str) -> list[str]:
     flow = JoinConditionValidationFlow()
@@ -232,12 +257,15 @@ async def _join_condition_validation(validation_case: str) -> list[str]:
         result = await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         return result.single_output(list[str])
 
+
 def test_join_and_channel_map_with_one_name_fail_registration() -> None:
     with pytest.raises(FlowDefinitionError, match="duplicate persistence definition"):
         Registry([DuplicateJoinNameFlow()])
 
+
 def test_join_deadline_timer_wins_when_a_branch_never_reports() -> None:
     asyncio.run(_join_deadline_timer_wins_when_a_branch_never_reports())
+
 
 async def _join_deadline_timer_wins_when_a_branch_never_reports() -> None:
     flow = JoinDeadlineFlow()
@@ -251,6 +279,7 @@ async def _join_deadline_timer_wins_when_a_branch_never_reports() -> None:
             True, []
         )
 
+
 async def _wait_for_step(
     client: AsyncClient, flow_id: str, step_type: str, number: int = 1
 ) -> None:
@@ -259,6 +288,7 @@ async def _wait_for_step(
         StepExecutionId(step_type, number),
         WaitForStepCompletionOptions(f"{flow_id}-{step_type}-{number}", WAIT_TIMEOUT),
     )
+
 
 async def _assert_step_not_completed(
     client: AsyncClient, flow_id: str, step_type: str, number: int = 1
