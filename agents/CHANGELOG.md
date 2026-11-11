@@ -1,6 +1,6 @@
 # Changelog
 
-All twelve Dex agents packages share this changelog and one version line. A
+All twenty-five published Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 

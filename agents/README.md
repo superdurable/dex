@@ -35,6 +35,7 @@ adapter depends on the published core instead.
 | [`typescript/openai-agents`](typescript/openai-agents) | [`@superdurable/dex-agents-openai-agents`](https://www.npmjs.com/package/@superdurable/dex-agents-openai-agents) | OpenAI Agents SDK |
 | [`typescript/mastra`](typescript/mastra) | [`@superdurable/dex-agents-mastra`](https://www.npmjs.com/package/@superdurable/dex-agents-mastra) | Mastra |
 | [`typescript/claude-agent-sdk`](typescript/claude-agent-sdk) | [`@superdurable/dex-agents-claude-agent-sdk`](https://www.npmjs.com/package/@superdurable/dex-agents-claude-agent-sdk) | Claude Agent SDK |
+| [`cli/typescript/runtime`](cli/typescript/runtime) | `@superdurable/dex-agents-cli`, not published yet | Shared runtime of the TypeScript CLI commands: configuration, `dexcli dev`, connector and local tools, terminal chat |
 | [`cli/typescript/claude-sdk`](cli/typescript/claude-sdk) | `@superdurable/dex-agents-claude-sdk-cli`, not published yet | The `dex-agents-claude-sdk` command: a Claude Agent SDK agent in the terminal |
 | [`cli/typescript/openai-sdk`](cli/typescript/openai-sdk) | `@superdurable/dex-agents-openai-sdk-cli`, not published yet | The `dex-agents-openai-sdk` command: an OpenAI Agents SDK agent in the terminal |
 | [`cli/typescript/vercel-ai`](cli/typescript/vercel-ai) | `@superdurable/dex-agents-vercel-ai-cli`, not published yet | The `dex-agents-vercel-ai` command: a Vercel AI SDK agent in the terminal |
@@ -86,7 +87,7 @@ npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/
 
 ## Versions and compatibility
 
-All twelve packages share one version line, starting at 0.1.0. It is
+All twenty-five published packages share one version line, starting at 0.1.0. It is
 independent of the Dex SDK versions and of the Dex Skills: frameworks move
 faster than Dex, and the adapter API is still before 1.0, so a minor release
 may change it. One release publishes the whole family under one tag,
@@ -151,7 +152,9 @@ before the Workers.
 ## Releases
 
 Publishing a GitHub Release with the tag `agents/v<version>` from a commit on
-`main` publishes all twelve packages: the core first, then the adapters.
+`main` publishes all twenty-five packages in dependency order: the core, the
+adapters, the CLI runtime, then the CLI commands. `dex-agents-cli-testing`
+is never published.
 [`agents-python-publish.yml`](../.github/workflows/agents-python-publish.yml)
 uploads to PyPI and
 [`agents-typescript-publish.yml`](../.github/workflows/agents-typescript-publish.yml)
@@ -163,9 +166,13 @@ when `agents/**` changed and its `agents_version` input is set.
 
 Both workflows stamp the release version first with
 [`script/stamp_agents_release_version.py`](script/stamp_agents_release_version.py).
-It sets one version in all six `pyproject.toml` and six `package.json`
-files, their lockfiles, and the adapters' constraints on their core. Run it
-locally to bump the committed version, and pass `--check` to verify it.
+It sets one version in all fourteen `pyproject.toml` files (the thirteen
+published ones and `dex-agents-cli-testing`) and twelve `package.json`
+files, their lockfiles, and every constraint between agents packages: the
+adapters' on their core, and the CLI packages' on the core, their adapter,
+and the CLI runtime. Python pins `==<version>`; npm peer-depends on
+`^<version>`. Run it locally to bump the committed version, and pass
+`--check` to verify it.
 
 [`script/smoke-test-built-packages.sh`](script/smoke-test-built-packages.sh)
 builds every package with `uv build` and `npm pack`, checks the artifacts,
@@ -173,12 +180,44 @@ and installs them into fresh projects without path dependencies: the core
 first, then each adapter. It imports every TypeScript core subpath with and
 without the optional peer `ai`. It then runs one Pydantic AI session and one Vercel
 AI SDK session against `dexcli dev --engine zd` with a scripted model, using
-the adapters' own test fixtures. Agents CI runs it on every change, so
-packaging regressions fail CI:
+the adapters' own test fixtures. Last, it installs the CLI runtime and each
+CLI command from the built artifacts alone and runs each command's `--help`
+and `init --yes` with a scratch `HOME`; neither needs a model key or a Dex
+server. Agents CI runs it on every change, so packaging regressions fail CI:
 
 ```bash
 DEXCLI=/path/to/dexcli agents/script/smoke-test-built-packages.sh all
 ```
+
+### Splitting a release across PyPI's new-project limit
+
+PyPI accepts only about five new projects per day. A release that publishes
+more new PyPI names than that uploads in two runs. The first release of the
+CLI packages has seven new names: `dex-agents-cli` and six commands.
+
+The PyPI workflow's `skip_packages` input leaves CLI command distributions
+out of one upload. It accepts only command names, because nothing else in the
+release depends on a command. It always builds and smoke-tests all thirteen
+distributions. A later run skips every version PyPI already has. Do not
+publish such a release by hand from the GitHub Releases page: the `release`
+event has no skip input and would upload all seven new names.
+
+1. Day 1: run **Release changed components** with `agents_version` set and
+   `agents_python_skip_packages` set to the last two commands, such as
+   `dex-agents-google-adk-cli dex-agents-builtin-cli`. It creates the
+   Release, publishes every npm package, and uploads every other PyPI
+   distribution.
+2. Day 2: run **Publish agents Python packages to PyPI** on the release tag,
+   so it builds the released commit, with `publish` selected and
+   `skip_packages` empty. It uploads the two skipped commands:
+
+   ```bash
+   gh workflow run agents-python-publish.yml --ref agents/v<version> \
+     -f version=<version> -f publish=true
+   ```
+
+Each new name needs its PyPI pending trusted publisher before the run that
+uploads it.
 
 ## Adding a package
 
@@ -200,7 +239,8 @@ DEXCLI=/path/to/dexcli agents/script/smoke-test-built-packages.sh all
 `Agents CI` finds every executable `agents/*/*/ci.sh` and runs each in its own
 job, so a new package needs no workflow change. Add a new package to the
 package lists in the stamping script, the smoke test, both publish workflows,
-and the tables above. A new package name needs its trusted publishing set up
+and the tables above, in dependency order. In the scripts, the package in
+`agents/cli/<language>/<name>` is `cli/<name>`. A new package name needs its trusted publishing set up
 on PyPI or npm before the first release that publishes it. Source
 files use the
 Sustainable Use License header; `make copyright-check` verifies it.

@@ -12,6 +12,13 @@ on:
         required: false
         default: ""
         type: string
+      agents_python_skip_packages:
+        description: >-
+          Space-separated agents CLI command distributions the PyPI publisher leaves out, for PyPI's
+          new-project limit; empty uploads all (see agents/README.md#releases)
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -349,13 +356,17 @@ jobs:
           AGENTS_VERSION: ${{ needs.plan.outputs.agents_version }}
           PUBLISHER_NAME: ${{ matrix.publisher.name }}
           PUBLISHER_WORKFLOW: ${{ matrix.publisher.workflow }}
+          PYTHON_SKIP_PACKAGES: ${{ inputs.agents_python_skip_packages }}
         run: |
           title="Publish ${PUBLISHER_NAME} ${AGENTS_VERSION}"
+          inputs=(-f "version=${AGENTS_VERSION}" -f "publish=true")
+          if [[ "${PUBLISHER_WORKFLOW}" == "agents-python-publish.yml" && -n "${PYTHON_SKIP_PACKAGES}" ]]; then
+            inputs+=(-f "skip_packages=${PYTHON_SKIP_PACKAGES}")
+          fi
           gh workflow run "${PUBLISHER_WORKFLOW}" \
             --repo "${GITHUB_REPOSITORY}" \
             --ref main \
-            -f "version=${AGENTS_VERSION}" \
-            -f "publish=true"
+            "${inputs[@]}"
           for _ in {1..30}; do
             run_id="$({
               gh run list \
