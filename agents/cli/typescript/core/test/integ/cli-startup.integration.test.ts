@@ -16,7 +16,13 @@ import { after, afterEach, before, describe, test } from "node:test";
 import { findFreeLoopbackPorts, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { parseConfigYaml, readCliEnvironment, readStartedDexcliDev, runAgentCli } from "../../src/index.js";
-import { CliProcess, TestHome, TextCollector, enginePorts } from "../fixtures/cli-test-support.js";
+import {
+  CliProcess,
+  TestHome,
+  TextCollector,
+  assertNoStartedServerLeft,
+  enginePorts,
+} from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { fixedToolSetScriptedHarness, scriptedHarness } from "../fixtures/scripted-harness.js";
 
@@ -34,21 +40,16 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
   });
 
   afterEach(async () => {
+    // SIGTERM lets each command stop the dexcli dev it started; the test cannot prove it owns that group.
     for (const cli of processes.splice(0)) {
-      await cli.kill();
+      await cli.terminate();
     }
   });
 
   after(async () => {
-    for (const pid of startedServers) {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch {
-        // Already gone.
-      }
-    }
     await connectors?.stop();
     await engine?.stop();
+    assertNoStartedServerLeft(startedServers);
   });
 
   function start(home: TestHome, commandArguments: readonly string[] = []): CliProcess {

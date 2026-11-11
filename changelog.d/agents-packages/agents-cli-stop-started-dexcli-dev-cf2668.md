@@ -19,9 +19,11 @@ section: Changed
   `dexcli dev` fails with exit code 1 and one short line when that server
   stops. A command killed with SIGKILL, or one that crashes, leaves its
   `dexcli dev` running; later commands reuse it and do not stop it.
-- Python CLI core on Windows: it stops a started `dexcli dev` with
-  CTRL_BREAK_EVENT, and it no longer checks the recorded `dexcli dev` with
-  `os.kill(pid, 0)`, which ends that process on Windows.
+- On Windows, the TypeScript CLI core stops a started `dexcli dev` with
+  `taskkill /T`, then `taskkill /T /F`, so `dex-server-zd` stops too. The
+  Python CLI core sends CTRL_BREAK_EVENT first, then `taskkill /T /F`. It no
+  longer checks the recorded `dexcli dev` with `os.kill(pid, 0)`, which ends
+  that process on Windows.
 - TypeScript CLI core: during the chat, the Dex SDK Worker's task stream
   reconnect messages go only to `~/.dex/agents/<harness>.log`, so a lost Dex
   server no longer prints stack traces into the chat. Other library warnings

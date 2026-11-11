@@ -379,8 +379,11 @@ dev this command started." On SIGTERM or SIGHUP it then exits the process with
 stop: another SIGTERM, SIGHUP, or SIGINT sends SIGKILL at once and exits. The
 command signals the group only until Node reports the exit of `dexcli dev`,
 because Node has reaped it by then and the group ID may be reused. If group
-members outlive `dexcli dev`, it prints their group instead of signalling it.
-On Windows, which has no process groups, it signals only `dexcli dev`.
+members seem to outlive `dexcli dev`, it says that processes may still run and
+prints a `kill` hint instead of signalling the group. On Windows, which has no
+process groups, it runs `taskkill /PID <pid> /T` and, after 20 seconds,
+`taskkill /PID <pid> /T /F`, which also end `dex-server-zd`; Node's own
+`kill` would end `dexcli dev` alone.
 
 A command killed with SIGKILL, or one that crashes, cannot stop the
 `dexcli dev` it started: it keeps running and its record stays. Later commands

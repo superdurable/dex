@@ -17,6 +17,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +38,8 @@ from dex_agents_cli_testing.model_api import ModelApiStub
 
 UNREACHABLE_PROXY = "http://127.0.0.1:9"
 COMMAND_TIMEOUT_SECONDS = 120
+# Longer than the CLI's 20-second dexcli dev stop grace period plus its 5-second kill wait.
+_TERMINATE_WAIT_SECONDS = 40.0
 APPROVE_PROMPT = "Approve? [y/N, or n <reason>]"
 
 
@@ -133,13 +136,28 @@ class CommandHome:
         )
 
     def close(self) -> None:
-        """Kill every command process and a dexcli dev one of them started."""
+        """End every command process with SIGTERM, so each stops the dexcli dev it started.
+
+        A recorded dexcli dev is never signalled: its pid may belong to another
+        process by now.
+
+        Raises:
+            AssertionError: If a recorded dexcli dev still runs afterwards.
+        """
         for child in self.children:
+            if child.isalive():
+                child.kill(signal.SIGTERM)
+                deadline = time.monotonic() + _TERMINATE_WAIT_SECONDS
+                while child.isalive() and time.monotonic() < deadline:
+                    time.sleep(0.1)
             child.close(force=True)
         state_path = self.home / ".dex" / "agents" / "dexcli-dev.json"
-        if state_path.exists():
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(json.loads(state_path.read_text())["pid"], signal.SIGKILL)
+        if not state_path.exists():
+            return
+        pid = json.loads(state_path.read_text())["pid"]
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, 0)
+            raise AssertionError(f"the dexcli dev in {state_path} (pid {pid}) may still run")
 
 
 async def expect(child: pexpect.spawn, pattern: str | list[str], timeout: float = 90) -> int:

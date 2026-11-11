@@ -14,7 +14,7 @@ import { after, afterEach, before, describe, test } from "node:test";
 import { findFreeLoopbackPorts, pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { readCliEnvironment, readStartedDexcliDev } from "../../src/index.js";
-import { CliProcess, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
+import { CliProcess, TestHome, assertNoStartedServerLeft, enginePorts } from "../fixtures/cli-test-support.js";
 
 const config = "connectors: {enabled: []}\nlocal_tools: {browser: false}\n";
 const stoppedLine = "Stopped the dexcli dev this command started.";
@@ -30,20 +30,15 @@ describe("The dexcli dev a command started stops when it exits; a reused one kee
   });
 
   afterEach(async () => {
+    // SIGTERM lets each command stop the dexcli dev it started; the test cannot prove it owns that group.
     for (const cli of processes.splice(0)) {
-      await cli.kill();
+      await cli.terminate();
     }
   });
 
   after(async () => {
-    for (const pid of startedServers) {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch {
-        // Already gone.
-      }
-    }
     await engine?.stop();
+    assertNoStartedServerLeft(startedServers);
   });
 
   function track(cli: CliProcess): CliProcess {

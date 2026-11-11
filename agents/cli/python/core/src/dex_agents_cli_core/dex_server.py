@@ -134,8 +134,8 @@ class StartedDexcliDevProcess:
         with contextlib.suppress(OSError, ValueError):
             if _has_group_members_after_exit(process.pid):
                 report(
-                    f"dexcli dev (pid {process.pid}) exited, but processes of its group still "
-                    f"run; stop them with: kill -- -{process.pid}"
+                    f"dexcli dev (pid {process.pid}) exited, but processes of its process group "
+                    f"may still run; if so, stop them with: kill -- -{process.pid}"
                 )
             elif was_running:
                 report(_STOPPED_LINE)
@@ -439,8 +439,18 @@ def _kill_process_group_while_leader_runs(process: subprocess.Popen[bytes]) -> N
     if process.returncode is not None:
         return
     if sys.platform == "win32":
-        with contextlib.suppress(OSError):
-            process.kill()
+        # process.kill() would end dexcli dev alone and leave dex-server-zd running.
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError:
+            with contextlib.suppress(OSError):  # Without taskkill, end dexcli dev alone.
+                process.kill()
         return
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(process.pid, signal.SIGKILL)
@@ -514,8 +524,16 @@ def _remove_record_of(environment: CommandEnvironment, pid: int) -> None:
     except (OSError, ValueError):
         recorded = None
     if not (isinstance(recorded, dict) and recorded.get("pid") == pid):
-        with contextlib.suppress(OSError):  # A newer record took its place; that one stays.
+        try:
             os.link(claimed, path)
+        except FileExistsError:
+            pass  # A newer record took its place; that one stays.
+        except OSError:
+            # Without hard links, rename it back while the path is still empty.
+            if not path.exists():
+                with contextlib.suppress(OSError):
+                    claimed.rename(path)
+                    return
     claimed.unlink(missing_ok=True)
 
 
@@ -537,17 +555,16 @@ if sys.platform == "win32":
         # os.kill(pid, 0) would end the process on Windows.
         import ctypes
 
-        process_query_limited_information = 0x1000
+        synchronize = 0x00100000
         error_access_denied = 5
-        still_active = 259
+        wait_timeout = 0x00000102
         kernel32 = ctypes.windll.kernel32
-        handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+        handle = kernel32.OpenProcess(synchronize, False, pid)
         if not handle:
             return bool(ctypes.GetLastError() == error_access_denied)
         try:
-            exit_code = ctypes.c_ulong()
-            is_read = kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
-            return bool(is_read) and exit_code.value == still_active
+            # A process handle is signalled once the process exits, whatever its exit code.
+            return bool(kernel32.WaitForSingleObject(handle, 0) == wait_timeout)
         finally:
             kernel32.CloseHandle(handle)
 

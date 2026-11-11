@@ -38,6 +38,8 @@ import {
 
 const cliEntryPath = fileURLToPath(new URL("./scripted-harness-cli.js", import.meta.url));
 const defaultWaitMs = 90_000;
+// Longer than the command's 20-second stop grace period plus its 5-second kill wait.
+const terminateWaitMs = 40_000;
 
 /** Runs a command on a 50x400 pseudo-terminal, which Node lacks, forwarding bytes, SIGTERM, SIGHUP, and its exit status. */
 const terminalBridgeScript = `
@@ -187,6 +189,22 @@ export class CliProcess {
   }
 
   /**
+   * Sends SIGTERM, so the command stops a dexcli dev it started, and kills it only if it does not exit.
+   * @returns A Promise that resolves after it exited.
+   */
+  public async terminate(): Promise<void> {
+    if (this.child.exitCode !== null || this.child.signalCode !== null) {
+      return;
+    }
+    this.child.kill("SIGTERM");
+    try {
+      await this.waitForExit(terminateWaitMs);
+    } catch {
+      await this.kill();
+    }
+  }
+
+  /**
    * Kills the command's whole process group with SIGKILL, as a crash would.
    * @returns A Promise that resolves after it exited.
    */
@@ -322,6 +340,24 @@ export class TestHome {
   /** `~/.dex/agents/media`, where `media.store: auto` keeps images. */
   public get mediaDirectory(): string {
     return join(this.directory, ".dex", "agents", "media");
+  }
+}
+
+/**
+ * Fails while a reported dexcli dev group still has members; it signals nothing, since the test owns none.
+ * @param pids - The pids of the dexcli dev processes the commands started.
+ */
+export function assertNoStartedServerLeft(pids: readonly number[]): void {
+  const left = pids.filter((pid) => {
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch (error: unknown) {
+      return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    }
+  });
+  if (left.length > 0) {
+    throw new Error(`process groups of started dexcli dev processes may still run: ${left.join(", ")}`);
   }
 }
 

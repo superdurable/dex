@@ -142,13 +142,16 @@ group, which includes `dex-server-zd`, and SIGKILL after 20 seconds, and prints
 "Stopped the dexcli dev this command started." A SIGTERM, SIGHUP, or Ctrl-C
 during those 20 seconds sends SIGKILL at once and exits with 128 plus the
 signal number. The command signals the group only while its `Popen` has not
-reaped `dexcli dev`, because after that the group ID may be reused. If group
-members outlive `dexcli dev`, it prints their group instead of signalling it.
+reaped `dexcli dev`, because after that the group ID may be reused. If the
+group seems to have members after `dexcli dev` exits, it says that processes
+may still run and prints a `kill` hint instead of signalling the group.
 SIGTERM and SIGHUP cancel the command's task, so its cleanup runs, and the
 command exits with 128 plus the signal number. On Windows, where event loops
 take no signal handlers, Ctrl-C stays the usual KeyboardInterrupt, and the
-command sends `dexcli dev`, started in its own process group, CTRL_BREAK_EVENT
-and then ends it. The `dexcli dev` state stays in `~/.dex/zd/<dex port>`, so a
+command sends `dexcli dev`, started in its own process group, CTRL_BREAK_EVENT,
+then ends its process tree with `taskkill /T /F`. A recorded `dexcli dev` is
+checked with `WaitForSingleObject` there, because `os.kill(pid, 0)` would end
+it. The `dexcli dev` state stays in `~/.dex/zd/<dex port>`, so a
 later command that starts it again can `--resume` a session.
 
 A command killed with SIGKILL, or one that crashes, cannot stop the

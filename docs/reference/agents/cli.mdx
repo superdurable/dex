@@ -171,11 +171,13 @@ command stops the whole process group of **dexcli dev**, which includes
 SIGTERM, and sends SIGKILL after 20 seconds. Another SIGTERM, SIGHUP, or
 Ctrl-C during those 20 seconds sends SIGKILL at once. The command then prints
 "Stopped the dexcli dev this command started." It signals the group only
-while **dexcli dev** itself still runs. If **dexcli dev** exits but processes
-of its group still run, the command prints their process group so that you can
-stop them. Windows has no process groups, so there the command signals only
-**dexcli dev**; the Python commands first send it CTRL_BREAK_EVENT. Before 0.6.0, the started **dexcli dev** kept running
-after the command exited.
+while **dexcli dev** itself still runs. If **dexcli dev** exits but its process
+group seems to have members left, the command says that processes may still
+run and how to stop them. On Windows, the TypeScript commands stop the process
+tree with **taskkill /T**, and add **/F** after 20 seconds. The Python commands
+first send **dexcli dev** CTRL_BREAK_EVENT, and then use **taskkill /T /F**.
+Before 0.6.0, the started **dexcli dev** kept running after the command
+exited.
 
 A **dexcli dev** that the command reused keeps running. This includes one you
 started yourself and one that another command started. Sessions and their

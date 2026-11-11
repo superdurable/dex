@@ -6,10 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   closeSync,
+  existsSync,
   linkSync,
   mkdirSync,
   mkdtempSync,
@@ -238,12 +239,13 @@ export class StartedDexcliDevProcess {
       }
     }
     // Signal 0 delivers nothing, so asking about a group ID that may be reused is harmless.
-    if (await isTrueWithin(() => !isProcessGroupAlive(pid), leftoverWaitMs)) {
-      if (wasRunning) {
-        this.writeLine(stoppedLine);
-      }
-    } else {
-      this.writeLine(`dexcli dev (pid ${pid}) exited, but processes of its group still run; stop them with: kill -- -${pid}`);
+    const isGroupGone = process.platform === "win32" || (await isTrueWithin(() => !isProcessGroupAlive(pid), leftoverWaitMs));
+    if (!isGroupGone) {
+      this.writeLine(
+        `dexcli dev (pid ${pid}) exited, but processes of its process group may still run; if so, stop them with: kill -- -${pid}`,
+      );
+    } else if (wasRunning) {
+      this.writeLine(stoppedLine);
     }
     this.removeSignalListeners();
   }
@@ -487,22 +489,34 @@ async function probeDexFlowService(serverAddress: string): Promise<string | unde
   }
 }
 
-/** Returns the `process.kill` target of a group leader's group; Windows has no process groups. */
-function processGroupTarget(pid: number): number {
-  return process.platform === "win32" ? pid : -pid;
+/** Signals a group whose leader is still unreaped; Windows has no groups, so taskkill ends the process tree. */
+function signalProcessGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
+  if (process.platform === "win32") {
+    // Node's kill would force-end dexcli dev alone and leave dex-server-zd running.
+    const result = spawnSync("taskkill", ["/PID", String(pid), "/T", ...(signal === "SIGKILL" ? ["/F"] : [])], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    if (result.error !== undefined) {
+      // Without taskkill, ending dexcli dev alone is the only stop left.
+      killIgnoringExit(pid, signal);
+    }
+    return;
+  }
+  killIgnoringExit(-pid, signal);
 }
 
-function signalProcessGroup(pid: number, signal: NodeJS.Signals): void {
+function killIgnoringExit(target: number, signal: NodeJS.Signals): void {
   try {
-    process.kill(processGroupTarget(pid), signal);
+    process.kill(target, signal);
   } catch {
-    // The group already exited.
+    // The process already exited.
   }
 }
 
 function isProcessGroupAlive(pid: number): boolean {
   try {
-    process.kill(processGroupTarget(pid), 0);
+    process.kill(-pid, 0);
     return true;
   } catch (error: unknown) {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
@@ -551,8 +565,16 @@ function removeRecordOf(environment: CliEnvironment, pid: number): void {
   if (recordedPid !== pid) {
     try {
       linkSync(claimedPath, recordPath);
-    } catch {
-      // A newer record took its place; that one stays.
+    } catch (error: unknown) {
+      // EEXIST: a newer record took its place, and that one stays. Without hard links, rename it back.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" && !existsSync(recordPath)) {
+        try {
+          renameSync(claimedPath, recordPath);
+          return;
+        } catch {
+          // Losing the other command's record only costs it the connectors URL it recorded.
+        }
+      }
     }
   }
   rmSync(claimedPath, { force: true });
