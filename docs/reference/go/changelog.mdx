@@ -18,6 +18,10 @@ Not released yet. The next minor release, sdk-go/v1.41.0, ships these changes.
 - Removed **WaitForStepCompletionOptions.InternalHandlerTimeout** and **WaitForAttributeOptions.InternalHandlerTimeout**. **RequestID** remains accepted but the server does not read it for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
 - Generated bindings rename **FlowExecutionID** to **FlowRunID** and **FlowExecutionId** to **FlowRunId** on response and history messages. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
 
+### Added
+
+- **Join** and **JoinRound** synchronize parallel branches of one Flow. **DefineJoin** defines a Join over a ChannelMap of branch results. **Join.Fork** starts the branches and the join Step with one **JoinRound**; **Join.ForkWithRoundKey** takes an explicit round key for RPCs. Branches report with **Join.EndBranch** or **Join.ReportBranchResult**. The join Step waits with **Join.ForAllBranches**, **Join.ForFirstBranch**, or **Join.ForBranches** and reads **Join.BranchResults**. The next round's split Step resets the previous round with **Join.ForRemainingBranches** and reads **Join.RemainingBranchResults**. [Reference](/reference/go/waits).
+
 ## 1.40 {#v1-40}
 
 Released 2026-11-09 as [sdk-go/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.40.0). Patch release [sdk-go/v1.40.2](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.40.2) followed the same day.

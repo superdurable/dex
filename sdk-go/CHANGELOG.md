@@ -13,6 +13,20 @@
 
 ### Added
 
+- Add `Join` and `JoinRound` to synchronize parallel branches of one Flow.
+  `DefineJoin` defines a Join over a ChannelMap of branch results with the
+  same name. `Join.Fork` uses the split Step's execution ID as the round key
+  and the number of branch builders as the branch count, and builds every
+  branch movement and the join movement with one `JoinRound`;
+  `Join.ForkWithRoundKey` takes an explicit key for RPCs. Branches report with
+  `Join.EndBranch` or `Join.ReportBranchResult`. The join Step waits with
+  `Join.ForAllBranches`, `Join.ForFirstBranch`, or `Join.ForBranches` and reads
+  `Join.BranchResults`. The next round's split Step resets the previous round
+  with `Join.ForRemainingBranches` and reads `Join.RemainingBranchResults`.
+  `JoinRound` is stored in Step inputs as
+  `{"roundKey": string, "branchCount": integer}`.
+  [Reference](https://docs.superdurable.io/reference/go/waits)
+
 - Add `NewStandaloneContext` and `StandaloneContextOptions` to create a
   `Context` for running Step code outside a Worker, for example in a tool
   server or a test. The caller supplies the metadata, including the required
