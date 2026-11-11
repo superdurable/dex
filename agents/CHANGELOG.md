@@ -4,7 +4,7 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
-## 0.5.0 (not released yet)
+## 0.5.0 (2026-11-11)
 
 ### Dex SDK 1.45.0
 
@@ -75,6 +75,66 @@ for the Dex SDK and framework versions each release supports.
   task that an earlier attempt started and can never send `tools/call` for the
   call. A task polled inside the tool Step, such as one bound to a protocol
   session, may be called again when the server no longer knows it.
+
+### Showing sessions in Dex Web
+
+- Python and TypeScript cores: new **session_flow_definition_document**
+  (`sessionFlowDefinitionDocument`) returns the session Flow Definition Graph
+  of one agent as the SDK's **FlowDefinitionDocument**. Pass it in
+  `WorkerOptions(flow_definitions=...)` (`flowDefinitions`), and the Worker
+  uploads the graph when it starts, so Dex Web shows the agent's sessions and
+  Actions without `--flow-rendering-dir`. The upload needs server-zd 0.1.26 or
+  later; an older server only logs a warning. Rendering a file with
+  **render_session_flow_graph** stays for older servers.
+- The document's `generated_at` is a fixed time, the time the graph template
+  last changed (`SESSION_FLOW_GRAPH_GENERATED_AT` in
+  `dex_agents.session_graph`), the same in both cores. A Worker restart writes
+  nothing, and an upgrade replaces the graph. The server keeps a stored graph
+  whose time is the same or later, so changing only the Action permission
+  needs one upload with `force`. The conformance file
+  `session_graph_renderings.json` records the time and the template hash, and
+  `generate.py` refuses a template change without a later time.
+- Python and TypeScript CLI runtimes: the command uploads the graph of its
+  suffixed session Flow type when it starts, so CLI sessions appear in Dex Web
+  with `dexcli dev` 1.45.0. The outcome and any failure go to
+  `~/.dex/agents/<harness>.log`, not the terminal. The session Actions require `dex-agents-cli.operate`
+  (**SESSION_ACTION_PERMISSION**, `sessionActionPermission`) in every CLI
+  runtime; the conformance file `cli_session_flow_types.json` fixes it.
+- Go core: no session graph yet.
+
+### Ending or continuing a built-in loop turn
+
+- Python and TypeScript cores: new built-in loop hook
+  **AgentDefinition.decide_turn_continuation** (`decideTurnContinuation`). At
+  the end of each loop iteration it receives a **TurnContinuationContext**
+  (the iteration's model output and tool results) and returns `"end"`,
+  `"default"`, or a continuation with a message: **ContinueTurn(message)** in
+  Python, `{ action: "continue", message }` (**ContinueTurn**) in TypeScript.
+  After tool calls, `"end"` completes the turn in the next `RunModel` Step
+  without a model call, so the turn's last message is a tool result. After an
+  answer without tool calls, a continuation stores the answer and its message
+  as user text, then runs another `RunModel` Step in the same turn; the next
+  request ends with that user message, as every provider requires. After tool
+  calls, a continuation's message follows the tool results. `"default"` and
+  no hook keep the earlier behavior.
+- At most **MAX_CONSECUTIVE_TURN_CONTINUATIONS**
+  (`maxConsecutiveTurnContinuations`, 8) continuations in a row; the next one
+  ends the turn with its answer stored and `last_turn_error` set to
+  **TURN_CONTINUATION_LIMIT_ERROR**. A tool call resets the count. An
+  exception in the hook, or an invalid result such as a blank message, fails
+  the `RunModel` attempt, which the retry policy runs again.
+- Runner contract additions: the **TurnContinued** outcome
+  (`kind: "turn_continued"`) makes the session store its messages and run
+  `RunModel` again, and **TurnCompleted.turn_error** (`turnError`) ends a turn
+  as failed without a retry. Existing runners need no change.
+- Built-in loop run state gains the key `consecutive_continuations`, written
+  only after a continued answer. Earlier Workers ignore it, and sessions
+  stored before this release continue unchanged.
+- TypeScript core: **convertAgentSnapshotToUIMessages** shows a user message
+  between two model calls of one turn, such as a continuation message, as the
+  start of the next model call's step instead of a user message, as the UI
+  stream does.
+- Go core: not supported yet.
 
 ### Added
 
@@ -197,6 +257,58 @@ for the Dex SDK and framework versions each release supports.
   fails the call with `argument conversion must be synchronous`, and the
   TypeScript type **PreparedToolArguments** refuses a Promise. The stored tool
   call and the approval interrupt keep the model's original arguments.
+- Python, TypeScript, and Go cores: **ToolExecutionResult** and **AgentToolCall**
+  have an optional `runner_tool_state` (`runnerToolState`, `RunnerToolState`):
+  opaque text that a runner returns with a tool's result for its own later
+  model calls, such as the framework state the tool changed. The session stores
+  it on the `succeeded` record, apart from the output, and returns it to the
+  runner in the turn's tool call records. It never reaches the model, the
+  browser snapshot (`agent_snapshot_to_json`, `agentSnapshotToJson`), or trace
+  attributes. Only the attempt that commits the result stores it. A record
+  written before 0.5.0 reads it as absent, and a Worker before 0.5.0 ignores
+  it. `agents/conformance` has the field and a `released-0.4.0` tool call
+  case.
+- Python LangGraph adapter: Deep Agents agents from **create_deep_agent** run
+  as agent sessions. A **DeltaChannel** in the root graph is accepted, and each
+  turn-local checkpoint stores its whole value. A tool with a **ToolRuntime**
+  or **InjectedState** parameter receives the graph state of its deferral in
+  its tool Step, without the message list, and reads and writes state as in a
+  graph task, as Deep Agents' **StateBackend** file tools do. A tool may return
+  a **Command** with an `update` mapping. The tool's state writes travel in
+  the result's **runner_tool_state**, and the next `RunModel` replays them
+  once. A replayed tool result has the fixed ID
+  `dex-tool-result-<turn_id>-<tool_call_id>`. New session Flow and
+  **LangGraphAgentRunner** options:
+  **excluded_tool_names** removes graph tools from model requests and tool
+  Steps, such as `task` to turn off subagents, and frees their names for tool
+  sources; **select_turn_chat_model** picks each turn's chat model from its
+  **AgentTurnContext**; **should_defer_tool_calls_before_middleware** makes the
+  deferral the outermost tool wrapper on the runner's own copy of the graph,
+  which `create_deep_agent`'s middleware order otherwise prevents. Existing
+  graphs behave as before, except for the fixed ID of a replayed tool result. See
+  [A Deep Agents agent](python/langgraph/README.md#a-deep-agents-agent).
+- The **dex-agents-deepagents** command uses these options instead of its own
+  state schema, subagent middleware replacement, and model middleware. Its
+  behavior is unchanged.
+- `@superdurable/dex-agents-pi`: a Pi tool's `prepareArguments` becomes the
+  function tool's **prepareArguments**, so the built-in loop converts an old
+  argument shape before the schema check. A plain error a Pi tool throws
+  follows the call's **ToolCallContext.effect**, the effect after
+  `toolPolicies`: it fails the call for `read` and `idempotent_write`, and
+  records `outcome_unknown` for `non_idempotent_write`, `unclassified`, or a
+  context without an effect. See [typescript/pi](typescript/pi/README.md).
+- `@superdurable/dex-agents-pi`: **createPiAiModelClient** sends the images of
+  built-in loop user text and tool result items as pi-ai image content, with
+  the base64 of their bytes from **ModelRequest.imageBytes**, after the item's
+  text. A request without an image's bytes throws a **TypeError** before pi-ai
+  sends it. A model whose `input` lacks `"image"` gets pi-ai's placeholder
+  text instead. New **piAiEstimatedImageInputTokens** (1600), which
+  `estimateInputTokens` counts per image. With a media store, the image parts
+  of a Pi tool result from **piAgentFunctionTool** or **piDurableFunctionTool**
+  are uploaded during the call and returned with **functionToolResult**, so the
+  model sees them after the text. Without a store, and for an image the store
+  refuses, each image still becomes `[image omitted: <mime type>]`. See
+  [typescript/pi](typescript/pi/README.md).
 
 ### Images
 
@@ -295,6 +407,56 @@ for the Dex SDK and framework versions each release supports.
   store to their adapter, and the built-in commands in both languages pass it
   to the built-in loop, so their models see the images. See
   [Images](cli/README.md#images).
+- Agents CLI: the TypeScript **dex-agents-pi** command passes the media store
+  to the built-in loop, so images attached with **/image** reach its model.
+  Images that its Pi tools return, such as `read` of a PNG, JPEG, GIF, or
+  WebP file in the workspace, are uploaded to the same store in the tool Step
+  and reach the next model call after the result's text, at most 20 per
+  result. A refused or excess image becomes `[image omitted: <mime type>]`
+  and the call still succeeds. Before, `read` gave the model only that note.
+  See [cli/typescript/pi](cli/typescript/pi/README.md#images).
+- Built-in agent loop, Python and TypeScript: function tools return images.
+  A function tool returns the new **FunctionToolResult** with `output` and
+  `images` (`functionToolResult({ output, images })` in TypeScript), and the new
+  **ToolCallContext.media_store** (`mediaStore`) gives it the runner's media
+  store, or none when the runner has none, to upload the bytes with
+  `put_image` (`putImage`). The runner returns the images in
+  **ToolExecutionResult.images**, so the session checks, stores, and shows
+  them exactly like a tool source's images. Images from a runner without a
+  media store fail the call once, without a retry, and the model sees the
+  error. Strings and other JSON results are
+  unchanged. See the core README, "Images from function tools".
+- Built-in agent loop, Python and TypeScript: images reach the model when the
+  session Flow has a media store, a new optional **media_store** on
+  **builtin_agent_session_flow** and **BuiltinLoopAgentRunner**
+  (`mediaStore` in the new third argument of `createBuiltinAgentSessionFlow`,
+  **BuiltinAgentSessionFlowOptions**, and the second argument of
+  `BuiltinLoopAgentRunner`). With a store, the runner implements
+  **ImageUserMessageBuilder**, its stored `user_text` and `tool_result` items
+  keep image references in a new `images` list (written only when non-empty,
+  so other items are unchanged), and it reads the bytes right before each
+  model call into the new **ModelRequest.image_bytes** (`imageBytes`). New
+  **UserTextItem.images** and **ToolResultItem.images**
+  (`ModelUserTextItem.images`, `ModelToolResultItem.images`). Images of an
+  **McpToolSource** built with the same store reach the model too. A store
+  read failure fails that `RunModel` attempt, which retries. Context summary
+  calls see text only. Without a store the session refuses images, as before,
+  and a tool result's references are stored but not shown to the model. See
+  the core README, "Images on the built-in loop".
+- **LiteLLMModelClient** sends images as base64 `data:` URLs: `input_image`
+  parts in Responses API messages and `function_call_output` outputs;
+  `image_url` parts in Chat Completions user messages, and in tool messages
+  for Anthropic and Bedrock. Other Chat Completions providers, such as
+  OpenAI, get the tool result's images in a user message after the run of
+  tool messages, with **TOOL_RESULT_IMAGES_TEXT**. Known limitation: Gemini
+  models on the Gemini API and Vertex AI get user message images, but not a
+  tool result's images, on either API. Their tool result ends with
+  **TOOL_RESULT_IMAGES_OMITTED_TEXT** instead.
+  `estimate_input_tokens` counts **ESTIMATED_IMAGE_INPUT_TOKENS** per image
+  sent.
+- **createAiSdkModelClient** sends images as AI SDK `file` parts in user
+  messages and in tool result `content` output. `estimateInputTokens` counts
+  **estimatedImageInputTokens** per image.
 
 ### Changed
 
