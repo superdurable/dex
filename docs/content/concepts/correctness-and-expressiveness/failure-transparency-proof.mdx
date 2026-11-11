@@ -82,9 +82,11 @@ from the Flow run, the Step execution, the method, and the effect. The
 
 The proof also covers some client retries, and not others:
 
-- A **StartFlow** retry is covered when it reuses the request ID, sets the
-  option that returns the existing run, uses the default ID reuse policy, and
-  comes before Dex purges the closed run. See
+- A **StartFlow** retry is covered when it reuses the request ID of the first
+  start, both the first start and the retry set the option that returns the
+  existing run, and the Flow uses the default ID reuse policy. The retry must
+  also be ordered in the server's log before Dex purges the closed run.
+  Reaching the server first is not enough. See
   [Start options](/concepts/flow#start-options).
 - A **PublishToChannel** request sent again after a lost response is a second
   request. It can publish the message twice. Publishing once through RPC

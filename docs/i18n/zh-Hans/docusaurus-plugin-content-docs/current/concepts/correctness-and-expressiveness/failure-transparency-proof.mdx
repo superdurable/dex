@@ -48,7 +48,7 @@ Dex 有一个经计算机检查的证明，讲的是遇到故障的 Flow。在�
 
 证明覆盖一部分客户端重试，不覆盖另一部分：
 
-- **StartFlow** 重试在以下条件下被覆盖：复用 request ID，设置返回已有运行的选项，使用默认的 ID 复用策略，并且发生在 Dex 清除已关闭的运行之前。见[启动选项](/concepts/flow#start-options)。
+- **StartFlow** 重试在以下条件下被覆盖：复用第一次启动的 request ID；第一次启动和重试都设置了返回已有运行的选项；Flow 使用默认的 ID 复用策略。重试还必须在 server 的日志中排在 Dex 清除已关闭的运行之前。先到达 server 并不够。见[启动选项](/concepts/flow#start-options)。
 - 响应丢失后再次发送的 **PublishToChannel** 请求是第二个请求，可能把消息发布两次。通过 RPC request ID 只发布一次的做法已在计划中，见 [issue 1519](https://github.com/superdurable/dex/issues/1519)。
 - 不带 run ID 的 **StopFlow** 重试，可能停掉同一 Flow ID 较新的一次运行。传入 run ID 的做法已在计划中，见 [issue 1520](https://github.com/superdurable/dex/issues/1520)。
 

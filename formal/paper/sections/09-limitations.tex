@@ -43,7 +43,7 @@ place where a real deployment can leave the theorem.
   longer than the total retry duration exhausts the method. Code that
   resumes from a heartbeat checkpoint breaks H3. The Lean model leaves
   failure policies and ASYNC starts out, so H2 and SYNC hold there by
-  construction; the theorem covers those features by not modeling them.
+  construction. The theorem does not cover Flows that use those features.
 \item \emph{Finitely many failures for liveness.} Liveness also assumes
   that the server comes back after every crash and that every interrupt
   eventually leaves the interrupted set. Progress is defined through the abstraction map, so the theorem
@@ -57,11 +57,14 @@ place where a real deployment can leave the theorem.
   second request, and the message can be published twice. That is outside
   failure transparency. Exactly-once publication through RPC request IDs is
   planned.
-\item \emph{StartFlow retries after the purge.} A retry deduplicates only
-  while the run is still in the Flow directory; after the purge it starts a
-  new run. The theorem assumes every retry comes before the purge, and the
-  Lean model, which keeps a closed run forever, makes this hold by
-  construction.
+\item \emph{StartFlow retries after the purge.} The first StartFlow and
+  every retry set \kw{ignore\_already\_started\_error}, and a retry reuses
+  the first request ID. A retry deduplicates only while the run is still in
+  the Flow directory; after the purge it starts a new run. The theorem
+  assumes that every retry's command is ordered in the committed log before
+  the purge; a retry that reaches the server first can still be ordered
+  after it. The Lean model, which keeps a closed run forever, makes this
+  hold by construction.
 \item \emph{Liveness backward only without retries.} Every fair DexF trace
   erases to a fair Dex trace, but the converse holds only for input words
   without StartFlow retries, because stamped retries move the clock
@@ -100,9 +103,12 @@ was canceled. The server does not guarantee this on its own. Cancellation
 of a running handler is cooperative, and in the failure-free model there is
 no method timeout to end a handler that never returns. Under failures a
 timeout fails the attempt, but the handler may keep running as a zombie,
-so the failure theorem's liveness keeps the same assumption for zombies. A deployment in
-which a handler can hang is outside the liveness theorem; the safety
-theorem still applies to it. The fair runs that the development exhibits
+so the failure theorem's liveness keeps the assumption for zombies. Its F4
+lets any real task be dropped. So the failure theorem's liveness excludes
+only runs in which some task never returns and is never dropped; a
+handler that hangs is allowed once its attempt fails and its zombie is
+dropped. The first theorem's liveness excludes runs in which a task of a
+live invocation never returns. The safety theorems apply to every run. The fair runs that the development exhibits
 (\S\ref{sec:nonvacuity}) cover termination, deadlock, and divergence by an
 infinite input word. A fair run of a program that diverges on its own, on a
 finite word, is not exhibited, and no lemma says that every reachable
