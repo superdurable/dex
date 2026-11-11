@@ -480,6 +480,55 @@ An RPC may call `RPCResult.CancelSteps` for Flow-wide selection while also
 returning output and scheduling Next Steps. RPCs do not support sibling
 selection because an RPC invocation has no Step execution lineage.
 
+### Joining parallel branches
+
+A `Join` waits for parallel branches of one Flow. It is a ChannelMap of branch
+results with the same name, registered in `PersistenceSchema.Channels`.
+`Fork` uses the split Step's execution ID as the round key, counts the branch
+builders, and builds every branch movement and the join movement with the same
+`JoinRound`:
+
+```go
+var QuoteReceived = dex.DefineJoin[string]("quoteReceived")
+
+func (RequestQuotes) Execute(ctx dex.Context, request QuoteRequest) (*dex.StepDecision, error) {
+	movements, err := QuoteReceived.Fork(ctx,
+		[]func(dex.JoinRound) dex.StepMovement{
+			func(round dex.JoinRound) dex.StepMovement { return dex.MovementOf(QuoteFromSupplierA{}, round) },
+			func(round dex.JoinRound) dex.StepMovement { return dex.MovementOf(QuoteFromSupplierB{}, round) },
+		},
+		func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(AcceptQuotes{}, QuoteJoinInput{Request: request, Round: round})
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GoToMany(movements...), nil
+}
+
+func (QuoteFromSupplierA) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	return QuoteReceived.EndBranch(ctx, round, "A")
+}
+
+func (AcceptQuotes) WaitFor(_ dex.Context, input QuoteJoinInput) (*dex.Wait, error) {
+	return dex.Until(QuoteReceived.ForAllBranches(input.Round)), nil
+}
+```
+
+Each branch reports exactly one result per round with `EndBranch` or
+`ReportBranchResult`. The join Step waits with `ForAllBranches`,
+`ForFirstBranch`, or `ForBranches(round, n)` and reads `BranchResults`. A Flow
+that forks the same Join in a loop resets each round in the next split Step's
+WaitFor with `ForRemainingBranches(previousRound, n)` and reads the late results
+with `RemainingBranchResults`. RPCs have no Step execution ID and use
+`ForkWithRoundKey`. One invocation forks one Join at most once. Invalid counts
+fail when Dex serializes the Wait. `Join.ChannelMap` returns the registered
+ChannelMap, so an RPC can read or load a round's pending results with the
+round's `RoundKey` as the instance key. Never publish to it directly; report
+only with `EndBranch` or `ReportBranchResult`. The `Join` doc comment lists the traps,
+including canceled branches and canceling joins.
+
 ### Soft Flow timeout
 
 `StartFlowOptions.Timeout` starts a durable Dex timer rather than a backend
