@@ -20,6 +20,7 @@ from dex_agents import (
     AgentSessionOptions,
     AgentTracingOptions,
     CompactionPolicy,
+    MediaStore,
     ToolEffect,
     ToolPolicy,
 )
@@ -47,6 +48,7 @@ def langchain_agent_session_flow(
     summary_model: BaseChatModel | None = None,
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    media_store: MediaStore | None = None,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for a ``create_agent`` agent.
 
@@ -136,6 +138,13 @@ def langchain_agent_session_flow(
             source's ``list_tools``. Defaults to 10 seconds.
 
             .. versionadded:: 0.4.0
+        media_store: The store that holds the session's images. With a store,
+            user messages and tool results may carry images, which
+            ``DurableToolCallMiddleware`` gives the model as base64 image
+            blocks. ``None``, the default, makes the session refuse images.
+            See ``LangGraphAgentRunner``.
+
+            .. versionadded:: 0.5.0
 
     Returns:
         The session Flow.
@@ -169,6 +178,7 @@ def langchain_agent_session_flow(
         summary_model=summary_model,
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
+        media_store=media_store,
     )
 
 
@@ -189,6 +199,7 @@ def langgraph_agent_session_flow(
     summary_model: BaseChatModel | None = None,
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    media_store: MediaStore | None = None,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for a custom LangGraph graph.
 
@@ -266,6 +277,14 @@ def langgraph_agent_session_flow(
             source's ``list_tools``. Defaults to 10 seconds.
 
             .. versionadded:: 0.4.0
+        media_store: The store that holds the session's images. With a store,
+            user messages and tool results may carry images. The model node
+            calls ``inline_image_references`` before the chat model call to
+            give the model the bytes as base64 image blocks. ``None``, the
+            default, makes the session refuse images. See
+            ``LangGraphAgentRunner``.
+
+            .. versionadded:: 0.5.0
 
     Returns:
         The session Flow.
@@ -299,6 +318,7 @@ def langgraph_agent_session_flow(
         summary_model=summary_model,
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
+        media_store=media_store,
     )
 
 
@@ -313,6 +333,7 @@ def _graph_session_flow(
     summary_model: BaseChatModel | None,
     tool_sources: Sequence[ToolSource],
     tool_source_listing_timeout: timedelta,
+    media_store: MediaStore | None,
 ) -> AgentSessionFlow:
     if options.compaction is not None and summary_model is None:
         raise ValueError("compaction needs a summary_model")
@@ -324,5 +345,6 @@ def _graph_session_flow(
         summary_model=summary_model,
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
+        media_store=media_store,
     )
     return AgentSessionFlow(runner, flow_type=flow_type, options=options)
