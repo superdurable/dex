@@ -131,6 +131,25 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.equal(await cli.waitForExit(), 0);
   });
 
+  test("a harness that fixes its tools at build warns and continues when the startup catalog read fails", async () => {
+    connectors.listingFailureReason = "the catalog is not ready";
+    try {
+      const home = new TestHome(enginePorts(engine), fixedToolSetScriptedHarness);
+      home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\n`);
+      const cli = start(home);
+      await cli.waitForSession();
+      await cli.stderr.waitFor("The connectors MCP server could not be listed: ");
+      await cli.stderr.waitFor(
+        "dex-agents-scripted fixes its tools when it starts, so this run has no connector tools. " +
+          "Restart it once the connectors MCP server answers.",
+      );
+      cli.writeLine("/exit");
+      assert.equal(await cli.waitForExit(), 0);
+    } finally {
+      connectors.listingFailureReason = undefined;
+    }
+  });
+
   test("--yes writes the default configuration and init --yes writes it again", async () => {
     const home = new TestHome(enginePorts(engine));
     const cli = start(home, ["--yes"]);

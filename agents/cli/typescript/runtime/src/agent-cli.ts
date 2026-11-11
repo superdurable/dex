@@ -399,13 +399,22 @@ class AgentCliCommand {
       );
       return source;
     }
-    await this.reportUnauthorizedConnectors(effective, await source.readIdentities(), server, isOpeningConnectorsPage);
-    if (isToolSetFixed) {
-      // Outside a model call the listing uses the file's configuration.
-      await source.listTools();
-      if (!source.isAvailable) {
-        this.log(`The connectors MCP server could not be listed. ${this.restartForConnectorTools()}`);
-      }
+    if (!isToolSetFixed) {
+      await this.reportUnauthorizedConnectors(effective, await source.readIdentities(), server, isOpeningConnectorsPage);
+      return source;
+    }
+    let identities: ReadonlyMap<string, ConnectorToolIdentity>;
+    try {
+      identities = await source.readIdentities();
+    } catch (error: unknown) {
+      this.log(`The connectors MCP server could not be listed: ${describe(error)}. ${this.restartForConnectorTools()}`);
+      return source;
+    }
+    await this.reportUnauthorizedConnectors(effective, identities, server, isOpeningConnectorsPage);
+    // Outside a model call the listing uses the file's configuration.
+    await source.listTools();
+    if (!source.isAvailable) {
+      this.log(`The connectors MCP server could not be listed. ${this.restartForConnectorTools()}`);
     }
     return source;
   }

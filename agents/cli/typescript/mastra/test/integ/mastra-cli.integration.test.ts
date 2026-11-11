@@ -157,8 +157,8 @@ describe("dex-agents-mastra with the Mastra model router against a scripted Resp
     const nextTurnRequests = api.modelRequests().slice(firstTurnRequests.length);
     // The first request calls the tool; the last one carries its result.
     assert.ok(nextTurnRequests.length >= 2);
-    for (const request of [nextTurnRequests[0], nextTurnRequests.at(-1)]) {
-      assert.equal(request?.["model"], "gpt-5-nano");
+    for (const request of nextTurnRequests) {
+      assert.equal(request["model"], "gpt-5-nano");
       assert.match(JSON.stringify(request), /Answer like a pirate\./);
     }
     assert.match(JSON.stringify(nextTurnRequests.at(-1)), /buy milk/);
