@@ -1101,6 +1101,7 @@ export class ToolCallStep implements Step<string> {
           status: "succeeded",
           output: outcome.output,
           truncatedOutputBytes: outcome.truncatedOutputBytes ?? null,
+          runnerToolState: outcome.runnerToolState ?? null,
           ...toolResultImages(outcome.images),
         };
         toolCallSpan.recordFinished(succeeded);
@@ -1856,6 +1857,7 @@ function createToolCallRecord(
     writeQueued: false,
     skipped: false,
     truncatedOutputBytes: null,
+    runnerToolState: null,
   };
 }
 

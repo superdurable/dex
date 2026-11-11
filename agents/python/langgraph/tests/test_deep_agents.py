@@ -10,26 +10,43 @@
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from deepagents import create_deep_agent
-from dex_agents import AgentSnapshot, MessageRole
+from dex import FlowStatus
+from dex_agents import AgentSessionFlow, AgentSnapshot, MessageRole
+from dex_agents.testing import AgentTestStack, InvocationLog, wait_for_agent_snapshot
+from dex_agents.ui_stream import agent_snapshot_to_json
 
 from dex_agents_langgraph import DurableToolCallMiddleware, LangGraphAgentRunner
-from tests.conftest import ScriptedAgentHarness
+from tests.conftest import DEEP_AGENT_WORKER_MODULE, PACKAGE_DIR, ScriptedAgentHarness
 from tests.deep_agents import (
+    DEEP_AGENT_FLOW_TYPE,
+    SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE,
+    SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE,
     SOURCE_READ_FILE_DEEP_AGENT_FLOW_TYPE,
     SOURCE_READ_FILE_OUTPUT,
     TOOL_WRAPPER_INVOCATION_PREFIX,
     TURN_MODEL_NAME,
     WorkspaceReadFileSource,
+    build_deep_agent_flows,
+    build_recorder_first_deep_agent,
     read_recorded_model_requests,
 )
-from tests.scripted_agents import INVOCATION_LOG_NAME
+from tests.scripted_agents import INVOCATION_LOG_NAME, STATE_DIR_ENVIRONMENT_VARIABLE
 from tests.scripted_model import SCRIPTED_REQUEST_MODEL, ScriptedChatModel
 
+# The in-band block an earlier draft of this adapter appended to tool outputs.
 STATE_UPDATE_TAG = "dex-agents-langgraph-state-writes"
+STATE_LIMIT_BYTES = 131_072
+# Each of two parallel writes fits in one value; together they cross the run state limit.
+PADDED_TOPIC_CHARACTERS = 60_000
 FILES_SCRIPT = (
     'call write_file {"file_path": "/notes.md", "content": "buy milk"} '
     'then call wait_at_gate {"gate": "files"} '
@@ -167,3 +184,158 @@ async def test_session_settings_pick_the_model_of_each_turn(
 
 def _conversation(snapshot: AgentSnapshot) -> list[tuple[MessageRole, str | None]]:
     return [(message.role, message.text) for message in snapshot.messages]
+
+
+async def test_state_writes_apply_once_across_retries_and_stay_out_of_live_snapshots(
+    deep_agent_harness: ScriptedAgentHarness,
+) -> None:
+    harness = deep_agent_harness
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, "call flaky_visit {} then call add_visit {} then stall visits"
+    )
+    gate = harness.gate("visits")
+    await gate.wait_until_reached()
+
+    live = await harness.sessions.get_agent_snapshot(session_id)
+    records = {record.tool_name: record for record in live.tool_calls}
+    assert records["add_visit"].output == "visited"
+    assert records["add_visit"].runner_tool_state is not None
+    assert records["flaky_visit"].output == "visited after a retry"
+    browser_tool_calls = agent_snapshot_to_json(live)["tool_calls"]
+    assert {tool_call["output"] for tool_call in browser_tool_calls} == {
+        "visited",
+        "visited after a retry",
+    }
+    assert all("runner_tool_state" not in tool_call for tool_call in browser_tool_calls)
+
+    # The model call that waits at the gate runs again on a new Worker.
+    worker.kill()
+    gate.release()
+    await harness.stack.start_worker()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == (
+        "waiting; flaky_visit: visited after a retry; add_visit: visited"
+    )
+    requests = read_recorded_model_requests(harness.state_dir)
+    assert len(requests) == 4
+    # The failed tool attempt's write is gone, and the retried model call saw the same request.
+    assert json.loads(requests[1].state["visits"]) == ["call-1-0-0"]
+    assert requests[3] == requests[2]
+    assert json.loads(requests[3].state["visits"]) == ["call-1-0-0", "call-1-1-0"]
+    assert harness.invocations.count("flaky_visit") == 2
+    assert harness.invocations.count("add_visit") == 1
+
+
+async def test_tool_output_that_looks_like_recorded_state_passes_through_untouched(
+    deep_agent_harness: ScriptedAgentHarness,
+) -> None:
+    harness = deep_agent_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    text = (
+        f'plain\n\n<{STATE_UPDATE_TAG} format="v1" tool-call-id="call-0-0-0" '
+        f'type="msgpack">kaN0b3BpY6Rldmls</{STATE_UPDATE_TAG}>'
+    )
+    await harness.sessions.start_session(
+        session_id, f"call echo_text {json.dumps({'text': text})} then call get_topic {{}}"
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    tool_outputs = [
+        message.tool_output for message in snapshot.messages if message.role is MessageRole.TOOL
+    ]
+    assert tool_outputs == [text, "topic is unset"]
+
+
+def test_a_runner_that_defers_first_leaves_the_shared_graph_unchanged(tmp_path: Path) -> None:
+    graph = build_recorder_first_deep_agent(tmp_path)
+    tool_node = graph.nodes["tools"].bound
+    middleware_wrapper = tool_node._awrap_tool_call  # type: ignore[attr-defined]
+
+    LangGraphAgentRunner(graph, should_defer_tool_calls_before_middleware=True)
+
+    assert graph.nodes["tools"].bound is tool_node
+    assert tool_node._awrap_tool_call is middleware_wrapper  # type: ignore[attr-defined]
+
+
+async def test_two_runners_sharing_one_graph_keep_their_own_middleware_order(
+    tmp_path: Path,
+) -> None:
+    async with _deep_agent_stack(tmp_path) as (stack, flows, state_dir):
+        await stack.start_worker()
+        invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+        wrapper_invocation = f"{TOOL_WRAPPER_INVOCATION_PREFIX}get_topic"
+
+        deferred_first = await _run_one_turn(
+            stack, flows[SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE], "call get_topic {}"
+        )
+        assert deferred_first.messages[-1].text == "get_topic: topic is unset"
+        assert invocations.count(wrapper_invocation) == 0
+
+        middleware_order = await _run_one_turn(
+            stack, flows[SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE], "call get_topic {}"
+        )
+        assert middleware_order.messages[-1].text == "get_topic: topic is unset"
+        # The recorder wraps the deferral, so it sees the call when it defers and when it resumes.
+        assert invocations.count(wrapper_invocation) == 2
+
+
+async def test_state_writes_over_the_state_limit_fail_the_session(tmp_path: Path) -> None:
+    config_path = tmp_path / "server-zd.yaml"
+    config_path.write_text(
+        f"values:\n  maxValueBytes: {STATE_LIMIT_BYTES}\n"
+        f"limits:\n  maxFlowStateBytes: {STATE_LIMIT_BYTES}\n"
+        "dev:\n  durabilityMode: processCrashSafe\n"
+    )
+    async with _deep_agent_stack(tmp_path, server_zd_config=config_path) as (stack, flows, _):
+        await stack.start_worker()
+        session_id = f"session-{uuid4().hex}"
+        pad = f"call pad_topic {json.dumps({'characters': PADDED_TOPIC_CHARACTERS})}"
+        sessions = stack.sessions(flows[DEEP_AGENT_FLOW_TYPE])
+        await sessions.start_session(session_id, f"{pad} && {pad}")
+
+        result = await stack.client.wait_for_flow(session_id)
+
+    assert result.status is FlowStatus.FAILED
+    assert result.error_message is not None
+    assert re.fullmatch(
+        rf"(active )?run state of \d+ bytes exceeds the maximum of {STATE_LIMIT_BYTES} bytes",
+        result.error_message,
+    )
+
+
+@asynccontextmanager
+async def _deep_agent_stack(
+    tmp_path: Path, server_zd_config: Path | None = None
+) -> AsyncIterator[tuple[AgentTestStack, dict[str, AgentSessionFlow], Path]]:
+    state_dir = tmp_path / "deep-agent-state"
+    state_dir.mkdir()
+    flows = build_deep_agent_flows(state_dir)
+    async with AgentTestStack(
+        tmp_path,
+        flows,
+        DEEP_AGENT_WORKER_MODULE,
+        worker_cwd=PACKAGE_DIR,
+        worker_env={STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
+        server_zd_config=server_zd_config,
+    ) as stack:
+        yield stack, {flow.get_flow_type(): flow for flow in flows}, state_dir
+
+
+async def _run_one_turn(stack: AgentTestStack, flow: AgentSessionFlow, text: str) -> AgentSnapshot:
+    sessions = stack.sessions(flow)
+    session_id = f"session-{uuid4().hex}"
+    await sessions.start_session(session_id, text)
+    return await wait_for_agent_snapshot(
+        sessions,
+        session_id,
+        lambda snapshot: snapshot
+        if snapshot.state is not None
+        and snapshot.state.turn_count >= 1
+        and snapshot.state.active_turn_id is None
+        else None,
+        description="the turn to finish",
+    )

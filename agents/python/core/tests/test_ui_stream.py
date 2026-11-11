@@ -505,6 +505,7 @@ def test_snapshot_json_leaves_out_the_fields_only_the_session_steps_use() -> Non
                 input_question="Refund to the card?",
                 input_choices=["yes", "no"],
                 input_allows_free_text=False,
+                runner_tool_state='{"writes":[]}',
             )
         ],
         usage=AgentUsage(model_calls=1, input_tokens=10, output_tokens=5),

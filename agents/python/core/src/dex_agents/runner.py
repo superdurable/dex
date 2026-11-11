@@ -615,11 +615,24 @@ class ToolExecutionResult:
             same object. Defaults to none.
 
             .. versionadded:: 0.5.0
+        runner_tool_state: Opaque text the runner keeps with the call's
+            result for its own later model calls, such as the framework state
+            that the tool changed. The session stores it as
+            ``AgentToolCall.runner_tool_state`` of the ``SUCCEEDED`` record,
+            and ``run_model_step`` reads it from ``AgentTurnContext.tool_calls``.
+            The session never interprets it and never shows it to the model, in
+            the browser snapshot from ``agent_snapshot_to_json``, or in trace
+            attributes. Only the attempt that commits the result stores it, so
+            a retried attempt never adds a second copy. ``None``, the default,
+            stores nothing.
+
+            .. versionadded:: 0.5.0
     """
 
     output: str
     truncated_output_bytes: int | None = None
     images: Sequence[AgentImageReference] = ()
+    runner_tool_state: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

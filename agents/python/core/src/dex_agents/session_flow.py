@@ -2345,6 +2345,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 output=result.output,
                 truncated_output_bytes=result.truncated_output_bytes,
                 images=_tool_result_images(result),
+                runner_tool_state=result.runner_tool_state,
             )
             tool_call_span.record_finished(succeeded)
             return _finish_tool_call(context, succeeded, events)
@@ -2441,6 +2442,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 status=ToolCallStatus.SUCCEEDED,
                 output=outcome.output,
                 images=_tool_result_images(outcome),
+                runner_tool_state=outcome.runner_tool_state,
             )
         raise TypeError(
             "poll_tool_task must return ToolExecutionResult, ToolInputRequested, or ToolTaskPending"

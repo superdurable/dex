@@ -11,8 +11,8 @@
 A tool that reads graph state, such as one with a ``ToolRuntime`` parameter,
 receives the state of its deferral through the call's ``tool_source_reference``,
 which only tool sources use otherwise. The state writes of a tool, from a
-returned ``Command`` or from LangGraph's task send, follow its output text,
-because a tool Step stores nothing else that the next ``RunModel`` reads. Both
+returned ``Command`` or from LangGraph's task send, travel in the result's
+``runner_tool_state``, which the session stores apart from the output. Both
 are encoded with the runner's checkpoint serializer.
 """
 
@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -38,23 +37,8 @@ StateWrite = tuple[str, Any]
 _TOOL_STATE_REFERENCE_KEY = "dex_agents_langgraph_tool_state"
 _TOOL_STATE_FORMAT = "v1"
 
-_STATE_WRITES_TAG = "dex-agents-langgraph-state-writes"
-_STATE_WRITES_BLOCK = re.compile(
-    rf'\n\n<{_STATE_WRITES_TAG} format="v1" tool-call-id=(?P<tool_call_id>"(?:[^"\\]|\\.)*") '
-    rf'type="(?P<type>[^"]*)">(?P<data>[A-Za-z0-9+/=]*)</{_STATE_WRITES_TAG}>$'
-)
-_ANY_STATE_WRITES_BLOCK = re.compile(
-    rf'\n\n<{_STATE_WRITES_TAG} format="v1" tool-call-id="(?:[^"\\]|\\.)*" type="[^"]*">'
-    rf"[A-Za-z0-9+/=]*</{_STATE_WRITES_TAG}>"
-)
-
-
-@dataclass(frozen=True, kw_only=True)
-class EncodedStateWrites:
-    """Recorded state writes, still serialized: the serializer's type and base64 bytes."""
-
-    type: str
-    data: str
+# The format of the runner_tool_state that records a tool's state writes.
+_STATE_WRITES_FORMAT = "dex-agents-langgraph.state-writes.v1"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -159,37 +143,31 @@ def split_tool_command(
     )
 
 
-def append_state_writes(
-    output: str,
-    state_writes: Sequence[StateWrite],
-    tool_call_id: str,
-    serializer: SerializerProtocol,
+def encode_runner_tool_state(
+    state_writes: Sequence[StateWrite], serializer: SerializerProtocol
 ) -> str:
-    """Return ``output`` followed by the block that records the tool's state writes."""
+    """Return the ``runner_tool_state`` that records a tool's state writes in order."""
     typed = serializer.dumps_typed([[channel, value] for channel, value in state_writes])
-    data = base64.b64encode(typed[1]).decode("ascii")
-    return (
-        f'{output}\n\n<{_STATE_WRITES_TAG} format="v1" tool-call-id={json.dumps(tool_call_id)} '
-        f'type="{typed[0]}">{data}</{_STATE_WRITES_TAG}>'
+    return json.dumps(
+        {
+            "format": _STATE_WRITES_FORMAT,
+            "type": typed[0],
+            "data": base64.b64encode(typed[1]).decode("ascii"),
+        },
+        separators=(",", ":"),
     )
 
 
-def split_recorded_output(output: str, tool_call_id: str) -> tuple[str, EncodedStateWrites | None]:
-    """Return the output text and the state writes block that ends it for this call, if any."""
-    match = _STATE_WRITES_BLOCK.search(output)
-    if match is None or json.loads(match["tool_call_id"]) != tool_call_id:
-        return output, None
-    return output[: match.start()], EncodedStateWrites(type=match["type"], data=match["data"])
-
-
-def remove_state_writes_blocks(text: str) -> str:
-    """Return ``text`` without any state writes block, as in a note about tool calls."""
-    return _ANY_STATE_WRITES_BLOCK.sub("", text)
-
-
-def decode_state_writes(
-    encoded: EncodedStateWrites, serializer: SerializerProtocol
+def decode_runner_tool_state(
+    runner_tool_state: str, serializer: SerializerProtocol
 ) -> list[StateWrite]:
-    """Return the recorded state writes in the order the tool made them."""
-    recorded = serializer.loads_typed((encoded.type, base64.b64decode(encoded.data)))
+    """Return the state writes a ``runner_tool_state`` records, in the order the tool made them.
+
+    Raises:
+        ValueError: If the text is not state writes that this adapter recorded.
+    """
+    document = json.loads(runner_tool_state)
+    if not isinstance(document, dict) or document.get("format") != _STATE_WRITES_FORMAT:
+        raise ValueError("the tool call's runner_tool_state is not state writes of this adapter")
+    recorded = serializer.loads_typed((str(document["type"]), base64.b64decode(document["data"])))
     return [(str(channel), value) for channel, value in recorded]

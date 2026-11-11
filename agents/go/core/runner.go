@@ -262,6 +262,16 @@ type DeferredToolOutcome interface {
 type ToolExecutionResult struct {
 	// Output is the text the model sees.
 	Output string
+	// RunnerToolState is opaque text the runner keeps with the call's result for its own later model
+	// calls, such as the framework state that the tool changed, or nil to store nothing.
+	//
+	// The session stores it as AgentToolCall.RunnerToolState of the succeeded record, and RunModelStep
+	// reads it from AgentTurnContext.ToolCalls. The session never interprets it and never shows it to
+	// the model or in trace attributes. Only the attempt that commits the result stores it, so a retried
+	// attempt never adds a second copy.
+	//
+	// Since 0.5.0.
+	RunnerToolState *string
 }
 
 func (*ToolExecutionResult) deferredToolOutcome() {}

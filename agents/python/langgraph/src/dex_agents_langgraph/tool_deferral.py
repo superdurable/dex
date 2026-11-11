@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from contextvars import ContextVar
@@ -34,15 +35,12 @@ from langgraph.types import Command, interrupt
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
-from dex_agents_langgraph._tool_state import EncodedStateWrites, decode_state_writes
+from dex_agents_langgraph._tool_state import decode_runner_tool_state
 
 #: ``RunnableConfig["configurable"]`` key that carries a deferred call's idempotency key.
 TOOL_CALL_IDEMPOTENCY_KEY_CONFIGURABLE = "dex_tool_call_idempotency_key"
 
 _DEFERRED_TOOL_CALLS_INTERRUPT_TYPE = "dex_deferred_tool_calls"
-
-# Marks a ToolNode whose tool wrapper chain the runner already put behind the deferral.
-_DEFERS_BEFORE_TOOL_MIDDLEWARE_ATTRIBUTE = "_dex_defers_before_tool_middleware"
 
 #: The callable a ``wrap_tool_call`` hook receives to run the tool.
 ToolCallExecutor = Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
@@ -453,12 +451,14 @@ class _RecordedToolCallOutcome:
     tool_name: str
     status: ToolCallStatus
     output: str
-    state_writes: EncodedStateWrites | None = None
+    runner_tool_state: str | None = None
 
-    def to_tool_message(self, tool_name: str) -> ToolMessage:
+    def to_tool_message(self, tool_name: str, turn_id: str) -> ToolMessage:
         return ToolMessage(
             content=self.output,
             tool_call_id=self.tool_call_id,
+            # A fixed ID, so a retried model call replays the same message.
+            id=f"dex-tool-result-{turn_id}-{self.tool_call_id}",
             name=tool_name,
             status="success" if self.status is ToolCallStatus.SUCCEEDED else "error",
         )
@@ -508,13 +508,8 @@ def _recorded_outcomes_resume_value(
                 # Only a tool that wrote graph state adds the key, so other values stay the same.
                 **(
                     {}
-                    if outcome.state_writes is None
-                    else {
-                        "state_writes": {
-                            "type": outcome.state_writes.type,
-                            "data": outcome.state_writes.data,
-                        }
-                    }
+                    if outcome.runner_tool_state is None
+                    else {"runner_tool_state": outcome.runner_tool_state}
                 ),
             }
             for outcome in outcomes
@@ -532,12 +527,9 @@ def _recorded_outcomes_from_resume_value(value: object) -> dict[str, _RecordedTo
             tool_name=str(result["tool_name"]),
             status=ToolCallStatus(result["status"]),
             output=str(result["output"]),
-            state_writes=None
-            if result.get("state_writes") is None
-            else EncodedStateWrites(
-                type=str(result["state_writes"]["type"]),
-                data=str(result["state_writes"]["data"]),
-            ),
+            runner_tool_state=None
+            if result.get("runner_tool_state") is None
+            else str(result["runner_tool_state"]),
         )
         for tool_call_id, result in results.items()
     }
@@ -594,6 +586,7 @@ def _defer_tool_calls(
                 ToolMessage(
                     content=entry,
                     tool_call_id=tool_call["id"] or "",
+                    id=f"dex-tool-result-{binding.turn.turn_id}-{tool_call['id']}",
                     name=tool_call["name"],
                     status="error",
                 )
@@ -631,13 +624,13 @@ def _recorded_tool_message(
             "model call"
         )
     binding.resumed_tool_call_ids.add(request.tool_call_id)
-    if outcome.state_writes is not None:
+    if outcome.runner_tool_state is not None:
         if binding.state_serializer is None:
             raise RuntimeError("the runner bound no serializer for recorded state writes")
         # The graph task's own send, as a tool that writes state inside the graph uses it.
         send = get_config()["configurable"][CONFIG_KEY_SEND]
-        send(decode_state_writes(outcome.state_writes, binding.state_serializer))
-    return outcome.to_tool_message(request.tool_name)
+        send(decode_runner_tool_state(outcome.runner_tool_state, binding.state_serializer))
+    return outcome.to_tool_message(request.tool_name, binding.turn.turn_id)
 
 
 def _resolve_deferred_tool_policy(
@@ -677,10 +670,8 @@ def _tool_name(tool: BaseTool | Mapping[str, Any]) -> str | None:
     return function.get("name") if isinstance(function, Mapping) else None
 
 
-def _defer_before_tool_middleware(tool_node: ToolNode) -> None:
-    """Make deferral the outermost async tool wrapper of a plain ``ToolNode``, once."""
-    if getattr(tool_node, _DEFERS_BEFORE_TOOL_MIDDLEWARE_ATTRIBUTE, False):
-        return
+def _tool_node_deferring_first(tool_node: ToolNode) -> ToolNode:
+    """Return a copy of a plain ``ToolNode`` whose outermost async tool wrapper is the deferral."""
     middleware_wrapper = tool_node._awrap_tool_call
 
     async def defer_first(
@@ -693,8 +684,12 @@ def _defer_before_tool_middleware(tool_node: ToolNode) -> None:
 
         return await awrap_durable_tool_call(request, run_middleware)
 
-    tool_node._awrap_tool_call = defer_first
-    setattr(tool_node, _DEFERS_BEFORE_TOOL_MIDDLEWARE_ATTRIBUTE, True)
+    deferring = copy.copy(tool_node)
+    # ToolNode runs through bound methods, which must call the copy and its wrapper.
+    deferring.func = deferring._func
+    deferring.afunc = deferring._afunc
+    deferring._awrap_tool_call = defer_first
+    return deferring
 
 
 def _source_tool_as_langchain_tool(definition: SourceToolDefinition) -> BaseTool:

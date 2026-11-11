@@ -391,6 +391,7 @@
             "output": null,
             "rejection_message": null,
             "requires_approval": true,
+            "runner_tool_state": null,
             "skipped": false,
             "status": "awaiting_approval",
             "task_answer_pending": false,

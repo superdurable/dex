@@ -439,6 +439,7 @@ def full_tool_call(**changes: Any) -> AgentToolCall:
         task_poll_interval_seconds=5,
         task_answer_pending=True,
         images=[CHART_IMAGE],
+        runner_tool_state='{"format":"runner.v1","state":"opaque"}',
     )
     return replace(record, **changes)
 
@@ -617,6 +618,35 @@ RELEASED_TOOL_CALL = {
     "error": None,
     "rejection_message": None,
     "deferral_order": 0,
+}
+RELEASED_0_4_0_TOOL_CALL: dict[str, Any] = {
+    "arguments": "{}",
+    "cancellation_reason": None,
+    "deferral_order": 0,
+    "effect": "read",
+    "error": None,
+    "input_allows_free_text": True,
+    "input_answers": [],
+    "input_choices": [],
+    "input_continuation": None,
+    "input_question": None,
+    "ordered_write": False,
+    "output": "found order 7",
+    "rejection_message": None,
+    "requires_approval": False,
+    "skipped": False,
+    "status": "succeeded",
+    "task_answer_pending": False,
+    "task_id": None,
+    "task_poll_interval_seconds": None,
+    "tool_call_id": "call-1",
+    "tool_name": "lookup_order",
+    "tool_source_reference": None,
+    "trace_context": None,
+    "truncated_output_bytes": None,
+    "turn_id": "turn-1",
+    "wait_until": None,
+    "write_queued": False,
 }
 RELEASED_INTERRUPT = {
     "interrupt_id": "call-1",
@@ -797,6 +827,11 @@ def build_value_documents() -> list[dict[str, Any]]:
             ),
         )
     tool_calls.wire("released-0.1.0", "As dex-agents 0.1.0 wrote it.", RELEASED_TOOL_CALL)
+    tool_calls.wire(
+        "released-0.4.0",
+        "As dex-agents 0.4.0 wrote a succeeded call, without images or runner_tool_state.",
+        RELEASED_0_4_0_TOOL_CALL,
+    )
     documents.append(tool_calls)
 
     interrupts = ValueCases("AgentInterrupt", "One AgentInterrupt, as in PendingInterrupts.")

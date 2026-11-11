@@ -22,9 +22,6 @@ from uuid import UUID, uuid4
 
 from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
-    TURN_CANCELLED_NOTE_HEADER,
-    TURN_FAILURE_NOTE_HEADER,
-    TURN_STEERED_NOTE_HEADER,
     AgentFrameworkRunner,
     AgentToolCall,
     AgentTurnContext,
@@ -89,12 +86,10 @@ from dex_agents_langgraph._checkpoints import (
 from dex_agents_langgraph._delta_channels import checkpointed_delta_channels
 from dex_agents_langgraph._tool_state import (
     StateWrite,
-    append_state_writes,
     build_graph_state_reader,
     decode_tool_state_reference,
+    encode_runner_tool_state,
     encode_tool_state_reference,
-    remove_state_writes_blocks,
-    split_recorded_output,
     split_tool_command,
 )
 from dex_agents_langgraph.messages import (
@@ -106,13 +101,13 @@ from dex_agents_langgraph.tool_deferral import (
     DurableToolNode,
     _bind_run_model,
     _bind_tool_step,
-    _defer_before_tool_middleware,
     _deferred_tool_call_requests,
     _DeferredToolCallRequest,
     _recorded_outcomes_resume_value,
     _RecordedToolCallOutcome,
     _RunModelBinding,
     _source_tool_as_langchain_tool,
+    _tool_node_deferring_first,
 )
 
 #: A compiled LangGraph graph, as ``create_agent`` and ``StateGraph.compile`` return it.
@@ -123,13 +118,6 @@ CompiledGraphSource: TypeAlias = (
     CompiledGraph | Callable[[], CompiledGraph] | Callable[[], Awaitable[CompiledGraph]]
 )
 
-
-# The notes the session stores about a turn's tool calls, which quote each recorded output.
-_TOOL_CALL_NOTE_HEADERS = (
-    TURN_FAILURE_NOTE_HEADER,
-    TURN_STEERED_NOTE_HEADER,
-    TURN_CANCELLED_NOTE_HEADER,
-)
 
 # LangChain model_provider values whose provider has a well-known gen_ai.provider.name value.
 _GEN_AI_PROVIDER_NAMES = {
@@ -307,11 +295,12 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 .. versionadded:: 0.5.0
             should_defer_tool_calls_before_middleware: Whether to make the
                 deferral the outermost tool wrapper of every plain
-                ``ToolNode`` in the graph, as if ``DurableToolCallMiddleware``
+                ``ToolNode`` of the root graph, as if ``DurableToolCallMiddleware``
                 came first in ``middleware``. Set it for a Deep Agents agent,
                 where ``create_deep_agent`` places your middleware after its
-                own. The runner changes those tool nodes in place when it
-                loads the graph. Middleware tool wrappers then never run in a
+                own. The runner applies it to its own copy of the graph, so
+                the graph you pass and other runners that share it keep
+                their order. Middleware tool wrappers then never run in a
                 session: ``RunModel`` replays recorded results before them,
                 and a tool Step calls the tool alone. Defaults to ``False``,
                 which keeps the middleware order.
@@ -378,14 +367,8 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
         Returns:
             A ``MessageRole.USER`` message holding a ``HumanMessage`` with a
-            new ``"dex-user-<hex>"`` ID. A note about a turn's tool calls
-            leaves out the state writes recorded after their outputs.
-
-        .. versionchanged:: 0.5.0
-            Notes about a turn's tool calls leave out recorded state writes.
+            new ``"dex-user-<hex>"`` ID.
         """
-        if text.startswith(_TOOL_CALL_NOTE_HEADERS):
-            text = remove_state_writes_blocks(text)
         return langchain_message_to_framework_message(
             HumanMessage(content=text, id=f"dex-user-{uuid4().hex}")
         )
@@ -606,9 +589,9 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         message list. Its runtime has no store and no context, and it reads
         and writes state as in a graph task, which Deep Agents'
         ``StateBackend`` does. A tool may also return a ``Command`` whose
-        ``update`` mapping holds its ``ToolMessage``. Its state writes follow
-        the output text in a block that the next ``RunModel`` replays as the
-        graph task's writes.
+        ``update`` mapping holds its ``ToolMessage``. Its state writes go in the
+        result's ``runner_tool_state``, apart from the output, and the next
+        ``RunModel`` replays them as the graph task's writes.
 
         Args:
             call: The approved record and its idempotency key.
@@ -681,11 +664,12 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         output = _tool_message_output(result)
         if result.status == "error":
             raise ToolExecutionError(output)
-        if state_writes:
-            output = append_state_writes(
-                output, state_writes, record.tool_call_id, self._state_serializer
-            )
-        return ToolExecutionResult(output=output)
+        return ToolExecutionResult(
+            output=output,
+            runner_tool_state=encode_runner_tool_state(state_writes, self._state_serializer)
+            if state_writes
+            else None,
+        )
 
     def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
         """Return a tool source's options for one call's tool Step.
@@ -745,10 +729,6 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             for node in compiled.nodes.values():
                 if not isinstance(node.bound, ToolNode):
                     continue
-                if self._should_defer_tool_calls_before_middleware and not isinstance(
-                    node.bound, DurableToolNode
-                ):
-                    _defer_before_tool_middleware(node.bound)
                 for tool_name, tool in node.bound.tools_by_name.items():
                     known = tools_by_name.setdefault(tool_name, tool)
                     if known is not tool:
@@ -763,6 +743,8 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         tools_by_name.update(self._explicit_tools)
         for excluded_tool_name in self._excluded_tool_names:
             tools_by_name.pop(excluded_tool_name, None)
+        if self._should_defer_tool_calls_before_middleware:
+            graph = _with_tool_calls_deferred_first(graph)
         return _LoadedGraph(
             graph=graph,
             tools_by_name=tools_by_name,
@@ -786,19 +768,19 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 record = turn.recorded_tool_call(tool_call_id)
                 if record is None or not record.status.is_final:
                     raise RuntimeError(f"tool call {tool_call_id} has no final record")
-                output = describe_tool_call_outcome(record)
-                state_writes = None
-                if record.status is ToolCallStatus.SUCCEEDED and not (
+                # Only this runner writes the field, and only for its own tools' results.
+                is_graph_tool_result = record.status is ToolCallStatus.SUCCEEDED and not (
                     self._tool_sources.is_source_tool_call(record)
-                ):
-                    output, state_writes = split_recorded_output(output, tool_call_id)
+                )
                 outcomes.append(
                     _RecordedToolCallOutcome(
                         tool_call_id=tool_call_id,
                         tool_name=record.tool_name,
                         status=record.status,
-                        output=output,
-                        state_writes=state_writes,
+                        output=describe_tool_call_outcome(record),
+                        runner_tool_state=record.runner_tool_state
+                        if is_graph_tool_result
+                        else None,
                     )
                 )
             resume_values[pending.interrupt_id] = _recorded_outcomes_resume_value(outcomes)
@@ -1017,6 +999,17 @@ class _TurnCallbackHandler(BaseCallbackHandler):
             if single_call is None or single_call.finish_reason is None
             else (single_call.finish_reason,),
         )
+
+
+def _with_tool_calls_deferred_first(graph: CompiledGraph) -> CompiledGraph:
+    # A copy, so the caller's graph and other runners that share it keep their order.
+    nodes = {
+        name: node.copy({"bound": _tool_node_deferring_first(node.bound)})
+        if isinstance(node.bound, ToolNode) and not isinstance(node.bound, DurableToolNode)
+        else node
+        for name, node in graph.nodes.items()
+    }
+    return graph.copy(update={"nodes": nodes})
 
 
 def _graph_and_subgraphs(graph: CompiledGraph) -> list[CompiledGraph]:

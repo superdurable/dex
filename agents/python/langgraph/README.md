@@ -239,7 +239,8 @@ research_agent = langchain_agent_session_flow(
   outermost tool wrapper. `create_deep_agent` places the middleware you pass
   after its own, so `DurableToolCallMiddleware` cannot be first there. Deep
   Agents' own tool wrappers, such as the large-result eviction of its
-  `FilesystemMiddleware`, then never run in a session.
+  `FilesystemMiddleware`, then never run in a session. The runner changes
+  only its own copy of the root graph, so the graph you pass is unchanged.
 - `excluded_tool_names=["task"]` turns off subagents. The model is not
   offered `task`, and a tool Step never runs it. See the limits below.
 - Deep Agents keeps `messages` and `files` in `DeltaChannel` state channels.
@@ -247,8 +248,9 @@ research_agent = langchain_agent_session_flow(
   Worker restart while tool calls run.
 - Its file tools on the default `StateBackend` read and write the `files`
   channel in their own tool Steps. The tool Step receives the state of the
-  call's deferral, without the message list. The writes follow the output in
-  the call's record, and the next `RunModel` applies them to the graph.
+  call's deferral, without the message list. Its writes go in the result's
+  `runner_tool_state`, which the session stores on the call's record apart
+  from the output, and the next `RunModel` applies them to the graph once.
 - Each turn starts from the stored messages, so the `files` of a turn are
   gone in the next turn. Use a `FilesystemBackend` or a `StoreBackend` for
   files that must last. Their tools write in their own tool Steps, so give
@@ -284,8 +286,7 @@ Each limit has a workaround.
 | **No Dex built-in tools.** The adapter does not offer `write_todos`, `ask_user`, or `durable_wait` from `AgentSessionOptions.built_in_tools`. | Plan with LangChain's `TodoListMiddleware`, whose `write_todos` returns a `Command`, which works since 0.5.0, or with a read-only tool that returns the plan. Ask the user in the turn's answer, and continue with the next user message. Run long waits on the built-in agent loop. |
 | **Summarization is not a separate model call.** Deep Agents' `SummarizationMiddleware` calls its model inside a `RunModel` Step. The usage counts it, but it gets no model call record of its own, and a retry repeats it. It always uses the model the agent was built with, not `select_turn_chat_model`'s. Its offload of earlier messages goes to the per-turn `files`, and its rewrite of the history is not stored, because stored history is append-only. | Replace it with a middleware named `SummarizationMiddleware` that adds nothing, and use Dex [compaction](#compaction) instead. |
 | **Rebuilt system messages lose cache breakpoints.** A middleware that replaces the system message with plain text, such as one that adds instructions for each turn, drops the Anthropic `cache_control` breakpoints that middleware before it set on the message's content blocks. | Keep the existing content blocks and add yours before them, or set the instructions when you build the agent. |
-| **Large state in records.** A state-reading tool call stores the non-message graph state, such as every file in `files`, in its record, and a file write stores its writes after its output. The session fails when its state outgrows the Dex limit. | Keep large or many files in a `FilesystemBackend` or a `StoreBackend`. |
-| **Writes appear in live records.** While a turn runs, a tool call record shows its recorded state writes after the output, and so does the `gen_ai.tool.call.result` span attribute when content capture is on. Stored messages and the notes about failed turns leave them out. | None needed; the model never sees them. |
+| **Large state in records.** A state-reading tool call stores the non-message graph state, such as every file in `files`, in its record, and a file write stores its writes in the record's `runner_tool_state`. The session fails when its run state outgrows the Dex limit. | Keep large or many files in a `FilesystemBackend` or a `StoreBackend`. |
 
 ## Tool sources and connector tools
 
@@ -521,7 +522,13 @@ that reads the state it set; `task` excluded from model requests and tool
 Steps; a tool source's `read_file` that replaces the excluded graph tool, and
 the refused collision without the exclusion; and session settings that pick
 the model of each turn. They also check that a middleware tool wrapper never
-runs when the deferral comes first.
+runs when the deferral comes first, and that two runners sharing one graph
+keep their own middleware order. Further cases cover state writes that apply
+once through a failed tool attempt and a `RunModel` rerun after a Worker
+restart, which sends the same model request; live records whose browser
+snapshot has no `runner_tool_state`; tool output that looks like recorded
+state, which passes through untouched; and parallel writes that cross the run
+state limit and fail the session.
 
 `tests/test_connector_tools.py` runs connector tools from a copy of the core
 tests' fake ledger Connector (`tests/fake_ledger`), once with a `create_agent`
@@ -612,10 +619,14 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
 - User messages get the ID `dex-user-<hex>`; a stored message without an ID
   replays as `dex-message-<sequence>`.
 - A state-reading graph tool gets its state through the call's
-  `tool_source_reference`, which only tool sources use otherwise. A tool
-  Step records only its output text, so a tool's state writes follow the text
-  in a tagged block that names the tool call. The next `RunModel` removes the
-  block and replays the writes through the graph task's own send, as a tool
-  that writes state inside the graph does. Both use the checkpoint
-  serializer. A field of the core's tool call record would be cleaner, but it
-  is a wire format that every Dex agents core shares.
+  `tool_source_reference`, which only tool sources use otherwise. A tool's
+  state writes, from a returned `Command` or from the task's send, go in the
+  result's `runner_tool_state`, a core field that the session stores apart
+  from the output and never shows to the model, browser snapshots, or traces.
+  The next `RunModel` replays them through the graph task's own send, as a
+  tool that writes state inside the graph does. Only the committed attempt of
+  a tool Step stores them, and a retried `RunModel` restores the checkpoint
+  from before the replay, so each write applies once. Both use the
+  checkpoint serializer.
+- A replayed tool result has the ID `dex-tool-result-<turn_id>-<tool_call_id>`,
+  so a retried model call sends the same messages.

@@ -1656,6 +1656,7 @@ func (flow *AgentSessionFlow) runToolCall(ctx dex.Context, toolCallID string) er
 	}
 	toolCall.Status = ToolCallStatusSucceeded
 	toolCall.Output = &executionResult.Output
+	toolCall.RunnerToolState = executionResult.RunnerToolState
 	return finishToolCall(ctx, toolCall, events)
 }
 
