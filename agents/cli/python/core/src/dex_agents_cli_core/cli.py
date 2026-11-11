@@ -16,12 +16,14 @@ import contextlib
 import importlib
 import logging
 import secrets
+import signal
 import sys
 import webbrowser
-from collections.abc import Sequence
+from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx2
 from dex import (
@@ -63,7 +65,13 @@ from dex_agents_cli_core.connectors import (
     ConnectorsMcpUnavailableError,
     read_connector_catalog,
 )
-from dex_agents_cli_core.dex_server import DexServerEndpoint, DexServerError, resolve_dex_server
+from dex_agents_cli_core.dex_server import (
+    DexServerEndpoint,
+    DexServerError,
+    StartedDexcliDevProcess,
+    describe_lost_dexcli_dev,
+    resolve_dex_server,
+)
 from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.harness import (
     SESSION_ACTION_PERMISSION,
@@ -91,6 +99,7 @@ _SESSION_LIST_PAGE_SIZE = 50
 _SESSION_START_TIMEOUT_SECONDS = 60.0
 _SESSION_START_POLL_SECONDS = 0.1
 _LOGGER = logging.getLogger(__name__)
+_TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 
 
 class CommandError(Exception):
@@ -119,6 +128,18 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         >>> def run() -> None:
         ...     raise SystemExit(run_agent_cli(ClaudeHarness()))
 
+    A ``dexcli dev`` that the command started for ``dex.server: auto`` stops
+    when the command exits: on ``/exit``, the end of input, the Ctrl-C that
+    exits, a failure, SIGTERM, or SIGHUP. A signal makes it return 128 plus
+    the signal number. A ``dexcli dev`` the command reused keeps running. To
+    share one across sessions, run ``dexcli dev`` yourself first. When a
+    reused ``dexcli dev`` stops during the command, the command fails with a
+    short error that says so.
+
+    .. versionchanged:: 0.5.1
+       A started ``dexcli dev`` stops when the command exits instead of
+       running on.
+
     Args:
         harness: The command's harness.
         argv: The arguments without the program name; ``None`` reads ``sys.argv``.
@@ -126,7 +147,8 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     Returns:
         The exit code: 0 on success, 1 for a failure at run time, such as a
         Dex server or an explicit connectors MCP server that is unavailable,
-        and 2 for a usage or configuration error.
+        2 for a usage or configuration error, and 128 plus the signal number
+        after SIGTERM or SIGHUP.
     """
     arguments = _parse_arguments(harness, argv)
     try:
@@ -135,22 +157,92 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
     _configure_logging(environment, harness)
+    server = _CommandDexServer(environment)
     try:
         match arguments.command:
             case "init":
                 return _init(arguments, environment, harness)
             case "sessions":
-                return asyncio.run(_list_sessions(arguments, environment, harness))
+                return server.run(_list_sessions(arguments, environment, harness, server))
             case "connectors":
-                return asyncio.run(_list_connectors(arguments, environment, harness))
+                return server.run(_list_connectors(arguments, environment, harness, server))
             case _:
-                return asyncio.run(_run(arguments, environment, harness))
+                return server.run(_run(arguments, environment, harness, server))
     except (CommandError, ConfigFileError) as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
     except (CommandFailure, DexServerError) as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 1
+    finally:
+        server.stop_started_dexcli_dev()
+
+
+class _CommandDexServer:
+    """The Dex server one command uses, and a ``dexcli dev`` it started, which it stops on exit."""
+
+    def __init__(self, environment: CommandEnvironment) -> None:
+        self._environment = environment
+        self._started_process = StartedDexcliDevProcess(environment)
+        self._reused_web_url: str | None = None
+
+    def run(self, command: Coroutine[Any, Any, int]) -> int:
+        """Run an async subcommand; SIGTERM and SIGHUP end it with 128 plus the signal number."""
+        return asyncio.run(self._run_until_terminated(command))
+
+    async def _run_until_terminated(self, command: Coroutine[Any, Any, int]) -> int:
+        # Cancelling the task, rather than raising in a signal handler, unwinds every await cleanly.
+        loop = asyncio.get_running_loop()
+        command_task = asyncio.current_task()
+        assert command_task is not None, "asyncio.run runs this coroutine in a task"
+        received_signals: list[int] = []
+
+        def cancel_on_signal(signal_number: int) -> None:
+            received_signals.append(signal_number)
+            command_task.cancel()
+
+        for signal_number in _TERMINATION_SIGNALS:
+            loop.add_signal_handler(signal_number, cancel_on_signal, signal_number)
+        try:
+            return await self._fail_short_on_a_lost_server(command)
+        except asyncio.CancelledError:
+            if not received_signals:
+                raise
+            return 128 + received_signals[0]
+        finally:
+            for signal_number in _TERMINATION_SIGNALS:
+                loop.remove_signal_handler(signal_number)
+
+    async def resolve(self, config: EffectiveConfig) -> DexServerEndpoint:
+        """Find or start the Dex server of ``dex.server``."""
+        endpoint = await resolve_dex_server(
+            config.dex.server,
+            self._environment,
+            report=print,
+            started_process=self._started_process,
+        )
+        if endpoint.started_pid is None and endpoint.web_url is not None:
+            self._reused_web_url = endpoint.web_url
+        return endpoint
+
+    def stop_started_dexcli_dev(self) -> None:
+        """Stop the ``dexcli dev`` this command started, if any."""
+        self._started_process.stop(report=print)
+
+    async def _fail_short_on_a_lost_server(self, command: Coroutine[Any, Any, int]) -> int:
+        try:
+            return await command
+        except (CommandError, ConfigFileError, CommandFailure, DexServerError):
+            raise
+        except Exception as error:
+            lost = (
+                None
+                if self._reused_web_url is None
+                else await describe_lost_dexcli_dev(self._reused_web_url)
+            )
+            if lost is None:
+                raise
+            raise CommandFailure(lost) from error
 
 
 def command_name(harness: AgentHarness) -> str:
@@ -254,7 +346,10 @@ def _ask(question: str, default: str) -> str:
 
 
 async def _run(
-    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
+    arguments: _Arguments,
+    environment: CommandEnvironment,
+    harness: AgentHarness,
+    server: _CommandDexServer,
 ) -> int:
     loaded = _load_config(arguments, environment, harness)
     config = _with_model_override(loaded.config, arguments)
@@ -267,7 +362,7 @@ async def _run(
         config.system_prompt if config.system_prompt is not None else prompt_text,
         _report_ignored_settings,
     )
-    endpoint = await _resolve_server(config, environment)
+    endpoint = await server.resolve(config)
     connectors = await _connect_connectors(config, endpoint, resolver, harness, media_store)
     local_tools = _local_tool_source(config, workspace, harness, resolver)
     tool_sources: list[ToolSource] = [
@@ -389,12 +484,6 @@ def _read_system_prompt_file(
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as error:
         raise CommandError(f"cannot read system_prompt_file {path}: {error}") from error
-
-
-async def _resolve_server(
-    config: EffectiveConfig, environment: CommandEnvironment
-) -> DexServerEndpoint:
-    return await resolve_dex_server(config.dex.server, environment, report=print)
 
 
 def _connectors_mcp_url(config: EffectiveConfig, endpoint: DexServerEndpoint) -> str | None:
@@ -586,10 +675,13 @@ async def _open_session(
 
 
 async def _list_sessions(
-    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
+    arguments: _Arguments,
+    environment: CommandEnvironment,
+    harness: AgentHarness,
+    server: _CommandDexServer,
 ) -> int:
     loaded = _load_config(arguments, environment, harness)
-    endpoint = await _resolve_server(loaded.config, environment)
+    endpoint = await server.resolve(loaded.config)
     workspace = environment.expand_path(loaded.config.workspace, loaded.directory)
     flow_type = session_flow_type(harness.flow_type, loaded.path, workspace)
     blob_cache = open_blob_cache(
@@ -617,11 +709,14 @@ async def _list_sessions(
 
 
 async def _list_connectors(
-    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
+    arguments: _Arguments,
+    environment: CommandEnvironment,
+    harness: AgentHarness,
+    server: _CommandDexServer,
 ) -> int:
     loaded = _load_config(arguments, environment, harness)
     config = loaded.config
-    endpoint = await _resolve_server(config, environment)
+    endpoint = await server.resolve(config)
     url = _connectors_mcp_url(config, endpoint)
     if url is None:
         raise CommandError("connectors.mcp is auto, which needs dex.server: auto")

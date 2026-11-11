@@ -12,7 +12,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "no
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import { parseArgs } from "node:util";
+import { format, parseArgs } from "node:util";
 
 import { Client, FlowNotFoundError, Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 import {
@@ -56,7 +56,12 @@ import {
   probeConnectorsMcp,
   type ConnectorToolIdentity,
 } from "./connector-tool-source.js";
-import { resolveDexServer, type DexServerConnection } from "./dex-server.js";
+import {
+  StartedDexcliDevProcess,
+  describeLostDexcliDev,
+  resolveDexServerForCommand,
+  type DexServerConnection,
+} from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
 import { TerminalChat } from "./terminal-chat.js";
 import { TerminalInput, lineWaitAborted } from "./terminal-input.js";
@@ -114,6 +119,14 @@ export function processAgentCliIo(): AgentCliIo {
  * file. It then reuses or starts the Dex server, connects the connectors MCP server, starts a Worker in this
  * process, and chats in the terminal with a new session or the `--resume` one. Exiting keeps the session.
  *
+ * A `dexcli dev` that the command started for `dex.server: auto` stops when the command exits: on `/exit`, the end
+ * of input, the Ctrl-C that exits, a failure, SIGTERM, or SIGHUP. On a signal, the command stops it and exits the
+ * process with 128 plus the signal number. A `dexcli dev` the command reused keeps running. To share one across
+ * sessions, run `dexcli dev` yourself first. When a reused `dexcli dev` stops during the command, the command fails
+ * with a short error that says so.
+ *
+ * Changed in 0.5.1: a started `dexcli dev` stops when the command exits instead of running on.
+ *
  * A harness command's bin calls it and exits with its result, because open connections can keep Node running:
  *
  * @example
@@ -148,7 +161,7 @@ export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = proces
   try {
     return await command.run();
   } catch (error: unknown) {
-    log(`dex-agents-${harness.name}: ${describe(error)}`);
+    log(`dex-agents-${harness.name}: ${(await command.describeLostDexServer()) ?? describe(error)}`);
     return error instanceof ConfigError || error instanceof UsageError ? 2 : 1;
   } finally {
     await command.close();
@@ -177,6 +190,9 @@ class AgentCliCommand {
   private localTools: LocalToolSource | undefined;
   private mediaStore: ClosableMediaStore | undefined;
   private sessionFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> | undefined;
+  private readonly startedDexcliDev: StartedDexcliDevProcess;
+  private server: DexServerConnection | undefined;
+  private libraryConsole: LibraryConsoleRedirection | undefined;
 
   public constructor(
     private readonly harness: AgentHarness,
@@ -185,6 +201,7 @@ class AgentCliCommand {
     private readonly log: (line: string) => void,
   ) {
     this.environment = readCliEnvironment(io.environment);
+    this.startedDexcliDev = new StartedDexcliDevProcess(this.environment, log);
   }
 
   public async run(): Promise<number> {
@@ -205,7 +222,8 @@ class AgentCliCommand {
     if (this.parsed.subcommand === "run") {
       this.mediaStore = await createMediaStore(effective.media, this.environment.agentsDirectory);
     }
-    const server = await resolveDexServer(effective.dex.server, this.environment, this.log);
+    const server = await resolveDexServerForCommand(effective.dex.server, this.environment, this.log, this.startedDexcliDev);
+    this.server = server;
     if (server.webUrl !== null) {
       this.log(`Dex Web: ${server.webUrl}`);
     }
@@ -229,6 +247,17 @@ class AgentCliCommand {
     if (this.blobCacheDirectory !== undefined) {
       rmSync(this.blobCacheDirectory, { recursive: true, force: true });
     }
+    this.libraryConsole?.restore();
+    await this.startedDexcliDev.stop();
+  }
+
+  /** Returns the short error for a reused `dexcli dev` that stopped, or `undefined` when that did not happen. */
+  public async describeLostDexServer(): Promise<string | undefined> {
+    const server = this.server;
+    if (server?.origin !== "reused" || server.webUrl === null) {
+      return undefined;
+    }
+    return describeLostDexcliDev(server.webUrl);
   }
 
   private async initConfig(configPath: string): Promise<LoadedConfig | undefined> {
@@ -322,6 +351,9 @@ class AgentCliCommand {
       ...connection,
       pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
     });
+    // As in the Python CLI core, library warnings such as a lost Worker stream go to the log file, not the chat.
+    mkdirSync(this.environment.agentsDirectory, { recursive: true });
+    this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath());
     await this.worker.start();
     await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
     await this.uploadSessionFlowDefinition(this.client, flowType);
@@ -329,6 +361,7 @@ class AgentCliCommand {
     this.io.stdout.write(
       `Session ${sessionId}. Type a message; /image <path> attaches an image to the next one; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
     );
+    this.startedDexcliDev.releaseInterrupt();
     const chat = new TerminalChat(this.client, flow, sessionId, this.terminalInput(), this.io.stdout, {
       mediaStore,
       homeDirectory: this.environment.homeDirectory,
@@ -622,6 +655,30 @@ const mediaDirectoryName = "media";
 
 /** A media store that may hold connections, which `close` releases. */
 type ClosableMediaStore = MediaStore & { close?(): void };
+
+/** Sends `console.warn` and `console.error` to a log file until {@link restore}. */
+class LibraryConsoleRedirection {
+  private readonly originalWarn = console.warn;
+  private readonly originalError = console.error;
+
+  public constructor(private readonly logFilePath: string) {
+    console.warn = (...values: unknown[]) => this.append("WARN", values);
+    console.error = (...values: unknown[]) => this.append("ERROR", values);
+  }
+
+  public restore(): void {
+    console.warn = this.originalWarn;
+    console.error = this.originalError;
+  }
+
+  private append(level: string, values: readonly unknown[]): void {
+    try {
+      appendFileSync(this.logFilePath, `${new Date().toISOString()} ${level} ${format(...values)}\n`);
+    } catch {
+      // An unwritable log file loses only this diagnostic line.
+    }
+  }
+}
 
 /**
  * Builds the store of `media.store`: the local directory `~/.dex/agents/media` for `auto`, else the S3 bucket.

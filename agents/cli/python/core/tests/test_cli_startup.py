@@ -112,7 +112,7 @@ async def test_an_invalid_config_names_the_error_code_and_pointer(cli_home: CliH
     assert 'schema at "/local_tools/shell/allow" (schema keyword type)' in completed.stderr
 
 
-async def test_auto_starts_dexcli_dev_when_none_runs_and_later_commands_reuse_it(
+async def test_auto_starts_dexcli_dev_when_none_runs_and_stops_it_when_input_ends(
     tmp_path: Path,
 ) -> None:
     dex_port, web_port = find_free_ports(2)
@@ -120,16 +120,15 @@ async def test_auto_starts_dexcli_dev_when_none_runs_and_later_commands_reuse_it
     home.home.mkdir()
     home.write_config(config_yaml({"connectors": {"enabled": []}}))
     try:
-        first = home.run(stdin="first\n")
-        assert first.returncode == 0, first.stdout + first.stderr
-        assert "Starting dexcli dev in the background" in first.stdout
-        assert "dexcli dev is ready (pid" in first.stdout
-        assert "echo: first" in first.stdout
-        assert (home.home / ".dex" / "agents" / "dexcli-dev.json").exists()
-        second = home.run(stdin="second\n")
-        assert second.returncode == 0, second.stdout + second.stderr
-        assert f"Using the running dexcli dev at 127.0.0.1:{dex_port}" in second.stdout
-        assert "echo: second" in second.stdout
+        for message in ("first", "second"):
+            completed = home.run(stdin=f"{message}\n")
+            assert completed.returncode == 0, completed.stdout + completed.stderr
+            assert "Starting dexcli dev in the background" in completed.stdout
+            assert "dexcli dev is ready (pid" in completed.stdout
+            assert "it stops when this command exits" in completed.stdout
+            assert f"echo: {message}" in completed.stdout
+            assert "Stopped the dexcli dev this command started." in completed.stdout
+            assert not (home.home / ".dex" / "agents" / "dexcli-dev.json").exists()
     finally:
         home.close()
 
@@ -148,8 +147,9 @@ async def test_auto_reuse_tolerates_a_recorded_connectors_url_that_is_not_a_url(
     home.write_config(config_yaml({"connectors": {"mcp": "auto"}}))
     state_path = home.home / ".dex" / "agents" / "dexcli-dev.json"
     try:
-        first = await asyncio.to_thread(home.run, stdin="tools\n")
-        assert first.returncode == 0, first.stdout + first.stderr
+        # The first session keeps the dexcli dev it started, and its record, while the second runs.
+        first = home.spawn()
+        await expect(first, "> ", timeout=120)
         recorded = json.loads(state_path.read_text())
         # A dexcli without the Connectors MCP proxy prints no such ready line.
         assert recorded["connectors_mcp_url"] in (f"http://127.0.0.1:{web_port}/mcp", None)
@@ -159,6 +159,10 @@ async def test_auto_reuse_tolerates_a_recorded_connectors_url_that_is_not_a_url(
         assert second.returncode == 0, second.stdout + second.stderr
         assert f"Using the running dexcli dev at 127.0.0.1:{dex_port}" in second.stdout
         assert "tools: ask_user" in second.stdout
+        assert "Stopped the dexcli dev" not in second.stdout
+        first.sendline("/exit")
+        await expect(first, "Stopped the dexcli dev this command started.")
+        assert await wait_for_exit(first) == 0
     finally:
         home.close()
 

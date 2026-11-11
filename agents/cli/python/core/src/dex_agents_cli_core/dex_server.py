@@ -11,11 +11,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import secrets
+import signal
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from enum import Enum
@@ -51,6 +54,11 @@ _FLOW_SERVICE_PROBE_TIMEOUT_SECONDS = 5.0
 _POLL_INTERVAL_SECONDS = 0.2
 _LOG_TAIL_LINES = 20
 _PROBE_BLOB_CACHE_BYTES = 1024 * 1024
+# Longer than the 10 seconds dexcli dev gives dex-server-zd to shut down.
+_STOP_GRACE_SECONDS = 20.0
+_KILL_WAIT_SECONDS = 5.0
+_STOPPED_LINE = "Stopped the dexcli dev this command started."
+_SHARING_HINT = "To share one dexcli dev across sessions, run dexcli dev yourself first."
 
 
 class DexServerError(Exception):
@@ -77,6 +85,70 @@ class DexServerEndpoint:
     started_pid: int | None = None
 
 
+class StartedDexcliDevProcess:
+    """The ``dexcli dev`` that one command started, from its spawn on.
+
+    Stopping it ends its process group, which holds ``dex-server-zd`` too,
+    and removes its record. A ``dexcli dev`` the command reused never
+    belongs to it.
+    """
+
+    def __init__(self, environment: CommandEnvironment) -> None:
+        """Own no process yet.
+
+        Args:
+            environment: The machine settings, which locate the record.
+        """
+        self._environment = environment
+        self._process: subprocess.Popen[bytes] | None = None
+
+    def track(self, process: subprocess.Popen[bytes]) -> None:
+        """Take ownership of a spawned ``dexcli dev``, the leader of its own process group.
+
+        Args:
+            process: The spawned process.
+        """
+        self._process = process
+
+    def stop(self, report: Callable[[str], None]) -> None:
+        """Stop the process group and remove the record; do nothing without a process.
+
+        It sends SIGTERM, and SIGKILL after a grace period. Calling it again
+        does nothing.
+
+        Args:
+            report: Prints the line that says the server stopped.
+        """
+        process, self._process = self._process, None
+        if process is None:
+            return
+        _signal_process_group(process.pid, signal.SIGTERM)
+        if not _wait_for_process_group_exit(process, _STOP_GRACE_SECONDS):
+            _signal_process_group(process.pid, signal.SIGKILL)
+            _wait_for_process_group_exit(process, _KILL_WAIT_SECONDS)
+        _remove_record_of(self._environment, process.pid)
+        # After SIGHUP the terminal may be gone; the server is stopped either way.
+        with contextlib.suppress(OSError, ValueError):
+            report(_STOPPED_LINE)
+
+
+async def describe_lost_dexcli_dev(web_url: str) -> str | None:
+    """Return the short error for a reused ``dexcli dev`` that stopped; ``None`` while it answers.
+
+    Args:
+        web_url: Its Dex Web URL.
+
+    Returns:
+        The error text.
+    """
+    if await _read_readiness(web_url) is not _Readiness.ABSENT:
+        return None
+    return (
+        f"the dexcli dev at {web_url} stopped. A dexcli dev that another command started stops "
+        f"when that command exits. {_SHARING_HINT}"
+    )
+
+
 @dataclass(frozen=True)
 class _DevServerState:
     pid: int
@@ -97,6 +169,7 @@ async def resolve_dex_server(
     environment: CommandEnvironment,
     *,
     report: Callable[[str], None],
+    started_process: StartedDexcliDevProcess | None = None,
 ) -> DexServerEndpoint:
     """Find the Dex server of a ``dex.server`` value, starting ``dexcli dev`` when needed.
 
@@ -106,13 +179,15 @@ async def resolve_dex_server(
     within five seconds, the Dex port answers as FlowService, describing an
     unknown Flow as not found. Something else on those ports is an error, so
     no other process can stand in for Dex or the connectors MCP server. With nothing there, it
-    starts ``dexcli dev`` in the background, which keeps running after the
-    command exits.
+    starts ``dexcli dev`` in the background. With ``started_process``, that
+    owns the started ``dexcli dev`` from its spawn on, so the command stops it
+    when it exits; without it, the ``dexcli dev`` keeps running.
 
     Args:
         server: ``auto`` or a Dex server URL.
         environment: The machine settings.
         report: Prints one progress line for the user.
+        started_process: Takes ownership of a ``dexcli dev`` this call starts.
 
     Returns:
         The endpoint.
@@ -129,7 +204,7 @@ async def resolve_dex_server(
     address = f"127.0.0.1:{environment.dev_dex_port}"
     readiness = await _read_readiness(web_url)
     if readiness is _Readiness.ABSENT:
-        return await _start_dev_server(environment, report)
+        return await _start_dev_server(environment, report, started_process)
     if readiness is _Readiness.STARTING:
         report(f"Waiting for the dexcli dev at {web_url} to become ready.")
         readiness = await _wait_for_readiness(web_url)
@@ -166,7 +241,9 @@ def _read_started_server(
 
 
 async def _start_dev_server(
-    environment: CommandEnvironment, report: Callable[[str], None]
+    environment: CommandEnvironment,
+    report: Callable[[str], None],
+    started_process: StartedDexcliDevProcess | None,
 ) -> DexServerEndpoint:
     try:
         dexcli = locate_dexcli(environment)
@@ -192,11 +269,13 @@ async def _start_dev_server(
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                # Its own session keeps it running, and out of Ctrl-C, after the command exits.
+                # Its own session keeps it out of the terminal's Ctrl-C and SIGHUP.
                 start_new_session=True,
             )
         except OSError as error:
             raise DexServerError(f"cannot run {dexcli}: {error.strerror}") from error
+    if started_process is not None:
+        started_process.track(process)
     ready = await _wait_for_ready_output(process, log_path)
     state = _DevServerState(
         pid=process.pid,
@@ -205,10 +284,13 @@ async def _start_dev_server(
         connectors_mcp_url=ready.get("connectors_mcp_url"),
     )
     environment.dev_server_state_path.write_text(json.dumps(asdict(state)), encoding="utf-8")
-    report(
-        f"dexcli dev is ready (pid {process.pid}); it keeps running after this command exits. "
-        f"Stop it with: kill {process.pid}"
-    )
+    if started_process is None:
+        report(f"dexcli dev is ready (pid {process.pid}) and keeps running.")
+    else:
+        report(
+            f"dexcli dev is ready (pid {process.pid}); it stops when this command exits. "
+            f"{_SHARING_HINT}"
+        )
     return DexServerEndpoint(
         address=state.dex_address,
         web_url=state.web_url,
@@ -233,7 +315,7 @@ async def _wait_for_ready_output(
                 f"dexcli dev exited with code {process.returncode}:\n{_tail(log_path)}"
             )
         await asyncio.sleep(_POLL_INTERVAL_SECONDS)
-    process.kill()
+    _signal_process_group(process.pid, signal.SIGKILL)
     raise DexServerError(
         f"dexcli dev was not ready in {_START_TIMEOUT_SECONDS:.0f}s:\n{_tail(log_path)}"
     )
@@ -328,6 +410,40 @@ async def _is_dex_flow_service(address: str) -> bool:
             await client.close()
             blob_cache.close()
         return False
+
+
+def _signal_process_group(pid: int, signal_number: signal.Signals) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pid, signal_number)
+
+
+def _wait_for_process_group_exit(process: subprocess.Popen[bytes], timeout: float) -> bool:
+    """Reap the leader, then wait for the rest of its group; return whether it exited in time."""
+    deadline = time.monotonic() + timeout
+    try:
+        process.wait(timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            pass  # A member still runs, under another user.
+        time.sleep(_POLL_INTERVAL_SECONDS)
+    return False
+
+
+def _remove_record_of(environment: CommandEnvironment, pid: int) -> None:
+    """Remove the ``dexcli dev`` record when it still names this process."""
+    path = environment.dev_server_state_path
+    try:
+        recorded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if isinstance(recorded, dict) and recorded.get("pid") == pid:
+        path.unlink(missing_ok=True)
 
 
 def _is_process_alive(pid: int) -> bool:

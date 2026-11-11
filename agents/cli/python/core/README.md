@@ -114,8 +114,8 @@ continues it. New sessions are named `<name>-YYYYMMDD-HHMMSS-<6 hex digits>`.
    background in its own session, with its output in
    `~/.dex/agents/dexcli-dev.log`. It reads the ready output (`Dex Server:`,
    `Dex Web:`, `Connectors MCP:`), records the process and ports in
-   `~/.dex/agents/dexcli-dev.json`, and prints how to stop it. It keeps running
-   after the command exits, so later commands and `--resume` reuse it.
+   `~/.dex/agents/dexcli-dev.json`. The command owns it from its spawn on and
+   stops it when it exits; see below.
 2. Dex Web answers `/readyz` with its readiness JSON (`status: "ready"` with
    `definitionRevision`, `source`, and `definitionCount`), and within five
    seconds the Dex port answers as FlowService, reporting an unknown Flow as not
@@ -132,6 +132,23 @@ integer. These checks tell a `dexcli dev` from an unrelated service, but they
 do not prove who owns the ports: another local user's process that binds them
 first and answers the same way is not detected. Run on a machine you do not
 share, or set `dex.server` and `connectors.mcp` to URLs you trust.
+
+A `dexcli dev` that the command started stops when the command exits: on
+`/exit`, the end of input, the Ctrl-C that exits, a failure, SIGTERM, or
+SIGHUP. The command sends SIGTERM to its process group, which includes
+`dex-server-zd`, and SIGKILL after 20 seconds. It removes
+`~/.dex/agents/dexcli-dev.json` when the record still names that process, and
+prints "Stopped the dexcli dev this command started." SIGTERM and SIGHUP cancel
+the command's task, so its cleanup runs, and the command exits with 128 plus
+the signal number. The `dexcli dev` state stays in `~/.dex/zd/<dex port>`, so
+a later command that starts it again can `--resume` a session.
+
+A `dexcli dev` that the command reused is never stopped: one the user started,
+or one that another command started and still records. Only the process this
+command spawned is stopped, never a pid read from the record. To share one
+server across sessions, run `dexcli dev` first. When a reused `dexcli dev`
+stops during the command, the next Dex call fails and the command exits with
+code 1 and one line that names the stopped `dexcli dev`.
 
 The command finds `dexcli` in this order: `DEXCLI`; the release it downloaded,
 `~/.dex/bin/dexcli-<version>/dexcli`, after checking both executables against

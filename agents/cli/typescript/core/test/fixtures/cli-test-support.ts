@@ -40,6 +40,40 @@ const cliEntryPath = fileURLToPath(new URL("./scripted-harness-cli.js", import.m
 const defaultWaitMs = 90_000;
 
 /**
+ * Runs a command on a pseudo-terminal of 50 rows and 400 columns and copies bytes both ways, because Node has no
+ * pseudo-terminal of its own. SIGTERM and SIGHUP go on to the command; its exit status becomes the bridge's.
+ */
+const terminalBridgeScript = `
+import fcntl, os, pty, select, signal, struct, sys, termios
+pid, fd = pty.fork()
+if pid == 0:
+    fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 400, 0, 0))
+    os.execv(sys.argv[1], sys.argv[1:])
+for number in (signal.SIGTERM, signal.SIGHUP):
+    signal.signal(number, lambda received, frame: os.kill(pid, received))
+inputs = [0, fd]
+while True:
+    readable, _, _ = select.select(inputs, [], [])
+    if 0 in readable:
+        data = os.read(0, 4096)
+        if data:
+            os.write(fd, data)
+        else:
+            inputs.remove(0)
+    if fd in readable:
+        try:
+            data = os.read(fd, 4096)
+        except OSError:
+            data = b""
+        if not data:
+            break
+        os.write(1, data)
+_, status = os.waitpid(pid, 0)
+code = os.waitstatus_to_exitcode(status)
+sys.exit(128 - code if code < 0 else code)
+`;
+
+/**
  * Collects a stream's text and waits for patterns in it, each search starting after the previous match.
  */
 export class TextCollector {
@@ -112,6 +146,35 @@ export class CliProcess {
       detached: true,
     });
     return new CliProcess(child);
+  }
+
+  /**
+   * Starts the scripted harness command on a pseudo-terminal, as a person at a terminal runs it. Its stdout holds
+   * everything the terminal shows, stderr included.
+   * @param home - The test home.
+   * @param commandArguments - Arguments after the command name.
+   * @returns The process.
+   */
+  public static startInTerminal(home: TestHome, commandArguments: readonly string[] = []): CliProcess {
+    const child = spawn("python3", ["-c", terminalBridgeScript, process.execPath, cliEntryPath, ...commandArguments], {
+      env: { ...home.environment(), TERM: "dumb" },
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
+    });
+    return new CliProcess(child);
+  }
+
+  /** Types Ctrl-C on the pseudo-terminal of {@link startInTerminal}. */
+  public typeCtrlC(): void {
+    this.child.stdin?.write("\x03");
+  }
+
+  /**
+   * Sends a signal to the command.
+   * @param signal - The signal.
+   */
+  public signal(signal: NodeJS.Signals): void {
+    this.child.kill(signal);
   }
 
   /**

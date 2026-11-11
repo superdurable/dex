@@ -145,7 +145,8 @@ dex-agents-NAME [run|init|connectors|sessions] [options]
 The exit code is 0 on success. It is 1 for a failure at run time, such as a
 Dex server that does not start, an explicit **connectors.mcp** URL that does
 not answer, or a turn or session that failed during the chat. It is 2 for a
-usage or configuration error.
+usage or configuration error. After SIGTERM or SIGHUP, it is 128 plus the
+signal number.
 
 ### The local Dex server {#dex-server}
 
@@ -156,12 +157,38 @@ Web:
 - When nothing answers on the Dex Web port, the command starts **dexcli dev**
   in the background on those ports. Its output goes to
   **~/.dex/agents/dexcli-dev.log**, and its process and ports to
-  **~/.dex/agents/dexcli-dev.json**. It keeps running after the command exits,
-  so later commands and **--resume** reuse it.
+  **~/.dex/agents/dexcli-dev.json**.
 - When a **dexcli dev** answers, the command reuses it. It checks the Dex Web
   readiness answer and the Dex port first. While Dex Web reports that Dex is
   starting, it waits up to a minute.
 - When anything else answers, the command stops with exit code 1.
+
+Changed in 0.5.1: a **dexcli dev** that the command started stops when the
+command exits, and Dex Web stops with it. This happens on **/exit**, at the end
+of input, on the Ctrl-C that exits, on a failure, and on SIGTERM or SIGHUP. The
+command stops the whole process group of **dexcli dev**, which includes
+**dex-server-zd**. It sends SIGTERM, and SIGKILL after 20 seconds. It then
+removes **~/.dex/agents/dexcli-dev.json** and prints
+"Stopped the dexcli dev this command started." Before 0.5.1, the started
+**dexcli dev** kept running after the command exited.
+
+A **dexcli dev** that the command reused keeps running. This includes one you
+started yourself and one that another command started. Sessions and their
+state stay in **~/.dex/zd/&lt;Dex port&gt;**, so a later command that starts
+**dexcli dev** again can **--resume** them.
+
+To share one Dex server across commands, run **dexcli dev** yourself before
+you start them, or set **dex.server** to a URL. Two commands that both use
+**auto** share the **dexcli dev** that the first one started. It stops when
+the first command exits. The second command then fails with exit code 1 and a
+short error that names the stopped **dexcli dev**. During the chat, warnings of
+the Dex SDK and other libraries, such as a lost Worker connection, go to the
+log file **~/.dex/agents/HARNESS.log**, not the terminal.
+
+A record in **~/.dex/agents/dexcli-dev.json** whose process still runs, for
+example after the command that started it crashed, is treated like any other
+running **dexcli dev**: a later command reuses it and never stops it. Stop it
+with **kill** and the pid in the record.
 
 These checks tell a **dexcli dev** from an unrelated service. They do not
 authenticate it: another local user's process that binds the ports first and
@@ -504,7 +531,9 @@ removes the attached images. Send the message again without them.
 When it starts, the command uploads the session graph of its session Flow
 type to the Dex Server. Dex Web then shows each session's Steps and its
 **Agent session** tab, with no **--flow-rendering-dir**. Open Dex Web at
-**http://127.0.0.1:8802** for the local **dexcli dev**.
+**http://127.0.0.1:8802** for the local **dexcli dev**. Dex Web stops with a
+**dexcli dev** that the command started; see
+[The local Dex server](#dex-server).
 
 - The **Agent session** tab shows the conversation and its tool calls, an
   approval card for each pending call, and a message box with **Steer** and
