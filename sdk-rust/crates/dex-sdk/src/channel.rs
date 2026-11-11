@@ -48,6 +48,8 @@ pub struct ChannelMessage<T> {
 /// decision about the queue. `T` must implement [`Value`] when publishing or reading messages.
 /// Declare reusable definitions as module-level [`std::sync::LazyLock`] statics.
 ///
+/// To wait for parallel branches of one Flow, use [`crate::Join`] instead of counting signals.
+///
 /// # Examples
 ///
 /// ```
@@ -198,6 +200,7 @@ impl<T> Clone for Channel<T> {
 /// Supply an instance string for every publish, read, condition, and completion guard. Add the map
 /// definition once to [`crate::PersistenceSchema`].
 /// Slash is prohibited in instance keys because it is a reserved character.
+/// To wait for parallel branches by round, use [`crate::Join`], which is built on a Channel map.
 pub struct ChannelMap<T> {
     name: String,
     marker: PhantomData<fn() -> T>,

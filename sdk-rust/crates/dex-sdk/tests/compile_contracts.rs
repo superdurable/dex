@@ -210,3 +210,39 @@ fn delete_expired_history_objects_builder_compiles() {
     let _sub_flow_options = dex_sdk::SubFlowOptions::new()
         .config_override(dex_sdk::FlowConfig::new().delete_expired_history_objects(false));
 }
+
+#[test]
+fn join_round_json_field_names_are_stable() {
+    let round = dex_sdk::JoinRound {
+        round_key: "RequestQuotes-2".to_string(),
+        branch_count: 3,
+    };
+    let encoded = serde_json::to_value(&round).expect("encode JoinRound");
+    assert_eq!(
+        serde_json::json!({"roundKey": "RequestQuotes-2", "branchCount": 3}),
+        encoded
+    );
+    let decoded: dex_sdk::JoinRound =
+        serde_json::from_str(r#"{"roundKey":"round-1","branchCount":0}"#)
+            .expect("decode JoinRound");
+    assert_eq!(
+        dex_sdk::JoinRound {
+            round_key: "round-1".to_string(),
+            branch_count: 0,
+        },
+        decoded
+    );
+    assert!(
+        serde_json::from_str::<dex_sdk::JoinRound>(r#"{"roundKey":"round-1","branchCount":-1}"#)
+            .is_err()
+    );
+}
+
+#[test]
+fn join_definition_and_schema_builder_compile() {
+    static QUOTE_RECEIVED: std::sync::LazyLock<dex_sdk::Join<String>> =
+        std::sync::LazyLock::new(|| dex_sdk::Join::new("quoteReceived"));
+
+    let _schema = dex_sdk::PersistenceSchema::new().join(&QUOTE_RECEIVED);
+    let _clone: dex_sdk::Join<String> = QUOTE_RECEIVED.clone();
+}
