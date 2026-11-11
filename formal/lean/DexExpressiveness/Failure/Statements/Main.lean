@@ -110,7 +110,7 @@ theorem safety_failure_repetition (program : Program σ)
   `w↓` is `erase(t)` of a fair maximal DexF trace `t` for `w` with the same
   marker; the run with no failure gives it.
 
-Spec §11.5 states an equality for every admissible word. The backward
+Spec §11.5 states the same two inclusions (review log F36). The backward
 inclusion is false for words with retries: a deduplicated StartFlow retry
 is a log commit whose stamp strictly advances the partition clock (spec
 §11.3, "Log commit versus run `seq`"), so a word with enough retries between
