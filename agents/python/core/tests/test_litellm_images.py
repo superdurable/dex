@@ -377,6 +377,28 @@ async def test_gemini_3_gets_the_note_in_function_responses_that_keep_their_ids(
     assert inline_data_parts(body) == [(0, inline_data(PNG_REFERENCE, PNG))]
 
 
+async def test_gemini_on_the_responses_api_gets_the_note_instead_of_tool_images(
+    transport: FakeProviderTransport,
+) -> None:
+    client = LiteLLMModelClient(
+        "gemini/gemini-2.5-flash",
+        api="responses",
+        api_base=transport.base_url,
+        api_key_provider=lambda: "key",
+    )
+    transport.responses.append((200, _gemini_text_stream("Two screenshots.")))
+
+    await client.call_model(image_request(two_screenshot_results()), RecordedOutput())
+
+    _, body = transport.requests[0]
+    assert [content["role"] for content in body["contents"]] == ["user", "model", "user"]
+    assert [part["function_response"]["response"] for part in body["contents"][2]["parts"]] == [
+        {"content": "First.\n\n" + TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="2 images")},
+        {"content": TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="1 image")},
+    ]
+    assert inline_data_parts(body) == [(0, inline_data(PNG_REFERENCE, PNG))]
+
+
 async def test_a_gemini_response_schema_prompt_fallback_survives_tool_images(
     transport: FakeProviderTransport,
 ) -> None:
@@ -485,6 +507,24 @@ def test_the_estimate_counts_each_image_without_reading_its_bytes() -> None:
     )
 
     assert with_images - without_images == 2 * ESTIMATED_IMAGE_INPUT_TOKENS
+
+
+def test_the_gemini_estimate_counts_only_the_images_the_model_receives() -> None:
+    client = LiteLLMModelClient("gemini/gemini-2.5-flash")
+    without_images = client.estimate_input_tokens(
+        _request([UserTextItem(text="Look."), _screenshot_result(())])
+    )
+
+    with_images = client.estimate_input_tokens(
+        _request(
+            [
+                UserTextItem(text="Look.", images=[PNG_REFERENCE]),
+                _screenshot_result((JPEG_REFERENCE,)),
+            ]
+        )
+    )
+
+    assert with_images - without_images == ESTIMATED_IMAGE_INPUT_TOKENS
 
 
 def _screenshot_result(images: tuple[AgentImageReference, ...]) -> ToolResultItem:

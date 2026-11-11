@@ -60,8 +60,8 @@ ApiKeyProvider = Callable[[], str | None | Awaitable[str | None]]
 #: .. versionadded:: 0.5.0
 TOOL_RESULT_IMAGES_TEXT = "The {tool_name} tool call {tool_call_id} returned these images."
 
-#: Text that replaces a tool result's images in its tool message for Gemini models on
-#: Gemini and Vertex AI, after the tool's output. ``str.format`` it with ``images``,
+#: Text that replaces a tool result's images for Gemini models on Gemini and Vertex AI,
+#: after the tool's output, on both APIs. ``str.format`` it with ``images``,
 #: such as ``"1 image"`` or ``"2 images"``.
 #:
 #: .. versionadded:: 0.5.0
@@ -109,7 +109,8 @@ class LiteLLMModelClient:
 
     * Responses API: a user message's ``content`` is an ``input_text`` part
       and one ``input_image`` part per image, with ``detail`` ``"auto"``. A
-      ``function_call_output``'s ``output`` is the same list of parts.
+      ``function_call_output``'s ``output`` is the same list of parts,
+      except for Gemini models, as below.
     * Chat Completions: a user message's ``content`` is a ``text`` part and
       one ``image_url`` part per image. For Anthropic and Bedrock, whose
       LiteLLM conversion keeps images in a tool result, a tool message's
@@ -262,7 +263,8 @@ class LiteLLMModelClient:
         Returns:
             LiteLLM's count of the neutral messages without their images,
             plus a quarter of the stored size of opaque items, plus
-            ``ESTIMATED_IMAGE_INPUT_TOKENS`` for each image.
+            ``ESTIMATED_IMAGE_INPUT_TOKENS`` for each image the model
+            receives. Gemini models receive no tool result images.
         """
         opaque_characters = sum(
             len(item.item) for item in request.input_items if isinstance(item, ModelOutputItem)
@@ -270,7 +272,8 @@ class LiteLLMModelClient:
         image_count = sum(
             len(item.images)
             for item in request.input_items
-            if isinstance(item, UserTextItem | ToolResultItem)
+            if isinstance(item, UserTextItem)
+            or (isinstance(item, ToolResultItem) and not self._is_gemini_model)
         )
         messages = _chat_messages(request, provider="", api="", image_bytes=None)
         try:
@@ -309,7 +312,12 @@ class LiteLLMModelClient:
         if request.settings.reasoning_effort is not None:
             reasoning["effort"] = request.settings.reasoning_effort
         options.update(
-            input=_responses_input(request.input_items, self._provider, request.image_bytes),
+            input=_responses_input(
+                request.input_items,
+                self._provider,
+                request.image_bytes,
+                should_omit_tool_result_images=self._is_gemini_model,
+            ),
             instructions=request.instructions,
             include=["reasoning.encrypted_content"],
             store=False,
@@ -511,7 +519,11 @@ class _ChatMessageAssembler:
 
 
 def _responses_input(
-    items: Sequence[ModelInputItem], provider: str, image_bytes: Mapping[str, bytes]
+    items: Sequence[ModelInputItem],
+    provider: str,
+    image_bytes: Mapping[str, bytes],
+    *,
+    should_omit_tool_result_images: bool = False,
 ) -> list[dict[str, Any]]:
     converted: list[dict[str, Any]] = []
     for item in items:
@@ -522,7 +534,9 @@ def _responses_input(
             converted.append({"type": "message", "role": "user", "content": content})
         elif isinstance(item, ToolResultItem):
             output: str | list[dict[str, Any]] = item.output
-            if item.images:
+            if item.images and should_omit_tool_result_images:
+                output = _tool_output_with_omitted_images_note(item)
+            elif item.images:
                 output = _responses_parts(item.output, item.images, image_bytes)
             converted.append(
                 {
@@ -582,11 +596,7 @@ def _chat_messages(
             tool_content: str | list[dict[str, Any]] = item.output
             if item.images and image_bytes is not None:
                 if should_omit_tool_result_images:
-                    image_count = len(item.images)
-                    note = TOOL_RESULT_IMAGES_OMITTED_TEXT.format(
-                        images=f"{image_count} image{'' if image_count == 1 else 's'}"
-                    )
-                    tool_content = f"{item.output}\n\n{note}" if item.output else note
+                    tool_content = _tool_output_with_omitted_images_note(item)
                 elif provider in _TOOL_MESSAGE_IMAGE_PROVIDERS:
                     tool_content = _chat_parts(item.output, item.images, image_bytes)
                 else:
@@ -600,6 +610,14 @@ def _chat_messages(
                 {"role": "tool", "tool_call_id": item.tool_call_id, "content": tool_content}
             )
     return messages
+
+
+def _tool_output_with_omitted_images_note(item: ToolResultItem) -> str:
+    image_count = len(item.images)
+    note = TOOL_RESULT_IMAGES_OMITTED_TEXT.format(
+        images=f"{image_count} image{'' if image_count == 1 else 's'}"
+    )
+    return f"{item.output}\n\n{note}" if item.output else note
 
 
 def _responses_parts(

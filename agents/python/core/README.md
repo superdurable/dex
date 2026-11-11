@@ -877,7 +877,8 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
 - **Summaries and estimates.** The model call that writes a context summary
   sees the text of the summarized items, without their images.
   `estimate_input_tokens` gets requests without image bytes; the LiteLLM
-  client counts `ESTIMATED_IMAGE_INPUT_TOKENS` (1600) for each image.
+  client counts `ESTIMATED_IMAGE_INPUT_TOKENS` (1600) for each image it
+  sends, so not for a Gemini model's tool result images.
 - **Without a store.** A tool result's references are still stored for
   display, but the model sees only the text.
 - **LiteLLM.** `LiteLLMModelClient` sends each image after the item's text as
@@ -895,10 +896,10 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
 - **Known limitation: Gemini through LiteLLM sees no tool result images.**
   Gemini models on the Gemini API and Vertex AI (`gemini/`, `vertex_ai/`, and
   `vertex_ai_beta/`) get images in user messages, but not the images of a
-  tool result. Their tool message holds the text and then
-  `TOOL_RESULT_IMAGES_OMITTED_TEXT`, such as `[The tool returned 2 images;
-  this model does not receive images from tool results.]`, and no user
-  message follows with the images. Gemini 2.5 refuses images in a function
+  tool result. Their tool message, or `function_call_output` on the
+  Responses API, holds the text and then `TOOL_RESULT_IMAGES_OMITTED_TEXT`,
+  such as `[The tool returned 2 images; this model does not receive images
+  from tool results.]`, and no user message follows with the images. Gemini 2.5 refuses images in a function
   response, Gemini 3 accepts them only there, and LiteLLM's conversion gets
   neither right. To show a Gemini model a tool's image, send it in a user
   message.
