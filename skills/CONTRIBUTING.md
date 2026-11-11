@@ -149,10 +149,10 @@ short. Its `bump` sets the release level:
   backward-compatible capabilities.
 - `major` for incompatible plugin or skill identity changes.
 
-A typo, link, or wording-only change needs no fragment. Check Gate CI requires
-a fragment for any change under `dex-sdk/`, `dex-app-builder/`, or
-`dex-connector-contributor/`, unless the pull request description contains
-this line:
+A typo, link, or wording-only change needs no fragment. The mirror publishes
+the whole `skills/` tree, so Check Gate CI requires a fragment for any change
+under `skills/` other than the release files and `CHANGELOG-0.x.md`, unless
+the pull request description contains this line:
 
 ```text
 skills-release: no bump needed: <reason>
@@ -173,12 +173,15 @@ python3 script/release/changelog_fragments.py prepare skills --date <YYYY-MM-DD>
 
 It bumps `VERSION` by the largest fragment bump and writes that version into
 `dex-sdk/VERSION` and every manifest that supports one. It adds the
-`CHANGELOG.md` entry and deletes the fragments. Open its pull request with the
-`release-prep` label. Check Gate CI repeats the assembly on the base and
+`CHANGELOG.md` entry and deletes the fragments. The workflow pushes a new
+`release-prep/skills-v<version>-<run ID>` branch on every run. Open its pull
+request with the `release-prep` label. Check Gate CI repeats the assembly on the base and
 requires the same files.
 
 When that pull request lands on Dex `main`, the `VERSION` change syncs the
 package to the mirror. The mirror's Release workflow validates it and creates
 `v<version>` from the matching changelog section. If the tag already exists,
 the workflow skips release creation. Other skills changes reach the mirror
-with the next release, or with a manual run of **Mirror Dex skills**.
+with the next release, or with a manual run of **Mirror Dex skills**. That run
+refuses while `changelog.d/skills/` holds a fragment, because the fragment's
+change would ship under the current version. Prepare a release first.

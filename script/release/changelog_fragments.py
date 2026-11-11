@@ -25,6 +25,7 @@ FRAGMENT_README = f"{FRAGMENT_ROOT}/README.md"
 FRAGMENT_PLACEHOLDER = ".gitkeep"
 FRAGMENT_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{6}\.md$")
 FRAGMENT_SUFFIX_BYTES = 3
+FRAGMENT_NAME_ATTEMPTS = 16
 SLUG_MAX_LENGTH = 40
 
 SKILLS_TARGET = "skills"
@@ -39,7 +40,10 @@ SKILLS_MANIFESTS = (
     "skills/.cursor-plugin/marketplace.json",
 )
 SKILLS_OUTPUTS = (SKILLS_VERSION, SKILLS_SDK_VERSION, SKILLS_CHANGELOG, *SKILLS_MANIFESTS)
-SKILLS_CONTENT_PREFIXES = ("skills/dex-sdk/", "skills/dex-app-builder/", "skills/dex-connector-contributor/")
+SKILLS_ARCHIVED_CHANGELOG = "skills/CHANGELOG-0.x.md"
+# The mirror publishes the whole skills/ tree, so every file there except release output needs a fragment.
+SKILLS_PUBLISHED_PREFIX = "skills/"
+SKILLS_RELEASE_NOTE_EXEMPT = frozenset((*SKILLS_OUTPUTS, SKILLS_ARCHIVED_CHANGELOG))
 TARGET_OUTPUTS: dict[str, tuple[str, ...]] = {SKILLS_TARGET: SKILLS_OUTPUTS}
 
 BUMP_LEVELS = ("patch", "minor", "major")
@@ -175,12 +179,23 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run_new(options: argparse.Namespace, repository: Path) -> int:
     stem = slugify(options.slug if options.slug else current_branch(repository))
-    name = f"{stem}-{secrets.token_hex(FRAGMENT_SUFFIX_BYTES)}.md"
-    path = repository / FRAGMENT_ROOT / options.target / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"---\nbump: {options.bump}\n---\n- \n", encoding="utf-8")
+    path = write_new_fragment(repository / FRAGMENT_ROOT / options.target, stem, options.bump)
     print(path.relative_to(repository).as_posix())
     return 0
+
+
+def write_new_fragment(directory: Path, stem: str, bump: str) -> Path:
+    """Returns the path of a new fragment skeleton, created exclusively so it never overwrites a file."""
+    directory.mkdir(parents=True, exist_ok=True)
+    for _ in range(FRAGMENT_NAME_ATTEMPTS):
+        path = directory / f"{stem}-{secrets.token_hex(FRAGMENT_SUFFIX_BYTES)}.md"
+        try:
+            with path.open("x", encoding="utf-8") as fragment_file:
+                fragment_file.write(f"---\nbump: {bump}\n---\n- \n")
+        except FileExistsError:
+            continue
+        return path
+    raise FragmentError(f"{directory}: found no free fragment name for {stem!r} in {FRAGMENT_NAME_ATTEMPTS} attempts")
 
 
 def run_lint(options: argparse.Namespace, repository: Path) -> int:
@@ -238,13 +253,16 @@ def check_pull_request(
     is_legacy = pull_request.number is not None and pull_request.number <= LEGACY_CHANGELOG_PR_MAX
     output_paths = {path for outputs in TARGET_OUTPUTS.values() for path in outputs}
     changed_outputs = sorted(change.path for change in changes if change.path in output_paths)
-    if changed_outputs and not (is_correction or is_legacy):
-        errors.append(
-            "only a release-prep pull request changes these release files: "
-            + ", ".join(changed_outputs)
-            + ". Add a fragment with `python3 script/release/changelog_fragments.py new skills --bump <level>`"
-            " instead, or add a line 'changelog: correction: <reason>' to the pull request description"
-        )
+    if changed_outputs and not is_correction:
+        if is_legacy:
+            errors.extend(legacy_skills_bump_problems(base, head, changes))
+        else:
+            errors.append(
+                "only a release-prep pull request changes these release files: "
+                + ", ".join(changed_outputs)
+                + ". Add a fragment with `python3 script/release/changelog_fragments.py new skills --bump <level>`"
+                " instead, or add a line 'changelog: correction: <reason>' to the pull request description"
+            )
     changed_base_fragments = sorted(
         change.path for change in changes if change.status in ("M", "D") and is_fragment_path(change.path)
     )
@@ -281,7 +299,8 @@ def check_skills_release_note(
     pull_request: PullRequest, base: TreeReader, head: TreeReader, changes: Sequence[FileChange], is_legacy: bool
 ) -> list[str]:
     is_content_change = any(
-        change.path.startswith(SKILLS_CONTENT_PREFIXES) and change.path not in SKILLS_OUTPUTS for change in changes
+        change.path.startswith(SKILLS_PUBLISHED_PREFIX) and change.path not in SKILLS_RELEASE_NOTE_EXEMPT
+        for change in changes
     )
     if not is_content_change:
         return []
@@ -289,27 +308,40 @@ def check_skills_release_note(
         return []
     if any(change.status == "A" and is_fragment_path(change.path, SKILLS_TARGET) for change in changes):
         return []
-    if is_legacy and has_legacy_skills_bump(base, head, changes):
+    if is_legacy and not legacy_skills_bump_problems(base, head, changes):
         return []
     return [
-        "skill content changed without a skills fragment. Add one with "
+        "files under skills/ changed without a skills fragment. Add one with "
         "`python3 script/release/changelog_fragments.py new skills --bump <level>`, or add a line "
         "'skills-release: no bump needed: <reason>' to the pull request description"
     ]
 
 
-def has_legacy_skills_bump(base: TreeReader, head: TreeReader, changes: Sequence[FileChange]) -> bool:
-    """Returns whether the pull request bumps skills VERSION and edits CHANGELOG.md the pre-fragment way."""
+def legacy_skills_bump_problems(base: TreeReader, head: TreeReader, changes: Sequence[FileChange]) -> list[str]:
+    """Returns why the pull request does not raise skills VERSION and add its CHANGELOG.md entry, or no reasons."""
+    # A strictly higher version keeps a stale legacy pull request from reverting a merged release.
+    prefix = f"a pull request numbered up to {LEGACY_CHANGELOG_PR_MAX} that edits skills release files"
     changed_paths = {change.path for change in changes}
     if not {SKILLS_VERSION, SKILLS_CHANGELOG} <= changed_paths:
-        return False
-    base_version, head_version = base.read(SKILLS_VERSION), head.read(SKILLS_VERSION)
-    if base_version is None or head_version is None:
-        return False
+        return [f"{prefix} must change both {SKILLS_VERSION} and {SKILLS_CHANGELOG}"]
+    base_text, head_text = base.read(SKILLS_VERSION), head.read(SKILLS_VERSION)
+    if base_text is None or head_text is None:
+        return [f"{prefix} needs {SKILLS_VERSION} on both the base and the head"]
     try:
-        return version_tuple(head_version.strip()) > version_tuple(base_version.strip())
-    except FragmentError:
-        return False
+        base_version, head_version = base_text.strip(), head_text.strip()
+        is_raised = version_tuple(head_version) > version_tuple(base_version)
+    except FragmentError as error:
+        return [f"{prefix}: {error}"]
+    if not is_raised:
+        return [
+            f"{prefix} must raise {SKILLS_VERSION} above the base's {base_version}, not set {head_version}. "
+            "Rebase onto main and add a fragment instead"
+        ]
+    heading = SKILLS_ENTRY_HEADING.search(head.read(SKILLS_CHANGELOG) or "")
+    base_versions = {match.group("version") for match in SKILLS_ENTRY_HEADING.finditer(base.read(SKILLS_CHANGELOG) or "")}
+    if heading is None or heading.group("version") != head_version or head_version in base_versions:
+        return [f"{prefix} must add a new newest '## {head_version} - YYYY-MM-DD' entry to {SKILLS_CHANGELOG}"]
+    return []
 
 
 def verify_release_prep(base: TreeReader, head: TreeReader, changes: Sequence[FileChange]) -> list[str]:

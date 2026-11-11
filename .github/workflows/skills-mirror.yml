@@ -1,7 +1,7 @@
 name: Mirror Dex skills
 
 on:
-  # Only a skills release-prep merge changes VERSION; dispatch to sync other changes sooner.
+  # A release-prep merge changes VERSION; dispatch ships fragment-free fixes sooner.
   push:
     branches: [main]
     paths:
@@ -88,7 +88,20 @@ jobs:
             exit 0
           fi
 
+          pending_fragments="$(git -C dex ls-tree --name-only "${DEX_COMMIT}:changelog.d/skills" 2>/dev/null | grep -vx '.gitkeep' || true)"
+          if [[ -n "${pending_fragments}" && "${DRY_RUN}" != "true" ]]; then
+            {
+              echo "Refusing to sync Dex ${DEX_COMMIT}: changelog.d/skills/ holds unreleased fragments:"
+              echo "${pending_fragments}"
+              echo "Their changes would ship under the current version. Run Prepare skills release and merge its pull request first."
+            } >&2
+            exit 1
+          fi
+
           if [[ "${DRY_RUN}" == "true" ]]; then
+            if [[ -n "${pending_fragments}" ]]; then
+              echo "Warning: changelog.d/skills/ holds unreleased fragments; a real sync would refuse."
+            fi
             echo "Dry run for Dex ${DEX_COMMIT}; proposed mirror diff:"
             git -C mirror diff --cached --stat
             exit 0

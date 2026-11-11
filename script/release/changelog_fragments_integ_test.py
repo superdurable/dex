@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import re
 import shutil
 import subprocess
@@ -61,6 +62,22 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
         self.assertIn("empty", self.run_script("lint", first, check=False).stderr)
         self.write(first, "---\nbump: minor\n---\n- Add the Join pattern.\n")
         self.assertEqual(self.run_script("lint", first).returncode, 0)
+
+    def test_new_retries_a_taken_name_and_never_overwrites_it(self) -> None:
+        directory = self.repository / "changelog.d/skills"
+        taken = directory / "taken-aaaaaa.md"
+        taken.write_text("keep\n", encoding="utf-8")
+        suffixes = iter(("aaaaaa", "bbbbbb"))
+        module = load_script_module()
+        module.secrets.token_hex = lambda _: next(suffixes)
+
+        path = module.write_new_fragment(directory, "taken", "patch")
+
+        self.assertEqual(path, directory / "taken-bbbbbb.md")
+        self.assertEqual(taken.read_text(encoding="utf-8"), "keep\n")
+        module.secrets.token_hex = lambda _: "aaaaaa"
+        with self.assertRaisesRegex(module.FragmentError, "no free fragment name"):
+            module.write_new_fragment(directory, "taken", "patch")
 
     def test_new_defaults_to_the_branch_name(self) -> None:
         self.git("switch", "-c", "feature/rename-step-docs")
@@ -185,7 +202,9 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
         result = self.check_pr()
         self.assertEqual(result.returncode, 1)
         self.assertIn("only a release-prep pull request changes these release files: skills/VERSION", result.stderr)
-        self.assertEqual(self.check_pr(pr_number=LEGACY_PR_NUMBER).returncode, 0)
+        result = self.check_pr(pr_number=LEGACY_PR_NUMBER)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must change both skills/VERSION and skills/CHANGELOG.md", result.stderr)
         self.set_body("## Summary\n\nchangelog: correction: restore the released version\n")
         self.assertEqual(self.check_pr().returncode, 0)
 
@@ -215,13 +234,52 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
     def test_a_grace_pull_request_may_bump_the_old_way(self) -> None:
         self.git("switch", "-c", "legacy-bump")
         self.write(SKILL_FILE, self.read(SKILL_FILE) + "\nA new rule.\n")
-        major, minor, patch = (int(part) for part in self.base_version.split("."))
-        self.write("skills/VERSION", f"{major}.{minor}.{patch + 1}\n")
-        self.write("skills/CHANGELOG.md", self.read("skills/CHANGELOG.md") + "\n")
+        self.legacy_bump(self.next_patch(self.base_version))
         self.commit("legacy bump")
 
-        self.assertEqual(self.check_pr(pr_number=LEGACY_PR_NUMBER).returncode, 0)
+        result = self.check_pr(pr_number=LEGACY_PR_NUMBER)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.check_pr().returncode, 1)
+
+    def test_a_grace_pull_request_must_raise_the_version_and_add_its_entry(self) -> None:
+        self.land_fragments("fix-000001")
+        self.prepare_branch("2026-11-12")
+        self.git("switch", "main")
+        self.git("merge", "-q", "--ff-only", "release-prep/skills")
+        released = self.read("skills/VERSION").strip()
+        cases = {
+            "reverts": (self.base_version, None, f"above the base's {released}, not set {self.base_version}"),
+            "keeps": (released, None, "must change both skills/VERSION and skills/CHANGELOG.md"),
+            "no entry": (self.next_patch(released), "", "must add a new newest"),
+            "wrong entry": (self.next_patch(released), "9.9.9", "must add a new newest"),
+        }
+        for name, (version, entry_version, message) in cases.items():
+            with self.subTest(name=name):
+                self.git("switch", "-q", "-C", "stale-legacy", "main")
+                self.write(SKILL_FILE, self.read(SKILL_FILE) + "\nA new rule.\n")
+                self.legacy_bump(version, entry_version)
+                self.commit(name)
+                result = self.check_pr(pr_number=LEGACY_PR_NUMBER)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(message, result.stderr)
+
+    def test_every_published_skills_file_needs_a_fragment(self) -> None:
+        for path in ("skills/README.md", "skills/script/check-package.py", "skills/hooks/new-hook.sh"):
+            with self.subTest(path=path):
+                self.git("switch", "-q", "-C", "edit-published", "main")
+                self.write(path, (self.read(path) if (self.repository / path).exists() else "") + "\n# More.\n")
+                self.commit("edit " + path)
+                result = self.check_pr()
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("without a skills fragment", result.stderr)
+
+    def test_the_archived_change_log_needs_no_fragment(self) -> None:
+        self.git("switch", "-c", "edit-archive")
+        path = "skills/CHANGELOG-0.x.md"
+        self.write(path, self.read(path) + "\n")
+        self.commit("edit archive")
+        result = self.check_pr()
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_release_prep_label_on_a_normal_pull_request_fails(self) -> None:
         self.land_fragments("fix-000001")
@@ -268,6 +326,22 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("without a skills fragment", result.stderr)
         self.assertNotIn("README.md", result.stderr)
+
+    def next_patch(self, version: str) -> str:
+        major, minor, patch = (int(part) for part in version.split("."))
+        return f"{major}.{minor}.{patch + 1}"
+
+    def legacy_bump(self, version: str, entry_version: str | None = None) -> None:
+        """Bumps every version copy the old way; entry_version overrides the entry heading, and "" omits it."""
+        previous = self.read("skills/VERSION").strip()
+        for path in ("skills/VERSION", "skills/dex-sdk/VERSION"):
+            self.write(path, f"{version}\n")
+        for path in MANIFESTS:
+            self.write(path, self.read(path).replace(f'"version": "{previous}"', f'"version": "{version}"'))
+        changelog = self.read("skills/CHANGELOG.md")
+        heading = "" if entry_version == "" else f"## {entry_version or version} - 2026-11-12\n\n- Legacy bump.\n\n"
+        newest = changelog.index("\n## ") + 1
+        self.write("skills/CHANGELOG.md", changelog[:newest] + heading + changelog[newest:] + ("\n" if not heading else ""))
 
     def land_fragments(self, *stems: str) -> None:
         for stem in stems:
@@ -323,6 +397,14 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
         return subprocess.run(
             ("git", *arguments), cwd=self.repository, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
+
+
+def load_script_module():
+    specification = importlib.util.spec_from_file_location("changelog_fragments_under_test", SCRIPT)
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[specification.name] = module
+    specification.loader.exec_module(module)
+    return module
 
 
 if __name__ == "__main__":

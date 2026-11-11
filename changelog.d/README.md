@@ -44,7 +44,8 @@ The release cutter prepares each release in its own pull request from a fresh
 python3 script/release/changelog_fragments.py prepare skills --date <YYYY-MM-DD>
 ```
 
-The **Prepare skills release** workflow does the same and pushes the branch.
+The **Prepare skills release** workflow does the same and pushes a new
+`release-prep/skills-v<version>-<run ID>` branch on every run.
 Open the pull request with the `release-prep` label. Check Gate CI reads the
 version and date from the new entry, runs the same assembly on the base, and
 requires identical files. When a fragment lands on main first, the check fails
@@ -55,8 +56,11 @@ and prints the command to prepare again.
 - Outside a release-prep pull request, any change to a release file fails
   unless the description contains a line `changelog: correction: <reason>`.
 - Changing or deleting a fragment that is already on main needs the same line.
-- A change to skill content needs a skills fragment, or the description line
-  `skills-release: no bump needed: <reason>`.
+- Any change under `skills/`, other than the release files and
+  `skills/CHANGELOG-0.x.md`, needs a skills fragment, or the description line
+  `skills-release: no bump needed: <reason>`. The mirror publishes that whole
+  tree.
 - Pull requests opened before fragments existed, up to
   `LEGACY_CHANGELOG_PR_MAX` in `script/release/changelog_fragments.py`, may
-  still bump skills the old way.
+  still bump skills the old way. Such a bump must raise `skills/VERSION` above
+  the base and add the matching new `skills/CHANGELOG.md` entry.

@@ -169,7 +169,7 @@ request assembles the fragments and changes `skills/VERSION`. Its merge to Dex
 main syncs that directory to the read-only
 [`superdurable/dex-skills`](https://github.com/superdurable/dex-skills) mirror,
 and the mirror publishes the release. Run **Mirror Dex skills** by hand to sync
-other changes sooner. See [`skills/CONTRIBUTING.md`](skills/CONTRIBUTING.md#version-and-release). If the sync fails its
+other changes sooner; it refuses while `changelog.d/skills/` holds a fragment. See [`skills/CONTRIBUTING.md`](skills/CONTRIBUTING.md#version-and-release). If the sync fails its
 drift check, compare the mirror HEAD tree with the last synced Dex commit's
 `skills/` tree (from the mirror commit's `Dex-Commit` trailer). Restore the
 mirror to that tree, then rerun the sync; do not overwrite unexplained edits.
