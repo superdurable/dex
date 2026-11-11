@@ -17,6 +17,9 @@ from claude_agent_sdk import SessionKey, SessionStore, SessionStoreEntry
 
 from dex_agents_claude_agent_sdk.transcript import TranscriptEntry
 
+# Claude Code's entry that names the leaf a resume continues from.
+LEAF_POINTER_ENTRY_TYPE = "last-prompt"
+
 
 class TurnSegmentSessionStore(SessionStore):
     # The Protocol's own defaults tell the SDK these optional methods are unimplemented.
@@ -41,6 +44,9 @@ class TurnSegmentSessionStore(SessionStore):
             return
         session_entries = self._appended_entries_by_session.setdefault(key["session_id"], [])
         for entry in entries:
+            # A leaf pointer from an earlier segment would resume a later one at a stale message.
+            if entry.get("type") == LEAF_POINTER_ENTRY_TYPE:
+                continue
             entry_uuid = entry.get("uuid")
             # Retried mirror batches may overlap; the SDK asks stores to dedupe by uuid.
             if isinstance(entry_uuid, str):
