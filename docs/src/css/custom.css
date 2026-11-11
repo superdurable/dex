@@ -1406,3 +1406,17 @@ code {
 .markdown a[id]:not([href]) {
   scroll-margin-top: calc(var(--ifm-navbar-height) + 0.5rem);
 }
+
+/* Agent framework tabs: one scrollable row, never wrapped labels. */
+.framework-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.framework-tabs .tabs__item {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+}

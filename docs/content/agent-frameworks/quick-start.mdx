@@ -10,7 +10,7 @@ Run an agent as a durable Dex session with the framework you already use. Pick y
 
 ## The example {#the-examples}
 
-Every framework page uses the same order support agent. It has two tools on an in-memory order desk:
+Every framework tab uses the same order support agent. It has two tools on an in-memory order desk:
 
 | Tool | Policy | What Dex does |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ Every framework page uses the same order support agent. It has two tools on an i
 
 The Python agents are under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses). The TypeScript agents are under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
 
-The built-in agent loop page uses the [AI Agent](/use-cases/ai-agent) example instead. It shows every session feature.
+The built-in loop tab uses the [AI Agent](/use-cases/ai-agent) example instead. It shows every session feature.
 
 ## Install {#install}
 
@@ -286,8 +286,6 @@ The allowed models, the system prompt, the context window, and the MCP servers a
 </FrameworkTab>
 <FrameworkTab framework="claude-agent-sdk">
 
-The example is the [order support agent](/agent-frameworks/quick-start#the-examples) that every framework page uses.
-
 The Flow type is **ClaudeAgentSDKOrderSupport** in Python and **ClaudeAgentSdkOrderSupportAgent** in TypeScript. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses) and [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
 
 The tools are Claude Agent SDK tools. The options give the model, the system prompt, and the CLI environment. The tool policies name each tool by its own name.
@@ -402,8 +400,6 @@ The example turns off every built-in Claude Code tool, so the agent uses only th
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
-The example is the [order support agent](/agent-frameworks/quick-start#the-examples) that every framework page uses.
-
 The Flow type is **OpenAIAgentsOrderSupport** in Python and **OpenAIAgentsOrderSupportAgent** in TypeScript. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses) and [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
 
 The tools are function tools of the SDK. The agent is a plain SDK agent. The tool policies name each tool.
@@ -495,8 +491,6 @@ export function createOpenAIAgentsOrderSupportFlow(
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-The example is the [order support agent](/agent-frameworks/quick-start#the-examples) that every framework page uses.
-
 The Flow type is **PydanticAIOrderSupport**. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses).
 
 The tools are plain Pydantic AI tools on the agent. The tool policies name each tool. The agent defers its model check, so a Client process needs no provider key.
@@ -542,8 +536,6 @@ def build_pydantic_ai_order_support_flow(
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
-
-The example is the [order support agent](/agent-frameworks/quick-start#the-examples) that every framework page uses.
 
 The Flow type is **LangChainOrderSupport**. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses).
 
@@ -600,8 +592,6 @@ def build_langchain_order_support_flow(
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
 
-The example is the [order support agent](/agent-frameworks/quick-start#the-examples) that every framework page uses.
-
 The Flow type is **GoogleADKOrderSupport**. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses).
 
 The tools are plain Python functions on an ADK **LlmAgent**. The tool policies name each tool.
@@ -649,8 +639,6 @@ def build_google_adk_order_support_flow(
 
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
-
-The example is the [order support agent](/agent-frameworks/quick-start#the-examples) that every framework page uses.
 
 The Flow type is **VercelAiOrderSupportAgent**. The full example is under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
 
@@ -700,8 +688,6 @@ export function createVercelAiOrderSupportFlow(
 
 </FrameworkTab>
 <FrameworkTab framework="mastra">
-
-The example is the [order support agent](/agent-frameworks/quick-start#the-examples) that every framework page uses.
 
 The Flow type is **MastraOrderSupportAgent**. The full example is under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
 
@@ -2232,7 +2218,7 @@ While an example runs, you can approve a call in Dex Web instead of with an HTTP
 3. Set **Working as** to **order-support.operate**, the permission you rendered into the session graph.
 4. Select **Approve** or **Reject** on the **cancel_order** card. Dex Web calls **resolve_interrupt** for you.
 
-Dex Web shows this tab only when it started with the session graph. Each framework page renders the graph before it starts Dex. For production, see [Show sessions in Dex Web](/reference/agents/dex-web).
+Dex Web shows this tab only when it started with the session graph. Each framework tab of [Run it locally](#run-it-locally) renders the graph before it starts Dex. For production, see [Show sessions in Dex Web](/reference/agents/dex-web).
 
 <FrameworkTabs>
 <FrameworkTab framework="built-in-agent-loop">
