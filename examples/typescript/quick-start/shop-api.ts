@@ -19,9 +19,9 @@ export class ShopApi {
   public readonly charged: string[] = [];
   public readonly shipped: string[] = [];
 
-  public charge(orderId: string): void {
+  public charge(orderId: string, idempotencyKey: string): void {
     this.charged.push(orderId);
-    console.log(`Charged ${orderId}`);
+    console.log(`Charged ${orderId} with key ${idempotencyKey}`);
   }
 
   public ship(orderId: string): void {

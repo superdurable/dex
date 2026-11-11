@@ -32,12 +32,12 @@ type ShopAPI struct {
 	shipped []string
 }
 
-// Charge records and prints a charge.
-func (shop *ShopAPI) Charge(orderID string) {
+// Charge records and prints a charge. A real payment API uses idempotencyKey to charge once.
+func (shop *ShopAPI) Charge(orderID string, idempotencyKey string) {
 	shop.mu.Lock()
 	defer shop.mu.Unlock()
 	shop.charged = append(shop.charged, orderID)
-	fmt.Println("Charged", orderID)
+	fmt.Println("Charged", orderID, "with key", idempotencyKey)
 }
 
 // Ship records and prints a shipment.

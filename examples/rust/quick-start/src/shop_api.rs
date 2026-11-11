@@ -29,9 +29,9 @@ struct ShopCalls {
 }
 
 impl ShopApi {
-    pub fn charge(&self, order_id: &str) {
+    pub fn charge(&self, order_id: &str, idempotency_key: &str) {
         self.record().charged.push(order_id.to_string());
-        println!("Charged {order_id}");
+        println!("Charged {order_id} with key {idempotency_key}");
     }
 
     pub fn ship(&self, order_id: &str) {

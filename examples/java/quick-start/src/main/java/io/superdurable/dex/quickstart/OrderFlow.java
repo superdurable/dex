@@ -56,7 +56,7 @@ public final class OrderFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String orderId) {
-            shop.charge(orderId);
+            shop.charge(orderId, "charge-" + orderId);
             return StepDecision.goTo(Ship.class, orderId);
         }
     }

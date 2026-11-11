@@ -29,7 +29,7 @@ impl Step for Charge {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, order_id: String) -> HandlerResult<StepDecision> {
-        self.shop.charge(&order_id);
+        self.shop.charge(&order_id, &format!("charge-{order_id}"));
         let ship = Ship {
             shop: self.shop.clone(),
         };

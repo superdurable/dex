@@ -44,7 +44,7 @@ class Charge implements Step<string> {
   }
 
   public execute(_context: Context, orderId: string): StepDecision {
-    this.shop.charge(orderId);
+    this.shop.charge(orderId, `charge-${orderId}`);
     return goTo(Ship, orderId);
   }
 }

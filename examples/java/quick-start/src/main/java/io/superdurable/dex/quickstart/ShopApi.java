@@ -24,9 +24,9 @@ public final class ShopApi {
     private final List<String> charged = new CopyOnWriteArrayList<String>();
     private final List<String> shipped = new CopyOnWriteArrayList<String>();
 
-    public void charge(final String orderId) {
+    public void charge(final String orderId, final String idempotencyKey) {
         charged.add(orderId);
-        System.out.println("Charged " + orderId);
+        System.out.println("Charged " + orderId + " with key " + idempotencyKey);
     }
 
     public void ship(final String orderId) {

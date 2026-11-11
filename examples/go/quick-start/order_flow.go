@@ -61,7 +61,7 @@ type Charge struct {
 
 // Execute charges the order.
 func (step Charge) Execute(_ dex.Context, orderID string) (*dex.StepDecision, error) {
-	step.shop.Charge(orderID)
+	step.shop.Charge(orderID, "charge-"+orderID)
 	return dex.GoTo(Ship{}, orderID), nil
 }
 

@@ -38,7 +38,7 @@ class Charge(Step[str]):
         self.shop = shop
 
     def execute(self, context: Context, input: str) -> StepDecision:
-        self.shop.charge(input)
+        self.shop.charge(input, idempotency_key=f"charge-{input}")
         return go_to(Ship, input)
 
 
