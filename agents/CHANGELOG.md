@@ -1,6 +1,6 @@
 # Changelog
 
-All eleven Dex agents packages share this changelog and one version line. A
+All twelve Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
@@ -82,6 +82,20 @@ for the Dex SDK and framework versions each release supports.
   **ClaudeCodeToolDenial** to refuse it, or nothing for the session's policies,
   so `Bash` can run allow-listed commands without approval. See
   [Per-call decisions for Claude Code tools](python/claude-agent-sdk/README.md#per-call-decisions-for-claude-code-tools).
+- New npm package `@superdurable/dex-agents-pi` (not published yet) runs Pi
+  agents on the Stepwise session Flow. Dex runs the agent loop; pi-ai makes
+  each model call and Pi tools run as Dex tool Steps. It peer-depends on
+  `@earendil-works/pi-ai@^1.5.1`, tested with 1.5.1.
+  **createPiAiModelClient(model, { apiKey, headers, prepareRequest })** makes
+  one pi-ai request per `RunModel` attempt, stores the replay fields of pi-ai's
+  assistant message with the pi-ai version, and replays them to every later
+  model call.
+  **piAgentFunctionTool(tool, { effect, requiresApproval })** wraps a Pi
+  `AgentTool`; without an effect, `replay: "safe"` gives `idempotent_write`,
+  `replay: "never"` gives `non_idempotent_write`, and a tool with neither
+  fails when the definition is built. **piDurableFunctionTool(tool, { effect })**
+  wraps a `pi-durable` tool that does not use the Harness `api`. See
+  [typescript/pi](typescript/pi/README.md).
 
 ### Images
 

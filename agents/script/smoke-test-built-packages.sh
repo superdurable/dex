@@ -44,7 +44,7 @@ mkdir -p "$dist_dir/python" "$dist_dir/typescript"
 dist_dir="$(cd "$dist_dir" && pwd)"
 
 python_packages=(core openai-agents pydantic-ai langgraph google-adk claude-agent-sdk)
-typescript_packages=(core vercel-ai openai-agents mastra claude-agent-sdk)
+typescript_packages=(core vercel-ai openai-agents mastra claude-agent-sdk pi)
 
 run_python() {
   uv run --no-project --python 3.11 python "$@"
