@@ -17,9 +17,10 @@
 package io.superdurable.dex.patterns.workflowpatterns;
 
 import io.superdurable.dex.Channel;
-import io.superdurable.dex.ChannelMap;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.Join;
+import io.superdurable.dex.JoinRound;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
@@ -32,19 +33,24 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/** WCP-28 and WCP-31: no Step waits on round k + 1 signals until round k resets. */
+/** WCP-28 and WCP-31: round k + 1 does not start until every round k branch has completed. */
 @Component
 public class BlockingPartialJoinFlow implements Flow<BlockingPartialJoinFlow.BlockingJoinRound> {
     public static final Channel<String> branchASignal = Channel.define("branchASignal", String.class);
     public static final Channel<String> branchBSignal = Channel.define("branchBSignal", String.class);
     public static final Channel<String> branchCSignal = Channel.define("branchCSignal", String.class);
-    public static final ChannelMap<String> branchCompleted =
-            ChannelMap.define("branchCompleted", String.class);
-    private static final int BRANCH_COUNT = 3;
+    public static final Join<String> branchCompleted = Join.define("branchCompleted", String.class);
     private static final int LAST_ROUND = 2;
 
-    /** One join round: the signals it needs and its number. */
-    public record BlockingJoinRound(int requiredSignals, int round) {
+    /**
+     * One join round: the signals it needs, its number, and the previous Join round, which is
+     * null in the first round.
+     */
+    public record BlockingJoinRound(int requiredSignals, int round, JoinRound previousRound) {
+    }
+
+    /** The join Step input: the blocking round and the Join round it waits on. */
+    public record BlockingRoundJoin(BlockingJoinRound blockingRound, JoinRound joinRound) {
     }
 
     /** The branches whose signals fired the join in one round. */
@@ -57,7 +63,6 @@ public class BlockingPartialJoinFlow implements Flow<BlockingPartialJoinFlow.Blo
     private final SignalFromBranchC signalFromBranchC = new SignalFromBranchC();
     private final BlockingJoin blockingJoin = new BlockingJoin();
     private final ProcessRound processRound = new ProcessRound();
-    private final ResetBlockingJoin resetBlockingJoin = new ResetBlockingJoin();
 
     @Override
     public StepList<BlockingJoinRound> getSteps() {
@@ -66,8 +71,7 @@ public class BlockingPartialJoinFlow implements Flow<BlockingPartialJoinFlow.Blo
                 signalFromBranchB,
                 signalFromBranchC,
                 blockingJoin,
-                processRound,
-                resetBlockingJoin);
+                processRound);
     }
 
     @Override
@@ -102,12 +106,6 @@ public class BlockingPartialJoinFlow implements Flow<BlockingPartialJoinFlow.Blo
         throw new IllegalArgumentException("unknown branch: " + branch);
     }
 
-    private static StepDecision completeBranch(
-            final Context context, final int round, final String branch) {
-        branchCompleted.publish(context, JoinRoundInstance.of(round), branch);
-        return StepDecision.deadEnd();
-    }
-
     static final class StartBlockingRound implements Step<BlockingJoinRound> {
         @Override
         public Class<BlockingJoinRound> getInputType() {
@@ -115,89 +113,111 @@ public class BlockingPartialJoinFlow implements Flow<BlockingPartialJoinFlow.Blo
         }
 
         @Override
-        public StepDecision execute(final Context context, final BlockingJoinRound joinRound) {
-            return StepDecision.goToMany(
-                    StepMovement.of(SignalFromBranchA.class, joinRound.round()),
-                    StepMovement.of(SignalFromBranchB.class, joinRound.round()),
-                    StepMovement.of(SignalFromBranchC.class, joinRound.round()),
-                    StepMovement.of(BlockingJoin.class, joinRound));
+        public Wait waitFor(final Context context, final BlockingJoinRound blockingRound) {
+            if (blockingRound.previousRound() == null) {
+                return Wait.skipImmediately();
+            }
+            return Wait.until(branchCompleted.forRemainingBranches(
+                    blockingRound.previousRound(), blockingRound.requiredSignals()));
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final BlockingJoinRound blockingRound) {
+            return StepDecision.goToMany(branchCompleted.fork(
+                    context,
+                    List.of(
+                            round -> StepMovement.of(SignalFromBranchA.class, round),
+                            round -> StepMovement.of(SignalFromBranchB.class, round),
+                            round -> StepMovement.of(SignalFromBranchC.class, round)),
+                    round -> StepMovement.of(
+                            BlockingJoin.class, new BlockingRoundJoin(blockingRound, round))));
         }
     }
 
-    static final class SignalFromBranchA implements Step<Integer> {
+    static final class SignalFromBranchA implements Step<JoinRound> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer round) {
+        public Wait waitFor(final Context context, final JoinRound round) {
             return Wait.until(branchASignal.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer round) {
-            return completeBranch(context, round, "A");
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return branchCompleted.endBranch(context, round, "A");
         }
     }
 
-    static final class SignalFromBranchB implements Step<Integer> {
+    static final class SignalFromBranchB implements Step<JoinRound> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer round) {
+        public Wait waitFor(final Context context, final JoinRound round) {
             return Wait.until(branchBSignal.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer round) {
-            return completeBranch(context, round, "B");
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return branchCompleted.endBranch(context, round, "B");
         }
     }
 
-    static final class SignalFromBranchC implements Step<Integer> {
+    static final class SignalFromBranchC implements Step<JoinRound> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer round) {
+        public Wait waitFor(final Context context, final JoinRound round) {
             return Wait.until(branchCSignal.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer round) {
-            return completeBranch(context, round, "C");
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return branchCompleted.endBranch(context, round, "C");
         }
     }
 
-    static final class BlockingJoin implements Step<BlockingJoinRound> {
+    static final class BlockingJoin implements Step<BlockingRoundJoin> {
         @Override
-        public Class<BlockingJoinRound> getInputType() {
-            return BlockingJoinRound.class;
+        public Class<BlockingRoundJoin> getInputType() {
+            return BlockingRoundJoin.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final BlockingJoinRound joinRound) {
-            return Wait.until(branchCompleted.forN(
-                    JoinRoundInstance.of(joinRound.round()), joinRound.requiredSignals()));
+        public Wait waitFor(final Context context, final BlockingRoundJoin roundJoin) {
+            return Wait.until(branchCompleted.forBranches(
+                    roundJoin.joinRound(), roundJoin.blockingRound().requiredSignals()));
         }
 
         @Override
-        public StepDecision execute(final Context context, final BlockingJoinRound joinRound) {
+        public StepDecision execute(final Context context, final BlockingRoundJoin roundJoin) {
+            final BlockingJoinRound blockingRound = roundJoin.blockingRound();
             final List<String> fired = branchCompleted
-                    .getConditionResults(context, JoinRoundInstance.of(joinRound.round()))
+                    .getBranchResults(context, roundJoin.joinRound())
                     .stream()
                     .sorted()
                     .toList();
+            final StepMovement<ProcessedRound> processRound = StepMovement.of(
+                    ProcessRound.class, new ProcessedRound(blockingRound.round(), fired));
+            if (blockingRound.round() >= LAST_ROUND) {
+                return StepDecision.goToMany(processRound);
+            }
             return StepDecision.goToMany(
+                    processRound,
                     StepMovement.of(
-                            ProcessRound.class, new ProcessedRound(joinRound.round(), fired)),
-                    StepMovement.of(ResetBlockingJoin.class, joinRound));
+                            StartBlockingRound.class,
+                            new BlockingJoinRound(
+                                    blockingRound.requiredSignals(),
+                                    blockingRound.round() + 1,
+                                    roundJoin.joinRound())));
         }
     }
 
@@ -210,30 +230,6 @@ public class BlockingPartialJoinFlow implements Flow<BlockingPartialJoinFlow.Blo
         @Override
         public StepDecision execute(final Context context, final ProcessedRound processedRound) {
             return StepDecision.gracefulComplete(processedRound);
-        }
-    }
-
-    static final class ResetBlockingJoin implements Step<BlockingJoinRound> {
-        @Override
-        public Class<BlockingJoinRound> getInputType() {
-            return BlockingJoinRound.class;
-        }
-
-        @Override
-        public Wait waitFor(final Context context, final BlockingJoinRound joinRound) {
-            return Wait.until(branchCompleted.forN(
-                    JoinRoundInstance.of(joinRound.round()),
-                    BRANCH_COUNT - joinRound.requiredSignals()));
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final BlockingJoinRound joinRound) {
-            if (joinRound.round() < LAST_ROUND) {
-                return StepDecision.goTo(
-                        StartBlockingRound.class,
-                        new BlockingJoinRound(joinRound.requiredSignals(), joinRound.round() + 1));
-            }
-            return StepDecision.gracefulComplete(joinRound.round());
         }
     }
 }

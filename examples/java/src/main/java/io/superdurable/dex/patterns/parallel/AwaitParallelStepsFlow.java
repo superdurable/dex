@@ -16,21 +16,29 @@
 
 package io.superdurable.dex.patterns.parallel;
 
-import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.Join;
+import io.superdurable.dex.JoinRound;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Function;
 import org.springframework.stereotype.Component;
 
 @Component
 public class AwaitParallelStepsFlow implements Flow<Integer> {
-    public final Channel<Void> completeCh = Channel.define("parallel-complete", Void.class);
+    public final Join<Integer> workCompleted = Join.define("parallel-complete", Integer.class);
+
+    /** One worker: its index and the Join round it reports to. */
+    public record WorkItem(int index, JoinRound round) {
+    }
 
     private final InitStep init = new InitStep();
     private final DoWork work = new DoWork();
@@ -43,7 +51,7 @@ public class AwaitParallelStepsFlow implements Flow<Integer> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(completeCh);
+        return PersistenceSchema.of(workCompleted);
     }
 
     final class InitStep implements Step<Integer> {
@@ -54,48 +62,49 @@ public class AwaitParallelStepsFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer count) {
-            final StepMovement<?>[] movements = new StepMovement<?>[count + 1];
-            movements[0] = StepMovement.of(Await.class, count);
+            final List<Function<JoinRound, StepMovement<?>>> workers =
+                    new ArrayList<Function<JoinRound, StepMovement<?>>>();
             for (int index = 0; index < count; index++) {
-                movements[index + 1] = StepMovement.of(DoWork.class, index);
+                final int workIndex = index;
+                workers.add(round -> StepMovement.of(DoWork.class, new WorkItem(workIndex, round)));
             }
-            return StepDecision.goToMany(movements);
+            return StepDecision.goToMany(workCompleted.fork(
+                    context, workers, round -> StepMovement.of(Await.class, round)));
         }
     }
 
-    final class DoWork implements Step<Integer> {
+    final class DoWork implements Step<WorkItem> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<WorkItem> getInputType() {
+            return WorkItem.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer input) {
+        public StepDecision execute(final Context context, final WorkItem item) {
             try {
                 Thread.sleep(ThreadLocalRandom.current().nextInt(50, 500));
             } catch (final InterruptedException error) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException(error);
             }
-            completeCh.publish(context, null);
-            return StepDecision.deadEnd();
+            return workCompleted.endBranch(context, item.round(), item.index());
         }
     }
 
-    final class Await implements Step<Integer> {
+    final class Await implements Step<JoinRound> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer count) {
-            return Wait.until(completeCh.forN(count));
+        public Wait waitFor(final Context context, final JoinRound round) {
+            return Wait.until(workCompleted.forAllBranches(round));
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer count) {
-            return StepDecision.gracefulComplete(count);
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return StepDecision.gracefulComplete(workCompleted.getBranchResults(context, round).size());
         }
     }
 
