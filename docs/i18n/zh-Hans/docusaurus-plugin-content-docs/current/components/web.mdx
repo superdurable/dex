@@ -11,13 +11,15 @@ Dex Web 是 Dex 的运维界面。用它查找 Flow、跟踪一次运行、读�
 
 - **Search and Summary** 查找 Flow 并显示其状态。
 - 运行页面显示一次运行的活动 Step、Attribute 和 Channel。它的 **Timeline** 列出这次运行的每个事件。事件面板显示事件的输入、输出和 Attribute 变化。
-- **Flow canvas** 根据源码画出 Flow 的 Step 和转移。这个 Flow Definition Graph 由 **dexcli visualize** 的分析器生成。
+- **Flow canvas** 根据 Flow Definition Graph 画出 Flow 的 Step 和转移。这个 graph 由 **dexcli visualize** 的分析器根据 Flow 源码生成。
 - **Start Flow** 启动 Flow，**Actions** 在选中的运行上调用 RPC。
 - 实验性功能，例如 **Designs**、**Work Queue**、**Connectors** 和 **Agent session** 视图，只在适用时显示。
 
 ## 与其他组件的关系
 
 Dex Web 作为单独的进程运行。它连接 [server](/components/server) 的 API，也就是 [Worker 和 Client](/components/application) 使用的同一个 API。Dex Web 启动的 Flow 在你的 Worker 上运行。本地开发时，Dex Web 还负责配置 [Connector](/concepts/connector)。
+
+Dex Web 从 server 读取 Flow Definition Graph。Worker 或 **dexcli** 把它们发布到 server。Dex Web 也可以从一个目录读取 graph。这个目录是可选的。同一个 Flow type 两边都有 graph 时，以目录为准。
 
 ## 运行
 

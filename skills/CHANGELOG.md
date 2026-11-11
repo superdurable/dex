@@ -3,6 +3,11 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.2.0 - 2026-11-10
+
+- Dex Web reads Flow Definition Graphs from the Dex Server. A Worker publishes the graphs it is given when it starts, and `dexcli` publishes them from a script. The Server keeps one graph per Flow type, and a graph generated later replaces an older one. A definition directory for Dex Web is optional and wins for its Flow types. `dex-sdk` `web.md`, `application.md`, `server.md`, and `cli.md` describe the relation.
+- Correct `dex-app-builder` packaging in `verification-handoff.md`: ship validated definitions with the Worker instead of requiring a Dex Web directory. Dex Web marks an invalid definition on its own and keeps the others working.
+
 ## 1.1.0 - 2026-11-10
 
 - Join parallel branches with the Join in `dex-sdk`. The Await parallel Steps skeleton in `patterns.md` and the Go, Python, and TypeScript pattern guidance now fork a Join, end each branch with endBranch, and wait forAllBranches, instead of counting Channel signals.
