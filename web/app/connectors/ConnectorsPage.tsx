@@ -65,7 +65,8 @@ interface ConnectionView {
   configuration?: Record<string, unknown>;
   storedCredentialFields?: string[];
   credentialExpiresAt?: string;
-  uses: ConnectionUse[];
+  /** Null for a Flow connection that only Connector Triggers use. */
+  uses: ConnectionUse[] | null;
   triggerUses?: TriggerUse[];
   /** True when no loaded Flow uses the connection, such as one an agent tool opens by name. */
   standalone?: boolean;
@@ -868,7 +869,7 @@ export function connectorSetupTabs(connection: ConnectionView, hasStudio = true)
     key: 'authorize', kind: 'authorize', label: 'Authorize', detail: connection.connectionName || 'Connection',
     configured: connection.status === 'Ready',
   }];
-  for (const use of connection.uses.filter((candidate) => hasStudio && candidate.configurationUI.units.length > 0)) {
+  for (const use of (connection.uses ?? []).filter((candidate) => hasStudio && candidate.configurationUI.units.length > 0)) {
     tabs.push({
       key: `operation:${use.flowName}:${use.stepId}`, kind: 'operation', label: use.operationId,
       detail: `${use.stepName} · ${use.operationKind}`, configured: use.configured, use,
@@ -1341,7 +1342,7 @@ export function selectedManifestAuth(auth: ReleaseManifest['spec']['auth'], meth
     ?? auth.methods[0];
 }
 
-// The server sends an empty field list as null, so the page reads every field list as an array.
+// The server omits or nulls empty field lists; the page reads each one as an array.
 export function uiSessionWithEmptyFieldLists(session: UISessionResponse): UISessionResponse {
   const spec = session.manifest?.spec;
   if (!spec) return session;

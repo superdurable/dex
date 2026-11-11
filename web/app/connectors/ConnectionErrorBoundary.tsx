@@ -13,11 +13,7 @@ interface ConnectionErrorBoundaryState {
   message: string | null;
 }
 
-/**
- * Keeps one connection the page cannot draw from taking the whole Connectors page down.
- *
- * Give it a key per connection, so choosing another connection draws again.
- */
+/** Shows one connection's render error in place; key it per connection to retry. */
 export class ConnectionErrorBoundary extends Component<
   { children: ReactNode; className?: string },
   ConnectionErrorBoundaryState

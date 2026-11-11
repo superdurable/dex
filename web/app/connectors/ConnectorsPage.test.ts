@@ -399,6 +399,20 @@ describe('Connections contract', () => {
     expect(initialConnectorSetupTabKey(connection)).toBe('operation:PostCompletion:post');
   });
 
+  it('lists the trigger tabs of a connection that only triggers use', () => {
+    const connection = {
+      connectionName: 'workspace', status: 'Ready', uses: null,
+      triggerUses: [
+        {flowName: 'Approval', bindingName: 'reply', triggerName: 'threadReplyCreated', configured: false, configurationUI: {units: [{id: 'channel'}]}},
+      ],
+    } as never;
+    expect(connectorSetupTabs(connection).map((tab) => [tab.kind, tab.label])).toEqual([
+      ['authorize', 'Authorize'],
+      ['trigger', 'threadReplyCreated'],
+    ]);
+    expect(initialConnectorSetupTabKey(connection)).toBe('trigger:Approval:reply');
+  });
+
   it('keeps configuration tabs behind authorization and opens the first tab when all are configured', () => {
     const missing = {
       connectionName: 'workspace', status: 'Missing',
