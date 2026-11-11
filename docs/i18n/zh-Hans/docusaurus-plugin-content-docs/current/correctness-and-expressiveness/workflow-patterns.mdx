@@ -35,7 +35,7 @@ Dex 构件是编程模型的一部分：Primitive、Step decision、等待条件
 
 有 10 个模式仍是 **+/-**，原因如下：
 
-- WCP-15 和 WCP-36 在其他实例运行时继续添加实例。Join 在 fork 时就需要知道分支数，所以这两个示例都不用 Join。WCP-15 在锁的保护下保存启动计数和关闭添加的标志，汇合 Step 每收到一个结果就重新等待。WCP-36 保存一个关闭准入的标志、一个记录已启动报价的 AttributeMap 和一把锁，汇合 Step 每收到一个结果就重新等待，直到条件成立。
+- WCP-15 和 WCP-36 在其他实例运行时继续添加实例。Join 在 fork 时就需要知道分支数，所以这两个示例都不用 Join。WCP-15 在锁的保护下保存启动计数和关闭添加的标志，汇合 Step 每收到一个结果就重新等待。WCP-36 保存一个关闭准入的标志、一个记录已启动投标的 AttributeMap 和一把锁，汇合 Step 每收到一个结果就重新等待，直到条件成立。
 - WCP-33 为每个输入分支分别排队触发，并把多余的触发留给以后。Join 按轮次计数，不按分支排队。
 - WCP-38 要从流程结构判断已经不可能有线程再到达合并点。这是可达性问题，不是计数问题。
 - WCP-17 和 WCP-40 依赖 Attribute lock，而锁只覆盖一个 **Execute**。
@@ -473,7 +473,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：m 个实例运行。其中 n 个完成时，下一个任务开始。其余实例照常完成，全部完成后汇合复位。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp34.php)。
 
-**Dex 实现**：每一轮，拆分 Step 用 **Join** fork 同一 Step type 的 m 个实例。汇合 Step 等待 n 个分支（**ForBranches**）。下一轮的拆分 Step 等待上一轮的 **ForRemainingBranches**，然后 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
+**Dex 实现**：每一轮，拆分 Step 用 **Join** fork 同一 Step type 的 m 个实例。汇合 Step 等待 n 个实例（**ForBranches**）。下一轮的拆分 Step 等待上一轮的 **ForRemainingBranches**，然后 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
 
 **评级**：**+**。与 WCP-30 相同，只是分支换成了实例。
 
@@ -483,7 +483,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：m 个实例运行。其中 n 个完成时，下一个任务开始，其余实例被取消。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp35.php)。
 
-**Dex 实现**：拆分 Step 用 **Join** fork m 个实例，汇合 Step 等待 n 个分支（**ForBranches**）。它的 decision 取消属于实例 Step type 的 sibling Step。
+**Dex 实现**：拆分 Step 用 **Join** fork m 个实例，汇合 Step 等待 n 个实例（**ForBranches**）。它的 decision 取消属于实例 Step type 的 sibling Step。
 
 **评级**：**+**。与 WCP-32 相同，只是分支换成了实例。
 
