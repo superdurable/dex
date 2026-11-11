@@ -19,7 +19,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModels, type BuiltinProvider } from "@earendil-works/pi-ai/providers/all";
 import { obj, str } from "@earendil-works/pi-schema";
 import type { Connection } from "@superdurable/connector-slack";
-import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
+import { createBuiltinAgentSessionFlow } from "@superdurable/dex-agents/builtin-loop";
 import { createPiAiModelClient, piAgentFunctionTool } from "@superdurable/dex-agents-pi";
 
 import { environmentOr } from "../../../config/env.js";
@@ -75,7 +75,7 @@ export function createPiOrderSupportFlow(
     replay: "never",
     execute: async (_toolCallId, { order_id, reason }) => textResult(orderDesk.cancelOrder(order_id, reason)),
   };
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "order-support",
       instructions: orderSupportInstructions,

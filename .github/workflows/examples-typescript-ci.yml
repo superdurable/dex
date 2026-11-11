@@ -6,7 +6,7 @@ on:
     paths:
       - "examples/typescript/**"
       - "examples/entity-store/**"
-      # The Pi agent harness example builds this package until @superdurable/dex-agents-pi is on npm.
+      # The examples build these packages until agents 0.5.0 is on npm.
       - "agents/typescript/core/**"
       - "agents/typescript/pi/**"
       - ".github/workflows/examples-typescript-ci.yml"
@@ -14,7 +14,7 @@ on:
     paths:
       - "examples/typescript/**"
       - "examples/entity-store/**"
-      # The Pi agent harness example builds this package until @superdurable/dex-agents-pi is on npm.
+      # The examples build these packages until agents 0.5.0 is on npm.
       - "agents/typescript/core/**"
       - "agents/typescript/pi/**"
       - ".github/workflows/examples-typescript-ci.yml"
@@ -45,8 +45,8 @@ jobs:
             examples/typescript/package-lock.json
             agents/typescript/core/package-lock.json
             agents/typescript/pi/package-lock.json
-      - name: Build the unreleased Dex Agents Pi package
-        # The Pi agent harness example installs @superdurable/dex-agents-pi from agents/typescript/pi until it is on npm.
+      - name: Build the unreleased Dex Agents core and Pi package
+        # The examples install the core and @superdurable/dex-agents-pi from agents/typescript until agents 0.5.0 is on npm.
         working-directory: agents/typescript
         run: (cd core && npm ci && npm run build) && (cd pi && npm ci && npm run build)
       - name: Install dependencies
@@ -121,8 +121,8 @@ jobs:
           cache-dependency-path: |
             cli/go.sum
             web/go.sum
-      - name: Build the unreleased Dex Agents Pi package
-        # The Pi agent harness example installs @superdurable/dex-agents-pi from agents/typescript/pi until it is on npm.
+      - name: Build the unreleased Dex Agents core and Pi package
+        # The examples install the core and @superdurable/dex-agents-pi from agents/typescript until agents 0.5.0 is on npm.
         working-directory: agents/typescript
         run: (cd core && npm ci && npm run build) && (cd pi && npm ci && npm run build)
       - name: Install dependencies

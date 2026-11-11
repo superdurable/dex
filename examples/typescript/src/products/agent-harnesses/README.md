@@ -12,7 +12,7 @@ approvals for as long as they take, and after a Worker crash reruns only the Ste
 | OpenAI Agents SDK | `@superdurable/dex-agents-openai-agents` 0.4.0 | `OpenAIAgentsOrderSupportAgent` | [`openai-agents/`](./openai-agents) |
 | Vercel AI SDK | `@superdurable/dex-agents-vercel-ai` 0.4.0 | `VercelAiOrderSupportAgent` | [`vercel-ai/`](./vercel-ai) |
 | Mastra | `@superdurable/dex-agents-mastra` 0.4.0 | `MastraOrderSupportAgent` | [`mastra/`](./mastra) |
-| Pi | `@superdurable/dex-agents-pi`, from [`agents/typescript/pi`](../../../../../agents/typescript/pi) until it is on npm | `PiOrderSupportAgent` | [`pi/`](./pi) |
+| Pi | `@superdurable/dex-agents-pi`, with the core, from [`agents/typescript`](../../../../../agents/typescript) until agents 0.5.0 is on npm | `PiOrderSupportAgent` | [`pi/`](./pi) |
 
 Shared by all five:
 
@@ -133,7 +133,7 @@ The Claude Agent SDK example turns off every built-in Claude Code tool and passe
 
 ```bash
 dexcli dev
-# Until @superdurable/dex-agents-pi is on npm, build it from this repository first.
+# Until agents 0.5.0 is on npm, build the core and the Pi package from this repository first.
 (cd agents/typescript/core && npm ci && npm run build)
 (cd agents/typescript/pi && npm ci && npm run build)
 cd examples/typescript

@@ -29,7 +29,7 @@
     "@superdurable/connector-slack": "0.2.0",
     "@superdurable/connectors-sdk": "0.9.0",
     "@superdurable/dex": "1.44.0",
-    "@superdurable/dex-agents": "0.4.0",
+    "@superdurable/dex-agents": "file:../../agents/typescript/core",
     "@superdurable/dex-agents-claude-agent-sdk": "0.4.0",
     "@superdurable/dex-agents-mastra": "0.4.0",
     "@superdurable/dex-agents-openai-agents": "0.4.0",

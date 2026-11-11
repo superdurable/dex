@@ -38,6 +38,24 @@ Since 0.5.0, the Pi package, **@superdurable/dex-agents-pi**, is available. It s
 their tools through structural types. Install them when your tools use them.
 See [Pi](/agent-frameworks/pi).
 
+## Terminal commands {#cli}
+
+A terminal command runs one harness as a durable agent session in your
+terminal, on **dexcli dev** or a Dex server. Run it with **npx**; it needs no
+application code.
+
+| Command | npm package | Since | README |
+| --- | --- | --- | --- |
+| **dex-agents-pi** | **@superdurable/dex-agents-pi-cli** | 0.5.0 | [Pi command](https://github.com/superdurable/dex/tree/main/agents/cli/typescript/pi) |
+
+```bash
+npx -p @superdurable/dex-agents-pi-cli dex-agents-pi
+```
+
+**dex-agents-pi** needs Node 22.19 or later, or Node 24, and the model
+provider's API key in the environment. Its configuration file is
+**~/.dex/agents/pi.yaml**. See [Run it with the CLI](/agent-frameworks/pi#run-it-with-the-cli).
+
 ## The core only {#core-only}
 
 To write a runner of your own, install only the core:

@@ -86,7 +86,7 @@ export function createPiOrderSupportFlow(
     replay: "never",
     execute: async (_toolCallId, { order_id, reason }) => textResult(orderDesk.cancelOrder(order_id, reason)),
   };
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "order-support",
       instructions: orderSupportInstructions,
@@ -117,7 +117,11 @@ In the example, **look_up_order** passes **effect: "read"**, so it runs without 
 
 The effect class decides what happens when a run is interrupted, such as by a Worker crash. Dex reruns an interrupted **read** or **idempotent_write** call in its **CallTool** Step. It never reruns a **non_idempotent_write** call.
 
-An error that the tool reports is not retried. A result with **isError**, a thrown **ToolExecutionError**, or a plain error thrown by a **read** or **idempotent_write** tool records the call as **failed**. The model sees the message, and the session continues. A plain error thrown by a **non_idempotent_write** tool may come after the write, so the call records **outcome_unknown** and never runs again.
+An error that the tool reports is not retried. A result with **isError**, or a thrown **ToolExecutionError**, records the call as **failed**. The model sees the message, and the session continues.
+
+A tool's **prepareArguments**, when it has one, repairs the raw arguments before the schema check, as in Pi.
+
+A plain thrown error is classified by the effect the call runs with, after tool policies apply. From a **read** or **idempotent_write** call, it records **failed**, as above. From any other call, such as a **non_idempotent_write** or **unclassified** one, it may come after the write, so the call records **outcome_unknown** and never runs again. To report a definite failure from a write, return **isError** or throw **ToolExecutionError**.
 
 ### The model
 
@@ -257,6 +261,44 @@ The loop reads the snapshot until the agent asks to run **cancel_order**. That c
 
 Instead of the last command, you can approve the call in Dex Web. Follow the steps in [Approve in Dex Web](/agent-frameworks#approve-in-dex-web).
 
+## Run it with the CLI {#run-it-with-the-cli}
+
+The **dex-agents-pi** command runs a Pi coding agent as a durable session and chats with it in your terminal. It is in the npm package **@superdurable/dex-agents-pi-cli**. Dex runs the loop, as in the example. The command starts or reuses **dexcli dev**.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+npx -p @superdurable/dex-agents-pi-cli dex-agents-pi
+```
+
+The first run asks a few questions and writes **~/.dex/agents/pi.yaml**. Then type a message. Approve or reject a tool call with **y** or **n**. The session stays in Dex, and the command prints how to resume it.
+
+The model is a provider and model ID from pi-ai's catalog, such as **anthropic/claude-opus-5-5**. The command reads only the provider's API key from the environment, such as **ANTHROPIC_API_KEY** or **OPENAI_API_KEY**. It never reads Pi's stored logins.
+
+The **pi** section of the file holds the Pi options:
+
+```text
+model: anthropic/claude-opus-5-5
+workspace: ~/dex-agent-workspace
+local_tools:
+  files: true
+  shell: {enabled: true, allow: ["git status", "ls"]}
+pi:
+  load_project_context: true
+  bash_timeout_seconds: 120
+```
+
+The agent uses Pi's own coding tools, each as its own tool Step:
+
+| Tools | Effect | Approval |
+| --- | --- | --- |
+| **read**, **grep**, **find**, **ls** | read | No |
+| **write**, **edit** | runs once | Every call |
+| **bash** | runs once | Unless **local_tools.shell.allow** has the whole command |
+
+File tools stay inside the workspace. Like Pi, each model call adds the project's **AGENTS.md** files to the instructions: the one in Pi's global directory, then the ones in the workspace and the directories above it. Set **pi.load_project_context: false** to add none.
+
+The [command's README](https://github.com/superdurable/dex/tree/main/agents/cli/typescript/pi) describes every option, the file rules, and the AGENTS.md rules.
+
 ## Connect Connectors {#connect-connectors}
 
 The agent can call [Connector](/concepts/connector) operations as tools, as [Connectors as tools](/agent-frameworks#connectors-as-tools) describes. The example adds the Slack tool **slack_post_thread_reply**, which replies in a Slack thread.
@@ -270,7 +312,7 @@ The session Flow takes the Connector tools in **toolSources**, next to its own t
 <SdkSnippet lang="typescript">
 
 ```typescript
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       // ...
       toolSources: createSlackConnectorToolSources(slack),
@@ -293,20 +335,21 @@ Each call of **slack_post_thread_reply** runs once, in its own **CallSingleAttem
 | **afterToolCall**, to change a result | Change the result inside your tool. |
 | **transformContext**, to trim or compact | The session's context compaction. **prepareRequest** changes one request. |
 | **prepareRequest** | The **prepareRequest** option of **createPiAiModelClient** |
-| **finishTurn**, to end a turn after tools or to run again after an answer | Planned |
+| **finishTurn** returns **end**: end the turn after the tools | The **decideTurnContinuation** hook of the agent definition returns **"end"**. |
+| **finishTurn** returns **continue**: run again after an answer | **decideTurnContinuation** returns **\{ action: "continue", message \}**. The message is required. The model gets it as user text in the same turn. At most 8 such continuations may follow answers in a row. |
 | **subscribe()** events | The **AgentEvents** Stream and the UI stream |
 | **abort()** | The session's **cancel_turn** |
 | **pi-durable** | Dex itself. See [Migrate from pi-durable](/agent-frameworks/migrate-from-pi-durable). |
 
+[Ending or continuing a turn](https://github.com/superdurable/dex/tree/main/agents/typescript/core#ending-or-continuing-a-turn) in the core README describes **decideTurnContinuation**.
+
 ## Limits
 
 - Dex runs the tool calls of one model response in parallel. A tool with **executionMode: "sequential"** is rejected.
-- **AgentToolResult.terminate** is ignored. A way to end a turn after tools is planned.
+- **AgentToolResult.terminate** is ignored. End a turn after tools with **decideTurnContinuation**.
 - pi-ai's tool choice is **auto** or **none**, so a request that forces a tool fails.
 - An image in a tool result reaches the model as a text note.
 - A tool's **details** are not stored. The model sees the text parts of the result.
-- **prepareArguments** repairs only arguments that already pass the tool's schema check.
-- Wrap a write tool with its real effect. A tool policy that raises a tool to **non_idempotent_write** does not change how a thrown error is recorded.
 - Pi's **Agent**, **agentLoop**, and session files are not used.
 
 The [package README](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#not-supported) lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.

@@ -86,7 +86,7 @@ export function createPiOrderSupportFlow(
     replay: "never",
     execute: async (_toolCallId, { order_id, reason }) => textResult(orderDesk.cancelOrder(order_id, reason)),
   };
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "order-support",
       instructions: orderSupportInstructions,
@@ -117,7 +117,11 @@ export function createPiOrderSupportFlow(
 
 Effect class 决定运行被中断时怎么办，例如 Worker 崩溃。被中断的 **read** 或 **idempotent_write** 调用，Dex 会在它的 **CallTool** Step 中重新运行。**non_idempotent_write** 调用从不重新运行。
 
-Tool 报告的错误不会重试。结果带 **isError**、抛出 **ToolExecutionError**，或者 **read**、**idempotent_write** tool 抛出普通错误时，这次调用记为 **failed**。模型会看到错误信息，session 继续运行。**non_idempotent_write** tool 抛出的普通错误可能发生在写入之后，所以这次调用记为 **outcome_unknown**，并且不会再运行。
+Tool 报告的错误不会重试。结果带 **isError**，或者抛出 **ToolExecutionError** 时，这次调用记为 **failed**。模型会看到错误信息，session 继续运行。
+
+Tool 有 **prepareArguments** 时，它会在 schema 检查之前修复原始参数，与 Pi 一致。
+
+抛出的普通错误按这次调用实际使用的 effect 分类，也就是应用 tool policy 之后的 effect。**read** 或 **idempotent_write** 调用抛出的普通错误记为 **failed**，同上。其他调用，例如 **non_idempotent_write** 或 **unclassified** 调用，抛出的普通错误可能发生在写入之后，所以这次调用记为 **outcome_unknown**，并且不会再运行。写操作要报告确定的失败，请返回 **isError** 或抛出 **ToolExecutionError**。
 
 ### 模型 {#the-model}
 
@@ -257,6 +261,44 @@ curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-S
 
 也可以不执行最后一条命令，改在 Dex Web 中审批，步骤见 [在 Dex Web 中审批](/agent-frameworks#approve-in-dex-web)。
 
+## 用 CLI 运行 {#run-it-with-the-cli}
+
+**dex-agents-pi** 命令把 Pi coding agent 作为 durable session 运行，并在终端中与它对话。它在 npm 包 **@superdurable/dex-agents-pi-cli** 中。和 example 一样，loop 由 Dex 运行。这个命令会启动或复用 **dexcli dev**。
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+npx -p @superdurable/dex-agents-pi-cli dex-agents-pi
+```
+
+第一次运行时，它会问几个问题，并写出 **~/.dex/agents/pi.yaml**。然后输入消息。用 **y** 或 **n** 批准或拒绝 tool call。Session 保存在 Dex 中，命令会打印继续这个 session 的方法。
+
+模型写成 pi-ai catalog 中的 provider 和 model ID，例如 **anthropic/claude-opus-5-5**。命令只从环境变量读取 provider 的 API key，例如 **ANTHROPIC_API_KEY** 或 **OPENAI_API_KEY**。它从不读取 Pi 保存的登录信息。
+
+配置文件的 **pi** 小节保存 Pi 的选项：
+
+```text
+model: anthropic/claude-opus-5-5
+workspace: ~/dex-agent-workspace
+local_tools:
+  files: true
+  shell: {enabled: true, allow: ["git status", "ls"]}
+pi:
+  load_project_context: true
+  bash_timeout_seconds: 120
+```
+
+Agent 使用 Pi 自己的 coding tool，每次调用都是独立的 tool Step：
+
+| Tool | Effect | 审批 |
+| --- | --- | --- |
+| **read**、**grep**、**find**、**ls** | read | 不需要 |
+| **write**、**edit** | 只运行一次 | 每次调用都要 |
+| **bash** | 只运行一次 | 除非 **local_tools.shell.allow** 包含完整命令 |
+
+文件 tool 只能访问 workspace 内的文件。和 Pi 一样，每次模型调用都会把项目的 **AGENTS.md** 加到 instruction 中：先是 Pi 全局目录中的那一份，然后是 workspace 及其上层目录中的。设置 **pi.load_project_context: false** 可以不加载。
+
+全部选项、文件规则和 AGENTS.md 规则见[命令的 README](https://github.com/superdurable/dex/tree/main/agents/cli/typescript/pi)。
+
 ## 连接 Connector {#connect-connectors}
 
 Agent 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks#connectors-as-tools)。这个 example 加入了 Slack tool **slack_post_thread_reply**，用来在 Slack thread 中回复。
@@ -270,7 +312,7 @@ Session Flow 在 **toolSources** 中接收 Connector tool，与自己的 tool �
 <SdkSnippet lang="typescript">
 
 ```typescript
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       // ...
       toolSources: createSlackConnectorToolSources(slack),
@@ -293,20 +335,21 @@ Session Flow 在 **toolSources** 中接收 Connector tool，与自己的 tool �
 | **afterToolCall**，用来修改结果 | 在你自己的 tool 中修改结果。 |
 | **transformContext**，用来裁剪或压缩 | Session 的 context compaction。**prepareRequest** 修改单次请求。 |
 | **prepareRequest** | **createPiAiModelClient** 的 **prepareRequest** 选项 |
-| **finishTurn**，用来在 tool 之后结束 turn，或在回答之后再运行一轮 | 计划中 |
+| **finishTurn** 返回 **end**：tool 运行完后结束 turn | Agent 定义的 **decideTurnContinuation** hook 返回 **"end"**。 |
+| **finishTurn** 返回 **continue**：回答之后再运行一轮 | **decideTurnContinuation** 返回 **\{ action: "continue", message \}**。message 必填，模型在同一个 turn 中把它作为用户文本收到。回答之后最多连续 continue 8 次。 |
 | **subscribe()** 事件 | **AgentEvents** Stream 和 UI stream |
 | **abort()** | Session 的 **cancel_turn** |
 | **pi-durable** | Dex 本身。见[从 pi-durable 迁移](/agent-frameworks/migrate-from-pi-durable)。 |
 
+**decideTurnContinuation** 的说明见 core README 中的 [Ending or continuing a turn](https://github.com/superdurable/dex/tree/main/agents/typescript/core#ending-or-continuing-a-turn)。
+
 ## 限制 {#limits}
 
 - Dex 并行运行同一次模型回复中的 tool call。带 **executionMode: "sequential"** 的 tool 会被拒绝。
-- **AgentToolResult.terminate** 会被忽略。在 tool 之后结束 turn 的方式正在计划中。
+- **AgentToolResult.terminate** 会被忽略。在 tool 之后结束 turn，请用 **decideTurnContinuation**。
 - pi-ai 的 tool choice 只有 **auto** 或 **none**，所以强制使用某个 tool 的请求会失败。
 - Tool 结果中的图片以一条文本说明交给模型。
 - 不保存 tool 的 **details**。模型看到的是结果中的文本部分。
-- **prepareArguments** 只能修复已经通过 tool schema 检查的参数。
-- 写操作 tool 要按真实的 effect 包装。用 tool policy 把 tool 提升为 **non_idempotent_write**，不会改变抛出错误时的记录方式。
 - 不使用 Pi 的 **Agent**、**agentLoop** 和 session 文件。
 
 [包的 README](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#not-supported) 列出了全部限制。Server 的限制参见 [Limits for long sessions](/reference/agents/session-limits)。

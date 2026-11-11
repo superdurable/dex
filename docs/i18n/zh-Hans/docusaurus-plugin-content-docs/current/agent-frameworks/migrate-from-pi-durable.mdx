@@ -59,6 +59,8 @@ Dex 不是可以直接替换的版本。Harness 的入口代码要改写：**Har
 | 带 **replay: "safe"** 的 **defineTool** | Effect class 为 **read** 或 **idempotent_write**：会重试 |
 | 不是 replay-safe 的 tool | Effect class 为 **non_idempotent_write**：最多运行一次 |
 | **beforeTool** 拦截 | 带审批的 tool policy |
+| Tool 结果带 **control: \{ terminate: true \}**，或 Pi 的 **finishTurn** 返回 **end** | **decideTurnContinuation** hook 返回 **"end"**。 |
+| Pi 的 **finishTurn** 返回 **continue** | **decideTurnContinuation** 返回 **\{ action: "continue", message \}**，message 必填。 |
 | Generation task 的 **beforeRequest** | **createPiAiModelClient** 的 **prepareRequest** 选项 |
 | **fork()** | 计划在以后的版本中提供 |
 | 存储后端：memory、SQLite、JSONL、IndexedDB、Durable Object | Dex Server。本地用 **dexcli dev**。 |
@@ -102,7 +104,7 @@ export function createPiOrderSupportFlow(
     replay: "never",
     execute: async (_toolCallId, { order_id, reason }) => textResult(orderDesk.cancelOrder(order_id, reason)),
   };
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "order-support",
       instructions: orderSupportInstructions,
@@ -177,7 +179,7 @@ Worker 注册这个 session Flow，并连接到 Dex Server。任何 Worker 都�
 不使用 **api** 的 **defineTool** tool，用 **piDurableFunctionTool** 包装。传入 **effect** 时，effect class 以它为准。否则 **replay: "safe"** 得到 **idempotent_write**，其他 **replay** 得到 **non_idempotent_write**。
 
 - 读取 **api** 的任何属性，都会让这次调用失败，错误信息会指出这个属性。
-- 结果带 **control** 时，这次调用失败。这时 tool 的副作用已经发生。
+- 结果带 **control** 时，这次调用失败。这时 tool 的副作用已经发生。要在 tool 之后结束 turn，请改用 agent 定义的 **decideTurnContinuation** hook。
 
 ### 使用 api 的 defineTool {#define-tool-with-api}
 

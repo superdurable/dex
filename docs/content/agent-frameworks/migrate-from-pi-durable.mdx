@@ -59,6 +59,8 @@ Both keep durable execution state. They differ in who runs the work and what hap
 | **defineTool** with **replay: "safe"** | Effect class **read** or **idempotent_write**: retried |
 | A tool that is not replay-safe | Effect class **non_idempotent_write**: runs at most once |
 | **beforeTool** blocking | Tool policies with approval |
+| A tool result with **control: \{ terminate: true \}**, or Pi's **finishTurn** returning **end** | The **decideTurnContinuation** hook returns **"end"**. |
+| Pi's **finishTurn** returning **continue** | **decideTurnContinuation** returns **\{ action: "continue", message \}**, with a required message. |
 | **beforeRequest** of the generation task | The **prepareRequest** option of **createPiAiModelClient** |
 | **fork()** | Planned for a later release |
 | Storage backends: memory, SQLite, JSONL, IndexedDB, Durable Object | The Dex Server. Locally, **dexcli dev**. |
@@ -102,7 +104,7 @@ export function createPiOrderSupportFlow(
     replay: "never",
     execute: async (_toolCallId, { order_id, reason }) => textResult(orderDesk.cancelOrder(order_id, reason)),
   };
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "order-support",
       instructions: orderSupportInstructions,
@@ -177,7 +179,7 @@ Wrap each **AgentTool** with **piAgentFunctionTool**. The tool's **replay** fiel
 Wrap a **defineTool** tool that does not use **api** with **piDurableFunctionTool**. Its effect class comes from **effect** when you pass it. Otherwise **replay: "safe"** gives **idempotent_write**, and any other **replay** gives **non_idempotent_write**.
 
 - Reading any property of **api** fails the call with an error that names it.
-- A result with **control** fails the call. The tool's effect has already happened by then.
+- A result with **control** fails the call. The tool's effect has already happened by then. To end a turn after tools, use the **decideTurnContinuation** hook of the agent definition instead.
 
 ### defineTool with api {#define-tool-with-api}
 
