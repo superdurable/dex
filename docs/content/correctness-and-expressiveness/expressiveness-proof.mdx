@@ -46,9 +46,8 @@ set of Steps that read and write Attributes, publish and consume Channel
 messages, and wait on Timers. So you may wonder whether some concurrent logic
 cannot be written as a Flow.
 
-The proof answers that. Any concurrent logic you can write with the
-constructs above can also be written as a Flow. The table below shows how
-each construct is built.
+The proof shows that any concurrent logic you can write with the constructs
+above can also be written as a Flow.
 
 The translation is a construction for the proof, not a compiler that Dex
 ships. It uses about one Step for each statement, which is not how to model
@@ -80,22 +79,20 @@ across many Steps and waits.
 ## How it was checked {#how-it-was-checked}
 
 The proof is written in the Lean proof assistant, which checks every step.
-No step is skipped or taken on trust.
 
 ## Failures {#what-it-does-not-cover}
 
-This proof assumes no crashes, retries, or redelivery. The
+This proof covers runs without failures. The
 [Failure transparency proof](/correctness-and-expressiveness/failure-transparency-proof)
-adds them. Under its assumptions, removing the repeated external effects from
-a run with failures leaves a run without failures. Together, the two proofs
-say that a well-formed program of the language runs on Dex with the events of
-a run without failures, except that its external effects may repeat. Both
-proofs hold only under the assumptions that their pages list.
+extends it to crashes, recovery, retries, and redelivery. Under the conditions
+on that page, removing the repeated external effects from a run with failures
+leaves a run without failures. Combined, the two proofs show that a
+well-formed program of the language runs on Dex with the events of a run
+without failures, except that external effects can repeat.
 
 ## Related evidence {#related-evidence}
 
 The [Workflow Patterns evaluation](/correctness-and-expressiveness/workflow-patterns)
-is complementary evidence. It rates Dex against 43 workflow patterns, each
-with a runnable example and a test against a real server. The patterns test
-the real server on common cases. The proof covers every program of the
-language.
+rates Dex against 43 workflow patterns, each with a runnable example and a
+test against a real server. The patterns test the real server on common
+cases. The proof covers every program of the language.

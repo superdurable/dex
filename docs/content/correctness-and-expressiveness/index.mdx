@@ -34,15 +34,15 @@ a Step method fails or runs again.
 The [Failure transparency proof](/correctness-and-expressiveness/failure-transparency-proof)
 covers server crashes, standby takeovers, retries, Workers that keep running
 after Dex gave up on them, and duplicate results. Remove the repeated external
-effects from the events of a Flow with these failures. The proof shows that
-what remains is what the Flow can do without failures. It also shows that the
-ending stays the same, with one limit that the page explains. It holds only
-under stated assumptions. For example, it covers **SYNC** methods only, and
-retries must not run out. A computer checks every step of this proof too. The
+effects from a run with these failures, and the rest is a sequence the Flow
+can produce without failures. For fair runs, the ending stays the same too.
+The proof holds under the conditions on its page, such as **SYNC** methods
+only and retries that never run out. A computer checks every step of this proof too, and the
 same [paper](/papers/dex-expressiveness.pdf) has the full argument.
 
-Together, the two proofs cover the well-formed programs of the small
-concurrent language. Such a program runs on Dex with the events of a run
-without failures, except that its external effects may repeat, and a repeat can come late.
+Combined, the two proofs cover every well-formed program of the small
+concurrent language. On Dex, such a program produces the events of a run
+without failures, except that external effects can repeat, and a repeat can
+come late.
 [What this means for your code](/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)
 says how to make repeats safe.
