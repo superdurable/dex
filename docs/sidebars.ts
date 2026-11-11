@@ -94,6 +94,8 @@ const sidebars: SidebarsConfig = {
         'agent-frameworks/google-adk',
         'agent-frameworks/vercel-ai-sdk',
         'agent-frameworks/mastra',
+        'agent-frameworks/pi',
+        'agent-frameworks/migrate-from-pi-durable',
       ],
     },
     {

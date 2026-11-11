@@ -1,0 +1,324 @@
+---
+title: Pi
+sidebar_label: Pi
+---
+
+# Pi
+
+Pi is a TypeScript toolkit for agents. Its **pi-ai** package calls models from many providers, such as OpenAI, Anthropic, Google, and Bedrock. Its agent core defines tools. The Dex package runs a Pi agent as a durable session. It is available for TypeScript.
+
+## When to use it
+
+Use it when your agent already uses pi-ai models and Pi tools. Keep the models and the tools, and let Dex own the session and the loop.
+
+Use it also when you move an agent from **pi-durable** to Dex. [Migrate from pi-durable](/agent-frameworks/migrate-from-pi-durable) walks through the move.
+
+## How a session runs
+
+Dex runs the agent loop, not Pi. The session is the [built-in agent loop](/agent-frameworks/built-in-agent-loop) of Dex Agents. Dex decides when to call the model, when to run tools, when to wait for an approval, and when the turn ends.
+
+Pi supplies two things:
+
+- **The model call.** Each **RunModel** Step sends one pi-ai request. pi-ai's own retries are off, so a retry is a new **RunModel** attempt that the Flow history shows.
+- **The tools.** Each tool is a Pi **AgentTool**. Each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first.
+
+Pi's **Agent**, **agentLoop**, and the **pi-durable** harness are not used. This makes the package different from the other adapters, which run their framework's own loop inside the session.
+
+A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
+
+Each model response is stored as the pi-ai message that the model returned. Dex hands it to pi-ai unchanged on every later call. pi-ai converts it for another provider, so a session can change its model between turns.
+
+## Install
+
+Install the package with the session core, the Dex SDK, and pi-ai. They are peer packages, so the application owns exactly one copy of each. The example also uses Pi's agent core for the **AgentTool** type and pi-schema for typed arguments.
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/pi/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-pi @superdurable/dex-agents @superdurable/dex @earendil-works/pi-ai
+npm i @earendil-works/pi-agent-core @earendil-works/pi-schema
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+[Install the packages](/reference/agents/install#typescript) lists the supported versions.
+
+## The example
+
+The example is the [order support agent](/agent-frameworks#the-examples) that every framework page uses.
+
+The Flow type is **PiOrderSupportAgent**. The full example is under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
+
+### Agent and tools
+
+The tools are Pi **AgentTool** objects. **piAgentFunctionTool** turns each one into a tool of the built-in loop. **createPiAiModelClient** turns a pi-ai model into the session's model client.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/pi/pi-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createPiOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: Model<Api>,
+  slack: Connection | undefined,
+): OrderSupportSessionFlow {
+  const lookUpOrder: AgentTool<typeof lookUpOrderArguments> = {
+    name: "look_up_order",
+    label: "Look up order",
+    description: "Look up one order by its order ID and return its items and status.",
+    parameters: lookUpOrderArguments,
+    execute: async (_toolCallId, { order_id }) => textResult(orderDesk.describeOrder(order_id)),
+  };
+  const cancelOrder: AgentTool<typeof cancelOrderArguments> = {
+    name: "cancel_order",
+    label: "Cancel order",
+    description: "Cancel one order that has not shipped yet.",
+    parameters: cancelOrderArguments,
+    // Not safe to repeat, so Dex asks for approval first and runs it at most once.
+    replay: "never",
+    execute: async (_toolCallId, { order_id, reason }) => textResult(orderDesk.cancelOrder(order_id, reason)),
+  };
+  return createStepwiseAgentSessionFlow(
+    {
+      name: "order-support",
+      instructions: orderSupportInstructions,
+      model: createPiAiModelClient(model),
+      tools: [piAgentFunctionTool(lookUpOrder, { effect: "read" }), piAgentFunctionTool(cancelOrder)],
+      toolSources: createSlackConnectorToolSources(slack),
+    },
+    piOrderSupportFlowType,
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Effect classes
+
+Every Dex tool declares its [effect class](/agent-frameworks#effect-classes). A Pi tool's **replay** field gives it, unless you pass **effect**:
+
+| The tool declares | **effect** passed | Effect class |
+| --- | --- | --- |
+| anything | yes | the passed effect |
+| **replay: "safe"** | no | **idempotent_write**: retried |
+| **replay: "never"** | no | **non_idempotent_write**: approved first, runs at most once |
+| no **replay** | no | an error when the session Flow is built |
+
+In the example, **look_up_order** passes **effect: "read"**, so it runs without approval and retries on failure. **cancel_order** declares **replay: "never"**, so it waits for approval and runs at most once.
+
+A tool result with **isError**, or a thrown **ToolExecutionError**, records the call as **failed**. The model sees the message, and the session continues. A plain error thrown by a **non_idempotent_write** tool may come after the write, so the call records **outcome_unknown** and never runs again.
+
+### The model
+
+The Worker picks a model from pi-ai's built-in catalog. pi-ai reads the provider's key from the Worker's environment, so the key never enters Flow state.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/pi/pi-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function loadPiOrderSupportModel(): Model<Api> {
+  const name = environmentOr("DEX_PI_MODEL", "openai/gpt-5-mini");
+  const separator = name.indexOf("/");
+  const provider = name.slice(0, separator) as BuiltinProvider;
+  const modelId = name.slice(separator + 1);
+  const model = separator > 0 ? getBuiltinModels(provider).find((candidate) => candidate.id === modelId) : undefined;
+  if (model === undefined) {
+    throw new Error(`DEX_PI_MODEL ${name} is not a <provider>/<model ID> of pi-ai's built-in catalog`);
+  }
+  return model;
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**createPiAiModelClient** also takes an **apiKey**, and a **prepareRequest** hook that changes the context of one request. The [package README](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#the-model-client) describes them.
+
+### Worker
+
+One Worker serves the session Flows of every harness in the example. Build the same session Flow in every process that starts sessions or calls their RPCs.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+// ...
+// One order desk for the five agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk();
+// ...
+const piOrderSupportFlow = createPiOrderSupportFlow(orderDesk, loadPiOrderSupportModel(), slack);
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Session routes
+
+Every harness serves the same routes. [Session routes](/agent-frameworks#session-routes) explains them and the session token. The [Mastra page](/agent-frameworks/mastra#session-routes) shows their code.
+
+## Run it locally
+
+### Start Dex and the example
+
+Until the package is on npm, the example installs it from the repository. Build it first, as the [examples README](https://github.com/superdurable/dex/tree/main/examples/typescript#readme) shows.
+
+In a first terminal, render the session graph, then start Dex. Dex Web reads the graph when it starts, to show the session and its approval controls.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm install
+mkdir -p definitions
+npx dex-agents-session-graph --flow-type PiOrderSupportAgent \
+  --permission order-support.operate --out definitions/pi.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+OPENAI_API_KEY=... npm start
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The app serves on **127.0.0.1:8080**. Dex Web is at **http://127.0.0.1:8802**.
+
+The example has no demo model. pi-ai reads the provider key, such as **OPENAI_API_KEY**, from the Worker's environment.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| **DEX_PI_MODEL** | **openai/gpt-5-mini** | A model of pi-ai's built-in catalog, as provider and model ID. |
+| **OPENAI_API_KEY** | none; required for the default | The provider key. Another provider reads its own variable, such as **ANTHROPIC_API_KEY**. |
+| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. |
+
+### Call the session
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+base=http://127.0.0.1:8080/products/agent-harnesses/pi
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
+  -d '{"message": "Please cancel order 1002"}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-Session-Token: $token"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run **cancel_order**. That call waits for approval, then runs once. Read the snapshot again to see the agent's answer.
+
+### Approve in Dex Web
+
+Instead of the last command, you can approve the call in Dex Web. Follow the steps in [Approve in Dex Web](/agent-frameworks#approve-in-dex-web).
+
+## Connect Connectors {#connect-connectors}
+
+The agent can call [Connector](/concepts/connector) operations as tools, as [Connectors as tools](/agent-frameworks#connectors-as-tools) describes. The example adds the Slack tool **slack_post_thread_reply**, which replies in a Slack thread.
+
+The session Flow takes the Connector tools in **toolSources**, next to its own tools:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/pi/pi-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  return createStepwiseAgentSessionFlow(
+    {
+      // ...
+      toolSources: createSlackConnectorToolSources(slack),
+    },
+    piOrderSupportFlowType,
+  );
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Each call of **slack_post_thread_reply** runs once, in its own **CallSingleAttemptTool** Step, after a person approves it. The [Mastra page](/agent-frameworks/mastra#offer-connector-tools) shows how the Worker opens the connection and builds the tool source. [Connections](/reference/agents/connector-tools#connector-tools-connection) explains where the Worker finds the **support-slack** connection.
+
+## What replaces Pi's features {#pi-feature-mapping}
+
+| Pi feature | On Dex |
+| --- | --- |
+| **steer()** and **followUp()** | The **sendUserMessage** RPC and the session's steering |
+| **beforeToolCall**, to approve or block a call | Tool policies and the **AwaitToolApproval** Step. An approval may wait as long as needed. |
+| **afterToolCall**, to change a result | Change the result inside your tool. |
+| **transformContext**, to trim or compact | The session's context compaction. **prepareRequest** changes one request. |
+| **prepareRequest** | The **prepareRequest** option of **createPiAiModelClient** |
+| **finishTurn**, to end a turn after tools or to run again after an answer | Planned |
+| **subscribe()** events | The **AgentEvents** Stream and the UI stream |
+| **abort()** | The session's **cancel_turn** |
+| **pi-durable** | Dex itself. See [Migrate from pi-durable](/agent-frameworks/migrate-from-pi-durable). |
+
+## Limits
+
+- Dex runs the tool calls of one model response in parallel. A tool with **executionMode: "sequential"** is rejected.
+- **AgentToolResult.terminate** is ignored. A way to end a turn after tools is planned.
+- pi-ai's tool choice is **auto** or **none**, so a request that forces a tool fails.
+- An image in a tool result reaches the model as a text note.
+- A tool's **details** are not stored. The model sees the text parts of the result.
+- **prepareArguments** repairs only arguments that already pass the tool's schema check.
+- Wrap a write tool with its real effect. A tool policy that raises a tool to **non_idempotent_write** does not change how a thrown error is recorded.
+- Pi's **Agent**, **agentLoop**, and session files are not used.
+
+The [package README](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#not-supported) lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
+
+## Move from pi-durable
+
+Dex replaces **pi-durable**, not Pi. Your pi-ai models and Pi tools stay. The harness entry code changes: **Harness.open**, the root conversation, **submit**, and **wait** become a session Flow, a Worker, and Client calls. [Migrate from pi-durable](/agent-frameworks/migrate-from-pi-durable) walks through the move.
+
+A compatibility layer for the **pi-durable** API is tracked in [issue #1571](https://github.com/superdurable/dex/issues/1571).
+
+## Related
+
+- [Agent Frameworks](/agent-frameworks)
+- [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop)
+- [Migrate from pi-durable](/agent-frameworks/migrate-from-pi-durable)
+- [Agents reference](/reference/agents/)
+- [Package README](https://github.com/superdurable/dex/tree/main/agents/typescript/pi)

@@ -6,11 +6,17 @@ on:
     paths:
       - "examples/typescript/**"
       - "examples/entity-store/**"
+      # The Pi agent harness example builds this package until @superdurable/dex-agents-pi is on npm.
+      - "agents/typescript/core/**"
+      - "agents/typescript/pi/**"
       - ".github/workflows/examples-typescript-ci.yml"
   pull_request:
     paths:
       - "examples/typescript/**"
       - "examples/entity-store/**"
+      # The Pi agent harness example builds this package until @superdurable/dex-agents-pi is on npm.
+      - "agents/typescript/core/**"
+      - "agents/typescript/pi/**"
       - ".github/workflows/examples-typescript-ci.yml"
   workflow_dispatch:
 
@@ -37,6 +43,12 @@ jobs:
           cache: npm
           cache-dependency-path: |
             examples/typescript/package-lock.json
+            agents/typescript/core/package-lock.json
+            agents/typescript/pi/package-lock.json
+      - name: Build the unreleased Dex Agents Pi package
+        # The Pi agent harness example installs @superdurable/dex-agents-pi from agents/typescript/pi until it is on npm.
+        working-directory: agents/typescript
+        run: (cd core && npm ci && npm run build) && (cd pi && npm ci && npm run build)
       - name: Install dependencies
         run: npm ci
       - name: Verify published SDK dependency
@@ -100,6 +112,8 @@ jobs:
           cache: npm
           cache-dependency-path: |
             examples/typescript/package-lock.json
+            agents/typescript/core/package-lock.json
+            agents/typescript/pi/package-lock.json
             web/package-lock.json
       - uses: actions/setup-go@v7
         with:
@@ -107,6 +121,10 @@ jobs:
           cache-dependency-path: |
             cli/go.sum
             web/go.sum
+      - name: Build the unreleased Dex Agents Pi package
+        # The Pi agent harness example installs @superdurable/dex-agents-pi from agents/typescript/pi until it is on npm.
+        working-directory: agents/typescript
+        run: (cd core && npm ci && npm run build) && (cd pi && npm ci && npm run build)
       - name: Install dependencies
         run: npm ci
       - name: Integration tests with dexcli dev

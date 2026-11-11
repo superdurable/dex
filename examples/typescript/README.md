@@ -5,9 +5,18 @@ These examples target [`@superdurable/dex@1.38.0`](https://www.npmjs.com/package
 The [AI Agent](./src/products/ai-agent) also depends on the Dex Agents library,
 [`@superdurable/dex-agents@0.4.0`](https://www.npmjs.com/package/@superdurable/dex-agents),
 installed from npm. The [agent harness examples](./src/products/agent-harnesses) add its adapters for
-the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, and Mastra, also 0.4.0. Both offer
+the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, and Mastra, also 0.4.0, and Pi,
+[`@superdurable/dex-agents-pi`](../../agents/typescript/pi). Both offer
 the Slack Connector as an agent tool through [`@superdurable/connector-slack@0.2.0`](https://www.npmjs.com/package/@superdurable/connector-slack)
 and [`@superdurable/connectors-sdk@0.9.0`](https://www.npmjs.com/package/@superdurable/connectors-sdk).
+
+Until `@superdurable/dex-agents-pi` is on npm, `package.json` installs it from this repository, so
+build it before `npm install`:
+
+```bash
+(cd ../../agents/typescript/core && npm ci && npm run build)
+(cd ../../agents/typescript/pi && npm ci && npm run build)
+```
 
 The sample process runs one pull Worker and an HTTP controller on port `8080`.
 The Worker needs only an outbound connection to the Dex Server. Step `execute` / `waitFor` / RPC handlers may

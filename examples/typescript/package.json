@@ -5,7 +5,7 @@
   "description": "Dex TypeScript examples mirroring examples/java",
   "type": "module",
   "engines": {
-    "node": "^22.0.0 || ^24.0.0"
+    "node": "^22.19.0 || ^24.0.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run build:ai-agent-ui",
@@ -20,6 +20,9 @@
     "@ai-sdk/openai": "4.0.106",
     "@ai-sdk/react": "4.0.163",
     "@anthropic-ai/claude-agent-sdk": "0.3.316",
+    "@earendil-works/pi-agent-core": "1.5.1",
+    "@earendil-works/pi-ai": "1.5.1",
+    "@earendil-works/pi-schema": "1.5.1",
     "@mastra/core": "1.81.0",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@openai/agents": "0.21.0",
@@ -30,6 +33,7 @@
     "@superdurable/dex-agents-claude-agent-sdk": "0.4.0",
     "@superdurable/dex-agents-mastra": "0.4.0",
     "@superdurable/dex-agents-openai-agents": "0.4.0",
+    "@superdurable/dex-agents-pi": "file:../../agents/typescript/pi",
     "@superdurable/dex-agents-vercel-ai": "0.4.0",
     "ai": "7.0.159",
     "express": "^5.1.0",
@@ -48,6 +52,7 @@
     "typescript": "^5.9.0"
   },
   "overrides": {
-    "@superdurable/dex": "$@superdurable/dex"
+    "@superdurable/dex": "$@superdurable/dex",
+    "@superdurable/dex-agents": "$@superdurable/dex-agents"
   }
 }

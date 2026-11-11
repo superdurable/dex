@@ -23,13 +23,14 @@ import express from "express";
 
 import type { Connection } from "@superdurable/connector-slack";
 import { GeneratedMock, postThreadReplyReplySent } from "@superdurable/connector-slack/mock";
-import type { AgentSessionFlow, AgentSnapshot } from "@superdurable/dex-agents";
+import type { AgentSnapshot } from "@superdurable/dex-agents";
 import { AgentSessionTestClient, AgentTestEnvironment, pollUntil } from "@superdurable/dex-agents/testing";
 
 import { OrderDesk } from "../../../src/products/agent-harnesses/order-support/order-desk.js";
 import {
   createOrderSupportRouter,
   orderSupportSessionTokenHeaderName,
+  type OrderSupportSessionFlow,
 } from "../../../src/products/agent-harnesses/order-support/order-support-routes.js";
 import { slackConnectionName } from "../../../src/shared/slack-connector-tools.js";
 import { scriptedCancelReason, scriptedReplyPrefix, slackPostThreadReplyToolName } from "./order-support-script.js";
@@ -50,7 +51,7 @@ class CancelCountingOrderDesk extends OrderDesk {
 /** How a harness test builds its Flow from the order desk and the Slack connection its tools use. */
 export interface OrderSupportScenarioSetup {
   readonly harnessName: string;
-  createFlow(orderDesk: OrderDesk, slack: Connection): AgentSessionFlow | Promise<AgentSessionFlow>;
+  createFlow(orderDesk: OrderDesk, slack: Connection): OrderSupportSessionFlow | Promise<OrderSupportSessionFlow>;
   close?(): Promise<void>;
 }
 

@@ -1,0 +1,258 @@
+---
+title: Migrate from pi-durable
+sidebar_label: Migrate from pi-durable
+---
+
+# Migrate from pi-durable
+
+**pi-durable** is a durable agent harness for Pi. It commits conversations, model turns, and tool calls to one storage, and it picks up unfinished work when a process reopens that storage. This page shows how to move such an agent to Dex.
+
+Dex replaces **pi-durable**, not Pi. Your pi-ai models and Pi tools stay. Dex takes over durability and the agent loop. The agent runs on the [Pi package](/agent-frameworks/pi) of Dex Agents.
+
+## What changes {#what-changes}
+
+Dex is not a drop-in replacement. You rewrite the harness entry code: **Harness.open**, the root conversation, **submit**, and **wait** become a Dex session Flow, a Worker, and Client calls.
+
+These parts carry over without change:
+
+- pi-ai models, through **createPiAiModelClient**;
+- Pi **AgentTool** tools, through **piAgentFunctionTool**;
+- **defineTool** tools that do not use the harness **api**, through **piDurableFunctionTool**.
+
+A tool that uses **api** must be rewritten. See [Tools](#tools).
+
+A compatibility layer for the **pi-durable** API would let you change only the imports and the setup. It is tracked in [issue #1571](https://github.com/superdurable/dex/issues/1571).
+
+## How recovery differs {#recovery}
+
+Both keep durable execution state. They differ in who runs the work and what happens when a process fails.
+
+| Capability | pi-durable | Dex |
+| --- | --- | --- |
+| Durable execution state | Yes | Yes |
+| Resume unfinished work after a restart | Yes, when a process reopens the storage | Yes |
+| Detect a failed process and take over its work | No. One process writes to a storage. | The engine does it. |
+| Schedule and run work across machines | No | The engine does it. |
+| Wait for an approval | Through a **beforeTool** hook | As long as needed, without holding a process |
+| Writes with side effects | A tool that is not replay-safe gets an **interrupted** result after a crash. | A **non_idempotent_write** runs at most once. |
+| Execution history | **watch()** and snapshots | Every Step in Dex Web, and the **AgentEvents** Stream |
+| Fork a conversation | **fork()** | Planned for a later release |
+| Run locally on one machine | Embedded, with SQLite or JSONL storage | **dexcli dev** |
+| Run in a browser without a backend | Yes | No |
+| Cloudflare Durable Objects | Deploys there | The Dex Server runs in a container or a VM. See [Where Dex runs](#where-dex-runs). |
+
+## Concept mapping {#concept-mapping}
+
+| pi-durable | Dex |
+| --- | --- |
+| Conversation | One session Flow. The Flow ID is the session ID. |
+| **submit()**, deduplicated by **requestId** | The **sendUserMessage** RPC. It has no request ID, so a retried call sends the message again. |
+| Task, phase, and checkpoint | Step |
+| **sleepUntil** | The **durable_wait** built-in tool, and Timers |
+| Child task | Child Flow |
+| Documents: typed JSON state | Attributes |
+| **watch()** and **snapshot()** | The **AgentEvents** Stream, the UI stream, and the **getAgentSnapshot** RPC |
+| **defineTool** with **replay: "safe"** | Effect class **read** or **idempotent_write**: retried |
+| A tool that is not replay-safe | Effect class **non_idempotent_write**: runs at most once |
+| **beforeTool** blocking | Tool policies with approval |
+| **beforeRequest** of the generation task | The **prepareRequest** option of **createPiAiModelClient** |
+| **fork()** | Planned for a later release |
+| Storage backends: memory, SQLite, JSONL, IndexedDB, Durable Object | The Dex Server. Locally, **dexcli dev**. |
+| Extensions | Not supported. Move their tools and prompt into the agent definition. |
+
+## Before and after {#before-and-after}
+
+### Before: pi-durable {#before}
+
+A **pi-durable** application opens a harness over a storage, gets the root conversation, submits input, and waits for the answer. Its tools come from extensions in a registry. This code follows the **pi-durable** README:
+
+```typescript
+const storage = await openNodeSqliteStorage("./session.sqlite");
+const harness = await Harness.open(storage, { models, registry }, context);
+const root = await harness.root(context, {
+  agent: { model: { provider: "openai", modelId: "gpt-5-mini" } },
+});
+const submission = await root.submit(
+  { type: "input", content: "Please cancel order 1002", requestId: "request-1" },
+  context,
+);
+const settled = await submission.wait(context);
+```
+
+### After: the session Flow {#after-session-flow}
+
+On Dex, the agent is a session Flow. Its definition holds the instructions, the model, and the tools. The tools are Pi **AgentTool** objects. This is the [order support agent](/agent-frameworks#the-examples) of the Pi example:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/pi/pi-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createPiOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: Model<Api>,
+  slack: Connection | undefined,
+): OrderSupportSessionFlow {
+  const lookUpOrder: AgentTool<typeof lookUpOrderArguments> = {
+    name: "look_up_order",
+    label: "Look up order",
+    description: "Look up one order by its order ID and return its items and status.",
+    parameters: lookUpOrderArguments,
+    execute: async (_toolCallId, { order_id }) => textResult(orderDesk.describeOrder(order_id)),
+  };
+  const cancelOrder: AgentTool<typeof cancelOrderArguments> = {
+    name: "cancel_order",
+    label: "Cancel order",
+    description: "Cancel one order that has not shipped yet.",
+    parameters: cancelOrderArguments,
+    // Not safe to repeat, so Dex asks for approval first and runs it at most once.
+    replay: "never",
+    execute: async (_toolCallId, { order_id, reason }) => textResult(orderDesk.cancelOrder(order_id, reason)),
+  };
+  return createStepwiseAgentSessionFlow(
+    {
+      name: "order-support",
+      instructions: orderSupportInstructions,
+      model: createPiAiModelClient(model),
+      tools: [piAgentFunctionTool(lookUpOrder, { effect: "read" }), piAgentFunctionTool(cancelOrder)],
+      toolSources: createSlackConnectorToolSources(slack),
+    },
+    piOrderSupportFlowType,
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+A Worker registers the session Flow and connects to the Dex Server. Any Worker can run any Step of any session, so a failed Worker loses no work. The [Pi page](/agent-frameworks/pi#worker) shows the Worker of the example.
+
+### After: the Client calls {#after-client-calls}
+
+The application talks to a session through a Client. Each call is one RPC on the session Flow:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions", async (request, response) => {
+    const initialMessage = optionalString(requireBody(request), "message");
+    // The server picks the session ID, so a caller cannot name another session.
+    const sessionId = `order-support-${randomUUID()}`;
+    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+  router.get("/sessions/:id/snapshot", async (request, response) => {
+    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
+  });
+  router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const message = { text: requireString(requireBody(request), "text") };
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+| pi-durable entry code | Dex |
+| --- | --- |
+| **Harness.open** over a storage | A Worker and a Client connected to the Dex Server |
+| A registry with extensions and their tools | The session Flow definition |
+| **root()**, or another conversation | **startAgentSession** with a session ID |
+| **submit()** | The **sendUserMessage** RPC |
+| **wait()** for the answer | The **getAgentSnapshot** RPC, or the **AgentEvents** Stream |
+| **resume()** after a restart | Nothing. The engine resumes every session. |
+| A **beforeTool** hook that blocks a call | The **resolveInterrupt** RPC approves or rejects it. |
+
+## Tools {#tools}
+
+### Pi AgentTool {#agent-tool}
+
+Wrap each **AgentTool** with **piAgentFunctionTool**. The tool's **replay** field gives its effect class, unless you pass **effect**. [Effect classes](/agent-frameworks/pi#effect-classes) has the table.
+
+### defineTool without api {#define-tool-without-api}
+
+Wrap a **defineTool** tool that does not use **api** with **piDurableFunctionTool**. Its effect class comes from **effect** when you pass it. Otherwise **replay: "safe"** gives **idempotent_write**, and any other **replay** gives **non_idempotent_write**.
+
+- Reading any property of **api** fails the call with an error that names it.
+- A result with **control** fails the call. The tool's effect has already happened by then.
+
+### defineTool with api {#define-tool-with-api}
+
+A tool that uses **api** depends on the **pi-durable** harness, so rewrite it as a Pi **AgentTool**. The two shapes are close. An **AgentTool**'s **execute** receives the tool call ID, the arguments, a cancellation signal, and an **onUpdate** callback for running output.
+
+A **pi-durable** tool that streams its result through **api.output**:
+
+```typescript
+const lookUpOrder = defineTool({
+  name: "look_up_order",
+  description: "Look up one order by its order ID and return its items and status.",
+  parameters: obj({ order_id: str() }),
+  replay: "safe",
+  execute: async (args, api) => {
+    api.output(orderDesk.describeOrder(args.order_id));
+    return {};
+  },
+});
+```
+
+The same tool as an **AgentTool**, from the Pi example. It returns its text as the result:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/pi/pi-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  const lookUpOrder: AgentTool<typeof lookUpOrderArguments> = {
+    name: "look_up_order",
+    label: "Look up order",
+    description: "Look up one order by its order ID and return its items and status.",
+    parameters: lookUpOrderArguments,
+    execute: async (_toolCallId, { order_id }) => textResult(orderDesk.describeOrder(order_id)),
+  };
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Each **api** method has a Dex counterpart:
+
+| pi-durable **api** | Dex |
+| --- | --- |
+| **output()** | The **onUpdate** callback of **AgentTool**, for running output. The returned result is what the model sees. |
+| **commit()**, documents | Attributes |
+| **createTask()** | A child Flow |
+| **executeTool()** | Call the other tool's function directly. |
+
+## Fork {#fork}
+
+**pi-durable** can fork a conversation from an entry. Dex does not fork a session yet. Fork is planned for a later release.
+
+## Where Dex runs {#where-dex-runs}
+
+**pi-durable** runs inside your application, over a storage that it opens. Dex runs as a server. The application's Workers and Clients connect to it over the network.
+
+- Locally, **dexcli dev** runs a Dex Server on one machine.
+- In production, the Dex Server runs in a container or a VM.
+- Cloudflare Durable Objects cannot host the Dex Server. An application on Cloudflare can call a Dex Server that runs elsewhere.
+- Dex does not run in a browser without a backend.
+
+## Related {#related}
+
+- [Pi](/agent-frameworks/pi)
+- [Agent Frameworks](/agent-frameworks)
+- [Agents reference](/reference/agents/)
+- [Package README](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#moving-from-pi-durable)

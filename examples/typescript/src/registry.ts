@@ -87,6 +87,7 @@ import {
   loadOpenAIAgentsOrderSupportModel,
 } from "./products/agent-harnesses/openai-agents/openai-agents-order-support-flow.js";
 import { OrderDesk } from "./products/agent-harnesses/order-support/order-desk.js";
+import { createPiOrderSupportFlow, loadPiOrderSupportModel } from "./products/agent-harnesses/pi/pi-order-support-flow.js";
 import {
   createVercelAiOrderSupportFlow,
   loadVercelAiOrderSupportModel,
@@ -110,7 +111,7 @@ const loanApplicationFlow = new LoanApplicationFlow(getClient, creditCheckFlow);
 const slack = await openSlackConnectionFromProject();
 const aiAgentConfig = loadAiAgentConfig();
 const aiAgentFlow = createAiAgentFlow(aiAgentConfig, slack);
-// One order desk for the four agent harness examples; each harness registers its own session Flow type.
+// One order desk for the five agent harness examples; each harness registers its own session Flow type.
 const orderDesk = new OrderDesk();
 // Without the key the Claude Code CLI could fall back to a developer's own login, so skip the harness.
 const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
@@ -122,6 +123,7 @@ if (claudeAgentSdkOrderSupportFlow === undefined) {
 const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(orderDesk, loadOpenAIAgentsOrderSupportModel(), slack);
 const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadVercelAiOrderSupportModel(), slack);
 const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel(), slack);
+const piOrderSupportFlow = createPiOrderSupportFlow(orderDesk, loadPiOrderSupportModel(), slack);
 
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,
@@ -137,6 +139,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   openAIAgentsOrderSupportFlow,
   vercelAiOrderSupportFlow,
   mastraOrderSupportFlow,
+  piOrderSupportFlow,
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
@@ -207,6 +210,7 @@ export {
   openAIAgentsOrderSupportFlow,
   vercelAiOrderSupportFlow,
   mastraOrderSupportFlow,
+  piOrderSupportFlow,
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,

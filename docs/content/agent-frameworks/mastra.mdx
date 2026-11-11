@@ -104,7 +104,7 @@ One Worker serves the session Flows of every harness in the example. Build the s
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
 // ...
-// One order desk for the four agent harness examples; each harness registers its own session Flow type.
+// One order desk for the five agent harness examples; each harness registers its own session Flow type.
 const orderDesk = new OrderDesk();
 // ...
 const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel(), slack);

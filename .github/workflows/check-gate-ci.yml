@@ -184,6 +184,8 @@ jobs:
               - 'examples/typescript/**'
               - '.github/workflows/examples-typescript-ci.yml'
               - 'examples/entity-store/**'
+              - 'agents/typescript/core/**'
+              - 'agents/typescript/pi/**'
             generated_code:
               - 'protos/**'
               - 'sdk-go/gen/dexpb/**'

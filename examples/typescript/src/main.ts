@@ -73,6 +73,7 @@ import {
   mastraOrderSupportFlow,
   openAIAgentsOrderSupportFlow,
   orderProcessingFlow,
+  piOrderSupportFlow,
   pollingFlow,
   pollingJobs,
   vercelAiOrderSupportFlow,
@@ -123,6 +124,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   );
   app.use("/products/agent-harnesses/vercel-ai", createOrderSupportRouter(client, vercelAiOrderSupportFlow, agentSessionKey));
   app.use("/products/agent-harnesses/mastra", createOrderSupportRouter(client, mastraOrderSupportFlow, agentSessionKey));
+  app.use("/products/agent-harnesses/pi", createOrderSupportRouter(client, piOrderSupportFlow, agentSessionKey));
   app.use("/patterns/polling", createPatternPollingRouter(client, pollingFlow, pollingJobs));
   app.use("/patterns/interruptible", createInterruptibleRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));

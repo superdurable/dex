@@ -1,0 +1,258 @@
+---
+title: 从 pi-durable 迁移
+sidebar_label: 从 pi-durable 迁移
+---
+
+# 从 pi-durable 迁移
+
+**pi-durable** 是 Pi 的一个 durable agent harness。它把 conversation、模型 turn 和 tool call 提交到一个存储中，进程重新打开这个存储时，会接着做没做完的工作。本页说明如何把这样的 Agent 迁到 Dex。
+
+Dex 替代的是 **pi-durable**，不是 Pi。你的 pi-ai 模型和 Pi tool 继续使用。持久化和 agent loop 交给 Dex。Agent 运行在 Dex Agents 的 [Pi 包](/agent-frameworks/pi)上。
+
+## 哪些要改 {#what-changes}
+
+Dex 不是可以直接替换的版本。Harness 的入口代码要改写：**Harness.open**、root conversation、**submit** 和 **wait** 改为 Dex 的 session Flow、Worker 和 Client 调用。
+
+下面这些不用改：
+
+- pi-ai 模型，通过 **createPiAiModelClient** 使用；
+- Pi **AgentTool** tool，通过 **piAgentFunctionTool** 使用；
+- 不使用 harness **api** 的 **defineTool** tool，通过 **piDurableFunctionTool** 使用。
+
+使用 **api** 的 tool 要改写，见 [Tool](#tools)。
+
+**pi-durable** API 的兼容层可以让你只改 import 和初始化。它由 [issue #1571](https://github.com/superdurable/dex/issues/1571) 跟踪。
+
+## 恢复方式的区别 {#recovery}
+
+两者都保存 durable 的执行状态。区别在于谁来运行工作，以及进程故障时会发生什么。
+
+| 能力 | pi-durable | Dex |
+| --- | --- | --- |
+| 持久化执行状态 | 有 | 有 |
+| 重启后继续未完成的工作 | 有，在进程重新打开存储时 | 有 |
+| 发现进程故障并接管它的工作 | 没有。一个存储只有一个写入进程。 | 由引擎负责。 |
+| 跨机器调度和运行工作 | 没有 | 由引擎负责。 |
+| 等待审批 | 通过 **beforeTool** hook | 可以等待任意长的时间，期间不占用进程 |
+| 有副作用的写操作 | 不是 replay-safe 的 tool 在崩溃后得到 **interrupted** 结果。 | **non_idempotent_write** 最多运行一次。 |
+| 执行历史 | **watch()** 和 snapshot | Dex Web 中的每个 Step，以及 **AgentEvents** Stream |
+| Fork conversation | **fork()** | 计划在以后的版本中提供 |
+| 在一台机器上本地运行 | 嵌在应用中，使用 SQLite 或 JSONL 存储 | **dexcli dev** |
+| 没有后端、只在浏览器中运行 | 可以 | 不可以 |
+| Cloudflare Durable Objects | 可以部署 | Dex Server 运行在容器或 VM 中。见 [Dex 在哪里运行](#where-dex-runs)。 |
+
+## 概念对照 {#concept-mapping}
+
+| pi-durable | Dex |
+| --- | --- |
+| Conversation | 一个 session Flow。Flow ID 就是 session ID。 |
+| **submit()**，按 **requestId** 去重 | **sendUserMessage** RPC。它没有 request ID，所以重试调用会再发送一次消息。 |
+| Task、phase 和 checkpoint | Step |
+| **sleepUntil** | **durable_wait** 内置 tool，以及 Timer |
+| 子 task | 子 Flow |
+| Document：带类型的 JSON 状态 | Attribute |
+| **watch()** 和 **snapshot()** | **AgentEvents** Stream、UI stream 和 **getAgentSnapshot** RPC |
+| 带 **replay: "safe"** 的 **defineTool** | Effect class 为 **read** 或 **idempotent_write**：会重试 |
+| 不是 replay-safe 的 tool | Effect class 为 **non_idempotent_write**：最多运行一次 |
+| **beforeTool** 拦截 | 带审批的 tool policy |
+| Generation task 的 **beforeRequest** | **createPiAiModelClient** 的 **prepareRequest** 选项 |
+| **fork()** | 计划在以后的版本中提供 |
+| 存储后端：memory、SQLite、JSONL、IndexedDB、Durable Object | Dex Server。本地用 **dexcli dev**。 |
+| Extension | 不支持。把其中的 tool 和 prompt 移到 agent 定义中。 |
+
+## 改写前后 {#before-and-after}
+
+### 改写前：pi-durable {#before}
+
+**pi-durable** 应用在一个存储上打开 harness，取得 root conversation，提交输入，然后等待回答。它的 tool 来自 registry 中的 extension。下面的代码按 **pi-durable** 的 README 编写：
+
+```typescript
+const storage = await openNodeSqliteStorage("./session.sqlite");
+const harness = await Harness.open(storage, { models, registry }, context);
+const root = await harness.root(context, {
+  agent: { model: { provider: "openai", modelId: "gpt-5-mini" } },
+});
+const submission = await root.submit(
+  { type: "input", content: "Please cancel order 1002", requestId: "request-1" },
+  context,
+);
+const settled = await submission.wait(context);
+```
+
+### 改写后：session Flow {#after-session-flow}
+
+在 Dex 中，Agent 是一个 session Flow。它的定义包括 instruction、模型和 tool。Tool 是 Pi **AgentTool** 对象。下面是 Pi example 中的[订单客服 Agent](/agent-frameworks#the-examples)：
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/pi/pi-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createPiOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: Model<Api>,
+  slack: Connection | undefined,
+): OrderSupportSessionFlow {
+  const lookUpOrder: AgentTool<typeof lookUpOrderArguments> = {
+    name: "look_up_order",
+    label: "Look up order",
+    description: "Look up one order by its order ID and return its items and status.",
+    parameters: lookUpOrderArguments,
+    execute: async (_toolCallId, { order_id }) => textResult(orderDesk.describeOrder(order_id)),
+  };
+  const cancelOrder: AgentTool<typeof cancelOrderArguments> = {
+    name: "cancel_order",
+    label: "Cancel order",
+    description: "Cancel one order that has not shipped yet.",
+    parameters: cancelOrderArguments,
+    // Not safe to repeat, so Dex asks for approval first and runs it at most once.
+    replay: "never",
+    execute: async (_toolCallId, { order_id, reason }) => textResult(orderDesk.cancelOrder(order_id, reason)),
+  };
+  return createStepwiseAgentSessionFlow(
+    {
+      name: "order-support",
+      instructions: orderSupportInstructions,
+      model: createPiAiModelClient(model),
+      tools: [piAgentFunctionTool(lookUpOrder, { effect: "read" }), piAgentFunctionTool(cancelOrder)],
+      toolSources: createSlackConnectorToolSources(slack),
+    },
+    piOrderSupportFlowType,
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Worker 注册这个 session Flow，并连接到 Dex Server。任何 Worker 都可以运行任何 session 的任何 Step，所以一个 Worker 故障不会丢失工作。Example 的 Worker 见 [Pi 页面](/agent-frameworks/pi#worker)。
+
+### 改写后：Client 调用 {#after-client-calls}
+
+应用通过 Client 与 session 交互。每次调用都是 session Flow 上的一个 RPC：
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions", async (request, response) => {
+    const initialMessage = optionalString(requireBody(request), "message");
+    // The server picks the session ID, so a caller cannot name another session.
+    const sessionId = `order-support-${randomUUID()}`;
+    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+  router.get("/sessions/:id/snapshot", async (request, response) => {
+    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
+  });
+  router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const message = { text: requireString(requireBody(request), "text") };
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+| pi-durable 入口代码 | Dex |
+| --- | --- |
+| 在存储上调用 **Harness.open** | 连接到 Dex Server 的 Worker 和 Client |
+| 带 extension 及其 tool 的 registry | Session Flow 的定义 |
+| **root()** 或其他 conversation | 用 session ID 调用 **startAgentSession** |
+| **submit()** | **sendUserMessage** RPC |
+| 用 **wait()** 等待回答 | **getAgentSnapshot** RPC，或 **AgentEvents** Stream |
+| 重启后调用 **resume()** | 不需要。引擎会继续每个 session。 |
+| 用 **beforeTool** hook 拦截调用 | 用 **resolveInterrupt** RPC 批准或拒绝。 |
+
+## Tool {#tools}
+
+### Pi AgentTool {#agent-tool}
+
+用 **piAgentFunctionTool** 包装每个 **AgentTool**。Tool 的 **replay** 字段决定它的 effect class，除非传入 **effect**。对照表见 [Effect class](/agent-frameworks/pi#effect-classes)。
+
+### 不使用 api 的 defineTool {#define-tool-without-api}
+
+不使用 **api** 的 **defineTool** tool，用 **piDurableFunctionTool** 包装。传入 **effect** 时，effect class 以它为准。否则 **replay: "safe"** 得到 **idempotent_write**，其他 **replay** 得到 **non_idempotent_write**。
+
+- 读取 **api** 的任何属性，都会让这次调用失败，错误信息会指出这个属性。
+- 结果带 **control** 时，这次调用失败。这时 tool 的副作用已经发生。
+
+### 使用 api 的 defineTool {#define-tool-with-api}
+
+使用 **api** 的 tool 依赖 **pi-durable** harness，所以要改写成 Pi **AgentTool**。两种写法很接近。**AgentTool** 的 **execute** 接收 tool call ID、参数、取消信号，以及用于输出运行进度的 **onUpdate** 回调。
+
+一个通过 **api.output** 输出结果的 **pi-durable** tool：
+
+```typescript
+const lookUpOrder = defineTool({
+  name: "look_up_order",
+  description: "Look up one order by its order ID and return its items and status.",
+  parameters: obj({ order_id: str() }),
+  replay: "safe",
+  execute: async (args, api) => {
+    api.output(orderDesk.describeOrder(args.order_id));
+    return {};
+  },
+});
+```
+
+改写成 **AgentTool** 后的同一个 tool，来自 Pi example。它把文本作为结果返回：
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/pi/pi-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  const lookUpOrder: AgentTool<typeof lookUpOrderArguments> = {
+    name: "look_up_order",
+    label: "Look up order",
+    description: "Look up one order by its order ID and return its items and status.",
+    parameters: lookUpOrderArguments,
+    execute: async (_toolCallId, { order_id }) => textResult(orderDesk.describeOrder(order_id)),
+  };
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**api** 的每个方法在 Dex 中都有对应：
+
+| pi-durable **api** | Dex |
+| --- | --- |
+| **output()** | **AgentTool** 的 **onUpdate** 回调，用于运行进度。模型看到的是返回的结果。 |
+| **commit()**、document | Attribute |
+| **createTask()** | 子 Flow |
+| **executeTool()** | 直接调用另一个 tool 的函数。 |
+
+## Fork {#fork}
+
+**pi-durable** 可以从某个 entry fork 一个 conversation。Dex 目前还不能 fork session。Fork 计划在以后的版本中提供。
+
+## Dex 在哪里运行 {#where-dex-runs}
+
+**pi-durable** 运行在你的应用内部，使用它自己打开的存储。Dex 作为 server 运行。应用的 Worker 和 Client 通过网络连接它。
+
+- 本地开发时，**dexcli dev** 在一台机器上运行 Dex Server。
+- 生产环境中，Dex Server 运行在容器或 VM 中。
+- Cloudflare Durable Objects 不能运行 Dex Server。部署在 Cloudflare 上的应用可以调用运行在别处的 Dex Server。
+- Dex 不能在没有后端的浏览器中运行。
+
+## 相关内容 {#related}
+
+- [Pi](/agent-frameworks/pi)
+- [Agent Framework](/agent-frameworks)
+- [Agents reference](/reference/agents/)
+- [包的 README](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#moving-from-pi-durable)
