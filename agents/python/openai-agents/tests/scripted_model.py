@@ -23,12 +23,16 @@ the turn already produced. Commands:
   tool call of the turn, joined by ``; ``.
 
 Every response reports ``model_call_usage()``, and every call is recorded as
-``model:<user message count>:<call number in the turn>``.
+``model:<user message count>:<call number in the turn>``. With a request log,
+each call also records ``<call> input <sha256>`` of its whole input, then
+``<call> image <owner> <image_url>`` for each ``input_image`` part, where the
+owner is ``user`` or the tool call ID.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -71,9 +75,15 @@ class _ScriptedResponse:
 
 
 class CommandScriptedModel(Model):
-    def __init__(self, state_dir: Path, invocations: InvocationLog) -> None:
+    def __init__(
+        self,
+        state_dir: Path,
+        invocations: InvocationLog,
+        request_log: InvocationLog | None = None,
+    ) -> None:
         self._state_dir = state_dir
         self._invocations = invocations
+        self._request_log = request_log
 
     async def get_response(
         self,
@@ -154,7 +164,10 @@ class CommandScriptedModel(Model):
             earlier_items=items[: user_indexes[-1]],
             items=items[user_indexes[-1] + 1 :],
         )
-        self._invocations.record(f"model:{turn.number}:{turn.batch_count + 1}")
+        call_name = f"model:{turn.number}:{turn.batch_count + 1}"
+        self._invocations.record(call_name)
+        if self._request_log is not None:
+            _record_request(self._request_log, call_name, items)
         return _respond_to_command(command, turn)
 
     async def _wait_at_gate(self, gate_name: str) -> None:
@@ -294,4 +307,24 @@ def _message_text(item: Mapping[str, Any]) -> str:
 
 
 def _output_text(output: Any) -> str:
+    if isinstance(output, list):
+        # Image parts carry their bytes, which must never reach an answer the session stores.
+        return "".join(
+            str(part.get("text", ""))
+            for part in output
+            if isinstance(part, Mapping) and part.get("type") == "input_text"
+        )
     return output if isinstance(output, str) else json.dumps(output)
+
+
+def _record_request(
+    request_log: InvocationLog, call_name: str, items: Sequence[Mapping[str, Any]]
+) -> None:
+    digest = hashlib.sha256(json.dumps(items, sort_keys=True).encode()).hexdigest()
+    request_log.record(f"{call_name} input {digest}")
+    for item in items:
+        owner = "user" if _is_user_message(item) else str(item.get("call_id"))
+        parts = item.get("content") if _is_user_message(item) else item.get("output")
+        for part in parts if isinstance(parts, list) else []:
+            if isinstance(part, Mapping) and part.get("type") == "input_image":
+                request_log.record(f"{call_name} image {owner} {part.get('image_url')}")

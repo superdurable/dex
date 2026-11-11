@@ -15,7 +15,8 @@
 // long_report (readOnlyHint, taskSupport required; honors the requested TTL and logs it; completes
 // after 200 ms, or with gate once every poll marked the gate and it is released; outcome "unknown" completes
 // it with a result that reports the Dex outcome unknown), and ask_account (readOnlyHint, taskSupport required; its
-// task needs input). Dex MCP convention tools: get_balance declares the Dex effect read; post_note declares
+// task needs input), and take_screenshot (readOnlyHint; text and a PNG image block, or with broken, bytes that are
+// not an image). Dex MCP convention tools: get_balance declares the Dex effect read; post_note declares
 // non_idempotent_write without approval, and readOnlyHint, which the declaration overrides; send_payment
 // declares idempotent_write with recommended approval, applies one payment per idempotency key (logged as
 // payment-applied <key>), answers a repeated key with "already applied", takes outcome "unknown" or
@@ -45,7 +46,12 @@ import {
   mcpToolOutcomeUnknown,
 } from "../../src/mcp/index.js";
 import { FileGate, InvocationLog } from "../../src/testing/index.js";
-import { fakeMcpInvocationLogName, fakeMcpReadyLine, fakeMcpStateDirectoryVariable } from "./fake-mcp-server-names.js";
+import {
+  fakeMcpInvocationLogName,
+  fakeMcpReadyLine,
+  fakeMcpStateDirectoryVariable,
+  screenshotPngBase64,
+} from "./fake-mcp-server-names.js";
 
 const readOnly = { readOnlyHint: true };
 
@@ -158,6 +164,19 @@ function createFakeMcpServer(): McpServer {
     ({ query }, extra) => {
       recordRun("audit_lookup", extra._meta);
       return text(`audited ${query}`);
+    },
+  );
+  server.registerTool(
+    "take_screenshot",
+    { description: "Take a screenshot of the page.", inputSchema: { broken: z.boolean().optional() }, annotations: readOnly },
+    ({ broken }, extra): CallToolResult => {
+      recordRun("take_screenshot", extra._meta);
+      return {
+        content: [
+          { type: "text", text: "captured the page" },
+          { type: "image", data: broken === true ? "aGVsbG8=" : screenshotPngBase64, mimeType: "image/png" },
+        ],
+      };
     },
   );
   server.registerTool(

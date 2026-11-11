@@ -50,6 +50,7 @@ from dex_agents import (
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     DEFAULT_RETAINED_MESSAGE_LIMIT,
     AgentFrameworkRunner,
+    AgentImageReference,
     AgentSessionFlow,
     AgentSessionOptions,
     AgentToolCall,
@@ -64,6 +65,7 @@ from dex_agents import (
     DeferredToolExecution,
     DeferredToolOutcome,
     FrameworkMessage,
+    MediaStore,
     ModelCallMetadata,
     ToolCallsRequested,
     ToolCallStatus,
@@ -90,9 +92,11 @@ from dex_agents_pydantic_ai._capability import DexModelStepCapability, DexToolSt
 from dex_agents_pydantic_ai._history import (
     build_turn_messages,
     build_user_prompt_message,
+    build_user_prompt_message_with_images,
     read_turn_user_prompt,
     rebuild_earlier_turn_history,
 )
+from dex_agents_pydantic_ai._images import image_reference_placeholder, upload_tool_return_images
 from dex_agents_pydantic_ai._run_state import PendingToolCallsState
 
 AgentDepsT = TypeVar("AgentDepsT")
@@ -169,6 +173,10 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
     summary enters as the first ``ModelRequest`` of ``message_history``. Without
     a policy nothing changes.
 
+    With a ``media_store``, the runner also implements
+    ``ImageUserMessageBuilder``, so user messages and tool results may carry
+    images. See the ``media_store`` argument of the constructor.
+
     Example:
         >>> runner = PydanticAIRunner(support_agent, deps_factory=lambda session_id: deps)
         >>> flow = AgentSessionFlow(runner, flow_type="SupportAgent",
@@ -187,6 +195,7 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
         summary_model: Model | KnownModelName | str | None = None,
         tool_sources: Sequence[ToolSource] = (),
         tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+        media_store: MediaStore | None = None,
     ) -> None:
         """Create a runner for one agent.
 
@@ -223,6 +232,26 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
                 seconds.
 
                 .. versionadded:: 0.4.0
+            media_store: The store that holds the session's images, such as
+                ``S3MediaStore``. With a store, the runner has
+                ``build_user_message_with_images``, so ``send_user_message``
+                accepts images. A user message is stored as one
+                ``UserPromptPart`` with the text and one ``ImageUrl``
+                placeholder per image. The placeholder's ``url`` is the
+                reference's ``uri``, and its ``vendor_metadata`` holds the
+                reference under ``"dex_image_reference"``. A tool call record's
+                images go into its ``ToolReturnPart`` content after the output
+                text, as the same placeholders. Stored messages and run state
+                never hold bytes. Right before each model request, the runner
+                reads the bytes with ``load_images`` and replaces each
+                placeholder with a ``BinaryContent`` of the reference's MIME
+                type. A failed read fails the model call, which retries. A tool
+                of the agent that returns image ``BinaryContent`` has the image
+                uploaded in its tool Step and recorded as a reference. ``None``,
+                the default, keeps the runner without image support, so the
+                session refuses images.
+
+                .. versionadded:: 0.5.0
 
         Raises:
             ValueError: If the agent has output validators and its
@@ -246,6 +275,10 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
             reserved_tool_names=_function_tool_names(agent),
             listing_timeout=tool_source_listing_timeout,
         )
+        self._media_store = media_store
+        if media_store is not None:
+            # The session accepts images only from a runner that has this method.
+            self.build_user_message_with_images = self._build_user_message_with_images
 
     @property
     def agent(self) -> AbstractAgent[AgentDepsT, Any]:
@@ -268,6 +301,28 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
             A user message whose ``framework_item`` holds the request.
         """
         return build_user_prompt_message(text)
+
+    def _build_user_message_with_images(
+        self, text: str, images: Sequence[AgentImageReference]
+    ) -> FrameworkMessage:
+        """Store user text and images as one ``UserPromptPart`` with image placeholders.
+
+        It is ``build_user_message_with_images`` of a runner built with a
+        ``media_store``. The part's content is the text, then one ``ImageUrl``
+        per image, in order, whose ``url`` is the reference's ``uri`` and whose
+        ``vendor_metadata`` holds the reference. Before each model request the
+        runner replaces them with the bytes.
+
+        .. versionadded:: 0.5.0
+
+        Args:
+            text: The user message text.
+            images: The message's images, at least one.
+
+        Returns:
+            A user message whose ``framework_item`` holds the request.
+        """
+        return build_user_prompt_message_with_images(text, images)
 
     async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
         """Let the agent make the turn's next model call.
@@ -300,6 +355,7 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
         capability = DexModelStepCapability(
             turn=turn,
             replay_only_tool_names=frozenset(tool.name for tool in source_tools.replay_only_tools),
+            media_store=self._media_store,
         )
         earlier_turn_messages: Sequence[ModelMessage] = ()
         recorded_tool_call_ids: Sequence[str] = ()
@@ -456,7 +512,11 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
 
         Returns:
             The tool's return value as the text the model sees, or the
-            source's outcome.
+            source's outcome. With a ``media_store``, image ``BinaryContent``
+            that the tool returned is uploaded and returned as references.
+
+            .. versionchanged:: 0.5.0
+                Image ``BinaryContent`` becomes references with a ``media_store``.
 
         Raises:
             ToolExecutionError: The tool raised ``ModelRetry`` or ``ToolFailed``,
@@ -519,7 +579,12 @@ class PydanticAIRunner(AgentFrameworkRunner[DeferredToolOutcome], Generic[AgentD
             raise RuntimeError(f"tool call {record.tool_call_id} produced no tool return")
         if tool_return.outcome != "success":
             raise ToolExecutionError(tool_return.model_response_str(wrap_if_error=False))
-        return ToolExecutionResult(output=tool_return.model_response_str())
+        images = (
+            []
+            if self._media_store is None
+            else await upload_tool_return_images(tool_return, self._media_store)
+        )
+        return ToolExecutionResult(output=tool_return.model_response_str(), images=images)
 
     def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
         """Return a tool source's options for one call's tool Step.
@@ -589,6 +654,7 @@ def pydantic_ai_session_flow(
     summary_model: Model | KnownModelName | str | None = None,
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    media_store: MediaStore | None = None,
 ) -> AgentSessionFlow:
     """Build the durable agent session Flow for one Pydantic AI agent.
 
@@ -671,6 +737,12 @@ def pydantic_ai_session_flow(
             source's ``list_tools``. Defaults to 10 seconds.
 
             .. versionadded:: 0.4.0
+        media_store: The store that holds the session's images. With a store,
+            user messages and tool results may carry images, which the model
+            sees as ``BinaryContent``. ``None``, the default, makes the session
+            refuse images. See ``PydanticAIRunner``.
+
+            .. versionadded:: 0.5.0
 
     Returns:
         An ``AgentSessionFlow`` backed by a ``PydanticAIRunner``.
@@ -690,6 +762,7 @@ def pydantic_ai_session_flow(
         summary_model=summary_model,
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
+        media_store=media_store,
     )
     if compaction is not None and runner.summary_model is None:
         raise ValueError("compaction needs a model: pass summary_model or model")
@@ -827,10 +900,16 @@ def _recorded_deferred_tool_results(
             raise RuntimeError(f"turn {turn.turn_id} has no record for tool call {tool_call_id}")
         outcome = describe_tool_call_outcome(record)
         if record.status is ToolCallStatus.SUCCEEDED:
-            results.calls[tool_call_id] = ToolReturn(
+            output = (
                 _parse_structured_output(outcome)
                 if tool_call_id in structured_result_ids
                 else outcome
+            )
+            # Placeholders after the output; the model request carries the bytes in the result.
+            results.calls[tool_call_id] = ToolReturn(
+                [output, *map(image_reference_placeholder, record.images)]
+                if record.images
+                else output
             )
         elif record.status is ToolCallStatus.REJECTED:
             results.approvals[tool_call_id] = ToolDenied(outcome)

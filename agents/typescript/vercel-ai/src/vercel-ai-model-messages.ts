@@ -13,10 +13,13 @@ import type { ModelMessage, TextPart, Tool, ToolCallPart, ToolResultPart } from 
 import {
   defaultRejectionToolResult,
   describeToolCallOutcome,
+  type AgentImageReference,
   type AgentMessage,
   type AgentToolCall,
   type FrameworkMessage,
 } from "@superdurable/dex-agents";
+
+import { buildImagePlaceholderPart, listDisplayImages, readImagePlaceholder } from "./vercel-ai-model-images.js";
 
 /** Tool result output in an AI SDK `ToolResultPart`. */
 export type ToolResultOutput = ToolResultPart["output"];
@@ -60,6 +63,7 @@ export function toFrameworkMessage(message: ModelMessage): FrameworkMessage {
         (part): part is ToolResultPart => part.type === "tool-result",
       );
       const singleToolResult = toolResults.length === 1 ? toolResults[0] : undefined;
+      const images = listDisplayImages(message);
       return {
         role: "tool",
         text: null,
@@ -68,9 +72,41 @@ export function toFrameworkMessage(message: ModelMessage): FrameworkMessage {
         toolArguments: null,
         toolOutput: singleToolResult === undefined ? null : describeToolResultOutput(singleToolResult.output),
         frameworkItem,
+        ...(images.length === 0 ? {} : { images }),
       };
     }
   }
+}
+
+/** Builds the stored user message of a text with images: the text, then one placeholder per image. */
+export function toUserFrameworkMessageWithImages(
+  text: string,
+  images: readonly AgentImageReference[],
+): FrameworkMessage {
+  const message: ModelMessage = {
+    role: "user",
+    content: [{ type: "text", text }, ...images.map(buildImagePlaceholderPart)],
+  };
+  return { ...toFrameworkMessage(message), text };
+}
+
+/**
+ * Adds one placeholder per image to a tool result, turning its output into `content` after the output's text.
+ * @returns The part unchanged when there are no images.
+ */
+export function addToolResultImages(part: ToolResultPart, images: readonly AgentImageReference[]): ToolResultPart {
+  if (images.length === 0) {
+    return part;
+  }
+  const placeholders = images.map(buildImagePlaceholderPart);
+  if (part.output.type === "content") {
+    return { ...part, output: { ...part.output, value: [...part.output.value, ...placeholders] } };
+  }
+  const text = describeToolResultOutput(part.output);
+  return {
+    ...part,
+    output: { type: "content", value: [...(text === null ? [] : [{ type: "text" as const, text }]), ...placeholders] },
+  };
 }
 
 /** Rebuilds the AI SDK message stored in one session message. */
@@ -217,7 +253,7 @@ export function describeToolResultOutput(output: ToolResultOutput): string | nul
       return output.reason ?? defaultRejectionToolResult;
     case "content": {
       const text = output.value
-        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .flatMap((part) => (part.type === "text" && readImagePlaceholder(part) === undefined ? [part.text] : []))
         .join("\n");
       return text === "" ? null : text;
     }

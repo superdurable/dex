@@ -1,10 +1,30 @@
 # Changelog
 
-All twelve Dex agents packages share this changelog and one version line. A
+All twenty-five published Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
-## Unreleased
+## 0.5.0 (not released yet)
+
+### Dex SDK 1.44.0
+
+- Every package requires Dex SDK 1.44.0 (`dex-python-sdk==1.44.0`,
+  `@superdurable/dex` `1.44.0`, Go `sdk-go` `v1.44.0`) instead of 1.38.0, so an
+  application can use the SDK's **Join** helper with the agents packages
+  without overriding the SDK version. The npm adapters peer-depend on
+  `@superdurable/dex` `1.44.0`.
+- The SDK pin stays exact, because an SDK minor release may break APIs that
+  an application shares with the agents packages. The agents packages use
+  none of the APIs that SDK 1.43.0 removed. Before upgrading, read the
+  breaking changes of SDK 1.43 in the
+  [Python](../docs/reference/python/changelog.mdx),
+  [TypeScript](../docs/reference/typescript/changelog.mdx), and
+  [Go](../docs/reference/go/changelog.mdx) SDK change logs.
+- Dex SDK 1.44.0 still needs a Dex Server with protocol 4: server-zd v0.1.17
+  or later.
+- Agents CI, the nightly long run, and the publish workflows test against
+  `dexcli` 1.44.0. The Python and TypeScript CLI runtimes download `dexcli`
+  1.44.0 when none is installed.
 
 ### Dex MCP conventions
 
@@ -108,8 +128,8 @@ for the Dex SDK and framework versions each release supports.
   **ClaudeCodeToolDenial** to refuse it, or nothing for the session's policies,
   so `Bash` can run allow-listed commands without approval. See
   [Per-call decisions for Claude Code tools](python/claude-agent-sdk/README.md#per-call-decisions-for-claude-code-tools).
-- New npm package `@superdurable/dex-agents-pi` (not published yet) runs Pi
-  agents on the Stepwise session Flow. Dex runs the agent loop; pi-ai makes
+- New npm package `@superdurable/dex-agents-pi`, first published in 0.5.0, runs
+  Pi agents on the built-in agent loop's session Flow. Dex runs the agent loop; pi-ai makes
   each model call and Pi tools run as Dex tool Steps. It peer-depends on
   `@earendil-works/pi-ai@^1.5.1`, tested with 1.5.1.
   **createPiAiModelClient(model, { apiKey, headers, prepareRequest })** makes
@@ -200,8 +220,17 @@ for the Dex SDK and framework versions each release supports.
   it; a missing object fails the turn with **MediaStoreError**.
 - `send_user_message` returns `false` for invalid images, or for images when
   the runner does not implement **ImageUserMessageBuilder**
-  (`buildUserMessageWithImages`). The framework adapters do not implement it
-  yet.
+  (`buildUserMessageWithImages`). The built-in loop and the framework adapters
+  implement it when built with a media store.
+- Framework adapters show images to their model when built with a media
+  store: a new optional **media_store** (`mediaStore`) on each adapter's
+  runner and session-flow factory. With a store, the runner accepts images,
+  keeps only references in its stored items and run state, and loads the
+  bytes right before each model call, so a replay sends the same input.
+  A user image becomes the framework's image part, and a tool result's
+  images reach the model in the framework's tool-result form. Without a
+  store the adapter refuses images, as before. See each adapter README,
+  "Images".
 - Built-in agent loop, Python and TypeScript: images reach the model when the
   session Flow has a media store, a new optional **media_store** on
   **builtin_agent_session_flow** and **BuiltinLoopAgentRunner**
@@ -216,7 +245,8 @@ for the Dex SDK and framework versions each release supports.
   (`ModelUserTextItem.images`, `ModelToolResultItem.images`). A store read
   failure fails that `RunModel` attempt, which retries. Context summary calls
   see text only. Without a store the session refuses images, as before, and
-  a tool result's references are stored but not shown to the model.
+  a tool result's references are stored but not shown to the model. See the
+  core README, "Images on the built-in loop".
 - **LiteLLMModelClient** sends images as base64 `data:` URLs: `input_image`
   parts in Responses API messages and `function_call_output` outputs;
   `image_url` parts in Chat Completions user messages, and in tool messages
@@ -227,6 +257,19 @@ for the Dex SDK and framework versions each release supports.
 - **createAiSdkModelClient** sends images as AI SDK `file` parts in user
   messages and in tool result `content` output. `estimateInputTokens` counts
   **estimatedImageInputTokens** per image.
+- Python and TypeScript cores: **McpToolSource** takes an optional
+  **media_store** (`mediaStore`). With one, the `image` content of a
+  successful result is uploaded inside the tool Step and returned in
+  `ToolExecutionResult.images`, and the output text shows `[image <n>]` in
+  its place. More than 20 images, invalid base64, or bytes that are not a
+  supported image fail the call. Base64 must be canonical: padded, without
+  line breaks or unused trailing bits. Without a store, the image content of
+  a successful result stays JSON text, as before.
+- Both cores: a failed MCP result (`isError`, or the Dex outcome `rejected`
+  or `unknown`) shows `[image <n> omitted]` for each image block in its
+  text, with or without a media store, so the recorded error holds no image
+  bytes. It used to hold each image block as JSON with its base64. Cases: `mcp_image_content` in
+  `agents/conformance/images.json`.
 - Runners read bytes with **load_images** (`loadImages`) and may choose them
   with **collect_turn_images** (`collectTurnImages`).
 - Go core: no image input. Its values carry `images`, so a value written by
@@ -261,7 +304,8 @@ for the Dex SDK and framework versions each release supports.
     `EncodeStepwiseMessage` -> `EncodeBuiltinLoopMessage`;
     `DecodeStepwiseMessage` -> `DecodeBuiltinLoopMessage`. Package `stepwise`
     forwards to `builtinloop` and is marked `Deprecated:`.
-  - The framework adapters and the agents CLI runtime import the new names.
+  - The framework adapters, the Pi adapter, and the agents CLI runtime import
+    the new names.
 - The error text for a session message that the built-in agent loop cannot
   read now says "built-in agent loop item" (Python and Go cores) or "built-in
   loop item" (TypeScript core) instead of "Stepwise item", and the

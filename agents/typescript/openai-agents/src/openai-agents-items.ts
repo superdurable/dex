@@ -8,7 +8,9 @@
 
 import type { AgentInputItem, AgentOutputItem, Usage } from "@openai/agents";
 import { getToolCallDisplayName } from "@openai/agents/utils";
-import type { AgentMessage, AgentUsage, FrameworkMessage } from "@superdurable/dex-agents";
+import type { AgentMessage, AgentToolCall, AgentUsage, FrameworkMessage } from "@superdurable/dex-agents";
+
+import { hasInputImageParts } from "./openai-agents-images.js";
 
 /**
  * Builds the OpenAI Agents SDK user message item for user text.
@@ -34,9 +36,14 @@ export function readAgentInputItems(messages: readonly AgentMessage[]): AgentInp
  * Projects one OpenAI Agents SDK item onto the session message fields.
  *
  * @param item - A user message, a model output item, or a tool result item.
+ * @param recordedToolCall - Finds the turn's record of a tool call, whose images a tool result with image parts
+ * shows. Omit it for an item that is not a tool result.
  * @returns The framework message: the item's JSON in `frameworkItem` and display fields beside it.
  */
-export function toFrameworkMessage(item: AgentInputItem | AgentOutputItem): FrameworkMessage {
+export function toFrameworkMessage(
+  item: AgentInputItem | AgentOutputItem,
+  recordedToolCall?: (toolCallId: string) => AgentToolCall | undefined,
+): FrameworkMessage {
   const frameworkItem = JSON.stringify(item);
   const emptyProjection = {
     text: null,
@@ -62,6 +69,7 @@ export function toFrameworkMessage(item: AgentInputItem | AgentOutputItem): Fram
         toolCallId: item.callId,
         toolName: getToolCallDisplayName(item) ?? item.name,
         toolOutput: describeFunctionCallOutput(item.output),
+        ...(hasInputImageParts(item.output) ? { images: readRecordedImages(item.callId, recordedToolCall) } : {}),
       };
     case "hosted_tool_call":
       return {
@@ -127,6 +135,17 @@ function describeFunctionCallOutput(output: unknown): string {
   }
   const text = describeMessageContent(Array.isArray(output) ? output : [output]);
   return text ?? JSON.stringify(output);
+}
+
+function readRecordedImages(
+  toolCallId: string,
+  recordedToolCall: ((toolCallId: string) => AgentToolCall | undefined) | undefined,
+): NonNullable<FrameworkMessage["images"]> {
+  const images = recordedToolCall?.(toolCallId)?.images;
+  if (images === undefined) {
+    throw new Error(`tool call ${toolCallId} returned images but has no record with images in this turn`);
+  }
+  return images;
 }
 
 function sumTokenDetail(details: readonly Readonly<Record<string, unknown>>[], detailName: string): number {

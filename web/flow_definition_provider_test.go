@@ -13,6 +13,15 @@ import (
 	"testing"
 )
 
+// staticFlowDefinitionProvider serves one fixed snapshot to Connector setup tests.
+type staticFlowDefinitionProvider struct {
+	snapshot *FlowDefinitionSnapshot
+}
+
+func (p staticFlowDefinitionProvider) Load(context.Context) (*FlowDefinitionSnapshot, error) {
+	return p.snapshot, nil
+}
+
 const testReleaseID = "550e8400-e29b-41d4-a716-446655440000"
 const secondTestReleaseID = "550e8400-e29b-41d4-a716-446655440001"
 const thirdTestReleaseID = "550e8400-e29b-41d4-a716-446655440002"

@@ -18,7 +18,7 @@ at most the one call that was running.
 
 Applications usually install an adapter, which brings in this package. To
 build a runner of your own, install the core directly. It needs Python 3.11 or
-later and requires the released `dex-python-sdk==1.38.0`:
+later and requires the released `dex-python-sdk==1.44.0`:
 
 ```bash
 pip install dex-agents
@@ -767,13 +767,18 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   `MediaStoreError`. Reads check the file's size first, read at most one byte past `size_bytes`, and run
   `verify_image_bytes`. It needs a POSIX file system. Deleting a session
   deletes no file.
-- **Built-in runners.** The built-in loop shows images to its model when
-  built with a media store, `builtin_agent_session_flow(definition,
-  flow_type=..., media_store=store)` or `BuiltinLoopAgentRunner(definition,
-  media_store=store)`; see [Images on the built-in loop](#images-on-the-built-in-loop).
-  Without a store it has no `build_user_message_with_images`, so its
-  sessions refuse images. The framework adapters do not implement
-  `ImageUserMessageBuilder` in this release, so their sessions refuse images.
+- **Built-in runners.** The built-in loop and the framework adapters show
+  images to their model when built with a `media_store`: they implement
+  `ImageUserMessageBuilder`, keep references in their stored items, and load
+  the bytes for each model call. Without a store they do not, and their
+  sessions refuse images. For the built-in loop, pass it to
+  `builtin_agent_session_flow(definition, flow_type=..., media_store=store)`
+  or `BuiltinLoopAgentRunner(definition, media_store=store)`; see
+  [Images on the built-in loop](#images-on-the-built-in-loop).
+- **MCP tools.** `McpToolSource(..., media_store=store)` uploads the `image`
+  content of a successful result inside the tool Step and returns the
+  references in `ToolExecutionResult.images`; see
+  [MCP tools](#mcp-tools-dex_agentsmcp). Give it the store the runner reads.
 - **Retention.** Deleting a session deletes no object. A runner reads the
   images again whenever a model call replays them, so a bucket lifecycle rule
   must keep each object at least as long as any session that references it
@@ -829,8 +834,9 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
   raise when they are missing. A client that ignores `images` shows the
   model the text only.
 - **Which tools return images.** A tool source's
-  `ToolExecutionResult.images`, such as an MCP tool's image content. A
-  function tool returns text only.
+  `ToolExecutionResult.images`, such as the image content of an
+  `McpToolSource(..., media_store=store)` result. Give the source the store
+  the runner reads. A function tool returns text only.
 
 ## The runner contract
 
@@ -1404,6 +1410,8 @@ every `tools/call` only when this is `True`.
 | What happens | Recorded | Re-issued? |
 | --- | --- | --- |
 | A result | `succeeded`: text blocks joined with newlines, other content as JSON | - |
+| A result with `image` content, on a source built with `media_store` | `succeeded`: each image uploaded and recorded in `images`; the text shows `[image <n>]` in its place, counting from 1. More than 20 images, base64 that is invalid or not canonical, or bytes that are not a supported image: `failed` (`ToolExecutionError`) | - |
+| An `isError`, `rejected`, or `unknown` result with `image` content | As above, with `[image <n> omitted]` for each image in the text, with or without a store, so the recorded error holds no image bytes | As above |
 | An `isError` result, or a JSON-RPC error response other than `-32603` | `failed` with the text (`ToolExecutionError`) | No |
 | A result or error with the Dex `outcome` key | `outcome_unknown` or `failed`; see [Dex MCP conventions](#dex-mcp-conventions) | No |
 | The call was never sent: its server is not configured, or 3 connection attempts failed | `failed` | No |
@@ -2318,9 +2326,9 @@ The plan records each of these decisions too.
   wrong `readOnlyHint` on a write makes that write run without approval and
   retry; set `trusts_tool_annotations=False` or a `ToolPolicy` for servers you
   do not control.
-- Images: the framework adapters send no images to a model yet, a function
-  tool of the built-in loop cannot return images, and the media stores keep
-  no local read cache, so each `load_images` reads the store.
+- Images: a function tool of the built-in loop cannot return images, and the
+  media stores keep no local read cache, so each `load_images` reads the
+  store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
 - The adapters report only the model information their framework exposes, so

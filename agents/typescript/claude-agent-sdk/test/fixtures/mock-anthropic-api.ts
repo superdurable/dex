@@ -28,6 +28,8 @@ export interface MockApiRequest {
   readonly textsAfterCommand: readonly string[];
   /** The response's content block types, such as `["tool_use", "tool_use"]`. */
   readonly responseBlockTypes: readonly string[];
+  /** The request's `messages`, as the CLI sent them. */
+  readonly messages: readonly Record<string, unknown>[];
 }
 
 interface ScriptedToolRequest {
@@ -106,6 +108,7 @@ export class MockAnthropicApi {
       command: script?.command,
       textsAfterCommand: script?.textsAfterCommand ?? [],
       responseBlockTypes: blocks.map((block) => block.type),
+      messages,
     });
     const model = String(payload["model"] ?? "claude-scripted");
     if (payload["stream"] === true) {
@@ -281,8 +284,12 @@ function toolResultContentText(content: unknown): string {
       : Array.isArray(content)
         ? content.map((block: JsonObject) => (block?.["type"] === "text" ? String(block["text"]) : "")).join("\n")
         : "";
+  // The real CLI also adds an "[Image: source: <path>]" text after each image of a tool result.
   // The real CLI appends reminders to tool results it sends to the model.
-  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim();
+  return text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
+    .replace(/\[Image: source: [^\]]*\]/g, "")
+    .trim();
 }
 
 function sendJson(response: ServerResponse, payload: JsonObject): void {

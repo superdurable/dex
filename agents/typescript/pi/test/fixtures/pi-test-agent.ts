@@ -9,8 +9,8 @@
 import { join } from "node:path";
 
 import type { CompactionPolicy } from "@superdurable/dex-agents";
-import type { ModelClient, ModelRequest } from "@superdurable/dex-agents/stepwise";
-import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
+import type { ModelClient, ModelRequest } from "@superdurable/dex-agents/builtin-loop";
+import { createBuiltinAgentSessionFlow } from "@superdurable/dex-agents/builtin-loop";
 import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 
 import {
@@ -51,7 +51,7 @@ export interface PiTestAgentOptions {
   readonly anthropicReasoningEffort?: () => string | null | undefined;
 }
 
-/** A Stepwise agent with Pi tools; session settings `model` picks `openai` (default) or `anthropic`. */
+/** A built-in loop agent with Pi tools; session settings `model` picks `openai` (default) or `anthropic`. */
 export function createPiTestAgentFlow(options: PiTestAgentOptions) {
   const clientOptions: PiAiModelClientOptions = {
     apiKey: "test-key",
@@ -71,7 +71,7 @@ export function createPiTestAgentFlow(options: PiTestAgentOptions) {
     return withReasoningEffortOverride(model, options.anthropicReasoningEffort);
   };
   const tools = new PiTestTools(options.markerDirectory);
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "pi-test",
       instructions: "You are the Pi test agent.",

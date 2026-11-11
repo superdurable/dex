@@ -212,7 +212,7 @@ describe('NewSessionDialog', () => {
     const onStarted = vi.fn();
     render(
       <NewSessionDialog
-        definitionRevision="sha256:r"
+        definitionRevisionFor={() => 'sha256:r'}
         flowTypes={['SupportAgent', 'ResearchAgent']}
         initialFlowType="ResearchAgent"
         onClose={vi.fn()}
@@ -254,7 +254,7 @@ describe('NewSessionDialog', () => {
     const onStarted = vi.fn();
     render(
       <NewSessionDialog
-        definitionRevision="sha256:r"
+        definitionRevisionFor={() => 'sha256:r'}
         flowTypes={['SupportAgent']}
         onClose={vi.fn()}
         onDefinitionChanged={() => false}

@@ -24,7 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      # Depth 2 includes the merge commit's first parent, the base the change-log check diffs against.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
       - name: Validate CI runner policy
         run: make ci-runner-check
       - name: Reject agent attribution
@@ -199,6 +202,10 @@ jobs:
               - '.github/workflows/generated-code-ci.yml'
             release_tooling:
               - 'script/release/**'
+              - 'script/regenerate_derived.py'
+              - 'script/regenerate_derived_integ_test.py'
+              - 'Makefile'
+              - 'skills/script/check-package.py'
               - '.github/workflows/release-changed-components.yml'
               - '.github/workflows/release-tooling-ci.yml'
               - 'CONTRIBUTING.md'
@@ -231,12 +238,27 @@ jobs:
               - 'CLA-CORPORATE.md'
               - 'Makefile'
               - '.github/workflows/copyright-ci.yml'
+      # Releases assemble changelog.d fragments; this rejects hand edits to release files.
+      - name: Check change-log fragments and release files against the current description
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          pull_request_file="$RUNNER_TEMP/changelog-pull-request.json"
+          body_file="$RUNNER_TEMP/changelog-pull-request-body.txt"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$pull_request_file"
+          jq -r '.body // ""' "$pull_request_file" > "$body_file"
+          labels="$(jq -r '[.labels[].name] | join(",")' "$pull_request_file")"
+          python3 script/release/changelog_fragments.py check-pr --base-ref HEAD^1 \
+            --pr-body-file "$body_file" --pr-number "$PR_NUMBER" --labels "$labels"
       - uses: actions/setup-python@v5
         if: github.event_name == 'pull_request' && steps.filter.outputs.skills == 'true'
         with:
           python-version: '3.13'
       # The gate reads the current description itself, so no stale Skills CI run can approve it.
-      - name: Check skills release metadata and doc-map pairing against the current description
+      - name: Check doc-map pairing against the current description
         if: github.event_name == 'pull_request' && steps.filter.outputs.skills == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -253,7 +275,6 @@ jobs:
           fi
           git fetch --no-tags origin "$base_sha"
           cd skills
-          python3 script/check-package.py --base-ref "$base_sha" --pr-body-file "$body_file"
           python3 script/check-doc-map.py --base-ref "$base_sha" --pr-body-file "$body_file"
       - name: Wait for required workflows
         env:

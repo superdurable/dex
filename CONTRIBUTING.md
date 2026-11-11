@@ -105,6 +105,27 @@ make generated-code
 make generated-code-check
 ```
 
+### Conflicts in derived files
+
+Never hand-merge a derived file: a `Cargo.lock`, generated code, the docs
+Flow definition JSON, or the newest server-zd format_compat testdata and its
+pin. When a rebase or merge stops on one, resolve the other conflicts, then run:
+
+```bash
+make regenerate-derived                  # take the upstream copy, rerun the affected generators, stage
+make regenerate-derived ARGS=--dry-run   # print the plan only
+make regenerate-derived ARGS=--all       # run every generator
+```
+
+The upstream is the rebase onto commit, MERGE_HEAD in a merge, or HEAD in a
+cherry-pick or revert; outside these it is origin/main. Override it with
+`ARGS=--upstream=<ref>`. Older format_compat versions are frozen, so the
+command refuses changes to them. When origin is unreachable, it cannot confirm
+that server-zd 1.0 is unreleased, so format_compat regeneration needs
+`ARGS=--assume-before-1-0`. The dexzd-simulation
+regression pins cannot be regenerated; follow "Pinned trajectories" in
+[`server-zd/crates/dexzd-simulation/README.md`](server-zd/crates/dexzd-simulation/README.md).
+
 ## Java
 
 ```bash
@@ -163,9 +184,13 @@ check until the record is updated.
 ## Skills mirror
 
 Contribute skills in [`skills/`](skills/) in this repository. Its CI runs the
-skills validators. A merge to Dex main syncs that directory to the read-only
-[`superdurable/dex-skills`](https://github.com/superdurable/dex-skills) mirror;
-the mirror publishes releases when `VERSION` changes. If the sync fails its
+skills validators. A skills change adds a fragment under
+[`changelog.d/skills/`](changelog.d/README.md). A skills release-prep pull
+request assembles the fragments and changes `skills/VERSION`. Its merge to Dex
+main syncs that directory to the read-only
+[`superdurable/dex-skills`](https://github.com/superdurable/dex-skills) mirror,
+and the mirror publishes the release. Run **Mirror Dex skills** by hand to sync
+other changes sooner; it refuses while `changelog.d/skills/` holds a fragment. See [`skills/CONTRIBUTING.md`](skills/CONTRIBUTING.md#version-and-release). If the sync fails its
 drift check, compare the mirror HEAD tree with the last synced Dex commit's
 `skills/` tree (from the mirror commit's `Dex-Commit` trailer). Restore the
 mirror to that tree, then rerun the sync; do not overwrite unexplained edits.
@@ -186,7 +211,7 @@ Each component has its own version and tag prefix. Create a GitHub Release for t
 
 For coordinated releases, run **Release changed components** from the **main** branch and enter one semantic version. The workflow applies that version to every selected component. It compares each component with its own latest reachable release tag, uses that tag as the start of the component's generated release notes, preflights every selected target tag, creates the GitHub Releases, and directly invokes each publisher. Every generated release starts with a **Breaking Changes** section containing `None.`. The CLI release workflow adds that section to manually created CLI Releases when it is absent. Release owners may replace `None.` with the actual breaking changes. The run succeeds only after every selected registry, Docker, CLI asset, and Homebrew publication succeeds. Go SDK publication is complete when its module tag and GitHub Release exist.
 
-The agents packages under `agents/` keep their own version line, independent of the shared release version. Enter it in the optional **agents_version** input to release them as `agents/v<agents_version>` when `agents/**` changed. Leave it empty to skip them; the plan then reports that they changed. The workflow dispatches the two agents publishers instead of calling them, because PyPI and npm trusted publishing match the top-level workflow file. An agents Release differs from the generated ones: it is titled `Dex agents X.Y.Z`, its notes are the `## X.Y.Z` section of [`agents/CHANGELOG.md`](agents/CHANGELOG.md) built by [`script/release/agents_release_notes.py`](script/release/agents_release_notes.py) with a compare link to the previous `agents/v` tag, and it never takes the repository's Latest badge. The plan fails when that section is missing.
+The agents packages under `agents/` keep their own version line, independent of the shared release version. Enter it in the optional **agents_version** input to release them as `agents/v<agents_version>` when `agents/**` changed. Leave it empty to skip them; the plan then reports that they changed. The workflow dispatches the two agents publishers on the new `agents/v` tag instead of calling them, because PyPI and npm trusted publishing match the top-level workflow file. An agents Release differs from the generated ones: it is titled `Dex agents X.Y.Z`, its notes are the `## X.Y.Z` section of [`agents/CHANGELOG.md`](agents/CHANGELOG.md) built by [`script/release/agents_release_notes.py`](script/release/agents_release_notes.py) with a compare link to the previous `agents/v` tag, and it never takes the repository's Latest badge. The plan fails when that section is missing. The optional **agents_python_skip_packages** input names CLI command distributions for the PyPI publisher to leave out, so a release with more new PyPI projects than PyPI accepts in one day uploads in two runs; see [Splitting a release across PyPI's new-project limit](agents/README.md#splitting-a-release-across-pypis-new-project-limit).
 
 Coordinated releases do not create a cross-component compatibility manifest.
 Each selected component publishes its native immutable artifacts. CLI publishes
@@ -221,7 +246,7 @@ The dependency-aware paths are:
 | TypeScript SDK | `sdk-typescript/vX.Y.Z` | `sdk-typescript/v0.1.0` | npm [`@superdurable/dex`](https://www.npmjs.com/package/@superdurable/dex) via [`.github/workflows/sdk-typescript-publish.yml`](.github/workflows/sdk-typescript-publish.yml) (version from the tag) |
 | Rust SDK | `sdk-rust/vX.Y.Z` | `sdk-rust/v0.1.0` | crates.io `dex-sdk`, `dex-blob-cache`, and `dex-protocol` via [`.github/workflows/sdk-rust-publish.yml`](.github/workflows/sdk-rust-publish.yml) (version from the tag) |
 | Dex CLI | `cli-vX.Y.Z` | `cli-v0.1.0` | macOS/Linux archives and Homebrew formula input |
-| Agents packages | `agents/vX.Y.Z` | `agents/v0.1.0` | PyPI `dex-agents` and its five adapters via [`.github/workflows/agents-python-publish.yml`](.github/workflows/agents-python-publish.yml), and npm `@superdurable/dex-agents` and its five adapters via [`.github/workflows/agents-typescript-publish.yml`](.github/workflows/agents-typescript-publish.yml) (one version for all twelve; see [`agents/README.md`](agents/README.md#releases)) |
+| Agents packages | `agents/vX.Y.Z` | `agents/v0.1.0` | PyPI `dex-agents`, its five adapters, the CLI runtime `dex-agents-cli`, and six CLI commands via [`.github/workflows/agents-python-publish.yml`](.github/workflows/agents-python-publish.yml), and npm `@superdurable/dex-agents`, its five adapters, the CLI runtime `@superdurable/dex-agents-cli`, and five CLI commands via [`.github/workflows/agents-typescript-publish.yml`](.github/workflows/agents-typescript-publish.yml) (one version for all twenty-five; see [`agents/README.md`](agents/README.md#releases)) |
 
 Notes:
 
@@ -229,7 +254,7 @@ Notes:
 - Go modules use path-style tags (`sdk-go/v…`, `blob-cache-go/v…`) so `go get` resolves each subdirectory module.
 - Python, Java, and Docker release workflows also support **workflow_dispatch** for manual runs. Python manual runs build without publishing unless `publish` is selected.
 - TypeScript publishing requires a GitHub Release after its one-time npm bootstrap publish.
-- The agents publish workflows run on a published `agents/v` Release, or on **workflow_dispatch**, which stamps, builds, and smoke-tests without uploading unless `publish` is selected.
+- The agents publish workflows run on a published `agents/v` Release, or on **workflow_dispatch**, which stamps, builds, and smoke-tests without uploading unless `publish` is selected. A dispatch that uploads runs on `main` or on the release tag `agents/vX.Y.Z`, which must be on `main`. **Release changed components** dispatches both on the new tag, so they publish the released commit.
 - Publish a manually created Dex CLI Release without marking it latest (`gh release create cli-vX.Y.Z --latest=false`). **Release Dex CLI** uploads the archives and `checksums.txt` minutes after the Release is published, and consumers that resolve the latest stable `cli-v` Release, such as a connector library's compatibility gate, fail until they exist. After that workflow succeeds, mark it latest with `gh release edit cli-vX.Y.Z --latest`.
 
 ### Committed `version` vs release tags (Python / TypeScript / Java / Rust)

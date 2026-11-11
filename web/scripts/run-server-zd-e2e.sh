@@ -38,19 +38,21 @@ log_dir="${DEX_WEB_E2E_LOG_DIR:-$work_dir/logs}"
 mkdir -p "$log_dir"
 zd_port=$(available_port)
 web_port=$(available_port)
+uploaded_web_port=$(available_port)
 zd_pid=""
 web_pid=""
+uploaded_web_pid=""
 
 cleanup() {
   status=$?
-  for pid in "$web_pid" "$zd_pid"; do
+  for pid in "$uploaded_web_pid" "$web_pid" "$zd_pid"; do
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
       kill -TERM "$pid"
       wait "$pid" || true
     fi
   done
   if [[ "$status" -ne 0 ]]; then
-    for log_file in "$log_dir"/dex-server-zd.log "$log_dir"/dex-web.log; do
+    for log_file in "$log_dir"/dex-server-zd.log "$log_dir"/dex-web.log "$log_dir"/dex-web-uploaded.log; do
       if [[ -f "$log_file" ]]; then
         echo "==> $log_file" >&2
         tail -n 200 "$log_file" >&2
@@ -125,13 +127,24 @@ zd_pid=$!
   >"$log_dir/dex-web.log" 2>&1 &
 web_pid=$!
 
+# A second Dex Web without a directory reads only the definitions uploaded to server-zd.
+"$work_dir/dex-web" \
+  --bind-address 127.0.0.1 \
+  --port "$uploaded_web_port" \
+  --flow-service-address "127.0.0.1:$zd_port" \
+  >"$log_dir/dex-web-uploaded.log" 2>&1 &
+uploaded_web_pid=$!
+
 # Readiness calls FlowService HealthCheck through standalone Dex Web, so both processes are up.
 wait_for_http "http://127.0.0.1:$web_port/readyz" "$web_pid" "Dex Web"
+wait_for_http "http://127.0.0.1:$uploaded_web_port/readyz" "$uploaded_web_pid" "Dex Web without a directory"
 kill -0 "$zd_pid"
 
 cd "$repo_root/sdk-go"
 DEX_FLOW_SERVICE_ADDRESS="127.0.0.1:$zd_port" \
 DEX_WEB_ADDRESS="127.0.0.1:$web_port" \
+DEX_WEB_UPLOADED_ADDRESS="127.0.0.1:$uploaded_web_port" \
+DEX_WEB_E2E_DEFINITIONS_DIR="$work_dir/definitions" \
 DEX_INTEG_WORKER_MODE=pull \
   GOWORK=off go test -count=1 -race -tags webserverzd -v ./integ \
     -run "${DEX_WEB_E2E_TEST_PATTERN:-^(TestDexWebOnServerZD.*|TestDexWebV2ServesGoFlowsWithoutTypeOverrides)$}"
