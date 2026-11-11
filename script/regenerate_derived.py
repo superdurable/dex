@@ -37,6 +37,7 @@ FORMAT_COMPAT_TESTDATA = "server-zd/testdata"
 FORMAT_COMPAT_PIN_FILE = "server-zd/crates/dexzd-engine/tests/format_compat/golden_replay.rs"
 FORMAT_COMPAT_VERSION_PATH = re.compile(r"^server-zd/testdata/(v[0-9]+)/(.+)$")
 FORMAT_COMPAT_GENERATED_FILE = re.compile(r"^(objects/.+|state\.txt)$")
+FORMAT_COMPAT_PIN_BLOCK = re.compile(r"^const PINNED_VERSION_DIGESTS\b[^\n]*\n(.*?)^\];", re.MULTILINE | re.DOTALL)
 FORMAT_COMPAT_PIN_ENTRY = re.compile(r'\("(v[0-9]+)", "([0-9a-f]{32})"\)')
 FORMAT_COMPAT_MOVED_DIGEST = re.compile(r'testdata/(v[0-9]+) changed[^\n]*\n\s*left: "([0-9a-f]{32})"')
 SERVER_ZD_STABLE_TAG_PATTERN = "server-zd/v1.*"
@@ -359,9 +360,16 @@ def format_compat_blockers(repository: Repository, group: DerivedGroup, newest_v
             f" frozen, so restore these paths from the upstream ({repository.upstream}):\n" + indented(sorted(frozen))
         )
     if FORMAT_COMPAT_PIN_FILE in group.conflicted:
-        upstream_text = masked_newest_pin(repository.upstream_text(FORMAT_COMPAT_PIN_FILE), newest_version)
-        stage_texts = [masked_newest_pin(repository.stage_text(stage, FORMAT_COMPAT_PIN_FILE), newest_version) for stage in (2, 3)]
-        if any(text != upstream_text for text in stage_texts):
+        texts = [repository.upstream_text(FORMAT_COMPAT_PIN_FILE)] + [
+            repository.stage_text(stage, FORMAT_COMPAT_PIN_FILE) for stage in (2, 3)
+        ]
+        masked = [masked_newest_pin(text, newest_version) for text in texts]
+        if any(text is not None and masked_text is None for text, masked_text in zip(texts, masked)):
+            blockers.append(
+                f"{FORMAT_COMPAT_PIN_FILE} must hold exactly one {newest_version} entry in PINNED_VERSION_DIGESTS"
+                " on both sides and in the upstream; resolve it by hand"
+            )
+        elif any(masked_text != masked[0] for masked_text in masked[1:]):
             blockers.append(
                 f"{FORMAT_COMPAT_PIN_FILE} differs from the upstream ({repository.upstream}) outside the"
                 f" {newest_version} pin; taking the upstream copy would drop those changes. Resolve it by hand,"
@@ -384,13 +392,30 @@ def is_newest_generated_file(path: str, newest_version: str | None) -> bool:
 
 
 def masked_newest_pin(text: str | None, newest_version: str | None) -> str | None:
-    if text is None or newest_version is None:
-        return text
-    return re.sub(rf'\("{newest_version}", "[0-9a-f]{{32}}"\)', f'("{newest_version}", "<pin>")', text)
+    """Returns text with only the newest PINNED_VERSION_DIGESTS digest replaced, or None when it has no such entry."""
+    span = newest_pin_digest_span(text, newest_version) if text is not None else None
+    if span is None:
+        return None
+    return text[: span[0]] + "<pin>" + text[span[1] :]
+
+
+def newest_pin_digest_span(text: str, newest_version: str | None) -> tuple[int, int] | None:
+    """Returns the digest's span of the single newest entry inside PINNED_VERSION_DIGESTS, or None."""
+    block = FORMAT_COMPAT_PIN_BLOCK.search(text)
+    if block is None or newest_version is None:
+        return None
+    entries = [
+        entry
+        for entry in FORMAT_COMPAT_PIN_ENTRY.finditer(text, block.start(1), block.end(1))
+        if entry.group(1) == newest_version
+    ]
+    return entries[0].span(2) if len(entries) == 1 else None
 
 
 def older_pins(text: str, newest_version: str | None) -> dict[str, str]:
-    return {version: digest for version, digest in FORMAT_COMPAT_PIN_ENTRY.findall(text) if version != newest_version}
+    block = FORMAT_COMPAT_PIN_BLOCK.search(text)
+    entries = FORMAT_COMPAT_PIN_ENTRY.findall(block.group(1)) if block else []
+    return {version: digest for version, digest in entries if version != newest_version}
 
 
 def print_plan(
@@ -539,12 +564,10 @@ def update_format_compat_pin(repository: Repository, version: str) -> None:
         raise RegenerationError("the format_compat pin test failed without reporting a new digest")
     pin_path = repository.root / FORMAT_COMPAT_PIN_FILE
     text = pin_path.read_text(encoding="utf-8")
-    updated, count = re.subn(
-        rf'\("{version}", "[0-9a-f]{{32}}"\)', f'("{version}", "{match.group(2)}")', text
-    )
-    if count != 1:
-        raise RegenerationError(f"found {count} pin lines for {version} in {FORMAT_COMPAT_PIN_FILE}")
-    pin_path.write_text(updated, encoding="utf-8")
+    span = newest_pin_digest_span(text, version)
+    if span is None:
+        raise RegenerationError(f"PINNED_VERSION_DIGESTS in {FORMAT_COMPAT_PIN_FILE} needs exactly one {version} entry")
+    pin_path.write_text(text[: span[0]] + match.group(2) + text[span[1] :], encoding="utf-8")
     repository.run_checked(pin_test, "server-zd")
 
 

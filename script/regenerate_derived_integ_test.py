@@ -266,6 +266,22 @@ class RegenerateDerivedIntegrationTest(unittest.TestCase):
 
         self.assertIn("outside the v2 pin", result.stdout)
 
+    def test_same_shaped_newest_tuple_outside_the_pin_block_is_not_masked(self) -> None:
+        self.write(PIN_FILE, pin_file("1" * 32, 'const OTHER: (&str, &str) = ("v2", "' + "c" * 32 + '");'))
+        self.commit("add another v2 tuple")
+        self.git("branch", "-f", "main")
+        self.diverge(
+            PIN_FILE,
+            upstream=pin_file("2" * 32, 'const OTHER: (&str, &str) = ("v2", "' + "c" * 32 + '");'),
+            branch=pin_file("3" * 32, 'const OTHER: (&str, &str) = ("v2", "' + "d" * 32 + '");'),
+        )
+        self.git("merge", "main", check=False)
+        self.assertIn(PIN_FILE, self.unmerged())
+
+        result = self.assert_refused_without_change("--assume-before-1-0", "--generator-command", "format-compat=true")
+
+        self.assertIn("outside the v2 pin", result.stdout)
+
     def test_unreachable_origin_refuses_format_compat_unless_assumed_before_1_0(self) -> None:
         self.diverge(NEWEST_STATE, upstream="main\n", branch="feature\n")
         self.git("merge", "main", check=False)
