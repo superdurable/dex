@@ -265,8 +265,17 @@ describe("the Claude tool call gate", () => {
     assert.equal(afterPermission.decision, "deny");
 
     const rejected = await createGateFixture([{ ...record, status: "rejected", rejectionMessage: "no" }]);
-    assert.equal(decisionOf(await rejected.gate.decidePreToolUse(preToolUse("Bash", "call-1"), "call-1")).decision, "deny");
-    assert.equal((await askPermission(rejected, "Bash", "call-1")).behavior, "deny");
+    // A hook denial reaches the model as a hook error, so the ask that follows denies it.
+    const rejection = "The user rejected this Bash call: no";
+    const rejectedDecision = decisionOf(await rejected.gate.decidePreToolUse(preToolUse("Bash", "call-1"), "call-1"));
+    assert.deepEqual([rejectedDecision.decision, rejectedDecision.reason], ["ask", rejection]);
+    const rejectedPermission = await askPermission(rejected, "Bash", "call-1");
+    assert.deepEqual(
+      [rejectedPermission.behavior, rejectedPermission.behavior === "deny" ? rejectedPermission.message : undefined],
+      ["deny", rejection],
+    );
+    const repeatedPermission = await askPermission(rejected, "Bash", "call-1");
+    assert.match(repeatedPermission.behavior === "deny" ? repeatedPermission.message : "", /already resumed/);
   });
 
   test("a served record replays with its recorded input and only under its own kind", async () => {

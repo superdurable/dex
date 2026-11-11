@@ -372,6 +372,29 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     const snapshot = await agent.waitForTurns(sessionId, 1);
 
     assert.equal(snapshot.messages.at(-1)?.text, "Bash: hi");
+    // The tool Step reports the approved call; the CLI's run inside the resumed turn does not.
+    const toolEvents = (await agent.listEvents(sessionId))
+      .filter((event) => event.type === "tool_call_started" || event.type === "tool_call_finished")
+      .map((event) => event.type);
+    assert.deepEqual(toolEvents, ["tool_call_started", "tool_call_finished"]);
+  });
+
+  test("a rejected Bash call reaches the model as the user's rejection without a hook prefix", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("real-bash-rejected");
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}call Bash {"command":"echo rejected-bash"}`);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "Bash");
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, false, "not now"), true);
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    const rejection = "The user rejected this Bash call: not now";
+    assert.equal(snapshot.messages.at(-1)?.text, `Bash: ${rejection}`);
+    const toolResults = api
+      .scriptedRequests()
+      .flatMap((request) => request.messages.flatMap(contentOf))
+      .filter((block) => block["type"] === "tool_result" && block["tool_use_id"] === interrupt.toolCallId)
+      .map((block) => [block["content"], block["is_error"]]);
+    assert.deepEqual(toolResults, [[rejection, true]]);
   });
 });
 

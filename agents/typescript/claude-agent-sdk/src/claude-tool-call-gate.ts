@@ -19,8 +19,10 @@ import {
   type SdkMcpToolDefinition,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  approvalDeadlinePassed,
   describeToolCallOutcome,
   isFinalToolCallStatus,
+  planningTurnToolRejection,
   resolveToolPolicy,
   toolEffectFromMcpToolAnnotations,
   type AgentToolCall,
@@ -76,6 +78,11 @@ const settledReplayMessage = (toolName: string, toolUseId: string): string =>
   `${toolName} did not run: the recorded call ${toolUseId} was already resumed in an earlier turn segment.`;
 const repeatedReplayMessage = (toolName: string, toolUseId: string): string =>
   `${toolName} did not run: the recorded call ${toolUseId} was already resumed in this turn segment.`;
+const userRejectionMessage = (toolName: string, rejectionMessage: string): string =>
+  `The user rejected this ${toolName} call: ${rejectionMessage}`;
+const userRejectionWithoutReasonMessage = (toolName: string): string => `The user rejected this ${toolName} call.`;
+// Rejections the session records itself, which keep their own text.
+const sessionRejectionMessages: ReadonlySet<string> = new Set([approvalDeadlinePassed, planningTurnToolRejection]);
 
 /** Names and classifies every tool a Claude agent can call in one turn segment. */
 /**
@@ -266,6 +273,8 @@ export class ToolCallGate {
   private readonly decidedToolUseIds = new Set<string>();
   private readonly runningToolNames = new Map<string, string>();
   private readonly customToolCallPlans = new Map<string, CustomToolCallPlan>();
+  // Refusals of replayed CLI tool calls, which canUseTool returns without a hook prefix.
+  private readonly replayRefusals = new Map<string, string>();
 
   // settledToolUseIds: calls the stored transcript already answers; only a pending deferral may replay.
   // recordedImages: loaded before the CLI starts, so a store failure fails the attempt instead of reaching the model.
@@ -390,11 +399,18 @@ export class ToolCallGate {
     const servedToolName = this.toolCatalog.servedToolName(cliToolName);
     const policyToolName = servedToolName ?? cliToolName;
     const callId = options.toolUseID;
+    const refusal = this.replayRefusals.get(callId);
+    if (refusal !== undefined) {
+      this.replayRefusals.delete(callId);
+      return denyPermission(refusal, callId);
+    }
     const record = this.turn.recordedToolCall(callId);
     const isDecided = this.decidedToolUseIds.has(callId) || this.replayedToolUseIds.has(callId);
     // A resumed call can skip the hook when the CLI starts it before the hooks are registered.
     if (record !== undefined && !isDecided) {
-      return toPermissionResult(this.replayRecordedToolCall(record, servedToolName, policyToolName), callId);
+      const replay = this.replayRecordedToolCall(record, servedToolName, policyToolName);
+      this.replayRefusals.delete(callId);
+      return toPermissionResult(replay, callId);
     }
     // The CLI ignores defer for a call with siblings and asks for permission instead.
     if (this.deferralRequest?.toolCallId === callId) {
@@ -492,11 +508,14 @@ export class ToolCallGate {
       this.planCustomToolCall(record.toolCallId, servedToolName, record);
       return preToolUseDecision("allow", undefined, recordedInput);
     }
+    // The tool Step already reported this call started and finished, so no events repeat it.
     if (record.status === "succeeded") {
-      this.permitInlineToolCall(record.toolCallId, record.toolName);
       return preToolUseDecision("allow", undefined, recordedInput);
     }
-    return preToolUseDecision("deny", describeToolCallOutcome(record));
+    // Claude Code reports a hook denial as a hook error, so canUseTool denies instead.
+    const refusal = claudeCodeToolRefusal(record);
+    this.replayRefusals.set(record.toolCallId, refusal);
+    return preToolUseDecision("ask", refusal);
   }
 
   private permitInlineToolCall(toolUseId: string, policyToolName: string): void {
@@ -552,6 +571,21 @@ export class ToolCallGate {
       : unpermittedToolCallMessage(toolName);
     return textToolResult(message, true);
   }
+}
+
+// The tool result of a CLI tool call that a final record keeps from running.
+function claudeCodeToolRefusal(record: AgentToolCall): string {
+  const rejectionMessage = record.rejectionMessage ?? undefined;
+  const isUserRejection =
+    record.status === "rejected" &&
+    (record.cancellationReason ?? undefined) === undefined &&
+    (rejectionMessage === undefined || !sessionRejectionMessages.has(rejectionMessage));
+  if (!isUserRejection) {
+    return describeToolCallOutcome(record);
+  }
+  return rejectionMessage === undefined || rejectionMessage === ""
+    ? userRejectionWithoutReasonMessage(record.toolName)
+    : userRejectionMessage(record.toolName, rejectionMessage);
 }
 
 /** Renders a final record as the custom tool result the model sees on resume. */

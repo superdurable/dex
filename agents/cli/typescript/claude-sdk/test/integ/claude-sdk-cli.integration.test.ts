@@ -146,10 +146,33 @@ describe("dex-agents-claude-sdk with the bundled Claude Code CLI against a scrip
     cli.writeLine(call("Bash", { command: "echo no > rejected.txt" }));
     await cli.stdout.waitFor("Approve Bash?");
     cli.writeLine("n not now");
-    await cli.stdout.waitFor("Bash: ");
+    await cli.stdout.waitFor("Bash: The user rejected this Bash call: not now");
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
     assert.equal(existsSync(join(home.workspace, "rejected.txt")), false);
+
+    // The tool Step reports an approved call; the CLI's run in the resumed turn does not.
+    // A tool line can follow the prompt on the same line.
+    const toolLines = cli.stdout.all
+      .split(/\r?\n/)
+      .filter((line) => line.includes("[tool] "))
+      .map((line) => line.slice(line.indexOf("[tool] ")).trim());
+    assert.deepEqual(toolLines, [
+      "[tool] Read started",
+      "[tool] Read succeeded",
+      "[tool] Write started",
+      "[tool] Write succeeded",
+      "[tool] Bash started",
+      "[tool] Bash succeeded",
+      "[tool] Bash rejected",
+    ]);
+    const rejectedResults = api
+      .modelRequests()
+      .flatMap((request) => (request["messages"] as { content?: unknown }[] | undefined) ?? [])
+      .flatMap((message) => (Array.isArray(message.content) ? (message.content as Record<string, unknown>[]) : []))
+      .filter((block) => block["type"] === "tool_result" && block["is_error"] === true)
+      .map((block) => block["content"]);
+    assert.deepEqual([...new Set(rejectedResults)], ["The user rejected this Bash call: not now"]);
   });
 
   test("an allow-listed command runs at once in the workspace", async () => {

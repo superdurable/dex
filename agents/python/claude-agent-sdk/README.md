@@ -382,8 +382,10 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
    a custom tool is `allow`, and the adapter's MCP server returns the recorded
    output, failure, unknown outcome, or rejection text without running the
    tool; an approved CLI tool is `allow` with the recorded arguments as
-   `updatedInput`, and the CLI runs that input; a rejected CLI tool is `deny`
-   with the rejection text. If the CLI skips the hook and asks
+   `updatedInput`, and the CLI runs that input without a second pair of tool
+   events; a rejected CLI tool is `ask`, and `can_use_tool` denies it with
+   "The user rejected this <tool> call: <reason>", or the record's failure or
+   unknown outcome text. If the CLI skips the hook and asks
    `can_use_tool` instead, the adapter answers from the record the same way;
    under `dontAsk` the CLI does not ask, so `--await-initialize` must prevent
    the skip. The CLI then adds a hidden "Continue from where you left off."
@@ -488,7 +490,9 @@ implementations, such as the TypeScript adapter, must match:
 - **A hook denial reaches the model with a prefix,**
   `PreToolUse:<tool> hook error: <reason>`. A rejected custom tool call is
   therefore allowed and the adapter's MCP server returns the rejection, so the
-  model sees exactly the rejection text. A rejected CLI tool keeps the prefix.
+  model sees exactly the rejection text. A rejected CLI tool is `ask`, which
+  sends it to `can_use_tool`, whose denial message reaches the model without a
+  prefix.
 - **The resumed call can start before the hooks exist.** The TypeScript adapter
   saw the CLI skip PreToolUse for the resumed call and ask `canUseTool` in two
   of three runs without `--await-initialize`. Four Python runs without the flag

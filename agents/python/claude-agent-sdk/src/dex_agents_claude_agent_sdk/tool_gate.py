@@ -32,6 +32,8 @@ from claude_agent_sdk import (
 )
 
 from dex_agents import (
+    APPROVAL_DEADLINE_PASSED,
+    PLANNING_TURN_TOOL_REJECTION,
     AgentToolCall,
     AgentTurnContext,
     DeferredToolCall,
@@ -132,6 +134,10 @@ SETTLED_REPLAY_MESSAGE = (
     "{tool_name} did not run: the recorded call {tool_use_id} was already resumed in an "
     "earlier turn segment."
 )
+USER_REJECTION_MESSAGE = "The user rejected this {tool_name} call: {rejection_message}"
+USER_REJECTION_WITHOUT_REASON_MESSAGE = "The user rejected this {tool_name} call."
+# Rejections the session records itself, which keep their own text.
+_SESSION_REJECTION_MESSAGES = frozenset({APPROVAL_DEADLINE_PASSED, PLANNING_TURN_TOOL_REJECTION})
 
 
 @dataclass(frozen=True)
@@ -312,6 +318,8 @@ class ToolCallGate:
         self._settled_tool_use_ids = frozenset(settled_tool_use_ids)
         self._replayed_tool_use_ids: set[str] = set()
         self._decided_tool_use_ids: set[str] = set()
+        # Refusals of replayed CLI tool calls, which can_use_tool returns without a hook prefix.
+        self._replay_refusals: dict[str, str] = {}
         self._segment_deferral: DeferredToolCall | None = None
         self._segment_deferral_source_tool: ListedSourceTool | None = None
         self._running_tool_names: dict[str, str] = {}
@@ -455,13 +463,16 @@ class ToolCallGate:
         """Answer a permission ask; only a replay the hook did not decide may be allowed."""
         policy_tool_name = self._tool_catalog.policy_tool_name(cli_tool_name)
         call_id = context.tool_use_id or ""
+        refusal = self._replay_refusals.pop(call_id, None)
+        if refusal is not None:
+            return PermissionResultDeny(message=refusal)
         record = self._turn.recorded_tool_call(call_id)
         # A resumed call can skip the hook if the CLI starts it before the hooks exist.
         if record is not None:
             served_tool_name = self._tool_catalog.served_tool_name_for(cli_tool_name)
-            return _permission_result(
-                self._replay_recorded_tool_call(record, policy_tool_name, served_tool_name)
-            )
+            replay = self._replay_recorded_tool_call(record, policy_tool_name, served_tool_name)
+            self._replay_refusals.pop(call_id, None)
+            return _permission_result(replay)
         # The CLI asks for permission when it ignores a defer, so that call never left the turn.
         if self._segment_deferral is not None and self._segment_deferral.tool_call_id == call_id:
             self._segment_deferral = None
@@ -579,11 +590,13 @@ class ToolCallGate:
             recorded_input = _recorded_tool_input(record)
             self._custom_tool_call_plans[call_id] = _CustomToolCallPlan(served_tool_name, record)
             return _pre_tool_use_decision("allow", updated_input=recorded_input)
+        # The tool Step already reported this call started and finished, so no events repeat it.
         if record.status is ToolCallStatus.SUCCEEDED:
-            recorded_input = _recorded_tool_input(record)
-            self._permit_inline_tool_call(call_id, record.tool_name, None)
-            return _pre_tool_use_decision("allow", updated_input=recorded_input)
-        return _pre_tool_use_decision("deny", describe_tool_call_outcome(record))
+            return _pre_tool_use_decision("allow", updated_input=_recorded_tool_input(record))
+        # Claude Code reports a hook denial as a hook error, so can_use_tool denies instead.
+        refusal = _claude_code_tool_refusal(record)
+        self._replay_refusals[call_id] = refusal
+        return _pre_tool_use_decision("ask", refusal)
 
     def _permit_inline_tool_call(
         self, tool_use_id: str, policy_tool_name: str, custom_tool_name: str | None
@@ -598,6 +611,22 @@ def _require_policy(policy: ToolPolicy | None) -> ToolPolicy:
     if policy is None:
         raise RuntimeError("a custom or Claude Code tool call has no policy")
     return policy
+
+
+def _claude_code_tool_refusal(record: AgentToolCall) -> str:
+    """Return the tool result of a CLI tool call that a final record keeps from running."""
+    is_user_rejection = (
+        record.status is ToolCallStatus.REJECTED
+        and record.cancellation_reason is None
+        and record.rejection_message not in _SESSION_REJECTION_MESSAGES
+    )
+    if not is_user_rejection:
+        return describe_tool_call_outcome(record)
+    if not record.rejection_message:
+        return USER_REJECTION_WITHOUT_REASON_MESSAGE.format(tool_name=record.tool_name)
+    return USER_REJECTION_MESSAGE.format(
+        tool_name=record.tool_name, rejection_message=record.rejection_message
+    )
 
 
 def recorded_tool_call_result(record: AgentToolCall) -> dict[str, Any]:

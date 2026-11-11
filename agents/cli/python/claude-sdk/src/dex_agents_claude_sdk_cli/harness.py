@@ -11,7 +11,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -89,6 +91,9 @@ CLAUDE_CODE_LOCAL_TOOLS: Mapping[str, _ClaudeCodeLocalTool] = {
     "WebFetch": _ClaudeCodeLocalTool(LocalToolGroup.WEB_FETCH, ToolEffect.READ, False, None),
 }
 _RUNNING_TURN: ContextVar[AgentTurnContext] = ContextVar("dex_agents_claude_sdk_cli_turn")
+_LOGGER = logging.getLogger(__name__)
+# A CSI control sequence, such as the cursor reset Claude Code writes to a terminal on exit.
+_TERMINAL_CONTROL_SEQUENCE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _GLOB_CHARACTERS = frozenset("*?[{")
 # The input field of each file tool that holds a glob pattern.
 _GLOB_PATTERN_ARGUMENTS = {"Glob": "pattern", "Grep": "glob"}
@@ -188,7 +193,8 @@ class ClaudeCodeLocalTools:
             tools of calls the turn already recorded, the workspace as
             ``cwd``, and no settings files. The environment
             passes through unchanged, so ``ANTHROPIC_API_KEY`` or the
-            machine's Claude Code login reaches the CLI.
+            machine's Claude Code login reaches the CLI. The CLI's standard
+            error goes to the command's log file, never to the chat terminal.
 
         Raises:
             RuntimeError: Outside a model call, which never happens.
@@ -210,6 +216,8 @@ class ClaudeCodeLocalTools:
             cwd=str(self._context.workspace),
             # Settings files could allow tools before the session's policy sees them.
             setting_sources=[],
+            # An inherited terminal would get the CLI's control sequences in the chat.
+            stderr=_log_claude_code_stderr,
         )
 
     def decide_tool_call(
@@ -287,6 +295,12 @@ class ClaudeCodeLocalTools:
         # realpath also follows a dangling link to the target it would create.
         resolved = Path(os.path.realpath(candidate))
         return resolved == self._workspace or self._workspace in resolved.parents
+
+
+def _log_claude_code_stderr(line: str) -> None:
+    text = _TERMINAL_CONTROL_SEQUENCE.sub("", line).strip()
+    if text:
+        _LOGGER.info("Claude Code stderr: %s", text)
 
 
 def _glob_base(pattern: str) -> str:

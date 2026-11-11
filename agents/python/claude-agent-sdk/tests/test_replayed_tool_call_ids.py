@@ -222,7 +222,12 @@ async def test_recorded_call_is_replayed_at_most_once_per_segment(tmp_path: Path
     rejected_output = await rejected.decide_pre_tool_use(
         _hook_input("Bash", "call-1"), "call-1", HOOK_CONTEXT
     )
-    assert _decision(rejected_output)[0] == "deny"
+    # A hook denial reaches the model as a hook error, so the ask that follows denies it.
+    rejection = "The user rejected this Bash call: no"
+    assert _decision(rejected_output) == ("ask", rejection, None)
+    assert await _ask_permission(rejected, "Bash", "call-1") == PermissionResultDeny(
+        message=rejection
+    )
     assert await _ask_permission(rejected, "Bash", "call-1") == PermissionResultDeny(
         message=repeated
     )
