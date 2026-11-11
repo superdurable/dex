@@ -176,13 +176,16 @@ Dex server at startup. Since 1.45.0.
 - The generated time is the top-level **generatedAt**. Without it, the file
   modification time is used. **generatedAt** must look like
   **2026-11-01T00:00:00Z**: a **T** separator, optional fractional seconds, and
-  **Z** or a **±HH:MM** offset. Any other form is an error, also in a directory.
+  **Z** or a **±HH:MM** offset, with every field in range. Any other form is an
+  error, also in a directory and in an in-memory document.
 - Generated times, including those of in-memory documents, are truncated to
   whole milliseconds.
 - **NewWorker** returns an error for an invalid file and for a Flow type given
   twice, within one option or once in each.
 - **Start** uploads only the documents of Flow types in the Registry. It logs the
   others and skips them.
+- Only a top-level **source** object with exactly one string **path** is
+  rewritten. Otherwise the document is uploaded unchanged.
 - An absolute **source.path**, POSIX or Windows, is uploaded relative to the
   working directory with **/** separators, or as its base name when it lies
   outside it. The paths are compared lexically, without resolving symbolic

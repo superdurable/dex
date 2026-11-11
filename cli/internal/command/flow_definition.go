@@ -10,6 +10,8 @@ package command
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -88,8 +90,12 @@ func (a *App) executeFlowDefinitionUpload(ctx context.Context, args []string, op
 				}
 				return newOperationError("flow-definition upload", err)
 			}
-			for _, result := range response.GetResults() {
-				outcomes = append(outcomes, flowDefinitionUploadOutcome(result))
+			for index, result := range response.GetResults() {
+				var uploaded *dexpb.FlowDefinitionUpload
+				if index < len(batch) {
+					uploaded = batch[index]
+				}
+				outcomes = append(outcomes, a.flowDefinitionUploadOutcome(result, uploaded))
 			}
 		}
 		return writeOutput(a.stdout, options.output, map[string]any{"definitions": outcomes})
@@ -173,11 +179,30 @@ func splitFlowDefinitionUploads(documents []dex.FlowDefinitionDocument) [][]*dex
 	return batches
 }
 
-func flowDefinitionUploadOutcome(result *dexpb.FlowDefinitionUploadResult) map[string]any {
-	return map[string]any{
+// flowDefinitionUploadOutcome relies on results arriving in request order; uploaded is nil only for extra results.
+func (a *App) flowDefinitionUploadOutcome(
+	result *dexpb.FlowDefinitionUploadResult,
+	uploaded *dexpb.FlowDefinitionUpload,
+) map[string]any {
+	outcomeName := strings.TrimPrefix(result.GetOutcome().String(), "FLOW_DEFINITION_UPLOAD_OUTCOME_")
+	outcome := map[string]any{
 		"flowType":          result.GetFlowType(),
-		"outcome":           strings.TrimPrefix(result.GetOutcome().String(), "FLOW_DEFINITION_UPLOAD_OUTCOME_"),
+		"outcome":           outcomeName,
 		"storedDigest":      result.GetStoredDigest(),
 		"storedGeneratedAt": result.GetStoredGeneratedAt().AsTime().UTC().Format(time.RFC3339Nano),
 	}
+	switch result.GetOutcome() {
+	case dexpb.FlowDefinitionUploadOutcome_FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED,
+		dexpb.FlowDefinitionUploadOutcome_FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED,
+		dexpb.FlowDefinitionUploadOutcome_FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED:
+	case dexpb.FlowDefinitionUploadOutcome_FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING:
+		if uploaded != nil {
+			digest := sha256.Sum256(uploaded.GetContent())
+			outcome["uploadedDigest"] = hex.EncodeToString(digest[:])
+			outcome["uploadedGeneratedAt"] = uploaded.GetGeneratedAt().AsTime().UTC().Format(time.RFC3339Nano)
+		}
+	default:
+		fmt.Fprintf(a.stderr, "warning: unknown upload outcome %s for Flow type %q\n", outcomeName, result.GetFlowType())
+	}
+	return outcome
 }

@@ -222,8 +222,8 @@ It reads files with the Go SDK rules:
 - A directory is read recursively. Files whose extension is **.json**, in any
   letter case, are considered. Other JSON files, such as **package.json** or FDG
   1.x files, are skipped and logged on stderr.
-- The generated time is the top-level **generatedAt**, which must look like
-  **2026-11-01T00:00:00Z**. Without it, the file modification time is used. It
+- The generated time is the top-level **generatedAt**, which must be a valid
+  RFC 3339 time such as **2026-11-01T00:00:00Z**. Without it, the file modification time is used. It
   is truncated to whole milliseconds.
 - Two files with the same Flow type fail the command before anything is sent.
 - An absolute **source.path** is sent relative to the working directory, or as
@@ -232,7 +232,9 @@ It reads files with the Go SDK rules:
 The output lists each Flow type with its **outcome**, **storedDigest**, and
 **storedGeneratedAt**. The outcome is **CREATED**, **REPLACED**, **UNCHANGED**,
 or **KEPT_EXISTING**. **KEPT_EXISTING** means the server already has a different
-definition with the same or a later generated time. Add **--force** to replace it
+definition with the same or a later generated time; its entry also has
+**uploadedDigest** and **uploadedGeneratedAt**. An outcome this dexcli does not
+know prints a warning on stderr. Add **--force** to replace it
 anyway, for example to roll back. The command sends at most 256 definitions per
 request. A request fails as a whole, and the command stops at the first failed
 request.

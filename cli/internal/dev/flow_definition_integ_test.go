@@ -32,6 +32,9 @@ type flowDefinitionUploadOutput struct {
 		Outcome           string `json:"outcome"`
 		StoredDigest      string `json:"storedDigest"`
 		StoredGeneratedAt string `json:"storedGeneratedAt"`
+		UploadedDigest    string `json:"uploadedDigest"`
+		// UploadedGeneratedAt appears only for KEPT_EXISTING.
+		UploadedGeneratedAt string `json:"uploadedGeneratedAt"`
 	} `json:"definitions"`
 }
 
@@ -98,6 +101,10 @@ func TestFlowDefinitionUploadAndListAgainstLocalStack(t *testing.T) {
 	kept := runFlowDefinitionCommand[flowDefinitionUploadOutput](t, "flow-definition", "upload", olderPath, "--server", dexAddress)
 	require.Len(t, kept.Definitions, 1)
 	require.Equal(t, "KEPT_EXISTING", kept.Definitions[0].Outcome)
+	require.Len(t, kept.Definitions[0].UploadedDigest, 64)
+	require.NotEqual(t, kept.Definitions[0].StoredDigest, kept.Definitions[0].UploadedDigest)
+	require.Equal(t, "2025-01-01T00:00:00Z", kept.Definitions[0].UploadedGeneratedAt)
+	require.Equal(t, "2026-01-02T03:04:05Z", kept.Definitions[0].StoredGeneratedAt)
 	forced := runFlowDefinitionCommand[flowDefinitionUploadOutput](t, "flow-definition", "upload", olderPath, "--force", "--server", dexAddress)
 	require.Equal(t, "REPLACED", forced.Definitions[0].Outcome)
 	require.Equal(t, "2025-01-01T00:00:00Z", forced.Definitions[0].StoredGeneratedAt)

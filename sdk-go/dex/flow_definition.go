@@ -289,7 +289,7 @@ type notFlowDefinitionError struct {
 func (err *notFlowDefinitionError) Error() string { return err.reason }
 
 var strictRFC3339Pattern = regexp.MustCompile(
-	`^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2})$`,
+	`^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt]([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]+)?([Zz]|[+-]([0-9]{2}):([0-9]{2}))$`,
 )
 
 // parseFlowDefinitionHeader returns *notFlowDefinitionError when content is not an FDG 2.x document.
@@ -334,10 +334,19 @@ func parseFlowDefinitionHeader(content []byte) (flowDefinitionHeader, error) {
 	return header, nil
 }
 
+func isTwoDigitFieldAtMost(field string, maximum int) bool {
+	return int(field[0]-'0')*10+int(field[1]-'0') <= maximum
+}
+
 // parseStrictRFC3339 accepts only the RFC 3339 forms that every Dex SDK accepts.
 func parseStrictRFC3339(text string) (time.Time, error) {
-	if !strictRFC3339Pattern.MatchString(text) {
+	match := strictRFC3339Pattern.FindStringSubmatch(text)
+	if match == nil || !isTwoDigitFieldAtMost(match[1], 23) || !isTwoDigitFieldAtMost(match[2], 59) ||
+		!isTwoDigitFieldAtMost(match[3], 59) {
 		return time.Time{}, fmt.Errorf("generatedAt %q must be an RFC 3339 time such as 2026-11-01T00:00:00Z", text)
+	}
+	if match[6] != "" && (!isTwoDigitFieldAtMost(match[6], 23) || !isTwoDigitFieldAtMost(match[7], 59)) {
+		return time.Time{}, fmt.Errorf("generatedAt %q has an offset out of range", text)
 	}
 	canonical := strings.ToUpper(text)
 	parsed, err := time.Parse(time.RFC3339Nano, canonical)
@@ -473,12 +482,15 @@ type flowDefinitionSourcePathLocation struct {
 	value string
 }
 
-// findFlowDefinitionSourcePath returns the byte range of the first top-level source.path string value.
+// findFlowDefinitionSourcePath returns the byte range of the top-level source.path string value.
+// It reports false unless the top level has exactly one "source" object with exactly one string "path".
 func findFlowDefinitionSourcePath(content []byte) (flowDefinitionSourcePathLocation, bool) {
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	if !isNextJSONDelimiter(decoder, '{') {
 		return flowDefinitionSourcePathLocation{}, false
 	}
+	var location flowDefinitionSourcePathLocation
+	hasSource := false
 	for decoder.More() {
 		key, isKey := nextJSONObjectKey(decoder)
 		if !isKey {
@@ -490,39 +502,61 @@ func findFlowDefinitionSourcePath(content []byte) (flowDefinitionSourcePathLocat
 			}
 			continue
 		}
-		if !isNextJSONDelimiter(decoder, '{') {
+		if hasSource {
 			return flowDefinitionSourcePathLocation{}, false
 		}
-		for decoder.More() {
-			sourceKey, isSourceKey := nextJSONObjectKey(decoder)
-			if !isSourceKey {
-				return flowDefinitionSourcePathLocation{}, false
-			}
-			if sourceKey != "path" {
-				if !skipJSONValue(decoder) {
-					return flowDefinitionSourcePathLocation{}, false
-				}
-				continue
-			}
-			valueSearchStart := int(decoder.InputOffset())
-			token, err := decoder.Token()
-			if err != nil {
-				return flowDefinitionSourcePathLocation{}, false
-			}
-			value, isString := token.(string)
-			if !isString {
-				return flowDefinitionSourcePathLocation{}, false
-			}
-			end := int(decoder.InputOffset())
-			quoteOffset := bytes.IndexByte(content[valueSearchStart:end], '"')
-			if quoteOffset < 0 {
-				return flowDefinitionSourcePathLocation{}, false
-			}
-			return flowDefinitionSourcePathLocation{start: valueSearchStart + quoteOffset, end: end, value: value}, true
+		hasSource = true
+		sourceLocation, isFound := findSourceObjectPath(decoder, content)
+		if !isFound {
+			return flowDefinitionSourcePathLocation{}, false
 		}
+		location = sourceLocation
+	}
+	return location, hasSource
+}
+
+// findSourceObjectPath reads the source object and reports false unless it has exactly one string "path".
+func findSourceObjectPath(decoder *json.Decoder, content []byte) (flowDefinitionSourcePathLocation, bool) {
+	if !isNextJSONDelimiter(decoder, '{') {
 		return flowDefinitionSourcePathLocation{}, false
 	}
-	return flowDefinitionSourcePathLocation{}, false
+	var location flowDefinitionSourcePathLocation
+	hasPath := false
+	for decoder.More() {
+		key, isKey := nextJSONObjectKey(decoder)
+		if !isKey {
+			return flowDefinitionSourcePathLocation{}, false
+		}
+		if key != "path" {
+			if !skipJSONValue(decoder) {
+				return flowDefinitionSourcePathLocation{}, false
+			}
+			continue
+		}
+		if hasPath {
+			return flowDefinitionSourcePathLocation{}, false
+		}
+		hasPath = true
+		valueSearchStart := int(decoder.InputOffset())
+		token, err := decoder.Token()
+		if err != nil {
+			return flowDefinitionSourcePathLocation{}, false
+		}
+		value, isString := token.(string)
+		if !isString {
+			return flowDefinitionSourcePathLocation{}, false
+		}
+		end := int(decoder.InputOffset())
+		quoteOffset := bytes.IndexByte(content[valueSearchStart:end], '"')
+		if quoteOffset < 0 {
+			return flowDefinitionSourcePathLocation{}, false
+		}
+		location = flowDefinitionSourcePathLocation{start: valueSearchStart + quoteOffset, end: end, value: value}
+	}
+	if !isNextJSONDelimiter(decoder, '}') {
+		return flowDefinitionSourcePathLocation{}, false
+	}
+	return location, hasPath
 }
 
 func isNextJSONDelimiter(decoder *json.Decoder, delimiter json.Delim) bool {

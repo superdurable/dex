@@ -11,6 +11,7 @@ package dex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -210,6 +211,18 @@ type flowDefinitionConformanceCases struct {
 		UnixMillis int64  `json:"unixMillis"`
 		IsError    bool   `json:"error"`
 	} `json:"generatedAt"`
+	DocumentValidity []struct {
+		Name             string `json:"name"`
+		Document         string `json:"document"`
+		IsValid          bool   `json:"valid"`
+		IsGeneratedAtErr bool   `json:"generatedAtError"`
+	} `json:"documentValidity"`
+	DocumentRewrite []struct {
+		Name     string  `json:"name"`
+		Cwd      string  `json:"cwd"`
+		Document string  `json:"document"`
+		Expected *string `json:"expected"`
+	} `json:"documentRewrite"`
 }
 
 // The conformance cases are pure functions shared by every SDK, so they are asserted directly.
@@ -236,6 +249,27 @@ func TestFlowDefinitionUploadConformance(t *testing.T) {
 	require.NotEmpty(t, cases.JSONStringEncoding)
 	for _, testCase := range cases.JSONStringEncoding {
 		require.Equal(t, testCase.Encoded, string(encodeMinimalJSONString(testCase.Value)))
+	}
+	require.NotEmpty(t, cases.DocumentValidity)
+	for _, testCase := range cases.DocumentValidity {
+		_, err := parseFlowDefinitionHeader([]byte(testCase.Document))
+		if testCase.IsValid {
+			require.NoError(t, err, testCase.Name)
+			continue
+		}
+		require.Error(t, err, testCase.Name)
+		var notFlowDefinition *notFlowDefinitionError
+		// A generatedAt error is a configuration error even in a directory, so it is not a skip.
+		require.Equal(t, !testCase.IsGeneratedAtErr, errors.As(err, &notFlowDefinition), testCase.Name)
+	}
+	require.NotEmpty(t, cases.DocumentRewrite)
+	for _, testCase := range cases.DocumentRewrite {
+		rewritten := string(rewriteFlowDefinitionSourcePath([]byte(testCase.Document), testCase.Cwd))
+		if testCase.Expected == nil {
+			require.Equal(t, testCase.Document, rewritten, testCase.Name)
+			continue
+		}
+		require.Equal(t, *testCase.Expected, rewritten, testCase.Name)
 	}
 	require.NotEmpty(t, cases.GeneratedAt)
 	for _, testCase := range cases.GeneratedAt {
