@@ -380,6 +380,9 @@ await sessions.sendUserMessage("session-42", "What does this chart show?", { ima
 - **Without a store**, the session refuses user images: `sendUserMessage`
   returns `false`. A tool result's images then reach the model only as the
   result's text.
+- **Chat Completions models.** The SDK's Chat Completions converter keeps only
+  the text of a tool result, and throws with `strictFeatureValidation`. Use a
+  Responses model when the model must see tool images. User images reach both.
 
 ## Compaction
 
