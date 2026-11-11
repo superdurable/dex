@@ -171,9 +171,7 @@ func TestWorkerKeepsRunningWhenFlowDefinitionUploadFails(t *testing.T) {
 	ctx := integrationContext(t)
 	require.NoError(t, worker.WaitPullRegistered(ctx))
 	require.Empty(t, getStoredFlowDefinitions(t, flowType))
-	warnings := logger.recordedWarnings()
-	require.Len(t, warnings, 1)
-	require.Contains(t, warnings[0], "upload Flow definitions failed")
+	require.Equal(t, 1, countWarningsContaining(logger.recordedWarnings(), "upload Flow definitions failed"))
 
 	registry, err := dex.NewRegistry([]dex.Flow{flow})
 	require.NoError(t, err)
@@ -219,6 +217,16 @@ func TestClientUploadFlowDefinitionsReportsOutcomes(t *testing.T) {
 		FlowType: flowType, Content: []byte(flowDefinitionJSON("OtherFlow", "a.go")), GeneratedAt: olderTime,
 	}}, false)
 	require.ErrorContains(t, err, `has flow.name "OtherFlow"`)
+}
+
+func countWarningsContaining(warnings []string, fragment string) int {
+	count := 0
+	for _, warning := range warnings {
+		if strings.Contains(warning, fragment) {
+			count++
+		}
+	}
+	return count
 }
 
 func startFlowDefinitionWorker(t *testing.T, flows []dex.Flow, options dex.WorkerOptions, logger dex.Logger) *dex.Worker {

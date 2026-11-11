@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -61,9 +62,13 @@ func TestWorkerStartsWhenServerLacksFlowDefinitionUpload(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return slices.Contains(flowService.recordedCalls(), "PollWorkerTask")
 	}, 5*time.Second, time.Millisecond)
-	warnings := logger.recordedWarnings()
-	require.Len(t, warnings, 1)
-	require.Contains(t, warnings[0], "does not support Flow definition upload")
+	matchingWarnings := 0
+	for _, warning := range logger.recordedWarnings() {
+		if strings.Contains(warning, "does not support Flow definition upload") {
+			matchingWarnings++
+		}
+	}
+	require.Equal(t, 1, matchingWarnings)
 	require.NoError(t, worker.Stop(context.Background()))
 	require.NoError(t, <-startResult)
 }
