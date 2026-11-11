@@ -123,6 +123,7 @@ class AgentSessionClient:
         options: StartFlowOptions | None = None,
         *,
         session_settings: dict[str, Any] | None = None,
+        start_environment: dict[str, str] | None = None,
     ) -> str:
         """Start one agent session.
 
@@ -146,6 +147,9 @@ class AgentSessionClient:
         .. versionchanged:: 0.3.0
             New sessions are searchable by active Step type.
 
+        .. versionchanged:: 0.5.0
+            Added ``start_environment``.
+
         Args:
             session_id: Flow ID of the new session.
             initial_message: Optional first user message.
@@ -156,6 +160,11 @@ class AgentSessionClient:
                 ``AgentTurnContext.session_settings`` carries until
                 ``update_session_settings`` replaces them. ``None``, the
                 default, starts without settings. Never put a secret in them.
+            start_environment: Where the caller runs, such as its host name
+                and workspace, recorded in the session's start input as
+                ``AgentSessionStartInput.start_environment``. The session never
+                reads it. ``None``, the default, records nothing. Never put a
+                secret in it.
 
         Returns:
             The server-assigned run ID.
@@ -171,7 +180,9 @@ class AgentSessionClient:
             self._flow,
             session_id,
             AgentSessionStartInput(
-                initial_message=initial_message, session_settings=session_settings
+                initial_message=initial_message,
+                session_settings=session_settings,
+                start_environment=start_environment,
             ),
             _with_active_step_search(options or StartFlowOptions()),
         )

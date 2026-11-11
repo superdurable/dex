@@ -46,8 +46,8 @@ configuration, and 0 otherwise.
 
 ### Sessions belong to one execution environment
 
-The runtime registers the session Flow type `<flowType>-<hash>`. The hash is
-the first 12 hexadecimal digits of the SHA-256 of
+The runtime registers the session Flow type `<flowType>-<suffix>`. The suffix
+is 6 lowercase base36 characters (`0-9a-z`). Take the SHA-256 of
 `<host name>\n<user>\n<configuration identity>\n<workspace>` in UTF-8:
 
 - the user is the numeric user ID, or the user name where the platform has
@@ -56,10 +56,22 @@ the first 12 hexadecimal digits of the SHA-256 of
   `defaults` without a file;
 - the workspace is its canonical real path.
 
+Read the digest's first 8 bytes as an unsigned big-endian integer, reduce it
+modulo 36^6, write it in base36, and left-pad it with `0` to 6 characters.
+`namespaceSessionFlowType` computes it, and every CLI runtime passes the cases
+in
+[`agents/conformance/cli_session_flow_types.json`](../../../conformance/cli_session_flow_types.json).
+
+Each new session records these values in its start input,
+`AgentSessionStartInput.startEnvironment`, so a run shows where it was
+started: `host_name`, `user_id`, `config_identity`, and `workspace` are the
+hashed values, and `user_name` is the user's name, left out when the system
+cannot tell it. They are not session settings and cannot change.
+
 A Worker takes only the Steps of its own Flow type, so an approved write or
 shell command always runs as the same user, with the same configuration file
 and workspace it was approved under. Tool settings, such as the shell allow
-list, are not part of the hash, so changing them keeps `--resume` working.
+list, are not part of the suffix, so changing them keeps `--resume` working.
 Changing the workspace, the file, or the user starts a new type: `--resume`
 of an older session then exits with 2 and says to resume it in its original
 environment, and `sessions` lists only the current environment's sessions.
@@ -256,6 +268,15 @@ not available, such as one answering 503 while it starts, or an older
 `dexcli` without `/mcp`, the command warns and continues; each model call
 lists the server again, so its tools appear once it is ready. An explicit
 `connectors.mcp` URL that is not available stops the command.
+
+A harness whose runner fixes its tools when the Flow is built declares
+`isToolSetFixedAtBuild: true`. The runtime then lists the connector tools the
+file enables before it builds the Flow, so the connector source's
+`cachedTools()` holds them. When the server does not answer at startup, or
+that listing fails, the warning says the run has no connector tools and to
+restart the command once the server answers. Every TypeScript adapter lists
+its tool sources in each model call, so none of the TypeScript commands sets
+it; the Python runtime's `is_tool_set_fixed_at_build` is the same switch.
 
 The agent sees each connector tool by its MCP name, such as
 `slack_post_thread_reply`. `connectors.enabled` matches only these `_meta`

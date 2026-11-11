@@ -28,6 +28,7 @@ Not released yet. The next release, server-zd/v0.1.26, ships these changes.
 
 ### Fixed
 
+- A Step that a decision or an RPC cancels after its wait consumed Channel messages, but before its **Execute** result was saved, no longer loses those messages. They return to the front of their Channel or ChannelMap instance in their original order, and another wait can consume them, so a message can reach **Execute** twice. The server still drops them when the Flow close cancels the Step: a stop, a Flow timeout, a failure that closes the Flow, or a decision that cancels it and closes with **ForceComplete** or **ForceFail**. A Step that a commit cancels also no longer consumes that commit's own publications. [Reference](/reference/server/runtime-data#canceled-step-messages).
 - A **StartFlow** retry with the **request_id** that started the latest run of the Flow ID no longer goes through the ID reuse policy. It returns that run with **ignore_already_started_error**, or ALREADY_EXISTS / FLOW_ALREADY_STARTED without it. Before, **ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING** and **ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY** started a second run for the retry, and **ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING** terminated the run that the retried request had started. [Reference](/reference/go/start-flow-options#start-request-server-behavior).
 
 ## 0.1.25 {#v0-1-25}

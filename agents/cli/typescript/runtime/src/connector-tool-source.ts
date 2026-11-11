@@ -177,6 +177,15 @@ export class ConnectorsMcpToolSource implements ToolSource {
   }
 
   /**
+   * Whether the server answered the latest listing; `true` before the first one.
+   *
+   * @since 0.5.0
+   */
+  public get isAvailable(): boolean {
+    return this.lastListingFailure === undefined;
+  }
+
+  /**
    * Returns the last listing without I/O.
    * @returns The tools.
    */

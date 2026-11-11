@@ -10,17 +10,43 @@
 
 from __future__ import annotations
 
-import hashlib
+import json
+import re
 import socket
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from dex_agents import ToolExecutionError
-from dex_agents_cli import session_flow_type
+from dex_agents_cli import (
+    SessionEnvironmentIdentity,
+    current_session_environment_identity,
+    namespace_session_flow_type,
+    session_flow_type,
+)
 from dex_agents_cli.dexcli_install import DexcliInstallError, check_download_url
 from dex_agents_cli.environment import RuntimeEnvironment
+from dex_agents_cli.harness import session_start_environment
 from dex_agents_cli.local_tools.files import MAX_EDIT_BYTES, WorkspaceFiles
+
+FLOW_TYPE_FIXTURE: dict[str, Any] = json.loads(
+    (Path(__file__).resolve().parents[4] / "conformance" / "cli_session_flow_types.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+@pytest.mark.parametrize("case", FLOW_TYPE_FIXTURE["cases"], ids=lambda case: case["name"])
+def test_the_flow_type_matches_the_shared_cases(case: dict[str, Any]) -> None:
+    identity = SessionEnvironmentIdentity(
+        host_name=case["host_name"],
+        user_id=case["user_id"],
+        config_identity=case["config_identity"],
+        workspace=case["workspace"],
+    )
+    harness_flow_type = FLOW_TYPE_FIXTURE["harness_flow_type"]
+    assert namespace_session_flow_type(harness_flow_type, identity) == case["flow_type"]
 
 
 def test_the_flow_type_hashes_host_user_config_and_workspace(tmp_path: Path) -> None:
@@ -28,17 +54,37 @@ def test_the_flow_type_hashes_host_user_config_and_workspace(tmp_path: Path) -> 
     config.write_text("{}")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    text = f"{socket.gethostname()}\n1000\n{config.resolve()}\n{workspace.resolve()}"
-    expected = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
-    assert session_flow_type("Agent", config, workspace, user="1000") == f"Agent-{expected}"
+    identity = current_session_environment_identity(config, workspace, user="1000")
+    assert identity == SessionEnvironmentIdentity(
+        host_name=socket.gethostname(),
+        user_id="1000",
+        config_identity=str(config.resolve()),
+        workspace=str(workspace.resolve()),
+    )
+    flow_type = session_flow_type("Agent", config, workspace, user="1000")
+    assert flow_type == namespace_session_flow_type("Agent", identity)
+    assert re.fullmatch(r"Agent-[0-9a-z]{6}", flow_type)
 
 
 def test_two_users_with_defaults_get_different_flow_types(tmp_path: Path) -> None:
     first = session_flow_type("Agent", None, tmp_path, user="1000")
     second = session_flow_type("Agent", None, tmp_path, user="1001")
     assert first != second
-    defaults = f"{socket.gethostname()}\n1000\ndefaults\n{tmp_path.resolve()}"
-    assert first == f"Agent-{hashlib.sha256(defaults.encode()).hexdigest()[:12]}"
+    defaults = current_session_environment_identity(None, tmp_path, user="1000")
+    assert defaults.config_identity == "defaults"
+    assert first == namespace_session_flow_type("Agent", defaults)
+
+
+def test_a_new_session_records_the_hashed_values_and_the_user_name(tmp_path: Path) -> None:
+    identity = current_session_environment_identity(None, tmp_path, user="1000")
+    environment = session_start_environment(identity)
+    assert {key: value for key, value in environment.items() if key != "user_name"} == {
+        "host_name": identity.host_name,
+        "user_id": "1000",
+        "config_identity": "defaults",
+        "workspace": str(tmp_path.resolve()),
+    }
+    assert environment["user_name"] != ""
 
 
 def test_another_workspace_gets_another_flow_type(tmp_path: Path) -> None:
