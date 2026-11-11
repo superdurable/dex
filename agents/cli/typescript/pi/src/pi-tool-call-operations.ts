@@ -21,6 +21,10 @@ import { Minimatch } from "minimatch";
 import { LocalShellExecution } from "./local-shell-execution.js";
 
 const skippedFindDirectories = new Set([".git", "node_modules"]);
+/** The longest one `find` call walks the workspace, in milliseconds, as `grep`'s budget. */
+const findTimeBudgetMs = 10_000;
+/** The largest file `edit` changes: the runtime's check before the rename reads at most 4 MiB. */
+const maximumEditableBytes = 4 * 1024 * 1024;
 
 /** The stats pi-coding-agent's `ls` reads. */
 interface DirectoryTest {
@@ -42,8 +46,14 @@ export class PiToolCallOperations {
   private readonly shell = new LocalShellExecution();
   private readonly readFiles = new Map<string, { bytes: Buffer; version: WorkspaceFileVersion }>();
   private readonly listedEntries = new Map<string, WorkspaceDirectoryEntry>();
+  private cancellation: AbortSignal | undefined;
 
   public constructor(private readonly files: WorkspaceFiles) {}
+
+  /** Makes later directory walks of the call stop when the call is cancelled. */
+  public bindCancellation(signal: AbortSignal | undefined): void {
+    this.cancellation = signal;
+  }
 
   /** Whether the call may have changed a file or started its command, after which a failure has an unknown outcome. */
   public get hasEffectStarted(): boolean {
@@ -63,6 +73,19 @@ export class PiToolCallOperations {
 
   public async readFileBytes(absolutePath: string): Promise<Buffer> {
     return (await this.readFileWithVersion(absolutePath)).bytes;
+  }
+
+  public async readFileBytesForEdit(absolutePath: string): Promise<Buffer> {
+    if ((await this.files.statExisting(absolutePath)).size > maximumEditableBytes) {
+      throw new WorkspaceFileRefusedError(
+        `edit cannot change ${absolutePath}: it is larger than ${maximumEditableBytes} bytes, too large to edit; use write`,
+      );
+    }
+    const bytes = await this.readFileBytes(absolutePath);
+    if (bytes.length > maximumEditableBytes) {
+      throw new WorkspaceFileRefusedError(`edit cannot change ${absolutePath}: it is larger than ${maximumEditableBytes} bytes, too large to edit`);
+    }
+    return bytes;
   }
 
   public async detectImageMimeType(absolutePath: string): Promise<string | undefined> {
@@ -111,7 +134,7 @@ export class PiToolCallOperations {
    */
   public async findMatchingPaths(pattern: string, searchPath: string, limit: number): Promise<string[]> {
     const results: string[] = [];
-    await this.collectFindMatches(searchPath, "", buildFindMatcher(pattern), limit, results);
+    await this.collectFindMatches(searchPath, "", buildFindMatcher(pattern), limit, results, Date.now() + findTimeBudgetMs);
     return results;
   }
 
@@ -121,11 +144,12 @@ export class PiToolCallOperations {
 
   /** Runs a write; any failure but a refusal, which comes before any change, may have changed a file. */
   private async recordingMaybeChangedFile(write: () => Promise<string>): Promise<void> {
+    this.hasMaybeChangedFile = true;
     try {
       await write();
     } catch (error: unknown) {
-      if (!(error instanceof WorkspaceFileRefusedError)) {
-        this.hasMaybeChangedFile = true;
+      if (error instanceof WorkspaceFileRefusedError) {
+        this.hasMaybeChangedFile = false;
       }
       throw error;
     }
@@ -147,7 +171,12 @@ export class PiToolCallOperations {
     matcher: FindMatcher,
     limit: number,
     results: string[],
+    deadline: number,
   ): Promise<void> {
+    this.cancellation?.throwIfAborted();
+    if (Date.now() >= deadline) {
+      throw new ToolExecutionError("find ran out of time: the search covered too many files; use a narrower path or pattern");
+    }
     for (const entry of await this.files.readDirectoryEntries(directory)) {
       if (results.length >= limit) {
         return;
@@ -161,7 +190,7 @@ export class PiToolCallOperations {
         results.push(entry.isDirectory ? `${absolutePath}/` : absolutePath);
       }
       if (entry.isDirectory) {
-        await this.collectFindMatches(absolutePath, relativePath, matcher, limit, results);
+        await this.collectFindMatches(absolutePath, relativePath, matcher, limit, results, deadline);
       }
     }
   }

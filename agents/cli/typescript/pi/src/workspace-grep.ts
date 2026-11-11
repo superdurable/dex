@@ -6,21 +6,24 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { Worker } from "node:worker_threads";
 
 import { DEFAULT_MAX_BYTES, formatSize, truncateHead, truncateLine } from "@earendil-works/pi-coding-agent";
 import { ToolExecutionError } from "@superdurable/dex-agents";
-import type { WorkspaceFiles } from "@superdurable/dex-agents-cli";
+import { WorkspaceFileRefusedError, type WorkspaceFiles } from "@superdurable/dex-agents-cli";
 import type { PiAgentToolResultLike } from "@superdurable/dex-agents-pi";
 import { Minimatch } from "minimatch";
 
 const defaultMatchLimit = 100;
 const maximumLineCharacters = 500;
 const skippedDirectories = new Set([".git", "node_modules"]);
+/** The largest file `grep` reads, as the runtime's `search_files`; larger files are skipped. */
+const maximumSearchedFileBytes = 1024 * 1024;
 
 /**
- * The longest a `grep` call spends matching, in milliseconds, before it fails.
+ * The longest a `grep` call runs, in milliseconds, reading and matching, before it fails.
  *
  * @since 0.5.0
  */
@@ -57,9 +60,12 @@ interface GrepOutputLine {
 /** What the search has found so far. */
 interface GrepProgress {
   readonly lines: string[];
+  outputBytes: number;
   matchCount: number;
   isLimitReached: boolean;
+  isOutputFull: boolean;
   isAnyLineCut: boolean;
+  skippedLargeFileCount: number;
 }
 
 /** One search's settings, matcher, and progress, shared by the directory walk. */
@@ -76,11 +82,13 @@ interface GrepSearch {
  * Pi's `grep` tool on the runtime's {@link WorkspaceFiles}, instead of `rg`.
  *
  * It walks the search directory without following links and without `.git` and `node_modules`, and reads each
- * regular file through the runtime layer, so a file outside the workspace or with more than one hard link is
- * skipped. FIFOs, sockets, devices, and files with a NUL byte are skipped too. Matching runs in a worker thread with
- * one time budget per call, so a pattern that backtracks without end fails the call instead of blocking the Worker.
- * The output follows Pi's: `path:line: text` for a match, `path-line- text` for a context line, and the same limit
- * notices. It does not read `.gitignore`.
+ * regular file of at most 1 MiB through the runtime layer, so a file outside the workspace or with more than one
+ * hard link is skipped. FIFOs, sockets, devices, larger files, and files with a NUL byte are skipped too; the result
+ * says how many files were too large. Matching runs in a worker thread, and the whole call, reading included, has
+ * one time budget, so a pattern that backtracks without end fails the call instead of blocking the Worker. Output
+ * stops at Pi's byte limit. The output follows Pi's: `path:line: text` for a match, `path-line- text` for a context
+ * line, and the same limit notices. A `path` starting with `@` or `~` is read as Pi reads it. It does not read
+ * `.gitignore`.
  *
  * @since 0.5.0
  */
@@ -89,7 +97,7 @@ export class WorkspaceGrep {
    * Creates the search.
    *
    * @param files - The workspace's file layer.
-   * @param matchTimeoutMs - The longest one call spends matching; defaults to {@link defaultGrepMatchTimeoutMs}.
+   * @param matchTimeoutMs - The longest one call runs; defaults to {@link defaultGrepMatchTimeoutMs}.
    */
   public constructor(
     private readonly files: WorkspaceFiles,
@@ -103,8 +111,8 @@ export class WorkspaceGrep {
    * @param grepArguments - The tool's arguments.
    * @param signal - Aborted when Dex cancels the call.
    * @returns The tool result.
-   * @throws {ToolExecutionError} When the path is outside or missing, the pattern or glob is invalid, or matching
-   * takes longer than the call's time budget.
+   * @throws {ToolExecutionError} When the path is outside, missing, or a file the runtime refuses, the pattern or glob
+   * is invalid, or the call takes longer than its time budget.
    */
   public async search(
     searchPath: string,
@@ -112,21 +120,32 @@ export class WorkspaceGrep {
     signal: AbortSignal | undefined,
   ): Promise<PiAgentToolResultLike> {
     const glob = new GrepGlobFilter(grepArguments.glob);
-    const matcher = new GrepLineMatcher(grepArguments, this.matchTimeoutMs);
+    const matcher = new GrepLineMatcher(grepArguments, Date.now() + this.matchTimeoutMs);
+    const normalizedPath = expandPiPath(searchPath);
     try {
       const search: GrepSearch = {
         matcher,
         glob,
         contextLines: Math.max(0, Math.floor(grepArguments.context ?? 0)),
         limit: Math.max(1, Math.floor(grepArguments.limit ?? defaultMatchLimit)),
-        progress: { lines: [], matchCount: 0, isLimitReached: false, isAnyLineCut: false },
+        progress: {
+          lines: [],
+          outputBytes: 0,
+          matchCount: 0,
+          isLimitReached: false,
+          isOutputFull: false,
+          isAnyLineCut: false,
+          skippedLargeFileCount: 0,
+        },
         signal,
       };
-      const searched = await this.files.statExisting(searchPath);
+      const searched = await this.files.statExisting(normalizedPath);
       if (searched.isDirectory()) {
-        await this.searchDirectory(searchPath, "", false, search);
+        await this.searchDirectory(normalizedPath, "", false, search);
       } else if (searched.isFile()) {
-        await this.searchFile(searchPath, basename(searchPath), search);
+        await this.searchFile(normalizedPath, basename(normalizedPath), search, true);
+      } else {
+        throw new WorkspaceFileRefusedError(`${searchPath} is not a regular file or a directory`);
       }
       return formatResult(search.progress, search.limit);
     } finally {
@@ -141,10 +160,11 @@ export class WorkspaceGrep {
     search: GrepSearch,
   ): Promise<void> {
     for (const entry of await this.files.readDirectoryEntries(directory)) {
-      if (search.progress.isLimitReached) {
+      if (search.progress.isLimitReached || search.progress.isOutputFull) {
         return;
       }
       search.signal?.throwIfAborted();
+      search.matcher.requireTimeLeft();
       const relativePath = relativeDirectory === "" ? entry.name : `${relativeDirectory}/${entry.name}`;
       if (entry.isDirectory) {
         if (!skippedDirectories.has(entry.name) && !search.glob.isDirectoryExcluded(relativePath, entry.name)) {
@@ -152,17 +172,22 @@ export class WorkspaceGrep {
           await this.searchDirectory(join(directory, entry.name), relativePath, isIncluded, search);
         }
       } else if (entry.isFile && search.glob.isFileIncluded(relativePath, entry.name, isInsideIncludedDirectory)) {
-        await this.searchFile(join(directory, entry.name), relativePath, search);
+        await this.searchFile(join(directory, entry.name), relativePath, search, false);
       }
     }
   }
 
-  private async searchFile(path: string, displayPath: string, search: GrepSearch): Promise<void> {
+  /** Searches one file; a refused file fails the call when the caller named it, and is skipped otherwise. */
+  private async searchFile(path: string, displayPath: string, search: GrepSearch, isNamedByCaller: boolean): Promise<void> {
     let bytes: Buffer;
     try {
-      bytes = (await this.files.readFileWithVersion(path)).bytes;
+      if ((await this.files.statExisting(path)).size > maximumSearchedFileBytes) {
+        search.progress.skippedLargeFileCount += 1;
+        return;
+      }
+      bytes = (await this.files.readFileWithVersion(path, maximumSearchedFileBytes)).bytes;
     } catch (error: unknown) {
-      if (error instanceof ToolExecutionError) {
+      if (!isNamedByCaller && error instanceof ToolExecutionError) {
         return;
       }
       throw error;
@@ -178,21 +203,29 @@ export class WorkspaceGrep {
     for (const outputLine of selectOutputLines(fileLines.length, matchingIndexes, search)) {
       const { text, wasTruncated } = truncateLine(fileLines[outputLine.lineNumber - 1] ?? "", maximumLineCharacters);
       search.progress.isAnyLineCut ||= wasTruncated;
-      search.progress.lines.push(
-        outputLine.isMatch ? `${displayPath}:${outputLine.lineNumber}: ${text}` : `${displayPath}-${outputLine.lineNumber}- ${text}`,
-      );
+      const line = outputLine.isMatch
+        ? `${displayPath}:${outputLine.lineNumber}: ${text}`
+        : `${displayPath}-${outputLine.lineNumber}- ${text}`;
+      search.progress.lines.push(line);
+      search.progress.outputBytes += Buffer.byteLength(line, "utf8") + 1;
+      if (search.progress.outputBytes > DEFAULT_MAX_BYTES) {
+        search.progress.isOutputFull = true;
+        return;
+      }
     }
   }
 }
 
-/** Matches lines in a worker thread, which it terminates when the call's time budget runs out or the call aborts. */
+/** Matches lines in a worker thread, which it terminates when the call's deadline passes or the call aborts. */
 class GrepLineMatcher {
   private readonly source: string;
   private readonly flags: string;
   private worker: Worker | undefined;
-  private remainingMs: number;
 
-  public constructor(grepArguments: WorkspaceGrepArguments, timeoutMs: number) {
+  public constructor(
+    grepArguments: WorkspaceGrepArguments,
+    private readonly deadline: number,
+  ) {
     this.source =
       grepArguments.literal === true ? grepArguments.pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : grepArguments.pattern;
     this.flags = grepArguments.ignoreCase === true ? "i" : "";
@@ -202,7 +235,17 @@ class GrepLineMatcher {
     } catch (error: unknown) {
       throw new ToolExecutionError(`invalid regular expression: ${error instanceof Error ? error.message : String(error)}`);
     }
-    this.remainingMs = timeoutMs;
+  }
+
+  /**
+   * Fails the call when its deadline passed.
+   *
+   * @throws {ToolExecutionError} When the deadline passed.
+   */
+  public requireTimeLeft(): void {
+    if (Date.now() >= this.deadline) {
+      throw tooLongError();
+    }
   }
 
   /**
@@ -212,18 +255,14 @@ class GrepLineMatcher {
    */
   public async matchLines(lines: readonly string[], signal: AbortSignal | undefined): Promise<number[]> {
     signal?.throwIfAborted();
+    this.requireTimeLeft();
     const worker = this.startedWorker();
-    const startedAt = Date.now();
     try {
       return await new Promise<number[]>((resolvePromise, rejectPromise) => {
         const timer = setTimeout(() => {
           finish();
-          rejectPromise(
-            new ToolExecutionError(
-              "the pattern took too long to match; use a simpler pattern, literal: true, or a narrower path or glob",
-            ),
-          );
-        }, Math.max(0, this.remainingMs));
+          rejectPromise(tooLongError());
+        }, Math.max(0, this.deadline - Date.now()));
         const onAbort = (): void => {
           finish();
           rejectPromise(signal?.reason ?? new Error("aborted"));
@@ -250,8 +289,6 @@ class GrepLineMatcher {
     } catch (error: unknown) {
       await this.close();
       throw error;
-    } finally {
-      this.remainingMs -= Date.now() - startedAt;
     }
   }
 
@@ -341,20 +378,44 @@ function selectOutputLines(lineCount: number, matchingIndexes: readonly number[]
     .map(([lineNumber, isMatch]) => ({ lineNumber, isMatch }));
 }
 
+function tooLongError(): ToolExecutionError {
+  return new ToolExecutionError(
+    "grep ran out of time: the pattern took too long to match, or the search covered too many files; use a simpler " +
+      "pattern, literal: true, or a narrower path or glob",
+  );
+}
+
+/** Reads a leading `@` and `~` as Pi's tools do; the workspace file layer checks the result. */
+function expandPiPath(path: string): string {
+  const withoutAt = path.startsWith("@") ? path.slice(1) : path;
+  if (withoutAt === "~") {
+    return homedir();
+  }
+  return withoutAt.startsWith("~/") ? join(homedir(), withoutAt.slice(2)) : withoutAt;
+}
+
 function formatResult(progress: GrepProgress, limit: number): PiAgentToolResultLike {
+  const skippedNotice =
+    progress.skippedLargeFileCount === 0
+      ? undefined
+      : `${progress.skippedLargeFileCount} files larger than ${formatSize(maximumSearchedFileBytes)} were skipped`;
   if (progress.matchCount === 0) {
-    return { content: [{ type: "text", text: "No matches found" }] };
+    const text = skippedNotice === undefined ? "No matches found" : `No matches found\n\n[${skippedNotice}]`;
+    return { content: [{ type: "text", text }] };
   }
   const truncation = truncateHead(progress.lines.join("\n"), { maxLines: Number.MAX_SAFE_INTEGER });
   const notices: string[] = [];
   if (progress.isLimitReached) {
     notices.push(`${limit} matches limit reached. Use limit=${limit * 2} for more, or refine pattern`);
   }
-  if (truncation.truncated) {
+  if (truncation.truncated || progress.isOutputFull) {
     notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
   }
   if (progress.isAnyLineCut) {
     notices.push(`Some lines truncated to ${maximumLineCharacters} chars. Use read tool to see full lines`);
+  }
+  if (skippedNotice !== undefined) {
+    notices.push(skippedNotice);
   }
   const text = notices.length === 0 ? truncation.content : `${truncation.content}\n\n[${notices.join(". ")}]`;
   return { content: [{ type: "text", text }] };

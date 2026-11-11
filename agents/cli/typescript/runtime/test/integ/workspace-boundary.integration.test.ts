@@ -141,6 +141,8 @@ describe("the workspace boundary of the file tools", () => {
     symlinkSync(join(root, "outside-dir"), join(workspace, "secret-dir"));
     linkSync(join(root, "outside.txt"), join(workspace, "linked.txt"));
     assert.equal((await files.readFileWithVersion("notes.txt")).bytes.toString("utf8"), "inside");
+    assert.equal((await files.readFileWithVersion("notes.txt", 6)).bytes.length, 6);
+    await assert.rejects(files.readFileWithVersion("notes.txt", 5), /larger than 5 bytes/);
     await assert.rejects(files.readFileWithVersion("secret.txt"), /outside the workspace/);
     await assert.rejects(files.readFileWithVersion(join(workspace, "linked.txt")), /has 2 hard links/);
     await assert.rejects(files.statExisting("secret.txt"), /outside the workspace/);

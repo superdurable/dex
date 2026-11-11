@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createBuiltinAgentSessionFlow, type BuiltinLoopAgentRunner } from "@superdurable/dex-agents/builtin-loop";
 import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli";
@@ -108,7 +109,9 @@ export function createPiSessionFlow(
 ): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const section = readPiSection(context.harnessOptions);
   const modelClients = new PiModelClients(section.providerBaseUrls, environment);
-  const projectContext = new ProjectContextFiles(context.workspace, (line) => process.stderr.write(`${line}\n`));
+  const projectContext = new ProjectContextFiles(context.workspace, getAgentDir(), (line) =>
+    process.stderr.write(`${line}\n`),
+  );
   return createBuiltinAgentSessionFlow(
     {
       name: "pi",

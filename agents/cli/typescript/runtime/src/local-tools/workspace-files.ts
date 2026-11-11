@@ -219,17 +219,22 @@ export class WorkspaceFiles {
    * one hard link, as for {@link readFile}.
    *
    * @param path - The file, relative to the workspace or absolute inside it.
+   * @param maximumBytes - The largest file to read, at most and by default 64 MiB. It reads at most one byte more.
    * @returns The content and its version.
    * @throws {WorkspaceFileRefusedError} When the path is outside, missing, not a regular file, hard-linked, or larger than
-   * 64 MiB.
+   * `maximumBytes`.
    * @since 0.5.0
    */
-  public async readFileWithVersion(path: string): Promise<{ bytes: Buffer; version: WorkspaceFileVersion }> {
+  public async readFileWithVersion(
+    path: string,
+    maximumBytes: number = maximumWholeFileBytes,
+  ): Promise<{ bytes: Buffer; version: WorkspaceFileVersion }> {
+    const limit = Math.min(Math.max(0, Math.floor(maximumBytes)), maximumWholeFileBytes);
     const file = await this.openRegularFile(path);
     try {
-      const bytes = await readAtMost(file.handle, maximumWholeFileBytes);
+      const bytes = await readAtMost(file.handle, limit);
       if (bytes === undefined) {
-        throw new WorkspaceFileRefusedError(`${path} is larger than ${maximumWholeFileBytes} bytes`);
+        throw new WorkspaceFileRefusedError(`${path} is larger than ${limit} bytes`);
       }
       return { bytes, version: { stats: file.stats, sha256: sha256Of(bytes) } };
     } finally {
@@ -262,6 +267,9 @@ export class WorkspaceFiles {
 
   /**
    * Returns the stats of an existing path inside the workspace, following links that stay inside.
+   *
+   * It only checks where the path leads: it does not refuse a file with more than one hard link, which the methods
+   * that read or write a file do.
    *
    * @param path - The path, relative to the workspace or absolute inside it.
    * @returns The stats of the file or directory the path names.
@@ -343,7 +351,7 @@ export class WorkspaceFiles {
   }
 
   private async searchFile(file: string, query: string, matches: string[]): Promise<void> {
-    const handle = await open(file, constants.O_RDONLY | noFollowFlag).catch(() => undefined);
+    const handle = await open(file, constants.O_RDONLY | noFollowFlag | nonBlockingOpenFlag).catch(() => undefined);
     if (handle === undefined) {
       return;
     }

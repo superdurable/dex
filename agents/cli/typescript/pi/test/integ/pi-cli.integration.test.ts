@@ -203,6 +203,22 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.equal(readFileSync(join(home.workspace, "bash.txt"), "utf8"), "approved\n");
   });
 
+  test("a bash command that exits with a non-zero code is a result, not a failure", async () => {
+    const command = "echo ran > ran.txt; echo bad; exit 3";
+    const home = newHome({ ...noConnectors, local_tools: { browser: false, shell: { enabled: true, allow: [command] } } });
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("bash", { command }));
+    await cli.stdout.waitFor("bash: bad");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    const toolResult = lastToolResults();
+    assert.match(toolResult, /Command exited with code 3/);
+    assert.doesNotMatch(toolResult, /The tool call failed|outcome is unknown/);
+    assert.equal(readFileSync(join(home.workspace, "ran.txt"), "utf8"), "ran\n");
+  });
+
   test("a bash command without a timeout is killed after pi.bash_timeout_seconds, and the model sees it", async () => {
     const home = newHome({
       ...noConnectors,
@@ -222,11 +238,11 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     const bashTool = ((api.modelRequests().at(-1)?.["tools"] as Record<string, unknown>[] | undefined) ?? []).find(
       (tool) => tool["name"] === "bash",
     );
-    assert.match(JSON.stringify(bashTool), /defaults to 1/);
+    assert.match(JSON.stringify(bashTool), /defaults to 1, at most 600/);
     const toolResult = lastToolResults();
-    assert.match(toolResult, /The tool call failed: started/);
+    assert.match(toolResult, /started/);
     assert.match(toolResult, /Command timed out after 1 seconds/);
-    assert.doesNotMatch(toolResult, /finished|outcome is unknown/);
+    assert.doesNotMatch(toolResult, /finished|outcome is unknown|The tool call failed/);
   });
 
   test("a group switched off in the file is not offered", async () => {
@@ -383,6 +399,7 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     mkdirSync(join(home.workspace, "lib", "src"), { recursive: true });
     writeFileSync(join(home.workspace, "lib", "src", "c.ts"), "alpha nested\n");
     assert.equal(spawnSync("mkfifo", [join(home.workspace, "pipe")]).status, 0);
+    writeFileSync(join(home.workspace, "big.log"), `alpha\n${"x".repeat(1536 * 1024)}\n`);
     const cli = start(home);
     await cli.waitForSession();
     cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, glob: "*.ts" }));
@@ -392,6 +409,9 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     await cli.stdout.waitFor("grep: src/a.ts:1: const Alpha = 1;\n");
     await cli.stdout.waitFor("> ");
     cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, glob: "!src" }));
+    await cli.stdout.waitFor("grep: No matches found");
+    await cli.stdout.waitFor(/1 files larger than \S+ were skipped/);
+    cli.writeLine(call("grep", { pattern: "nested", glob: "!lib/" }));
     await cli.stdout.waitFor("grep: No matches found");
     cli.writeLine(call("read", { path: "pipe" }));
     await cli.stdout.waitFor("is not a regular file");
@@ -436,6 +456,8 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     await cli.stdout.waitFor("has 2 hard links");
     cli.writeLine(call("grep", { pattern: "read" }));
     await cli.stdout.waitFor("grep: No matches found");
+    cli.writeLine(call("grep", { pattern: "read", path: "linked.txt" }));
+    await cli.stdout.waitFor("has 2 hard links");
     cli.writeLine(call("write", { path: "linked.txt", content: "overwritten" }));
     await cli.stdout.waitFor("Approve write?");
     cli.writeLine("y");
@@ -468,6 +490,24 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
     assert.match(lastToolResults(), /is outside the workspace/);
+  });
+
+  test("an edit of a file over 4 MiB is refused as too large", async () => {
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    const content = `alpha\n${"x".repeat(5 * 1024 * 1024)}\n`;
+    writeFileSync(join(home.workspace, "large.txt"), content);
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("edit", { path: "large.txt", edits: [{ oldText: "alpha", newText: "beta" }] }));
+    await cli.stdout.waitFor("Approve edit?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("too large to edit");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.doesNotMatch(lastToolResults(), /outcome is unknown|changed after/);
+    assert.equal(readFileSync(join(home.workspace, "large.txt"), "utf8"), content);
   });
 
   test("a bash call with an invalid timeout records a failure and never runs", async () => {
@@ -546,8 +586,8 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     }
     const home = newHome({ ...noConnectors, local_tools: { browser: false, files: false } });
     mkdirSync(join(home.workspace, "docs"), { recursive: true });
-    writeFileSync(join(home.workspace, "docs", "rules.md"), "Inside workspace rules.\n");
-    symlinkSync(join(home.workspace, "docs", "rules.md"), join(home.workspace, "AGENTS.md"));
+    writeFileSync(join(home.workspace, "rules.md"), "Inside workspace rules.\n");
+    symlinkSync(join(home.workspace, "rules.md"), join(home.workspace, "AGENTS.md"));
     symlinkSync(join(outside, "ancestor.md"), join(home.directory, "AGENTS.md"));
     mkdirSync(join(home.directory, ".pi", "agent"), { recursive: true });
     symlinkSync(join(outside, "global.md"), join(home.directory, ".pi", "agent", "AGENTS.md"));
@@ -555,11 +595,11 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     await first.waitForSession();
     first.writeLine("say hi");
     await first.stdout.waitFor("said: hi");
-    assert.ok(lastSystemPrompt().includes("Inside workspace rules."), "a link inside its directory loads");
+    assert.ok(lastSystemPrompt().includes("Inside workspace rules."), "a link to a file in the same directory loads");
     assert.doesNotMatch(lastSystemPrompt(), /Outside (ancestor|global) instructions/);
     first.writeLine("/exit");
     assert.equal(await first.waitForExit(), 0);
-    assert.match(first.stderr.all, /skipped the project context file .*\.pi\/agent\/AGENTS\.md: .*outside the workspace/);
+    assert.match(first.stderr.all, /skipped the project context file .*\.pi\/agent\/AGENTS\.md: it resolves to .*outside its directory/);
     assert.match(first.stderr.all, new RegExp(`skipped the project context file ${home.directory}/AGENTS\\.md`));
 
     unlinkSync(join(home.workspace, "AGENTS.md"));
@@ -591,7 +631,7 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
     assert.doesNotMatch(JSON.stringify(api.modelRequests()), /Outside swapped instructions/);
-    assert.match(cli.stderr.all, /skipped the project context file .*AGENTS\.md: .*outside the workspace/);
+    assert.match(cli.stderr.all, /skipped the project context file .*AGENTS\.md: it resolves to .*outside its directory/);
   });
 
   test("without an API key the command stops and names the variable, even with an OAuth token", async () => {

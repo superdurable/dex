@@ -44,7 +44,9 @@ provider: `ANTHROPIC_API_KEY` for `anthropic`, `OPENAI_API_KEY` for `openai`,
 Providers that pi-ai authenticates with ambient credentials, such as an AWS
 profile for Bedrock, need no key. When the file's model has no key, the command
 stops before the chat and names the variable. When a turn's session settings
-pick a model without a key, that turn fails with the same message.
+pick a model without a key, that turn fails with the same message. pi-ai
+treats an `ANTHROPIC_API_KEY` that starts with `sk-ant-oat` as an OAuth token
+and switches to its OAuth mode; use a real API key.
 
 ## Configuration
 
@@ -66,7 +68,7 @@ pi:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `pi.load_project_context` | `true` | Whether each model call adds the project context files, as Pi does. See below. |
-| `pi.bash_timeout_seconds` | `120` | Seconds a `bash` command runs before it is killed when the model passes no `timeout`, the same default as the runtime's shell tool. A whole number from 1 to 2147483. |
+| `pi.bash_timeout_seconds` | `120` | Seconds a `bash` command runs before it is killed when the model passes no `timeout`, the same default as the runtime's shell tool. A whole number from 1 to 600, the runtime shell tool's maximum. |
 | `pi.provider_base_urls` | `{}` | An `http` or `https` URL per provider, which replaces the URL in pi-ai's catalog, such as a proxy or a compatible endpoint. |
 
 Any other key in the section is a configuration error.
@@ -81,22 +83,26 @@ instructions:
 - `AGENTS.md` in the workspace and in each directory above it, the outermost
   first.
 
-In each directory, Pi picks the first of `AGENTS.override.md`, `AGENTS.md`,
-`AGENTS.MD`, `CLAUDE.md`, and `CLAUDE.MD`. The command reads the files in every
-model call on the Worker that runs it, so an edited file applies from the next
-model call, and two turns of one session may see different instructions. Set
-`pi.load_project_context: false` to add none.
+In each directory, the command picks the first of `AGENTS.override.md`,
+`AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, and `CLAUDE.MD` that is a regular file
+or a link to one, in Pi's order; it does not apply Pi's rule for nested git
+worktrees. It reads the files in every model call on the Worker that runs it,
+so an edited file applies from the next model call, and two turns of one
+session may see different instructions. Set `pi.load_project_context: false`
+to add none.
 
-Pi skips a candidate that is not a regular file, without a warning. Each
-file it picks is read again with the runtime's workspace file rules, scoped to
-the directory it is in. The command pins the real path of each such directory
-(the workspace, each directory above it, and Pi's global directory) the first
-time it sees it and never derives it again, so a directory later swapped for a
-link elsewhere cannot authorize the new place. A file that is a symbolic link
-out of its pinned directory, such as `~/.pi/agent/AGENTS.md` linked to a
-dotfiles repository, or that has more than one hard link, is skipped, and the
-command prints a warning. A link to another file in the same directory, or
-below it, loads. This holds whatever `local_tools.files` says.
+Each file is read with the runtime's workspace file rules, at most 1 MiB,
+without blocking. The command pins the real path of each directory (the
+workspace, each directory above it, and Pi's global directory) the first time
+it sees it and never derives it again, so a directory later swapped for a link
+elsewhere cannot authorize the new place. A file loads only when its real path
+is directly in its pinned directory: a link to another file in the same
+directory loads, but a link elsewhere, even below that directory, such as
+`~/.pi/agent/AGENTS.md` linked to a dotfiles repository, is skipped. A file
+with more than one hard link is skipped. In a directory above the workspace, a
+file must belong to you or to root, so another user's file in a shared
+directory such as `/tmp` never reaches the instructions. Each skipped file
+prints one warning. This holds whatever `local_tools.files` says.
 
 ## Tools and approvals
 
@@ -115,9 +121,13 @@ you questions.
   layer refuses before it changes anything, such as an outside path, a link, a
   hard link, or an edit conflict, records `failed` and the model sees why. Any
   other failure of a `write` or `edit`, such as one after the rename, records
-  `outcome_unknown`. A `bash` call that fails before its shell process starts,
-  such as with an invalid `timeout`, records `failed`; one that fails after it
-  started, or whose Worker dies while it runs, records `outcome_unknown`.
+  `outcome_unknown`. A `bash` command that ran is a result, as with the
+  runtime's shell tool: its output ends with `Command exited with code N` for
+  a non-zero exit, or `Command timed out after N seconds` when its timeout
+  killed it. A `bash` call that fails before its shell process starts, such as
+  with an invalid `timeout`, records `failed`; one that fails after it started,
+  or whose Worker dies while it runs, records `outcome_unknown`. `edit`
+  refuses a file over 4 MiB as too large to edit.
 - Each turn offers only the groups its session settings switch on.
   `approval.always` adds approval by tool name, such as `read`.
 - Every file access of the file tools goes through the runtime's workspace
@@ -137,8 +147,10 @@ you questions.
   README describes the remaining write race.
 - The working directory of every tool is the workspace. A `bash` command
   without a `timeout` argument is killed after `pi.bash_timeout_seconds`, 120
-  by default, as the runtime's shell tool. A command killed by its timeout
-  records `failed`, and the model sees its output and the timeout.
+  by default, as the runtime's shell tool; a `timeout` over 600 seconds is
+  refused. When a command's output is too long, the result shows its end and
+  says the rest is not kept: the command deletes the temporary file in which
+  Pi keeps the full output, because it lies outside the workspace.
 - The tool Step checks every call again, right before it runs, with the
   configuration of the Worker that runs it and the settings its turn started
   with. A call whose group is off there, or that ran without approval but now
@@ -149,12 +161,16 @@ you questions.
   do not read `.gitignore`. `find` matches Pi's glob rules. `grep` reads each
   regular file through the layer, skipping files with more than one hard link,
   files outside the workspace, FIFOs and other special files, and binary
-  files. It takes Pi's options (`pattern`, `path`, `glob`, `ignoreCase`,
-  `literal`, `context`, `limit`) and matches with JavaScript regular
-  expressions, close to `rg`'s syntax. Matching runs in a worker thread with a
-  10-second budget per call, so a pattern that backtracks without end fails
-  the call with "the pattern took too long to match" instead of blocking. Both
-  are slower than `fd` and `rg` on large trees.
+  files. It skips files over 1 MiB, as the runtime's `search_files` does, and
+  says how many it skipped. It takes Pi's options (`pattern`, `path`, `glob`,
+  `ignoreCase`, `literal`, `context`, `limit`), reads a `path` starting with
+  `@` or `~` as Pi does, and fails when that `path` names a file the runtime
+  refuses. It matches with JavaScript regular expressions, close to `rg`'s
+  syntax, in a worker thread. A `grep` or `find` call has 10 seconds in all,
+  reading included, so a pattern that backtracks without end, or a huge tree,
+  fails the call instead of blocking; cancelling the turn stops it too.
+  `grep` stops collecting at Pi's 50 KB output limit. Both are slower than
+  `fd` and `rg` on large trees.
 - `grep`'s `glob` follows `rg --glob` where practical: a pattern without `/`
   matches names at any depth, one with `/` matches the path below the search
   directory (a leading `/` anchors it there), a trailing `/` matches only

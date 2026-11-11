@@ -233,8 +233,8 @@ Each call is one Dex tool Step, recorded in the session.
   without following a final link, and the opened file must still be the one
   the path names, so a link swapped in meanwhile fails. A file with more than
   one hard link is refused. Searches check every file they open the same way.
-  Reads open without blocking, so a FIFO or device fails at once as not a
-  regular file.
+  Reads and searches open files without blocking, so a FIFO or device in
+  the workspace fails at once as not a regular file, and a search skips it.
   `write_file` and `edit_file` write a new file in the checked directory and
   rename it over the target, and never write through a link. After the
   rename, the target must be the written file inside the workspace.

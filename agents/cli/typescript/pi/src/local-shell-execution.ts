@@ -12,8 +12,8 @@ import { constants as osConstants } from "node:os";
 import { getShellConfig, type BashOperations } from "@earendil-works/pi-coding-agent";
 import { ToolExecutionError } from "@superdurable/dex-agents";
 
-/** The largest timer Node accepts, in milliseconds, which bounds a command's timeout. */
-const maximumShellTimeoutMs = 2_147_483_647;
+/** The longest a command may run, in seconds: the runtime shell tool's maximum. */
+export const maximumShellTimeoutSeconds = 600;
 
 type ShellExecutionOptions = Parameters<BashOperations["exec"]>[2];
 
@@ -34,9 +34,9 @@ export class LocalShellExecution {
 
   public async execute(command: string, workingDirectory: string, options: ShellExecutionOptions): Promise<{ exitCode: number | null }> {
     const { timeout, signal } = options;
-    if (timeout !== undefined && (!Number.isFinite(timeout) || timeout <= 0 || timeout * 1000 > maximumShellTimeoutMs)) {
+    if (timeout !== undefined && (!Number.isFinite(timeout) || timeout <= 0 || timeout > maximumShellTimeoutSeconds)) {
       throw new ToolExecutionError(
-        `timeout must be a number of seconds above 0 and at most ${Math.floor(maximumShellTimeoutMs / 1000)}; the command did not run`,
+        `timeout must be a number of seconds above 0 and at most ${maximumShellTimeoutSeconds}; the command did not run`,
       );
     }
     if (signal?.aborted === true) {

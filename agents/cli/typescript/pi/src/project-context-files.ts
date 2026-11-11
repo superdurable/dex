@@ -7,10 +7,15 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { realpathSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { lstat, realpath, stat } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 
-import { getAgentDir, loadProjectContextFiles } from "@earendil-works/pi-coding-agent";
 import { WorkspaceFiles } from "@superdurable/dex-agents-cli";
+
+/** The names Pi looks for in each directory, in its order; the first regular file wins. */
+const contextFileNames = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
+/** The largest project context file the command reads. */
+const maximumContextFileBytes = 1024 * 1024;
 
 /**
  * One project context file that a model call adds to the instructions.
@@ -18,74 +23,142 @@ import { WorkspaceFiles } from "@superdurable/dex-agents-cli";
  * @since 0.5.0
  */
 export interface ProjectContextFile {
-  /** The file's path, as Pi names it. */
+  /** The file's path in its directory. */
   readonly path: string;
   /** The file's UTF-8 text, without a byte order mark. */
   readonly content: string;
 }
 
+/** One directory that may hold a project context file. */
+interface ContextDirectory {
+  readonly path: string;
+  /** Whether its files must belong to the current user or root: true for the workspace's ancestors. */
+  readonly isOwnershipChecked: boolean;
+}
+
 /**
- * Loads Pi's project context files, such as `AGENTS.md`, confined to the directory each one is in.
+ * Loads the project context files, such as `AGENTS.md`, as Pi finds them, confined to the directory each one is in.
  *
- * Pi picks the files and their order: the global one in Pi's agent directory, then one per directory from the
- * outermost ancestor of the workspace to the workspace. Pi itself skips a candidate that is not a regular file. Each
- * picked file is then read again through the runtime's `WorkspaceFiles`, scoped to the real path its directory had
- * when the loader first saw it. That real path is pinned for the life of the process and never re-derived, so a
- * directory swapped for a link elsewhere, even during a load, cannot authorize the new place. A file that leaves its
- * pinned directory, has more than one hard link, or whose directory was not pinned is skipped with a warning, once
- * per file.
+ * It searches Pi's directories in Pi's order: Pi's global agent directory, then each directory from the outermost
+ * ancestor of the workspace to the workspace. In each, the first of `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`,
+ * `CLAUDE.md`, and `CLAUDE.MD` that is a regular file, or a link to one, is the candidate. Every candidate is read
+ * through the runtime's `WorkspaceFiles`, at most 1 MiB, never with a synchronous or blocking read.
+ *
+ * The real path of each directory is pinned the first time the loader sees it and never derived again. A candidate
+ * loads only when its real path is directly in its pinned directory: a link to a file elsewhere, even below that
+ * directory, is skipped, as is a file with more than one hard link. In an ancestor of the workspace, a file must
+ * belong to the current user or root, so another user's file in a shared directory such as `/tmp` never reaches the
+ * instructions. Each skipped file is reported once through `warn`.
  *
  * @since 0.5.0
  */
 export class ProjectContextFiles {
-  private readonly pinnedScopes = new Map<string, WorkspaceFiles>();
+  private readonly pinnedScopes = new Map<string, { readonly realPath: string; readonly files: WorkspaceFiles }>();
   private readonly warnedPaths = new Set<string>();
+  private readonly directories: readonly ContextDirectory[];
 
   /**
    * Creates the loader and pins the real paths of the workspace and each of its ancestors.
    *
-   * @param workspace - The workspace directory, the innermost directory Pi searches.
+   * @param workspace - The workspace directory, the innermost directory searched.
+   * @param agentDirectory - Pi's global agent directory, such as `~/.pi/agent`.
    * @param warn - Writes a warning for the person at the terminal.
+   * @param ownerUserId - The user whose files the ancestors may hold, besides root; defaults to the current user.
+   * `undefined` on a platform without user IDs, which skips the ownership check.
    */
   public constructor(
-    private readonly workspace: string,
+    workspace: string,
+    private readonly agentDirectory: string,
     private readonly warn: (line: string) => void,
+    private readonly ownerUserId: number | undefined = typeof process.getuid === "function" ? process.getuid() : undefined,
   ) {
-    let directory = resolve(workspace);
-    for (;;) {
-      this.pinScope(directory);
-      const parent = dirname(directory);
-      if (parent === directory) {
+    const workspaceDirectory = resolve(workspace);
+    const ancestors: string[] = [];
+    for (let directory = dirname(workspaceDirectory); ; directory = dirname(directory)) {
+      ancestors.unshift(directory);
+      if (dirname(directory) === directory) {
         break;
       }
-      directory = parent;
+    }
+    this.directories = [
+      { path: resolve(agentDirectory), isOwnershipChecked: false },
+      ...ancestors.map((path) => ({ path, isOwnershipChecked: true })),
+      { path: workspaceDirectory, isOwnershipChecked: false },
+    ].filter((directory, index, all) => all.findIndex((other) => other.path === directory.path) === index);
+    for (const directory of this.directories.slice(1)) {
+      this.pinScope(directory.path);
     }
   }
 
   /**
    * Loads the files on this Worker. It reads the files again in every call and keeps no content.
    *
-   * @returns The files that stay inside their pinned directories, in Pi's order.
+   * @returns The files that pass the checks, in Pi's order.
    */
   public async load(): Promise<ProjectContextFile[]> {
-    const agentDirectory = getAgentDir();
-    // Pin before the first await, so nothing can swap the directory between Pi's pick and the pin.
-    this.pinScope(resolve(agentDirectory));
+    // Pi's agent directory may appear later; pin it before the first await of this load.
+    this.pinScope(resolve(this.agentDirectory));
     const loaded: ProjectContextFile[] = [];
-    for (const candidate of loadProjectContextFiles({ cwd: this.workspace, agentDir: agentDirectory })) {
-      const scope = this.pinnedScopes.get(dirname(resolve(candidate.path)));
-      if (scope === undefined) {
-        this.warnOnce(candidate.path, "its directory is not one the loader pinned");
+    for (const directory of this.directories) {
+      const candidate = await this.findCandidate(directory.path);
+      if (candidate === undefined) {
         continue;
       }
-      try {
-        const { bytes } = await scope.readFileWithVersion(resolve(candidate.path));
-        loaded.push({ path: candidate.path, content: bytes.toString("utf8").replace(/^﻿/, "") });
-      } catch (error: unknown) {
-        this.warnOnce(candidate.path, error instanceof Error ? error.message : String(error));
+      const file = await this.readCandidate(candidate, directory);
+      if (file !== undefined) {
+        loaded.push(file);
       }
     }
     return loaded;
+  }
+
+  /** Returns the first context file name in a directory that is a regular file or a link to one. */
+  private async findCandidate(directory: string): Promise<string | undefined> {
+    for (const name of contextFileNames) {
+      const path = join(directory, name);
+      const entry = await lstat(path).catch(() => undefined);
+      if (entry === undefined) {
+        continue;
+      }
+      // stat never blocks, even on a FIFO, and follows a link to see what it names.
+      const target = entry.isSymbolicLink() ? await stat(path).catch(() => undefined) : entry;
+      if (target?.isFile() === true) {
+        return path;
+      }
+    }
+    return undefined;
+  }
+
+  private async readCandidate(candidate: string, directory: ContextDirectory): Promise<ProjectContextFile | undefined> {
+    const scope = this.pinnedScopes.get(directory.path);
+    if (scope === undefined) {
+      this.warnOnce(candidate, "its directory is not one the loader pinned");
+      return undefined;
+    }
+    try {
+      const realPath = await realpath(candidate);
+      if (dirname(realPath) !== scope.realPath) {
+        this.warnOnce(candidate, `it resolves to ${realPath}, outside its directory ${scope.realPath}`);
+        return undefined;
+      }
+      const { bytes, version } = await scope.files.readFileWithVersion(realPath, maximumContextFileBytes);
+      const current = await lstat(realPath);
+      if (current.dev !== version.stats.dev || current.ino !== version.stats.ino) {
+        this.warnOnce(candidate, "it changed while it was read");
+        return undefined;
+      }
+      if (directory.isOwnershipChecked && this.ownerUserId !== undefined) {
+        const ownerId = version.stats.uid;
+        if (ownerId !== this.ownerUserId && ownerId !== 0) {
+          this.warnOnce(candidate, `it belongs to user ${ownerId}, not to you or root`);
+          return undefined;
+        }
+      }
+      return { path: candidate, content: bytes.toString("utf8").replace(/^﻿/, "") };
+    } catch (error: unknown) {
+      this.warnOnce(candidate, error instanceof Error ? error.message : String(error));
+      return undefined;
+    }
   }
 
   /** Pins a directory's current real path once; a missing directory stays unpinned until it exists. */
@@ -99,7 +172,7 @@ export class ProjectContextFiles {
     } catch {
       return;
     }
-    this.pinnedScopes.set(directory, new WorkspaceFiles(realPath));
+    this.pinnedScopes.set(directory, { realPath, files: new WorkspaceFiles(realPath) });
   }
 
   private warnOnce(path: string, reason: string): void {

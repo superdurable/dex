@@ -7,6 +7,9 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { realpathSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname } from "node:path";
 
 import {
   createBashTool,
@@ -41,6 +44,7 @@ import {
 } from "@superdurable/dex-agents-cli";
 import { piAgentFunctionTool, type PiAgentToolLike } from "@superdurable/dex-agents-pi";
 
+import { maximumShellTimeoutSeconds } from "./local-shell-execution.js";
 import { PiToolCallOperations } from "./pi-tool-call-operations.js";
 import { WorkspaceGrep, type WorkspaceGrepArguments } from "./workspace-grep.js";
 
@@ -84,11 +88,11 @@ export const piCodingLocalTools: Readonly<Record<string, PiCodingLocalTool>> = O
 export const defaultBashTimeoutSeconds = 120;
 
 /**
- * The largest `bash` timeout in seconds that pi-coding-agent accepts.
+ * The largest `bash` timeout in seconds, from the model or the configuration: the runtime shell tool's maximum.
  *
  * @since 0.5.0
  */
-export const maximumBashTimeoutSeconds = 2_147_483;
+export const maximumBashTimeoutSeconds = maximumShellTimeoutSeconds;
 
 const refusalReferenceKey = "refused";
 
@@ -109,9 +113,12 @@ const refusalReferenceKey = "refused";
  * - A read tool's failure records `failed`, and the model sees why. A `write` or `edit` refused before it changed
  *   anything (`WorkspaceFileRefusedError`) records `failed`; any other failure may come after a change, such as
  *   after the rename, and records `outcome_unknown`.
- * - A `bash` call that fails before its shell process starts records `failed`. A failure after that records
- *   `outcome_unknown`, and the call never runs again, except that a command killed by its timeout records `failed`
- *   with its output. A call without `timeout` gets the source's default timeout.
+ * - A `bash` command that ran is a result the model reads, as the runtime shell tool's: its output ends with
+ *   `Command exited with code N` for a non-zero exit, or `Command timed out after N seconds` when its timeout killed
+ *   it. A call that fails before its shell process starts records `failed`. A failure after that records
+ *   `outcome_unknown`, and the call never runs again. A call without `timeout` gets the source's default timeout;
+ *   no timeout may exceed {@link maximumBashTimeoutSeconds}. When the output was cut, the result says so instead of
+ *   naming Pi's temporary file, which the source deletes.
  *
  * The working directory is the workspace. Register the source even when the file switches both groups off, so it
  * refuses calls that another process requested.
@@ -275,7 +282,7 @@ export class PiCodingToolSource implements ToolSource {
         ...properties,
         timeout: {
           ...properties["timeout"],
-          description: `Timeout in seconds; defaults to ${this.bashTimeoutSeconds}`,
+          description: `Timeout in seconds; defaults to ${this.bashTimeoutSeconds}, at most ${maximumBashTimeoutSeconds}`,
         },
       },
     };
@@ -342,13 +349,21 @@ export class PiCodingToolSource implements ToolSource {
             this.grep.search(grepArguments.path ?? ".", grepArguments, signal),
         };
       }
-      case "find":
-        return createFindTool(workspace, {
+      case "find": {
+        const piFind = createFindTool(workspace, {
           operations: {
             exists: (absolutePath) => operations.requireExisting(absolutePath),
             glob: (pattern, searchPath, options) => operations.findMatchingPaths(pattern, searchPath, options.limit),
           },
         });
+        return {
+          ...piFind,
+          execute: (toolCallId, params, signal, onUpdate) => {
+            operations.bindCancellation(signal);
+            return piFind.execute(toolCallId, params, signal, onUpdate);
+          },
+        };
+      }
       case "ls":
         return createLsTool(workspace, {
           operations: {
@@ -369,14 +384,17 @@ export class PiCodingToolSource implements ToolSource {
         return createEditTool(workspace, {
           operations: {
             access: (absolutePath) => operations.requireRegularFile(absolutePath),
-            readFile: (absolutePath) => operations.readFileBytes(absolutePath),
+            readFile: (absolutePath) => operations.readFileBytesForEdit(absolutePath),
             writeFile: (absolutePath, content) => operations.replaceReadFile(absolutePath, content),
           },
         });
       case "bash":
-        return createBashTool(workspace, {
-          operations: { exec: (command, cwd, options) => operations.executeCommand(command, cwd, options) },
-        });
+        return bashResultsAsOutput(
+          createBashTool(workspace, {
+            operations: { exec: (command, cwd, options) => operations.executeCommand(command, cwd, options) },
+          }),
+          operations,
+        );
       default:
         throw new ToolExecutionError(`unknown Pi tool ${toolName}`);
     }
@@ -394,7 +412,7 @@ function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolC
         if (signal?.aborted === true) {
           throw error;
         }
-        if (operations.hasEffectStarted && !operations.hasTimedOut) {
+        if (operations.hasEffectStarted) {
           // A plain error makes a single-attempt call record outcome_unknown.
           throw error instanceof ToolExecutionError ? new Error(error.message, { cause: error }) : error;
         }
@@ -402,6 +420,42 @@ function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolC
       }
     },
   };
+}
+
+/**
+ * Makes a command that ran a result, as the runtime shell tool does: a non-zero exit, which Pi reports as an error,
+ * and a timeout kill, which Pi throws, become output the model reads. A cut output's note no longer names Pi's
+ * temporary file, which is deleted.
+ */
+function bashResultsAsOutput(tool: PiAgentToolLike, operations: PiToolCallOperations): PiAgentToolLike {
+  return {
+    ...tool,
+    execute: async (toolCallId, params, signal, onUpdate) => {
+      let text: string;
+      try {
+        const result = await tool.execute(toolCallId, params, signal, onUpdate);
+        text = result.content.map((part) => (part.type === "text" ? part.text : "")).join("\n");
+      } catch (error: unknown) {
+        if (!operations.hasTimedOut || signal?.aborted === true) {
+          throw error;
+        }
+        text = describe(error);
+      }
+      return { content: [{ type: "text", text: await withoutTemporaryOutputPath(text) }] };
+    },
+  };
+}
+
+/** Replaces Pi's "Full output: <temporary file>" note and deletes that file, which lies outside the workspace. */
+async function withoutTemporaryOutputPath(text: string): Promise<string> {
+  const match = /Full output: (\S+?)\]/.exec(text);
+  const temporaryPath = match?.[1];
+  if (temporaryPath === undefined || !basename(temporaryPath).startsWith("pi-bash") || dirname(temporaryPath) !== tmpdir()) {
+    return text;
+  }
+  // A leftover temporary file is harmless, so a failed delete does not fail the call.
+  await rm(temporaryPath, { force: true }).catch(() => undefined);
+  return text.replace(match?.[0] ?? "", "The full output is not kept; run the command again with less output]");
 }
 
 function readRecordedRefusal(toolSourceReference: string | null | undefined): string | null {
