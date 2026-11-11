@@ -13,7 +13,7 @@ release-tooling-test: ## Verify changed-component selection and release prefligh
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s script/release -p '*_test.py'
 
 .PHONY: regenerate-derived regenerate-derived-test
-regenerate-derived: ## Take main's copy of conflicted derived files and rerun their generators (ARGS=--dry-run|--all)
+regenerate-derived: ## Take the upstream copy of conflicted derived files and rerun their generators (ARGS=--dry-run|--all)
 	python3 script/regenerate_derived.py $(ARGS)
 
 regenerate-derived-test: ## Verify derived-file conflict resolution against fixture repositories

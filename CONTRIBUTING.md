@@ -120,7 +120,9 @@ make regenerate-derived ARGS=--all       # run every generator
 The upstream is the rebase onto commit, MERGE_HEAD in a merge, or HEAD in a
 cherry-pick or revert; outside these it is origin/main. Override it with
 `ARGS=--upstream=<ref>`. Older format_compat versions are frozen, so the
-command refuses changes to them. The dexzd-simulation
+command refuses changes to them. When origin is unreachable, it cannot confirm
+that server-zd 1.0 is unreleased, so format_compat regeneration needs
+`ARGS=--assume-before-1-0`. The dexzd-simulation
 regression pins cannot be regenerated; follow "Pinned trajectories" in
 [`server-zd/crates/dexzd-simulation/README.md`](server-zd/crates/dexzd-simulation/README.md).
 

@@ -38,7 +38,6 @@ FORMAT_COMPAT_PIN_FILE = "server-zd/crates/dexzd-engine/tests/format_compat/gold
 FORMAT_COMPAT_VERSION_PATH = re.compile(r"^server-zd/testdata/(v[0-9]+)/(.+)$")
 FORMAT_COMPAT_GENERATED_FILE = re.compile(r"^(objects/.+|state\.txt)$")
 FORMAT_COMPAT_PIN_ENTRY = re.compile(r'\("(v[0-9]+)", "([0-9a-f]{32})"\)')
-FORMAT_COMPAT_PIN_LINE = re.compile(r'^\s*\("(v[0-9]+)", "[0-9a-f]{32}"\),\s*$')
 FORMAT_COMPAT_MOVED_DIGEST = re.compile(r'testdata/(v[0-9]+) changed[^\n]*\n\s*left: "([0-9a-f]{32})"')
 SERVER_ZD_STABLE_TAG_PATTERN = "server-zd/v1.*"
 SIMULATION_CRATE = "server-zd/crates/dexzd-simulation"
@@ -145,6 +144,10 @@ class Repository:
         result = self.git("show", f"{self.upstream}:{path}", check=False)
         return result.stdout if result.returncode == 0 else None
 
+    def stage_text(self, stage: int, path: str) -> str | None:
+        result = self.git("show", f":{stage}:{path}", check=False)
+        return result.stdout if result.returncode == 0 else None
+
     def take_upstream_copy(self, path: str) -> None:
         if self.git("cat-file", "-e", f"{self.upstream}:{path}", check=False).returncode == 0:
             self.git("checkout", self.upstream, "--", path)
@@ -152,19 +155,19 @@ class Repository:
         self.git("rm", "--cached", "--quiet", "--ignore-unmatch", "--", path)
         (self.root / path).unlink(missing_ok=True)
 
-    def stable_server_zd_tags(self) -> tuple[list[str], str]:
-        """Returns the server-zd 1.x tags and where they were looked up."""
+    def stable_server_zd_tags(self) -> tuple[list[str], bool]:
+        """Returns the server-zd 1.x tags and whether origin answered; without origin, only local tags."""
         try:
             remote = self.git(
                 "ls-remote", "--tags", "origin", f"refs/tags/{SERVER_ZD_STABLE_TAG_PATTERN}",
                 check=False, timeout=REMOTE_TAG_TIMEOUT_SECONDS,
             )
             if remote.returncode == 0:
-                return [line.split("\t", 1)[1] for line in remote.stdout.splitlines() if "\t" in line], "origin"
+                return [line.split("\t", 1)[1].removeprefix("refs/tags/") for line in remote.stdout.splitlines() if "\t" in line], True
         except subprocess.TimeoutExpired:
             pass
         local = self.git("tag", "--list", SERVER_ZD_STABLE_TAG_PATTERN).stdout.split()
-        return local, "local tags; origin was unreachable"
+        return local, False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -177,7 +180,13 @@ def main(argv: list[str] | None = None) -> int:
     repository = Repository(root, parse_generator_commands(arguments.generator_command))
     repository.upstream, upstream_source = choose_upstream(repository, arguments.upstream)
     try:
-        return regenerate_derived(repository, upstream_source, is_dry_run=arguments.dry_run, should_run_all=arguments.all)
+        return regenerate_derived(
+            repository,
+            upstream_source,
+            is_dry_run=arguments.dry_run,
+            should_run_all=arguments.all,
+            is_assumed_before_1_0=arguments.assume_before_1_0,
+        )
     except RegenerationError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
@@ -192,6 +201,11 @@ def parse_arguments(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true", help="print the plan and change nothing")
     parser.add_argument("--all", action="store_true", help="run every generator")
+    parser.add_argument(
+        "--assume-before-1-0",
+        action="store_true",
+        help="regenerate format_compat testdata even when origin cannot confirm that no server-zd 1.x tag exists",
+    )
     parser.add_argument(
         "--generator-command",
         action="append",
@@ -221,7 +235,13 @@ def choose_upstream(repository: Repository, explicit_upstream: str | None) -> tu
     return FALLBACK_UPSTREAM, "the default; no merge or rebase is in progress, pass --upstream to change it"
 
 
-def regenerate_derived(repository: Repository, upstream_source: str, is_dry_run: bool, should_run_all: bool) -> int:
+def regenerate_derived(
+    repository: Repository,
+    upstream_source: str,
+    is_dry_run: bool,
+    should_run_all: bool,
+    is_assumed_before_1_0: bool,
+) -> int:
     if repository.git("rev-parse", "--verify", "--quiet", f"{repository.upstream}^{{commit}}", check=False).returncode:
         print(f"Blocked: upstream ref {repository.upstream} does not exist; fetch it or pass --upstream")
         return 1
@@ -233,7 +253,7 @@ def regenerate_derived(repository: Repository, upstream_source: str, is_dry_run:
         for group in groups
         if not group.is_manual and (should_run_all or group.conflicted or group.changed)
     ]
-    blockers = find_blockers(repository, groups, selected, unowned_conflicts, newest_version)
+    blockers = find_blockers(repository, groups, selected, unowned_conflicts, newest_version, is_assumed_before_1_0)
     print_plan(repository, upstream_source, groups, selected, blockers)
     if blockers:
         return 1
@@ -285,6 +305,7 @@ def find_blockers(
     selected: list[DerivedGroup],
     unowned_conflicts: list[str],
     newest_version: str | None,
+    is_assumed_before_1_0: bool,
 ) -> list[str]:
     """Returns every reason to refuse; all of them are checked before any file or index change."""
     blockers = []
@@ -308,14 +329,18 @@ def find_blockers(
                 + indented(sorted(unrelated))
             )
     if format_compat in selected:
-        tags, tag_source = repository.stable_server_zd_tags()
+        tags, has_origin_answered = repository.stable_server_zd_tags()
         if tags:
             blockers.append(
-                f"server-zd 1.0 is released ({tags[0]}, from {tag_source}), so recorded format_compat"
+                f"server-zd 1.0 is released ({tags[0]}), so recorded format_compat"
                 " versions are immutable; add a new version as server-zd/testdata/README.md describes"
             )
-        elif tag_source != "origin":
-            print(f"Note: checked {SERVER_ZD_STABLE_TAG_PATTERN} in {tag_source}.")
+        elif not has_origin_answered and not is_assumed_before_1_0:
+            blockers.append(
+                f"cannot list {SERVER_ZD_STABLE_TAG_PATTERN} tags on origin, so it is unknown whether server-zd 1.0"
+                " froze the format_compat testdata; retry online, or pass --assume-before-1-0 if you know it is not"
+                " released"
+            )
         if newest_version is None and "format-compat" not in repository.generator_commands:
             blockers.append(f"no v<N> directory under {FORMAT_COMPAT_TESTDATA}")
     return blockers
@@ -331,14 +356,16 @@ def format_compat_blockers(repository: Repository, group: DerivedGroup, newest_v
     if frozen:
         blockers.append(
             f"only the newest format_compat version ({newest_version}) is regenerated; older versions are"
-            " frozen, so restore these paths from main:\n" + indented(sorted(frozen))
+            f" frozen, so restore these paths from the upstream ({repository.upstream}):\n" + indented(sorted(frozen))
         )
     if FORMAT_COMPAT_PIN_FILE in group.conflicted:
-        text = (repository.root / FORMAT_COMPAT_PIN_FILE).read_text(encoding="utf-8")
-        if not are_conflicts_only_in_newest_pin(text, newest_version):
+        upstream_text = masked_newest_pin(repository.upstream_text(FORMAT_COMPAT_PIN_FILE), newest_version)
+        stage_texts = [masked_newest_pin(repository.stage_text(stage, FORMAT_COMPAT_PIN_FILE), newest_version) for stage in (2, 3)]
+        if any(text != upstream_text for text in stage_texts):
             blockers.append(
-                f"{FORMAT_COMPAT_PIN_FILE} conflicts outside the {newest_version} pin; resolve the other hunks by"
-                " hand, keep either newest pin line, and run this command again"
+                f"{FORMAT_COMPAT_PIN_FILE} differs from the upstream ({repository.upstream}) outside the"
+                f" {newest_version} pin; taking the upstream copy would drop those changes. Resolve it by hand,"
+                " keep either newest pin line, and run this command again"
             )
     elif FORMAT_COMPAT_PIN_FILE in group.changed:
         upstream_text = repository.upstream_text(FORMAT_COMPAT_PIN_FILE) or ""
@@ -346,7 +373,7 @@ def format_compat_blockers(repository: Repository, group: DerivedGroup, newest_v
         if older_pins(working_text, newest_version) != older_pins(upstream_text, newest_version):
             blockers.append(
                 f"{FORMAT_COMPAT_PIN_FILE} changes the pin of an older, frozen format_compat version;"
-                " restore it from main"
+                f" restore it from the upstream ({repository.upstream})"
             )
     return blockers
 
@@ -356,18 +383,10 @@ def is_newest_generated_file(path: str, newest_version: str | None) -> bool:
     return bool(match and match.group(1) == newest_version and FORMAT_COMPAT_GENERATED_FILE.match(match.group(2)))
 
 
-def are_conflicts_only_in_newest_pin(text: str, newest_version: str | None) -> bool:
-    is_inside_conflict = False
-    for line in text.splitlines():
-        if line.startswith("<<<<<<<"):
-            is_inside_conflict = True
-        elif line.startswith(">>>>>>>"):
-            is_inside_conflict = False
-        elif is_inside_conflict and not line.startswith(("=======", "|||||||")):
-            pin_line = FORMAT_COMPAT_PIN_LINE.match(line)
-            if pin_line is None or pin_line.group(1) != newest_version:
-                return False
-    return True
+def masked_newest_pin(text: str | None, newest_version: str | None) -> str | None:
+    if text is None or newest_version is None:
+        return text
+    return re.sub(rf'\("{newest_version}", "[0-9a-f]{{32}}"\)', f'("{newest_version}", "<pin>")', text)
 
 
 def older_pins(text: str, newest_version: str | None) -> dict[str, str]:

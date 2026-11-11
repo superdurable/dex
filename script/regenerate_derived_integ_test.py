@@ -142,7 +142,9 @@ class RegenerateDerivedIntegrationTest(unittest.TestCase):
                           "cargo-lock:examples/rust", "generated-code", "format-compat")
             for argument in ("--generator-command", f"{group}=true")
         ]
-        result = self.regenerate("--upstream", "main", "--all", "--generator-command", stub, *overrides)
+        result = self.regenerate(
+            "--upstream", "main", "--all", "--assume-before-1-0", "--generator-command", stub, *overrides
+        )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.read("ran"), "yes")
 
@@ -187,7 +189,7 @@ class RegenerateDerivedIntegrationTest(unittest.TestCase):
         self.diverge(NEWEST_STATE, upstream="main\n", branch="feature\n")
         self.git("merge", "main", check=False)
 
-        result = self.regenerate("--generator-command", f"format-compat={STATE_GENERATOR}")
+        result = self.regenerate("--assume-before-1-0", "--generator-command", f"format-compat={STATE_GENERATOR}")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.git("show", f":{NEWEST_STATE}").stdout, "main\nregenerated\n")
@@ -231,7 +233,7 @@ class RegenerateDerivedIntegrationTest(unittest.TestCase):
         )
         self.git("merge", "main", check=False)
 
-        result = self.regenerate("--generator-command", "format-compat=true")
+        result = self.regenerate("--assume-before-1-0", "--generator-command", "format-compat=true")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.read(PIN_FILE), pin_file("2" * 32, "fn test() {}"))
@@ -247,10 +249,37 @@ class RegenerateDerivedIntegrationTest(unittest.TestCase):
 
         result = self.assert_refused_without_change("--generator-command", "format-compat=true")
 
-        self.assertIn("conflicts outside the v2 pin", result.stdout)
+        self.assertIn("outside the v2 pin", result.stdout)
+
+    def test_older_pin_change_in_a_clean_hunk_beside_a_newest_pin_conflict_refuses(self) -> None:
+        self.write(PIN_FILE, pin_file("1" * 32, "fn test() {}", older_digest="b" * 32))
+        self.commit("edit frozen pin")
+        self.diverge(
+            PIN_FILE,
+            upstream=pin_file("2" * 32, "fn test() {}"),
+            branch=pin_file("3" * 32, "fn test() {}", older_digest="b" * 32),
+        )
+        self.git("merge", "main", check=False)
+        self.assertIn(PIN_FILE, self.unmerged())
+
+        result = self.assert_refused_without_change("--assume-before-1-0", "--generator-command", "format-compat=true")
+
+        self.assertIn("outside the v2 pin", result.stdout)
+
+    def test_unreachable_origin_refuses_format_compat_unless_assumed_before_1_0(self) -> None:
+        self.diverge(NEWEST_STATE, upstream="main\n", branch="feature\n")
+        self.git("merge", "main", check=False)
+
+        result = self.assert_refused_without_change("--generator-command", f"format-compat={STATE_GENERATOR}")
+
+        self.assertIn("--assume-before-1-0", result.stdout)
+        result = self.regenerate("--assume-before-1-0", "--generator-command", f"format-compat={STATE_GENERATOR}")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.unmerged(), [])
 
     def test_released_server_zd_refuses_format_compat_without_any_change(self) -> None:
         self.git("tag", "server-zd/v1.0.0", "main")
+        self.git("remote", "add", "origin", str(self.repository))
         self.diverge(NEWEST_STATE, upstream="main\n", branch="feature\n")
         self.git("merge", "main", check=False)
 
