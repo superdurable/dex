@@ -295,6 +295,7 @@ async function expandJsx(node, context) {
   if (name === 'DexSkillHostTabs') return expandHostTabs(node, context);
   if (name === 'DocsSection') return expandDocsSection(node, context);
   if (name === 'FrameworkTabs') return expandFrameworkTabs(node, context);
+  if (name === 'CrashTimeline') return expandCrashTimeline(node, context);
   if (name === 'img') {
     const image = {type: 'image', ...imageProperties(node, context)};
     return node.type === 'mdxJsxTextElement' ? [image] : [{type: 'paragraph', children: [image]}];
@@ -305,6 +306,22 @@ async function expandJsx(node, context) {
     children: await transformChildren(node.children, context)}];
   if (name === 'a') return expandAnchorElement(node, context);
   fail(context, node, `Unknown JSX component <${name}>`);
+}
+
+// Mirrors CrashTimeline.tsx without the animation: the events as a numbered list, then the summary.
+async function expandCrashTimeline(node, context) {
+  const variant = attribute(node, 'variant', context);
+  const timelines = JSON.parse(await readFile(join(context.siteDir, 'src/data/crash-timeline.json'), 'utf8'));
+  const byLocale = timelines[variant];
+  if (!byLocale) fail(context, node, `CrashTimeline has unknown variant ${JSON.stringify(variant)}`);
+  const copy = byLocale[context.locale] ?? byLocale.en;
+  const separator = localeCopy(context.locale).separator;
+  const eventText = event => {
+    const actor = copy.actors[event.actor];
+    return event.text.startsWith(actor) ? event.text : `${actor}${separator}${event.text}`;
+  };
+  return [orderedList(copy.events.map(event => [text(eventText(event))])),
+    paragraph(copy.summary)];
 }
 
 // Mirrors FrameworkTabs.tsx: each framework's content under a bold label, in tab order.

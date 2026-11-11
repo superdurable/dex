@@ -6,7 +6,9 @@ slug: /intro/compared-to-database
 description: One order process built on a database, then with queues and a transactional outbox, then as a Dex Flow, with the parts each design needs and the duties that stay with you.
 ---
 
+import ArchitectureComparison from '@site/src/components/intro/ArchitectureComparison';
 import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproachDiagram';
+import RequirementChangeComparison from '@site/src/components/intro/RequirementChangeComparison';
 import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-processing.json';
 
 # Compared to Database
@@ -19,12 +21,7 @@ It waits for the seller's approval before shipping and reminds the seller while 
 It refunds the buyer when shipping still fails after an hour.
 These are the parts each design needs for it:
 
-| | Database, queues, and outbox | Dex |
-| --- | --- | --- |
-| Tables | Orders with a status column, approvals, and an outbox | None of your own. Flow state lives in Dex. |
-| Queues or topics | charge-requests, ship-requests, refund-requests, retry topics or visibility timeouts, and a dead-letter queue (DLQ) | None |
-| Code you write | Charge, ship, and refund consumers, an outbox relay, a reminder job, an approval endpoint, a status endpoint, and DLQ repair tools | One Flow with Charge, Ship, and Refund Steps and an approve RPC, and the Workers that host it |
-| Infrastructure you run | A database and a queue broker | Dex Server, which stores its state in object storage |
+<ArchitectureComparison markdownDescription="Database, queues, and outbox, what you build and run. Tables: an orders table with a status column, an approvals table, and an outbox table. Queues: charge-requests, ship-requests, refund-requests, retry topics or visibility timeouts, and a dead-letter queue (DLQ). Services and jobs: charge, ship, and refund consumers, an outbox relay, a reminder cron job, an approval endpoint, a status polling endpoint, and DLQ inspect and repair tools. They run on a database and a queue broker. Dex, what you write and run: one Flow with a Charge Step, a Ship Step, a Refund Step, and an approve RPC, and the Workers that host the Flow. They run on Dex Server, which provides retries per Step, durable Timers, waits on Channels, the Client wait API, and Step history with rerun." />
 
 ## What a database does not do
 
@@ -187,10 +184,6 @@ Operators can inspect each order and, after a fix, rerun it from an earlier Step
 
 Each new requirement changes both designs:
 
-| New requirement | Database, queues, and outbox | Dex |
-| --- | --- | --- |
-| Refund the buyer after an hour of ship failures | A refund-requests queue and refund consumers. The ship consumers record the first failure and give up after an hour. | A Refund Step. The Ship Step retries for one hour and then moves to the Refund Step. |
-| Wait for the seller's approval before shipping | An approvals table and an approval endpoint. The approval endpoint, not the charge consumer, publishes to ship-requests. | An approve RPC. The Ship Step waits for a message on the seller Channel. |
-| Remind the seller | A reminder job that scans the approvals table for orders that still wait. | The Ship Step also waits for a Timer. When it fires, the Step sends a reminder and waits again. |
+<RequirementChangeComparison markdownDescription="Refund the buyer after an hour of ship failures: the database design adds a refund-requests queue and refund consumers, and the ship consumers record the first failure and give up after an hour. Dex adds a Refund Step, and the Ship Step retries for one hour and then moves to the Refund Step. Wait for the seller's approval before shipping: the database design adds an approvals table and an approval endpoint, and the approval endpoint, not the charge consumer, publishes to ship-requests. Dex adds an approve RPC, and the Ship Step waits for a message on the seller Channel. Remind the seller: the database design adds a reminder cron job that scans the approvals table for orders that still wait. In Dex, the Ship Step also waits for a Timer, and when it fires, the Step sends a reminder and waits again." />
 
 [Order Processing](/use-cases/order-processing) has this Flow as runnable code in every SDK. The [Quick Start](/quick-start) runs a smaller version with a Charge Step and a Ship Step.

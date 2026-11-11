@@ -11,7 +11,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {Pencil, Plus} from 'lucide-react';
 
 import styles from './ComparedToDatabase.module.css';
-import {countNewParts, orderProcessCopy, type RequirementChangeSide} from './orderProcessParts';
+import {orderProcessCopy, type RequirementChangeSide} from './orderProcessParts';
 
 function ChangeCell({label, side, isDex}: {label: string; side: RequirementChangeSide; isDex: boolean}): ReactNode {
   return (
@@ -68,18 +68,6 @@ export default function RequirementChangeComparison(_props: {markdownDescription
             </div>
           );
         })}
-        <div className={styles.changeTotals}>
-          <span className={styles.totalQueues}>
-            <span className={styles.totalNumber}>{countNewParts(changes, 'queues')}</span>
-            {copy.newPartsTotal}
-            <span className={styles.totalDesign}>{copy.queues.name}</span>
-          </span>
-          <span className={styles.totalDex}>
-            <span className={styles.totalNumber}>{countNewParts(changes, 'dex')}</span>
-            {copy.newPartsTotal}
-            <span className={styles.totalDesign}>{copy.dex.name}</span>
-          </span>
-        </div>
       </div>
     </section>
   );

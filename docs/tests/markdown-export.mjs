@@ -82,6 +82,8 @@ ${fence}
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
+<CrashTimeline variant="quick-start" />
+
 ## Install and use
 
 <DexSkillHostTabs skill="dex-sdk" />
@@ -122,6 +124,7 @@ try {
   await mkdir(contentPath, {recursive: true});
   await mkdir(contentPathLocalized, {recursive: true});
   await copyFile(join(docsRoot, 'src/data/dex-skill-hosts.json'), join(siteDir, 'src/data/dex-skill-hosts.json'));
+  await copyFile(join(docsRoot, 'src/data/crash-timeline.json'), join(siteDir, 'src/data/crash-timeline.json'));
   await writeFile(join(siteDir, 'src/data/graph.json'), JSON.stringify(graph));
   await writeFile(join(outDir, 'img/example.png'), '');
   await writeFile(join(contentPath, 'index.mdx'), homeSource);
@@ -148,6 +151,9 @@ try {
     }}};
   await exportMarkdown(options);
   const home = await readFile(join(outDir, 'index.md'), 'utf8');
+  // CrashTimeline exports its events as a numbered list in the page locale, without the animation.
+  assert.match(home, /1\. Worker 1 运行 Charge。Dex 保存它的结果。\n2\. Dex Server：/);
+  assert.match(home, /Charge 只运行了一次，Ship 只运行了一次。/);
   assert.match(home, /canonical_url: "https:\/\/docs.example.test\/zh-Hans\/"/);
   assert.match(home, /description: "The Home meta description."/);
   assert.match(home, /source: "docs\/reference\/index.mdx"/);

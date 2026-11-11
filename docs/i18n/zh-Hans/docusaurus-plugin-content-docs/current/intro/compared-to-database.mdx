@@ -16,7 +16,7 @@ import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-pro
 
 完整的订单流程先向买家扣款，再发货。发货前，它要等卖家审批，等待期间提醒卖家。发货失败持续一小时后，它给买家退款。两种设计为此需要的部件如下：
 
-<ArchitectureComparison markdownDescription="数据库加队列：14 个部件要你自己搭建和运行。表：带 status 列的订单表和审批表。队列：charge-requests、ship-requests、refund-requests、retry topic 或 visibility timeout，以及死信队列（DLQ）。服务和任务：扣款、发货、退款消费者，提醒 cron job，审批接口，状态轮询接口，以及 DLQ 查看和修复工具。它们运行在数据库和队列 broker 上。Dex：5 个部件要你自己编写和运行。一个 Flow，包含 Charge Step、Ship Step、Refund Step 和 approve RPC，以及运行这个 Flow 的 Worker。它们运行在 Dex Server 上，Dex Server 提供每个 Step 自己的 retry、durable Timer、等待 Channel、Client 等待 API，以及 Step 历史和重新执行。" />
+<ArchitectureComparison markdownDescription="数据库、队列加 outbox，你要搭建和运行的部分。表：带 status 列的订单表、审批表和 outbox 表。队列：charge-requests、ship-requests、refund-requests、retry topic 或 visibility timeout，以及死信队列（DLQ）。服务和任务：扣款、发货、退款消费者，outbox relay，提醒 cron job，审批接口，状态轮询接口，以及 DLQ 查看和修复工具。它们运行在数据库和队列 broker 上。Dex，你要编写和运行的部分：一个 Flow，包含 Charge Step、Ship Step、Refund Step 和 approve RPC，以及运行这个 Flow 的 Worker。它们运行在 Dex Server 上，Dex Server 提供每个 Step 自己的 retry、durable Timer、等待 Channel、Client 等待 API，以及 Step 历史和重新执行。" />
 
 ## 数据库做不到什么
 
@@ -165,6 +165,6 @@ Dex 记录每个 Step 的输入、输出和错误。运维人员可以查看每�
 
 每个新需求都会给队列方案加部件。在 Dex 里，它最多加一个 Step 或 RPC，再改一下 Ship Step。
 
-<RequirementChangeComparison markdownDescription="发货失败一小时后给买家退款：数据库加队列要加 refund-requests 队列和退款消费者，发货消费者还要记下第一次失败的时间，一小时后放弃。Dex 加一个 Refund Step，Ship Step retry 一小时后进入 Refund Step。发货前等卖家审批：数据库加队列要加审批表和审批接口，并改由审批接口写入 ship-requests，扣款消费者不再写。Dex 加一个 approve RPC，Ship Step 等待卖家 Channel 上的消息。提醒卖家：数据库加队列要加一个提醒 cron job，扫描审批表，找出还在等的订单。Dex 不加部件：Ship Step 同时等一个 Timer，Timer 到了就发提醒，然后继续等。合计数据库加队列加 5 个新部件，Dex 加 2 个。" />
+<RequirementChangeComparison markdownDescription="发货失败一小时后给买家退款：数据库方案要加 refund-requests 队列和退款消费者，发货消费者还要记下第一次失败的时间，一小时后放弃。Dex 加一个 Refund Step，Ship Step retry 一小时后进入 Refund Step。发货前等卖家审批：数据库方案要加审批表和审批接口，并改由审批接口写入 ship-requests，扣款消费者不再写。Dex 加一个 approve RPC，Ship Step 等待卖家 Channel 上的消息。提醒卖家：数据库方案要加一个提醒 cron job，扫描审批表，找出还在等的订单。在 Dex 里，Ship Step 同时等一个 Timer，Timer 到了就发提醒，然后继续等。" />
 
 [为什么是 Dex？](/intro/what-is-dex) 给出这条 Flow 的 Dex 代码，[Quick Start](/quick-start) 会把它跑起来。

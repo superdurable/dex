@@ -11,9 +11,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
 import styles from './ComparedToDatabase.module.css';
 import {
-  countParts,
   orderProcessCopy,
-  type OrderProcessCopy,
   type OrderProcessDesign,
   type OrderProcessPart,
 } from './orderProcessParts';
@@ -31,23 +29,12 @@ export function PartChips({parts, isDex}: {parts: OrderProcessPart[]; isDex?: bo
   );
 }
 
-function DesignColumn({
-  design,
-  isDex,
-  copy,
-}: {
-  design: OrderProcessDesign;
-  isDex: boolean;
-  copy: OrderProcessCopy;
-}): ReactNode {
+function DesignColumn({design, isDex}: {design: OrderProcessDesign; isDex: boolean}): ReactNode {
   return (
     <div className={`${styles.column}${isDex ? ` ${styles.columnDex}` : ''}`}>
       <div>
         <p className={styles.designName}>{design.name}</p>
-        <p className={styles.count}>
-          <span className={styles.countNumber}>{countParts(design)}</span>
-          <span>{design.countLabel}</span>
-        </p>
+        <p className={styles.count}>{design.subtitle}</p>
       </div>
       {design.groups.map((group) => (
         <div key={group.title} className={styles.group}>
@@ -56,10 +43,7 @@ function DesignColumn({
         </div>
       ))}
       <div className={styles.platform}>
-        <p className={styles.platformTitle}>
-          <span>{design.platformTitle}</span>
-          <span className={styles.notCounted}>({copy.notCounted})</span>
-        </p>
+        <p className={styles.platformTitle}>{design.platformTitle}</p>
         {design.platformParts.length > 0 ? (
           <div className={styles.platformChips}>
             <PartChips parts={design.platformParts} />
@@ -80,8 +64,8 @@ export default function ArchitectureComparison(_props: {markdownDescription: str
   return (
     <section className={`${styles.palette} ${styles.glance}`} aria-label={copy.ariaLabel}>
       <div className={styles.glanceColumns}>
-        <DesignColumn design={copy.queues} isDex={false} copy={copy} />
-        <DesignColumn design={copy.dex} isDex copy={copy} />
+        <DesignColumn design={copy.queues} isDex={false} />
+        <DesignColumn design={copy.dex} isDex />
       </div>
     </section>
   );
