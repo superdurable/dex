@@ -687,41 +687,121 @@ class TypeScriptAnalyzer {
 
   branchBuilderListMovements(call,branchBuilders) {
     const builders = this.unwrap(branchBuilders);
-    // A local list variable resolves to its initializer; pushes add more builders.
-    const list = builders && this.ts.isIdentifier(builders) ? this.localListInitializer(call,builders.text) : builders;
+    const dynamicMessage = "Join branch builders must build their movements directly in the handler";
+    if (builders && this.ts.isIdentifier(builders)) {
+      const movements = this.localBuilderListMovements(call,builders);
+      if (!movements) this.dynamicTarget(dynamicMessage,branchBuilders);
+      return movements || [];
+    }
     const movements = [];
-    if (list && this.ts.isArrayLiteralExpression(list)) {
-      for (const builder of list.elements) movements.push(...this.builderMovements(builder));
-      if (this.ts.isIdentifier(builders)) movements.push(...this.pushedBuilderMovements(call,builders.text));
+    if (builders && this.ts.isArrayLiteralExpression(builders)) {
+      for (const builder of builders.elements) movements.push(...this.builderMovements(builder));
       return movements;
     }
-    if (list && this.ts.isCallExpression(list)) movements.push(...this.callbackMovements(list));
-    if (!movements.length) this.dynamicTarget("Join branch builders must build their movements directly in the handler",branchBuilders);
+    if (builders && this.ts.isCallExpression(builders)) movements.push(...this.callbackMovements(builders));
+    if (!movements.length) this.dynamicTarget(dynamicMessage,branchBuilders);
     return movements;
   }
 
-  localListInitializer(call,listName) {
-    for (let scope = call.parent; scope && !this.ts.isFunctionLike(scope); scope = scope.parent) {
-      if (!this.ts.isBlock(scope)) continue;
-      for (const statement of scope.statements) {
-        if (statement.pos >= call.pos || !this.ts.isVariableStatement(statement)) continue;
-        const declaration = statement.declarationList.declarations.find(candidate => this.ts.isIdentifier(candidate.name) && candidate.name.text === listName);
-        if (declaration?.initializer) return this.unwrap(declaration.initializer);
+  // Returns undefined when the list's contents at the fork cannot be determined statically.
+  localBuilderListMovements(call,listIdentifier) {
+    const declaration = this.localBindingDeclaration(listIdentifier);
+    if (!declaration || !this.ts.isVariableDeclaration(declaration) || !declaration.initializer) return undefined;
+    const initializer = this.unwrap(declaration.initializer);
+    if (this.ts.isCallExpression(initializer)) {
+      const mapped = this.callbackMovements(initializer);
+      return mapped.length && this.isOnlyReadAt(declaration,listIdentifier) ? mapped : undefined;
+    }
+    if (!this.ts.isArrayLiteralExpression(initializer)) return undefined;
+    const movements = [];
+    for (const builder of initializer.elements) movements.push(...this.builderMovements(builder));
+    const pushed = this.pushedBuilderMovements(call,listIdentifier,declaration);
+    return pushed && [...movements,...pushed];
+  }
+
+  // Counts pushes on the same binding that run before the fork on its path; undefined if unknown.
+  pushedBuilderMovements(call,listIdentifier,declaration) {
+    const movements = [];
+    let isDetermined = true;
+    this.walk(this.declaringScope(declaration),node => {
+      if (!isDetermined || !this.ts.isIdentifier(node) || node === listIdentifier || node.text !== listIdentifier.text) return;
+      if (node === declaration.name || this.localBindingDeclaration(node) !== declaration) return;
+      const access = node.parent;
+      const push = access && this.ts.isPropertyAccessExpression(access) && access.expression === node && access.name.text === "push" && this.ts.isCallExpression(access.parent) && access.parent.expression === access ? access.parent : undefined;
+      if (!push) {
+        const isLengthRead = access && this.ts.isPropertyAccessExpression(access) && access.expression === node && access.name.text === "length";
+        const isOtherForkArgument = access && this.isJoinMethodCall(access,["fork","forkWithRoundKey"]) && access.arguments[1] === node;
+        if (!isLengthRead && !isOtherForkArgument) isDetermined = false;
+        return;
+      }
+      if (push.pos >= call.pos) return;
+      const placement = this.pushPlacement(push,call);
+      if (placement === "unreachable") return;
+      if (placement === "unknown") { isDetermined = false; return; }
+      for (const builder of push.arguments) {
+        const pushedMovements = this.builderMovements(builder);
+        movements.push(...(placement === "repeated" ? pushedMovements.map(movement => ({...movement,multiplicity:"×N"})) : pushedMovements));
+      }
+    });
+    return isDetermined ? movements : undefined;
+  }
+
+  // Classifies a push relative to the fork: "once", "repeated", "unreachable", or "unknown".
+  pushPlacement(push,call) {
+    const callAncestors = new Set();
+    for (let node = call; node; node = node.parent) callAncestors.add(node);
+    let placement = "once";
+    let child = push;
+    for (let node = push.parent; node; child = node, node = node.parent) {
+      if (callAncestors.has(node)) {
+        const isExclusiveBranch = this.ts.isIfStatement(node) || this.ts.isConditionalExpression(node) || this.ts.isCaseBlock(node);
+        if (isExclusiveBranch && child !== node.expression && child !== node.condition) return "unreachable";
+        return placement;
+      }
+      if (this.ts.isIterationStatement(node,false) && child === node.statement) placement = "repeated";
+      else if ((this.ts.isArrowFunction(node) || this.ts.isFunctionExpression(node)) && this.ts.isCallExpression(node.parent) && node.parent.arguments.includes(node)) placement = "repeated";
+      else if (this.ts.isFunctionLike(node) || this.ts.isIfStatement(node) || this.ts.isConditionalExpression(node) || this.ts.isCaseClause(node) || this.ts.isDefaultClause(node) || this.ts.isTryStatement(node) || this.ts.isCatchClause(node) || this.ts.isLabeledStatement(node) || (this.ts.isBinaryExpression(node) && [this.ts.SyntaxKind.AmpersandAmpersandToken,this.ts.SyntaxKind.BarBarToken,this.ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind))) return "unknown";
+    }
+    return "unknown";
+  }
+
+  isOnlyReadAt(declaration,listIdentifier) {
+    let isOnlyRead = true;
+    this.walk(this.declaringScope(declaration),node => {
+      if (this.ts.isIdentifier(node) && node !== listIdentifier && node !== declaration.name && node.text === listIdentifier.text && this.localBindingDeclaration(node) === declaration) isOnlyRead = false;
+    });
+    return isOnlyRead;
+  }
+
+  declaringScope(declaration) {
+    let scope = declaration.parent;
+    while (scope && !this.ts.isBlock(scope) && !this.ts.isSourceFile(scope)) scope = scope.parent;
+    return scope;
+  }
+
+  // Finds the nearest enclosing declaration of an identifier's name within its handler.
+  localBindingDeclaration(identifier) {
+    const name = identifier.text;
+    const matches = candidate => candidate && this.ts.isIdentifier(candidate.name) && candidate.name.text === name;
+    for (let scope = identifier.parent; scope; scope = scope.parent) {
+      if (this.ts.isBlock(scope) || this.ts.isSourceFile(scope)) {
+        for (const statement of scope.statements) {
+          if (!this.ts.isVariableStatement(statement)) continue;
+          const declaration = statement.declarationList.declarations.find(matches);
+          if (declaration) return declaration;
+        }
+      } else if (this.ts.isFunctionLike(scope)) {
+        const parameter = scope.parameters.find(matches);
+        if (parameter) return parameter;
+        if (!this.ts.isArrowFunction(scope)) return undefined;
+      } else if ((this.ts.isForStatement(scope) || this.ts.isForOfStatement(scope) || this.ts.isForInStatement(scope)) && scope.initializer && this.ts.isVariableDeclarationList(scope.initializer)) {
+        const declaration = scope.initializer.declarations.find(matches);
+        if (declaration) return declaration;
+      } else if (this.ts.isCatchClause(scope) && matches(scope.variableDeclaration)) {
+        return scope.variableDeclaration;
       }
     }
     return undefined;
-  }
-
-  pushedBuilderMovements(call,listName) {
-    const movements = [];
-    const handler = this.enclosingNonArrowFunction(call);
-    if (!handler?.body) return movements;
-    this.walk(handler.body,node => {
-      if (!this.ts.isCallExpression(node) || !this.ts.isPropertyAccessExpression(node.expression)) return;
-      if (node.expression.name.text !== "push" || !this.ts.isIdentifier(node.expression.expression) || node.expression.expression.text !== listName) return;
-      for (const builder of node.arguments) movements.push(...this.builderMovements(builder).map(movement => ({...movement,multiplicity:"×N"})));
-    });
-    return movements;
   }
 
   builderMovements(builder) {

@@ -82,6 +82,28 @@ func TestTypeScriptJoinGolden(t *testing.T) {
 	require.Equal(t, string(expected), string(actual))
 }
 
+func TestTypeScriptJoinUndeterminedBuilderListIsDynamic(t *testing.T) {
+	cases := map[string]string{
+		"conditional push":  "if (reviewers.length > 5) pairBuilders.push(",
+		"list passed along": "reorderBuilders(pairBuilders);\n      pairBuilders.push(",
+	}
+	for name, replacement := range cases {
+		t.Run(name, func(t *testing.T) {
+			sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "join.ts")
+			source, err := os.ReadFile(sourcePath)
+			require.NoError(t, err)
+			modified := strings.Replace(string(source), "pairBuilders.push(", replacement, 1)
+			require.NotEqual(t, string(source), modified)
+			modified += "\nfunction reorderBuilders(builders: unknown[]): void {\n  builders.reverse();\n}\n"
+			require.NoError(t, os.WriteFile(sourcePath, []byte(modified), 0o644))
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+			require.NoError(t, err)
+			require.False(t, graph.Valid)
+			require.Equal(t, []string{"dynamic_step_target"}, diagnosticCodes(graph))
+		})
+	}
+}
+
 func TestScriptStepAnnotationDiagnostics(t *testing.T) {
 	for _, language := range []string{"python", "typescript"} {
 		for _, replacement := range []string{"", "dex:explanation text:\"\"", "dex:explanation text:\"First.\"\nCOMMENT dex:explanation text:\"Second.\"", "dex:explanation text:\"First.\" extra:true"} {

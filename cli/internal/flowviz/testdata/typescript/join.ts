@@ -28,9 +28,44 @@ class RequestReviews implements Step<readonly string[]> {
       return goToMany(...reviewCompleted.fork(context, branchBuilders, (round) => StepMovement.of(CollectReviews, round)));
     }
     if (reviewers.length > 1) {
+      // A single push adds one branch.
       const pairBuilders = [(round: JoinRound) => StepMovement.of(ReviewDocument, {reviewer: "lead", round})];
-      pairBuilders.push((round: JoinRound) => StepMovement.of(ReviewDocument, {reviewer: "backup", round}));
+      pairBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer: "backup", round}));
       return goToMany(...reviewCompleted.fork(context, pairBuilders, (round) => StepMovement.of(CollectReviews, round)));
+    }
+    if (reviewers.includes("loop")) {
+      // A push in a loop adds repeated branches.
+      const loopBuilders: ((round: JoinRound) => StepMovement<ReviewInput>)[] = [];
+      for (const reviewer of reviewers) {
+        loopBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer, round}));
+      }
+      return goToMany(...reviewCompleted.fork(context, loopBuilders, (round) => StepMovement.of(CollectReviews, round)));
+    }
+    if (reviewers.includes("late")) {
+      // A push after the fork does not change its branches.
+      const lateBuilders = [(round: JoinRound) => StepMovement.of(ReviewDocument, {reviewer: "early", round})];
+      const lateMovements = reviewCompleted.fork(context, lateBuilders, (round) => StepMovement.of(CollectReviews, round));
+      lateBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer: "late", round}));
+      return goToMany(...lateMovements);
+    }
+    if (reviewers.includes("sibling")) {
+      // A push in the other branch of an if never reaches this fork.
+      const siblingBuilders = [(round: JoinRound) => StepMovement.of(ReviewDocument, {reviewer: "main", round})];
+      if (reviewers.length > 4) {
+        siblingBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer: "sibling", round}));
+        return gracefulComplete([]);
+      } else {
+        return goToMany(...reviewCompleted.fork(context, siblingBuilders, (round) => StepMovement.of(CollectReviews, round)));
+      }
+    }
+    if (reviewers.includes("shadow")) {
+      // A push on a shadowing inner variable leaves the outer list unchanged.
+      const shadowBuilders = [(round: JoinRound) => StepMovement.of(ReviewDocument, {reviewer: "outer", round})];
+      {
+        const shadowBuilders: ((round: JoinRound) => StepMovement<ReviewInput>)[] = [];
+        shadowBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer: "inner", round}));
+      }
+      return goToMany(...reviewCompleted.fork(context, shadowBuilders, (round) => StepMovement.of(CollectReviews, round)));
     }
     if (reviewers.length > 0) {
       return goToMany(...reviewCompleted.fork(
@@ -48,6 +83,18 @@ class RequestReviews implements Step<readonly string[]> {
       (round) => StepMovement.of(CollectReviews, round),
     );
     return goToMany(...movements);
+  }
+}
+
+// dex:group group-id:join group-label:"Join"
+// dex:explanation text:"Report an escalated review result and end the branch."
+class EscalateReview implements Step<ReviewInput> {
+  getStepType(): string {
+    return "EscalateReview";
+  }
+
+  execute(context: Context, input: ReviewInput): StepDecision {
+    return reviewCompleted.endBranch(context, input.round, `escalated: ${input.reviewer}`);
   }
 }
 
@@ -83,7 +130,7 @@ export class ReviewJoinFlow implements Flow<readonly string[]> {
   }
 
   getSteps() {
-    return StepList.startStep(new RequestReviews()).otherSteps(new ReviewDocument(), new CollectReviews());
+    return StepList.startStep(new RequestReviews()).otherSteps(new ReviewDocument(), new EscalateReview(), new CollectReviews());
   }
 
   getPersistenceSchema(): PersistenceSchema {
