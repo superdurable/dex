@@ -33,7 +33,7 @@ class JoinRound:
     ``{"roundKey": string, "branchCount": integer}`` in every Dex SDK, so a Step
     written in one SDK can hand it to a Step in another SDK.
 
-    .. versionadded:: 1.41.0
+    .. versionadded:: 1.43.0
 
     Attributes:
         round_key: The ChannelMap instance key that holds this round's branch
@@ -140,7 +140,7 @@ class Join(Generic[ResultT]):
       sees them. An older server drops them, and a new join waits forever. See
       the server change log at https://docs.superdurable.io/reference/server/changelog.
 
-    .. versionadded:: 1.41.0
+    .. versionadded:: 1.43.0
 
     Examples:
         A two-round partial join. Each round accepts the first two of three
@@ -344,7 +344,7 @@ class Join(Generic[ResultT]):
         with the Join condition methods. A direct publication counts as a branch
         result and breaks the exactly-once count of the round.
 
-        .. versionadded:: 1.41.0
+        .. versionadded:: 1.43.0
 
         Returns:
             The registered ChannelMap with the Join's name and result type.
