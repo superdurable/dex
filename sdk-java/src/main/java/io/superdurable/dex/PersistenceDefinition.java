@@ -15,8 +15,8 @@ package io.superdurable.dex;
  *
  * <p>This is the common, type-erased base accepted by schema factory methods. Applications create
  * concrete definitions with {@link Attribute#define}, {@link AttributeMap#define},
- * {@link Channel#define}, {@link ChannelMap#define}, or {@link Stream#define}; custom subclasses
- * are intentionally not supported.
+ * {@link Channel#define}, {@link ChannelMap#define}, {@link Join#define}, or {@link Stream#define};
+ * custom subclasses are intentionally not supported.
  */
 public abstract class PersistenceDefinition {
     PersistenceDefinition() {

@@ -13,6 +13,7 @@ Step streaming, heartbeat recovery, and cancellation scenarios.
 | Rust GetAttributes | `get_attributes_test.rs` |
 | Rust heartbeat recovery | `heartbeat_recovery_test.rs` |
 | `InternalChannelTest` | `internal_channel_test.rs` |
+| Rust Join | `join_test.rs` |
 | `NoStartStateTest` | `no_start_state_test.rs` |
 | `PersistenceTest` | `persistence_test.rs` |
 | `ResetTest` | `reset_test.rs` |

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use crate::{Attribute, AttributeIndex, AttributeMap, Channel, ChannelMap, Stream};
+use crate::{Attribute, AttributeIndex, AttributeMap, Channel, ChannelMap, Join, Stream};
 
 #[derive(Clone, Debug, Default)]
 /// Declares the Attributes, Channels, and Streams a Flow owns.
@@ -156,6 +156,21 @@ impl PersistenceSchema {
     pub fn channel_map<T>(mut self, channel: &ChannelMap<T>) -> Self {
         self.definitions.push(PersistenceDefinition::new(
             channel.name(),
+            PersistenceKind::ChannelMap,
+        ));
+        self
+    }
+
+    /// Adds one [`Join`] definition.
+    ///
+    /// A Join registers as the keyed Channel map that holds its branch results, under the Join's
+    /// name. The name must differ from every other definition in the Flow, including Channels and
+    /// Channel maps; registration otherwise fails with a Flow definition error.
+    ///
+    /// Since 1.44.0.
+    pub fn join<T>(mut self, join: &Join<T>) -> Self {
+        self.definitions.push(PersistenceDefinition::new(
+            join.name(),
             PersistenceKind::ChannelMap,
         ));
         self

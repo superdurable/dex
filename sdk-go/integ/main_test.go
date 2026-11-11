@@ -151,6 +151,7 @@ func integrationFlows() []dex.Flow {
 		rpcFlow{},
 		selectiveRPCFlow{},
 		channelFlow{},
+		joinFlow{},
 		streamTestFlow{},
 		heartbeatRecoveryFlow{},
 		asyncHeartbeatFlow{},

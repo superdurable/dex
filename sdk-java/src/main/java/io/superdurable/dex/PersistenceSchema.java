@@ -52,7 +52,7 @@ public final class PersistenceSchema {
      * Creates a schema from separate Attribute and Channel lists.
      *
      * @param attributes Attribute and Attribute-map definitions
-     * @param channels Channel and Channel-map definitions
+     * @param channels Channel, Channel-map, and Join definitions
      * @return an immutable persistence schema
      * @throws NullPointerException if either list or any definition is {@code null}
      * @throws IllegalArgumentException if a definition appears in the wrong list
@@ -70,7 +70,7 @@ public final class PersistenceSchema {
      * Creates a schema from separate Attribute, Channel, and Stream lists.
      *
      * @param attributes Attribute and Attribute-map definitions
-     * @param channels Channel and Channel-map definitions
+     * @param channels Channel, Channel-map, and Join definitions
      * @param streams Stream definitions
      * @return an immutable persistence schema
      * @throws NullPointerException if a list or definition is {@code null}
@@ -104,7 +104,7 @@ public final class PersistenceSchema {
             if (isAttribute(definition)) {
                 attributes.add(definition);
             } else if (isChannel(definition)) {
-                channels.add(definition);
+                channels.add(registeredChannel(definition));
             } else if (definition instanceof Stream) {
                 streams.add(definition);
             } else {
@@ -160,9 +160,9 @@ public final class PersistenceSchema {
         for (PersistenceDefinition definition : definitions) {
             if (!isChannel(Objects.requireNonNull(definition, "channel"))) {
                 throw new IllegalArgumentException(
-                        "channels must contain only Channel or ChannelMap");
+                        "channels must contain only Channel, ChannelMap, or Join");
             }
-            copy.add(definition);
+            copy.add(registeredChannel(definition));
         }
         return Collections.unmodifiableList(copy);
     }
@@ -185,6 +185,16 @@ public final class PersistenceSchema {
     }
 
     private static boolean isChannel(final PersistenceDefinition definition) {
-        return definition instanceof Channel || definition instanceof ChannelMap;
+        return definition instanceof Channel
+                || definition instanceof ChannelMap
+                || definition instanceof Join;
+    }
+
+    // A Join registers as its ChannelMap, so every ChannelMap path serves it unchanged.
+    private static PersistenceDefinition registeredChannel(final PersistenceDefinition definition) {
+        if (definition instanceof Join) {
+            return ((Join<?>) definition).getChannelMap();
+        }
+        return definition;
     }
 }

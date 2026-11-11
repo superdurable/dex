@@ -487,7 +487,8 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
 - Subagent transcripts. Resume needs only the main transcript.
 - Claude Code's `last-prompt` entries. Each names the leaf a resume continues
   from, and one stored from an earlier segment would make a later resume skip
-  every entry after it.
+  every entry after it. Entries that adapter 0.4.0 stored are dropped when a
+  segment reads the transcript.
 
 ## Limits
 

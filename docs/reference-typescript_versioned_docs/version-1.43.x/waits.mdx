@@ -1,0 +1,147 @@
+---
+id: waits
+title: Waits
+sidebar_label: Waits
+---
+
+# Waits
+
+**WaitFor** returns a **Wait**: a wait type and the conditions to wait for.
+Dex stores the wait durably and checks the conditions whenever related state
+changes. A condition waits for a [Timer](/concepts/primitives/timer), a
+[Channel](/concepts/primitives/channel), or a [SubFlow](/concepts/primitives/subflow).
+
+- **Until** waits for one condition.
+- **AnyOf** is met when any condition is met.
+- **AllOf** is met when all conditions are met.
+- **AnyCombinationOf** is met when any one group of conditions is all met.
+
+**Until**, **AnyOf**, and **AllOf** do not need condition IDs. Read Channel
+results from the Channel definition, and check Timer outcomes through the
+**Context**. Add a condition ID only where an API requires one, such as
+**AnyCombinationOf** or a Timer that you select by ID.
+
+```typescript
+return Wait.anyOf(
+  channelA.forOne(),
+  Timer.byDuration(timeoutMs),
+);
+```
+
+Example: [examples/typescript/src/primitives/wait-types/wait-types-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/wait-types/wait-types-flow.ts)
+
+```typescript
+return Wait.allOf(
+  channelA.forOne(),
+  channelB.forOne(),
+);
+```
+
+Example: [examples/typescript/src/primitives/wait-types/wait-types-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/wait-types/wait-types-flow.ts)
+
+<a id="step-execution-local"></a>To pass a value from **WaitFor** to **Execute**, see
+[Step execution local](./step.mdx#step-execution-local).
+
+## Condition results {#condition-results}
+
+After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
+[Channel](/concepts/primitives/channel), call **results** on the Channel to read the
+messages the wait consumed. For a [SubFlow](/concepts/primitives/subflow),
+call **SubFlow.getConditionResults** to read the child Flow result.
+
+In an **AnyOf**, Dex consumes messages only from the Channel condition that it
+selects to satisfy the Wait. Other Channel conditions consume nothing, even if
+they are also ready, and their messages stay queued.
+
+When several **AnyOf** conditions are ready at the same check, Dex selects the
+first ready one in this order: Timer conditions, then Channel conditions, then
+SubFlow conditions, each kind in the order you declared them. A condition that
+is not ready does not block a later one that is. So across kinds, the order of
+the arguments in your call does not decide which condition wins.
+
+Use **AnyOf** when any ready condition may win. If the Step must keep waiting
+for a higher-priority input, return only that condition until it resolves.
+
+<a id="channel-结果"></a>
+
+### Channel results {#channel-results}
+
+```typescript
+const approval = new Channel("Approval", stringCodec);
+
+class ChannelWait implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "ChannelWait";
+  }
+
+  public waitFor(_context: Context, input: number): Wait {
+    return Wait.anyOf(
+      approval.forOne(),
+      Timer.byDuration(input * 1000),
+    );
+  }
+
+  public execute(context: Context, _input: number): StepDecision {
+    if (context.hasTimerFired()) {
+      return gracefulComplete("approval timed out");
+    }
+    const approvals = approval.results(context);
+    return gracefulComplete(approvals[0]!);
+  }
+}
+
+const channelWait = new ChannelWait();
+```
+
+Example: [examples/typescript/src/primitives/channel/channel-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/channel/channel-flow.ts)
+
+<a id="subflow-结果"></a>
+
+### SubFlow results {#subflow-results}
+
+```typescript
+public execute(context: Context, _input: number): StepDecision {
+  const result = SubFlow.getConditionResults(context);
+  const output = result.singleOutput(doubleCodec);
+  const flowId = SubFlow.getFlowId(context);
+  return gracefulComplete(`${flowId}|${output}`);
+}
+```
+
+Example: [examples/typescript/src/primitives/subflow/subflow-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/subflow/subflow-flow.ts)
+
+## AnyCombinationOf {#anycombinationof}
+
+**AnyCombinationOf** is met when every condition in any one group is met. Each
+group is an all-of combination.
+
+Dex consumes messages only from the Channel conditions of the group it selects.
+Conditions that belong only to other ready groups consume nothing, and their
+messages stay queued.
+
+Every condition in the groups needs a unique **condition ID**.
+
+```typescript
+return Wait.anyCombinationOf(
+  ConditionCombination.of(
+    channelA.forOne("signal-a"),
+    Timer.byDuration(timeoutMs, "timeout"),
+  ),
+  ConditionCombination.of(channelB.forOne("signal-b")),
+);
+```
+
+Example: [examples/typescript/src/primitives/wait-types/wait-types-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/wait-types/wait-types-flow.ts)
+
+## Skip immediately {#skip-immediately}
+
+**SkipWaitImmediately** waits for no condition. Use it when **WaitFor**
+decides at run time that the Step should not wait.
+
+```typescript
+return Wait.skipImmediately();
+```
+
+Example: [examples/typescript/src/primitives/flow/example-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/flow/example-flow.ts)

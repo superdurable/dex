@@ -13,6 +13,18 @@
 
 ### Added and fixed
 
+- Add `Join` and `JoinRound` to synchronize parallel branches. `Join.fork(context,
+  branchBuilders, joinBuilder)` starts one round from a Step, keyed by the Step
+  execution ID, and counts the branches; `Join.forkWithRoundKey` takes an explicit
+  key, for example in an RPC. Branches report with `endBranch` or
+  `reportBranchResult`. The join Step waits with `forAllBranches`,
+  `forFirstBranch`, or `forBranches` and reads `branchResults`. The next round's
+  split waits with `forRemainingBranches` and reads `remainingBranchResults`.
+  `joinRoundCodec` encodes a `JoinRound` as `{"roundKey", "branchCount"}`.
+  `PersistenceSchema.channels` now also accepts a `Join`, which registers as a
+  ChannelMap with the same name. `Join.channelMap` returns that registered
+  ChannelMap for reading a round's pending results, for example in an RPC;
+  applications never publish to it directly.
 - Add `FlowConfig.offloadHistory` to choose whether a run offloads its history
   to object storage. Omitting it means `true`. Set it to `false` for many short
   runs that close soon, to avoid object storage requests. Set it at start

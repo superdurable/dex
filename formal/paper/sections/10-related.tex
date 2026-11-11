@@ -1,0 +1,110 @@
+\section{Related work}
+\label{sec:related}
+
+\paragraph{Expressiveness and encodings.}
+Felleisen \cite{felleisen1991expressive} made ``expressive power'' of
+programming languages precise through translations that are local in the
+syntax. The process-calculus community developed the study of encodings
+furthest. Palamidessi \cite{palamidessi2003comparing} separated the
+synchronous from the asynchronous $\pi$-calculus by showing that no
+encoding of the first into the second meets a small set of reasonable
+criteria, which made the choice of criteria a central question, and Gorla
+\cite{gorla2010unified} proposed a set of criteria that has become a
+reference point: compositionality, name invariance, operational
+correspondence, divergence reflection, and success sensitiveness. Peters
+\cite{peters2019comparing} surveys the criteria and how they relate. Our
+result is closest in spirit to the semantic criteria. The two step
+simulations of \S\ref{sec:proof} are an operational correspondence, in a
+strong form with named action sequences. The \mdiv{} marker of the liveness
+theorem gives divergence reflection and preservation, and \mterm{} with the
+$\ev{exit}$ and $\ev{fail}$ events plays the role of success. We do not
+claim the structural criteria in Gorla's form. The translation is one Step
+per program point and is defined from the statement's thread-local semantics,
+but it is a whole-program compilation in continuation-passing style
+\cite{appel1992cps} with naming conventions for Channels, and its target is
+an engine with a fixed set of primitives, not a calculus with parallel
+composition. The equivalence itself is trace equivalence, which is at the
+coarse end of the linear-time/branching-time spectrum
+\cite{vanglabbeek2001spectrum}; Milner's weak bisimilarity
+\cite{milner1989communication} is finer than the claim needs
+(\S\ref{sec:liveness-statement}).
+
+\paragraph{Workflow patterns.}
+The Workflow Patterns initiative catalogued recurring control-flow
+behaviors \cite{vanderaalst2003patterns}, later revised to 43 patterns with
+formal definitions \cite{russell2006revised}, and the catalog became the
+standard instrument for comparing workflow languages and systems
+\cite{wohed2009patterns}. YAWL \cite{vanderaalst2005yawl} was designed from
+the patterns, and Kiepuszewski et al.\ \cite{kiepuszewski2003fundamentals}
+studied the expressive power of classes of workflow languages formally.
+Pattern-based evaluation and our theorem answer different questions. A
+pattern rating asks how \emph{directly} a system supports one behavior, and
+it is checked against the running system. Our theorem asks whether a
+\emph{class} of programs is expressible at all, with an exact notion of
+equivalence, and it is checked against a model. The two are complementary,
+and Dex has both (\S\ref{sec:introduction}).
+
+\paragraph{Simulation proofs and verified systems.}
+The proof technique is standard. Forward and backward simulations
+\cite{lynch1995simulations} and refinement mappings with stuttering
+\cite{abadi1991refinement} are the foundations; the distinction between
+safety and liveness that organizes our two theorems is due to Alpern and
+Schneider \cite{alpern1985liveness}. Among mechanized developments,
+CompCert \cite{leroy2009compcert} proves semantic preservation for a
+compiler by simulation diagrams, and relies on determinism of the target
+so that preservation in one direction suffices; we use determinism of each
+Dex rule for a similar economy in \S\ref{sec:dextol}. seL4
+\cite{klein2009sel4} proves that a kernel implementation refines its
+abstract specification. For distributed systems, Verdi
+\cite{wilcox2015verdi} verifies implementations under explicit network
+fault models, and IronFleet \cite{hawblitzel2015ironfleet} combines
+refinement with mechanized proofs of liveness. Those
+projects verify an \emph{implementation} against a specification. We verify
+a property of a \emph{model} of a system, and the gap between that model
+and the code (\S\ref{sec:limitations}) is the gap they close. On the
+engineering side, Woos et al.\ \cite{woos2016planning} report that their
+proof needed 90 invariants and that keeping it up to date as invariants
+changed was the main difficulty, and they propose to plan for such change.
+Our gaps of \S\ref{sec:gaps} are the same phenomenon, and the
+inductiveness fuzz is our answer, in the tradition of
+testing a conjecture on random inputs before proving it
+\cite{claessen2000quickcheck}. The development is in Lean~4
+\cite{demoura2021lean4}.
+
+\paragraph{The source language.}
+\Lang{}'s synchronization constructs go back to monitors. Condition
+variables with \kw{wait} and \kw{signal} are Hoare's
+\cite{hoare1974monitors}; that a woken waiter must re-acquire the lock in
+competition with other threads is the discipline of Mesa
+\cite{lampson1980mesa}, which \Lang{} follows, with FIFO queues and without
+spurious wakeups.
+
+\paragraph{Durable execution and workflow engines.}
+The academic literature on durable execution is mostly about the
+proposition of our second theorem: that a program behaves under failures
+as it would without them. Sagas \cite{garciamolina1987sagas} introduced
+long-lived transactions built from steps with compensations. Ramalingam and
+Vaswani \cite{ramalingam2013idempotence} gave a language-based account of
+fault tolerance through idempotent, logged steps, with a formal calculus
+that models failures and duplicate requests. Beldi
+\cite{zhang2020beldi} provides exactly-once semantics and transactions for
+workflows of stateful serverless functions, and Kallas et al.\
+\cite{kallas2023mu2sls} run microservice applications on a serverless
+platform with formal guarantees that the generated implementations are
+correct. Jangda et al.\ \cite{jangda2019serverless} give an operational
+semantics of serverless platforms and characterize when a simpler, naive
+semantics coincides with it. These works compare a failure-prone
+execution with an ideal one for the \emph{same} program, as our failure
+theorem does. Our first theorem compares two \emph{different} programming
+models in the ideal setting: threads on one side, Steps on the other. We
+are not aware of a prior machine-checked theorem that a durable workflow
+model expresses a conventional concurrent language up to trace
+equivalence. Our failure theorem differs from the works above in three
+ways. It is about a model written against an existing
+server, rule by rule, rather than about a calculus or a system designed
+for the proof. It allows zombie Workers that keep emitting effects after
+the server gave them up. And it states what repeats: every extra effect
+equals an earlier one, and the first occurrences of each method's effects
+come in order. Mechanized frameworks for crash safety of implementations,
+such as Perennial \cite{chajed2019perennial}, address the gap between
+our model and the code.

@@ -188,6 +188,7 @@ pub struct Context {
     step_output_finalizers: Vec<Arc<dyn StepOutputFinalizer>>,
     step_outputs_finalized: bool,
     negotiated_protocol_version: NegotiatedServerProtocolVersion,
+    forked_join_names: HashSet<String>,
 }
 
 pub(crate) trait StepOutputFinalizer: Send + Sync {
@@ -240,6 +241,7 @@ impl Context {
             step_output_finalizers: Vec::new(),
             step_outputs_finalized: false,
             negotiated_protocol_version: input.negotiated_protocol_version,
+            forked_join_names: HashSet::new(),
         })
     }
 
@@ -273,6 +275,19 @@ impl Context {
     /// Returns the predecessor Step execution ID, or an empty string when absent.
     pub fn from_step_execution_id(&self) -> &str {
         &self.metadata.from_step_execution_id
+    }
+
+    /// Records that `join_name` forked in this invocation, rejecting a second fork.
+    pub(crate) fn record_join_fork(&mut self, join_name: &str) -> HandlerResult<()> {
+        if self.forked_join_names.insert(join_name.to_string()) {
+            return Ok(());
+        }
+        Err(HandlerError::new(
+            "dex_sdk::HandlerError",
+            format!(
+                "Join {join_name} already forked in this invocation; use another Join or fork_with_round_key"
+            ),
+        ))
     }
 
     /// Returns the final failure that caused recovery, or `None` outside a recovery Step.

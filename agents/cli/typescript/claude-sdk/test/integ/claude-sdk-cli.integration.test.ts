@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
@@ -173,6 +173,112 @@ describe("dex-agents-claude-sdk with the bundled Claude Code CLI against a scrip
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
     assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
+  });
+
+  test("a Write through a dangling link to outside the workspace is refused", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "dex-agents-claude-sdk-outside-"));
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    symlinkSync(join(outside, "created.txt"), join(home.workspace, "link.txt"));
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("Write", { file_path: join(home.workspace, "link.txt"), content: "x" }));
+    await cli.stdout.waitFor("Write may only use paths inside the workspace");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.doesNotMatch(cli.stdout.all, /Approve Write/);
+    assert.equal(existsSync(join(outside, "created.txt")), false);
+  });
+
+  test("Glob and Grep run at once inside the workspace only", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "dex-agents-claude-sdk-outside-"));
+    writeFileSync(join(outside, "secret.txt"), "do not read");
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("Glob", { pattern: "*.txt" }));
+    await cli.stdout.waitFor("Glob: ");
+    await cli.stdout.waitFor("notes.txt");
+    cli.writeLine(call("Grep", { pattern: "milk" }));
+    await cli.stdout.waitFor("Grep: ");
+    await cli.stdout.waitFor("notes.txt");
+    const outsideName = outside.split("/").at(-1) ?? "";
+    for (const pattern of [`*/../../${outsideName}/secret.txt`, `**/../../${outsideName}/secret.txt`]) {
+      cli.writeLine(call("Glob", { pattern }));
+      await cli.stdout.waitFor("Glob may only use paths inside the workspace");
+    }
+    cli.writeLine(call("Grep", { pattern: "read", glob: `../${outsideName}/*` }));
+    await cli.stdout.waitFor("Grep may only use paths inside the workspace");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.doesNotMatch(cli.stdout.all, /Approve (Glob|Grep)/);
+    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
+  });
+
+  test("Edit waits for approval and runs after it", async () => {
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    const notes = join(home.workspace, "notes.txt");
+    writeFileSync(notes, "buy milk\n");
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(
+      `${call("Read", { file_path: notes })} && ${call("Edit", { file_path: notes, old_string: "milk", new_string: "bread" })}`,
+    );
+    await cli.stdout.waitFor("Approve Edit?");
+    assert.equal(readFileSync(notes, "utf8"), "buy milk\n");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("Edit: ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.equal(readFileSync(notes, "utf8"), "buy bread\n");
+  });
+
+  test("WebFetch runs without approval", async () => {
+    const cli = start(newHome(noConnectors));
+    await cli.waitForSession();
+    // The refusing proxy fails the fetch itself; the test checks only that no approval gates it.
+    cli.writeLine(call("WebFetch", { url: "https://example.com/", prompt: "the title" }));
+    await cli.stdout.waitFor("WebFetch: ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.doesNotMatch(cli.stdout.all, /Approve WebFetch/);
+    assert.ok(offeredToolNames().includes("WebFetch"));
+  });
+
+  test("an allow-listed background command still waits for approval", async () => {
+    const cli = start(newHome({ ...noConnectors, local_tools: { browser: false, shell: { enabled: true, allow: ["sleep 0"] } } }));
+    await cli.waitForSession();
+    cli.writeLine(call("Bash", { command: "sleep 0", run_in_background: true }));
+    await cli.stdout.waitFor("Approve Bash?");
+    cli.writeLine("n not in the background");
+    await cli.stdout.waitFor("Bash: ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("an approved call is checked again by the Worker that runs it", async () => {
+    const home = newHome(noConnectors);
+    const first = start(home);
+    const sessionId = await first.waitForSession();
+    const todoPath = join(home.workspace, "todo.txt");
+    first.writeLine(call("Write", { file_path: todoPath, content: "call mom" }));
+    await first.stdout.waitFor("Approve Write?");
+    // Killed while it waits: the approval stays pending in the session.
+    await first.kill();
+
+    // The file now switches the file tools off; the Worker that runs the approved call applies it.
+    home.writeConfig({ ...noConnectors, local_tools: { browser: false, files: false } });
+    const second = start(home, ["--resume", sessionId]);
+    await second.stdout.waitFor("Approve Write?");
+    second.writeLine("y");
+    await second.stdout.waitFor("Write is switched off for this session; the call did not run");
+    await second.stdout.waitFor("> ");
+    second.writeLine("/exit");
+    assert.equal(await second.waitForExit(), 0);
+    assert.equal(existsSync(todoPath), false);
   });
 
   test("session settings that switch the shell off remove Bash", async () => {

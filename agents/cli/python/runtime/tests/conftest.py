@@ -122,10 +122,12 @@ class CliHome:
         self.children.append(child)
         return child
 
-    def run(self, *arguments: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
-        """Run the scripted command without a terminal, feeding standard input."""
+    def run(
+        self, *arguments: str, stdin: str = "", command_module: str = "tests.scripted_cli"
+    ) -> subprocess.CompletedProcess[str]:
+        """Run the scripted command, or another test command, without a terminal."""
         return subprocess.run(
-            [sys.executable, "-m", "tests.scripted_cli", *arguments],
+            [sys.executable, "-m", command_module, *arguments],
             cwd=PACKAGE_DIR,
             env=self.environment(),
             input=stdin,

@@ -64,6 +64,51 @@ func TestScriptActionsGolden(t *testing.T) {
 	}
 }
 
+func TestTypeScriptJoinGolden(t *testing.T) {
+	sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "join.ts")
+	graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.Empty(t, graph.Diagnostics)
+	graph.Source.Path = "join.ts"
+	actual, err := MarshalJSON(graph)
+	require.NoError(t, err)
+	goldenPath := filepath.Join("testdata", "typescript", "join.golden.json")
+	if os.Getenv("UPDATE_SCRIPT_GOLDENS") == "1" {
+		require.NoError(t, os.WriteFile(goldenPath, actual, 0o644))
+	}
+	expected, err := os.ReadFile(goldenPath)
+	require.NoError(t, err)
+	require.Equal(t, string(expected), string(actual))
+}
+
+func TestTypeScriptJoinUndeterminedBuilderListIsDynamic(t *testing.T) {
+	singlePush := `pairBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer: "backup", round}));`
+	eachPush := "reviewers.forEach((reviewer) => eachBuilders.push("
+	cases := map[string]struct{ original, replacement string }{
+		"conditional push":            {singlePush, "if (reviewers.length > 5) " + singlePush},
+		"list passed along":           {singlePush, "reorderBuilders(pairBuilders);\n      " + singlePush},
+		"push in another callback":    {singlePush, "scheduleLater(() => " + strings.TrimSuffix(singlePush, ";") + ");"},
+		"push in a non-array forEach": {eachPush, "reviewerDirectory.forEach((reviewer) => eachBuilders.push("},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "join.ts")
+			source, err := os.ReadFile(sourcePath)
+			require.NoError(t, err)
+			modified := strings.Replace(string(source), testCase.original, testCase.replacement, 1)
+			require.NotEqual(t, string(source), modified)
+			modified += "\nfunction reorderBuilders(builders: unknown[]): void {\n  builders.reverse();\n}\n"
+			modified += "\nfunction scheduleLater(callback: () => unknown): void {\n  void callback;\n}\n"
+			require.NoError(t, os.WriteFile(sourcePath, []byte(modified), 0o644))
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+			require.NoError(t, err)
+			require.False(t, graph.Valid)
+			require.Equal(t, []string{"dynamic_step_target"}, diagnosticCodes(graph))
+		})
+	}
+}
+
 func TestScriptStepAnnotationDiagnostics(t *testing.T) {
 	for _, language := range []string{"python", "typescript"} {
 		for _, replacement := range []string{"", "dex:explanation text:\"\"", "dex:explanation text:\"First.\"\nCOMMENT dex:explanation text:\"Second.\"", "dex:explanation text:\"First.\" extra:true"} {

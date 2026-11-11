@@ -27,12 +27,12 @@ from dex_agents import (
     AgentImageReference,
     AgentUserMessage,
     ImageValidationError,
+    LocalDirectoryMediaStore,
     MessageRole,
     image_uri,
 )
 from dex_agents.testing import AgentTestStack, InvocationLog, wait_for_agent_snapshot
 from tests.conftest import CORE_DIR, ScriptedAgentHarness
-from tests.directory_media_store import DirectoryMediaStore
 from tests.image_agent import (
     IMAGE_LOADS_LOG_NAME,
     MEDIA_DIRECTORY_NAME,
@@ -55,8 +55,15 @@ JPEG = base64.b64decode(IMAGES["jpeg"]["base64"])
 
 class ImageAgentHarness(ScriptedAgentHarness):
     @property
-    def media(self) -> DirectoryMediaStore:
-        return DirectoryMediaStore(self.state_dir / MEDIA_DIRECTORY_NAME)
+    def media(self) -> LocalDirectoryMediaStore:
+        return LocalDirectoryMediaStore(self.state_dir / MEDIA_DIRECTORY_NAME)
+
+    @property
+    def image_files(self) -> list[Path]:
+        directory = self.state_dir / MEDIA_DIRECTORY_NAME / "sha256"
+        if not directory.exists():
+            return []
+        return sorted(path for path in directory.iterdir() if not path.name.startswith("."))
 
     @property
     def image_loads(self) -> InvocationLog:
@@ -118,7 +125,34 @@ async def test_a_user_message_with_images_is_stored_as_references_and_replays(
     ]
     stored = json.dumps([message.framework_item for message in second.messages])
     assert base64.b64encode(PNG).decode() not in stored
-    assert len(image_harness.media.image_files) == 2
+    assert len(image_harness.image_files) == 2
+
+
+async def test_an_image_replays_from_the_local_directory_after_a_worker_restart(
+    image_harness: ImageAgentHarness,
+) -> None:
+    worker = await image_harness.stack.start_worker()
+    png = await image_harness.media.put_image(PNG)
+    session_id = image_harness.new_session_id()
+    await image_harness.sessions.start_session(session_id)
+    assert await image_harness.sessions.send_user_message(session_id, "describe", images=[png])
+    await image_harness.wait_for_turns(session_id, 1)
+
+    worker.kill()
+    await image_harness.stack.start_worker()
+    assert await image_harness.sessions.send_user_message(session_id, "describe")
+    snapshot = await image_harness.wait_for_turns(session_id, 2)
+
+    assert png.uri == image_uri(image_harness.media.store_uri, png.sha256)
+    assert png.uri.startswith("file://")
+    assert snapshot.messages[0].images == [png]
+    assert snapshot.messages[-1].text == "saw 1 images"
+    # The new Worker process read the bytes from the same directory.
+    assert image_harness.image_loads.names() == [
+        f"turn-1:1:{loaded(png)}",
+        f"turn-2:1:{loaded(png)}",
+    ]
+    assert [path.name for path in image_harness.image_files] == [png.sha256]
 
 
 async def test_a_queued_message_keeps_its_images_when_steered(
@@ -194,7 +228,7 @@ async def test_a_worker_killed_after_the_upload_uploads_the_same_single_object_a
         f"upload {sha256} attempt 1",
         f"upload {sha256} attempt 2",
     ]
-    assert [path.name for path in image_harness.media.image_files] == [sha256]
+    assert [path.name for path in image_harness.image_files] == [sha256]
     tool_messages = [message for message in snapshot.messages if message.role is MessageRole.TOOL]
     assert [[image.sha256 for image in message.images] for message in tool_messages] == [[sha256]]
     assert tool_messages[0].tool_output == "took a screenshot"
@@ -319,7 +353,7 @@ async def test_a_replay_whose_image_object_is_gone_fails_the_turn_cleanly(
     await image_harness.wait_for_turns(session_id, 1)
 
     # A lifecycle rule that expired the object before the session stopped replaying it.
-    for path in image_harness.media.image_files:
+    for path in image_harness.image_files:
         path.unlink()
     assert await image_harness.sessions.send_user_message(session_id, "describe")
     snapshot = await image_harness.wait_for_turns(session_id, 2)

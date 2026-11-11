@@ -8,9 +8,17 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the TypeScript SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.44 {#v1-44}
+
+Released 2026-11-10 as [sdk-typescript/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.44.0).
+
+### Added
+
+- **Join** synchronizes parallel branches through a ChannelMap of branch results. **Join.fork** starts one round from a Step and creates its **JoinRound** token; **Join.forkWithRoundKey** does the same with an explicit key, for example in an RPC. Branches report with **Join.endBranch** or **Join.reportBranchResult**. The join Step waits with **Join.forAllBranches**, **Join.forFirstBranch**, or **Join.forBranches** and reads **Join.branchResults**. The next round resets the previous one with **Join.forRemainingBranches** and reads **Join.remainingBranchResults**. **joinRoundCodec** encodes a JoinRound as a JSON object with the fields **roundKey** and **branchCount**, and **PersistenceSchema.channels** accepts a Join. **Join.channelMap** is the registered ChannelMap, for reading a round's pending results, for example in an RPC; never publish to it directly. [Reference](/reference/typescript/waits).
+
 ## 1.43 {#v1-43}
 
-Not released yet. The next minor release, sdk-typescript/v1.43.0, ships these changes.
+Released 2026-11-10 as [sdk-typescript/v1.43.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.43.0).
 
 ### Breaking
 
@@ -104,7 +112,7 @@ Released 2026-11-01 as [sdk-typescript/v1.32.0](https://github.com/superdurable/
 
 ## 1.30 {#v1-30}
 
-Released 2026-10-31 as [sdk-typescript/v1.30.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.30.0). Reference: [1.30.x](/reference/typescript/1.30.x/).
+Released 2026-10-31 as [sdk-typescript/v1.30.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.30.0). Reference: [1.30.x](/reference/typescript/).
 
 ### Added
 

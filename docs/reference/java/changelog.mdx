@@ -8,9 +8,18 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Java SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.44 {#v1-44}
+
+Released 2026-11-10 as [sdk-java/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.44.0).
+
+### Added
+
+- **Join** and **JoinRound** synchronize parallel branches of one Flow. **Join.fork** starts a round from a split Step and derives the round key and branch count; **Join.forkWithRoundKey** takes an application key, for example in an RPC. Branches report with **endBranch** or **reportBranchResult**. The join Step waits with **forAllBranches**, **forFirstBranch**, or **forBranches**, and the next round resets with **forRemainingBranches**. A Join is stored as a ChannelMap with the same name; **Join.getChannelMap** returns it for reading a round's pending results, never for publishing. [Reference](/reference/java/waits).
+- **StepDecision.goToMany(List)** and **RPCResult.of(output, List)** accept a list of movements, such as the result of **Join.fork**, and behave like the varargs forms. A call with a literal **null** argument is now ambiguous and no longer compiles; it always threw at run time. [Reference](/reference/java/step-decisions#gotomulti).
+
 ## 1.43 {#v1-43}
 
-Not released yet. The next minor release, sdk-java/v1.43.0, ships these changes.
+Released 2026-11-10 as [sdk-java/v1.43.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.43.0).
 
 ### Breaking
 
@@ -93,7 +102,7 @@ Released 2026-11-06 as [sdk-java/v1.35.0](https://github.com/superdurable/dex/re
 
 ## 1.32 {#v1-32}
 
-Released 2026-11-01 as [sdk-java/v1.32.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.32.0). Reference: [1.32.x](/reference/java/1.32.x/).
+Released 2026-11-01 as [sdk-java/v1.32.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.32.0). Reference: [1.32.x](/reference/java/).
 
 ### Added
 

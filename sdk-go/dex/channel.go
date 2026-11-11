@@ -24,6 +24,7 @@ import (
 // Messages consumed by a satisfied Condition are read with GetConditionResults in Execute.
 // PendingMessages instead requires an explicit load in the handler options and does not consume messages.
 // Message counts are loaded automatically; a snapshot is not refreshed during a retry.
+// To wait for parallel branches of the same Flow, use a Join instead of counting signals by hand.
 //
 // Example:
 //
@@ -196,6 +197,7 @@ func (Channel[T]) channelIsMap() bool {
 // ChannelMap defines independently queued Channel instances under one shared name.
 // Register the map once in PersistenceSchema and supply an instance string to each operation.
 // Slash is prohibited in instance keys because it is a reserved character.
+// To wait for parallel branches of the same Flow, use a Join, which keys a ChannelMap by round.
 type ChannelMap[T any] struct {
 	name string
 }

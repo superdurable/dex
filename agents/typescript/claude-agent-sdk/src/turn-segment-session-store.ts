@@ -8,7 +8,7 @@
 
 import type { SessionKey, SessionStore, SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
 
-import type { ClaudeTranscriptEntry } from "./claude-transcript.js";
+import { leafPointerEntryType, type ClaudeTranscriptEntry } from "./claude-transcript.js";
 
 // Claude Code's entry that names the leaf a resume continues from.
 const leafPointerEntryType = "last-prompt";
