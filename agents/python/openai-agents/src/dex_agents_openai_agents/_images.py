@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import inspect
+import re
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, Literal
 
@@ -25,7 +26,8 @@ from agents.run_config import CallModelData, CallModelInputFilter, ModelInputDat
 from dex_agents import AgentImageReference, MediaStore, load_images
 
 IMAGE_DETAIL: Literal["auto"] = "auto"
-_DATA_URL_PREFIX = "data:"
+# A reference URI ends in /sha256/<sha256>; other image URLs are the application's own.
+_PLACEHOLDER_PATTERN = re.compile(r"/sha256/[0-9a-f]{64}$")
 _PART_LIST_KEYS = ("content", "output")
 
 
@@ -129,7 +131,11 @@ def _is_placeholder_part(part: Any) -> bool:
     if not _is_input_image_part(part):
         return False
     image_url = part.get("image_url")
-    return isinstance(image_url, str) and not image_url.startswith(_DATA_URL_PREFIX)
+    return (
+        isinstance(image_url, str)
+        and _PLACEHOLDER_PATTERN.search(image_url) is not None
+        and not image_url.startswith("data:")
+    )
 
 
 def _data_url(mime_type: str, data: bytes) -> str:
