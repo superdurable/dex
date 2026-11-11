@@ -186,6 +186,13 @@ so `npm run check` catches the problem before a release. Archived pages have sel
 URLs and Docusaurus's noindex metadata, and are excluded from the sitemap and
 `llms.txt`. Their Markdown twins still exist. Current pages remain indexable.
 
+### Change logs
+
+Each `reference/<component>/changelog.mdx` gets its release entry from the
+fragments under the repository's `changelog.d/<component>/`, which are outside
+the docs site. A release-prep pull request writes the entry before the tag, so
+the snapshot of that release already contains it. See `changelog.d/README.md`.
+
 ### Release automation
 
 After creating release tags, `release-changed-components.yml` snapshots the
@@ -207,7 +214,9 @@ Until then, a person opens each pull request:
 1. Open the release run's summary. It names the snapshot branch and gives a
    compare link.
 2. Open the pull request from the compare link with the Summary, Why, and
-   Testing sections.
+   Testing sections. Keep the prefilled line
+   `changelog: correction: reference snapshot`: a snapshot may rewrite links
+   in a change log, which Check Gate CI otherwise rejects.
 3. Merge snapshot branches in release order. Each branch starts from main as
    it was at its release, so a later branch may miss or conflict with an
    earlier one. Merge the earlier branch first. If the later branch then

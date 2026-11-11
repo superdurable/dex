@@ -108,6 +108,28 @@ request writes them. Check Gate CI rejects other edits unless the description
 contains a line `changelog: correction: <reason>`. See
 `skills/CONTRIBUTING.md` and `changelog.d/README.md`.
 
+## Change Logs
+
+Each user-visible change of a released component adds one change-log fragment
+per component instead of editing its change log. Run
+`python3 script/release/changelog_fragments.py new <target> --section <section>`
+and write the bullets in the new `changelog.d/<target>/` file. The target is
+`go`, `java`, `python`, `rust`, `typescript`, `web`, `cli`, `server`, `agents`
+(the docs change log), or `agents-packages` (`agents/CHANGELOG.md`). The
+section is Breaking, Added, Changed, Deprecated, or Fixed; `agents-packages`
+may also name a topic. Never edit the newest entry of a change log, add a
+version heading, or change a Released line by hand. Check Gate CI rejects such
+an edit unless the description contains a line
+`changelog: correction: <reason>`.
+
+Before each release, the release cutter runs
+`python3 script/release/changelog_fragments.py prepare <components> --version <version> --date <YYYY-MM-DD>`
+on a fresh branch from `origin/main`, opens the pull request with the
+`release-prep` label, and merges it before creating the tag. The entry is then
+on main when the release snapshots the reference. **Release changed
+components** fails its plan when a selected component's change log does not
+record the release yet. See `changelog.d/README.md`.
+
 ## Release Versions
 
 Choose the version of each SDK, cli, and web release by what it ships:
@@ -119,8 +141,9 @@ Choose the version of each SDK, cli, and web release by what it ships:
 - When the choice is unclear, ask the owner before releasing.
 
 A patch release folds into its minor's change log entry. List it on the
-Released line and mark its items "Since 1.NN.P". Developer reference pages
-mark its changes "Changed in 1.NN.P".
+Released line and mark its items "Since 1.NN.P"; the release-prep pull
+request does both. Developer reference pages mark its changes
+"Changed in 1.NN.P".
 
 ## Docs Information Placement
 
