@@ -113,16 +113,13 @@ func TestFlowDefinitionsBoundGroupsAndV2Lists(t *testing.T) {
 	}
 }
 
-// A directory file too large to read still claims its Flow type, so an upload cannot take it over.
-func TestOversizedDirectoryFileStillClaimsItsFlowType(t *testing.T) {
+// A directory file too large to read is invalid and claims no Flow type, so an upload of that Flow type shows.
+func TestOversizedDirectoryFileIsInvalidAndClaimsNoFlowType(t *testing.T) {
 	directory := t.TempDir()
 	padding := `{"id":"pad","kind":"attribute","name":"` + strings.Repeat("p", 1000) + `"},`
 	nodes := strings.Repeat(padding, (maxFlowDefinitionBytes/len(padding))+10)
 	oversized := strings.Replace(validFlowDefinitionV2("RefundFlow", true), `"nodes":[]`, `"nodes":[`+strings.TrimSuffix(nodes, ",")+`]`, 1)
-	// flow.name comes after the large nodes array, so finding it needs a streaming read.
-	oversized = strings.Replace(oversized, `"flow":{"name":"RefundFlow"},`, ``, 1)
-	oversized = strings.TrimSuffix(oversized, "}") + `,"flow":{"name":"RefundFlow"}}`
-	if err := os.WriteFile(filepath.Join(directory, "huge.json"), []byte(oversized), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, "RefundFlow.json"), []byte(oversized), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	service := newFakeDefinitionFlowService(map[string]string{"RefundFlow": validFlowDefinitionV2("RefundFlow", true)})
@@ -132,12 +129,23 @@ func TestOversizedDirectoryFileStillClaimsItsFlowType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.definitions) != 1 || snapshot.definitions[0].Source != "directory" ||
-		!strings.Contains(snapshot.definitions[0].Error, "exceeds") || len(snapshot.V2Definitions) != 0 {
-		t.Fatalf("definitions = %+v", snapshot.definitions)
+	if len(snapshot.definitions) != 1 || snapshot.definitions[0].Source != "uploaded" || snapshot.definitions[0].Error != "" {
+		t.Fatalf("RefundFlow definitions = %+v", snapshot.definitions)
 	}
-	if len(service.readRequests()) != 0 {
-		t.Fatalf("read the uploaded copy of a directory Flow type: %v", service.readRequests())
+	if _, found := snapshot.V2Definitions["RefundFlow"]; !found {
+		t.Fatal("the uploaded RefundFlow is not served")
+	}
+	all, err := sources.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oversizedEntry := definitionByID(t, all, "RefundFlow.json")
+	if oversizedEntry.FlowName != "" || !strings.Contains(oversizedEntry.Error, "too large") || oversizedEntry.Graph != nil {
+		t.Fatalf("oversized entry = %+v", oversizedEntry)
+	}
+	list, err := sources.listFlowTypes(context.Background())
+	if err != nil || len(list.FlowTypes) != 1 || list.FlowTypes[0] != (flowDefinitionTypeName{FlowType: "RefundFlow", Source: "uploaded"}) {
+		t.Fatalf("list = %+v, err = %v", list, err)
 	}
 }
 

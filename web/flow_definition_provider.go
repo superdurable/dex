@@ -104,8 +104,8 @@ type flowDefinitionDocument struct {
 	uploadedAt  *time.Time
 	// readErr is set when the document could not be read, so only it is invalid.
 	readErr error
-	// declaredFlowName is the flow.name of a file too large to read whole, so the directory still claims it.
-	declaredFlowName string
+	// claimsNoFlowType is set for a file too large to read, so an upload of its Flow type is still shown.
+	claimsNoFlowType bool
 }
 
 // DirectoryFlowDefinitionProvider reloads directory definitions on every request.
@@ -221,7 +221,7 @@ func (s flowDefinitionSources) listFlowTypes(ctx context.Context) (*flowDefiniti
 	}
 	seen := make(map[string]bool)
 	for _, definition := range local {
-		if !seen[definition.FlowName] {
+		if definition.FlowName != "" && !seen[definition.FlowName] {
 			seen[definition.FlowName] = true
 			list.FlowTypes = append(list.FlowTypes, flowDefinitionTypeName{FlowType: definition.FlowName, Source: definition.Source})
 		}
@@ -296,7 +296,6 @@ func readDirectoryDefinitionFiles(directory string) ([]flowDefinitionDocument, e
 		return nil, fmt.Errorf("Flow rendering path is not a directory: %s", directory)
 	}
 	documents := make([]flowDefinitionDocument, 0)
-	scanBudget := &flowNameScanBudget{remainingBytes: maxFlowNameScanBytesPerLoad}
 	err = filepath.WalkDir(directory, func(filePath string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -314,13 +313,8 @@ func readDirectoryDefinitionFiles(directory string) ([]flowDefinitionDocument, e
 			return infoErr
 		}
 		if info.Size() > maxFlowDefinitionBytes {
-			document.readErr = fmt.Errorf("Flow Definition Graph exceeds %d bytes: %s", maxFlowDefinitionBytes, document.path)
-			flowName, scanErr := oversizedFlowNames.scan(filePath, info, scanBudget)
-			if scanErr != nil {
-				document.readErr = fmt.Errorf("Flow Definition Graph exceeds %d bytes, and its flow.name could not be read: %s: %w",
-					maxFlowDefinitionBytes, document.path, scanErr)
-			}
-			document.declaredFlowName = flowName
+			document.readErr = fmt.Errorf("Flow Definition Graph is too large: it exceeds %d bytes: %s", maxFlowDefinitionBytes, document.path)
+			document.claimsNoFlowType = true
 			documents = append(documents, document)
 			return nil
 		}
@@ -391,13 +385,14 @@ func validateFlowDefinitionDocument(name string, document flowDefinitionDocument
 	return definition, nil
 }
 
-// fallbackFlowName names an invalid document's Flow type so the directory still claims it.
+// fallbackFlowName names an invalid document's Flow type so the directory still claims it. A file too large to
+// read gets "", which claims no Flow type.
 func fallbackFlowName(document flowDefinitionDocument) string {
 	if document.flowType != "" {
 		return document.flowType
 	}
-	if document.declaredFlowName != "" {
-		return document.declaredFlowName
+	if document.claimsNoFlowType {
+		return ""
 	}
 	var header struct {
 		Flow struct {
@@ -546,7 +541,9 @@ func sha256Hex(data []byte) string {
 func withoutLocalFlowTypes(flowTypes []string, local []flowDefinition) []string {
 	claimed := make(map[string]bool, len(local))
 	for _, definition := range local {
-		claimed[definition.FlowName] = true
+		if definition.FlowName != "" {
+			claimed[definition.FlowName] = true
+		}
 	}
 	remaining := make([]string, 0, len(flowTypes))
 	for _, flowType := range flowTypes {

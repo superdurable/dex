@@ -194,7 +194,7 @@ function DefinitionListItem({
       type="button"
     >
       <span>
-        <b>{definition.flowName}</b>
+        <b>{definition.flowName || definition.file}</b>
         <em className={definition.valid && !definition.error ? 'is-valid' : 'is-invalid'}>{status}</em>
       </span>
       {definition.file && <code>{definition.file}</code>}
