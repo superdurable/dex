@@ -219,7 +219,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     .. versionchanged:: 0.5.0
         The runner takes images with a ``media_store``.
 
-    .. versionchanged:: 0.5.1
+    .. versionchanged:: 0.6.0
         The runner sets ``CLAUDE_SECURESTORAGE_CONFIG_DIR`` in ``env``, so a
         later turn keeps a stored Claude Code login.
 
