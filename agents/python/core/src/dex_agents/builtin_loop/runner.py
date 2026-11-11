@@ -499,7 +499,8 @@ class BuiltinLoopAgentRunner:
     which retries. The model call that writes a context summary sees the
     text of the items only. Without a store the runner has no
     ``build_user_message_with_images``, so the session refuses user images,
-    and a tool result's images are stored but not shown to the model.
+    and a tool source result's images are stored but not shown to the model.
+    A function tool's images fail the attempt instead.
 
     .. versionadded:: 0.5.0
        Replaces ``StepwiseAgentRunner``, which stays as a deprecated alias.

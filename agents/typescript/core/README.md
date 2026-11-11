@@ -822,7 +822,8 @@ const flow = createBuiltinAgentSessionFlow(supportAgent, "SupportAgent", { media
 - **Summaries and estimates.** The model call that writes a context summary sees the text of the summarized items,
   without their images. `estimateInputTokens` gets requests without image bytes; the AI SDK client counts
   `estimatedImageInputTokens` (1600) for each image.
-- **Without a store.** A tool result's references are still stored for display, but the model sees only the text.
+- **Without a store.** A tool source result's references are still stored for display, but the model sees only the
+  text. A function tool's images fail the attempt instead.
 - **AI SDK.** `createAiSdkModelClient` sends each image after the item's text as an AI SDK `file` part with its bytes:
   `{ type: "file", mediaType, data: { type: "data", data } }`. A user message's content is a text part and one file
   part per image. A tool result with images has `content` output, a text part and one file part per image; the

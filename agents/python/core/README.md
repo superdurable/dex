@@ -882,8 +882,9 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
   sees the text of the summarized items, without their images.
   `estimate_input_tokens` gets requests without image bytes; the LiteLLM
   client counts `ESTIMATED_IMAGE_INPUT_TOKENS` (1600) for each image.
-- **Without a store.** A tool result's references are still stored for
-  display, but the model sees only the text.
+- **Without a store.** A tool source result's references are still stored
+  for display, but the model sees only the text. A function tool's images
+  fail the attempt instead.
 - **LiteLLM.** `LiteLLMModelClient` sends each image after the item's text as
   a base64 `data:` URL. On the Responses API, a user message's `content` and
   a `function_call_output`'s `output` are an `input_text` part and one

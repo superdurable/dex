@@ -141,9 +141,9 @@ const discardedModelOutput: ModelOutputWriter = {
  * every image in the request with `loadImages` and passes them in `ModelRequest.imageBytes`; the model client
  * converts each image to the provider's image part. A failed read fails that `RunModel` attempt, which retries. The
  * model call that writes a context summary sees the text of the items only. Without a store the session refuses
- * user images, and a tool result's images are stored but not shown to the model. The class declares neither member,
- * so a subclass may still define its own `buildUserMessageWithImages` or `mediaStore`; a subclass method stays in use
- * with a store.
+ * user images, and a tool source result's images are stored but not shown to the model. A function tool's images fail
+ * the attempt instead. The class declares neither member, so a subclass may still define its own
+ * `buildUserMessageWithImages` or `mediaStore`; a subclass method stays in use with a store.
  *
  * @example
  * ```ts
