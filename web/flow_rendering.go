@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/superdurable/dex/web/api"
 )
@@ -140,6 +141,7 @@ func validateFlowDefinitionV2(file string, graph []byte, header flowDefinitionHe
 	allowedTopLevel := map[string]bool{
 		"schemaVersion": true, "valid": true, "source": true, "flow": true,
 		"nodes": true, "edges": true, "diagnostics": true, "groups": true, "v2": true,
+		"generatedAt": true,
 	}
 	for _, field := range []string{"schemaVersion", "valid", "source", "flow", "nodes", "edges", "diagnostics", "groups", "v2"} {
 		if _, exists := document[field]; !exists {
@@ -149,6 +151,11 @@ func validateFlowDefinitionV2(file string, graph []byte, header flowDefinitionHe
 	for field := range document {
 		if !allowedTopLevel[field] {
 			return fmt.Errorf("Flow Definition Graph 2.0 %s has unknown field %q", file, field)
+		}
+	}
+	if generatedAt, exists := document["generatedAt"]; exists {
+		if err := validateFlowDefinitionGeneratedAt(generatedAt); err != nil {
+			return fmt.Errorf("Flow Definition Graph 2.0 %s has malformed generatedAt: %w", file, err)
 		}
 	}
 	if err := validateFlowDefinitionObjectFields(document["source"], []string{"language", "path"}, []string{"language", "path"}); err != nil {
@@ -318,6 +325,17 @@ func markRPCLockUnresolved(locks map[string]api.V2RPCLocks, rpcName string, reas
 		rpcLocks.UnresolvedReason = reason
 	}
 	locks[rpcName] = rpcLocks
+}
+
+func validateFlowDefinitionGeneratedAt(data []byte) error {
+	var generatedAt string
+	if err := json.Unmarshal(data, &generatedAt); err != nil {
+		return fmt.Errorf("must be a string: %w", err)
+	}
+	if _, err := time.Parse(time.RFC3339, generatedAt); err != nil {
+		return fmt.Errorf("must be an RFC 3339 timestamp: %w", err)
+	}
+	return nil
 }
 
 func decodeStrictFlowDefinitionJSON(data []byte, target interface{}) error {

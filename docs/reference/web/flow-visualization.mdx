@@ -301,4 +301,19 @@ The JSON **valid** field is false when any blocking diagnostic is present. A too
 
 The [Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) defines source spans, parent-child relationships, structured WaitFor and decision details, resource types, branch conditions, edge direction, and diagnostics. The [Flow Definition Graph v2 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v2.schema.json) extends it with ordered groups and Dex Web metadata.
 
+### Generation time {#generated-at}
+
+Since 1.45, every Version 2.0 graph from **dexcli visualize** has a top-level **generatedAt** field. It records when the graph was generated, as an RFC 3339 timestamp in UTC with second precision, such as **2026-11-10T08:30:00Z**. Version 1.0 graphs do not have it.
+
+The field is optional in the v2 schema. Dex Web accepts graphs without it, so graphs from older dexcli releases stay valid. When the field is present, it must be an RFC 3339 timestamp.
+
+By default, **generatedAt** is the current time. Set the standard **SOURCE_DATE_EPOCH** environment variable to make the output reproducible. Its value is a whole number of seconds since the Unix epoch. For example, use the last commit time of the source file:
+
+```bash
+SOURCE_DATE_EPOCH="$(git log -1 --format=%ct -- ./refund_flow.go)" \
+  dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund-flow
+```
+
+An empty **SOURCE_DATE_EPOCH** is ignored. A negative or non-integer value is a usage error, and the command exits with status 2. Version 1.0 output ignores the variable.
+
 See [Dex CLI](/reference/cli) for commands that operate on running Flows.

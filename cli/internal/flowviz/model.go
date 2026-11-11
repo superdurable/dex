@@ -21,6 +21,7 @@ const (
 
 type Graph struct {
 	SchemaVersion string        `json:"schemaVersion"`
+	GeneratedAt   string        `json:"generatedAt,omitempty"`
 	Valid         bool          `json:"valid"`
 	Source        Source        `json:"source"`
 	Flow          Flow          `json:"flow"`
