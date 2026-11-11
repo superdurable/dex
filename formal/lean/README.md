@@ -1389,3 +1389,118 @@ package may add lemmas only in the files it creates. `invariant_initial` and
   `resultStale`, which does.
 - `effectHistory_of_exec` is what connects the per-step erasure of
   `IsStepSimulated` to `erase` of whole traces in `safety_failure_forward`.
+
+## Failure transparency, Stage 3: witnesses and counterexamples
+
+Stage 3 checks that the failure statements are not vacuous. The witnesses
+show that the hypotheses of each main statement hold together for runs with
+crashes, retries, and zombie effects, and they apply the statement to those
+runs. The counterexamples show that each hypothesis the Lean model can
+express is needed: without it, a concrete DexF trace breaks the conclusion.
+No definition or statement changed. `lake build` checks every artifact in
+the kernel. `#print axioms` shows `propext` and `Quot.sound`, and for some
+artifacts `Classical.choice`; it never shows `sorryAx`. The base is
+`formal/failure-lean` with every Stage 2 `sorry` closed.
+
+### Files
+
+| File | Content |
+| --- | --- |
+| `Failure/Examples/FairPrefixRuns.lean` | Tooling. A finite DexF schedule followed by `tick 1` forever is a fair maximal run (`prefixThenTicks_isFailureFairMaximalTrace`). F1 to F6, FF, FR, FI, H1, H4, D6, and HP hold when three Boolean checks pass: one on the labels, one on each configuration before a label, and one on the quiet final configuration. The file also has `w↓` of a finite word (`isRetryErasure_ofList`), an admissible word from an admissible prefix, and the existence of `erase(t)`. |
+| `Failure/Examples/Nonvacuity.lean` | The three witnesses. |
+| `Failure/Examples/FreeRunFacts.lean` | Bounds on **every** failure-free run, which each counterexample needs. A repetition inserts only `fx` events, each equal to a kept one. Every `fx` of a failure-free trace carries a label that the Flow computes; this follows from the proved `freeFiniteTrace_isFailureFiniteTrace` and `effectHistory_of_exec`. A Flow that never decides ForceFail never closes as Failed; this is an invariant over the 13 Dex rules. A failure-free trace has at most as many `pub` events as publication requests. |
+| `Failure/Examples/HypothesisCounterexamples.lean` | The counterexamples for H3, H1, H4, and D7. They use a small signature in which every name is a natural number. |
+| `Failure/Examples/RetryTiming.lean` | The parts of the `HasNoRetry` argument that the model can state. |
+
+### Witnesses: the hypotheses hold together
+
+| Statement | Theorem | Run |
+| --- | --- | --- |
+| `safety_failure_repetition` | `safetyRepetition_isNonvacuous` | The run of `CrashRetryZombie.lean`: the translation of `main(x): emit(1); exit(0)` with a StartFlow retry, an [ATTEMPT-LOST], a zombie effect, two [RETRY-FIRE], a [CRASH] and its [RECOVER], a [RECOVER-INTERRUPT], a stale zombie result, and a zombie drop. H2, SYNC, H3, H1, H4, and the admissible prefix hold. The trace has three `fx` events, and `erase` keeps one. The statement gives a failure-free trace of which the trace is a repetition. |
+| `liveness_failure`, forward, `✓` | `livenessForward_isNonvacuous_terminated` | The same run followed by ticks. It is a fair maximal DexF trace with marker `✓`, for an admissible word with a retry (`¬ HasNoRetry`). The statement gives a fair maximal Dex trace for `w↓` with marker `✓`. |
+| `liveness_failure`, forward, `δ` | `livenessForward_isNonvacuous_deadlocked` | The translation of `main(x): emit(1); x := recv(5)`, with a [CRASH], a [RECOVER-INTERRUPT] of the `emit` attempt, an [ATTEMPT-LOST] of the `recv` WaitFor attempt, two [RETRY-FIRE], and two stale zombie results. The run then stays blocked. Its projection is `begin(0), out(1), out(1)`. The word is the start alone, so `HasNoRetry` holds as well. The statement gives a fair maximal Dex trace for `w↓` with marker `δ`. |
+
+Each witness asserts that its schedule is executable. It also asserts that
+every step is simulated and keeps the invariants (`isScriptPassing`), so a
+label that is not enabled cannot pass silently. The liveness witnesses show
+that the erased trace exists (`exists_isRepeatErasure`); they do not compute
+it.
+
+### Each hypothesis, one row
+
+| Hypothesis | Artifact or prose | What it shows |
+| --- | --- | --- |
+| H3, `IgnoresAttemptContext` | `HypothesisCounterexamples.lean`, `attemptSensitive_isNotRepetition` | The handler emits its attempt number. Attempt 1 emits `1` and is lost. Attempt 2 starts on the retained snapshot and emits `2` with the same ghost index 1. Every other hypothesis holds, and the trace is in `Tr_fail` except for H3. No failure-free run emits `2` (`attemptEcho_freeTrace_hasNoTwo`). So the trace is a repetition of no failure-free trace, and the conclusion of `safety_failure_repetition` fails. This is also why I2 and I3 assume H3. |
+| H1, `HasNoExhaustion` | `exhaustion_isNotFailureFree` | The only attempt is lost with the decision Exhausted (maximum attempts). The Flow closes with `closed(failed "WORKER_API_FAIL")`. H2, SYNC, H3, H4, and the admissible prefix hold. The Flow never decides ForceFail, so no failure-free run closes as Failed (`freeTrace_hasNoFailedClose`). Both `safety_failure_forward` and `safety_failure_repetition` fail. |
+| H4, `HasNoNonRetryableFailure` | `nonRetryableFailure_isNotFailureFree`, `isNonRetryableFailure_isExhausting` | The same run with a non-retryable failure. The conclusions fail as for H1. In the model a non-retryable failure is an exhaustion, so no run violates H4 without also violating H1. |
+| `HasNoRetry`, backward liveness | `RetryTiming.lean`: `step_lastCommitAt`, `startRetry_stamps`, `exec_clock_ge_retries`, `reachable_clock_ge_retries`, `retryTiming_delayedTrace`; with `ReviewProbes.retryTiming_freeTrace` and `retryTiming_delayChangesDueOrder` | Every DexF step keeps the clock or advances it. It keeps the commit stamp or commits at the clock, which is strictly above the old stamp. [START-RETRY] is such a commit, with no event. So `n` retries in a run advance the stamp floor by `n`, and a word with `n` retries between two publications puts at least `n` microseconds between their commits. In the failure-free timing Flow, a delay of 1,000,001 microseconds changes the trace. Without the delay it ends with B's `fx(20)`. With the delay it ends with A's `fx(30)`, and B waits forever. The last step stays an argument by hand: no DexF run for a word with 1,000,001 retries has the failure-free trace. It quantifies over every DexF run of a word with a million labels. See [Liveness is two inclusions](#liveness-is-two-inclusions). |
+| D7, PublishToChannel re-sent | `resentPublication_isTwoRequests` | In the failure-free model, two publications of one message give two `pub` events: a trace for the word with both. In DexF the run is in `Tr_fail` for an outcome word with both publications, and `w↓` keeps both. No failure-free trace of the one-publication word equals that trace or has it as a repetition. A repetition inserts only `fx` events, and such a trace has at most one `pub` (`freeTrace_pubCount_le`). So the theorem treats the re-send as a second request. |
+| H2, `HasNoFailurePolicy` | prose | Always true in the model, because `Dex.StepOptions` has no failure policy (Lean decision 13). A counterexample would need ProceedOnFailure or ProceedToConfiguredStep in the model. Spec §11.1 D4 says why H2 is needed: both policies change control flow (`step_results.rs:377-456`). Under H1 a policy is never consulted. |
+| HP, `RetriesPrecedePurge` | prose | Holds by construction, because the model has no RunPurge (Lean decision 6). Spec §11.5, "What the theorem does not say": a StartFlow retry after the purge starts a new run. |
+| D6 in the model, `FiredTimersAreDue` | prose | The `timerFire` premise enforces it, so every DexF run satisfies it. The fair-run tool checks it at every step. Its physical-time form is below. |
+| FF, FR, FI, F1 to F6 | prose | Not part of this stage. Spec §11.1 D5: "No system makes progress under infinitely many crashes", so FF is a necessary assumption, not a choice. |
+| SYNC (D2) | prose | See below. |
+| D6, the wall clock in physical time | prose | See below. |
+| Snapshot retention in the server | prose | See below. |
+| Multi-node partition ownership | prose | See below. |
+
+**SYNC durability (spec §11.1 D2).** DexF has only the SYNC start.
+[STEP-START] creates the task in the same transition as its commit. So
+`IsSyncOnly` is always true, and no Lean run can break it. The spec argues
+why it is needed. An ASYNC attempt is sent to its Worker before its start
+commits (`method_attempt.rs:193-196`). A crash can then lose a start that a
+Worker already received. The same attempt number runs again on a new
+snapshot (`step_results.rs:188-195`), so its effect list may differ. Then the
+argument of spec §11.4, that every attempt computes the same `fx⃗(e, m)`,
+fails. That is the failure of the H3 counterexample, caused by a new snapshot
+instead of a new `ctxA`.
+
+**D6 in physical time (spec §11.1 D6, §11.5).** The model's time is the
+commit stamp. The `timerFire` premise says that each fired timer is due at
+the stamp. D6 is the assumption under which the code satisfies that premise:
+on one node, the wall clock does not step backward between the timer
+service's due check and the stamping of its TimersFired command. If the clock
+steps back, the command can carry a stamp below a timer's fire time, and no
+DexF or Dex step allows that. A host clock that runs ahead of real time can
+still fire a timer early in real time. Spec §11.5 lists this under "What the
+theorem does not say".
+
+**Snapshot retention in the server (spec §11.6, "Snapshot retention on every
+path").** In DexF the retained snapshot is part of a rule: [STEP-START] reuses
+`Attempt.snapshot` when it is present, and invariant I2 follows. The spec
+argues from the code that every retry path keeps the snapshot: the ordinary
+failure, the restart and takeover interrupts, the returned attempt, and the
+retry timer (`step_results.rs:344-358`, `attempt_handout.rs:673-717`,
+`partition_rebuild.rs:141-148`, `step_results.rs:474-531`,
+`invocations.rs:123-125`). If one path took a fresh snapshot, a retry could
+read Attributes written after the first start. It could then compute a
+different effect list, with the consequence of the H3 counterexample.
+
+**Multi-node ownership (spec §11.1 D8, §11.3 "Takeover").** DexF has one
+partition log with one owner at a time. A takeover is [CRASH] followed by
+[RECOVER]. The spec argues why this is sound for a standby takeover. Batches
+are create-only at their `seq`, and replay voids every batch of an older
+epoch after an EpochStart (`commit_pipeline.rs:523-567`,
+`log_replay.rs:137-145`). So the committed log has one writer at a time.
+Concurrent multi-node ownership does not exist ("a cluster runs one node",
+`configuration.mdx:60`). With two live writers, two commits could take the
+same `seq` or interleave their stamps, and no single DexF run would describe
+the log.
+
+### Notes
+
+- `scriptLabels` returns `[]` when a label is not enabled. So every witness
+  also asserts that its schedule is executable.
+- The fair-run tool needs a final configuration at rest: no real task, no
+  interrupt, no armed timer of either kind, and no invocation. Both runs
+  reach one. The `✓` run ends closed, and the `δ` run ends with the `recv`
+  Step waiting.
+- `freeTrace_fx_isComputed` uses the proved Stage 2 lemmas instead of a new
+  Dex invariant. The Failed-close bound and the `pub` bound are new
+  inductions over the Dex rules.
+
+```bash
+lake build DexExpressiveness.Failure.Examples.Nonvacuity \
+  DexExpressiveness.Failure.Examples.HypothesisCounterexamples \
+  DexExpressiveness.Failure.Examples.RetryTiming
+```
