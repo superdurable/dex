@@ -50,7 +50,12 @@ from dex_agents.builtin_loop.framework_tool_sources import (
     FrameworkToolSourceRouter,
     SourceToolListing,
 )
-from dex_agents.builtin_loop.function_tools import FunctionTool, ToolCallContext, function_tool
+from dex_agents.builtin_loop.function_tools import (
+    FunctionTool,
+    FunctionToolResult,
+    ToolCallContext,
+    function_tool,
+)
 from dex_agents.builtin_loop.model import (
     ModelClient,
     ModelInputItem,
@@ -131,6 +136,7 @@ __all__ = [
     "ContinueTurn",
     "FrameworkToolSourceRouter",
     "FunctionTool",
+    "FunctionToolResult",
     "InstructionContext",
     "ModelClient",
     "ModelInputItem",

@@ -33,6 +33,7 @@ import {
   type DeferredToolOutcome,
   type ResolvedToolPolicy,
   type ToolCallStepOptions,
+  type ToolExecutionResult,
   type ToolTaskCancellation,
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
@@ -48,7 +49,7 @@ import {
   type SessionSettings,
 } from "../agent-session-values.js";
 import type { AgentDefinition, ContinueTurn, TurnContinuation } from "./agent-definition.js";
-import type { FunctionTool, ToolCallContext } from "./function-tool.js";
+import type { FunctionTool, FunctionToolResult, ToolCallContext } from "./function-tool.js";
 import { findJsonSchemaViolation, serializeJsonWithSpacedSeparators } from "./json-schema-validation.js";
 import type {
   ModelClient,
@@ -372,12 +373,18 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
    * one, and checking them against the tool's schema, or passes a call that a
    * tool source built in `runModelStep` to that source, with the source's own `toolSourceReference` and without a
    * listing. Any other name is an unknown tool and never reaches a source.
+   * A function tool's {@link ToolCallContext.mediaStore} is this runner's store.
+   *
+   * Changed in 0.5.0: a function tool receives the media store and may return a {@link FunctionToolResult} with
+   * images.
    * @param call - The deferred call.
-   * @returns The output: a `string` result unchanged, any other result as JSON; the tool's
-   * {@link ToolInputRequested}; or a source's outcome, such as {@link ToolTaskStarted}.
+   * @returns The output: a `string` result unchanged, a {@link FunctionToolResult} as its output and images, any
+   * other result as JSON; the tool's {@link ToolInputRequested}; or a source's outcome, such as
+   * {@link ToolTaskStarted}.
    * @throws {ToolExecutionError} For an unknown tool, arguments that are not a JSON object or break the
    * schema, a non-cancellation error or a thenable result of the tool's `prepareArguments`, or a
    * `ToolExecutionError` from the tool or its source.
+   * @throws {Error} When a function tool returned images and this runner has no media store; it fails the attempt.
    * @throws {RangeError} When a source built the call but the definition no longer has it, so the effect decides
    * the outcome.
    * @throws Any other error of the tool source.
@@ -409,15 +416,30 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
       inputAnswers: call.inputAnswers ?? [],
       inputContinuation: toolCall.inputContinuation ?? null,
       heartbeat: () => call.heartbeat(),
+      ...(this.#mediaStore === undefined ? {} : { mediaStore: this.#mediaStore }),
     };
     const result = await tool.execute(toolArguments, context);
     if (typeof result === "string") {
       return { output: result };
     }
-    if ((result as { readonly kind?: unknown } | null)?.kind === "tool_input_requested") {
+    const kind = (result as { readonly kind?: unknown } | null)?.kind;
+    if (kind === "tool_input_requested") {
       return result as DeferredToolOutcome;
     }
+    if (kind === "function_tool_result") {
+      return this.toToolExecutionResult(tool.name, result as FunctionToolResult);
+    }
     return { output: serializeJsonWithSpacedSeparators(result === undefined ? null : result) };
+  }
+
+  private toToolExecutionResult(toolName: string, result: FunctionToolResult): ToolExecutionResult {
+    if (result.images === undefined || result.images.length === 0) {
+      return { output: result.output };
+    }
+    if (this.#mediaStore === undefined) {
+      throw new Error(`function tool ${toolName} returned images, but the runner has no media store`);
+    }
+    return { output: result.output, images: result.images };
   }
 
   /**

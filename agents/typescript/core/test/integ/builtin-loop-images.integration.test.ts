@@ -18,6 +18,7 @@ import { after, afterEach, before, describe, test } from "node:test";
 import {
   InMemoryMediaStore,
   LocalDirectoryMediaStore,
+  outcomeUnknownToolResult,
   type AgentFrameworkRunner,
   type DeferredToolOutcome,
   type AgentImageReference,
@@ -36,6 +37,7 @@ import {
 import {
   builtinImageAgentStateDirectoryVariable,
   createBuiltinImageAgentFlows,
+  functionToolStoresLogName,
   readLoggedPrompts,
   seenImage,
   storeReadsFailFileName,
@@ -271,6 +273,114 @@ describe("images through a built-in loop session", () => {
     assert.equal(continuation?.text, "Describe the screenshot.");
     assert.equal(continuation?.images, undefined);
     assert.equal("images" in (JSON.parse(continuation?.frameworkItem ?? "{}") as object), false);
+  });
+
+  test("a function tool uploads through the context store and the model sees its image", async () => {
+    const stateDirectory = mkdtempSync(join(engine.stateDirectory, "function-"));
+    const store = new LocalDirectoryMediaStore(join(stateDirectory, mediaDirectoryName));
+    await startWorker(stateDirectory);
+    const sessionId = `builtin-images-function-${randomUUID()}`;
+    await sessions.startSession(sessionId, "function-screenshot");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    assert.deepEqual(new InvocationLog(join(stateDirectory, functionToolStoresLogName)).names(), [
+      "store present attempt 1",
+    ]);
+    // The model call after the tool call carries the bytes the tool uploaded.
+    assert.deepEqual(lastMessage(readLoggedPrompts(stateDirectory).at(-1)), {
+      role: "tool",
+      parts: [
+        {
+          type: "tool-result",
+          toolName: "take_function_screenshot",
+          output: [{ type: "text", text: "Took a function screenshot." }, seenImage(screenshotPng(), "image/png")],
+        },
+      ],
+    });
+    assert.equal(snapshot.messages.at(-1)?.text, "screenshot taken");
+    const toolMessage = snapshot.messages.find((message) => message.role === "tool");
+    const screenshotReference = await store.putImage(screenshotPng());
+    assert.deepEqual(toolMessage?.images, [screenshotReference]);
+    assert.deepEqual(await store.getImage(screenshotReference), screenshotPng());
+    assert.deepEqual(
+      (JSON.parse(toolMessage?.frameworkItem ?? "{}") as { readonly images: readonly { readonly sha256: string }[] })
+        .images.map((image) => image.sha256),
+      [screenshotReference.sha256],
+    );
+    assertNoImageBytes(snapshot, screenshotPng());
+  });
+
+  test("a Worker killed after a function tool image rebuilds the same prompt", async () => {
+    const stateDirectory = mkdtempSync(join(engine.stateDirectory, "function-kill-"));
+    const worker = await startWorker(stateDirectory);
+    const sessionId = `builtin-images-function-kill-${randomUUID()}`;
+    await sessions.startSession(sessionId);
+    assert.equal(await sessions.sendUserMessage(sessionId, "function-screenshot-hold model-gate"), true);
+    const gate = new FileGate(stateDirectory, "model-gate");
+    await gate.waitUntilReached();
+    const before = readLoggedPrompts(stateDirectory);
+
+    await worker.kill();
+    await startWorker(stateDirectory);
+    await gate.waitUntilReached(2);
+    gate.release();
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    const after = readLoggedPrompts(stateDirectory);
+    // The tool ran once; the new Worker replayed its stored reference into the identical prompt.
+    assert.equal(before.length, 2);
+    assert.deepEqual(after[2], before[1]);
+    assert.ok(JSON.stringify(after[2]).includes(JSON.stringify(seenImage(screenshotPng(), "image/png"))));
+    assert.deepEqual(new InvocationLog(join(stateDirectory, functionToolStoresLogName)).names(), [
+      "store present attempt 1",
+    ]);
+    assert.equal(snapshot.messages.at(-1)?.text, "screenshot taken");
+  });
+
+  test("a function tool without a media store gets none and its images fail the call", async () => {
+    const stateDirectory = mkdtempSync(join(engine.stateDirectory, "function-no-store-"));
+    await startWorker(stateDirectory);
+    const sessionId = `builtin-images-function-no-store-${randomUUID()}`;
+    await noStoreSessions.startSession(sessionId, "function-screenshot");
+    await noStoreSessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await noStoreSessions.getAgentSnapshot(sessionId);
+
+    // A read retries its failed attempts, and every attempt saw no store.
+    assert.deepEqual(new InvocationLog(join(stateDirectory, functionToolStoresLogName)).names(), [
+      "store absent attempt 1",
+      "store absent attempt 2",
+      "store absent attempt 3",
+    ]);
+    const toolResult = JSON.stringify(lastMessage(readLoggedPrompts(stateDirectory).at(-1)));
+    assert.ok(
+      toolResult.includes("function tool take_function_screenshot returned images, but the runner has no media store"),
+      toolResult,
+    );
+    assert.equal(toolResult.includes('"type":"file"'), false);
+    const toolMessage = snapshot.messages.find((message) => message.role === "tool");
+    assert.equal(toolMessage?.images, undefined);
+  });
+
+  test("a function tool's invalid image fails like a tool source's", async () => {
+    const stateDirectory = mkdtempSync(join(engine.stateDirectory, "function-invalid-"));
+    await startWorker(stateDirectory);
+    const sessionId = `builtin-images-function-invalid-${randomUUID()}`;
+    await sessions.startSession(sessionId, "function-invalid-image");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    // As for a tool source, the session refuses the reference and the single attempt is unknown.
+    const toolMessages = snapshot.messages.filter((message) => message.role === "tool");
+    assert.deepEqual(
+      toolMessages.map((message) => message.toolOutput),
+      [outcomeUnknownToolResult],
+    );
+    assert.deepEqual(
+      toolMessages.map((message) => message.images),
+      [undefined],
+    );
   });
 
   test("a runner without a media store refuses images and hides tool images", async () => {

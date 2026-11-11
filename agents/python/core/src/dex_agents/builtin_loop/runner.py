@@ -20,7 +20,11 @@ from datetime import timedelta
 from typing import Any, Literal, TypeAlias, cast
 
 from dex_agents.built_in_tools import BUILT_IN_TOOL_DEFINITIONS, BuiltInTool
-from dex_agents.builtin_loop.function_tools import FunctionTool, ToolCallContext
+from dex_agents.builtin_loop.function_tools import (
+    FunctionTool,
+    FunctionToolResult,
+    ToolCallContext,
+)
 from dex_agents.builtin_loop.model import (
     ModelClient,
     ModelInputItem,
@@ -711,15 +715,24 @@ class BuiltinLoopAgentRunner:
 
         Returns:
             The tool output, the tool's ``ToolInputRequested``, or a source's
-            ``ToolTaskStarted``.
+            ``ToolTaskStarted``. A function tool's ``FunctionToolResult``
+            becomes a ``ToolExecutionResult`` with its output and images, and
+            the function tool's ``ToolCallContext.media_store`` is this
+            runner's store.
 
         Raises:
             ToolExecutionError: If the tool is unknown, the arguments break its
                 schema, the tool's ``prepare_arguments`` raised, or the tool or
                 its source raised it.
+            ValueError: If a function tool returned images and this runner has
+                no media store. It fails the attempt.
             LookupError: If a source built the call but the definition no
                 longer has it, so the effect class decides the outcome.
             Exception: What the tool source raises otherwise.
+
+        .. versionchanged:: 0.5.0
+            A function tool receives the media store and may return
+            ``FunctionToolResult`` images.
         """
         record = call.tool_call
         tool = self._tools_by_name.get(record.tool_name)
@@ -744,9 +757,18 @@ class BuiltinLoopAgentRunner:
                 input_answers=tuple(call.input_answers),
                 input_continuation=record.input_continuation,
                 effect=record.effect,
+                media_store=self.__media_store,
             ),
         )
-        return result if not isinstance(result, str) else ToolExecutionResult(output=result)
+        if isinstance(result, str):
+            return ToolExecutionResult(output=result)
+        if isinstance(result, FunctionToolResult):
+            if result.images and self.__media_store is None:
+                raise ValueError(
+                    f"function tool {tool.name} returned images, but the runner has no media store"
+                )
+            return ToolExecutionResult(output=result.output, images=result.images)
+        return result
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
         """Poll a tool source's task once, through the source that built the call.

@@ -210,8 +210,9 @@ version of the tool took; a throw fails the call like a schema violation, a
 cancellation passes through, and a Promise result is refused. The
 stored tool call and the approval interrupt keep the model's original
 arguments. A
-`string` result is the output, and a `ToolInputRequested` result asks the user
-first. Any other result is JSON with the separators of Python's `json.dumps`,
+`string` result is the output, a `functionToolResult` adds images (see
+[Images from function tools](#images-from-function-tools)), and a
+`ToolInputRequested` result asks the user first. Any other result is JSON with the separators of Python's `json.dumps`,
 so the model sees the same text as from the Python core; the one exception is a
 whole-number float such as `1.0`, which JavaScript cannot tell from `1`. The
 argument check and its messages match the Python core, including Python's `==`
@@ -720,7 +721,8 @@ const reference = await store.putImage(await readFile("chart.png"));
 await sendAgentUserMessage(client, flow, "session-42", { text: "What does this chart show?", images: [reference] });
 ```
 
-A tool returns images the same way, uploading inside its call:
+A tool returns images the same way, uploading inside its call. A function tool returns `functionToolResult` instead;
+see [Images from function tools](#images-from-function-tools):
 
 ```ts
 const reference = await store.putImage(screenshotPng);
@@ -831,7 +833,41 @@ const flow = createBuiltinAgentSessionFlow(supportAgent, "SupportAgent", { media
   only.
 - **Which tools return images.** A tool source's `ToolExecutionResult.images`, such as the image content of a
   `new McpToolSource(servers, { mediaStore })` result. Give the source the store the runner reads. A function tool
-  returns text or JSON only.
+  returns `functionToolResult`; see [Images from function tools](#images-from-function-tools).
+
+### Images from function tools
+
+A function tool gets the runner's media store as `ToolCallContext.mediaStore`, or `undefined` when the runner has
+none. It uploads the bytes inside its call and returns the references with its text through `functionToolResult`:
+
+```ts
+import { functionTool, functionToolResult } from "@superdurable/dex-agents/builtin-loop";
+
+const takeScreenshot = functionTool<Record<string, never>>({
+  name: "take_screenshot",
+  description: "Take a screenshot of the screen.",
+  parameters: { type: "object", properties: {} },
+  effect: "read",
+  execute: async (_args, context) => {
+    if (context.mediaStore === undefined) {
+      return "Screenshots need a media store.";
+    }
+    const reference = await context.mediaStore.putImage(await screen.capturePng());
+    return functionToolResult({ output: "Took a screenshot.", images: [reference] });
+  },
+});
+```
+
+- `functionToolResult` returns a `FunctionToolResult` marked with `kind: "function_tool_result"`. The runner returns
+  it as a `ToolExecutionResult` with the same output and images, so the images are stored, checked, and shown to the
+  model exactly like a tool source's. A plain object with `output` and `images` keys and no such `kind` is still
+  serialized as JSON.
+- More than `maxImagesPerMessage` images, or a reference that `validateImageReference` refuses, fails the attempt
+  with `ImageValidationError`. Images from a runner without a media store fail the attempt with an `Error`, because
+  the model could not see them. A failed attempt of a `read` or `idempotent_write` tool retries; a single-attempt call
+  records `outcome_unknown`.
+- A retried attempt uploads the same bytes to the same object, so uploading again is safe. A replay reads the stored
+  references, so the tool does not run again.
 
 ## Message storage and retention
 
@@ -2499,8 +2535,7 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   attempts, on every `listTools` call until it answers. A server that binds
   tasks to its protocol session, such as a stateful server on the SDK's task
   store, cannot resume a task across attempts; the retry calls the tool again.
-- Images: a function tool of the built-in loop cannot return images, and the media stores keep no local read cache,
-  so each `loadImages` reads the store.
+- Images: the media stores keep no local read cache, so each `loadImages` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
 - The adapters report only the model information their framework exposes, so
