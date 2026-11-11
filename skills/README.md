@@ -346,8 +346,8 @@ the first Flow renders. Every Flow is rendered with
 Web configures released connectors in its local **Connectors** view; the
 default plaintext development store is `~/.dex/connectors/connections.json`,
 and Dex Web shows the **DEX_CONNECTOR_CONFIG_FILE** launch command for an
-application that reads it. The same validated definitions can be packaged for a deployed
-Dex Web, which loads them from a definition directory.
+application that reads it. The same validated definitions ship with the Worker, which
+publishes them to the Dex Server for a deployed Dex Web to read.
 
 UI test doubles validate component behavior only; they cannot prove Dex
 durability, Worker replacement, Timer, RPC, Connector, or application E2E

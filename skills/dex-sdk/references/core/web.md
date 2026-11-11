@@ -8,10 +8,22 @@ Dex Web is the operator UI for Dex. It finds Flows, follows a run, shows its inp
 | --- | --- |
 | Search and Summary | Find Flows and show their state. |
 | Run page | A run's active Steps, Attributes, and Channels, and a Timeline of its events. The selected event shows inputs, outputs, Attribute changes, and failures with stack traces. |
-| Flow canvas | The Flow Definition Graph from `dexcli visualize`. |
+| Flow canvas | The Flow's Flow Definition Graph. See [Flow Definition Graphs](#flow-definition-graphs). |
 | Start Flow | Start a Flow. It runs on your Workers. Dex Web does not check Worker registration first. |
 | Actions | Call RPCs on a selected run. |
 | Connectors | Configure official Connectors in local development only. See [connector.md](connector.md#local-connector-credentials). |
+
+## Flow Definition Graphs
+
+`dexcli visualize` produces a Flow Definition Graph from Flow source. The canvas, Designs, run Design view, Actions, the Agent session view, and Work Queue all read it.
+
+- Dex Web reads each Flow type's graph from the Dex Server. A Worker publishes the graphs it is given when it starts. `dexcli` publishes them from a script.
+- The Server keeps one graph per Flow type. A graph with a later generation time, recorded in the graph, replaces an older one, whatever the upload order. The graph only describes the Flow; it never changes how Flows run.
+- A directory of graph files is optional. When the directory and the Server both have a graph for one Flow type, the directory wins.
+- The graph names the Flow and Step types the Worker registers. Regenerate it after every Flow change and ship it with the Worker build that runs that Flow.
+- Dex Web validates each graph on its own. An invalid graph shows its error; the other Flow types keep working.
+
+Worker settings are in each SDK's Workers reference: [Go](https://docs.superdurable.io/reference/go/workers#flow-definitions), [Python](https://docs.superdurable.io/reference/python/workers#flow-definitions), [Java](https://docs.superdurable.io/reference/java/workers#upload-flow-definitions), [TypeScript](https://docs.superdurable.io/reference/typescript/workers#flow-definitions), and [Rust](https://docs.superdurable.io/reference/rust/workers#upload-flow-definitions). Definition sources and limits are in the [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization#definition-sources).
 
 ## Diagnose with Dex Web
 

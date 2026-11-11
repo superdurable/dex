@@ -27,6 +27,10 @@ that take over when the active process stops.
   Flows through the same API.
 - [dexcli](/components/cli) calls the same API. **dexcli dev** also
   starts server-zd on your machine.
+- server-zd stores one Flow Definition Graph for each Flow type. Workers or
+  **dexcli** publish it. Each graph records when it was generated. A graph with
+  a later generation time replaces an older one, whatever the upload order. Dex
+  Web reads it to draw the Flow.
 - server-zd can write selected Attributes to PostgreSQL. See
   [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection).
 

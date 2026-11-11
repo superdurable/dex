@@ -397,7 +397,7 @@ Example 页面有自己的审批按钮。如果想在 Dex Web 中审批，请按
 
 ### 在 Dex Web 中审批 {#approve-in-dex-web}
 
-Dex Web 需要 session graph 才能显示 **Agent session** tab 及其控件。Dex Web 只在启动时读取 graph。因此先停止 **dexcli dev**，为 Flow type 渲染一次 graph，再用 **--flow-rendering-dir** 重新启动 **dexcli dev**：
+Dex Web 需要 session graph 才能显示 **Agent session** tab 及其控件。为 Flow type 把 graph 渲染一次到一个目录，再用 **--flow-rendering-dir** 启动 **dexcli dev**。如果 **dexcli dev** 已经在没有这个参数的情况下运行，先停止它。Dex Web 每次加载页面都会重新读取这个目录，所以重新渲染的 graph 不需要重启就能显示：
 
 ```bash
 mkdir -p definitions
