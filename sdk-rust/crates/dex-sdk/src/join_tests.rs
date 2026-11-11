@@ -302,3 +302,23 @@ fn report_branch_result_rejects_an_invalid_round_key() {
     );
     assert!(QUOTES.branch_results(&context, &round("", 3)).is_err());
 }
+
+#[test]
+fn channel_map_returns_the_registered_definition() {
+    assert!(std::ptr::eq(&QUOTES.channel_map, QUOTES.channel_map()));
+    assert_eq!("quotes", QUOTES.channel_map().name());
+    let registry = Registry::new()
+        .register(JoinUnitFlow)
+        .expect("register Join unit Flow");
+    let flow = registry
+        .flow("JoinUnitFlow")
+        .expect("lookup Join unit Flow");
+    let definition = flow
+        .persistence
+        .get(QUOTES.channel_map().name())
+        .expect("Join registers its Channel map");
+    assert_eq!(
+        crate::persistence::PersistenceKind::ChannelMap,
+        definition.kind
+    );
+}

@@ -10,6 +10,8 @@
   or `Join::for_branches` and reads `Join::branch_results`.
   `Join::for_remaining_branches` and `Join::remaining_branch_results` reset a
   round before the next one. Register a Join with `PersistenceSchema::join`.
+  `Join::channel_map` returns the registered Channel map, for reading a round's
+  pending results.
   [Reference](https://docs.superdurable.io/reference/rust/waits)
 
 - **Breaking change:** Removed `Client::trigger_continue_as_new`,

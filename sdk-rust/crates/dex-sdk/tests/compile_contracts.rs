@@ -255,4 +255,8 @@ fn join_definition_and_schema_builder_compile() {
 
     let _schema = dex_sdk::PersistenceSchema::new().join(&QUOTE_RECEIVED);
     let _clone: dex_sdk::Join<String> = QUOTE_RECEIVED.clone();
+    let channel_map: &dex_sdk::ChannelMap<String> = QUOTE_RECEIVED.channel_map();
+    let _rpc =
+        dex_sdk::Rpc::<String, usize>::new("get_pending_quote_count").load_channel_map(channel_map);
+    let _load = channel_map.load_messages("RequestQuotes-1");
 }

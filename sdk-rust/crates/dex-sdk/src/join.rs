@@ -538,6 +538,45 @@ impl<T> Join<T> {
             .condition_results(context, &round.round_key)
     }
 
+    /// Returns the Channel map that holds this Join's branch results.
+    ///
+    /// Use it to read a round's pending results with the existing Channel-map API. The instance key
+    /// is the round's [`JoinRound::round_key`]. For example, an RPC selects the round with
+    /// [`crate::Rpc::load_channel_map`] or [`ChannelMap::load_messages`], then calls
+    /// [`ChannelMap::pending_messages`] or [`ChannelMap::size`]. The returned definition is the one
+    /// that [`crate::PersistenceSchema::join`] registers, so every API that accepts a registered
+    /// Channel map accepts it.
+    ///
+    /// Never publish to it or delete from it directly. Report results only with
+    /// [`Self::end_branch`] or [`Self::report_branch_result`]. A direct publication counts as a
+    /// branch result and breaks the rule that each branch reports exactly once.
+    ///
+    /// ```
+    /// use std::sync::LazyLock;
+    ///
+    /// use dex_sdk::{Context, HandlerResult, Join, Rpc, RpcResult};
+    ///
+    /// static QUOTE_RECEIVED: LazyLock<Join<String>> = LazyLock::new(|| Join::new("quoteReceived"));
+    ///
+    /// const GET_PENDING_QUOTES: Rpc<String, Vec<String>> = Rpc::new("get_pending_quotes");
+    ///
+    /// // Register with .function(GET_PENDING_QUOTES.load_channel_map(QUOTE_RECEIVED.channel_map()), ...).
+    /// fn get_pending_quotes(context: &mut Context, round_key: String) -> HandlerResult<RpcResult<Vec<String>>> {
+    ///     let pending_quotes = QUOTE_RECEIVED
+    ///         .channel_map()
+    ///         .pending_messages(context, &round_key)?
+    ///         .into_iter()
+    ///         .map(|message| message.value)
+    ///         .collect();
+    ///     Ok(RpcResult::new(pending_quotes))
+    /// }
+    /// ```
+    ///
+    /// Since 1.41.0.
+    pub fn channel_map(&self) -> &ChannelMap<T> {
+        &self.channel_map
+    }
+
     pub(crate) fn name(&self) -> &str {
         self.channel_map.name()
     }

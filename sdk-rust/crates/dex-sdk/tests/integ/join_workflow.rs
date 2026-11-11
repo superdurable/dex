@@ -22,9 +22,6 @@ use crate::step_cancellation_workflow::Event;
 
 pub(crate) static BRANCH_RESULTS: LazyLock<Join<String>> =
     LazyLock::new(|| Join::new("rust-join-branch-results"));
-// Reads the Join's Channel map; it is not registered separately.
-pub(crate) static BRANCH_RESULT_MAP: LazyLock<ChannelMap<String>> =
-    LazyLock::new(|| ChannelMap::new("rust-join-branch-results"));
 pub(crate) static BRANCH_RELEASES: LazyLock<ChannelMap<()>> =
     LazyLock::new(|| ChannelMap::new("rust-join-branch-releases"));
 pub(crate) static FINISH: LazyLock<Channel<()>> =
@@ -225,7 +222,8 @@ impl JoinWorkflow {
         context: &mut Context,
         round_key: String,
     ) -> HandlerResult<RpcResult<Vec<String>>> {
-        let pending_results = BRANCH_RESULT_MAP
+        let pending_results = BRANCH_RESULTS
+            .channel_map()
             .pending_messages(context, &round_key)?
             .into_iter()
             .map(|message| message.value)
@@ -283,7 +281,7 @@ impl Flow for JoinWorkflow {
             )
             .function(Self::FORK_JOIN_ROUND, Self::fork_join_round)
             .function(
-                Self::GET_PENDING_RESULTS.load_channel_map(&BRANCH_RESULT_MAP),
+                Self::GET_PENDING_RESULTS.load_channel_map(BRANCH_RESULTS.channel_map()),
                 Self::get_pending_results,
             )
             .function(
