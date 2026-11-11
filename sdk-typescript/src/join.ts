@@ -540,8 +540,9 @@ export class Join<T> {
    * Reports this branch's result without ending the branch.
    *
    * Use it when the branch continues after it reports, for example when a multi-Step branch
-   * reports from a Step other than its last. An RPC that forked a round with
-   * {@link Join.forkWithRoundKey} can also report results for that round. The result is staged
+   * reports from a Step other than its last. An RPC can report a branch's result when that result
+   * arrives through the RPC and no Step of that branch reports it, for example for a handoff branch
+   * in a round the RPC forked with {@link Join.forkWithRoundKey}. The result is staged
    * with the current handler result and committed only when that handler succeeds. Each branch
    * must report exactly once per round. Never report for a canceled branch; see the
    * {@link Join} rules. See {@link Join} for an example.

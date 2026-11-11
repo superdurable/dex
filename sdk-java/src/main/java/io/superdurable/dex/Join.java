@@ -398,8 +398,9 @@ public final class Join<T> extends PersistenceDefinition {
      * Reports this branch's result without ending the branch.
      *
      * <p>Use it when a branch continues after reporting, for example when a multi-Step branch
-     * reports from a Step other than its last. An RPC that forked a round with
-     * {@link #forkWithRoundKey} can also report results for that round. The result is published to
+     * reports from a Step other than its last. An RPC can report a branch's result when that result
+     * arrives through the RPC and no Step of that branch reports it, for example for a handoff
+     * branch in a round the RPC forked with {@link #forkWithRoundKey}. The result is published to
      * the round's ChannelMap instance and commits together with the current method. Each branch
      * reports exactly once per round. Never report for a canceled branch; see the {@link Join}
      * rules.

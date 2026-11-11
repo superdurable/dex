@@ -29,7 +29,7 @@ const (
 	joinPartialRounds      joinScenario = "partial-rounds"
 	joinKeyIsolation       joinScenario = "key-isolation"
 	joinFirstAndCancel     joinScenario = "first-and-cancel"
-	joinRPCReportsCanceled joinScenario = "rpc-reports-canceled"
+	joinCancelJoin         joinScenario = "cancel-join-with-branches"
 	joinForkTwice          joinScenario = "fork-twice"
 	joinForkFromRPC        joinScenario = "fork-from-rpc"
 	joinInvalidCondition   joinScenario = "invalid-condition"
@@ -54,7 +54,6 @@ var (
 	joinResultsCopy   = dex.DefineChannelMap[string]("go-join-results")
 	joinBranchRelease = dex.DefineChannelMap[dex.None]("go-join-branch-release")
 	joinGate          = dex.DefineChannel[dex.None]("go-join-gate")
-	joinBranchWaiting = dex.DefineChannel[string]("go-join-branch-waiting")
 )
 
 type joinFlow struct {
@@ -80,6 +79,7 @@ type joinSummary struct {
 	BranchResults    [][]string `json:"branchResults"`
 	RemainingResults [][]string `json:"remainingResults"`
 	HasTimerFired    bool       `json:"hasTimerFired"`
+	IsJoinCanceled   bool       `json:"isJoinCanceled"`
 	FailureDetail    string     `json:"failureDetail"`
 }
 
@@ -103,13 +103,11 @@ type joinChannelSizesInput struct {
 type joinChannelSizes struct {
 	PendingResults  int `json:"pendingResults"`
 	PendingReleases int `json:"pendingReleases"`
-	WaitingBranches int `json:"waitingBranches"`
 }
 
 type joinReportInput struct {
-	Round             dex.JoinRound `json:"round"`
-	Result            string        `json:"result"`
-	CancelsBranchStep bool          `json:"cancelsBranchStep"`
+	Round  dex.JoinRound `json:"round"`
+	Result string        `json:"result"`
 }
 
 type joinRPCForkInput struct {
@@ -121,7 +119,7 @@ func (joinFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(joinSplitStep{}),
 		dex.DefineStep(joinBranchStep{}),
-		dex.DefineStep(joinCancelableBranchStep{}),
+		dex.DefineStep(joinHandoffBranchStep{}),
 		dex.DefineStep(joinGateStep{}),
 		dex.DefineStep(joinStep{}),
 		dex.DefineStep(joinFinishStep{}),
@@ -135,12 +133,13 @@ func (flow joinFlow) GetRPCs() []dex.RPCDef {
 		dex.DefineRPC(flow.OpenJoinGate, nil),
 		dex.DefineRPC(flow.GetJoinChannelSizes, nil),
 		dex.DefineRPC(flow.ReportJoinBranchResult, nil),
+		dex.DefineRPC(flow.CancelJoinWithBranches, nil),
 		dex.DefineRPC(flow.ForkJoinFromRPC, nil),
 	}
 }
 
 func (joinFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{joinResults, joinBranchRelease, joinGate, joinBranchWaiting}}
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{joinResults, joinBranchRelease, joinGate}}
 }
 
 func (joinFlow) ReleaseJoinBranch(ctx dex.Context, branchName string) (*dex.RPCResult[dex.None], error) {
@@ -165,7 +164,6 @@ func (joinFlow) GetJoinChannelSizes(
 	return &dex.RPCResult[joinChannelSizes]{Output: joinChannelSizes{
 		PendingResults:  joinResults.ChannelMap().Size(ctx, input.RoundKey),
 		PendingReleases: joinBranchRelease.Size(ctx, input.BranchName),
-		WaitingBranches: joinBranchWaiting.Size(ctx),
 	}}, nil
 }
 
@@ -176,11 +174,15 @@ func (joinFlow) ReportJoinBranchResult(
 	if err := joinResults.ReportBranchResult(ctx, input.Round, input.Result); err != nil {
 		return nil, err
 	}
-	result := &dex.RPCResult[dex.None]{}
-	if input.CancelsBranchStep {
-		result.CancelSteps(joinCancelableBranchStep{})
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// CancelJoinWithBranches cancels the join Step and every branch, then moves to the fallback Step.
+func (joinFlow) CancelJoinWithBranches(dex.Context, dex.None) (*dex.RPCResult[dex.None], error) {
+	result := &dex.RPCResult[dex.None]{
+		NextSteps: []dex.StepMovement{dex.MovementOf(joinFinishStep{}, joinSummary{IsJoinCanceled: true})},
 	}
-	return result, nil
+	return result.CancelSteps(joinStep{}, joinBranchStep{}), nil
 }
 
 // ForkJoinFromRPC returns the fork error text as output so the test can assert it.
@@ -196,6 +198,10 @@ func (joinFlow) ForkJoinFromRPC(ctx dex.Context, input joinRPCForkInput) (*dex.R
 	case joinRPCForkModeStepExecutionKey:
 		movements, err = joinResults.Fork(ctx, branchBuilders, joinBuilder)
 	case joinRPCForkModeExplicitKey, joinRPCForkModeSlashKey:
+		// Branch Y hands its work off; a later RPC call reports its result.
+		branchBuilders[1] = func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(joinHandoffBranchStep{}, joinBranchInput{Round: round, Name: "Y"})
+		}
 		movements, err = joinResults.ForkWithRoundKey(input.RoundKey, branchBuilders, joinBuilder)
 	default:
 		return nil, fmt.Errorf("unknown RPC fork mode %q", input.Mode)
@@ -266,9 +272,6 @@ func joinBranchBuilders(plan joinPlan) []func(dex.JoinRound) dex.StepMovement {
 				WaitsForRelease:     slices.Contains(plan.ReleasedBranches, name),
 				ReportsInsteadOfEnd: plan.Scenario == joinMultipleInstances,
 			}
-			if plan.Scenario == joinRPCReportsCanceled && name == "B" {
-				return dex.MovementOf(joinCancelableBranchStep{}, input)
-			}
 			return dex.MovementOf(joinBranchStep{}, input)
 		})
 	}
@@ -296,21 +299,13 @@ func (joinBranchStep) Execute(ctx dex.Context, input joinBranchInput) (*dex.Step
 	return joinResults.EndBranch(ctx, input.Round, input.Name)
 }
 
-// joinCancelableBranchStep never receives its release; an RPC cancels it.
-type joinCancelableBranchStep struct {
-	dex.StepDefaults
+// joinHandoffBranchStep ends without reporting; an RPC reports the branch result instead.
+type joinHandoffBranchStep struct {
+	dex.StepDefaultsNoWaitFor[joinBranchInput]
 }
 
-// WaitFor marks the branch as waiting in the same commit that registers its wait.
-func (joinCancelableBranchStep) WaitFor(ctx dex.Context, input joinBranchInput) (*dex.Wait, error) {
-	if err := joinBranchWaiting.Publish(ctx, input.Name); err != nil {
-		return nil, err
-	}
-	return dex.Until(joinBranchRelease.ForOne(input.Name)), nil
-}
-
-func (joinCancelableBranchStep) Execute(ctx dex.Context, input joinBranchInput) (*dex.StepDecision, error) {
-	return joinResults.EndBranch(ctx, input.Round, input.Name)
+func (joinHandoffBranchStep) Execute(dex.Context, joinBranchInput) (*dex.StepDecision, error) {
+	return dex.DeadEnd(), nil
 }
 
 // joinGateStep delays the join Step until the test opens the gate.
@@ -385,7 +380,7 @@ func (joinStep) Execute(ctx dex.Context, input joinStepInput) (*dex.StepDecision
 	switch {
 	case plan.Scenario == joinFirstAndCancel:
 		return dex.GoTo(joinFinishStep{}, plan.Summary).CancelSiblingSteps(joinBranchStep{}), nil
-	case plan.Scenario == joinRPCReportsCanceled, plan.Scenario == joinKeyIsolation:
+	case plan.Scenario == joinKeyIsolation:
 		return dex.GoTo(joinFinishStep{}, plan.Summary), nil
 	case plan.RoundNumber < plan.RoundCount:
 		nextPlan := plan
@@ -557,37 +552,26 @@ func TestJoinFirstBranchCancelsSiblingBranchesAndKeepsLateResults(t *testing.T) 
 	require.Equal(t, [][]string{{"A"}}, summary.BranchResults)
 }
 
-func TestJoinRPCReportsABranchResult(t *testing.T) {
-	// The RPC cancels branch B before the test releases it, so only the RPC reports for B.
+func TestJoinCancelTheJoinWithItsBranches(t *testing.T) {
 	flowID := startJoinFlow(t, joinPlan{
-		Scenario:         joinRPCReportsCanceled,
+		Scenario:         joinCancelJoin,
 		BranchNames:      []string{"A", "B"},
-		ReleasedBranches: []string{"A"},
+		ReleasedBranches: []string{"A", "B"},
 	})
-	round := dex.JoinRound{RoundKey: "joinSplitStep-1", BranchCount: 2}
-	var sizes joinChannelSizes
-	var err error
-	require.Eventually(t, func() bool {
-		var polled joinChannelSizes
-		err = integClient.InvokeRPC(integrationContext(t), flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: round.RoundKey, BranchName: "B"}, &polled)
-		return err == nil && polled.WaitingBranches == 1
-	}, 30*time.Second, 50*time.Millisecond, "branch B never reached its wait: %v", err)
-	invokeJoinRPC(t, flowID, joinFlow{}.ReportJoinBranchResult, joinReportInput{
-		Round:             round,
-		Result:            "B-canceled",
-		CancelsBranchStep: true,
-	}, nil)
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "A", nil)
-	waitForJoinStep(t, flowID, joinStep{}, 1)
+	waitForJoinStep(t, flowID, joinBranchStep{}, 1)
+	invokeJoinRPC(t, flowID, joinFlow{}.CancelJoinWithBranches, nil, nil)
 
-	// A waiting branch B would consume this release at once; it stays pending only after cancellation.
+	// Branch B was canceled, so its release stays pending and nothing consumes A's result.
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "B", nil)
-	invokeJoinRPC(t, flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: round.RoundKey, BranchName: "B"}, &sizes)
-	require.Equal(t, joinChannelSizes{PendingResults: 0, PendingReleases: 1, WaitingBranches: 1}, sizes)
+	var sizes joinChannelSizes
+	invokeJoinRPC(t, flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: "joinSplitStep-1", BranchName: "B"}, &sizes)
+	require.Equal(t, joinChannelSizes{PendingResults: 1, PendingReleases: 1}, sizes)
 	invokeJoinRPC(t, flowID, joinFlow{}.OpenJoinGate, nil, nil)
 
 	summary := waitForJoinSummary(t, flowID)
-	require.Equal(t, [][]string{{"B-canceled", "A"}}, summary.BranchResults)
+	require.True(t, summary.IsJoinCanceled)
+	require.Empty(t, summary.BranchResults)
 }
 
 func TestJoinForkTwiceInOneInvocationFailsTheStep(t *testing.T) {
@@ -607,12 +591,16 @@ func TestJoinForkFromRPCRequiresAnExplicitRoundKey(t *testing.T) {
 	require.Equal(t, `dex: Join "go-join-results" round key "round/1" must not contain '/'`, forkError)
 	invokeJoinRPC(t, flowID, joinFlow{}.ForkJoinFromRPC, joinRPCForkInput{Mode: joinRPCForkModeExplicitKey, RoundKey: "rpc-round-1"}, &forkError)
 	require.Empty(t, forkError)
+	invokeJoinRPC(t, flowID, joinFlow{}.ReportJoinBranchResult, joinReportInput{
+		Round:  dex.JoinRound{RoundKey: "rpc-round-1", BranchCount: 2},
+		Result: "Y-from-rpc",
+	}, nil)
 
 	summary := waitForJoinSummary(t, flowID)
 	require.Equal(t, []string{"rpc-round-1"}, summary.RoundKeys)
 	require.Equal(t, []int{2}, summary.BranchCounts)
 	require.Len(t, summary.BranchResults, 1)
-	require.ElementsMatch(t, []string{"X", "Y"}, summary.BranchResults[0])
+	require.ElementsMatch(t, []string{"X", "Y-from-rpc"}, summary.BranchResults[0])
 }
 
 func TestJoinInvalidConditionsFailWaitSerialization(t *testing.T) {

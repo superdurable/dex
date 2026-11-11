@@ -451,10 +451,12 @@ class Join(Generic[ResultT]):
         """Report a branch result without ending the current Step path.
 
         Use it when a branch continues after it reports, for example when a
-        multi-Step branch reports from a Step other than its last. An RPC that
-        forked a round with :meth:`fork_with_round_key` can also report results
-        for that round. The result commits only when the handler's result
-        commits. Never report for a canceled branch; see the :class:`Join` rules.
+        multi-Step branch reports from a Step other than its last. An RPC can
+        report a branch's result when that result arrives through the RPC and no
+        Step of that branch reports it, for example for a handoff branch in a
+        round the RPC forked with :meth:`fork_with_round_key`. The result
+        commits only when the handler's result commits. Never report for a
+        canceled branch; see the :class:`Join` rules.
 
         Args:
             context: The current Step or RPC Context.

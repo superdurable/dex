@@ -402,9 +402,10 @@ impl<T> Join<T> {
     /// Reports this branch's result without ending the branch.
     ///
     /// Use it when the branch continues after reporting, from a Step's `wait_for` or `execute`, for
-    /// example when a multi-Step branch reports from a Step other than its last. An RPC that forked
-    /// a round with [`Self::fork_with_round_key`] can also report results for that round; its input
-    /// then carries the round. Never report for a canceled branch; see the rules on [`Join`]. The
+    /// example when a multi-Step branch reports from a Step other than its last. An RPC can report
+    /// a branch's result when that result arrives through the RPC and no Step of that branch
+    /// reports it, for example for a handoff branch in a round the RPC forked with
+    /// [`Self::fork_with_round_key`]; its input then carries the round. Never report for a canceled branch; see the rules on [`Join`]. The
     /// result is staged and becomes durable only when the handler returns successfully. Results
     /// queue in the order their handlers commit.
     ///

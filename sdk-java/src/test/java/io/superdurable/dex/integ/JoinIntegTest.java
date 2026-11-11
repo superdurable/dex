@@ -222,25 +222,34 @@ public final class JoinIntegTest {
     }
 
     @Test
-    void testRpcReportsABranchResultAndTheAllBranchesJoinFires() throws Exception {
-        // Branch B waits for a release the test never sends, so only the RPC reports for it.
+    void testCancelTheJoinWithItsBranches() throws Exception {
         final JoinIntegAllOfWorkflow workflow = new JoinIntegAllOfWorkflow();
         try (DexDevTestEnvironment environment = start(workflow)) {
             final String flowId = startAllOf(
                     environment,
                     workflow,
-                    "join-report-canceled",
+                    "join-cancel-join",
                     Arrays.asList("A", "B"),
                     JoinIntegAllOfWorkflow.JoinMode.ALL_BRANCHES);
             final JoinIntegAllOfWorkflow stub = stub(environment, flowId);
             environment.client().invokeRPC(stub::releaseBranch, "A");
             waitForStep(environment, flowId, "JoinIntegAllOfBranch", 1);
-            final JoinRound round = new JoinRound(JoinIntegAllOfWorkflow.SPLIT_STEP_TYPE + "-1", 2);
-            environment.client().invokeRPC(
-                    stub::cancelBranchesAndReport,
-                    new JoinIntegAllOfWorkflow.RoundReport(round, "B-canceled"));
+            environment.client().invokeRPC(stub::cancelJoinWithBranches);
+
+            // Branch B was canceled, so its release stays pending and nothing consumes A's result.
+            environment.client().invokeRPC(stub::releaseBranch, "B");
+            final JoinIntegAllOfWorkflow.PendingCounts counts = environment.client().invokeRPC(
+                    stub::getPendingCounts,
+                    new JoinIntegAllOfWorkflow.PendingQuery(
+                            JoinIntegAllOfWorkflow.SPLIT_STEP_TYPE + "-1",
+                            "B"));
+            assertEquals(1, counts.results);
+            assertEquals(1, counts.releases);
+
+            environment.client().invokeRPC(stub::releaseJoinGate);
             final JoinIntegAllOfWorkflow.JoinOutcome outcome = allOfOutcome(environment, flowId);
-            assertEquals(Arrays.asList("A", "B-canceled"), outcome.results);
+            assertEquals(JoinIntegAllOfWorkflow.JOIN_CANCELED, outcome.winner);
+            assertEquals(Collections.emptyList(), outcome.results);
         }
     }
 
@@ -289,6 +298,9 @@ public final class JoinIntegTest {
             environment.client().invokeRPC(
                     stub::forkFromRpc,
                     new JoinIntegAllOfWorkflow.RpcFork("rpc-round", Collections.singletonList("X")));
+            environment.client().invokeRPC(
+                    stub::reportResultToRound,
+                    new JoinIntegAllOfWorkflow.RoundReport(new JoinRound("rpc-round", 2), "handoff-from-rpc"));
             environment.client().invokeRPC(stub::releaseBranch, "X");
             environment.client().invokeRPC(stub::releaseBranch, "A");
             environment.client().invokeRPC(stub::releaseJoinGate);
@@ -302,7 +314,7 @@ public final class JoinIntegTest {
             }
             Collections.sort(roundSummaries);
             assertEquals(
-                    Arrays.asList(JoinIntegAllOfWorkflow.SPLIT_STEP_TYPE + "-1:[A]", "rpc-round:[X]"),
+                    Arrays.asList(JoinIntegAllOfWorkflow.SPLIT_STEP_TYPE + "-1:[A]", "rpc-round:[handoff-from-rpc, X]"),
                     roundSummaries);
         }
     }

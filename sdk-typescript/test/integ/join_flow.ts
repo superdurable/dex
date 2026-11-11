@@ -21,6 +21,7 @@ import {
   doubleCodec,
   forceComplete,
   goTo,
+  deadEnd,
   goToMany,
   gracefulComplete,
   joinRoundCodec,
@@ -484,22 +485,23 @@ export class JoinFirstWinFlow implements Flow<void> {
   }
 }
 
-// All-of join where an RPC reports a result for one branch and cancels that branch.
+// All-of join that an RPC cancels together with its branches.
 
-const substituteResult = new Join("joinSubstituteResult", stringCodec);
-const substituteRelease = new ChannelMap("joinSubstituteRelease", stringCodec);
+const cancelJoinResult = new Join("joinCancelJoinResult", stringCodec);
+const cancelJoinRelease = new ChannelMap("joinCancelJoinRelease", stringCodec);
+const cancelJoinGate = new Channel("joinCancelJoinGate", stringCodec);
 
-class SubstituteSplit implements Step<void> {
+class CancelJoinSplit implements Step<void> {
   public readonly inputCodec = voidCodec;
 
-  public constructor(private readonly flow: JoinSubstituteFlow) {}
+  public constructor(private readonly flow: JoinCancelJoinFlow) {}
 
   public getStepType(): string {
-    return "JoinSubstituteSplit";
+    return "JoinCancelJoinSplit";
   }
 
   public execute(context: Context): StepDecision {
-    return goToMany(...substituteResult.fork(
+    return goToMany(...cancelJoinResult.fork(
       context,
       [branchBuilder(this.flow.branchA, "A"), branchBuilder(this.flow.branchB, "B")],
       (round) => StepMovement.of(this.flow.accept, round),
@@ -507,49 +509,84 @@ class SubstituteSplit implements Step<void> {
   }
 }
 
-class SubstituteAccept implements Step<JoinRound> {
+class CancelJoinAccept implements Step<JoinRound> {
   public readonly inputCodec = joinRoundCodec;
 
   public getStepType(): string {
-    return "JoinSubstituteAccept";
+    return "JoinCancelJoinAccept";
   }
 
   public waitFor(_context: Context, round: JoinRound): Wait {
-    return Wait.until(substituteResult.forAllBranches(round));
+    return Wait.until(cancelJoinResult.forAllBranches(round));
   }
 
   public execute(context: Context, round: JoinRound): StepDecision {
-    return gracefulComplete(substituteResult.branchResults(context, round));
+    return gracefulComplete(cancelJoinResult.branchResults(context, round));
   }
 }
 
-export class JoinSubstituteFlow implements Flow<void> {
-  public readonly branchA = new JoinBranchStep("JoinSubstituteBranchA", substituteResult, substituteRelease);
-  public readonly branchB = new JoinBranchStep("JoinSubstituteBranchB", substituteResult, substituteRelease);
-  public readonly accept = new SubstituteAccept();
-  private readonly split = new SubstituteSplit(this);
+class CancelJoinFallback implements Step<void> {
+  public readonly inputCodec = voidCodec;
+
+  public getStepType(): string {
+    return "JoinCancelJoinFallback";
+  }
+
+  public waitFor(): Wait {
+    return Wait.until(cancelJoinGate.forOne());
+  }
+
+  public execute(): StepDecision {
+    return gracefulComplete(["join canceled"]);
+  }
+}
+
+export class JoinCancelJoinFlow implements Flow<void> {
+  public readonly branchA = new JoinBranchStep("JoinCancelJoinBranchA", cancelJoinResult, cancelJoinRelease);
+  public readonly branchB = new JoinBranchStep("JoinCancelJoinBranchB", cancelJoinResult, cancelJoinRelease);
+  public readonly accept = new CancelJoinAccept();
+  public readonly fallback = new CancelJoinFallback();
+  private readonly split = new CancelJoinSplit(this);
 
   public getFlowType(): string {
-    return "JoinSubstituteFlow";
+    return "JoinCancelJoinFlow";
   }
 
   public getSteps() {
-    return StepList.startStep(this.split).otherSteps(this.branchA, this.branchB, this.accept);
+    return StepList.startStep(this.split).otherSteps(this.branchA, this.branchB, this.accept, this.fallback);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [substituteResult, substituteRelease] };
+    return { channels: [cancelJoinResult, cancelJoinRelease, cancelJoinGate] };
   }
 
-  @rpc({ inputCodec: joinRoundCodec })
-  public cancelBranchB(context: Context, round: JoinRound): RPCResult<void> {
-    substituteResult.reportBranchResult(context, round, "B-canceled");
-    return { output: undefined, cancelingSteps: [this.branchB] };
+  @rpc()
+  public cancelJoinWithBranches(): RPCResult<void> {
+    return {
+      output: undefined,
+      nextSteps: [StepMovement.of(this.fallback, undefined)],
+      cancelingSteps: [this.accept, this.branchA, this.branchB],
+    };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
+  public getPendingResultCount(context: Context, roundKey: string): RPCResult<number> {
+    return { output: cancelJoinResult.channelMap.size(context, roundKey) };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
+  public getPendingReleaseCount(context: Context, branchName: string): RPCResult<number> {
+    return { output: cancelJoinRelease.size(context, branchName) };
   }
 
   @rpc({ inputCodec: stringCodec })
   public releaseBranch(context: Context, branchName: string): void {
-    substituteRelease.publish(context, branchName, branchName);
+    cancelJoinRelease.publish(context, branchName, branchName);
+  }
+
+  @rpc()
+  public openGate(context: Context): void {
+    cancelJoinGate.publish(context, "open");
   }
 }
 
@@ -643,9 +680,22 @@ class RPCForkAccept implements Step<JoinRound> {
   }
 }
 
+/** Ends without reporting; an RPC reports this branch's result. */
+class RPCForkHandoffBranch implements Step<BranchInput> {
+  public readonly inputCodec = branchInputCodec;
+
+  public getStepType(): string {
+    return "JoinRPCForkHandoffBranch";
+  }
+
+  public execute(): StepDecision {
+    return deadEnd();
+  }
+}
+
 export class JoinRPCForkFlow implements Flow<void> {
   public readonly branchA = new JoinBranchStep("JoinRPCForkBranchA", rpcForkResult);
-  public readonly branchB = new JoinBranchStep("JoinRPCForkBranchB", rpcForkResult);
+  public readonly handoffBranch = new RPCForkHandoffBranch();
   public readonly accept = new RPCForkAccept();
   private readonly idle = new RPCForkIdle();
 
@@ -654,7 +704,7 @@ export class JoinRPCForkFlow implements Flow<void> {
   }
 
   public getSteps() {
-    return StepList.startStep(this.idle).otherSteps(this.branchA, this.branchB, this.accept);
+    return StepList.startStep(this.idle).otherSteps(this.branchA, this.handoffBranch, this.accept);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
@@ -663,12 +713,20 @@ export class JoinRPCForkFlow implements Flow<void> {
 
   @rpc({ inputCodec: stringCodec })
   public startRound(context: Context, mode: string): RPCResult<void> {
-    const branchBuilders = [branchBuilder(this.branchA, "A"), branchBuilder(this.branchB, "B")];
+    const branchBuilders = [
+      branchBuilder(this.branchA, "A"),
+      (round: JoinRound) => StepMovement.of(this.handoffBranch, { branchName: "B", round }),
+    ];
     const joinBuilder = (round: JoinRound) => StepMovement.of(this.accept, round);
     const nextSteps = mode === "fork"
       ? rpcForkResult.fork(context, branchBuilders, joinBuilder)
       : rpcForkResult.forkWithRoundKey(mode === "slash" ? "rpc/round" : "rpc-round-1", branchBuilders, joinBuilder);
     return { output: undefined, nextSteps };
+  }
+
+  @rpc({ inputCodec: joinRoundCodec })
+  public reportHandoffResult(context: Context, round: JoinRound): void {
+    rpcForkResult.reportBranchResult(context, round, "B-from-rpc");
   }
 }
 

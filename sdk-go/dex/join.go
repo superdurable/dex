@@ -315,10 +315,11 @@ func (join Join[T]) EndBranch(ctx Context, round JoinRound, result T) (*StepDeci
 // ReportBranchResult reports one branch result without ending the branch.
 //
 // Use it in a branch's WaitFor or Execute when the branch continues after it reports, for example
-// when a multi-Step branch reports from a Step other than its last. An RPC that forked a round
-// with ForkWithRoundKey can also report results for that round; the RPC input then carries the
-// JoinRound. Dex commits the result only when the handler succeeds. Each branch reports exactly
-// one result per round. Never report for a canceled branch; see the Join rules.
+// when a multi-Step branch reports from a Step other than its last. An RPC can report a branch's
+// result when that result arrives through the RPC and no Step of that branch reports it, for
+// example for a handoff branch in a round the RPC forked with ForkWithRoundKey; the RPC input then
+// carries the JoinRound. Dex commits the result only when the handler succeeds. Each branch
+// reports exactly one result per round. Never report for a canceled branch; see the Join rules.
 //
 // It returns an error when ctx is not a Dex invocation, when round is invalid, when the Join is not
 // registered in the Flow, or when result cannot be encoded.
