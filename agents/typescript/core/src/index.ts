@@ -192,7 +192,11 @@ export {
   type ModelUsageReport,
 } from "./agent-session-spend-limit.js";
 export { AgentSessionFailedError, readAgentSnapshot, sendAgentUserMessage } from "./agent-session-failure.js";
-export { renderSessionFlowGraph, type SessionFlowGraphOptions } from "./agent-session-flow-graph.js";
+export {
+  renderSessionFlowGraph,
+  sessionFlowDefinitionDocument,
+  type SessionFlowGraphOptions,
+} from "./agent-session-flow-graph.js";
 export { agentSessionActiveStepSearchMode, startAgentSession } from "./agent-session-start.js";
 export { invalidStartSessionSettingsReason } from "./agent-session-steps.js";
 export {

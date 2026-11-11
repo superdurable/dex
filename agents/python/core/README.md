@@ -18,7 +18,7 @@ at most the one call that was running.
 
 Applications usually install an adapter, which brings in this package. To
 build a runner of your own, install the core directly. It needs Python 3.11 or
-later and requires the released `dex-python-sdk==1.44.0`:
+later and requires the released `dex-python-sdk==1.45.0`:
 
 ```bash
 pip install dex-agents
@@ -884,7 +884,8 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
 - **Summaries and estimates.** The model call that writes a context summary
   sees the text of the summarized items, without their images.
   `estimate_input_tokens` gets requests without image bytes; the LiteLLM
-  client counts `ESTIMATED_IMAGE_INPUT_TOKENS` (1600) for each image.
+  client counts `ESTIMATED_IMAGE_INPUT_TOKENS` (1600) for each image it
+  sends, so not for a Gemini model's tool result images.
 - **Without a store.** A tool source result's references are still stored
   for display, but the model sees only the text. A function tool's images
   fail the call instead, without a retry.
@@ -895,12 +896,21 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
   user message's `content` is a `text` part and one `image_url` part per
   image. For Anthropic and Bedrock, whose LiteLLM conversion keeps images in
   a tool result, a tool message's `content` is the same list of parts. Every
-  other provider, such as OpenAI Chat Completions, Gemini, and Vertex AI, gets
-  only text in a tool message, because Gemini 2.5 models refuse images in a
-  function response: the tool message keeps the text, and
+  other provider, such as OpenAI Chat Completions or Claude on Vertex AI,
+  gets only text in a tool message: the tool message keeps the text, and
   after the last tool message of that run follows one user message per tool
   result with images, holding `TOOL_RESULT_IMAGES_TEXT` (`The <tool_name> tool
   call <tool_call_id> returned these images.`) and then the image parts.
+- **Known limitation: Gemini through LiteLLM sees no tool result images.**
+  Gemini models on the Gemini API and Vertex AI (`gemini/`, `vertex_ai/`, and
+  `vertex_ai_beta/`) get images in user messages, but not the images of a
+  tool result. Their tool message, or `function_call_output` on the
+  Responses API, holds the text and then `TOOL_RESULT_IMAGES_OMITTED_TEXT`,
+  such as `[The tool returned 2 images; this model does not receive images
+  from tool results.]`, and no user message follows with the images. Gemini 2.5 refuses images in a function
+  response, Gemini 3 accepts them only there, and LiteLLM's conversion gets
+  neither right. To show a Gemini model a tool's image, send it in a user
+  message.
 - **Your own model client.** Convert each reference in `images` to the
   provider's image part with its bytes from `ModelRequest.image_bytes`, and
   raise when they are missing. A client that ignores `images` shows the
@@ -1248,6 +1258,36 @@ another mode, such as `ActiveStepSearchMode.DISABLED`. `AsyncClient.start_flow`
 does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 `config_override`, or call `update_flow_config` for a running session. See
 [Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
+
+## Showing sessions in Dex Web
+
+Dex Web draws a session and offers its Actions from the session Flow
+Definition Graph. Let the Worker upload it: pass
+`session_flow_definition_document(flow_type, action_permission)` in
+`WorkerOptions(flow_definitions=...)`.
+
+```python
+from dex import AsyncWorker, Registry, WorkerOptions
+from dex_agents import session_flow_definition_document
+
+worker = AsyncWorker(
+    Registry([flow], allow_async_handlers=True),
+    blob_cache,
+    WorkerOptions(
+        flow_definitions=[
+            session_flow_definition_document("SupportAgent", "support-agent.operate")
+        ]
+    ),
+)
+```
+
+The upload needs server-zd 0.1.26 or later. The document's `generated_at` is
+`SESSION_FLOW_GRAPH_GENERATED_AT` in `dex_agents.session_graph`, the time the
+graph template last changed, so a restart writes nothing and an upgrade
+replaces the graph. For an older server, render a file with
+`render_session_flow_graph` or the `dex-agents-session-graph` command and pass
+its directory to Dex Web with `--flow-rendering-dir`. See
+[Show sessions in Dex Web](https://docs.superdurable.io/reference/agents/dex-web).
 
 ## Spend limits
 

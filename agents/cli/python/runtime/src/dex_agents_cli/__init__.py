@@ -41,6 +41,7 @@ from dex_agents_cli.connectors import (
     ConnectorToolMetaKeys,
 )
 from dex_agents_cli.harness import (
+    SESSION_ACTION_PERMISSION,
     AgentHarness,
     HarnessContext,
     LocalToolGroup,
@@ -67,6 +68,7 @@ __all__ = [
     "CONNECTORS_TOOL_SOURCE_NAME",
     "CONNECTOR_TOOL_META_KEYS",
     "LOCAL_TOOL_SOURCE_NAME",
+    "SESSION_ACTION_PERMISSION",
     "AgentHarness",
     "ConfigError",
     "ConnectorEntry",

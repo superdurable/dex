@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""LiteLLMModelClient image parts on the wire: Responses API, OpenAI chat, and Anthropic."""
+"""LiteLLMModelClient image parts on the wire: Responses API, OpenAI chat, Anthropic, and Gemini."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from litellm.llms.vertex_ai.vertex_llm_base import VertexBase
 
 from dex_agents import AgentImageReference, build_image_reference
 from dex_agents.builtin_loop import (
@@ -28,6 +29,7 @@ from dex_agents.builtin_loop import (
 )
 from dex_agents.litellm import (
     ESTIMATED_IMAGE_INPUT_TOKENS,
+    TOOL_RESULT_IMAGES_OMITTED_TEXT,
     TOOL_RESULT_IMAGES_TEXT,
     LiteLLMModelClient,
 )
@@ -57,6 +59,10 @@ IMAGE_BYTES = {PNG_REFERENCE.sha256: PNG, JPEG_REFERENCE.sha256: JPEG}
 
 def data_url(reference: AgentImageReference, data: bytes) -> str:
     return f"data:{reference.mime_type};base64,{base64.b64encode(data).decode()}"
+
+
+def inline_data(reference: AgentImageReference, data: bytes) -> dict[str, str]:
+    return {"mime_type": reference.mime_type, "data": base64.b64encode(data).decode()}
 
 
 def neutral_tool_calls(*tool_call_ids: str) -> ModelOutputItem:
@@ -218,45 +224,257 @@ async def test_anthropic_gets_image_blocks_in_the_user_message_and_inside_the_to
     assert tool_result["content"][1]["source"]["media_type"] == "image/jpeg"
 
 
-async def test_gemini_gets_tool_images_in_a_user_message_after_the_function_response(
+GEMINI_MODELS = [
+    "gemini/gemini-2.5-flash",
+    "vertex_ai/gemini-2.5-flash",
+    "vertex_ai_beta/gemini-2.5-flash",
+]
+
+
+@pytest.fixture
+def vertex_access_token(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Skip Google auth for Vertex AI models; return their location ``request_options``."""
+
+    def access_token(*_: Any, **__: Any) -> tuple[str, str]:
+        return "token", "project"
+
+    async def access_token_async(*_: Any, **__: Any) -> tuple[str, str]:
+        return "token", "project"
+
+    monkeypatch.setattr(VertexBase, "_ensure_access_token", access_token)
+    monkeypatch.setattr(VertexBase, "_ensure_access_token_async", access_token_async)
+    return {"vertex_project": "project", "vertex_location": "us-central1"}
+
+
+def fake_transport_client(
+    model: str, transport: FakeProviderTransport, vertex_options: dict[str, str]
+) -> LiteLLMModelClient:
+    return LiteLLMModelClient(
+        model,
+        api_base=transport.base_url,
+        api_key_provider=lambda: "key",
+        request_options=vertex_options if model.startswith("vertex_ai") else None,
+    )
+
+
+def two_screenshot_results() -> list[ModelInputItem]:
+    """A user image, then two tool results: three images with text and one without."""
+    return [
+        UserTextItem(text="Look.", images=[PNG_REFERENCE]),
+        ModelOutputItem(
+            provider="dex-scripted",
+            api="scripted",
+            item="{}",
+            tool_calls=(
+                ModelToolCall(
+                    tool_call_id="call_1", tool_name="screenshot", arguments='{"page": 1}'
+                ),
+                ModelToolCall(
+                    tool_call_id="call_2", tool_name="screenshot", arguments='{"page": 2}'
+                ),
+            ),
+        ),
+        ToolResultItem(
+            tool_call_id="call_1",
+            tool_name="screenshot",
+            output="First.",
+            images=[JPEG_REFERENCE, JPEG_REFERENCE],
+        ),
+        ToolResultItem(
+            tool_call_id="call_2", tool_name="screenshot", output="", images=[JPEG_REFERENCE]
+        ),
+    ]
+
+
+def inline_data_parts(body: dict[str, Any]) -> list[tuple[int, dict[str, str]]]:
+    """Return every ``inline_data`` of the request with the index of its content."""
+    return [
+        (index, part["inline_data"])
+        for index, content in enumerate(body["contents"])
+        for part in content["parts"]
+        if "inline_data" in part
+    ]
+
+
+@pytest.mark.parametrize("model", GEMINI_MODELS)
+async def test_gemini_models_get_a_note_instead_of_tool_images_and_keep_user_images(
+    transport: FakeProviderTransport, vertex_access_token: dict[str, str], model: str
+) -> None:
+    client = fake_transport_client(model, transport, vertex_access_token)
+    transport.responses.append((200, _gemini_text_stream("Two screenshots.")))
+
+    await client.call_model(image_request(two_screenshot_results()), RecordedOutput())
+
+    _, body = transport.requests[0]
+    assert body["system_instruction"] == {"parts": [{"text": "You help with orders."}]}
+    assert body["contents"] == [
+        {
+            "role": "user",
+            "parts": [{"text": "Look."}, {"inline_data": inline_data(PNG_REFERENCE, PNG)}],
+        },
+        {
+            "role": "model",
+            "parts": [
+                {"function_call": {"name": "screenshot", "args": {"page": 1}}},
+                {"function_call": {"name": "screenshot", "args": {"page": 2}}},
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "function_response": {
+                        "name": "screenshot",
+                        "response": {
+                            "content": "First.\n\n"
+                            + TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="2 images")
+                        },
+                    }
+                },
+                {
+                    "function_response": {
+                        "name": "screenshot",
+                        "response": {
+                            "content": TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="1 image")
+                        },
+                    }
+                },
+            ],
+        },
+    ]
+    assert inline_data_parts(body) == [(0, inline_data(PNG_REFERENCE, PNG))]
+
+
+async def test_gemini_3_gets_the_note_in_function_responses_that_keep_their_ids(
+    transport: FakeProviderTransport, vertex_access_token: dict[str, str]
+) -> None:
+    client = fake_transport_client("vertex_ai/gemini-3.6-flash", transport, vertex_access_token)
+    transport.responses.append((200, _gemini_text_stream("Two screenshots.")))
+
+    await client.call_model(image_request(two_screenshot_results()), RecordedOutput())
+
+    _, body = transport.requests[0]
+    assert [content["role"] for content in body["contents"]] == ["user", "model", "user"]
+    assert body["contents"][2]["parts"] == [
+        {
+            "function_response": {
+                "name": "screenshot",
+                "response": {
+                    "content": "First.\n\n"
+                    + TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="2 images")
+                },
+                "id": "call_1",
+            }
+        },
+        {
+            "function_response": {
+                "name": "screenshot",
+                "response": {"content": TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="1 image")},
+                "id": "call_2",
+            }
+        },
+    ]
+    assert inline_data_parts(body) == [(0, inline_data(PNG_REFERENCE, PNG))]
+
+
+async def test_gemini_on_the_responses_api_gets_the_note_instead_of_tool_images(
+    transport: FakeProviderTransport,
+) -> None:
+    client = LiteLLMModelClient(
+        "gemini/gemini-2.5-flash",
+        api="responses",
+        api_base=transport.base_url,
+        api_key_provider=lambda: "key",
+    )
+    transport.responses.append((200, _gemini_text_stream("Two screenshots.")))
+
+    await client.call_model(image_request(two_screenshot_results()), RecordedOutput())
+
+    _, body = transport.requests[0]
+    assert [content["role"] for content in body["contents"]] == ["user", "model", "user"]
+    assert [part["function_response"]["response"] for part in body["contents"][2]["parts"]] == [
+        {"content": "First.\n\n" + TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="2 images")},
+        {"content": TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="1 image")},
+    ]
+    assert inline_data_parts(body) == [(0, inline_data(PNG_REFERENCE, PNG))]
+
+
+async def test_a_gemini_response_schema_prompt_fallback_survives_tool_images(
+    transport: FakeProviderTransport,
+) -> None:
+    schema = {"type": "object", "properties": {"answer": {"type": "string"}}}
+    # LiteLLM sends gemini-2.0-flash its response_schema as a user prompt, not natively.
+    client = LiteLLMModelClient(
+        "gemini/gemini-2.0-flash",
+        api_base=transport.base_url,
+        api_key_provider=lambda: "key",
+        request_options={"response_schema": schema},
+    )
+    transport.responses.append((200, _gemini_text_stream("{}")))
+
+    await client.call_model(image_request(two_screenshot_results()), RecordedOutput())
+
+    _, body = transport.requests[0]
+    texts = [
+        part["text"] for content in body["contents"] for part in content["parts"] if "text" in part
+    ]
+    assert any(text.startswith("Use this JSON schema:") and "answer" in text for text in texts)
+    function_responses = [
+        part["function_response"]["response"]["content"]
+        for content in body["contents"]
+        for part in content["parts"]
+        if "function_response" in part
+    ]
+    assert function_responses[1] == TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="1 image")
+    assert [index for index, _ in inline_data_parts(body)] == [0]
+
+
+async def test_claude_on_vertex_ai_still_gets_tool_images_in_a_user_message(
+    transport: FakeProviderTransport, vertex_access_token: dict[str, str]
+) -> None:
+    client = fake_transport_client("vertex_ai/claude-sonnet-4-5", transport, vertex_access_token)
+    transport.responses.append((200, _anthropic_text_stream("Two screenshots.")))
+
+    await client.call_model(image_request(two_screenshot_results()), RecordedOutput())
+
+    _, body = transport.requests[0]
+    tool_turn = body["messages"][-1]["content"]
+    assert [(block["type"], block.get("content")) for block in tool_turn[:2]] == [
+        ("tool_result", "First."),
+        ("tool_result", ""),
+    ]
+    assert [block["type"] for block in tool_turn[2:]] == ["text", "image", "image", "text", "image"]
+    assert tool_turn[2]["text"] == TOOL_RESULT_IMAGES_TEXT.format(
+        tool_name="screenshot", tool_call_id="call_1"
+    )
+    assert base64.b64decode(tool_turn[3]["source"]["data"]) == JPEG
+    assert "does not receive images" not in json.dumps(body)
+
+
+async def test_gemini_contents_stay_litellm_s_own_without_tool_images(
     transport: FakeProviderTransport,
 ) -> None:
     client = LiteLLMModelClient(
         "gemini/gemini-2.5-flash", api_base=transport.base_url, api_key_provider=lambda: "key"
     )
-    transport.responses.append((200, _gemini_text_stream("A screenshot.")))
+    transport.responses.append((200, _gemini_text_stream("Nothing to see.")))
 
     await client.call_model(
         image_request(
             [
                 UserTextItem(text="Look.", images=[PNG_REFERENCE]),
                 neutral_tool_calls("call_1"),
-                ToolResultItem(
-                    tool_call_id="call_1",
-                    tool_name="screenshot",
-                    output="Took one.",
-                    images=[JPEG_REFERENCE],
-                ),
+                ToolResultItem(tool_call_id="call_1", tool_name="screenshot", output="None."),
             ]
         ),
         RecordedOutput(),
     )
 
     _, body = transport.requests[0]
-    parts = [part for content in body["contents"] for part in content["parts"]]
-    response_index = next(index for index, part in enumerate(parts) if "function_response" in part)
-    # The function response holds text only; Gemini 2.5 refuses images there.
-    assert "inline_data" not in json.dumps(parts[response_index])
-    assert [
-        part.get("inline_data") for part in parts[:response_index] if "inline_data" in part
-    ] == [{"mime_type": "image/png", "data": base64.b64encode(PNG).decode()}]
-    following = parts[response_index + 1 :]
-    assert {
-        "text": TOOL_RESULT_IMAGES_TEXT.format(tool_name="screenshot", tool_call_id="call_1")
-    } in (following)
-    assert {
-        "inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(JPEG).decode()}
-    } in (following)
+    assert [content["role"] for content in body["contents"]] == ["user", "model", "user"]
+    assert body["contents"][2]["parts"] == [
+        {"function_response": {"name": "screenshot", "response": {"content": "None."}}}
+    ]
 
 
 async def test_a_request_without_the_bytes_of_an_image_fails_before_it_is_sent(
@@ -289,6 +507,24 @@ def test_the_estimate_counts_each_image_without_reading_its_bytes() -> None:
     )
 
     assert with_images - without_images == 2 * ESTIMATED_IMAGE_INPUT_TOKENS
+
+
+def test_the_gemini_estimate_counts_only_the_images_the_model_receives() -> None:
+    client = LiteLLMModelClient("gemini/gemini-2.5-flash")
+    without_images = client.estimate_input_tokens(
+        _request([UserTextItem(text="Look."), _screenshot_result(())])
+    )
+
+    with_images = client.estimate_input_tokens(
+        _request(
+            [
+                UserTextItem(text="Look.", images=[PNG_REFERENCE]),
+                _screenshot_result((JPEG_REFERENCE,)),
+            ]
+        )
+    )
+
+    assert with_images - without_images == ESTIMATED_IMAGE_INPUT_TOKENS
 
 
 def _screenshot_result(images: tuple[AgentImageReference, ...]) -> ToolResultItem:

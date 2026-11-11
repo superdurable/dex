@@ -169,7 +169,10 @@ from dex_agents.session_flow import (
     AgentSessionOptions,
     RunModelLimit,
 )
-from dex_agents.session_graph import render_session_flow_graph
+from dex_agents.session_graph import (
+    render_session_flow_graph,
+    session_flow_definition_document,
+)
 from dex_agents.session_settings import (
     MAX_SESSION_SETTINGS_BYTES,
     SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
@@ -427,6 +430,7 @@ __all__ = [
     "require_store_image_reference",
     "resolve_tool_policy",
     "select_turn_boundary_cutoff",
+    "session_flow_definition_document",
     "session_settings_size",
     "validate_image_reference",
     "validate_image_references",

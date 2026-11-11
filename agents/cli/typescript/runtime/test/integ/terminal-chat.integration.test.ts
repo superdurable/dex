@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
@@ -16,12 +16,29 @@ import { promisify } from "node:util";
 
 import { pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
-import type { AgentTurnContext, DeferredToolExecution, ToolEffect } from "@superdurable/dex-agents";
+import {
+  renderSessionFlowGraph,
+  sessionFlowDefinitionDocument,
+  type AgentTurnContext,
+  type DeferredToolExecution,
+  type ToolEffect,
+} from "@superdurable/dex-agents";
 
-import { ConnectorsMcpToolSource, TurnConfigResolver, resolveConfig } from "../../src/index.js";
+import {
+  ConnectorsMcpToolSource,
+  TurnConfigResolver,
+  resolveConfig,
+  sessionActionPermission,
+} from "../../src/index.js";
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { shellReplacingScriptedHarness } from "../fixtures/scripted-harness.js";
+
+/** One definition in the protobuf JSON that `dexcli api call GetFlowDefinitions` prints. */
+interface StoredFlowDefinition {
+  readonly info: { readonly flowType: string; readonly generatedAt: string };
+  readonly content: string;
+}
 
 describe("terminal chat with connectors and session settings", () => {
   let engine: PrivateDexEngine;
@@ -96,6 +113,55 @@ describe("terminal chat with connectors and session settings", () => {
       workspace: realpathSync.native(home.workspace),
       user_name: userInfo().username,
     });
+  });
+
+  test("the command uploads the session graph for Dex Web and logs the outcome only to its log file", async () => {
+    const home = newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+    const cli = start(home);
+    await cli.waitForSession();
+    const flowType = home.sessionFlowType();
+    const definition = await pollUntil(
+      async () => {
+        const { stdout } = await promisify(execFile)(home.environment().DEXCLI ?? "dexcli", [
+          "api",
+          "call",
+          "GetFlowDefinitions",
+          "--server",
+          engine.serverAddress,
+          "--data",
+          JSON.stringify({ flowTypes: [flowType] }),
+        ]);
+        return (JSON.parse(stdout) as { definitions?: StoredFlowDefinition[] }).definitions?.[0];
+      },
+      { description: `the uploaded definition of ${flowType}`, timeoutMs: 10_000 },
+    );
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.equal(definition.info.flowType, flowType);
+    assert.equal(
+      Buffer.from(definition.content, "base64").toString("utf8"),
+      renderSessionFlowGraph({ flowType, actionPermission: sessionActionPermission }),
+    );
+    const { generatedAt } = sessionFlowDefinitionDocument({ flowType, actionPermission: sessionActionPermission });
+    assert.equal(new Date(definition.info.generatedAt).toISOString(), generatedAt.toISOString());
+    // The upload outcome goes to the log file, never into the terminal chat.
+    assert.doesNotMatch(cli.stdout.all + cli.stderr.all, /Flow definition|dex info/);
+    const logFile = readFileSync(join(home.directory, ".dex", "agents", `${home.harness.name}.log`), "utf8");
+    assert.match(logFile, new RegExp(`session Flow definition (created|unchanged): flowType=${flowType} `));
+  });
+
+  test("an unwritable log file neither stops the chat nor reaches the terminal", async () => {
+    const home = newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+    const logPath = join(home.directory, ".dex", "agents", `${home.harness.name}.log`);
+    mkdirSync(logPath, { recursive: true });
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine("hello there");
+    await cli.stdout.waitFor("echo: hello there");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.ok(statSync(logPath).isDirectory());
+    assert.doesNotMatch(cli.stdout.all + cli.stderr.all, /Flow definition|dex info|EISDIR/);
   });
 
   test("one chat turn streams the reply, reusing the running dexcli dev", async () => {

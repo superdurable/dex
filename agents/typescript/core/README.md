@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.44.0
+npm i @superdurable/dex-agents @superdurable/dex@1.45.0
 ```
 
-`@superdurable/dex` 1.44.0 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.45.0 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -1286,6 +1286,31 @@ does not turn this on; pass `configOverride: { activeStepSearchMode: agentSessio
 `Client.updateFlowConfig` for a running session. See
 [Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
+## Showing sessions in Dex Web
+
+Dex Web draws a session and offers its Actions from the session Flow
+Definition Graph. Let the Worker upload it: pass
+`sessionFlowDefinitionDocument({ flowType, actionPermission })` in
+`WorkerOptions.flowDefinitions`.
+
+```ts
+import { Registry, Worker } from "@superdurable/dex";
+import { sessionFlowDefinitionDocument } from "@superdurable/dex-agents";
+
+const worker = new Worker(new Registry([flow]), blobCache, {
+  flowDefinitions: [
+    sessionFlowDefinitionDocument({ flowType: "SupportAgent", actionPermission: "support-agent.operate" }),
+  ],
+});
+```
+
+The upload needs server-zd 0.1.26 or later. The document's `generatedAt` is
+the time the graph template last changed, the same in both cores, so a restart
+writes nothing and an upgrade replaces the graph. For an older server, render
+a file with `renderSessionFlowGraph` or the `dex-agents-session-graph` command
+and pass its directory to Dex Web with `--flow-rendering-dir`. See
+[Show sessions in Dex Web](https://docs.superdurable.io/reference/agents/dex-web).
+
 ## Spend limits
 
 `ModelSpendLimit` is an application's spend limit, usually per account or API key
@@ -1474,7 +1499,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.44.0 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.45.0 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or
