@@ -27,6 +27,8 @@ The model reads the current turn's user text:
 * ``transfer-late-ask <amount> <gate>`` does the same; the tool waits at the
   gate before it asks.
 * ``transfer-pair <amount> <amount>`` calls ``transfer_funds`` twice in one response.
+* ``confirm-shipment <order_id>`` calls ``confirm_shipment``, a synchronous tool
+  that writes a text delta from its executor thread, then asks for a carrier.
 * ``loop <obey|defy> <query>`` calls ``lookup_order`` while tools are offered.
   Once none are, ``obey`` answers and ``defy`` asks for a tool anyway.
 * ``collide`` calls ``transfer_funds`` as ``pay`` and ``publish_note`` as
@@ -291,6 +293,13 @@ def build_stepwise_agent_flow(
         continued_amount = json.loads(context.input_continuation or "{}")["amount"]
         return f"moved {continued_amount} from {account}"
 
+    @function_tool(effect=ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False)
+    def confirm_shipment(order_id: str, context: ToolCallContext) -> ToolInputRequested:
+        """Confirm a shipment."""
+        # The session writes no event on this Step after the question, so nothing drains it.
+        context.events.write_text_delta(f"checking shipment {order_id}")
+        return ToolInputRequested(question="Which carrier?", choices=["ground", "air"])
+
     @function_tool(effect=ToolEffect.IDEMPOTENT_WRITE)
     def update_record(context: ToolCallContext) -> str:
         """Update a record."""
@@ -465,6 +474,8 @@ def build_stepwise_agent_flow(
         if verb == "transfer-late-ask":
             amount, ask_gate = rest.split(" ", 1)
             return _call("transfer_funds", {"amount": int(amount), "ask_gate": ask_gate})
+        if verb == "confirm-shipment":
+            return _call("confirm_shipment", {"order_id": rest})
         if verb == "transfer":
             amount, _, gate = rest.partition(" ")
             transfer_arguments: dict[str, object] = {"amount": int(amount)}
@@ -521,6 +532,7 @@ def build_stepwise_agent_flow(
             publish_note,
             slow_write,
             transfer_funds,
+            confirm_shipment,
             update_record,
             send_record,
             get_order,

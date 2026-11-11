@@ -269,6 +269,28 @@ async def test_a_tool_question_runs_the_tool_again_with_the_answer(
     ]
 
 
+async def test_a_synchronous_tool_that_asks_keeps_its_last_thread_written_event(
+    stepwise_harness: ScriptedAgentHarness,
+) -> None:
+    harness = stepwise_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "confirm-shipment order-7")
+    question = await _wait_for_pending_interrupt(harness, session_id)
+    assert (question.tool_name, question.question) == ("confirm_shipment", "Which carrier?")
+
+    # The tool Step ended with the question, so the Stream already holds every event it kept.
+    tool_events = [
+        event
+        for event in await harness.agent_events(session_id)
+        if event.step_execution_id.startswith("CallSingleAttemptTool-")
+    ]
+    text_deltas = [event for event in tool_events if event.type == AgentEventType.TEXT_DELTA]
+    assert [json.loads(event.payload) for event in text_deltas] == [
+        {"text": "checking shipment order-7"}
+    ]
+
+
 async def test_two_parallel_tools_that_both_ask_raise_two_answerable_questions(
     stepwise_harness: ScriptedAgentHarness,
 ) -> None:
