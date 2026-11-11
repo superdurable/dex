@@ -148,7 +148,7 @@ INI
   (cd "$session_dir" && .venv/bin/python -m pytest -p no:cacheprovider -v tests/test_completed_turns.py)
 }
 
-# Imports every dex_agents module; dex_agents.litellm must name its extra until the extra is installed.
+# Imports every dex_agents module; dex_agents.litellm and dex_agents.s3 must name their extras until they are installed.
 smoke_test_python_core_modules() {
   local project_dir="$1" release_version="$2"
   (cd "$project_dir" && .venv/bin/python - <<'PY'
@@ -156,6 +156,15 @@ import importlib
 
 for module in ("dex_agents.stepwise", "dex_agents.testing"):
     importlib.import_module(module)
+# Checked first: the litellm extra installs boto3 too.
+try:
+    importlib.import_module("dex_agents.s3")
+except ImportError as error:
+    if "dex-agents[s3]" not in str(error):
+        raise SystemExit(f"dex_agents.s3 failed without naming its extra: {error}")
+    print("dex_agents.s3 without the extra names dex-agents[s3]")
+else:
+    raise SystemExit("dex_agents.s3 imported without the s3 extra")
 try:
     importlib.import_module("dex_agents.litellm")
 except ImportError as error:

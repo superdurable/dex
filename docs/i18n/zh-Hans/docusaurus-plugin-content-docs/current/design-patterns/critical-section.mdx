@@ -19,11 +19,11 @@ Attribute lock（例如 **ExecuteLockAttributes**）只覆盖一个 Step 方法�
 
 ## 工作方式
 
-一个 Channel 里恰好只有一条消息，这条消息就是 token。
+一个专用 Channel 里恰好只有一条消息，这条消息就是 token。
 
 - 在任何分支进入之前，由一个 Step 发布一次 token。
 - 一个交接 Step 用 **ForOne** 等待 token。一条消息只满足一个等待，所以只有一个分支能拿到它，其余分支继续等待。
-- 交接 Step 不做任何受保护的工作。它的 **Execute** 只转到第一个真正干活的 Step。
+- 交接 Step 不做任何受保护的工作。它的 **Execute** 只转到第一个做受保护工作的 Step。
 - 这段流程的最后一个 Step 把 token 发布回去。某个正在等待的分支消费它并进入。
 
 ```pseudocode
@@ -50,18 +50,17 @@ token 只是一条普通消息。如果某个分支离开这段流程时没有�
 - **Execute 失败。** 用 **ExecuteFailure** 把失败路由到一个发布 token 的 Step。这段流程的每个 Step 都要配置这条路由。在示例中，**EnterContractEdit**、**EditContract** 和 **SaveContractEdit** 都会进入 **ReleaseContractEditToken**。
 - **WaitFor 失败。** 如果这段流程中后面的某个 Step 有自己的 **WaitFor**，给它配置继续执行 **Execute** 的 **WaitForFailure** 策略。那个 **Execute** 看到失败后发布 token。
 - **提前退出。** 用业务决定提前离开这段流程的 **Execute**，要在同一个 **Execute** 中发布 token。
-- **交接 Step 被取消。** 取消交接 Step 是安全的，因为它不做受保护的工作。如果取消发生在它的等待已经消费 token、但它的 **Execute** 尚未提交时，Dex 会把 token 放回 Channel 的最前面，另一个分支随后进入。
-- **在段内被取消。** 绝不要取消做受保护工作的 Step。被取消的 Step 不会发布任何消息，它的失败路由也不会运行。发起取消的一方也不能替它发布 token。Dex 在提交时才确定要取消哪些 Step，那个 Step 可能已经发布了 token，第二个 token 会破坏互斥。要提前停止一个分支，给它发送一个它会检查的停止请求，例如由 RPC 设置的 Attribute。看到请求的 Step 通过发布 token 的提前退出离开这段流程。
+- **交接 Step 被取消。** 取消交接 Step 是安全的，因为它不做受保护的工作。如果取消发生在它的等待已经消费 token、而 Dex 还没保存它的 **Execute** 结果时，Dex 会把 token 放回 Channel 的最前面，另一个分支随后进入。
+- **在段内被取消。** 绝不要取消做受保护工作的 Step。被取消的 Step 不会发布任何消息，它的失败路由也不会运行。发起取消的 Step 或 RPC 也不能替它发布 token。Dex 要到保存发起取消的那个结果时，才确定取消哪些 Step。那时被取消的 Step 可能已经发布了 token，再发一个 token 会让两个分支同时进入这段流程。要提前停止一个分支，给它发送一个它会检查的停止请求，例如由 RPC 设置的 Attribute。看到请求的 Step 通过发布 token 的提前退出离开这段流程。
 - **关闭 Flow。** **ForceComplete**、**ForceFail**、Flow timeout 和 Client 的 **StopFlow** 会结束所有分支，不再有分支等待 token。
 
-发布随发起它的方法一起提交，要么全部提交，要么都不提交。失败的 attempt 不会发布 token，所以重试不会产生第二个 token。
+Dex 把一个方法的 Channel 发布和它的结果一起保存，要么都保存，要么都不保存。失败的 attempt 不会发布任何消息，所以重试不会产生第二个 token。
 
-Dex 无法阻止被取消的方法继续调用外部系统。取消是协作式的，Dex 归还 token 之后，被取消的 **Execute** 仍可能继续写入。只有不取消任何做受保护工作的 Step，这段流程才能保持互斥。
+Dex 无法阻止被取消的方法继续调用外部系统。Dex 归还 token 之后，被取消的 **Execute** 仍可能继续运行并写入。这是绝不要取消做受保护工作的 Step 的另一个原因。
 
 ## 规则
 
-- 只发布一个 token。在启动各分支的 Step 中发布，或者更早发布。
-- 让拿到 token 的 Step 只做交接。受保护的工作放在后面的 Step 中。
+- 只发布一个 token，在启动各分支的 Step 中发布，或者更早。多一个 token，就会有两个分支同时进入这段流程。
 - token Channel 只用于 token。
 - 让这段流程尽量短。一个分支在段内时，其余分支都在等待。
 - token 的值无关紧要。受保护的状态放在 Attribute 中。
@@ -642,16 +641,12 @@ fn leave_contract_edit(
 
 ## 反模式
 
-- 用 Attribute lock 保护多个 Step。
-- 在等待 token 的 Step 中做受保护的工作。
-- 用一个布尔 Attribute（例如 "isEditing"）让 Step 检查并设置。没有任何东西在它上面等待，两个分支也可能同时看到它未被设置。
-- 只在成功路径上归还 token。
-- 取消做受保护工作的 Step，或者由取消它的 RPC 代为发布 token。
-- 在旧 token 可能仍然存在时，发布新 token 来“找回”丢失的 token。两个 token 会破坏互斥。
+- 用一个布尔 Attribute（例如 "isEditing"）让 Step 检查并设置。没有任何 Step 能等待它，两个分支也可能同时看到它未被设置。
+- 在旧 token 可能仍然存在时，发布新 token 来“找回”丢失的 token。两个 token 会让两个分支同时进入这段流程。
 
 ## 相关内容
 
 - [Channel](/concepts/primitives/channel)
 - [Step](/concepts/step)
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
-- [Workflow Patterns 评估：WCP-39 Critical Section](/concepts/correctness-and-expressiveness/workflow-patterns#wcp-39)
+- [Workflow Patterns 评估：WCP-39 Critical Section](/correctness-and-expressiveness/workflow-patterns#wcp-39)

@@ -26,7 +26,6 @@ import { flowId, skipTimerWhenPending, withEnvironment } from "./environment.js"
 import {
   AllSubFlowParent,
   AnySubFlowParent,
-  ContinueAsNewSubFlowParent,
   SingleSubFlowParent,
 } from "./subflow_flow.js";
 import { TimerFlow } from "./timer_flow.js";
@@ -95,32 +94,6 @@ test("SubFlow default reuse restarts a failed execution across parent reset", as
   });
 });
 
-test("SubFlow partial results survive continue-as-new without restart", { skip: "server-zd never continues a run as new" }, async () => {
-  // C3: server-zd never continues a run as new.
-  const completed = new BasicFlow();
-  const delayed = new TimerFlow();
-  const parent = new ContinueAsNewSubFlowParent(completed, delayed);
-  await withEnvironment([parent, completed, delayed], async ({ client }) => {
-    const id = flowId("sub-flow-can");
-    const completedId = `SubFlow:${id}-ParentStep-1-0`;
-    const delayedId = `SubFlow:${id}-ParentStep-1-1`;
-    const firstParentRunId = await client.startFlow(parent, id, 4, {
-      configOverride: { continueAsNewThreshold: 1 },
-    });
-    await awaitDifferentRun(client, id, firstParentRunId);
-    const completedRunId = (await client.describeFlow(completedId)).runId;
-    await skipTimerWhenPending(
-      client,
-      delayedId,
-      StepExecutionId.of("TimerStep"),
-      TimerId.byConditionId("test-timer-id"),
-    );
-    const output = (await client.waitForFlow(id, 30_000)).singleOutput(stringCodec);
-    assert.deepEqual(output.split("|"), [completedId, "6", delayedId, "completed"]);
-    assert.equal((await client.describeFlow(completedId)).runId, completedRunId);
-  });
-});
-
 async function assertRunningReuse(
   reusePolicy: typeof SubFlowReusePolicy[keyof typeof SubFlowReusePolicy],
   expectsRestart: boolean,
@@ -158,15 +131,6 @@ async function awaitRunning(client: Client, id: string, excludedRunId?: string):
     await delay();
   }
   throw new Error(`SubFlow did not reach expected running execution: ${id}`);
-}
-
-async function awaitDifferentRun(client: Client, id: string, runId: string): Promise<void> {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    if ((await client.describeFlow(id)).runId !== runId) return;
-    await delay();
-  }
-  throw new Error(`Flow did not continue as new: ${id}`);
 }
 
 function delay(): Promise<void> {

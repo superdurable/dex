@@ -5,7 +5,7 @@ sidebar_label: Built-in Agent Loop
 
 # Built-in Agent Loop
 
-The built-in agent loop is the Stepwise mode of Dex Agents. It needs no agent framework. Dex owns the conversation and builds every model input from durable state. So the agent does not depend on an LLM provider's conversation API.
+The built-in agent loop runs an agent without an agent framework. Dex owns the conversation and builds every model input from durable state. So the agent does not depend on an LLM provider's conversation API. The Dex Agents API calls this loop Stepwise mode, as in **stepwise_agent_session_flow**.
 
 ## When to use it
 
@@ -70,7 +70,7 @@ The [AI Agent](/use-cases/ai-agent) is a general, long-running agent in Python a
 
 ### The session Flow {#the-session-flow}
 
-The application declares the agent in Dex terms and builds its Flow. The Flow type is **AIAgentSession**. One Flow execution is one session, and the Flow ID is the session ID.
+The application declares the agent in Dex terms and builds its Flow. The Flow type is **AIAgentSession**. One Flow run is one session, and the Flow ID is the session ID.
 
 <SdkTabs
   examples={{
@@ -183,7 +183,7 @@ const aiAgentFlow = createAiAgentFlow(aiAgentConfig, slack);
 
 The session stores each user message, model output item, and tool result as a message. The newest messages are **AgentMessages** AttributeMap instances, and older ones move into immutable **AgentMessageChunks** instances. Model output items are kept exactly as the provider returned them, including encrypted reasoning items and thinking signatures, and replayed unchanged.
 
-When the model input nears the configured context window, a **CompactContext** Step summarizes older messages before the next model call. The model then receives the summary and the recent messages. Compaction never separates a tool call from its result. Retention can then delete old summarized messages, so a long session's state stays bounded. See [Compaction and the storage bound](/agent-frameworks/deploy-agents#compaction) for the threshold, the retention limits, and how to keep the whole transcript.
+When the model input nears the configured context window, a **CompactContext** Step summarizes older messages before the next model call. The model then receives the summary and the recent messages. Compaction never separates a tool call from its result. Retention can then delete old summarized messages, so a long session's state stays bounded. See [Compaction and the storage bound](/reference/agents/session-limits#compaction) for the threshold, the retention limits, and how to keep the whole transcript.
 
 ## Queued messages and Steer {#queued-messages-and-steer}
 
@@ -408,17 +408,15 @@ dexcli dev --flow-rendering-dir ./definitions
 
 Both the Python and the TypeScript package install **dex-agents-session-graph**. From **examples/python**, run it with **uv run --frozen**. From **examples/typescript**, run it with **npx**.
 
-Open the session's run in Dex Web and select the **Agent session** tab. Choose **Working as** the permission you rendered, such as **ai-agent.operate**. Then select **Approve** or **Reject** on the tool call card. See [Show sessions in Dex Web](/agent-frameworks/deploy-agents#dex-web) for production.
+Open the session's run in Dex Web and select the **Agent session** tab. Choose **Working as** the permission you rendered, such as **ai-agent.operate**. Then select **Approve** or **Reject** on the tool call card. See [Show sessions in Dex Web](/reference/agents/dex-web) for production.
 
 ## Connect Connectors {#connect-connectors}
 
-A Connector tool is a [Connector](/components/connector) operation that the agent calls as a tool. **ConnectorToolSource** offers the operations you name. The agent takes it as a tool source, through **tool_sources** in Python and **toolSources** in TypeScript. [Connector tools](/agent-frameworks/deploy-agents#connector-tools) holds the rules for effect classes, approval, outcomes, and write order.
-
-The example offers the Slack Connector operation **postThreadReply** as the tool **slack_post_thread_reply**. With it, the agent replies in a Slack thread.
+The agent can call [Connector](/concepts/connector) operations as tools, as [Connectors as tools](/agent-frameworks#connectors-as-tools) describes. The example adds the Slack tool **slack_post_thread_reply**, which replies in a Slack thread.
 
 ### Offer the tool {#offer-connector-tools}
 
-In Python, install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. In TypeScript, install **@superdurable/connectors-sdk** and the Connector package, such as **@superdurable/connector-slack**. The install commands are in [Connector tools](/agent-frameworks/deploy-agents#connector-tools).
+In Python, install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. In TypeScript, install **@superdurable/connectors-sdk** and the Connector package, such as **@superdurable/connector-slack**. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
 
 The Worker opens the Slack connection **support-slack** from the project configuration. **connector_tool** in Python and **connectorTool** in TypeScript turns the operation into a tool, and **ConnectorToolSource** holds it. Without the connection, the agent gets no Slack tool.
 
@@ -568,17 +566,11 @@ The agent takes the Slack tool source next to the MCP tool source:
 
 ### How a call runs {#connector-tool-calls}
 
-Each call of **slack_post_thread_reply** runs one Slack operation in its own tool Step, through the Connector SDK. The call keeps the Connector's Call ID and idempotency key. [Which operations are offered](/agent-frameworks/deploy-agents#connector-tools-offered) covers how the operation becomes a tool and how its arguments are checked.
-
-The Connector's manifest decides the effect class. **postThreadReply** is a Mutation that its manifest does not mark retry-safe, so the call runs once, in **CallSingleAttemptTool**. A Worker crash never sends the post twice. See [Crashes](/agent-frameworks/deploy-agents#connector-tools-crashes).
-
-Slack's manifest does not recommend approval for **postThreadReply**, so the example passes **requires_approval=True** in Python and **requiresApproval: true** in TypeScript. Every post waits in **AwaitToolApproval** until a person approves it. [Approval](/agent-frameworks/deploy-agents#connector-tools-approval) covers how the manifest and the application decide approval.
-
-The built-in loop runs each Connector tool call in its own tool Step, like any other tool call. Connector writes of one response run in order; see [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order).
+Each call of **slack_post_thread_reply** runs once, in its own **CallSingleAttemptTool** Step, after a person approves it. [The Slack Connector tool](/agent-frameworks#slack-connector-tool) explains why.
 
 ### Configure the connection {#configure-connector-connection}
 
-The Worker opens the Slack connection **support-slack** from the project configuration: **DEX_CONNECTOR_CONFIG_FILE** in local development, the **DEX_PROJECT_\*** settings when deployed. [Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains both, what happens without the connection, and what the Slack app needs.
+[Connections](/reference/agents/connector-tools#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
 
 To try it, start the example with **DEX_CONNECTOR_CONFIG_FILE** set. The demo model calls the tool directly:
 
@@ -593,13 +585,13 @@ The post waits for **Approve** before it runs.
 - Each model call and each tool call adds a Step round trip.
 - **AgentEvents** is best effort. Read the session snapshot for the conversation.
 - A failed **RunModel** repeats its model call.
-- See [Limits for long sessions](/agent-frameworks/deploy-agents#limits) and [Tool call limits](/agent-frameworks/deploy-agents#tool-call-limits) for the server limits.
+- See [Limits for long sessions](/reference/agents/session-limits) for the server limits, and [At-most-once has one exception](/agent-frameworks#tool-runs-twice) for single-attempt tools.
 
 ## Related
 
 - [Agent Frameworks](/agent-frameworks)
 - [AI Agent](/use-cases/ai-agent)
-- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Agents reference](/reference/agents/)
 - [Attribute](/concepts/primitives/attribute)
 - [Channel](/concepts/primitives/channel)
 - [Stream](/concepts/primitives/stream)

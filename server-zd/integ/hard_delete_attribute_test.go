@@ -275,7 +275,7 @@ func doTestHardDeleteAttributeSubFlow(t *testing.T) {
 	for _, flowID := range []string{parentFlowID, childFlowID} {
 		summary, err := flowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
 		require.NoError(t, err)
-		events, _ := getAllWebHistoryEvents(t, ctx, flowClient, flowID, summary.GetFlowExecutionId().GetRunId())
+		events, _ := getAllWebHistoryEvents(t, ctx, flowClient, flowID, summary.GetFlowRunId().GetRunId())
 		require.NotEmpty(t, events)
 		for _, event := range events {
 			require.NotContains(t, event.String(), hardDeleteAttributes.SubFlowSecret)
@@ -428,7 +428,7 @@ func dexHistoryText(t *testing.T, ctx context.Context, flowClient dexpb.FlowServ
 	var pageToken []byte
 	for {
 		response, err := flowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
-			FlowId: flowID, RunId: summary.GetFlowExecutionId().GetRunId(), NextPageToken: pageToken,
+			FlowId: flowID, RunId: summary.GetFlowRunId().GetRunId(), NextPageToken: pageToken,
 		})
 		require.NoError(t, err)
 		for _, event := range response.GetEvents() {

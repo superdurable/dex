@@ -66,8 +66,6 @@ func testChannelMessageListAndDelete(t *testing.T) {
 	require.Equal(t, messages[0].GetMessageId(), state.GetPendingChannelMessages()["pending"].GetMessages()[0].GetMessageId())
 	require.Equal(t, messages[1].GetMessageId(), state.GetPendingChannelMessages()["pending"].GetMessages()[1].GetMessageId())
 
-	// C3: server-zd returns Unimplemented for TriggerContinueAsNew.
-
 	_, err = runtime.FlowClient.DeleteChannelMessage(ctx, &dexpb.DeleteChannelMessageRequest{
 		FlowId:      flowID,
 		ChannelName: "pending",

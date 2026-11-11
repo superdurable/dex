@@ -10,8 +10,8 @@
 
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::{
-    ActionPermissionMapping, ActionPermissionMappings, AttributeStoreNames, AttributeWrite,
-    ChannelMessage, DeleteChannelMessageRequest, ExecuteMethodFailurePolicy,
+    ActionPermissionMapping, ActionPermissionMappings, ActiveStepSearchMode, AttributeStoreNames,
+    AttributeWrite, ChannelMessage, DeleteChannelMessageRequest, ExecuteMethodFailurePolicy,
     FlowAlreadyStartedOptions, FlowConfig, FlowResetType, FlowStartOptions,
     FlowTimeoutHandlerOptions, FlowTimeoutPolicy, IdReusePolicy, InvokeRpcRequest,
     InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, SetAttributesRequest,
@@ -305,7 +305,7 @@ pub(crate) fn config_update() -> Command {
     Command::FlowConfigUpdate(FlowConfigUpdateCommand {
         request: Some(UpdateFlowConfigRequest {
             flow_config: Some(FlowConfig {
-                continue_as_new_threshold: Some(100),
+                active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
                 ..FlowConfig::default()
             }),
             ..UpdateFlowConfigRequest::default()

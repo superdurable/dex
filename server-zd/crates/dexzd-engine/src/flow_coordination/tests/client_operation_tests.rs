@@ -70,7 +70,6 @@ async fn start_flow_persists_default_config_and_respects_explicit_overrides() {
     config.validation.default_flow_config.worker_target = Some(pull_target);
     let expected_default = FlowConfig {
         active_step_search_mode: Some(ActiveStepSearchMode::Disabled as i32),
-        continue_as_new_threshold: Some(100),
         step_durability: Some(StepDurability::Sync as i32),
         worker_target: Some(pull_target),
         ..FlowConfig::default()
@@ -123,7 +122,6 @@ async fn start_flow_persists_default_config_and_respects_explicit_overrides() {
         .unwrap()
         .flow_config_override = Some(FlowConfig {
         active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
-        continue_as_new_threshold: Some(25),
         step_durability: Some(StepDurability::Async as i32),
         worker_target: Some(pull_target),
         ..FlowConfig::default()
@@ -147,7 +145,6 @@ async fn start_flow_persists_default_config_and_respects_explicit_overrides() {
         overridden_state.flow_config,
         Some(FlowConfig {
             active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
-            continue_as_new_threshold: Some(25),
             step_durability: Some(StepDurability::Async as i32),
             worker_target: Some(pull_target),
             ..FlowConfig::default()

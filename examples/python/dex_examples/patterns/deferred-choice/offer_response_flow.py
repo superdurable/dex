@@ -38,6 +38,8 @@ OFFER_ACCEPTED = Channel("offerAccepted", str)
 OFFER_REJECTED = Channel("offerRejected", str)
 
 
+# dex:group group-id:offer group-label:"Offer"
+# dex:explanation text:"Wait for an accept, a reject, or the offer to expire."
 class AwaitOfferResponse(Step[str]):
     """Waits for whichever event happens first and routes on it."""
 
@@ -56,16 +58,22 @@ class AwaitOfferResponse(Step[str]):
         return go_to(CloseRejectedOffer, offer_id)
 
 
+# dex:group group-id:fulfillment group-label:"Fulfillment"
+# dex:explanation text:"Fulfill the accepted offer."
 class FulfillOffer(Step[str]):
     def execute(self, context: Context, offer_id: str) -> StepDecision:
         return graceful_complete(f"fulfilled {offer_id}")
 
 
+# dex:group group-id:rejection group-label:"Rejection"
+# dex:explanation text:"Close the rejected offer."
 class CloseRejectedOffer(Step[str]):
     def execute(self, context: Context, offer_id: str) -> StepDecision:
         return graceful_complete(f"rejected {offer_id}")
 
 
+# dex:group group-id:expiry group-label:"Expiry"
+# dex:explanation text:"Close the offer that expired without a response."
 class ExpireOffer(Step[str]):
     def execute(self, context: Context, offer_id: str) -> StepDecision:
         return graceful_complete(f"expired {offer_id}")

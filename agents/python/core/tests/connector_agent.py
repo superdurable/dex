@@ -48,6 +48,7 @@ from tests.fake_ledger import (
     STATE_DIR_ENVIRONMENT_VARIABLE,
     CreatePayoutOperation,
     FakeLedgerProvider,
+    GetBalanceByIDOperation,
     GetBalanceOperation,
     PostNoteOperation,
 )
@@ -56,6 +57,8 @@ CONNECTOR_AGENT_FLOW_TYPE = "ConnectorAgent"
 MAX_RESULT_BYTES_ENVIRONMENT_VARIABLE = "CONNECTOR_AGENT_MAX_RESULT_BYTES"
 DROPPED_TOOLS_ENVIRONMENT_VARIABLE = "CONNECTOR_AGENT_DROPPED_TOOLS"
 CONNECTION = ConnectionRef("fake-ledger", "test-ledger")
+# The name dex-agents 0.4.0 gave getBalanceByID; 0.5.0 defaults to fake-ledger_get_balance_by_id.
+PREVIOUS_BY_ID_TOOL_NAME = "fake-ledger_get_balance_by_i_d"
 _MANIFEST_PATH = Path(__file__).with_name("fake_ledger") / "dex-connector.json"
 
 
@@ -69,6 +72,16 @@ def retried_note_manifest() -> dict[str, Any]:
     for factory in manifest["factories"]:
         if factory["operationId"] == "postNote":
             factory["agent"]["retry"] = "safe"
+    return manifest
+
+
+def by_id_manifest() -> dict[str, Any]:
+    manifest = copy.deepcopy(read_fake_ledger_manifest())
+    factory = copy.deepcopy(
+        next(entry for entry in manifest["factories"] if entry["operationId"] == "getBalance")
+    )
+    factory["operationId"] = "getBalanceByID"
+    manifest["factories"].append(factory)
     return manifest
 
 
@@ -93,6 +106,13 @@ def build_connector_source(
         connector_tool(notes, CONNECTION, name="post_note"),
         connector_tool(
             notes, CONNECTION, name="post_note_retried", manifest=retried_note_manifest()
+        ),
+        connector_tool(
+            GetBalanceByIDOperation(provider),
+            CONNECTION,
+            name=PREVIOUS_BY_ID_TOOL_NAME,
+            requires_approval=True,
+            manifest=by_id_manifest(),
         ),
     ]
     tools = [tool for tool in tools if tool.name not in dropped_tools]

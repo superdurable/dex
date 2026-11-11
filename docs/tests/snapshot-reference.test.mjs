@@ -27,11 +27,16 @@ test('release versions follow component boundaries', () => {
   assert.equal(referenceVersion('server', '1.0.2'), '1.0.x');
   assert.equal(referenceVersion('server', '0.1.20'), '0.1.20');
   assert.equal(referenceVersion('server', '1.2.3'), '1.2.x');
+  assert.equal(referenceVersion('agents', 'v0.4.0'), '0.4.x');
+  assert.equal(referenceVersion('agents', '1.2.3'), '1.2.x');
   for (const version of ['0.1.20-smoke.7', '1.0.0-rc.1', '0.2.0', '1.2.3+build']) {
     assert.throws(() => referenceVersion('server', version), /Invalid server/);
   }
   for (const version of ['../bad', '1.2.0-beta.1', '0.1.x', '1.2', '1.2.3/evil']) {
     assert.throws(() => referenceVersion('go', version));
+  }
+  for (const version of ['0.5.0-rc.1', '0.5', '../0.5.0']) {
+    assert.throws(() => referenceVersion('agents', version));
   }
 });
 

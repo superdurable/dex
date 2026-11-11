@@ -438,8 +438,6 @@ func flowStatus(status sdk.FlowStatus) (string, error) {
 		return "TERMINATED", nil
 	case sdk.FlowCanceled:
 		return "CANCELED", nil
-	case sdk.FlowContinuedAsNew:
-		return "CONTINUED_AS_NEW", nil
 	default:
 		return "", fmt.Errorf("unknown deal DSL flow status %d", status)
 	}

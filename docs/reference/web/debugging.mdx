@@ -5,14 +5,14 @@ sidebar_label: Troubleshoot a Flow run
 
 # Troubleshoot a Flow run
 
-This page helps you find why a Flow does not advance or fails. Start with Worker
-availability. Then follow the read-only debugging workflow.
+When a Flow does not advance or fails, check Worker availability first. Then
+follow the read-only debugging workflow.
 
 ## Worker API availability
 
-When a Worker cannot receive or complete a Step call, a Flow cannot advance.
-You may see a Step remain active, retries increase, or a terminal failure after
-the retry policy is exhausted.
+When a Worker cannot receive or complete a Step call, the Flow cannot advance.
+You may see a Step stay active, its retry count grow, or a terminal failure
+once the retry policy runs out.
 
 Check these items in order:
 
@@ -31,30 +31,30 @@ Check these items in order:
    gRPC status, and stack trace distinguish an unavailable Worker from an
    application failure.
 
-After fixing availability, let an active retry continue when its retry budget
-is still valid. For a terminal Flow, verify the fix with a new run first, then
-use [Time Travel](/reference/server/runtime-client#time-travel) from a safe Step
-boundary when that is the intended recovery. Do not restart or time travel a
-Flow merely to test connectivity.
+After you fix availability, let an active retry continue if its retry policy
+still allows more attempts. For a Flow in a terminal status, first verify the
+fix with a new run. Then, if that is the recovery you want, use
+[Time Travel](/reference/server/runtime-client#time-travel) from a safe Step
+boundary. Do not restart or time travel a Flow only to test connectivity.
 
 ## Flow failure and timeout
 
 A Flow can fail because a Worker handler returns a failure, Worker retries are
 exhausted, or the Flow reaches its configured timeout.
 
-Flow timeouts are durable Dex timers configured when a Flow starts; zero
-disables them. Choose **FAIL**, **CANCEL**, or a Flow timeout handler. Inspect
-the start event for the configured duration and resolved policy. The deadline
-is absolute.
+You set a Flow timeout when the Flow starts, and Dex keeps it as a durable
+timer. Zero turns it off. For the timeout policy, choose **FAIL**, **CANCEL**,
+or a Flow timeout handler. The start event shows the configured duration and
+the resolved policy. The deadline is an absolute time.
 
-Every positive timeout has one internal **sys:timeout_handler** timer. It is
-visible in active-Step diagnostics and **SkipTimer** can fire it early by timer
-index. Fix the underlying cause before recovering a failed timeout.
+Every positive timeout has one internal **sys:timeout_handler** timer. You can
+see it in active-Step diagnostics. **SkipTimer** can fire it early by its timer
+index. Before you recover a Flow that failed on its timeout, fix the cause.
 
 ## Read-only debugging workflow
 
-Start with Dex Web. It shows the durable, application-level record before you
-need to inspect raw JSON.
+Start with Dex Web. It shows what the Flow recorded in application terms,
+before you turn to raw JSON.
 
 ### 1. Select the relevant event
 
@@ -66,8 +66,8 @@ below the Timeline shows the event's title and its event number.
 
 The event number is the event ID. It stays the same on every page and after
 pruning. **Timeline** shows one page of events and opens on the newest page.
-A page holds 1,000 events by default; **Page size** in the **Events** control
-switches it to 100. The **Events** control in the run header pages through events.
+The **Events** control in the run header pages through events. A page holds
+1,000 events by default; its **Page size** setting switches it to 100.
 Use **Older page** and **Newer page** to move between pages, and **Oldest
 page** to open the oldest retained page. Use **Latest page** to return to the
 page that **Live** keeps extending.
@@ -75,8 +75,8 @@ page that **Live** keeps extending.
 The selected event panel lists **Related events**: the event's WaitFor, its
 source execution, and the executions it started. An entry on the current page
 offers **Show #N**, which selects that event. An entry on another page offers
-**Go to #N**, with a hint that it is on an older or newer page; it loads a page
-around the event and highlights it. **Back** returns to the previous page. Dex Server
+**Go to #N**, with a hint that it is on an older or newer page. **Go to #N**
+loads a page around the event and highlights it. **Back** returns to the previous page. Dex Server
 keeps only a
 [recent history window](/reference/server/configuration#history-window). A
 pruned related event reads **Outside the retention window** and offers no
@@ -118,13 +118,10 @@ the owning team to investigate.
   alt="Dex Web failed Step details with Stack trace expanded"
 />
 
-These screenshots use the repository's synthetic Go examples. They contain
-no credentials or production customer records.
-
 ### 4. Save auditable JSON with dexcli
 
 Use the same Flow ID and Run ID in the CLI. These commands are read-only and
-print JSON, so attach their output to an incident or retain it in secure
+print JSON. Attach their output to the incident, or keep it in secure
 diagnostic storage.
 
 ~~~bash
@@ -142,7 +139,7 @@ available. **dexcli flow history** returns semantic events. Use **--all** to
 retrieve every history page. Dex Server keeps only a
 [recent history window](/reference/server/configuration#history-window), so
 **--all** returns the retained events. Use **--no-hydrate** when payloads may be large or
-sensitive: the output retains blob references instead of fetching their
+sensitive: the output then keeps blob references and does not fetch their
 contents.
 
 ### 5. Ask the Dex SDK skill for an investigation

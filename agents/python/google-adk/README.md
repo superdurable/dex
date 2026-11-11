@@ -188,7 +188,7 @@ other results exist.
 
 `tool_sources` takes the core's tool sources, such as `ConnectorToolSource`,
 which offers reviewed Connector operations (install `dex-agents[connectors]`).
-See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks/deploy-agents.mdx#connector-tools)
+See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks.mdx#connectors-as-tools)
 for what the manifest decides.
 
 ```python
@@ -408,7 +408,7 @@ started before the upgrade starts compacting once its Worker has one.
   sub-agent that waits for the user across turns blocks compaction until it
   finishes, because ADK finds that task from its events.
 
-See [Compaction and the storage bound](https://docs.superdurable.io/agent-frameworks/deploy-agents#compaction).
+See [Compaction and the storage bound](https://docs.superdurable.io/reference/agents/session-limits#compaction).
 
 ## Limits
 

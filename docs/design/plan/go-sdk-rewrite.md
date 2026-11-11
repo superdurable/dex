@@ -72,9 +72,8 @@ adding aliases.
 - Channel sizes are supplied only to Worker RPC invocations.
 - StartFlow and InvokeRPC require a request ID. The SDK generates it, except
   that StartFlow may use a caller-supplied business identifier. Durable Step
-  and Attribute waits accept an optional override; otherwise the server derives
-  a stable logical ID. Locking RPC and durable waits use these IDs as Temporal
-  synchronous-update IDs.
+  and Attribute waits accept an optional Request ID, which the server does not
+  read.
 - StartFlow and SubFlow always set the wire Worker target to pull mode.
   UpdateFlowConfig omits that field to preserve the existing Flow target.
 - Large string/object `Value` arms may contain blob IDs. Phase 4 wires the
@@ -448,8 +447,7 @@ only when it modifies an Action source. Projection-only locks are unnecessary;
 business locks still provide application isolation where required.
 
 Once a permission matches, later state changes, empty mappings, and Action
-definition changes do not remove it from that Flow execution. Continue-as-New
-carries the permission history with the ordinary Attribute state. A new,
+definition changes do not remove it from that Flow execution. A new,
 independent Flow execution starts from its initial matching permissions. A
 changed Action definition is first evaluated when a later source write sends
 its mapping or a new Flow starts. A Server upgrade does not reconstruct
@@ -834,6 +832,29 @@ must not be retained or used after the handler returns.
 returns false outside Execute or for an invalid index. Natural completion and
 `SkipTimer` are intentionally indistinguishable. `WaitForMethodFailed` reads
 `ConditionResults.wait_for_failed`.
+
+### Standalone Context
+
+`NewStandaloneContext(parent, StandaloneContextOptions)` returns a private
+`standaloneContextImpl` that implements only `Context`. It lets Step code run
+outside a Worker, for example in a tool server or a test, without callers
+implementing `Context` themselves. It embeds the parent context, returns the
+supplied metadata unchanged, and rejects `Attempt < 1`.
+
+Seeded heartbeat and locals are encoded at construction with `encodeValue`, so
+decoding matches the Worker. Like a Worker attempt, `RecordHeartbeat` and
+`SetStepExecutionLocal` never change what the getters return. They call the
+caller's `OnRecordHeartbeat` and `OnSetStepExecutionLocal` hooks instead.
+`RecordEvent` keeps the Worker's non-empty and unique-name checks and calls
+`OnRecordEvent`. Hooks run serialized under one mutex on the calling goroutine.
+Under that mutex, each write first rejects a done parent context, so an ended
+attempt never reaches a hook after cancellation is observed. Persisting hooks
+must still write conditionally on `Attempt`, because a write in progress can
+race with the end of its attempt. `RecordEvent` checks a duplicate name before
+encoding, as the Worker does, and rechecks it under the mutex.
+The context does not implement `attributeInvocation`, `channelInvocation`, or
+`streamInvocation`, so those operations return `errInvalidInvocationContext`
+or panic as for any foreign `Context`.
 
 ### Attributes and buffered reads
 
@@ -1304,7 +1325,7 @@ Every public method follows the same transport boundary:
 8. map and decode only after the complete response is valid.
 
 All methods other than StartFlow target the current run for `flowID`. An empty
-wire `run_id` lets the server follow Continue-as-New. TimeTravel returns the new
+wire `run_id` resolves the current run on the server. TimeTravel returns the new
 run ID, while StartFlow returns the created or matched run ID. The public Client
 does not add a run-specific variant in Phase 5.
 
@@ -1350,17 +1371,12 @@ identifier, supports a logical retry spanning separate Client calls, and is
 the StartFlow request-ID override. Normal application code may instead leave it
 nil for an SDK-generated UUID.
 
-Request IDs are optional for Step completion and Attribute waits. When omitted,
-the server derives a namespaced stable ID from the Step execution or encoded
-Attribute condition. Reuse an override only for the same logical Step execution
-or Attribute predicate. The Client preserves the logical ID across automatic
-long-poll reattachments. When a previous Update using that ID completed with a
-handler timeout, the server appends an increasing `-N` suffix until it can start
-a new Update.
+Request IDs are optional for Step completion and Attribute waits. The server
+does not read them; a wait reads current committed state, so repeating it is
+safe.
 
-InvokeRPC uses the ID for external-value ownership and as the `IRPC`
-Temporal Update ID. Durable waits use their server-selected generation ID. The
-ID is not exposed in results.
+InvokeRPC uses the ID for external-value ownership. The ID is not exposed in
+results.
 
 ### StartFlow assembly
 
@@ -1476,24 +1492,13 @@ fail locally before transport.
 WaitForStepCompletion requires a non-empty step type. A nil execution number
 defaults to one; a non-nil value must be positive. Its wire execution number
 remains decimal text because that is the server contract. Both wait option
-types accept an optional Request ID override. Otherwise the server derives a
-stable logical ID from the Step execution or Attribute condition.
+types accept an optional Request ID. The server does not read it.
 `RequestTimeout` is the total caller-visible SDK budget. Zero waits indefinitely;
 positive values must be whole seconds within int32 range. Each transport attempt
-uses the remaining budget as its local deadline. The Client retries internal
-long-poll timeouts with the same logical Request ID without resetting the budget.
+uses the remaining budget as its local deadline. The Client reattaches after internal
+long-poll timeouts without resetting the budget.
 Expiry returns `*dex.RequestTimeoutError`. `context.Context` remains an
 independent local cancellation mechanism, and the earlier boundary wins.
-
-`InternalHandlerTimeout` controls one accepted Temporal Update handler generation.
-Temporal permits 10 in-flight Updates and 2,000 total Updates in History per
-Workflow Execution. Request expiry or context cancellation can leave an accepted
-handler in flight. Use a positive value only when abandoned waits can approach
-the concurrent limit. When it expires, the service completes the old handler and
-continues an active call with a new `-N` generation without returning a handler
-timeout. This does not expand the concurrent limit. Each generation counts toward
-the history limit, so prefer a value longer than normal request deadlines and
-reconnect gaps. Transport reattachment alone does not create another generation.
 
 WaitForFlow uses the same server-capped duration. A successful response maps
 status and error metadata, then hydrates every requested completion output
@@ -1524,7 +1529,6 @@ The remaining calls map as follows:
 | `SearchFlows` | validates non-negative page size and maps full flow metadata |
 | `TimeTravel` | validates the field required by the selected time travel type and returns a non-empty new run ID |
 | `UpdateFlowConfig` | maps a partial config and preserves pointer presence |
-| `TriggerContinueAsNew` | signals the current run |
 | `HealthCheck` | maps the returned health record; it is also the explicit readiness check |
 
 Time travel validation is mutually exclusive: history ID must be positive, history
@@ -1532,9 +1536,7 @@ time must be non-zero, and step type or step execution ID must be non-empty for
 their respective modes. Fields unrelated to the selected time travel mode must be
 zero so impossible proto combinations fail before transport.
 
-SearchFlows passes query text and page token through unchanged. SearchFlowsWithOptions
-also forwards IncludeContinuedAsNew; the Server excludes earlier Continue-as-New
-runs by default. Page size zero
+SearchFlows passes query text and page token through unchanged. Page size zero
 keeps the server default. Search attributes are hydrated before being wrapped
 as opaque Values.
 
@@ -2569,7 +2571,6 @@ The remaining FlowService operations use non-generic public types:
 | `SkipTimer` | `Client.SkipTimer(ctx, flowID, StepExecutionID, TimerID)` |
 | `UpdateFlowConfig` | `Client.UpdateFlowConfig(ctx, flowID, FlowConfig)` |
 | `WaitForStepCompletion` | `Client.WaitForStepCompletion(ctx, flowID, StepExecutionID, WaitForStepCompletionOptions)` |
-| `TriggerContinueAsNew` | `Client.TriggerContinueAsNew(ctx, flowID)` |
 | `HealthCheck` | `Client.HealthCheck(ctx)` |
 
 `WaitForAttributeMatch` compares the encoded server value and returns the value
@@ -2581,12 +2582,9 @@ Request IDs:
 - the SDK generates one UUID per logical `InvokeRPC` call, and for StartFlow
   when no override is supplied;
 - `StartFlowOptions.RequestID` may provide a non-empty business identifier;
-- Step completion and Attribute wait Request IDs are optional overrides;
-- the server derives a namespaced ID from the Step execution or Attribute
-  condition when none is supplied;
-- automatic wait reattachments reuse the logical ID, and handler-timeout reuse
-  advances an `-N` suffix; and
-- every Temporal RPC Update and durable wait uses its request ID as a Temporal Update ID.
+- Step completion and Attribute wait Request IDs are optional, and the server
+  does not read them; and
+- wait reattachments do not reset the caller's request timeout.
 
 ### Client result structs
 
@@ -2609,7 +2607,6 @@ const (
 	FlowServerSideTimeoutInternalOnly
 	FlowTerminated
 	FlowCanceled
-	FlowContinuedAsNew
 )
 
 type FlowErrorType uint8
@@ -2682,8 +2679,6 @@ const (
 type FlowConfig struct {
 	ActiveStepSearchMode        *ActiveStepSearchMode
 	AttributeStoreNames         []string
-	ContinueAsNewThreshold      *int32
-	ContinueAsNewPageSizeBytes  *int32
 	StepDurability              *StepDurability
 	HistoryWindowEvents         *int32
 	// Deprecated: no effect and not sent; the server always deletes expired history objects.
@@ -2830,16 +2825,15 @@ timeout uses `TimeoutHandler` when the registered Flow implements
 `FlowTimeoutHandler`; otherwise it uses `TimeoutFail`. Explicit
 `TimeoutHandler` without that capability fails locally. `TimeoutFail` produces
 `FlowErrorTypeFlowTimeout` and permits Flow retry, while `TimeoutCancel` does
-not retry. Continue-as-new preserves the absolute deadline; retry runs receive
-a new budget.
+not retry. Retry runs receive a new budget.
 `StartFlowOptions.TimeoutHandlerOptions` and the matching SubFlow field are
 valid only for a positive timeout whose resolved policy is `TimeoutHandler`.
 They configure Execute-style method and heartbeat timeouts, retry, durability,
 Attribute locks, selective state loading, and exhausted-retry routing to a
 registered `Step[None]`. The recovery Step receives normalized `None` input and
 reads the final failure through `Context.RecoveryError`. Handler timing starts
-when the soft timeout fires and may extend beyond that deadline. Continue-as-new
-and Flow retry preserve the options.
+when the soft timeout fires and may extend beyond that deadline. Flow retry
+preserves the options.
 `StartFlowOptions.StartDelay == nil` omits the start delay. Starting-step
 options come from the step wrapped by `DefineStartStep`; StartFlow has no
 separate step-options override.

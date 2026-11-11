@@ -6,13 +6,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # Advanced: Long-lived Parent
 
-Keep a bounded pool of parent Steps alive while the Flow accepts more requests.
+Keep a fixed pool of worker Steps running while the Flow accepts more requests.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** publishes the initial requests to **RequestChannel**, sets **Stopped** to false, and starts N **HandleRequest** executions. Each worker takes one FIFO message and moves to **HandleSubFlow**. That Step starts and waits for **ExampleSubFlow**. When the child completes, it either loops to **HandleRequest** or gracefully completes after **Stop** has set **Stopped** to true.
+The Init Step publishes the initial requests to **RequestChannel**, sets **Stopped** to false, and starts N HandleRequest Step executions. Each worker takes the oldest message and moves to the HandleSubFlow Step. That Step starts **ExampleSubFlow** and waits for it. When the child completes, the Step loops back to the HandleRequest Step. If the **Stop** RPC has set **Stopped** to true, it completes gracefully instead.
 
-**SendRequest** checks the Channel size before publishing. It returns false when the buffer threshold is reached, so callers can apply back pressure instead of overloading the parent.
+**SendRequest** checks the Channel size before it publishes. When the Channel reaches the buffer threshold, it returns false. The caller can then back off and retry, and the parent is not overloaded.
 
 ## Core implementation
 
@@ -253,7 +253,7 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
     public final Channel<String> requestChannel = Channel.define("RequestChannel", String.class);
     public final Attribute<Boolean> stopped = Attribute.define("Stopped", Boolean.class);
 
-    private final Init initStep = new Init();
+    private final InitStep initStep = new InitStep();
     private final HandleRequest handleRequestStep = new HandleRequest();
     private final HandleSubFlow handleSubFlowStep;
 
@@ -285,7 +285,7 @@ public class AdvancedLongLiveParentFlow implements Flow<ParentInput> {
         stopped.set(context, true);
     }
 
-    final class Init implements Step<ParentInput> {
+    final class InitStep implements Step<ParentInput> {
         @Override
         public Class<ParentInput> getInputType() {
             return ParentInput.class;
@@ -469,8 +469,8 @@ static REQUEST_CHANNEL: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("RequestChannel"));
 static STOPPED: LazyLock<Attribute<bool>> = LazyLock::new(|| Attribute::new("Stopped"));
 
-pub const SEND_LONG_LIVE_REQUEST: Rpc<String, bool> = Rpc::new("SendLongLiveRequest");
-pub const STOP_LONG_LIVE_FLOW: Rpc<(), ()> = Rpc::new("StopLongLiveFlow");
+pub(super) const SEND_LONG_LIVE_REQUEST: Rpc<String, bool> = Rpc::new("SendLongLiveRequest");
+pub(super) const STOP_LONG_LIVE_FLOW: Rpc<(), ()> = Rpc::new("StopLongLiveFlow");
 
 #[derive(Default)]
 pub struct AdvancedLongLiveParentFlow {
@@ -527,7 +527,7 @@ impl Step for LongLiveInit {
     type Input = ParentInput;
 
     fn step_type(&self) -> &'static str {
-        "Init"
+        "InitStep"
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
@@ -553,7 +553,7 @@ impl Step for LongLiveHandleRequest {
     type Input = ();
 
     fn step_type(&self) -> &'static str {
-        "HandleRequest"
+        "HandleRequestStep"
     }
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
@@ -577,7 +577,7 @@ impl Step for LongLiveHandleSubFlow {
     type Input = String;
 
     fn step_type(&self) -> &'static str {
-        "HandleSubFlow"
+        "HandleSubFlowStep"
     }
 
     fn wait_for(&self, _context: &mut Context, request: String) -> HandlerResult<Wait> {

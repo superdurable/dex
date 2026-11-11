@@ -635,7 +635,7 @@ answers on the streams `InvokeWaitForMethodOutput` and
 or after any of its effects. The cancel commit emits the effect that tells the
 Worker to stop (`server-zd/crates/dexzd-apply/src/steps/invocations.rs:376-381`).
 Cancellation is cooperative
-(`docs/reference/go/flows-and-steps/step-options.mdx:282-294`). Until it is
+(`docs/reference/go/step-options.mdx:165-178`). Until it is
 dropped, a canceled task may keep taking [WORKER-EFFECT] steps, also after its
 Flow closed.
 
@@ -1317,7 +1317,7 @@ the task named; the rest were found on the way or in review.
      (`condition_plan.rs:155-205`). AnyOf picks the first feasible candidate in
      the order timers, Channels, SubFlows, and consumes only its own messages
      (`condition_plan.rs:72-86`; docs agree,
-     `docs/reference/go/flows-and-steps/waits.mdx`). In AnyCombinationOf, a
+     `docs/reference/go/waits.mdx`). In AnyCombinationOf, a
      duplicated condition ID resolves to the last declaration within the first
      kind that has the ID, kinds tried in the order timer, Channel, SubFlow
      (`condition_plan.rs:103-129`).
@@ -1394,7 +1394,7 @@ the task named; the rest were found on the way or in review.
     - Code: DE takes no moves and closes nothing (`step_decisions.rs:120`). A
       run with no active Step and no GC request stays RUNNING forever, also
       when it started without a start Step (`flow_start.rs:204-205`). Docs
-      agree (`docs/reference/go/flows-and-steps/step-decisions.mdx`, "A Flow
+      agree (`docs/reference/go/step-decisions.mdx`, "A Flow
       can have no active Steps and still keep running").
     - Matters: L program termination must map to an explicit FC. A thread that
       ends maps to DE. A program stuck with every thread ended is the `δ`
@@ -1466,7 +1466,7 @@ the task named; the rest were found on the way or in review.
 14. **ForceCompleteIfChannelsEmpty when not empty.**
     - Code: it falls through and takes the moves (`step_decisions.rs:64-77`).
       Claimed messages count as non-empty until their Step ends. Docs agree
-      (`docs/reference/go/flows-and-steps/step-decisions.mdx`).
+      (`docs/reference/go/step-decisions.mdx`).
     - Stance: as coded.
 
 15. **A failed Flow's result keeps earlier outputs.**

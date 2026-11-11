@@ -15,42 +15,38 @@ The transfer accepts a source account, destination account, amount, and note. It
 1. Check that the source account can cover the transfer. Reject the Flow before creating any side effect when the balance is insufficient.
 2. Create a debit memo, debit the source account, create a credit memo, and credit the destination account in that order.
 3. Complete only after the destination account is credited.
-4. Compensate the transfer when a side-effecting Step still fails after its retry policy is exhausted.
+4. Compensate the transfer when a side-effecting Step still fails after all its retries.
 
-The happy path does not wait for approval, a Channel message, or an RPC. It only waits between retries. The Go, Java, Python, and TypeScript examples retry each side-effecting Step for up to one hour, then retry compensation for up to 24 hours. The Rust example uses three attempts so its released-SDK integration test finishes quickly.
+The Flow never waits for approval, a Channel message, or an RPC. It waits only between retries. The Go, Java, Python, and TypeScript examples retry each side-effecting Step for up to one hour, then retry compensation for up to 24 hours. The Rust example allows three attempts instead, so its integration test finishes quickly.
 
-The Rust example uses a positive amount as its stubbed balance check and records ledger effects as events. The other examples call an in-memory dependency service with explicit balance and undo methods.
+The Rust example stubs the balance check: any positive amount passes. It records ledger changes as events. The other examples call an in-memory dependency service with explicit balance and undo methods.
 
-Potential failures fall into three groups:
+Failures fall into three groups:
 
 - An insufficient balance is a business rejection. The Flow fails immediately because no money has moved.
-- Memo, debit, and credit calls can fail transiently. Dex retries them with backoff without losing the current Step.
-- An operation can keep failing after retries are exhausted. The Flow proceeds to compensation, reverses the transfer effects, and finishes with a failed result. Compensation itself is retried because leaving it incomplete is also a failure.
+- Memo, debit, and credit calls can fail temporarily. Dex retries them with backoff, and the Flow stays at the same Step.
+- An operation can still fail after all its retries. The Flow then moves to compensation, reverses the transfer, and finishes as failed. Dex retries compensation too, because an incomplete compensation is also a failure.
 
-The dependency calls must be idempotent. A Worker can retry a call after the remote system committed it but before Dex recorded the result.
+Make the dependency calls idempotent. The remote system can complete a call before Dex records the result. The Worker then calls it again.
 
 ## Flow design
 
-This interactive definition graph is generated from the runnable Python Flow.
-
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The Flow is a sequential saga:
+The Flow is a saga that runs one Step after another:
 
 **CheckBalance** → **CreateDebitMemo** → **Debit** → **CreateCreditMemo** → **Credit**
 
-It combines these design patterns:
+It uses these design patterns:
 
-- **Fail-fast validation** keeps an expected business rejection outside the compensation path.
-- **Durable retry** handles transient dependency failures at the Step that owns the operation.
-- [**Execute Failure Recovery**](/design-patterns/failure-handling/execute-failure-recovery) moves an exhausted side-effecting Step to **Compensate**.
-- **Saga compensation** applies inverse operations and then force-fails the Flow so callers cannot mistake a reversed transfer for success.
+- [**Execute Failure Recovery**](/design-patterns/failure-handling/execute-failure-recovery) moves a side-effecting Step that has used up its retries to **Compensate**.
+- **Saga compensation**: **Compensate** reverses the completed operations, then force-fails the Flow. A caller therefore never mistakes a reversed transfer for a success.
 
-Each side effect has its own Step. This makes retry state and execution history visible, and it prevents a retry of **Credit** from repeating **Debit**.
+Each side effect has its own Step. You can see the retry state and history of each operation. A retry of **Credit** also does not repeat **Debit**.
 
 ## Core implementation
 
-The tabs show the complete Flow declaration, required Flow methods, topology, retry policy, and compensation path. Each linked example also includes its request model, dependency service, HTTP controller, and integration test.
+Each tab shows the Flow from the runnable example, including its retry policy and compensation path. The linked example also has the request model, dependency service, HTTP controller, and integration test.
 
 <SdkTabs
   examples={{
@@ -140,12 +136,12 @@ func NewMoneyTransferFlow(applicationService service.MyService) *MoneyTransferFl
 
 func (flow *MoneyTransferFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(checkBalanceStep{service: flow.service}),
-		dex.DefineStep(createDebitMemoStep{service: flow.service}),
-		dex.DefineStep(debitStep{service: flow.service}),
-		dex.DefineStep(createCreditMemoStep{service: flow.service}),
+		dex.DefineStartStep(checkBalance{service: flow.service}),
+		dex.DefineStep(createDebitMemo{service: flow.service}),
+		dex.DefineStep(debit{service: flow.service}),
+		dex.DefineStep(createCreditMemo{service: flow.service}),
 		dex.DefineStep(creditStep{service: flow.service}),
-		dex.DefineStep(compensateStep{service: flow.service}),
+		dex.DefineStep(compensate{service: flow.service}),
 	}
 }
 
@@ -157,7 +153,7 @@ func compensatedStepOptions(totalDuration time.Duration) *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{TotalDuration: totalDuration},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
-			compensateStep{},
+			compensate{},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{TotalDuration: 24 * time.Hour},
 			},
@@ -167,7 +163,7 @@ func compensatedStepOptions(totalDuration time.Duration) *dex.StepOptions {
 ```
 
 ```go
-func (step compensateStep) Execute(
+func (step compensate) Execute(
 	_ dex.Context,
 	request TransferRequest,
 ) (*dex.StepDecision, error) {
@@ -417,4 +413,4 @@ Run Dex and any language example server, then start Money transfer from the [exa
 
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
 - [Failure Handling](/design-patterns/failure-handling)
-- [Step options](/reference/python/flows-and-steps/step-options)
+- [Step options](/reference/python/step-options)

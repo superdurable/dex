@@ -390,7 +390,7 @@ test("a unary deadline settles before a pending token and drops the late token",
   });
   try {
     const result = new Promise<ServiceError>((resolve, reject) => {
-      client.searchFlows({ query: "", pageSize: 1, nextPageToken: "", includeContinuedAsNew: false },
+      client.searchFlows({ query: "", pageSize: 1, nextPageToken: "" },
         new Metadata(), { deadline: Date.now() + 80 }, (failure) => {
           if (failure === null) reject(new Error("expected deadline failure"));
           else resolve(failure);
@@ -631,7 +631,7 @@ test("a unary retry deadline settles while its fresh token exchange is pending",
   try {
     const startedAtMs = Date.now();
     const result = new Promise<ServiceError>((resolve, reject) => {
-      client.searchFlows({ query: "", pageSize: 1, nextPageToken: "", includeContinuedAsNew: false },
+      client.searchFlows({ query: "", pageSize: 1, nextPageToken: "" },
         new Metadata(), { deadline: startedAtMs + 200 }, (failure) => {
           if (failure === null) reject(new Error("expected deadline failure"));
           else resolve(failure);
@@ -666,7 +666,7 @@ test("cancelling a unary retry settles while its fresh token exchange is pending
   try {
     let cancelCall!: () => void;
     const result = new Promise<ServiceError>((resolve, reject) => {
-      const call = client.searchFlows({ query: "", pageSize: 1, nextPageToken: "", includeContinuedAsNew: false },
+      const call = client.searchFlows({ query: "", pageSize: 1, nextPageToken: "" },
         new Metadata(), (failure) => {
           if (failure === null) reject(new Error("expected cancellation"));
           else resolve(failure);

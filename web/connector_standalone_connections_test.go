@@ -114,7 +114,7 @@ func TestStandaloneConnectionAddRejectsInvalidAndExistingConnections(t *testing.
 	})
 	stored := testLocalConnectorConnection("gmail", "stored-mail", "token", nil)
 	stored.ModulePath, stored.ModuleVersion = standaloneTestModulePath, "v0.25.2"
-	if err := setup.store.put(stored, nil); err != nil {
+	if err := setup.store.putCurrentForTest(stored, nil); err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
@@ -258,26 +258,26 @@ func TestStandaloneConnectionSaveIsRefusedAfterAConcurrentReleaseChange(t *testi
 	connection := testLocalConnectorConnection("slack", "support-slack", "xoxb-stale", nil)
 	connection.ModulePath, connection.ModuleVersion = standaloneSlackTestModulePath, "v1.3.0"
 	ctx := context.Background()
-	if err := setup.putConnectionIfCurrent(ctx, connection, nil, staleWrite); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, staleWrite, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("stale save err = %v", err)
 	}
 	connection.ModuleVersion = "v1.4.0"
-	if err := setup.putConnectionIfCurrent(ctx, connection, nil, staleWrite); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, staleWrite, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("stale save with the new release err = %v", err)
 	}
 	currentWrite := standaloneTestWriteExpectation(t, setup)
 	connection.ModuleVersion = "v1.3.0"
-	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("save of another release than the added one err = %v", err)
 	}
 	connection.ModuleVersion = "v1.4.0"
-	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite); err != nil {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite, false); err != nil {
 		t.Fatalf("current save err = %v", err)
 	}
 	if stored := getConnectorTestConnection(t, setup, "slack", "support-slack"); stored.ModuleVersion != "v1.4.0" {
 		t.Fatalf("stored = %+v", stored)
 	}
-	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, connection, nil, currentWrite, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("a save that expects no record must not replace one: err = %v", err)
 	}
 }
@@ -311,7 +311,7 @@ func TestFlowConnectionSaveIsRefusedWhenTheFlowMovesToAnotherReleaseDuringIt(t *
 func TestTriggerBindingWriteIsRefusedAfterItsConnectionIsDeletedOrCreatedAgain(t *testing.T) {
 	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, nil))
 	connection := testLocalConnectorConnection("slack", "workspace", "xoxb", nil)
-	if err := setup.store.put(connection, nil); err != nil {
+	if err := setup.store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	binding := localConnectorTriggerBinding{
@@ -329,11 +329,11 @@ func TestTriggerBindingWriteIsRefusedAfterItsConnectionIsDeletedOrCreatedAgain(t
 	if err := setup.putTriggerBindingIfCurrent(context.Background(), binding, staleBinding, staleBindingRevision); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("binding write after delete err = %v", err)
 	}
-	if err := setup.store.putTriggerBinding(binding); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.store.putTriggerBindingCurrentForTest(binding); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("a binding without its connection must be refused by the store too: err = %v", err)
 	}
 	// The same record again has the same revision, so only the generation tells the new connection apart.
-	if err := setup.store.put(connection, nil); err != nil {
+	if err := setup.store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := setup.putTriggerBindingIfCurrent(context.Background(), binding, staleBinding, staleBindingRevision); !errors.Is(err, errConnectorConnectionChanged) {
@@ -362,7 +362,7 @@ func TestTriggerBindingWriteIsRefusedAfterItsConnectionIsDeletedOrCreatedAgain(t
 					err = setup.putTriggerBindingIfCurrent(context.Background(), binding, expectation, bindingRevision)
 				}
 			default:
-				err = setup.store.put(connection, nil)
+				err = setup.store.putCurrentForTest(connection, nil)
 			}
 			if err != nil && !errors.Is(err, errConnectorConnectionChanged) {
 				t.Error(err)
@@ -379,7 +379,7 @@ func TestConnectionSavesAndDeletesAreCompareAndSetOnTheStoredRecord(t *testing.T
 	ctx := context.Background()
 	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, nil))
 	connection := testLocalConnectorConnection("slack", "workspace", "xoxb-first", nil)
-	if err := setup.store.put(connection, nil); err != nil {
+	if err := setup.store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -387,10 +387,10 @@ func TestConnectionSavesAndDeletesAreCompareAndSetOnTheStoredRecord(t *testing.T
 	secondSave := connectionTestWriteExpectation(t, setup, "slack", "workspace")
 	first := testLocalConnectorConnection("slack", "workspace", "xoxb-from-first-save", nil)
 	second := testLocalConnectorConnection("slack", "workspace", "xoxb-from-second-save", nil)
-	if err := setup.putConnectionIfCurrent(ctx, first, nil, firstSave); err != nil {
+	if err := setup.putConnectionIfCurrent(ctx, first, nil, firstSave, false); err != nil {
 		t.Fatalf("first same-release save err = %v", err)
 	}
-	if err := setup.putConnectionIfCurrent(ctx, second, nil, secondSave); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, second, nil, secondSave, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("second same-release save err = %v", err)
 	}
 	if stored := getConnectorTestConnection(t, setup, "slack", "workspace"); string(stored.Credentials["access_token"]) != `"xoxb-from-first-save"` {
@@ -398,7 +398,7 @@ func TestConnectionSavesAndDeletesAreCompareAndSetOnTheStoredRecord(t *testing.T
 	}
 
 	deleteBeforeSave := connectionTestWriteExpectation(t, setup, "slack", "workspace")
-	if err := setup.putConnectionIfCurrent(ctx, second, nil, connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
+	if err := setup.putConnectionIfCurrent(ctx, second, nil, connectionTestWriteExpectation(t, setup, "slack", "workspace"), false); err != nil {
 		t.Fatal(err)
 	}
 	if deleted, err := setup.deleteConnection(context.Background(), "slack", "workspace", deleteBeforeSave); deleted || !errors.Is(err, errConnectorConnectionChanged) {
@@ -412,7 +412,7 @@ func TestConnectionSavesAndDeletesAreCompareAndSetOnTheStoredRecord(t *testing.T
 	if _, err := setup.deleteConnection(context.Background(), "slack", "workspace", connectionTestWriteExpectation(t, setup, "slack", "workspace")); err != nil {
 		t.Fatal(err)
 	}
-	if err := setup.putConnectionIfCurrent(ctx, first, nil, saveBeforeDelete); !errors.Is(err, errConnectorConnectionChanged) {
+	if err := setup.putConnectionIfCurrent(ctx, first, nil, saveBeforeDelete, false); !errors.Is(err, errConnectorConnectionChanged) {
 		t.Fatalf("save authorized before a delete err = %v", err)
 	}
 	if _, isStored, err := setup.store.get("slack", "workspace"); err != nil || isStored {
@@ -493,7 +493,7 @@ func (race *flowReleaseRaceTest) moveFlowToV2AndSaveIt() {
 	connection := testLocalConnectorConnection("slack", "workspace", "unused", nil)
 	connection.ModulePath, connection.ModuleVersion, connection.Provider = standaloneSlackTestModulePath, "v1.4.0", "slack"
 	connection.Credentials = map[string]json.RawMessage{"bot_token": json.RawMessage(`"xoxb-v2"`), "user_token": json.RawMessage(`"xoxp-v2"`)}
-	if err := race.setup.store.put(connection, nil); err != nil {
+	if err := race.setup.store.putCurrentForTest(connection, nil); err != nil {
 		race.t.Error(err)
 	}
 }
@@ -718,7 +718,7 @@ func TestStandaloneStoredConnectionWithoutOfficialReleaseIsUnsupported(t *testin
 	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, nil))
 	connection := testLocalConnectorConnection("custom", "local", "token", nil)
 	connection.ModulePath, connection.ModuleVersion = "example.com/custom", "v0.0.0-20260101000000-abcdef"
-	if err := setup.store.put(connection, nil); err != nil {
+	if err := setup.store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	views := listStandaloneTestViews(t, setup)
@@ -1000,7 +1000,7 @@ func TestConnectorCatalogFetchOutlivesTheCallerThatStartedIt(t *testing.T) {
 func TestTwoWritesOfOneTriggerBindingSaveOnlyTheFirst(t *testing.T) {
 	ctx := context.Background()
 	setup := connectorTestSetup(t, t.TempDir(), connectorTestDefinitionProvider(t, nil))
-	if err := setup.store.put(testLocalConnectorConnection("slack", "workspace", "xoxb", nil), nil); err != nil {
+	if err := setup.store.putCurrentForTest(testLocalConnectorConnection("slack", "workspace", "xoxb", nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	binding := func(phrase string) localConnectorTriggerBinding {
@@ -1036,7 +1036,7 @@ func TestDeleteAndBindingWriteAreRefusedWhenTheFlowMovesToAnotherRelease(t *test
 	race := newFlowReleaseRaceTest(t)
 	connection := testLocalConnectorConnection("slack", "workspace", "xoxb", nil)
 	connection.ModulePath, connection.ModuleVersion, connection.Provider = standaloneSlackTestModulePath, "v1.3.0", "slack"
-	if err := race.setup.store.put(connection, nil); err != nil {
+	if err := race.setup.store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	binding := localConnectorTriggerBinding{

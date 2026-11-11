@@ -5,9 +5,9 @@ slug: /design-patterns/hash-partitioned-attribute-map
 
 # Hash-Partitioned AttributeMap
 
-Use this pattern when records have a stable lookup key and each record contains structured data. The sample stores customer profiles by email address without loading the entire directory.
+Use this pattern when records have a stable lookup key and each record contains structured data. The sample stores customer profiles by email address. A lookup reads one partition, not the entire directory.
 
-**CustomerDirectoryFlow** is an RPC-only Flow. Start it once with no Flow timeout. **CustomerProfilesByEmailPartition** has 1,000 logical instances, created only when needed. Each instance stores a dictionary from canonical email to the full profile.
+**CustomerDirectoryFlow** is an RPC-only Flow. Start it once with no Flow timeout. The **CustomerProfilesByEmailPartition** AttributeMap has 1,000 possible instances, and each one exists only once it is needed. Each instance stores a dictionary from canonical email to the full profile.
 
 ## Stable partition algorithm
 
@@ -19,13 +19,13 @@ Every SDK uses the same algorithm:
 4. Calculate 32-bit FNV-1a over the canonical email bytes with wrapping overflow.
 5. Select **hash modulo 1000** and format the instance from **partition-000** through **partition-999**.
 
-A hash collision only places multiple emails in one partition. The dictionary still distinguishes records by their complete canonical email.
+A hash collision only places several emails in one partition. The dictionary still tells the records apart by their complete canonical email.
 
 ## Exact lookup and serialized writes
 
-The adapter and handler both calculate the partition. **UpsertCustomerProfile** adds an exact load and an instance lock for the same partition. The handler recalculates it, reads the bucket, updates one profile, and writes the bucket back. Writes to one partition serialize. Writes to different partitions can run concurrently.
+The controller and the RPC handler each calculate the partition. When the controller calls **UpsertCustomerProfile**, it asks Dex to load that one partition instance and to lock it. The handler calculates the partition again, reads the bucket, updates one profile, and writes the bucket back. Writes to the same partition run one at a time. Writes to different partitions can run concurrently.
 
-Concurrent writes to one partition can receive a lock-conflict error. Retry the idempotent upsert after it; see [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/reference/server/runtime-data#whole-map-coordination).
+Concurrent writes to one partition can receive a lock-conflict error. The upsert is idempotent, so retry it; see [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/reference/server/runtime-data#whole-map-coordination).
 
 **GetCustomerProfileByEmail** loads one partition without a write lock. A missing partition and a missing canonical email both return not found.
 
@@ -130,7 +130,7 @@ client.invoke_rpc_with_options(
 </SdkSnippet>
 </SdkTabs>
 
-All writers must use the same instance-lock rule. Dex locks are cooperative; a writer that omits the lock can still race with conforming writers.
+Every writer must lock the partition instance it writes. A lock only holds back other writers that take the same lock. A writer that skips the lock can still overwrite their changes.
 
 ## HTTP API
 
@@ -140,4 +140,4 @@ PUT  /patterns/hash-partitioned-attribute-map/customer-profile
 GET  /patterns/hash-partitioned-attribute-map/customer-profile?emailAddress=alice@example.com
 ```
 
-The partition count is persisted schema. Changing it moves most keys and requires a complete rehash or a new Flow version. This sample intentionally omits deletion, full-directory enumeration, cross-field search, and partition resizing.
+The partition count is part of the persisted data. Changing it moves most keys to other partitions, so it requires a complete rehash or a new Flow version. The sample does not implement deletion, full-directory enumeration, cross-field search, or partition resizing.

@@ -8,6 +8,20 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Go SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.43 {#v1-43}
+
+Not released yet. The next minor release, sdk-go/v1.43.0, ships these changes.
+
+### Breaking
+
+- Removed **Client.TriggerContinueAsNew**, **FlowContinuedAsNew**, **FlowConfig.ContinueAsNewThreshold**, **FlowConfig.ContinueAsNewPageSizeBytes**, **SearchFlowsOptions**, **Client.SearchFlowsWithOptions**, and **IncludeContinuedAsNew**. Use **Client.SearchFlows** for run searches. [Reference](/reference/go/flow#flow-config).
+- Removed **WaitForStepCompletionOptions.InternalHandlerTimeout** and **WaitForAttributeOptions.InternalHandlerTimeout**. **RequestID** remains accepted but the server does not read it for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **FlowExecutionId** to **FlowRunId** on response and history messages. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
+
+### Added
+
+- **NewStandaloneContext** and **StandaloneContextOptions** create a **Context** for running Step code outside a Worker, such as in a tool server or a test. The caller supplies the metadata, including the required **Attempt**, and seeds the last heartbeat value and step-execution locals. The **OnRecordHeartbeat**, **OnSetStepExecutionLocal**, and **OnRecordEvent** hooks receive what the Step code records, so the caller can persist it. [API reference](pathname:///api/go/latest/dex/#type-standalonecontextoptions).
+
 ## 1.40 {#v1-40}
 
 Released 2026-11-09 as [sdk-go/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.40.0). Patch release [sdk-go/v1.40.2](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.40.2) followed the same day.
@@ -61,7 +75,7 @@ Released 2026-11-06 as [sdk-go/v1.35.0](https://github.com/superdurable/dex/rele
 - Worker startup fails when **MaxConcurrentTasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/go/workers#capacity-and-shutdown).
 - **RetryPolicy.TotalDuration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/go/1.35/dex/#type-retrypolicy).
 - A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
-- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/go/flows-and-steps/failure-and-redelivery#same-attempt-redelivery).
+- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/go/failure-and-retries#same-attempt-redelivery).
 
 ### Added
 

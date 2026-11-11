@@ -494,13 +494,11 @@ func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 		attributeStoreNames = &dexpb.AttributeStoreNames{Names: config.AttributeStoreNames}
 	}
 	return &dexpb.FlowConfig{
-		ActiveStepSearchMode:         searchMode,
-		ContinueAsNewThreshold:       config.ContinueAsNewThreshold,
-		ContinueAsNewPageSizeInBytes: config.ContinueAsNewPageSizeBytes,
-		StepDurability:               durability,
-		AttributeStoreNames:          attributeStoreNames,
-		HistoryWindowEvents:          config.HistoryWindowEvents,
-		OffloadHistory:               config.OffloadHistory,
+		ActiveStepSearchMode: searchMode,
+		StepDurability:       durability,
+		AttributeStoreNames:  attributeStoreNames,
+		HistoryWindowEvents:  config.HistoryWindowEvents,
+		OffloadHistory:       config.OffloadHistory,
 	}, nil
 }
 
@@ -1061,13 +1059,13 @@ func mapFlowResult(
 }
 
 func mapFlowInfo(flowID string, response *dexpb.GetFlowSummaryResponse) (FlowInfo, error) {
-	if response.GetFlowExecutionId() == nil {
-		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing FlowExecutionId", flowID)
+	if response.GetFlowRunId() == nil {
+		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing FlowRunId", flowID)
 	}
-	if response.GetFlowExecutionId().GetFlowId() == "" {
+	if response.GetFlowRunId().GetFlowId() == "" {
 		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing FlowId", flowID)
 	}
-	if response.GetFlowExecutionId().GetRunId() == "" {
+	if response.GetFlowRunId().GetRunId() == "" {
 		return FlowInfo{}, fmt.Errorf("dex: DescribeFlow response for Flow %q is missing RunId", flowID)
 	}
 	if response.GetFlowType() == "" {
@@ -1091,8 +1089,8 @@ func mapFlowInfo(flowID string, response *dexpb.GetFlowSummaryResponse) (FlowInf
 		closedAt = response.GetCloseTime().AsTime()
 	}
 	return FlowInfo{
-		FlowID:    response.GetFlowExecutionId().GetFlowId(),
-		RunID:     response.GetFlowExecutionId().GetRunId(),
+		FlowID:    response.GetFlowRunId().GetFlowId(),
+		RunID:     response.GetFlowRunId().GetRunId(),
 		FlowType:  response.GetFlowType(),
 		Status:    status,
 		StartedAt: response.GetStartTime().AsTime(),
@@ -1600,8 +1598,6 @@ func mapFlowStatus(status dexpb.FlowStatus) (FlowStatus, error) {
 		return FlowTerminated, nil
 	case dexpb.FlowStatus_FLOW_STATUS_CANCELED:
 		return FlowCanceled, nil
-	case dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW:
-		return FlowContinuedAsNew, nil
 	default:
 		return 0, fmt.Errorf("dex: unsupported flow status %d", status)
 	}

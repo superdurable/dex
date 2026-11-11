@@ -15,6 +15,7 @@ import {
 import { readResponseJSON } from './http';
 import { RUN_ATTEMPT_SEARCH_PARAM } from './timeTravel';
 import type { FlowHistoryEvent, HistoryPage } from './types';
+import { webURL } from './basePath';
 
 /**
  * The most events one history window holds, and so the most one Timeline page shows.
@@ -79,7 +80,7 @@ export function createHistoryPageLoader(flowId: string, runId: string, runAttemp
     });
     if (nextPageToken) params.set('nextPageToken', nextPageToken);
     if (runAttempt > 0) params.set(RUN_ATTEMPT_SEARCH_PARAM, String(runAttempt));
-    return readResponseJSON<HistoryPage>(await fetch(`/api/flows/history?${params}`, { cache: 'no-store' }));
+    return readResponseJSON<HistoryPage>(await fetch(webURL(`/api/flows/history?${params}`), { cache: 'no-store' }));
   };
 }
 
@@ -96,7 +97,7 @@ export async function loadLatestEventIdHint(flowId: string, runId: string): Prom
     : undefined;
   try {
     return latestEventIdOfWait(
-      await readResponseJSON<unknown>(await fetch(`/api/flows/wait?${params}`, { cache: 'no-store', signal })),
+      await readResponseJSON<unknown>(await fetch(webURL(`/api/flows/wait?${params}`), { cache: 'no-store', signal })),
     );
   } catch (hintError) {
     console.warn('Unable to locate the newest history event; reading history from the start.', hintError);

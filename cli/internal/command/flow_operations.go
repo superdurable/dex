@@ -163,7 +163,7 @@ func executeInspect(c *flowCommand, ctx context.Context, args []string, options 
 		if summaryErr != nil {
 			return newOperationError("flow inspect", summaryErr)
 		}
-		resolvedRunID := summaryResponse.GetFlowExecutionId().GetRunId()
+		resolvedRunID := summaryResponse.GetFlowRunId().GetRunId()
 		history, historyErr := loadHistory(
 			callCtx, client.service, flowID, resolvedRunID, 0, int32(*pageSize), nil,
 			*allHistory, options.noHydrate,
@@ -196,7 +196,6 @@ func executeWatch(c *flowCommand, ctx context.Context, args []string, options op
 	flags := newFlagSet("dexcli flow watch", c.stderr)
 	runID := flags.String("run-id", "", "Flow run ID")
 	fromEventID := flags.Int64("from-event-id", 0, "inclusive internal event cursor")
-	followRuns := flags.Bool("follow-runs", false, "follow Continue-As-New runs")
 	pageSize := flags.Int("page-size", 200, "estimated backend page size")
 	addCommonFlags(flags, &options)
 	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow watch FLOW_ID [flags]"); done || err != nil {
@@ -211,7 +210,7 @@ func executeWatch(c *flowCommand, ctx context.Context, args []string, options op
 	}
 	options.timeout = 0
 	return withStreamingFlowService(ctx, options, func(client *flowService) error {
-		return watchRun(c, ctx, client.service, flowID, *runID, *fromEventID, int32(*pageSize), *followRuns, options)
+		return watchRun(c, ctx, client.service, flowID, *runID, *fromEventID, int32(*pageSize), options)
 	})
 }
 
@@ -223,7 +222,6 @@ func watchRun(
 	runID string,
 	fromEventID int64,
 	pageSize int32,
-	followRuns bool,
 	options options,
 ) error {
 	currentRunID, err := resolveRunID(ctx, client, flowID, runID)
@@ -268,16 +266,6 @@ func watchRun(
 			return newOperationError("flow watch", summaryErr)
 		}
 		if summary.GetFlowStatus() != dexpb.FlowStatus_FLOW_STATUS_RUNNING {
-			if followRuns && summary.GetFlowStatus() == dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW {
-				currentRunID, err = resolveRunID(ctx, client, flowID, "")
-				if err != nil {
-					return newOperationError("flow watch", err)
-				}
-				nextEventID = 0
-				nextPageToken = nil
-				lastStateEventID = -1
-				continue
-			}
 			return nil
 		}
 		if nextEventID != lastStateEventID {

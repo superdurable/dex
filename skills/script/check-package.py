@@ -48,7 +48,7 @@ URL = re.compile(r"https?://[^\s<>()`\"'\]\\|]+")
 # Dex Skills documents source-available Dex only; reject a downstream product name.
 DOWNSTREAM_PRODUCT_NAME = re.compile(r"super[\s_-]*verse", re.IGNORECASE)
 CONCEPT_BOUNDARY_TERMS = (
-    (re.compile(r"continue[\s_-]*as[\s_-]*new", re.IGNORECASE), "Continue-As-New"),
+    (re.compile(r"continue[\s_-]*as[\s_-]*new", re.IGNORECASE), "a retired workflow rollover mechanism"),
     (re.compile(r"\bTemporal\b"), "the Temporal backend"),
     (re.compile(r"\bCadence\b"), "the Cadence backend"),
     (re.compile(r"\b(?:schedule|start)[\s_-]*to[\s_-]*(?:close|start)\b", re.IGNORECASE), "a backend activity timeout name"),

@@ -1,7 +1,7 @@
 # Agent framework adapters
 
 These packages run agents built with popular agent frameworks as durable Dex
-agent sessions. One Flow execution is one session. The session runs in Step
+agent sessions. One Flow run is one session. The session runs in Step
 mode: every model call is one Dex Step and every tool call is its own Step,
 with tool calls running in parallel, so a crash repeats at most the one call
 that was running and never repeats a write silently. The plan is
@@ -21,6 +21,7 @@ adapter depends on the published core instead.
 | [`python/langgraph`](python/langgraph) | [`dex-agents-langgraph`](https://pypi.org/project/dex-agents-langgraph/) | LangChain `create_agent` and LangGraph |
 | [`python/google-adk`](python/google-adk) | [`dex-agents-google-adk`](https://pypi.org/project/dex-agents-google-adk/) | Google ADK |
 | [`python/claude-agent-sdk`](python/claude-agent-sdk) | [`dex-agents-claude-agent-sdk`](https://pypi.org/project/dex-agents-claude-agent-sdk/) | Claude Agent SDK |
+| [`cli/python/runtime`](cli/python/runtime) | `dex-agents-cli` (`dex_agents_cli`), not published yet | Shared runtime of the Python CLI commands: configuration, `dexcli dev`, connector and local tools, terminal chat |
 | [`typescript/core`](typescript/core) | [`@superdurable/dex-agents`](https://www.npmjs.com/package/@superdurable/dex-agents) | Shared session Flow, Stepwise mode (`/stepwise`), the AI SDK model client (`/ai-sdk`, optional peer `ai`), connector tools (`/connectors`, optional peer `@superdurable/connectors-sdk`), and `/testing` |
 | [`go/core`](go/core) | `github.com/superdurable/dex/agents/go/core` (package `dexagents`), not tagged yet | Shared session Flow, Stepwise mode (`stepwise`), the OpenAI and Anthropic model clients (`openaimodel`, `anthropicmodel`), and `agentstest` |
 | [`typescript/vercel-ai`](typescript/vercel-ai) | [`@superdurable/dex-agents-vercel-ai`](https://www.npmjs.com/package/@superdurable/dex-agents-vercel-ai) | Vercel AI SDK |

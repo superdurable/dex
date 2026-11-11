@@ -223,7 +223,7 @@ the handler before it raises.
 
 `tool_sources` takes the core's tool sources, such as `ConnectorToolSource`,
 which offers reviewed Connector operations (install `dex-agents[connectors]`).
-See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks/deploy-agents.mdx#connector-tools)
+See [Connector tools](https://github.com/superdurable/dex/blob/main/docs/content/agent-frameworks.mdx#connectors-as-tools)
 for what the manifest decides.
 
 ```python

@@ -27,12 +27,14 @@ import {
 
 import {
   ToolExecutionError,
+  ToolOutcomeUnknownError,
   toolEffectFromMcpToolAnnotations,
   type AgentEventWriter,
   type AgentTurnContext,
   type DeferredToolCall,
   type DeferredToolExecution,
   type McpToolAnnotations,
+  type ResolvedToolPolicy,
   type ToolExecutionResult,
   type ToolPolicy,
   type ToolTaskCancellation,
@@ -49,9 +51,22 @@ import {
   serializeToolOutputJson,
 } from "./mcp-resource-and-prompt-tools.js";
 import type { SourceToolDefinition } from "../stepwise/tool-source.js";
+import {
+  readDexErrorOutcome,
+  readDexToolDeclaration,
+  readDexToolOutcome,
+  rejectedOutcomeFallbackMessage,
+  unknownOutcomeFallbackMessage,
+} from "./mcp-dex-conventions.js";
 import { redactMcpServerConfigSecrets, validateMcpServerConfig, type McpServerConfig } from "./mcp-server-config.js";
 
-/** `_meta` key that carries the session's idempotency key on every `tools/call`. */
+/**
+ * `_meta` key that carries the session's idempotency key on every `tools/call`.
+ *
+ * The key is `<flowId>/<turnId>/<toolCallId>`: the same on every attempt of one tool call, and unique per
+ * call. A server that follows the Dex MCP conventions derives its own call ID from it, so a retried attempt
+ * is recognized as the same call.
+ */
 export const mcpIdempotencyKeyMetaKey = "io.superdurable.dex/idempotencyKey";
 /** `AgentEvents` type for an MCP `notifications/progress` of a running tool call. */
 export const mcpToolProgressEventType = "mcp.tool_progress";
@@ -87,6 +102,13 @@ const taskTtlWaitMultiple = 4;
 // A durable poll is a Step: backing off to a minute bounds a long task's history.
 const durableTaskPollBackoffCapSeconds = 60;
 const maximumDurableTaskPollIntervalSeconds = 3_600;
+// unclassified ranks highest: nothing is known, and it runs like a non-idempotent write.
+const effectConservatism: Readonly<Record<ToolEffect, number>> = {
+  read: 0,
+  idempotent_write: 1,
+  non_idempotent_write: 2,
+  unclassified: 3,
+};
 // The server or a gateway may report InternalError after the call ran, so it leaves the outcome unknown.
 const noResultErrorCodes: ReadonlySet<number> = new Set([
   ErrorCode.ConnectionClosed,
@@ -120,10 +142,26 @@ export interface McpTool {
   /** The server's behavior hints, or `undefined` when it sent none. */
   readonly annotations: McpToolAnnotations | undefined;
   /**
-   * Effect from {@link toolEffectFromMcpToolAnnotations} when the server configuration trusts the
-   * annotations, else `undefined`. An explicit {@link ToolPolicy} overrides it.
+   * The effect the server declares when its configuration trusts it, else `undefined`: {@link dexEffect}
+   * when the tool declares one, otherwise the effect from {@link toolEffectFromMcpToolAnnotations}. An
+   * explicit {@link ToolPolicy} overrides it, except for a tool with a {@link dexEffect}, where
+   * {@link McpToolSource.deferredToolCall} lets the policy raise the effect but never lower it.
    */
   readonly frameworkEffect: ToolEffect | undefined;
+  /**
+   * The effect the tool declares under `mcpToolEffectMetaKey` in its definition's `_meta`, when the server
+   * configuration trusts the server, else `undefined`. A tool with a `dexEffect` follows the Dex MCP
+   * conventions in the package README: a session {@link ToolPolicy} may raise its effect or its approval but
+   * never lowers its effect.
+   * @since 0.5.0
+   */
+  readonly dexEffect?: ToolEffect | undefined;
+  /**
+   * Whether the tool declares `mcpToolApprovalMetaKey` together with a {@link dexEffect}. Always `false` or
+   * absent without a {@link dexEffect}.
+   * @since 0.5.0
+   */
+  readonly isApprovalRecommended?: boolean;
   /**
    * The tool's MCP `execution.taskSupport`. A `required` tool is called as a task; see
    * {@link McpToolSource} for who polls it.
@@ -213,6 +251,13 @@ export interface McpToolCallOptions {
   readonly saveHeartbeatCheckpoint?: (checkpoint: string) => Promise<void>;
   /** Aborts the requests, for example the tool Step's cancellation signal. */
   readonly signal?: AbortSignal;
+  /**
+   * More `_meta` entries to send with the `tools/call` request, such as the identity the caller expects the tool
+   * to have. The {@link mcpIdempotencyKeyMetaKey} entry from {@link idempotencyKey} wins over an entry with the
+   * same key. Defaults to none.
+   * @since 0.5.0
+   */
+  readonly requestMeta?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -264,9 +309,10 @@ export class McpToolListingError extends Error {
   }
 }
 
-type ToolCallOutcome =
+export type ToolCallOutcome =
   | { readonly kind: "succeeded"; readonly output: string }
   | { readonly kind: "failed"; readonly message: string }
+  | { readonly kind: "outcome_unknown"; readonly message: string }
   | { readonly kind: "interrupted"; readonly detail: string }
   | { readonly kind: "server_unreachable"; readonly detail: string }
   | { readonly kind: "task_lost"; readonly detail: string }
@@ -304,6 +350,14 @@ const nodeInspectSymbol = Symbol.for("nodejs.util.inspect.custom");
  * the session's `defaultToolEffect`, `unclassified` by default. Annotations are trusted by default. A
  * {@link ToolPolicy} in `AgentSessionOptions.toolPolicies` keyed by {@link McpTool.name} wins.
  *
+ * A server that follows the Dex MCP conventions declares each tool's effect and approval in its definition's
+ * `_meta` instead, under `mcpToolEffectMetaKey` and `mcpToolApprovalMetaKey`, as a connector manifest does for
+ * `ConnectorToolSource`. A session {@link ToolPolicy} for such a tool may keep or raise its safety but never
+ * lowers it: the call gets the more conservative of the two effects, and its writes run in the model's order.
+ * A result or JSON-RPC error
+ * whose `_meta` reports `mcpToolOutcomeUnknown` records `outcome_unknown` without a retry, and
+ * `mcpToolOutcomeRejected` records `failed`. See the package README, "Dex MCP conventions".
+ *
  * The source uses `@modelcontextprotocol/sdk` 1.x, which speaks MCP up to 2025-11-25: every request
  * opens a new connection, performs the `initialize` handshake, ends the HTTP protocol session, and
  * closes it, so no protocol session outlives a request. Every `tools/call` carries the session's
@@ -317,6 +371,9 @@ const nodeInspectSymbol = Symbol.for("nodejs.util.inspect.custom");
  *   `failed` and the model sees the text. The 2025-11-25 tasks deliver input requests as server requests
  *   that must be answered on a live connection, so no durable question can carry them; the source cancels
  *   an `input_required` task.
+ * - A result or JSON-RPC error whose `_meta` reports the Dex outcome `unknown` throws
+ *   {@link ToolOutcomeUnknownError}, so the session records `outcome_unknown` and never sends the call again.
+ *   The outcome `rejected` throws {@link ToolExecutionError}. Either wins over `isError` and the error code.
  * - No result after the request was sent throws {@link McpToolCallInterruptedError}; the tool Step's
  *   effect decides whether it is re-issued.
  * - A call that was never sent, because its server is not configured or cannot be reached, throws
@@ -565,16 +622,19 @@ export class McpToolSource {
   }
 
   /**
-   * Returns a {@link ToolPolicy} for every listed tool whose annotations declare an effect.
+   * Returns a {@link ToolPolicy} for every listed tool whose server declares an effect.
    *
-   * Use it with a framework adapter that offers the MCP tools as its own tools: pass it in the
-   * adapter's `toolPolicies` and spread your own policies after it, so yours win.
+   * A tool with a {@link McpTool.dexEffect} gets that effect and requires approval exactly when
+   * {@link McpTool.isApprovalRecommended}. To give a framework adapter these policies together with your own,
+   * use {@link mergeToolPolicies}. Do not spread your policies after these: yours would then replace a
+   * declaration and could lower its effect.
    * @example
    * ```ts
    * await tools.listTools();
-   * const toolPolicies = { ...tools.toolPolicies(), files__delete: { effect: "non_idempotent_write" } };
+   * const declaredPolicies = tools.toolPolicies();
    * ```
-   * @returns Policies by {@link McpTool.name}, with the effect's default approval.
+   * @returns Policies by {@link McpTool.name}: the declared approval for a tool with a
+   * {@link McpTool.dexEffect}, else the effect's default approval.
    * @throws {RangeError} When {@link listTools} has not run.
    */
   public toolPolicies(): Record<string, ToolPolicy> {
@@ -583,8 +643,58 @@ export class McpToolSource {
     }
     const policies: Record<string, ToolPolicy> = {};
     for (const tool of this.tools.values()) {
-      if (tool.frameworkEffect !== undefined) {
+      if (tool.dexEffect !== undefined) {
+        policies[tool.name] = { effect: tool.dexEffect, requiresApproval: tool.isApprovalRecommended === true };
+      } else if (tool.frameworkEffect !== undefined) {
         policies[tool.name] = { effect: tool.frameworkEffect };
+      }
+    }
+    return policies;
+  }
+
+  /**
+   * Returns the application's tool policies merged with what the listed servers declare.
+   *
+   * Use it with a framework adapter that offers the MCP tools as its own tools: pass the result as the
+   * adapter's `toolPolicies`, so every call gets the policy {@link deferredToolCall} would give it.
+   *
+   * For a tool with a {@link McpTool.dexEffect}, your policy may keep or raise its safety but never lowers
+   * it. The tool gets the more conservative of `dexEffect` and your policy's effect, ranked `read`,
+   * `idempotent_write`, `non_idempotent_write`, then `unclassified`. Your `requiresApproval`, when set, wins,
+   * so `false` turns off a recommended approval. When you leave it out, the tool requires approval when
+   * {@link McpTool.isApprovalRecommended} is `true` or your policy's effect requires approval by default.
+   *
+   * For any other tool, your policy wins over its annotation effect, as before. Policies for tools that no
+   * listed server offers pass through unchanged.
+   * @example
+   * ```ts
+   * await tools.listTools();
+   * const toolPolicies = tools.mergeToolPolicies({
+   *   files__delete: { effect: "non_idempotent_write" },
+   *   lookup_order: { effect: "read" },
+   * });
+   * ```
+   * @param applicationPolicies - Your policies by tool name, keyed by {@link McpTool.name} for MCP tools.
+   * @returns A new record with every entry of `applicationPolicies` and of {@link toolPolicies}. A tool with
+   * a {@link McpTool.dexEffect} gets the combined policy, with `requiresApproval` set.
+   * @throws {RangeError} When {@link listTools} has not run.
+   * @since 0.5.0
+   */
+  public mergeToolPolicies(applicationPolicies: Readonly<Record<string, ToolPolicy>>): Record<string, ToolPolicy> {
+    if (this.tools === undefined) {
+      throw new RangeError("call listTools before merging MCP tool policies");
+    }
+    const policies: Record<string, ToolPolicy> = { ...this.toolPolicies(), ...applicationPolicies };
+    for (const tool of this.tools.values()) {
+      if (tool.dexEffect !== undefined) {
+        const applicationPolicy = Object.hasOwn(applicationPolicies, tool.name)
+          ? applicationPolicies[tool.name]
+          : undefined;
+        policies[tool.name] = combineDeclaredToolPolicy(
+          tool.dexEffect,
+          tool.isApprovalRecommended === true,
+          applicationPolicy,
+        );
       }
     }
     return policies;
@@ -596,6 +706,16 @@ export class McpToolSource {
    * The policy comes from `turn.resolveToolPolicy` with the tool's annotation effect, so an explicit
    * {@link ToolPolicy} wins. The call's `toolSourceReference` names the server, the tool's MCP name, and
    * its task support.
+   *
+   * For a tool with a {@link McpTool.dexEffect}, the session's {@link ToolPolicy} for the tool may keep or
+   * raise its safety but never lowers it. The call gets the more conservative of `dexEffect` and the policy's
+   * effect, ranked `read`, `idempotent_write`, `non_idempotent_write`, then `unclassified`. It waits for
+   * approval when the policy sets `requiresApproval`. When the policy leaves `requiresApproval` out, the call
+   * waits when {@link McpTool.isApprovalRecommended} is `true` or the policy's effect requires approval by
+   * default. Without a policy, it waits exactly when {@link McpTool.isApprovalRecommended} is `true`. A write
+   * runs in the model's order after the turn's earlier writes (`DeferredToolCall.ordered`). Changed in
+   * 0.5.0: for a tool with a `dexEffect`, a {@link ToolPolicy} may raise the effect or the approval but never
+   * lowers the effect.
    * @param turn - The `RunModel` context.
    * @param call - Framework tool call ID, the {@link McpTool.name} the model called, the arguments as JSON
    * text, and optionally `listedTool`, the {@link McpTool} the listing offered for this model call, as the
@@ -615,20 +735,36 @@ export class McpToolSource {
   ): DeferredToolCall {
     const listedTool = call.listedTool;
     const tool = isMcpTool(listedTool) && listedTool.name === call.toolName ? listedTool : this.tool(call.toolName);
+    const reference = this.isResourceAndPromptTool(call.toolName)
+      ? {}
+      : {
+          toolSourceReference: JSON.stringify({
+            mcp_server: tool.serverName,
+            mcp_tool: tool.mcpToolName,
+            ...(tool.taskSupport === undefined ? {} : { task_support: tool.taskSupport }),
+          }),
+        };
+    if (tool.dexEffect === undefined) {
+      return {
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        arguments: call.arguments,
+        policy: turn.resolveToolPolicy(call.toolName, tool.frameworkEffect),
+        ...reference,
+      };
+    }
+    const sessionPolicy =
+      turn.toolPolicies !== undefined && Object.hasOwn(turn.toolPolicies, call.toolName)
+        ? turn.toolPolicies[call.toolName]
+        : undefined;
+    const policy = combineDeclaredToolPolicy(tool.dexEffect, tool.isApprovalRecommended === true, sessionPolicy);
     return {
       toolCallId: call.toolCallId,
       toolName: call.toolName,
       arguments: call.arguments,
-      policy: turn.resolveToolPolicy(call.toolName, tool.frameworkEffect),
-      ...(this.isResourceAndPromptTool(call.toolName)
-        ? {}
-        : {
-            toolSourceReference: JSON.stringify({
-              mcp_server: tool.serverName,
-              mcp_tool: tool.mcpToolName,
-              ...(tool.taskSupport === undefined ? {} : { task_support: tool.taskSupport }),
-            }),
-          }),
+      policy,
+      ...reference,
+      ordered: policy.effect !== "read",
     };
   }
 
@@ -667,13 +803,20 @@ export class McpToolSource {
    * A Streamable HTTP server without protocol sessions that answers with a task gets {@link ToolTaskStarted}.
    * The source saves the task ID as the heartbeat checkpoint first; a retried attempt that reads it returns
    * the same task without calling the tool again.
+   *
+   * Changed in 0.5.0: takes `options`, whose `requestMeta` adds entries to the `tools/call` request's `_meta`.
    * @param call - The approved call from the tool Step.
+   * @param options - `requestMeta`: more `_meta` entries for the `tools/call` request, as in
+   * {@link McpToolCallOptions.requestMeta}. The idempotency key entry wins on a name clash. Defaults to none.
    * @returns The tool output the model sees, or {@link ToolTaskStarted} for a task that `PollToolTask` polls.
    * @throws {ToolExecutionError} When the arguments are not a JSON object, the tool failed, the server
    * answered with an error or asked for input, or the call was never sent.
    * @throws {McpToolCallInterruptedError} When the call was sent and no result came back.
    */
-  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult | ToolTaskStarted> {
+  public async executeDeferredToolCall(
+    call: DeferredToolExecution,
+    options: { readonly requestMeta?: Readonly<Record<string, unknown>> } = {},
+  ): Promise<ToolExecutionResult | ToolTaskStarted> {
     const toolArguments = parseToolArguments(call.toolCall.arguments);
     if (this.isResourceAndPromptTool(call.toolCall.toolName)) {
       return this.runResourceAndPromptTool(call.toolCall.toolName, toolArguments, call.cancellationSignal);
@@ -696,7 +839,43 @@ export class McpToolSource {
         ? {}
         : { saveHeartbeatCheckpoint: (checkpoint: string) => call.saveHeartbeatCheckpoint!(checkpoint) }),
       signal: call.cancellationSignal,
+      ...(options.requestMeta === undefined ? {} : { requestMeta: options.requestMeta }),
     }, isTaskPolledBySession);
+  }
+
+  /**
+   * Returns whether {@link executeDeferredToolCall} will resume a task that an earlier attempt of the same call
+   * started and can never send a new `tools/call` for this call.
+   *
+   * It is `true` only when the call's heartbeat checkpoint names a task of the same server and tool that the
+   * session polls, and the session still polls tool tasks (`call.supportsToolTasks`). Then the call returns that
+   * task at once, without contacting the server. In every other case, including a task polled inside the tool
+   * Step, such as one bound to an MCP protocol session, the call may send `tools/call`: a task the server no longer
+   * knows is called again. Use it to skip a check that only guards a new send, such as checking a tool's current
+   * listing, so a catalog that is down or changed does not stop the recovery of a task already running.
+   *
+   * @example
+   * ```ts
+   * if (!tools.willResumeToolTaskWithoutSending(call)) {
+   *   await checkCurrentListing(call.toolCall.toolName);
+   * }
+   * return tools.executeDeferredToolCall(call);
+   * ```
+   * @param call - The tool Step's call, with this source's own `toolSourceReference`.
+   * @returns `true` when the call resumes a session-polled task and sends nothing; otherwise `false`.
+   * @since 0.5.0
+   */
+  public willResumeToolTaskWithoutSending(call: DeferredToolExecution): boolean {
+    const reference = parseToolSourceReference(call.toolCall.toolSourceReference);
+    const saved = parseJsonObject(call.heartbeatCheckpoint);
+    return (
+      call.supportsToolTasks === true &&
+      reference !== undefined &&
+      saved?.["mcp_server"] === reference.serverName &&
+      saved["mcp_tool"] === reference.mcpToolName &&
+      typeof saved["mcp_task_id"] === "string" &&
+      saved["mcp_task_polled_by_session"] === true
+    );
   }
 
   /**
@@ -710,6 +889,8 @@ export class McpToolSource {
    * server's `pollInterval` to at most a minute.
    * @throws {ToolExecutionError} When the task failed, was cancelled, returned an `isError` result, or asked
    * for input.
+   * @throws {ToolOutcomeUnknownError} When the task's result reported the Dex outcome `unknown`; the session
+   * records `outcome_unknown`.
    * @throws {McpToolCallInterruptedError} When the server could not be reached, no longer knows the task, or
    * answered a poll with an error. The task may still run, so `PollToolTask` retries and then records the
    * call by its effect.
@@ -733,6 +914,8 @@ export class McpToolSource {
         return { output: outcome.output };
       case "failed":
         throw new ToolExecutionError(outcome.message);
+      case "outcome_unknown":
+        throw new ToolOutcomeUnknownError(outcome.message);
       case "task_pending":
         return { kind: "tool_task_pending", pollIntervalSeconds: outcome.pollIntervalSeconds };
       case "interrupted":
@@ -881,6 +1064,8 @@ export class McpToolSource {
         return { kind: "tool_task_started", taskId: outcome.taskId, pollIntervalSeconds: outcome.pollIntervalSeconds };
       case "failed":
         throw new ToolExecutionError(outcome.message);
+      case "outcome_unknown":
+        throw new ToolOutcomeUnknownError(outcome.message);
       case "interrupted":
       case "task_lost":
       case "task_pending":
@@ -1176,7 +1361,12 @@ class McpToolCall {
 
   private async sendToolCall({ client, transport }: McpConnection): Promise<ToolCallOutcome> {
     const meta =
-      this.options.idempotencyKey === undefined ? undefined : { [mcpIdempotencyKeyMetaKey]: this.options.idempotencyKey };
+      this.options.idempotencyKey === undefined && this.options.requestMeta === undefined
+        ? undefined
+        : {
+            ...this.options.requestMeta,
+            ...(this.options.idempotencyKey === undefined ? {} : { [mcpIdempotencyKeyMetaKey]: this.options.idempotencyKey }),
+          };
     const params = { name: this.target.mcpToolName, arguments: this.toolArguments, ...(meta === undefined ? {} : { _meta: meta }) };
     const requestOptions = {
       timeout: this.limits.requestTimeoutMs,
@@ -1209,8 +1399,9 @@ class McpToolCall {
         })
       ).task;
     } catch (error: unknown) {
-      if (error instanceof McpError && !noResultErrorCodes.has(error.code)) {
-        return { kind: "failed", message: error.message };
+      const outcome = error instanceof McpError ? outcomeFromMcpError(error) : undefined;
+      if (outcome !== undefined) {
+        return outcome;
       }
       throw error;
     }
@@ -1321,7 +1512,7 @@ class McpToolCallReporter {
   }
 }
 
-function mcpToolFromListing(server: McpServerConfig, tool: Tool): McpTool {
+export function mcpToolFromListing(server: McpServerConfig, tool: Tool): McpTool {
   const annotations: McpToolAnnotations | undefined =
     tool.annotations === undefined
       ? undefined
@@ -1331,6 +1522,14 @@ function mcpToolFromListing(server: McpServerConfig, tool: Tool): McpTool {
           ...(tool.annotations.destructiveHint === undefined ? {} : { destructiveHint: tool.annotations.destructiveHint }),
         };
   const trustsAnnotations = server.trustsToolAnnotations ?? true;
+  const declaration = trustsAnnotations ? readDexToolDeclaration(tool._meta, server.name, tool.name) : undefined;
+  // A Dex declaration replaces the annotations, even when its effect is invalid.
+  const frameworkEffect =
+    declaration !== undefined
+      ? declaration.effect
+      : trustsAnnotations && annotations !== undefined
+        ? toolEffectFromMcpToolAnnotations(annotations)
+        : undefined;
   return {
     name: buildAgentToolName(server.name, tool.name),
     serverName: server.name,
@@ -1338,8 +1537,29 @@ function mcpToolFromListing(server: McpServerConfig, tool: Tool): McpTool {
     description: tool.description ?? tool.title ?? `MCP tool ${tool.name} of ${server.name}`,
     inputSchema: tool.inputSchema,
     annotations,
-    frameworkEffect: trustsAnnotations && annotations !== undefined ? toolEffectFromMcpToolAnnotations(annotations) : undefined,
+    frameworkEffect,
+    dexEffect: declaration?.effect,
+    isApprovalRecommended: declaration?.effect !== undefined && declaration.isApprovalRecommended,
     taskSupport: tool.execution?.taskSupport,
+  };
+}
+
+/** Returns a declared tool's policy; a session policy may raise its safety, never lower it. */
+function combineDeclaredToolPolicy(
+  declaredEffect: ToolEffect,
+  isApprovalRecommended: boolean,
+  sessionPolicy: ToolPolicy | undefined,
+): ResolvedToolPolicy {
+  if (sessionPolicy === undefined) {
+    return { effect: declaredEffect, requiresApproval: isApprovalRecommended };
+  }
+  const effect =
+    effectConservatism[sessionPolicy.effect] > effectConservatism[declaredEffect] ? sessionPolicy.effect : declaredEffect;
+  const isApprovalRequiredBySessionEffect =
+    sessionPolicy.effect === "non_idempotent_write" || sessionPolicy.effect === "unclassified";
+  return {
+    effect,
+    requiresApproval: sessionPolicy.requiresApproval ?? (isApprovalRecommended || isApprovalRequiredBySessionEffect),
   };
 }
 
@@ -1419,12 +1639,33 @@ function savedTaskFromCheckpoint(
     : undefined;
 }
 
-function outcomeFromToolResult(result: CallToolResult): ToolCallOutcome {
+export function outcomeFromToolResult(result: CallToolResult): ToolCallOutcome {
   const text = renderToolResultText(result);
+  // The Dex outcome wins over isError in both directions.
+  const dexOutcome = readDexToolOutcome(result._meta);
+  if (dexOutcome === "unknown") {
+    return { kind: "outcome_unknown", message: text === "" ? unknownOutcomeFallbackMessage : text };
+  }
+  if (dexOutcome === "rejected") {
+    return { kind: "failed", message: text === "" ? rejectedOutcomeFallbackMessage : text };
+  }
   if (result.isError === true) {
     return { kind: "failed", message: text === "" ? "the MCP tool reported an error" : text };
   }
   return { kind: "succeeded", output: text };
+}
+
+/** Maps a JSON-RPC error answer; `undefined` leaves the outcome open, so the effect class decides. */
+export function outcomeFromMcpError(error: McpError): ToolCallOutcome | undefined {
+  // A Dex-aware server's outcome is known, even for an error code that usually leaves it open.
+  const dexOutcome = readDexErrorOutcome(error.data);
+  if (dexOutcome === "unknown") {
+    return { kind: "outcome_unknown", message: error.message };
+  }
+  if (dexOutcome === "rejected" || !noResultErrorCodes.has(error.code)) {
+    return { kind: "failed", message: error.message };
+  }
+  return undefined;
 }
 
 /** Seconds until the next durable poll: the server's hint, backed off from the last interval to a minute. */

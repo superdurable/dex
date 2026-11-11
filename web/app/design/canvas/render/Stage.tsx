@@ -52,7 +52,16 @@ import {
   type FramingNeighbours,
 } from './camera'
 import { useCamera, useRunTravel, useSettledDrawing } from './useCamera'
-import { chromeCompensation, edgeContrastBoost, FIT_MAX_ZOOM, fitOptions, MAX_ZOOM, MIN_ZOOM, OPEN_FLOOR } from './zoom'
+import {
+  chromeCompensation,
+  edgeContrastBoost,
+  FIT_MAX_ZOOM,
+  fitOptions,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  OPEN_FLOOR,
+  WHOLE_DRAWING_MIN_ZOOM,
+} from './zoom'
 import '@xyflow/react/dist/style.css'
 
 /**
@@ -268,12 +277,18 @@ type StageProps = {
   /** False when the host draws its own zoom and fit buttons through handleRef. */
   showsZoomControls?: boolean
   insetRightPx?: number | null
+  /** Pixels at the pane's top that the host's overlays cover; framing and Fit keep the drawing below them. */
+  insetTopPx?: number | null
   /** Changing this re-opens the view; opening a stage keeps the reader's place, so it is not part of it. */
   fitKey: string
   /** False while the drawing is on its way; the last settled one stays on screen meanwhile. */
   isSettled?: boolean
   /** Steps a transition joins to the focus, or to "now", which its framing keeps in view. */
   targetNeighbours?: FramingNeighbours
+  /** Largest zoom for opening on, or fitting, the whole drawing. Defaults to `FIT_MAX_ZOOM`. */
+  wholeMaxZoom?: number
+  /** Opens on, fits, and zooms out to the whole drawing, however small. */
+  opensWholeDrawing?: boolean
 }
 
 function Inner({
@@ -281,6 +296,7 @@ function Inner({
   dimUnrelated = true,
   focusNodeId,
   insetRightPx,
+  insetTopPx = null,
   legend,
   handleRef,
   onSelectGroup,
@@ -299,6 +315,8 @@ function Inner({
   fitKey,
   isSettled = true,
   targetNeighbours,
+  wholeMaxZoom = FIT_MAX_ZOOM,
+  opensWholeDrawing = false,
   scene: latestScene,
   nowNodeId: latestNowNodeId = null,
 }: StageProps): JSX.Element {
@@ -307,6 +325,8 @@ function Inner({
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null)
   // Hold the last settled drawing, so a run still loading never draws half-way states.
   const { scene, nowNodeId } = useSettledDrawing(isSettled, latestScene, latestNowNodeId)
+  const openFloor = opensWholeDrawing ? WHOLE_DRAWING_MIN_ZOOM : OPEN_FLOOR
+  const minZoom = opensWholeDrawing ? WHOLE_DRAWING_MIN_ZOOM : MIN_ZOOM
 
   useEffect(() => {
     if (selectedId !== null) setSelectedLinkId(null)
@@ -314,8 +334,12 @@ function Inner({
 
   const fitWhole = useCallback(() => {
     const el = paneRef.current?.querySelector<HTMLElement>('.react-flow') ?? paneRef.current
-    void rf.fitView({ ...fitOptions(insetRightPx, el?.clientWidth ?? 0), minZoom: MIN_ZOOM, ...cameraMotion() })
-  }, [insetRightPx, rf])
+    void rf.fitView({
+      ...fitOptions(insetRightPx, el?.clientWidth ?? 0, wholeMaxZoom, insetTopPx, el?.clientHeight ?? 0),
+      minZoom,
+      ...cameraMotion(),
+    })
+  }, [insetRightPx, insetTopPx, minZoom, rf, wholeMaxZoom])
   // After the view opens, a resize with a selection only pans that selection back into view.
   const keepSelectionInView = useRef<() => boolean>(() => false)
   const camera = useCamera({
@@ -328,11 +352,20 @@ function Inner({
     targetId: focusNodeId ?? null,
     targetNeighbours,
     insetRightPx,
-    wholeMaxZoom: FIT_MAX_ZOOM,
+    insetTopPx,
+    wholeMaxZoom,
+    openFloor,
     fitWhole,
     keepSelectionInView: () => keepSelectionInView.current(),
   })
   const { delays, isEntered, panToShow, setOwner } = camera
+
+  // React Flow keeps a zoom below a raised minZoom; refit so the view respects the new limit.
+  useEffect(() => {
+    if (rf.getZoom() >= minZoom) return
+    setOwner('fit')
+    fitWhole()
+  }, [fitWhole, minZoom, rf, setOwner])
 
   /** A jump chip selects where it leads at a readable size; a jump into a closed stage opens it. */
   const jump = useCallback(
@@ -496,8 +529,8 @@ function Inner({
       focus: (nodeId: string) => {
         const el = paneRef.current?.querySelector<HTMLElement>('.react-flow')
         if (el === null || el === undefined) return
-        const room = cameraRoom(el.clientWidth, el.clientHeight, insetRightPx)
-        const framed = focusView(scene, nodeId, { near: [], twoAway: [] }, room, FIT_MAX_ZOOM)
+        const room = cameraRoom(el.clientWidth, el.clientHeight, insetRightPx, insetTopPx)
+        const framed = focusView(scene, nodeId, { near: [], twoAway: [] }, room, wholeMaxZoom)
         if (framed === null) return
         setOwner('camera')
         void rf.setViewport(framed.view, cameraMotion())
@@ -507,7 +540,7 @@ function Inner({
         if (box !== undefined) panToShow(box)
       },
     }),
-    [fitWhole, insetRightPx, panToShow, rf, scene, setOwner],
+    [fitWhole, insetRightPx, insetTopPx, panToShow, rf, scene, setOwner, wholeMaxZoom],
   )
 
   const applyZoomVars = useCallback((zoom: number) => {
@@ -599,7 +632,7 @@ function Inner({
         edges={edges}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
-        minZoom={MIN_ZOOM}
+        minZoom={minZoom}
         maxZoom={MAX_ZOOM}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -634,8 +667,8 @@ function Inner({
           <Controls
             showInteractive={false}
             fitViewOptions={{
-              ...fitOptions(insetRightPx, paneRef.current?.clientWidth ?? 0),
-              minZoom: MIN_ZOOM,
+              ...fitOptions(insetRightPx, paneRef.current?.clientWidth ?? 0, wholeMaxZoom, insetTopPx, paneRef.current?.clientHeight ?? 0),
+              minZoom,
               ...cameraMotion(),
             }}
             onFitView={() => setOwner('fit')}

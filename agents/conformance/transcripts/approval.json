@@ -322,6 +322,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Email the ops team.\"}",
+            "images": [],
             "role": "user",
             "sequence": 1,
             "text": "Email the ops team.",
@@ -334,6 +335,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"send_email\\\",\\\"arguments\\\":\\\"{\\\\\\\"to\\\\\\\": \\\\\\\"ops@example.com\\\\\\\", \\\\\\\"body\\\\\\\": \\\\\\\"Order 7 shipped ✓\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\",\"arguments\":\"{\\\"to\\\": \\\"ops@example.com\\\", \\\"body\\\": \\\"Order 7 shipped ✓\\\"}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 2,
             "text": null,
@@ -379,6 +381,7 @@
             "deferral_order": 0,
             "effect": "non_idempotent_write",
             "error": null,
+            "images": [],
             "input_allows_free_text": true,
             "input_answers": [],
             "input_choices": [],
@@ -417,6 +420,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Email the ops team.\"}",
+            "images": [],
             "role": "user",
             "sequence": 1,
             "text": "Email the ops team.",
@@ -429,6 +433,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"send_email\\\",\\\"arguments\\\":\\\"{\\\\\\\"to\\\\\\\": \\\\\\\"ops@example.com\\\\\\\", \\\\\\\"body\\\\\\\": \\\\\\\"Order 7 shipped ✓\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\",\"arguments\":\"{\\\"to\\\": \\\"ops@example.com\\\", \\\"body\\\": \\\"Order 7 shipped ✓\\\"}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 2,
             "text": null,
@@ -441,6 +446,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\",\"output\":\"{\\\"sent_to\\\": \\\"ops@example.com\\\", \\\"body\\\": \\\"Order 7 shipped ✓\\\"}\"}",
+            "images": [],
             "role": "tool",
             "sequence": 3,
             "text": null,
@@ -453,6 +459,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Sent.\\\"}\",\"text\":\"Sent.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 4,
             "text": "Sent.",
@@ -465,6 +472,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Email finance.\"}",
+            "images": [],
             "role": "user",
             "sequence": 5,
             "text": "Email finance.",
@@ -477,6 +485,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-3-0\\\",\\\"name\\\":\\\"send_email\\\",\\\"arguments\\\":\\\"{\\\\\\\"to\\\\\\\": \\\\\\\"finance@example.com\\\\\\\", \\\\\\\"body\\\\\\\": \\\\\\\"Refund order 7\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"send_email\",\"arguments\":\"{\\\"to\\\": \\\"finance@example.com\\\", \\\"body\\\": \\\"Refund order 7\\\"}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 6,
             "text": null,
@@ -489,6 +498,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"send_email\",\"output\":\"Not now, it is a holiday.\"}",
+            "images": [],
             "role": "tool",
             "sequence": 7,
             "text": null,
@@ -501,6 +511,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"I did not send it.\\\"}\",\"text\":\"I did not send it.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 8,
             "text": "I did not send it.",

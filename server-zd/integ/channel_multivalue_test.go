@@ -17,7 +17,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"github.com/superdurable/dex/server-zd/integ/workflow/channel_multivalue"
 	"github.com/superdurable/dex/server-zd/integ/workflow/common"
@@ -232,7 +231,7 @@ func doTestChannelMultivalueCanBuffered(t *testing.T) {
 		t,
 
 		channel_multivalue.ScenarioCanBuffered,
-		&dexpb.FlowConfig{ContinueAsNewThreshold: ptr.Any(int32(1))},
+		&dexpb.FlowConfig{},
 	)
 	publishChannelStrings(t, ctx, runtime.FlowClient, flowId, channel_multivalue.ChannelName, "b0", "b1")
 	require.Eventually(t, func() bool {
@@ -253,7 +252,7 @@ func doTestChannelMultivalueCanMatchBoundary(t *testing.T) {
 		t,
 
 		channel_multivalue.ScenarioCanMatchBoundary,
-		&dexpb.FlowConfig{ContinueAsNewThreshold: ptr.Any(int32(1))},
+		&dexpb.FlowConfig{},
 	)
 	publishChannelStrings(t, ctx, runtime.FlowClient, flowId, channel_multivalue.ChannelName, "c0", "c1", "c2")
 	waitChannelMultivalueComplete(t, ctx, runtime.FlowClient, flowId)

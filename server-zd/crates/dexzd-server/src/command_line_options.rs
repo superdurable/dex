@@ -67,6 +67,17 @@ pub struct DevCommandOptions {
     /// Optional embedded S3 durability; overrides `dev.durabilityMode` from `--config`. Defaults to strict.
     #[arg(long, value_enum)]
     pub durability: Option<DevDurabilityMode>,
+    /// Optional loopback address of a second S3 emulator that serves `--application-s3-bucket`
+    /// for applications, with its data in `<data-dir>/application-s3`.
+    ///
+    /// It is separate from the server's own object store. Defaults to none, which serves no
+    /// application bucket.
+    #[arg(long, requires = "application_s3_bucket")]
+    pub application_s3_listen: Option<SocketAddr>,
+    /// The bucket that `--application-s3-listen` serves; created when missing. Requires
+    /// `--application-s3-listen`.
+    #[arg(long, requires = "application_s3_listen")]
+    pub application_s3_bucket: Option<String>,
 }
 
 /// Options of `dex-server-zd serve`.
@@ -101,12 +112,23 @@ mod tests {
             "/tmp/dex.yaml",
             "--durability",
             "process-crash-safe",
+            "--application-s3-listen",
+            "127.0.0.1:8803",
+            "--application-s3-bucket",
+            "dex-dev-media",
         ])
         .unwrap();
         let ServerCommand::Dev(dev) = options.command else {
             panic!("dev parses as the dev command");
         };
         assert_eq!(dev.data_dir.to_str(), Some("/tmp/zd"));
+        assert_eq!(
+            dev.application_s3_listen
+                .map(|listen| listen.to_string())
+                .as_deref(),
+            Some("127.0.0.1:8803")
+        );
+        assert_eq!(dev.application_s3_bucket.as_deref(), Some("dex-dev-media"));
         assert_eq!(
             dev.listen.map(|listen| listen.to_string()).as_deref(),
             Some("127.0.0.1:9901")
@@ -118,6 +140,25 @@ mod tests {
             Some("/tmp/dex.yaml")
         );
         assert_eq!(dev.durability, Some(DevDurabilityMode::ProcessCrashSafe));
+    }
+
+    #[test]
+    fn dev_command_requires_the_application_s3_flags_together() {
+        for flag in [
+            ["--application-s3-listen", "127.0.0.1:8803"],
+            ["--application-s3-bucket", "dex-dev-media"],
+        ] {
+            assert!(
+                CommandLineOptions::try_parse_from(
+                    ["dex-server-zd", "dev", "--data-dir", "/tmp/zd"]
+                        .into_iter()
+                        .chain(flag)
+                )
+                .is_err(),
+                "{} alone must be rejected",
+                flag[0]
+            );
+        }
     }
 
     #[test]

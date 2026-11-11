@@ -6,16 +6,17 @@ slug: /
 
 # Dex CLI reference
 
-**dexcli** provides a JSON-first interface for operating and inspecting Flows. It
-is designed for shell automation and AI agents as well as human operators.
+**dexcli** operates and inspects Flows. Its output is JSON by default, so shell
+scripts and AI agents can use it as well as human operators.
 
 ## Start a local development server {#start-locally}
 
-**dexcli dev** starts server-zd and embedded Dex Web. server-zd is the only
+**dexcli dev** starts server-zd and the embedded Dex Web. server-zd is the only
 engine. Existing scripts can keep **--engine zd**; it has no effect.
-The release package includes **dex-server-zd** next to **dexcli**. Binary lookup
-uses **--zd-binary**, then **DEX_SERVER_ZD_BINARY**, then the executable directory
-(including its resolved symlink directory), then PATH.
+The release package includes **dex-server-zd** next to **dexcli**. To find the
+server binary, dexcli checks **--zd-binary**, then **DEX_SERVER_ZD_BINARY**, then
+the directory of the dexcli executable (and the directory a symlink to it
+resolves to), then PATH.
 
 ```bash
 dexcli dev --open=false --zd-data-dir ./dex-state
@@ -37,10 +38,15 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 | **--connector-config-dir** | **$HOME/.dex/connectors**; local Connector credentials. |
 | **--connector-release-override** | Repeatable **connector-id=artifact-directory** for a local Connector release. |
 | **--allowed-hosts** | Empty; comma-separated host names that Dex Web **/api** requests may name besides loopback names and IP addresses. Since 1.42. See [Allowed hosts](/reference/web/dex-web#allowed-hosts). |
+| **--connectors-mcp** | **true**; finds or starts the Dex Connectors MCP server and serves it at **/mcp** on the Dex Web port. Only a loopback **--bind-address** serves **/mcp**. Since 1.43. See [Connectors MCP server](#connectors-mcp). |
+| **--connectors-mcp-version** | Empty; the newest compatible release. Set **X.Y.Z** to pin a release. Since 1.43. |
+| **--connectors-mcp-binary** | **DEX_CONNECTORS_MCP_BINARY**; a local **dex-connectors-mcp** executable to run instead of a downloaded release. Since 1.43. |
+| **--connectors-mcp-connection** | Repeatable **connectorId/connectionName[=tool,...]**; the connections the server offers, optionally narrowed to tools. Empty offers every authorized connection. Since 1.43. |
 
-If a default port is occupied, Dex selects the next available port and prints
-its addresses. An explicitly requested occupied port fails. The state directory
-uses the selected Dex port. Ctrl+C stops Web and the server-zd child process.
+If a default port is in use, Dex picks the next free port and prints its
+addresses. If a port you pass explicitly is in use, the command fails. The
+default state directory uses the Dex port that was picked. Ctrl+C stops Dex Web
+and the server-zd child process.
 server-zd supports pull Workers. See [Server reference](/reference/server/)
 for storage, durability, and Attribute Store configuration.
 
@@ -57,11 +63,68 @@ names server-zd as the only engine. Remove those flags and use **--zd-data-dir**
 and **--zd-config** instead. Start with a new server-zd data directory;
 Temporal SQLite files cannot be used as server-zd state.
 
+## Connectors MCP server {#connectors-mcp}
+
+Since 1.43. **dexcli dev** serves the agent tools of authorized Connector
+connections at **http://127.0.0.1:8802/mcp**, the **/mcp** path of the Dex Web
+port. An agent that connects to Connectors through MCP uses this URL. The URL
+stays the same while the server behind it restarts or updates.
+
+The tools come from the Dex Connectors MCP server, **dex-connectors-mcp**, which
+the Connectors library releases. No Connector is compiled into dexcli.
+**dexcli dev** prepares the server in this order:
+
+1. It reuses a compatible server that already runs for the same state
+   directory and **connections.json**. dexcli does not trust **server.json**
+   alone: the server must hold the state directory's instance lock, and its
+   **/healthz**, on the same address as its **/mcp**, must confirm the
+   instance, launch contract, and version. dexcli must support that launch
+   contract. The server must offer the same **--connectors-mcp-connection**
+   selection; the order does not matter.
+2. Otherwise it runs **--connectors-mcp-binary** when set. Without it, dexcli
+   reads the release index at
+   **https://connectors.superdurable.io/connectors-mcp/index.json** at most once
+   a day. It picks the newest release whose launch contract it supports, and
+   downloads the archive for this platform. Every request and redirect must use
+   https. It checks the archive's SHA-256 against the index before it extracts
+   the binary. Releases are cached in
+   **$HOME/.dex/tools/dex-connectors-mcp/&lt;version&gt;**, with the SHA-256 of the
+   extracted binary. Before each start, dexcli checks the cached binary against
+   that SHA-256 and refuses symlinks in the cache. It deletes a cache entry that
+   fails, and downloads the release again. When the index cannot be fetched,
+   dexcli uses the newest cached release that passes the check.
+3. It starts the server on a free loopback port. The server reads the
+   **connections.json** in **--connector-config-dir**, the file the Dex Web
+   Connectors page writes. Its state directory is
+   **$HOME/.dex/connectors-mcp**. With another **--connector-config-dir**, it is
+   **$HOME/.dex/connectors-mcp-&lt;digest&gt;**, so each **connections.json** has its
+   own server. When the server stops, dexcli restarts it after a delay that
+   grows from 1 second to 30 seconds. The server exits when **dexcli dev**
+   exits.
+
+In its ready output, **dexcli dev** prints the **/mcp** URL. It reports Dex
+Server and Dex Web ready without waiting for the Connectors MCP server. Until it is ready, and while it
+restarts, **/mcp** answers HTTP 503. When no server can run, for example
+offline with an empty cache, on a platform without a release, or after 5
+failed starts in a row, **dexcli dev** keeps running and prints a hint to
+stderr. Pass **--connectors-mcp=false** to turn the server off.
+
+The cache check detects a corrupt or replaced cache entry. It does not protect
+against a program that runs as the same user: a program that can write
+**$HOME/.dex** can also replace **dexcli** itself.
+
+Tool calls carry no credentials, so **/mcp** accepts only loopback **Host**
+names: **localhost**, ***.localhost**, and loopback IP addresses. Other names
+get HTTP 403. This stops DNS rebinding. **--allowed-hosts** does not
+apply to **/mcp**, so a tunnel name added for Dex Web does not expose tool
+calls. A request whose **Origin** is not an **http** loopback origin, or that a
+browser marks as cross-site, also gets HTTP 403.
+
 ## Connect to Dex
 
 Commands connect to **127.0.0.1:8801** by default. Set
-**DEX_FLOW_SERVICE_ADDRESS** for a process-wide target or pass **--server** for one
-command. The server address is a gRPC **host:port**, not an HTTP URL. The
+**DEX_FLOW_SERVICE_ADDRESS** to change the target for every command, or pass
+**--server** for one command. The server address is a gRPC **host:port**, not an HTTP URL. The
 connection is plaintext unless you enable TLS.
 
 ```bash
@@ -100,20 +163,21 @@ terminates TLS must accept **h2** and forward gRPC to Dex over HTTP/2.
 
 ## Authentication
 
-When Dex requires a bearer credential, set **--credential-file** to a token file,
-set **DEX_CREDENTIAL_FILE** to a token file path, or set **DEX_CREDENTIAL** to the
-token value. That is the precedence order. The file is read before the first
-call and checked for changes at most once per second during long-running
-commands such as **flow watch**. Empty or unreadable files stop the call before
-it contacts Dex. Surrounding whitespace is removed from the token.
+When Dex requires a bearer credential, provide the token in one of three ways.
+In order of precedence: set **--credential-file** to a token file, set
+**DEX_CREDENTIAL_FILE** to a token file path, or set **DEX_CREDENTIAL** to the
+token value. dexcli reads the file before the first call. During long-running
+commands such as **flow watch**, it checks the file for changes at most once per
+second. An empty or unreadable file stops the call before it contacts Dex.
+dexcli trims surrounding whitespace from the token.
 
 ```bash
 dexcli flow search --credential-file /run/secrets/dex/token
 DEX_CREDENTIAL_FILE=/run/secrets/dex/token dexcli flow watch order-123
 ```
 
-There is no flag for a raw token because command arguments can appear in shell
-history and process listings. Without **--tls**, the FlowService connection is
+There is no flag for the token value, because command arguments can appear in
+shell history and process listings. Without **--tls**, the FlowService connection is
 plaintext gRPC and the token crosses the network unencrypted. Enable TLS or
 protect the network path.
 
@@ -134,8 +198,8 @@ In another terminal, start Dex Web:
 dexcli --server 127.0.0.1:8801 web
 ```
 
-Then open [http://127.0.0.1:8802](http://127.0.0.1:8802). Startup fails when **HealthCheck** cannot reach
-the server. **--timeout** bounds only the startup checks. **--open=false** skips
+Then open [http://127.0.0.1:8802](http://127.0.0.1:8802). Startup fails when the **HealthCheck** call
+cannot reach the server. **--timeout** bounds only the startup checks. **--open=false** skips
 the browser. A running **dexcli dev** also uses ports 8801 and 8802, so pick
 another tunnel port and **--web-port** to run both. Dex Web has no
 authentication, so keep **--bind-address** on loopback. See
@@ -144,29 +208,30 @@ flag.
 
 ## Friendly Flow operations
 
-Use **flow search**, **summary**, **state**, **history**, and **inspect** for bounded JSON
-responses. **inspect** combines summary, current state, and history, making it the
-best starting point for an agent investigating a Flow.
+**flow search**, **summary**, **state**, **history**, and **inspect** return JSON
+of bounded size. **inspect** combines the summary, the current state, and the
+history. Start with it when an agent investigates a Flow.
 
 ```bash
 dexcli flow inspect order-123 --all-history
 ```
 
-Stored strings and objects are hydrated automatically. Use **--no-hydrate** when
-only structure and blob identities are needed. The output then contains stable
-**__dexBlobReference** objects rather than the stored payload.
+By default, dexcli loads stored strings and objects and prints their values.
+Use **--no-hydrate** when you need only the structure and blob identities. The
+output then contains stable **__dexBlobReference** objects instead of the
+stored payload.
 
-**flow watch** first emits available semantic history events and then long-polls
-for new events. Each line is one JSON object. It stops at a terminal status;
-**--follow-runs** keeps following the Flow ID's current run.
+**flow watch** first prints the semantic history events that exist, then
+long-polls for new ones. Each line is one JSON object. It stops when the run
+reaches a terminal status.
 
-Stop and time travel always require an exact **--run-id** and explicit **--yes**. This
-prevents an agent from mutating a newer run after resolving an older one.
+Stop and time travel always require an exact **--run-id** and **--yes**. This
+keeps an agent that looked up an older run from changing a newer one.
 
 ## Complete public API access
 
-The **api** commands expose every public **FlowService** RPC known to the installed
-CLI version:
+The **api** commands call any public **FlowService** RPC that the installed CLI
+version knows:
 
 ```bash
 dexcli api list
@@ -176,29 +241,29 @@ dexcli api call InvokeRPC --data @invoke.json --yes
 
 **api describe** reports request and response fields, oneofs, enums, maps, and
 reachable message definitions. **api call** accepts canonical protobuf JSON from
-an inline string, **@file**, or stdin via **--data -**. It returns canonical
-protobuf JSON and does not perform friendly value hydration.
+an inline string, **@file**, or stdin with **--data -**. It returns canonical
+protobuf JSON and, unlike the friendly commands, does not load stored values.
 
-**WorkerService** and **InternalService** are intentionally excluded because they
-are worker callbacks and server-internal protocols rather than public operator
-APIs.
+The **api** commands do not cover **WorkerService** or **InternalService**.
+Workers and the server use them internally; they are not operator APIs.
 
 ## Check protocol compatibility
 
-**dexcli version** prints the CLI build version. **dexcli version check** calls
-the Server and verifies that its inclusive protocol interval overlaps the
-interval built into this CLI:
+**dexcli version** prints the CLI build version. **dexcli version check** asks
+the server for its supported protocol range (inclusive) and checks that it
+overlaps the range built into this CLI:
 
 ```bash
 dexcli version check --server dex.example.internal:8801
 dexcli version check --output table
 ```
 
-A successful result includes the client and Server versions, both intervals,
+On success, the output includes the client and server versions, both ranges,
 the highest common protocol as **negotiatedProtocol**, and **compatible: true**.
-It exits with status 0. An unimplemented information RPC, invalid response,
-connection failure, or disjoint interval produces a structured compatibility
-error and exits with status 1. The command supports the normal **--server**,
+The command then exits with status 0. It prints a structured compatibility
+error and exits with status 1 when the server does not implement the
+information RPC, returns an invalid response, cannot be reached, or shares no
+protocol with the CLI. The command supports the normal **--server**,
 **--timeout**, and **--output** flags.
 
 ## Describe or step down the active server process {#admin-step-down}
@@ -206,8 +271,8 @@ error and exits with status 1. The command supports the normal **--server**,
 **dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
 **holderProcessId** of the active server process, and changes nothing. It fails
 with **FAILED_PRECONDITION** while a step down or its hold-off is in progress,
-and with **UNAVAILABLE** when no server process is reachable. Then wait past the
-hold-off and describe again.
+and with **UNAVAILABLE** when no server process is reachable. Then wait until
+the hold-off ends and describe again.
 
 **dexcli admin step-down --yes** asks the active server process of a node ID to
 give up its lease, so that another process of the same node ID can take over.
@@ -221,21 +286,21 @@ dexcli --server dex.example.internal:8801 admin step-down --yes \
   --credential-file /run/secrets/dex/admin-token
 ```
 
-Every step down request expects a node ID and node epoch, and a process that
-does not match answers **FAILED_PRECONDITION** and changes nothing. Without
+Every step down request names the node ID and node epoch it expects. A process
+that does not match answers **FAILED_PRECONDITION** and changes nothing. Without
 **--expected-node-id** and **--expected-node-epoch**, the command first describes
 the active process and expects the node ID and node epoch that describe returns.
 With **--expected-node-id** alone, it describes first, refuses if the server
-reports another node ID, and otherwise expects the described node epoch. That
-guards a first run against a wrong **--server**. With both flags, it does not
+reports another node ID, and otherwise expects the described node epoch. This
+protects a first run against a wrong **--server**. With both flags, it does not
 describe. **--expected-node-epoch** alone is a usage error. If the first describe
-fails, the command steps nothing down; a step down in progress may be one that
-you or someone else already started.
+fails, the command steps nothing down. A step down that is already in progress
+may be one that you or someone else started.
 
 The commands support the normal connection, TLS, credential, **--timeout**, and
-**--output** flags. **dexcli admin step-down** waits up to 2 minutes by default,
-longer than the default attempt drain plus the hold-off before the stepped-down
-process competes for the lease again. If the server sets a longer
+**--output** flags. **dexcli admin step-down** waits up to 2 minutes by default.
+That is longer than the default attempt drain plus the hold-off before the
+stepped-down process competes for the lease again. If the server sets a longer
 **lifecycle.attemptDrainTimeout**, raise **--timeout** by at least the same
 amount. When the server requires authentication, the credential must be an admin
 JWT. The API key exchange cannot ask for an admin audience. See
@@ -263,12 +328,12 @@ for details.
 
 ## Output and errors
 
-JSON is the default stable output. **--output table** is intended for human
-display and is not a machine compatibility contract. Use **--timeout 0** to
-disable the default 30-second client deadline for a bounded command; watch
-manages its long-poll lifecycle until interrupted.
+JSON is the default output, and its format is stable. **--output table** is
+for people to read; scripts must not depend on its format. A bounded command
+has a 30-second client deadline by default; use **--timeout 0** to turn it off.
+The deadline does not apply to **flow watch**.
 
 Errors are JSON on stderr. They include **kind**, **operation**, **message**, and,
-when applicable, **grpcCode**, **grpcCodeName**, and structured status details.
-Exit status 2 means invalid usage or missing confirmation; status 1 means the
+when they apply, **grpcCode**, **grpcCodeName**, and structured status details.
+Exit status 2 means invalid usage or a missing confirmation. Status 1 means the
 request failed.

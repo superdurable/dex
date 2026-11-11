@@ -46,11 +46,13 @@ type v2TestClient struct {
 	currentCaseStatus  string
 	currentGateRequest string
 	flowStatus         dexpb.FlowStatus
-	invokeRPCHandler   func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error)
-	startFlowHandler   func(context.Context, *dexpb.StartFlowRequest) (*dexpb.StartFlowResponse, error)
-	serverEngine       dexpb.ServerEngine
-	serverInfoErrors   []error
-	serverInfoCalls    int
+	// summaryFlowType is the Flow type GetFlowSummary reports; empty means RefundFlow.
+	summaryFlowType  string
+	invokeRPCHandler func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error)
+	startFlowHandler func(context.Context, *dexpb.StartFlowRequest) (*dexpb.StartFlowResponse, error)
+	serverEngine     dexpb.ServerEngine
+	serverInfoErrors []error
+	serverInfoCalls  int
 }
 
 func (client *v2TestClient) GetServerInfo(
@@ -115,14 +117,18 @@ func (client *v2TestClient) GetFlowSummary(
 	client.mutex.Lock()
 	client.summaryRequests = append(client.summaryRequests, request)
 	flowStatus := client.flowStatus
+	flowType := client.summaryFlowType
 	client.mutex.Unlock()
 	if flowStatus == dexpb.FlowStatus_FLOW_STATUS_UNSPECIFIED {
 		flowStatus = dexpb.FlowStatus_FLOW_STATUS_RUNNING
 	}
+	if flowType == "" {
+		flowType = "RefundFlow"
+	}
 	return &dexpb.GetFlowSummaryResponse{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: request.GetFlowId(), RunId: "current-run"},
-		FlowType:        "RefundFlow",
-		FlowStatus:      flowStatus,
+		FlowRunId:  &dexpb.FlowRunID{FlowId: request.GetFlowId(), RunId: "current-run"},
+		FlowType:   flowType,
+		FlowStatus: flowStatus,
 	}, nil
 }
 
@@ -1592,7 +1598,7 @@ func TestV2WorkingAsKeepsFlowTypesThatOfferThePermissionWithoutCondition(t *test
 		{
 			name: "a Flow type that does not offer it keeps the filter", flowTypes: `["RefundFlow","SupportAgent"]`,
 			permissions: `["agent.operate"]`,
-			wantQuery: "(FlowType = 'SupportAgent' OR (FlowType = 'RefundFlow' AND DexWorkQueuePermissions = 'agent.operate'))",
+			wantQuery:   "(FlowType = 'SupportAgent' OR (FlowType = 'RefundFlow' AND DexWorkQueuePermissions = 'agent.operate'))",
 		},
 		{
 			name: "no permission chosen", flowTypes: `["SupportAgent"]`, permissions: `[]`,

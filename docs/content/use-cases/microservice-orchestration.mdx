@@ -16,29 +16,27 @@ The process starts with a data value and must:
 2. Start **CallAPI2** and **CallAPI3** concurrently.
 3. Let **CallAPI2** read the current data, call API 2, and end its branch.
 4. Keep **CallAPI3** waiting for either one **Ready** Channel message or a 24-hour durable Timer.
-5. Allow a caller to invoke the **Swap** RPC while the Flow is running. The RPC must return the previous value and replace it with the new value atomically.
+5. Allow a caller to invoke the **Swap** RPC while the Flow is running. The RPC replaces the value and returns the previous one as a single operation.
 6. After a **Ready** message, call API 3 with the latest data and complete the Flow.
 7. If the Timer wins, call API 3, continue to **CallAPI4**, call API 4 with the latest data, and then complete.
 
-The wait is durable. A Worker or Dex restart does not lose the Channel message, Timer deadline, persisted data, or current Step. A **Ready** message normally arrives from another service after its asynchronous work is complete. If it never arrives, the Timer selects the fallback path.
+Another service normally sends **Ready** when its asynchronous work is done.
 
-Potential failures include:
+Failures to handle:
 
-- A downstream API can be unavailable, time out, or reject its input. The Step must report that failure so its configured retry and failure policy can act on it.
-- A downstream call can succeed while its response is lost. Production API operations must be idempotent because Dex may retry the Step.
-- A **Swap** RPC or **Ready** publish can target an unknown or completed Flow and return a client error. Callers should retain the Flow ID and handle that response.
-- No **Ready** message may arrive. This is an expected outcome, not lost progress; the durable Timer eventually routes the Flow through **CallAPI4**.
-- **CallAPI2** and **CallAPI3** can observe different values when **Swap** runs between their Attribute reads. The process intentionally guarantees that each read is durable, not that both concurrent branches share a snapshot.
+- A downstream API can be unavailable, time out, or reject its input. The Step must return that error, so that its retry and failure policy can handle it.
+- A downstream call can succeed and its response can still be lost. Dex may then retry the Step, so production API operations must be idempotent.
+- A **Swap** RPC or **Ready** publish can target an unknown or completed Flow and return a client error. Callers should keep the Flow ID and handle that error.
+- **Ready** may never arrive. This is an expected outcome. When the Timer fires, the Flow continues through **CallAPI4**.
+- If **Swap** runs between the reads of **CallAPI2** and **CallAPI3**, the two Steps see different values. The branches do not share a snapshot. Each reads the value that is current when it runs.
 
-The examples use local dependency stubs. Production adapters should add timeouts, idempotency keys, and the retry or recovery policy appropriate for each API.
+The examples call local stubs. In production, give each API call a timeout, an idempotency key, and a retry or recovery policy that fits that API.
 
 ## Flow design
 
-This interactive definition graph is generated from the runnable Python Flow.
-
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The Flow has one fan-out point and two ways to finish:
+The Flow splits once and can finish in two ways:
 
 ```text
 CallAPI1 ─┬─▶ CallAPI2 ─▶ DeadEnd
@@ -50,18 +48,16 @@ CallAPI1 ─┬─▶ CallAPI2 ─▶ DeadEnd
 
 It combines these design patterns:
 
-- [**Static parallel Steps**](/design-patterns/parallel/static) fan out two known service calls without placing both operations in one retry boundary.
-- **Durable external-event gate** uses **Wait.anyOf** with a Channel and Timer. The Channel handles the normal callback; the Timer guarantees bounded waiting.
-- **Timeout fallback** sends only the timed-out execution to **CallAPI4**. The normal Channel path skips that fallback.
-- **Request-response interaction** exposes **Swap** as a typed RPC so a caller can change persisted state and receive the previous value in one operation.
-- **Durable shared state** stores the current payload in an Attribute. Both parallel branches read it at execution time instead of carrying a stale copy through the graph.
-- **Branch termination** lets **CallAPI2** return **DeadEnd** while the waiting branch owns the business completion result.
+- [**Static parallel Steps**](/design-patterns/parallel/static) run the two service calls as separate Steps, so each one retries on its own.
+- **Event or timeout**: **CallAPI3** uses **Wait.anyOf** on a Channel and a Timer. The Channel carries the normal callback. The Timer limits how long the Flow waits.
+- **Shared state in an Attribute**: both branches read the **Data** Attribute when they run. They use the latest value instead of a copy passed along from an earlier Step.
+- **Branch end**: **CallAPI2** returns **DeadEnd** to end its branch. The waiting branch completes the Flow.
 
 Each downstream API has its own Step. A retry of API 3 therefore does not repeat API 1 or API 2, and the Step execution graph shows exactly which call is waiting, retrying, or complete.
 
 ## Core implementation
 
-The tabs show the Flow signature, topology, persistence schema, **Swap** RPC, parallel fan-out, and Channel-or-Timer wait. Each linked example also includes its dependency stub, HTTP controller, and end-to-end integration test.
+Each tab shows the Flow from the runnable example, including the **Swap** RPC, the parallel Steps, and the Channel-or-Timer wait. The linked example also has the dependency stub, HTTP controller, and an end-to-end integration test.
 
 <SdkTabs
   examples={{
@@ -143,10 +139,10 @@ func NewOrchestrationFlow(applicationService service.MyService) *OrchestrationFl
 
 func (flow *OrchestrationFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(callAPI1Step{service: flow.service}),
-		dex.DefineStep(callAPI2Step{service: flow.service}),
-		dex.DefineStep(callAPI3Step{service: flow.service}),
-		dex.DefineStep(callAPI4Step{service: flow.service}),
+		dex.DefineStartStep(callAPI1{service: flow.service}),
+		dex.DefineStep(callAPI2{service: flow.service}),
+		dex.DefineStep(callAPI3{service: flow.service}),
+		dex.DefineStep(callAPI4{service: flow.service}),
 	}
 }
 
@@ -181,7 +177,7 @@ func (*OrchestrationFlow) Swap(
 ```
 
 ```go
-func (step callAPI1Step) Execute(
+func (step callAPI1) Execute(
 	ctx dex.Context,
 	input string,
 ) (*dex.StepDecision, error) {
@@ -190,12 +186,12 @@ func (step callAPI1Step) Execute(
 		return nil, err
 	}
 	return dex.GoToMany(
-		dex.MovementOf(callAPI2Step{}, nil),
-		dex.MovementOf(callAPI3Step{}, nil),
+		dex.MovementOf(callAPI2{}, nil),
+		dex.MovementOf(callAPI3{}, nil),
 	), nil
 }
 
-func (callAPI3Step) WaitFor(
+func (callAPI3) WaitFor(
 	dex.Context,
 	dex.None,
 ) (*dex.Wait, error) {
@@ -205,7 +201,7 @@ func (callAPI3Step) WaitFor(
 	), nil
 }
 
-func (step callAPI3Step) Execute(
+func (step callAPI3) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
@@ -215,7 +211,7 @@ func (step callAPI3Step) Execute(
 	}
 	step.service.CallAPI3(data)
 	if ctx.HasTimerFired() {
-		return dex.GoTo(callAPI4Step{}, nil), nil
+		return dex.GoTo(callAPI4{}, nil), nil
 	}
 	return dex.GracefulComplete(data), nil
 }
@@ -394,7 +390,7 @@ impl Flow for OrchestrationFlow {
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .function(SWAP_ORCHESTRATION_DATA, Self::swap)
-            .procedure_without_input(SIGNAL_ORCHESTRATION_READY, Self::ready)
+            .procedure_without_input(SIGNAL_ORCHESTRATION_READY, Self::signal_ready)
     }
 }
 ```
@@ -439,7 +435,7 @@ impl Step for CallApiThree {
 
 ## Demo
 
-Run Dex and any language example server, then start Microservice orchestration from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). For the run below, the Flow started with **test initial data**, the **Swap** RPC replaced it with **updated in-flight data**, and a **Ready** message released the wait. **CallAPI1**, **CallAPI2**, and **CallAPI3** completed; **CallAPI4** did not run because the Channel won before the 24-hour Timer.
+Run Dex and any language example server, then start Microservice orchestration from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). For the run below, the Flow started with **test initial data**, the **Swap** RPC replaced it with **updated in-flight data**, and a **Ready** message released the wait. **CallAPI1**, **CallAPI2**, and **CallAPI3** completed; **CallAPI4** did not run, because **Ready** arrived before the 24-hour Timer fired.
 
 ![Completed Microservice orchestration Step execution graph](/img/use-cases/microservice-orchestration-step-execution-graph.jpg)
 

@@ -5,21 +5,21 @@ slug: /concepts/primitives/timer
 
 # Timer
 
-A **Timer** is a durable timer that Dex Server keeps. A Step returns it from
-**WaitFor**, and **Execute** runs when it fires. While the Step waits, no Worker
-holds memory, a thread, or a connection for it.
+A **Timer** is a durable wait until a point in time. Dex Server keeps it. A
+Step returns it from **WaitFor**, and **Execute** runs when it fires. While the
+Step waits, no Worker holds memory, a thread, or a connection for it.
 
 ## When to use a Timer
 
 Use a Timer for a delay, a reminder, or a deadline. Combine it with another
-condition to build a timeout: a Step that waits for any of a
-[Channel](/concepts/primitives/channel) message and a Timer proceeds with whichever
-comes first.
+condition to build a timeout. For example, a Step that waits for either a
+[Channel](/concepts/primitives/channel) message or a Timer proceeds with
+whichever comes first. In **Execute**, the Step checks whether its Timer fired.
 
 ## Guarantees
 
 The server stores the Timer with the Flow. It survives Worker restarts and
-server failover. In **Execute**, the Step checks whether its Timer fired.
+server failover.
 
 ## Wait for a Timer
 
@@ -219,8 +219,11 @@ See [Step](/concepts/step) for how a Step combines conditions in **WaitFor**.
 
 ## Reference
 
-- [Waits](/reference/python/flows-and-steps/waits) and
-  [Condition results](/reference/python/flows-and-steps/waits#condition-results) cover
+The [Timer](/reference/python/timer) page of each SDK reference lists the
+API names in that language.
+
+- [Waits](/reference/python/waits) and
+  [Condition results](/reference/python/waits#condition-results) cover
   how a Timer combines with other conditions and how a Step reads which one
   fired.
 - [Skip a Timer](/reference/server/runtime-client#skip-a-timer) covers the

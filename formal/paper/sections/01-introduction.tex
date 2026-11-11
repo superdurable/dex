@@ -22,8 +22,7 @@ control-flow patterns have direct support, 24 have indirect support, and
 none is unsupported; each rating comes with a runnable example and an
 integration test against a real server.%
 \footnote{The evaluation is on the Dex documentation site, under
-\emph{Concepts, Correctness and expressiveness, Workflow Patterns
-evaluation}.}
+\emph{Correctness and expressiveness, Workflow Patterns evaluation}.}
 A pattern catalog measures breadth against the running system. It does not
 say that some \emph{class} of programs is expressible, and it does not say
 what ``expressible'' means when the engine interleaves the pieces of a
@@ -135,12 +134,16 @@ and Timers.
 The scope is narrow on purpose, and \S\ref{sec:limitations} discusses each
 limit.
 \begin{itemize}
-\item \emph{Failures, under hypotheses.} The failure theorem covers SYNC
-  Step methods only, assumes that no method exhausts its retries and that
-  user code ignores the attempt number and similar context, assumes
-  finitely many failures for liveness, and keeps the timer order of the
-  first theorem as an idealization. Effects may repeat and overlap; the
-  theorem does not make them exactly-once.
+\item \emph{Failures are a separate theorem, under hypotheses.} The first
+  theorem's environment has no crashes, no retries, and no redelivery. This
+  split is deliberate. The first theorem fixes what a Flow does when
+  nothing fails; the second (\S\ref{sec:failures}) relates runs with
+  failures to it. The failure theorem covers SYNC Step methods only,
+  assumes that no method exhausts its retries and that user code ignores
+  the attempt number and similar context, assumes finitely many failures
+  for liveness, and keeps the timer order of the first theorem as an
+  idealization. Effects may repeat and overlap; the theorem does not make
+  them exactly-once.
 \item \emph{A model, not the code.} The Dex side of the theorem is a
   hand-written model of the server, validated by review against the source.
   It is not extracted from the implementation.

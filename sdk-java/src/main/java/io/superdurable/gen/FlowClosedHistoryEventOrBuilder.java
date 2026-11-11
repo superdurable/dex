@@ -69,26 +69,6 @@ public interface FlowClosedHistoryEventOrBuilder extends
       getErrorMessageBytes();
 
   /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never sets this.
-   * </pre>
-   *
-   * <code>string continued_to_run_id = 5;</code>
-   * @return The continuedToRunId.
-   */
-  java.lang.String getContinuedToRunId();
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never sets this.
-   * </pre>
-   *
-   * <code>string continued_to_run_id = 5;</code>
-   * @return The bytes for continuedToRunId.
-   */
-  com.google.protobuf.ByteString
-      getContinuedToRunIdBytes();
-
-  /**
    * <code>string sticky_app_worker_id = 6;</code>
    * @return The stickyAppWorkerId.
    */

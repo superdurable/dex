@@ -1,0 +1,25 @@
+{
+  "type": "AgentImageReference",
+  "wire_kind": "json",
+  "description": "One element of AgentUserMessage.images, AgentMessage.images, and AgentToolCall.images.",
+  "cases": [
+    {
+      "name": "png",
+      "description": "A PNG image.",
+      "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\",\"size_bytes\":68,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\"}",
+      "canonical": "{\"mime_type\":\"image/png\",\"sha256\":\"4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\",\"size_bytes\":68,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\"}"
+    },
+    {
+      "name": "jpeg-at-limit",
+      "description": "A JPEG image of MAX_IMAGE_BYTES.",
+      "wire": "{\"mime_type\":\"image/jpeg\",\"sha256\":\"a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7\",\"size_bytes\":3750000,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7\"}",
+      "canonical": "{\"mime_type\":\"image/jpeg\",\"sha256\":\"a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7\",\"size_bytes\":3750000,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7\"}"
+    },
+    {
+      "name": "without-type",
+      "description": "A reference without type reads as an image.",
+      "wire": "{\"uri\":\"s3://agent-media/sessions/sha256/4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\",\"mime_type\":\"image/png\",\"sha256\":\"4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\",\"size_bytes\":68}",
+      "canonical": "{\"mime_type\":\"image/png\",\"sha256\":\"4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\",\"size_bytes\":68,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f\"}"
+    }
+  ]
+}

@@ -19,6 +19,7 @@ import {
 } from "@superdurable/dex";
 
 import { builtInToolNames, isBlankText, type BuiltInTool } from "./agent-built-in-tools.js";
+import { areValidImageReferences } from "./agent-media.js";
 import {
   isContextCompactionRunner,
   resolveCompactionPolicy,
@@ -314,8 +315,10 @@ export interface AgentSessionFlow<
    *
    * @param context - RPC Context supplied by Dex.
    * @param message - Message to queue.
-   * @returns `true` when queued; `false` when the text is blank, or for a `planMode` message when
-   * {@link AgentSessionOptions.planModeEnabled} is not set.
+   * @returns `true` when queued; `false` when the text is blank, for a `planMode` message when
+   * {@link AgentSessionOptions.planModeEnabled} is not set, or for `images` that `validateImageReferences` refuses
+   * or that the runner cannot take because it does not implement
+   * {@link AgentFrameworkRunner.buildUserMessageWithImages}.
    */
   sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean>;
   /**
@@ -673,10 +676,18 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     })
     public sendUserMessage(context: Context, message: AgentUserMessage): RPCResult<boolean> {
       const planMode = message.planMode ?? false;
+      const images = message.images ?? [];
       if (isBlankText(message.text) || (planMode && !config.planModeEnabled)) {
         return { output: false };
       }
-      persistence.queuedUserMessages.publish(context, { text: message.text, planMode });
+      if (images.length > 0 && (runner.buildUserMessageWithImages === undefined || !areValidImageReferences(images))) {
+        return { output: false };
+      }
+      persistence.queuedUserMessages.publish(context, {
+        text: message.text,
+        planMode,
+        ...(images.length > 0 ? { images } : {}),
+      });
       return { output: true };
     }
 

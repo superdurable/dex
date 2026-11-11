@@ -1,0 +1,25 @@
+---
+id: timer
+title: Timer
+sidebar_label: Timer
+---
+
+# Timer
+
+This page lists the Python SDK names for [Timers](/concepts/primitives/timer).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Python SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Python API | Dex behavior |
+| --- | --- | --- |
+| Wait for a duration | **Timer.by_duration** in **wait_for** | [Firing time](/reference/server/runtime-data#timer-firing-time) |
+| Give the Timer a stable ID | **condition_id** of **Timer.by_duration** | [AnyCombinationOf](./waits.mdx#anycombinationof) |
+| Combine a Timer with other conditions | **Wait.any_of**, **Wait.all_of**, and **Wait.any_combination_of** | [Waits](./waits.mdx) |
+| Check whether a Timer fired | **Context.has_timer_fired** in **execute** | [Condition results](./waits.mdx#condition-results) |
+| Make a waiting Timer ready now | **Client.skip_timer**, with **StepExecutionId** and **TimerId** | [Skip a Timer](/reference/server/runtime-client#skip-a-timer) |
+
+## Example {#example}
+
+Example: [examples/python/dex_examples/primitives/timer/timer_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/timer/timer_flow.py)

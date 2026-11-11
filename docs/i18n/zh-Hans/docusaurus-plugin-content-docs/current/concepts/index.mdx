@@ -7,7 +7,7 @@ slug: /concepts
 
 # Concepts
 
-Dex 的编程模型很精简。Flow 是一个 durable program，Step 推进它，Primitive 保存它的状态并把它和外部连接起来。你的应用通过 Client 驱动 Flow。本页说明这些部分如何配合。每个概念都有自己的页面。
+Dex 的编程模型很精简。Flow 是一个 durable program，Step 推进它，Primitive 保存它的状态并把它和外部连接起来。你的应用通过 Client 驱动 Flow。
 
 ## Flow 和 Step {#flow-and-step}
 
@@ -35,6 +35,10 @@ Primitive 是 Flow 使用的构件。每个 Primitive 都属于一个 Flow。
 
 [Client](/concepts/client) 是应用在 Worker 之外使用的 API，用来启动、调用、读取、等待和运维 Flow。
 
+## Connector {#connector}
+
+[Connector](/concepts/connector) 把 Flow 接到外部服务商，例如邮件或支付服务。它为 Flow 提供调用服务商的现成 Step，以及根据服务商事件启动或更新 Flow 的 Trigger。
+
 ## 它们如何配合
 
 ```text
@@ -52,9 +56,9 @@ Primitive 是 Flow 使用的构件。每个 Primitive 都属于一个 Flow。
 
 **Step** 推进 Flow。Step 可以等待 Channel 消息、Timer 或 SubFlow，然后执行自己的工作，例如通过 Connector 调用外部服务。最后它返回一个 decision，指定接下来的 Step，或者关闭 Flow。Step 失败时，Dex 会重试。
 
-**Attribute** 和 **Channel** 是 Flow 的 durable 状态。Step 和 RPC 读写它们。每个 Step 方法和 RPC 都把状态变更与结果一起提交，见 [Step 的保证](/concepts/step#guarantees)。
+**Attribute** 和 **Channel** 是 Flow 的 durable 状态。Step 和 RPC 读写它们。Dex 把 Step 方法或 RPC 的状态变更和它的结果一起保存，见 [Step 的保证](/concepts/step#guarantees)。
 
-应用通过 **Client** 启动 Flow、调用 RPC、读取 Attribute 和等待变化。RPC 是写入运行中 Flow 的边界。**Stream** 把实时更新送回 UI。
+应用通过 **Client** 启动 Flow、调用 RPC、读取 Attribute 和等待变化。要修改运行中的 Flow，应用调用 RPC。**Stream** 把实时更新送回 UI。
 
 ## Component
 
@@ -68,5 +72,5 @@ Primitive 是 Flow 使用的构件。每个 Primitive 都属于一个 Flow。
 
 - 先读 [Flow](/concepts/flow) 和 [Step](/concepts/step)。各个 Primitive 都建立在它们之上。
 - [Design patterns](/design-patterns) 说明如何组合这些概念解决常见问题。
-- [Correctness and expressiveness](/concepts/correctness-and-expressiveness) 说明 Dex 能表达什么，以及它如何保持正确。
+- [Correctness and expressiveness](/correctness-and-expressiveness) 说明 Dex 能表达什么，以及它如何保持正确。
 - [Developer reference](/reference) 包含参数、默认值、上限和版本细节。

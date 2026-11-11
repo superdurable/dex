@@ -1,6 +1,6 @@
 # Channel and ChannelMap
 
-A Channel is an ordered, durable, typed message queue scoped to one Flow execution. A Step's WaitFor waits on it. One matching wait consumes each message. A canceled Step returns what it consumed; see [Wait and consume](#wait-and-consume).
+A Channel is an ordered, durable, typed message queue scoped to one Flow run. A Step's WaitFor waits on it. One matching wait consumes each message. A canceled Step returns what it consumed; see [Wait and consume](#wait-and-consume).
 
 Use a Channel for queued intent: commands, approvals, events, and joins. Use Attributes for current state and Streams for best-effort progress.
 

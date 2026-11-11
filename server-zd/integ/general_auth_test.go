@@ -83,7 +83,7 @@ func testGeneralAuthentication(t *testing.T) {
 		RequestId: newRequestID(), FlowId: flowID, FlowType: basic.FlowType,
 		FlowTimeoutSeconds: 100, StartStepType: basic.Step1, StepInput: jsonObjValue("authenticated input"),
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
-			FlowConfigOverride: minimumContinueAsNewAsyncDurabilityConfig(),
+			FlowConfigOverride: asyncDurabilityConfig(),
 		}, workerTarget),
 	})
 	require.NoError(t, err)

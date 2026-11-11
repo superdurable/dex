@@ -1,0 +1,60 @@
+---
+title: Install the packages
+sidebar_label: Install
+---
+
+# Install the packages {#install}
+
+## Python {#python}
+
+Install an adapter with its framework. Python adapters are on PyPI. Each one
+brings in the **dex-agents** core and the Dex SDK it supports. They need Python
+3.11 or later.
+
+```bash
+pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
+pip install dex-agents-langgraph
+pip install dex-agents-openai-agents
+pip install dex-agents-google-adk
+pip install dex-agents-claude-agent-sdk
+```
+
+## TypeScript {#typescript}
+
+TypeScript adapters are on npm. The core and the Dex SDK are peer packages, so
+the application owns exactly one copy of each. They need Node 22 or 24.
+
+```bash
+npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai zod
+npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
+npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
+npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
+```
+
+## The core only {#core-only}
+
+To write a runner of your own, install only the core:
+
+```bash
+pip install dex-agents
+npm i @superdurable/dex-agents @superdurable/dex
+```
+
+To use Connector operations as tools, install the core with the Connector SDK.
+See [Connector tools](/reference/agents/0.4.x/connector-tools#install).
+
+## Versions {#versions}
+
+All agents packages share one version line. A Python adapter requires the core
+of the same version. An npm adapter peer-depends on it. Each release pins the
+Dex SDK it supports and the framework range it was tested with. See the
+[compatibility table](https://github.com/superdurable/dex/blob/main/agents/README.md#versions-and-compatibility).
+Without a version, pip and npm install the newest agents release and the Dex
+SDK it pins.
+
+The packages are before 1.0, so a minor release may change their API. Pin
+exact versions in your lockfile. Read the [change log](/reference/agents/0.4.x/changelog)
+before an upgrade.
+
+Build the same session Flow in every process that starts sessions or calls
+their RPCs.

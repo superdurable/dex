@@ -21,6 +21,7 @@ export const SESSION_ATTRIBUTE = {
   toolCalls: 'AgentToolCalls',
   pendingInterrupts: 'PendingInterrupts',
   usage: 'AgentUsage',
+  sessionSettings: 'SessionSettings',
 } as const;
 
 /** A Flow shows the Session tab only when its graph declares all of these. */
@@ -42,6 +43,8 @@ export const SESSION_RPC = {
   answerQuestion: 'answer_question',
   steerUserMessage: 'steer_user_message',
   cancelTurn: 'cancel_turn',
+  sendUserMessage: 'send_user_message',
+  updateSessionSettings: 'update_session_settings',
 } as const;
 
 /** Step types whose input is one tool call ID. */
@@ -65,23 +68,32 @@ export interface AgentSessionSchema {
   cancelTurn?: FlowV2Action;
   /** False for a session Flow without the question Step, such as a Go session. */
   hasQuestions: boolean;
+  /** The RPCs the graph declares; sending and settings need theirs. */
+  rpcNames: readonly string[];
 }
 
-/** The session schema a graph declares, or null when the Flow is not a Dex Agents session. */
+/** The session Start Step type, which Dex Web's start route uses. */
+export const SESSION_START_STEP_TYPE = 'StartAgentSession';
+
+/**
+ * The session schema a graph declares, or null when the Flow is not a Dex Agents session.
+ *
+ * Mirrors loadAgentSession in web/flow_rendering_agent_session.go, which guards the session routes.
+ */
 export function agentSessionSchema(
   graph: FlowDefinitionGraph | undefined,
   definition: FlowV2Definition | undefined,
 ): AgentSessionSchema | null {
   if (!graph || graph.schemaVersion !== '2.0' || !graph.valid) return null;
-  const attributes = new Map(
-    graph.nodes
-      .filter((node) => node.kind === 'attribute')
-      .map((node) => [node.name, node.resource?.map === true]),
-  );
-  for (const name of REQUIRED_SESSION_ATTRIBUTES) {
-    if (!attributes.has(name)) return null;
-    if (MAP_ATTRIBUTES.includes(name) && attributes.get(name) !== true) return null;
-  }
+  // Each required Attribute counts by its own name and kind; a repeated node never stands in for another.
+  const isDeclared = (name: string) => graph.nodes.some((node) => (
+    node.kind === 'attribute' && node.name === name && (node.resource?.map === true) === MAP_ATTRIBUTES.includes(name)
+  ));
+  if (!REQUIRED_SESSION_ATTRIBUTES.every(isDeclared)) return null;
+  const hasStartStep = graph.nodes.some((node) => (
+    node.kind === 'step' && node.name === SESSION_START_STEP_TYPE && node.start === true
+  ));
+  if (!hasStartStep) return null;
   const stepTypes = new Set(graph.nodes.filter((node) => node.kind === 'step').map((node) => node.name));
   const actions = definition?.actions ?? graph.v2?.actions ?? [];
   const action = (rpcName: string) => actions.find((candidate) => candidate.rpcName === rpcName);
@@ -92,6 +104,7 @@ export function agentSessionSchema(
     steerUserMessage: action(SESSION_RPC.steerUserMessage),
     cancelTurn: action(SESSION_RPC.cancelTurn),
     hasQuestions: stepTypes.has(QUESTION_STEP_TYPE),
+    rpcNames: graph.nodes.filter((node) => node.kind === 'rpc').map((node) => node.name),
   };
 }
 
@@ -264,6 +277,11 @@ export function decodePendingInterrupts(value: unknown): AgentInterruptRecord[] 
     });
   }
   return interrupts;
+}
+
+/** Decodes the SessionSettings Attribute: one JSON object. */
+export function decodeSessionSettings(value: unknown): Record<string, unknown> | null {
+  return isData(value) ? value : null;
 }
 
 export function decodeAgentUsage(value: unknown): AgentUsageRecord | null {

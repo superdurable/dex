@@ -6,9 +6,9 @@ sidebar_label: Local Connector setup
 # Local Connector setup
 
 Dex Web can configure official Connector releases for a local application.
-The feature runs only in loopback-bound **dexcli dev**. Production Dex Web,
-non-loopback listeners, and blobstore definition sources do not expose the
-setup APIs.
+This works only in **dexcli dev** bound to a loopback address. The setup APIs
+are not available in production Dex Web, on a non-loopback listener, or with a
+blobstore definition source.
 
 ## Start Dex Web
 
@@ -72,13 +72,17 @@ connection lasts only while Dex Web runs: restarting **dexcli dev** drops it,
 and **Remove connection** drops it at once. **Delete connection** deletes a
 saved one from the file. It does not revoke the provider grant.
 
-A save, an OAuth authorization, a delete, or a Trigger binding save checks,
-when it writes, that nothing changed the connection since it started. If the
-connection was deleted or added again, a Flow moved it to another release, or
-another save changed it, Dex Web changes
-nothing and returns **CONNECTOR_CONNECTION_CHANGED**. Reload the page and set
-the connection up again. Dex Web makes these checks within its own process
-only, so run one **dexcli dev** at a time for each connector directory.
+Before Dex Web writes the result of a save, an OAuth authorization, a delete,
+or a Trigger binding save, it checks that nothing changed the connection since
+that operation started. If the connection was deleted or added again, a Flow moved
+it to another release, or another save changed it, Dex Web changes nothing and
+returns **CONNECTOR_CONNECTION_CHANGED**. Reload the page and set
+the connection up again. Dex Web checks the saved connection against the file
+as it is when it writes, so a credential that an application refreshed and
+wrote back in the meantime also counts as a change. Dex Web keeps added
+connections, and what it needs to detect a connection deleted or added again,
+in its own process only. Run one **dexcli dev** at a time for each connector
+directory.
 
 When a Flow later uses the same Connector ID and connection name, the
 connection becomes that Flow's connection. If the Flow uses another module
@@ -112,8 +116,45 @@ Give each stack a different directory when they must not share accounts.
 
 The directory is created with mode **0700** and the file with mode **0600**.
 Dex rejects symlink files, non-regular files, and existing credential files
-with wider permissions. Updates use a same-directory temporary file, sync, and
-atomic rename so an application never reads a partial document.
+with wider permissions. Dex writes each update to a temporary file in the same
+directory, syncs it, and renames it into place, so an application never reads
+a partial file.
+
+Since 1.43, every write to **connections.json** holds an exclusive lock on
+**connections.json.lock** in the same directory. An application that uses the
+connectors Go SDK takes the same lock when it writes back a refreshed
+credential, so neither write overwrites the other. Dex Web reads the file again
+inside the lock and creates the lock file with mode **0600** if it is missing.
+It never deletes the lock file. When another process holds the lock for more
+than 15 seconds, the write changes nothing and fails with HTTP 503
+**CONNECTOR_CONNECTIONS_FILE_BUSY**. Try the save again. The lock uses
+**flock** on macOS and Linux. Other platforms take no lock.
+
+Since 1.43, each connection record that Dex Web saves for an authorization
+carries a top-level **authorizationId** field, next to **provider** and
+**authMethodId**. It is a random UUID version 4 string and is not secret. It
+identifies the account behind the credentials. Dex Web generates a new value
+when an authorization completes or the credentials change: when it saves a
+newly added connection, after an OAuth authorization or reauthorization, and
+when an edit changes the stored credentials. Credentials count as changed when
+their JSON values differ. Key order, whitespace, and string escapes do not
+count. An edit that keeps every stored credential keeps the existing value,
+even when it changes the connection's settings. Trigger binding changes and
+saves of other connections leave the record unchanged. A credential write-back
+from the connectors SDK keeps the value.
+
+A tool that must notice when a connection with the same name points somewhere
+else compares two things. A change of **configuration**, such as a workspace ID
+or a base URL, shows in the non-secret **configuration** itself, so
+**authorizationId** does not change for it. A new **authorizationId** shows
+that the connection now holds a different authorization. Records without the
+field stay valid, and Dex Web adds the field to a record only when it saves an
+authorization for it. The Connectors page and its API do not show the value.
+
+Do not downgrade Dex Web to 1.42 or older once 1.43 has written
+**authorizationId**. Older versions reject unknown record fields, so they fail
+to load **connections.json**. To downgrade anyway, first remove every
+**authorizationId** field from the file.
 
 Restarting Dex Web reloads existing connections and cached UI artifacts. It
 does not clear the JSON file. An OAuth flow or Connector UI session that was in
@@ -148,20 +189,22 @@ For an OAuth connection, choose **Reauthorize** instead.
 A Connector can render one connection setting, such as the default model, with
 its own picker. The picker appears after the connection is saved.
 
-OAuth always uses state and a ten-minute single-use session. Connectors use
+OAuth always uses the state parameter and a single-use session that expires
+after ten minutes. Connectors use
 PKCE when their provider supports that authorization flow. Unless the release
 maps them to credentials, the OAuth client ID and client secret remain in
 memory and are not written to disk. Dex stores the access token after checking
-the granted scopes. Dex Web does not refresh access itself, and it stores a
-refresh token only when the release maps one. Reauthorize when the connection
+the granted scopes. Dex Web does not refresh the access token itself, and it
+stores a refresh token only when the release maps one. Reauthorize when the connection
 becomes **Expired**. Changed in 1.42: after the provider redirects back, the
 Connectors page selects the connection you authorized.
 
-Dex displays the exact Redirect URI before OAuth starts so it can be copied
-into the provider application. When a Connector declares a read-only identity
-derivation, Dex calls that endpoint with the new access token and stores
-the claim only after its declared verification flag is true. Derived fields,
-such as a verified primary email, do not appear as free-text inputs.
+Before OAuth starts, Dex shows the exact Redirect URI so you can copy it into
+the provider application. A Connector can declare a read-only endpoint that
+looks up an identity claim, such as a verified primary email. Dex calls that
+endpoint with the new access token, and stores the claim only when the
+declared verification flag is true. Fields filled this way do not appear as
+free-text inputs.
 
 Some Connectors cannot know the authorization server in advance, such as the
 OAuth 2.0 HTTP Connector for your own identity provider. Their release asks for
@@ -198,12 +241,12 @@ the provider grant.
 
 ## Configure Slack Trigger bindings
 
-The Slack connection and each Trigger binding are configured separately. One
-**slack-workspace** connection can therefore be reused by multiple Flows while
-each Flow keeps its own channel, requester, approval phrase, and approver list.
+You configure the Slack connection and each Trigger binding separately. So
+several Flows can share one **slack-workspace** connection, and each Flow keeps
+its own channel, requester, approval phrase, and approver list.
 
-Slack OAuth stores both the bot token and the user token. The app-level token
-cannot be issued by OAuth. Create an **xapp-** token with the
+Slack OAuth stores both the bot token and the user token. OAuth cannot issue
+the app-level token. Create an **xapp-** token with the
 **connections:write** scope and enter it in the secret field. Tokens stay in
 the Dex Web host and are never sent to the sandboxed Studio UI.
 
@@ -245,9 +288,9 @@ Credentials are read again before each provider call, so reauthorization takes
 effect on the next call without restarting the application.
 
 The JSON file stores plaintext secrets for local development. Do not commit,
-upload, or use it as a production secret broker. Connector secrets become
-**SecretString** values at the application boundary and must not enter Flow
-state or logs.
+upload, or use it as a production secret broker. In the application,
+Connector secrets are **SecretString** values. Keep them out of Flow state and
+logs.
 
 The same file stores **triggerBindings** outside each workspace connection.
 Each binding is uniquely identified by Connector ID, connection name, Trigger

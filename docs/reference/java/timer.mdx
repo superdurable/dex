@@ -1,0 +1,25 @@
+---
+id: timer
+title: Timer
+sidebar_label: Timer
+---
+
+# Timer
+
+This page lists the Java SDK names for [Timers](/concepts/primitives/timer).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Java SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Java API | Dex behavior |
+| --- | --- | --- |
+| Wait for a duration | **Timer.byDuration** in **waitFor** | [Firing time](/reference/server/runtime-data#timer-firing-time) |
+| Give the Timer a stable ID | **conditionId** of **Timer.byDuration** | [AnyCombinationOf](./waits.mdx#anycombinationof) |
+| Combine a Timer with other conditions | **Wait.anyOf**, **Wait.allOf**, and **Wait.anyCombinationOf** | [Waits](./waits.mdx) |
+| Check whether a Timer fired | **Context.hasTimerFired** in **execute** | [Condition results](./waits.mdx#condition-results) |
+| Make a waiting Timer ready now | **Client.skipTimer**, with **StepExecutionId** and **TimerId** | [Skip a Timer](/reference/server/runtime-client#skip-a-timer) |
+
+## Example {#example}
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/timer/TimerFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/timer/TimerFlow.java)

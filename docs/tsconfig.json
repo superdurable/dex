@@ -11,6 +11,7 @@
       "react/*": ["./node_modules/@types/react/*"],
       "@xyflow/react": ["./node_modules/@xyflow/react"],
       "elkjs/*": ["./node_modules/elkjs/*"],
+      "lucide-react": ["./node_modules/lucide-react"],
       "@superdurable/flow-definition-renderer": ["./node_modules/@superdurable/flow-definition-renderer/src/index.ts"]
     }
   },

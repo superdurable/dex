@@ -24,7 +24,6 @@ class FlowStatus(Enum):
         CANCELED: The Flow cooperatively accepted a cancellation request.
         TERMINATED: The Flow was forcibly terminated.
         SERVER_SIDE_TIMEOUT_INTERNAL_ONLY: Reserved backend hard-timeout status.
-        CONTINUED_AS_NEW: This run rolled forward into a new run.
     """
 
     RUNNING = "running"
@@ -33,7 +32,6 @@ class FlowStatus(Enum):
     CANCELED = "canceled"
     TERMINATED = "terminated"
     SERVER_SIDE_TIMEOUT_INTERNAL_ONLY = "server_side_timeout_internal_only"
-    CONTINUED_AS_NEW = "continued_as_new"
 
 
 @dataclass(frozen=True)

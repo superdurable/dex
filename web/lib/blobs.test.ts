@@ -29,8 +29,8 @@ describe('blob hydration', () => {
           values: [reference('channel', 'object'), reference('channel', 'object')],
         },
       },
-      continued: {
-        stepsToResume: [{ conditionResults: reference('result', 'object') }],
+      nested: {
+        steps: [{ conditionResults: reference('result', 'object') }],
       },
     };
 

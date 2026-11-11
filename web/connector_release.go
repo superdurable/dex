@@ -20,13 +20,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -723,16 +723,68 @@ func equalConnectorCapabilities(manifestCapabilities []string, releaseCapabiliti
 }
 
 // connectorUIContentSecurityPolicy allows remote images only to bundles that never hold a typed credential.
-func connectorUIContentSecurityPolicy(canWriteConnection bool) string {
+func connectorUIContentSecurityPolicy(canWriteConnection bool, frameAncestors string) string {
 	images := "img-src 'self' data: https:"
 	if canWriteConnection {
 		images = "img-src 'self' data:"
 	}
+	// The sandbox mirrors the Connectors page iframe, so direct visits get the same isolation.
 	return "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " + images +
-		"; connect-src 'none'; base-uri 'none'; form-action 'none'"
+		"; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors " + frameAncestors +
+		"; sandbox allow-scripts"
 }
 
-func serveConnectorUIAsset(response http.ResponseWriter, request *http.Request, assetPath string, root string, canWriteConnection bool) {
+// connectorUIFrameAncestors adds 'self' to Dex Web's own list, because frame-ancestors checks every ancestor.
+func connectorUIFrameAncestors(dexWebFrameAncestors []string) string {
+	sources := []string{selfFrameAncestor}
+	for _, source := range dexWebFrameAncestors {
+		if !slices.Contains(sources, source) {
+			sources = append(sources, source)
+		}
+	}
+	return strings.Join(sources, " ")
+}
+
+// connectorUIAssetContentTypes is explicit, because mime.TypeByExtension also reads machine-specific tables.
+var connectorUIAssetContentTypes = map[string]string{
+	".css":   "text/css; charset=utf-8",
+	".gif":   "image/gif",
+	".htm":   "text/html; charset=utf-8",
+	".html":  "text/html; charset=utf-8",
+	".ico":   "image/x-icon",
+	".jpeg":  "image/jpeg",
+	".jpg":   "image/jpeg",
+	".js":    "text/javascript; charset=utf-8",
+	".json":  "application/json",
+	".map":   "application/json",
+	".mjs":   "text/javascript; charset=utf-8",
+	".otf":   "font/otf",
+	".png":   "image/png",
+	".svg":   "image/svg+xml",
+	".ttf":   "font/ttf",
+	".txt":   "text/plain; charset=utf-8",
+	".wasm":  "application/wasm",
+	".webp":  "image/webp",
+	".woff":  "font/woff",
+	".woff2": "font/woff2",
+}
+
+// connectorUIAssetContentType never lets a browser sniff an unknown file into an active type.
+func connectorUIAssetContentType(assetPath string) string {
+	if contentType, found := connectorUIAssetContentTypes[strings.ToLower(path.Ext(assetPath))]; found {
+		return contentType
+	}
+	return "application/octet-stream"
+}
+
+func serveConnectorUIAsset(
+	response http.ResponseWriter,
+	request *http.Request,
+	assetPath string,
+	root string,
+	canWriteConnection bool,
+	frameAncestors string,
+) {
 	cleanPath := path.Clean(assetPath)
 	if cleanPath == "." || strings.HasPrefix(cleanPath, "../") || path.IsAbs(cleanPath) {
 		http.NotFound(response, request)
@@ -753,10 +805,10 @@ func serveConnectorUIAsset(response http.ResponseWriter, request *http.Request, 
 		http.NotFound(response, request)
 		return
 	}
-	contentType := mime.TypeByExtension(filepath.Ext(cleanPath))
-	if contentType != "" {
-		response.Header().Set("Content-Type", contentType)
-	}
-	response.Header().Set("Content-Security-Policy", connectorUIContentSecurityPolicy(canWriteConnection))
+	response.Header().Set("Content-Type", connectorUIAssetContentType(cleanPath))
+	response.Header().Set("X-Content-Type-Options", "nosniff")
+	response.Header().Set("Content-Security-Policy", connectorUIContentSecurityPolicy(canWriteConnection, frameAncestors))
+	// Dex Web's own Connectors page frames this asset, so the entry's frame denial must not reach it.
+	response.Header().Del("X-Frame-Options")
 	http.ServeContent(response, request, cleanPath, info.ModTime(), asset)
 }

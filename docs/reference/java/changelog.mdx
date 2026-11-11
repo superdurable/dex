@@ -8,6 +8,16 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Java SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.43 {#v1-43}
+
+Not released yet. The next minor release, sdk-java/v1.43.0, ships these changes.
+
+### Breaking
+
+- Removed **Client.triggerContinueAsNew**, **FlowStatus.CONTINUED_AS_NEW**, **FlowConfig.Builder.continueAsNewThreshold**, **FlowConfig.Builder.continueAsNewPageSizeBytes**, **SearchFlowsOptions**, and the four-argument **Client.searchFlows** overload. Use the three-argument search method. [Reference](/reference/java/flow#flow-config).
+- Removed **WaitForStepCompletionOptions.Builder.internalHandlerTimeout** and **WaitForAttributeOptions.Builder.internalHandlerTimeout**. Request IDs remain accepted but the server does not read them for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **getFlowExecutionId** to **getFlowRunId**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
+
 ## 1.41 {#v1-41}
 
 Released 2026-11-09 as [sdk-java/v1.41.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.41.0). No API or behavior changes.
@@ -66,7 +76,7 @@ Released 2026-11-06 as [sdk-java/v1.35.0](https://github.com/superdurable/dex/re
 - Worker startup fails when **maxConcurrentTasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/java/workers#capacity-and-shutdown).
 - **RetryPolicy.Builder.totalDuration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/java/1.35/io/superdurable/dex/RetryPolicy.Builder.html).
 - A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
-- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/java/flows-and-steps/failure-and-redelivery#same-attempt-redelivery).
+- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/java/failure-and-retries#same-attempt-redelivery).
 
 ### Added
 

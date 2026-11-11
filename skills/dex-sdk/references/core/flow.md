@@ -1,13 +1,13 @@
 # Flow
 
-A Flow is one durable business execution with a stable identity and lifecycle, such as an order, a subscription, a transfer, an approval, or a processing job. It owns its Step list, its persistence schema, and its RPC handlers. Dex persists every state change, so the Flow survives Worker and Server restarts.
+A Flow is one durable run of a business process, with a stable identity and lifecycle, such as an order, a subscription, a transfer, an approval, or a processing job. It owns its Step list, its persistence schema, and its RPC handlers. Dex persists every state change, so the Flow survives Worker and Server restarts.
 
 ## Identifiers
 
 | Identifier | Set by | Meaning | Rule |
 | --- | --- | --- | --- |
 | Flow type | the application, from the Flow implementation | Routes Worker calls and groups search results | Name it after the domain, such as `ApprovalFlow`. Never just `Flow`. |
-| Flow ID | the caller at start | Business identity of one execution | Derive it from the business operation or resource. Address a Flow by Flow ID. |
+| Flow ID | the caller at start | Business identity of one Flow run | Derive it from the business operation or resource. Address a Flow by Flow ID. |
 | Run ID | Dex Server | One run of that Flow ID | Diagnostic only. Never a business revision or fence. Time travel keeps it. |
 | Run attempt | Dex Server | Increments on each time travel of a run | Capture it before an operator mutation. |
 | Step type | the application | Stable name of a Step definition in the Flow | Part of the durable contract of open runs, not just a function name. |
@@ -133,7 +133,7 @@ The timeout handler is the Flow's last chance to record a business outcome and c
 - Flow configuration is persisted at start. Changing the application default affects new Flows only.
 - A configuration update merges only the supplied fields. It does not recall work already dispatched.
 - A method's durability is fixed when the method call becomes pending. A changed default affects later method calls only.
-- Attribute Store sync requires the Flow to name its stores at start. See [external-attribute-sync.md](external-attribute-sync.md).
+- Attribute Store sync requires the Flow to name its stores at start. See [attribute.md](attribute.md#attribute-store-sync).
 - Indexing active Step types for search is an explicit opt-in in Flow configuration.
 
 The current option names, defaults, and limits are in the language's Developer reference. See [SKILL.md](../../SKILL.md#find-the-right-reference-version).

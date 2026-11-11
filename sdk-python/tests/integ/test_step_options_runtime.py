@@ -38,7 +38,7 @@ def test_skip_wait_for_execute_only_steps() -> None:
             flow,
             flow_id,
             0,
-            StartFlowOptions(config_override=FlowConfig(continue_as_new_threshold=1)),
+            StartFlowOptions(config_override=FlowConfig(history_window_events=2500)),
         )
         assert (
             environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(int)

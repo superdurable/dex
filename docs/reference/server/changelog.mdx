@@ -8,6 +8,22 @@ sidebar_label: Change log
 
 This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
 
+## 0.1.26 {#v0-1-26}
+
+Not released yet. The next release, server-zd/v0.1.26, ships these changes.
+
+### Breaking
+
+- Removed **FlowService.TriggerContinueAsNew** and **TriggerContinueAsNewRequest**. The RPC previously returned UNIMPLEMENTED. [Reference](/reference/server/runtime-client).
+- Removed **FlowConfig.continue_as_new_threshold** (2), **continue_as_new_page_size_in_bytes** (3), **SearchFlowsRequest.include_continued_as_new** (4), **FlowStatus.FLOW_STATUS_CONTINUED_AS_NEW** (7), **FlowStartedOrContinuedHistoryEvent.continued_start** (11), **FlowContinuedStart**, and **FlowClosedHistoryEvent.continued_to_run_id** (5). Their field numbers and names, and the enum number and name, are reserved where applicable. [Reference](/reference/server/runtime-client#update-flowconfig).
+- A search query that compares **ExecutionStatus** with **ContinuedAsNew**, such as **ExecutionStatus = 'ContinuedAsNew'** or **ExecutionStatus != 'ContinuedAsNew'**, fails with INVALID_ARGUMENT. Remove that predicate from stored queries. [Reference](/reference/server/runtime-client#search-flows).
+- Removed **WaitForStepCompletionRequest.internal_handler_timeout_seconds** (5) and **WaitForAttributeRequest.internal_handler_timeout_seconds** (4). The server ignored positive values. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Renamed **FlowExecutionID** to **FlowRunID** and both **flow_execution_id** fields to **flow_run_id** without changing field numbers. ProtoJSON field names change from **flowExecutionId** to **flowRunId**; update JSON clients and generated-code consumers. [Reference](/reference/server/runtime-client#describe-a-flow).
+
+### Added
+
+- **dev** and **local** accept **--application-s3-listen** and **--application-s3-bucket**. They serve one more S3-compatible bucket for applications on a loopback address, with its own store in **application-s3** in the data directory. Applications cannot reach the server's own bucket through it. [Reference](/reference/server/configuration#single-node-application-bucket).
+
 ## 0.1.25 {#v0-1-25}
 
 Released 2026-11-09 as [server-zd/v0.1.25](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.25).
@@ -189,8 +205,8 @@ Released 2026-11-05 as [server-zd/v0.1.17](https://github.com/superdurable/dex/r
 ### Breaking
 
 - Protocol version 4 requires a coordinated server upgrade: stop all old active and standby processes before starting the new version, then upgrade SDKs. After the new binary writes to a storage prefix, roll forward or restore a pre-upgrade backup into a new prefix. [Reference](/reference/server/upgrades).
-- A Step attempt interrupted after its hand-out was committed now fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/python/flows-and-steps/failure-and-redelivery#same-attempt-redelivery).
-- Retry total duration starts at the first hand-out and only gates scheduling another retry. Use method timeouts to bound a running attempt. [Reference](/reference/python/flows-and-steps/step-options#timeouts-and-total-duration).
+- A Step attempt interrupted after its hand-out was committed now fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/python/failure-and-retries#same-attempt-redelivery).
+- Retry total duration starts at the first hand-out and only gates scheduling another retry. Use method timeouts to bound a running attempt. [Reference](/reference/python/step-options#timeouts-and-total-duration).
 - Steps with no available or supporting Worker now wait durably instead of failing with **NO_WORKER_AVAILABLE**. Set a Flow timeout when that wait must be bounded; **matching.dispatchWait** now applies only to RPCs. [Reference](/reference/server/workers#step-task-queue).
 - Worker startup fails when its requested concurrency exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower Worker concurrency or raise that cap and **matching.maxStreams** first. [Reference](/reference/server/workers#pull-worker-dispatch).
 - **limits.maxChildFlowResultBytes** now limits child Flow results to 16 MiB by default. Raise it before starting affected runs or reduce result size. [Reference](/reference/server/configuration#limits).

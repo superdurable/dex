@@ -198,7 +198,6 @@ async def compile_async_get_attributes(async_client: AsyncClient) -> None:
 
 
 def compile_lifecycle(client: Client, worker: Worker) -> None:
-    client.trigger_continue_as_new("flow-id")
     with client:
         pass
     with worker:

@@ -17,6 +17,7 @@ import {
   Puzzle,
   Rocket,
   Shapes,
+  ShieldCheck,
   Sparkles,
   Workflow,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ export type DocsSectionKey =
   | 'agent-skills'
   | 'design-patterns'
   | 'product-examples'
+  | 'correctness'
   | 'reference'
   | 'glossary';
 
@@ -42,6 +44,7 @@ export const docsSectionIcons: Record<DocsSectionKey, LucideIcon> = {
   'agent-skills': Sparkles,
   'design-patterns': Puzzle,
   'product-examples': Workflow,
+  correctness: ShieldCheck,
   reference: Code2,
   glossary: BookMarked,
 };

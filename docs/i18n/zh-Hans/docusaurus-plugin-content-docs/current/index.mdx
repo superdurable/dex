@@ -7,26 +7,31 @@ slug: /
 
 # Dex 文档
 
-Dex 是 **Durable Execution**——面向后端工程的分布式系统抽象。Durable 存储持久化数据；Durable Execution 持久化 **数据和作为 execution 的动作**。Dex 把这个想法做成结构：Flow、Step、Connector、Attribute、Channel、RPC，就是普通应用代码。
+Dex 是一个 **Durable Execution** 平台。数据库保存你的数据；Dex 还会保存流程的进度：哪些 Step 已经运行、返回了什么、流程正在等什么。进程崩溃、重启，或者等了很久之后，流程都会从停下的地方继续。
+
+你用普通的应用代码写流程，用到的是 Flow、Step、Attribute、Channel、RPC 和 Connector。
 
 <div className="docs-home-sections">
-  <DocsSection section="intro" to="/intro/what-is-durable-execution" title="从这里开始">
-    什么是 Durable Execution、为什么选 Dex，以及在 Quick Start 里写出第一个 Flow。
-  </DocsSection>
-  <DocsSection section="concepts" to="/concepts" title="Concepts">
-    Flow、Step、Attribute、RPC、Channel、Stream、Timer、SubFlow 和 Client。
-  </DocsSection>
-  <DocsSection section="components" to="/components" title="Components">
-    Application、server、CLI、Web、connector，以及它们如何一起运行。
-  </DocsSection>
-  <DocsSection section="design-patterns" to="/design-patterns" title="Design Patterns">
-    并行任务、定时器、失败处理、轮询和 Channel 排空等经过验证的写法。
-  </DocsSection>
-  <DocsSection section="product-examples" to="/use-cases" title="产品示例">
-    完整的业务流程，例如 AI agent、订阅和转账。
+  <DocsSection section="intro" to="/intro/what-is-dex" title="从这里开始">
+    为什么选 Dex、在 Quick Start 里写出第一个 Flow，以及 Dex 与数据库的对比。
   </DocsSection>
   <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="使用 AI 构建">
     安装 Dex skills，让 coding agent 写出正确的 Dex 代码。
+  </DocsSection>
+  <DocsSection section="concepts" to="/concepts" title="Concepts">
+    Flow、Step、Attribute、RPC、Channel、Stream、Timer、SubFlow、Client 和 Connector。
+  </DocsSection>
+  <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
+    Dex 能表达什么的机器验证证明，以及按 Workflow Patterns 做的评估。
+  </DocsSection>
+  <DocsSection section="components" to="/components" title="Components">
+    Application、server、CLI、Web，以及它们如何一起运行。
+  </DocsSection>
+  <DocsSection section="design-patterns" to="/design-patterns" title="Design Patterns">
+    并行任务、定时器、失败处理、轮询和 Channel 排空等可复用的 Flow 写法。
+  </DocsSection>
+  <DocsSection section="product-examples" to="/use-cases" title="产品示例">
+    完整的业务流程，例如 AI agent、订阅和转账。
   </DocsSection>
   <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Agent Frameworks">
     把 AI agent 框架作为 durable Flow 跑在 Dex 上。

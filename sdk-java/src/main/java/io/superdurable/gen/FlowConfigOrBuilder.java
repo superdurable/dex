@@ -27,48 +27,6 @@ public interface FlowConfigOrBuilder extends
   io.superdurable.gen.ActiveStepSearchMode getActiveStepSearchMode();
 
   /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-   * value in the Flow configuration, and otherwise ignores it.
-   * </pre>
-   *
-   * <code>optional int32 continue_as_new_threshold = 2;</code>
-   * @return Whether the continueAsNewThreshold field is set.
-   */
-  boolean hasContinueAsNewThreshold();
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-   * value in the Flow configuration, and otherwise ignores it.
-   * </pre>
-   *
-   * <code>optional int32 continue_as_new_threshold = 2;</code>
-   * @return The continueAsNewThreshold.
-   */
-  int getContinueAsNewThreshold();
-
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-   * value in the Flow configuration, and otherwise ignores it.
-   * </pre>
-   *
-   * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
-   * @return Whether the continueAsNewPageSizeInBytes field is set.
-   */
-  boolean hasContinueAsNewPageSizeInBytes();
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-   * value in the Flow configuration, and otherwise ignores it.
-   * </pre>
-   *
-   * <code>optional int32 continue_as_new_page_size_in_bytes = 3;</code>
-   * @return The continueAsNewPageSizeInBytes.
-   */
-  int getContinueAsNewPageSizeInBytes();
-
-  /**
    * <code>optional .dex.StepDurability step_durability = 4;</code>
    * @return Whether the stepDurability field is set.
    */

@@ -218,7 +218,7 @@ condition:
 Combine conditions with **AnyOf** or **AllOf**. **AnyCombinationOf** accepts
 any one of several groups of conditions. After the wait, **Execute** reads what
 satisfied it, such as the Channel messages it consumed. See
-[Waits](/reference/python/flows-and-steps/waits).
+[Waits](/reference/python/waits).
 
 ## StepDecision {#stepdecision-movements}
 
@@ -240,11 +240,8 @@ Flow result. When several completing decisions return an output, the result
 keeps each one. Only a Flow that completes keeps these outputs. If the Flow does
 not complete because it fails, is canceled, is terminated, or times out, its
 result has no outputs.
-A decision can also cancel other active Steps. Dex then returns the Channel
-messages that each canceled Step's wait consumed, unless the decision also
-closes the Flow with **ForceComplete** or **ForceFail**. A canceled Step never
-receives the messages that the canceling method publishes.
-See the
+
+A decision can also cancel other active Steps. See the
 [Parallel Steps](/design-patterns/parallel) and
 [Parallel SubFlows](/design-patterns/parallel-subflows) patterns.
 
@@ -258,9 +255,9 @@ A Step returns **StepOptions** to control how its methods run. **WaitFor** and
 - <a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="step-failed-events-and-last-failure-info"></a>**Failure
   policy** decides what happens when retries run out. By default the Flow
   fails. **Execute** can go to a recovery Step instead. **WaitFor** can proceed
-  to **Execute**. See [WaitFor failure policy](/reference/python/flows-and-steps/step-options#waitfor-failure-policy),
-  [Execute failure policy](/reference/python/flows-and-steps/step-options#execute-failure-policy), and
-  [Last failure info](/reference/python/flows-and-steps/step-options#last-failure-info).
+  to **Execute**. See [WaitFor failure policy](/reference/python/failure-and-retries#waitfor-failure-policy),
+  [Execute failure policy](/reference/python/failure-and-retries#execute-failure-policy), and
+  [Last failure info](/reference/python/failure-and-retries#last-failure-info).
 - **Durability** chooses when Dex stores the result. **SYNC**, the default,
   stores it before the next work starts. **ASYNC** is faster, but a server
   failure can make the method run again.
@@ -272,9 +269,9 @@ A **StepDecision** can override the options for one Step execution.
 
 ## Guarantees {#guarantees}
 
-Each **WaitFor** or **Execute** call is a separate commit. Dex commits its
+Dex saves each **WaitFor** or **Execute** call on its own. It saves the call's
 Attribute writes and Channel publications together with its result, and only
-when the method succeeds. Calls to external systems are outside this commit.
+when the method succeeds. Calls to external systems are not part of this save.
 
 A Step method's changes take effect all at once. They are not protected from
 other Steps and RPCs, though. A method reads the Flow state as it was when Dex
@@ -295,28 +292,28 @@ A Step method can run more than once. A retry runs it again after a failure.
 Dex cannot always tell whether a failed attempt ran the work. Make each
 external effect idempotent. Key it by the Flow ID and the StepExecutionID, or
 by your own business key. See
-[Failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery) for the cases where
+[Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery) for the cases where
 Dex cannot tell.
 
 When retries run out, the recovery Step learns whether the work certainly did
 not run, or may have run.
 
-Canceling a Step discards everything its current method has not committed: its
+Canceling a Step discards everything its current method has not saved: its
 Attribute writes, its Channel publications, and its decision. What its
-**WaitFor** already committed stays. A decision or an RPC never cancels the Steps that it
+**WaitFor** already saved stays. A decision or an RPC never cancels the Steps that it
 starts itself. [Channel guarantees](/concepts/primitives/channel#guarantees)
 say what happens to the messages a canceled Step consumed.
 
-Cancellation is cooperative. A canceled method should check for cancellation
-and return. Until it does, its code keeps running. Its calls to external
+Dex does not stop a canceled method's code. The method should check for
+cancellation and return. Until it does, its code keeps running. Its calls to external
 systems still take effect, even after the Flow has closed.
 
-**GracefulComplete** ends its own branch and asks Dex to complete the Flow. As
-soon as no Step is active, Dex begins to complete the Flow. The Flow can stay
-**RUNNING** briefly while Dex finishes pending Attribute Sync writes and
-transactional RPCs that already started. Until no Step is active, other Steps and RPCs
-can still start new Steps, and those Steps delay completion too. The request
-stays in force. A later branch that ends with **DeadEnd** does not withdraw it.
+**GracefulComplete** ends its own branch and asks Dex to complete the Flow. Dex
+begins to complete the Flow as soon as no Step is active. Until then, other
+Steps and RPCs can still start new Steps, and those Steps delay completion too.
+A later branch that ends with **DeadEnd** does not withdraw the request. After
+the last Step ends, the Flow can stay **RUNNING** briefly while Dex finishes
+pending Attribute Sync writes and transactional RPCs that already started.
 
 Without a pending **GracefulComplete**, a Flow with no active Step keeps
 running. An RPC can still start new Steps in it. End the last branch with a
@@ -328,17 +325,18 @@ Use a Channel or an Attribute lock when the order matters.
 
 ## Reference
 
-The [Flows and Steps](/reference/python/flows-and-steps) reference covers:
+The SDK reference covers:
 
-- [waits](/reference/python/flows-and-steps/waits), condition results, and
-  [AnyCombinationOf](/reference/python/flows-and-steps/waits#anycombinationof);
-- [Step decisions](/reference/python/flows-and-steps/step-decisions), including
-  [ForceCompleteIfChannelsEmpty](/reference/python/flows-and-steps/step-decisions#forcecompleteifchannelsempty);
-- [retry and failure policies](/reference/python/flows-and-steps/step-options#retry-and-failure-policies),
-  [durability](/reference/python/flows-and-steps/step-options#durability),
-  [timeouts](/reference/python/flows-and-steps/step-options#timeouts-and-total-duration),
-  [heartbeats](/reference/python/flows-and-steps/step-options#heartbeat), and
-  [cancellation](/reference/python/flows-and-steps/step-options#cancellation);
-- [state loading](/reference/python/flows-and-steps/step-options#selective-state-loading) and
+- [Step methods](/reference/python/step) and what each one commits;
+- [waits](/reference/python/waits), condition results, and
+  [AnyCombinationOf](/reference/python/waits#anycombinationof);
+- [Step decisions](/reference/python/step-decisions), including
+  [ForceCompleteIfChannelsEmpty](/reference/python/step-decisions#forcecompleteifchannelsempty);
+- [retry and failure policies](/reference/python/failure-and-retries#retry-and-failure-policies),
+  [durability](/reference/python/step-options#durability),
+  [timeouts](/reference/python/step-options#timeouts-and-total-duration),
+  [heartbeats](/reference/python/step-options#heartbeat), and
+  [cancellation](/reference/python/step-options#cancellation);
+- [state loading](/reference/python/step-options#selective-state-loading) and
   [Attribute locks](/reference/server/runtime-data#attribute-locks);
-- [failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery).
+- [failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery).

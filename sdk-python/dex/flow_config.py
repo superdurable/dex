@@ -38,12 +38,16 @@ class FlowConfig:
     Attribute Store projection is asynchronous. Failures never roll back Flow
     Attributes, and already queued projections retain their original target.
 
+    Construct ``FlowConfig`` with keyword arguments. Field positions are not
+    part of the API.
+
+    .. versionchanged:: 1.43.0
+        Removed ``continue_as_new_threshold`` and
+        ``continue_as_new_page_size_bytes``. Every later field moved two
+        positions forward, so a positional call can set the wrong field.
+
     Attributes:
         active_step_search_mode: Optional active-Step visibility indexing policy.
-        continue_as_new_threshold: Optional positive history-event threshold that
-            requests continue-as-new.
-        continue_as_new_page_size_bytes: Optional positive history page-size budget
-            in bytes used by continue-as-new decisions.
         step_durability: Optional default durability for Step handlers.
         attribute_store_names: Optional Server-configured Attribute Store names.
             ``None`` leaves the field absent; an empty list disables future projections.
@@ -160,8 +164,6 @@ class FlowConfig:
     """
 
     active_step_search_mode: ActiveStepSearchMode | None = None
-    continue_as_new_threshold: int | None = None
-    continue_as_new_page_size_bytes: int | None = None
     step_durability: StepDurability | None = None
     attribute_store_names: list[str] | None = None
     history_window_events: int | None = None

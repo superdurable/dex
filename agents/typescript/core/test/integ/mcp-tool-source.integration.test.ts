@@ -8,12 +8,13 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { format, inspect } from "node:util";
 import { after, afterEach, before, describe, test } from "node:test";
 
+import { McpError, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 
 import {
@@ -21,15 +22,26 @@ import {
   createAgentSessionFlow,
   outcomeUnknownToolResult,
   resolveToolPolicy,
+  type AgentTurnContext,
   type DeferredToolExecution,
+  type ToolEffect,
+  type ToolPolicy,
 } from "../../src/index.js";
 import {
   McpToolSource,
   defaultMcpTaskTtlMs,
   defaultMcpTaskWaitTimeoutMs,
+  mcpIdempotencyKeyMetaKey,
   mcpTaskStatusEventType,
+  mcpToolApprovalMetaKey,
+  mcpToolApprovalRecommended,
+  mcpToolEffectMetaKey,
+  mcpToolOutcomeMetaKey,
+  mcpToolOutcomeRejected,
+  mcpToolOutcomeUnknown,
   mcpToolProgressEventType,
   type McpStdioServerConfig,
+  type McpTool,
   type McpStreamableHttpServerConfig,
 } from "../../src/mcp/index.js";
 import {
@@ -44,6 +56,13 @@ import {
   readStepHistory,
 } from "../../src/testing/index.js";
 import { ChildProcessGroup } from "../../src/testing/child-process-group.js";
+import {
+  mcpToolFromListing,
+  outcomeFromMcpError,
+  outcomeFromToolResult,
+  type ToolCallOutcome,
+} from "../../src/mcp/mcp-tool-source.js";
+import { conformanceSuiteDirectory } from "../fixtures/conformance-suite.js";
 import {
   fakeMcpGatewayModulePath,
   fakeMcpInvocationLogName,
@@ -453,6 +472,27 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     assert.deepEqual(toolRuns("long_report", "direct-session"), ["direct-session/turn-1/call-1"]);
   });
 
+  test("only a session-polled task resumes without sending, as willResumeToolTaskWithoutSending says", async () => {
+    const tools = createMcpToolSource(stateDirectory, httpUrl);
+    const savedCheckpoints: string[] = [];
+    assert.equal(tools.willResumeToolTaskWithoutSending(deferredExecution('{"topic": "q9"}')), false);
+    await tools.executeDeferredToolCall(
+      deferredExecution('{"topic": "q9"}', undefined, async (checkpoint) => {
+        savedCheckpoints.push(checkpoint);
+      }),
+    );
+    const checkpoint = savedCheckpoints[0];
+    assert.ok(checkpoint !== undefined);
+    assert.equal(tools.willResumeToolTaskWithoutSending(deferredExecution('{"topic": "q9"}', checkpoint)), true);
+    // Without a session poller the tool Step polls itself, and calls again if the task is gone.
+    assert.equal(
+      tools.willResumeToolTaskWithoutSending(deferredExecution('{"topic": "q9"}', checkpoint, undefined, false)),
+      false,
+    );
+    const polledInStep = JSON.stringify({ ...JSON.parse(checkpoint), mcp_task_polled_by_session: false });
+    assert.equal(tools.willResumeToolTaskWithoutSending(deferredExecution('{"topic": "q9"}', polledInStep)), false);
+  });
+
   test("without a poller the tool Step polls the task to its end", async () => {
     const tools = createMcpToolSource(stateDirectory, httpUrl);
 
@@ -630,6 +670,147 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
       [],
     );
   });
+
+  test("Dex _meta declares effect and approval, and a session policy only raises safety", async () => {
+    const tools = createMcpToolSource(stateDirectory, httpUrl);
+    const listed = new Map((await tools.listTools()).map((tool) => [tool.name, tool]));
+    assert.equal(listed.get("remote__post_note")?.dexEffect, "non_idempotent_write");
+    assert.deepEqual(listed.get("remote__post_note")?.annotations, { readOnlyHint: true });
+    assert.equal(listed.get("remote__send_payment")?.isApprovalRecommended, true);
+    assert.deepEqual(tools.toolPolicies()["remote__send_payment"], { effect: "idempotent_write", requiresApproval: true });
+    assert.deepEqual(tools.toolPolicies()["remote__post_note"], { effect: "non_idempotent_write", requiresApproval: false });
+    // An application policy never lowers a declared effect, and keeps a recommended approval.
+    const merged = tools.mergeToolPolicies({
+      remote__post_note: { effect: "read" },
+      remote__send_payment: { effect: "read" },
+      remote__lookup: { effect: "non_idempotent_write" },
+      local_only: { effect: "read" },
+    });
+    assert.deepEqual(merged["remote__post_note"], { effect: "non_idempotent_write", requiresApproval: false });
+    assert.deepEqual(merged["remote__send_payment"], { effect: "idempotent_write", requiresApproval: true });
+    assert.deepEqual(merged["remote__get_balance"], { effect: "read", requiresApproval: false });
+    assert.deepEqual(merged["remote__lookup"], { effect: "non_idempotent_write" });
+    assert.deepEqual(merged["local_only"], { effect: "read" });
+
+    await startWorker();
+    const sessionId = `mcp-dex-declared-${randomUUID()}`;
+    await sessions.startSession(
+      sessionId,
+      'call remote__get_balance {"account": "a"} && call remote__post_note {"text": "hi"} && call remote__send_payment {"amount": 5}',
+    );
+    const first = await sessions.waitForPendingInterrupt(sessionId, "remote__get_balance");
+    const waiting = await sessions.getAgentSnapshot(sessionId);
+    // A non-idempotent write policy raises the declared read; its default asks for approval.
+    assert.deepEqual(
+      Object.fromEntries(
+        waiting.toolCalls.map((call) => [call.toolName, [call.effect, call.requiresApproval, call.orderedWrite]]),
+      ),
+      {
+        remote__get_balance: ["non_idempotent_write", true, true],
+        remote__post_note: ["non_idempotent_write", false, true],
+        remote__send_payment: ["idempotent_write", true, true],
+      },
+    );
+    // post_note waits for the earlier ordered write, get_balance.
+    assert.deepEqual(toolRuns("post_note", sessionId), []);
+    assert.equal(await sessions.resolveInterrupt(sessionId, first.interruptId, true), true);
+    // post_note runs without approval; send_payment's approval is raised once its turn comes.
+    const second = await sessions.waitForPendingInterrupt(sessionId, "remote__send_payment");
+    assert.deepEqual(toolRuns("get_balance", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
+    assert.deepEqual(toolRuns("post_note", sessionId), [`${sessionId}/turn-1/turn-1-call-1`]);
+    assert.equal(await sessions.resolveInterrupt(sessionId, second.interruptId, true), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal(
+      await lastMessageText(sessionId),
+      "remote__get_balance: balance of a is 5; remote__post_note: posted hi; remote__send_payment: paid 5",
+    );
+    const steps = await executedStepTypes(sessionId);
+    assert.equal(steps.filter((step) => step === "CallTool").length, 1);
+    assert.equal(steps.filter((step) => step === "CallSingleAttemptTool").length, 2);
+  });
+
+  for (const outcome of ["unknown", "unknown_error"]) {
+    test(`a Dex outcome unknown is recorded once and never retried (${outcome})`, async () => {
+      await startWorker();
+      const sessionId = `mcp-dex-unknown-${randomUUID()}`;
+      await sessions.startSession(sessionId, `call remote__send_payment {"amount": 5, "outcome": "${outcome}"}`);
+      const interrupt = await sessions.waitForPendingInterrupt(sessionId, "remote__send_payment");
+      assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+      await sessions.waitForCompletedTurns(sessionId, 1);
+
+      // An idempotent write runs in CallTool, which would retry a Step failure.
+      assert.equal(await lastMessageText(sessionId), `remote__send_payment: ${outcomeUnknownToolResult}`);
+      assert.deepEqual(toolRuns("send_payment", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
+      const history = await readStepHistory(engine.serverAddress, sessionId);
+      assert.deepEqual(
+        history.filter((entry) => entry.stepType === "CallTool").map((entry) => entry.finalAttempt),
+        [1],
+      );
+      assert.ok(!(await executedStepTypes(sessionId)).includes("RecordToolOutcomeUnknown"));
+      assert.deepEqual(
+        (await eventPayloads(sessionId, "tool_call_finished")).map((payload) => payload["status"]),
+        ["outcome_unknown"],
+      );
+    });
+  }
+
+  for (const outcome of ["rejected", "rejected_error"]) {
+    test(`a Dex outcome rejected is recorded failed and never retried (${outcome})`, async () => {
+      await startWorker();
+      const sessionId = `mcp-dex-rejected-${randomUUID()}`;
+      await sessions.startSession(sessionId, `call remote__send_payment {"amount": 5, "outcome": "${outcome}"}`);
+      const interrupt = await sessions.waitForPendingInterrupt(sessionId, "remote__send_payment");
+      assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+      await sessions.waitForCompletedTurns(sessionId, 1);
+
+      const message = outcome === "rejected" ? "the card was declined" : "MCP error -32603: the card was declined";
+      assert.equal(await lastMessageText(sessionId), `remote__send_payment: The tool call failed: ${message}`);
+      assert.deepEqual(toolRuns("send_payment", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
+      const history = await readStepHistory(engine.serverAddress, sessionId);
+      assert.deepEqual(
+        history.filter((entry) => entry.stepType === "CallTool").map((entry) => entry.finalAttempt),
+        [1],
+      );
+      assert.deepEqual(
+        (await eventPayloads(sessionId, "tool_call_finished")).map((payload) => payload["status"]),
+        ["failed"],
+      );
+    });
+  }
+
+  test("retries of a Dex write carry one idempotency key, so the server applies it once", async () => {
+    await startWorker();
+    const sessionId = `mcp-dex-retry-${randomUUID()}`;
+    await sessions.startSession(sessionId, 'call local__send_payment {"amount": 5, "crash_after_apply": true}');
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "local__send_payment");
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal(await lastMessageText(sessionId), "local__send_payment: payment of 5 already applied");
+    const key = `${sessionId}/turn-1/turn-1-call-0`;
+    assert.deepEqual(toolRuns("send_payment", sessionId), [key, key]);
+    assert.deepEqual(toolRuns("payment-applied", sessionId), [key]);
+    const history = await readStepHistory(engine.serverAddress, sessionId);
+    assert.deepEqual(
+      history.filter((entry) => entry.stepType === "CallTool").map((entry) => entry.finalAttempt),
+      [2],
+    );
+  });
+
+  test("a task result with the Dex outcome unknown is recorded by PollToolTask", async () => {
+    await startWorker();
+    const sessionId = `mcp-dex-task-${randomUUID()}`;
+    await sessions.startSession(sessionId, 'call remote__long_report {"topic": "q3", "outcome": "unknown"}');
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.equal(await lastMessageText(sessionId), `remote__long_report: ${outcomeUnknownToolResult}`);
+    assert.deepEqual(toolRuns("long_report", sessionId), [`${sessionId}/turn-1/turn-1-call-0`]);
+    const history = await readStepHistory(engine.serverAddress, sessionId);
+    const polls = history.filter((entry) => entry.stepType === "PollToolTask").map((entry) => entry.finalAttempt);
+    assert.ok(polls.length > 0 && polls.every((attempt) => attempt === 1), `PollToolTask attempts ${polls.join(", ")}`);
+    assert.ok(!(await executedStepTypes(sessionId)).includes("RecordToolOutcomeUnknown"));
+  });
 });
 
 /** Builds the execution a tool Step passes for one approved `remote__long_report` call. */
@@ -704,3 +885,117 @@ test("inspecting an MCP tool source redacts environment and header values but ke
   assert.deepEqual(stdio.env, { API_KEY: "stdio-secret", REGION: "eu-secret" });
   assert.deepEqual(http.headers, { Authorization: "Bearer http-secret", "X-Api-Key": "key-secret" });
 });
+
+interface DexConventionsSuite {
+  readonly metaKeys: Readonly<Record<string, string>>;
+  readonly values: Readonly<Record<string, unknown>>;
+  readonly definitionCases: readonly {
+    readonly name: string;
+    readonly tool: Tool;
+    readonly trustsToolAnnotations: boolean;
+    readonly sessionPolicy: ToolPolicy | null;
+    readonly expected: {
+      readonly frameworkEffect: ToolEffect | null;
+      readonly dexEffect: ToolEffect | null;
+      readonly isApprovalRecommended: boolean;
+      readonly policy: { readonly effect: ToolEffect; readonly requiresApproval: boolean };
+      readonly ordered: boolean;
+    };
+  }[];
+  readonly resultCases: readonly { readonly name: string; readonly result: CallToolResult; readonly expected: unknown }[];
+  readonly errorCases: readonly {
+    readonly name: string;
+    readonly error: { readonly code: number; readonly message: string; readonly data?: unknown };
+    readonly expected: unknown;
+  }[];
+}
+
+const dexConventions = JSON.parse(
+  readFileSync(join(conformanceSuiteDirectory, "mcp_dex_conventions.json"), "utf8"),
+) as DexConventionsSuite;
+
+describe("Dex MCP conventions match the conformance suite", () => {
+  test("the meta keys and values", () => {
+    assert.deepEqual(dexConventions.metaKeys, {
+      idempotencyKey: mcpIdempotencyKeyMetaKey,
+      toolEffect: mcpToolEffectMetaKey,
+      toolApproval: mcpToolApprovalMetaKey,
+      toolOutcome: mcpToolOutcomeMetaKey,
+    });
+    assert.deepEqual(dexConventions.values, {
+      toolEffects: ["read", "idempotent_write", "non_idempotent_write"],
+      toolApprovalRecommended: mcpToolApprovalRecommended,
+      toolOutcomeUnknown: mcpToolOutcomeUnknown,
+      toolOutcomeRejected: mcpToolOutcomeRejected,
+    });
+  });
+
+  for (const testCase of dexConventions.definitionCases) {
+    test(`definition: ${testCase.name}`, () => {
+      const tool = mcpToolFromListing(
+        { transport: "stdio", name: "srv", command: "unused", trustsToolAnnotations: testCase.trustsToolAnnotations },
+        testCase.tool,
+      );
+      const toolPolicies: Record<string, ToolPolicy> =
+        testCase.sessionPolicy === null ? {} : { [tool.name]: testCase.sessionPolicy };
+      const turn = {
+        toolPolicies,
+        defaultToolEffect: "unclassified",
+        resolveToolPolicy: (toolName: string, frameworkEffect?: ToolEffect) =>
+          resolveToolPolicy(toolName, toolPolicies, "unclassified", frameworkEffect),
+      } as unknown as AgentTurnContext;
+      const source = new McpToolSource([]);
+      const call = source.deferredToolCall(turn, {
+        toolCallId: "call-1",
+        toolName: tool.name,
+        arguments: "{}",
+        listedTool: tool,
+      });
+      // A framework adapter resolves the tool against the merged policies instead.
+      (source as unknown as { tools: Map<string, McpTool> }).tools = new Map([[tool.name, tool]]);
+      const wholeTurnPolicy = resolveToolPolicy(
+        tool.name,
+        source.mergeToolPolicies(toolPolicies),
+        "unclassified",
+        tool.frameworkEffect,
+      );
+
+      const { expected } = testCase;
+      assert.equal(tool.frameworkEffect ?? null, expected.frameworkEffect);
+      assert.equal(tool.dexEffect ?? null, expected.dexEffect);
+      assert.equal(tool.isApprovalRecommended === true, expected.isApprovalRecommended);
+      assert.deepEqual(call.policy, expected.policy);
+      assert.equal(call.ordered === true, expected.ordered);
+      assert.deepEqual(wholeTurnPolicy, expected.policy);
+    });
+  }
+
+  for (const testCase of dexConventions.resultCases) {
+    test(`result: ${testCase.name}`, () => {
+      assert.deepEqual(describeDexOutcome(outcomeFromToolResult(testCase.result)), testCase.expected);
+    });
+  }
+
+  for (const testCase of dexConventions.errorCases) {
+    test(`error: ${testCase.name}`, () => {
+      const { code, message, data } = testCase.error;
+      assert.deepEqual(describeDexOutcome(outcomeFromMcpError(new McpError(code, message, data))), testCase.expected);
+    });
+  }
+});
+
+/** Maps an outcome to the suite's `{status, text}`; `undefined` leaves the outcome to the effect class. */
+function describeDexOutcome(outcome: ToolCallOutcome | undefined): { status: string; text: string | null } {
+  if (outcome === undefined) {
+    return { status: "interrupted", text: null };
+  }
+  switch (outcome.kind) {
+    case "succeeded":
+      return { status: "succeeded", text: outcome.output };
+    case "failed":
+    case "outcome_unknown":
+      return { status: outcome.kind, text: outcome.message };
+    default:
+      throw new Error(`unexpected outcome ${outcome.kind}`);
+  }
+}

@@ -206,15 +206,10 @@ def test_finite_step_wait_uses_server_default_request_id() -> None:
             StepExecutionId("Step", 1),
             WaitForStepCompletionOptions(
                 request_timeout=timedelta(seconds=1),
-                internal_handler_timeout=timedelta(seconds=3),
             ),
         )
         assert all(not request.request_id for request in service.requests)
         assert all(request.request_timeout_seconds == 1 for request in service.requests)
-        assert all(
-            request.internal_handler_timeout_seconds == 3
-            for request in service.requests
-        )
     finally:
         client.close()
 

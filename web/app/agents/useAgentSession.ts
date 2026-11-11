@@ -19,6 +19,7 @@ import {
 import { absorb, nothingHeld, readFailureReason, type Held } from '../work-queue/liveness';
 import { messagesOfChunks, readSession, type SessionView } from './sessionModel';
 import { SESSION_ATTRIBUTE, attributeMapInstance, type AgentMessageRecord } from './sessionSchema';
+import { webURL } from '@/lib/basePath';
 
 export interface LoadedAgentSession {
   summary: FlowSummary;
@@ -74,11 +75,11 @@ async function loadAgentSession(
   signal: AbortSignal,
 ): Promise<{ loaded: LoadedAgentSession; recentHistory: RecentRunHistory | undefined }> {
   const summary = await readResponseJSON<FlowSummary>(
-    await fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, { cache: 'no-store', signal }),
+    await fetch(webURL(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`), { cache: 'no-store', signal }),
   );
   const state = await readResponseJSON<FlowState>(
     await fetch(
-      `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(summary.runId)}`,
+      webURL(`/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(summary.runId)}`),
       { cache: 'no-store', signal },
     ),
   );

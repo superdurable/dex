@@ -9,30 +9,30 @@ slug: /reference
 
 The Developer Reference holds the details that change from release to release:
 configuration keys, flags, defaults, limits, metrics, edge cases, and version
-differences. The [Concepts](/concepts) and
-[Components](/components) pages explain the concepts.
+differences. For the concepts, see [Concepts](/concepts) and
+[Components](/components).
 
 ## Check your version first
 
-Each component has its own reference. Check the version of the component you
-run before you rely on a detail. Use the version selector in the left sidebar,
-under the component you are reading, to choose a reference version. Each
-reference opens at the latest release. The [compatibility matrix](#compatibility-matrix) lists supported
-component combinations.
+Each component has its own reference. Before you rely on a detail, check
+which version of the component you run. Each reference opens at the latest
+release. To read another version, use the version selector in the left sidebar,
+under the component. The [compatibility matrix](#compatibility-matrix) lists
+the supported component combinations.
 
 Dex releases follow a shared release train. A release tags only the components
-that changed, so a component can skip minor numbers. For a component, the
-release train number N means its newest release at or below N.
+that changed, so a component can skip minor numbers. When this reference names
+release N for a component, it means that component's newest release at or
+below N.
 
-## Flows and Steps
+## SDK topic pages {#flows-and-steps}
 
-Each SDK reference has a Flows and Steps page. It covers start options, Flow
-configuration, waits, Step decisions, Step options, and failure handling, with
-code in that language: [Go](/reference/go/flows-and-steps),
-[Python](/reference/python/flows-and-steps),
-[Java](/reference/java/flows-and-steps),
-[TypeScript](/reference/typescript/flows-and-steps), and
-[Rust](/reference/rust/flows-and-steps).
+Each SDK reference has one page for each topic in [Concepts](/concepts): Flow,
+Step, Attribute, RPC, Channel, Stream, Timer, SubFlow, and Client. More pages
+cover StartFlowOptions, StepOptions, Step decisions, waits, failure and
+retries, and Workers. Each page uses the names and code of its language:
+[Go](/reference/go/), [Python](/reference/python/), [Java](/reference/java/),
+[TypeScript](/reference/typescript/), and [Rust](/reference/rust/).
 
 ## Component references
 
@@ -46,6 +46,7 @@ code in that language: [Go](/reference/go/flows-and-steps),
 | Java SDK | [Java reference](/reference/java/) | **sdk-java/vX.Y.Z** |
 | TypeScript SDK | [TypeScript reference](/reference/typescript/) | **sdk-typescript/vX.Y.Z** |
 | Rust SDK | [Rust reference](/reference/rust/) | **sdk-rust/vX.Y.Z** |
+| Agents packages | [Agents reference](/reference/agents/) | **agents/vX.Y.Z** |
 
 ## Compatibility matrix
 
@@ -77,6 +78,7 @@ To run SDK 1.35 applications with **dexcli dev**, use **dexcli** 1.35 or newer.
 
 ## Release notes
 
-Each component publishes release notes on GitHub. server-zd notes list breaking
-changes, features, fixes, and upgrade steps for every release. See the
-[Dex releases](https://github.com/superdurable/dex/releases).
+Each component publishes release notes on GitHub, in
+[Dex releases](https://github.com/superdurable/dex/releases). The server-zd
+notes of every release list breaking changes, features, fixes, and upgrade
+steps.

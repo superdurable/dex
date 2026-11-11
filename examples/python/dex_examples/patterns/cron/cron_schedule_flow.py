@@ -79,6 +79,8 @@ class _RunInput:
     is_final: bool
 
 
+# dex:group group-id:validation group-label:"Validation"
+# dex:explanation text:"Validate the schedule and start waiting for the first run."
 class _Start(Step[CronScheduleInput]):
     def execute(
         self, context: Context, input: CronScheduleInput
@@ -88,6 +90,8 @@ class _Start(Step[CronScheduleInput]):
         return go_to(_WaitForSchedule, _ScheduleState(input.interval, input.run_count))
 
 
+# dex:group group-id:schedule group-label:"Schedule"
+# dex:explanation text:"Wait for the interval, a manual trigger, or a skip, then start a run."
 class _WaitForSchedule(Step[_ScheduleState]):
     def __init__(
         self,
@@ -129,6 +133,8 @@ class _WaitForSchedule(Step[_ScheduleState]):
             _ScheduleState(state.interval, state.remaining_runs - 1),
         )
 
+# dex:group group-id:run group-label:"Run"
+# dex:explanation text:"Record one scheduled run."
 class _Run(Step[_RunInput]):
     def execute(self, context: Context, input: _RunInput) -> StepDecision:
         context.record_event("cron-schedule-run", f"run-{input.run_number}")

@@ -27,6 +27,7 @@ use prost::Message;
 
 use crate::golden_replay::SnapshotUse;
 use crate::old_log_replay::{StoredRows, replay_with_applier};
+use crate::removed_flow_config_fields::{LoggedRemovedFields, with_kept_removed_fields};
 use crate::state_dump::{StateDump, dumped_value, hex};
 
 /// Every `backend_error` that apply records for an attempt failure.
@@ -55,6 +56,12 @@ pub(crate) async fn replay_with_older_backend_errors(
     let applier = Arc::new(StepRowRecordingApplier::default());
     let (mut replayed, mut stored) =
         replay_with_applier(directory, snapshot_use, true, applier.clone()).await;
+    let logged = LoggedRemovedFields::read(directory);
+    assert!(
+        logged.holds_removed_fields(),
+        "the frozen log holds the removed fields"
+    );
+    logged.restore(&mut replayed, &mut stored);
     let failures = applier.applied_failures();
     let step_row_write_deltas = applier.step_row_write_deltas(&failures);
     with_older_backend_errors(
@@ -261,48 +268,9 @@ fn with_older_backend_errors(
             continue;
         }
         let parsed = parse_run_key(&key).expect("history keys parse");
-        let seq = u64::from_be_bytes(
-            parsed
-                .suffix
-                .try_into()
-                .expect("history record keys end with an eight-byte seq"),
-        );
-        let metadata_key = history_row_metadata_key(
-            parsed.flow_hash,
-            parsed.run_id,
-            seq,
-            RunTable::HistoryRecord,
-            0,
-        );
-        let metadata_value = stored
-            .get(&(flow_name.clone(), metadata_key.clone()))
-            .expect("every history row has metadata");
-        let mut metadata =
-            HistoryRowMetadata::decode(metadata_value.as_slice()).expect("metadata decodes");
-        assert_eq!(
-            metadata.encode_to_vec(),
-            *metadata_value,
-            "replayed history row metadata holds bytes that decoding drops or rewrites"
-        );
-        assert_eq!(
-            metadata.row_size_bytes,
-            (key.len() + value.len()) as u64,
-            "history row metadata counts the replayed row"
-        );
-        metadata.row_size_bytes = (key.len() + older_value.len()) as u64;
-        let older_metadata = metadata.encode_to_vec();
-        // History bytes count the metadata row and the history row size it records.
-        let history_delta = (older_metadata.len() as i128 - metadata_value.len() as i128)
-            + (older_value.len() as i128 - value.len() as i128);
-        *history_deltas
-            .entry(run_singleton_key(
-                parsed.flow_hash,
-                parsed.run_id,
-                RunTable::RunRecord,
-            ))
-            .or_default() += history_delta;
-        replace_row(replayed, stored, &flow_name, metadata_key, older_metadata);
-        replace_row(replayed, stored, &history_name, key, older_value);
+        let record_key = run_singleton_key(parsed.flow_hash, parsed.run_id, RunTable::RunRecord);
+        *history_deltas.entry(record_key).or_default() +=
+            replace_history_row(replayed, stored, key, &value, older_value);
     }
     let run_record_keys: BTreeSet<&Vec<u8>> = history_deltas
         .keys()
@@ -331,18 +299,71 @@ fn with_older_backend_errors(
     }
 }
 
+/// Replaces a history row with its older value and its metadata with the older row size.
+///
+/// Returns how many more history bytes the older rows count: the metadata row and the history
+/// row size it records.
+pub(crate) fn replace_history_row(
+    replayed: &mut StateDump,
+    stored: &mut StoredRows,
+    key: Vec<u8>,
+    value: &[u8],
+    older_value: Vec<u8>,
+) -> i128 {
+    let flow_name = ColumnFamily::Flow.name().to_owned();
+    let history_name = ColumnFamily::History.name().to_owned();
+    let parsed = parse_run_key(&key).expect("history keys parse");
+    let seq = u64::from_be_bytes(
+        parsed
+            .suffix
+            .try_into()
+            .expect("history record keys end with an eight-byte seq"),
+    );
+    let metadata_key = history_row_metadata_key(
+        parsed.flow_hash,
+        parsed.run_id,
+        seq,
+        RunTable::HistoryRecord,
+        0,
+    );
+    let metadata_value = stored
+        .get(&(flow_name.clone(), metadata_key.clone()))
+        .expect("every history row has metadata");
+    let mut metadata =
+        HistoryRowMetadata::decode(metadata_value.as_slice()).expect("metadata decodes");
+    assert_eq!(
+        metadata.encode_to_vec(),
+        *metadata_value,
+        "replayed history row metadata holds bytes that decoding drops or rewrites"
+    );
+    assert_eq!(
+        metadata.row_size_bytes,
+        (key.len() + value.len()) as u64,
+        "history row metadata counts the replayed row"
+    );
+    metadata.row_size_bytes = (key.len() + older_value.len()) as u64;
+    let older_metadata = metadata.encode_to_vec();
+    // History bytes count the metadata row and the history row size it records.
+    let history_delta = (older_metadata.len() as i128 - metadata_value.len() as i128)
+        + (older_value.len() as i128 - value.len() as i128);
+    replace_row(replayed, stored, &flow_name, metadata_key, older_metadata);
+    replace_row(replayed, stored, &history_name, key, older_value);
+    history_delta
+}
+
 /// Returns the run record with the history bytes and row write bytes that the older failure
 /// text gives, and with its own size settled in its state row bytes.
 ///
-/// Panics when the run record does not encode back to the same bytes.
+/// Panics when the run record does not encode back to the same bytes, apart from the removed
+/// FlowConfig fields that it keeps.
 fn run_record_with_older_counters(value: &[u8], history_delta: i128, write_delta: i128) -> Vec<u8> {
     let mut record = RunRecord::decode(value).expect("run records decode");
     assert_eq!(
-        record.encode_to_vec(),
+        with_kept_removed_fields(RunTable::RunRecord, value, &record.encode_to_vec()),
         value,
         "a replayed run record holds bytes that decoding drops or rewrites"
     );
-    let replayed_size = record.encoded_len() as u64;
+    let replayed_size = value.len() as u64;
     let mut usage = record.storage.expect("run records count storage");
     usage.history_bytes = u64::try_from(i128::from(usage.history_bytes) + history_delta)
         .expect("older history bytes are not negative");
@@ -353,16 +374,18 @@ fn run_record_with_older_counters(value: &[u8], history_delta: i128, write_delta
     // The record's own row counts in its state row bytes; repeat until its size settles.
     for _ in 0..4 {
         record.storage = Some(usage);
-        let own_size = record.encoded_len() as u64;
+        let older_value =
+            with_kept_removed_fields(RunTable::RunRecord, value, &record.encode_to_vec());
+        let own_size = older_value.len() as u64;
         if usage.state_row_bytes == other_state_bytes + own_size {
-            return record.encode_to_vec();
+            return older_value;
         }
         usage.state_row_bytes = other_state_bytes + own_size;
     }
     panic!("the run record size does not settle")
 }
 
-fn replace_row(
+pub(crate) fn replace_row(
     replayed: &mut StateDump,
     stored: &mut StoredRows,
     column_family: &str,
@@ -375,8 +398,8 @@ fn replace_row(
 
 /// Returns the history row with every category `backend_error` mapped back to its raw text.
 ///
-/// Panics when the row does not encode back to the same bytes, or when a failure disagrees with
-/// `applied_failure_raw_text`.
+/// Panics when the row does not encode back to the same bytes, apart from the removed FlowConfig
+/// fields that it keeps, or when a failure disagrees with `applied_failure_raw_text`.
 pub(crate) fn history_with_older_backend_errors(
     key: &[u8],
     value: &[u8],
@@ -385,7 +408,7 @@ pub(crate) fn history_with_older_backend_errors(
     let run_id = parse_run_key(key).expect("history keys parse").run_id.0;
     let mut record = HistoryRecord::decode(value).expect("history rows decode");
     assert_eq!(
-        record.encode_to_vec(),
+        with_kept_removed_fields(RunTable::HistoryRecord, value, &record.encode_to_vec()),
         value,
         "a replayed history row holds bytes that decoding drops or rewrites"
     );
@@ -446,7 +469,7 @@ pub(crate) fn history_with_older_backend_errors(
             failure.backend_error = raw_text;
         }
     }
-    record.encode_to_vec()
+    with_kept_removed_fields(RunTable::HistoryRecord, value, &record.encode_to_vec())
 }
 
 /// Returns the raw text of the applied command that failed this attempt, or `None` for a

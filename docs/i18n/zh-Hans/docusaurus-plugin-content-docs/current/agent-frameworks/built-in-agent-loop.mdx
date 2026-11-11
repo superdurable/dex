@@ -5,7 +5,7 @@ sidebar_label: Built-in Agent Loop
 
 # 内置 Agent Loop
 
-内置 agent loop 是 Dex Agents 的 Stepwise 模式。它不需要任何 agent framework。会话由 Dex 管理，每次模型输入都从 durable state 构建。因此 Agent 不依赖 LLM provider 的 conversation API。
+内置 agent loop 不需要任何 agent framework 就能运行 Agent。会话由 Dex 管理，每次模型输入都从 durable state 构建。因此 Agent 不依赖 LLM provider 的 conversation API。Dex Agents 的 API 把这个 loop 叫作 Stepwise 模式，例如 **stepwise_agent_session_flow**。
 
 ## 何时使用 {#when-to-use-it}
 
@@ -70,7 +70,7 @@ npm i @superdurable/dex-agents @superdurable/dex ai @modelcontextprotocol/sdk
 
 ### Session Flow {#the-session-flow}
 
-Application 用 Dex 的概念声明 Agent，并构建它的 Flow。Flow type 是 **AIAgentSession**。一次 Flow execution 就是一个 session，Flow ID 就是 session ID。
+Application 用 Dex 的概念声明 Agent，并构建它的 Flow。Flow type 是 **AIAgentSession**。一次 Flow run 就是一个 session，Flow ID 就是 session ID。
 
 <SdkTabs
   examples={{
@@ -183,7 +183,7 @@ const aiAgentFlow = createAiAgentFlow(aiAgentConfig, slack);
 
 Session 会把每条 user message、模型输出 item 与 tool result 分别保存为一条 message。最新的 message 是 **AgentMessages** AttributeMap instance，较早的 message 会移入不可变的 **AgentMessageChunks** instance。模型输出 item 会按 provider 返回的原样保存，包括加密的 reasoning item 与 thinking signature，并原样重放。
 
-当模型输入接近配置的 context window 时，**CompactContext** Step 会在下一次模型调用前摘要较早的 message。之后模型收到 summary 与最近的 message。Compaction 不会把 tool call 与它的 result 分开。保留策略之后可以删除较早的已摘要 message，因此长 session 的 state 保持有界。触发阈值、保留上限以及如何保留完整对话，参见 [Compaction 与存储上限](/agent-frameworks/deploy-agents#compaction)。
+当模型输入接近配置的 context window 时，**CompactContext** Step 会在下一次模型调用前摘要较早的 message。之后模型收到 summary 与最近的 message。Compaction 不会把 tool call 与它的 result 分开。保留策略之后可以删除较早的已摘要 message，因此长 session 的 state 保持有界。触发阈值、保留上限以及如何保留完整对话，参见 [Compaction 与存储上限](/reference/agents/session-limits#compaction)。
 
 ## 排队消息与 Steer {#queued-messages-and-steer}
 
@@ -408,17 +408,15 @@ dexcli dev --flow-rendering-dir ./definitions
 
 Python 与 TypeScript package 都会安装 **dex-agents-session-graph**。在 **examples/python** 中，用 **uv run --frozen** 运行它。在 **examples/typescript** 中，用 **npx** 运行它。
 
-在 Dex Web 中打开这个 session 的 run，选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission，例如 **ai-agent.operate**。然后在 tool call 卡片上选择 **Approve** 或 **Reject**。生产环境的做法参见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
+在 Dex Web 中打开这个 session 的 run，选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission，例如 **ai-agent.operate**。然后在 tool call 卡片上选择 **Approve** 或 **Reject**。生产环境的做法参见 [在 Dex Web 中显示 session](/reference/agents/dex-web)。
 
 ## 连接 Connector {#connect-connectors}
 
-Connector tool 是 agent 当作 tool 调用的 [Connector](/components/connector) operation。**ConnectorToolSource** 提供你指定的 operation。Agent 通过 Python 的 **tool_sources** 或 TypeScript 的 **toolSources** 把它作为 tool source 接收。Effect class、审批、结果和写操作顺序的规则见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
-
-Example 把 Slack Connector 的 operation **postThreadReply** 作为 tool **slack_post_thread_reply** 提供。Agent 用它在 Slack thread 中回复。
+Agent 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks#connectors-as-tools)。这个 example 加入了 Slack tool **slack_post_thread_reply**，用来在 Slack thread 中回复。
 
 ### 提供 tool {#offer-connector-tools}
 
-在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tools](/reference/agents/connector-tools#install)。
 
 Worker 从项目配置中打开 Slack connection **support-slack**。Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 把 operation 变成 tool，由 **ConnectorToolSource** 持有。没有这个 connection 时，agent 不会得到 Slack tool。
 
@@ -568,17 +566,11 @@ Agent 把 Slack tool source 和 MCP tool source 放在一起：
 
 ### 调用如何运行 {#connector-tool-calls}
 
-每次调用 **slack_post_thread_reply** 都在自己的 tool Step 中通过 Connector SDK 运行一个 Slack operation。调用保留 Connector 的 Call ID 和幂等键。Operation 如何变成 tool、参数如何检查，见 [提供哪些 operation](/agent-frameworks/deploy-agents#connector-tools-offered)。
-
-Connector 的 manifest 决定 effect class。**postThreadReply** 是 Mutation，它的 manifest 没有把它标为可安全重试，所以调用只在 **CallSingleAttemptTool** 中运行一次。Worker 崩溃永远不会让同一条消息发两次。参见 [崩溃](/agent-frameworks/deploy-agents#connector-tools-crashes)。
-
-Slack 的 manifest 没有建议 **postThreadReply** 需要审批，所以 example 传入 Python 的 **requires_approval=True** 或 TypeScript 的 **requiresApproval: true**。每次发帖都在 **AwaitToolApproval** 中等待，直到有人批准。Manifest 和应用如何决定审批，见 [审批](/agent-frameworks/deploy-agents#connector-tools-approval)。
-
-和其他 tool call 一样，内置 loop 在独立的 tool Step 中运行每次 Connector tool call。同一个回复中的 Connector 写操作按顺序运行，见 [写操作顺序](/agent-frameworks/deploy-agents#connector-tools-write-order)。
+每次调用 **slack_post_thread_reply** 都要先经人批准，然后在自己的 **CallSingleAttemptTool** Step 中只运行一次。原因见 [Slack Connector tool](/agent-frameworks#slack-connector-tool)。
 
 ### 配置 connection {#configure-connector-connection}
 
-Worker 从项目配置中打开 Slack connection **support-slack**：本地开发时用 **DEX_CONNECTOR_CONFIG_FILE**，部署后用 **DEX_PROJECT_\*** 设置。两种方式、没有 connection 时会怎样以及 Slack app 需要什么，见 [Connection](/agent-frameworks/deploy-agents#connector-tools-connection)。
+Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/reference/agents/connector-tools#connector-tools-connection)。
 
 试用时，先设置 **DEX_CONNECTOR_CONFIG_FILE** 再启动 example。Demo 模型可以直接调用这个 tool：
 
@@ -593,13 +585,13 @@ Worker 从项目配置中打开 Slack connection **support-slack**：本地开�
 - 每次模型调用和每次 tool call 都会增加一次 Step 往返。
 - **AgentEvents** 是 best effort。对话内容请读取 session snapshot。
 - 失败的 **RunModel** 会重复它的模型调用。
-- Server 的限制参见 [长 session 的限制](/agent-frameworks/deploy-agents#limits) 与 [Tool call 的限制](/agent-frameworks/deploy-agents#tool-call-limits)。
+- Server 的限制参见 [Limits for long sessions](/reference/agents/session-limits)。Single-attempt tool 的例外参见 [最多一次有一个例外](/agent-frameworks#tool-runs-twice)。
 
 ## 相关内容 {#related}
 
 - [Agent Framework](/agent-frameworks)
 - [AI Agent](/use-cases/ai-agent)
-- [Durable Agents](/agent-frameworks/deploy-agents)
+- [Agents reference](/reference/agents/)
 - [Attribute](/concepts/primitives/attribute)
 - [Channel](/concepts/primitives/channel)
 - [Stream](/concepts/primitives/stream)

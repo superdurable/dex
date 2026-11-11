@@ -6,9 +6,9 @@ slug: /concepts/primitives/attribute
 
 # Attribute
 
-**Attribute** 是属于一个 Flow execution 的 durable 数据。Step 和 RPC 读写它。Dex 把它和 Flow 存在一起，所以中间状态不需要另外的 database。
+**Attribute** 是属于一个 Flow run 的 durable 数据。Step 和 RPC 读写它。Dex 把它和 Flow 存在一起，所以中间状态不需要另外的 database。
 
-Attribute 的生命周期和它的 Flow 相同。Flow 关闭后过了 retention period，Dex 删除 Flow，也一并删除 Attribute。要更长时间保留数据，就把它同步到你自己的 database。
+Attribute 的生命周期和它的 Flow 相同。Flow 关闭后过了 retention period，Dex 删除 Flow，也一并删除 Attribute。要更长时间保留数据，见[在 Flow 之后保留数据](#attribute-store-projection)。
 
 ## 什么时候用 Attribute
 
@@ -18,7 +18,7 @@ Attribute 适合存放 Flow 据以做决定的状态：订单状态、计数器�
 
 在 Flow 的 persistence schema 里声明每个 Attribute。之后 Step 或 RPC 就可以读写它。schema 没有声明的 Attribute，Worker 会拒绝。把 Attribute 设为 null 会删除它。
 
-Dex 把 handler 的 Attribute 写入和它的结果一起 commit。Step 或 RPC 失败时，它的写入会被丢弃。
+只有 Step 方法或 RPC 成功时，它的 Attribute 写入才会生效。见 [Step 的保证](/concepts/step#guarantees)。
 
 <SdkTabs
   examples={{
@@ -310,11 +310,11 @@ self.progress
 
 Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时候改用 RPC，见[什么时候读取需要 RPC](/concepts/client#related-primitives)。另见 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)。在 Flow 启动时设置初始值，见 [Initial values](/reference/server/runtime-data#initial-attribute-values)。
 
-带 index 的 Attribute 可以用在 **SearchFlows** 查询里，查找 Flow execution。上面的例子给 status Attribute 建了 index。index 类型、index key 和 AttributeMap index 见 [Indexes](/reference/server/runtime-data#attribute-indexes)。
+带 index 的 Attribute 可以用在 **SearchFlows** 查询里，查找 Flow run。上面的例子给 status Attribute 建了 index。index 类型、index key 和 AttributeMap index 见 [Indexes](/reference/server/runtime-data#attribute-indexes)。
 
 ## Lock {#locking}
 
-两个 Step 或 RPC 可能同时写同一个 Attribute。没有 lock 时，一次先读后写的更新可能覆盖另一次更新，见 [Step 的保证](/concepts/step#guarantees)。用 **Attribute lock** 让它们依次执行。Dex 在 Step method 或 RPC 开始前获取 lock，结束后释放。Step 会等待它的 lock。RPC 拿不到 lock 就失败，由你重试。
+两个 Step 或 RPC 可能同时写同一个 Attribute。没有 lock 时，两个先读后写这个 Attribute 的 Step 或 RPC 可能互相覆盖对方的更新，见 [Step 的保证](/concepts/step#guarantees)。用 **Attribute lock** 让它们依次执行。Dex 在 Step method 或 RPC 开始前获取 lock，结束后释放。Step 会等待它的 lock。RPC 拿不到 lock 就失败，由你重试。
 
 lock 只对声明了它的 Step 和 RPC 起作用。没有声明这个 lock 的 Step 或 RPC 仍然可以写这个 Attribute。Step 按开始等待 lock 的顺序拿到它。RPC 不排队。即使有 Step 在等一个空闲的 lock，RPC 也会直接拿走它。所以持续不断的加锁 RPC 可能推迟这些 Step。让加锁的 RPC 尽量短。
 
@@ -395,12 +395,37 @@ lock 的获取时机，以及 **WaitFor**、**Execute** 和 RPC 的 lock，见 [
 
 ## 短期 secret {#hard-delete-attributes}
 
-**hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入不同，hard-delete 写入在 handler 的结果 commit 之前就生效。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)。
+**hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入不同，hard-delete 写入在 Dex 保存 handler 的结果之前就生效。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)。
+
+<a id="与其他组件的关系"></a>
+<a id="配置"></a>
+<a id="交付与重试"></a>
+<a id="attribute-store-local-development"></a>
 
 ## 在 Flow 之后保留数据 {#attribute-store-projection}
 
-Attribute Sync 把选中的 Attribute 复制到你自己的 PostgreSQL 表。Dex 删除 Flow 后，表里的数据仍然保留，你也可以为自己的查询建 index。Dex 异步写入最新值。见 [External Attribute Sync](/components/external-attribute-sync) 和 [Entity Store](/design-patterns/entity-store) 模式。
+Attribute Store sync 把选中的 Attribute 复制到你自己的 PostgreSQL 表。每个目标称为一个 **Attribute Store**。Dex 删除 Flow 后，表里的数据仍然保留。你的应用和报表用 SQL 查询这些表，你也可以为自己的查询建 index。
+
+同步一个 Attribute 的步骤：
+
+1. 在 server 启动前建好表。Dex 不会创建、迁移或回填表。
+2. 在 server 配置里配置这个 store。
+3. 用 **syncToAttributeStore** 标记 Attribute 或 AttributeMap。
+4. 启动 Flow 时，在它的 **FlowConfig** 里列出 store 名称。
+
+需要知道的行为：
+
+- Flow 仍是数据的权威来源。表里的一行保存最新值，不是历史记录。不要根据这张表做 Flow 决策。
+- Dex 在后台写入。写入不会拖慢 Step、RPC 或 SetAttributes 调用。同一个 Flow ID 的写入保持顺序。
+- 写入失败时，Dex 会在一段有限的时间内重试，之后丢弃这次写入并记录错误日志。Dex 不会重放旧值，也不会为新配置的 store 补写数据。
+- Flow 自己完成或失败时，会保持运行，直到待写入的数据写完或被丢弃。StopFlow 不等待。
+- 删除 Attribute 会把它的列写成 NULL。Flow 关闭时，Dex 不会删除这一行。
+- 一个 store 可以把 Flow ID 拆成多个主键列，也可以把每个 AttributeMap instance 写成单独一张表里的一行。
+
+配置、表的要求、row key、AttributeMap 表、重试、指标和本地开发，见英文的 [Attribute Store sync](/reference/server/attribute-store-sync) 参考页。完整示例见 [Entity Store](/design-patterns/entity-store) 模式。
 
 ## 参考
+
+每个 SDK 参考的 [Attribute](/reference/python/attribute) 页列出该语言的 API 名称。
 
 [Data primitive semantics](/reference/server/runtime-data#attributes) 详细说明初始值、Client 读取、index、hard-delete Attribute 和 lock。

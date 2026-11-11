@@ -11,19 +11,19 @@ public interface FlowStartedOrContinuedHistoryEventOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
-   * @return Whether the flowExecutionId field is set.
+   * <code>.dex.FlowRunID flow_run_id = 1;</code>
+   * @return Whether the flowRunId field is set.
    */
-  boolean hasFlowExecutionId();
+  boolean hasFlowRunId();
   /**
-   * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
-   * @return The flowExecutionId.
+   * <code>.dex.FlowRunID flow_run_id = 1;</code>
+   * @return The flowRunId.
    */
-  io.superdurable.gen.FlowExecutionID getFlowExecutionId();
+  io.superdurable.gen.FlowRunID getFlowRunId();
   /**
-   * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
+   * <code>.dex.FlowRunID flow_run_id = 1;</code>
    */
-  io.superdurable.gen.FlowExecutionIDOrBuilder getFlowExecutionIdOrBuilder();
+  io.superdurable.gen.FlowRunIDOrBuilder getFlowRunIdOrBuilder();
 
   /**
    * <code>string flow_type = 2;</code>
@@ -107,33 +107,6 @@ public interface FlowStartedOrContinuedHistoryEventOrBuilder extends
    * <code>.dex.FlowInitialStart initial_start = 10;</code>
    */
   io.superdurable.gen.FlowInitialStartOrBuilder getInitialStartOrBuilder();
-
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never sets this.
-   * </pre>
-   *
-   * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-   * @return Whether the continuedStart field is set.
-   */
-  boolean hasContinuedStart();
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never sets this.
-   * </pre>
-   *
-   * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-   * @return The continuedStart.
-   */
-  io.superdurable.gen.FlowContinuedStart getContinuedStart();
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never sets this.
-   * </pre>
-   *
-   * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-   */
-  io.superdurable.gen.FlowContinuedStartOrBuilder getContinuedStartOrBuilder();
 
   io.superdurable.gen.FlowStartedOrContinuedHistoryEvent.StartOrContinueCase getStartOrContinueCase();
 }

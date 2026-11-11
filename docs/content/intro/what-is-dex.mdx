@@ -9,29 +9,30 @@ import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-pro
 
 # Why Dex?
 
-Dex is a Durable Execution(D-Ex) platform.
+Dex is a Durable Execution (D-Ex) platform.
+Dex records each Step of your process as it runs.
+After a crash or a restart, the process continues from the last recorded Step. It does not start over or stop halfway.
 
-Dex is structural programming with only a few concepts as [primitives](/concepts). You use Dex to write a Flow filled with ordinary code: durable Steps, Attributes, RPCs, and durable conditions using Channels and Timers. Then you run Workers hosting your Flow. The Client calls Dex Server to start and interact with Flow instances. Dex Server dispatches Step and RPC invocation tasks to your Workers.
+You build with a few [primitives](/concepts). You write a Flow as ordinary code: Steps, Attributes, RPCs, and durable wait conditions on Channels and Timers. Your Workers host the Flow. Your Client calls Dex Server to start Flow instances and interact with them. Dex Server sends Step and RPC tasks to your Workers.
 
 <DexSystemDiagram markdownDescription="An Application contains a Client, which starts and interacts with Flow instances, and a Worker, which hosts the Flow; both use the Dex SDK. The Application calls Dex Server with startFlow and invokeRPC, and Dex Server invokes Steps and RPCs on the Worker. Dex Server persists Flow instances and their execution." />
 
-A **Step** can optionally **WaitFor** some condition (**Channel**, **Timer**, or both) durably. When the condition is met, **Execute** is invoked. If there is no WaitFor, Execute is invoked directly.
+A **Step** can wait for a condition in **WaitFor**: a **Channel** message, a **Timer**, or both. The wait survives restarts. When the condition is met, Dex calls the Step's **Execute**. A Step without WaitFor runs Execute right away.
 
-**Execute** returns a decision for the next Steps or for completing the Flow. Within the Steps and RPCs, user code can read or write **Attributes**, and/or publish durable **Channel** messages as communication from external events or within threads of a Flow.
+**Execute** returns a decision: which Steps run next, or that the Flow completes. Code in Steps and RPCs can read and write **Attributes**. It can also publish durable **Channel** messages, to deliver external events or to pass messages between Steps that run in parallel in the same Flow.
 
-## Order processing as an example
+## Example: order processing
 
-If you have not read [What is Durable Execution?](/intro/what-is-durable-execution), the example below is the order-processing flow from that page.
-
-The flow will charge the buyer, then wait for seller approval (with reminders), then ship the item, and refund if ship API call retries exhaust.
+The Flow charges the buyer and then waits for the seller's approval, with reminders while it waits. After approval it ships the item. If the ship call still fails after its retries, the Flow refunds the buyer.
+[Compared to Database](/intro/compared-to-database) builds the same process with a database and message queues, and shows where that design breaks.
 
 <DocsFlowDefinitionGraph graph={orderProcessingFlow} />
 
-- **ChargeStep** calls the payment API with Step-level retry. On success, move to ShipStep atomically.
-- **ShipStep** waits for a seller **Channel** or a **Timer**. Timer first: send a reminder and keep waiting. Approval: ship. Exhausted ship retries: **RefundStep**.
-- **RPC approve** publishes the seller Channel.
-- The storefront **start** handler waits for ChargeStep with the Client **wait-for-Step-completion** API — not a homemade status poll.
-- **Attribute order-status** is indexed so support can search stuck orders.
+- **ChargeStep** calls the payment API with a Step retry policy. When it succeeds, it moves to ShipStep.
+- **ShipStep** waits for a message on the seller **Channel** or for a **Timer**. If the Timer fires first, it sends a reminder and keeps waiting. When the approval arrives, it ships. If the ship retries run out, it moves to **RefundStep**.
+- **RPC approve** publishes the approval to the seller Channel.
+- The storefront **start** handler waits for ChargeStep with the Client **wait-for-Step-completion** API. It does not poll a status of its own.
+- **Attribute order-status** is indexed, so support staff can search for stuck orders.
 
 <SdkTabs
   examples={{
@@ -755,7 +756,7 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 </SdkSnippet>
 </SdkTabs>
 
-Frontend wait for “payment received”. **GET /products/order-processing/start** starts the Flow, then waits for ChargeStep before it returns:
+The frontend waits for "payment received". The **GET /products/order-processing/start** handler starts the Flow and waits for ChargeStep to complete before it returns:
 
 <SdkTabs
   examples={{
@@ -850,18 +851,19 @@ Frontend wait for “payment received”. **GET /products/order-processing/start
 </SdkSnippet>
 </SdkTabs>
 
-Step transitions are atomic. Timers and Channel waits survive Worker restarts. Retries and compensation are declared on the Step.
+Dex records a Step's result and its move to the next Step together, so a crash cannot leave the Flow between two Steps. Timer and Channel waits continue after a Worker restarts. You declare retries and compensation on the Step.
 
 ## How this differs from traditional Durable Execution
 
-Traditional Durable Execution runs workflow functions by **replaying** event history. Side effects go in **activities**. You must split business logic into **workflow code** and **activity code**. Those two are completely different paradigms. The workflow code must stay **deterministic**: no extra clocks, random, or IO in the replayed function. Event history has a **size constraint**. That history is also a poor store for application data: large payloads are expensive and slow.
+Traditional Durable Execution engines rebuild a workflow function's state by **replaying** its event history. Side effects must go in **activities**. You split business logic into **workflow code** and **activity code**, and the two follow different programming models. Workflow code must be **deterministic**: it cannot read the clock, use random numbers, or do IO directly. Event history has a **size limit**. It is also a poor place for application data, because large payloads make it expensive and slow.
 
-Replay-based Durable Execution must expose a large set of APIs to simulate a programming model. Those APIs introduce many implicit contracts and interfaces. They are hard to understand and maintain.
+Replay-based engines need a large set of special APIs to simulate a normal programming model. Each of these APIs brings implicit rules, which makes the code hard to understand and maintain.
 
-Dex does not ask you to write a replayable workflow function. You declare Steps and movements. Worker handlers are ordinary code. Waits, RPC, and locking are part of the Flow model, not something you reconstruct from history primitives. **Attribute** data lives in a **blob store**, not in event history. You can sync it to a database you already run.
+Dex has no replayed workflow function. You declare Steps and the movements between them. Worker handlers are ordinary code. Waits, RPCs, and locking are part of the Flow model; you do not rebuild them from history primitives. **Attribute** data lives in a **blob store**, not in an event history. You can sync it to a database you already run.
 
 ## Next steps
 
+- [Quick Start](/quick-start) — run this Flow on your machine
 - [Concepts](/concepts) — Step, Attribute, Channel, Timer, RPC, Client APIs
 - [Design Patterns](/design-patterns) — reusable Flow shapes
 - [Product Examples](/use-cases) — fuller product examples

@@ -1,0 +1,49 @@
+---
+title: Agents reference
+sidebar_label: Overview
+slug: /
+---
+
+# Agents reference
+
+This reference covers the Dex Agents packages in production: install, sizing,
+limits, timeouts, approvals, Connector tools, upgrades, credentials, and Dex
+Web. [Agent Frameworks](/agent-frameworks) explains how an agent session works
+and the rules for tool calls. Server limits on these pages are server-zd
+defaults. See the [Server reference](/reference/server/) and
+[Application](/components/application) for the rest of the setup.
+
+## Pages
+
+- [Install the packages](/reference/agents/0.4.x/install): the Python and TypeScript
+  packages, their runtimes, and how they are versioned.
+- [AgentEvents Stream](/reference/agents/0.4.x/event-stream): the Stream backend and
+  how to size the live event Stream.
+- [Workers and timeouts](/reference/agents/0.4.x/workers): Worker task slots, Step
+  timeouts, long model calls, separate Worker pools, and graceful stop.
+- [Limits for long sessions](/reference/agents/0.4.x/session-limits): the server
+  limits a session grows into, what happens at the limit, and compaction.
+- [Approvals and waiting sessions](/reference/agents/0.4.x/approvals): approval
+  deadlines, RPC locks, and how to find sessions that wait for a person.
+- [Connector tools](/reference/agents/0.4.x/connector-tools): packages, tool names,
+  result size, and Connector connections.
+- [Crashes and tool call outcomes](/reference/agents/0.4.x/failures): what each
+  failure repeats, its tests, and how a tool Step's failure picks the call's
+  record.
+- [Spend limits](/reference/agents/0.4.x/spend-limits): the **ModelSpendLimit**
+  interface and its limits.
+- [Upgrades](/reference/agents/0.4.x/upgrades): deploy agent code while sessions
+  wait, and roll out session settings.
+- [Credentials](/reference/agents/0.4.x/credentials): where model keys and tool
+  credentials live.
+- [Dex Web](/reference/agents/0.4.x/dex-web): render the session graph and show
+  sessions in Dex Web.
+- [Change log](/reference/agents/0.4.x/changelog): user-visible changes in each
+  release.
+
+## Release notes
+
+The agents packages are released together as **agents/vX.Y.Z**, on their own
+version line. See the
+[agents releases](https://github.com/superdurable/dex/releases?q=agents%2Fv&expanded=true)
+on GitHub and the [change log](/reference/agents/0.4.x/changelog).

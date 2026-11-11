@@ -8,8 +8,9 @@ slug: /build-with-ai/dex-developer-skill/dex-app-builder
 # Dex App Builder
 
 Dex App Builder is the **primary skill** for creating a Dex application or
-process product. It owns the complete path from business discovery through UI
-choice, Go backend implementation, local verification, and handoff.
+process product. It covers the whole path: working out the business process,
+choosing the UI, building the Go backend, testing locally, and handing off the
+result.
 
 ## Install and use
 
@@ -17,112 +18,113 @@ choice, Go backend implementation, local verification, and handoff.
 
 ## When to use it
 
-Use App Builder when the request includes any combination of:
+Use App Builder when the request includes any of these:
 
 - discovering or refining a business process;
 - defining roles, permissions, approvals, waits, retries, and recovery;
-- deciding whether Dex Web is sufficient or a custom UI is required;
+- deciding whether Dex Web is enough or a custom UI is needed;
 - building a new Dex application from the supported template;
-- integrating released Connectors or identifying a missing Connector;
-- implementing and verifying a complete vertical slice.
+- using released Connectors, or finding a Connector that is missing;
+- building and testing one complete feature, from UI to backend.
 
-Do not start here for a narrowly scoped SDK debugging task or a standalone
-official Connector contribution. Invoke [Dex SDK](./dex-sdk.mdx) or
-[Dex Connector Contributor](./dex-connector-contributor.mdx) explicitly for
-those tasks.
+For a narrow SDK debugging task or a standalone official Connector
+contribution, invoke [Dex SDK](./dex-sdk.mdx) or
+[Dex Connector Contributor](./dex-connector-contributor.mdx) directly instead.
 
 ## Before implementation
 
-App Builder first confirms that the coding-agent host has a writable repository
-or project workspace, file-editing tools, and command execution. An existing
-repository or a new empty repository both work.
+App Builder first checks that the coding-agent host gives it a writable
+repository or project, file-editing tools, and command execution.
 
-Without that environment, App Builder can complete discovery, architecture,
-and an implementation handoff, but it cannot create files, run tests, build
-artifacts, or deploy an application.
+Without them, App Builder can still work out the process, design the
+architecture, and write a plan for implementation. It cannot create files, run
+tests, build artifacts, or deploy an application.
 
 ## Workflow
 
 ### 1. Confirm the business process
 
-The skill begins with discussion rather than code. It identifies:
+The skill starts by talking with you, not by writing code. It works out:
 
-- process maintainers, managers, operators, approvers, and participants;
-- each role's operations and the stable permission required by each human
-  action;
+- who maintains, manages, operates, approves, and takes part in the process;
+- what each role can do, and the stable permission each human action requires;
 - triggers, inputs, outputs, deadlines, waits, retries, recovery, audit, and
-  sensitive-data boundaries;
-- external systems and the released Connector capabilities they require;
-- whether an existing host authenticates users and maps roles to trusted
-  permissions.
+  which data is sensitive;
+- the external systems, and the released Connector capabilities they need;
+- whether an existing host application signs users in and maps their roles to
+  permissions it trusts.
 
-The discovery checkpoint produces a role/operation/permission matrix, a
-lifecycle proposal, a UI decision, and a Connector capability matrix. Material
-ambiguity is resolved with the user before implementation begins.
+This step ends with a table of roles, operations, and permissions, a proposed
+lifecycle, a UI decision, and a table of the Connector capabilities needed. The
+skill settles every open question that matters with you before any code is
+written.
 
 ### 2. Choose the application surface
 
-App Builder uses exactly one process-management mode:
+App Builder picks one of two ways to manage the process:
 
 | Mode | When it fits | What gets built |
 | --- | --- | --- |
-| **Dex Web** | Runs, Work Queue, search, fields, and Actions cover the confirmed experience. | Dex Web remains the process UI. The application keeps only a small non-business shell and required integration ingress. |
-| **Custom UI** | The confirmed product needs business screens or interactions beyond Dex Web. | A React and TypeScript prototype is exercised against mock behavior and approved before the production backend is connected. |
+| **Dex Web** | Runs, Work Queue, search, fields, and Actions cover what the users need. | Dex Web is the process UI. The application adds only a small shell with no business screens, plus the endpoints that external systems call. |
+| **Custom UI** | The product needs business screens or interactions that Dex Web does not offer. | The skill builds a React and TypeScript prototype on mock data. You try it and approve it before it is connected to the real backend. |
 
-Dex Web is the default. A retained Hello World page or generated API client does
-not by itself justify a custom process UI.
+Dex Web is the default. A Hello World page left over from the template, or a
+generated API client, is not by itself a reason to build a custom UI.
 
 ### 3. Design and implement the Flow
 
-Backend implementation uses the supported application template and the Dex Go
-SDK. App Builder loads [Dex SDK](./dex-sdk.mdx) for public SDK semantics, then
-applies stricter platform rules:
+The backend uses the supported application template and the Dex Go SDK. App
+Builder loads [Dex SDK](./dex-sdk.mdx) for the general SDK rules, then adds
+stricter rules of its own:
 
-- use Go for the application backend;
+- write the application backend in Go;
 - target strict Dex Web and Flow Definition Graph 2.0 rendering;
-- keep external provider effects in **Execute**;
-- keep **WaitFor** free of provider and Dex mutations;
-- model human operations as typed Actions with explicit permissions;
-- keep credentials behind Connector or runtime boundaries;
-- use released Connector capabilities instead of adding application-local
-  provider clients.
+- call external providers only from **Execute**;
+- keep provider calls and Dex changes out of **WaitFor**;
+- model each human operation as a typed Action with an explicit permission;
+- keep credentials inside Connectors or the runtime environment, not in
+  application code;
+- use released Connector capabilities instead of adding provider clients to
+  the application.
 
-The Flow identity, typed input and output, Steps, transitions, Attributes,
-Channels, RPCs, timers, retries, recovery, and Connector boundaries are stated
-before code is written.
+Before it writes code, the skill states the Flow's identity, typed input and
+output, Steps, transitions, Attributes, Channels, RPCs, Timers, retries,
+recovery, and Connector boundaries.
 
 ### 4. Verify and hand off
 
-The skill runs focused tests while iterating, then the template's full supported
-check. It verifies the selected UI mode, generated code, the production build,
-real Dex Server behavior, recovery paths, and FDG 2.0 analysis.
+While it works, the skill runs the tests related to each change. At the end,
+it runs the template's full check. This covers the chosen UI mode, generated
+code, the production build, behavior against a real Dex Server, recovery
+paths, and the FDG 2.0 analysis.
 
-The final handoff records the confirmed product decisions, implemented
-behavior, exact test evidence, Connector release or contribution status,
-remaining limitations, and a clean Git commit. A future platform import is not
-reported as complete until that capability exists.
+The handoff lists the product decisions you confirmed, what was built, the
+exact test results, the status of any Connector release or contribution, and
+known limitations. The work ends in a clean Git commit.
 
 ## How Connector gaps are handled
 
-App Builder inspects released Connector capabilities before writing integration
-code. If an official Connector or required operation, Trigger, or configuration
-UI unit is missing or defective, it loads
+Before it writes integration code, App Builder checks what the released
+Connectors can do. An official Connector may be missing, or an operation,
+Trigger, or configuration UI unit the application needs may be missing or
+broken. App Builder then loads
 [Dex Connector Contributor](./dex-connector-contributor.mdx).
 
-The application may test against a local Connector module while the
-contribution is reviewed, but production handoff remains blocked until an exact
-Connector release is available. Branches, commit SHAs, pseudo-versions, and
-local replacements are never committed as production dependencies.
+While the contribution is in review, the application can test against a local
+copy of the Connector module. The application is not ready for production
+until that Connector is released with an exact version. The skill never
+commits a branch, commit SHA, pseudo-version, or local replacement as a
+production dependency.
 
 ## Expected result
 
-A completed App Builder run provides:
+When App Builder finishes, you have:
 
 - a confirmed process and permission model;
-- an explicit Dex Web or custom-UI decision;
-- a Go Dex application that follows the supported template;
-- local and real-server verification evidence;
-- clear Connector release blockers, if any;
-- a repository state suitable for review and future platform handoff.
+- a clear choice between Dex Web and a custom UI;
+- a Go Dex application built on the supported template;
+- test evidence from local runs and a real Dex Server;
+- a list of Connector releases that still block production, if any;
+- a repository ready for review.
 
 Return to [Dex Skills overview and installation](../dex-developer-skill.mdx).

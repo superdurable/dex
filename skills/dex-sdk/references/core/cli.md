@@ -25,7 +25,7 @@ dexcli dev
 
 - Use the Server and Dex Web addresses that `dexcli dev` prints. Another local process can change the ports, so pass the printed Server address to the application instead of assuming a default.
 - State persists in a data directory across restarts unless you choose another directory.
-- A Server configuration override file can change local settings such as retention, Streams, or search. An Attribute Store configuration file enables External Attribute Sync locally.
+- A Server configuration override file can change local settings such as retention, Streams, or search. An Attribute Store configuration file enables Attribute Store sync locally.
 - Strict local durability flushes every write to disk and is slow on some hosts. A short-lived test server that needs no host-crash safety can select process-crash-safe durability. Keep strict for data you need. See the [CLI reference](https://docs.superdurable.io/reference/cli/#start-locally).
 - The Stream Store is enabled by default in `dexcli dev`.
 

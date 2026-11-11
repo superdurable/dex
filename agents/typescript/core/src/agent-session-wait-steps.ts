@@ -21,8 +21,10 @@ import {
 } from "@superdurable/dex";
 
 import { buildDurableWaitCompletedOutput, buildQuestionAnsweredOutput } from "./agent-built-in-tools.js";
+import { toolResultImages } from "./agent-media.js";
 import {
   ToolExecutionError,
+  ToolOutcomeUnknownError,
   type ToolTaskPending,
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
@@ -377,6 +379,11 @@ export class PollToolTaskStep implements Step<string> {
         try {
           outcome = await transitions.runWithHeartbeats(context, () => pollToolTask.call(transitions.runner, poll));
         } catch (error: unknown) {
+          if (error instanceof ToolOutcomeUnknownError) {
+            const unknown: AgentToolCallRecord = { ...toolCall, status: "outcome_unknown", error: error.message };
+            pollSpan.recordFinished(unknown);
+            return unknown;
+          }
           if (!(error instanceof ToolExecutionError)) {
             throw error;
           }
@@ -428,7 +435,7 @@ function recordToolTaskPoll(toolCall: AgentToolCallRecord, outcome: ToolTaskPoll
   if (typeof outcome?.output !== "string") {
     throw new TypeError("pollToolTask must return a ToolExecutionResult, a ToolInputRequested, or a ToolTaskPending");
   }
-  return { ...polled, status: "succeeded", output: outcome.output };
+  return { ...polled, status: "succeeded", output: outcome.output, ...toolResultImages(outcome.images) };
 }
 
 /** Returns the text the model sees for a declined question; an empty message reads as none, as in Python. */

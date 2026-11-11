@@ -191,6 +191,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Refund order 7.\"}",
+            "images": [],
             "role": "user",
             "sequence": 1,
             "text": "Refund order 7.",
@@ -203,6 +204,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"I need to ask.\\\"}\",\"text\":\"I need to ask.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 2,
             "text": "I need to ask.",
@@ -215,6 +217,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"ask_user\\\",\\\"arguments\\\":\\\"{\\\\\\\"question\\\\\\\": \\\\\\\"Which account?\\\\\\\", \\\\\\\"choices\\\\\\\": [\\\\\\\"checking\\\\\\\", \\\\\\\"savings\\\\\\\"], \\\\\\\"allows_free_text\\\\\\\": false}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"ask_user\",\"arguments\":\"{\\\"question\\\": \\\"Which account?\\\", \\\"choices\\\": [\\\"checking\\\", \\\"savings\\\"], \\\"allows_free_text\\\": false}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 3,
             "text": null,
@@ -263,6 +266,7 @@
             "deferral_order": 0,
             "effect": "read",
             "error": null,
+            "images": [],
             "input_allows_free_text": true,
             "input_answers": [],
             "input_choices": [],
@@ -301,6 +305,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Refund order 7.\"}",
+            "images": [],
             "role": "user",
             "sequence": 1,
             "text": "Refund order 7.",
@@ -313,6 +318,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"I need to ask.\\\"}\",\"text\":\"I need to ask.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 2,
             "text": "I need to ask.",
@@ -325,6 +331,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"ask_user\\\",\\\"arguments\\\":\\\"{\\\\\\\"question\\\\\\\": \\\\\\\"Which account?\\\\\\\", \\\\\\\"choices\\\\\\\": [\\\\\\\"checking\\\\\\\", \\\\\\\"savings\\\\\\\"], \\\\\\\"allows_free_text\\\\\\\": false}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"ask_user\",\"arguments\":\"{\\\"question\\\": \\\"Which account?\\\", \\\"choices\\\": [\\\"checking\\\", \\\"savings\\\"], \\\"allows_free_text\\\": false}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 3,
             "text": null,
@@ -337,6 +344,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"ask_user\",\"output\":\"{\\\"status\\\":\\\"answered\\\",\\\"answer\\\":\\\"checking\\\"}\"}",
+            "images": [],
             "role": "tool",
             "sequence": 4,
             "text": null,
@@ -349,6 +357,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Refunding to checking.\\\"}\",\"text\":\"Refunding to checking.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 5,
             "text": "Refunding to checking.",

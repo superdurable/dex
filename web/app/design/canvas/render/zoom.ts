@@ -26,6 +26,9 @@ import { READABLE_ZOOM } from '../views/elkPlacement'
 export const MIN_ZOOM = 0.14
 export const MAX_ZOOM = 2.2
 
+/** The zoom-out limit where a host opens on the whole drawing, however small that makes it. */
+export const WHOLE_DRAWING_MIN_ZOOM = 0.02
+
 /**
  * Fit may zoom past 1:1, up to this. The cap used to be 1, which left a wide canvas mostly
  * empty whenever the graph already fitted; a small flow still must not fill a wall.
@@ -66,10 +69,21 @@ export function chromeCompensation(zoom: number): number {
 const PADDING = { top: '8%', bottom: '4%', left: '4%', right: '4%' } as const
 
 /** The right padding reserves the overlaid panel's share of the pane, so nothing draws under it. */
-export function fitOptions(insetRightPx: number | null | undefined, paneWidth: number) {
+export function fitOptions(
+  insetRightPx: number | null | undefined,
+  paneWidth: number,
+  maxZoom = FIT_MAX_ZOOM,
+  insetTopPx: number | null = null,
+  paneHeight = 0,
+) {
   const right: `${number}%` =
     insetRightPx == null || insetRightPx <= 0 || paneWidth <= 0
       ? PADDING.right
       : `${Math.min(58, Math.max(18, (insetRightPx / paneWidth) * 100 + 4))}%`
-  return { padding: { ...PADDING, right }, minZoom: OPEN_FLOOR, maxZoom: FIT_MAX_ZOOM } as const
+  // The top padding likewise reserves the host's overlays when it reports them.
+  const top: `${number}%` =
+    insetTopPx == null || insetTopPx <= 0 || paneHeight <= 0
+      ? PADDING.top
+      : `${Math.min(60, Math.max(8, (insetTopPx / paneHeight) * 100))}%`
+  return { padding: { ...PADDING, right, top }, minZoom: OPEN_FLOOR, maxZoom } as const
 }

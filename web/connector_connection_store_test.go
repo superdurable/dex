@@ -9,6 +9,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestConnectorConnectionStoreRoundTripsAuthMethodIDsAndCopiesKeptCredentials(t *testing.T) {
@@ -31,7 +34,7 @@ func TestConnectorConnectionStoreRoundTripsAuthMethodIDsAndCopiesKeptCredentials
 		"openai_api_key":    json.RawMessage(`"openai-secret"`),
 		"anthropic_api_key": json.RawMessage(`"anthropic-secret"`),
 	}
-	if err := store.put(connection, nil); err != nil {
+	if err := store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, err := newConnectorConnectionStore(directory)
@@ -50,7 +53,7 @@ func TestConnectorConnectionStoreRoundTripsAuthMethodIDsAndCopiesKeptCredentials
 	next := testLocalConnectorConnection("llm", "default", "unused", nil)
 	next.AuthMethodIDs = []string{"openai"}
 	next.Credentials = map[string]json.RawMessage{"auth_methods": json.RawMessage(`["openai"]`)}
-	if err := reloaded.put(next, []string{"openai_api_key"}); err != nil {
+	if err := reloaded.putCurrentForTest(next, []string{"openai_api_key"}); err != nil {
 		t.Fatal(err)
 	}
 	stored, found, err := reloaded.get("llm", "default")
@@ -61,11 +64,11 @@ func TestConnectorConnectionStoreRoundTripsAuthMethodIDsAndCopiesKeptCredentials
 
 	removed := testLocalConnectorConnection("llm", "default", "unused", nil)
 	removed.Credentials = map[string]json.RawMessage{}
-	if err := reloaded.put(removed, []string{"anthropic_api_key"}); !errors.Is(err, errConnectorConfigurationRevisionConflict) {
+	if err := reloaded.putCurrentForTest(removed, []string{"anthropic_api_key"}); !errors.Is(err, errConnectorConfigurationRevisionConflict) {
 		t.Fatalf("keep of a field no longer stored error = %v", err)
 	}
 	unsaved := testLocalConnectorConnection("llm", "unsaved", "unused", nil)
-	if err := reloaded.put(unsaved, []string{"access_token"}); !errors.Is(err, errConnectorConfigurationRevisionConflict) {
+	if err := reloaded.putCurrentForTest(unsaved, []string{"access_token"}); !errors.Is(err, errConnectorConfigurationRevisionConflict) {
 		t.Fatalf("keep without a stored record error = %v", err)
 	}
 	both := testLocalConnectorConnection("llm", "default", "unused", nil)
@@ -91,7 +94,7 @@ func TestConnectorConnectionStorePersistsAcrossRestartAndIsolatesDirectories(t *
 	}
 	expiresAt := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	connection := testLocalConnectorConnection("gmail", "sender", "token-one", &expiresAt)
-	if err := firstStore.put(connection, nil); err != nil {
+	if err := firstStore.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,11 +162,11 @@ func TestConnectorConnectionStoreAtomicallyReplacesAndDeletesRecord(t *testing.T
 		t.Fatal(err)
 	}
 	connection := testLocalConnectorConnection("github", "reviewer", "token-one", nil)
-	if err := store.put(connection, nil); err != nil {
+	if err := store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	connection.Credentials["access_token"] = json.RawMessage(`"token-two"`)
-	if err := store.put(connection, nil); err != nil {
+	if err := store.putCurrentForTest(connection, nil); err != nil {
 		t.Fatal(err)
 	}
 	connections, err := store.list()
@@ -173,7 +176,7 @@ func TestConnectorConnectionStoreAtomicallyReplacesAndDeletesRecord(t *testing.T
 	if len(connections) != 1 || string(connections[0].Credentials["access_token"]) != `"token-two"` {
 		t.Fatalf("updated connections = %+v", connections)
 	}
-	deleted, err := store.delete("github", "reviewer")
+	deleted, err := store.deleteCurrentForTest("github", "reviewer")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,27 +190,251 @@ func TestConnectorConnectionStoreKeepsTriggerBindingsSeparateAndDeletesThemWithC
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.put(testLocalConnectorConnection("slack", "slack-workspace", "bot-token", nil), nil); err != nil {
+	if err := store.putCurrentForTest(testLocalConnectorConnection("slack", "slack-workspace", "bot-token", nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	binding := localConnectorTriggerBinding{
 		ConnectorID: "slack", ConnectionName: "slack-workspace", TriggerName: "channelThreadCreated",
 		BindingName: "slack-email-approval-start", Configuration: map[string]json.RawMessage{"channelId": json.RawMessage(`"C123"`)},
 	}
-	if err := store.putTriggerBinding(binding); err != nil {
+	if err := store.putTriggerBindingCurrentForTest(binding); err != nil {
 		t.Fatal(err)
 	}
 	bindings, err := store.listTriggerBindings("slack", "slack-workspace")
 	if err != nil || len(bindings) != 1 || bindings[0].BindingName != binding.BindingName {
 		t.Fatalf("bindings = %+v, err = %v", bindings, err)
 	}
-	deleted, err := store.delete("slack", "slack-workspace")
+	deleted, err := store.deleteCurrentForTest("slack", "slack-workspace")
 	if err != nil || !deleted {
 		t.Fatalf("deleted = %v, err = %v", deleted, err)
 	}
 	bindings, err = store.listTriggerBindings("slack", "slack-workspace")
 	if err != nil || len(bindings) != 0 {
 		t.Fatalf("bindings after delete = %+v, err = %v", bindings, err)
+	}
+}
+
+func TestConnectorConnectionStoreAuthorizationIDChangesOnlyWithAuthorizations(t *testing.T) {
+	store, err := newConnectorConnectionStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := testLocalConnectorConnection("slack", "workspace", "token-one", nil)
+	connection.AuthorizationID = "ignored-caller-value"
+	if err := store.putCurrentForTest(connection, nil); err != nil {
+		t.Fatal(err)
+	}
+	added := requireConnectorTestAuthorizationID(t, store, "slack", "workspace")
+
+	configurationEdit := testLocalConnectorConnection("slack", "workspace", "unused", nil)
+	configurationEdit.Configuration = map[string]json.RawMessage{"teamDomain": json.RawMessage(`"example"`)}
+	configurationEdit.Credentials = map[string]json.RawMessage{}
+	if err := store.putCurrentForTest(configurationEdit, []string{"access_token"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := requireConnectorTestAuthorizationID(t, store, "slack", "workspace"); got != added {
+		t.Fatalf("authorizationId after a configuration edit = %q, want %q", got, added)
+	}
+
+	binding := localConnectorTriggerBinding{
+		ConnectorID: "slack", ConnectionName: "workspace", TriggerName: "channelThreadCreated",
+		BindingName: "approvals", Configuration: map[string]json.RawMessage{"channelId": json.RawMessage(`"C123"`)},
+	}
+	if err := store.putTriggerBindingCurrentForTest(binding); err != nil {
+		t.Fatal(err)
+	}
+	if got := requireConnectorTestAuthorizationID(t, store, "slack", "workspace"); got != added {
+		t.Fatalf("authorizationId after a Trigger binding write = %q, want %q", got, added)
+	}
+
+	credentialEdit := testLocalConnectorConnection("slack", "workspace", "token-two", nil)
+	if err := store.putCurrentForTest(credentialEdit, nil); err != nil {
+		t.Fatal(err)
+	}
+	edited := requireConnectorTestAuthorizationID(t, store, "slack", "workspace")
+	if edited == added {
+		t.Fatal("a credential edit kept the authorizationId")
+	}
+
+	fileLock, err := store.lockConnectionsFile(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := store.revision("slack", "workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.put(fileLock, credentialEdit, nil, revision, true)
+	fileLock.release()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requireConnectorTestAuthorizationID(t, store, "slack", "workspace"); got == edited {
+		t.Fatal("a completed authorization with the same credentials kept the authorizationId")
+	}
+}
+
+func TestConnectorConnectionStoreKeepsRecordsWithoutOrWithExternalAuthorizationID(t *testing.T) {
+	directory := t.TempDir()
+	contents := `{
+  "schemaVersion": "connectors.dex.dev/local-connections/v1alpha1",
+  "connections": [
+    {
+      "connectorId": "github",
+      "modulePath": "github.com/superdurable/dex-connectors-library/connectors/github",
+      "moduleVersion": "v0.1.1",
+      "provider": "github",
+      "connectionName": "legacy",
+      "configuration": {},
+      "credentials": {
+        "app_key": {
+          "id": 7,
+          "secret": "legacy-secret"
+        }
+      }
+    },
+    {
+      "connectorId": "slack",
+      "modulePath": "github.com/superdurable/dex-connectors-library/connectors/slack",
+      "moduleVersion": "v0.1.1",
+      "provider": "slack",
+      "connectionName": "workspace",
+      "configuration": {},
+      "credentials": {
+        "access_token": "application-refreshed-token"
+      },
+      "authorizationId": "8d6f5f1e-3b52-4c3e-9a4e-2f0a7c1d9b10"
+    }
+  ]
+}
+`
+	if err := os.WriteFile(filepath.Join(directory, connectorConnectionsFileName), []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := newConnectorConnectionStore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRevision, err := store.revision("github", "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.putCurrentForTest(testLocalConnectorConnection("gmail", "sender", "gmail-token", nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	binding := localConnectorTriggerBinding{
+		ConnectorID: "slack", ConnectionName: "workspace", TriggerName: "channelThreadCreated",
+		BindingName: "approvals", Configuration: map[string]json.RawMessage{},
+	}
+	if err := store.putTriggerBindingCurrentForTest(binding); err != nil {
+		t.Fatal(err)
+	}
+	legacyRevisionAfterWrites, err := store.revision("github", "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyRevisionAfterWrites != legacyRevision {
+		t.Fatal("writing other records changed the revision of a record without authorizationId")
+	}
+	assertConnectorTestStoredAuthorizationID(t, store, "github", "legacy", "")
+	assertConnectorTestStoredAuthorizationID(t, store, "slack", "workspace", "8d6f5f1e-3b52-4c3e-9a4e-2f0a7c1d9b10")
+	slack, _, err := store.get("slack", "workspace")
+	if err != nil || string(slack.Credentials["access_token"]) != `"application-refreshed-token"` {
+		t.Fatalf("slack credentials = %s, err = %v", slack.Credentials, err)
+	}
+
+	legacyEdit := localConnectorConnection{
+		ConnectorID: "github", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/github",
+		ModuleVersion: "v0.1.1", Provider: "github", ConnectionName: "legacy",
+		Configuration: map[string]json.RawMessage{"owner": json.RawMessage(`"example"`)},
+		Credentials:   map[string]json.RawMessage{},
+	}
+	if err := store.putCurrentForTest(legacyEdit, []string{"app_key"}); err != nil {
+		t.Fatal(err)
+	}
+	assertConnectorTestStoredAuthorizationID(t, store, "github", "legacy", "")
+	legacyEdit.Credentials = map[string]json.RawMessage{"app_key": json.RawMessage(`{"id":7,"secret":"legacy-secret"}`)}
+	legacyEdit.Configuration = map[string]json.RawMessage{}
+	if err := store.putCurrentForTest(legacyEdit, nil); err != nil {
+		t.Fatal(err)
+	}
+	assertConnectorTestStoredAuthorizationID(t, store, "github", "legacy", "")
+}
+
+func TestConnectorConnectionStoreComparesCredentialsByJSONValue(t *testing.T) {
+	store, err := newConnectorConnectionStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	connectionWithCredentials := func(appKey string, token string) localConnectorConnection {
+		connection := testLocalConnectorConnection("github", "reviewer", "unused", nil)
+		connection.Credentials = map[string]json.RawMessage{
+			"app_key": json.RawMessage(appKey), "access_token": json.RawMessage(token),
+		}
+		return connection
+	}
+	if err := store.putCurrentForTest(connectionWithCredentials(
+		`{"id":12345678901234567890,"secret":"s/x","scope":{"owner":"example","repository":"dex"}}`, `"token/one"`,
+	), nil); err != nil {
+		t.Fatal(err)
+	}
+	added := requireConnectorTestAuthorizationID(t, store, "github", "reviewer")
+
+	for _, equivalent := range []struct {
+		name   string
+		appKey string
+		token  string
+	}{
+		{"top-level key order", `{"scope":{"owner":"example","repository":"dex"},"secret":"s/x","id":12345678901234567890}`, `"token/one"`},
+		{"nested key order", `{"id":12345678901234567890,"secret":"s/x","scope":{"repository":"dex","owner":"example"}}`, `"token/one"`},
+		{"string escapes", `{"id":12345678901234567890,"secret":"\u0073\/x","scope":{"owner":"example","repository":"dex"}}`, `"token\/one"`},
+	} {
+		if err := store.putCurrentForTest(connectionWithCredentials(equivalent.appKey, equivalent.token), nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := requireConnectorTestAuthorizationID(t, store, "github", "reviewer"); got != added {
+			t.Fatalf("authorizationId after a %s difference = %q, want %q", equivalent.name, got, added)
+		}
+	}
+
+	if err := store.putCurrentForTest(connectionWithCredentials(
+		`{"id":12345678901234567891,"secret":"s/x","scope":{"owner":"example","repository":"dex"}}`, `"token/one"`,
+	), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := requireConnectorTestAuthorizationID(t, store, "github", "reviewer"); got == added {
+		t.Fatal("a number that differs only beyond float64 precision kept the authorizationId")
+	}
+}
+
+// requireConnectorTestAuthorizationID returns the stored authorizationId after checking it is an RFC 4122 UUIDv4.
+func requireConnectorTestAuthorizationID(t *testing.T, store *connectorConnectionStore, connectorID string, connectionName string) string {
+	t.Helper()
+	stored, found, err := store.get(connectorID, connectionName)
+	if err != nil || !found {
+		t.Fatalf("found = %v, err = %v", found, err)
+	}
+	parsed, err := uuid.Parse(stored.AuthorizationID)
+	if err != nil || parsed.Version() != 4 || parsed.Variant() != uuid.RFC4122 || parsed.String() != stored.AuthorizationID {
+		t.Fatalf("authorizationId = %q is not a canonical UUIDv4: %v", stored.AuthorizationID, err)
+	}
+	return stored.AuthorizationID
+}
+
+func assertConnectorTestStoredAuthorizationID(
+	t *testing.T,
+	store *connectorConnectionStore,
+	connectorID string,
+	connectionName string,
+	expected string,
+) {
+	t.Helper()
+	stored, found, err := store.get(connectorID, connectionName)
+	if err != nil || !found {
+		t.Fatalf("found = %v, err = %v", found, err)
+	}
+	if stored.AuthorizationID != expected {
+		t.Fatalf("%s/%s authorizationId = %q, want %q", connectorID, connectionName, stored.AuthorizationID, expected)
 	}
 }
 
@@ -224,4 +451,64 @@ func testLocalConnectorConnection(
 		Credentials:         map[string]json.RawMessage{"access_token": json.RawMessage(`"` + token + `"`)},
 		CredentialExpiresAt: expiresAt,
 	}
+}
+
+// putCurrentForTest saves connection against the record revision stored now.
+func (store *connectorConnectionStore) putCurrentForTest(connection localConnectorConnection, keepCredentialFields []string) error {
+	fileLock, err := store.lockConnectionsFile(context.Background())
+	if err != nil {
+		return err
+	}
+	defer fileLock.release()
+	revision, err := store.revision(connection.ConnectorID, connection.ConnectionName)
+	if err != nil {
+		return err
+	}
+	return store.put(fileLock, connection, keepCredentialFields, revision, false)
+}
+
+// putLockedForTest takes the connections file lock under ctx and saves connection against expectedRevision.
+func (store *connectorConnectionStore) putLockedForTest(
+	ctx context.Context,
+	connection localConnectorConnection,
+	expectedRevision string,
+) error {
+	fileLock, err := store.lockConnectionsFile(ctx)
+	if err != nil {
+		return err
+	}
+	defer fileLock.release()
+	return store.put(fileLock, connection, nil, expectedRevision, false)
+}
+
+// putTriggerBindingCurrentForTest saves binding against the connection and binding revisions stored now.
+func (store *connectorConnectionStore) putTriggerBindingCurrentForTest(binding localConnectorTriggerBinding) error {
+	fileLock, err := store.lockConnectionsFile(context.Background())
+	if err != nil {
+		return err
+	}
+	defer fileLock.release()
+	connectionRevision, err := store.revision(binding.ConnectorID, binding.ConnectionName)
+	if err != nil {
+		return err
+	}
+	bindingRevision, err := store.triggerBindingRevision(binding)
+	if err != nil {
+		return err
+	}
+	return store.putTriggerBinding(fileLock, binding, connectionRevision, bindingRevision)
+}
+
+// deleteCurrentForTest deletes the connection against the record revision stored now.
+func (store *connectorConnectionStore) deleteCurrentForTest(connectorID string, connectionName string) (bool, error) {
+	fileLock, err := store.lockConnectionsFile(context.Background())
+	if err != nil {
+		return false, err
+	}
+	defer fileLock.release()
+	revision, err := store.revision(connectorID, connectionName)
+	if err != nil {
+		return false, err
+	}
+	return store.delete(fileLock, connectorID, connectionName, revision)
 }

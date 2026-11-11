@@ -7,13 +7,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # 等待并行 Step
 
+等所有动态启动的 Step 都完成后，再结束 Flow。
+
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** 同时启动 **DoWork** 和 **AwaitStep**。每个 worker 随机等待一小段时间，然后向 **CompleteCh** 发布一条消息。**AwaitStep** 等到所需数量的消息后才完成 Flow。Channel 消息是持久化的，因此即使消息先于 **AwaitStep** 开始等待，也仍然会被计入。
+**Init** 同时启动 **DoWork** execution 和 **AwaitStep**。每个 worker 随机等待一小段时间，然后向 **CompleteCh** 发布一条消息。**AwaitStep** 在 **WaitFor** 中等待每个 worker 各一条消息，所以它要等所有 worker 都结束后才完成。Channel 消息是持久化的，因此即使消息在 **AwaitStep** 开始等待之前发布，也仍然会被计入。
 
 ## 核心实现
-
-协调 Step 与 worker 一起启动，并等待每个 worker 各发布一条完成消息。
 
 <SdkTabs
   examples={{

@@ -6,7 +6,7 @@ framework adapters. It provides one durable agent session Flow,
 framework adapter implements. The plan is
 [agent-framework-adapters.md](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md).
 
-One Flow execution is one agent session; the Flow ID is the session ID. The
+One Flow run is one agent session; the Flow ID is the session ID. The
 session runs in **Step mode**: every model call is one `RunModel` Step, and
 every tool call, READ included, is its own Step. The tool call Steps of one
 model response run in parallel, and `ResumeTurn` waits for their results
@@ -44,6 +44,7 @@ module needs a new package name:
 | `dex_agents.litellm` | `dex-agents[litellm]` | `LiteLLMModelClient`, a `ModelClient` on LiteLLM |
 | `dex_agents.mcp` | `dex-agents[mcp]` | `McpToolSource`, MCP servers' tools as agent tools |
 | `dex_agents.connectors` | `dex-agents[connectors]` | `ConnectorToolSource`, reviewed Connector operations as agent tools |
+| `dex_agents.s3` | `dex-agents[s3]` | `S3MediaStore`, image bytes in an S3-compatible bucket; see [Images](#images) |
 | `dex_agents.ui_stream` | `dex-agents` | Server-Sent Event frames and snapshot JSON for UIs |
 | `dex_agents.testing` | `dex-agents` | Private engines, Worker processes, gates, Step history, and `ScriptedModelClient` (the same class as `dex_agents.stepwise`'s) |
 
@@ -651,6 +652,101 @@ await sessions.update_session_settings("session-42", {"model": "openai/gpt-5-min
   every Worker of the Flow type runs 0.2.0. A 0.1.0 Worker drops the start
   settings and starts turns without them.
 
+## Images
+
+A user message and a tool result can carry images. Session state holds only
+an `AgentImageReference` for each image; the bytes live in a media store,
+keyed by their SHA-256:
+
+```json
+{"type": "image", "uri": "s3://agent-media/sessions/sha256/9f2c...", "mime_type": "image/png", "sha256": "9f2c...", "size_bytes": 48213}
+```
+
+Upload first, then send the reference:
+
+```python
+from dex_agents.s3 import S3MediaStore
+
+store = S3MediaStore("agent-media", "sessions")  # credentials from the standard AWS chain
+reference = await store.put_image(Path("chart.png").read_bytes())
+await sessions.send_user_message("session-42", "What does this chart show?", images=[reference])
+```
+
+A tool returns images the same way, uploading inside its call:
+
+```python
+reference = await store.put_image(screenshot_png)
+return ToolExecutionResult(output="Took a screenshot.", images=[reference])
+```
+
+- **One object per image.** The object key is `<prefix>/sha256/<sha256>`, and
+  the reference's `uri` ends in `/sha256/<sha256>`. `S3MediaStore.put_image`
+  uploads with `If-None-Match: *` and treats "already exists" (412) as
+  success, so a tool Step that a crash retries, a client that sends again, or
+  two Workers at once write one object. A 409 conflict retries the upload
+  twice; when every attempt conflicts, a `HEAD` must find the object with the
+  image's size, or `put_image` raises `MediaStoreError`. On a service that refuses conditional writes it
+  checks with `HEAD` first; two concurrent uploads may then both write the
+  same content, so deduplication holds for the key and its final content. A
+  replay always reads the bytes the reference was made from: `get_image`
+  reads only references under its own bucket and prefix, refuses an object
+  whose `Content-Length` differs, reads at most one byte past `size_bytes`,
+  and `verify_image_bytes` checks the SHA-256, the size, and that the bytes
+  are a well-formed image of `mime_type`.
+- **Types and sizes.** PNG, JPEG, GIF, and WebP, detected from the bytes with
+  a cheap structural check (PNG signature and `IHDR`; JPEG SOI, a marker, and
+  EOI at the end; GIF header and screen descriptor; WebP RIFF size and a
+  `VP8`, `VP8L`, or `VP8X` chunk), not a full decode, up
+  to `MAX_IMAGE_BYTES` (3,750,000 bytes) each. Its base64 text is 5,000,000
+  bytes, which fits the per-image limits of Amazon Bedrock (5 MB of base64)
+  and the Claude API (10 MB of base64). One message or
+  tool result carries at most `MAX_IMAGES_PER_MESSAGE` (20). `put_image`
+  raises `ImageValidationError` for other bytes. A `uri` is at most
+  `MAX_IMAGE_URI_LENGTH` (1024) bytes as UTF-8 in every core, and a store
+  refuses a bucket, prefix, or name that would make longer ones.
+  `validate_image_references` checks references, and
+  `AgentSessionClient.send_user_message` checks them before it sends.
+- **Where they are stored.** `AgentUserMessage.images`, the session copy on
+  the stored `AgentMessage.images` for display, `ToolExecutionResult.images`,
+  and `AgentToolCall.images`. A runner also keeps the references, never the
+  bytes, in its `framework_item`, the replay truth. The browser snapshot JSON
+  includes the `images` of messages and tool calls.
+- **The runner.** `send_user_message` returns `False` for images unless the
+  runner implements `ImageUserMessageBuilder.build_user_message_with_images`,
+  which the session calls instead of `build_user_message` for a message with
+  images. When it builds model input, the runner reads the bytes with
+  `load_images(store, references)`, choosing the references from its replayed
+  items or from `collect_turn_images(turn)`. The session sets the stored
+  user message's `images` itself; for a tool result message the runner sets
+  `FrameworkMessage.images` from the record. A tool result with an invalid
+  reference fails the tool Step attempt. The session checks the `images` of
+  every `FrameworkMessage` a runner returns before it stores any: an invalid
+  one fails the model call like any runner error, and one from
+  `build_unfinished_turn_messages` leaves only the turn's note.
+- **Stores.** `S3MediaStore(bucket, prefix, endpoint_url=..., region_name=...,
+  force_path_style=...)` or `S3MediaStore.from_store_uri("s3://bucket/prefix")`
+  for AWS S3 or any S3-compatible service; `InMemoryMediaStore` for tests in one
+  process. Credentials come from the standard AWS chain by default; pass
+  `access_key_id` and `secret_access_key` (and `session_token`) only for a
+  bucket whose keys are not secret, such as a local development bucket with
+  fixed loopback keys. The store never logs them or shows them in its `repr`.
+  A store of your own implements `MediaStore`: check its location with
+  `require_short_image_uris`, build each reference with
+  `build_image_reference(data, store_uri)`, and check reads with
+  `require_store_image_reference` and `verify_image_bytes`.
+- **Built-in runners.** In this release no built-in runner shows images to a
+  model: Stepwise and the framework adapters do not implement
+  `ImageUserMessageBuilder`, so their sessions refuse images.
+- **Retention.** Deleting a session deletes no object. A runner reads the
+  images again whenever a model call replays them, so a bucket lifecycle rule
+  must keep each object at least as long as any session that references it
+  can still run a turn or replay its history. When an object is gone, the
+  turn that needs it fails with `MediaStoreError` in `last_turn_error`, after
+  its user message, with nothing else stored; later turns that replay the
+  image fail the same way.
+- Send images only after every Worker of the Flow type runs 0.5.0: an earlier
+  Worker drops them.
+
 ## The runner contract
 
 An adapter implements three methods. The session calls them from Steps, so
@@ -665,6 +761,11 @@ class AgentFrameworkRunner(Protocol):
 
 class UnfinishedTurnMessageBuilder(Protocol):  # optional
     def build_unfinished_turn_messages(self, turn: AgentTurnContext) -> Sequence[FrameworkMessage]: ...
+
+class ImageUserMessageBuilder(Protocol):  # optional; see Images
+    def build_user_message_with_images(
+        self, text: str, images: Sequence[AgentImageReference]
+    ) -> FrameworkMessage: ...
 ```
 
 `DeferredToolOutcome` is `ToolExecutionResult | ToolInputRequested`.
@@ -937,7 +1038,7 @@ when it moves on. Set `active_step_search_mode` in the start options to choose
 another mode, such as `ActiveStepSearchMode.DISABLED`. `AsyncClient.start_flow`
 does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 `config_override`, or call `update_flow_config` for a running session. See
-[Find sessions that need a person](https://docs.superdurable.io/agent-frameworks/deploy-agents#find-sessions).
+[Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
 ## Spend limits
 
@@ -945,7 +1046,7 @@ does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 across many sessions. The session asks it before each model call and reports what
 the call used. Counters and limits belong to the application. Without one, the
 session makes no checks. See the interface's documentation and
-[Spend limits](https://docs.superdurable.io/agent-frameworks/deploy-agents#spend-limits).
+[Spend limits](https://docs.superdurable.io/reference/agents/spend-limits).
 
 ## Flow shape
 
@@ -1082,7 +1183,8 @@ are best effort; rebuild from `get_agent_snapshot`.
 
 `dex_agents.mcp` turns the tools of MCP servers into tools of an agent
 session. Every MCP tool call runs in its own tool Step, with an effect class
-from the tool's annotations, so a crash never repeats a write silently.
+from the tool's annotations or from the [Dex MCP
+conventions](#dex-mcp-conventions), so a crash never repeats a write silently.
 Install the MCP SDK with the `mcp` extra; the core itself never imports it:
 
 ```bash
@@ -1179,6 +1281,7 @@ not followed. The names are `MCP_LIST_RESOURCES_AND_PROMPTS_TOOL_NAME`,
 
 | MCP annotations | Effect | Tool Step | Approval by default |
 | --- | --- | --- | --- |
+| any, with the Dex `effect` key in `_meta` | the declared effect; see [Dex MCP conventions](#dex-mcp-conventions) | by effect | Only with `approval: recommended` |
 | `readOnlyHint: true` | `read` | `CallTool` | No |
 | `idempotentHint: true` | `idempotent_write` | `CallTool` | No |
 | anything else, or none | `default_tool_effect`, `unclassified` by default | `CallSingleAttemptTool` | Yes |
@@ -1203,11 +1306,21 @@ Every `tools/call` carries the session's idempotency key,
 `<flowId>/<turnId>/<toolCallId>`, in `_meta` under
 `IDEMPOTENCY_KEY_META_KEY` (`io.superdurable.dex/idempotencyKey`). The MCP SDK
 adds `traceparent` to `_meta` when OpenTelemetry has an active trace.
+`execute_deferred_tool_call(call, request_meta=...)` adds more `_meta`
+entries to the request, such as the identity a caller expects the server to
+check before it runs the call; the idempotency key wins over an entry of the
+same name. `will_resume_tool_task_without_sending(call)` is `True` only when
+executing the call returns a task an earlier attempt started and can never send
+`tools/call`: the session polls tasks, the server uses Streamable HTTP, and the
+call's checkpoint names the task. A task polled inside the call may be sent
+again when the server lost it, so such a caller skips a check it makes before
+every `tools/call` only when this is `True`.
 
 | What happens | Recorded | Re-issued? |
 | --- | --- | --- |
 | A result | `succeeded`: text blocks joined with newlines, other content as JSON | - |
 | An `isError` result, or a JSON-RPC error response other than `-32603` | `failed` with the text (`ToolExecutionError`) | No |
+| A result or error with the Dex `outcome` key | `outcome_unknown` or `failed`; see [Dex MCP conventions](#dex-mcp-conventions) | No |
 | The call was never sent: its server is not configured, or 3 connection attempts failed | `failed` | No |
 | The stream broke, the server exited, or the request timed out after it was sent; an internal error (`-32603`), an HTTP error status, or a body that is not JSON-RPC (`-32700`), which a gateway can return after the server ran the call; a server that keeps asking to repeat the call | `McpToolCallInterruptedError`, a Step failure | `read` and `idempotent_write`: `CallTool` sends a new request, same idempotency key, up to 3 attempts. Other effects: `outcome_unknown`, never sent again |
 | The Worker dies during the call | as for any tool Step | Same as above |
@@ -1297,13 +1410,117 @@ records `failed` the same way; mapping it to a question is a follow-up. A
 state-only `input_required` answer, which only asks for the same request
 again, is retried at once.
 
+### Dex MCP conventions
+
+An MCP server built for Dex, such as one that serves Dex connectors, carries a
+connector's guarantees across MCP with `_meta` keys under the
+`io.superdurable.dex/` prefix. A server that sets none of them behaves exactly
+as described above. Both cores follow the same rules, and
+[`agents/conformance/mcp_dex_conventions.json`](../../conformance/mcp_dex_conventions.json)
+fixes them case by case. Since 0.5.0.
+
+| Key | Where | Values |
+| --- | --- | --- |
+| `io.superdurable.dex/effect` (`TOOL_EFFECT_META_KEY`) | tool definition `_meta` in `tools/list` | `read`, `idempotent_write`, `non_idempotent_write` |
+| `io.superdurable.dex/approval` (`TOOL_APPROVAL_META_KEY`) | tool definition `_meta` in `tools/list` | `recommended` |
+| `io.superdurable.dex/outcome` (`TOOL_OUTCOME_META_KEY`) | `tools/call` result `_meta`, or JSON-RPC `error.data._meta` | `unknown`, `rejected` |
+| `io.superdurable.dex/idempotencyKey` (`IDEMPOTENCY_KEY_META_KEY`) | `tools/call` request `_meta`, sent by the source | `<flowId>/<turnId>/<toolCallId>` |
+
+**Tool definitions.** A tool with the `effect` key is declared, as a connector
+manifest declares an operation for `ConnectorToolSource`:
+
+- Its effect class is the declared value, whatever its annotations say:
+  `read` and `idempotent_write` run in `CallTool`, `non_idempotent_write` in
+  `CallSingleAttemptTool`. A declared write runs in the model's order after the
+  turn's earlier writes, and a write after one that did not succeed is skipped.
+- Without a session policy, its calls wait for approval only with `approval:
+  recommended`, like `agent.approval: recommended` in a manifest. Any other
+  `approval` value, `null` included, also asks, so an unknown value fails
+  closed.
+- A session `ToolPolicy` in `AgentSessionOptions.tool_policies` for the tool
+  may keep or raise its safety, never lower it. The call gets the more
+  conservative of the declared effect and the policy's effect, ranked `READ`,
+  `IDEMPOTENT_WRITE`, `NON_IDEMPOTENT_WRITE`, then `UNCLASSIFIED`. So a policy
+  `ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE)` on a tool declared `read` runs
+  it once in `CallSingleAttemptTool`, in the model's order, after approval. A
+  declared `non_idempotent_write` stays one with a `READ` policy.
+- The policy's `requires_approval`, when set, wins. When it is `None`, a call
+  waits for approval when the tool recommends it or the policy's effect asks
+  for approval by default, as `NON_IDEMPOTENT_WRITE` does.
+- A framework adapter gets the same rule from
+  `tools.merge_tool_policies(your_policies)`. Do not spread your policies
+  after `tools.tool_policies()`: yours would replace the declaration and
+  could lower its effect.
+- `approval` without `effect` is ignored. An `effect` value outside the three
+  above gives the tool the session's `default_tool_effect` and ignores its
+  annotations, with a warning log.
+- `trusts_tool_annotations=False` also ignores both keys.
+
+**Results.** The `outcome` key reports what a call did:
+
+| `outcome` | Recorded | The model sees | Sent again? |
+| --- | --- | --- | --- |
+| `unknown` | `outcome_unknown` (`ToolOutcomeUnknownError`), with the result's text as `error` | `OUTCOME_UNKNOWN_TOOL_RESULT` | Never, for any effect class |
+| `rejected` | `failed` (`ToolExecutionError`) | `The tool call failed: <text>` | Never |
+| absent | as in "What a call does" | | |
+
+- The key wins over `isError` and over the JSON-RPC error code. Set
+  `isError: true` with either value, so a client that does not know these
+  conventions never reads the result as a success.
+- The text is the result's text: text blocks joined with newlines, other
+  content as JSON. A result without text gets a fixed text. Write a message
+  that is safe to show the model and the user.
+- In the JSON-RPC error form, put the key in `error.data._meta`. The text is
+  `MCP error <code>: <message>`. An internal error (`-32603`) with the key is
+  not re-issued.
+- A task's completed result follows the same rule, whether the tool Step or
+  `PollToolTask` reads it.
+- Other values are reserved; the source ignores them with a warning log.
+
+**Idempotency key.** Every `tools/call` from a tool Step carries the session's
+idempotency key. It is the same on every attempt of one tool call, including a
+`CallTool` retry and an attempt after a Worker restart, and it is unique per
+tool call. Treat it as opaque. A server that follows these conventions derives
+its own call ID from it, such as a hash, and keeps a fence per call ID: a
+retried attempt gets the first attempt's result and never applies the write a
+second time. When the server cannot tell whether an earlier attempt took
+effect, it answers `outcome: unknown`. It should refuse a declared write that
+arrives without the key, because it cannot recognize a retry of that call.
+Task requests (`tasks/get`, `tasks/update`, `tasks/cancel`) carry no key; the
+task ID names the call there.
+
+A declared tool, as `tools/list` returns it:
+
+```json
+{
+  "name": "send_payment",
+  "description": "Send a payment.",
+  "inputSchema": {"type": "object", "properties": {"amount": {"type": "integer"}}},
+  "annotations": {"idempotentHint": true},
+  "_meta": {
+    "io.superdurable.dex/effect": "idempotent_write",
+    "io.superdurable.dex/approval": "recommended"
+  }
+}
+```
+
+A result whose outcome is unknown:
+
+```json
+{
+  "content": [{"type": "text", "text": "the payment provider timed out"}],
+  "isError": true,
+  "_meta": {"io.superdurable.dex/outcome": "unknown"}
+}
+```
+
 ### With a framework adapter
 
 The runner above is the core's runner-agnostic path. A framework adapter uses
 the source when it accepts tools defined by a JSON Schema: wrap each `McpTool`
 as a framework tool whose function calls `tools.call_tool(name, arguments,
 idempotency_key=...)` with the key from the adapter's tool context, and pass
-`{**tools.tool_policies(), **your_policies}` as the adapter's `tool_policies`.
+`tools.merge_tool_policies(your_policies)` as the adapter's `tool_policies`.
 No adapter package changes for this.
 
 | Adapter | Schema-only tool | Key inside the tool |
@@ -1367,7 +1584,10 @@ in its package's `dex-connector.json`, read as package data, and refuses an
 operation whose entry lacks `agent.exposed: true`, an `agent` value it does
 not know, or an `inputSchema` keyword it cannot check. The tool name defaults
 to `<connectorId>_<operation in snake case>`, such as `stripe_create_refund`;
-the description and argument schema come from the manifest.
+the description and argument schema come from the manifest. The snake case is
+connectorctl's, which also names the Python Step factories: an acronym run
+stays one word, so `listStoryIDs` becomes `list_story_ids`.
+`agents/conformance/connector_tools.json` pins it.
 
 | Operation | Effect | Tool Step | Retries |
 | --- | --- | --- | --- |
@@ -1408,15 +1628,43 @@ What a call does:
    retry would then record `OUTCOME_UNKNOWN`. When its fence saved `notSent` or
    `canResend` in this attempt, which proves the provider did not process it, it
    records `FAILED` with `CONNECTOR_NOT_SENT_RETRY_LATER` instead.
-5. Map the selected branch with `classify_connector_branch`:
+5. Map the selected branch with `classify_connector_branch`. The first
+   matching row wins. The rows before the listing can only make an outcome
+   unknown:
 
 | Branch | Record | The model reads |
 | --- | --- | --- |
-| A required (success) branch | `SUCCEEDED` | The value as compact JSON, keys sorted |
+| `uncertain`, whatever the listing or the required branches say | `OUTCOME_UNKNOWN` (`ToolOutcomeUnknownError`) | `OUTCOME_UNKNOWN_TOOL_RESULT` |
+| A Mutation's `defect`, whatever the listing or the required branches say | `OUTCOME_UNKNOWN` | The same text |
+| A required (success) branch other than `defect` | `SUCCEEDED` | The value as compact JSON, keys sorted |
+| Any Mutation branch when its fence cannot prove that nothing was sent | `OUTCOME_UNKNOWN` | The same text |
 | Listed `rejected` under `agent.branches` | `FAILED` (`ToolExecutionError`) | `"<connector> <operation> returned <branch>: <kind>: <message>"` |
-| `defect` | `FAILED` | The same text |
-| A Query branch not listed | `FAILED` | The same text |
-| `uncertain`, listed `unknown`, or a Mutation branch not listed | `OUTCOME_UNKNOWN` (`ToolOutcomeUnknownError`) | `OUTCOME_UNKNOWN_TOOL_RESULT` |
+| Listed `unknown`, or a Mutation branch not listed | `OUTCOME_UNKNOWN` | `OUTCOME_UNKNOWN_TOOL_RESULT` |
+| A Query branch not listed, including `defect` | `FAILED` | `"<connector> <operation> returned <branch>: <kind>: <message>"` |
+
+A Mutation's `defect` is not always local: the Connector SDK selects it for
+some attempts that already called the provider, such as an invalid attempt or
+an undeclared branch, and the source cannot tell those apart. A Query's
+`defect` follows its listing.
+
+A Mutation that uses the single-dispatch fence gets one more check, the same
+one the Go Connector SDK makes for Go agent hosts. The source observes every
+fence marker the attempt saves through its Step context, bound to the call's
+Call ID and attempt. Once the fence claims a send, or records a provider ID,
+the attempt may have sent. Only a later `canResend` marker of the same call and
+attempt, after a claim without a provider ID, lowers that, as the fence's own
+`record_can_resend` does. The operation's own later checkpoints never lower it.
+On a retry that reads the earlier checkpoint, a missing checkpoint, one that is
+not a fence marker, a malformed one, another call's, or one that does not allow
+this attempt a send also means the request may have been sent. While the
+request may have been sent, every branch but the success branch records outcome
+unknown, whatever the listing says, and a Retry is never proof that nothing was
+sent. The core cannot see inside the fence, so it reads the markers instead of
+the fence's own events: a forged `canResend` marker of the same call would
+count. A Mutation that never reads its checkpoint and never saves a fence
+marker gets no such check and relies on its listing.
+`agents/conformance/connector_tools.json` pins these cases in
+`fenceObservationCases`.
 
 A result over `max_result_bytes` (default `DEFAULT_CONNECTOR_RESULT_MAX_BYTES`,
 64 KiB of UTF-8 text, set per source or per tool) is cut, followed by
@@ -1985,6 +2233,8 @@ The plan records each of these decisions too.
   wrong `readOnlyHint` on a write makes that write run without approval and
   retry; set `trusts_tool_annotations=False` or a `ToolPolicy` for servers you
   do not control.
+- Images: no built-in runner sends images to a model yet, and the media
+  stores keep no local read cache, so each `load_images` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
 - The adapters report only the model information their framework exposes, so

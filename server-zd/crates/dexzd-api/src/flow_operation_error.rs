@@ -266,10 +266,10 @@ mod tests {
                 "object storage",
             ),
             (
-                FlowOperationError::unimplemented("no Continue-As-New"),
+                FlowOperationError::unimplemented("unsupported operation"),
                 Code::Unimplemented,
                 ErrorSubStatus::Uncategorized,
-                "no Continue-As-New",
+                "unsupported operation",
             ),
             (
                 FlowOperationError::Internal {

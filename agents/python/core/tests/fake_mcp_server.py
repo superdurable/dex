@@ -38,6 +38,20 @@ real tool run appends ``<tool> <idempotency key>`` to the ``InvocationLog`` in
 * ``reject_order`` (``readOnlyHint``): returns an ``isError`` result.
 * ``purge_cache`` (``idempotentHint`` and ``destructiveHint``).
 * ``audit.lookup``: its agent tool name collides with ``audit_lookup``.
+* ``get_balance``: declares the Dex effect ``read`` in ``_meta``.
+* ``post_note``: declares the Dex effect ``non_idempotent_write`` without
+  approval, and ``readOnlyHint``, which the declaration overrides.
+* ``send_payment``: declares the Dex effect ``idempotent_write`` with
+  recommended approval. It applies a payment once per idempotency key, logged
+  as ``payment-applied <key>``; a repeated key answers that the payment was
+  already applied. ``"outcome"`` picks the answer: ``applied``; ``unknown`` or
+  ``rejected``, a result with that Dex outcome; ``unknown_error`` or
+  ``rejected_error``, an internal JSON-RPC error with that outcome in
+  ``data._meta``. ``"crash_after_apply": true`` exits right after it applies a
+  new key.
+
+``long_report`` also takes ``"outcome": "unknown"``, which completes its task
+with a result that reports the Dex outcome ``unknown``.
 
 It also offers the resource ``memo://greeting`` and the prompt ``summarize``
 with one ``topic`` argument.
@@ -46,6 +60,7 @@ with one ``topic`` argument.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import uuid
@@ -60,21 +75,35 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     Annotations,
     CallToolRequestParams,
+    CallToolResult,
     ElicitRequest,
     ElicitRequestFormParams,
     InputRequiredResult,
     RequestParams,
+    TextContent,
     ToolAnnotations,
 )
 
-from dex_agents.mcp import IDEMPOTENCY_KEY_META_KEY, TASKS_EXTENSION_IDENTIFIER
+from dex_agents.mcp import (
+    IDEMPOTENCY_KEY_META_KEY,
+    TASKS_EXTENSION_IDENTIFIER,
+    TOOL_APPROVAL_META_KEY,
+    TOOL_APPROVAL_RECOMMENDED,
+    TOOL_EFFECT_META_KEY,
+    TOOL_OUTCOME_META_KEY,
+    TOOL_OUTCOME_REJECTED,
+    TOOL_OUTCOME_UNKNOWN,
+)
 from dex_agents.testing import FileGate, InvocationLog
 
 STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_MCP_STATE_DIR"
 INVOCATION_LOG_NAME = "mcp-invocations.log"
+#: Each recorded run's request ``_meta``, one JSON object per line.
+REQUEST_META_LOG_NAME = "mcp-request-meta.jsonl"
 READY_LINE = "Uvicorn running on"
 
 _READ_ONLY = ToolAnnotations(read_only_hint=True)
@@ -98,6 +127,7 @@ _TASK_STORE_KEYS = (
     "batches",
     "update_gate",
     "declined",
+    "outcome",
 )
 _FORMAT_REQUEST = {
     "method": "elicitation/create",
@@ -171,6 +201,7 @@ class _FakeTasksExtension(Extension):
                 "answers": [],
                 "batches": int(arguments.get("batches") or 1),
                 "update_gate": arguments.get("update_gate"),
+                "outcome": arguments.get("outcome"),
             }
             return {"resultType": "task", **task}
         return await call_next(ctx)
@@ -207,6 +238,9 @@ class _FakeTasksExtension(Extension):
             task["result"] = {
                 "content": [{"type": "text", "text": f"report on {stored['topic']}{suffix}"}]
             }
+            if stored["outcome"] == TOOL_OUTCOME_UNKNOWN:
+                task["result"]["isError"] = True
+                task["result"]["_meta"] = {TOOL_OUTCOME_META_KEY: TOOL_OUTCOME_UNKNOWN}
         return {"resultType": "complete", **task}
 
     async def _update_task(
@@ -291,6 +325,7 @@ def long_report(
     ask: bool = False,
     batches: int = 1,
     update_gate: str | None = None,
+    outcome: str | None = None,
 ) -> str:
     """Write a long report; answers with a task handle."""
     return f"report on {topic} without a task"
@@ -326,6 +361,66 @@ def reject_order(order_id: str) -> str:
     raise ToolError(f"order {order_id} is already shipped")
 
 
+@server.tool(meta={TOOL_EFFECT_META_KEY: "read"})
+def get_balance(account: str, ctx: Context) -> str:
+    """Read the balance of one account."""
+    _record("get_balance", ctx.request_context)
+    return f"balance of {account} is 5"
+
+
+@server.tool(meta={TOOL_EFFECT_META_KEY: "non_idempotent_write"}, annotations=_READ_ONLY)
+def post_note(text: str, ctx: Context) -> str:
+    """Post a note; posting it again posts a second note."""
+    _record("post_note", ctx.request_context)
+    return f"posted {text}"
+
+
+@server.tool(
+    meta={
+        TOOL_EFFECT_META_KEY: "idempotent_write",
+        TOOL_APPROVAL_META_KEY: TOOL_APPROVAL_RECOMMENDED,
+    }
+)
+def send_payment(
+    amount: int, ctx: Context, outcome: str = "applied", crash_after_apply: bool = False
+) -> CallToolResult:
+    """Send a payment; one payment per idempotency key."""
+    key = _record("send_payment", ctx.request_context)
+    if outcome in ("unknown", "rejected"):
+        text = "the payment provider timed out" if outcome == "unknown" else "the card was declined"
+        return CallToolResult.model_validate(
+            {
+                "content": [{"type": "text", "text": text}],
+                "isError": True,
+                "_meta": {
+                    TOOL_OUTCOME_META_KEY: TOOL_OUTCOME_UNKNOWN
+                    if outcome == "unknown"
+                    else TOOL_OUTCOME_REJECTED
+                },
+            }
+        )
+    if outcome in ("unknown_error", "rejected_error"):
+        is_unknown = outcome == "unknown_error"
+        raise MCPError(
+            INTERNAL_ERROR,
+            "the payment provider timed out" if is_unknown else "the card was declined",
+            {
+                "_meta": {
+                    TOOL_OUTCOME_META_KEY: TOOL_OUTCOME_UNKNOWN
+                    if is_unknown
+                    else TOOL_OUTCOME_REJECTED
+                }
+            },
+        )
+    # The Dex call ID derives from the idempotency key, so a retried attempt applies nothing.
+    if f"payment-applied {key}" in _invocations().names():
+        return CallToolResult(content=[TextContent(text=f"payment of {amount} already applied")])
+    _invocations().record(f"payment-applied {key}")
+    if crash_after_apply:
+        os._exit(1)
+    return CallToolResult(content=[TextContent(text=f"paid {amount}")])
+
+
 @server.resource(
     "memo://greeting",
     name="greeting",
@@ -350,9 +445,13 @@ def _invocations() -> InvocationLog:
     return InvocationLog(_state_dir() / INVOCATION_LOG_NAME)
 
 
-def _record(tool_name: str, request_context: ServerRequestContext[Any, Any]) -> None:
-    key = (request_context.meta or {}).get(IDEMPOTENCY_KEY_META_KEY, "no-key")
+def _record(tool_name: str, request_context: ServerRequestContext[Any, Any]) -> str:
+    meta = dict(request_context.meta or {})
+    key = str(meta.get(IDEMPOTENCY_KEY_META_KEY, "no-key"))
     _invocations().record(f"{tool_name} {key}")
+    with (_state_dir() / REQUEST_META_LOG_NAME).open("a") as log:
+        log.write(json.dumps({"tool": tool_name, "meta": meta}, default=str) + "\n")
+    return key
 
 
 def _declares_tasks(request_context: ServerRequestContext[Any, Any]) -> bool:

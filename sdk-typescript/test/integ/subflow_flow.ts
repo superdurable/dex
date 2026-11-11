@@ -17,7 +17,6 @@ import {
   gracefulComplete,
   type Context,
   type Flow,
-  type FlowConfig,
   type Step,
   type StepDecision,
   type SubFlowOptions,
@@ -150,54 +149,6 @@ export class AnySubFlowParent implements Flow<number> {
 
   public getFlowType(): string {
     return "AnySubFlowParent";
-  }
-
-  public getSteps() {
-    return StepList.startStep(this.start);
-  }
-}
-
-class ContinueAsNewSubFlowStep implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-  private readonly options: SubFlowOptions = {
-    configOverride: { continueAsNewThreshold: 100 } satisfies FlowConfig,
-  };
-
-  public constructor(
-    private readonly completed: Flow<number>,
-    private readonly delayed: Flow<number>,
-  ) {}
-
-  public getStepType(): string {
-    return "ParentStep";
-  }
-
-  public waitFor(_context: Context, input: number): Wait {
-    return Wait.allOf(
-      SubFlow.run(this.completed, input, this.options),
-      SubFlow.run(this.delayed, 300, this.options),
-    );
-  }
-
-  public execute(context: Context, _input: number): StepDecision {
-    const completed = SubFlow.getConditionResults(context);
-    const delayed = SubFlow.getConditionResults(context, 1);
-    return gracefulComplete(
-      `${SubFlow.getFlowId(context)}|${completed.singleOutput(doubleCodec)}|`
-      + `${SubFlow.getFlowId(context, 1)}|${delayed.status}`,
-    );
-  }
-}
-
-export class ContinueAsNewSubFlowParent implements Flow<number> {
-  public readonly start: ContinueAsNewSubFlowStep;
-
-  public constructor(completed: Flow<number>, delayed: Flow<number>) {
-    this.start = new ContinueAsNewSubFlowStep(completed, delayed);
-  }
-
-  public getFlowType(): string {
-    return "ContinueAsNewSubFlowParent";
   }
 
   public getSteps() {

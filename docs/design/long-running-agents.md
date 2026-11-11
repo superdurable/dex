@@ -964,7 +964,7 @@ needed. Among others:
 ### Crash matrix
 
 The crash matrix is published in the deploy guide:
-[Crashes and redeploys](../content/agent-frameworks/deploy-agents.mdx#worker-failures).
+[Crashes and redeploys](../reference/agents/failures.mdx#worker-failures).
 It lists each Step, the moment it is interrupted, what happens, and which tests
 cover a Worker kill, a server restart, and a takeover. Each case checks that a
 crash repeats at most the one call that was running (a whole segment for a
@@ -991,7 +991,7 @@ queued `tool_call_started` event and heartbeat never reach Dex (#1282).
 ## Documentation
 
 - Product docs, English and zh-Hans:
-  [Deploy agents](../content/agent-frameworks/deploy-agents.mdx), the
+  [Deploy agents](../reference/agents/index.mdx), the
   [Agent Frameworks](../content/agent-frameworks.mdx) page, the
   [AI Agent](../content/use-cases/ai-agent.mdx) use case on the Python and
   TypeScript examples, and RPC canceling Steps and Step redelivery limits (#1228).

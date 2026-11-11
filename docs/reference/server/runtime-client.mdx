@@ -5,33 +5,32 @@ sidebar_label: Client requests
 
 # Client requests
 
-This page describes how server-zd handles each Client request. The
-[Client](/concepts/client) page explains the concepts. The SDK doc comments
-give each language's names, parameters, and errors. See the language
-references, such as the [Go reference](/reference/go/).
+The [Client](/concepts/client) page explains the concepts. For each language's names, parameters, and errors, see
+the SDK doc comments in the language references, such as the
+[Go reference](/reference/go/).
 
 ## Start a Flow {#start-a-flow}
 
-**StartFlow** creates a Flow execution. It returns as soon as the server
-accepts the request. It takes a registered Flow, a business **Flow ID**, the
-start Step input, and **StartFlowOptions**.
+**StartFlow** creates a Flow run. It takes a registered Flow, a business
+**Flow ID**, the start Step input, and **StartFlowOptions**. It returns as soon
+as the server accepts the request.
 
 The Flow ID is the identity your application chooses. The server creates the
-Run ID. See [StartFlowOptions](/reference/python/flows-and-steps/start-flow-options) for the timeout,
+Run ID. See [StartFlowOptions](/reference/python/start-flow-options) for the timeout,
 request idempotency, ID reuse, retry, initial Attributes, and configuration
 overrides.
 
 ## Stop a Flow {#stop-a-flow}
 
-**StopFlow** closes an active Flow. By default it asks the Flow to cancel
-cooperatively. You can instead terminate it immediately, or fail it with a
-reason.
+**StopFlow** closes an active Flow. By default, it asks the Flow to cancel and
+lets the Flow handle the cancellation. You can instead terminate it
+immediately, or fail it with a reason.
 
 ## Invoke an RPC {#invoke-an-rpc}
 
-**InvokeRPC** calls a registered [RPC](/concepts/primitives/rpc) handler and returns its
-result. A query-only RPC can read a retained terminal execution. An RPC that
-commits effects needs an active execution.
+**InvokeRPC** calls a registered [RPC](/concepts/primitives/rpc) handler and
+returns its result. A query-only RPC can also read a closed Flow run that the
+server still retains. An RPC that commits effects needs an active Flow run.
 
 ## Requests during Flow close {#requests-during-flow-close}
 
@@ -43,30 +42,31 @@ While a Flow closes, the server rejects these new requests with gRPC
 - Channel message deletion;
 - Channel publication by a client (**PublishToChannel**).
 
-A rejected publication stores no message. A Flow that is closing starts no
-Step, so no Step could consume it. Changed in 0.1.26: before, the server
-accepted the publication and stored the message.
+A rejected publication stores no message. A closing Flow starts no Step, so no
+Step could consume the message. Changed in 0.1.26: before, the server accepted
+the publication and stored the message.
 
-**SetAttributes** and RPCs that are neither transactional nor locking are
-still accepted while a Flow closes. An RPC that commits during the close,
-including one admitted before it, keeps its Attribute writes and Channel
-publications. It starts and cancels no Steps.
+While a Flow closes, the server still accepts **SetAttributes** and RPCs that
+are neither transactional nor locking. An RPC that commits during the close,
+including one the server accepted before the close began, keeps its Attribute
+writes and Channel publications. It starts and cancels no Steps.
 
 The Flow reports **RUNNING** until the server records the close.
 
-Each SDK exposes a typed Flow closing error. Re-read the retained terminal Flow
-state before you decide whether any further action is needed. The error does
-not prove that an earlier request succeeded.
+Each SDK exposes a typed Flow closing error. When you get it, read the Flow
+state again after the close, before you decide whether to do anything more.
+The error does not prove that an earlier request succeeded.
 
 ## Read Attributes {#read-attributes}
 
 **GetAttributes** reads registered Attributes and AttributeMap instances from
-outside the Flow. Pass one read per value: a singleton Attribute, or one
-AttributeMap instance. The API has only a batch form. To read one value, pass
-one read.
+outside the Flow. The API has only a batch form. Pass one read for each value:
+a singleton Attribute, or one AttributeMap instance. To read one value, pass one
+read.
 
-See [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)
-for the read semantics: one commit, the current or latest run, no Worker,
+See
+[Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)
+for the read semantics: one commit, the current or latest Flow run, no Worker,
 committed state only, no locks, and large and hard-delete values.
 
 The Rust call blocks the calling thread, like every other Rust Client method. It
@@ -238,15 +238,15 @@ still set. In Java, a stored value that decodes to **null** reads as
 
 ### Definitions {#read-definitions}
 
-Each read must use a definition that a Flow in the Client's Registry declares. A
-definition from any registered Flow is accepted. Dex reads the key by name. It
-does not check that the target Flow's type declares the key. A same-named
-Attribute with another value type fails to decode.
+Each read must use a definition that a Flow in the Client's Registry declares.
+A definition from any registered Flow works. Dex reads the key by name, and does
+not check that the target Flow's type declares it. If the target Flow has a
+same-named Attribute with another value type, the value fails to decode.
 
 ### Errors {#read-attributes-errors}
 
-- A Flow ID that does not exist, or whose latest run is being purged, returns a
-  Flow-not-found error.
+- A Flow ID that does not exist, or whose latest Flow run is being purged,
+  returns a Flow-not-found error.
 - A definition that is not registered in the Client's Registry, or that does not
   match the registered definition, fails before any request. Go, Python, and
   Rust compare the definition with the registered one, including its value type.
@@ -269,22 +269,22 @@ The SDK doc comments name each error type.
 long-poll timeout while the Flow is still open. Call it again to keep waiting.
 
 Only a COMPLETED Flow returns the outputs of its completing Step decisions. A
-Flow that fails, is canceled, is terminated, or times out returns no outputs,
-even when a Step completed it gracefully with an output before another Step or
-a client closed it. **GetFlowState** and the result that a parent receives from
+Flow that fails, is canceled, is terminated, or times out returns no outputs.
+This holds even when a Step gave a completing decision with an output before
+another Step or a client closed the Flow. **GetFlowState** and the result that a parent receives from
 a child Flow follow the same rule. Changed in 0.1.26: before, such a Flow kept
 the outputs collected before it closed.
 
 ## Wait for a Step {#wait-for-a-step}
 
-**WaitForStepCompletion** waits for one **StepExecutionID** while the Flow
-continues. It confirms completion. It does not return the Step output.
+**WaitForStepCompletion** waits for one **StepExecutionID** to complete while
+the Flow continues. It confirms completion but does not return the Step output.
 
 ## Wait for an Attribute match {#wait-for-an-attribute-match}
 
 **WaitForAttributeMatch** waits until an Attribute satisfies a typed scalar
-comparison. It returns the matched current value. It targets the current active
-run. For an AttributeMap, also supply the instance.
+comparison, and returns the matched current value. It targets the current
+active Flow run. For an AttributeMap, also supply the instance.
 
 - String and Boolean values support equal and not-equal.
 - Integer and floating-point values also support greater-than,
@@ -294,8 +294,8 @@ run. For an AttributeMap, also supply the instance.
   floating-point, cross-type, and invalid ordering comparisons.
 - The wait works only while the Flow is active.
 
-A revision Attribute is a watermark. Rapid changes may be coalesced into one
-returned value. See
+Treat a revision Attribute as a watermark: when it changes quickly, the wait
+may return only the latest of several changes. See
 [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match)
 for the complete revision pattern and its code.
 
@@ -305,25 +305,25 @@ These rules apply to **WaitForStepCompletion**, **WaitForAttributeMatch**, and
 Stream long-polls.
 
 - **RequestTimeout** is the total time the SDK call may take. The default, 0,
-  waits until success, Flow closure, or caller cancellation. A positive value
-  returns a typed request-timeout error when it expires. A later call waits
-  again from the current state.
+  waits until success, Flow close, or caller cancellation. With a positive
+  value, the call returns a typed request-timeout error when it expires. A later
+  call waits again from the current state.
 - Each Flow allows 1,000 concurrent waits by default. The server setting is
   **limits.maxLongPollWaitersPerFlow**. A wait beyond the limit fails with a
   resource-exhausted error. See [Limits](/reference/server/configuration#limits).
 - A waiting call holds one slot until it returns, times out, is cancelled, or
   the caller disconnects.
-- The server caps each transport attempt. The SDK reattaches transparently with
-  the same Request ID. The cap does not reset **RequestTimeout**.
-- **InternalHandlerTimeout** is deprecated. Leave it unset.
+- The server caps how long each transport attempt waits. When an attempt hits
+  the cap, the SDK reattaches automatically with the same Request ID. The cap
+  does not reset **RequestTimeout**.
 
 <a id="查看-flow"></a>
 
 ## Describe a Flow {#describe-a-flow}
 
-**DescribeFlow** reads the current or latest run's IDs, Flow type, status, and
-start time. The Go SDK also returns the close time when available. It does not
-wait for the Flow to finish. Use it for a one-off status check, for example
+**DescribeFlow** reads the IDs, Flow type, status, and start time of the current
+or latest Flow run. The Go SDK also returns the close time when available.
+DescribeFlow does not wait for the Flow to finish. Use it for a one-off status check, for example
 after a read-only RPC returns a non-terminal business state. A missing ID, or an
 ID that does not belong to a Flow, returns a typed Flow-not-found error.
 
@@ -331,9 +331,9 @@ ID that does not belong to a Flow, returns a typed Flow-not-found error.
 
 ## Search Flows {#search-flows}
 
-**SearchFlows** returns one page of Flow runs that match a search query.
-Internal server executions are excluded. Pass the returned page token to
-continue a search. Keep the query unchanged across pages. See
+**SearchFlows** returns one page of Flow runs that match a search query. It
+excludes the server's internal Flow runs. To get the next page, pass the
+returned page token with the same query. See
 [Search backends](/reference/server/search) for the query backends.
 
 ## Skip a Timer {#skip-a-timer}
@@ -347,24 +347,28 @@ condition index.
 ## Update FlowConfig {#update-flowconfig}
 
 **UpdateFlowConfig** changes the **FlowConfig** of an active Flow. See
-[Update FlowConfig with a Client](/reference/python/flows-and-steps/flow-config#update-flow-config-with-a-client)
+[Update FlowConfig with a Client](/reference/python/flow#update-flow-config-with-a-client)
 for the merge rules and the fields.
 
 <a id="触发-continue-as-new"></a>
 <a id="trigger-continue-as-new"></a>
 
+**TriggerContinueAsNew** was removed in server-zd 0.1.26. See the
+[change log](/reference/server/changelog#v0-1-26).
+
 ## Time travel {#time-travel}
 
-**TimeTravel** creates a new run attempt from a point in an existing Flow's
-history. The run keeps its Run ID. The point must be inside the
-[recent history window](/reference/server/configuration#history-window).
-Otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
+**TimeTravel** creates a new attempt of a Flow run from a point in its history.
+The Flow run keeps its Run ID. The point must be inside the
+[recent history window](/reference/server/configuration#history-window);
+otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
 beginning is always available.
 
-**ResetFlow** keeps writes after the target in memory when write reapply is
-enabled. Memory grows with the number and size of those writes. A long run
-with large values can exceed the replay budget even when the target state is
-small. The request then fails with **RESOURCE_EXHAUSTED** and changes nothing.
-Set **skip_writes_reapply** to **true** if those writes should not be reapplied,
-or raise [**history.timeTravelReplayMemoryBytes**](/reference/server/configuration#history-checkpoints)
-and restart the node before retrying.
+When write reapply is on, **ResetFlow** keeps the writes made after the target
+point in memory, to apply them again. Memory grows with the number and size of
+those writes. A long Flow run with large values can exceed the replay budget
+even when the target state is small. The request then fails with
+**RESOURCE_EXHAUSTED** and changes nothing. Set **skip_writes_reapply** to
+**true** if those writes should not be applied again. Or raise
+[**history.timeTravelReplayMemoryBytes**](/reference/server/configuration#history-checkpoints)
+and restart the node before you retry.

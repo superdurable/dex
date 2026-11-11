@@ -6,13 +6,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # Advanced: Short-lived Parent
 
-Drain the current workload, then complete the parent without racing new requests.
+Drain the queued requests, then complete the parent without losing a request that arrives at the end.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** fills **RequestChannel**, initializes **CurrSubFlowNum**, and starts N workers. **HandleRequest.Execute** holds the Attribute lock while incrementing the active SubFlow count. **HandleSubFlow.Execute** holds the same lock while decrementing it.
+The Init Step fills **RequestChannel**, initializes **CurrSubFlowNum**, and starts N workers. **CurrSubFlowNum** counts the running SubFlows. The HandleRequest Step's Execute locks it and adds one. The HandleSubFlow Step's Execute takes the same lock and subtracts one.
 
-The last active worker uses **ForceCompleteIfChannelsEmpty**. Dex atomically checks **RequestChannel** and completes only when it is empty. If an RPC published a request first, Dex schedules another **HandleRequest** instead. This atomic decision is the key difference from checking Channel size in application code.
+The last active worker returns **ForceCompleteIfChannelsEmpty**. Dex then checks **RequestChannel** and completes the Flow only if the Channel is empty. If an RPC has published a request first, Dex schedules another HandleRequest Step instead. The check and the completion happen together, so no request can arrive between them. Checking the Channel size in application code cannot give this guarantee.
 
 ## Core implementation
 
@@ -174,7 +174,10 @@ func (flow *AdvancedShortLiveParentFlow) GetRPCs() []dex.RPCDef {
 }
 
 func (*AdvancedShortLiveParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{CurrSubFlowNum}, Channels: []dex.ChannelDef{RequestChannel}}
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{CurrSubFlowNum},
+		Channels:   []dex.ChannelDef{RequestChannel},
+	}
 }
 
 func (*AdvancedShortLiveParentFlow) SendRequest(ctx dex.Context, request string) (*dex.RPCResult[bool], error) {
@@ -284,7 +287,7 @@ public class AdvancedShortLiveParentFlow implements Flow<ParentInput> {
     public final Channel<String> requestChannel = Channel.define("RequestChannel", String.class);
     public final Attribute<Integer> currSubFlowNum = Attribute.define("CurrSubFlowNum", Integer.class);
 
-    private final Init initStep = new Init();
+    private final InitStep initStep = new InitStep();
     private final HandleRequest handleRequestStep = new HandleRequest();
     private final HandleSubFlow handleSubFlowStep;
 
@@ -311,7 +314,7 @@ public class AdvancedShortLiveParentFlow implements Flow<ParentInput> {
         return RPCResult.of(true);
     }
 
-    final class Init implements Step<ParentInput> {
+    final class InitStep implements Step<ParentInput> {
         @Override
         public Class<ParentInput> getInputType() {
             return ParentInput.class;
@@ -524,7 +527,7 @@ impl Step for ShortLiveHandleSubFlow {
     type Input = String;
 
     fn step_type(&self) -> &'static str {
-        "HandleSubFlow"
+        "HandleSubFlowStep"
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
@@ -559,4 +562,4 @@ impl Step for ShortLiveHandleSubFlow {
 ## Related
 
 - [Multiple parents with partitioning](/design-patterns/parallel-subflows/partitioning)
-- [Step decision](/reference/python/flows-and-steps/step-decisions#forcecompleteifchannelsempty)
+- [Step decision](/reference/python/step-decisions#forcecompleteifchannelsempty)

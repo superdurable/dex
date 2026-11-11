@@ -179,10 +179,8 @@ final class ClientExceptionIntegrationTest {
                 StepExecutionId.of("WaitingStep", 1),
                 WaitForStepCompletionOptions.newBuilder()
                         .requestTimeout(Duration.ofSeconds(1))
-                        .internalHandlerTimeout(Duration.ofSeconds(3))
                         .build());
         assertEquals(1, flowService.stepWaitRequest.getRequestTimeoutSeconds());
-        assertEquals(3, flowService.stepWaitRequest.getInternalHandlerTimeoutSeconds());
     }
 
     @Test
@@ -301,12 +299,9 @@ final class ClientExceptionIntegrationTest {
     }
 
     @Test
-    void searchRunInclusionOptionsReachTheService() {
+    void searchPaginationReachesTheService() {
         client.searchFlows("WorkflowId = 'flow-1'", 1, "");
-        assertEquals(false, flowService.searchFlowsRequest.getIncludeContinuedAsNew());
-        client.searchFlows("WorkflowId = 'flow-1'", 1, "next",
-                SearchFlowsOptions.newBuilder().setIncludeContinuedAsNew(true).build());
-        assertTrue(flowService.searchFlowsRequest.getIncludeContinuedAsNew());
+        client.searchFlows("WorkflowId = 'flow-1'", 1, "next");
         assertEquals("next", flowService.searchFlowsRequest.getNextPageToken());
         assertEquals("WorkflowId = 'flow-1'", flowService.searchFlowsRequest.getQuery());
     }
@@ -565,7 +560,7 @@ final class ClientExceptionIntegrationTest {
                 final StreamObserver<GetFlowSummaryResponse> observer) {
             if ("failed".equals(request.getFlowId())) {
                 observer.onNext(GetFlowSummaryResponse.newBuilder()
-                        .setFlowExecutionId(io.superdurable.gen.FlowExecutionID.newBuilder()
+                        .setFlowRunId(io.superdurable.gen.FlowRunID.newBuilder()
                                 .setFlowId("failed")
                                 .setRunId("run-failed"))
                         .setFlowStatus(io.superdurable.gen.FlowStatus.FLOW_STATUS_FAILED)

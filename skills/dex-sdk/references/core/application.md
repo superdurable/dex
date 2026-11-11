@@ -118,7 +118,7 @@ Treat these names as data: Flow types, Step types, RPC names, Attribute, Attribu
 
 ### Evolve data and contracts additively
 
-- Add a new Step type and route only new executions to it.
+- Add a new Step type and route only new Flow runs to it.
 - Add optional Attributes, Channels, Streams, or RPCs.
 - Readers tolerate fields that older runs omit and ignore unknown fields from newer components. Keep the old meaning of existing values.
 - For an incompatible payload or output, introduce a new Step type or RPC name.
@@ -127,15 +127,15 @@ Treat these names as data: Flow types, Step types, RPC names, Attribute, Attribu
 
 ### Keep old definitions until old Flows finish
 
-- Keep old Step and RPC handlers while open executions can reach them, through retries and any approved time travel.
+- Keep old Step and RPC handlers while open Flow runs can reach them, through retries and any approved time travel.
 - Before removing a definition, search for Flows that can still reach it, including recoverable terminal Flows. For example: `dexcli flow search --query 'FlowType = "OldFlowType"'`. Keep the result with the change record.
 - During a rolling deployment that adds Step types or RPC names, start the new Workers first. Dex hands a Step only to a Worker that registers its Step type. A Step type that no connected Worker registers waits in the task queue without consuming an attempt, and an RPC name that no connected Worker registers fails. Old Workers still run every name they do register, so keep changed logic compatible.
 
 ### Incompatible changes
 
-Choose one explicit strategy: let old executions finish on an old Worker pool, keep versioned handlers in one registry, migrate at a safe application boundary, or stop or recover selected executions with user authorization. Never add an unreviewed fallback that silently reads old data as the new type.
+Choose one explicit strategy: let old Flow runs finish on an old Worker pool, keep versioned handlers in one registry, migrate at a safe application boundary, or stop or recover selected executions with user authorization. Never add an unreviewed fallback that silently reads old data as the new type.
 
-Upgrading the SDK and changing the Flow model are separate decisions. Test one execution started before the deployment and one started after it.
+Upgrading the SDK and changing the Flow model are separate decisions. Test one Flow run started before the deployment and one started after it.
 
 ## Logs and metrics
 

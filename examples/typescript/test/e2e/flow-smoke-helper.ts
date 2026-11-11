@@ -255,7 +255,6 @@ function isTerminalFlowClosedFailure(payload: Record<string, unknown>): boolean 
   if (typeof status === "string") {
     return ![
       "FLOW_STATUS_COMPLETED",
-      "FLOW_STATUS_CONTINUED_AS_NEW",
       "FLOW_STATUS_RUNNING",
       "FLOW_STATUS_UNSPECIFIED",
       "",

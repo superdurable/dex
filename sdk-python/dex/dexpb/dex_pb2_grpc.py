@@ -58,8 +58,7 @@ class FlowServiceStub:
     Unavailable       — object storage or the search backend is unavailable, or
     the Server applies backpressure; never a Dex application Worker
     Internal          — unexpected / violated trusted invariant
-    Unimplemented     — TriggerContinueAsNew; SearchFlows without a configured
-    search backend
+    Unimplemented     — SearchFlows without a configured search backend
 
     Notable per-RPC behavior:
     InvokeRPC — IsTransactional requests transactional reads and writes.
@@ -210,11 +209,6 @@ class FlowServiceStub:
                 request_serializer=dex__pb2.WaitForAttributeRequest.SerializeToString,
                 response_deserializer=dex__pb2.WaitForAttributeResponse.FromString,
                 _registered_method=True)
-        self.TriggerContinueAsNew = channel.unary_unary(
-                '/dex.FlowService/TriggerContinueAsNew',
-                request_serializer=dex__pb2.TriggerContinueAsNewRequest.SerializeToString,
-                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                _registered_method=True)
         self.HealthCheck = channel.unary_unary(
                 '/dex.FlowService/HealthCheck',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
@@ -254,8 +248,7 @@ class FlowServiceServicer:
     Unavailable       — object storage or the search backend is unavailable, or
     the Server applies backpressure; never a Dex application Worker
     Internal          — unexpected / violated trusted invariant
-    Unimplemented     — TriggerContinueAsNew; SearchFlows without a configured
-    search backend
+    Unimplemented     — SearchFlows without a configured search backend
 
     Notable per-RPC behavior:
     InvokeRPC — IsTransactional requests transactional reads and writes.
@@ -426,13 +419,6 @@ class FlowServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def TriggerContinueAsNew(self, request, context):
-        """Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def HealthCheck(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -567,11 +553,6 @@ def add_FlowServiceServicer_to_server(servicer, server):
                     request_deserializer=dex__pb2.WaitForAttributeRequest.FromString,
                     response_serializer=dex__pb2.WaitForAttributeResponse.SerializeToString,
             ),
-            'TriggerContinueAsNew': grpc.unary_unary_rpc_method_handler(
-                    servicer.TriggerContinueAsNew,
-                    request_deserializer=dex__pb2.TriggerContinueAsNewRequest.FromString,
-                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            ),
             'HealthCheck': grpc.unary_unary_rpc_method_handler(
                     servicer.HealthCheck,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
@@ -617,8 +598,7 @@ class FlowService:
     Unavailable       — object storage or the search backend is unavailable, or
     the Server applies backpressure; never a Dex application Worker
     Internal          — unexpected / violated trusted invariant
-    Unimplemented     — TriggerContinueAsNew; SearchFlows without a configured
-    search backend
+    Unimplemented     — SearchFlows without a configured search backend
 
     Notable per-RPC behavior:
     InvokeRPC — IsTransactional requests transactional reads and writes.
@@ -1303,33 +1283,6 @@ class FlowService:
             '/dex.FlowService/WaitForAttribute',
             dex__pb2.WaitForAttributeRequest.SerializeToString,
             dex__pb2.WaitForAttributeResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def TriggerContinueAsNew(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/dex.FlowService/TriggerContinueAsNew',
-            dex__pb2.TriggerContinueAsNewRequest.SerializeToString,
-            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,

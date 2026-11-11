@@ -1,0 +1,383 @@
+{
+  "description": "Image references and media stores, shared by every core. Hand-written, not generated: the byte checks, reference validation and its error texts, and how a store names objects.",
+  "limits": {
+    "max_image_bytes": 3750000,
+    "max_images_per_message": 20,
+    "max_image_uri_length": 1024,
+    "supported_mime_types": [
+      "image/png",
+      "image/jpeg",
+      "image/gif",
+      "image/webp"
+    ]
+  },
+  "images": [
+    {
+      "name": "png",
+      "description": "A 1x1 PNG.",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+      "mime_type": "image/png",
+      "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+      "size_bytes": 70,
+      "reference": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"memory://conformance/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+    },
+    {
+      "name": "jpeg",
+      "description": "A 1x1 baseline JPEG without metadata.",
+      "base64": "/9j/4AAQSkZJRgABAQAASABIAAD/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwACAgICAgIDAgIDBAMDAwQFBAQEBAUHBQUFBQUHCAcHBwcHBwgICAgICAgICgoKCgoKCwsLCwsNDQ0NDQ0NDQ0N/9sAQwECAgIDAwMGAwMGDQkHCQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0N/90ABAAB/9oADAMBAAIRAxEAPwCSiiiv7AP5vP/Z",
+      "mime_type": "image/jpeg",
+      "sha256": "0f0095ec3c25b3284003175c5a6c2ec3f4d65568ba757f6b7380038c671cc9c4",
+      "size_bytes": 639,
+      "reference": "{\"mime_type\":\"image/jpeg\",\"sha256\":\"0f0095ec3c25b3284003175c5a6c2ec3f4d65568ba757f6b7380038c671cc9c4\",\"size_bytes\":639,\"type\":\"image\",\"uri\":\"memory://conformance/sha256/0f0095ec3c25b3284003175c5a6c2ec3f4d65568ba757f6b7380038c671cc9c4\"}"
+    },
+    {
+      "name": "gif",
+      "description": "A 1x1 GIF89a.",
+      "base64": "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==",
+      "mime_type": "image/gif",
+      "sha256": "693d949d8c3fdc7fd4ace7c340b5f177a9f0c5be7bafee8bc93a7d88b7523d75",
+      "size_bytes": 43,
+      "reference": "{\"mime_type\":\"image/gif\",\"sha256\":\"693d949d8c3fdc7fd4ace7c340b5f177a9f0c5be7bafee8bc93a7d88b7523d75\",\"size_bytes\":43,\"type\":\"image\",\"uri\":\"memory://conformance/sha256/693d949d8c3fdc7fd4ace7c340b5f177a9f0c5be7bafee8bc93a7d88b7523d75\"}"
+    },
+    {
+      "name": "webp",
+      "description": "A 1x1 lossless WebP.",
+      "base64": "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==",
+      "mime_type": "image/webp",
+      "sha256": "86be52bdb7547413cafb3ed175a806a798c65de98b40849e0b974c47d187de65",
+      "size_bytes": 34,
+      "reference": "{\"mime_type\":\"image/webp\",\"sha256\":\"86be52bdb7547413cafb3ed175a806a798c65de98b40849e0b974c47d187de65\",\"size_bytes\":34,\"type\":\"image\",\"uri\":\"memory://conformance/sha256/86be52bdb7547413cafb3ed175a806a798c65de98b40849e0b974c47d187de65\"}"
+    }
+  ],
+  "padded_images": [
+    {
+      "name": "at-limit",
+      "description": "The PNG signature and IHDR chunk followed by zero bytes, max_image_bytes in all; accepted, because the check is structural, not a decode.",
+      "prefix_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ",
+      "size_bytes": 3750000,
+      "mime_type": "image/png",
+      "error": null
+    },
+    {
+      "name": "over-limit",
+      "description": "The same prefix and zero bytes, one byte over max_image_bytes.",
+      "prefix_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ",
+      "size_bytes": 3750001,
+      "mime_type": null,
+      "error": "image is 3750001 bytes; the limit is 3750000 bytes"
+    },
+    {
+      "name": "png-signature-and-zeros",
+      "description": "The PNG signature followed by zero bytes, without an IHDR chunk.",
+      "prefix_base64": "iVBORw0KGgo=",
+      "size_bytes": 1024,
+      "mime_type": null,
+      "error": "image is not a well-formed PNG"
+    }
+  ],
+  "rejected_images": [
+    {
+      "name": "empty",
+      "base64": "",
+      "error": "image is empty"
+    },
+    {
+      "name": "text",
+      "base64": "aGVsbG8=",
+      "error": "image is not PNG, JPEG, GIF, or WebP"
+    },
+    {
+      "name": "svg",
+      "base64": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=",
+      "error": "image is not PNG, JPEG, GIF, or WebP"
+    },
+    {
+      "name": "riff-wave",
+      "base64": "UklGRgQAAABXQVZFZm10IA==",
+      "error": "image is not PNG, JPEG, GIF, or WebP"
+    },
+    {
+      "name": "truncated-png-signature",
+      "base64": "iVBORw0K",
+      "error": "image is not PNG, JPEG, GIF, or WebP"
+    },
+    {
+      "name": "png-cut-inside-ihdr",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAAE=",
+      "error": "image is not a well-formed PNG"
+    },
+    {
+      "name": "png-signature-then-other-chunk",
+      "base64": "iVBORw0KGgoAAAANSURBVAAAAAAAAAAAAAAAAAAAAAAA",
+      "error": "image is not a well-formed PNG"
+    },
+    {
+      "name": "jpeg-soi-only",
+      "base64": "/9j/",
+      "error": "image is not a well-formed JPEG"
+    },
+    {
+      "name": "jpeg-without-eoi",
+      "base64": "/9j/4AAQSkZJRgABAQAASABIAAD/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwACAgICAgIDAgIDBAMDAwQFBAQEBAUHBQUFBQUHCAcHBwcHBwgICAgICAgICgoKCgoKCwsLCwsNDQ0NDQ0NDQ0N/9sAQwECAgIDAwMGAwMGDQkHCQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0N/90ABAAB/9oADAMBAAIRAxEAPwCSiiiv7AP5vA==",
+      "error": "image is not a well-formed JPEG"
+    },
+    {
+      "name": "jpeg-with-trailing-bytes",
+      "base64": "/9j/4AAQSkZJRgABAQAASABIAAD/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwACAgICAgIDAgIDBAMDAwQFBAQEBAUHBQUFBQUHCAcHBwcHBwgICAgICAgICgoKCgoKCwsLCwsNDQ0NDQ0NDQ0N/9sAQwECAgIDAwMGAwMGDQkHCQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0N/90ABAAB/9oADAMBAAIRAxEAPwCSiiiv7AP5vP/ZAAA=",
+      "error": "image is not a well-formed JPEG"
+    },
+    {
+      "name": "jpeg-soi-then-padding",
+      "base64": "/9j/AAAAAAAAAAAAAAAAAAAAAAD/2Q==",
+      "error": "image is not a well-formed JPEG"
+    },
+    {
+      "name": "gif-header-only",
+      "base64": "R0lGODlh",
+      "error": "image is not a well-formed GIF"
+    },
+    {
+      "name": "webp-riff-size-too-small",
+      "base64": "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAAAA",
+      "error": "image is not a well-formed WebP"
+    },
+    {
+      "name": "webp-cut-short",
+      "base64": "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGI",
+      "error": "image is not a well-formed WebP"
+    },
+    {
+      "name": "webp-unknown-first-chunk",
+      "base64": "UklGRhoAAABXRUJQQUJDRA0AAAAvAAAAEAcQERGIiP4HAA==",
+      "error": "image is not a well-formed WebP"
+    }
+  ],
+  "verify_cases": [
+    {
+      "name": "png-labeled-jpeg",
+      "description": "A real PNG whose reference was changed to image/jpeg after upload.",
+      "image": "png",
+      "reference_mime_type": "image/jpeg",
+      "error": "image {uri} does not hold a well-formed image/jpeg"
+    },
+    {
+      "name": "jpeg-labeled-webp",
+      "description": "A real JPEG whose reference was changed to image/webp after upload.",
+      "image": "jpeg",
+      "reference_mime_type": "image/webp",
+      "error": "image {uri} does not hold a well-formed image/webp"
+    }
+  ],
+  "store_locations": {
+    "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+    "s3": [
+      {
+        "name": "bucket-only",
+        "bucket": "agent-media",
+        "prefix": "",
+        "store_uri": "s3://agent-media",
+        "object_key": "sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "s3://agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "prefix",
+        "bucket": "agent-media",
+        "prefix": "sessions/images",
+        "store_uri": "s3://agent-media/sessions/images",
+        "object_key": "sessions/images/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "s3://agent-media/sessions/images/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "prefix-with-slashes",
+        "bucket": "agent-media",
+        "prefix": "/sessions/",
+        "store_uri": "s3://agent-media/sessions",
+        "object_key": "sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      }
+    ],
+    "s3_store_uris": [
+      {
+        "store_uri": "s3://agent-media",
+        "bucket": "agent-media",
+        "prefix": ""
+      },
+      {
+        "store_uri": "s3://agent-media/",
+        "bucket": "agent-media",
+        "prefix": ""
+      },
+      {
+        "store_uri": "s3://agent-media/sessions/",
+        "bucket": "agent-media",
+        "prefix": "sessions"
+      }
+    ],
+    "memory": [
+      {
+        "name": "conformance",
+        "store_uri": "memory://conformance",
+        "image_uri": "memory://conformance/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      }
+    ],
+    "too_long": [
+      {
+        "name": "ascii",
+        "description": "Image URIs of this location are 1025 bytes as UTF-8.",
+        "store_uri": "memory://xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "store_error": "media store location memory://xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx makes image URIs longer than 1024 bytes as UTF-8",
+        "build_error": "image reference uri must be at most 1024 bytes as UTF-8"
+      },
+      {
+        "name": "multibyte",
+        "description": "472 two-byte characters make image URIs 1025 bytes as UTF-8.",
+        "store_uri": "memory://éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "store_error": "media store location memory://éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé makes image URIs longer than 1024 bytes as UTF-8",
+        "build_error": "image reference uri must be at most 1024 bytes as UTF-8"
+      }
+    ]
+  },
+  "references": {
+    "valid": [
+      {
+        "name": "s3",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+      },
+      {
+        "name": "without-type",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+      },
+      {
+        "name": "uri-at-length-limit",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+      },
+      {
+        "name": "uri-at-length-limit-two-byte-characters",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"memory://\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9a/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+      },
+      {
+        "name": "uri-at-length-limit-emoji",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"memory://\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00abc/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+      },
+      {
+        "name": "size-at-limit",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":3750000,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+      },
+      {
+        "name": "other-scheme",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"gs://agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+      }
+    ],
+    "invalid": [
+      {
+        "name": "type",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"video\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference type must be \"image\""
+      },
+      {
+        "name": "mime-type-svg",
+        "wire": "{\"mime_type\":\"image/svg+xml\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference mime_type must be one of image/png, image/jpeg, image/gif, image/webp"
+      },
+      {
+        "name": "mime-type-case",
+        "wire": "{\"mime_type\":\"image/PNG\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference mime_type must be one of image/png, image/jpeg, image/gif, image/webp"
+      },
+      {
+        "name": "sha256-uppercase",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"B71939897603461A8A315677AF1A80FF9C7C507E4C2E8CE42EEFC6DE6B09D54B\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference sha256 must be 64 lowercase hex digits"
+      },
+      {
+        "name": "sha256-short",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference sha256 must be 64 lowercase hex digits"
+      },
+      {
+        "name": "size-zero",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":0,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference size_bytes must be from 1 to 3750000"
+      },
+      {
+        "name": "size-negative",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":-5,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference size_bytes must be from 1 to 3750000"
+      },
+      {
+        "name": "size-over-limit",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":3750001,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference size_bytes must be from 1 to 3750000"
+      },
+      {
+        "name": "uri-too-long",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference uri must be at most 1024 bytes as UTF-8"
+      },
+      {
+        "name": "uri-too-long-two-byte-characters",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"memory://\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9\\u00e9/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference uri must be at most 1024 bytes as UTF-8"
+      },
+      {
+        "name": "uri-too-long-emoji",
+        "description": "236 emoji: 1025 bytes as UTF-8, but fewer code points and UTF-16 units.",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"memory://\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference uri must be at most 1024 bytes as UTF-8"
+      },
+      {
+        "name": "uri-without-scheme",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference uri must look like <scheme>://<location>/sha256/<sha256>"
+      },
+      {
+        "name": "uri-without-sha256-segment",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference uri must look like <scheme>://<location>/sha256/<sha256>"
+      },
+      {
+        "name": "uri-with-whitespace",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "error": "image reference uri must look like <scheme>://<location>/sha256/<sha256>"
+      },
+      {
+        "name": "uri-names-another-image",
+        "wire": "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/sha256/d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa\"}",
+        "error": "image reference uri must end with its own sha256"
+      }
+    ]
+  },
+  "reference_lists": [
+    {
+      "name": "empty",
+      "wires": [],
+      "repeat": 1,
+      "error": null
+    },
+    {
+      "name": "at-limit",
+      "wires": [
+        "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+      ],
+      "repeat": 20,
+      "error": null
+    },
+    {
+      "name": "too-many",
+      "wires": [
+        "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+      ],
+      "repeat": 21,
+      "error": "a message may carry at most 20 images, got 21"
+    },
+    {
+      "name": "second-invalid",
+      "wires": [
+        "{\"mime_type\":\"image/png\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}",
+        "{\"mime_type\":\"image/bmp\",\"sha256\":\"b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\",\"size_bytes\":70,\"type\":\"image\",\"uri\":\"s3://agent-media/sessions/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b\"}"
+      ],
+      "repeat": 1,
+      "error": "images[1]: image reference mime_type must be one of image/png, image/jpeg, image/gif, image/webp"
+    }
+  ]
+}

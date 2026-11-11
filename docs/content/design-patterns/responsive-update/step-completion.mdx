@@ -4,11 +4,11 @@ title: Wait for Step Completion
 
 # Wait for Step Completion
 
-Use **WaitForStepCompletion** when a Flow has a durable client-visible milestone before its background work finishes. The caller starts the Flow, waits for that Step, then reads the result it needs. Later Steps can continue without holding the caller open.
+Use **WaitForStepCompletion** when a Flow reaches a durable point that the client can use before its background work finishes. The caller starts the Flow, waits for that Step, then reads the result it needs. Later Steps keep running after the caller has its response.
 
-The **WaitForStepCompletionFlow** sample persists a record in **PersistData**, then starts **BackgroundWork**. Its controller waits for **PersistData** before querying the persisted record. Choose a Step only after it has committed the state that makes the response valid.
+The **WaitForStepCompletionFlow** sample persists a record in **PersistData**, then starts **BackgroundWork**. Its controller waits for **PersistData** before querying the persisted record. Wait for a Step that completes only after it has saved the state the response needs.
 
-Set **RequestTimeout** at an HTTP or admission boundary. The runnable controller below leaves it unset. See [Wait timeouts and limits](/reference/server/runtime-client#wait-timeouts-and-limits).
+When the wait runs behind an HTTP endpoint or another entry point with its own deadline, set **RequestTimeout**. The runnable controller below leaves it unset. See [Wait timeouts and limits](/reference/server/runtime-client#wait-timeouts-and-limits).
 
 ## Core implementation
 

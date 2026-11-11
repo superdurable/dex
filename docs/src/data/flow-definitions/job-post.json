@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,23 +9,23 @@
     "name": "JobPostingFlow",
     "startStepId": "step:InitStep",
     "span": {
-      "startLine": 101,
+      "startLine": 107,
       "startColumn": 1,
-      "endLine": 170,
+      "endLine": 176,
       "endColumn": 10
     }
   },
   "nodes": [
     {
-      "id": "decision:rpc:get:141:16",
+      "id": "decision:rpc:get:147:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:get",
       "phase": "rpc",
       "span": {
-        "startLine": 141,
+        "startLine": 147,
         "startColumn": 16,
-        "endLine": 141,
+        "endLine": 147,
         "endColumn": 54
       },
       "decision": {
@@ -33,15 +33,15 @@
       }
     },
     {
-      "id": "decision:rpc:update:163:16",
+      "id": "decision:rpc:update:169:16",
       "kind": "decision",
       "name": "rpcResult",
       "parentId": "rpc:update",
       "phase": "rpc",
       "span": {
-        "startLine": 163,
+        "startLine": 169,
         "startColumn": 16,
-        "endLine": 163,
+        "endLine": 169,
         "endColumn": 34
       },
       "decision": {
@@ -49,15 +49,15 @@
       }
     },
     {
-      "id": "decision:step:InitStep:57:16",
+      "id": "decision:step:InitStep:59:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:InitStep",
       "phase": "execute",
       "span": {
-        "startLine": 57,
+        "startLine": 59,
         "startColumn": 16,
-        "endLine": 60,
+        "endLine": 62,
         "endColumn": 10
       },
       "decision": {
@@ -65,15 +65,15 @@
       }
     },
     {
-      "id": "decision:step:UpdateIndeedPosting:98:16",
+      "id": "decision:step:UpdateIndeedPosting:104:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:UpdateIndeedPosting",
       "phase": "execute",
       "span": {
-        "startLine": 98,
+        "startLine": 104,
         "startColumn": 16,
-        "endLine": 98,
+        "endLine": 104,
         "endColumn": 48
       },
       "decision": {
@@ -81,15 +81,15 @@
       }
     },
     {
-      "id": "decision:step:UpdateLinkedInPosting:79:16",
+      "id": "decision:step:UpdateLinkedInPosting:83:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:UpdateLinkedInPosting",
       "phase": "execute",
       "span": {
-        "startLine": 79,
+        "startLine": 83,
         "startColumn": 16,
-        "endLine": 79,
+        "endLine": 83,
         "endColumn": 50
       },
       "decision": {
@@ -101,9 +101,9 @@
       "kind": "attribute",
       "name": "JobDescription",
       "span": {
-        "startLine": 103,
+        "startLine": 109,
         "startColumn": 5,
-        "endLine": 103,
+        "endLine": 109,
         "endColumn": 55
       },
       "resource": {
@@ -115,9 +115,9 @@
       "kind": "attribute",
       "name": "LastUpdateTimeMillis",
       "span": {
-        "startLine": 104,
+        "startLine": 110,
         "startColumn": 5,
-        "endLine": 108,
+        "endLine": 114,
         "endColumn": 6
       },
       "resource": {
@@ -129,9 +129,9 @@
       "kind": "attribute",
       "name": "Notes",
       "span": {
-        "startLine": 109,
+        "startLine": 115,
         "startColumn": 5,
-        "endLine": 109,
+        "endLine": 115,
         "endColumn": 36
       },
       "resource": {
@@ -143,9 +143,9 @@
       "kind": "attribute",
       "name": "Title",
       "span": {
-        "startLine": 102,
+        "startLine": 108,
         "startColumn": 5,
-        "endLine": 102,
+        "endLine": 108,
         "endColumn": 82
       },
       "resource": {
@@ -213,9 +213,9 @@
       "kind": "rpc",
       "name": "get",
       "span": {
-        "startLine": 140,
+        "startLine": 146,
         "startColumn": 5,
-        "endLine": 141,
+        "endLine": 147,
         "endColumn": 54
       }
     },
@@ -224,9 +224,9 @@
       "kind": "rpc",
       "name": "get_with_strong_consistency",
       "span": {
-        "startLine": 144,
+        "startLine": 150,
         "startColumn": 5,
-        "endLine": 145,
+        "endLine": 151,
         "endColumn": 33
       }
     },
@@ -235,9 +235,9 @@
       "kind": "rpc",
       "name": "update",
       "span": {
-        "startLine": 148,
+        "startLine": 154,
         "startColumn": 5,
-        "endLine": 163,
+        "endLine": 169,
         "endColumn": 34
       }
     },
@@ -248,10 +248,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 122,
+        "startLine": 128,
         "startColumn": 36,
-        "endLine": 122,
+        "endLine": 128,
         "endColumn": 45
+      },
+      "metadata": {
+        "explanation": "Start one posting update consumer for each job board."
       }
     },
     {
@@ -260,10 +263,13 @@
       "name": "UpdateIndeedPosting",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 124,
+        "startLine": 130,
         "startColumn": 13,
-        "endLine": 124,
+        "endLine": 130,
         "endColumn": 39
+      },
+      "metadata": {
+        "explanation": "Apply each queued posting update to Indeed in order."
       }
     },
     {
@@ -272,22 +278,25 @@
       "name": "UpdateLinkedInPosting",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 123,
+        "startLine": 129,
         "startColumn": 13,
-        "endLine": 123,
+        "endLine": 129,
         "endColumn": 41
+      },
+      "metadata": {
+        "explanation": "Apply each queued posting update to LinkedIn in order."
       }
     },
     {
-      "id": "wait:UpdateIndeedPosting:90:16:0",
+      "id": "wait:UpdateIndeedPosting:96:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:UpdateIndeedPosting",
       "phase": "wait_for",
       "span": {
-        "startLine": 90,
+        "startLine": 96,
         "startColumn": 16,
-        "endLine": 90,
+        "endLine": 96,
         "endColumn": 60
       },
       "wait": {
@@ -298,9 +307,9 @@
             "label": "IndeedPostingUpdates.for 1",
             "resourceId": "resource:channel:INDEED_POSTING_UPDATES",
             "span": {
-              "startLine": 90,
+              "startLine": 96,
               "startColumn": 27,
-              "endLine": 90,
+              "endLine": 96,
               "endColumn": 59
             }
           }
@@ -308,15 +317,15 @@
       }
     },
     {
-      "id": "wait:UpdateLinkedInPosting:71:16:0",
+      "id": "wait:UpdateLinkedInPosting:75:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:UpdateLinkedInPosting",
       "phase": "wait_for",
       "span": {
-        "startLine": 71,
+        "startLine": 75,
         "startColumn": 16,
-        "endLine": 71,
+        "endLine": 75,
         "endColumn": 62
       },
       "wait": {
@@ -327,9 +336,9 @@
             "label": "LinkedInPostingUpdates.for 1",
             "resourceId": "resource:channel:LINKEDIN_POSTING_UPDATES",
             "span": {
-              "startLine": 71,
+              "startLine": 75,
               "startColumn": 27,
-              "endLine": 71,
+              "endLine": 75,
               "endColumn": 61
             }
           }
@@ -341,52 +350,52 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:InitStep:57:16",
+      "from": "decision:step:InitStep:59:16",
       "to": "step:UpdateIndeedPosting",
       "label": "fan-out",
       "span": {
-        "startLine": 59,
+        "startLine": 61,
         "startColumn": 13,
-        "endLine": 59,
+        "endLine": 61,
         "endColumn": 55
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:InitStep:57:16",
+      "from": "decision:step:InitStep:59:16",
       "to": "step:UpdateLinkedInPosting",
       "label": "fan-out",
       "span": {
-        "startLine": 58,
+        "startLine": 60,
         "startColumn": 13,
-        "endLine": 58,
+        "endLine": 60,
         "endColumn": 57
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:UpdateIndeedPosting:98:16",
+      "from": "decision:step:UpdateIndeedPosting:104:16",
       "to": "step:UpdateIndeedPosting",
       "label": "go_to",
       "span": {
-        "startLine": 98,
+        "startLine": 104,
         "startColumn": 16,
-        "endLine": 98,
+        "endLine": 104,
         "endColumn": 48
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:UpdateLinkedInPosting:79:16",
+      "from": "decision:step:UpdateLinkedInPosting:83:16",
       "to": "step:UpdateLinkedInPosting",
       "label": "go_to",
       "span": {
-        "startLine": 79,
+        "startLine": 83,
         "startColumn": 16,
-        "endLine": 79,
+        "endLine": 83,
         "endColumn": 50
       }
     },
@@ -397,9 +406,9 @@
       "to": "rpc:update",
       "label": "get",
       "span": {
-        "startLine": 149,
+        "startLine": 155,
         "startColumn": 19,
-        "endLine": 149,
+        "endLine": 155,
         "endColumn": 51
       },
       "metadata": {
@@ -413,9 +422,9 @@
       "to": "step:UpdateIndeedPosting",
       "label": "results",
       "span": {
-        "startLine": 93,
+        "startLine": 99,
         "startColumn": 18,
-        "endLine": 93,
+        "endLine": 99,
         "endColumn": 57
       },
       "metadata": {
@@ -426,12 +435,12 @@
       "id": "edge:0007",
       "kind": "wait_condition",
       "from": "resource:channel:INDEED_POSTING_UPDATES",
-      "to": "wait:UpdateIndeedPosting:90:16:0",
+      "to": "wait:UpdateIndeedPosting:96:16:0",
       "label": "IndeedPostingUpdates.for 1",
       "span": {
-        "startLine": 90,
+        "startLine": 96,
         "startColumn": 27,
-        "endLine": 90,
+        "endLine": 96,
         "endColumn": 59
       }
     },
@@ -442,9 +451,9 @@
       "to": "step:UpdateLinkedInPosting",
       "label": "results",
       "span": {
-        "startLine": 74,
+        "startLine": 78,
         "startColumn": 18,
-        "endLine": 74,
+        "endLine": 78,
         "endColumn": 59
       },
       "metadata": {
@@ -455,12 +464,12 @@
       "id": "edge:0009",
       "kind": "wait_condition",
       "from": "resource:channel:LINKEDIN_POSTING_UPDATES",
-      "to": "wait:UpdateLinkedInPosting:71:16:0",
+      "to": "wait:UpdateLinkedInPosting:75:16:0",
       "label": "LinkedInPostingUpdates.for 1",
       "span": {
-        "startLine": 71,
+        "startLine": 75,
         "startColumn": 27,
-        "endLine": 71,
+        "endLine": 75,
         "endColumn": 61
       }
     },
@@ -471,9 +480,9 @@
       "to": "resource:attribute:JobPostingFlow.job_description",
       "label": "set",
       "span": {
-        "startLine": 151,
+        "startLine": 157,
         "startColumn": 9,
-        "endLine": 151,
+        "endLine": 157,
         "endColumn": 67
       },
       "metadata": {
@@ -487,9 +496,9 @@
       "to": "resource:attribute:JobPostingFlow.last_update_time_millis",
       "label": "set",
       "span": {
-        "startLine": 152,
+        "startLine": 158,
         "startColumn": 9,
-        "endLine": 152,
+        "endLine": 158,
         "endColumn": 75
       },
       "metadata": {
@@ -503,9 +512,9 @@
       "to": "resource:attribute:JobPostingFlow.notes",
       "label": "set",
       "span": {
-        "startLine": 154,
+        "startLine": 160,
         "startColumn": 13,
-        "endLine": 154,
+        "endLine": 160,
         "endColumn": 49
       },
       "metadata": {
@@ -519,9 +528,9 @@
       "to": "resource:attribute:JobPostingFlow.title",
       "label": "set",
       "span": {
-        "startLine": 150,
+        "startLine": 156,
         "startColumn": 9,
-        "endLine": 150,
+        "endLine": 156,
         "endColumn": 51
       },
       "metadata": {
@@ -535,13 +544,14 @@
       "to": "resource:attribute:UPDATE_POSTING_LOCK",
       "label": "lock",
       "span": {
-        "startLine": 147,
+        "startLine": 153,
         "startColumn": 27,
-        "endLine": 147,
+        "endLine": 153,
         "endColumn": 53
       },
       "metadata": {
-        "phase": "rpc"
+        "phase": "rpc",
+        "rpcName": "update"
       }
     },
     {
@@ -551,9 +561,9 @@
       "to": "resource:attribute:UPDATE_VERSION",
       "label": "set",
       "span": {
-        "startLine": 155,
+        "startLine": 161,
         "startColumn": 9,
-        "endLine": 155,
+        "endLine": 161,
         "endColumn": 50
       },
       "metadata": {
@@ -567,9 +577,9 @@
       "to": "resource:channel:INDEED_POSTING_UPDATES",
       "label": "publish",
       "span": {
-        "startLine": 162,
+        "startLine": 168,
         "startColumn": 9,
-        "endLine": 162,
+        "endLine": 168,
         "endColumn": 61
       },
       "metadata": {
@@ -583,9 +593,9 @@
       "to": "resource:channel:LINKEDIN_POSTING_UPDATES",
       "label": "publish",
       "span": {
-        "startLine": 161,
+        "startLine": 167,
         "startColumn": 9,
-        "endLine": 161,
+        "endLine": 167,
         "endColumn": 63
       },
       "metadata": {
@@ -593,5 +603,40 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "linkedin",
+      "label": "LinkedIn",
+      "stepIds": [
+        "step:UpdateLinkedInPosting"
+      ]
+    },
+    {
+      "id": "indeed",
+      "label": "Indeed",
+      "stepIds": [
+        "step:UpdateIndeedPosting"
+      ]
+    },
+    {
+      "id": "setup",
+      "label": "Setup",
+      "stepIds": [
+        "step:InitStep"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

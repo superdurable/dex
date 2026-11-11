@@ -7,17 +7,17 @@ slug: /reference
 
 # 开发者参考
 
-开发者参考记录随版本变化的细节：配置项、flag、默认值、限制、指标、边界情况和版本差异。概念说明请看 [概念](/concepts) 和 [Components](/components) 页面。开发者参考只有英文版。
+开发者参考记录随版本变化的细节：配置项、flag、默认值、限制、指标、边界情况和版本差异。概念请看 [概念](/concepts) 和 [Components](/components)。开发者参考只有英文版。
 
 ## 先确认版本 {#check-your-version-first}
 
-每个组件有自己的参考。查细节之前，先确认你运行的组件版本。用左侧栏里、当前组件下方的版本选择器选择参考版本。每份参考默认打开最新版本。[兼容性矩阵](#compatibility-matrix) 列出支持的组件组合。
+每个组件有自己的参考。依赖某个细节之前，先确认你运行的组件版本。每份参考默认打开最新版本。要看其他版本，用左侧栏中该组件下方的版本选择器。[兼容性矩阵](#compatibility-matrix) 列出支持的组件组合。
 
-Dex 按一个共享的 release train 发版。每次发版只给有改动的组件打 tag，所以组件的 minor 版本号可能跳过。对某个组件来说，release train 编号 N 指的是它不超过 N 的最新版本。
+Dex 按一个共享的 release train 发版。每次发版只给有改动的组件打 tag，所以组件的 minor 版本号可能跳过。参考里说某个组件的 N 版本时，指的是该组件不超过 N 的最新版本。
 
-## Flows and Steps {#flows-and-steps}
+## SDK 主题页 {#flows-and-steps}
 
-每个 SDK 参考都有一页 Flows and Steps，用该语言的代码讲 start options、Flow 配置、wait、Step decision、Step options 和失败处理：[Go](/reference/go/flows-and-steps)、[Python](/reference/python/flows-and-steps)、[Java](/reference/java/flows-and-steps)、[TypeScript](/reference/typescript/flows-and-steps) 和 [Rust](/reference/rust/flows-and-steps)。
+每个 SDK 参考为[概念](/concepts)中的每个主题各写一页：Flow、Step、Attribute、RPC、Channel、Stream、Timer、SubFlow 和 Client。另外几页讲 StartFlowOptions、StepOptions、Step decision、wait、失败与重试，以及 Worker。每页都用该语言的名称和代码：[Go](/reference/go/)、[Python](/reference/python/)、[Java](/reference/java/)、[TypeScript](/reference/typescript/) 和 [Rust](/reference/rust/)。
 
 ## 组件参考 {#component-references}
 
@@ -57,4 +57,4 @@ server-zd 协议版本 4 没有提高最低协议版本。1.35 之前的 SDK 在
 
 ## 发版说明 {#release-notes}
 
-每个组件都在 GitHub 上发布发版说明。server-zd 的每个版本都列出 breaking change、新功能、修复和升级步骤。见 [Dex releases](https://github.com/superdurable/dex/releases)。
+每个组件都在 GitHub 的 [Dex releases](https://github.com/superdurable/dex/releases) 发布发版说明。server-zd 每个版本的说明都列出 breaking change、新功能、修复和升级步骤。

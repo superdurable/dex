@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "CronScheduleFlow",
     "startStepId": "step:_Start",
     "span": {
-      "startLine": 138,
+      "startLine": 144,
       "startColumn": 1,
-      "endLine": 155,
+      "endLine": 161,
       "endColumn": 48
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "step:_Run",
       "phase": "execute",
       "span": {
-        "startLine": 133,
+        "startLine": 139,
         "startColumn": 5,
-        "endLine": 135,
+        "endLine": 141,
         "endColumn": 69
       }
     },
@@ -36,9 +36,9 @@
       "parentId": "step:_Start",
       "phase": "execute",
       "span": {
-        "startLine": 83,
+        "startLine": 85,
         "startColumn": 5,
-        "endLine": 88,
+        "endLine": 90,
         "endColumn": 88
       }
     },
@@ -49,23 +49,23 @@
       "parentId": "step:_WaitForSchedule",
       "phase": "execute",
       "span": {
-        "startLine": 107,
+        "startLine": 111,
         "startColumn": 5,
-        "endLine": 122,
+        "endLine": 126,
         "endColumn": 10
       }
     },
     {
-      "id": "decision:step:_Run:135:16",
+      "id": "decision:step:_Run:141:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:_Run",
       "condition": "input.is_final",
       "phase": "execute",
       "span": {
-        "startLine": 135,
+        "startLine": 141,
         "startColumn": 16,
-        "endLine": 135,
+        "endLine": 141,
         "endColumn": 35
       },
       "decision": {
@@ -73,16 +73,16 @@
       }
     },
     {
-      "id": "decision:step:_Run:135:59",
+      "id": "decision:step:_Run:141:59",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:_Run",
       "condition": "not (input.is_final)",
       "phase": "execute",
       "span": {
-        "startLine": 135,
+        "startLine": 141,
         "startColumn": 59,
-        "endLine": 135,
+        "endLine": 141,
         "endColumn": 69
       },
       "decision": {
@@ -90,16 +90,16 @@
       }
     },
     {
-      "id": "decision:step:_Start:87:20",
+      "id": "decision:step:_Start:89:20",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:_Start",
       "condition": "input.run_count \u003c= 0 or input.interval.value \u003c= 0",
       "phase": "execute",
       "span": {
-        "startLine": 87,
+        "startLine": 89,
         "startColumn": 20,
-        "endLine": 87,
+        "endLine": 89,
         "endColumn": 79
       },
       "decision": {
@@ -107,16 +107,16 @@
       }
     },
     {
-      "id": "decision:step:_Start:88:16",
+      "id": "decision:step:_Start:90:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:_Start",
       "condition": "not (input.run_count \u003c= 0 or input.interval.value \u003c= 0)",
       "phase": "execute",
       "span": {
-        "startLine": 88,
+        "startLine": 90,
         "startColumn": 16,
-        "endLine": 88,
+        "endLine": 90,
         "endColumn": 88
       },
       "decision": {
@@ -124,16 +124,16 @@
       }
     },
     {
-      "id": "decision:step:_WaitForSchedule:115:20",
+      "id": "decision:step:_WaitForSchedule:119:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:_WaitForSchedule",
       "condition": "run_input.is_final",
       "phase": "execute",
       "span": {
-        "startLine": 115,
+        "startLine": 119,
         "startColumn": 20,
-        "endLine": 115,
+        "endLine": 119,
         "endColumn": 42
       },
       "decision": {
@@ -141,16 +141,16 @@
       }
     },
     {
-      "id": "decision:step:_WaitForSchedule:116:16",
+      "id": "decision:step:_WaitForSchedule:120:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:_WaitForSchedule",
       "condition": "not (run_input.is_final)",
       "phase": "execute",
       "span": {
-        "startLine": 116,
+        "startLine": 120,
         "startColumn": 16,
-        "endLine": 122,
+        "endLine": 126,
         "endColumn": 10
       },
       "decision": {
@@ -162,9 +162,9 @@
       "kind": "channel",
       "name": "cron-schedule-skip",
       "span": {
-        "startLine": 141,
+        "startLine": 147,
         "startColumn": 9,
-        "endLine": 141,
+        "endLine": 147,
         "endColumn": 68
       },
       "resource": {
@@ -176,9 +176,9 @@
       "kind": "channel",
       "name": "cron-schedule-trigger",
       "span": {
-        "startLine": 140,
+        "startLine": 146,
         "startColumn": 9,
-        "endLine": 140,
+        "endLine": 146,
         "endColumn": 74
       },
       "resource": {
@@ -190,9 +190,9 @@
       "kind": "rpc",
       "name": "trigger_now",
       "span": {
-        "startLine": 153,
+        "startLine": 159,
         "startColumn": 5,
-        "endLine": 155,
+        "endLine": 161,
         "endColumn": 48
       }
     },
@@ -202,10 +202,13 @@
       "name": "_Run",
       "phase": "execute",
       "span": {
-        "startLine": 147,
+        "startLine": 153,
         "startColumn": 75,
-        "endLine": 147,
+        "endLine": 153,
         "endColumn": 83
+      },
+      "metadata": {
+        "explanation": "Record one scheduled run."
       }
     },
     {
@@ -215,10 +218,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 147,
+        "startLine": 153,
         "startColumn": 36,
-        "endLine": 147,
+        "endLine": 153,
         "endColumn": 46
+      },
+      "metadata": {
+        "explanation": "Validate the schedule and start waiting for the first run."
       }
     },
     {
@@ -227,22 +233,25 @@
       "name": "_WaitForSchedule",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 147,
+        "startLine": 153,
         "startColumn": 60,
-        "endLine": 147,
+        "endLine": 153,
         "endColumn": 73
+      },
+      "metadata": {
+        "explanation": "Wait for the interval, a manual trigger, or a skip, then start a run."
       }
     },
     {
-      "id": "wait:_WaitForSchedule:101:16:0",
+      "id": "wait:_WaitForSchedule:105:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:_WaitForSchedule",
       "phase": "wait_for",
       "span": {
-        "startLine": 101,
+        "startLine": 105,
         "startColumn": 16,
-        "endLine": 105,
+        "endLine": 109,
         "endColumn": 10
       },
       "wait": {
@@ -253,9 +262,9 @@
             "label": "state.interval.duration() timer",
             "expression": "state.interval.duration()",
             "span": {
-              "startLine": 102,
+              "startLine": 106,
               "startColumn": 13,
-              "endLine": 102,
+              "endLine": 106,
               "endColumn": 57
             }
           },
@@ -264,9 +273,9 @@
             "label": "cron-schedule-trigger.for 1",
             "resourceId": "resource:channel:CronScheduleFlow.trigger",
             "span": {
-              "startLine": 103,
+              "startLine": 107,
               "startColumn": 13,
-              "endLine": 103,
+              "endLine": 107,
               "endColumn": 35
             }
           },
@@ -275,9 +284,9 @@
             "label": "cron-schedule-skip.for 1",
             "resourceId": "resource:channel:CronScheduleFlow.skip",
             "span": {
-              "startLine": 104,
+              "startLine": 108,
               "startColumn": 13,
-              "endLine": 104,
+              "endLine": 108,
               "endColumn": 32
             }
           }
@@ -289,52 +298,52 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:_Start:88:16",
+      "from": "decision:step:_Start:90:16",
       "to": "step:_WaitForSchedule",
       "label": "go_to",
       "span": {
-        "startLine": 88,
+        "startLine": 90,
         "startColumn": 16,
-        "endLine": 88,
+        "endLine": 90,
         "endColumn": 88
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:_WaitForSchedule:115:20",
+      "from": "decision:step:_WaitForSchedule:119:20",
       "to": "step:_Run",
       "label": "go_to",
       "span": {
-        "startLine": 115,
+        "startLine": 119,
         "startColumn": 20,
-        "endLine": 115,
+        "endLine": 119,
         "endColumn": 42
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:_WaitForSchedule:116:16",
+      "from": "decision:step:_WaitForSchedule:120:16",
       "to": "step:_Run",
       "label": "fan-out",
       "span": {
-        "startLine": 117,
+        "startLine": 121,
         "startColumn": 13,
-        "endLine": 117,
+        "endLine": 121,
         "endColumn": 45
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:_WaitForSchedule:116:16",
+      "from": "decision:step:_WaitForSchedule:120:16",
       "to": "step:_WaitForSchedule",
       "label": "fan-out",
       "span": {
-        "startLine": 118,
+        "startLine": 122,
         "startColumn": 13,
-        "endLine": 121,
+        "endLine": 125,
         "endColumn": 14
       }
     },
@@ -345,9 +354,9 @@
       "to": "step:_WaitForSchedule",
       "label": "results",
       "span": {
-        "startLine": 108,
+        "startLine": 112,
         "startColumn": 12,
-        "endLine": 108,
+        "endLine": 112,
         "endColumn": 38
       },
       "metadata": {
@@ -358,12 +367,12 @@
       "id": "edge:0006",
       "kind": "wait_condition",
       "from": "resource:channel:CronScheduleFlow.skip",
-      "to": "wait:_WaitForSchedule:101:16:0",
+      "to": "wait:_WaitForSchedule:105:16:0",
       "label": "cron-schedule-skip.for 1",
       "span": {
-        "startLine": 104,
+        "startLine": 108,
         "startColumn": 13,
-        "endLine": 104,
+        "endLine": 108,
         "endColumn": 32
       }
     },
@@ -371,12 +380,12 @@
       "id": "edge:0007",
       "kind": "wait_condition",
       "from": "resource:channel:CronScheduleFlow.trigger",
-      "to": "wait:_WaitForSchedule:101:16:0",
+      "to": "wait:_WaitForSchedule:105:16:0",
       "label": "cron-schedule-trigger.for 1",
       "span": {
-        "startLine": 103,
+        "startLine": 107,
         "startColumn": 13,
-        "endLine": 103,
+        "endLine": 107,
         "endColumn": 35
       }
     },
@@ -387,9 +396,9 @@
       "to": "resource:channel:CronScheduleFlow.trigger",
       "label": "publish",
       "span": {
-        "startLine": 155,
+        "startLine": 161,
         "startColumn": 13,
-        "endLine": 155,
+        "endLine": 161,
         "endColumn": 48
       },
       "metadata": {
@@ -397,5 +406,40 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "schedule",
+      "label": "Schedule",
+      "stepIds": [
+        "step:_WaitForSchedule"
+      ]
+    },
+    {
+      "id": "run",
+      "label": "Run",
+      "stepIds": [
+        "step:_Run"
+      ]
+    },
+    {
+      "id": "validation",
+      "label": "Validation",
+      "stepIds": [
+        "step:_Start"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

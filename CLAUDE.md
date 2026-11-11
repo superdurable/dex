@@ -132,7 +132,7 @@ fact an agent needs to write correct code. Do not cut one only to be shorter.
 | --- | --- | --- |
 | Behavior, parameters, defaults, units, errors, and examples of one API | SDK doc comments, published as the generated API reference | Docs and skills link to it; they do not restate it |
 | Primitive concepts, relations, and mental model | Docs Concepts and skills | Change both in one pull request |
-| Components (Application, server, cli, web, connector, external Attribute sync): what each is and how they work together | Docs Components and skills | Change both in one pull request |
+| Components (Application, server, cli, web): what each is and how they work together | Docs Components and skills | Change both in one pull request |
 | Design patterns | Docs Design patterns (narrative, diagram, example) and skills (when to use, steps, code skeleton) | Change both in one pull request; code comes from `examples/` |
 | Configuration, flags, metrics, limits, edge cases, version differences | Docs Developer reference (versioned) | Skills link to it |
 
@@ -160,7 +160,7 @@ This is the target layout. Phases P2 and P4 of the docs and skills cleanup
 build it.
 
 - Each component has its own versioned reference: the Go, Python, Java,
-  TypeScript, and Rust SDKs, the server, cli, and web.
+  TypeScript, and Rust SDKs, the server, cli, web, and the agents packages.
 - The left sidebar of each reference has a version selector. It defaults to
   the latest version.
 - Only the current version is edited by hand. Each minor release snapshots it
@@ -170,8 +170,9 @@ build it.
 - When a version leaves the site, redirect each of its URLs to the same page
   in the latest version. If that page no longer exists, redirect to the
   component's reference index. Docs URLs stay permanent.
-- Each SDK, cli, and web minor version has one reference version. Patch
-  releases update that minor's reference. Until server-zd 1.0, each
+- Each SDK, cli, web, and agents minor version has one reference version.
+  Patch releases update that minor's reference. Before agents 1.0, each
+  `0.N` agents minor is one version. Until server-zd 1.0, each
   `0.1.N` server-zd release is one version. From 1.0 on, server-zd is
   versioned by minor release.
 
@@ -244,9 +245,7 @@ still not describe downstream products.
 ## User-Facing Concept Boundary
 
 User-facing docs, examples and skills describe Dex concepts and guarantees only.
-Do not mention Continue-As-New except in the Flow options reference for the
-Continue-As-New threshold and the TriggerContinueAsNew Client API reference. Do
-not describe server-zd engine internals (apply, commands, partitions, history
+Do not describe server-zd engine internals (apply, commands, partitions, history
 mechanics) as part of the application model; state the Dex behavior instead.
 Deployment and operations guidance may name server-zd and its configuration.
 
@@ -358,13 +357,12 @@ Deployment and operations guidance may name server-zd and its configuration.
   added or changed, run `cd docs && npm run generate:flow-definitions`. Review
   and commit the affected JSON under `docs/src/data/flow-definitions/` in the
   same change, even when the MDX import is unchanged.
-- Design-pattern Step graph PNGs must remain responsive. Set only a percentage
-  `max-width`, never a fixed width or height. Choose each maximum so its Flow type
-  name renders at the same size as `DrainInternalChannelFlow` in
-  `drain-internal-channel.png`, and keep the image centered. Use an HTML `img`
-  with its `/img/design-patterns/` path so Docusaurus cannot inline the PNG as a
-  data URL, then match its stable filename fragment in `docs/src/css/custom.css`.
-  Apply this rule when adding or replacing a Step graph.
+- Draw every Flow design diagram in docs with `DocsFlowDefinitionGraph`. It
+  renders Flow Definition Graph 2.0 JSON the way Dex Web's Design tab does.
+  Generate that JSON from a runnable file under `examples/` by adding the source
+  to `docs/scripts/generate-flow-definitions.sh`. Do not add Step graph images
+  or hand-written definitions. Every Step in such a source declares one
+  `dex:group` and one `dex:explanation` directive.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
 

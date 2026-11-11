@@ -38,6 +38,7 @@ from dex import AsyncContext, RetryPolicy
 from dex_agents.built_in_tools import BuiltInTool
 from dex_agents.events import AgentEventWriter
 from dex_agents.values import (
+    AgentImageReference,
     AgentMessage,
     AgentPlan,
     AgentToolCall,
@@ -267,6 +268,13 @@ class FrameworkMessage:
         tool_name: Tool name of a tool request or result item.
         tool_arguments: Tool arguments as JSON text.
         tool_output: Tool result text.
+        images: Images of the item, for display, such as those of a tool
+            result from ``AgentToolCall.images``. The session sets the images of
+            a user message itself, from ``AgentUserMessage.images``. The session
+            checks them with ``validate_image_references`` before it stores
+            the message; invalid ones fail the calling Step. Defaults to none.
+
+            .. versionadded:: 0.5.0
     """
 
     role: MessageRole
@@ -276,6 +284,7 @@ class FrameworkMessage:
     tool_name: str | None = None
     tool_arguments: str | None = None
     tool_output: str | None = None
+    images: Sequence[AgentImageReference] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -597,10 +606,20 @@ class ToolExecutionResult:
             session stores it as ``AgentToolCall.truncated_output_bytes``.
 
             .. versionadded:: 0.4.0
+        images: Images the tool returns with ``output``, uploaded with
+            ``MediaStore.put_image`` inside the call, at most
+            ``MAX_IMAGES_PER_MESSAGE``. The session stores them as
+            ``AgentToolCall.images``; a reference that
+            ``validate_image_reference`` refuses fails the attempt. Upload
+            before returning: a retried attempt uploads the same bytes to the
+            same object. Defaults to none.
+
+            .. versionadded:: 0.5.0
     """
 
     output: str
     truncated_output_bytes: int | None = None
+    images: Sequence[AgentImageReference] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -840,10 +859,17 @@ class ToolOutcomeUnknownError(Exception):
     ``OUTCOME_UNKNOWN_TOOL_RESULT``. A later ordered write of the turn is
     skipped.
 
+    ``ToolTaskPoller.poll_tool_task`` may raise it too, for a task that
+    ended without a known outcome. The session then records
+    ``OUTCOME_UNKNOWN`` the same way and stops polling.
+
     Example:
         >>> raise ToolOutcomeUnknownError("the provider timed out after receiving the refund")
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.5.0
+        ``poll_tool_task`` may raise it.
     """
 
 
@@ -956,6 +982,47 @@ class AgentFrameworkRunner(Protocol[ToolOutcomeT_co]):
             Exception: Any other exception fails the Step attempt. After the
                 last attempt the record becomes ``FAILED`` for a ``READ`` call
                 and ``OUTCOME_UNKNOWN`` for a write.
+        """
+        ...
+
+
+@runtime_checkable
+class ImageUserMessageBuilder(Protocol):
+    """Let a runner show the images of a user message to its model.
+
+    Implement it next to ``AgentFrameworkRunner`` when the runner can send
+    images to its model. ``send_user_message`` accepts images only for a runner
+    with this method, and the session calls it instead of
+    ``build_user_message`` for a message with images. Put the references,
+    never the bytes, in ``framework_item``; read the bytes with
+    ``dex_agents.load_images`` when the model call builds its input. The
+    session sets the stored message's ``images`` itself.
+
+    Example:
+        >>> class MyRunner:
+        ...     def build_user_message_with_images(self, text, images):
+        ...         item = {"user": text, "images": [asdict(image) for image in images]}
+        ...         return FrameworkMessage(role=MessageRole.USER, text=text,
+        ...                                 framework_item=json.dumps(item))
+
+    .. versionadded:: 0.5.0
+    """
+
+    def build_user_message_with_images(
+        self, text: str, images: Sequence[AgentImageReference]
+    ) -> FrameworkMessage:
+        """Convert user text and its images into the framework item the session stores.
+
+        It must be deterministic and free of side effects, like
+        ``build_user_message``.
+
+        Args:
+            text: The user message text, never blank.
+            images: The message's images, at least one, each valid for
+                ``validate_image_reference``.
+
+        Returns:
+            A ``MessageRole.USER`` message.
         """
         ...
 
@@ -1101,9 +1168,15 @@ class ToolTaskPoller(Protocol):
         Raises:
             ToolExecutionError: The task failed in a way the model should see.
                 The session records ``FAILED``.
+            ToolOutcomeUnknownError: The task ended, and it may or may not
+                have taken effect. The session records ``OUTCOME_UNKNOWN``
+                and does not poll again.
             Exception: Any other exception fails the poll attempt. After three
                 attempts the record becomes ``FAILED`` for a ``READ`` call and
                 ``OUTCOME_UNKNOWN`` otherwise, because the task may still run.
+
+        .. versionchanged:: 0.5.0
+            ``ToolOutcomeUnknownError`` records ``OUTCOME_UNKNOWN``.
         """
         ...
 

@@ -119,13 +119,21 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 	resources.web = webServer
+	webURL := "http://" + listeners.web.Addr().String()
+	var webListener interface{ Serve(net.Listener) error } = webServer
+	var connectorsMCP *connectorsMCPManager
+	if s.isConnectorsMCPServed() {
+		connectorsMCP, webListener, err = s.mountConnectorsMCP(webServer, webURL+connectorsMCPMountPath, resources)
+		if err != nil {
+			return err
+		}
+	}
 	componentExits := make(chan componentExit, 2)
-	go func() { componentExits <- componentExit{name: "Dex Web", err: webServer.Serve(listeners.web)} }()
+	go func() { componentExits <- componentExit{name: "Dex Web", err: webListener.Serve(listeners.web)} }()
 	go func() {
 		<-process.done
 		componentExits <- componentExit{name: "Dex Server", err: process.Err()}
 	}()
-	webURL := "http://" + listeners.web.Addr().String()
 	if err := waitForComponentHTTP(startupCtx, webURL+"/healthz", componentExits); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -138,6 +146,10 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	default:
 	}
 	s.printReady(webURL, dexAddress, dataDirectory)
+	if connectorsMCP != nil {
+		connectorsMCP.Start(ctx)
+		resources.connectorsMCP = connectorsMCP
+	}
 	s.printUpdateNotice(ctx)
 	if s.cfg.OpenBrowser {
 		if err := openBrowser(webURL); err != nil {
@@ -164,6 +176,12 @@ func (s *supervisor) printReady(webURL string, dexAddress string, serverDataDire
 	fmt.Fprintln(s.stdout, "Dex development environment is ready")
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintf(s.stdout, "Dex Web:       %s\n", webURL)
+	switch {
+	case s.isConnectorsMCPServed():
+		fmt.Fprintf(s.stdout, "Connectors MCP: %s\n", webURL+connectorsMCPMountPath)
+	case s.cfg.ConnectorsMCP.IsEnabled:
+		fmt.Fprintln(s.stdout, "Connectors MCP: off, because --bind-address is not a loopback address")
+	}
 	fmt.Fprintf(s.stdout, "Dex Server:    %s\n", dexAddress)
 	fmt.Fprintf(s.stdout, "State dir:     %s\n", serverDataDirectory)
 	if s.cfg.LogDirectory != "" {
@@ -171,6 +189,42 @@ func (s *supervisor) printReady(webURL string, dexAddress string, serverDataDire
 	}
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Press Ctrl+C to stop.")
+}
+
+// isConnectorsMCPServed reports whether /mcp is mounted; its tools carry no credentials, so only loopback binds serve it.
+func (s *supervisor) isConnectorsMCPServed() bool {
+	bindIP := net.ParseIP(s.cfg.BindAddress)
+	return s.cfg.ConnectorsMCP.IsEnabled && bindIP != nil && bindIP.IsLoopback()
+}
+
+// mountConnectorsMCP returns the Connectors MCP manager and the server that serves Dex Web with /mcp mounted.
+func (s *supervisor) mountConnectorsMCP(
+	webServer *dexweb.Server,
+	proxyURL string,
+	resources *zdRunResources,
+) (*connectorsMCPManager, *webListenerServer, error) {
+	if err := s.cfg.ConnectorsMCP.resolvePaths(s.cfg.StateDirectory, s.cfg.ConnectorConfigDirectory); err != nil {
+		return nil, nil, err
+	}
+	proxy := newConnectorsMCPProxy()
+	webListener := newWebListenerServer(webServer, proxy)
+	resources.webListener = webListener
+	resolver := newConnectorsMCPReleaseResolver(
+		&s.cfg.ConnectorsMCP, &http.Client{}, runtime.GOOS+"-"+runtime.GOARCH, s.stderr)
+	manager := newConnectorsMCPManager(
+		&s.cfg.ConnectorsMCP, resolver, newLoopbackHTTPClient(), proxy, s.stderr, proxyURL)
+	return manager, webListener, nil
+}
+
+// newLoopbackHTTPClient returns a client that never sends loopback requests through an HTTP proxy.
+func newLoopbackHTTPClient() *http.Client {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		panic("http.DefaultTransport is not an *http.Transport")
+	}
+	loopbackTransport := transport.Clone()
+	loopbackTransport.Proxy = nil
+	return &http.Client{Transport: loopbackTransport}
 }
 
 func (s *supervisor) printUpdateNotice(ctx context.Context) {

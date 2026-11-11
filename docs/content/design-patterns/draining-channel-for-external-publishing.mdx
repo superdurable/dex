@@ -6,13 +6,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/drai
 
 # Drain External Channels
 
-Process externally published Channel messages, then close the short-lived Flow when its queue is empty.
+Process Channel messages that clients publish, and complete the Flow as soon as the Channel is empty.
 
 ## Problem and approach
 
-Use this pattern when a Flow handles messages from outside the Worker with potential bursts. A Client invokes an RPC that appends each message to the Channel. The key requirement is to complete the Flow when the Channel is empty, so the Flow stays as short as possible. The Flow restarts when new messages arrive.
+Use this pattern when messages come from outside the Worker, possibly in bursts. A Client calls an RPC that appends each message to the Channel. The Flow completes as soon as the Channel is empty, so it runs only while there is work. The next message starts it again.
 
-The decision atomically checks the Channel while it records the next action. An empty Channel completes the Flow. A Channel with queued messages, or one with messages committed to a Step that has not finished processing **Execute**, takes the fallback movement back to **ProcessMessage**. After completion, the next request starts a new Flow execution with the same Flow ID and passes the message as the start input.
+**ProcessMessage** returns a **ForceCompleteIfChannelsEmpty** decision. Dex checks the Channel when it saves that decision, so no message can arrive between the check and the completion. If the Channel is empty, the Flow completes. If the Channel still holds messages, or a Step has taken a message but not finished its **Execute**, Dex takes the fallback movement back to **ProcessMessage** instead.
 
 Only one Step may consume a Channel checked by **ForceCompleteIfChannelsEmpty**.
 
@@ -389,7 +389,7 @@ impl Step for DrainChannel {
 
 ## Controller
 
-The controller first invokes the publishing RPC on the active Flow. When invocation reports that the Flow is inactive, it starts a new Flow with the message as its input. Other errors are returned to the caller.
+The controller first calls the publishing RPC on the running Flow. If Dex reports that the Flow is not running, the controller starts a new Flow run with the same Flow ID and the message as its start input. It returns any other error to its caller.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/controller.py', go: 'examples/go/patterns/drain-channels/external-publishing/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/DrainChannelsController.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/controller.ts', rust: 'examples/rust/src/patterns/drain_channels/controller.rs'}}>
 <SdkSnippet lang="python">

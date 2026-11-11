@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
-	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
 
 var (
@@ -659,17 +658,14 @@ func TestActionPermissionProjectionSubFlowIsolation(t *testing.T) {
 	requireActionPermissions(t, childID, []string{"permission-x", "permission-z"})
 }
 
-func TestActionPermissionProjectionContinueAsNew(t *testing.T) {
+func TestActionPermissionProjectionAfterRPCUpdates(t *testing.T) {
 	ctx := integrationContext(t)
 	flow := actionPermissionFlow{}
-	flowID := newFlowID(t, "action-permission-continue")
+	flowID := newFlowID(t, "action-permission-updates")
 	initial1 := mustInitialActionAttribute(t, actionPermissionAttribute1, "A")
 	initial2 := mustInitialActionAttribute(t, actionPermissionAttribute2, "C")
-	firstRunID, err := integClient.StartFlow(ctx, flow, flowID, nil, dex.StartFlowOptions{
+	_, err := integClient.StartFlow(ctx, flow, flowID, nil, dex.StartFlowOptions{
 		Attributes: []dex.InitialAttributeDef{initial1, initial2},
-		ConfigOverride: &dex.FlowConfig{
-			ContinueAsNewThreshold: ptr.Any(int32(100)),
-		},
 	})
 	require.NoError(t, err)
 	requireActionPermissions(t, flowID, []string{"permission-x", "permission-z"})
@@ -679,15 +675,6 @@ func TestActionPermissionProjectionContinueAsNew(t *testing.T) {
 		Attribute2: ptr.Any("D"),
 	})
 	requireActionPermissions(t, flowID, []string{"permission-x", "permission-z"})
-
-	serverEngine, err := integrationServerEngine()
-	require.NoError(t, err)
-	// C3: server-zd never continues a run as new.
-	if serverEngine != dexpb.ServerEngine_SERVER_ENGINE_ZD {
-		require.NoError(t, integClient.TriggerContinueAsNew(ctx, flowID))
-		continuedRunID := awaitSubFlowRunID(t, flowID, firstRunID)
-		require.NotEmpty(t, continuedRunID)
-	}
 
 	var output dex.None
 	require.NoError(t, integClient.InvokeRPC(

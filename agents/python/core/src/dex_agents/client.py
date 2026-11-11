@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any
@@ -26,6 +26,7 @@ from dex import (
     StreamMessage,
 )
 
+from dex_agents.media import validate_image_references
 from dex_agents.session_failure import (
     AgentSessionFailedError,
     read_agent_snapshot,
@@ -35,6 +36,7 @@ from dex_agents.session_flow import AgentSessionFlow
 from dex_agents.session_settings import validate_session_settings
 from dex_agents.values import (
     AgentEvent,
+    AgentImageReference,
     AgentMessagesPage,
     AgentSessionStartInput,
     AgentSnapshot,
@@ -206,33 +208,52 @@ class AgentSessionClient:
         )
 
     async def send_user_message(
-        self, session_id: str, text: str, *, plan_mode: bool = False
+        self,
+        session_id: str,
+        text: str,
+        *,
+        plan_mode: bool = False,
+        images: Sequence[AgentImageReference] = (),
     ) -> bool:
         """Queue one user message.
+
+        Example:
+            >>> reference = await media_store.put_image(Path("chart.png").read_bytes())
+            >>> await sessions.send_user_message("session-42", "What does this chart show?",
+            ...                                  images=[reference])
 
         Args:
             session_id: Running session.
             text: Message text.
             plan_mode: ``True`` to start a planning turn that drafts a plan for
                 ``execute_plan``. It needs ``AgentSessionOptions.plan_mode_enabled``.
+            images: Images uploaded with ``MediaStore.put_image``, at most
+                ``MAX_IMAGES_PER_MESSAGE``. Defaults to none.
+
+                .. versionadded:: 0.5.0
 
         Returns:
-            ``True`` when queued; ``False`` for whitespace-only text, or for a
-            ``plan_mode`` message when plan mode is not enabled.
+            ``True`` when queued; ``False`` for whitespace-only text, for a
+            ``plan_mode`` message when plan mode is not enabled, or for images
+            when the session's runner does not implement
+            ``ImageUserMessageBuilder``.
 
         Raises:
+            ImageValidationError: If ``validate_image_references`` refuses the
+                images. Nothing was sent.
             AgentSessionFailedError: If the session failed. ``reason`` says why.
             FlowNotActiveOrNotFoundError: If the session is not running.
             DexServiceError: With ``RESOURCE_EXHAUSTED`` when the message does
                 not fit under ``limits.maxFlowStateBytes``. Nothing was queued,
                 and the session stays as it was.
         """
+        validate_image_references(images)
         return await self._raise_session_failure(
             session_id,
             self._client.invoke_rpc(
                 self._flow.send_user_message,
                 session_id,
-                AgentUserMessage(text=text, plan_mode=plan_mode),
+                AgentUserMessage(text=text, plan_mode=plan_mode, images=list(images)),
             ),
         )
 

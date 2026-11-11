@@ -1,0 +1,83 @@
+---
+title: Approvals and waiting sessions
+sidebar_label: Approvals
+---
+
+# Approvals and waiting sessions {#approvals}
+
+[Tool policies and approvals](/agent-frameworks#tool-policies-and-approvals)
+explains when a tool call waits for approval. This page covers the options and
+limits.
+
+## Approval deadlines {#approval-deadlines}
+
+Without a deadline, an approval waits until someone answers, and the turn waits
+with it. New user messages queue until the turn ends. To set a deadline, set
+**interrupt_deadline** in the Python **AgentSessionOptions** or
+**interruptDeadlineMs** in TypeScript. Dex rejects a call that is still pending
+at the deadline with the message "approval deadline passed". The model sees the
+rejection.
+
+The session computes the deadline from the Worker clock when the model asks
+for the call, so keep Worker clocks synchronized. A changed deadline option
+applies only to approvals raised after the change. Dex Timers take whole
+seconds, so the deadline Timer is rounded up and can fire up to a second late.
+**resolve_interrupt** returns false from the deadline on, so a late answer
+never wins.
+
+## RPC locks {#rpc-locks}
+
+**resolve_interrupt** can fail with **RpcLockConflictError** while a Step holds
+the same lock. A retry is safe. The Python **AgentSessionClient** retries for up
+to 5 seconds.
+
+The caller of an RPC sends its locks. SDK Clients and Dex Web send the locks
+that the RPC declares. A raw **InvokeRPC** request, such as **dexcli api
+call**, must list them in **lock_attribute_keys**. Without them the RPC runs
+unlocked, and two answers to one approval can both succeed.
+
+## Find sessions that need a person {#find-sessions}
+
+**ActiveStepTypes** is a built-in search field. It lists the Steps a Flow waits
+in, so one query finds every session waiting for a person, across agents:
+
+```text
+ActiveStepTypes = "AwaitToolApproval"
+ActiveStepTypes = "AwaitQuestionAnswer"
+```
+
+A session appears when it enters the wait and leaves when it moves on. The
+search needs no indexed Attribute. Read **PendingInterrupts** or the session
+snapshot for what the session asks.
+
+The Python **AgentSessionClient.start_session** and the TypeScript
+**startAgentSession** turn this search on for a new session. They set
+**activeStepSearchMode** to the mode that indexes only Steps with a wait. An
+application can set another mode in the start options. A plain **start_flow**
+or **startFlow** does not set it, and the server default keeps the session out
+of the search. A session started as a SubFlow inherits its parent's mode.
+
+To turn it on for a session that is already running, such as one started by an
+earlier release, call **UpdateFlowConfig** for that session:
+
+- In Python, call **update_flow_config** with **active_step_search_mode** set
+  to **AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE**.
+- In TypeScript, call **updateFlowConfig** with **activeStepSearchMode** set to
+  **agentSessionActiveStepSearchMode**.
+- An operator can run **dexcli flow update-config**.
+
+The session appears within seconds, even if it is already waiting. To update
+every running session, page through **SearchFlows** and update each one:
+
+```text
+FlowType = "SupportAgent" AND ExecutionStatus = "Running"
+```
+
+A Step that runs straight away, such as **RunModel**, is not indexed. So a
+session's search entry changes only when it enters or leaves a wait, which is
+twice for a turn with no tool calls. Dex writes each change to the search entry
+together with the Step change.
+
+Two things that need a person do not appear, because no Step waits on them: a
+tool call that recorded **outcome_unknown**, and a draft plan waiting for
+**execute_plan**.

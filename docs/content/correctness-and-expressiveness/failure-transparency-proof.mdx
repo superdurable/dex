@@ -1,0 +1,181 @@
+---
+title: Failure transparency proof
+sidebar_label: Failure transparency proof
+slug: /correctness-and-expressiveness/failure-transparency-proof
+---
+
+# Failure transparency proof
+
+Dex has a computer-checked proof about Flows that meet failures. Under the
+conditions listed below, failures add nothing you can observe except repeated
+external effects. This page explains what the proof says, what it assumes, and
+what it means for your code. The full argument is in the paper.
+
+- [Download the paper (PDF)](/papers/dex-expressiveness.pdf)
+- [Formal sources on GitHub](https://github.com/superdurable/dex/tree/main/formal)
+
+## The claim {#the-claim}
+
+The proof covers these failures:
+
+- the server crashes and restarts from its durable log;
+- a standby server takes over;
+- a Step method attempt fails, for example on a Worker error, a timeout, or a
+  Worker disconnect, and Dex retries it;
+- a Worker keeps running an attempt after Dex gave up on it;
+- a Worker result arrives twice, or arrives after its attempt was replaced;
+- a client sends the same **StartFlow** request again.
+
+The proof compares the events of a Flow with these failures to the events of
+the same Flow without them. It has three parts.
+
+- **Every sequence of events with failures is one without failures, plus
+  repeats.** Remove every repeated external effect from the events seen so far.
+  What remains is a sequence that the Flow can produce without failures, for
+  the same requests minus the **StartFlow** retries.
+- **Every sequence without failures is still possible.** A run with failures can
+  also produce it, by having no failure.
+- **The ending stays the same, for fair runs.** Take the whole event sequence
+  of a fair run with failures, one that meets the conditions at the end of
+  [What the proof assumes](#what-the-proof-assumes). Remove the repeats. The
+  result is the whole event sequence of a fair run without failures that ends
+  the same way: it completes, gets stuck, or keeps running. The reverse
+  direction is proved only when the client sends no **StartFlow** retry.
+
+A repeated effect is never new. It is an exact copy of an earlier effect of the
+same Step method.
+
+The [Expressiveness proof](/correctness-and-expressiveness/expressiveness-proof)
+covers runs without failures. The two proofs compose for the well-formed
+programs of its small concurrent language. Such a program runs on Dex with the
+events of a failure-free run, except that its external effects may repeat. On
+that side the proof only knows that each extra effect has the value of an
+earlier one.
+
+## Why repeats stay simple {#why-repeats-stay-simple}
+
+A Step method may run in several attempts. Every attempt reads the same state:
+Dex takes the state snapshot at the first attempt, and every retry reuses it.
+Hard-delete Attributes are the exception. Dex reads them again on every
+attempt, and the proof leaves them out.
+
+The proof assumes that a Step method's code is a function of what Dex gives it.
+It must not read the outside world in a way that changes its effects, and it
+must ignore which attempt it is. Then every attempt computes the same external
+effects, in the same order.
+
+An attempt makes its effects one after another. So the effects first appear in
+their list order. Any attempt can make an effect first, also an old attempt
+that Dex already gave up on. Every later copy of that effect is a repeat. No
+attempt can make a new effect or change their order.
+
+## What this means for your code {#what-it-means-for-you}
+
+A retry can run a Step method's external calls again. An older attempt can also
+make a call late, after a newer attempt made the same call. The proof
+guarantees only that every extra external call repeats an earlier one.
+
+So make each external call safe to repeat and safe to arrive late. One common
+way is an idempotency key that the external system deduplicates on. Build it
+from the Flow run, the Step execution, the method, and the effect. The
+[Step guarantees](/concepts/step#guarantees) say more about keys.
+
+The proof also covers some client retries, and not others:
+
+- A **StartFlow** retry is covered when it reuses the request ID of the first
+  start, both the first start and the retry set the option that returns the
+  existing run, and the Flow uses the default ID reuse policy. The retry must
+  also be ordered in the server's log before Dex purges the closed run.
+  Reaching the server first is not enough. See
+  [Start options](/concepts/flow#start-options).
+- A **PublishToChannel** request sent again after a lost response is a second
+  request. It can publish the message twice. Publishing once through RPC
+  request IDs is planned in
+  [issue 1519](https://github.com/superdurable/dex/issues/1519).
+- A **StopFlow** retry without a run ID can stop a newer run of the same Flow
+  ID. Passing a run ID is planned in
+  [issue 1520](https://github.com/superdurable/dex/issues/1520).
+
+## What the proof assumes {#what-the-proof-assumes}
+
+The proof holds under these conditions. Outside them, a run can differ from
+every run without failures.
+
+- **The same scope as the expressiveness proof.** One Flow is started once and
+  receives Channel messages. RPCs, SubFlows, **StopFlow**, and Attribute locks
+  are not covered under failures.
+- **SYNC methods only.** An **ASYNC** method can lose its start in a server
+  crash. It then runs again on a new snapshot, so its effects can differ.
+- **Retries do not run out.** When retries run out, Dex fails the Flow. Without
+  failures, a Flow fails only when its own code decides to fail it. A long
+  server outage can use up the retry time.
+- **No failure policy.** A policy that proceeds after a failure changes what
+  runs next.
+- **Code ignores its attempt.** Effects and results must not depend on the
+  attempt number, the first attempt time, the last error, or the last heartbeat
+  value. Code that resumes from a heartbeat checkpoint is outside the proof.
+- **No non-retryable errors.** A non-retryable error ends the retries at once.
+- **Every attempt command names its task.** The server tags each command of a
+  started attempt, such as its result, a heartbeat, or its failure, with the
+  task that ran it. The proof assumes that every logged command of this kind
+  has that tag.
+- **The clock does not step back on one server.** The server checks that a
+  timer is due, then stamps the command that fires it. Its clock must not step
+  back between the two.
+- **Timers fire in order.** The proof assumes that each firing takes the
+  earliest due timers first. They are ordered by fire time, and timers due at
+  the same time in a fixed order. In a short window, the real
+  server can fire a timer while one that was due earlier still waits. Both
+  proofs leave that window out.
+- **One server at a time.** A standby takeover is covered. Several servers that
+  own the same Flows at once are not.
+
+The part about how a run ends holds for fair runs. A fair run meets these
+conditions:
+
+- Every request of the outcome word gets its final outcome, in order. The
+  outcome word lists the client requests in the order of their final
+  outcomes. A request lost before any outcome is not in it.
+- The server's clock grows without bound.
+- Failures happen only finitely often, and the server comes back after each
+  crash.
+- A timer that stays armed and due eventually fires.
+- A Step method that stays ready to start while the server is up eventually
+  starts.
+- Every Worker task, also an abandoned one, eventually finishes or is dropped.
+- Every finished result eventually commits or is ignored.
+- Every attempt that a crash interrupted is eventually handled, or cleared by a
+  later crash.
+
+## What the proof does not say {#what-it-does-not-say}
+
+- It does not prevent repeated external calls. The section above says how to
+  make them safe.
+- It says nothing about real time. A timer never fires before its time by the
+  server's stamps. A server clock that runs ahead can still fire it early.
+- It says nothing about a client that sends **PublishToChannel** again.
+- It does not say that every pattern of repeats can happen. Repeats follow the
+  order that the section on repeats describes.
+- For how a run ends, the reverse direction is proved only without
+  **StartFlow** retries. A retry advances the server's clock, so it can change
+  which timer is due first.
+
+## How it was checked {#how-it-was-checked}
+
+- **A precise description of failures.** Every failure rule is written down,
+  with the server code that implements it. Reviewers checked each rule against
+  the code.
+- **A computer-checked proof.** The proof is written in the Lean proof
+  assistant, which checks every step.
+- **Tests before the proof.** A fuzzer walked random runs with crashes,
+  retries, and late attempts. At each step it checked that the argument holds.
+- **Examples and counterexamples.** The proof assistant checks example runs
+  with a crash, retries, and a late repeated effect, to which the proof
+  applies. It also checks runs that break an assumption, such as code that
+  reads its attempt number, and shows that the claim then fails.
+
+## Related pages {#related-pages}
+
+- [Correctness and expressiveness](/correctness-and-expressiveness)
+- [Expressiveness proof](/correctness-and-expressiveness/expressiveness-proof)
+- [Step guarantees](/concepts/step#guarantees)

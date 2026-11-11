@@ -433,7 +433,7 @@ func describeFlowRunID(t *testing.T, ctx context.Context, runtime *integRuntime,
 	t.Helper()
 	summary, err := runtime.FlowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{FlowId: flowID})
 	require.NoError(t, err)
-	return summary.GetFlowExecutionId().GetRunId()
+	return summary.GetFlowRunId().GetRunId()
 }
 
 func readFlowConfig(ctx context.Context, runtime *integRuntime, flowID string) (*dexpb.FlowConfig, error) {

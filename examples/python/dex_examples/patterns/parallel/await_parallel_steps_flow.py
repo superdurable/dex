@@ -33,6 +33,8 @@ from dex import (
 )
 
 
+# dex:group group-id:parallel-work group-label:"Parallel work"
+# dex:explanation text:"Do one unit of work and report that it finished."
 class DoWork(Step[int]):
     def __init__(self, complete_ch: Channel[None]) -> None:
         self.complete_ch = complete_ch
@@ -45,6 +47,8 @@ class DoWork(Step[int]):
         return dead_end()
 
 
+# dex:group group-id:await group-label:"Await"
+# dex:explanation text:"Wait for every work Step to report, then complete."
 class Await(Step[int]):
     def __init__(self, complete_ch: Channel[None]) -> None:
         self.complete_ch = complete_ch
@@ -56,6 +60,8 @@ class Await(Step[int]):
         return graceful_complete(input)
 
 
+# dex:group group-id:setup group-label:"Setup"
+# dex:explanation text:"Start one work Step per item and the Step that awaits them."
 class InitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         movements: list[StepMovement[Any]] = [StepMovement.of(Await, input)]

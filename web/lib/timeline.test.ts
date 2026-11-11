@@ -222,7 +222,7 @@ describe('timeline', () => {
     }]);
   });
 
-  it('links RPC and continued-run sources', () => {
+  it('links RPC sources', () => {
     const rpc: FlowHistoryEvent = {
       eventId: 5,
       eventTime: null,
@@ -235,20 +235,8 @@ describe('timeline', () => {
       fromStepExecutionId: '__rpc/approve',
       stepType: 'approval',
     };
-    const continued: FlowHistoryEvent = {
-      eventId: 20,
-      eventTime: null,
-      type: 'FlowStartedOrContinued',
-      payload: { continuedStart: { previousRunId: 'previous-run' } },
-    };
-    const resumed = event(25, 'StepWaitForFailed', 'resumed-1');
-    resumed.payload.context = {
-      ...resumed.payload.context as Record<string, unknown>,
-      fromStepExecutionId: 'previous-run-step-1',
-      stepType: 'resumed',
-    };
 
-    expect(buildTimelineLinks([rpc, rpcStep, continued, resumed])
+    expect(buildTimelineLinks([rpc, rpcStep])
       .filter((link) => link.kind === 'lineage'))
       .toEqual([
         {
@@ -257,15 +245,6 @@ describe('timeline', () => {
           fromEventId: 5,
           toEventId: 8,
           label: 'RPC approve to approval-1 first event',
-          elapsedDurationMs: null,
-          lane: 0,
-        },
-        {
-          kind: 'lineage',
-          stepExecutionId: 'resumed-1',
-          fromEventId: 20,
-          toEventId: 25,
-          label: 'Flow continued to resumed-1 first event',
           elapsedDurationMs: null,
           lane: 0,
         },

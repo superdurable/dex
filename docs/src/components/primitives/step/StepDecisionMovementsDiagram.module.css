@@ -1,0 +1,123 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.85rem;
+}
+
+.panel {
+  display: flex;
+  min-width: 0;
+  padding: 0.75rem;
+  flex-direction: column;
+  gap: 0.75rem;
+  border-radius: 16px;
+  background: var(--cd-group);
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--cd-ink);
+  font-size: 0.92rem;
+}
+
+.panelBody {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.method {
+  color: var(--cd-subtle);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.fork {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.forkStem {
+  width: 2px;
+  height: 0.7rem;
+  background: var(--cd-accent);
+}
+
+.forkBranches {
+  position: relative;
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.forkBranches::before {
+  position: absolute;
+  top: 0;
+  right: calc(25% - 0.125rem);
+  left: calc(25% - 0.125rem);
+  height: 2px;
+  background: var(--cd-accent);
+  content: '';
+}
+
+.branch {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.branch > :last-child {
+  flex: 1 1 auto;
+}
+
+.loop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1.5rem;
+}
+
+.loopSteps {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+/* The return path runs from the lower Step back to the upper one. */
+.loopBack {
+  position: relative;
+  margin: 2.6rem 0 2.6rem 0;
+  border: 2px solid var(--cd-accent);
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+}
+
+.loopBack::after {
+  position: absolute;
+  top: -6px;
+  left: -2px;
+  width: 7px;
+  height: 10px;
+  background: var(--cd-accent);
+  clip-path: polygon(100% 0, 100% 100%, 0 50%);
+  content: '';
+}
+
+@container (min-width: 34rem) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

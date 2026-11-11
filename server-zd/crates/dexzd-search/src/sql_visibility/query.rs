@@ -230,12 +230,6 @@ impl Renderer<'_> {
         {
             return Ok("TRUE".to_owned());
         }
-        if predicate.field() == "ExecutionStatus"
-            && predicate.operator() == Operator::Equal
-            && matches!(predicate.literals().first(), Some(Literal::String(value)) if value == "ContinuedAsNew")
-        {
-            return Ok("FALSE".to_owned());
-        }
         if self.dialect == VisibilityDialect::Postgres
             && matches!(predicate.operator(), Operator::IsNull | Operator::IsNotNull)
         {

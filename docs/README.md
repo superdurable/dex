@@ -30,8 +30,8 @@ Published pages live under [`content/`](content/). Site config:
 `docusaurus.config.ts`, `sidebars.ts`, `src/`.
 
 The Developer Reference lives under [`reference/`](reference/). Each component
-(`server`, `cli`, `web`, `go`, `python`, `java`, `typescript`, `rust`) is its
-own docs plugin instance with the id `reference-<component>`, the route
+(`server`, `cli`, `web`, `go`, `python`, `java`, `typescript`, `rust`, and
+`agents`) is its own docs plugin instance with the id `reference-<component>`, the route
 `/reference/<component>/`, and the sidebar file `reference/sidebars/<component>.ts`.
 The landing page with the compatibility matrix is `content/reference/index.mdx`.
 The reference pages are English only; the `zh-Hans` build serves the English
@@ -55,9 +55,10 @@ Runnable application samples live under [`examples/`](../examples/); see
 [`examples/README.md`](../examples/README.md) and the playground
 ([`examples/playground/`](../examples/playground/)).
 
-Flow diagrams render checked-in JSON with the shared
-[`flow-definition-renderer`](../packages/flow-definition-renderer). Regenerate
-the JSON after changing a referenced Python Flow:
+Flow diagrams render checked-in Flow Definition Graph 2.0 JSON with Dex Web's
+Design tab canvas ([`web/app/design`](../web/app/design)). Each Step of a
+referenced Flow declares one `dex:group` and one `dex:explanation` directive.
+Regenerate the JSON after changing a referenced Flow:
 
 ```bash
 cd docs

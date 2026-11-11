@@ -7,7 +7,7 @@ slug: /quick-start
 
 # Quick Start
 
-Build the same order-processing Flow as [Why Dex?](/intro/what-is-dex): install Dex, register a Worker and Client, start the Flow from an HTTP controller, approve shipment, and inspect the Execution graph in Dex Web.
+Build and run the order-processing Flow from [Why Dex?](/intro/what-is-dex). You install Dex, register a Worker and a Client, start the Flow from an HTTP controller, approve the shipment, and inspect the Execution graph in Dex Web.
 
 ## 1. Install Dex
 
@@ -17,25 +17,25 @@ brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
 dexcli dev
 ```
 
-**dexcli dev** starts **Dex Server** (server-zd) and **Dex Web**. State is stored
-on local disk in **RocksDB** and an embedded **s3local** object store. Defaults
-when those ports are free:
+**dexcli dev** starts **Dex Server** (server-zd) and **Dex Web**. It stores state
+on local disk, in **RocksDB** and an embedded **s3local** object store. When the
+default ports are free, the addresses are:
 
 | Service | Address |
 | --- | --- |
 | Dex Web | **http://127.0.0.1:8802** |
 | Dex Server | **127.0.0.1:8801** |
 
-A second **dexcli dev** on the same machine binds other free ports and uses its
-own state directory. Use the printed **Dex Server** address with
-**--server**. See the [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)
-for flags and persistence options.
+A second **dexcli dev** on the same machine picks other free ports and its own
+state directory. Pass the **Dex Server** address that it prints to **--server**.
+The [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)
+lists the flags and persistence options.
 
-## 2. Flow, Steps, RPCs, constructor dependency
+## 2. Flow, Steps, and RPCs
 
-Charge, then wait for seller approval (Channel or reminder Timer), then ship. Exhausted ship retries go to Refund. The design is on [Why Dex?](/intro/what-is-dex).
+The Flow charges the buyer, waits for the seller's approval on a Channel, and then ships. When a reminder Timer fires first, the Flow reminds the seller and keeps waiting. If the ship retries run out, the Flow moves to the Refund Step. [Why Dex?](/intro/what-is-dex) explains the design.
 
-Pass the mock payment and shipping API into the Flow constructor. Do not use a setter or a global.
+Pass the mock payment and shipping API to the Flow constructor. Do not set them later with a setter, and do not read them from a global variable.
 
 <SdkTabs
   examples={{
@@ -781,10 +781,10 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 
 ## 3. Worker and Client
 
-Point a Registry, Worker, and Client at **dexcli** (**127.0.0.1:8801**). Construct the Flow with the service, then register it.
+Create a Registry, a Worker, and a Client that connect to **dexcli** at **127.0.0.1:8801**. Construct the Flow with the mock API service, then register it.
 
-The Worker opens outbound task streams to **dexcli** and needs no inbound port.
-See [Workers and the task queue](/reference/server/workers) for capacity, readiness, and
+The Worker connects out to **dexcli** to receive tasks, so it needs no open inbound port.
+[Workers and the task queue](/reference/server/workers) covers capacity, readiness, and
 production setup.
 
 <SdkTabs
@@ -927,7 +927,13 @@ export const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyServi
 
 ## 4. Controller
 
-The start handler starts the Flow, then waits for ChargeStep with the Client wait-for-Step-completion API. Approve publishes the seller Channel. Describe reads **order-status**. Client and Flow come from the constructor or factory args.
+The HTTP controller has three handlers:
+
+- **start** starts the Flow, then waits for ChargeStep with the Client **wait-for-Step-completion** API.
+- **approve** calls the **approve** RPC, which publishes the approval to the seller Channel.
+- **describe** calls the **describe** RPC, which reads **order-status**.
+
+The controller gets the Client and the Flow from its constructor or factory arguments.
 
 <SdkTabs
   examples={{
@@ -1272,7 +1278,7 @@ cargo run --locked
 </SdkSnippet>
 </SdkTabs>
 
-Then start an order, open Dex Web, and approve shipment:
+Then start an order, open Dex Web, and approve the shipment:
 
 ```bash
 curl -s 'http://127.0.0.1:8080/products/order-processing/start'
@@ -1284,11 +1290,11 @@ Copy **flowID** from the JSON. Open [http://127.0.0.1:8802](http://127.0.0.1:880
 curl -s "http://127.0.0.1:8080/products/order-processing/approve?workflowId=FLOW_ID"
 ```
 
-Replace **FLOW_ID** with the start response. The Flow ships and completes.
+Replace **FLOW_ID** with the **flowID** you copied. The Flow ships the item and completes.
 
 ## 6. Dex Web
 
-After start and approve, open the Flow. The Execution graph shows Charge then Ship:
+After you approve the order, open the Flow in Dex Web. The Execution graph shows Charge, then Ship:
 
 ![Dex Web Execution graph after approve](/img/quick-start/step-graph.png)
 
@@ -1300,4 +1306,5 @@ The Timeline tab shows the same run's events from left to right. Select an event
 
 - [Concepts](/concepts)
 - [Why Dex?](/intro/what-is-dex)
+- [Compared to Database](/intro/compared-to-database)
 - [Product Examples](/use-cases)

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "WaitForHalfParentFlow",
     "startStepId": "step:WaitForHalfInit",
     "span": {
-      "startLine": 95,
+      "startLine": 101,
       "startColumn": 1,
-      "endLine": 118,
+      "endLine": 124,
       "endColumn": 81
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "step:SubFlowStep",
       "phase": "execute",
       "span": {
-        "startLine": 68,
+        "startLine": 72,
         "startColumn": 5,
-        "endLine": 76,
+        "endLine": 80,
         "endColumn": 35
       }
     },
@@ -36,23 +36,23 @@
       "parentId": "step:WaitForHalfInit",
       "phase": "execute",
       "span": {
-        "startLine": 41,
+        "startLine": 43,
         "startColumn": 5,
-        "endLine": 47,
+        "endLine": 49,
         "endColumn": 10
       }
     },
     {
-      "id": "decision:step:SubFlowStep:74:20",
+      "id": "decision:step:SubFlowStep:78:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:SubFlowStep",
       "condition": "result.status is not FlowStatus.RUNNING",
       "phase": "execute",
       "span": {
-        "startLine": 74,
+        "startLine": 78,
         "startColumn": 20,
-        "endLine": 74,
+        "endLine": 78,
         "endColumn": 39
       },
       "decision": {
@@ -60,16 +60,16 @@
       }
     },
     {
-      "id": "decision:step:SubFlowStep:76:16",
+      "id": "decision:step:SubFlowStep:80:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:SubFlowStep",
       "condition": "not (result.status is not FlowStatus.RUNNING)",
       "phase": "execute",
       "span": {
-        "startLine": 76,
+        "startLine": 80,
         "startColumn": 16,
-        "endLine": 76,
+        "endLine": 80,
         "endColumn": 35
       },
       "decision": {
@@ -77,16 +77,16 @@
       }
     },
     {
-      "id": "decision:step:WaitForHalfInit:43:20",
+      "id": "decision:step:WaitForHalfInit:45:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:WaitForHalfInit",
       "condition": "not requests",
       "phase": "execute",
       "span": {
-        "startLine": 43,
+        "startLine": 45,
         "startColumn": 20,
-        "endLine": 43,
+        "endLine": 45,
         "endColumn": 39
       },
       "decision": {
@@ -94,16 +94,16 @@
       }
     },
     {
-      "id": "decision:step:WaitForHalfInit:44:16",
+      "id": "decision:step:WaitForHalfInit:46:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:WaitForHalfInit",
       "condition": "not (not requests)",
       "phase": "execute",
       "span": {
-        "startLine": 44,
+        "startLine": 46,
         "startColumn": 16,
-        "endLine": 47,
+        "endLine": 49,
         "endColumn": 10
       },
       "decision": {
@@ -111,15 +111,15 @@
       }
     },
     {
-      "id": "decision:step:WaitSubFlows:92:16",
+      "id": "decision:step:WaitSubFlows:98:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:WaitSubFlows",
       "phase": "execute",
       "span": {
-        "startLine": 92,
+        "startLine": 98,
         "startColumn": 16,
-        "endLine": 92,
+        "endLine": 98,
         "endColumn": 35
       },
       "decision": {
@@ -131,9 +131,9 @@
       "kind": "channel",
       "name": "AllDoneCh",
       "span": {
-        "startLine": 97,
+        "startLine": 103,
         "startColumn": 5,
-        "endLine": 97,
+        "endLine": 103,
         "endColumn": 45
       },
       "resource": {
@@ -145,9 +145,9 @@
       "kind": "channel",
       "name": "SubFlowCompletedCh",
       "span": {
-        "startLine": 96,
+        "startLine": 102,
         "startColumn": 5,
-        "endLine": 96,
+        "endLine": 102,
         "endColumn": 63
       },
       "resource": {
@@ -160,10 +160,13 @@
       "name": "SubFlowStep",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 114,
+        "startLine": 120,
         "startColumn": 13,
-        "endLine": 114,
+        "endLine": 120,
         "endColumn": 25
+      },
+      "metadata": {
+        "explanation": "Run one child Flow, or stop it once half of them finished."
       }
     },
     {
@@ -173,10 +176,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 113,
+        "startLine": 119,
         "startColumn": 36,
-        "endLine": 113,
+        "endLine": 119,
         "endColumn": 45
+      },
+      "metadata": {
+        "explanation": "Start one child Flow Step per request and the half-way wait."
       }
     },
     {
@@ -185,34 +191,37 @@
       "name": "WaitSubFlows",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 114,
+        "startLine": 120,
         "startColumn": 27,
-        "endLine": 114,
+        "endLine": 120,
         "endColumn": 45
+      },
+      "metadata": {
+        "explanation": "Wait for half of the child Flows, then stop the rest."
       }
     },
     {
-      "id": "subflow:self.example_subflow:65",
+      "id": "subflow:self.example_subflow:69",
       "kind": "subflow",
       "name": "self.example_subflow",
       "external": true,
       "span": {
-        "startLine": 65,
+        "startLine": 69,
         "startColumn": 13,
-        "endLine": 65,
+        "endLine": 69,
         "endColumn": 55
       }
     },
     {
-      "id": "wait:SubFlowStep:64:16:0",
+      "id": "wait:SubFlowStep:68:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:SubFlowStep",
       "phase": "wait_for",
       "span": {
-        "startLine": 64,
+        "startLine": 68,
         "startColumn": 16,
-        "endLine": 66,
+        "endLine": 70,
         "endColumn": 10
       },
       "wait": {
@@ -221,11 +230,11 @@
           {
             "kind": "subflow",
             "label": "self.example_subflow",
-            "subFlowId": "subflow:self.example_subflow:65",
+            "subFlowId": "subflow:self.example_subflow:69",
             "span": {
-              "startLine": 65,
+              "startLine": 69,
               "startColumn": 13,
-              "endLine": 65,
+              "endLine": 69,
               "endColumn": 55
             }
           },
@@ -234,9 +243,9 @@
             "label": "AllDoneCh.for 1",
             "resourceId": "resource:channel:WaitForHalfParentFlow.all_done_ch",
             "span": {
-              "startLine": 65,
+              "startLine": 69,
               "startColumn": 57,
-              "endLine": 65,
+              "endLine": 69,
               "endColumn": 83
             }
           }
@@ -244,15 +253,15 @@
       }
     },
     {
-      "id": "wait:WaitSubFlows:87:16:0",
+      "id": "wait:WaitSubFlows:93:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:WaitSubFlows",
       "phase": "wait_for",
       "span": {
-        "startLine": 87,
+        "startLine": 93,
         "startColumn": 16,
-        "endLine": 87,
+        "endLine": 93,
         "endColumn": 77
       },
       "wait": {
@@ -264,9 +273,9 @@
             "resourceId": "resource:channel:WaitForHalfParentFlow.subflow_completed_ch",
             "expression": "(total + 1) // 2",
             "span": {
-              "startLine": 87,
+              "startLine": 93,
               "startColumn": 27,
-              "endLine": 87,
+              "endLine": 93,
               "endColumn": 76
             }
           }
@@ -278,27 +287,27 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:WaitForHalfInit:44:16",
+      "from": "decision:step:WaitForHalfInit:46:16",
       "to": "step:SubFlowStep",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
-        "startLine": 46,
+        "startLine": 48,
         "startColumn": 15,
-        "endLine": 46,
+        "endLine": 48,
         "endColumn": 52
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:WaitForHalfInit:44:16",
+      "from": "decision:step:WaitForHalfInit:46:16",
       "to": "step:WaitSubFlows",
       "label": "fan-out",
       "span": {
-        "startLine": 45,
+        "startLine": 47,
         "startColumn": 13,
-        "endLine": 45,
+        "endLine": 47,
         "endColumn": 57
       }
     },
@@ -306,12 +315,12 @@
       "id": "edge:0003",
       "kind": "wait_condition",
       "from": "resource:channel:WaitForHalfParentFlow.all_done_ch",
-      "to": "wait:SubFlowStep:64:16:0",
+      "to": "wait:SubFlowStep:68:16:0",
       "label": "AllDoneCh.for 1",
       "span": {
-        "startLine": 65,
+        "startLine": 69,
         "startColumn": 57,
-        "endLine": 65,
+        "endLine": 69,
         "endColumn": 83
       }
     },
@@ -319,12 +328,12 @@
       "id": "edge:0004",
       "kind": "wait_condition",
       "from": "resource:channel:WaitForHalfParentFlow.subflow_completed_ch",
-      "to": "wait:WaitSubFlows:87:16:0",
+      "to": "wait:WaitSubFlows:93:16:0",
       "label": "SubFlowCompletedCh.for (total + 1) // 2",
       "span": {
-        "startLine": 87,
+        "startLine": 93,
         "startColumn": 27,
-        "endLine": 87,
+        "endLine": 93,
         "endColumn": 76
       }
     },
@@ -335,9 +344,9 @@
       "to": "resource:channel:WaitForHalfParentFlow.subflow_completed_ch",
       "label": "publish",
       "span": {
-        "startLine": 73,
+        "startLine": 77,
         "startColumn": 13,
-        "endLine": 73,
+        "endLine": 77,
         "endColumn": 61
       },
       "metadata": {
@@ -351,9 +360,9 @@
       "to": "resource:channel:WaitForHalfParentFlow.all_done_ch",
       "label": "publish",
       "span": {
-        "startLine": 91,
+        "startLine": 97,
         "startColumn": 13,
-        "endLine": 91,
+        "endLine": 97,
         "endColumn": 52
       },
       "metadata": {
@@ -363,16 +372,51 @@
     {
       "id": "edge:0007",
       "kind": "subflow",
-      "from": "wait:SubFlowStep:64:16:0",
-      "to": "subflow:self.example_subflow:65",
+      "from": "wait:SubFlowStep:68:16:0",
+      "to": "subflow:self.example_subflow:69",
       "label": "start",
       "span": {
-        "startLine": 65,
+        "startLine": 69,
         "startColumn": 13,
-        "endLine": 65,
+        "endLine": 69,
         "endColumn": 55
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "child-flows",
+      "label": "Child Flows",
+      "stepIds": [
+        "step:SubFlowStep"
+      ]
+    },
+    {
+      "id": "half-done",
+      "label": "Half done",
+      "stepIds": [
+        "step:WaitSubFlows"
+      ]
+    },
+    {
+      "id": "setup",
+      "label": "Setup",
+      "stepIds": [
+        "step:WaitForHalfInit"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

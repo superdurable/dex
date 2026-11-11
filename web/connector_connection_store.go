@@ -10,6 +10,8 @@ package web
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,13 +19,17 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -35,11 +41,13 @@ const (
 
 var errConnectorConfigurationRevisionConflict = errors.New("Connector configuration revision conflict")
 
-// connectorConnectionStore reads and writes the local connection files. Its lock and the callers' compare-and-set
-// checks work within one process only; one Dex Web process owns a connections directory at a time.
+// connectorConnectionStore reads and writes the local connection files. Its lock works within one process only;
+// connections file writes also take the cross-process lock at lockPath, under which the callers' compare-and-set
+// checks run against the file as read. One Dex Web process owns a connections directory at a time.
 type connectorConnectionStore struct {
 	directory             string
 	path                  string
+	lockPath              string
 	useConfigurationsPath string
 	mu                    sync.Mutex
 }
@@ -61,6 +69,8 @@ type localConnectorConnection struct {
 	Configuration       map[string]json.RawMessage `json:"configuration"`
 	Credentials         map[string]json.RawMessage `json:"credentials"`
 	CredentialExpiresAt *time.Time                 `json:"credentialExpiresAt,omitempty"`
+	// AuthorizationID is a non-secret UUIDv4 that each completed authorization replaces; credential refreshes keep it.
+	AuthorizationID string `json:"authorizationId,omitempty"`
 }
 
 // Local stores derive stored credential names without returning values.
@@ -106,8 +116,9 @@ func newConnectorConnectionStore(directory string) (*connectorConnectionStore, e
 	if !info.IsDir() {
 		return nil, fmt.Errorf("Connector configuration path must be a directory")
 	}
+	path := filepath.Join(absoluteDirectory, connectorConnectionsFileName)
 	store := &connectorConnectionStore{
-		directory: absoluteDirectory, path: filepath.Join(absoluteDirectory, connectorConnectionsFileName),
+		directory: absoluteDirectory, path: path, lockPath: path + connectorConnectionsFileLockSuffix,
 		useConfigurationsPath: filepath.Join(absoluteDirectory, connectorUseConfigurationsFileName),
 	}
 	if _, err := store.load(); err != nil {
@@ -179,12 +190,30 @@ func (store *connectorConnectionStore) revision(connectorID string, connectionNa
 
 // triggerBindingRevision returns the stored binding's revision for the binding's key, or "" when the file holds none.
 func (store *connectorConnectionStore) triggerBindingRevision(binding localConnectorTriggerBinding) (string, error) {
-	bindings, err := store.listTriggerBindings(binding.ConnectorID, binding.ConnectionName)
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	file, err := store.load()
 	if err != nil {
 		return "", err
 	}
-	for _, stored := range bindings {
-		if stored.TriggerName != binding.TriggerName || stored.BindingName != binding.BindingName {
+	return storedTriggerBindingRevision(file, binding)
+}
+
+// storedConnectionRevision returns the revision of the key's record, or "" when the file holds none.
+func storedConnectionRevision(file connectorConnectionsFile, connectorID string, connectionName string) (string, error) {
+	for _, connection := range file.Connections {
+		if connection.ConnectorID == connectorID && connection.ConnectionName == connectionName {
+			return connectorConnectionRevision(connection)
+		}
+	}
+	return "", nil
+}
+
+// storedTriggerBindingRevision returns the revision of the binding's stored copy, or "" when absent.
+func storedTriggerBindingRevision(file connectorConnectionsFile, binding localConnectorTriggerBinding) (string, error) {
+	for _, stored := range file.TriggerBindings {
+		if stored.ConnectorID != binding.ConnectorID || stored.ConnectionName != binding.ConnectionName ||
+			stored.TriggerName != binding.TriggerName || stored.BindingName != binding.BindingName {
 			continue
 		}
 		encoded, err := json.Marshal(stored)
@@ -223,13 +252,30 @@ func (store *connectorConnectionStore) listTriggerBindings(connectorID string, c
 	return bindings, nil
 }
 
-func (store *connectorConnectionStore) putTriggerBinding(binding localConnectorTriggerBinding) error {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	file, err := store.load()
-	if err != nil {
-		return err
-	}
+// putTriggerBinding saves the binding while the file keeps both expected revisions ("" for absent).
+// It returns errConnectorConnectionChanged when either revision differs or the connection is absent.
+func (store *connectorConnectionStore) putTriggerBinding(
+	fileLock *connectorConnectionsFileLock,
+	binding localConnectorTriggerBinding,
+	expectedConnectionRevision string,
+	expectedBindingRevision string,
+) error {
+	return store.updateConnections(fileLock, func(file *connectorConnectionsFile) (bool, error) {
+		if err := requireStoredConnectionRevision(*file, binding.ConnectorID, binding.ConnectionName, expectedConnectionRevision); err != nil {
+			return false, err
+		}
+		bindingRevision, err := storedTriggerBindingRevision(*file, binding)
+		if err != nil {
+			return false, err
+		}
+		if bindingRevision != expectedBindingRevision {
+			return false, errConnectorConnectionChanged
+		}
+		return true, putTriggerBindingInFile(file, binding)
+	})
+}
+
+func putTriggerBindingInFile(file *connectorConnectionsFile, binding localConnectorTriggerBinding) error {
 	// A binding needs its connection in the same file; a load rejects a file that breaks this.
 	if !slices.ContainsFunc(file.Connections, func(connection localConnectorConnection) bool {
 		return connection.ConnectorID == binding.ConnectorID && connection.ConnectionName == binding.ConnectionName
@@ -249,7 +295,7 @@ func (store *connectorConnectionStore) putTriggerBinding(binding localConnectorT
 	if !found {
 		file.TriggerBindings = append(file.TriggerBindings, binding)
 	}
-	return store.write(file)
+	return nil
 }
 
 func (store *connectorConnectionStore) listUseConfigurations(connectorID string, connectionName string) ([]localConnectorUseConfiguration, error) {
@@ -291,13 +337,43 @@ func (store *connectorConnectionStore) putUseConfiguration(configuration localCo
 }
 
 // put replaces the connection, copying each keepCredentialFields value from the stored record.
-func (store *connectorConnectionStore) put(connection localConnectorConnection, keepCredentialFields []string) error {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	file, err := store.load()
+// It assigns a new authorizationId on isAuthorizationCompleted, a new record, or changed credentials.
+// It returns errConnectorConnectionChanged unless the stored record keeps expectedRevision ("" for absent).
+func (store *connectorConnectionStore) put(
+	fileLock *connectorConnectionsFileLock,
+	connection localConnectorConnection,
+	keepCredentialFields []string,
+	expectedRevision string,
+	isAuthorizationCompleted bool,
+) error {
+	newAuthorizationID, err := newConnectorAuthorizationID()
 	if err != nil {
 		return err
 	}
+	return store.updateConnections(fileLock, func(file *connectorConnectionsFile) (bool, error) {
+		if err := requireStoredConnectionRevision(*file, connection.ConnectorID, connection.ConnectionName, expectedRevision); err != nil {
+			return false, err
+		}
+		return true, putConnectionInFile(file, connection, keepCredentialFields, newAuthorizationID, isAuthorizationCompleted)
+	})
+}
+
+// newConnectorAuthorizationID returns a random UUIDv4 read from crypto/rand.
+func newConnectorAuthorizationID() (string, error) {
+	authorizationID, err := uuid.NewRandomFromReader(rand.Reader)
+	if err != nil {
+		return "", fmt.Errorf("generate Connector connection authorizationId: %w", err)
+	}
+	return authorizationID.String(), nil
+}
+
+func putConnectionInFile(
+	file *connectorConnectionsFile,
+	connection localConnectorConnection,
+	keepCredentialFields []string,
+	newAuthorizationID string,
+	isAuthorizationCompleted bool,
+) error {
 	storedIndex := -1
 	for index := range file.Connections {
 		current := file.Connections[index]
@@ -316,45 +392,81 @@ func (store *connectorConnectionStore) put(connection localConnectorConnection, 
 		}
 		connection.Credentials[name] = value
 	}
+	connection.AuthorizationID = newAuthorizationID
+	if storedIndex >= 0 && !isAuthorizationCompleted {
+		isSameCredentials, err := hasSameConnectorCredentials(file.Connections[storedIndex].Credentials, connection.Credentials)
+		if err != nil {
+			return err
+		}
+		if isSameCredentials {
+			connection.AuthorizationID = file.Connections[storedIndex].AuthorizationID
+		}
+	}
 	if storedIndex < 0 {
 		file.Connections = append(file.Connections, connection)
 	} else {
 		file.Connections[storedIndex] = connection
 	}
-	return store.write(file)
+	return nil
 }
 
-func (store *connectorConnectionStore) delete(connectorID string, connectionName string) (bool, error) {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	file, err := store.load()
-	if err != nil {
-		return false, err
-	}
-	filtered := file.Connections[:0]
-	deleted := false
-	for _, connection := range file.Connections {
-		if connection.ConnectorID == connectorID && connection.ConnectionName == connectionName {
-			deleted = true
-			continue
-		}
-		filtered = append(filtered, connection)
-	}
-	if !deleted {
+// hasSameConnectorCredentials compares JSON values, so key order, whitespace, and string escapes do not matter.
+func hasSameConnectorCredentials(stored map[string]json.RawMessage, next map[string]json.RawMessage) (bool, error) {
+	if len(stored) != len(next) {
 		return false, nil
 	}
-	file.Connections = filtered
-	filteredBindings := file.TriggerBindings[:0]
-	for _, binding := range file.TriggerBindings {
-		if binding.ConnectorID == connectorID && binding.ConnectionName == connectionName {
-			continue
+	for name, storedValue := range stored {
+		nextValue, found := next[name]
+		if !found {
+			return false, nil
 		}
-		filteredBindings = append(filteredBindings, binding)
+		decodedStored, err := decodeConnectorCredentialValue(storedValue)
+		if err != nil {
+			return false, fmt.Errorf("decode stored Connector credential %q: %w", name, err)
+		}
+		decodedNext, err := decodeConnectorCredentialValue(nextValue)
+		if err != nil {
+			return false, fmt.Errorf("decode Connector credential %q: %w", name, err)
+		}
+		if !reflect.DeepEqual(decodedStored, decodedNext) {
+			return false, nil
+		}
 	}
-	file.TriggerBindings = filteredBindings
-	if err := store.write(file); err != nil {
+	return true, nil
+}
+
+// decodeConnectorCredentialValue keeps numbers as json.Number so the comparison never loses precision.
+func decodeConnectorCredentialValue(value json.RawMessage) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
+// delete deletes the connection with its Trigger bindings and use configurations, and reports whether it existed.
+// It returns errConnectorConnectionChanged unless the stored record keeps expectedRevision ("" for absent).
+func (store *connectorConnectionStore) delete(
+	fileLock *connectorConnectionsFileLock,
+	connectorID string,
+	connectionName string,
+	expectedRevision string,
+) (bool, error) {
+	isDeleted := false
+	err := store.updateConnections(fileLock, func(file *connectorConnectionsFile) (bool, error) {
+		if err := requireStoredConnectionRevision(*file, connectorID, connectionName, expectedRevision); err != nil {
+			return false, err
+		}
+		isDeleted = deleteConnectionFromFile(file, connectorID, connectionName)
+		return isDeleted, nil
+	})
+	if err != nil || !isDeleted {
 		return false, err
 	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	useConfigurations, err := store.loadUseConfigurations()
 	if err != nil {
 		return false, err
@@ -367,6 +479,96 @@ func (store *connectorConnectionStore) delete(connectorID string, connectionName
 	}
 	useConfigurations.OperationConfigurations = filteredUseConfigurations
 	return true, store.writeUseConfigurations(useConfigurations)
+}
+
+// deleteConnectionFromFile removes the connection and its Trigger bindings, reporting whether it existed.
+func deleteConnectionFromFile(file *connectorConnectionsFile, connectorID string, connectionName string) bool {
+	filtered := file.Connections[:0]
+	deleted := false
+	for _, connection := range file.Connections {
+		if connection.ConnectorID == connectorID && connection.ConnectionName == connectionName {
+			deleted = true
+			continue
+		}
+		filtered = append(filtered, connection)
+	}
+	if !deleted {
+		return false
+	}
+	file.Connections = filtered
+	filteredBindings := file.TriggerBindings[:0]
+	for _, binding := range file.TriggerBindings {
+		if binding.ConnectorID == connectorID && binding.ConnectionName == connectionName {
+			continue
+		}
+		filteredBindings = append(filteredBindings, binding)
+	}
+	file.TriggerBindings = filteredBindings
+	return true
+}
+
+// connectorConnectionsFileLock is a held cross-process lock of the connections file.
+type connectorConnectionsFileLock struct {
+	// file is the open lock file, or nil on a platform without file locks.
+	file *os.File
+}
+
+// lockConnectionsFile waits for the connections file lock; see lockConnectorConnectionsFile for the wait bound.
+func (store *connectorConnectionStore) lockConnectionsFile(ctx context.Context) (*connectorConnectionsFileLock, error) {
+	file, err := lockConnectorConnectionsFile(ctx, store.lockPath)
+	if err != nil {
+		return nil, err
+	}
+	return &connectorConnectionsFileLock{file: file}, nil
+}
+
+// release releases the lock.
+func (fileLock *connectorConnectionsFileLock) release() {
+	if fileLock.file == nil {
+		return
+	}
+	// Closing the only descriptor of the lock file releases its lock even when Close reports an error.
+	if err := fileLock.file.Close(); err != nil {
+		slog.Warn("close Connector connections lock file", "error", err)
+	}
+}
+
+// updateConnections is the only connections file write path; change runs under store.mu and must not call store methods.
+func (store *connectorConnectionStore) updateConnections(
+	fileLock *connectorConnectionsFileLock,
+	change func(file *connectorConnectionsFile) (isChanged bool, err error),
+) error {
+	if fileLock == nil {
+		panic("connections file write requires the connections file lock")
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	file, err := store.load()
+	if err != nil {
+		return err
+	}
+	isChanged, err := change(&file)
+	if err != nil || !isChanged {
+		return err
+	}
+	return store.write(file)
+}
+
+// requireStoredConnectionRevision returns errConnectorConnectionChanged unless the record has expectedRevision ("" for absent).
+func requireStoredConnectionRevision(
+	file connectorConnectionsFile,
+	connectorID string,
+	connectionName string,
+	expectedRevision string,
+) error {
+	storedRevision, err := storedConnectionRevision(file, connectorID, connectionName)
+	if err != nil {
+		return err
+	}
+	if storedRevision != expectedRevision {
+		return errConnectorConnectionChanged
+	}
+	return nil
 }
 
 func (store *connectorConnectionStore) load() (connectorConnectionsFile, error) {

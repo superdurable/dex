@@ -131,7 +131,7 @@ across turns.
 The table promises that a `CallSingleAttemptTool` call runs at most once and
 records `outcome_unknown` when it may have run. Two cases break that promise.
 Both are documented for operators in the
-[deployment guide](../../content/agent-frameworks/deploy-agents.mdx#tool-call-limits). Dex
+[deployment guide](../../content/agent-frameworks.mdx#tool-call-outcomes). Dex
 Server's attempt start and the recovery error's `attempt_progress` narrowed
 both after M2.
 
@@ -275,8 +275,9 @@ Follow-ups:
 
 Framework adapters use the source when they accept tools defined by a JSON
 Schema: each MCP tool becomes a framework tool that calls `call_tool` with the
-idempotency key from the adapter's tool context, and `tool_policies()` feeds
-the adapter's `tool_policies`. The Claude Agent SDK harness runs read tools
+idempotency key from the adapter's tool context, and
+`merge_tool_policies(application_policies)` feeds the adapter's
+`tool_policies`. The Claude Agent SDK harness runs read tools
 inline, so only its write calls become Steps.
 
 ## Session Flow contract

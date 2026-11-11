@@ -36,18 +36,18 @@ func testStepLineageDurabilities(t *testing.T) {
 	for _, durability := range durabilities {
 		for i := 0; i < *repeatIntegTest; i++ {
 			t.Run(fmt.Sprintf("%s-%d", durability.String(), i), func(t *testing.T) {
-				testStepLineageAcrossContinueAsNew(t, durability)
+				testStepLineage(t, durability)
 			})
 		}
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		t.Run(fmt.Sprintf("RPC_CONTINUE_AS_NEW-%d", i), func(t *testing.T) {
-			testRPCStepLineageAcrossContinueAsNew(t)
+		t.Run(fmt.Sprintf("RPC-%d", i), func(t *testing.T) {
+			testRPCStepLineage(t)
 		})
 	}
 }
 
-func testStepLineageAcrossContinueAsNew(
+func testStepLineage(
 	t *testing.T,
 	durability dexpb.StepDurability,
 ) {
@@ -66,9 +66,8 @@ func testStepLineageAcrossContinueAsNew(
 		StartStepType:      basic.Step1,
 		FlowStartOptions: &dexpb.FlowStartOptions{
 			FlowConfigOverride: &dexpb.FlowConfig{
-				StepDurability:         ptr.Any(durability),
-				ContinueAsNewThreshold: ptr.Any(int32(1)),
-				WorkerTarget:           workerTarget,
+				StepDurability: ptr.Any(durability),
+				WorkerTarget:   workerTarget,
 			},
 		},
 	})
@@ -89,7 +88,7 @@ func testStepLineageAcrossContinueAsNew(
 	require.Equal(t, basic.Step1+"-1", lineage[basic.Step2+"-1"])
 }
 
-func testRPCStepLineageAcrossContinueAsNew(
+func testRPCStepLineage(
 	t *testing.T,
 ) {
 	workerHandler := deadend.NewHandler()
@@ -110,8 +109,7 @@ func testRPCStepLineageAcrossContinueAsNew(
 				StepDurability: ptr.Any(
 					dexpb.StepDurability_STEP_DURABILITY_ASYNC,
 				),
-				ContinueAsNewThreshold: ptr.Any(int32(1)),
-				WorkerTarget:           workerTarget,
+				WorkerTarget: workerTarget,
 			},
 		},
 	})
@@ -170,39 +168,27 @@ func isExecuteLineagePersisted(
 	stepExecutionID string,
 	fromStepExecutionID string,
 ) bool {
-	visitedRunIDs := map[string]struct{}{}
-	for runID != "" {
-		if _, isVisited := visitedRunIDs[runID]; isVisited {
+	var pageToken []byte
+	for {
+		response, err := flowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+			FlowId:        flowID,
+			RunId:         runID,
+			NextPageToken: pageToken,
+		})
+		if err != nil {
 			return false
 		}
-		visitedRunIDs[runID] = struct{}{}
-		nextRunID := ""
-		var pageToken []byte
-		for {
-			response, err := flowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
-				FlowId:        flowID,
-				RunId:         runID,
-				NextPageToken: pageToken,
-			})
-			if err != nil {
-				return false
-			}
-			for _, event := range response.GetEvents() {
-				execute := event.GetStepExecuteCompleted()
-				if execute.GetContext().GetStepExecutionId() == stepExecutionID &&
-					execute.GetContext().GetFromStepExecutionId() == fromStepExecutionID {
-					return true
-				}
-				if continuedToRunID := event.GetFlowClosed().GetContinuedToRunId(); continuedToRunID != "" {
-					nextRunID = continuedToRunID
-				}
-			}
-			pageToken = response.GetNextPageToken()
-			if len(pageToken) == 0 {
-				break
+		for _, event := range response.GetEvents() {
+			execute := event.GetStepExecuteCompleted()
+			if execute.GetContext().GetStepExecutionId() == stepExecutionID &&
+				execute.GetContext().GetFromStepExecutionId() == fromStepExecutionID {
+				return true
 			}
 		}
-		runID = nextRunID
+		pageToken = response.GetNextPageToken()
+		if len(pageToken) == 0 {
+			break
+		}
 	}
 	return false
 }
@@ -217,7 +203,6 @@ func collectStepLineage(
 ) map[string]string {
 	t.Helper()
 
-	// server-zd never continues a run as new (C3); its Dex history events carry the lineage.
 	return collectHistoryEventLineage(t, ctx, runtime.FlowClient, flowID, firstRunID)
 
 }

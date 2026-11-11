@@ -378,6 +378,81 @@ read older messages until it is empty. The server caps page size at 1000 by
 default. A trimmed anchor returns an empty page, and newer concurrent writes do
 not enter an existing older-page chain.
 
+### Running Step code outside a Worker
+
+`NewStandaloneContext` creates a `Context` for running Step code outside a
+Worker, for example in a tool server or a test. It represents one handler
+attempt. It inherits cancellation, deadlines, and values from its parent
+context, and its metadata methods return the values in
+`StandaloneContextOptions`. `Attempt` is required and must be at least 1.
+
+```go
+var lastHeartbeatValue any
+if record.CheckpointJSON != nil {
+	var checkpoint SendCheckpoint
+	if err := json.Unmarshal(record.CheckpointJSON, &checkpoint); err != nil {
+		return nil, err
+	}
+	lastHeartbeatValue = checkpoint
+}
+ctx, err := dex.NewStandaloneContext(attemptContext, dex.StandaloneContextOptions{
+	FlowID:             "invoice-tool-server",
+	StepExecutionID:    record.RequestKey,
+	FirstAttemptAt:     record.FirstAttemptAt,
+	Attempt:            record.Attempt,
+	LastHeartbeatValue: lastHeartbeatValue,
+	OnRecordHeartbeat: func(value any) error {
+		var checkpointJSON []byte
+		if value != nil {
+			encoded, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			checkpointJSON = encoded
+		}
+		// SaveCheckpoint writes only if record.Attempt is still the stored attempt.
+		return store.SaveCheckpoint(record.RequestKey, record.Attempt, checkpointJSON)
+	},
+})
+if err != nil {
+	return nil, err
+}
+decision, err := SendInvoiceStep{}.Execute(ctx, invoiceID)
+```
+
+The `NewStandaloneContext` API reference has the complete example.
+
+Dex stores nothing for a standalone Context. `GetLastHeartbeatValue` and
+`GetStepExecutionLocal` read only the seeded `LastHeartbeatValue` and
+`StepExecutionLocals`. `RecordHeartbeat`, `SetStepExecutionLocal`, and
+`RecordEvent` validate and encode their value, then call the matching `On*`
+hook before returning, so the caller can persist the value and seed the next
+attempt.
+
+- Decode a value persisted as JSON into its original Go type, such as the
+  checkpoint struct, `int32`, or `[]byte`, before seeding it. Do not decode it
+  into `any`: JSON numbers become `float64` and byte slices become base64
+  strings, so decoding into the original type later fails. Do not seed the JSON
+  itself as `json.RawMessage` or `[]byte`.
+- After the parent context is done, the hooks never run. The three write
+  methods then return an error that wraps the parent's error when the
+  arguments are valid, the value encodes, and the event name is not already
+  recorded; otherwise the validation error comes first. A write already in progress
+  can still race with the end of its attempt, so a persisting hook must write
+  conditionally on `Attempt` and never let an older attempt replace a newer
+  attempt's value.
+- `HasTimerFired`, `HasTimerFiredByIndex`, and `WaitForMethodFailed` return
+  false.
+- Attribute, Channel, Stream, and `BufferedTextStream` operations that return
+  an error return an invalid invocation context error.
+- `SubFlowResult` and `SubFlowID` return errors stating that they require a
+  Dex invocation Context.
+- These methods have no error result and panic on a standalone Context:
+  `Channel.Size`, `ChannelMap.Size`, `ChannelMap.MapSize`,
+  `ChannelMap.AllInstanceKeys`, `AttributeMap.MapSize`, and
+  `AttributeMap.AllInstanceKeys`. Do not call them from Step code that runs
+  outside a Worker.
+
 ### Canceling Step executions
 
 A successful Step can cancel queued or active executions while continuing with
@@ -458,13 +533,10 @@ integers and doubles support every operator. Every AttributeMap and ChannelMap
 instance must be non-empty and must not contain `/`. Objects,
 bytes, null, non-finite doubles, and invalid ordering fail before the RPC.
 
-Request IDs are optional for both durable waits. When omitted, the server
-derives a stable ID from the Step execution or Attribute condition. Reuse an
-override only for the same wait. `RequestTimeout` is the total SDK call budget
-across transparent transport reattachments. Zero waits indefinitely until the
-caller context is canceled. A caller timeout or cancellation does not finish an accepted durable wait. Set `InternalHandlerTimeout` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value
-comfortably longer than normal request timeouts and reconnect gaps. Zero
-disables timed rollover. Request expiry returns `*dex.RequestTimeoutError`.
+Request IDs are optional for both waits. The Server does not read them for these
+waits. `RequestTimeout` bounds the total SDK call across transport reattachments;
+zero waits indefinitely. Request expiry returns `*dex.RequestTimeoutError`.
+A caller disconnect releases its wait slot.
 
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
@@ -930,8 +1002,8 @@ Flows without a starting step require nil input.
 
 The SDK generates request IDs for StartFlow and InvokeRPC. A
 `StartFlowOptions.RequestID` may provide a stable business identifier spanning
-separate calls. Durable wait request IDs are optional overrides of server-derived
-stable IDs.
+separate calls. Step completion and Attribute waits accept an optional request
+ID, but the server does not read it.
 
 A stable request ID alone does not make a StartFlow retry succeed. A retried
 StartFlow returns the existing run only when `AlreadyStarted.IgnoreError` is
@@ -1090,8 +1162,9 @@ Initial indexed values are validated by `dex.InitialAttribute` and
 `dex.InitialAttributeMapValue`.
 
 The SDK generates UUIDs for StartFlow and InvokeRPC.
-`StartFlowOptions.RequestID` may override the generated start ID. Durable waits
-use server-derived IDs unless the caller supplies an override.
+`StartFlowOptions.RequestID` may override the generated start ID. Step
+completion and Attribute waits accept a request ID, but the server does not
+read it.
 
 Large string and object values may be returned as blob references. Worker
 inputs and Client results hydrate before handler or application decode. Decode
@@ -1174,11 +1247,7 @@ The diagnostic SDK version comes from Go build information for the
 `github.com/superdurable/dex/sdk-go` module. Source builds without module version
 metadata report `dev`; neither value changes compatibility decisions.
 
-## Search run inclusion
+## Search Flow runs
 
-Searches exclude runs with the ContinuedAsNew status by default. server-zd never reports that status. Application queries still
-need `FlowType` when using shared index slots. An explicit inclusion option
-removes only the default exclusion; it does not override query filters. Keep
-the query, inclusion option, and page size consistent across pages.
-
-Use `SearchFlowsWithOptions(ctx, query, pageSize, nextPageToken, SearchFlowsOptions{IncludeContinuedAsNew: true})` for execution-chain inspection. `SearchFlows` uses the default exclusion.
+Searches return runs that match the query. Include `FlowType` when using shared
+index slots, and keep the query and page size consistent across pages.

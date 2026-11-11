@@ -11,6 +11,7 @@ import type { AsyncContext, RetryPolicy } from "@superdurable/dex";
 import type { BuiltInTool } from "./agent-built-in-tools.js";
 import type { ContextSummaryRequest, ContextSummaryResult } from "./agent-context-compaction.js";
 import type {
+  AgentImageReference,
   AgentMessage,
   AgentPlan,
   AgentToolCall,
@@ -462,6 +463,14 @@ export interface ToolExecutionResult {
    * @since 0.4.0
    */
   readonly truncatedOutputBytes?: number;
+  /**
+   * Images the tool returns with {@link output}, uploaded with `MediaStore.putImage` inside the call, at most
+   * `maxImagesPerMessage`. The session stores them as {@link AgentToolCall.images}; a reference that
+   * `validateImageReference` refuses fails the attempt. Upload before returning: a retried attempt uploads the same
+   * bytes to the same object. Omit it for none.
+   * @since 0.5.0
+   */
+  readonly images?: readonly AgentImageReference[];
 }
 
 /**
@@ -658,6 +667,10 @@ export type ToolTaskPollOutcome = ToolExecutionResult | ToolInputRequested | Too
  * `error`, does not retry, and the model sees {@link outcomeUnknownToolResult}. A later ordered write of
  * the turn is skipped.
  *
+ * {@link AgentFrameworkRunner.pollToolTask} may throw it too, for a task that ended without a known
+ * outcome. The session then records `outcome_unknown` the same way and stops polling. Changed in 0.5.0:
+ * `pollToolTask` may throw it.
+ *
  * @example
  * ```ts
  * throw new ToolOutcomeUnknownError("the provider timed out after receiving the refund");
@@ -762,6 +775,28 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    */
   buildUserMessage(text: string): FrameworkMessage;
   /**
+   * Converts a user message with images into the framework's user message. Optional.
+   *
+   * Implement it when the runner can show images to its model. `send_user_message` accepts images only for a runner
+   * with this method, and the session calls it instead of {@link buildUserMessage} for a message with images. Put
+   * the references, never the bytes, in `frameworkItem`; read the bytes with `loadImages` when the model call
+   * builds its input. The session sets the stored message's `images` itself. It must be synchronous,
+   * deterministic, and free of side effects.
+   *
+   * @example
+   * ```ts
+   * public buildUserMessageWithImages(text: string, images: readonly AgentImageReference[]): FrameworkMessage {
+   *   return { role: "user", text, toolCallId: null, toolName: null, toolArguments: null, toolOutput: null,
+   *     frameworkItem: JSON.stringify({ role: "user", content: text, images }) };
+   * }
+   * ```
+   * @param text - User message text, never blank.
+   * @param images - The message's images, at least one, each valid for `validateImageReference`.
+   * @returns The framework message, with `role` `"user"`.
+   * @since 0.5.0
+   */
+  buildUserMessageWithImages?(text: string, images: readonly AgentImageReference[]): FrameworkMessage;
+  /**
    * Makes the turn's next model call, at most one.
    *
    * @param turn - Turn context; see {@link AgentTurnContext}.
@@ -833,6 +868,9 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * the call's result.
    * @throws {ToolExecutionError} When the task failed in a way the model should see; the call is
    * recorded as `failed`.
+   * @throws {ToolOutcomeUnknownError} When the task ended and may or may not have taken effect; the call is
+   * recorded as `outcome_unknown` and not polled again. Changed in 0.5.0: this error is recorded instead of
+   * failing the poll attempt.
    * @throws Any other error to fail the poll attempt; after three attempts the record becomes `failed`
    * for a `read` call and `outcome_unknown` otherwise, because the task may still run.
    */

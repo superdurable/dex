@@ -75,17 +75,48 @@ export function cameraMotion(durationMs = CAMERA_MS) {
   }
 }
 
+/** Shares of the pane's height kept clear above and below the drawing. */
+const ROOM_TOP_SHARE = 0.08
+const ROOM_BOTTOM_SHARE = 0.04
+
 /** The pane minus the margins and overlays the drawing must stay clear of. */
-export function cameraRoom(paneWidth: number, paneHeight: number, insetRightPx: number | null | undefined): CameraRoom {
+export function cameraRoom(
+  paneWidth: number,
+  paneHeight: number,
+  insetRightPx: number | null | undefined,
+  insetTopPx?: number | null,
+): CameraRoom {
   const right = (insetRightPx ?? 0) + paneWidth * 0.04
-  const top = paneHeight * 0.08
+  const top = Math.max(paneHeight * ROOM_TOP_SHARE, insetTopPx ?? 0)
   const left = paneWidth * 0.04
   return {
     left,
     top,
     width: Math.max(1, paneWidth - left - right),
-    height: Math.max(1, paneHeight - top - paneHeight * 0.04),
+    height: Math.max(1, paneHeight - top - paneHeight * ROOM_BOTTOM_SHARE),
   }
+}
+
+/**
+ * Returns the pane height, in screen pixels, at which `openingView` shows the whole drawing at
+ * `maxZoom` below `insetTopPx`; a pane too narrow for `maxZoom` uses its width's fit, never below `openFloor`.
+ */
+export function paneHeightForWholeDrawing(
+  scene: Scene,
+  paneWidth: number,
+  maxZoom: number,
+  insetTopPx: number,
+  openFloor: number = OPEN_FLOOR,
+): number {
+  const whole = drawingBounds(scene)
+  const zoom = Math.max(openFloor, Math.min(maxZoom, cameraRoom(paneWidth, 1, null).width / whole.w))
+  const drawnHeight = whole.h * zoom
+  return Math.ceil(
+    Math.max(
+      (insetTopPx + drawnHeight) / (1 - ROOM_BOTTOM_SHARE),
+      drawnHeight / (1 - ROOM_TOP_SHARE - ROOM_BOTTOM_SHARE),
+    ),
+  )
 }
 
 function bounds(rects: readonly Rect[], margin: number): Rect {
@@ -132,21 +163,22 @@ function joinedTo(scene: Scene, boxIds: ReadonlySet<string>, transitionBoxIds: r
   return scene.boxes.filter((box) => joined.has(box.id) && !boxIds.has(box.id))
 }
 
-/** Opens on the whole drawing when it reads, else on its start at the readable floor. */
+/** Opens on the whole drawing when it fits at `openFloor` or more, else on its start at that floor. */
 export function openingView(
   scene: Scene,
   room: CameraRoom,
   direction: Direction,
   maxZoom: number,
+  openFloor: number = OPEN_FLOOR,
 ): { view: CameraView; scope: FramingScope } {
   const whole = drawingBounds(scene)
   const fit = zoomToFit(whole, room)
   const start = scene.boxes.find((box) => box.isStart) ?? scene.boxes[0]
-  if (fit >= OPEN_FLOOR || start === undefined) {
+  if (fit >= openFloor || start === undefined) {
     return { view: viewCentredOn(whole, room, Math.min(maxZoom, fit)), scope: 'whole' }
   }
   // Too large to read whole: open at the readable floor with the start in view; focusView frames "now".
-  const zoom = OPEN_FLOOR
+  const zoom = openFloor
   const across = (low: number, span: number, roomSpan: number, at: number): number =>
     span * zoom <= roomSpan
       ? (roomSpan - span * zoom) / 2 - low * zoom

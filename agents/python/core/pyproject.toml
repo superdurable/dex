@@ -40,6 +40,10 @@ litellm = [
 connectors = [
     "dex-connectors-sdk==0.9.0",
 ]
+# dex_agents.s3: S3MediaStore, image bytes in an S3-compatible bucket.
+s3 = [
+    "boto3>=1.35,<2",
+]
 
 [project.urls]
 Homepage = "https://github.com/superdurable/dex/tree/main/agents/python/core"

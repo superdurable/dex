@@ -76,7 +76,7 @@ Three different guarantees:
 | StopFlow | WaitForFlow or DescribeFlow | Closed as soon as it commits. Cleanup and pending projection writes may continue. |
 | UpdateFlowConfig | Server or CLI configuration read | Applied once the Flow processes it. Does not recall dispatched work. |
 
-- StartFlow and TimeTravel are not state writes. Their returned run identifies an accepted execution. Wait for a named Step or the result to prove business acceptance.
+- StartFlow and TimeTravel are not state writes. Their returned run identifies an accepted Flow run. Wait for a named Step or the result to prove business acceptance.
 - Strong read-after-write needs a successful write, a read started afterward, the same Flow, and the right selections. It adds no isolation, does not make a sequence of RPCs atomic, and does not protect a value from a later competing write.
 - Set a read deadline that allows the Server to catch up. Do not weaken a strong path into polling to hide unavailability.
 - Never use a fixed sleep as confirmation. Do not attach a callback to every write. Add an application acknowledgement only when the contract needs a fact public observation cannot express.
@@ -89,7 +89,6 @@ Attribute-match and Step-completion waits observe durable state. They are not an
 - The Server caps each transport wait internally; the SDK reattaches with the same Request ID without resetting the request timeout.
 - A wait's Request ID is optional. A wait reads current committed state, so repeating it is safe.
 - Each waiting call holds a wait slot on the Flow only while it waits. Keep concurrent waiters per Flow bounded; the Server rejects waits beyond its limits with RESOURCE_EXHAUSTED.
-- Leave any deprecated internal handler timeout unset.
 - Attribute waits target the active run. If the Flow can close before the wait attaches, handle the error through authoritative state.
 
 Attribute match:
@@ -109,7 +108,7 @@ WaitForFlow returns the terminal status and output. Use it when the caller needs
 - StopFlow cancel asks the Flow to stop cooperatively. Fail closes it as failed with a reason. Terminate closes it at once. Each records a different terminal status. None proves provider cleanup or projection completion.
 - A later write to a closed run is rejected. Write what the Flow needs before you stop it.
 - DescribeFlow on a missing ID, or an ID that is not a Flow, returns Flow not found.
-- SearchFlows excludes internal executions. A generic-slot query must constrain FlowType. Keep the query unchanged across pages.
+- SearchFlows excludes internal Flow runs. A generic-slot query must constrain FlowType. Keep the query unchanged across pages.
 
 ## Self-check
 

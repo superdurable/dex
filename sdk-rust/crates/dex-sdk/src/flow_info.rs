@@ -24,8 +24,6 @@ pub enum FlowStatus {
     Terminated,
     /// The Flow completed cooperative cancellation.
     Canceled,
-    /// The run rolled its history into a successor run.
-    ContinuedAsNew,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

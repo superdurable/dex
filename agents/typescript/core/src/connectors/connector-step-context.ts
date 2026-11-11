@@ -10,12 +10,84 @@ import type { AsyncContext } from "@superdurable/dex";
 
 import { compareCodePoints } from "./connector-input-schema.js";
 
-// The source reads it on a Retry; a failed save leaves the earlier value.
-const savedHeartbeatValues = new WeakMap<ConnectorStepContext, unknown>();
+/** What one call's saved fence markers in this attempt prove; a later checkpoint cannot erase it. Internal. */
+export interface FenceEvidence {
+  /** A claim stands: no valid `canResend` followed it. */
+  isClaimed: boolean;
+  /** The attempt claimed a send at some point. */
+  hasClaimed: boolean;
+  /** A claim recorded a provider ID. */
+  hasProviderId: boolean;
+  /** A `notSent` before any claim, or a valid `canResend`. */
+  hasNotSentProof: boolean;
+}
 
-/** Returns the last heartbeat value this context saved in this attempt, or `undefined`. Internal to the core. */
-export function readSavedHeartbeatValue(context: ConnectorStepContext): unknown {
-  return savedHeartbeatValues.get(context);
+// The source reads it on a Retry; a failed save leaves the earlier value.
+const fenceEvidence = new WeakMap<ConnectorStepContext, Map<string, FenceEvidence>>();
+
+const fenceMarkerKeys = new Set(["callId", "attempt", "state", "providerId"]);
+
+/** Returns the evidence of one call's saved fence markers in this attempt, or `undefined`. Internal to the core. */
+export function readFenceEvidence(context: ConnectorStepContext, callId: string): Readonly<FenceEvidence> | undefined {
+  return fenceEvidence.get(context)?.get(callId);
+}
+
+/** Reports whether a value is a single-dispatch fence marker with only its declared fields. Internal to the core. */
+export function isFenceMarker(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Readonly<Record<string, unknown>>;
+  return (
+    Object.keys(record).every((key) => fenceMarkerKeys.has(key)) &&
+    typeof record["callId"] === "string" &&
+    typeof record["attempt"] === "number" &&
+    Number.isInteger(record["attempt"]) &&
+    record["attempt"] >= 1 &&
+    (record["state"] === "notSent" || record["state"] === "claimed" || record["state"] === "canResend") &&
+    (record["providerId"] === undefined || typeof record["providerId"] === "string")
+  );
+}
+
+function observeSavedHeartbeatValue(context: ConnectorStepContext, value: unknown): void {
+  if (!isFenceMarker(value) || value["attempt"] !== context.attempt) {
+    return;
+  }
+  const callId = value["callId"] as string;
+  const byCall = fenceEvidence.get(context) ?? new Map<string, FenceEvidence>();
+  fenceEvidence.set(context, byCall);
+  const evidence = byCall.get(callId) ?? { isClaimed: false, hasClaimed: false, hasProviderId: false, hasNotSentProof: false };
+  byCall.set(callId, evidence);
+  const hasMarkerProviderId = value["providerId"] !== undefined && value["providerId"] !== "";
+  if (value["state"] === "claimed") {
+    evidence.isClaimed = true;
+    evidence.hasClaimed = true;
+    evidence.hasProviderId ||= hasMarkerProviderId;
+    evidence.hasNotSentProof = false;
+  } else if (value["state"] === "canResend") {
+    // The fence allows canResend only after its own claim without a provider ID.
+    if (evidence.isClaimed && !evidence.hasProviderId && !hasMarkerProviderId) {
+      evidence.isClaimed = false;
+      evidence.hasNotSentProof = true;
+    }
+  } else if (value["state"] === "notSent" && !evidence.hasClaimed && !hasMarkerProviderId) {
+    evidence.hasNotSentProof = true;
+  }
+}
+
+const previousCheckpoints = new WeakMap<ConnectorStepContext, string | undefined>();
+
+/** Returns the text checkpoint an earlier attempt saved, or `undefined`. Internal to the core. */
+export function readPreviousCheckpoint(context: ConnectorStepContext): string | undefined {
+  return previousCheckpoints.get(context);
+}
+
+// The source reads it to tell a lost fence checkpoint from an unfenced operation.
+const checkpointReaders = new WeakSet<ConnectorStepContext>();
+
+/** Reports whether the operation asked this context for an earlier attempt's checkpoint. Internal to the core. */
+export function hasReadCheckpoint(context: ConnectorStepContext): boolean {
+  return checkpointReaders.has(context);
 }
 
 /** How a {@link ConnectorStepContext} reaches the tool Step's heartbeats. */
@@ -56,7 +128,9 @@ export class ConnectorStepContext {
   public constructor(
     private readonly context: AsyncContext,
     private readonly heartbeats: ConnectorStepHeartbeats,
-  ) {}
+  ) {
+    previousCheckpoints.set(this, heartbeats.previousCheckpoint);
+  }
 
   /** The Flow ID. */
   public get flowId(): string {
@@ -93,6 +167,7 @@ export class ConnectorStepContext {
    * @returns `true` when the session read a checkpoint for this attempt.
    */
   public hasLastHeartbeatValue(): boolean {
+    checkpointReaders.add(this);
     return this.heartbeats.previousCheckpoint !== undefined;
   }
 
@@ -107,6 +182,7 @@ export class ConnectorStepContext {
     if (codec !== undefined) {
       throw new TypeError("ConnectorStepContext keeps heartbeat values as JSON and takes no codec");
     }
+    checkpointReaders.add(this);
     const previous = this.heartbeats.previousCheckpoint;
     return previous === undefined ? undefined : (JSON.parse(previous) as T);
   }
@@ -131,7 +207,7 @@ export class ConnectorStepContext {
       throw new TypeError("this tool Step cannot save heartbeat checkpoints");
     }
     await this.heartbeats.saveCheckpoint(stringifyWithSortedKeys(value));
-    savedHeartbeatValues.set(this, value);
+    observeSavedHeartbeatValue(this, value);
   }
 }
 

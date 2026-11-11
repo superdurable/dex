@@ -58,7 +58,6 @@ private static final long serialVersionUID = 0L;
       implements com.google.protobuf.Internal.EnumLite,
           com.google.protobuf.AbstractMessage.InternalOneOfEnum {
     INITIAL_START(10),
-    CONTINUED_START(11),
     STARTORCONTINUE_NOT_SET(0);
     private final int value;
     private StartOrContinueCase(int value) {
@@ -77,7 +76,6 @@ private static final long serialVersionUID = 0L;
     public static StartOrContinueCase forNumber(int value) {
       switch (value) {
         case 10: return INITIAL_START;
-        case 11: return CONTINUED_START;
         case 0: return STARTORCONTINUE_NOT_SET;
         default: return null;
       }
@@ -93,30 +91,30 @@ private static final long serialVersionUID = 0L;
         startOrContinueCase_);
   }
 
-  public static final int FLOW_EXECUTION_ID_FIELD_NUMBER = 1;
-  private io.superdurable.gen.FlowExecutionID flowExecutionId_;
+  public static final int FLOW_RUN_ID_FIELD_NUMBER = 1;
+  private io.superdurable.gen.FlowRunID flowRunId_;
   /**
-   * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
-   * @return Whether the flowExecutionId field is set.
+   * <code>.dex.FlowRunID flow_run_id = 1;</code>
+   * @return Whether the flowRunId field is set.
    */
   @java.lang.Override
-  public boolean hasFlowExecutionId() {
+  public boolean hasFlowRunId() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
-   * @return The flowExecutionId.
+   * <code>.dex.FlowRunID flow_run_id = 1;</code>
+   * @return The flowRunId.
    */
   @java.lang.Override
-  public io.superdurable.gen.FlowExecutionID getFlowExecutionId() {
-    return flowExecutionId_ == null ? io.superdurable.gen.FlowExecutionID.getDefaultInstance() : flowExecutionId_;
+  public io.superdurable.gen.FlowRunID getFlowRunId() {
+    return flowRunId_ == null ? io.superdurable.gen.FlowRunID.getDefaultInstance() : flowRunId_;
   }
   /**
-   * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
+   * <code>.dex.FlowRunID flow_run_id = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.FlowExecutionIDOrBuilder getFlowExecutionIdOrBuilder() {
-    return flowExecutionId_ == null ? io.superdurable.gen.FlowExecutionID.getDefaultInstance() : flowExecutionId_;
+  public io.superdurable.gen.FlowRunIDOrBuilder getFlowRunIdOrBuilder() {
+    return flowRunId_ == null ? io.superdurable.gen.FlowRunID.getDefaultInstance() : flowRunId_;
   }
 
   public static final int FLOW_TYPE_FIELD_NUMBER = 2;
@@ -285,49 +283,6 @@ private static final long serialVersionUID = 0L;
     return io.superdurable.gen.FlowInitialStart.getDefaultInstance();
   }
 
-  public static final int CONTINUED_START_FIELD_NUMBER = 11;
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never sets this.
-   * </pre>
-   *
-   * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-   * @return Whether the continuedStart field is set.
-   */
-  @java.lang.Override
-  public boolean hasContinuedStart() {
-    return startOrContinueCase_ == 11;
-  }
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never sets this.
-   * </pre>
-   *
-   * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-   * @return The continuedStart.
-   */
-  @java.lang.Override
-  public io.superdurable.gen.FlowContinuedStart getContinuedStart() {
-    if (startOrContinueCase_ == 11) {
-       return (io.superdurable.gen.FlowContinuedStart) startOrContinue_;
-    }
-    return io.superdurable.gen.FlowContinuedStart.getDefaultInstance();
-  }
-  /**
-   * <pre>
-   * Deprecated: Dex does not continue Flows as new and never sets this.
-   * </pre>
-   *
-   * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-   */
-  @java.lang.Override
-  public io.superdurable.gen.FlowContinuedStartOrBuilder getContinuedStartOrBuilder() {
-    if (startOrContinueCase_ == 11) {
-       return (io.superdurable.gen.FlowContinuedStart) startOrContinue_;
-    }
-    return io.superdurable.gen.FlowContinuedStart.getDefaultInstance();
-  }
-
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -343,7 +298,7 @@ private static final long serialVersionUID = 0L;
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(1, getFlowExecutionId());
+      output.writeMessage(1, getFlowRunId());
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 2, flowType_);
@@ -363,16 +318,13 @@ private static final long serialVersionUID = 0L;
     if (startOrContinueCase_ == 10) {
       output.writeMessage(10, (io.superdurable.gen.FlowInitialStart) startOrContinue_);
     }
-    if (startOrContinueCase_ == 11) {
-      output.writeMessage(11, (io.superdurable.gen.FlowContinuedStart) startOrContinue_);
-    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(1, getFlowExecutionId());
+        .computeMessageSize(1, getFlowRunId());
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(2, flowType_);
@@ -396,10 +348,6 @@ private static final long serialVersionUID = 0L;
     if (startOrContinueCase_ == 10) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(10, (io.superdurable.gen.FlowInitialStart) startOrContinue_);
-    }
-    if (startOrContinueCase_ == 11) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(11, (io.superdurable.gen.FlowContinuedStart) startOrContinue_);
     }
     return size;
   }
@@ -425,10 +373,10 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.FlowStartedOrContinuedHistoryEvent other = (io.superdurable.gen.FlowStartedOrContinuedHistoryEvent) obj;
 
-    if (hasFlowExecutionId() != other.hasFlowExecutionId()) return false;
-    if (hasFlowExecutionId()) {
-      if (!getFlowExecutionId()
-          .equals(other.getFlowExecutionId())) return false;
+    if (hasFlowRunId() != other.hasFlowRunId()) return false;
+    if (hasFlowRunId()) {
+      if (!getFlowRunId()
+          .equals(other.getFlowRunId())) return false;
     }
     if (!getFlowType()
         .equals(other.getFlowType())) return false;
@@ -454,10 +402,6 @@ private static final long serialVersionUID = 0L;
         if (!getInitialStart()
             .equals(other.getInitialStart())) return false;
         break;
-      case 11:
-        if (!getContinuedStart()
-            .equals(other.getContinuedStart())) return false;
-        break;
       case 0:
       default:
     }
@@ -472,9 +416,9 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    if (hasFlowExecutionId()) {
-      hash = (37 * hash) + FLOW_EXECUTION_ID_FIELD_NUMBER;
-      hash = (53 * hash) + getFlowExecutionId().hashCode();
+    if (hasFlowRunId()) {
+      hash = (37 * hash) + FLOW_RUN_ID_FIELD_NUMBER;
+      hash = (53 * hash) + getFlowRunId().hashCode();
     }
     hash = (37 * hash) + FLOW_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + getFlowType().hashCode();
@@ -496,10 +440,6 @@ private static final long serialVersionUID = 0L;
       case 10:
         hash = (37 * hash) + INITIAL_START_FIELD_NUMBER;
         hash = (53 * hash) + getInitialStart().hashCode();
-        break;
-      case 11:
-        hash = (37 * hash) + CONTINUED_START_FIELD_NUMBER;
-        hash = (53 * hash) + getContinuedStart().hashCode();
         break;
       case 0:
       default:
@@ -634,7 +574,7 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetFlowExecutionIdFieldBuilder();
+        internalGetFlowRunIdFieldBuilder();
         internalGetFlowConfigFieldBuilder();
         internalGetFlowTimeoutFieldBuilder();
         internalGetTimeoutHandlerOptionsFieldBuilder();
@@ -644,10 +584,10 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      flowExecutionId_ = null;
-      if (flowExecutionIdBuilder_ != null) {
-        flowExecutionIdBuilder_.dispose();
-        flowExecutionIdBuilder_ = null;
+      flowRunId_ = null;
+      if (flowRunIdBuilder_ != null) {
+        flowRunIdBuilder_.dispose();
+        flowRunIdBuilder_ = null;
       }
       flowType_ = "";
       flowConfig_ = null;
@@ -668,9 +608,6 @@ private static final long serialVersionUID = 0L;
       }
       if (initialStartBuilder_ != null) {
         initialStartBuilder_.clear();
-      }
-      if (continuedStartBuilder_ != null) {
-        continuedStartBuilder_.clear();
       }
       startOrContinueCase_ = 0;
       startOrContinue_ = null;
@@ -710,9 +647,9 @@ private static final long serialVersionUID = 0L;
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.flowExecutionId_ = flowExecutionIdBuilder_ == null
-            ? flowExecutionId_
-            : flowExecutionIdBuilder_.build();
+        result.flowRunId_ = flowRunIdBuilder_ == null
+            ? flowRunId_
+            : flowRunIdBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
@@ -749,10 +686,6 @@ private static final long serialVersionUID = 0L;
           initialStartBuilder_ != null) {
         result.startOrContinue_ = initialStartBuilder_.build();
       }
-      if (startOrContinueCase_ == 11 &&
-          continuedStartBuilder_ != null) {
-        result.startOrContinue_ = continuedStartBuilder_.build();
-      }
     }
 
     @java.lang.Override
@@ -767,8 +700,8 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.FlowStartedOrContinuedHistoryEvent other) {
       if (other == io.superdurable.gen.FlowStartedOrContinuedHistoryEvent.getDefaultInstance()) return this;
-      if (other.hasFlowExecutionId()) {
-        mergeFlowExecutionId(other.getFlowExecutionId());
+      if (other.hasFlowRunId()) {
+        mergeFlowRunId(other.getFlowRunId());
       }
       if (!other.getFlowType().isEmpty()) {
         flowType_ = other.flowType_;
@@ -790,10 +723,6 @@ private static final long serialVersionUID = 0L;
       switch (other.getStartOrContinueCase()) {
         case INITIAL_START: {
           mergeInitialStart(other.getInitialStart());
-          break;
-        }
-        case CONTINUED_START: {
-          mergeContinuedStart(other.getContinuedStart());
           break;
         }
         case STARTORCONTINUE_NOT_SET: {
@@ -828,7 +757,7 @@ private static final long serialVersionUID = 0L;
               break;
             case 10: {
               input.readMessage(
-                  internalGetFlowExecutionIdFieldBuilder().getBuilder(),
+                  internalGetFlowRunIdFieldBuilder().getBuilder(),
                   extensionRegistry);
               bitField0_ |= 0x00000001;
               break;
@@ -871,13 +800,6 @@ private static final long serialVersionUID = 0L;
               startOrContinueCase_ = 10;
               break;
             } // case 82
-            case 90: {
-              input.readMessage(
-                  internalGetContinuedStartFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              startOrContinueCase_ = 11;
-              break;
-            } // case 90
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -910,125 +832,125 @@ private static final long serialVersionUID = 0L;
 
     private int bitField0_;
 
-    private io.superdurable.gen.FlowExecutionID flowExecutionId_;
+    private io.superdurable.gen.FlowRunID flowRunId_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowExecutionID, io.superdurable.gen.FlowExecutionID.Builder, io.superdurable.gen.FlowExecutionIDOrBuilder> flowExecutionIdBuilder_;
+        io.superdurable.gen.FlowRunID, io.superdurable.gen.FlowRunID.Builder, io.superdurable.gen.FlowRunIDOrBuilder> flowRunIdBuilder_;
     /**
-     * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
-     * @return Whether the flowExecutionId field is set.
+     * <code>.dex.FlowRunID flow_run_id = 1;</code>
+     * @return Whether the flowRunId field is set.
      */
-    public boolean hasFlowExecutionId() {
+    public boolean hasFlowRunId() {
       return ((bitField0_ & 0x00000001) != 0);
     }
     /**
-     * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
-     * @return The flowExecutionId.
+     * <code>.dex.FlowRunID flow_run_id = 1;</code>
+     * @return The flowRunId.
      */
-    public io.superdurable.gen.FlowExecutionID getFlowExecutionId() {
-      if (flowExecutionIdBuilder_ == null) {
-        return flowExecutionId_ == null ? io.superdurable.gen.FlowExecutionID.getDefaultInstance() : flowExecutionId_;
+    public io.superdurable.gen.FlowRunID getFlowRunId() {
+      if (flowRunIdBuilder_ == null) {
+        return flowRunId_ == null ? io.superdurable.gen.FlowRunID.getDefaultInstance() : flowRunId_;
       } else {
-        return flowExecutionIdBuilder_.getMessage();
+        return flowRunIdBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
+     * <code>.dex.FlowRunID flow_run_id = 1;</code>
      */
-    public Builder setFlowExecutionId(io.superdurable.gen.FlowExecutionID value) {
-      if (flowExecutionIdBuilder_ == null) {
+    public Builder setFlowRunId(io.superdurable.gen.FlowRunID value) {
+      if (flowRunIdBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        flowExecutionId_ = value;
+        flowRunId_ = value;
       } else {
-        flowExecutionIdBuilder_.setMessage(value);
+        flowRunIdBuilder_.setMessage(value);
       }
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
+     * <code>.dex.FlowRunID flow_run_id = 1;</code>
      */
-    public Builder setFlowExecutionId(
-        io.superdurable.gen.FlowExecutionID.Builder builderForValue) {
-      if (flowExecutionIdBuilder_ == null) {
-        flowExecutionId_ = builderForValue.build();
+    public Builder setFlowRunId(
+        io.superdurable.gen.FlowRunID.Builder builderForValue) {
+      if (flowRunIdBuilder_ == null) {
+        flowRunId_ = builderForValue.build();
       } else {
-        flowExecutionIdBuilder_.setMessage(builderForValue.build());
+        flowRunIdBuilder_.setMessage(builderForValue.build());
       }
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
+     * <code>.dex.FlowRunID flow_run_id = 1;</code>
      */
-    public Builder mergeFlowExecutionId(io.superdurable.gen.FlowExecutionID value) {
-      if (flowExecutionIdBuilder_ == null) {
+    public Builder mergeFlowRunId(io.superdurable.gen.FlowRunID value) {
+      if (flowRunIdBuilder_ == null) {
         if (((bitField0_ & 0x00000001) != 0) &&
-          flowExecutionId_ != null &&
-          flowExecutionId_ != io.superdurable.gen.FlowExecutionID.getDefaultInstance()) {
-          getFlowExecutionIdBuilder().mergeFrom(value);
+          flowRunId_ != null &&
+          flowRunId_ != io.superdurable.gen.FlowRunID.getDefaultInstance()) {
+          getFlowRunIdBuilder().mergeFrom(value);
         } else {
-          flowExecutionId_ = value;
+          flowRunId_ = value;
         }
       } else {
-        flowExecutionIdBuilder_.mergeFrom(value);
+        flowRunIdBuilder_.mergeFrom(value);
       }
-      if (flowExecutionId_ != null) {
+      if (flowRunId_ != null) {
         bitField0_ |= 0x00000001;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
+     * <code>.dex.FlowRunID flow_run_id = 1;</code>
      */
-    public Builder clearFlowExecutionId() {
+    public Builder clearFlowRunId() {
       bitField0_ = (bitField0_ & ~0x00000001);
-      flowExecutionId_ = null;
-      if (flowExecutionIdBuilder_ != null) {
-        flowExecutionIdBuilder_.dispose();
-        flowExecutionIdBuilder_ = null;
+      flowRunId_ = null;
+      if (flowRunIdBuilder_ != null) {
+        flowRunIdBuilder_.dispose();
+        flowRunIdBuilder_ = null;
       }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
+     * <code>.dex.FlowRunID flow_run_id = 1;</code>
      */
-    public io.superdurable.gen.FlowExecutionID.Builder getFlowExecutionIdBuilder() {
+    public io.superdurable.gen.FlowRunID.Builder getFlowRunIdBuilder() {
       bitField0_ |= 0x00000001;
       onChanged();
-      return internalGetFlowExecutionIdFieldBuilder().getBuilder();
+      return internalGetFlowRunIdFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
+     * <code>.dex.FlowRunID flow_run_id = 1;</code>
      */
-    public io.superdurable.gen.FlowExecutionIDOrBuilder getFlowExecutionIdOrBuilder() {
-      if (flowExecutionIdBuilder_ != null) {
-        return flowExecutionIdBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.FlowRunIDOrBuilder getFlowRunIdOrBuilder() {
+      if (flowRunIdBuilder_ != null) {
+        return flowRunIdBuilder_.getMessageOrBuilder();
       } else {
-        return flowExecutionId_ == null ?
-            io.superdurable.gen.FlowExecutionID.getDefaultInstance() : flowExecutionId_;
+        return flowRunId_ == null ?
+            io.superdurable.gen.FlowRunID.getDefaultInstance() : flowRunId_;
       }
     }
     /**
-     * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
+     * <code>.dex.FlowRunID flow_run_id = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowExecutionID, io.superdurable.gen.FlowExecutionID.Builder, io.superdurable.gen.FlowExecutionIDOrBuilder> 
-        internalGetFlowExecutionIdFieldBuilder() {
-      if (flowExecutionIdBuilder_ == null) {
-        flowExecutionIdBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.FlowExecutionID, io.superdurable.gen.FlowExecutionID.Builder, io.superdurable.gen.FlowExecutionIDOrBuilder>(
-                getFlowExecutionId(),
+        io.superdurable.gen.FlowRunID, io.superdurable.gen.FlowRunID.Builder, io.superdurable.gen.FlowRunIDOrBuilder> 
+        internalGetFlowRunIdFieldBuilder() {
+      if (flowRunIdBuilder_ == null) {
+        flowRunIdBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.FlowRunID, io.superdurable.gen.FlowRunID.Builder, io.superdurable.gen.FlowRunIDOrBuilder>(
+                getFlowRunId(),
                 getParentForChildren(),
                 isClean());
-        flowExecutionId_ = null;
+        flowRunId_ = null;
       }
-      return flowExecutionIdBuilder_;
+      return flowRunIdBuilder_;
     }
 
     private java.lang.Object flowType_ = "";
@@ -1658,184 +1580,6 @@ private static final long serialVersionUID = 0L;
       startOrContinueCase_ = 10;
       onChanged();
       return initialStartBuilder_;
-    }
-
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowContinuedStart, io.superdurable.gen.FlowContinuedStart.Builder, io.superdurable.gen.FlowContinuedStartOrBuilder> continuedStartBuilder_;
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-     * @return Whether the continuedStart field is set.
-     */
-    @java.lang.Override
-    public boolean hasContinuedStart() {
-      return startOrContinueCase_ == 11;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-     * @return The continuedStart.
-     */
-    @java.lang.Override
-    public io.superdurable.gen.FlowContinuedStart getContinuedStart() {
-      if (continuedStartBuilder_ == null) {
-        if (startOrContinueCase_ == 11) {
-          return (io.superdurable.gen.FlowContinuedStart) startOrContinue_;
-        }
-        return io.superdurable.gen.FlowContinuedStart.getDefaultInstance();
-      } else {
-        if (startOrContinueCase_ == 11) {
-          return continuedStartBuilder_.getMessage();
-        }
-        return io.superdurable.gen.FlowContinuedStart.getDefaultInstance();
-      }
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-     */
-    public Builder setContinuedStart(io.superdurable.gen.FlowContinuedStart value) {
-      if (continuedStartBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        startOrContinue_ = value;
-        onChanged();
-      } else {
-        continuedStartBuilder_.setMessage(value);
-      }
-      startOrContinueCase_ = 11;
-      return this;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-     */
-    public Builder setContinuedStart(
-        io.superdurable.gen.FlowContinuedStart.Builder builderForValue) {
-      if (continuedStartBuilder_ == null) {
-        startOrContinue_ = builderForValue.build();
-        onChanged();
-      } else {
-        continuedStartBuilder_.setMessage(builderForValue.build());
-      }
-      startOrContinueCase_ = 11;
-      return this;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-     */
-    public Builder mergeContinuedStart(io.superdurable.gen.FlowContinuedStart value) {
-      if (continuedStartBuilder_ == null) {
-        if (startOrContinueCase_ == 11 &&
-            startOrContinue_ != io.superdurable.gen.FlowContinuedStart.getDefaultInstance()) {
-          startOrContinue_ = io.superdurable.gen.FlowContinuedStart.newBuilder((io.superdurable.gen.FlowContinuedStart) startOrContinue_)
-              .mergeFrom(value).buildPartial();
-        } else {
-          startOrContinue_ = value;
-        }
-        onChanged();
-      } else {
-        if (startOrContinueCase_ == 11) {
-          continuedStartBuilder_.mergeFrom(value);
-        } else {
-          continuedStartBuilder_.setMessage(value);
-        }
-      }
-      startOrContinueCase_ = 11;
-      return this;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-     */
-    public Builder clearContinuedStart() {
-      if (continuedStartBuilder_ == null) {
-        if (startOrContinueCase_ == 11) {
-          startOrContinueCase_ = 0;
-          startOrContinue_ = null;
-          onChanged();
-        }
-      } else {
-        if (startOrContinueCase_ == 11) {
-          startOrContinueCase_ = 0;
-          startOrContinue_ = null;
-        }
-        continuedStartBuilder_.clear();
-      }
-      return this;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-     */
-    public io.superdurable.gen.FlowContinuedStart.Builder getContinuedStartBuilder() {
-      return internalGetContinuedStartFieldBuilder().getBuilder();
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-     */
-    @java.lang.Override
-    public io.superdurable.gen.FlowContinuedStartOrBuilder getContinuedStartOrBuilder() {
-      if ((startOrContinueCase_ == 11) && (continuedStartBuilder_ != null)) {
-        return continuedStartBuilder_.getMessageOrBuilder();
-      } else {
-        if (startOrContinueCase_ == 11) {
-          return (io.superdurable.gen.FlowContinuedStart) startOrContinue_;
-        }
-        return io.superdurable.gen.FlowContinuedStart.getDefaultInstance();
-      }
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new and never sets this.
-     * </pre>
-     *
-     * <code>.dex.FlowContinuedStart continued_start = 11;</code>
-     */
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowContinuedStart, io.superdurable.gen.FlowContinuedStart.Builder, io.superdurable.gen.FlowContinuedStartOrBuilder> 
-        internalGetContinuedStartFieldBuilder() {
-      if (continuedStartBuilder_ == null) {
-        if (!(startOrContinueCase_ == 11)) {
-          startOrContinue_ = io.superdurable.gen.FlowContinuedStart.getDefaultInstance();
-        }
-        continuedStartBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.FlowContinuedStart, io.superdurable.gen.FlowContinuedStart.Builder, io.superdurable.gen.FlowContinuedStartOrBuilder>(
-                (io.superdurable.gen.FlowContinuedStart) startOrContinue_,
-                getParentForChildren(),
-                isClean());
-        startOrContinue_ = null;
-      }
-      startOrContinueCase_ = 11;
-      onChanged();
-      return continuedStartBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.FlowStartedOrContinuedHistoryEvent)

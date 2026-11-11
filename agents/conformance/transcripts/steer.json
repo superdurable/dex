@@ -262,6 +262,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Email the customer.\"}",
+            "images": [],
             "role": "user",
             "sequence": 1,
             "text": "Email the customer.",
@@ -274,6 +275,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"send_email\\\",\\\"arguments\\\":\\\"{\\\\\\\"to\\\\\\\": \\\\\\\"customer@example.com\\\\\\\", \\\\\\\"body\\\\\\\": \\\\\\\"Your refund\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\",\"arguments\":\"{\\\"to\\\": \\\"customer@example.com\\\", \\\"body\\\": \\\"Your refund\\\"}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 2,
             "text": null,
@@ -286,6 +288,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\",\"output\":\"{\\\"status\\\":\\\"cancelled\\\",\\\"reason\\\":\\\"superseded_by_steered_user_message\\\"}\"}",
+            "images": [],
             "role": "tool",
             "sequence": 3,
             "text": null,
@@ -298,6 +301,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Never mind, look up order 8.\"}",
+            "images": [],
             "role": "user",
             "sequence": 4,
             "text": "Never mind, look up order 8.",
@@ -310,6 +314,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-2-0\\\",\\\"name\\\":\\\"lookup_order\\\",\\\"arguments\\\":\\\"{\\\\\\\"query\\\\\\\": \\\\\\\"8\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-2-0\",\"tool_name\":\"lookup_order\",\"arguments\":\"{\\\"query\\\": \\\"8\\\"}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 5,
             "text": null,
@@ -322,6 +327,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-2-0\",\"tool_name\":\"lookup_order\",\"output\":\"order 8: shipped\"}",
+            "images": [],
             "role": "tool",
             "sequence": 6,
             "text": null,
@@ -334,6 +340,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Order 8 is packed.\\\"}\",\"text\":\"Order 8 is packed.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 7,
             "text": "Order 8 is packed.",

@@ -12,15 +12,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use dex_sdk::{
-    Client, Flow, FlowStatus, Registry, StartFlowOptions, Step, StepExecutionId, StopFlowOptions,
-    SubFlowReusePolicy, TimeTravelOptions, TimerId,
+    Client, Flow, FlowStatus, Registry, Step, StepExecutionId, StopFlowOptions, SubFlowReusePolicy,
+    TimeTravelOptions, TimerId,
 };
 
 use crate::basic_abnormal_exit_workflow::BasicAbnormalExitWorkflow;
 use crate::basic_workflow::BasicWorkflow;
 use crate::subflow_workflow::{
-    AbnormalSubFlowParent, AllSubFlowParent, AnySubFlowParent, ContinueAsNewSubFlowParent,
-    SingleSubFlowParent, TimerSubFlowParent,
+    AbnormalSubFlowParent, AllSubFlowParent, AnySubFlowParent, SingleSubFlowParent,
+    TimerSubFlowParent,
 };
 use crate::support::{DexDevTestEnvironment, flow_id, skip_timer_when_pending};
 use crate::timer_workflow::{TimerStep, TimerWorkflow};
@@ -121,57 +121,6 @@ fn test_subflow_default_reuse_restarts_failed_execution_across_parent_reset() {
     );
 }
 
-#[test]
-#[ignore = "server-zd never continues a run as new"]
-fn test_subflow_partial_results_survive_continue_as_new_without_restart() {
-    // C3: server-zd never continues a run as new.
-    let parent = ContinueAsNewSubFlowParent::new();
-    let id = flow_id("sub-flow-can");
-    let completed_id = sub_flow_id(&id, &parent.start, 0);
-    let delayed_id = sub_flow_id(&id, &parent.start, 1);
-    let environment = environment(registry3(
-        parent,
-        BasicWorkflow::new(),
-        TimerWorkflow::new(),
-    ));
-    let parent = ContinueAsNewSubFlowParent::new();
-    let first_parent_run_id = environment
-        .client
-        .start_flow_with_options(
-            &parent,
-            &id,
-            4,
-            StartFlowOptions::new()
-                .config_override(dex_sdk::FlowConfig::new().continue_as_new_threshold(1)),
-        )
-        .unwrap();
-    await_different_run(&environment.client, &id, &first_parent_run_id);
-    let completed_run_id = environment
-        .client
-        .describe_flow(&completed_id)
-        .unwrap()
-        .run_id;
-    skip_timer_when_pending(
-        &environment.client,
-        &delayed_id,
-        StepExecutionId::of(&TimerStep),
-        TimerId::by_condition_id("test-timer-id"),
-    );
-    let output: String = wait(&environment.client, &id).single_output().unwrap();
-    assert_eq!(
-        vec![completed_id.as_str(), "6", delayed_id.as_str(), "Completed"],
-        output.split('|').collect::<Vec<_>>()
-    );
-    assert_eq!(
-        completed_run_id,
-        environment
-            .client
-            .describe_flow(&completed_id)
-            .unwrap()
-            .run_id
-    );
-}
-
 fn assert_running_reuse(reuse_policy: SubFlowReusePolicy, expects_restart: bool) {
     let parent = TimerSubFlowParent::new(reuse_policy);
     let id = flow_id("sub-flow-reuse");
@@ -224,14 +173,6 @@ fn registry2<First: Flow, Second: Flow>(
         .and_then(|registry| registry.register(second))
 }
 
-fn registry3<First: Flow, Second: Flow, Third: Flow>(
-    first: First,
-    second: Second,
-    third: Third,
-) -> dex_sdk::SdkResult<Registry> {
-    registry2(first, second).and_then(|registry| registry.register(third))
-}
-
 fn wait(client: &Client, flow_id: &str) -> dex_sdk::FlowResult {
     client
         .wait_for_flow_with_timeout(flow_id, Duration::from_secs(30))
@@ -250,22 +191,6 @@ fn await_running(client: &Client, flow_id: &str, excluded_run_id: Option<&str>) 
         thread::yield_now();
     }
     panic!("SubFlow did not reach expected running execution: {flow_id}");
-}
-
-fn await_different_run(client: &Client, flow_id: &str, first_run_id: &str) {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while Instant::now() < deadline {
-        if client
-            .describe_flow(flow_id)
-            .expect("the SubFlow integration fixture completes the requested operation")
-            .run_id
-            != first_run_id
-        {
-            return;
-        }
-        thread::yield_now();
-    }
-    panic!("Flow did not continue as new: {flow_id}");
 }
 
 fn sub_flow_id<SomeStep: Step>(parent_flow_id: &str, step: &SomeStep, index: usize) -> String {

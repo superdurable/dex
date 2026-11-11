@@ -36,6 +36,8 @@ from dex import (
 )
 
 
+# dex:group group-id:work group-label:"Work"
+# dex:explanation text:"Do the work and hand off to manual recovery after the retries fail."
 class DoWork(Step[bool]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -53,6 +55,8 @@ class DoWork(Step[bool]):
         return graceful_complete("work completed")
 
 
+# dex:group group-id:manual-recovery group-label:"Manual recovery"
+# dex:explanation text:"Wait for an operator to retry the work or skip it."
 class Manual(Step[bool]):
     def __init__(
         self,
