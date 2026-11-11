@@ -46,7 +46,7 @@ public final class JoinRound {
      *
      * <p>Applications normally receive rounds from {@link Join#fork} or
      * {@link Join#forkWithRoundKey}. Construct one directly only when an RPC must report for a
-     * known round, for example to report a result on behalf of a canceled branch. The Join methods
+     * known round that it forked with an explicit key. The Join methods
      * validate the values when they use the round, not here, so decoding stored input never fails
      * because of them.
      *

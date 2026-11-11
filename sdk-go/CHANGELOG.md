@@ -104,6 +104,9 @@
 
 ### Fixed
 
+- The Join documentation no longer recommends reporting a result for a cancelled
+  branch from the cancelling RPC, which could count that branch twice.
+
 - Limit LoadBlobs requests to 1000 entries, preserving input order when hydrating
   more values with history offload enabled.
 

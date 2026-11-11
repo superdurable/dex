@@ -10,11 +10,15 @@ This page lists user-visible changes to the TypeScript SDK, newest first; each s
 
 ## 1.45 {#v1-45}
 
-Not released yet. The next minor release, sdk-typescript/v1.45.0, ships these changes.
+Not released yet. The next release, sdk-typescript/v1.45.0, ships these changes.
 
 ### Breaking
 
 - A Step whose Step type contains "-" can no longer start SubFlows. The generated child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash let two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the server rejects the result as an invalid Worker response and fails the attempt without retry; under the default policy the Flow fails. The Worker logs a warning that names the Step type. To migrate, rename the Step type that **getStepType** returns so it has no "-". Step types with "-" that never start SubFlows are unaffected. [Reference](/reference/typescript/subflow#step-types-that-start-subflows).
+
+### Fixed
+
+- The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [Reference](/reference/typescript/waits).
 
 ## 1.44 {#v1-44}
 
@@ -91,15 +95,15 @@ Released 2026-11-06 as [sdk-typescript/v1.35.0](https://github.com/superdurable/
 
 - Workers and the Client’s first call now require server-zd 0.1.17 or later (protocol version 4). Upgrade all server processes before upgrading the SDK. [Reference](/reference/server/upgrades).
 - Worker startup fails when **maxConcurrentTasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/typescript/workers#capacity-and-shutdown).
-- **RetryPolicy.totalDurationMs** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/typescript/1.35/interfaces/RetryPolicy.html#totaldurationms).
+- **RetryPolicy.totalDurationMs** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/typescript/latest/interfaces/RetryPolicy.html#totaldurationms).
 - A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
 - A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/typescript/failure-and-retries#same-attempt-redelivery).
 
 ### Added
 
-- **RecoveryErrorInfo.attemptProgress** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/typescript/1.35/interfaces/RecoveryErrorInfo.html).
-- **declareRPCMethod** declares RPC handlers without decorators. **RPCMethodName** checks eligible method names at compile time. [API reference](pathname:///api/typescript/1.35/functions/declareRPCMethod.html).
-- **flowServiceTls** on Client and Worker options enables verified TLS, with optional **additionalRootCAsPem** and **serverName**. Omitting it keeps plaintext connections. [API reference](pathname:///api/typescript/1.35/interfaces/FlowServiceTlsOptions.html).
+- **RecoveryErrorInfo.attemptProgress** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/typescript/latest/interfaces/RecoveryErrorInfo.html).
+- **declareRPCMethod** declares RPC handlers without decorators. **RPCMethodName** checks eligible method names at compile time. [API reference](pathname:///api/typescript/latest/functions/declareRPCMethod.html).
+- **flowServiceTls** on Client and Worker options enables verified TLS, with optional **additionalRootCAsPem** and **serverName**. Omitting it keeps plaintext connections. [API reference](pathname:///api/typescript/latest/interfaces/FlowServiceTlsOptions.html).
 
 ### Changed
 
@@ -133,6 +137,6 @@ Released 2026-10-31 as [sdk-typescript/v1.29.0](https://github.com/superdurable/
 ### Added
 
 - Generated history responses expose the pruned event range and first retained event ID. Step event contexts also carry related event IDs and the WaitFor completion time. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.29.0).
-- **Client.getAttributes** reads committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap.instance** selects an instance, and results form a typed tuple in read order. [API reference](pathname:///api/typescript/1.29/classes/Client.html).
+- **Client.getAttributes** reads committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap.instance** selects an instance, and results form a typed tuple in read order. [API reference](pathname:///api/typescript/latest/classes/Client.html).
 
 Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=sdk-typescript&expanded=true).
