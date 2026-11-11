@@ -86,13 +86,16 @@ describe("local file access of the Pi tools", () => {
     assert.deepEqual(outputFiles().filter((name) => !filesBefore.has(name)), []);
   });
 
-  test("an ancestor's context file that is a link is skipped, and a workspace link to a sibling loads", async () => {
+  test("an ancestor's own link to a sibling loads, and a link into its subtree is skipped", async () => {
     const root = newRoot();
-    const workspace = join(root, "workspace");
+    const repository = join(root, "repository");
+    const workspace = join(repository, "packages", "app");
     mkdirSync(join(root, "sub"), { recursive: true });
-    mkdirSync(workspace);
+    mkdirSync(workspace, { recursive: true });
     writeFileSync(join(root, "sub", "rules.md"), "Subtree rules.\n");
     symlinkSync(join(root, "sub", "rules.md"), join(root, "AGENTS.md"));
+    writeFileSync(join(repository, "CLAUDE.md"), "Repository rules.\n");
+    symlinkSync("CLAUDE.md", join(repository, "AGENTS.md"));
     writeFileSync(join(workspace, "rules.md"), "Workspace rules.\n");
     symlinkSync(join(workspace, "rules.md"), join(workspace, "AGENTS.md"));
     const warnings: string[] = [];
@@ -100,9 +103,9 @@ describe("local file access of the Pi tools", () => {
     const files = await loader.load();
     assert.deepEqual(
       files.map((file) => file.content),
-      ["Workspace rules.\n"],
+      ["Repository rules.\n", "Workspace rules.\n"],
     );
-    assert.match(warnings.join("\n"), new RegExp(`${root}/AGENTS\\.md: it is a link in a directory above the workspace`));
+    assert.match(warnings.join("\n"), new RegExp(`${root}/AGENTS\\.md: it resolves to .*outside its directory`));
   });
 
   test("an ancestor's context file of another user is skipped; the workspace's is not checked", async (context) => {
@@ -116,6 +119,11 @@ describe("local file access of the Pi tools", () => {
     mkdirSync(workspace);
     writeFileSync(join(root, "AGENTS.md"), "Shared directory instructions.\n");
     writeFileSync(join(workspace, "AGENTS.md"), "Workspace instructions.\n");
+    const parent = join(root, "parent");
+    mkdirSync(join(parent, "workspace"), { recursive: true });
+    writeFileSync(join(parent, "CLAUDE.md"), "Linked instructions.\n");
+    symlinkSync("CLAUDE.md", join(parent, "AGENTS.md"));
+    writeFileSync(join(parent, "workspace", "AGENTS.md"), "Nested workspace instructions.\n");
     const warnings: string[] = [];
     // The loader acts for another user, so the current user's ancestor file counts as foreign.
     const loader = new ProjectContextFiles(workspace, join(root, "agent"), (line) => warnings.push(line), currentUserId + 12_345);
@@ -125,5 +133,22 @@ describe("local file access of the Pi tools", () => {
       ["Workspace instructions.\n"],
     );
     assert.match(warnings.join("\n"), new RegExp(`${root}/AGENTS\\.md: it belongs to user ${currentUserId}, not to you or root`));
+
+    // A link that another user owns is skipped before its target is read.
+    const linkWarnings: string[] = [];
+    const linkLoader = new ProjectContextFiles(
+      join(parent, "workspace"),
+      join(root, "agent"),
+      (line) => linkWarnings.push(line),
+      currentUserId + 12_345,
+    );
+    assert.deepEqual(
+      (await linkLoader.load()).map((file) => file.content),
+      ["Nested workspace instructions.\n"],
+    );
+    assert.match(
+      linkWarnings.join("\n"),
+      new RegExp(`${parent}/AGENTS\\.md: it is a link that belongs to user ${currentUserId}, not to you or root`),
+    );
   });
 });

@@ -46,9 +46,10 @@ interface ContextDirectory {
  *
  * The real path of each directory is pinned the first time the loader sees it and never derived again. A candidate
  * loads only when its real path is directly in its pinned directory: a link to a file elsewhere, even below that
- * directory, is skipped, as is a file with more than one hard link. In an ancestor of the workspace, a candidate
- * that is a link is skipped, and a file must belong to the current user or root, so another user's file in a shared
- * directory such as `/tmp` never reaches the instructions. Each skipped file is reported once through `warn`.
+ * directory, is skipped, as is a file with more than one hard link. In an ancestor of the workspace, both the file
+ * and, for a link such as `AGENTS.md -> CLAUDE.md`, the link itself must belong to the current user or root, so
+ * another user's file or link in a shared directory such as `/tmp` never reaches the instructions. Each skipped file
+ * is reported once through `warn`.
  *
  * @since 0.5.0
  */
@@ -104,12 +105,7 @@ export class ProjectContextFiles {
       if (candidate === undefined) {
         continue;
       }
-      if (candidate.isSymbolicLink && directory.isOwnershipChecked) {
-        // Another user may own the link while its target is ours, so links above the workspace never load.
-        this.warnOnce(candidate.path, "it is a link in a directory above the workspace");
-        continue;
-      }
-      const file = await this.readCandidate(candidate.path, directory);
+      const file = await this.readCandidate(candidate, directory);
       if (file !== undefined) {
         loaded.push(file);
       }
@@ -118,7 +114,7 @@ export class ProjectContextFiles {
   }
 
   /** Returns the first context file in a directory that is a regular file or a link to one. */
-  private async findCandidate(directory: string): Promise<{ path: string; isSymbolicLink: boolean } | undefined> {
+  private async findCandidate(directory: string): Promise<string | undefined> {
     for (const name of contextFileNames) {
       const path = join(directory, name);
       const entry = await lstat(path).catch(() => undefined);
@@ -128,7 +124,7 @@ export class ProjectContextFiles {
       // stat never blocks, even on a FIFO, and follows a link to see what it names.
       const target = entry.isSymbolicLink() ? await stat(path).catch(() => undefined) : entry;
       if (target?.isFile() === true) {
-        return { path, isSymbolicLink: entry.isSymbolicLink() };
+        return path;
       }
     }
     return undefined;
@@ -141,6 +137,14 @@ export class ProjectContextFiles {
       return undefined;
     }
     try {
+      if (directory.isOwnershipChecked) {
+        // Another user may own a link whose target is ours, so the link's owner counts too.
+        const link = await lstat(candidate);
+        if (link.isSymbolicLink() && !this.isOwnerAllowed(link.uid)) {
+          this.warnOnce(candidate, `it is a link that belongs to user ${link.uid}, not to you or root`);
+          return undefined;
+        }
+      }
       const realPath = await realpath(candidate);
       if (dirname(realPath) !== scope.realPath) {
         this.warnOnce(candidate, `it resolves to ${realPath}, outside its directory ${scope.realPath}`);
@@ -152,18 +156,19 @@ export class ProjectContextFiles {
         this.warnOnce(candidate, "it changed while it was read");
         return undefined;
       }
-      if (directory.isOwnershipChecked && this.ownerUserId !== undefined) {
-        const ownerId = version.stats.uid;
-        if (ownerId !== this.ownerUserId && ownerId !== 0) {
-          this.warnOnce(candidate, `it belongs to user ${ownerId}, not to you or root`);
-          return undefined;
-        }
+      if (directory.isOwnershipChecked && !this.isOwnerAllowed(version.stats.uid)) {
+        this.warnOnce(candidate, `it belongs to user ${version.stats.uid}, not to you or root`);
+        return undefined;
       }
       return { path: candidate, content: bytes.toString("utf8").replace(/^﻿/, "") };
     } catch (error: unknown) {
       this.warnOnce(candidate, error instanceof Error ? error.message : String(error));
       return undefined;
     }
+  }
+
+  private isOwnerAllowed(ownerId: number): boolean {
+    return this.ownerUserId === undefined || ownerId === this.ownerUserId || ownerId === 0;
   }
 
   /** Pins a directory's current real path once; a missing directory stays unpinned until it exists. */

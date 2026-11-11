@@ -89,8 +89,8 @@ for the Dex SDK and framework versions each release supports.
   themselves, without `rg` or `fd`; `grep` skips files over 1 MiB, and each
   call of either has a 10-second budget. Each model call adds the project's
   `AGENTS.md` files unless `pi.load_project_context` is `false`: a file loads
-  only directly in its own directory, a file above the workspace must belong
-  to you or root, and a link above the workspace never loads. See
+  only directly in its own directory, and above the workspace the file, and a
+  link to it, must belong to you or root. See
   [cli/typescript/pi](cli/typescript/pi/README.md).
 - TypeScript CLI runtime: **WorkspaceFiles**, the workspace file layer of the
   local file tools, is exported for harnesses that bring their own file tools,

@@ -99,10 +99,10 @@ elsewhere cannot authorize the new place. A file loads only when its real path
 is directly in its pinned directory: a link to another file in the same
 directory loads, but a link elsewhere, even below that directory, such as
 `~/.pi/agent/AGENTS.md` linked to a dotfiles repository, is skipped. A file
-with more than one hard link is skipped. In a directory above the workspace, a
-candidate that is a link is never loaded, and a file must belong to you or to
-root, so another user's file in a shared directory such as `/tmp` never
-reaches the instructions. Each skipped file
+with more than one hard link is skipped. In a directory above the workspace,
+the file, and for a link such as `AGENTS.md -> CLAUDE.md` the link too, must
+belong to you or to root, so another user's file or link in a shared directory
+such as `/tmp` never reaches the instructions. Each skipped file
 prints one warning. This holds whatever `local_tools.files` says.
 
 ## Tools and approvals
