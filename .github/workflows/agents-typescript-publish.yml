@@ -170,7 +170,7 @@ jobs:
           for package in dex-agents dex-agents-vercel-ai dex-agents-openai-agents \
             dex-agents-mastra dex-agents-claude-agent-sdk dex-agents-pi \
             dex-agents-cli dex-agents-claude-sdk-cli dex-agents-openai-sdk-cli \
-            dex-agents-vercel-ai-cli dex-agents-mastra-cli dex-agents-builtin-cli; do
+            dex-agents-vercel-ai-cli dex-agents-mastra-cli dex-agents-builtin-cli dex-agents-pi-cli; do
             tarball="./dist/superdurable-${package}-${RELEASE_VERSION}.tgz"
             [[ -f "${tarball}" ]] || { echo "Missing ${tarball}" >&2; exit 1; }
             if npm view "@superdurable/${package}@${RELEASE_VERSION}" version >/dev/null 2>&1; then

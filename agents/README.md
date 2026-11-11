@@ -42,6 +42,7 @@ adapter depends on the published core instead.
 | [`cli/typescript/mastra`](cli/typescript/mastra) | `@superdurable/dex-agents-mastra-cli`, not published yet | The `dex-agents-mastra` command: a Mastra agent in the terminal |
 | [`cli/typescript/builtin`](cli/typescript/builtin) | `@superdurable/dex-agents-builtin-cli`, not published yet | The `dex-agents-builtin` command: the Dex built-in agent loop without a framework in the terminal |
 | [`typescript/pi`](typescript/pi) | `@superdurable/dex-agents-pi`, not published yet | Pi: pi-ai models and Pi tools on the built-in agent loop, so Dex runs the loop, not Pi |
+| [`cli/typescript/pi`](cli/typescript/pi) | `@superdurable/dex-agents-pi-cli`, not published yet | The `dex-agents-pi` command: a Pi coding agent in the terminal |
 
 ## UI streams
 
@@ -184,7 +185,7 @@ publish the released commit even if `main` has moved on.
 Both workflows stamp the release version first with
 [`script/stamp_agents_release_version.py`](script/stamp_agents_release_version.py).
 It sets one version in all fourteen `pyproject.toml` files (the thirteen
-published ones and `dex-agents-cli-testing`) and twelve `package.json`
+published ones and `dex-agents-cli-testing`) and thirteen `package.json`
 files, their lockfiles, and every constraint between agents packages: the
 adapters' on their core, and the CLI packages' on the core, their adapter,
 and the CLI runtime. Python pins `==<version>`; npm peer-depends on

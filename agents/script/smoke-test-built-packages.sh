@@ -48,7 +48,7 @@ python_library_packages=(core openai-agents pydantic-ai langgraph google-adk cla
 python_cli_packages=(cli/runtime cli/claude-sdk cli/openai-sdk cli/pydantic-ai cli/deepagents cli/google-adk cli/builtin)
 python_packages=("${python_library_packages[@]}" "${python_cli_packages[@]}")
 typescript_library_packages=(core vercel-ai openai-agents mastra claude-agent-sdk pi)
-typescript_cli_packages=(cli/runtime cli/claude-sdk cli/openai-sdk cli/vercel-ai cli/mastra cli/builtin)
+typescript_cli_packages=(cli/runtime cli/claude-sdk cli/openai-sdk cli/vercel-ai cli/mastra cli/builtin cli/pi)
 typescript_packages=("${typescript_library_packages[@]}" "${typescript_cli_packages[@]}")
 
 run_python() {
