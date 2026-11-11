@@ -26,6 +26,15 @@
       "dex-examples-rust"
     ]
   },
+  "examples/rust/quick-start": {
+    "layers": {
+      "dex-quick-start": 0
+    },
+    "ffi_crates": [],
+    "print_crates": [
+      "dex-quick-start"
+    ]
+  },
   "s3local": {
     "layers": {
       "s3local": 0,

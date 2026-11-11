@@ -1,0 +1,23 @@
+{
+  "name": "@superdurable/dex-example-quick-start",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The Dex Quick Start: charge, wait on a Timer, then ship",
+  "type": "module",
+  "engines": {
+    "node": "^22.18.0 || ^24.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "worker": "node worker.ts",
+    "start-flow": "node start.ts",
+    "test": "node --test --test-force-exit test/quick-start.test.ts"
+  },
+  "dependencies": {
+    "@superdurable/dex": "1.44.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
