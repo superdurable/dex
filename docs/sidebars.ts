@@ -42,7 +42,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'agent-frameworks/quick-start',
         'agent-frameworks/tools-and-approvals',
-        'agent-frameworks/any-other-framework',
         'agent-frameworks/built-in-agent-loop',
       ],
     },
