@@ -63,6 +63,7 @@ export {
   type ToolTaskPollOutcome,
   type ToolTaskStarted,
   type TurnCompleted,
+  type TurnContinued,
   type ToolCallsRequested,
 } from "./agent-framework-runner.js";
 export { LocalDirectoryMediaStore } from "./agent-local-directory-media-store.js";

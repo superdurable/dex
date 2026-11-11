@@ -45,6 +45,13 @@ compaction, tool tasks, the MCP tool source, GenAI spans, UI streams, and
 framework adapters. Use the Python or TypeScript core for an agent that needs
 any of them.
 
+Not supported yet: the built-in loop hook that ends or continues a turn at
+the end of each loop iteration (`decideTurnContinuation` in TypeScript,
+`decide_turn_continuation` in Python), and the `TurnContinued` runner outcome
+and `TurnCompleted` turn error behind it. A Go `RunModel` that takes over a
+continued turn ignores the extra run state key and makes the next model call,
+with the continuation message as the last user text.
+
 ### One language per Flow type
 
 Serve each agent Flow type with Workers of one language. Dex routes every
@@ -246,6 +253,11 @@ accept `SessionSettingsSizeToleranceBytes` (1 KiB) more, and a start beyond
 that fails the session at once, with no retry, with a reason that starts with
 `InvalidStartSessionSettingsReason`. Start sessions with settings only after
 every Worker of the Flow type runs 0.2.0. JSON numbers decode as `float64`.
+
+`AgentSessionStartInput.StartEnvironment` is different: string keys and values
+that say where the starting program ran. Set it through `Client.StartFlow`. It
+stays in the Flow's start input and the session never reads it, so it is not a
+setting and cannot change.
 
 ## The runner contract
 

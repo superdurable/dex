@@ -60,6 +60,7 @@ async def test_tty_without_a_config_asks_the_init_questions_then_chats(cli_home:
             "web_fetch": False,
             "browser": False,
         },
+        "media": {"store": "auto"},
     }
 
 

@@ -13,6 +13,7 @@ mod attribute_indexes;
 mod authentication;
 mod client_deadline;
 mod flow_coordinator_operations;
+mod flow_definitions;
 mod flow_operation_error;
 mod flow_operations;
 mod flow_service;
@@ -31,6 +32,7 @@ pub use authentication::{
     EndpointUrlError, JwtAuthenticatorConfig, PublicApiAuthenticator, check_endpoint_url,
 };
 pub use client_deadline::{CLIENT_DEADLINE_ANSWER_MARGIN, ClientDeadline};
+pub use flow_definitions::{FlowDefinitions, FlowDefinitionsConfig};
 pub use flow_operation_error::FlowOperationError;
 pub use flow_operations::FlowOperations;
 pub use flow_service::{

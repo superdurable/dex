@@ -9,6 +9,8 @@
 use std::any::TypeId;
 use std::time::Duration;
 
+use dex_protocol::dex::WaitingCondition;
+
 use crate::start_flow_options::InitialAttribute;
 use crate::wait::SubFlowDefinition;
 use crate::{
@@ -158,6 +160,20 @@ impl Default for SubFlowOptions {
 /// a child's abnormal terminal status is a result rather than a local value-mapping error.
 /// Result indexes are zero-based within the SubFlow Conditions, not all Condition kinds.
 ///
+/// Dex generates each child Flow ID as `SubFlow:{parent Flow ID}-{Step execution ID}-{index}`.
+/// The Step execution ID is `{Step type}-{n}`.
+/// Because these parts are joined with `-`, only a Step whose Step type contains no `-` can start
+/// SubFlows.
+/// When a Step whose Step type contains `-` returns a Wait with a SubFlow Condition, the Worker
+/// sends the result unchanged and logs a warning.
+/// The server rejects that result as an invalid Worker response.
+/// It fails the `wait_for` attempt without retry, so under the default policy the Flow fails.
+/// Rename the Step type, for example by overriding [`crate::Step::step_type`], to start
+/// SubFlows from it.
+///
+/// Changed in 1.45.0: a Step whose Step type contains `-` can no longer start SubFlows, because
+/// two different parents could otherwise generate the same child Flow ID.
+///
 /// ```no_run
 /// use dex_sdk::{Flow, SdkResult, SubFlow, SubFlowOptions, Wait};
 /// use std::time::Duration;
@@ -175,6 +191,10 @@ impl SubFlow {
     /// # Errors
     ///
     /// Returns a value-mapping error when `input` cannot be encoded.
+    /// The server rejects the SubFlow and fails the `wait_for` attempt without retry when the
+    /// current Step type contains `-`. See [`SubFlow`] for this rule.
+    ///
+    /// Changed in 1.45.0: a Step whose Step type contains `-` can no longer start SubFlows.
     pub fn run<SomeFlow: Flow>(
         flow: &SomeFlow,
         input: SomeFlow::StartInput,
@@ -188,6 +208,10 @@ impl SubFlow {
     ///
     /// Returns a value-mapping error when `input` cannot be encoded. Worker mapping later validates
     /// the exact registered Rust Flow type, starting Step, Attributes, and option durations.
+    /// The server rejects the SubFlow and fails the `wait_for` attempt without retry when the
+    /// current Step type contains `-`. See [`SubFlow`] for this rule.
+    ///
+    /// Changed in 1.45.0: a Step whose Step type contains `-` can no longer start SubFlows.
     pub fn run_with_options<SomeFlow: Flow>(
         flow: &SomeFlow,
         input: SomeFlow::StartInput,
@@ -241,3 +265,25 @@ impl SubFlow {
         context.sub_flow_id(index)
     }
 }
+
+/// Warns when a dashed Step type starts SubFlows; the server rejects them without retry.
+pub(crate) fn warn_dashed_sub_flow_step_type(
+    step_type: &str,
+    condition: Option<WaitingCondition>,
+) -> Option<WaitingCondition> {
+    let has_sub_flows = condition
+        .as_ref()
+        .is_some_and(|condition| !condition.sub_flow_conditions.is_empty());
+    if has_sub_flows && step_type.contains('-') {
+        tracing::warn!(
+            step_type,
+            "a Step type that contains '-' cannot start SubFlows; the server rejects this result \
+             without retry; rename the Step type"
+        );
+    }
+    condition
+}
+
+#[cfg(test)]
+#[path = "sub_flow_tests.rs"]
+mod tests;

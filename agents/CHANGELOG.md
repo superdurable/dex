@@ -1,10 +1,30 @@
 # Changelog
 
-All twelve Dex agents packages share this changelog and one version line. A
+All twenty-five published Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
-## Unreleased
+## 0.5.0 (not released yet)
+
+### Dex SDK 1.44.0
+
+- Every package requires Dex SDK 1.44.0 (`dex-python-sdk==1.44.0`,
+  `@superdurable/dex` `1.44.0`, Go `sdk-go` `v1.44.0`) instead of 1.38.0, so an
+  application can use the SDK's **Join** helper with the agents packages
+  without overriding the SDK version. The npm adapters peer-depend on
+  `@superdurable/dex` `1.44.0`.
+- The SDK pin stays exact, because an SDK minor release may break APIs that
+  an application shares with the agents packages. The agents packages use
+  none of the APIs that SDK 1.43.0 removed. Before upgrading, read the
+  breaking changes of SDK 1.43 in the
+  [Python](../docs/reference/python/changelog.mdx),
+  [TypeScript](../docs/reference/typescript/changelog.mdx), and
+  [Go](../docs/reference/go/changelog.mdx) SDK change logs.
+- Dex SDK 1.44.0 still needs a Dex Server with protocol 4: server-zd v0.1.17
+  or later.
+- Agents CI, the nightly long run, and the publish workflows test against
+  `dexcli` 1.44.0. The Python and TypeScript CLI runtimes download `dexcli`
+  1.44.0 when none is installed.
 
 ### Dex MCP conventions
 
@@ -76,14 +96,68 @@ for the Dex SDK and framework versions each release supports.
   has the command, file tools stay in the workspace, and the tool Step checks an
   approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
   [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
+- The **dex-agents-pi** command (`@superdurable/dex-agents-pi-cli`, not
+  published yet): a Pi coding agent in the terminal on the shared CLI runtime,
+  where Dex runs the agent loop and pi-ai makes each model call. The model is
+  `<provider>/<model>` from pi-ai's catalog, and the key comes only from the
+  provider's API key variable. pi-coding-agent's `read`, `grep`, `find`, `ls`,
+  `write`, `edit`, and `bash` replace the runtime's file and shell tools, with
+  the same rules: their file access goes through the runtime's workspace file
+  layer. `bash` has the shell tool's 120-second default timeout
+  (`pi.bash_timeout_seconds`) and its 600-second maximum, and a command that
+  ran is a result with its exit status. `grep` and `find` walk the workspace
+  themselves, without `rg` or `fd`; `grep` skips files over 1 MiB, and each
+  call of either has a 10-second budget. Each model call adds the project's
+  `AGENTS.md` files unless `pi.load_project_context` is `false`: a file loads
+  only directly in its own directory, and above the workspace the file, and a
+  link to it, must belong to you or root. See
+  [cli/typescript/pi](cli/typescript/pi/README.md).
+- TypeScript CLI runtime: **WorkspaceFiles**, the workspace file layer of the
+  local file tools, is exported for harnesses that bring their own file tools,
+  with new methods **readFileWithVersion** (with an optional smaller
+  **maximumBytes**), **replaceFileIfUnchanged**, **statExisting**, and
+  **readDirectoryEntries**. A refusal throws the new
+  **WorkspaceFileRefusedError**, a `ToolExecutionError` thrown before anything
+  changed. See
+  [cli/typescript/runtime](cli/typescript/runtime/README.md#the-harness-interface).
+- TypeScript CLI runtime: `read_file`, `edit_file`, and `search_files` open
+  files without blocking, so a FIFO in the workspace fails at once as not a
+  regular file, or is skipped by a search, instead of hanging the call, as in
+  the Python runtime.
+- Python commands for the other harnesses, not published yet, on the shared
+  CLI runtime: **dex-agents-openai-sdk** (OpenAI Agents SDK),
+  **dex-agents-pydantic-ai** (Pydantic AI), **dex-agents-deepagents** (Deep
+  Agents on the LangGraph adapter), **dex-agents-google-adk** (Google ADK), and
+  **dex-agents-builtin** (the Dex built-in agent loop on LiteLLM). Each uses the
+  runtime's local and connector tools, so every tool call is its own Dex tool
+  Step with the runtime's policy, and each model call uses its turn's model and
+  instructions. Provider keys come only from each provider's standard
+  environment variables. The configuration file's `langgraph` section is now
+  `deepagents`. See [cli/python](cli/python).
+- The TypeScript **dex-agents-openai-sdk**, **dex-agents-vercel-ai**,
+  **dex-agents-mastra**, and **dex-agents-builtin** commands
+  (`@superdurable/dex-agents-<name>-cli`), not published yet: an OpenAI Agents
+  SDK, Vercel AI SDK, Mastra, or built-in loop agent in the terminal on the shared
+  CLI runtime, with its connector and local tools. Each turn uses the model and
+  instructions its session settings resolve to. Provider keys come from each
+  provider's standard environment variables, such as `OPENAI_API_KEY`. See
+  [cli/typescript/openai-sdk](cli/typescript/openai-sdk/README.md),
+  [vercel-ai](cli/typescript/vercel-ai/README.md),
+  [mastra](cli/typescript/mastra/README.md), and
+  [builtin](cli/typescript/builtin/README.md).
+- TypeScript CLI runtime: a harness whose runner fixes its tools when the Flow
+  is built sets **AgentHarness.isToolSetFixedAtBuild**. The runtime then lists
+  the file's connector tools before building the Flow and, when the connectors
+  MCP server does not answer at startup, says that a restart brings them back.
+  See [cli/typescript/runtime](cli/typescript/runtime/README.md#connectors).
 - Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
   (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
   Claude Code CLI from its input. It returns a **ToolPolicy** for that call,
   **ClaudeCodeToolDenial** to refuse it, or nothing for the session's policies,
   so `Bash` can run allow-listed commands without approval. See
   [Per-call decisions for Claude Code tools](python/claude-agent-sdk/README.md#per-call-decisions-for-claude-code-tools).
-- New npm package `@superdurable/dex-agents-pi` (not published yet) runs Pi
-  agents on the Stepwise session Flow. Dex runs the agent loop; pi-ai makes
+- New npm package `@superdurable/dex-agents-pi`, first published in 0.5.0, runs
+  Pi agents on the built-in agent loop's session Flow. Dex runs the agent loop; pi-ai makes
   each model call and Pi tools run as Dex tool Steps. It peer-depends on
   `@earendil-works/pi-ai@^1.5.1`, tested with 1.5.1.
   **createPiAiModelClient(model, { apiKey, headers, prepareRequest })** makes
@@ -96,6 +170,32 @@ for the Dex SDK and framework versions each release supports.
   fails when the definition is built. **piDurableFunctionTool(tool, { effect })**
   wraps a `pi-durable` tool that does not use the Harness `api`. See
   [typescript/pi](typescript/pi/README.md).
+- Python, TypeScript, and Go cores: **AgentSessionStartInput** has an optional
+  `start_environment` (`startEnvironment`, `StartEnvironment`), string keys and
+  values that say where the program that started the session ran. The session
+  never reads it; it stays in the Flow's start input. Python
+  `AgentSessionClient.start_session` and TypeScript `startAgentSession` take
+  it. Workers before 0.5.0 ignore it. The CLI runtimes record their host name,
+  user ID and user name, configuration identity, and workspace there.
+- Python and TypeScript cores: new **ToolCallContext.effect**, the effect of a
+  built-in agent loop function tool call after the tool policies are applied.
+  It is the effect that chose `CallTool` or `CallSingleAttemptTool`, so a wrapper that
+  turns errors into `ToolExecutionError` can let errors of a
+  `non_idempotent_write` or `unclassified` call propagate and the session
+  records `outcome_unknown`. The runner always sets it. A context built by
+  hand has no effect: the field is optional in TypeScript, so existing
+  contexts still compile, and defaults to `UNCLASSIFIED` in Python. Treat
+  either as an unknown effect and handle the call as a write.
+- Python and TypeScript cores: built-in agent loop function tools take an
+  optional **prepare_arguments** (`prepareArguments`) that converts the model's decoded
+  arguments before the schema check, such as an argument shape an earlier
+  version of the tool took. Its result is checked and passed to the tool. An
+  error it raises fails the call like a schema violation:
+  `invalid arguments for <tool>: <message>`; a cancellation passes through
+  unchanged. It must be synchronous and deterministic: an awaitable result
+  fails the call with `argument conversion must be synchronous`, and the
+  TypeScript type **PreparedToolArguments** refuses a Promise. The stored tool
+  call and the approval interrupt keep the model's original arguments.
 
 ### Images
 
@@ -148,14 +248,50 @@ for the Dex SDK and framework versions each release supports.
   it; a missing object fails the turn with **MediaStoreError**.
 - `send_user_message` returns `false` for invalid images, or for images when
   the runner does not implement **ImageUserMessageBuilder**
-  (`buildUserMessageWithImages`). No built-in runner implements it yet; image
-  input for Stepwise and the framework adapters comes later.
+  (`buildUserMessageWithImages`). The built-in loop does not implement it yet.
+- Framework adapters show images to their model when built with a media
+  store: a new optional **media_store** (`mediaStore`) on each adapter's
+  runner and session-flow factory. With a store, the runner accepts images,
+  keeps only references in its stored items and run state, and loads the
+  bytes right before each model call, so a replay sends the same input.
+  A user image becomes the framework's image part, and a tool result's
+  images reach the model in the framework's tool-result form. Without a
+  store the adapter refuses images, as before. See each adapter README,
+  "Images".
+- Python and TypeScript cores: **McpToolSource** takes an optional
+  **media_store** (`mediaStore`). With one, the `image` content of a
+  successful result is uploaded inside the tool Step and returned in
+  `ToolExecutionResult.images`, and the output text shows `[image <n>]` in
+  its place. More than 20 images, invalid base64, or bytes that are not a
+  supported image fail the call. Base64 must be canonical: padded, without
+  line breaks or unused trailing bits. Without a store, the image content of
+  a successful result stays JSON text, as before.
+- Both cores: a failed MCP result (`isError`, or the Dex outcome `rejected`
+  or `unknown`) shows `[image <n> omitted]` for each image block in its
+  text, with or without a media store, so the recorded error holds no image
+  bytes. It used to hold each image block as JSON with its base64. Cases: `mcp_image_content` in
+  `agents/conformance/images.json`.
 - Runners read bytes with **load_images** (`loadImages`) and may choose them
   with **collect_turn_images** (`collectTurnImages`).
 - Go core: no image input. Its values carry `images`, so a value written by
   another core round-trips, and `send_user_message` returns `false` for a
   message with images.
 - Shared cases: `agents/conformance/images.json`.
+- Agents CLI, Python and TypeScript: a new configuration section **media**.
+  `media.store` is `auto`, a **LocalDirectoryMediaStore** at
+  `~/.dex/agents/media`, or `s3://<bucket>[/<prefix>]`, an **S3MediaStore**
+  with an optional `media.endpoint` for an S3-compatible service. Credentials
+  come from the environment or the standard AWS credential chain, never from
+  the file. Session settings cannot change the store.
+  In the chat, **/image <path>** copies an image file into the store and
+  attaches it to the next message; a harness whose runner takes no images
+  says the message was not sent. **HarnessContext.media_store**
+  (`mediaStore`) hands the store to the harness, and connector tool images go
+  to the same store. The Claude Agent SDK, OpenAI Agents SDK, Pydantic AI,
+  Deep Agents, and Google ADK commands in Python and the Claude Agent SDK,
+  OpenAI Agents SDK, Vercel AI SDK, and Mastra commands in TypeScript pass the
+  store to their adapter, so their models see the images. See
+  [Images](cli/README.md#images).
 
 ### Changed
 
@@ -184,7 +320,8 @@ for the Dex SDK and framework versions each release supports.
     `EncodeStepwiseMessage` -> `EncodeBuiltinLoopMessage`;
     `DecodeStepwiseMessage` -> `DecodeBuiltinLoopMessage`. Package `stepwise`
     forwards to `builtinloop` and is marked `Deprecated:`.
-  - The framework adapters and the agents CLI runtime import the new names.
+  - The framework adapters, the Pi adapter, and the agents CLI runtime import
+    the new names.
 - The error text for a session message that the built-in agent loop cannot
   read now says "built-in agent loop item" (Python and Go cores) or "built-in
   loop item" (TypeScript core) instead of "Stepwise item", and the
@@ -193,6 +330,17 @@ for the Dex SDK and framework versions each release supports.
   Python loggers are now named `dex_agents.builtin_loop.*`, and the Go core's
   panic messages for a nil model client or definition start with
   `builtinloop:` instead of `stepwise:`.
+- Breaking, Python and TypeScript CLI runtimes: the session Flow type suffix is
+  now 6 lowercase base36 characters instead of 12 hex digits, from the same
+  SHA-256 of the host name, user, configuration identity, and workspace: the
+  digest's first 8 bytes as an unsigned big-endian integer, modulo 36^6, in
+  base36, left-padded with `0`. Every CLI Flow type changes, so the new CLI
+  cannot resume or list sessions started under the old 12-hex names. The owner
+  authorized this break before launch. New Python `namespace_session_flow_type`,
+  `current_session_environment_identity`, and `SessionEnvironmentIdentity`
+  match the TypeScript `namespaceSessionFlowType`.
+  `agents/conformance/cli_session_flow_types.json` fixes the suffix for every
+  CLI runtime.
 - Breaking, Python and TypeScript cores: a connector tool's default name now
   uses the Connector library's snake case (connectorctl `lowerCamelToSnake`),
   which also names the Python Step factories. An acronym run stays one word.

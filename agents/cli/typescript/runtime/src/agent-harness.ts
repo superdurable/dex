@@ -10,6 +10,7 @@ import type {
   AgentFrameworkRunner,
   AgentSessionFlow,
   DeferredToolOutcome,
+  MediaStore,
   SessionSettings,
   ToolSource,
 } from "@superdurable/dex-agents";
@@ -44,6 +45,7 @@ export const localToolGroups: readonly LocalToolGroup[] = Object.freeze(["files"
  * terminal chat. The harness only builds the session Flow from a {@link HarnessContext}. It works for a runner-based
  * adapter, which passes `context.toolSources` to its framework runner and calls `createAgentSessionFlow`, and for
  * a built-in loop harness, which puts them in `AgentDefinition.toolSources` and calls `createBuiltinAgentSessionFlow`.
+ * An adapter that takes a media store gets `context.mediaStore`, so the model sees the images the user attaches.
  *
  * A harness that brings its own tools for some local tool groups, such as Claude Code's Read, Write, and Bash,
  * lists those groups in {@link replacedLocalTools}. The runtime then leaves them out of `context.toolSources`, and
@@ -90,7 +92,7 @@ export interface AgentHarness {
   /**
    * The base Flow type of the command's sessions, such as `DexAgentsClaudeSdkCliSession`. Keep it stable.
    *
-   * The runtime registers `<flowType>-<hash>`, from `namespaceSessionFlowType`, where the hash covers the
+   * The runtime registers `<flowType>-<suffix>`, from `namespaceSessionFlowType`, where the suffix hashes the
    * host name, the user, the configuration file's real path, and the workspace. A Worker then takes only the
    * Steps of sessions started in the same execution environment, so an approved write or shell command runs
    * where it was approved. Processes in the same environment share their sessions' Steps. `--resume` and the
@@ -104,6 +106,18 @@ export interface AgentHarness {
    * Defaults to none.
    */
   readonly replacedLocalTools?: readonly LocalToolGroup[];
+  /**
+   * Whether the harness's runner fixes its tools when the Flow is built, instead of listing the tool sources in
+   * every model call. Defaults to `false`; every TypeScript adapter lists them per model call.
+   *
+   * With `true`, the runtime lists the connector tools the file enables before it calls
+   * {@link createSessionFlow}, so the connector source's `cachedTools()` holds them. When the connectors MCP server
+   * does not answer at startup, or that listing fails, the command warns that this run has no connector tools and
+   * that a restart brings them back. The Python runtime calls it `is_tool_set_fixed_at_build`.
+   *
+   * @since 0.5.0
+   */
+  readonly isToolSetFixedAtBuild?: boolean;
   /**
    * Builds the session Flow. The runtime calls it once at startup and registers the Flow in its Worker and Client.
    *
@@ -142,6 +156,20 @@ export interface HarnessContext {
    * Each call runs in its own Dex tool Step.
    */
   readonly toolSources: readonly ToolSource[];
+  /**
+   * The store of the session's images, built from the file's `media` section: the images the user attaches with
+   * `/image` and the images connector tools return.
+   *
+   * Pass it to the adapter, such as `mediaStore: context.mediaStore`, so its runner reads the images from the same
+   * store. A runner shows a user message's images only when it implements `buildUserMessageWithImages`; otherwise
+   * the terminal chat says the message was not sent.
+   *
+   * The runtime always provides it. It is optional only so that harness tests can build a context without one; with
+   * `exactOptionalPropertyTypes`, spread it as `...(context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore })`.
+   *
+   * @since 0.5.0
+   */
+  readonly mediaStore?: MediaStore;
   /**
    * Returns one turn's configuration and instructions from the session settings the turn started with.
    *

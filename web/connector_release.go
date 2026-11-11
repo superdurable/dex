@@ -41,7 +41,14 @@ const (
 	connectorUIExpandedLimit      = 8 << 20
 	connectorUIFileLimit          = 128
 	connectorUIHostAPIRange       = ">=0.2.0 <0.3.0"
+	// connectorReleaseMetadataConcurrency bounds the release metadata downloads in flight at once.
+	connectorReleaseMetadataConcurrency = 4
+	// connectorMissingReleaseTTL is how long a release that answered HTTP 404 is not asked for again.
+	connectorMissingReleaseTTL = 5 * time.Minute
 )
+
+// errConnectorArtifactNotFound reports a release asset that answered HTTP 404.
+var errConnectorArtifactNotFound = errors.New("Connector artifact not found")
 
 var officialConnectorModulePattern = regexp.MustCompile(`^github\.com/superdurable/dex-connectors-library/connectors/[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*$`)
 
@@ -57,6 +64,12 @@ type connectorReleaseResolver struct {
 	// verifiedReleases maps an official release tag to its checksum-verified connectorRelease.
 	verifiedReleases sync.Map
 	mu               sync.Mutex
+	// metadataSlots bounds concurrent metadata downloads; created on first use under mu.
+	metadataSlots chan struct{}
+	// missingReleases maps a release tag that answered HTTP 404 to when it may be asked for again.
+	missingReleases map[string]time.Time
+	// now defaults to time.Now; tests replace it to expire missingReleases.
+	now func() time.Time
 }
 
 type connectorRelease struct {
@@ -525,6 +538,27 @@ func (resolver *connectorReleaseResolver) releaseMetadata(
 		}
 		return release, nil
 	}
+	if resolver.isReleaseKnownMissing(tag) {
+		return connectorRelease{}, fmt.Errorf("Connector release %s: %w", tag, errConnectorArtifactNotFound)
+	}
+	releaseSlot, err := resolver.acquireMetadataSlot(ctx)
+	if err != nil {
+		return connectorRelease{}, err
+	}
+	defer releaseSlot()
+	release, err := resolver.downloadReleaseMetadata(ctx, identity, tag)
+	if errors.Is(err, errConnectorArtifactNotFound) {
+		resolver.rememberMissingRelease(tag)
+	}
+	return release, err
+}
+
+// downloadReleaseMetadata downloads, verifies, and caches the metadata of one exact official release.
+func (resolver *connectorReleaseResolver) downloadReleaseMetadata(
+	ctx context.Context,
+	identity connectorDefinitionIdentity,
+	tag string,
+) (connectorRelease, error) {
 	digestBytes, err := resolver.download(ctx, tag, connectorReleaseDigestName, 1024)
 	if err != nil {
 		return connectorRelease{}, err
@@ -555,6 +589,52 @@ func (resolver *connectorReleaseResolver) releaseMetadata(
 	}
 	resolver.verifiedReleases.Store(tag, release)
 	return release, nil
+}
+
+// acquireMetadataSlot waits for a download slot; call the returned function to give it back.
+func (resolver *connectorReleaseResolver) acquireMetadataSlot(ctx context.Context) (func(), error) {
+	resolver.mu.Lock()
+	if resolver.metadataSlots == nil {
+		resolver.metadataSlots = make(chan struct{}, connectorReleaseMetadataConcurrency)
+	}
+	slots := resolver.metadataSlots
+	resolver.mu.Unlock()
+	select {
+	case slots <- struct{}{}:
+		return func() { <-slots }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("wait to download Connector release metadata: %w", ctx.Err())
+	}
+}
+
+func (resolver *connectorReleaseResolver) isReleaseKnownMissing(tag string) bool {
+	resolver.mu.Lock()
+	defer resolver.mu.Unlock()
+	retryAt, found := resolver.missingReleases[tag]
+	if !found {
+		return false
+	}
+	if !resolver.currentTime().Before(retryAt) {
+		delete(resolver.missingReleases, tag)
+		return false
+	}
+	return true
+}
+
+func (resolver *connectorReleaseResolver) rememberMissingRelease(tag string) {
+	resolver.mu.Lock()
+	defer resolver.mu.Unlock()
+	if resolver.missingReleases == nil {
+		resolver.missingReleases = make(map[string]time.Time)
+	}
+	resolver.missingReleases[tag] = resolver.currentTime().Add(connectorMissingReleaseTTL)
+}
+
+func (resolver *connectorReleaseResolver) currentTime() time.Time {
+	if resolver.now != nil {
+		return resolver.now()
+	}
+	return time.Now()
 }
 
 func (resolver *connectorReleaseResolver) cacheUI(
@@ -633,6 +713,9 @@ func (resolver *connectorReleaseResolver) download(ctx context.Context, tag stri
 		return nil, fmt.Errorf("download Connector artifact: %w", err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("download Connector artifact %s/%s: %w", tag, asset, errConnectorArtifactNotFound)
+	}
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download Connector artifact: HTTP %d", response.StatusCode)
 	}

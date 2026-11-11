@@ -52,6 +52,9 @@ export const scriptedStepwiseModelUsage = {
  * - `stubborn <id>`: a new `lookup_order` call on every model call, even when no tools are offered.
  * - `bad <id>`: a `lookup_order` call whose `order_id` is a number, then the result.
  * - `slow <id>`: partial text, the `model` FileGate, then `slow done`.
+ * - `revise <words>`: `draft for <words>`.
+ * - `finalize <id> [then pause]`: `final for <id>`. `then pause` streams partial text and waits at the `model`
+ *   FileGate first.
  * - `history`: every earlier user and assistant text.
  * - anything else: `echo: <text>`.
  * Every call is appended to `model-calls.jsonl` in the marker directory.
@@ -216,6 +219,16 @@ async function* streamScriptedResponse(
       return;
     case "bad":
       yield* callOnceThenAnswer("lookup_order", { order_id: 42 }, "lookup_order");
+      return;
+    case "revise":
+      yield* streamAnswer(`draft for ${words.join(" ")}`);
+      return;
+    case "finalize":
+      if (words[1] === "then" && words[2] === "pause") {
+        yield* streamPartialText(`partial final for ${words[0]}`);
+        await pauseAtModelGate(markerDirectory, options.abortSignal);
+      }
+      yield* streamAnswer(`final for ${words[0]}`);
       return;
     case "slow":
       yield* streamPartialText(`partial text for ${words[0]}`);

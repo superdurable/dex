@@ -25,14 +25,17 @@ from dex_agents import (
     AgentMessage,
     AgentTurnContext,
     BuiltInTool,
+    FrameworkMessage,
     InteractionMode,
     MessageRole,
     ToolEffect,
     TurnCompleted,
+    TurnContinued,
 )
 from dex_agents.builtin_loop import (
     AgentDefinition,
     BuiltinLoopAgentRunner,
+    ContinueTurn,
     ModelInputItem,
     ModelOutputItem,
     ModelRequest,
@@ -42,6 +45,7 @@ from dex_agents.builtin_loop import (
     NamedToolChoice,
     ToolResultItem,
     UserTextItem,
+    decode_builtin_loop_message,
     encode_builtin_loop_message,
 )
 from dex_agents.litellm import CHAT_COMPLETIONS_API, RESPONSES_API, LiteLLMModelClient
@@ -237,6 +241,56 @@ async def test_anthropic_thinking_blocks_keep_their_signatures_on_replay(
     assert [(block["id"], block["name"], block["input"]) for block in tool_use] == [
         ("toolu_7", "lookup_order", {"order_id": "7"})
     ]
+
+
+async def test_a_continued_turn_sends_anthropic_a_request_that_ends_with_the_user_message(
+    transport: FakeProviderTransport,
+) -> None:
+    # Claude 4.6 and later refuse a request that ends with an assistant message.
+    client = LiteLLMModelClient(
+        "anthropic/claude-sonnet-4-6", api_base=transport.base_url, api_key_provider=lambda: "sk"
+    )
+    transport.responses.append((200, _anthropic_text_stream("Draft answer.")))
+    transport.responses.append((200, _anthropic_text_stream("Final answer.")))
+    runner = BuiltinLoopAgentRunner(
+        AgentDefinition(
+            name="reviser",
+            instructions="Help.",
+            model=client,
+            decide_turn_continuation=lambda context: (
+                ContinueTurn("Add the order number.")
+                if any(item.text == "Draft answer." for item in context.model_output)
+                else "default"
+            ),
+        )
+    )
+    first_turn = _chat_turn([UserTextItem(text="Where is order 7?")])
+
+    continued = await runner.run_model_step(first_turn)
+
+    assert isinstance(continued, TurnContinued)
+    stored_items = [
+        UserTextItem(text="Where is order 7?"),
+        *(decode_builtin_loop_message(_stored(message)) for message in continued.new_messages),
+    ]
+    assert stored_items[-1] == UserTextItem(text="Add the order number.")
+    completed = await runner.run_model_step(
+        replace(
+            _chat_turn(stored_items),
+            framework_run_state=continued.framework_run_state,
+        )
+    )
+
+    assert isinstance(completed, TurnCompleted)
+    _, sent = transport.requests[1]
+    assert [message["role"] for message in sent["messages"]] == ["user", "assistant", "user"]
+    last_content = sent["messages"][-1]["content"]
+    last_text = (
+        last_content
+        if isinstance(last_content, str)
+        else "".join(block.get("text", "") for block in last_content)
+    )
+    assert last_text == "Add the order number."
 
 
 async def test_a_model_switch_replays_text_and_tool_calls_and_drops_reasoning(
@@ -536,6 +590,37 @@ def _write_todos_definition() -> ModelToolDefinition:
     definition = next(item for item in BUILT_IN_TOOL_DEFINITIONS if item.name == "write_todos")
     return ModelToolDefinition(
         name=definition.name, description=definition.description, parameters=definition.parameters
+    )
+
+
+def _chat_turn(items: Sequence[ModelInputItem]) -> AgentTurnContext:
+    messages = [
+        _stored(encode_builtin_loop_message(item), sequence=index + 1)
+        for index, item in enumerate(items)
+    ]
+    return AgentTurnContext(
+        flow_id="session-1",
+        turn_id="turn-1",
+        attempt=1,
+        messages=messages,
+        framework_run_state=None,
+        tool_calls={},
+        tool_policies={},
+        default_tool_effect=ToolEffect.UNCLASSIFIED,
+        events=_SilentEvents(),  # type: ignore[arg-type]
+        heartbeat=_no_heartbeat,
+        enabled_built_in_tools=frozenset(),
+    )
+
+
+def _stored(message: FrameworkMessage, sequence: int = 1) -> AgentMessage:
+    return AgentMessage(
+        sequence=sequence,
+        turn_id="turn-1",
+        role=message.role,
+        text=message.text,
+        framework_item=message.framework_item,
+        created_at="2026-11-01T12:00:00.000Z",
     )
 
 

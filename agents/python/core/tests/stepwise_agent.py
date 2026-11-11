@@ -35,6 +35,31 @@ The model reads the current turn's user text:
   call, then calls ``lookup_order`` and ``publish_note`` in one response.
 * ``parallel <gate> <query> | <message>`` calls ``lookup_order``, which waits
   at the gate, and ``publish_note`` in one response.
+* ``effect`` calls ``update_record``, which declares ``IDEMPOTENT_WRITE`` and
+  answers with its ``ToolCallContext.effect``. A tool policy raises it to
+  ``NON_IDEMPOTENT_WRITE`` without approval.
+* ``send-unclassified`` calls ``send_record``, which declares
+  ``IDEMPOTENT_WRITE``; a tool policy makes it ``UNCLASSIFIED`` without
+  approval. It fails after sending, and its wrapper lets the error propagate
+  unless ``ToolCallContext.effect`` is ``READ`` or ``IDEMPOTENT_WRITE``.
+* ``old-shape`` calls ``get_order`` with the old ``{"id": "7"}`` shape, which
+  ``prepare_arguments`` converts to ``order_id``; ``bad-shape`` calls it with
+  ``{"bad": true}``, which ``prepare_arguments`` rejects.
+* ``approve-old-shape`` calls ``cancel_order``, which needs approval, with the
+  old ``{"id": "9"}`` shape.
+* ``revise <id>`` answers ``draft for <id>``; once a continuation message
+  follows, it answers ``final for <id>``. ``revise-stall <gate> <id>`` waits at
+  the gate before the final answer. Each call records
+  ``revise:<id>:<continuations>``.
+* ``stubborn-draft <id>`` answers ``draft <n> for <id>`` on every call.
+* ``count-results`` answers with the number of tool results in the model input.
+* ``draft-then-lookup <id>`` answers ``draft for <id>``, then calls
+  ``lookup_order`` once a continuation message follows.
+* ``long-draft`` answers ``long draft <n>`` with about 600 tokens of filler
+  until ``n`` is 4, then ``final long``. The newest continuation message
+  names the next draft, so compaction cannot lose the command. Each call
+  records ``long-draft-tokens:<estimate>`` and raises when the estimate
+  exceeds ``BUILTIN_LOOP_AGENT_COMPACTION_WINDOW``.
 
 ``STEPWISE_AGENT_CANCEL_RPC_GATE`` makes ``cancel_turn`` wait at that gate
 after it decided and before it commits, and
@@ -44,6 +69,19 @@ block the Worker at that gate before it decides.
 ``STEPWISE_AGENT_UNFINISHED_BUILDER`` set to ``raise`` or ``malformed`` breaks
 ``build_unfinished_turn_messages``; ``gate:<name>`` makes it wait at that gate,
 blocking the Worker, before it returns the messages.
+``BUILTIN_LOOP_AGENT_TURN_CONTINUATION_HOOK`` set to ``1`` sets
+``decide_turn_continuation``: ``end`` after a tool result that mentions
+``end-after-tools``, after an answer that starts with ``draft`` or ``long
+draft`` a ``ContinueTurn`` whose message is ``[continue] after <its first
+words>``, a ``ContinueTurn("[continue] summarize the lookup")`` after a tool
+result that
+mentions ``continue-after-tools``, and ``default`` otherwise. An answer that
+mentions ``bare-continue`` or ``blank-continue`` returns an invalid result. A
+model output or tool result that mentions
+``hook-fail-once-<token>`` makes it raise on its first evaluation in that turn.
+After tools it records ``hook-after-tools:<turn_id>:<items>``, each model output
+item as its text or its tool names, joined by ``|``.
+``BUILTIN_LOOP_AGENT_COMPACTION_WINDOW`` sets a compaction policy with that window.
 
 After its tool results arrive, the model answers ``<tool_name>: <output>``.
 
@@ -59,6 +97,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import timedelta
@@ -77,19 +116,28 @@ from dex_agents import (
     CancelTurnRequest,
     FrameworkMessage,
     ToolEffect,
+    ToolExecutionError,
     ToolInputRequested,
+    ToolPolicy,
 )
 from dex_agents.builtin_loop import (
+    CONTEXT_SUMMARY_INSTRUCTIONS,
     DEFAULT_MAX_MODEL_CALLS_PER_TURN,
     AgentDefinition,
     BuiltinLoopAgentRunner,
+    ContinueTurn,
     InstructionContext,
     ModelRequest,
     ToolCallContext,
+    ToolResultItem,
+    TurnContinuation,
+    TurnContinuationContext,
+    UserTextItem,
     builtin_agent_session_flow,
     builtin_agent_session_options,
     function_tool,
 )
+from dex_agents.compaction import CompactionPolicy
 from dex_agents.testing import (
     FileGate,
     InvocationLog,
@@ -105,6 +153,9 @@ MAX_MODEL_CALLS_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_MAX_MODEL_CALLS"
 UNFINISHED_BUILDER_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_UNFINISHED_BUILDER"
 CANCEL_RPC_GATE_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_CANCEL_RPC_GATE"
 FINISH_CANCELLATION_GATE_ENVIRONMENT_VARIABLE = "STEPWISE_AGENT_FINISH_CANCELLATION_GATE"
+TURN_CONTINUATION_HOOK_ENVIRONMENT_VARIABLE = "BUILTIN_LOOP_AGENT_TURN_CONTINUATION_HOOK"
+COMPACTION_WINDOW_ENVIRONMENT_VARIABLE = "BUILTIN_LOOP_AGENT_COMPACTION_WINDOW"
+LONG_DRAFT_COUNT = 4
 INVOCATION_LOG_NAME = "invocations.log"
 INSTRUCTIONS = "You are a scripted test agent."
 MODEL_NAMES = ("default", "alpha", "beta")
@@ -179,6 +230,8 @@ def build_stepwise_agent_flow(
     unfinished_builder_mode: str | None = None,
     cancel_rpc_gate: str | None = None,
     finish_cancellation_gate: str | None = None,
+    has_turn_continuation_hook: bool = False,
+    compaction_window_tokens: int | None = None,
 ) -> AgentSessionFlow:
     invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
 
@@ -238,13 +291,68 @@ def build_stepwise_agent_flow(
         continued_amount = json.loads(context.input_continuation or "{}")["amount"]
         return f"moved {continued_amount} from {account}"
 
+    @function_tool(effect=ToolEffect.IDEMPOTENT_WRITE)
+    def update_record(context: ToolCallContext) -> str:
+        """Update a record."""
+        return f"effect {context.effect}"
+
+    @function_tool(effect=ToolEffect.IDEMPOTENT_WRITE)
+    def send_record(context: ToolCallContext) -> str:
+        """Send a record."""
+        try:
+            raise ConnectionResetError("connection reset after send")
+        except ConnectionResetError as error:
+            if context.effect not in (ToolEffect.READ, ToolEffect.IDEMPOTENT_WRITE):
+                raise
+            raise ToolExecutionError(str(error)) from error
+
+    @function_tool(effect=ToolEffect.READ, prepare_arguments=_prepare_order_arguments)
+    def get_order(order_id: str) -> dict[str, str]:
+        """Get an order."""
+        return {"order_id": order_id}
+
+    @function_tool(
+        effect=ToolEffect.NON_IDEMPOTENT_WRITE, prepare_arguments=_prepare_order_arguments
+    )
+    def cancel_order(order_id: str) -> dict[str, str]:
+        """Cancel an order."""
+        return {"cancelled": order_id}
+
     async def respond(model_name: str, request: ModelRequest) -> ScriptedModelReply:
-        command = ScriptedModelClient.user_texts(request)[-1]
-        results = ScriptedModelClient.tool_results(request)
+        if request.instructions == CONTEXT_SUMMARY_INSTRUCTIONS:
+            return ScriptedModelReply(text="summary of the earlier drafts")
+        long_draft = _next_long_draft(request)
+        if long_draft is not None:
+            tokens = models[model_name].estimate_input_tokens(request)
+            invocations.record(f"long-draft-tokens:{tokens}")
+            if compaction_window_tokens is not None and tokens > compaction_window_tokens:
+                raise RuntimeError(f"simulated context window exceeded: {tokens} tokens")
+            if long_draft > LONG_DRAFT_COUNT:
+                return ScriptedModelReply(text="final long")
+            return ScriptedModelReply(text=f"long draft {long_draft} {'x' * 2400}")
+        command, continuations = _command_and_continuations(request)
+        results = _tool_results_since_command(request)
         turn_round = len(results) + 1
         invocations.record(f"model:{request.metadata.turn_id}:{turn_round}")
         invocations.record(f"model-name:{request.metadata.turn_id}:{turn_round}:{model_name}")
         verb, _, rest = command.partition(" ")
+        if verb in ("revise", "revise-stall"):
+            gate, _, revised_id = rest.rpartition(" ")
+            invocations.record(f"revise:{revised_id}:{continuations}")
+            if continuations == 0:
+                return ScriptedModelReply(text=f"draft for {revised_id}")
+            if verb == "revise-stall":
+                await wait_at_gate(gate)
+            return ScriptedModelReply(text=f"final for {revised_id}")
+        if verb == "count-results":
+            stored = sum(1 for item in request.input_items if isinstance(item, ToolResultItem))
+            return ScriptedModelReply(text=f"tool results in history: {stored}")
+        if verb == "draft-then-lookup" and not results:
+            if continuations == 0:
+                return ScriptedModelReply(text=f"draft for {rest}")
+            return _call("lookup_order", {"query": rest})
+        if verb == "stubborn-draft":
+            return ScriptedModelReply(text=f"draft {continuations + 1} for {rest}")
         if verb == "which-model":
             return ScriptedModelReply(text=f"model {model_name}: {request.instructions}")
         if verb == "loop":
@@ -289,6 +397,16 @@ def build_stepwise_agent_flow(
             )
         if verb == "say":
             return ScriptedModelReply(text=f"said: {rest}", reasoning="thinking about it")
+        if verb == "effect":
+            return _call("update_record", {})
+        if verb == "send-unclassified":
+            return _call("send_record", {})
+        if verb == "old-shape":
+            return _call("get_order", {"id": "7"})
+        if verb == "bad-shape":
+            return _call("get_order", {"bad": True})
+        if verb == "approve-old-shape":
+            return _call("cancel_order", {"id": "9"})
         if verb == "recall":
             earlier = ScriptedModelClient.user_texts(request)[:-1]
             output_items = sum(1 for item in request.input_items if hasattr(item, "provider"))
@@ -364,15 +482,63 @@ def build_stepwise_agent_flow(
         persona = context.session_settings.get("persona")
         return INSTRUCTIONS if persona is None else f"{INSTRUCTIONS} Persona: {persona}."
 
+    async def decide_turn_continuation(context: TurnContinuationContext) -> TurnContinuation:
+        answer = "".join(item.text or "" for item in context.model_output)
+        seen = " ".join([answer, *(result.output for result in context.tool_results)])
+        fail_once = re.search(r"hook-fail-once-\w+", seen)
+        if fail_once is not None:
+            marker = state_dir / f"{fail_once.group(0)}-{context.turn_id}.hook-failed"
+            if not marker.exists():
+                marker.touch()
+                raise RuntimeError(f"scripted hook failure for {fail_once.group(0)}")
+        if context.tool_results:
+            items = "|".join(
+                item.text or ",".join(call.tool_name for call in item.tool_calls)
+                for item in context.model_output
+            )
+            invocations.record(f"hook-after-tools:{context.turn_id}:{items}")
+        if any("end-after-tools" in result.output for result in context.tool_results):
+            return "end"
+        if any("continue-after-tools" in result.output for result in context.tool_results):
+            return ContinueTurn("[continue] summarize the lookup")
+        if "bare-continue" in answer:
+            # The string form a release candidate accepted; a continuation now needs a message.
+            return cast(TurnContinuation, "continue")
+        if "blank-continue" in answer:
+            return ContinueTurn(" ")
+        if not context.tool_results and answer.startswith(("draft", "long draft")):
+            prefix_words = 3 if answer.startswith("long") else 2
+            return ContinueTurn(f"[continue] after {' '.join(answer.split()[:prefix_words])}")
+        return "default"
+
     definition = AgentDefinition(
         name="stepwise-test",
         instructions=instructions,
         model=models["default"],
         resolve_model=resolve_model,
-        tools=[lookup_order, publish_note, slow_write, transfer_funds],
+        tools=[
+            lookup_order,
+            publish_note,
+            slow_write,
+            transfer_funds,
+            update_record,
+            send_record,
+            get_order,
+            cancel_order,
+        ],
+        tool_policies={
+            "update_record": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
+            "send_record": ToolPolicy(ToolEffect.UNCLASSIFIED, requires_approval=False),
+        },
         built_in_tools=frozenset({BuiltInTool.ASK_USER, BuiltInTool.DURABLE_WAIT}),
         interrupt_deadline=interrupt_deadline,
         max_model_calls_per_turn=max_model_calls_per_turn,
+        decide_turn_continuation=decide_turn_continuation if has_turn_continuation_hook else None,
+        compaction=(
+            None
+            if compaction_window_tokens is None
+            else CompactionPolicy(context_window_tokens=compaction_window_tokens)
+        ),
     )
     if cancel_rpc_gate is not None or finish_cancellation_gate is not None:
         return GatedCancellationSessionFlow(
@@ -393,6 +559,7 @@ def build_stepwise_agent_flow(
 
 def build_stepwise_agent_flow_from_environment() -> AgentSessionFlow:
     deadline_seconds = os.environ.get(INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE)
+    compaction_window = os.environ.get(COMPACTION_WINDOW_ENVIRONMENT_VARIABLE)
     return build_stepwise_agent_flow(
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         None if deadline_seconds is None else timedelta(seconds=float(deadline_seconds)),
@@ -400,13 +567,56 @@ def build_stepwise_agent_flow_from_environment() -> AgentSessionFlow:
         os.environ.get(UNFINISHED_BUILDER_ENVIRONMENT_VARIABLE),
         os.environ.get(CANCEL_RPC_GATE_ENVIRONMENT_VARIABLE),
         os.environ.get(FINISH_CANCELLATION_GATE_ENVIRONMENT_VARIABLE),
+        os.environ.get(TURN_CONTINUATION_HOOK_ENVIRONMENT_VARIABLE) == "1",
+        None if compaction_window is None else int(compaction_window),
     )
+
+
+def _prepare_order_arguments(arguments: Any) -> Any:
+    if "bad" in arguments:
+        raise ValueError("unsupported argument shape")
+    if "id" in arguments:
+        return {"order_id": arguments["id"]}
+    return arguments
 
 
 def _named_respond(
     respond: Callable[[str, ModelRequest], Awaitable[ScriptedModelReply]], model_name: str
 ) -> Callable[[ModelRequest], Awaitable[ScriptedModelReply]]:
     return lambda request: respond(model_name, request)
+
+
+def _next_long_draft(request: ModelRequest) -> int | None:
+    """Return the next long draft's number, or None when the request is not a long draft."""
+    user_texts = ScriptedModelClient.user_texts(request)
+    last_text = user_texts[-1] if user_texts else ""
+    # The newest continuation message names the draft; compaction never summarizes it.
+    last_draft = re.fullmatch(r"\[continue\] after long draft (\d+)", last_text)
+    if last_draft is not None:
+        return int(last_draft.group(1)) + 1
+    return 1 if last_text == "long-draft" else None
+
+
+def _command_and_continuations(request: ModelRequest) -> tuple[str, int]:
+    """Return the last user text that is not a ``[continue]`` message, and how many follow it."""
+    user_texts = ScriptedModelClient.user_texts(request)
+    continuations = 0
+    while continuations < len(user_texts) - 1 and user_texts[-1 - continuations].startswith(
+        "[continue]"
+    ):
+        continuations += 1
+    return user_texts[-1 - continuations], continuations
+
+
+def _tool_results_since_command(request: ModelRequest) -> list[ToolResultItem]:
+    """Return the tool results after the last user text that is not a ``[continue]`` message."""
+    results: list[ToolResultItem] = []
+    for item in request.input_items:
+        if isinstance(item, UserTextItem) and not item.text.startswith("[continue]"):
+            results = []
+        elif isinstance(item, ToolResultItem):
+            results.append(item)
+    return results
 
 
 def _call(tool_name: str, arguments: dict[str, object], text: str = "") -> ScriptedModelReply:

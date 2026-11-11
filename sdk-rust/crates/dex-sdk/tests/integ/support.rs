@@ -30,14 +30,20 @@ pub(crate) struct DexDevTestEnvironment {
 
 impl DexDevTestEnvironment {
     pub(crate) fn start(registry: SdkResult<Registry>) -> Self {
+        Self::start_with_worker_options(registry, WorkerOptions::new())
+    }
+
+    pub(crate) fn start_with_worker_options(
+        registry: SdkResult<Registry>,
+        worker_options: WorkerOptions,
+    ) -> Self {
         let registry = registry
             .expect("register integration test Flow")
             .register(PullWorkerReadyFlow {
                 step: PullWorkerReadyStep,
             })
             .expect("register pull Worker readiness Flow");
-        let server_address =
-            std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
+        let server_address = server_address();
         let cache_directory = tempfile::tempdir().expect("create Rust SDK test cache directory");
         let cache = Arc::new(
             BlobCache::open(
@@ -49,7 +55,7 @@ impl DexDevTestEnvironment {
         let worker = Arc::new(Worker::new(
             registry.clone(),
             Arc::clone(&cache),
-            WorkerOptions::new().server_address(&server_address),
+            worker_options.server_address(&server_address),
         ));
         let worker_failure = Arc::new(Mutex::new(None));
         let thread_worker = Arc::clone(&worker);
@@ -110,6 +116,10 @@ impl Drop for DexDevTestEnvironment {
             panic!("Rust integration Worker failed: {failure}");
         }
     }
+}
+
+pub(crate) fn server_address() -> String {
+    std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string())
 }
 
 pub(crate) fn flow_id(prefix: &str) -> String {

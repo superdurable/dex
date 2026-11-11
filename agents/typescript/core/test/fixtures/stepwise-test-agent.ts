@@ -16,6 +16,8 @@ import {
   functionTool,
   type AgentDefinition,
   type ToolCallContext,
+  type TurnContinuation,
+  type TurnContinuationContext,
 } from "../../src/builtin-loop/index.js";
 import { FileGate, InvocationLog } from "../../src/testing/index.js";
 import { createStepwiseScriptedLanguageModel } from "./stepwise-scripted-language-model.js";
@@ -35,6 +37,26 @@ export interface StepwiseTestAgentOptions {
    * built from a `BuiltinLoopAgentRunner` and these options.
    */
   readonly sessionToolPolicies?: Readonly<Record<string, ToolPolicy>>;
+  /** Whether the agent sets {@link decideBuiltinLoopTestTurnContinuation} as its `decideTurnContinuation`. */
+  readonly hasTurnContinuationHook?: boolean;
+}
+
+/** Set to `1`, a built-in loop test Worker child serves the agent with its `decideTurnContinuation` hook. */
+export const builtinLoopTurnContinuationHookVariable = "BUILTIN_LOOP_AGENT_TURN_CONTINUATION_HOOK";
+
+/**
+ * The test agent's `decideTurnContinuation`: `end` after a tool result that mentions `end-after-tools`, and after an
+ * answer `draft for <words>`, a continuation whose message `finalize <words>` is the scripted model's next command.
+ */
+export function decideBuiltinLoopTestTurnContinuation(context: TurnContinuationContext): TurnContinuation {
+  if (context.toolResults.some((result) => result.output.includes("end-after-tools"))) {
+    return "end";
+  }
+  const answer = context.modelOutput.map((item) => item.text ?? "").join("");
+  if (context.toolResults.length === 0 && answer.startsWith("draft for ")) {
+    return { action: "continue", message: `finalize ${answer.slice("draft for ".length)}` };
+  }
+  return "default";
 }
 
 /**
@@ -106,6 +128,9 @@ export function createStepwiseTestAgentFlow(
       builtInTools: ["ask_user", "durable_wait"],
       ...(options.interruptDeadlineMs === undefined ? {} : { interruptDeadlineMs: options.interruptDeadlineMs }),
       ...(options.maxModelCallsPerTurn === undefined ? {} : { maxModelCallsPerTurn: options.maxModelCallsPerTurn }),
+      ...(options.hasTurnContinuationHook === true
+        ? { decideTurnContinuation: decideBuiltinLoopTestTurnContinuation }
+        : {}),
   };
   const flowType = options.flowType ?? stepwiseTestAgentFlowType;
   if (options.sessionToolPolicies === undefined) {

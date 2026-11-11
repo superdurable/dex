@@ -58,6 +58,8 @@ import {
   rejectedOutcomeFallbackMessage,
   unknownOutcomeFallbackMessage,
 } from "./mcp-dex-conventions.js";
+import type { MediaStore } from "../agent-media.js";
+import { hasImageContent, renderToolFailureText, storeToolResultImages } from "./mcp-image-content.js";
 import { redactMcpServerConfigSecrets, validateMcpServerConfig, type McpServerConfig } from "./mcp-server-config.js";
 
 /**
@@ -224,6 +226,15 @@ export interface McpToolSourceOptions {
    * instances must name at least one, because names must be unique.
    */
   readonly sourceName?: string;
+  /**
+   * The store for the images of tool results. With a store, each `image` content block of a successful result is
+   * uploaded inside the tool Step and returned in {@link ToolExecutionResult.images}; the output text shows it as
+   * `[image <n>]`, counting from 1. More than `maxImagesPerMessage` images, invalid base64, or bytes the store
+   * refuses throw {@link ToolExecutionError}. Omitted, image blocks stay JSON in the output text. Pass the store the
+   * session's runner reads images from.
+   * @since 0.5.0
+   */
+  readonly mediaStore?: MediaStore;
 }
 
 /** One server's listing state: the last good tools, the last failure, and a running listing. */
@@ -310,7 +321,7 @@ export class McpToolListingError extends Error {
 }
 
 export type ToolCallOutcome =
-  | { readonly kind: "succeeded"; readonly output: string }
+  | { readonly kind: "succeeded"; readonly output: string; readonly result?: CallToolResult }
   | { readonly kind: "failed"; readonly message: string }
   | { readonly kind: "outcome_unknown"; readonly message: string }
   | { readonly kind: "interrupted"; readonly detail: string }
@@ -366,6 +377,11 @@ const nodeInspectSymbol = Symbol.for("nodejs.util.inspect.custom");
  * Results map onto the session contract:
  * - A result becomes the tool output: text blocks joined with newlines, other blocks and structured
  *   content as JSON.
+ * - With {@link McpToolSourceOptions.mediaStore}, a successful result's `image` blocks are uploaded and returned
+ *   as {@link ToolExecutionResult.images}, and the text shows `[image <n>]` in their place. More than
+ *   `maxImagesPerMessage` images, invalid base64, or bytes the store refuses throw {@link ToolExecutionError}.
+ * - A failed result's text, with or without a media store, shows `[image <n> omitted]` for each `image` block, so
+ *   no image bytes reach the recorded error.
  * - An `isError` result, a JSON-RPC error response other than an internal error, and a failed,
  *   cancelled, or `input_required` task throw {@link ToolExecutionError}, so the session records
  *   `failed` and the model sees the text. The 2025-11-25 tasks deliver input requests as server requests
@@ -451,6 +467,7 @@ export class McpToolSource {
   private readonly listingTtlMs: number;
   private readonly listingFailureBackoffMs: number;
   private readonly configuredSourceName: string;
+  private readonly mediaStore: MediaStore | undefined;
   private tools: ReadonlyMap<string, McpTool> | undefined;
   private readonly resourceAndPromptTools: readonly McpTool[];
 
@@ -493,6 +510,7 @@ export class McpToolSource {
       throw new TypeError("listingTtlMs and listingFailureBackoffMs must be positive");
     }
     this.configuredSourceName = options.sourceName ?? defaultMcpSourceName;
+    this.mediaStore = options.mediaStore;
     for (const name of serversByName.keys()) {
       this.listings.set(name, { tools: undefined, listedAtMs: 0, failure: undefined, failedUntilMs: 0, pending: undefined });
     }
@@ -911,7 +929,7 @@ export class McpToolSource {
     const outcome = await call.pollTaskOnce(taskId, record.taskPollIntervalSeconds ?? null);
     switch (outcome.kind) {
       case "succeeded":
-        return { output: outcome.output };
+        return await this.toolExecutionResult(outcome, target);
       case "failed":
         throw new ToolExecutionError(outcome.message);
       case "outcome_unknown":
@@ -1049,6 +1067,16 @@ export class McpToolSource {
     return this.targetFromReference(toolName, toolSourceReference) ?? (await this.targetFromListing(toolName));
   }
 
+  private async toolExecutionResult(
+    outcome: Extract<ToolCallOutcome, { kind: "succeeded" }>,
+    target: McpToolTarget,
+  ): Promise<ToolExecutionResult> {
+    if (this.mediaStore === undefined || outcome.result === undefined || !hasImageContent(outcome.result)) {
+      return { output: outcome.output };
+    }
+    return await storeToolResultImages(outcome.result, this.mediaStore, target.toolName);
+  }
+
   private async callTarget(
     target: McpToolTarget,
     toolArguments: Record<string, unknown>,
@@ -1059,7 +1087,7 @@ export class McpToolSource {
     const outcome = await call.run(savedTaskFromCheckpoint(options.heartbeatCheckpoint, target)?.taskId);
     switch (outcome.kind) {
       case "succeeded":
-        return { output: outcome.output };
+        return await this.toolExecutionResult(outcome, target);
       case "task_started":
         return { kind: "tool_task_started", taskId: outcome.taskId, pollIntervalSeconds: outcome.pollIntervalSeconds };
       case "failed":
@@ -1640,19 +1668,19 @@ function savedTaskFromCheckpoint(
 }
 
 export function outcomeFromToolResult(result: CallToolResult): ToolCallOutcome {
-  const text = renderToolResultText(result);
+  const failureText = hasImageContent(result) ? renderToolFailureText(result) : renderToolResultText(result);
   // The Dex outcome wins over isError in both directions.
   const dexOutcome = readDexToolOutcome(result._meta);
   if (dexOutcome === "unknown") {
-    return { kind: "outcome_unknown", message: text === "" ? unknownOutcomeFallbackMessage : text };
+    return { kind: "outcome_unknown", message: failureText === "" ? unknownOutcomeFallbackMessage : failureText };
   }
   if (dexOutcome === "rejected") {
-    return { kind: "failed", message: text === "" ? rejectedOutcomeFallbackMessage : text };
+    return { kind: "failed", message: failureText === "" ? rejectedOutcomeFallbackMessage : failureText };
   }
   if (result.isError === true) {
-    return { kind: "failed", message: text === "" ? "the MCP tool reported an error" : text };
+    return { kind: "failed", message: failureText === "" ? "the MCP tool reported an error" : failureText };
   }
-  return { kind: "succeeded", output: text };
+  return { kind: "succeeded", output: renderToolResultText(result), result };
 }
 
 /** Maps a JSON-RPC error answer; `undefined` leaves the outcome open, so the effect class decides. */

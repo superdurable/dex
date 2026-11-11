@@ -677,9 +677,11 @@ def build_value_documents() -> list[dict[str, Any]]:
         )
         .value(
             "full",
-            "With an initial message and session settings.",
+            "With an initial message, session settings, and a start environment.",
             AgentSessionStartInput(
-                initial_message=TRICKY_TEXT, session_settings=FULL_SESSION_SETTINGS
+                initial_message=TRICKY_TEXT,
+                session_settings=FULL_SESSION_SETTINGS,
+                start_environment={"host_name": "build-01", "workspace": TRICKY_TEXT},
             ),
         )
         .value("defaults", "Without an initial message or settings.", AgentSessionStartInput())
@@ -687,6 +689,11 @@ def build_value_documents() -> list[dict[str, Any]]:
             "released-0.1.0",
             "As dex-agents 0.1.0 wrote it, without session_settings.",
             {"initial_message": "hello"},
+        )
+        .wire(
+            "released-0.4.0",
+            "As dex-agents 0.4.0 wrote it, without start_environment.",
+            {"initial_message": "hello", "session_settings": {"model": "gpt-5-mini"}},
         )
     )
 

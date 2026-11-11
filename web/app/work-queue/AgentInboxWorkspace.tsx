@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { agentInboxPath, sessionRunPath } from '../routes';
 import '../workspace/css/workspace.css';
-import { useWebCatalog } from '../catalog/WebCatalogProvider';
+import { useV2Catalog } from '../catalog/WebCatalogProvider';
 import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import { ACTIVE_STEP_TYPES_FIELD, newFilterRow, type FilterRow } from '../workspace/filters';
 import { flowStatusQueryValue } from '../workspace/runQuery';
@@ -51,11 +51,8 @@ interface HeldRead {
 export function AgentInboxWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
-  const { ready, canUseV2, catalog, definitions, error } = useWebCatalog();
-  const schemas = useMemo(
-    () => inboxSessionSchemas(catalog?.flows ?? [], definitions?.definitions ?? []),
-    [catalog, definitions],
-  );
+  const { ready, canUseV2, catalog, catalogError, error } = useV2Catalog();
+  const schemas = useMemo(() => inboxSessionSchemas(catalog?.flows ?? []), [catalog]);
   const agentFlowTypes = useMemo(() => [...schemas.keys()], [schemas]);
   const agentDefinitions = useMemo(() => [...schemas.values()].map((entry) => entry.definition), [schemas]);
   const workingAs = useWorkingAs(agentDefinitions);
@@ -79,7 +76,7 @@ export function AgentInboxWorkspace() {
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
-  if (error) return <div className="page-shell"><div className="error-banner">{error}</div></div>;
+  if (error || catalogError) return <div className="page-shell"><div className="error-banner">{error || catalogError}</div></div>;
   if (!catalog) return <div className="page-loading">Loading Dex Web…</div>;
 
   const rows: AgentInboxRow[] = search.flows.map((flow) => ({

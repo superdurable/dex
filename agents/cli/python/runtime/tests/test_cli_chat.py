@@ -14,13 +14,19 @@ import asyncio
 import json
 import os
 import signal
+import socket
 from pathlib import Path
 from typing import Any
 
 import pexpect
 
 from dex_agents import AgentSnapshot, MessageRole
-from dex_agents.testing import EXECUTE_COMPLETED_EVENT, read_step_history, wait_for_agent_snapshot
+from dex_agents.testing import (
+    EXECUTE_COMPLETED_EVENT,
+    read_step_history,
+    resolve_dexcli_path,
+    wait_for_agent_snapshot,
+)
 from dex_agents_cli import session_flow_type
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
 from tests.scripted_harness import SCRIPTED_FLOW_TYPE
@@ -71,6 +77,44 @@ async def test_an_approved_write_runs_once_and_a_rejected_one_never_runs(
     assert await wait_for_exit(child) == 0
     assert not (workspace / "other.txt").exists()
     assert await count_executed_steps(cli_home, session_id, "CallTool") == 1
+
+
+async def read_start_flow_input(cli_home: CliHome, session_id: str) -> tuple[str, Any]:
+    process = await asyncio.create_subprocess_exec(
+        str(resolve_dexcli_path()),
+        "flow",
+        "history",
+        session_id,
+        "--server",
+        cli_home.address,
+        "--output",
+        "json",
+        stdout=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await process.communicate()
+    assert process.returncode == 0
+    started = json.loads(stdout)["events"][0]["payload"]
+    return started["flowType"], started["initialStart"]["stepInput"]
+
+
+async def test_a_new_session_records_where_the_command_runs(cli_home: CliHome) -> None:
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    workspace = cli_home.home / "dex-agent-workspace"
+    child = cli_home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    flow_type, start_input = await read_start_flow_input(cli_home, session_id)
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert flow_type == session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    environment = start_input["start_environment"]
+    assert environment.pop("user_name") != ""
+    assert environment == {
+        "host_name": socket.gethostname(),
+        "user_id": str(os.getuid()),
+        "config_identity": os.path.realpath(cli_home.config_path),
+        "workspace": os.path.realpath(workspace),
+    }
 
 
 async def test_a_question_is_answered_in_the_terminal(cli_home: CliHome) -> None:

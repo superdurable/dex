@@ -17,6 +17,11 @@
   ],
   "properties": {
     "schemaVersion": {"const": "2.0"},
+    "generatedAt": {
+      "description": "When the graph was generated, as an RFC 3339 UTC timestamp. Optional; older graphs omit it.",
+      "type": "string",
+      "format": "date-time"
+    },
     "valid": {"type": "boolean"},
     "source": {
       "type": "object",

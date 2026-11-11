@@ -45,7 +45,8 @@ function graphEntry(flowName: string, steps: string[]) {
     sourceLanguage: 'go',
     sourcePath: `${flowName}.go`,
     valid: true,
-    graph: { nodes: steps.map((name) => ({ id: `step:${name}`, kind: 'step', name })), edges: [] },
+    source: 'directory',
+    graph: { nodes: steps.map((name) => ({ id: `step:${name}`, kind: 'step', name })), edges: [], diagnostics: [] },
   };
 }
 
@@ -65,30 +66,40 @@ interface SearchBody {
   filters: { field: string; operator: string; values: unknown[] }[];
 }
 
+const graphs: Record<string, ReturnType<typeof graphEntry>> = {
+  OrderFlow: graphEntry('OrderFlow', ['AwaitPacking']),
+  PayFlow: graphEntry('PayFlow', ['AwaitPayment']),
+  RefundFlow: graphEntry('RefundFlow', ['AwaitApproval']),
+};
+
+/** The Flow types whose graphs the page read, one entry per read. */
+let definitionReads: string[] = [];
+
 function stubServer(flowsFor: (body: SearchBody) => unknown[], nextPageToken = '') {
   const searches: SearchBody[] = [];
+  definitionReads = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
-    if (url === '/api/flow-definitions') {
+    if (url === '/api/flow-definition-types') {
       return json({
         configured: true,
-        definitionRevision: 'r1',
-        definitionCount: 3,
-        definitions: [
-          graphEntry('OrderFlow', ['AwaitPacking']),
-          graphEntry('PayFlow', ['AwaitPayment']),
-          graphEntry('RefundFlow', ['AwaitApproval']),
-        ],
+        operatorAPI: true,
+        flowTypes: Object.keys(graphs).map((flowType) => ({ flowType, source: 'directory' })),
       });
+    }
+    if (url.startsWith('/api/flow-definitions/by-type?')) {
+      const flowType = new URL(url, 'http://dex.test').searchParams.get('flowType') ?? '';
+      definitionReads.push(flowType);
+      return json({ flowType, definitionRevision: `r-${flowType}`, definitions: [graphs[flowType]], v2: null });
     }
     if (url === '/api/v2/catalog') {
       return json({
         enabled: true,
         definitionRevision: 'r1',
         flows: [
-          { flowType: 'OrderFlow', definition: contract('warehouse', 'order.manage') },
-          { flowType: 'PayFlow', definition: contract('payment', 'pay.manage') },
-          { flowType: 'RefundFlow', definition: contract('case-title', 'refund.manage') },
+          { flowType: 'OrderFlow', definition: contract('warehouse', 'order.manage'), definitionRevision: 'r-OrderFlow' },
+          { flowType: 'PayFlow', definition: contract('payment', 'pay.manage'), definitionRevision: 'r-PayFlow' },
+          { flowType: 'RefundFlow', definition: contract('case-title', 'refund.manage'), definitionRevision: 'r-RefundFlow' },
         ],
       });
     }
@@ -187,9 +198,12 @@ describe('Work Queue search', () => {
     expect(pageFlowType.checked).toBe(true);
     expect(pageFlowType.disabled).toBe(true);
     const searchesBefore = searches.length;
+    // The Step filter reads the graphs of the searched Flow types only, one Flow type at a time.
+    await waitFor(() => expect(definitionReads).toEqual(['RefundFlow']));
 
     fireEvent.click(within(advanced).getByRole('checkbox', { name: 'OrderFlow' }));
-    fireEvent.click(within(advanced).getByRole('checkbox', { name: 'AwaitPacking' }));
+    fireEvent.click(await within(advanced).findByRole('checkbox', { name: 'AwaitPacking' }));
+    expect(definitionReads).toEqual(['RefundFlow', 'OrderFlow']);
     expect(searches.length).toBe(searchesBefore);
     await submit();
 

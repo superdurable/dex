@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { Credential } from "./credential.js";
+import type { FlowDefinitionDocument } from "./flow-definition.js";
 import type { Attribute, AttributeLock, AttributeMap, AttributeMapLoad } from "./persistence.js";
 import type { RetryPolicy, StepDurability, StepOptions, StepTarget } from "./step.js";
 import type { Channel, ChannelMap, ChannelMapLoad } from "./wait.js";
@@ -177,9 +178,17 @@ export type ActiveStepSearchMode =
 
 /** Controls whether `startFlow` may reuse a previously used Flow ID. */
 export const IdReusePolicy = Object.freeze({
-  /** Uses the Dex server default, which rejects every previously used Flow ID. */
+  /**
+   * Rejects the start whenever the Flow ID has a run, the same as `DISALLOW`.
+   * The server does not make this default configurable.
+   */
   DEFAULT: "default",
-  /** Reuses an ID only after an unsuccessful closed run. */
+  /**
+   * Starts a new run only when the latest run closed abnormally: failed, canceled, or terminated.
+   * A Flow timeout closes a run as failed or canceled under the fail or cancel timeout policy.
+   * Under the handler policy, the timeout handler's outcome decides. A running or completed latest
+   * run rejects the start.
+   */
   ALLOW_IF_PREVIOUS_FAILED: "allowIfPreviousFailed",
   /** Reuses an ID after any closed run. */
   ALLOW_IF_NOT_RUNNING: "allowIfNotRunning",
@@ -672,6 +681,39 @@ export interface StopFlowOptions {
  *
  * Every Worker pulls tasks over an outbound connection to the Dex Server.
  * See {@link PullWorkerOptions} for capacity and shutdown settings.
+ *
+ * Dex Web draws a run's graph from the Flow definition that the Server stores for its Flow type.
+ * A Worker configured with `flowDefinitionPaths` or `flowDefinitions` uploads them once per start,
+ * after protocol negotiation and Attribute index synchronization and before it opens task streams.
+ * All upload requests share one deadline, `attributeIndexSyncTimeoutMs`, and `close` cancels an upload
+ * in flight.
+ * It uploads only definitions whose Flow type this Worker registers and logs the skipped ones. It
+ * rewrites an absolute `source.path` inside each document to a path relative to
+ * the current working directory, or to the file name.
+ *
+ * The Server replaces a stored definition only with a different one generated later. The Worker
+ * never writes upload messages to stdout, so they never mix with protocol output there. It writes
+ * skipped, created, and replaced definitions to stderr as lines starting with `dex info: `, and logs
+ * a kept newer definition, an unknown outcome, or a failure with `console.warn`. It does not log
+ * unchanged definitions. Upload failures, including a Server without this API, never stop the Worker from
+ * starting. Use
+ * `Client.uploadFlowDefinitions` with `force` to roll a definition back.
+ *
+ * The Worker constructor throws for a missing or unreadable path, an explicitly listed file or an
+ * in-memory document that is not a JSON object with a `schemaVersion` starting with `"2."` and a
+ * `flow.name` string, a `generatedAt` that is not strict RFC 3339 (`T` or `t`, then `Z`, `z`,
+ * `+HH:MM`, or `-HH:MM`), also inside an in-memory document, an in-memory document whose `flow.name` differs from its Flow
+ * type, or two definitions for the same Flow type from any sources.
+ *
+ * Changed in 1.45.0: added `flowDefinitionPaths` and `flowDefinitions`.
+ *
+ * @example
+ * ```ts
+ * const worker = new Worker(registry, cache, {
+ *   serverAddress: "dex.internal:8801",
+ *   flowDefinitionPaths: ["build/flow-definitions"],
+ * });
+ * ```
  */
 export interface WorkerOptions {
   /** Task capacity and shutdown settings; omitted uses the defaults in {@link PullWorkerOptions}. */
@@ -698,6 +740,29 @@ export interface WorkerOptions {
    * @since 1.38.0
    */
   readonly grpcMaxMessageBytes?: number;
+  /**
+   * Flow Definition Graph (FDG 2.x) files or directories that the Worker uploads when it starts.
+   *
+   * Defaults to none. A directory is searched recursively for files whose extension is `.json` in any
+   * letter case; a JSON file there that is not an FDG 2.x document, such as `package.json`, is skipped
+   * and logged. An explicitly listed file must be an FDG 2.x document whatever its extension.
+   * Each file's `flow.name` is its Flow type. Its top-level `generatedAt` (strict RFC 3339) is the
+   * generation time; without it the file's modification time is used. Either time is truncated to
+   * whole milliseconds. The Worker constructor reads
+   * the files. See {@link WorkerOptions} for when and how the Worker uploads them.
+   *
+   * @since 1.45.0
+   */
+  readonly flowDefinitionPaths?: readonly string[];
+  /**
+   * In-memory FDG documents that the Worker uploads when it starts.
+   *
+   * Defaults to none. Use them when the application renders its graph in code. See
+   * {@link FlowDefinitionDocument}.
+   *
+   * @since 1.45.0
+   */
+  readonly flowDefinitions?: readonly FlowDefinitionDocument[];
 }
 
 /**

@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.38.0
+npm i @superdurable/dex-agents @superdurable/dex@1.44.0
 ```
 
-`@superdurable/dex` 1.38.0 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.44.0 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -182,6 +182,7 @@ export const supportAgentFlow = createBuiltinAgentSessionFlow(
 | `maxModelCallsPerTurn` | 100 | After this many model calls in one turn, the next call offers no tools, so the model must answer. If it still asks for tools, the turn ends and each call gets the result `The tool call was not run: this turn reached its limit of <n> model calls.` |
 | `planModeEnabled` | `false` | Accept `planMode` user messages; requires `write_todos` in `builtInTools`. See [Plans and plan mode](#plans-and-plan-mode) |
 | `interruptDeadlineMs`, `eventStreamCapacityBytes` | as for the session | Passed to the session options |
+| `decideTurnContinuation` | none | A function that ends or continues the turn at the end of each loop iteration; see [Ending or continuing a turn](#ending-or-continuing-a-turn). Since 0.5.0 |
 
 Each `RunModel` makes at most one model call, built from committed state only:
 the instructions, the stored messages, the plan note from `buildPlanNote`
@@ -189,7 +190,8 @@ before the turn's messages when a plan exists or the turn plans, and the
 results of the previous model response from the turn's final records. The runner stores the turn's
 transcript as it goes: `ToolCallsRequested.newMessages` carries the previous
 round's tool results and the new model output, so `FrameworkRunState` holds
-only `{"model_calls": <n>}`. The input builder pairs every stored tool call
+only `{"model_calls": <n>}`, plus `"consecutive_continuations": <n>` after a
+continued answer. The input builder pairs every stored tool call
 with a result, and a missing one gets the outcome-unknown text, so an orphaned
 call never reaches a provider.
 
@@ -198,7 +200,16 @@ A function tool declares its effect, which picks `CallTool` or
 model's arguments against the tool's JSON Schema before `execute` runs, and a
 mismatch or an unknown tool reaches the model as a tool failure. `execute`
 receives the arguments and a `ToolCallContext` with the idempotency key,
-attempt, events, heartbeat, and the answers to the tool's own questions. A
+attempt, events, heartbeat, the answers to the tool's own questions, and
+`effect`: the call's effect after the tool policies, which chose its tool Step.
+A wrapper that turns errors into `ToolExecutionError` lets them propagate for a
+`non_idempotent_write` or `unclassified` effect, and for an absent one, which
+only a hand-built context has. `prepareArguments`, a synchronous and deterministic function, converts the
+decoded arguments before the schema check, such as an argument shape an earlier
+version of the tool took; a throw fails the call like a schema violation, a
+cancellation passes through, and a Promise result is refused. The
+stored tool call and the approval interrupt keep the model's original
+arguments. A
 `string` result is the output, and a `ToolInputRequested` result asks the user
 first. Any other result is JSON with the separators of Python's `json.dumps`,
 so the model sees the same text as from the Python core; the one exception is a
@@ -222,6 +233,74 @@ stored as the AI SDK assistant message, as JSON text, with every part's
 SDK returned them. It is replayed unchanged to a model of the same provider;
 any other provider gets its text and tool calls only, so a session can change
 model between turns.
+
+### Ending or continuing a turn
+
+`decideTurnContinuation` lets the application decide, at the end of each loop
+iteration, whether the turn ends or continues. An iteration is one model call
+and the tool calls it requested. The function receives a
+`TurnContinuationContext`: `flowId`, `turnId`, `sessionSettings`, the
+iteration's `modelOutput` items, and its `toolResults` (empty when the model
+answered without tools). It returns `"end"`, `"default"`, or a
+`ContinueTurn` (`{ action: "continue", message }`), directly or as a Promise.
+
+| The iteration | `"end"` | `{ action: "continue", message }` | `"default"` or no hook |
+| --- | --- | --- | --- |
+| The model called tools | The turn completes without another model call | The message follows the tool results, and the model is called with both | The model is called with the tool results |
+| The model answered without tools | The turn completes | The answer and the message are stored, and the model is called again in the same turn | The turn completes |
+
+```ts
+const approvalsAgentFlow = createBuiltinAgentSessionFlow(
+  {
+    name: "approvals",
+    instructions: "Review the request, then call submit_decision.",
+    model,
+    tools: [submitDecision],
+    decideTurnContinuation: ({ toolResults, modelOutput }) => {
+      if (toolResults.some((result) => result.toolName === "submit_decision")) {
+        return "end";
+      }
+      const answer = modelOutput.map((item) => item.text ?? "").join("");
+      if (toolResults.length === 0 && !answer.includes("DECISION:")) {
+        return { action: "continue", message: "Finish with a line that starts with DECISION:." };
+      }
+      return "default";
+    },
+  },
+  "ApprovalsAgent",
+);
+```
+
+- After tools, the hook runs in the next `RunModel` Step, before its model
+  call. `"end"` completes the turn there with the tool results as its last
+  messages and zero model calls in that Step's usage. The snapshot, the
+  `turn_completed` event, and the UI stream show a finished turn whose last
+  part is the tool result. That `RunModel` still runs the session's
+  compaction and spend-limit checks first, and still emits a `chat` span. The
+  UI stream starts a step for every `RunModel` Step, so it sends one more
+  `start-step` and `finish-step` with no visible part; the AI SDK message has
+  no part for them and matches `convertAgentSnapshotToUIMessages`.
+- After an answer, the hook runs in the same `RunModel` Step, after the model
+  call. A continuation returns the `TurnContinued` outcome: the session stores
+  the answer and the message as user text, then moves to `RunModel` again.
+  The next model request therefore ends with a user message, which every
+  provider accepts. Each model call stays its own `RunModel` Step, so a crash
+  or retry repeats only that call. Each continued call counts toward
+  `maxModelCallsPerTurn`.
+- The message is part of the turn's transcript: the model sees it as user
+  text, and snapshots hold it as a `user` message of the same turn.
+  `convertAgentSnapshotToUIMessages` keeps a user message between two model
+  calls of one turn out of the chat and starts the next model call's step, as
+  the UI stream does.
+- At most `maxConsecutiveTurnContinuations` (8) continuations in a row may
+  follow answers without tools; a tool call resets the count. The next one
+  ends the turn with its answer stored, `lastTurnError` set to `the turn
+  reached its limit of 8 consecutive continuations without a tool call`, and a
+  `turn_failed` event.
+- A thrown error, or any other value, including a continuation with a blank
+  message, fails the `RunModel` attempt, and its retry policy runs it again.
+  After an answer, the retry repeats the model call too. Keep the function
+  free of side effects.
 
 ### Tool sources
 
@@ -617,6 +696,9 @@ await client.invokeRPC(flow.updateSessionSettings, sessionId, { sessionSettings:
 - Start sessions with settings, and call `update_session_settings`, only after
   every Worker of the Flow type runs 0.2.0. A 0.1.0 Worker drops the start
   settings and starts turns without them.
+- `AgentSessionStartInput.startEnvironment` (`startAgentSession(..., { startEnvironment })`) is different: string
+  keys and values that say where the starting program ran. It stays in the Flow's start input and the session never
+  reads it, so it is not a setting and cannot change.
 
 ## Images
 
@@ -702,8 +784,13 @@ return { output: "Took a screenshot.", images: [reference] };
   follows a symbolic link. The Python core opens every path relative to an open directory and has no such window.
   Reads check the file's size first, read at most one byte past `sizeBytes`, and run `verifyImageBytes`. It needs a POSIX file system. Deleting a
   session deletes no file.
-- **Built-in runners.** In this release no built-in runner shows images to a model: the built-in loop and the framework
-  adapters do not implement `buildUserMessageWithImages`, so their sessions refuse images.
+- **Built-in runners.** The framework adapters show images to their model when built with a `mediaStore`: they
+  implement `buildUserMessageWithImages`, keep references in their stored items, and load the bytes for each model
+  call. Without a store they do not, and their sessions refuse images. The built-in loop does not implement it yet, so its
+  sessions refuse images.
+- **MCP tools.** `new McpToolSource(servers, { mediaStore })` uploads the `image` content of a successful result
+  inside the tool Step and returns the references in `ToolExecutionResult.images`. Give it the store the runner
+  reads.
 - **Retention.** Deleting a session deletes no object. A runner reads the images again whenever a model call replays
   them, so a bucket lifecycle rule must keep each object at least as long as any session that references it can
   still run a turn or replay its history. When an object is gone, the turn that needs it fails with `MediaStoreError`
@@ -835,8 +922,19 @@ interface AgentFrameworkRunner<ToolOutcome = ToolExecutionResult> {
   buildUserMessageWithImages?(text: string, images: AgentImageReference[]): FrameworkMessage; // optional; see Images
 }
 
-type AgentTurnOutcome = TurnCompleted | ToolCallsRequested;
-interface TurnCompleted { kind: "completed"; newMessages: FrameworkMessage[]; usage: AgentUsage }
+type AgentTurnOutcome = TurnCompleted | ToolCallsRequested | TurnContinued;
+interface TurnCompleted {
+  kind: "completed";
+  newMessages: FrameworkMessage[];
+  usage: AgentUsage;
+  turnError?: string;                 // optional since 0.5.0: end the turn as failed, without a retry
+}
+interface TurnContinued {             // since 0.5.0
+  kind: "turn_continued";
+  frameworkRunState: string;          // non-empty, opaque to the session
+  newMessages: FrameworkMessage[];    // stored now; requires buildUnfinishedTurnMessages
+  usage: AgentUsage;
+}
 interface ToolCallsRequested {
   kind: "tool_calls_requested";
   frameworkRunState: string;          // non-empty, opaque to the session
@@ -872,7 +970,7 @@ calls it for the turn failure note.
 | --- | --- |
 | `flowId`, `turnId`, `attempt` | Session ID, `turn-<n>`, one-based `RunModel` attempt |
 | `messages` | Every stored message in sequence order, including this turn's user message |
-| `frameworkRunState`, `isResuming` | Run state from this turn's last `ToolCallsRequested`, or `null` for the turn's first model call |
+| `frameworkRunState`, `isResuming` | Run state from this turn's last `ToolCallsRequested` or `TurnContinued`, or `null` for the turn's first model call |
 | `toolCalls`, `recordedToolCall(id)` | This turn's tool call records, in deferral order; all final when `runModelStep` runs |
 | `resolveToolPolicy(name, frameworkEffect?)` | Effective `ResolvedToolPolicy { effect, requiresApproval }` |
 | `events` | `AgentEventWriter` bound to this turn and attempt |
@@ -908,13 +1006,20 @@ The runner must:
    every message of the turn the session has not stored yet, in order: model
    output, tool requests, tool results, and the answer. Without incremental
    messages, that is every message the turn produced after its user message.
-6. Report only this model call's usage. Use `emptyAgentUsage()` and
+6. To make another model call within the same turn, return `TurnContinued`
+   with the run state and the messages to store now, ending with a user
+   message when the provider needs the request to end with one. The session
+   stores them and runs `RunModel` again. A runner that never needs this
+   ignores it. To end the turn as failed without a retry, such as at a
+   limit the runner enforces, return `TurnCompleted` with `turnError`; the
+   session stores `newMessages` and sets `lastTurnError` to that text.
+7. Report only this model call's usage. Use `emptyAgentUsage()` and
    `addAgentUsage()` when a framework reports several usage parts. Optionally
    return `modelCallMetadata: { requestModel, responseModel, providerName,
    responseId, finishReasons }` in either outcome. The session never stores it;
    it names the `chat` span (see [Tracing](#tracing)). Omit a field the
    framework does not expose.
-7. Throw for an unexpected failure. The model call reruns from the same
+8. Throw for an unexpected failure. The model call reruns from the same
    committed state, up to 3 attempts within 30 minutes; then the turn fails.
 
 **Incremental turn messages (optional).** A runner may return the turn's
@@ -1293,7 +1398,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.38.0 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.44.0 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or
@@ -1425,6 +1530,8 @@ signal aborts the request.
 | What happens | Recorded | Re-issued? |
 | --- | --- | --- |
 | A result | `succeeded`: text blocks joined with newlines, other content as JSON | - |
+| A result with `image` content, on a source built with `mediaStore` | `succeeded`: each image uploaded and recorded in `images`; the text shows `[image <n>]` in its place, counting from 1. More than 20 images, base64 that is invalid or not canonical, or bytes that are not a supported image: `failed` (`ToolExecutionError`) | - |
+| An `isError`, `rejected`, or `unknown` result with `image` content | As above, with `[image <n> omitted]` for each image in the text, with or without a store, so the recorded error holds no image bytes | As above |
 | An `isError` result, or a JSON-RPC error response other than `-32603` | `failed` with the text (`ToolExecutionError`) | No |
 | A result or error with the Dex `outcome` key | `outcome_unknown` or `failed`; see [Dex MCP conventions](#dex-mcp-conventions) | No |
 | The call was never sent: its server is not configured, or 3 connection attempts failed | `failed` | No |
@@ -2357,7 +2464,7 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   attempts, on every `listTools` call until it answers. A server that binds
   tasks to its protocol session, such as a stateful server on the SDK's task
   store, cannot resume a task across attempts; the retry calls the tool again.
-- Images: no built-in runner sends images to a model yet, and the media stores keep no local read cache, so each
+- Images: the built-in loop sends no images to a model yet, and the media stores keep no local read cache, so each
   `loadImages` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.

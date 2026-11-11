@@ -11,12 +11,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 from dex_agents.built_in_tools import BUILT_IN_TOOL_DEFINITIONS, BuiltInTool
 from dex_agents.builtin_loop.function_tools import FunctionTool, ToolCallContext
@@ -66,6 +67,7 @@ from dex_agents.runner import (
     ToolTaskPoll,
     ToolTaskPollOutcome,
     TurnCompleted,
+    TurnContinued,
     describe_tool_call_outcome,
     resolve_tool_policy,
 )
@@ -113,6 +115,85 @@ _TOOL_SOURCE_METHODS = (
 #: How the first model call of a planning turn without a draft uses ``write_todos``.
 PlanningToolChoice: TypeAlias = Literal["auto", "required"]
 _PLANNING_TOOL_CHOICES: tuple[PlanningToolChoice, ...] = ("auto", "required")
+
+
+@dataclass(frozen=True)
+class ContinueTurn:
+    """Make the model answer again within the same turn, with a message.
+
+    Return it from ``AgentDefinition.decide_turn_continuation``. The runner
+    stores ``message`` in the turn as user text, so the next model request
+    ends with a user message, which every provider accepts.
+
+    .. versionadded:: 0.5.0
+
+    Example:
+        >>> ContinueTurn("Add the order number to your answer.")
+
+    Attributes:
+        message: Text the model receives as the next user message of the
+            turn, such as what the previous answer lacked. It must not be
+            blank.
+    """
+
+    message: str
+
+
+#: What ``AgentDefinition.decide_turn_continuation`` returns at the end of one
+#: loop iteration. ``"end"`` ends the turn now; after tool calls, no further
+#: model call runs. ``ContinueTurn`` stores its message in the turn as user
+#: text, then calls the model: after an answer without tool calls, this makes
+#: another model call instead of ending the turn; after tool calls, the
+#: message follows the tool results in the same model call. ``"default"``
+#: keeps the loop's behavior without the hook. Later releases may add more
+#: forms, so handle only the values you return.
+#:
+#: .. versionadded:: 0.5.0
+TurnContinuation: TypeAlias = Literal["end", "default"] | ContinueTurn
+
+#: How many ``ContinueTurn`` results of ``AgentDefinition.decide_turn_continuation``
+#: may follow answers without tool calls in a row. A model response with tool
+#: calls resets the count.
+#:
+#: .. versionadded:: 0.5.0
+MAX_CONSECUTIVE_TURN_CONTINUATIONS = 8
+
+#: ``last_turn_error`` of a turn whose hook returned ``ContinueTurn`` once too
+#: often in a row; ``str.format`` it. The same text as the TypeScript core.
+#:
+#: .. versionadded:: 0.5.0
+TURN_CONTINUATION_LIMIT_ERROR = (
+    "the turn reached its limit of {limit} consecutive continuations without a tool call"
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class TurnContinuationContext:
+    """Tell ``AgentDefinition.decide_turn_continuation`` what one loop iteration produced.
+
+    An iteration is one model call and the tool calls it requested. The runner
+    never stores this context.
+
+    .. versionadded:: 0.5.0
+
+    Attributes:
+        flow_id: Session ID, which is the Flow ID.
+        turn_id: ``"turn-<n>"`` of the running turn.
+        session_settings: The settings the turn started with. Empty when the
+            session has none.
+        model_output: The output items of this iteration's model response, in
+            the order the model returned them. Read ``ModelOutputItem.text``
+            for the answer and ``ModelOutputItem.tool_calls`` for the calls.
+        tool_results: The results of this iteration's tool calls, in the order
+            the model requested them. Empty when the model answered without
+            tool calls.
+    """
+
+    flow_id: str
+    turn_id: str
+    session_settings: Mapping[str, Any]
+    model_output: Sequence[ModelOutputItem]
+    tool_results: Sequence[ToolResultItem]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -253,6 +334,50 @@ class AgentDefinition:
             ``estimate_input_tokens``. ``None``, the default, never compacts.
         spend_limit: The application's ``ModelSpendLimit``, called before and
             after each model call. ``None``, the default, makes no checks.
+        decide_turn_continuation: A function of ``TurnContinuationContext``
+            that decides, at the end of each loop iteration, whether the turn
+            ends or continues. It returns a ``TurnContinuation``, directly or
+            as an awaitable. Use it to stop a turn once a tool call has done
+            the work, or to make the model try again after an answer the
+            application rejects. ``None``, the default, calls the model again
+            after tool calls and ends the turn after an answer.
+
+            The runner calls it in two places. After a batch of tool calls, in
+            the next ``RunModel`` Step and before the model call: ``"end"``
+            completes the turn with no model call, the tool results become the
+            turn's last messages, and the Step records zero model calls; a
+            ``ContinueTurn`` adds its message after the tool results, and the
+            model call receives both. After a model call that requested no
+            tools, in the same ``RunModel`` Step: a ``ContinueTurn`` stores the
+            answer and its message as user text, then makes another model call
+            in a new ``RunModel`` Step. The message is part of the turn's
+            transcript: the model sees it as user text, and snapshots hold it
+            as a ``user`` message between the two answers.
+
+            At most ``MAX_CONSECUTIVE_TURN_CONTINUATIONS`` (8) continuations in
+            a row may follow answers without tool calls; a tool call resets
+            the count. The next one ends the turn with that answer stored and
+            ``last_turn_error`` set. Each continued model call counts toward
+            ``max_model_calls_per_turn``.
+
+            The function runs inside the ``RunModel`` attempt, so an exception
+            or any other value, including a ``ContinueTurn`` with a blank
+            message, fails that attempt, and the Step's retry policy runs it
+            again. After an answer, that retry also repeats the model call.
+            The function can run more than once for one iteration, so keep it
+            free of side effects. ``cancel_turn`` and a steered message still
+            end a continued turn, because the session checks them before every
+            ``RunModel`` reaches the runner. For example::
+
+                def decide(context: TurnContinuationContext) -> TurnContinuation:
+                    if any(r.tool_name == "submit_decision" for r in context.tool_results):
+                        return "end"
+                    answer = "".join(item.text or "" for item in context.model_output)
+                    if not context.tool_results and "DECISION:" not in answer:
+                        return ContinueTurn("Finish with a line that starts with DECISION:.")
+                    return "default"
+
+            .. versionadded:: 0.5.0
 
     Raises:
         ValueError: If ``name`` is blank, two tools share a name, a tool or a
@@ -287,6 +412,9 @@ class AgentDefinition:
     tool_sources: Sequence[ToolSource] = ()
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT
     resolve_model: Callable[[Mapping[str, Any]], ModelClient] | None = None
+    decide_turn_continuation: (
+        Callable[[TurnContinuationContext], TurnContinuation | Awaitable[TurnContinuation]] | None
+    ) = None
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -409,15 +537,24 @@ class BuiltinLoopAgentRunner:
         Returns:
             ``ToolCallsRequested`` when the model asked for tools, otherwise
             ``TurnCompleted``. Both carry the previous round's tool results and
-            the new output items.
+            the new output items. When ``decide_turn_continuation`` returns
+            ``"end"`` after tool calls, a ``TurnCompleted`` with only the
+            results and zero usage, without a model call. When it returns
+            ``ContinueTurn`` after tool calls, its message follows the results
+            in the request and in the stored messages. When it returns
+            ``ContinueTurn`` after an answer, ``TurnContinued`` with the
+            message as user text, or a ``TurnCompleted`` with ``turn_error``
+            once ``MAX_CONSECUTIVE_TURN_CONTINUATIONS`` is exceeded.
 
         Raises:
             ValueError: If a function tool uses the name of a built-in tool
                 that the session enables, or a tool source lists a name that
                 repeats a function tool, an enabled built-in tool, or another
                 source's tool. No model request is made.
-            Exception: What the model client raises. A tool source whose
-                ``list_tools`` raises or times out offers no tools instead.
+            TypeError: If ``decide_turn_continuation`` returns another value.
+            Exception: What the model client or ``decide_turn_continuation``
+                raises. A tool source whose ``list_tools`` raises or times out
+                offers no tools instead.
         """
         reserved = sorted(
             tool.name for tool in self._definition.tools if tool.name in turn.enabled_built_in_tools
@@ -425,14 +562,27 @@ class BuiltinLoopAgentRunner:
         if reserved:
             # Session options can enable a built-in that the definition did not list.
             raise ValueError(_built_in_name_collision(reserved[0]))
-        model_calls = _model_call_count(turn.framework_run_state)
+        model_calls, consecutive_continuations = _read_run_state(turn.framework_run_state)
         unstored_results = _unstored_tool_results(turn)
+        unstored_items: list[ModelInputItem] = [*unstored_results]
+        if unstored_results and self._definition.decide_turn_continuation is not None:
+            decision = await self._decide_turn_continuation(
+                turn, _latest_model_output(turn), unstored_results
+            )
+            if decision == "end":
+                return TurnCompleted(
+                    new_messages=[
+                        encode_builtin_loop_message(result) for result in unstored_results
+                    ]
+                )
+            if isinstance(decision, ContinueTurn):
+                unstored_items.append(UserTextItem(text=decision.message))
         is_tool_budget_spent = model_calls >= self._definition.max_model_calls_per_turn
         source_tools: dict[str, _ListedSourceTool] = {}
         if not is_tool_budget_spent and turn.interaction_mode != InteractionMode.PLANNING:
             source_tools = await self._list_source_tools(turn)
         request = self._model_request(
-            turn, unstored_results, model_calls, is_tool_budget_spent, source_tools
+            turn, unstored_items, model_calls, is_tool_budget_spent, source_tools
         )
         model = self._resolve_model(turn.session_settings)
         if isinstance(request.tool_choice, NamedToolChoice) and not _supports_forced_tool_choice(
@@ -443,11 +593,35 @@ class BuiltinLoopAgentRunner:
         response = await model.call_model(request, turn.events)
         usage = replace(response.usage, model_calls=1)
         new_messages = [
-            *(encode_builtin_loop_message(result) for result in unstored_results),
+            *(encode_builtin_loop_message(item) for item in unstored_items),
             *(encode_builtin_loop_message(item) for item in response.output_items),
         ]
         if not response.tool_calls:
-            return TurnCompleted(new_messages=new_messages, usage=usage)
+            decision = await self._decide_turn_continuation(turn, response.output_items, ())
+            if not isinstance(decision, ContinueTurn):
+                return TurnCompleted(new_messages=new_messages, usage=usage)
+            if consecutive_continuations + 1 > MAX_CONSECUTIVE_TURN_CONTINUATIONS:
+                return TurnCompleted(
+                    new_messages=new_messages,
+                    usage=usage,
+                    turn_error=TURN_CONTINUATION_LIMIT_ERROR.format(
+                        limit=MAX_CONSECUTIVE_TURN_CONTINUATIONS
+                    ),
+                )
+            return TurnContinued(
+                framework_run_state=json.dumps(
+                    {
+                        "model_calls": model_calls + 1,
+                        "consecutive_continuations": consecutive_continuations + 1,
+                    }
+                ),
+                # The message makes the next request end with user text, as every provider requires.
+                new_messages=[
+                    *new_messages,
+                    encode_builtin_loop_message(UserTextItem(text=decision.message)),
+                ],
+                usage=usage,
+            )
         if is_tool_budget_spent:
             # The model ignored that no tools were offered; answer each call instead of running it.
             not_run = TOOL_CALL_LIMIT_REACHED_RESULT.format(
@@ -498,7 +672,8 @@ class BuiltinLoopAgentRunner:
 
         Raises:
             ToolExecutionError: If the tool is unknown, the arguments break its
-                schema, or the tool or its source raised it.
+                schema, the tool's ``prepare_arguments`` raised, or the tool or
+                its source raised it.
             LookupError: If a source built the call but the definition no
                 longer has it, so the effect class decides the outcome.
             Exception: What the tool source raises otherwise.
@@ -525,6 +700,7 @@ class BuiltinLoopAgentRunner:
                 heartbeat=call.heartbeat,
                 input_answers=tuple(call.input_answers),
                 input_continuation=record.input_continuation,
+                effect=record.effect,
             ),
         )
         return result if not isinstance(result, str) else ToolExecutionResult(output=result)
@@ -634,7 +810,7 @@ class BuiltinLoopAgentRunner:
             source's ``cached_tools`` when it has one, else from the runner's
             last listing, because this method cannot await one.
         """
-        model_calls = _model_call_count(turn.framework_run_state)
+        model_calls, _consecutive_continuations = _read_run_state(turn.framework_run_state)
         request = self._model_request(
             turn,
             _unstored_tool_results(turn),
@@ -774,7 +950,7 @@ class BuiltinLoopAgentRunner:
     def _model_request(
         self,
         turn: AgentTurnContext,
-        unstored_results: Sequence[ToolResultItem],
+        unstored_items: Sequence[ModelInputItem],
         model_calls: int,
         is_tool_budget_spent: bool,
         source_tools: Mapping[str, _ListedSourceTool],
@@ -795,7 +971,7 @@ class BuiltinLoopAgentRunner:
             instructions=self._instructions(turn),
             # The plan note comes after the summary, so compaction never hides the plan.
             input_items=pair_tool_calls_with_results(
-                [*summary_items, *_stored_input_items_with_plan_note(turn), *unstored_results]
+                [*summary_items, *_stored_input_items_with_plan_note(turn), *unstored_items]
             ),
             tools=[] if is_tool_budget_spent else self._tool_definitions(turn, source_tools),
             tool_choice=tool_choice,
@@ -840,6 +1016,42 @@ class BuiltinLoopAgentRunner:
                 plan=turn.plan,
                 session_settings=turn.session_settings,
             )
+        )
+
+    async def _decide_turn_continuation(
+        self,
+        turn: AgentTurnContext,
+        model_output: Sequence[ModelOutputItem],
+        tool_results: Sequence[ToolResultItem],
+    ) -> TurnContinuation:
+        """Return the hook's decision for one iteration, or ``"default"`` without a hook."""
+        decide = self._definition.decide_turn_continuation
+        if decide is None:
+            return "default"
+        decision: object = decide(
+            TurnContinuationContext(
+                flow_id=turn.flow_id,
+                turn_id=turn.turn_id,
+                session_settings=turn.session_settings,
+                model_output=tuple(model_output),
+                tool_results=tuple(tool_results),
+            )
+        )
+        if inspect.isawaitable(decision):
+            decision = await decision
+        if decision == "end" or decision == "default":
+            return cast(TurnContinuation, decision)
+        if (
+            isinstance(decision, ContinueTurn)
+            and isinstance(decision.message, str)
+            and decision.message.strip()
+        ):
+            return decision
+        # The message may hold application data, so the error names only the kind of value.
+        described = repr(decision) if isinstance(decision, str) else type(decision).__name__
+        raise TypeError(
+            f"decide_turn_continuation of agent {self._definition.name} must return "
+            f"'end', 'default', or ContinueTurn with a non-blank message, not {described}"
         )
 
     def _resolve_model(self, session_settings: Mapping[str, Any]) -> ModelClient:
@@ -1166,10 +1378,25 @@ def _stored_input_items_with_plan_note(turn: AgentTurnContext) -> list[ModelInpu
     return items
 
 
-def _model_call_count(framework_run_state: str | None) -> int:
+def _read_run_state(framework_run_state: str | None) -> tuple[int, int]:
+    """Return the turn's model calls and consecutive continuations, absent until the first."""
     if framework_run_state is None:
-        return 0
-    return int(json.loads(framework_run_state)["model_calls"])
+        return 0, 0
+    run_state = json.loads(framework_run_state)
+    return int(run_state["model_calls"]), int(run_state.get("consecutive_continuations", 0))
+
+
+def _latest_model_output(turn: AgentTurnContext) -> list[ModelOutputItem]:
+    """Return the turn's trailing stored model output items: its latest model response."""
+    items = [
+        decode_builtin_loop_message(message)
+        for message in turn.messages
+        if message.turn_id == turn.turn_id
+    ]
+    start = len(items)
+    while start > 0 and isinstance(items[start - 1], ModelOutputItem):
+        start -= 1
+    return [item for item in items[start:] if isinstance(item, ModelOutputItem)]
 
 
 def _unstored_tool_results(turn: AgentTurnContext) -> list[ToolResultItem]:

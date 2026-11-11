@@ -6,7 +6,15 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { AgentMessage, AgentMessageRole, FrameworkMessage } from "@superdurable/dex-agents";
+import type { AgentImageReference, AgentMessage, AgentMessageRole, FrameworkMessage } from "@superdurable/dex-agents";
+
+import {
+  decodeImageReference,
+  encodeImageReference,
+  imageBlock,
+  imageReferencesIn,
+  type PromptImageBlock,
+} from "./claude-transcript-images.js";
 
 /**
  * `frameworkItem` `kind` of a user message that the session stored before its turn ran.
@@ -24,6 +32,8 @@ export const userPromptItemKind = "user_prompt";
  * `entries` are the CLI's transcript lines, unchanged, except that `last-prompt` entries are left out; the
  * adapter also drops the ones adapter 0.4.0 stored when it reads them. Concatenating the entries of every
  * stored message in sequence order rebuilds the session transcript. The value matches the Python adapter.
+ * With a media store, each base64 image `source` keeps `{"dex_image_reference": <reference fields>}` as its
+ * `data` instead of the bytes.
  */
 export const claudeTranscriptItemKind = "claude_transcript";
 
@@ -48,8 +58,11 @@ interface ContentBlock {
   readonly [key: string]: unknown;
 }
 
-export function encodeUserPromptItem(text: string): string {
-  return JSON.stringify({ kind: userPromptItemKind, text });
+export function encodeUserPromptItem(text: string, images: readonly AgentImageReference[] = []): string {
+  if (images.length === 0) {
+    return JSON.stringify({ kind: userPromptItemKind, text });
+  }
+  return JSON.stringify({ kind: userPromptItemKind, text, images: images.map(encodeImageReference) });
 }
 
 /** One text block of a prompt that carries several stored texts. */
@@ -58,18 +71,27 @@ export interface PromptTextBlock {
   readonly text: string;
 }
 
+/** One content block of a prompt: text, or an image whose block holds a reference until the runner loads it. */
+export type PromptContentBlock = PromptTextBlock | PromptImageBlock;
+
+interface UnsentPrompt {
+  readonly text: string;
+  readonly images: readonly AgentImageReference[];
+}
+
 export function buildTurnPromptContent(
   messages: readonly AgentMessage[],
   turnId: string,
-): string | PromptTextBlock[] {
+): string | PromptContentBlock[] {
   // Prompts and turn-failure notes after the last transcript never reached the CLI.
-  let unsentPromptTexts: string[] = [];
+  let unsentPrompts: UnsentPrompt[] = [];
   for (const message of messages) {
     const item = parseJsonObject(message.frameworkItem, `message ${message.sequence}`);
     if (item["kind"] === claudeTranscriptItemKind) {
-      unsentPromptTexts = [];
+      unsentPrompts = [];
     } else if (item["kind"] === userPromptItemKind && typeof item["text"] === "string") {
-      unsentPromptTexts.push(item["text"]);
+      const images = Array.isArray(item["images"]) ? item["images"].map(decodeImageReference) : [];
+      unsentPrompts.push({ text: item["text"], images });
     }
   }
   const currentPrompt = messages.at(-1);
@@ -77,14 +99,18 @@ export function buildTurnPromptContent(
     currentPrompt === undefined ||
     currentPrompt.role !== "user" ||
     currentPrompt.turnId !== turnId ||
-    unsentPromptTexts.length === 0
+    unsentPrompts.length === 0
   ) {
     throw new Error(`turn ${turnId} does not end with its stored prompt`);
   }
-  if (unsentPromptTexts.length === 1) {
-    return unsentPromptTexts[0] as string;
+  const [onlyPrompt] = unsentPrompts;
+  if (unsentPrompts.length === 1 && onlyPrompt !== undefined && onlyPrompt.images.length === 0) {
+    return onlyPrompt.text;
   }
-  return unsentPromptTexts.map((text) => ({ type: "text", text }));
+  return unsentPrompts.flatMap((prompt): PromptContentBlock[] => [
+    { type: "text", text: prompt.text },
+    ...prompt.images.map(imageBlock),
+  ]);
 }
 
 export function loadSessionTranscript(messages: readonly AgentMessage[]): ClaudeSessionTranscript {
@@ -278,6 +304,8 @@ function toToolResultMessage(
     };
   }
   const toolCallId = String(singleResult["tool_use_id"]);
+  // The images the model saw in this result; stored blocks hold only references.
+  const images = imageReferencesIn(singleResult["content"]);
   return {
     role: "tool",
     text: null,
@@ -286,6 +314,7 @@ function toToolResultMessage(
     toolArguments: null,
     toolOutput: toolResultText(singleResult["content"]),
     frameworkItem,
+    ...(images.length === 0 ? {} : { images }),
   };
 }
 

@@ -26,7 +26,7 @@ import type {
   ModelRequestMetadata,
   ModelResponse,
   ModelToolChoice,
-} from "@superdurable/dex-agents/stepwise";
+} from "@superdurable/dex-agents/builtin-loop";
 
 import {
   encodeStoredPiAiMessage,
@@ -71,7 +71,7 @@ export interface PiAiModelClientOptions {
 }
 
 /**
- * Creates a Stepwise {@link ModelClient} that makes each model call with pi-ai.
+ * Creates a built-in loop {@link ModelClient} that makes each model call with pi-ai.
  *
  * Dex runs the agent loop: each model call is one `RunModel` Step and each tool call is its own Step. pi-ai only
  * talks to the provider. Each `callModel` makes one `streamSimple` request with pi-ai's client retries off, so every
@@ -107,13 +107,13 @@ export interface PiAiModelClientOptions {
  * @example
  * ```ts
  * import { getModel } from "@earendil-works/pi-ai/compat";
- * import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
+ * import { createBuiltinAgentSessionFlow } from "@superdurable/dex-agents/builtin-loop";
  * import { createPiAiModelClient } from "@superdurable/dex-agents-pi";
  *
  * const model = createPiAiModelClient(getModel("anthropic", "claude-sonnet-4-5"), {
  *   apiKey: process.env.ANTHROPIC_API_KEY,
  * });
- * const flow = createStepwiseAgentSessionFlow({ name: "support", instructions, model, tools }, "SupportAgent");
+ * const flow = createBuiltinAgentSessionFlow({ name: "support", instructions, model, tools }, "SupportAgent");
  * ```
  * @param model - A pi-ai chat model, such as `getModel("anthropic", "claude-sonnet-4-5")`. Its `baseUrl` may
  * point at any compatible endpoint.

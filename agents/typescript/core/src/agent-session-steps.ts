@@ -60,6 +60,7 @@ import {
   type ToolInputRequested,
   type ToolTaskStarted,
   type TurnCompleted,
+  type TurnContinued,
 } from "./agent-framework-runner.js";
 import { toolResultImages } from "./agent-media.js";
 import { buildPlanExecutionMessage, planningTurnToolRejection, planStatusAfterWrite } from "./agent-plans.js";
@@ -346,7 +347,11 @@ export class RunModelStep implements Step<void> {
         async (modelCallSpan) => {
           const outcome = await transitions.runWithHeartbeats(context, async () => {
             const result = await transitions.runner.runModelStep(turnContext);
-            if (result?.kind === "completed" || result?.kind === "tool_calls_requested") {
+            if (
+              result?.kind === "completed" ||
+              result?.kind === "tool_calls_requested" ||
+              result?.kind === "turn_continued"
+            ) {
               await transitions.reportModelUsage(context, turnId, this.getStepType(), result.usage);
             }
             return result;
@@ -367,8 +372,18 @@ export class RunModelStep implements Step<void> {
               }
               modelCallSpan.recordOutcome(outcome, appendedMessageKeys(state, outcome.newMessages ?? []));
               return this.requestToolCalls(context, state, turnId, toolCalls, outcome, events);
+            case "turn_continued":
+              validateTurnContinued(turnId, outcome);
+              if (outcome.newMessages.length > 0 && transitions.runner.buildUnfinishedTurnMessages === undefined) {
+                // The same runner defect as for ToolCallsRequested.newMessages.
+                modelCallSpan.recordOutcome(outcome, []);
+                transitions.recordUsage(context, outcome.usage, events);
+                return recordFailedTurn(transitions, context, state, toolCalls, [], missingUnfinishedTurnMessageBuilder);
+              }
+              modelCallSpan.recordOutcome(outcome, appendedMessageKeys(state, outcome.newMessages));
+              return this.continueTurn(context, state, turnId, outcome, events);
             default:
-              throw new TypeError("runModelStep must return a TurnCompleted or ToolCallsRequested outcome");
+              throw new TypeError("runModelStep must return a TurnCompleted, ToolCallsRequested, or TurnContinued outcome");
           }
         },
       );
@@ -474,6 +489,7 @@ export class RunModelStep implements Step<void> {
   ): StepDecision {
     const transitions = this.transitions;
     const persistence = transitions.persistence;
+    const turnError = readTurnError(turnId, outcome);
     const stateWithMessages = transitions.appendMessages(context, state, turnId, outcome.newMessages);
     for (const toolCall of toolCalls) {
       persistence.agentToolCalls.delete(context, toolCall.toolCallId);
@@ -485,13 +501,33 @@ export class RunModelStep implements Step<void> {
       status: "waiting_for_user_message",
       turnCount: state.turnCount + 1,
       activeTurnId: null,
-      lastTurnError: null,
+      lastTurnError: turnError,
       acceptsTurnControl: false,
     });
+    if (turnError !== null) {
+      events.writeEvent("turn_failed", { error: turnError });
+      return transitions.goToAwaitUserMessage();
+    }
     // The turn's user messages are stored but not counted; incremental runners stored more before now.
     const messageCount = storedTurnMessageCount + outcome.newMessages.length;
     events.writeEvent("turn_completed", { message_count: messageCount });
     return transitions.goToAwaitUserMessage();
+  }
+
+  /** Stores the answer and any continuation message, then moves to `RunModel` again in the same turn. */
+  private continueTurn(
+    context: Context,
+    state: AgentState,
+    turnId: string,
+    outcome: TurnContinued,
+    events: StreamAgentEventWriter,
+  ): StepDecision {
+    const transitions = this.transitions;
+    const stateWithMessages = transitions.appendMessages(context, state, turnId, outcome.newMessages);
+    transitions.persistence.frameworkRunState.set(context, outcome.frameworkRunState);
+    transitions.recordUsage(context, outcome.usage, events);
+    transitions.writeAgentState(context, { ...stateWithMessages, status: "running_model" });
+    return transitions.goToRunModel(context);
   }
 
   /** Returns the sequence to summarize through before this model call, or `null` to make the call. */
@@ -1549,6 +1585,27 @@ function appendedMessageKeys(state: AgentState, messages: readonly FrameworkMess
 /** `last_turn_error` of a turn whose runner stored messages incrementally without the builder. */
 export const missingUnfinishedTurnMessageBuilder =
   "a runner that sets ToolCallsRequested.newMessages must implement buildUnfinishedTurnMessages";
+
+function validateTurnContinued(turnId: string, outcome: TurnContinued): void {
+  if (typeof outcome.frameworkRunState !== "string" || outcome.frameworkRunState === "") {
+    throw new TypeError(`TurnContinued for ${turnId} needs a non-empty frameworkRunState`);
+  }
+  if (!Array.isArray(outcome.newMessages)) {
+    throw new TypeError(`TurnContinued.newMessages for ${turnId} must be an array`);
+  }
+}
+
+/** Returns `TurnCompleted.turnError`, or `null` for a completed turn. */
+function readTurnError(turnId: string, outcome: TurnCompleted): string | null {
+  const turnError: unknown = outcome.turnError;
+  if (turnError === undefined) {
+    return null;
+  }
+  if (typeof turnError !== "string" || turnError.trim() === "") {
+    throw new TypeError(`TurnCompleted.turnError for ${turnId} must be a non-blank string`);
+  }
+  return turnError;
+}
 
 function validateToolCallsRequested(
   turnId: string,

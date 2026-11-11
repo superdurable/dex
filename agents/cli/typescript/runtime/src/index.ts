@@ -35,6 +35,7 @@ export {
   compareCodePoints,
   defaultConnectorsMcp,
   defaultDexServer,
+  defaultMediaStore,
   defaultWorkspace,
   isCoveredByConnectorEntry,
   isShellCommandAllowed,
@@ -46,6 +47,7 @@ export {
   type ConnectorEntry,
   type EffectiveConfig,
   type LocalToolsConfig,
+  type MediaConfig,
   type TurnConfig,
 } from "./cli-config.js";
 export {
@@ -74,6 +76,12 @@ export {
   type StartedDexcliDev,
 } from "./dex-server.js";
 export { LocalToolSource, localToolNames } from "./local-tools/local-tool-source.js";
+export {
+  WorkspaceFileRefusedError,
+  WorkspaceFiles,
+  type WorkspaceDirectoryEntry,
+  type WorkspaceFileVersion,
+} from "./local-tools/workspace-files.js";
 export {
   TurnConfigResolver,
   type ToolStepTurn,

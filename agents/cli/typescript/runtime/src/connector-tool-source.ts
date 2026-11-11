@@ -13,6 +13,7 @@ import {
   type DeferredToolCall,
   type DeferredToolExecution,
   type DeferredToolOutcome,
+  type MediaStore,
   type SourceToolDefinition,
   type ToolSource,
   type ToolTaskCancellation,
@@ -131,15 +132,23 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * @param url - The connectors MCP server's Streamable HTTP URL.
    * @param turns - The per-turn configuration.
    * @param log - Writes a line when the server becomes unavailable or available again.
+   * @param mediaStore - The store for the images that tool results carry. With a store, each image of a successful
+   * result is uploaded in the tool Step and reaches the model as an image reference. Omitted, images stay JSON in
+   * the output text. Since 0.5.0.
    */
   public constructor(
     private readonly url: string,
     private readonly turns: TurnConfigResolver,
     private readonly log: (line: string) => void,
+    mediaStore?: MediaStore,
   ) {
     this.mcp = new McpToolSource(
       [{ name: mcpServerName, transport: "streamable_http", url, trustsToolAnnotations: true }],
-      { resourceAndPromptToolsEnabled: false, clientName: "dex-agents-cli" },
+      {
+        resourceAndPromptToolsEnabled: false,
+        clientName: "dex-agents-cli",
+        ...(mediaStore === undefined ? {} : { mediaStore }),
+      },
     );
   }
 
@@ -174,6 +183,15 @@ export class ConnectorsMcpToolSource implements ToolSource {
     }
     this.lastListing = listed;
     return listed;
+  }
+
+  /**
+   * Whether the server answered the latest listing; `true` before the first one.
+   *
+   * @since 0.5.0
+   */
+  public get isAvailable(): boolean {
+    return this.lastListingFailure === undefined;
   }
 
   /**

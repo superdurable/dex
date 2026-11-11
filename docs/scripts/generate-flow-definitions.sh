@@ -14,7 +14,14 @@ generate_flow_definition() {
   if [[ -n "${DEX_FLOW_PYTHON:-}" && "${source_path}" == *.py ]]; then
     arguments+=(--python "${DEX_FLOW_PYTHON}")
   fi
-  ./cli/dexcli visualize "${arguments[@]}"
+  # Stamp generatedAt with the source's last commit time so regeneration is stable.
+  local source_commit_time
+  source_commit_time="$(git log -1 --format=%ct -- "${source_path}")"
+  if [[ -z "${source_commit_time}" ]]; then
+    echo "error: ${source_path} has no git commit; commit it before generating its Flow definition" >&2
+    exit 1
+  fi
+  SOURCE_DATE_EPOCH="${source_commit_time}" ./cli/dexcli visualize "${arguments[@]}"
 }
 
 generate_flow_definition examples/python/dex_examples/products/deal_dsl/deal_dsl_flow.py deal-dsl

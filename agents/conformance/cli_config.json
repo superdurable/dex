@@ -1,5 +1,5 @@
 {
-  "description": "Dex Agents CLI configuration behavior every CLI runtime must match: YAML parsing, schema validation, file defaults, session override narrowing, operation names, and the shell allow list. Hand-written; see README.md and agents/cli/README.md.",
+  "description": "Dex Agents CLI configuration behavior every CLI runtime must match: YAML parsing, schema validation, file defaults, the media store, session override narrowing, operation names, and the shell allow list. Hand-written; see README.md and agents/cli/README.md.",
   "schemas": {
     "config": "agents/cli/config.schema.json",
     "session_settings": "agents/cli/session-settings.schema.json"
@@ -7,7 +7,7 @@
   "error_codes": {
     "yaml": "The file is not one YAML 1.2 document with unique keys. path is always \"\".",
     "schema": "The value fails the schema. Runtimes may report schema errors in any order. Each schema case has exactly one violation, and a runtime passes it when validation fails and the expected instance location path and keyword are among its validator's errors, nested anyOf errors included.",
-    "invalid_url": "dex.server or connectors.mcp passes the schema but is not a URL a WHATWG URL parser accepts with a port of at most 65535: an IPv4 part that is not 0 or a decimal from 1 to 255 without a leading zero, an invalid IPv6 address, a DNS label starting with xn--, or a port over 65535. path is the field.",
+    "invalid_url": "dex.server, connectors.mcp, or media.endpoint passes the schema but is not a URL a WHATWG URL parser accepts with a port of at most 65535: an IPv4 part that is not 0 or a decimal from 1 to 255 without a leading zero, an invalid IPv6 address, a DNS label starting with xn--, or a port over 65535. path is the field.",
     "duplicate_tool": "One entry names the same operation twice, in two spellings. path is the entry.",
     "duplicate_connection": "Two entries cover the same connection. path is the later entry.",
     "model_required": "Neither the file nor the harness command gives a model.",
@@ -15,12 +15,12 @@
     "widens_local_tools": "A session switches on what the file switches off, or allows a command the file does not."
   },
   "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings. A TypeScript runtime must compare code points: the default Array sort compares UTF-16 code units and puts U+10000 before U+E000.",
-  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then connectors.mcp; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser.",
+  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then connectors.mcp, then media.endpoint; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser.",
   "harness_sections": [
     "claude",
     "openai",
     "pydantic_ai",
-    "langgraph",
+    "deepagents",
     "google_adk",
     "vercel_ai",
     "mastra",
@@ -207,6 +207,10 @@
           "web_fetch": true,
           "browser": true
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       }
     },
@@ -239,6 +243,10 @@
           },
           "web_fetch": true,
           "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       }
@@ -337,6 +345,10 @@
           "web_fetch": true,
           "browser": true
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       }
     },
@@ -374,6 +386,10 @@
           },
           "web_fetch": true,
           "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {
           "thinking": "high"
@@ -419,6 +435,10 @@
           "web_fetch": true,
           "browser": true
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {
           "tracing": false
         }
@@ -427,7 +447,7 @@
     {
       "name": "addresses-and-paths-as-written",
       "description": "URLs and paths stay as written: ~ and relative paths are expanded where they are used, not here.",
-      "harness_section": "langgraph",
+      "harness_section": "deepagents",
       "harness_default_model": "openai:gpt-5-mini",
       "config": {
         "system_prompt_file": "prompts/assistant.md",
@@ -462,6 +482,10 @@
           },
           "web_fetch": true,
           "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       }
@@ -503,6 +527,10 @@
           "web_fetch": true,
           "browser": true
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       }
     },
@@ -543,6 +571,10 @@
           "web_fetch": true,
           "browser": true
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       }
     },
@@ -579,6 +611,10 @@
           },
           "web_fetch": true,
           "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       }
@@ -617,6 +653,10 @@
           "web_fetch": true,
           "browser": true
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       }
     },
@@ -654,6 +694,10 @@
           "web_fetch": true,
           "browser": true
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       }
     },
@@ -690,6 +734,10 @@
           },
           "web_fetch": true,
           "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       }
@@ -762,6 +810,10 @@
           "web_fetch": true,
           "browser": true
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       }
     },
@@ -819,6 +871,10 @@
           "web_fetch": true,
           "browser": true
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       }
     },
@@ -870,6 +926,10 @@
           "web_fetch": true,
           "browser": false
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       }
     },
@@ -904,6 +964,132 @@
           },
           "web_fetch": true,
           "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "media-empty-section",
+      "description": "An empty media section keeps the local directory store.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {}
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "media-s3-store",
+      "description": "An S3 bucket and prefix; without an endpoint the store is AWS S3.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "s3://agent-media/sessions/cli"
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "s3://agent-media/sessions/cli",
+          "endpoint": null
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "media-s3-store-with-endpoint",
+      "description": "An S3-compatible service: a bucket without a prefix and an endpoint URL.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "s3://agent.media-1",
+          "endpoint": "http://127.0.0.1:9000"
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "s3://agent.media-1",
+          "endpoint": "http://127.0.0.1:9000"
         },
         "harness_options": {}
       }
@@ -1273,6 +1459,41 @@
       "error": {
         "code": "invalid_url",
         "path": "/dex/server"
+      }
+    },
+    {
+      "name": "media-endpoint-port-out-of-range",
+      "description": "media.endpoint follows the URL checks of dex.server.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "s3://agent-media",
+          "endpoint": "http://localhost:70000"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/media/endpoint"
+      }
+    },
+    {
+      "name": "mcp-checked-before-media-endpoint",
+      "description": "connectors.mcp is checked before media.endpoint.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "connectors": {
+          "mcp": "http://localhost:70000"
+        },
+        "media": {
+          "store": "s3://agent-media",
+          "endpoint": "http://localhost:70000"
+        }
+      },
+      "error": {
+        "code": "invalid_url",
+        "path": "/connectors/mcp"
       }
     },
     {
@@ -1688,6 +1909,151 @@
       }
     },
     {
+      "name": "media-null",
+      "description": "null is never valid; omit the section instead.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": null
+      },
+      "error": {
+        "code": "schema",
+        "path": "/media",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "media-store-path",
+      "description": "A local path is not a store; auto already keeps images on this machine.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "/tmp/media"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/media/store",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "media-store-without-bucket",
+      "description": "An s3 store names a bucket.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "s3://"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/media/store",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "media-store-uppercase-bucket",
+      "description": "Bucket names are lowercase.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "s3://Agent-Media"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/media/store",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "media-store-prefix-with-space",
+      "description": "The prefix is printable ASCII without spaces.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "s3://agent-media/my images"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/media/store",
+        "keyword": "anyOf"
+      }
+    },
+    {
+      "name": "media-endpoint-without-store",
+      "description": "An endpoint needs an s3 store; the store defaults to auto.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "endpoint": "http://127.0.0.1:9000"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/media",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "media-endpoint-with-auto-store",
+      "description": "An endpoint is only valid with an s3 store.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "auto",
+          "endpoint": "http://127.0.0.1:9000"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/media",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "media-endpoint-not-http",
+      "description": "The endpoint is an http or https URL.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "s3://agent-media",
+          "endpoint": "ftp://127.0.0.1:9000"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/media/endpoint",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "media-no-credentials-field",
+      "description": "Credentials come from the environment, never from this file.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "media": {
+          "store": "s3://agent-media",
+          "secret_access_key": "x"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/media",
+        "keyword": "additionalProperties"
+      }
+    },
+    {
       "name": "model-required",
       "description": "No model in the file and no default in the harness command.",
       "harness_section": "builtin",
@@ -1805,6 +2171,10 @@
           "web_fetch": true,
           "browser": false
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -1861,6 +2231,10 @@
           },
           "web_fetch": true,
           "browser": false
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       },
@@ -1921,6 +2295,10 @@
           },
           "web_fetch": true,
           "browser": false
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       },
@@ -1986,6 +2364,10 @@
           "web_fetch": true,
           "browser": false
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2050,6 +2432,10 @@
           "web_fetch": true,
           "browser": false
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2110,6 +2496,10 @@
           "web_fetch": true,
           "browser": false
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2151,6 +2541,10 @@
           },
           "web_fetch": true,
           "browser": false
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       },
@@ -2210,6 +2604,10 @@
           },
           "web_fetch": true,
           "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       },
@@ -2277,6 +2675,10 @@
           },
           "web_fetch": true,
           "browser": false
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       },
@@ -2346,6 +2748,10 @@
           "web_fetch": false,
           "browser": false
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2408,6 +2814,10 @@
           "web_fetch": true,
           "browser": false
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2447,6 +2857,10 @@
           },
           "web_fetch": true,
           "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       },
@@ -2512,6 +2926,10 @@
           "web_fetch": true,
           "browser": false
         },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
         "harness_options": {}
       },
       "warnings": [
@@ -2519,6 +2937,74 @@
         "/dex",
         "/system_prompt_file",
         "/workspace"
+      ]
+    },
+    {
+      "name": "media-is-file-only",
+      "description": "Sessions cannot change the media store: media in settings is ignored with a warning.",
+      "config": "bounded",
+      "session_settings": {
+        "media": {
+          "store": "s3://other-bucket",
+          "endpoint": "http://127.0.0.1:1"
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "harness_options": {}
+      },
+      "warnings": [
+        "/media"
       ]
     },
     {
@@ -2578,6 +3064,10 @@
           },
           "web_fetch": true,
           "browser": false
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       },
@@ -2643,6 +3133,10 @@
           },
           "web_fetch": true,
           "browser": false
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
         },
         "harness_options": {}
       },

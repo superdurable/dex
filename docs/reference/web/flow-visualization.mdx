@@ -31,17 +31,56 @@ dexcli visualize ./order_flow.py --json --out ./build/order-flow
 
 ## Render definitions in Dex Web
 
-Start Dex with a directory containing generated JSON files:
+Give Dex Web the generated JSON files through one of the [definition sources](#definition-sources). For example, start Dex with a directory containing them:
 
 ```bash
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Open **Designs** from the **Experimental** menu, at **/v1/rendering**. Changed in 1.41: the page was called **Flow Rendering**. The menu links to it only while the definitions directory holds at least one JSON file. The header checks the directory again on every page change. Without definitions, the page explains how to load them. The page does not use Flow search or run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPCs, Attributes, Channels, Streams, SubFlows, and diagnostics. Flow timeout handlers are always shown as part of the Flow. Streams are hidden by default. The other layers start visible. Changed in 1.41: one Flow design graph draws Version 1.0 and Version 2.0 files. For a Version 2.0 file, its diagnostics follow the graph. See [Dex Web](/reference/web/dex-web#flow-canvas).
+Open **Designs** from the **Experimental** menu, at **/v1/rendering**. Changed in 1.41: the page was called **Flow Rendering**. The menu links to it only while at least one Flow type has a definition. The header checks again on every page change. Without definitions, the page explains how to load them. Since 1.45, each definition in the list shows its source, and an uploaded one also shows when it was generated and uploaded. A definition that Dex Web rejected shows why instead of a graph. The page does not use Flow search or run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPCs, Attributes, Channels, Streams, SubFlows, and diagnostics. Flow timeout handlers are always shown as part of the Flow. Streams are hidden by default. The other layers start visible. Changed in 1.41: one Flow design graph draws Version 1.0 and Version 2.0 files. For a Version 2.0 file, its diagnostics follow the graph. See [Dex Web](/reference/web/dex-web#flow-canvas).
 
-When Dex starts with a JSON directory, the **Design** tab of a run also renders the definition of the run's Flow type, and **Work Queue** uses it to list runs. See [Dex Web](/reference/web/dex-web).
+The **Design** tab of a run also renders the definition of the run's Flow type, and **Work Queue** uses the definitions to list runs. See [Dex Web](/reference/web/dex-web).
 
-Dex reads the JSON files in the directory and its subdirectories once, when it starts. Restart Dex after changing the files. Invalid JSON, an unsupported schema version, or a path that is not a directory stops startup with an error.
+### Definition sources {#definition-sources}
+
+Since 1.45, Dex Web reads Flow Definition Graphs from two sources:
+
+- **Uploaded definitions.** A Worker uploads the definitions it is given when it starts, and a deployment script can upload them too. The Dex Server stores one document for each Flow type. See [Flow definitions](/reference/server/runtime-client#flow-definitions) for **UploadFlowDefinitions** and its replacement rule. Dex Web reads them through the FlowService connection it already has, so it needs no directory for them. A Dex Server without these RPCs reports none, and Dex Web then shows only the directory.
+- **The directory.** **--flow-rendering-dir** for **dex-web**, **dexcli dev**, and **dexcli web**, or **FlowRenderingDirectory** for [embedded Dex Web](/reference/web/embed-dex-web#targets). Dex Web reads the JSON files in the directory and its subdirectories on every definition request, so a changed file shows on the next page load without a restart. A path that is not a directory makes definition requests fail with **FLOW_DEFINITION_SOURCE_UNAVAILABLE**.
+
+When both sources have a definition for one Flow type, the directory wins, even when its file is invalid, except for a file over the document size limit, which claims no Flow type. The two never conflict. Uploaded definitions must use schema version 2.0. A directory may hold Version 1.0 and Version 2.0 files.
+
+Dex Web validates each definition on its own. An invalid or oversized definition is marked invalid, with the reason, and the other definitions keep working. Two valid Version 2.0 directory files for one Flow type mark both invalid. A directory file larger than the document size limit is not read. It is listed as invalid with an error that says it is too large, and it claims no Flow type, so an uploaded definition of the same Flow type is shown.
+
+Every node, edge, and diagnostic must be a JSON object. Each node needs string **id**, **kind**, and **name**, each edge string **id**, **kind**, **from**, and **to**, and each diagnostic string **severity**, **code**, and **message**. The other fields that Dex Web reads, such as **metadata**, **resource**, **wait**, **decision**, and **span**, must have their documented JSON types when present; **null** is not accepted for them. A **wait** needs a string **type** and **conditions**, and each condition needs string **kind** and **label**. **conditions** may be **null**, which **dexcli visualize** 1.44 and older writes for a WaitFor that only fails; it reads as no conditions. In **metadata**, a node's **connectorFactory** must be a boolean, its **connector** must match the Connector identity that the analyzer writes, its **flowType** and **explanation** must be strings, and an edge's **rpcName** and **phase** must be strings. A group Step ID that names no Step node is ignored. When the Dex Server cannot be read, the definition list still shows the directory and reports the failure, while a page that needs one uploaded Flow type gets **FLOW_DEFINITION_SOURCE_UNAVAILABLE**.
+
+Dex Web loads definitions only where they are used:
+
+| Page or route | What it reads |
+| --- | --- |
+| The header and **/readyz** | The Flow types that have a definition, without their content. |
+| A run page, its **Design**, **Actions**, and **Agent session** tabs, and the v2 routes for one Flow type | The definitions of that one Flow type, through **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE**. The Flow type is a query parameter, so Flow types such as **.** work. The browser keeps the answer and asks again with its revision, so an unchanged definition is not sent again. The route answers 304 to an **If-None-Match** that names the revision, weak or strong, or **\***. |
+| **Designs** | Every definition without its graph, through **GET /api/flow-definitions**, then the graph of the selected one. |
+| **Work Queue** and **New session** | Every Version 2.0 contract, through **GET /api/v2/catalog**, and the graphs of the Flow types being searched. |
+| **Connectors** | Every definition, to find the connections that Flows use. The app asks for the Connectors listing once when it loads, not on every page. |
+
+Dex Web rejects a definition that exceeds one of these limits. The canvas also refuses to draw a larger graph and says that it is too large.
+
+| Limit | Value |
+| --- | --- |
+| Document size | 8 MiB |
+| Nodes | 2,000 |
+| Edges | 10,000 |
+| Characters in one JSON string or field name | 16,384 |
+| JSON nesting depth | 128 |
+| Connector Steps | 200 |
+| Diagnostics | 1,000 |
+| Step groups | 1,000 |
+| Step IDs in all groups | 2,000 |
+| Items in each of these Version 2.0 lists: Indexed Attributes, Summary fields, Display fields, Actions, one Action's input fields, one Action's condition values, Connector Trigger bindings, one binding's UI units, and one UI unit's bindings | 256 |
+| Fields and enum values of the start input, counted at every depth | 1,024 |
+
+Since 1.45, Dex Web ignores top-level fields that it does not know, such as **generatedAt**, so a newer **dexcli visualize** does not break an older Dex Web. Every field that Dex Web knows is still validated strictly, including unknown fields inside it. Dex Web 1.44 and older reject a Version 2.0 file with an unknown top-level field.
 
 ## What the graph contains
 
@@ -300,5 +339,20 @@ The JSON **valid** field is false when any blocking diagnostic is present. A too
 ## JSON contract
 
 The [Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) defines source spans, parent-child relationships, structured WaitFor and decision details, resource types, branch conditions, edge direction, and diagnostics. The [Flow Definition Graph v2 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v2.schema.json) extends it with ordered groups and Dex Web metadata.
+
+### Generation time {#generated-at}
+
+Since 1.45, every Version 2.0 graph from **dexcli visualize** has a top-level **generatedAt** field. It records when the graph was generated, as an RFC 3339 timestamp in UTC with second precision, such as **2026-11-10T08:30:00Z**. Version 1.0 graphs do not have it.
+
+The field is optional in the v2 schema. Dex Web accepts graphs without it, so graphs from older dexcli releases stay valid. When the field is present, it must be an RFC 3339 timestamp. Dex Web older than 1.45 rejects a graph that has **generatedAt**. Upgrade Dex Web together with dexcli.
+
+By default, **generatedAt** is the current time. Set the standard **SOURCE_DATE_EPOCH** environment variable to make the output reproducible. Its value is a whole number of seconds since the Unix epoch. For example, use the last commit time of the source file:
+
+```bash
+SOURCE_DATE_EPOCH="$(git log -1 --format=%ct -- ./refund_flow.go)" \
+  dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund-flow
+```
+
+An empty **SOURCE_DATE_EPOCH** is ignored. A negative or non-integer value is a usage error, and the command exits with status 2. Version 1.0 output ignores the variable.
 
 See [Dex CLI](/reference/cli) for commands that operate on running Flows.

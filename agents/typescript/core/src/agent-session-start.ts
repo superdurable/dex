@@ -50,7 +50,7 @@ export const agentSessionActiveStepSearchMode: ActiveStepSearchMode = ActiveStep
  * @param client - An open Client whose Registry contains `flow`.
  * @param flow - The registered agent session Flow.
  * @param sessionId - Flow ID of the new session.
- * @param input - The first user message and the session's settings.
+ * @param input - The first user message, the session's settings, and where the caller runs.
  * @param options - Start options, such as a Request ID for an idempotent start. `configOverride` keeps every field
  * it sets.
  * @returns The server-assigned run ID.
@@ -72,7 +72,7 @@ export async function startAgentSession(
   return client.startFlow(
     flow,
     sessionId,
-    { initialMessage: input.initialMessage ?? null, sessionSettings },
+    { initialMessage: input.initialMessage ?? null, sessionSettings, startEnvironment: input.startEnvironment ?? null },
     {
       ...options,
       configOverride: {

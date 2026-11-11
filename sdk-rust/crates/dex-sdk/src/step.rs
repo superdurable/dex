@@ -63,6 +63,12 @@ pub trait Step: Send + Sync + 'static {
     /// Returns the stable Step type sent to Dex.
     ///
     /// The default is the final Rust type-name segment.
+    /// A Step whose Step type contains `-` cannot start SubFlows.
+    /// When it returns a [`crate::SubFlow`] Condition, the server rejects the `wait_for` result
+    /// and fails the attempt without retry.
+    /// Return a Step type without `-` for every Step that starts SubFlows.
+    ///
+    /// Changed in 1.45.0: a Step whose Step type contains `-` can no longer start SubFlows.
     fn step_type(&self) -> &'static str {
         short_type_name::<Self>()
     }

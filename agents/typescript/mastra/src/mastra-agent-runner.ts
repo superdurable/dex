@@ -7,7 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { Agent } from "@mastra/core/agent";
-import type { AIV5Type, MessageListInput } from "@mastra/core/agent/message-list";
+import type { AIV5Type, MastraDBMessage, MessageListInput } from "@mastra/core/agent/message-list";
+import type { InputProcessorOrWorkflow } from "@mastra/core/processors";
 import { standardSchemaToJSONSchema, toStandardSchema } from "@mastra/core/schema";
 import { MASTRA_RESOURCE_ID_KEY, MASTRA_THREAD_ID_KEY, RequestContext } from "@mastra/core/request-context";
 import type { LLMStepResult, MastraModelOutput, StepStartPayload } from "@mastra/core/stream";
@@ -22,9 +23,11 @@ import {
   estimateStoredInputTokens,
   estimateTextTokens,
   isFinalToolCallStatus,
+  loadImages,
   selectTurnBoundaryCutoff,
   type AgentEventWriter,
   type AgentFrameworkRunner,
+  type AgentImageReference,
   type AgentToolCall,
   type AgentTurnContext,
   type AgentTurnOutcome,
@@ -35,6 +38,7 @@ import {
   type DeferredToolExecution,
   type FrameworkMessage,
   type ListedSourceTool,
+  type MediaStore,
   type ModelCallMetadata,
   type ToolCallStepOptions,
   type ToolExecutionResult,
@@ -55,6 +59,11 @@ import {
   projectMastraMessage,
   type MastraTurnRunState,
 } from "./mastra-message-codec.js";
+import {
+  createImageInjectionProcessor,
+  listMastraMessageImages,
+  listToolResultMessageImages,
+} from "./mastra-message-images.js";
 import {
   planMastraModelStepTools,
   requireMastraToolName,
@@ -188,6 +197,30 @@ export interface MastraAgentRunnerOptions {
    * @since 0.4.0
    */
   readonly mastraRunToolNames?: readonly string[];
+  /**
+   * The media store that holds the session's images, such as `S3MediaStore` from `@superdurable/dex-agents/s3`.
+   * Defaults to none.
+   *
+   * With a store, the runner implements `buildUserMessageWithImages`, so `send_user_message` accepts images. The
+   * model sees a user message's text, then each image as a file part, and a tool result's text, then each image
+   * that `ToolExecutionResult.images` returned, as `content` output. Stored messages and `FrameworkRunState` keep
+   * only references. Before each `RunModel` that replays an image, the runner reads the bytes with `loadImages` and
+   * adds an input processor that swaps them into the prompt of each model request, after the agent's own input
+   * processors; a store read failure fails the model call, and its Step retries. Use the same store, or one that
+   * reads the same objects, in every Worker process of the Flow type.
+   *
+   * Without a store, `send_user_message` refuses images and tool result images do not reach the model.
+   *
+   * @example
+   * ```ts
+   * import { S3MediaStore } from "@superdurable/dex-agents/s3";
+   *
+   * const mediaStore = new S3MediaStore({ bucket: "agent-media", prefix: "sessions" });
+   * const flow = createMastraAgentSessionFlow(supportAgent, "SupportAgent", { mediaStore });
+   * ```
+   * @since 0.5.0
+   */
+  readonly mediaStore?: MediaStore;
 }
 
 /**
@@ -218,6 +251,21 @@ export interface MastraAgentRunnerOptions {
  * ```
  */
 export class MastraAgentRunner implements AgentFrameworkRunner {
+  /**
+   * Builds the stored Mastra user message for a text with images: the text part, then one placeholder part per
+   * image holding its reference. It is present only when {@link MastraAgentRunnerOptions.mediaStore} is set, so a
+   * runner without a store refuses images.
+   *
+   * @param text - User message text.
+   * @param images - The message's images, at least one, each valid for `validateImageReference`.
+   * @returns The user message, without `id` and `createdAt`, as {@link buildUserMessage} builds it.
+   * @since 0.5.0
+   */
+  public readonly buildUserMessageWithImages?: (
+    text: string,
+    images: readonly AgentImageReference[],
+  ) => FrameworkMessage;
+  private readonly mediaStore: MediaStore | undefined;
   private readonly toolPolicies: Readonly<Record<string, ToolPolicy>>;
   private readonly maxSteps: number | undefined;
   private readonly shouldTrustMcpServerToolAnnotations: boolean;
@@ -244,6 +292,10 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
   ) {
     if (options.maxSteps !== undefined && (!Number.isInteger(options.maxSteps) || options.maxSteps < 1)) {
       throw new RangeError(`maxSteps must be a positive integer, got ${options.maxSteps}`);
+    }
+    this.mediaStore = options.mediaStore;
+    if (options.mediaStore !== undefined) {
+      this.buildUserMessageWithImages = buildMastraUserFrameworkMessage;
     }
     this.toolPolicies = options.toolPolicies ?? {};
     this.maxSteps = options.maxSteps;
@@ -322,10 +374,9 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       this.mastraRunToolNameAllowlist,
     );
     await this.assertClientToolsReachModel(toolPlan, requestContext);
-    const messages: MessageListInput = [
-      ...assignIncreasingCreatedAt([...history, ...(runState?.turnMessages ?? [])]),
-      ...buildRecordedToolResultMessages(turn, runState),
-    ];
+    const storedMessages = assignIncreasingCreatedAt([...history, ...(runState?.turnMessages ?? [])]);
+    const toolResultMessages = buildRecordedToolResultMessages(turn, runState, this.mediaStore !== undefined);
+    const messages: MessageListInput = [...storedMessages, ...toolResultMessages];
     const output = await this.agent.stream(messages, {
       requestContext,
       clientTools: toolPlan.clientTools,
@@ -333,6 +384,7 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
       requireToolApproval: false,
       abortSignal: turn.cancellationSignal,
       ...(this.maxSteps === undefined ? {} : { maxSteps: this.maxSteps }),
+      ...(await this.createImageInputProcessors(storedMessages, toolResultMessages, requestContext)),
     });
     const streamReport = await forwardMastraStreamEvents(output, turn.events, toolPlan);
     const usage = await readMastraModelStepUsage(output, turn);
@@ -509,6 +561,32 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
     return this.toolSources.toolCallStepOptions(toolCall);
   }
 
+  /** Without images it returns nothing, so the model call runs exactly as before. */
+  private async createImageInputProcessors(
+    storedMessages: readonly MastraDBMessage[],
+    toolResultMessages: readonly AIV5Type.ToolModelMessage[],
+    requestContext: RequestContext,
+  ): Promise<{ readonly inputProcessors?: InputProcessorOrWorkflow[] }> {
+    if (this.mediaStore === undefined) {
+      return {};
+    }
+    const references = [
+      ...listMastraMessageImages(storedMessages),
+      ...listToolResultMessageImages(toolResultMessages),
+    ];
+    if (references.length === 0) {
+      return {};
+    }
+    const images = await loadImages(this.mediaStore, references);
+    // The option replaces the agent's configured input processors, so they come first.
+    return {
+      inputProcessors: [
+        ...(await this.agent.listConfiguredInputProcessors(requestContext)),
+        createImageInjectionProcessor(images),
+      ],
+    };
+  }
+
   private createTurnRequestContext(turn: MastraTurnIdentity): RequestContext {
     const requestContext = this.createRequestContext(turn);
     // Mastra would load and save that Memory thread, so the model would see the history twice.
@@ -562,6 +640,7 @@ function describeToolInputSchema(schema: unknown): string {
 function buildRecordedToolResultMessages(
   turn: AgentTurnContext,
   runState: MastraTurnRunState | null,
+  shouldShowImages: boolean,
 ): AIV5Type.ToolModelMessage[] {
   const pendingToolCalls = runState?.pendingToolCalls ?? [];
   if (new Set(pendingToolCalls.map(({ toolCallId }) => toolCallId)).size !== pendingToolCalls.length) {
@@ -578,7 +657,11 @@ function buildRecordedToolResultMessages(
           `the record of tool ${record.toolName}`,
       );
     }
-    return buildMastraToolResultMessage(pendingToolCall, describeToolCallOutcome(record));
+    return buildMastraToolResultMessage(
+      pendingToolCall,
+      describeToolCallOutcome(record),
+      shouldShowImages ? (record.images ?? []) : [],
+    );
   });
 }
 

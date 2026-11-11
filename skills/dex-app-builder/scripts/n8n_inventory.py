@@ -145,7 +145,7 @@ DEX_HINTS = {
     "if": "Go predicate in an application Step that chooses the next movement.",
     "filter": "Go predicate in an application Step; discarded items end without a movement.",
     "switch": "Go predicate in an application Step that chooses one movement per output.",
-    "merge": "Join: await-all parallel Steps with a Channel count; replicate the merge mode exactly.",
+    "merge": "Join: await-all parallel Steps joined with a Join; replicate the merge mode exactly.",
     "noOp": "No behavior; drop and record.",
     "stickyNote": "Documentation only; drop from behavior and check its claims against the configuration.",
     "code": "Go application Step that ports the code, verified against golden output.",

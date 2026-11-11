@@ -19,7 +19,7 @@ running.
 ## Installation
 
 The package needs Python 3.11 or later. It requires `dex-agents` at the same
-version, the released `dex-python-sdk==1.38.0`, `langchain>=1.4.7,<2`,
+version, the released `dex-python-sdk==1.44.0`, `langchain>=1.4.7,<2`,
 `langchain-core>=1.7.3,<2`, and `langgraph>=1.2.19,<2`:
 
 ```bash
@@ -433,6 +433,13 @@ an unknown or rejected write that skips the later write, a withdrawn tool
 whose new call is refused, a reused call ID, the operation's tool Step
 options, an unexposed operation, and refused name collisions.
 
+`tests/test_images.py` runs both agent shapes with a `LocalDirectoryMediaStore`
+shared by the test and the Worker. The scripted chat model records the
+messages and image bytes it receives: user images and tool images arrive as
+base64 image blocks, a Worker killed in the resumed model call sends the same
+input again, stored messages and the checkpoint hold no image bytes, and a
+runner without a store refuses images.
+
 ## Compaction
 
 Since 0.3.0 the runner can compact a session that would outgrow the model's
@@ -453,6 +460,48 @@ started before the upgrade starts compacting once its Worker has one.
 - Summarization middleware changes only the graph's message state. Dex stores only messages with new IDs and owns the record, so a middleware summary is stored as one more message. Use one of the two.
 
 See [Compaction and the storage bound](https://docs.superdurable.io/reference/agents/session-limits#compaction).
+
+## Images
+
+Since 0.5.0 a session can show images to the model. Pass a media store, such
+as `S3MediaStore` or `LocalDirectoryMediaStore`, as `media_store` to
+`langchain_agent_session_flow`, `langgraph_agent_session_flow`, or
+`LangGraphAgentRunner`, and use the same store in the clients that upload
+images:
+
+```python
+store = S3MediaStore("agent-media", "sessions")
+flow = langchain_agent_session_flow(agent, flow_type="SupportAgent", media_store=store)
+reference = await store.put_image(Path("chart.png").read_bytes())
+await sessions.send_user_message("session-42", "What does this chart show?", images=[reference])
+```
+
+- **What the model sees.** A user message is a `HumanMessage` whose content is
+  a text block, then each image as a standard base64 image block,
+  `{"type": "image", "base64": ..., "mime_type": ...}`, in order.
+- **Tool results.** A tool call record's images go into its `ToolMessage`
+  content, after the output text block, as the same base64 image blocks.
+  This is LangChain's native form for images in a tool result; each chat
+  model integration sends it as its provider allows. Images come from a tool
+  source's `ToolExecutionResult.images`, or from a tool of the graph that
+  returns image blocks with `base64` data or a `data:` URL: its tool Step
+  uploads them and records the references, and the rest of the content is
+  the output. The store takes each image's type from its bytes, whatever
+  `mime_type` says. An inline image that is not valid base64 or not a
+  supported image fails the tool call, so its bytes never reach the output.
+- **What is stored.** Stored messages and the checkpoint in the run state
+  hold each image as a placeholder block,
+  `{"type": "image", "url": <uri>, "mime_type": ..., "extras": {"dex_image_reference": <reference>}}`.
+  Right before each model call, `DurableToolCallMiddleware` reads the bytes
+  with `load_images` and gives the model copies of the messages with base64
+  blocks, so a replay after a Worker restart sends the same bytes. A failed
+  read fails the model call, which retries.
+- **Custom graphs.** The model node calls the model itself, so it calls
+  `inline_image_references(state["messages"])` and sends the result. A
+  placeholder that reaches a chat model fails the call with an error that
+  names this function.
+- **Without a store** the runner has no `build_user_message_with_images`, so
+  `send_user_message` refuses images, as before.
 
 ## Limits
 

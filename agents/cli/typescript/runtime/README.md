@@ -44,10 +44,31 @@ command prints the `--resume` line that continues it. The command exits with 1
 when a turn or the session failed during the chat, 2 for invalid arguments or
 configuration, and 0 otherwise.
 
+`/image <path>` attaches an image file to the next message. A leading `~` is
+the home directory, and a relative path is relative to the current directory.
+The command refuses a missing or special file, a file over `maxImageBytes`
+(3,750,000 bytes, checked before it reads the file), and bytes that are not
+PNG, JPEG, GIF, or WebP, and says why. A valid image is copied into the media
+store, which prints `Attached chart.png (image/png, 48 KB)`, and goes with the
+next message. A message carries at most `maxImagesPerMessage` (20) images.
+When the harness's runner does not implement `buildUserMessageWithImages`,
+the message is not sent: the command says the agent does not take images and
+removes the attached images.
+
+The media store comes from `media.store`, built once when `run` starts: `auto`
+is a `LocalDirectoryMediaStore` at `~/.dex/agents/media`, and
+`s3://<bucket>[/<prefix>]` is an `S3MediaStore` from
+`@superdurable/dex-agents/s3`, with path-style addressing when
+`media.endpoint` is set. Its credentials come from the environment or the
+standard AWS chain. The S3 store loads only for an `s3://` store and needs
+the optional `@aws-sdk/client-s3` peer; without it, or with a store the core
+refuses, the command exits with 2. Connector tool result images go to the same
+store.
+
 ### Sessions belong to one execution environment
 
-The runtime registers the session Flow type `<flowType>-<hash>`. The hash is
-the first 12 hexadecimal digits of the SHA-256 of
+The runtime registers the session Flow type `<flowType>-<suffix>`. The suffix
+is 6 lowercase base36 characters (`0-9a-z`). Take the SHA-256 of
 `<host name>\n<user>\n<configuration identity>\n<workspace>` in UTF-8:
 
 - the user is the numeric user ID, or the user name where the platform has
@@ -56,10 +77,22 @@ the first 12 hexadecimal digits of the SHA-256 of
   `defaults` without a file;
 - the workspace is its canonical real path.
 
+Read the digest's first 8 bytes as an unsigned big-endian integer, reduce it
+modulo 36^6, write it in base36, and left-pad it with `0` to 6 characters.
+`namespaceSessionFlowType` computes it, and every CLI runtime passes the cases
+in
+[`agents/conformance/cli_session_flow_types.json`](../../../conformance/cli_session_flow_types.json).
+
+Each new session records these values in its start input,
+`AgentSessionStartInput.startEnvironment`, so a run shows where it was
+started: `host_name`, `user_id`, `config_identity`, and `workspace` are the
+hashed values, and `user_name` is the user's name, left out when the system
+cannot tell it. They are not session settings and cannot change.
+
 A Worker takes only the Steps of its own Flow type, so an approved write or
 shell command always runs as the same user, with the same configuration file
 and workspace it was approved under. Tool settings, such as the shell allow
-list, are not part of the hash, so changing them keeps `--resume` working.
+list, are not part of the suffix, so changing them keeps `--resume` working.
 Changing the workspace, the file, or the user starts a new type: `--resume`
 of an older session then exits with 2 and says to resume it in its original
 environment, and `sessions` lists only the current environment's sessions.
@@ -123,6 +156,7 @@ interface HarnessContext {
   readonly instructions: string | null; // system_prompt or system_prompt_file text
   readonly harnessOptions: Readonly<Record<string, unknown>>;
   readonly toolSources: readonly ToolSource[]; // connectors, then local tools
+  readonly mediaStore?: MediaStore; // media.store; the runtime always sets it
   resolveTurn(sessionSettings: SessionSettings): ResolvedTurn; // model, instructions, narrowing
   currentTurn(): ResolvedTurn; // the running model call's turn, else the file
   resolveToolStepPermissions(step: { flowId: string; turnId: string }): Promise<ResolvedTurn>; // in a tool Step
@@ -135,6 +169,11 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
   `AgentDefinition.toolSources`. A runner-based adapter, such as the Claude
   Agent SDK, OpenAI Agents, Vercel AI, or Mastra adapter, passes them to its
   runner's `toolSources` and builds the Flow with `createAgentSessionFlow`.
+- `context.mediaStore` holds the images of `/image` and of connector tool
+  results. Pass it to an adapter that takes a media store, such as
+  `mediaStore: context.mediaStore`, so its runner reads them from the same
+  store. The runtime keeps the runner's own methods, such as
+  `buildUserMessageWithImages`.
 - Each tool source applies the turn's session settings itself:
   `connectors.enabled`, `local_tools`, the shell allow list, and
   `approval.always`. A harness reads only the model and the instructions,
@@ -155,7 +194,14 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
   - `context.resolveToolStepPermissions({ flowId, turnId })`: the permissions
     inside the harness's own tool Step, which runs outside the model call and
     maybe on another Worker: this Worker's file narrowed by the settings the
-    turn started with. Check them right before acting.
+    turn started with. Check them right before acting;
+  - `WorkspaceFiles`: the workspace file layer of the local file tools, with
+    the rules under Local tools. A harness's own file tools read, list, and
+    write through it, including `readFileWithVersion`,
+    `replaceFileIfUnchanged`, `statExisting`, and `readDirectoryEntries` for
+    tools that need bytes, versions, stats, or raw entries. A refusal throws
+    `WorkspaceFileRefusedError` before anything changed; any other failure of
+    a write may come after a change, such as after its rename.
 
   Reads run at once, writes and shell commands wait for approval, and the
   working directory is `context.workspace`. A replacement shell tool, for
@@ -188,7 +234,7 @@ The Python runtime uses the same names in snake case:
 | `AgentHarness` | `AgentHarness` (Protocol) |
 | `name`, `configSection`, `flowType`, `defaultModel`, `replacedLocalTools` | `name`, `config_section`, `flow_type`, `default_model`, `replaced_local_tools` |
 | `createSessionFlow(context)` | `create_session_flow(context)` |
-| `HarnessContext` with `flowType`, `config`, `workspace`, `instructions`, `harnessOptions`, `toolSources`, `resolveTurn`, `currentTurn` | `HarnessContext` with the same fields in snake case |
+| `HarnessContext` with `flowType`, `config`, `workspace`, `instructions`, `harnessOptions`, `toolSources`, `mediaStore`, `resolveTurn`, `currentTurn` | `HarnessContext` with the same fields in snake case; `mediaStore` and `media_store` are absent only in a context a test builds |
 | `LocalToolGroup` | `LocalToolGroup` (`files`, `shell`, `web_fetch`, `browser`) |
 | `runAgentCli(harness)` | `run_agent_cli(harness)` |
 | `isLocalToolGroupEnabled`, `isShellCommandApprovalRequired`, `resolveTurnToolPolicy` | the same names in snake case |
@@ -214,6 +260,8 @@ Each call is one Dex tool Step, recorded in the session.
   without following a final link, and the opened file must still be the one
   the path names, so a link swapped in meanwhile fails. A file with more than
   one hard link is refused. Searches check every file they open the same way.
+  Reads and searches open files without blocking, so a FIFO or device in
+  the workspace fails at once as not a regular file, and a search skips it.
   `write_file` and `edit_file` write a new file in the checked directory and
   rename it over the target, and never write through a link. After the
   rename, the target must be the written file inside the workspace.
@@ -235,7 +283,7 @@ Each call is one Dex tool Step, recorded in the session.
   process group, with a 120-second default timeout. A command whose Worker
   died while it ran records `outcome_unknown` and never runs again.
 - Browser tools return the page title, URL, and accessibility snapshot as
-  text; there are no screenshots yet. The browser is headless Chromium:
+  text; they take no screenshots. The browser is headless Chromium:
   Playwright's own when installed, else the system Chrome, else Playwright
   downloads Chromium on first use. Each session has one page in the Worker's
   memory.
@@ -256,6 +304,15 @@ not available, such as one answering 503 while it starts, or an older
 `dexcli` without `/mcp`, the command warns and continues; each model call
 lists the server again, so its tools appear once it is ready. An explicit
 `connectors.mcp` URL that is not available stops the command.
+
+A harness whose runner fixes its tools when the Flow is built declares
+`isToolSetFixedAtBuild: true`. The runtime then lists the connector tools the
+file enables before it builds the Flow, so the connector source's
+`cachedTools()` holds them. When the server does not answer at startup, or
+that listing fails, the warning says the run has no connector tools and to
+restart the command once the server answers. Every TypeScript adapter lists
+its tool sources in each model call, so none of the TypeScript commands sets
+it; the Python runtime's `is_tool_set_fixed_at_build` is the same switch.
 
 The agent sees each connector tool by its MCP name, such as
 `slack_post_thread_reply`. `connectors.enabled` matches only these `_meta`
