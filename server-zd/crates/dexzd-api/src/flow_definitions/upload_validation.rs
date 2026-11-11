@@ -8,13 +8,14 @@
 
 use std::collections::BTreeSet;
 
+use dexzd_keyspace::TenantId;
 use dexzd_protocol::dex::{ErrorSubStatus, FlowDefinitionUpload, UploadFlowDefinitionsRequest};
 use serde::Deserialize;
 use tonic::Code;
 
 use super::FlowDefinitionsConfig;
 use super::flow_definition_digest::FlowDefinitionDigest;
-use super::flow_definition_store::encoded_flow_type_exceeds_key_limit;
+use super::flow_definition_store::object_key_exceeds_limit;
 use crate::FlowOperationError;
 
 /// Most items in one Upload or Get request.
@@ -28,6 +29,10 @@ const MAX_FUTURE_GENERATED_AT_MICROS: i64 = 24 * 60 * 60 * 1_000_000;
 const MICROS_PER_SECOND: i64 = 1_000_000;
 const NANOS_PER_MICRO: i32 = 1_000;
 const NANOS_PER_SECOND: i32 = 1_000_000_000;
+/// Seconds of 0001-01-01T00:00:00Z, the earliest valid protobuf Timestamp.
+const MIN_TIMESTAMP_SECONDS: i64 = -62_135_596_800;
+/// Seconds of 9999-12-31T23:59:59Z, the latest valid protobuf Timestamp.
+const MAX_TIMESTAMP_SECONDS: i64 = 253_402_300_799;
 
 /// One upload item that passed validation.
 #[derive(Debug, Clone)]
@@ -63,6 +68,7 @@ struct FlowDefinitionFlowHeader {
 /// Validates every item of an untrusted upload request; any failure rejects the whole request.
 pub(super) fn validate_upload_request(
     config: &FlowDefinitionsConfig,
+    tenant_id: TenantId,
     request: UploadFlowDefinitionsRequest,
     now_unix_micros: i64,
 ) -> Result<ValidatedUploadRequest, FlowOperationError> {
@@ -81,7 +87,7 @@ pub(super) fn validate_upload_request(
     let mut flow_types = BTreeSet::new();
     let mut uploads = Vec::with_capacity(request.definitions.len());
     for definition in request.definitions {
-        let upload = validate_upload(config, definition, now_unix_micros)?;
+        let upload = validate_upload(config, tenant_id, definition, now_unix_micros)?;
         if !flow_types.insert(upload.flow_type.clone()) {
             return Err(invalid_flow_definition(format!(
                 "Flow type {:?} appears more than once in the upload",
@@ -100,6 +106,7 @@ pub(super) fn validate_upload_request(
 /// Validates the Flow types of a Get request.
 pub(super) fn validate_requested_flow_types(
     config: &FlowDefinitionsConfig,
+    tenant_id: TenantId,
     flow_types: &[String],
 ) -> Result<(), FlowOperationError> {
     if flow_types.is_empty() {
@@ -112,7 +119,7 @@ pub(super) fn validate_requested_flow_types(
         )));
     }
     for flow_type in flow_types {
-        validate_flow_type(config, flow_type)?;
+        validate_flow_type(config, tenant_id, flow_type)?;
     }
     Ok(())
 }
@@ -128,11 +135,12 @@ pub(super) fn invalid_flow_definition(message: impl Into<String>) -> FlowOperati
 
 fn validate_upload(
     config: &FlowDefinitionsConfig,
+    tenant_id: TenantId,
     definition: FlowDefinitionUpload,
     now_unix_micros: i64,
 ) -> Result<ValidatedUpload, FlowOperationError> {
     let flow_type = definition.flow_type;
-    validate_flow_type(config, &flow_type)?;
+    validate_flow_type(config, tenant_id, &flow_type)?;
     let Some(generated_at) = definition.generated_at else {
         return Err(invalid_flow_definition(format!(
             "Flow definition {flow_type:?} has no generated_at"
@@ -167,6 +175,7 @@ fn validate_upload(
 
 fn validate_flow_type(
     config: &FlowDefinitionsConfig,
+    tenant_id: TenantId,
     flow_type: &str,
 ) -> Result<(), FlowOperationError> {
     if flow_type.is_empty() {
@@ -179,9 +188,9 @@ fn validate_flow_type(
             config.max_flow_type_length
         )));
     }
-    if encoded_flow_type_exceeds_key_limit(flow_type) {
+    if object_key_exceeds_limit(config.object_key_prefix_bytes, tenant_id, flow_type) {
         return Err(invalid_flow_definition(format!(
-            "Flow type {flow_type:?} is too long for an object key once percent-encoded"
+            "Flow type {flow_type:?} makes an object key longer than 1024 bytes once percent-encoded"
         )));
     }
     Ok(())
@@ -259,7 +268,9 @@ fn is_json_whitespace(byte: u8) -> bool {
 
 /// Converts an untrusted timestamp to microseconds, truncating nanoseconds; `None` when invalid.
 fn timestamp_unix_micros(timestamp: &prost_types::Timestamp) -> Option<i64> {
-    if !(0..NANOS_PER_SECOND).contains(&timestamp.nanos) {
+    if !(0..NANOS_PER_SECOND).contains(&timestamp.nanos)
+        || !(MIN_TIMESTAMP_SECONDS..=MAX_TIMESTAMP_SECONDS).contains(&timestamp.seconds)
+    {
         return None;
     }
     timestamp
@@ -341,5 +352,11 @@ mod tests {
             })
             .is_none()
         );
+        for seconds in [MIN_TIMESTAMP_SECONDS, MAX_TIMESTAMP_SECONDS] {
+            assert!(timestamp_unix_micros(&prost_types::Timestamp { seconds, nanos: 0 }).is_some());
+        }
+        for seconds in [MIN_TIMESTAMP_SECONDS - 1, MAX_TIMESTAMP_SECONDS + 1] {
+            assert!(timestamp_unix_micros(&prost_types::Timestamp { seconds, nanos: 0 }).is_none());
+        }
     }
 }

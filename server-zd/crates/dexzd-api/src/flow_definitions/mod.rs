@@ -25,7 +25,6 @@ use dexzd_protocol::dex::{
     UploadFlowDefinitionsResponse,
 };
 use dexzd_protocol::dexzd::v1::FlowDefinitionRecord;
-use futures::{StreamExt, TryStreamExt};
 use prost::Message;
 use tonic::Code;
 
@@ -33,9 +32,9 @@ pub use flow_definitions_config::FlowDefinitionsConfig;
 
 use self::flow_definition_digest::FlowDefinitionDigest;
 use self::flow_definition_store::{
-    StoredFlowDefinition, decode_flow_type_key_segment, flow_definition_key,
-    flow_definition_types_prefix, is_valid_encoded_key_segment, object_store_unavailable,
-    read_flow_definition,
+    FlowDefinitionRead, MAX_PAGE_TOKEN_SEGMENT_BYTES, StoredFlowDefinition,
+    decode_canonical_key_segment, decode_page_token, encode_page_token, flow_definition_key,
+    flow_definition_types_prefix, object_store_unavailable, read_flow_definition,
 };
 use self::upload_validation::{
     ValidatedUpload, unix_micros_timestamp, validate_requested_flow_types, validate_upload_request,
@@ -44,8 +43,6 @@ use crate::FlowOperationError;
 
 /// Most conditional writes for one uploaded Flow type before the call gives up.
 const MAX_WRITE_ATTEMPTS: usize = 16;
-/// Concurrent object reads of one GetFlowDefinitions call.
-const GET_READ_CONCURRENCY: usize = 8;
 /// ListFlowDefinitions page size when the request sets 0, and the largest page.
 const MAX_LIST_PAGE_SIZE: u32 = 1000;
 
@@ -85,7 +82,7 @@ impl FlowDefinitions {
         request: UploadFlowDefinitionsRequest,
     ) -> Result<UploadFlowDefinitionsResponse, FlowOperationError> {
         let now_unix_micros = self.clock.now_unix_micros();
-        let validated = validate_upload_request(&self.config, request, now_unix_micros)?;
+        let validated = validate_upload_request(&self.config, tenant_id, request, now_unix_micros)?;
         let mut results = Vec::with_capacity(validated.uploads.len());
         for upload in validated.uploads {
             let record = FlowDefinitionRecord {
@@ -106,8 +103,8 @@ impl FlowDefinitions {
 
     /// Returns one page of the Flow types that have a stored definition, from a key listing.
     ///
-    /// Returns `InvalidArgument` for a negative page size or a malformed page token,
-    /// `Unavailable` when object storage fails, and `Internal` for an undecodable stored key.
+    /// Skips keys under the prefix that this server did not write. Returns `InvalidArgument` for
+    /// a negative page size or a malformed page token, and `Unavailable` when object storage fails.
     pub async fn list_flow_definitions(
         &self,
         tenant_id: TenantId,
@@ -122,26 +119,45 @@ impl FlowDefinitions {
                 ));
             }
         };
-        if !is_valid_encoded_key_segment(&request.next_page_token) {
-            return Err(FlowOperationError::invalid_argument(
-                "next_page_token is not a token that ListFlowDefinitions returned",
-            ));
-        }
         let prefix = flow_definition_types_prefix(tenant_id);
-        let start_after = (!request.next_page_token.is_empty())
-            .then(|| format!("{prefix}{}", request.next_page_token));
+        let start_after = if request.next_page_token.is_empty() {
+            None
+        } else {
+            let segment = decode_page_token(&request.next_page_token).ok_or_else(|| {
+                FlowOperationError::invalid_argument(
+                    "next_page_token is not a token that ListFlowDefinitions returned",
+                )
+            })?;
+            Some(format!("{prefix}{segment}"))
+        };
         let listing = self
             .object_store
             .list(&prefix, start_after.as_deref(), page_size)
             .await
             .map_err(|error| object_store_unavailable("list", &prefix, &error))?;
-        let flow_types = listing
-            .objects
-            .iter()
-            .map(|object| stored_key_flow_type(&prefix, &object.key))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut flow_types = Vec::with_capacity(listing.objects.len());
+        for object in &listing.objects {
+            match decode_canonical_key_segment(stored_key_segment(&prefix, &object.key)?) {
+                Some(flow_type) => flow_types.push(flow_type),
+                None => tracing::debug!(
+                    key = %object.key,
+                    "skipping an object key that is not a Flow definition record"
+                ),
+            }
+        }
         let next_page_token = match listing.next_start_after {
-            Some(key) => stored_key_segment(&prefix, &key)?.to_owned(),
+            Some(key) => {
+                let segment = stored_key_segment(&prefix, &key)?;
+                if segment.len() > MAX_PAGE_TOKEN_SEGMENT_BYTES {
+                    return Err(FlowOperationError::Internal {
+                        detail: format!(
+                            "listed object key under {prefix} is {} bytes, longer than any page token",
+                            key.len()
+                        ),
+                    });
+                }
+                encode_page_token(segment)
+            }
             None => String::new(),
         };
         Ok(ListFlowDefinitionsResponse {
@@ -161,36 +177,70 @@ impl FlowDefinitions {
         tenant_id: TenantId,
         request: GetFlowDefinitionsRequest,
     ) -> Result<GetFlowDefinitionsResponse, FlowOperationError> {
-        validate_requested_flow_types(&self.config, &request.flow_types)?;
+        validate_requested_flow_types(&self.config, tenant_id, &request.flow_types)?;
         let mut requested = BTreeSet::new();
-        let keys: Vec<String> = request
-            .flow_types
-            .iter()
-            .filter(|flow_type| requested.insert(flow_type.as_str()))
-            .map(|flow_type| flow_definition_key(tenant_id, flow_type))
-            .collect();
-        let object_store = self.object_store.as_ref();
-        let mut reads = futures::stream::iter(keys)
-            .map(|key| async move { read_flow_definition(object_store, &key).await })
-            .buffered(GET_READ_CONCURRENCY);
         let mut response = GetFlowDefinitionsResponse::default();
-        while let Some(stored) = reads.try_next().await? {
-            let Some(stored) = stored else {
+        // Sequential reads capped at the remaining budget keep memory within the response limit.
+        for flow_type in &request.flow_types {
+            if !requested.insert(flow_type.as_str()) {
                 continue;
-            };
-            response.definitions.push(stored_flow_definition(stored));
-            if response.encoded_len() > self.config.max_response_bytes {
-                return Err(FlowOperationError::rejected(
-                    Code::ResourceExhausted,
-                    ErrorSubStatus::FlowDefinitionResponseTooLarge,
-                    format!(
-                        "the requested Flow definitions exceed the {}-byte response limit; request fewer Flow types",
-                        self.config.max_response_bytes
-                    ),
-                ));
             }
+            let remaining_bytes = self
+                .config
+                .max_response_bytes
+                .saturating_sub(response.encoded_len());
+            let key = flow_definition_key(tenant_id, flow_type);
+            let read = read_flow_definition(
+                self.object_store.as_ref(),
+                &key,
+                flow_type,
+                u64::try_from(remaining_bytes).unwrap_or(u64::MAX),
+            )
+            .await?;
+            let stored = match read {
+                FlowDefinitionRead::Missing => continue,
+                FlowDefinitionRead::Stored(stored) => stored,
+                FlowDefinitionRead::TooLarge { .. } => return Err(self.response_too_large()),
+            };
+            let definition = stored_flow_definition(stored);
+            let definition_bytes = prost::encoding::message::encoded_len(1, &definition);
+            if definition_bytes > remaining_bytes {
+                return Err(self.response_too_large());
+            }
+            response.definitions.push(definition);
         }
         Ok(response)
+    }
+
+    fn response_too_large(&self) -> FlowOperationError {
+        FlowOperationError::rejected(
+            Code::ResourceExhausted,
+            ErrorSubStatus::FlowDefinitionResponseTooLarge,
+            format!(
+                "the requested Flow definitions exceed the {}-byte response limit; request fewer Flow types",
+                self.config.max_response_bytes
+            ),
+        )
+    }
+
+    /// Reads the record that an upload compares with, at most one gRPC message in size.
+    async fn read_stored_for_upload(
+        &self,
+        key: &str,
+        flow_type: &str,
+    ) -> Result<Option<StoredFlowDefinition>, FlowOperationError> {
+        let max_object_bytes = u64::try_from(self.config.max_response_bytes).unwrap_or(u64::MAX);
+        match read_flow_definition(self.object_store.as_ref(), key, flow_type, max_object_bytes)
+            .await?
+        {
+            FlowDefinitionRead::Missing => Ok(None),
+            FlowDefinitionRead::Stored(stored) => Ok(Some(stored)),
+            FlowDefinitionRead::TooLarge { object_size } => Err(FlowOperationError::Internal {
+                detail: format!(
+                    "Flow definition object {key} is {object_size} bytes, above the {max_object_bytes}-byte read limit"
+                ),
+            }),
+        }
     }
 
     /// Applies the replace rule to one Flow type, retrying when a concurrent write wins.
@@ -205,7 +255,7 @@ impl FlowDefinitions {
         let generated_at_unix_micros = upload.generated_at_unix_micros;
         record.content = upload.content;
         let body = Bytes::from(record.encode_to_vec());
-        let mut stored = read_flow_definition(self.object_store.as_ref(), &key).await?;
+        let mut stored = self.read_stored_for_upload(&key, &upload.flow_type).await?;
         for _ in 0..MAX_WRITE_ATTEMPTS {
             let (outcome, condition) = match &stored {
                 None => (
@@ -248,10 +298,10 @@ impl FlowDefinitions {
                     ));
                 }
                 Ok(WriteOutcome::PreconditionFailed) => {
-                    stored = read_flow_definition(self.object_store.as_ref(), &key).await?;
+                    stored = self.read_stored_for_upload(&key, &upload.flow_type).await?;
                 }
                 Err(error) if error.kind == ObjectStoreErrorKind::OutcomeUnknown => {
-                    stored = read_flow_definition(self.object_store.as_ref(), &key).await?;
+                    stored = self.read_stored_for_upload(&key, &upload.flow_type).await?;
                     if stored
                         .as_ref()
                         .is_some_and(|existing| is_same_record(&existing.record, &record))
@@ -323,13 +373,6 @@ fn stored_flow_definition(stored: StoredFlowDefinition) -> FlowDefinition {
         }),
         content: record.content,
     }
-}
-
-fn stored_key_flow_type(prefix: &str, key: &str) -> Result<String, FlowOperationError> {
-    let segment = stored_key_segment(prefix, key)?;
-    decode_flow_type_key_segment(segment).ok_or_else(|| FlowOperationError::Internal {
-        detail: format!("Flow definition object key {key} is not a percent-encoded Flow type"),
-    })
 }
 
 fn stored_key_segment<'key>(prefix: &str, key: &'key str) -> Result<&'key str, FlowOperationError> {
