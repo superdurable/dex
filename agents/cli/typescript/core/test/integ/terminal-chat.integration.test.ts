@@ -89,8 +89,10 @@ describe("terminal chat with connectors and session settings", () => {
 
   test("a new session records where the command runs in its start input", async () => {
     const home = newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+    const spawnedAt = Math.floor(Date.now() / 1000) * 1000;
     const cli = start(home);
     const sessionId = await cli.waitForSession();
+    assertSessionIdNamesTheHarnessAndUtcStart(sessionId, spawnedAt);
     const { stdout } = await promisify(execFile)(home.environment().DEXCLI ?? "dexcli", [
       "flow",
       "history",
@@ -542,4 +544,13 @@ describe("terminal chat with connectors and session settings", () => {
 interface StartedPayload {
   readonly flowType: string;
   readonly initialStart: { readonly stepInput: { readonly start_environment: Record<string, string> } };
+}
+
+// Same shape as the Python CLI core: <harness>-<UTC yyyymmdd-HHMMSS>-<6 hex>.
+function assertSessionIdNamesTheHarnessAndUtcStart(sessionId: string, spawnedAt: number): void {
+  const match = /^scripted-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-[0-9a-f]{6}$/.exec(sessionId);
+  assert.ok(match !== null, sessionId);
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+  const startedAt = Date.UTC(year!, month! - 1, day!, hour!, minute!, second!);
+  assert.ok(spawnedAt <= startedAt && startedAt <= Date.now(), `${sessionId} started before ${new Date(spawnedAt).toISOString()}`);
 }
