@@ -19,7 +19,7 @@ from typing import Any, cast
 import pytest
 from dex import AsyncContext
 from dex_connectors.sdk import Call, CallID, ConnectionRef, OperationRef, derive_call_id
-from dex_connectors.sdk.singledispatch import DecisionKind, Fence, State
+from dex_connectors.sdk.singledispatch import DecisionKind, Fence, Marker, State
 
 from dex_agents import (
     AgentEventWriter,
@@ -39,12 +39,22 @@ from dex_agents.connectors import (
     format_connector_result,
 )
 from dex_agents.connectors._schema import check_input_schema, find_input_violation
-from dex_agents.connectors._source import _is_proven_not_sent
-from tests.connector_agent import CONNECTION, read_fake_ledger_manifest
+from dex_agents.connectors._source import (
+    _is_proven_not_sent,
+    _lower_camel_to_snake,
+    _may_have_dispatched,
+)
+from tests.connector_agent import (
+    CONNECTION,
+    PREVIOUS_BY_ID_TOOL_NAME,
+    by_id_manifest,
+    read_fake_ledger_manifest,
+)
 from tests.fake_ledger import (
     CloseAccountOperation,
     CreatePayoutOperation,
     FakeLedgerProvider,
+    GetBalanceByIDOperation,
     GetBalanceOperation,
     PostNoteOperation,
 )
@@ -85,8 +95,46 @@ def test_branches_map_as_the_conformance_suite_says(case: dict[str, Any]) -> Non
         branch=case["branch"],
         required_branches=frozenset(case["requiredBranches"]),
         agent_branches=case["agentBranches"],
+        may_have_dispatched=case.get("mayHaveDispatched", False),
     )
     assert outcome is ConnectorBranchOutcome(case["outcome"])
+
+
+@pytest.mark.parametrize("case", CONFORMANCE["toolNameCases"])
+def test_operation_ids_become_snake_case_as_the_conformance_suite_says(
+    case: dict[str, Any],
+) -> None:
+    assert _lower_camel_to_snake(case["operationId"]) == case["snakeName"]
+
+
+@pytest.mark.parametrize(
+    "case", CONFORMANCE["fenceObservationCases"], ids=lambda case: str(case["name"])
+)
+def test_fence_events_are_observed_as_the_conformance_suite_says(case: dict[str, Any]) -> None:
+    operation = OperationRef("fake-ledger", "postNote")
+    call_id = str(derive_call_id("session-1", "CallTool-3", operation))
+    other_call_id = str(derive_call_id("session-1", "CallTool-4", operation))
+
+    def bind(value: str) -> str:
+        return value.replace("<callId>", call_id).replace("<otherCallId>", other_call_id)
+
+    previous = case["previousCheckpoint"]
+    call = _fenced_call(
+        case["attempt"], None if previous is None else bind(previous), _ToolStepHeartbeats()
+    )
+    context = cast(ConnectorStepContext, call.context)
+    if case["readsCheckpoint"]:
+        context.has_last_heartbeat_value()
+    for saved in case["savedHeartbeats"]:
+        bound = json.loads(bind(json.dumps(saved)))
+        try:
+            value: object = Marker.from_wire(bound)
+        except ValueError:
+            value = bound
+        # The fence's markers, or the operation's own value, as heartbeat() observes them.
+        context._observe_saved_heartbeat_value(value)
+    assert _may_have_dispatched(call) is case["mayHaveDispatched"]
+    assert _is_proven_not_sent(call) is case["isProvenNotSent"]
 
 
 @pytest.mark.parametrize("case", CONFORMANCE["resultCases"])
@@ -124,6 +172,17 @@ def test_each_operation_kind_maps_to_its_effect_class_and_step_options(
         # The connector policy's one-hour window, narrowed to the tool Steps' three attempts.
         assert tool.retry_policy.maximum_attempts == 3
         assert tool.retry_policy.total_duration == timedelta(hours=1)
+
+
+def test_an_explicit_name_keeps_a_previous_default_tool_name(
+    provider: FakeLedgerProvider,
+) -> None:
+    operation = GetBalanceByIDOperation(provider)
+    manifest = by_id_manifest()
+    default = connector_tool(operation, CONNECTION, manifest=manifest)
+    assert default.name == "fake-ledger_get_balance_by_id"
+    kept = connector_tool(operation, CONNECTION, manifest=manifest, name=PREVIOUS_BY_ID_TOOL_NAME)
+    assert kept.name == "fake-ledger_get_balance_by_i_d"
 
 
 def test_an_operation_without_agent_exposed_is_refused(provider: FakeLedgerProvider) -> None:
@@ -421,6 +480,62 @@ async def test_only_a_saved_not_sent_or_can_resend_marker_of_this_attempt_proves
     await fence.decide()
     await fence.record_not_sent()
     assert not _is_proven_not_sent(_fenced_call(2, first.checkpoint, retry_heartbeats))
+
+
+async def test_only_fence_checkpoints_proving_no_send_keep_the_manifest_listing() -> None:
+    async def send(deadline: datetime) -> str:
+        return "note-1"
+
+    async def refused_send(deadline: datetime) -> None:
+        return None
+
+    unfenced = _fenced_call(2, None, _ToolStepHeartbeats())
+    assert not _may_have_dispatched(unfenced)
+
+    not_sent = _ToolStepHeartbeats()
+    call = _fenced_call(1, None, not_sent)
+    fence = Fence(call, timedelta(seconds=30))
+    await fence.decide()
+    assert not _may_have_dispatched(call)
+    await fence.record_not_sent()
+    assert not _may_have_dispatched(call)
+
+    claimed = _ToolStepHeartbeats()
+    call = _fenced_call(1, None, claimed)
+    fence = Fence(call, timedelta(seconds=30))
+    await fence.decide()
+    await fence.dispatch(send)
+    assert _may_have_dispatched(call)
+    await fence.record_provider_id("note-1")
+    assert _may_have_dispatched(call)
+
+    can_resend = _ToolStepHeartbeats()
+    call = _fenced_call(1, None, can_resend)
+    fence = Fence(call, timedelta(seconds=30))
+    await fence.decide()
+    await fence.dispatch(refused_send)
+    await fence.record_can_resend()
+    assert not _may_have_dispatched(call)
+
+    foreign = not_sent.checkpoint
+    assert foreign is not None
+    foreign = foreign.replace(str(call.id), "f" * len(str(call.id)))
+    previous_checkpoints = {
+        "a notSent marker of the attempt before": (not_sent.checkpoint, False),
+        "a canResend marker of the attempt before": (can_resend.checkpoint, False),
+        "a claim": (claimed.checkpoint, True),
+        "a marker of another call": (foreign, True),
+        "a malformed marker": ('{"callId": 7, "state": "notSent"}', True),
+        "a checkpoint that is not a marker": ('"a task handle"', True),
+        "no checkpoint": (None, True),
+    }
+    for label, (previous, expected) in previous_checkpoints.items():
+        retry = _fenced_call(2, previous, _ToolStepHeartbeats())
+        await Fence(retry, timedelta(seconds=30)).decide()
+        assert _may_have_dispatched(retry) is expected, label
+    stale = _fenced_call(3, not_sent.checkpoint, _ToolStepHeartbeats())
+    await Fence(stale, timedelta(seconds=30)).decide()
+    assert _may_have_dispatched(stale)
 
 
 class _FailingSaves(_ToolStepHeartbeats):

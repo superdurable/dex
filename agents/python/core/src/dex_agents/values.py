@@ -243,6 +243,45 @@ class TurnControlKind(StrEnum):
 
 
 @dataclass(frozen=True, kw_only=True)
+class AgentImageReference:
+    """Point to one image in a media store by the SHA-256 of its bytes.
+
+    Session state never holds image bytes. A caller uploads the image with
+    ``MediaStore.put_image`` first and puts the returned reference in
+    ``AgentUserMessage.images`` or ``ToolExecutionResult.images``. A runner
+    reads the bytes back with ``MediaStore.get_image`` or ``load_images``
+    when it builds model input.
+
+    The store keys every object by its content, so uploading the same bytes
+    twice returns the same reference, and reading a reference always returns
+    the bytes it was made from. ``validate_image_reference`` checks the
+    fields.
+
+    Example:
+        >>> reference = await media_store.put_image(Path("chart.png").read_bytes())
+        >>> await sessions.send_user_message("session-42", "What does this chart show?",
+        ...                                  images=[reference])
+
+    Attributes:
+        uri: Where the store keeps the bytes, ending in ``/sha256/<sha256>``,
+            such as ``"s3://media/agents/sha256/<sha256>"``.
+        mime_type: ``"image/png"``, ``"image/jpeg"``, ``"image/gif"``, or
+            ``"image/webp"``, detected from the bytes.
+        sha256: SHA-256 of the bytes as 64 lowercase hex digits.
+        size_bytes: Size of the bytes, from 1 to ``MAX_IMAGE_BYTES``.
+        type: Always ``"image"``.
+
+    .. versionadded:: 0.5.0
+    """
+
+    uri: str
+    mime_type: str
+    sha256: str
+    size_bytes: int
+    type: str = "image"
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentSessionStartInput:
     """Start one agent session Flow, optionally with its first user message.
 
@@ -337,6 +376,10 @@ class AgentMessage:
         tool_output: Tool result text for a tool result item.
         framework_item: Framework-native JSON text, replayed unchanged.
         created_at: RFC 3339 time when the session stored the message.
+        images: Images of the item, for display: those of a user message, or
+            those a tool result returned. Empty for an item without images.
+
+            .. versionadded:: 0.5.0
     """
 
     sequence: int
@@ -349,6 +392,7 @@ class AgentMessage:
     tool_output: str | None = None
     framework_item: str
     created_at: str
+    images: list[AgentImageReference] = field(default_factory=list)
 
 
 class QuestionResolution(StrEnum):
@@ -493,6 +537,10 @@ class AgentToolCall:
             ``ToolExecutionResult.truncated_output_bytes``, or ``None``.
 
             .. versionadded:: 0.4.0
+        images: Images the tool returned with ``output`` after ``SUCCEEDED``,
+            from ``ToolExecutionResult.images``. Empty for every other call.
+
+            .. versionadded:: 0.5.0
     """
 
     tool_call_id: str
@@ -522,6 +570,7 @@ class AgentToolCall:
     write_queued: bool = False
     skipped: bool = False
     truncated_output_bytes: int | None = None
+    images: list[AgentImageReference] = field(default_factory=list)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -673,10 +722,20 @@ class AgentUserMessage:
             rejects it unless ``AgentSessionOptions.plan_mode_enabled`` is set.
             Defaults to ``False``; ``None``, as an explicit JSON ``null``
             decodes, also becomes ``False``.
+        images: Images the user attached, uploaded with ``MediaStore.put_image``
+            first. At most ``MAX_IMAGES_PER_MESSAGE``, each valid for
+            ``validate_image_reference``. ``send_user_message`` rejects images
+            when the session's runner does not implement
+            ``ImageUserMessageBuilder``. Defaults to none. Send images only
+            after every Worker of the Flow type runs dex-agents 0.5.0: an
+            earlier Worker drops them.
+
+            .. versionadded:: 0.5.0
     """
 
     text: str
     plan_mode: bool | None = False
+    images: list[AgentImageReference] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.plan_mode is None:

@@ -31,12 +31,8 @@ func TestBasicFlowTemporal(t *testing.T) {
 		t.Run(fmt.Sprintf("default-%d", i), func(t *testing.T) {
 			doTestBasicFlow(t, nil)
 		})
-		t.Run(fmt.Sprintf("continue-as-new-%d", i), func(t *testing.T) {
-			doTestBasicFlow(
-				t,
-
-				minimumContinueAsNewAsyncDurabilityConfig(),
-			)
+		t.Run(fmt.Sprintf("async-durability-%d", i), func(t *testing.T) {
+			doTestBasicFlow(t, asyncDurabilityConfig())
 		})
 		t.Run(fmt.Sprintf("active-step-search-disabled-%d", i), func(t *testing.T) {
 			doTestBasicFlow(t, &dexpb.FlowConfig{
@@ -190,9 +186,6 @@ func requireCurrentRunSearchResult(
 		for _, flowRun := range response.GetFlowRuns() {
 			if flowRun.GetFlowId() == flowID {
 				currentRunCount++
-				if flowRun.GetFlowStatus() == dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW {
-					return false
-				}
 			}
 		}
 		return currentRunCount == 1

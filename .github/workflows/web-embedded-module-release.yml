@@ -1,0 +1,77 @@
+name: Publish embedded Dex Web Go module
+
+# Publishes github.com/superdurable/dex/web/embedded from a web/vX.Y.Z release. The module tag
+# web/embedded/vX.Y.Z points to a release commit off main that adds the built SPA and a go.mod
+# without replace directives; main never contains that commit.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Dex Web semantic version without the v prefix
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Dex Web semantic version without the v prefix, such as 1.43.0
+        required: true
+        type: string
+      dry_run:
+        description: Build and check the module without pushing its tag
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      WEB_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Validate version
+        run: |
+          if [[ ! "${WEB_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid Dex Web version: ${WEB_VERSION}" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          ref: web/v${{ inputs.version }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: web/go.mod
+      - name: Build Dex Web assets
+        working-directory: web
+        run: npm ci && npm run build
+      - name: Check a host module builds against the package
+        run: python3 script/release/check_embedded_web_module.py
+      - name: Create the module release commit and tag
+        run: |
+          module_tag="web/embedded/v${WEB_VERSION}"
+          if git rev-parse --verify --quiet "refs/tags/${module_tag}" >/dev/null; then
+            echo "${module_tag} already exists" >&2
+            exit 1
+          fi
+          module_directory="$(mktemp -d)/module"
+          python3 script/release/package_embedded_web_module.py --output "${module_directory}"
+          rm -rf web/embedded
+          cp -R "${module_directory}" web/embedded
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --force web/embedded
+          git commit --quiet -m "Release ${module_tag}"
+          git tag "${module_tag}"
+          echo "Created ${module_tag} at $(git rev-parse HEAD)" >> "${GITHUB_STEP_SUMMARY}"
+      - name: Push the module tag
+        if: ${{ !inputs.dry_run }}
+        run: git push origin "refs/tags/web/embedded/v${WEB_VERSION}"

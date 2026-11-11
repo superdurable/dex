@@ -156,6 +156,8 @@ async fn cancelled_dev_start_releases_the_grpc_listener() {
         config: Some(config_path),
         attribute_store_config: None,
         durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
+        application_s3_listen: None,
+        application_s3_bucket: None,
     };
     let waiting = tokio::spawn(async move { start_dev_server(&waiting_options).await });
     tokio::time::timeout(Duration::from_secs(10), async {

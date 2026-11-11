@@ -40,6 +40,7 @@ import { formatElapsedDuration } from '@/lib/timeline';
 import { findSourceStepOptions } from '@/lib/stepOptions';
 import { generatedSubFlowID } from '@/lib/subflows';
 import { usePreferences } from '@/app/providers';
+import { webURL } from '@/lib/basePath';
 
 export type Data = Record<string, unknown>;
 
@@ -496,7 +497,7 @@ function SubFlowRecord({
   return (
     <a
       className="semantic-record sub-flow-record"
-      href={flowId ? `/v1/flows/${encodeURIComponent(flowId)}` : '#'}
+      href={flowId ? webURL(`/v1/flows/${encodeURIComponent(flowId)}`) : '#'}
       aria-label={`Open SubFlow ${flowId || index + 1}`}
     >
       <strong><SubFlowIcon /><code>{flowId}</code></strong>
@@ -543,7 +544,7 @@ function SubFlowResultRecord({
   return (
     <a
       className="semantic-record sub-flow-record"
-      href={flowId ? `/v1/flows/${encodeURIComponent(flowId)}` : '#'}
+      href={flowId ? webURL(`/v1/flows/${encodeURIComponent(flowId)}`) : '#'}
       aria-label={`Open SubFlow result ${flowId || index + 1}`}
     >
       <strong><SubFlowIcon /><code>{flowId}</code></strong>

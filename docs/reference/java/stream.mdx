@@ -22,8 +22,9 @@ them in the [Java SDK API reference](./index.mdx#api-reference).
 | Read the next message | **Client.readStream**, with the **getResumeToken** value of the last message | [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) |
 | List retained messages, newest first | **Client.listStreamMessages** | [List messages](/reference/server/runtime-data#stream-listing) |
 
-**Stream.write** sends the message immediately. RPC and Flow timeout handlers
-cannot write a Stream. The call throws **IllegalStateException**.
+**Stream.write** works in **waitFor**, **execute**, and the Flow timeout
+handler. An RPC handler cannot write a Stream; there, the call throws
+**IllegalStateException**. **Stream.write** sends the message immediately.
 
 ## Example {#example}
 

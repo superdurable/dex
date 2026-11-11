@@ -179,13 +179,6 @@ fn effective_flow_config(
         if overrides.active_step_search_mode.is_some() {
             effective.active_step_search_mode = overrides.active_step_search_mode;
         }
-        if overrides.continue_as_new_threshold.is_some() {
-            effective.continue_as_new_threshold = overrides.continue_as_new_threshold;
-        }
-        if overrides.continue_as_new_page_size_in_bytes.is_some() {
-            effective.continue_as_new_page_size_in_bytes =
-                overrides.continue_as_new_page_size_in_bytes;
-        }
         if overrides.step_durability.is_some() {
             effective.step_durability = overrides.step_durability;
         }
@@ -315,15 +308,6 @@ fn resolved_timeout_policy(timeout_seconds: i32, policy: i32) -> Result<FlowTime
 }
 
 fn validate_effective_flow_config(flow_config: &FlowConfig) -> Result<(), String> {
-    if flow_config
-        .continue_as_new_threshold
-        .is_some_and(|value| value < 0)
-        || flow_config
-            .continue_as_new_page_size_in_bytes
-            .is_some_and(|value| value < 0)
-    {
-        return Err("FlowConfig thresholds must be non-negative".to_owned());
-    }
     if flow_config
         .history_window_events
         .is_some_and(|window_events| window_events <= 0)

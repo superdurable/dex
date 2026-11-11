@@ -37,7 +37,7 @@ from dex_connectors.sdk import (
 from dex_connectors.sdk.singledispatch import Marker, State
 
 from dex_agents.connectors._schema import check_input_schema, find_input_violation
-from dex_agents.connectors._step_context import ConnectorStepContext
+from dex_agents.connectors._step_context import ConnectorStepContext, FenceEvidence
 from dex_agents.runner import (
     AgentTurnContext,
     DeferredToolCall,
@@ -99,13 +99,22 @@ class ConnectorBranchOutcome(StrEnum):
             ``agent.branches``, such as ``providerRejected``. Nothing took
             effect. The record is ``FAILED`` with an error the model reads, and
             the session continues.
-        FAILED: ``defect``, or an optional branch of a Query that
-            ``agent.branches`` does not list. The record is ``FAILED``.
-        OUTCOME_UNKNOWN: ``uncertain``, a branch listed as ``unknown``, or an
-            optional branch of a Mutation that ``agent.branches`` does not list.
-            The write may have taken effect. The record is ``OUTCOME_UNKNOWN``.
+        FAILED: An optional branch of a Query that ``agent.branches`` does
+            not list, including ``defect``. The record is ``FAILED``.
+        OUTCOME_UNKNOWN: ``uncertain``, a Mutation's ``defect``, any optional
+            branch of a Mutation whose single-dispatch fence cannot prove that
+            nothing was sent, a branch listed as ``unknown``, or an optional
+            branch of a Mutation that ``agent.branches`` does not list. The
+            write may have taken effect. The record is ``OUTCOME_UNKNOWN``.
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.5.0
+        A Mutation's ``defect`` is always ``OUTCOME_UNKNOWN``, because the
+        Connector SDK can select it after the provider was called. A Query's
+        ``defect`` follows ``agent.branches``. A fenced Mutation whose fence
+        cannot prove that nothing was sent is ``OUTCOME_UNKNOWN`` on any
+        optional branch.
     """
 
     SUCCEEDED = "succeeded"
@@ -120,12 +129,43 @@ def classify_connector_branch(
     branch: str,
     required_branches: frozenset[str],
     agent_branches: Mapping[str, str],
+    may_have_dispatched: bool = False,
 ) -> ConnectorBranchOutcome:
     """Return what a connector tool call records for one selected branch.
+
+    The rules apply in this order. The manifest listing comes after the
+    checks that can only tighten an outcome to ``OUTCOME_UNKNOWN``:
+
+    1. ``uncertain`` is ``OUTCOME_UNKNOWN``, whatever ``agent.branches`` says
+       or whether it is declared required. It means the write may have
+       happened, so a listing of it as ``rejected`` is a manifest error.
+    2. A Mutation's ``defect`` is ``OUTCOME_UNKNOWN``, whatever
+       ``agent.branches`` says or whether it is declared required. The
+       Connector SDK selects ``defect`` for some attempts that already called
+       the provider, such as an invalid attempt or an undeclared branch, and a
+       host cannot tell those apart.
+    3. A required branch other than ``defect`` is ``SUCCEEDED``.
+    4. On a Mutation, any other branch is ``OUTCOME_UNKNOWN`` when
+       ``may_have_dispatched`` is set: its single-dispatch fence cannot prove
+       that no request reached the provider.
+    5. A branch that ``agent.branches`` lists as ``rejected`` is ``REJECTED``.
+    6. A branch that ``agent.branches`` lists as ``unknown`` is
+       ``OUTCOME_UNKNOWN``.
+    7. Any other optional branch of a Mutation is ``OUTCOME_UNKNOWN``.
+    8. Any other branch of a Query, including ``defect``, is ``FAILED``.
 
     The rule fails closed: an optional branch of a Mutation that the manifest
     does not classify is ``OUTCOME_UNKNOWN``, because the write may have
     happened.
+
+    Example:
+        >>> classify_connector_branch(
+        ...     kind="mutation",
+        ...     branch="defect",
+        ...     required_branches=frozenset({"refunded"}),
+        ...     agent_branches={"defect": "rejected"},
+        ... )
+        <ConnectorBranchOutcome.OUTCOME_UNKNOWN: 'outcome_unknown'>
 
     Args:
         kind: Whether the operation is a Query or a Mutation.
@@ -133,18 +173,29 @@ def classify_connector_branch(
         required_branches: The operation's branches that are not optional.
         agent_branches: The manifest's ``agent.branches``: branch ID to
             ``"rejected"`` or ``"unknown"``.
+        may_have_dispatched: Whether the attempt's single-dispatch fence
+            checkpoints leave open that the request reached the provider: this
+            attempt claimed a send and no canResend followed, or the earlier
+            attempt's checkpoint is missing, not a fence marker, malformed,
+            foreign, or does not allow this attempt a send.
+            ``ConnectorToolSource`` computes it. It applies only to a Mutation.
 
     Returns:
         The outcome to record.
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.5.0
+        Added ``may_have_dispatched``. ``agent.branches`` no longer decides a
+        Mutation's ``defect``, which is ``OUTCOME_UNKNOWN`` instead of
+        ``FAILED``. A Query's ``defect`` follows ``agent.branches``.
     """
-    if branch == _DEFECT_BRANCH:
-        return ConnectorBranchOutcome.FAILED
-    if branch == _UNCERTAIN_BRANCH:
+    if branch == _UNCERTAIN_BRANCH or (kind == "mutation" and branch == _DEFECT_BRANCH):
         return ConnectorBranchOutcome.OUTCOME_UNKNOWN
-    if branch in required_branches:
+    if branch != _DEFECT_BRANCH and branch in required_branches:
         return ConnectorBranchOutcome.SUCCEEDED
+    if kind == "mutation" and may_have_dispatched:
+        return ConnectorBranchOutcome.OUTCOME_UNKNOWN
     listed = agent_branches.get(branch)
     if listed == "rejected":
         return ConnectorBranchOutcome.REJECTED
@@ -256,7 +307,11 @@ def connector_tool(
         connection: The logical connection reference the call runs with.
             Only the reference is stored; the Worker resolves credentials.
         name: Tool name; defaults to ``<connectorId>_<operation in snake case>``,
-            such as ``stripe_create_refund``.
+            such as ``stripe_create_refund``. The snake case is the one the
+            Connector library uses for Python Step factory names: an acronym
+            run stays one word, so ``listStoryIDs`` becomes
+            ``list_story_ids`` and ``getHTTPResponse`` becomes
+            ``get_http_response``.
         description: Model-facing description; defaults to the manifest's.
         requires_approval: The application's approval choice, as above.
         max_result_bytes: Bound on the result the model reads; defaults to the
@@ -279,6 +334,11 @@ def connector_tool(
             exported by the package.
 
     .. versionadded:: 0.4.0
+
+    .. versionchanged:: 0.5.0
+        The default name keeps an acronym run as one word, as the Connector
+        library does: ``listStoryIDs`` became ``list_story_ids``, not
+        ``list_story_i_d_s``.
     """
     definition = operation.definition()
     kind: Literal["query", "mutation"] = (
@@ -345,7 +405,8 @@ def connector_tool(
     )
     step_defaults = definition.step_defaults
     return ConnectorTool(
-        name=name or f"{operation_ref.connector_id}_{_snake_case(operation_ref.operation_id)}",
+        name=name
+        or f"{operation_ref.connector_id}_{_lower_camel_to_snake(operation_ref.operation_id)}",
         description=description or str(factory.get("description") or ""),
         input_schema=schema,
         connector_id=operation_ref.connector_id,
@@ -582,6 +643,7 @@ class ConnectorToolSource:
             branch=result.branch,
             required_branches=tool.required_branches,
             agent_branches=tool.agent_branches,
+            may_have_dispatched=_may_have_dispatched(connector_call),
         )
         if outcome is ConnectorBranchOutcome.SUCCEEDED:
             return bound_connector_result(
@@ -721,18 +783,56 @@ def _integral_floats_as_ints(value: Any) -> Any:
 
 
 def _is_proven_not_sent(call: Call) -> bool:
-    """Report whether this attempt's last saved fence marker proves the write was not sent."""
+    """Report whether this attempt's fence recorded proof that the write was not sent."""
+    return _observe_fence(call).is_proven_not_sent
+
+
+def _may_have_dispatched(call: Call) -> bool:
+    """Report whether fence events leave open that the request was sent, as sdkgo does."""
+    return _observe_fence(call).may_have_dispatched
+
+
+@dataclass(frozen=True)
+class _FenceObservation:
+    may_have_dispatched: bool
+    is_proven_not_sent: bool
+
+
+def _observe_fence(call: Call) -> _FenceObservation:
     context = call.context
     if not isinstance(context, ConnectorStepContext):
-        return False
-    marker = context._saved_heartbeat_value
-    return (
-        isinstance(marker, Marker)
-        and marker.call_id == call.id
-        and marker.attempt == context.attempt
-        and marker.state in (State.NOT_SENT, State.CAN_RESEND)
-        and not marker.provider_id
+        return _FenceObservation(may_have_dispatched=False, is_proven_not_sent=False)
+    evidence = context._fence_evidence.get(str(call.id), FenceEvidence())
+    is_claimed = evidence.is_claimed
+    has_not_sent_proof = evidence.has_not_sent_proof
+    is_prior_dispatch_possible = context._has_read_checkpoint and _is_prior_dispatch_possible(
+        call, context
     )
+    may_have_dispatched = is_claimed or is_prior_dispatch_possible
+    return _FenceObservation(
+        may_have_dispatched=may_have_dispatched,
+        is_proven_not_sent=has_not_sent_proof and not may_have_dispatched,
+    )
+
+
+def _is_prior_dispatch_possible(call: Call, context: ConnectorStepContext) -> bool:
+    """Report whether the earlier attempt's checkpoint denies this attempt a send."""
+    previous = context._previous_checkpoint
+    if previous is None:
+        # A lost checkpoint after attempt one may hide an earlier send.
+        return context.attempt > 1
+    try:
+        marker = Marker.from_wire(json.loads(previous))
+    except ValueError:
+        # Not a marker, malformed, or not JSON: the fence fails closed, and so does this.
+        return True
+    is_send_allowed = (
+        marker.call_id == call.id
+        and marker.attempt == context.attempt - 1
+        and not marker.provider_id
+        and marker.state in (State.NOT_SENT, State.CAN_RESEND)
+    )
+    return not is_send_allowed
 
 
 def _not_sent_detail(tool: ConnectorTool, failure: Any) -> str:
@@ -812,5 +912,35 @@ def _input_type(package: str, input_type_name: object, label: str) -> type[Any]:
     raise LookupError(f"{label}: package {package} does not export {input_type_name}")
 
 
-def _snake_case(identifier: str) -> str:
-    return "".join(f"_{c.lower()}" if c.isupper() else c for c in identifier).lstrip("_")
+def _lower_camel_to_snake(operation_id: str) -> str:
+    # Same algorithm as connectorctl lowerCamelToSnake, which names the Python Step factories.
+    converted: list[str] = []
+    for index, character in enumerate(operation_id):
+        if not _is_ascii_upper(character):
+            converted.append(character)
+            continue
+        previous = operation_id[index - 1] if index > 0 else ""
+        following = operation_id[index + 1] if index + 1 < len(operation_id) else ""
+        after_following = operation_id[index + 2] if index + 2 < len(operation_id) else ""
+        is_previous_lower_or_digit = _is_ascii_lower(previous) or _is_ascii_digit(previous)
+        # A trailing lowercase s pluralizes the acronym, as in listStoryIDs.
+        is_acronym_plural = following == "s" and not _is_ascii_lower(after_following)
+        is_end_of_acronym = (
+            _is_ascii_upper(previous) and _is_ascii_lower(following) and not is_acronym_plural
+        )
+        if is_previous_lower_or_digit or is_end_of_acronym:
+            converted.append("_")
+        converted.append(character.lower())
+    return "".join(converted)
+
+
+def _is_ascii_upper(character: str) -> bool:
+    return "A" <= character <= "Z"
+
+
+def _is_ascii_lower(character: str) -> bool:
+    return "a" <= character <= "z"
+
+
+def _is_ascii_digit(character: str) -> bool:
+    return "0" <= character <= "9"

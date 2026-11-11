@@ -237,7 +237,7 @@ This is the target layout. Phases P2 and P4 of the docs and skills cleanup
 build it.
 
 - Each component has its own versioned reference: the Go, Python, Java,
-  TypeScript, and Rust SDKs, the server, cli, and web.
+  TypeScript, and Rust SDKs, the server, cli, web, and the agents packages.
 - The left sidebar of each reference has a version selector. It defaults to
   the latest version.
 - Only the current version is edited by hand. Each minor release snapshots it
@@ -247,8 +247,9 @@ build it.
 - When a version leaves the site, redirect each of its URLs to the same page
   in the latest version. If that page no longer exists, redirect to the
   component's reference index. Docs URLs stay permanent.
-- Each SDK, cli, and web minor version has one reference version. Patch
-  releases update that minor's reference. Until server-zd 1.0, each
+- Each SDK, cli, web, and agents minor version has one reference version.
+  Patch releases update that minor's reference. Before agents 1.0, each
+  `0.N` agents minor is one version. Until server-zd 1.0, each
   `0.1.N` server-zd release is one version. From 1.0 on, server-zd is
   versioned by minor release.
 
@@ -321,9 +322,7 @@ still not describe downstream products.
 ### User-Facing Concept Boundary
 
 User-facing docs, examples and skills describe Dex concepts and guarantees only.
-Do not mention Continue-As-New except in the Flow options reference for the
-Continue-As-New threshold and the TriggerContinueAsNew Client API reference. Do
-not describe server-zd engine internals (apply, commands, partitions, history
+Do not describe server-zd engine internals (apply, commands, partitions, history
 mechanics) as part of the application model; state the Dex behavior instead.
 Deployment and operations guidance may name server-zd and its configuration.
 

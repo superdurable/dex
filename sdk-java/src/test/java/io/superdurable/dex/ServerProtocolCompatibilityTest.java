@@ -131,7 +131,6 @@ final class ServerProtocolCompatibilityTest {
                     () -> client.waitForAttributeMatch("flow", NOTES, "a", AttributeMatch.equalTo("done"),
                             WaitForAttributeOptions.newBuilder().build()),
                     () -> client.updateFlowConfig("flow", FlowConfig.newBuilder().build()),
-                    () -> client.triggerContinueAsNew("flow"),
                     client::healthCheck);
             String expectedMessage = null;
             for (Executable call : calls) {

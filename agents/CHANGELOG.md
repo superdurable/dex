@@ -44,6 +44,17 @@ for the Dex SDK and framework versions each release supports.
   executing a call resumes a task an earlier attempt started and can never send
   `tools/call` again.
 
+- TypeScript core: **McpToolSource.executeDeferredToolCall** takes an optional
+  second argument, `executeDeferredToolCall(call, { requestMeta })`, and
+  **McpToolCallOptions** has `requestMeta`: more entries for the `tools/call`
+  request's `_meta`, such as the identity the caller expects the tool to have.
+  The idempotency key entry wins on a name clash.
+- TypeScript core: new **McpToolSource.willResumeToolTaskWithoutSending(call)**
+  is `true` only when `executeDeferredToolCall` will return a session-polled
+  task that an earlier attempt started and can never send `tools/call` for the
+  call. A task polled inside the tool Step, such as one bound to a protocol
+  session, may be called again when the server no longer knows it.
+
 ### Added
 
 - Python CLI runtime (`dex-agents-cli`, not published yet): the shared runtime
@@ -55,6 +66,93 @@ for the Dex SDK and framework versions each release supports.
   in the terminal with inline approvals and Ctrl-C to cancel a turn. Harness
   packages implement **AgentHarness**. See
   [cli/python/runtime](cli/python/runtime/README.md).
+
+### Images
+
+- Python and TypeScript cores: user messages and tool results can carry
+  images. Session state stores only an **AgentImageReference**
+  (`{"type": "image", "uri", "mime_type", "sha256", "size_bytes"}`); the bytes
+  live in a **MediaStore**, one object per image under
+  `<prefix>/sha256/<sha256>`, so uploads are idempotent and a replay reads the
+  same bytes.
+- New fields, all empty by default: **AgentUserMessage.images**,
+  **AgentMessage.images** (display copy), **AgentToolCall.images**,
+  **ToolExecutionResult.images**, and **FrameworkMessage.images**. Every
+  writer now stores `"images": []`; earlier Workers ignore the field, so send
+  images only after every Worker of the Flow type runs 0.5.0.
+- **S3MediaStore** (`dex_agents.s3`, extra `dex-agents[s3]`;
+  `@superdurable/dex-agents/s3`, optional peer `@aws-sdk/client-s3`) keeps
+  images in AWS S3 or an S3-compatible bucket, with credentials from the
+  standard AWS chain. **InMemoryMediaStore** is for tests.
+- PNG, JPEG, GIF, and WebP, detected from the bytes with a cheap structural
+  check, up to **MAX_IMAGE_BYTES** (`maxImageBytes`, 3,750,000 bytes,
+  5,000,000 bytes as base64) each, and at most **MAX_IMAGES_PER_MESSAGE**
+  (`maxImagesPerMessage`, 20) per message or tool result. A `uri` is at most
+  **MAX_IMAGE_URI_LENGTH** (`maxImageUriLength`, 1024) bytes as UTF-8.
+  **ImageValidationError** names what is wrong.
+- Reads check the SHA-256, the size, and the type: **verify_image_bytes**
+  (`verifyImageBytes`) refuses bytes that are not a well-formed image of the
+  reference's `mime_type`. **S3MediaStore** uploads with `If-None-Match: *`
+  (412 means stored; a 409 conflict retries, then needs a `HEAD` that finds
+  the object),
+  refuses an object whose `Content-Length` differs from the reference, and
+  reads at most one byte past `size_bytes`. It takes explicit credentials
+  (`access_key_id` and `secret_access_key`; `credentials`) for a local
+  development bucket, and the standard AWS chain by default.
+- The session checks the images of every `FrameworkMessage` a runner returns
+  before it stores any. Keep each object for as long as sessions can replay
+  it; a missing object fails the turn with **MediaStoreError**.
+- `send_user_message` returns `false` for invalid images, or for images when
+  the runner does not implement **ImageUserMessageBuilder**
+  (`buildUserMessageWithImages`). No built-in runner implements it yet; image
+  input for Stepwise and the framework adapters comes later.
+- Runners read bytes with **load_images** (`loadImages`) and may choose them
+  with **collect_turn_images** (`collectTurnImages`).
+- Go core: no image input. Its values carry `images`, so a value written by
+  another core round-trips, and `send_user_message` returns `false` for a
+  message with images.
+- Shared cases: `agents/conformance/images.json`.
+
+### Changed
+
+- Breaking, Python and TypeScript cores: a connector tool's default name now
+  uses the Connector library's snake case (connectorctl `lowerCamelToSnake`),
+  which also names the Python Step factories. An acronym run stays one word.
+  Digits alone change nothing. Old -> new, in both languages:
+  `listStoryIDs` `list_story_i_d_s` -> `list_story_ids`, `getHTTPResponse`
+  `get_h_t_t_p_response` -> `get_http_response`, and `get2FACode`
+  `get2_f_a_code` -> `get2_fa_code`. Only capitals are ASCII now: the old Python
+  name also split before a non-ASCII capital, so `fetchÜberData` changes in
+  Python only, `fetch_über_data` -> `fetchÜber_data`; TypeScript already gave
+  `fetchÜber_data`. The owner authorized this break before launch.
+  Migration: a call stored under the old name finds no tool after the upgrade
+  and ends as a removed tool's call does. To keep a previous name, pass it
+  explicitly, such as `connector_tool(op, ref, name="stories_list_story_i_d_s")`
+  or `connectorTool(op, ref, { ..., name: "stories_list_story_i_d_s" })`; a
+  recorded call then resumes under it. `agents/conformance/connector_tools.json`
+  adds `toolNameCases`.
+- Breaking, Python and TypeScript cores: a Mutation's `defect` now records
+  `outcome_unknown` instead of `failed`, whatever `agent.branches` says, and is
+  not retried. The Connector SDK selects `defect` for some attempts that already
+  called the provider, and the core cannot tell those apart. A Query's `defect`
+  now follows `agent.branches`: listed `rejected` it is a rejection, otherwise
+  it still records `failed`. `uncertain` still records `outcome_unknown`. Both
+  rules now apply before the required branches, so a `defect` or `uncertain`
+  declared required no longer records `succeeded`.
+- Breaking, Python and TypeScript cores: a Mutation that uses the
+  single-dispatch fence records `outcome_unknown` on every branch but the
+  success branch when its fence checkpoints cannot prove that no request
+  reached the provider, whatever `agent.branches` says. This is the same check
+  the Go Connector SDK makes for agent hosts. Once the fence claims a send in
+  an attempt, only its `canResend` marker lowers it, so a later checkpoint of
+  the operation cannot. On a retry, an earlier checkpoint that is missing, not a
+  fence marker, malformed, or another call's counts as a possible send. The same
+  evidence decides a single-attempt write's Retry: `failed` with "not sent; the
+  provider asked to retry later" needs a `notSent` or `canResend` marker and no
+  possible send. `classify_connector_branch` (`classifyConnectorBranch`) takes
+  a new optional `may_have_dispatched` (`mayHaveDispatched`), which the source
+  computes. `agents/conformance/connector_tools.json` adds
+  `fenceObservationCases`.
 
 ### Fixed
 
@@ -101,7 +199,7 @@ for the Dex SDK and framework versions each release supports.
   Tool sources in framework adapters.
 - Go core: no connector tools. Its **AgentToolCall** carries the four new fields, so a
   record written by another core round-trips.
-- See [Connector tools](../docs/content/agent-frameworks/deploy-agents.mdx#connector-tools).
+- See [Connector tools](../docs/content/agent-frameworks.mdx#connectors-as-tools).
 
 ### Tool call contract additions
 
@@ -185,7 +283,7 @@ for the Dex SDK and framework versions each release supports.
   `tool_source_reference` under an adapter key. The Python Step-mode adapters
   use the new key `dex_tool_source`. Keep each `source_name` stable across
   deploys, because stored calls are routed by it.
-- See [Connector tools](../docs/content/agent-frameworks/deploy-agents.mdx#connector-tools).
+- See [Connector tools](../docs/content/agent-frameworks.mdx#connectors-as-tools).
 
 ### Claude Agent SDK: replay of recorded tool calls
 
@@ -250,7 +348,7 @@ for the Dex SDK and framework versions each release supports.
 - Dex Web needs a release that accepts Actions without a condition and calls no
   RPC for a view without fields.
 - Go core: no graph. It registers only part of the session Flow.
-- See [Show sessions in Dex Web](../docs/content/agent-frameworks/deploy-agents.mdx).
+- See [Show sessions in Dex Web](../docs/reference/agents/dex-web.mdx).
 
 ### Compaction in framework adapters
 
@@ -284,7 +382,7 @@ for the Dex SDK and framework versions each release supports.
   `ContextWindowModelScript` and `ContextWindowSessionScenario`.
 - No stored value changes. The conformance suite adds the summary prompt texts.
 - Go core: unchanged.
-- See [Compaction and the storage bound](../docs/content/agent-frameworks/deploy-agents.mdx#compaction).
+- See [Compaction and the storage bound](../docs/reference/agents/session-limits.mdx#compaction).
 
 ### Spend limits
 
@@ -305,7 +403,7 @@ for the Dex SDK and framework versions each release supports.
   ends.
 - No stored value changes. The conformance suite adds the refusal prefix.
 - Go core: unchanged. It does not check spend limits.
-- See [Spend limits](../docs/content/agent-frameworks/deploy-agents.mdx).
+- See [Spend limits](../docs/reference/agents/spend-limits.mdx).
 
 ### A configurable RunModel limit
 
@@ -340,7 +438,7 @@ for the Dex SDK and framework versions each release supports.
   start stays out of this search. So do sessions started on 0.2.0, until
   `UpdateFlowConfig` turns it on. No stored value changes.
 - Go core: unchanged.
-- See [Find sessions that need a person](../docs/content/agent-frameworks/deploy-agents.mdx).
+- See [Find sessions that need a person](../docs/reference/agents/approvals.mdx#find-sessions).
 
 ### A session at the state limit fails, with the reason
 
@@ -375,7 +473,7 @@ for the Dex SDK and framework versions each release supports.
   `AgentSnapshot.queued_messages` until retention deletes the session.
 - Go core: reads `failed` and keeps its behavior. It does not end a session at
   the limit yet.
-- See [Upgrade agent code while sessions wait](../docs/content/agent-frameworks/deploy-agents.mdx)
+- See [Upgrade agent code while sessions wait](../docs/reference/agents/upgrades.mdx)
   for the order of a rolling deploy.
 
 ## 0.2.0 (2026-11-05)

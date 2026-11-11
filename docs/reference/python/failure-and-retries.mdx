@@ -6,16 +6,16 @@ sidebar_label: Failure and retries
 
 # Failure and retries
 
-A Step method attempt can fail. This page covers how retries and failure
-policies handle a failed attempt, and what an application can rely on when Dex
-cannot tell whether the work ran. It uses the Python SDK names.
+When a Step method attempt fails, its retry policy and failure policy decide
+what happens next. When Dex cannot tell whether the work ran, see
+[Failure and redelivery](#failure-and-redelivery).
 
 ## Retry and failure policies {#retry-and-failure-policies}
 
-- **Timeout** limits a single attempt of the method invocation. See
+- The method **Timeout** limits one attempt. See
   [Timeouts and total duration](./step-options.mdx#timeouts-and-total-duration).
-- **Retry policy** re-invokes the **same** method on the **same** Step
-  execution until attempts are exhausted.
+- The **retry policy** calls the same method of the same Step execution again,
+  until its attempts are used up.
 - **Failure policy** decides what happens **after** retries end. The default
   fails the Flow. **WaitFor** can run **Execute** anyway, and **Execute** can
   go to a recovery Step.
@@ -42,12 +42,12 @@ Example: [examples/python/dex_examples/primitives/step/retry_flow.py](https://gi
 
 When **WaitFor** retries are exhausted:
 
-- **FailFlow** fails the Flow. This is the default.
-- **PROCEED** continues to invoke **Execute**.
+- **WaitForFailurePolicy.FAIL_FLOW** fails the Flow. This is the default.
+- **WaitForFailurePolicy.PROCEED** runs **Execute** anyway.
 
-With **PROCEED**, the same Step's **Execute** receives the durable input
-unchanged. **waitForMethodFailed()** returns true. **getRecoveryError()** has
-the error type and detail from the final failed **WaitFor** attempt.
+With **PROCEED**, the Step's **Execute** receives the Step input
+unchanged. **wait_for_method_failed()** returns true, and **recovery_error** holds
+the error type and detail of the last failed **WaitFor** attempt.
 
 ```python
 def get_step_options(self) -> StepOptions:
@@ -69,9 +69,8 @@ Example: [examples/python/dex_examples/primitives/proceed_on_wait_failure/procee
 
 ### Execute failure policy {#execute-failure-policy}
 
-When **Execute** retries are exhausted, **onExecuteFailureProceedTo** /
-**ExecuteFailure.proceedTo(...)** proceeds to a **recovery Step** with the same
-input.
+To go to a **recovery Step** when **Execute** retries are used up,
+set **on_execute_failure_proceed_to** in **StepOptions**.
 
 ```python
 def get_step_options(self) -> StepOptions:
@@ -82,38 +81,37 @@ def get_step_options(self) -> StepOptions:
 
 Example: [examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py)
 
-The recovery Step receives the failed Step's durable input unchanged.
-**getRecoveryError()** has the error type and detail from the final failed
+The recovery Step receives the failed Step's input unchanged.
+**recovery_error** holds the error type and detail of the last failed
 **Execute** attempt, and its [attempt progress](#unknown-outcome). See the
 [Failure Handling](/design-patterns/failure-handling) pattern and the
 [money-transfer](/use-cases/money-transfer) use case.
 
 ### Last failure info {#last-failure-info}
 
-- Terminal events **StepExecuteFailed** / **StepWaitForFailed** carry failure
-  output when the Step ultimately fails.
-- **During retries**, before the failure policy runs, Step events and live Flow
-  state expose **lastFailureInfo**: the most recent attempt's error type,
-  detail, and Worker metadata.
-- In Dex Web, open event details to see **Last failure** while retries are in
-  flight. Active Steps in the Flow overview also show **lastFailureInfo**.
+- When a Step finally fails, its **StepExecuteFailed** or
+  **StepWaitForFailed** event carries the failure.
+- While retries are still running, before the failure policy runs, Step events
+  and the live Flow state show **lastFailureInfo**: the error type, detail, and
+  Worker metadata of the latest attempt.
+- In Dex Web, event details show it as **Last failure** while retries run.
+  Active Steps in the Flow overview show **lastFailureInfo** too.
 
 ## RetryAfter {#retry-after}
 
 Use **RetryAfter** to choose the delay before the next attempt. It overrides
 the retry schedule of the **RetryPolicy**.
 
-Retries recover from failed attempts. Do not use **RetryAfter** to wait for an
-external system; use the [Polling](/design-patterns/polling) pattern.
+Retries are for recovering from failures. To wait for an external system, use
+the [Polling](/design-patterns/polling) pattern, not **RetryAfter**.
 
-A retry of one **Execute** call reuses the
-[state snapshot](./step-options.mdx#selective-state-loading) that Dex took when it handed the
-first attempt to a Worker, so it does not see Attribute writes made after that.
-To wait for an external write, have the writer also publish a
-[Channel](/concepts/primitives/channel) message, directly or from an RPC handler, and
-wait on that message in the **WaitFor** of the next Step. Alternatively, the
-next Step can wait on a [Timer](/concepts/primitives/timer) and read fresh state when it
-runs.
+A retry of an **Execute** call also cannot see new state. It reuses the
+[state snapshot](./step-options.mdx#selective-state-loading) of the first attempt, so it does
+not see Attribute writes made since. To wait for a write from outside the Step,
+have the writer also publish a [Channel](/concepts/primitives/channel) message,
+directly or from an RPC handler. Wait for that message in the **WaitFor** of the
+next Step. Or have the next Step wait on a [Timer](/concepts/primitives/timer); it
+reads fresh state when it runs.
 
 ```python
 from dex._grpc_errors import retry_after
@@ -126,47 +124,43 @@ Example: [examples/python/dex_examples/primitives/custom_retry/custom_retry_flow
 
 ## Failure and redelivery {#failure-and-redelivery}
 
-Retries and failure routes handle attempts that fail. Some failures leave Dex
-without knowing whether the work ran. A Step with an external effect that must
-not repeat, such as a payment or an email, has to plan for these cases. This
-page states what an application can rely on.
+Some failures leave Dex unable to tell whether the work ran. A Step with an
+external effect that must not repeat, such as a payment or an email, must plan
+for these cases. This section states what you can rely on.
 
 ### Heartbeats are not acknowledged {#heartbeats-not-acknowledged}
 
-A heartbeat call returns once the Worker has queued or sent it. It does not
-wait for Dex to store anything. Python's **heartbeat**, Go's
-**RecordHeartbeat**, Java's and TypeScript's **recordHeartbeat**, and Rust's
-**record_heartbeat** all behave this way. A returned heartbeat call does not
-prove that Dex stored the checkpoint. This holds for SYNC Steps too, even
-though a SYNC Step runs user code only after Dex made the attempt start
-durable.
+**heartbeat** returns once the Worker has queued or sent the heartbeat. It does
+not wait for Dex to store anything, so its return does not prove that Dex
+stored the checkpoint. This holds for SYNC Steps too, although a SYNC Step's
+code runs only after Dex stored the attempt start.
 
-Heartbeat checkpoints are lossy. Dex batches them and keeps only the latest
-value of each batch. A checkpoint can also be lost when the attempt ends, such
-as on a timeout or a cancellation, or when a Dex Server node fails. After an
+Dex can lose checkpoints. It batches them and keeps only the latest value of
+each batch. A checkpoint can also be lost when the attempt ends, for example on
+a timeout or a cancellation, or when a Dex Server node fails. After an
 interruption, the next attempt receives the last checkpoint that Dex stored.
 That checkpoint can be older than the last one the Step sent. Do not use a
 checkpoint as the only record that an external effect happened.
 
 ### An attempt starts when Dex hands it to a Worker {#same-attempt-redelivery}
 
-A Step attempt starts at the moment Dex hands it to a Worker. Dex first
-reserves an idle Worker slot. It then records the start. This is the record
-that pins the attempt's input snapshot and takes its Attribute locks. Dex sends
-the task last. For a SYNC Step, the start is durable in object storage before
-the Worker receives the task. An ASYNC Step does not wait for that write.
+To hand an attempt to a Worker, Dex first reserves an idle Worker slot. It
+then records the attempt start, which fixes the attempt's input snapshot and
+takes its Attribute locks. Dex sends the task last. For a SYNC Step, the start
+is stored in object storage before the Worker receives the task. An ASYNC Step
+does not wait for that write.
 
-Once Dex handed an attempt to a Worker, Dex never hands the same attempt number
-to another Worker. If the Worker crashes or its connection breaks, the attempt
-fails whether or not it sent output. The retry policy then runs: it consumes a
+Once Dex has handed an attempt to a Worker, it never hands the same attempt
+number to another Worker. If the Worker crashes or its connection breaks, the
+attempt fails, whether or not it sent output. The retry policy then uses a
 retry and waits for the backoff. If a Worker stops responding without
 disconnecting, the attempt fails when its heartbeat timeout expires. A server
 restart or failover does the same for every attempt that was handed out. Those
 attempts fail with the failure kind STARTED_ATTEMPT_INTERRUPTED. SYNC and ASYNC
 behave the same in these cases.
 
-A few cases return the attempt to pending instead. The attempt keeps its
-attempt number, its input snapshot, and its locks, and it consumes no retry.
+In a few cases, Dex returns the attempt to pending instead. The attempt keeps
+its attempt number, its input snapshot, and its locks, and it uses no retry.
 This happens only when the Worker certainly never ran the attempt:
 
 - The Worker declines the Step type as unknown. Dex then avoids that Worker for
@@ -179,15 +173,16 @@ This happens only when the Worker certainly never ran the attempt:
   Tasks that arrive while it closes are not run and return to Dex.
 - An older SDK Worker declines the task for lack of capacity.
 
-An ASYNC Step has one more case. If a Dex Server node crashes before Dex wrote
-the ASYNC start to object storage, Dex rolls that start back. The same attempt
-number then runs again, with no retry consumed and possibly on different
-input. So for ASYNC, one attempt number can run twice, and the two executions
-can overlap. Step Stream writes can then repeat in the same source.
+An ASYNC Step has one more case. If a Dex Server node crashes before the ASYNC
+start reaches object storage, Dex rolls the start back. The same attempt number
+then runs again, using no retry and possibly with different input. So one ASYNC
+attempt number can run twice, and the two executions can overlap. Their Step
+Stream writes can repeat in the same source.
 
-For both durabilities, the attempts of one Step are not strictly sequential.
-[Cancellation](./step-options.mdx#cancellation) is cooperative, so an interrupted execution may
-still run while the next attempt or the failure route starts.
+With either durability, the attempts of one Step can overlap. The SDK cannot
+stop running code on [cancellation](./step-options.mdx#cancellation), so an
+interrupted attempt may still be running when the next attempt or the failure
+route starts.
 
 | | SYNC (default) | ASYNC |
 | --- | --- | --- |
@@ -195,20 +190,20 @@ still run while the next attempt or the failure route starts.
 | Start and execution order | The start is durable before the Worker receives the task. | The Worker can run before the start is durable. |
 | Worker disconnect or node failover | The attempt fails and the retry policy runs. | The same. A node crash before the start was written is the rollback case. |
 | **attempt_progress** | **NOT_STARTED** or **NOT_COMPLETED**. | Always **NOT_COMPLETED**. |
-| Overlapping attempts | Possible after cancellation, because cancellation is cooperative. | Possible after cancellation, and between two executions of the same attempt number. |
+| Overlapping attempts | Possible after cancellation, because the SDK cannot stop running code. | Possible after cancellation, and between two executions of the same attempt number. |
 | Step Stream writes | Can repeat across attempts. | Can also repeat within one attempt number, in the same source. |
 | When to use | Effects that need the tightest guarantees. | Short Steps where latency matters and a rare rerun is acceptable. |
 
 ### A failure route cannot tell whether the work ran {#unknown-outcome}
 
 A Step attempt that no Worker takes does not fail. It waits in the durable task
-queue, uses no retry, and runs when a Worker takes it. Only an RPC fails when
-no Worker takes it within the dispatch wait. A Step attempt that does fail can
-fail before or after a Worker received it, and its error type and detail alone
-do not always tell which.
+queue, uses no retry, and runs when a Worker takes it. An RPC is different: it
+fails when no Worker takes it within the dispatch wait. A Step attempt that
+does fail may have failed before or after a Worker received it. Its error type
+and detail do not always tell which.
 
-The recovery error (**RecoveryErrorInfo**) also carries **attempt_progress**.
-It is the furthest progress across all attempts of the failed method call:
+The recovery error, a **RecoveryErrorInfo**, also has **attempt_progress**:
+the furthest progress that any attempt of the failed method call reached.
 
 - **NOT_STARTED**: no attempt ever reached a Worker that could have run it. The
   handler certainly did not run.
@@ -220,8 +215,7 @@ It is the furthest progress across all attempts of the failed method call:
 ASYNC failures always report **NOT_COMPLETED**, because a rolled-back execution
 may have run.
 
-**NOT_COMPLETED** is conservative. Dex can report it although the Worker never
-ran the handler:
+Dex can also report **NOT_COMPLETED** when the Worker never ran the method:
 
 - The server crashed after the start was durable but before the task reached
   the Worker.
@@ -229,10 +223,10 @@ ran the handler:
   read it.
 - The Worker declined the task or closed cleanly, but the server crashed before
   it recorded that.
-- A failure inside the SDK before it called the handler, such as reading input
-  blobs or decoding. Dex reports this as a normal Worker error. A misconfigured
-  **FlowServiceAddress** makes every attempt with blob inputs fail this way.
-  **values.hydrateBeforeDispatch** avoids it.
+- The SDK failed before it called the method, for example while reading input
+  blobs or decoding. Dex reports this as a normal Worker error. A wrong
+  Flow service address (**server_address**) makes every attempt with blob inputs fail this way.
+  The server setting **values.hydrateBeforeDispatch** avoids it.
 
 A failure route can rely on **NOT_STARTED** to mean the work did not run. It
 cannot rely on **NOT_COMPLETED** to mean the work ran. The Flow's history
@@ -244,7 +238,7 @@ records what Dex knows, and Dex Web shows it.
   across attempts, such as the Flow ID and the Step execution ID, or your own
   business key. Send the key to the service that applies the effect, so that it
   applies the effect once.
-- Treat a Step with a single attempt as at most once only within these limits.
+- A Step with a single attempt runs at most once only within these limits.
   An interrupted attempt may have made its call, and a cancelled execution may
   still run. Its failure route can run although the work happened, or although
   it never ran. For ASYNC, the same attempt number can also run twice.
@@ -253,7 +247,7 @@ records what Dex knows, and Dex Web shows it.
   you repeat or report the effect. Record the outcome you find in the Flow.
 
 For the agent packages' single-attempt tool Steps, see
-[Tool call limits](/agent-frameworks/deploy-agents#tool-call-limits).
+[At-most-once has one exception](/agent-frameworks#tool-runs-twice).
 
 ## Version notes {#version-notes}
 
@@ -264,6 +258,4 @@ Changed in 0.1.17 (Server protocol 4, required by SDK 1.35):
   excluded.
 - An interrupted attempt that was handed out consumes a retry.
 - **TotalDuration** never ends a running attempt. The server no longer
-  produces the RETRY_DEADLINE failure kind. The SDK helper
-  **IsRetryTotalDurationExceeded**, and its equivalent in other SDKs, can be
-  true only for records written before the upgrade.
+  produces the RETRY_DEADLINE failure kind.

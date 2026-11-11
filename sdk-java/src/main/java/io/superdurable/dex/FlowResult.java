@@ -60,10 +60,10 @@ public final class FlowResult {
     /**
      * Returns whether this result represents a terminal Flow execution.
      *
-     * @return {@code false} for running or continued-as-new states; otherwise {@code true}
+     * @return {@code false} for running states; otherwise {@code true}
      */
     public boolean isTerminal() {
-        return status != FlowStatus.RUNNING && status != FlowStatus.CONTINUED_AS_NEW;
+        return status != FlowStatus.RUNNING;
     }
 
     /**

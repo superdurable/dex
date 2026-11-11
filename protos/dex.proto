@@ -50,8 +50,7 @@ option java_outer_classname = "DexProto";
 //   Unavailable       — object storage or the search backend is unavailable, or
 //                       the Server applies backpressure; never a Dex application Worker
 //   Internal          — unexpected / violated trusted invariant
-//   Unimplemented     — TriggerContinueAsNew; SearchFlows without a configured
-//                       search backend
+//   Unimplemented     — SearchFlows without a configured search backend
 //
 // Notable per-RPC behavior:
 //   InvokeRPC — IsTransactional requests transactional reads and writes.
@@ -96,8 +95,6 @@ service FlowService {
   rpc UpdateFlowConfig(UpdateFlowConfigRequest) returns (google.protobuf.Empty);
   rpc WaitForStepCompletion(WaitForStepCompletionRequest) returns (WaitForStepCompletionResponse);
   rpc WaitForAttribute(WaitForAttributeRequest) returns (WaitForAttributeResponse);
-  // Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
-  rpc TriggerContinueAsNew(TriggerContinueAsNewRequest) returns (google.protobuf.Empty);
   rpc HealthCheck(google.protobuf.Empty) returns (HealthInfo);
 }
 
@@ -530,13 +527,9 @@ enum StepDurability {
 }
 
 message FlowConfig {
+  reserved 2, 3;
+  reserved "continue_as_new_threshold", "continue_as_new_page_size_in_bytes";
   optional ActiveStepSearchMode active_step_search_mode = 1;
-  // Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-  // value in the Flow configuration, and otherwise ignores it.
-  optional int32 continue_as_new_threshold = 2;
-  // Deprecated: Dex does not continue Flows as new. Dex rejects a negative value, stores the
-  // value in the Flow configuration, and otherwise ignores it.
-  optional int32 continue_as_new_page_size_in_bytes = 3;
   optional StepDurability step_durability = 4;
   WorkerTarget worker_target = 5;
   // Present empty disables future synchronization; non-empty selects Server-configured stores.
@@ -782,6 +775,8 @@ message WaitForFlowRequest {
 }
 
 enum FlowStatus {
+  reserved 7;
+  reserved "FLOW_STATUS_CONTINUED_AS_NEW";
   FLOW_STATUS_UNSPECIFIED = 0;
   FLOW_STATUS_RUNNING = 1;
   FLOW_STATUS_COMPLETED = 2;
@@ -791,8 +786,6 @@ enum FlowStatus {
   FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY = 4;
   FLOW_STATUS_TERMINATED = 5;
   FLOW_STATUS_CANCELED = 6;
-  // Deprecated: Dex does not continue Flows as new and never returns this status.
-  FLOW_STATUS_CONTINUED_AS_NEW = 7;
 }
 
 enum FlowErrorType {
@@ -821,11 +814,11 @@ message FlowResult {
 }
 
 message SearchFlowsRequest {
+  reserved 4;
+  reserved "include_continued_as_new";
   string query = 1;
   int32 page_size = 2;
   string next_page_token = 3;
-  // Deprecated: Dex does not continue Flows as new and ignores this field.
-  bool include_continued_as_new = 4;
 }
 
 message SearchFlowsResponse {
@@ -849,7 +842,7 @@ message SyncAttributeIndexRequest {
 
 message SyncAttributeIndexResponse {}
 
-message FlowExecutionID {
+message FlowRunID {
   string flow_id = 1;
   string run_id = 2;
 }
@@ -860,7 +853,8 @@ message GetFlowSummaryRequest {
 }
 
 message GetFlowSummaryResponse {
-  FlowExecutionID flow_execution_id = 1;
+  reserved "flow_execution_id";
+  FlowRunID flow_run_id = 1;
   // Always equals run_id.
   string first_run_id = 2;
   string request_id = 3;
@@ -961,7 +955,9 @@ message TimeTravelForkHistoryEvent {
 }
 
 message FlowStartedOrContinuedHistoryEvent {
-  FlowExecutionID flow_execution_id = 1;
+  reserved "flow_execution_id", "continued_start";
+  reserved 11;
+  FlowRunID flow_run_id = 1;
   string flow_type = 2;
   FlowConfig flow_config = 3;
   google.protobuf.Duration flow_timeout = 4;
@@ -970,8 +966,6 @@ message FlowStartedOrContinuedHistoryEvent {
 
   oneof start_or_continue {
     FlowInitialStart initial_start = 10;
-    // Deprecated: Dex does not continue Flows as new and never sets this.
-    FlowContinuedStart continued_start = 11;
   }
 }
 
@@ -982,24 +976,13 @@ message FlowInitialStart {
   repeated KV initial_attributes = 4;
 }
 
-// Deprecated: Dex does not continue Flows as new and never records this start.
-message FlowContinuedStart {
-  string previous_run_id = 1;
-  repeated StepMovement steps_to_start = 2;
-  repeated StepExecutionResumeInfo steps_to_resume = 3;
-  map<string, ChannelValues> pending_channel_messages = 4;
-  repeated KV attributes = 5;
-  repeated StepCompletionOutput completed_steps = 6;
-  string sticky_app_worker_id = 7;
-}
-
 message FlowClosedHistoryEvent {
+  reserved 5;
+  reserved "continued_to_run_id";
   FlowStatus flow_status = 1;
   repeated StepCompletionOutput results = 2;
   FlowErrorType error_type = 3;
   string error_message = 4;
-  // Deprecated: Dex does not continue Flows as new and never sets this.
-  string continued_to_run_id = 5;
   string sticky_app_worker_id = 6;
 }
 
@@ -1386,6 +1369,8 @@ message UpdateFlowConfigRequest {
 }
 
 message WaitForStepCompletionRequest {
+  reserved 5;
+  reserved "internal_handler_timeout_seconds";
   string flow_id = 1;
   // Identifies a step execution by type and its per-type execution number.
   string step_type = 2;
@@ -1393,23 +1378,21 @@ message WaitForStepCompletionRequest {
   // Bounds the caller-visible request across transparent transport reattachments.
   // Zero waits indefinitely.
   int32 request_timeout_seconds = 4;
-  // Deprecated: Dex rejects a negative value and otherwise ignores this field.
-  int32 internal_handler_timeout_seconds = 5;
-  // Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+  // Optional request identifier. The Server does not read it for this wait.
   string request_id = 6;
 }
 
 message WaitForStepCompletionResponse {}
 
 message WaitForAttributeRequest {
+  reserved 4;
+  reserved "internal_handler_timeout_seconds";
   string flow_id = 1;
   AttributeMatch match = 2;
   // Bounds the caller-visible request across transparent transport reattachments.
   // Zero waits indefinitely.
   int32 request_timeout_seconds = 3;
-  // Deprecated: Dex rejects a negative value and otherwise ignores this field.
-  int32 internal_handler_timeout_seconds = 4;
-  // Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+  // Optional request identifier. The Server does not read it for this wait.
   string request_id = 5;
 }
 
@@ -1431,12 +1414,6 @@ enum AttributeMatchOperator {
   ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL = 4;
   ATTRIBUTE_MATCH_OPERATOR_LESS_THAN = 5;
   ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL = 6;
-}
-
-// Deprecated: TriggerContinueAsNew always returns UNIMPLEMENTED.
-message TriggerContinueAsNewRequest {
-  string flow_id = 1;
-  string run_id = 2;
 }
 
 message HealthInfo {

@@ -77,12 +77,12 @@ func doTestSignalWorkflow(
 	_, err = flowClient.UpdateFlowConfig(ctx, &dexpb.UpdateFlowConfigRequest{
 		FlowId: flowId,
 		FlowConfig: &dexpb.FlowConfig{
-			ContinueAsNewPageSizeInBytes: ptr.Any(int32(3000000)),
+			HistoryWindowEvents: ptr.Any(int32(2500)),
 		},
 	})
 	require.NoError(t, err)
 
-	expectedConfig.ContinueAsNewPageSizeInBytes = ptr.Any(int32(3000000))
+	expectedConfig.HistoryWindowEvents = ptr.Any(int32(2500))
 	require.Eventually(t, func() bool {
 		currentConfig, queryErr := readFlowConfig(ctx, runtime, flowId)
 		return queryErr == nil && proto.Equal(expectedConfig, currentConfig)

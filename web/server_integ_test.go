@@ -538,10 +538,9 @@ func TestWebServerForwardsSearchQueries(t *testing.T) {
 	harness := newHarness(t, service)
 
 	testCases := []struct {
-		name                  string
-		body                  string
-		wantQuery             string
-		includeContinuedAsNew bool
+		name      string
+		body      string
+		wantQuery string
 	}{
 		{
 			name:      "empty query",
@@ -554,10 +553,9 @@ func TestWebServerForwardsSearchQueries(t *testing.T) {
 			wantQuery: `ExecutionStatus = "Running"`,
 		},
 		{
-			name:                  "include earlier runs",
-			body:                  `{"query":"FlowType = 'CheckoutFlow' OR FlowType = 'RefundFlow'","includeContinuedAsNew":true,"pageSize":1,"nextPageToken":"next"}`,
-			wantQuery:             `FlowType = 'CheckoutFlow' OR FlowType = 'RefundFlow'`,
-			includeContinuedAsNew: true,
+			name:      "paginated query",
+			body:      `{"query":"FlowType = 'CheckoutFlow' OR FlowType = 'RefundFlow'","pageSize":1,"nextPageToken":"next"}`,
+			wantQuery: `FlowType = 'CheckoutFlow' OR FlowType = 'RefundFlow'`,
 		},
 	}
 
@@ -569,10 +567,7 @@ func TestWebServerForwardsSearchQueries(t *testing.T) {
 				t.Fatalf("search status = %d", response.StatusCode)
 			}
 			request := <-service.searchRequests
-			if request.GetIncludeContinuedAsNew() != testCase.includeContinuedAsNew {
-				t.Fatal("run inclusion option was not forwarded")
-			}
-			if testCase.includeContinuedAsNew && request.GetNextPageToken() != "next" {
+			if testCase.name == "paginated query" && request.GetNextPageToken() != "next" {
 				t.Fatal("page token was not forwarded")
 			}
 			if request.GetQuery() != testCase.wantQuery {
@@ -783,7 +778,7 @@ func (s *flowService) GetFlowSummary(
 	if s.summaryRequests != nil {
 		s.summaryRequests <- request
 		return &dexpb.GetFlowSummaryResponse{
-			FlowExecutionId: &dexpb.FlowExecutionID{FlowId: request.GetFlowId(), RunId: request.GetRunId()},
+			FlowRunId: &dexpb.FlowRunID{FlowId: request.GetFlowId(), RunId: request.GetRunId()},
 		}, nil
 	}
 	return nil, status.Error(codes.InvalidArgument, "invalid flow")

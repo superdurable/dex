@@ -74,17 +74,19 @@ dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] 
 ~~~
 
 The data directory holds the embedded object store in **s3**, the local store in
-**store**, and the lock file **dev.lock**. The embedded object store is the
+**store**, and the lock file **dev.lock**. With an
+[application bucket](#single-node-application-bucket), it also holds
+**application-s3**. The embedded object store is the
 source of truth, as the bucket is for **serve**. Put the data directory on a
 persistent disk. **--log-dir** also writes the log to
 **dex-server-zd.log** in that directory.
 
 The optional **--config** file holds overrides. It uses the keys of the
 [example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml).
-Put only the keys you want to change in it. Every key in the file replaces the
+Put only the keys you want to change in it: every key in the file replaces the
 single-node default. Do not copy the whole example. A copy sets **api.listen**
 to **0.0.0.0:8801**, which has no authentication unless the file also
-configures authenticators. It also sets **lease.duration** to 10 seconds.
+configures authenticators. A copy also sets **lease.duration** to 10 seconds.
 **local** sets the object storage connection, the node ID **dev**, and the
 local store directory itself. **--listen** overrides **api.listen** from the
 file.
@@ -148,22 +150,44 @@ spelled **strict**, **process-crash-safe**, and **relaxed**.
 
 Keep the default **strict** mode in production.
 
+### Application bucket {#single-node-application-bucket}
+
+Since 0.1.26. **dev** and **local** can serve one more S3-compatible bucket for
+applications, such as the image bytes of Dex Agents:
+
+~~~bash
+dex-server-zd dev --data-dir <dir> --application-s3-listen 127.0.0.1:8803 --application-s3-bucket dex-dev-media
+~~~
+
+The two flags go together. Only these flags configure the bucket; the
+**--config** file has no keys for it. The bucket has its own embedded s3local store in
+**application-s3** in the data directory, and its own address. The server's
+own bucket is not reachable at that address, so applications cannot write into
+it. The bucket is created at startup when it is missing, and its objects stay
+across restarts. It uses the durability mode of the embedded object store.
+
+Clients use path-style URLs, such as
+**http://127.0.0.1:8803/dex-dev-media/&lt;key&gt;**, with any credentials. The
+bucket does not check signatures, so **--application-s3-listen** must be a
+loopback address; other addresses fail startup.
+
 ### One node {#single-node-local-one-node}
 
 **local** runs exactly one node. It holds an exclusive lock on **dev.lock** for
 its whole run, so a second **local** or **dev** process on the same data
 directory fails to start. It has no standby. It rejects **standby.mode: hot**
 and **objectStore.hardDeleteStore**. While it holds the lock, no other process
-can write its object store. A restart after a crash therefore takes over the
-held lease at once. **lease.duration** defaults to 30 seconds. On a filesystem
-without file locks, the commands cannot exclude each other, and a restart waits
-for the previous lease to expire. Run only one process per data directory
-there.
+can write its object store, so after a crash, a restart takes over the held
+lease at once. **lease.duration** defaults to 30 seconds. On a filesystem
+without file locks, the lock cannot keep a second process out, and a restart
+waits for the previous lease to expire. On such a filesystem, run only one
+process per data directory.
 
-On SIGTERM, **local** drains running Step attempts for up to
-**lifecycle.attemptDrainTimeout**, 30 seconds by default, and then stops as
-described in [Graceful shutdown](/reference/server/kubernetes#graceful-shutdown). Give a service manager at
-least 45 seconds to stop it.
+On SIGTERM, **local** waits for running Step attempts for up to
+**lifecycle.attemptDrainTimeout**, 30 seconds by default. It then stops as
+described in
+[Graceful shutdown](/reference/server/kubernetes#graceful-shutdown). Give a
+service manager at least 45 seconds to stop it.
 
 [Streams](#streams) use the **memory** backend by default, as in **serve**.
 Stream messages are lost when the process stops or restarts.
@@ -171,36 +195,36 @@ Stream messages are lost when the process stops or restarts.
 **local** listens on **127.0.0.1:8801** by default, so only the same host can
 reach it. To serve clients and Workers on other hosts, pass
 **--listen 0.0.0.0:8801** or set **api.listen** in the overrides. **local** has
-no [authentication](/reference/server/authentication) unless the overrides configure
-authenticators. When it listens on a non-loopback address without
+no [authentication](/reference/server/authentication) unless the overrides
+configure authenticators. When it listens on a non-loopback address without
 authenticators, it logs a warning at startup. Configure authentication before
-you expose it. Set **metrics.listen** in the overrides to enable
-[metrics](/reference/server/metrics).
+you expose it. To turn on [metrics](/reference/server/metrics), set
+**metrics.listen** in the overrides.
 
 ### Disk use {#single-node-local-disk}
 
 **dev** and **local** default **snapshot.logDeletionDelay** to 1 hour.
 **serve** defaults it to 24 hours. An explicit value in the overrides always
-wins, and it must be greater than zero. A log object is deleted once a snapshot
-that covers it is this old. The age counts from the snapshot's creation time,
-before its upload finishes. A snapshot beyond **snapshot.retainedCount** is
-deleted once the newer snapshot that displaced it is this old. A longer delay
-keeps older snapshots and their log for fallback and lets a stopped node catch
-up from the log, at the cost of disk space. The delay must also exceed the
-longest snapshot upload. Changed in 0.1.21: before, **dev** and **local** also
-defaulted to 24 hours.
+wins, and it must be greater than zero. The server deletes a log object once a
+snapshot that covers it is this old. The age counts from the snapshot's
+creation time, before its upload finishes. The server deletes a snapshot beyond
+**snapshot.retainedCount** once the newer snapshot that replaced it is this
+old. A longer delay keeps older snapshots and their log as a fallback, and lets
+a stopped node catch up from the log. It costs disk space. The delay must also
+exceed the longest snapshot upload. Changed in 0.1.21: before, **dev** and
+**local** also defaulted to 24 hours.
 
 The embedded object store shares the disk with the local store. Plan for the
 size of **store**, plus the object store: the snapshots that
-**snapshot.retainedCount** keeps, and the log and displaced snapshots written
+**snapshot.retainedCount** keeps, and the log and replaced snapshots written
 during **snapshot.logDeletionDelay**. Together, the object store can reach two
 to three times the data written during the delay.
 
-A Flow that rewrites a large value on every Step needs more disk. Its history
-records wait for a newer [checkpoint](#history-checkpoints) before they can be
-deleted. For such Flows, lower **history.checkpointCommandThreshold** from its
-default of 1000. Better, store incremental values, one entry per item, instead
-of rewriting one large value.
+A Flow that rewrites a large value on every Step needs more disk, because the
+server can delete its history records only after a newer
+[checkpoint](#history-checkpoints). For such Flows, lower
+**history.checkpointCommandThreshold** from its default of 1000. Better, store
+incremental values, one entry per item, instead of rewriting one large value.
 
 ### Back up and restore {#single-node-local-backup}
 
@@ -209,10 +233,10 @@ whole data directory. A copy of a running data directory can be inconsistent.
 To restore, stop **local**, replace the data directory with the copy, and
 start **local** again. Writes acknowledged after the backup are lost.
 
-The general rules in [Backup and restore](/reference/server/object-storage#backup-and-restore) apply too. With a
-PostgreSQL or ParadeDB search backend, the restored data directory needs a new
-**search.postgresSchema** or **search.paradeDbSchema**, as that section
-explains.
+The general rules in
+[Backup and restore](/reference/server/object-storage#backup-and-restore) apply
+too. With a PostgreSQL or ParadeDB search backend, the restored data directory
+needs a new **search.postgresSchema** or **search.paradeDbSchema**.
 
 ### Compared with dev and serve {#single-node-local-commands}
 
@@ -236,46 +260,46 @@ other.
 ## Retention
 
 **retention.closedFlowDuration** sets how long a closed Flow run stays
-available. It defaults to 7 days. After that time, the run and its retained data
-become eligible for deletion. Write the value as a duration, such as **72h** or
-**30days**.
+available. It defaults to 7 days. After that time, the server may delete the
+Flow run and its retained data. Write the value as a duration, such as **72h**
+or **30days**.
 
-Each run records the value when it starts. A new value applies only to runs that
-start after the node restarts with it. Runs that already started keep their
-recorded duration.
+Each Flow run records the value when it starts. A new value applies only to
+Flow runs that start after the node restarts with it. Flow runs that already
+started keep their recorded duration.
 
-From server-zd v0.1.8, a transactional or locking RPC on a closed run returns
-NOT_FOUND with FLOW_NOT_EXISTS before a Worker runs its handler. A retry with an
-already recorded request ID returns its earlier reply. Other RPCs still run
-their handlers on a closed run that is not yet purged, so they can read it.
-server-zd rejects any write that such a handler returns.
+From server-zd v0.1.8, a transactional or locking RPC on a closed Flow run
+returns NOT_FOUND with FLOW_NOT_EXISTS before a Worker runs its handler. A
+retry with an already recorded request ID returns its earlier reply. Other RPCs
+still run their handlers on a closed Flow run that is not yet purged, so they
+can read it. server-zd rejects any write that such a handler returns.
 
 ## History window {#history-window}
 
-server-zd keeps a recent window of each run's history. The window holds the
-**FlowStart** event and about the newest **history.windowEvents** history
-events: 50,000 on **serve** and 5,000 on **dev** and **local** by default. Older
-events are pruned in chunks of up to 1,000. Pruning never rejects a command or
-fails a Flow.
+server-zd keeps a recent window of each Flow run's history. The window holds
+the **FlowStart** event and about the newest **history.windowEvents** history
+events: 50,000 on **serve** and 5,000 on **dev** and **local** by default. The
+server prunes older events in chunks of up to 1,000. Pruning never rejects a
+command or fails a Flow.
 
 The window counts history events. A command that changes the Flow but records
 no event, such as a failed Step attempt that will be retried, counts as one
-event. Pruning stops only between commands, so a run keeps slightly more or
-fewer events than the window size. One command moves the window past at most
-about 2,000 history records, so a larger chunk takes several commands. Deleting
-the pruned records from local disk also proceeds a bounded amount per command.
-Since 0.1.22, a run that stops receiving commands, such as an idle or closed
-run, still finishes that deletion. About one minute after the run's last
-command, the lease holder commits internal cleanup commands for the run until
-the deletion is done. They record no history event.
+event. Pruning happens only between commands, so a Flow run keeps slightly
+more or fewer events than the window size. One command moves the window past at
+most about 2,000 history records, so a larger chunk takes several commands. The
+server also deletes the pruned records from local disk a bounded amount per
+command. Since 0.1.22, a Flow run that stops receiving commands, such as an
+idle or closed Flow run, still finishes that deletion. About one minute after
+the Flow run's last command, the lease holder commits internal cleanup commands
+for it until the deletion is done. These commands record no history event.
 
-A run can set its own window size with the **history_window_events** field of
-its Flow configuration. Set it at start with the Flow configuration override, or
-change it later with **UpdateFlowConfig**. A smaller window takes effect at the
-run's next pruning. A larger window keeps more of the events recorded after the
-change; pruned events never come back. Once set, the run's window can be changed
-but not cleared. A child Flow inherits its parent's window unless its own
-override sets one. Values must be positive and at most
+A Flow run can set its own window size with the **history_window_events** field
+of its Flow configuration. Set it at start with the Flow configuration
+override, or change it later with **UpdateFlowConfig**. A smaller window takes
+effect at the next pruning. A larger window keeps more of the events recorded
+after the change; pruned events never come back. Once set, the window can be
+changed but not cleared. A child Flow inherits its parent's window unless its
+own override sets one. Values must be positive and at most
 **history.maxWindowEvents**. StartFlow and UpdateFlowConfig reject other values
 with INVALID_ARGUMENT. A Step result that starts a SubFlow with such an override
 is an invalid Worker response: the Step attempt fails and is retried under the
@@ -288,36 +312,37 @@ a point inside the window. Time travel to the beginning is always available.
 Each history page also reports the range of event IDs that the window removed.
 Step method events record the event ID of the event that started their Step
 execution. Execute events also record the event ID of the Step's WaitFor
-completion. A client can use these IDs to tell a removed related event from one
-on another page.
+completion. With these IDs, a client can tell whether a related event was
+removed or is on another page.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | **history.windowEvents** | 50000 for **serve**; 5000 for **dev** and **local** | Approximate number of the newest history events kept in the window of a run that sets no window of its own. Pruning starts when the window exceeds this value plus one prune chunk. Must be positive. The deprecated name **history.windowSemanticEvents** is still accepted with a startup warning; setting both names is an error. Changed in 0.1.21: the window counted semantic commands, not events, and the key was named **history.windowSemanticEvents**. A run that started before 0.1.21 keeps its recorded size, which now counts events, so its window reaches a little less far back. Changed in 0.1.23: the default was 10000 in every command. Runs that started earlier keep the size they recorded. |
 | **history.pruneChunkSize** | 1000 | Most old history events pruned at a time. A run prunes at most one tenth of its window at a time, and at least one event, when that is smaller. Must be positive and must not exceed **windowEvents**. Changed in 0.1.21: the unit was semantic commands. |
 | **history.maxWindowEvents** | 100000 | Largest window that a run's **history_window_events** may set. StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step result that starts a SubFlow with a larger value is an invalid Worker response, and the Step attempt is retried under the Step's retry policy. It does not limit **windowEvents**. Must be positive. Changing it affects later requests only. Since 0.1.21. |
-Each run records **windowEvents** and **pruneChunkSize** when it starts. A new
-value applies only to runs that start after the node restarts with it. Changed
-in 0.1.23: a child Flow that a SubFlow starts records them too; before, it
-recorded 10000 and 1000.
+
+Each Flow run records **windowEvents** and **pruneChunkSize** when it starts. A
+new value applies only to Flow runs that start after the node restarts with it.
+Changed in 0.1.23: a child Flow that a SubFlow starts records them too; before,
+it recorded 10000 and 1000.
 
 Changed in 0.1.23: **history.maxRetainedSupersededBytes** was removed. It capped
-the superseded values that a run without history offload kept on local disk for
-time travel. A run that starts with 0.1.23 or later moves its window only by its
-event count. Without offload, it deletes a superseded value when the window
-passes it. With offload, it deletes the value once its history is uploaded. The
-key is still accepted, has no effect, and logs a warning at startup. A run that
-started earlier keeps the cap it recorded.
+the superseded values that a Flow run without history offload kept on local
+disk for time travel. A Flow run that starts with 0.1.23 or later moves its
+window only by its event count. Without offload, it deletes a superseded value
+when the window passes it. With offload, it deletes the value once its history
+is uploaded. The key is still accepted, has no effect, and logs a warning at
+startup. A Flow run that started earlier keeps the cap it recorded.
 
 ### Checkpoints {#history-checkpoints}
 
-server-zd writes checkpoints of each run's current attempt state. Time travel
-restores the nearest checkpoint before its target and replays the commands
-after it. A command is one change that server-zd commits for a run, such as a
-Client write, a Step completion, or an internal acknowledgment. Each new attempt
-starts with a checkpoint. After that, server-zd writes a checkpoint when either
-threshold below is reached, whichever comes first. Both counts restart at each
-checkpoint.
+server-zd writes checkpoints of the state of each Flow run's current attempt.
+Time travel restores the nearest checkpoint before its target and replays the
+commands after it. A command is one change that server-zd commits for a Flow
+run, such as a Client write, a Step completion, or an internal acknowledgment.
+Each new attempt starts with a checkpoint. After that, server-zd writes a
+checkpoint as soon as either threshold below is reached. Both counts restart at
+each checkpoint.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -325,14 +350,14 @@ checkpoint.
 | **history.checkpointRowWriteBytesThreshold** | 1048576 (1 MiB) | Bytes of attempt-scoped rows written since the last checkpoint that trigger a new one. Attempt-scoped rows are the current attempt's Attribute, Channel message, Channel metadata, Step execution, Step counter, lock, waiter, and timer rows. Every write of such a row adds its size, so rewriting one row counts each time. A large value stored apart from its row counts only as its reference. The effective threshold is the larger of this value and the smaller of two sizes: the run's current state rows and the rows of the last checkpoint. A larger state therefore makes checkpoints sparser. |
 
 Lower values write checkpoints more often. Time travel then replays fewer
-commands, but each checkpoint copies the attempt's rows, so the run stores more
-checkpoint bytes and spends more work per command. Higher values store fewer
-checkpoints, and time travel replays more commands. Both values must be
+commands, but each checkpoint copies the attempt's rows, so the Flow run stores
+more checkpoint bytes and spends more work per command. Higher values store
+fewer checkpoints, and time travel replays more commands. Both values must be
 positive.
 
-Each run records these values when it starts. A new value applies only to runs
-that start after the node restarts with it. Runs that already started keep
-their recorded values.
+Each Flow run records these values when it starts. A new value applies only to
+Flow runs that start after the node restarts with it. Flow runs that already
+started keep their recorded values.
 
 The lease holder computes each time travel. It restores the checkpoint, replays
 the commands after it in memory, and then commits the result.
@@ -350,65 +375,68 @@ configuration error.
 
 ### History offload {#history-offload}
 
-Each run decides when it starts whether it offloads its history to object
-storage. The **offload_history** field of the run's Flow configuration holds the
-choice, and it defaults to true. Set it in the Flow configuration override of
-StartFlow, or in the override of a SubFlow. A child Flow inherits its parent's
-choice unless its own override sets one. A run keeps its choice for its whole
-life: UpdateFlowConfig rejects a request that sets it with INVALID_ARGUMENT.
-Since 0.1.23.
+Since 0.1.23, each Flow run decides when it starts whether it offloads its
+history to object storage. The **offload_history** field of the Flow run's Flow
+configuration holds the choice, and it defaults to true. Set it in the Flow
+configuration override of StartFlow, or in the override of a SubFlow. A child
+Flow inherits its parent's choice unless its own override sets one. A Flow run
+keeps its choice for its whole life: UpdateFlowConfig rejects a request that
+sets it with INVALID_ARGUMENT.
 
-An offloaded run seals its history into segments and uploads them to object
-storage. It then deletes the uploaded history from local disk. Local disk keeps
-the run's active state, the history that waits for upload, and a small metadata
-row for each point in the history window. The lease holder deletes a segment's
-object after the history window passes the whole segment.
+An offloaded Flow run seals its history into segments and uploads them to
+object storage. It then deletes the uploaded history from local disk. Local
+disk keeps the Flow run's active state, the history that waits for upload, and a
+small metadata row for each point in the history window. The lease holder
+deletes a segment's object after the history window passes the whole segment.
 
-A run without offload keeps all of its history on local disk and never writes a
-history object. The history window still applies to it. The run prunes its
-oldest events and deletes the superseded values that the window passed.
+A Flow run without offload keeps all of its history on local disk and never
+writes a history object. The history window still applies to it: the Flow run
+prunes its oldest events and deletes the superseded values that the window
+passed.
 
-Choose for each run:
+Choose for each Flow run:
 
-- Keep offload, the default, for most runs and for every long-running run. Local
-  disk then holds only the newest history and the current state of the run.
-- Turn it off for many short runs that close soon after they start. Each
-  offloaded run writes at least one history object when it closes, and deletes
-  it when its retention ends. Short runs at a high rate therefore add object
-  storage requests, while their small history costs little local disk until
-  their retention ends.
-- A run without offload keeps every superseded value that its window covers on
-  local disk. No byte cap applies. A run that rewrites large values can then use
-  much local disk. Keep offload for such a run, or give it a smaller
+- Keep offload, the default, for most Flow runs and for every long-running one.
+  Local disk then holds only the newest history and the current state of the
+  Flow run.
+- Turn it off for many short Flow runs that close soon after they start. Each
+  offloaded Flow run writes at least one history object when it closes, and
+  deletes it when its retention ends. So short Flow runs at a high rate add
+  object storage requests, while their small history costs little local disk
+  until their retention ends.
+- A Flow run without offload keeps every superseded value that its window covers
+  on local disk, with no byte cap. If it rewrites large values, it can use much
+  local disk. Keep offload for such a Flow run, or give it a smaller
   **history_window_events**.
 
-Runs that started before 0.1.23 recorded no choice. Each follows, for its whole
-life, the offload mode that its partition recorded at the upgrade:
+Flow runs that started before 0.1.23 recorded no choice. Each follows, for its
+whole life, the offload mode that its partition recorded at the upgrade:
 
-- Where offload was off at the upgrade, these runs keep their new history on local
-  disk and never migrate to object storage. That is the case on **serve** unless
-  **history.offloadEnabled** was on, and in a **dev** or **local** data
-  directory that 0.1.23 starts directly after 0.1.21.
-- A partition where an earlier release turned offload on and then off again is
-  off as well: its runs seal no new segments and stop migrating. Segments sealed
-  before can still finish uploading, and uploaded history stays readable.
+- Where offload was off at the upgrade, these Flow runs keep their new history
+  on local disk and never migrate to object storage. That is the case on
+  **serve** unless **history.offloadEnabled** was on, and in a **dev** or
+  **local** data directory that 0.1.23 starts directly after 0.1.21.
+- A partition where an earlier release turned offload on and then off again
+  counts as off. Its Flow runs seal no new segments and stop migrating. Segments
+  sealed earlier can still finish uploading, and uploaded history stays
+  readable.
 - Where offload was on at the upgrade, as 0.1.22 sets it by default on **dev**
-  and **local**, the runs it offloaded stay offloaded. A run that recorded
-  history before offload was turned on migrates that history lazily, as
-  described below.
-- These runs also keep the superseded byte cap they recorded and follow their
-  delete switch. UpdateFlowConfig can still change that switch.
+  and **local**, the Flow runs it offloaded stay offloaded. A Flow run that
+  recorded history before offload was turned on migrates that history lazily,
+  as described below.
+- These Flow runs also keep the superseded byte cap they recorded, and follow
+  their delete switch. UpdateFlowConfig can still change that switch.
 
 Changed in 0.1.23: the server switches of history offload were removed.
 
 - **history.offloadEnabled** was removed. **true** is still accepted, has no
   effect, and logs a warning at startup. **false** fails startup with a
-  configuration error that asks you to remove the key. To keep a run's history
-  on local disk, set the run's **offload_history** to false instead.
+  configuration error that asks you to remove the key. To keep a Flow run's
+  history on local disk, set its **offload_history** to false instead.
 - **history.deleteExpiredObjects** was removed. It is still accepted, has no
-  effect, and logs a warning at startup. A run that starts with 0.1.23 or later
-  and offloads always deletes the objects of its expired segments.
-- A run that starts with 0.1.23 or later ignores its
+  effect, and logs a warning at startup. A Flow run that starts with 0.1.23 or
+  later and offloads always deletes the objects of its expired segments.
+- A Flow run that starts with 0.1.23 or later ignores its
   **FlowConfig.delete_expired_history_objects**. StartFlow, SubFlow overrides,
   and UpdateFlowConfig still accept the field, and StartFlow drops it.
 - Partitions no longer record an offload mode at startup, so
@@ -425,46 +453,52 @@ Changed in 0.1.23: the server switches of history offload were removed.
 | **history.readCacheDirectory** | **localStorage.directory** with the suffix **-history-read-cache**, such as **/var/lib/dex-server-zd/store-history-read-cache** | Since 0.1.22. Directory of the disk read cache, which the cache owns. It must be outside **localStorage.directory**, which a local store rebuild sets aside, and must not contain **..** components; startup fails otherwise. If the node cannot create it, the node logs one warning and reads from object storage without a cache. |
 | **history.objectReadConcurrency** | 32 | Since 0.1.22. Most object storage reads of uploaded history segments that the node runs at once. From 1 to 1024. A history read beyond it waits for a free read. |
 
-An offloaded run divides its history into segments. A segment is sealed when it
-reaches **history.segmentTargetBytes**, when 10,000 values were superseded inside
-it, or when the run closes. Each run records **history.segmentTargetBytes** when
-it starts, so a new value applies only to runs that start after the node restarts
-with it.
+An offloaded Flow run divides its history into segments. A segment is sealed
+when it reaches **history.segmentTargetBytes**, when 10,000 values were
+superseded inside it, or when the Flow run closes. Each Flow run records
+**history.segmentTargetBytes** when it starts, so a new value applies only to
+Flow runs that start after the node restarts with it.
 
-Once a segment is uploaded, the run deletes its history records and checkpoints
-from local disk. The run's first record and checkpoint stay. The small metadata
-row of each checkpoint, and of each history record that is a time travel point
-or holds events, stays until the window passes it. A superseded value is a
-stored value that the run no longer holds, such as the earlier value of a
-rewritten Attribute. A superseded value of an uploaded segment is deleted from
-local disk once **history.supersededValueGracePeriod**, 10 minutes by default,
-has passed since the command that superseded it, measured in command time. A
-value reference that a Worker or client just read therefore still loads from
-local disk. A Worker result, client write, or RPC result that hands back a
-reference to such a value also succeeds after that period. Before it records
-the result, the lease holder reads the value from its uploaded segment and
-restores it on local disk. A restored value that no state holds again can stay on
-local disk until the window passes it. A reference to a value that the window
-passed is rejected, as without offload. Each command deletes a bounded amount, and later commands of
-the run continue. Since 0.1.22, a run that receives no more commands, such as an
-idle or closed run, still finishes. The lease holder commits internal cleanup
-commands for the run, which record no history event. The first comes about one
-minute after the run's last command, or when the period of a waiting superseded
-value ends, whichever is later. While a run waits for such periods, it gets at
-most one cleanup command a minute. Values superseded in the open segment of an
-idle running run stay on local disk until that segment is sealed.
+Once a segment is uploaded, the Flow run deletes its history records and
+checkpoints from local disk. The Flow run's first record and checkpoint stay.
+The small metadata row of each checkpoint, and of each history record that is a
+time travel point or holds events, stays until the window passes it.
 
-A run that recorded history without offload, on a partition whose offload an
-earlier release then turned on and that was still on at the upgrade, migrates
-its older history lazily. Only such runs migrate. Each command that records history and leaves the run running
-seals one more segment of that older history, oldest first. When a segment
-reaches the command itself, the run continues like a run that started with
-offload. Nothing else drives the migration. A run that receives no more
-commands keeps its older history on local disk, for as long as it stays idle.
-Events that the history window removed before the migration stay removed. A run
-that is already closed does not migrate: its local history stays until its
-retention ends and the run is deleted. A run that closes during its migration
-keeps the rest of its older history on local disk until it is deleted.
+A superseded value is a stored value that the Flow run no longer holds, such as
+the earlier value of a rewritten Attribute. The server deletes a superseded
+value of an uploaded segment from local disk once
+**history.supersededValueGracePeriod**, 10 minutes by default, has passed since
+the command that superseded it, measured in command time. So a value reference
+that a Worker or client just read still loads from local disk. A Worker result,
+client write, or RPC result that hands back a reference to such a value also
+succeeds after that period: before it records the result, the lease holder
+reads the value from its uploaded segment and restores it on local disk. A
+restored value that no state holds again can stay on local disk until the
+window passes it. A reference to a value that the window passed is rejected, as
+without offload.
+
+Each command deletes a bounded amount, and later commands of the Flow run
+continue. Since 0.1.22, a Flow run that receives no more commands, such as an
+idle or closed one, still finishes the deletion. The lease holder commits
+internal cleanup commands for the Flow run, which record no history event. The
+first comes about one minute after the Flow run's last command, or when the
+grace period of a waiting superseded value ends, whichever is later. While a
+Flow run waits for such periods, it gets at most one cleanup command a minute.
+Values superseded in the open segment of an idle running Flow run stay on local
+disk until that segment is sealed.
+
+Some Flow runs migrate their older history lazily: those that recorded history
+without offload on a partition where an earlier release then turned offload on,
+and where it was still on at the upgrade. Only such Flow runs migrate. Each
+command that records history and leaves the Flow run running seals one more
+segment of that older history, oldest first. When a segment reaches the command
+itself, the Flow run continues like one that started with offload. Nothing else
+drives the migration. A Flow run that receives no more commands keeps its older
+history on local disk for as long as it stays idle. Events that the history
+window removed before the migration stay removed. A Flow run that is already
+closed does not migrate: its local history stays until its retention ends and
+the Flow run is deleted. A Flow run that closes during its migration keeps the
+rest of its older history on local disk until it is deleted.
 
 A **dev** or **local** data directory where an earlier release turned offload
 off and on again can hold history of commands that belong to no segment. That
@@ -472,33 +506,36 @@ history stays on local disk and follows the window rule.
 
 The lease holder uploads each sealed segment to the primary object store, under
 the **history/** prefix of the bucket that holds the commit log. It uploads a
-run's segments oldest first and records each upload before the next one. A
-segment's content depends only on committed state. A new lease holder therefore
-writes the same object again and accepts an existing object with the same
-content. An existing object with different content is replaced; the node logs an
-error and increments **dexzd_history_upload_checksum_mismatches_total**.
+Flow run's segments oldest first, and records each upload before the next one.
+A segment's content depends only on committed state. So a new lease holder
+writes the same object again, and accepts an existing object with the same
+content. If an existing object has different content, the node replaces it,
+logs an error, and increments
+**dexzd_history_upload_checksum_mismatches_total**.
 
-Uploads never delay commands. While object storage fails them, they retry
-with backoff, sealed segments stay on local disk, and the upload backlog metrics
+Uploads never delay commands. While object storage fails them, they retry with
+backoff, sealed segments stay on local disk, and the upload backlog metrics
 grow; see [Metrics](/reference/server/metrics). A permanent rejection, such as
-denied access, is retried once a minute instead. Retention
-postpones the deletion of a closed run until its sealed segments are uploaded.
-Deleting a run also deletes every object under its **history/** prefix. That
-deletion starts a minute after the run's deletion begins, so that uploads an
-earlier lease holder abandoned have ended on its side. An upload that object
-storage accepted just before can still leave an object of the deleted run; no
-read returns it. Since 0.1.22, the lease holder lists **history/** every six
-hours and deletes such objects once they are an hour old. Do not configure a
-bucket lifecycle rule that expires objects under **history/**. The lease holder
-deletes old history objects itself, as described next.
+denied access, is retried once a minute instead. Retention postpones the
+deletion of a closed Flow run until its sealed segments are uploaded.
+
+Deleting a Flow run also deletes every object under its **history/** prefix.
+That deletion starts a minute after the Flow run's deletion begins, so that
+uploads an earlier lease holder abandoned have ended on its side. An upload
+that object storage accepted just before can still leave an object of the
+deleted Flow run; no read returns it. Since 0.1.22, the lease holder lists
+**history/** every six hours and deletes such objects once they are an hour
+old. Do not configure a bucket lifecycle rule that expires objects under
+**history/**. The lease holder deletes old history objects itself, as described
+below.
 
 #### Upload concurrency {#history-upload-concurrency}
 
 Changed in 0.1.23: the number of uploads in flight adapts to the backlog. Before,
-it stayed at **history.uploadConcurrency**, 16 by default. Every closed run
-seals and uploads at least one segment, so short runs need one object storage
-write each. With a write round trip of about 30 ms, 16 uploads at once drain
-about 530 segments a second.
+it stayed at **history.uploadConcurrency**, 16 by default. Every closed Flow run
+seals and uploads at least one segment, so short Flow runs need one object
+storage write each. With a write round trip of about 30 ms, 16 uploads at once
+drain about 530 segments a second.
 
 The limit starts at **history.uploadMinConcurrency**. Each upload that object
 storage accepts while other uploads wait raises the limit by one, up to
@@ -512,18 +549,18 @@ before the last reduction do not reduce it again. After a reduction, the limit
 grows again only after as many successful uploads as the reduced limit. The
 failed upload retries with backoff, as before.
 
-Memory stays bounded by **history.uploadMaxInFlightBytes**. After an upload reads
-a segment's rows, it computes the most memory encoding them can allocate: the
-block buffers, the compressed frames, the header, and the object. It reserves
-that much before it encodes, then keeps only the encoded object's size until
-the upload ends. An upload waits while the reservations use the budget.
-Reservations count whole KiB. Only a segment larger than the whole budget
-exceeds it, and that segment uploads alone. The budget does not count the rows
-an upload reads from local disk before it reserves, or the compressor's working
-state.
+**history.uploadMaxInFlightBytes** bounds the memory of uploads. After an upload
+reads a segment's rows, it computes the most memory that encoding them can
+allocate: the block buffers, the compressed frames, the header, and the object.
+It reserves that much before it encodes, and then keeps only the encoded
+object's size reserved until the upload ends. While the reservations use up the
+budget, new uploads wait. Reservations count whole KiB. Only a segment larger
+than the whole budget exceeds it, and that segment uploads alone. The budget
+does not count the rows an upload reads from local disk before it reserves, or
+the compressor's working state.
 
-**dexzd_history_upload_concurrency_limit** shows the current limit and
-**dexzd_history_upload_in_flight_bytes** the reserved bytes. To keep the limit
+**dexzd_history_upload_concurrency_limit** shows the current limit, and
+**dexzd_history_upload_in_flight_bytes** shows the reserved bytes. To keep the limit
 fixed, set **history.uploadMinConcurrency** and **history.uploadConcurrency** to
 the same value.
 
@@ -531,66 +568,68 @@ Since 0.1.22, a segment expires once the history window passes every command it
 holds. GetHistoryEvents, LoadBlobs, and ResetFlow never read an expired segment,
 from object storage or from the disk read cache, whether or not its object still
 exists. The lease holder deletes the object of each expired segment about one
-hour after it expired, so reads that started before the expiry can finish.
-Object storage use therefore stays bounded by the window, also for a run that
-never closes. Deleting a run deletes its remaining objects with the rest.
+hour after it expired, so reads that started before the expiry can finish. So
+the window bounds object storage use, even for a Flow run that never closes.
+Deleting a Flow run deletes its remaining objects with the rest.
 
-Changed in 0.1.23: a run that starts with 0.1.23 or later and offloads always
-deletes the objects of its expired segments. A run that started under 0.1.22
-keeps following its delete switch. When that switch is off, the run's expired
-objects stay in object storage until its retention ends and the run is deleted.
-Until then, anyone who can read the bucket can read the old history they hold,
-including earlier values of rewritten Attributes. To delete them sooner, turn
-the run's switch on with UpdateFlowConfig. SDK 1.40.0 and later no longer send
+Changed in 0.1.23: a Flow run that starts with 0.1.23 or later and offloads
+always deletes the objects of its expired segments. A Flow run that started
+under 0.1.22 keeps following its delete switch. When that switch is off, the
+Flow run's expired objects stay in object storage until its retention ends and
+the Flow run is deleted. Until then, anyone who can read the bucket can read
+the old history in them, including earlier values of rewritten Attributes. To
+delete them sooner, turn the Flow run's switch on with UpdateFlowConfig. SDK 1.40.0 and later no longer send
 the field, so use an earlier SDK or a direct gRPC request. For sensitive values,
 use hard-delete Attributes.
 
 GetHistoryEvents reads the events of uploaded segments from object storage and
 every other event from local disk. Each event comes from one place, so paging
-returns every event once, also while uploads continue. Events of a run without
-offload, and of commands that belong to no segment, stay on local disk and
-follow the window rule. A read never returns events that the window
-pruned, even when their segment object still exists. A read that object storage
-fails, or whose uploaded segment object is missing, fails with UNAVAILABLE; the
-client may retry it. A page that needs many segments can hold fewer events than
-requested; its next page token continues the read.
+returns every event once, even while uploads continue. Events of a Flow run
+without offload, and of commands that belong to no segment, stay on local disk
+and follow the window rule. A read never returns events that the window pruned,
+even when their segment object still exists. If object storage fails the read,
+or the uploaded segment object is missing, the read fails with UNAVAILABLE, and
+the client may retry it. A page that needs many segments can hold fewer events
+than requested; its next page token continues the read.
 
 ResetFlow reads history the same way. The node computes the time travel from
 uploaded segments and local disk. It fetches the segments it needs while it
-holds no view of the local store. A ResetFlow whose segment read fails, or whose
-uploaded segment object is missing, fails with UNAVAILABLE and changes nothing;
-the client may retry it. The history it reads from object storage counts against
-**history.timeTravelReplayMemoryBytes** apart from the computation itself.
+holds no view of the local store. If a segment read fails, or an uploaded
+segment object is missing, the ResetFlow fails with UNAVAILABLE and changes
+nothing, and the client may retry it. The history it reads from object storage
+counts against **history.timeTravelReplayMemoryBytes**, separately from the
+computation itself.
 
-LoadBlobs reads a superseded value that offload deleted from local disk from its
-uploaded segment. Values of one request that share a segment take one object
-storage read. A value that the window passed is not returned, as before. A read
-that object storage fails, or whose uploaded segment object is missing, fails
-with UNAVAILABLE. A ResetFlow whose target state holds such a value reads it
-from object storage in the same way. Such values, whether read from the cache or
-from object storage, count against **history.timeTravelReplayMemoryBytes**.
+When offload has deleted a superseded value from local disk, LoadBlobs reads it
+from its uploaded segment. Values of one request that share a segment take one
+object storage read. A value that the window passed is not returned, as before.
+If object storage fails the read, or the uploaded segment object is missing,
+the read fails with UNAVAILABLE. A ResetFlow whose target state holds such a
+value reads it from object storage in the same way. Such values, whether read
+from the cache or from object storage, count against
+**history.timeTravelReplayMemoryBytes**.
 
 Changed in 0.1.22: while history offload is on, a LoadBlobs request names at
 most 1000 values. A request with more entries fails with INVALID_ARGUMENT when
 the partition of a Flow it names offloads history. With offload off, LoadBlobs
 takes any number of entries, as before.
 
-Changed in 0.1.23: the limit counts the entries whose run offloads history. A
-request with more than 1000 such entries fails with INVALID_ARGUMENT. Entries of
-runs without offload are not limited.
+Changed in 0.1.23: the limit counts only the entries whose Flow run offloads
+history. A request with more than 1000 such entries fails with
+INVALID_ARGUMENT. Entries of Flow runs without offload are not limited.
 
-The node keeps uploaded segment headers in memory and keeps segment headers,
+The node keeps uploaded segment headers in memory. It keeps segment headers,
 records, and values in its disk read cache, up to **history.readCacheMaxBytes**.
 Uploaded segments never change, so cached entries are never stale. The cache
-survives a restart and is never authoritative: deleting its directory while the
-node is stopped only costs object storage reads. The node never sets the cache
-aside with a local store it rebuilds.
+survives a restart, and it is never the source of truth: deleting its directory
+while the node is stopped only costs object storage reads. When the node
+rebuilds its local store, it never sets the cache aside with it.
 
 ## Limits {#limits}
 
-server-zd enforces these limits. A request that a limit rejects fails at once;
-it does not wait for capacity. The request ID limit never rejects a request; it
-evicts the oldest request IDs instead.
+A request that a limit rejects fails at once; it does not wait for capacity.
+The request ID limit never rejects a request; instead, the server forgets the
+oldest request IDs.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -608,17 +647,18 @@ Changed in 0.1.22: a GetHistoryEvents page holds at most 1000 events. A
 request whose **estimate_page_size** is larger returns 1000 events and a next
 page token. Earlier versions had no such limit.
 
-Each run records **values.maxValueBytes**, **limits.maxFlowStateBytes**,
-**limits.maxChildFlowResultBytes**, and **limits.maxRequestIdsPerRun** when it starts. A new value applies only to runs that start after the node
+Each Flow run records **values.maxValueBytes**, **limits.maxFlowStateBytes**,
+**limits.maxChildFlowResultBytes**, and **limits.maxRequestIdsPerRun** when it
+starts. A new value applies only to Flow runs that start after the node
 restarts with it.
 
 ## Performance tuning {#performance-tuning}
 
 The defaults suit most nodes. Change these keys only when a load test shows a
-bottleneck. They change throughput and memory use, not Flow results. One
-exception: **commit.maxUnappliedBytes** bounds the backlog of accepted commands,
-so a smaller value makes more requests fail with UNAVAILABLE under load. Each
-key applies when the node starts.
+bottleneck. They change throughput and memory use, not Flow results, with one
+exception: **commit.maxUnappliedBytes** bounds the backlog of accepted
+commands, so a smaller value makes more requests fail with UNAVAILABLE under
+load. Each key takes effect when the node starts.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -636,13 +676,13 @@ startup.
 
 ## Streams {#streams}
 
-Set **streamStore.backend** to **memory** (default) or **disabled** to control
-best-effort [Streams](/concepts/primitives/stream). Memory Streams live only in the
-active server process. They start empty after a restart, a standby takeover, or
-a step down, and trimming can remove older messages. While the backend is
-disabled, Client Stream writes and reads fail with **FAILED_PRECONDITION**. A
-Step Stream write is dropped and logged without failing the Step, and the server
-logs a warning at startup.
+**streamStore.backend** controls best-effort
+[Streams](/concepts/primitives/stream). Set it to **memory** (default) or
+**disabled**. Memory Streams live only in the active server process. They start
+empty after a restart, a standby takeover, or a step down, and trimming can
+remove older messages. While the backend is disabled, Client Stream writes and
+reads fail with **FAILED_PRECONDITION**. The server drops and logs Step Stream
+writes, and logs a warning at startup.
 
 The memory backend bounds the memory it uses:
 
@@ -650,7 +690,7 @@ The memory backend bounds the memory it uses:
   Stream on the node. A Client write past it fails with **RESOURCE_EXHAUSTED**.
   Background trimming then removes the oldest messages of the largest Streams
   until usage falls to **trimTargetPercent** of the bound, or lower when the
-  rejected message needs more room. The client retries the write.
+  rejected message needs more room. The client then retries the write.
 - A message larger than its Stream's capacity can never fit. It fails with
   **RESOURCE_EXHAUSTED** without trimming, and a retry fails again.
 - **streamStore.maxStreamCapacityBytes** (default 64 MiB) is the largest
@@ -669,6 +709,6 @@ The memory backend bounds the memory it uses:
   trimming.
 
 A Step Stream write that the server drops never fails the Step.
-**dexzd_step_stream_writes_dropped_total** counts these writes by **reason**:
+**dexzd_step_stream_writes_dropped_total** counts dropped writes by **reason**:
 **disabled**, **invalid_argument**, **message_too_large**,
 **stream_capacity_exceeded**, **total_capacity_exceeded**, or **closed**.

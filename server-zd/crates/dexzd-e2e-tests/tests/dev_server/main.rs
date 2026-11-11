@@ -141,7 +141,7 @@ async fn pull_worker_completes_a_single_step_flow() {
         .into_inner();
     assert_eq!(summary.flow_status, FlowStatus::Completed as i32);
     let run_id = summary
-        .flow_execution_id
+        .flow_run_id
         .as_ref()
         .map(|execution| execution.run_id.clone());
     assert_eq!(run_id.as_deref(), Some(started.run_id.as_str()));
@@ -194,7 +194,7 @@ async fn the_largest_valid_partition_count_starts() {
     assert!(shutdown_time < Duration::from_secs(10));
 }
 
-/// Unknown Flows report the Go Server's NotFound text, and Continue-As-New is unavailable.
+/// Unknown Flows report the Go Server's NotFound text.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn errors_match_the_go_server() {
     let server = DevServer::start().await;
@@ -211,11 +211,6 @@ async fn errors_match_the_go_server() {
         missing.message(),
         "Flow run is not found for flow ID missing-flow"
     );
-    let continue_as_new = flow_client
-        .trigger_continue_as_new(dexzd_protocol::dex::TriggerContinueAsNewRequest::default())
-        .await
-        .expect_err("Continue-As-New is not supported");
-    assert_eq!(continue_as_new.code(), tonic::Code::Unimplemented);
     let shutdown_time = server.shutdown().await;
     assert!(shutdown_time < Duration::from_secs(10));
 }

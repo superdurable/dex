@@ -12,12 +12,13 @@ import { BrowserRouter } from 'react-router-dom';
 import './globals.css';
 import './v1-design.css';
 import { App } from './App';
+import { routerBasename } from '@/lib/basePath';
 
 document.title = 'Dex · Super Durable';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={routerBasename()}>
       <App />
     </BrowserRouter>
   </StrictMode>,

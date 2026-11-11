@@ -325,26 +325,18 @@ fn validate_reset_flow(request: &ResetFlowRequest) -> Result<(), ValidationError
     Ok(())
 }
 
-fn validate_wait_request(
-    flow_id: &str,
-    request_timeout: i32,
-    internal_timeout: i32,
-) -> Result<(), ValidationError> {
-    if flow_id.is_empty() || request_timeout < 0 || internal_timeout < 0 {
+fn validate_wait_request(flow_id: &str, request_timeout: i32) -> Result<(), ValidationError> {
+    if flow_id.is_empty() || request_timeout < 0 {
         return Err(invalid(
             "flow_id",
-            "valid flow ID and non-negative request and internal handler timeouts are required",
+            "valid flow ID and non-negative request timeout are required",
         ));
     }
     Ok(())
 }
 
 fn validate_wait_for_attribute(request: &WaitForAttributeRequest) -> Result<(), ValidationError> {
-    validate_wait_request(
-        &request.flow_id,
-        request.request_timeout_seconds,
-        request.internal_handler_timeout_seconds,
-    )?;
+    validate_wait_request(&request.flow_id, request.request_timeout_seconds)?;
     let Some(attribute_match) = request.r#match.as_ref() else {
         return Err(invalid("match", "attribute match is required"));
     };
@@ -419,11 +411,7 @@ fn validate_attribute_match(attribute_match: &AttributeMatch) -> Result<(), Vali
 fn validate_wait_for_step_completion(
     request: &WaitForStepCompletionRequest,
 ) -> Result<(), ValidationError> {
-    validate_wait_request(
-        &request.flow_id,
-        request.request_timeout_seconds,
-        request.internal_handler_timeout_seconds,
-    )?;
+    validate_wait_request(&request.flow_id, request.request_timeout_seconds)?;
     if request.step_type.is_empty() || request.step_execution_number.is_empty() {
         return Err(invalid(
             "step_type",

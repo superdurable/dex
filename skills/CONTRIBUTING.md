@@ -80,9 +80,9 @@ otherwise miss:
   READMEs on `main`, the `superdurable/dex-skills` repository named in the
   update notice, and its latest-release API used by the version check. Add an
   exception only when no Developer reference page or example can serve.
-- Skill content names no product built on Dex, no Continue-As-New, and no
-  Temporal or Cadence backend term or mechanism, such as Signals, Queries, and
-  Updates or workflow history.
+- Skill content names no product built on Dex, no retired workflow rollover
+  controls, and no Temporal or Cadence backend term or mechanism, such as
+  Signals, Queries, and Updates or workflow history.
 - Skill content has no Dex version numbers, release tags, or dependency pins,
   including Developer reference notes such as "Since 1.35".
   Standards and toolchain versions, such as FDG 2.0 or Node 22, are allowed.

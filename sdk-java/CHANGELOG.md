@@ -47,6 +47,19 @@ Workers that previously omitted pull settings used push handler concurrency of
 maximum is at least two. Set `maxConcurrentTasks` and `reservedRpcTasks` explicitly
 when preserving application capacity during migration.
 
+Removed the Continue-As-New and internal handler timeout APIs:
+
+- Removed `Client.triggerContinueAsNew`, `FlowStatus.CONTINUED_AS_NEW`,
+  `FlowConfig.Builder.continueAsNewThreshold`,
+  `FlowConfig.Builder.continueAsNewPageSizeBytes`, `SearchFlowsOptions`, and
+  the four-argument `Client.searchFlows` overload. Use the three-argument
+  search method.
+- Removed `WaitForStepCompletionOptions.Builder.internalHandlerTimeout` and
+  `WaitForAttributeOptions.Builder.internalHandlerTimeout`. Request IDs remain
+  accepted, but the server does not read them for these waits.
+- Generated bindings rename `FlowExecutionID` to `FlowRunID` and
+  `getFlowExecutionId` to `getFlowRunId`. ProtoJSON uses `flowRunId`.
+
 ### Added
 
 Added `FlowConfig.Builder.offloadHistory(boolean)` to choose whether a run

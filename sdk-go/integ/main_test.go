@@ -167,7 +167,6 @@ func integrationFlows() []dex.Flow {
 		subFlowAttachParentFlow{},
 		subFlowAlwaysRestartParentFlow{},
 		subFlowAbnormalParentFlow{},
-		subFlowContinueAsNewParentFlow{},
 		subFlowTimerFlow{},
 		subFlowFailingFlow{},
 		subFlowImmediateFlow{},

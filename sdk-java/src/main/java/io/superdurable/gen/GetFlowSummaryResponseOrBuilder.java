@@ -11,19 +11,19 @@ public interface GetFlowSummaryResponseOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
-   * @return Whether the flowExecutionId field is set.
+   * <code>.dex.FlowRunID flow_run_id = 1;</code>
+   * @return Whether the flowRunId field is set.
    */
-  boolean hasFlowExecutionId();
+  boolean hasFlowRunId();
   /**
-   * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
-   * @return The flowExecutionId.
+   * <code>.dex.FlowRunID flow_run_id = 1;</code>
+   * @return The flowRunId.
    */
-  io.superdurable.gen.FlowExecutionID getFlowExecutionId();
+  io.superdurable.gen.FlowRunID getFlowRunId();
   /**
-   * <code>.dex.FlowExecutionID flow_execution_id = 1;</code>
+   * <code>.dex.FlowRunID flow_run_id = 1;</code>
    */
-  io.superdurable.gen.FlowExecutionIDOrBuilder getFlowExecutionIdOrBuilder();
+  io.superdurable.gen.FlowRunIDOrBuilder getFlowRunIdOrBuilder();
 
   /**
    * <pre>

@@ -1724,7 +1724,7 @@ def test_rpc_rejects_progress_and_timeout_allows_sync_stream_output() -> None:
         asyncio.run(timeout_context.heartbeat())
 
 
-def test_search_run_inclusion_options_reach_transport() -> None:
+def test_search_pagination_reaches_transport() -> None:
     class SearchService:
         requests: list[pb.SearchFlowsRequest] = []
 
@@ -1738,20 +1738,14 @@ def test_search_run_inclusion_options_reach_transport() -> None:
     client._server_protocol.record_version(4)
     try:
         client.search_flows("WorkflowId = 'flow-1'", 1)
-        client.search_flows(
-            "WorkflowId = 'flow-1'", 1, "next", include_continued_as_new=True
-        )
-        assert [request.include_continued_as_new for request in service.requests] == [
-            False,
-            True,
-        ]
+        client.search_flows("WorkflowId = 'flow-1'", 1, "next")
         assert service.requests[1].query == "WorkflowId = 'flow-1'"
         assert service.requests[1].next_page_token == "next"
     finally:
         client.close()
 
 
-def test_async_search_run_inclusion_options_reach_transport() -> None:
+def test_async_search_pagination_reaches_transport() -> None:
     class SearchService:
         requests: list[pb.SearchFlowsRequest] = []
 
@@ -1768,12 +1762,7 @@ def test_async_search_run_inclusion_options_reach_transport() -> None:
         client._server_protocol.record_version(4)
         try:
             await client.search_flows("WorkflowId = 'flow-1'", 1)
-            await client.search_flows(
-                "WorkflowId = 'flow-1'", 1, "next", include_continued_as_new=True
-            )
-            assert [
-                request.include_continued_as_new for request in service.requests
-            ] == [False, True]
+            await client.search_flows("WorkflowId = 'flow-1'", 1, "next")
             assert service.requests[1].query == "WorkflowId = 'flow-1'"
             assert service.requests[1].next_page_token == "next"
         finally:

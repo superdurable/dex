@@ -251,6 +251,13 @@ export interface McpToolCallOptions {
   readonly saveHeartbeatCheckpoint?: (checkpoint: string) => Promise<void>;
   /** Aborts the requests, for example the tool Step's cancellation signal. */
   readonly signal?: AbortSignal;
+  /**
+   * More `_meta` entries to send with the `tools/call` request, such as the identity the caller expects the tool
+   * to have. The {@link mcpIdempotencyKeyMetaKey} entry from {@link idempotencyKey} wins over an entry with the
+   * same key. Defaults to none.
+   * @since 0.5.0
+   */
+  readonly requestMeta?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -796,13 +803,20 @@ export class McpToolSource {
    * A Streamable HTTP server without protocol sessions that answers with a task gets {@link ToolTaskStarted}.
    * The source saves the task ID as the heartbeat checkpoint first; a retried attempt that reads it returns
    * the same task without calling the tool again.
+   *
+   * Changed in 0.5.0: takes `options`, whose `requestMeta` adds entries to the `tools/call` request's `_meta`.
    * @param call - The approved call from the tool Step.
+   * @param options - `requestMeta`: more `_meta` entries for the `tools/call` request, as in
+   * {@link McpToolCallOptions.requestMeta}. The idempotency key entry wins on a name clash. Defaults to none.
    * @returns The tool output the model sees, or {@link ToolTaskStarted} for a task that `PollToolTask` polls.
    * @throws {ToolExecutionError} When the arguments are not a JSON object, the tool failed, the server
    * answered with an error or asked for input, or the call was never sent.
    * @throws {McpToolCallInterruptedError} When the call was sent and no result came back.
    */
-  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult | ToolTaskStarted> {
+  public async executeDeferredToolCall(
+    call: DeferredToolExecution,
+    options: { readonly requestMeta?: Readonly<Record<string, unknown>> } = {},
+  ): Promise<ToolExecutionResult | ToolTaskStarted> {
     const toolArguments = parseToolArguments(call.toolCall.arguments);
     if (this.isResourceAndPromptTool(call.toolCall.toolName)) {
       return this.runResourceAndPromptTool(call.toolCall.toolName, toolArguments, call.cancellationSignal);
@@ -825,7 +839,43 @@ export class McpToolSource {
         ? {}
         : { saveHeartbeatCheckpoint: (checkpoint: string) => call.saveHeartbeatCheckpoint!(checkpoint) }),
       signal: call.cancellationSignal,
+      ...(options.requestMeta === undefined ? {} : { requestMeta: options.requestMeta }),
     }, isTaskPolledBySession);
+  }
+
+  /**
+   * Returns whether {@link executeDeferredToolCall} will resume a task that an earlier attempt of the same call
+   * started and can never send a new `tools/call` for this call.
+   *
+   * It is `true` only when the call's heartbeat checkpoint names a task of the same server and tool that the
+   * session polls, and the session still polls tool tasks (`call.supportsToolTasks`). Then the call returns that
+   * task at once, without contacting the server. In every other case, including a task polled inside the tool
+   * Step, such as one bound to an MCP protocol session, the call may send `tools/call`: a task the server no longer
+   * knows is called again. Use it to skip a check that only guards a new send, such as checking a tool's current
+   * listing, so a catalog that is down or changed does not stop the recovery of a task already running.
+   *
+   * @example
+   * ```ts
+   * if (!tools.willResumeToolTaskWithoutSending(call)) {
+   *   await checkCurrentListing(call.toolCall.toolName);
+   * }
+   * return tools.executeDeferredToolCall(call);
+   * ```
+   * @param call - The tool Step's call, with this source's own `toolSourceReference`.
+   * @returns `true` when the call resumes a session-polled task and sends nothing; otherwise `false`.
+   * @since 0.5.0
+   */
+  public willResumeToolTaskWithoutSending(call: DeferredToolExecution): boolean {
+    const reference = parseToolSourceReference(call.toolCall.toolSourceReference);
+    const saved = parseJsonObject(call.heartbeatCheckpoint);
+    return (
+      call.supportsToolTasks === true &&
+      reference !== undefined &&
+      saved?.["mcp_server"] === reference.serverName &&
+      saved["mcp_tool"] === reference.mcpToolName &&
+      typeof saved["mcp_task_id"] === "string" &&
+      saved["mcp_task_polled_by_session"] === true
+    );
   }
 
   /**
@@ -1311,7 +1361,12 @@ class McpToolCall {
 
   private async sendToolCall({ client, transport }: McpConnection): Promise<ToolCallOutcome> {
     const meta =
-      this.options.idempotencyKey === undefined ? undefined : { [mcpIdempotencyKeyMetaKey]: this.options.idempotencyKey };
+      this.options.idempotencyKey === undefined && this.options.requestMeta === undefined
+        ? undefined
+        : {
+            ...this.options.requestMeta,
+            ...(this.options.idempotencyKey === undefined ? {} : { [mcpIdempotencyKeyMetaKey]: this.options.idempotencyKey }),
+          };
     const params = { name: this.target.mcpToolName, arguments: this.toolArguments, ...(meta === undefined ? {} : { _meta: meta }) };
     const requestOptions = {
       timeout: this.limits.requestTimeoutMs,

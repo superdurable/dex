@@ -162,7 +162,6 @@ type clientTestFlowService struct {
 	updateConfigRequest   *dexpb.UpdateFlowConfigRequest
 	waitStepRequest       *dexpb.WaitForStepCompletionRequest
 	waitStepRequests      []*dexpb.WaitForStepCompletionRequest
-	continueAsNewRequest  *dexpb.TriggerContinueAsNewRequest
 	writeStreamRequests   []*dexpb.WriteStreamRequest
 	readStreamRequest     *dexpb.ReadStreamRequest
 	listStreamRequest     *dexpb.ListStreamMessagesRequest
@@ -420,7 +419,7 @@ func (service *clientTestFlowService) GetFlowSummary(
 ) (*dexpb.GetFlowSummaryResponse, error) {
 	service.flowSummaryRequest = request
 	return &dexpb.GetFlowSummaryResponse{
-		FlowExecutionId: &dexpb.FlowExecutionID{
+		FlowRunId: &dexpb.FlowRunID{
 			FlowId: request.FlowId,
 			RunId:  "run-uncompleted",
 		},
@@ -506,17 +505,6 @@ func (service *clientTestFlowService) WaitForStepCompletion(
 	return &dexpb.WaitForStepCompletionResponse{}, nil
 }
 
-func (service *clientTestFlowService) TriggerContinueAsNew(
-	_ context.Context,
-	request *dexpb.TriggerContinueAsNewRequest,
-) (*emptypb.Empty, error) {
-	service.continueAsNewRequest = request
-	if request.FlowId == "inactive" {
-		return nil, clientTestMissingFlowError()
-	}
-	return &emptypb.Empty{}, nil
-}
-
 func (service *clientTestFlowService) HealthCheck(
 	context.Context,
 	*emptypb.Empty,
@@ -556,7 +544,7 @@ func TestClientUpdateFlowConfigPreservesWorkerTarget(t *testing.T) {
 	client, service := newClientIntegration(t)
 	for _, config := range []FlowConfig{
 		{},
-		{ContinueAsNewThreshold: ptr.Any(int32(100))},
+		{HistoryWindowEvents: ptr.Any(int32(100))},
 		{AttributeStoreNames: []string{"reporting"}},
 	} {
 		require.NoError(t, client.UpdateFlowConfig(context.Background(), "existing-flow", config))
@@ -597,9 +585,8 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 		AttributeMatchEqual("done"),
 		&matchedStatus,
 		WaitForAttributeOptions{
-			RequestID:              "wait-order-status",
-			RequestTimeout:         10 * time.Second,
-			InternalHandlerTimeout: 3 * time.Second,
+			RequestID:      "wait-order-status",
+			RequestTimeout: 10 * time.Second,
 		},
 	))
 	require.Equal(t, "done", matchedStatus)
@@ -610,7 +597,6 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 	)
 	require.Equal(t, "wait-order-status", service.waitAttributeRequest.RequestId)
 	require.Equal(t, int32(10), service.waitAttributeRequest.RequestTimeoutSeconds)
-	require.Equal(t, int32(3), service.waitAttributeRequest.InternalHandlerTimeoutSeconds)
 }
 
 func TestClientStreamTransportAndMetadata(t *testing.T) {
@@ -879,10 +865,8 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 
 	page, err := client.SearchFlows(ctx, "status = 'ready'", 10, "")
 	require.NoError(t, err)
-	require.False(t, service.searchRequest.GetIncludeContinuedAsNew())
-	_, err = client.SearchFlowsWithOptions(ctx, "status = 'ready'", 10, "next", SearchFlowsOptions{IncludeContinuedAsNew: true})
+	_, err = client.SearchFlows(ctx, "status = 'ready'", 10, "next")
 	require.NoError(t, err)
-	require.True(t, service.searchRequest.GetIncludeContinuedAsNew())
 	require.Equal(t, "next", service.searchRequest.GetNextPageToken())
 	require.Equal(t, "status = 'ready'", service.searchRequest.GetQuery())
 	require.Equal(t, "next", page.NextPageToken)
@@ -924,8 +908,7 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	require.Equal(t, "clientTestStep-1", service.skipTimerRequest.StepExecutionId)
 
 	require.NoError(t, client.UpdateFlowConfig(ctx, "order-1", FlowConfig{
-		ContinueAsNewThreshold: ptr.Any(int32(100)),
-		AttributeStoreNames:    []string{"reporting", "audit"},
+		AttributeStoreNames: []string{"reporting", "audit"},
 	}))
 	require.Nil(t, service.updateConfigRequest.FlowConfig.WorkerTarget)
 	require.Equal(t, []string{"reporting", "audit"}, service.updateConfigRequest.FlowConfig.GetAttributeStoreNames().GetNames())
@@ -934,17 +917,13 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		"order-1",
 		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
 		WaitForStepCompletionOptions{
-			RequestID:              "wait-order-step",
-			RequestTimeout:         10 * time.Second,
-			InternalHandlerTimeout: 2 * time.Second,
+			RequestID:      "wait-order-step",
+			RequestTimeout: 10 * time.Second,
 		},
 	))
 	require.Equal(t, "1", service.waitStepRequest.StepExecutionNumber)
 	require.Equal(t, int32(10), service.waitStepRequest.RequestTimeoutSeconds)
-	require.Equal(t, int32(2), service.waitStepRequest.InternalHandlerTimeoutSeconds)
 	require.Equal(t, "wait-order-step", service.waitStepRequest.RequestId)
-	require.NoError(t, client.TriggerContinueAsNew(ctx, "order-1"))
-	require.Equal(t, "order-1", service.continueAsNewRequest.FlowId)
 	health, err := client.HealthCheck(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "SERVING", health.Condition)
@@ -1018,9 +997,6 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 				StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
 				WaitForStepCompletionOptions{RequestID: "inactive-step"},
 			)
-		}},
-		{name: "continue as new", call: func() error {
-			return client.TriggerContinueAsNew(ctx, "inactive")
 		}},
 	}
 	for _, testCase := range activeCalls {

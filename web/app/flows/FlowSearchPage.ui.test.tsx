@@ -11,6 +11,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BASE_PATH_META_NAME } from '@/lib/basePath';
 import { PreferencesProvider } from '../providers';
 import { FlowSearchPage } from './FlowSearchPage';
 
@@ -138,5 +139,70 @@ describe('Flow search query builder and pagination', () => {
     expect(document.activeElement).toBe(filters);
     fireEvent.keyDown(filters, { key: 'End' });
     expect(document.activeElement).toBe(query);
+  });
+});
+
+function setBasePathMeta(content: string | null) {
+  document.head.querySelector(`meta[name="${BASE_PATH_META_NAME}"]`)?.remove();
+  if (content === null) return;
+  const meta = document.createElement('meta');
+  meta.name = BASE_PATH_META_NAME;
+  meta.content = content;
+  document.head.appendChild(meta);
+}
+
+/** Searches with the URL's query, saves it under name, and leaves the Queries panel open. */
+async function searchAndSaveQuery(basePath: string, query: string, name: string) {
+  setBasePathMeta(basePath === '/' ? null : basePath);
+  const pagePath = basePath === '/' ? '/v1/flows' : `${basePath}/v1/flows`;
+  window.history.replaceState(null, '', `${pagePath}?q=${encodeURIComponent(query)}`);
+  vi.stubGlobal('prompt', vi.fn(() => name));
+  render(
+    <MemoryRouter>
+      <PreferencesProvider>
+        <FlowSearchPage />
+      </PreferencesProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Queries' }));
+  await waitFor(() => expect(screen.getAllByText(query).length).toBeGreaterThan(0));
+  fireEvent.click(screen.getByRole('button', { name: 'Save query' }));
+  await screen.findByText(name);
+}
+
+describe('Flow search storage', () => {
+  afterEach(() => setBasePathMeta(null));
+
+  it('keeps recent and saved searches apart for each base path', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [], nextPageToken: '' }))));
+    await searchAndSaveQuery('/dex-web/server-a', 'WorkflowId = "order-a"', 'Orders on A');
+    cleanup();
+
+    setBasePathMeta('/dex-web/server-b');
+    window.history.replaceState(null, '', '/dex-web/server-b/v1/flows');
+    render(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <FlowSearchPage />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Queries' }));
+    expect(screen.getByText('No saved queries')).toBeTruthy();
+    expect(screen.getByText('No recent queries')).toBeTruthy();
+    expect(screen.queryByText('Orders on A')).toBeNull();
+    expect(localStorage.getItem('dex-web-recent-queries@/dex-web/server-a')).toContain('order-a');
+    expect(localStorage.getItem('dex-web-saved-queries@/dex-web/server-a')).toContain('Orders on A');
+    expect(localStorage.getItem('dex-web-recent-queries')).toBeNull();
+    expect(localStorage.getItem('dex-web-saved-queries')).toBeNull();
+  });
+
+  it('keeps the original keys at the root', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [], nextPageToken: '' }))));
+    await searchAndSaveQuery('/', 'WorkflowId = "order-root"', 'Root orders');
+    expect(localStorage.getItem('dex-web-recent-queries')).toContain('order-root');
+    expect(localStorage.getItem('dex-web-saved-queries')).toContain('Root orders');
+    expect([...Array(localStorage.length).keys()].map((index) => localStorage.key(index)))
+      .not.toContainEqual(expect.stringContaining('@'));
   });
 });

@@ -8,6 +8,22 @@ sidebar_label: Change log
 
 This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
 
+## 0.1.26 {#v0-1-26}
+
+Not released yet. The next release, server-zd/v0.1.26, ships these changes.
+
+### Breaking
+
+- Removed **FlowService.TriggerContinueAsNew** and **TriggerContinueAsNewRequest**. The RPC previously returned UNIMPLEMENTED. [Reference](/reference/server/runtime-client).
+- Removed **FlowConfig.continue_as_new_threshold** (2), **continue_as_new_page_size_in_bytes** (3), **SearchFlowsRequest.include_continued_as_new** (4), **FlowStatus.FLOW_STATUS_CONTINUED_AS_NEW** (7), **FlowStartedOrContinuedHistoryEvent.continued_start** (11), **FlowContinuedStart**, and **FlowClosedHistoryEvent.continued_to_run_id** (5). Their field numbers and names, and the enum number and name, are reserved where applicable. [Reference](/reference/server/runtime-client#update-flowconfig).
+- A search query that compares **ExecutionStatus** with **ContinuedAsNew**, such as **ExecutionStatus = 'ContinuedAsNew'** or **ExecutionStatus != 'ContinuedAsNew'**, fails with INVALID_ARGUMENT. Remove that predicate from stored queries. [Reference](/reference/server/runtime-client#search-flows).
+- Removed **WaitForStepCompletionRequest.internal_handler_timeout_seconds** (5) and **WaitForAttributeRequest.internal_handler_timeout_seconds** (4). The server ignored positive values. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Renamed **FlowExecutionID** to **FlowRunID** and both **flow_execution_id** fields to **flow_run_id** without changing field numbers. ProtoJSON field names change from **flowExecutionId** to **flowRunId**; update JSON clients and generated-code consumers. [Reference](/reference/server/runtime-client#describe-a-flow).
+
+### Added
+
+- **dev** and **local** accept **--application-s3-listen** and **--application-s3-bucket**. They serve one more S3-compatible bucket for applications on a loopback address, with its own store in **application-s3** in the data directory. Applications cannot reach the server's own bucket through it. [Reference](/reference/server/configuration#single-node-application-bucket).
+
 ## 0.1.25 {#v0-1-25}
 
 Released 2026-11-09 as [server-zd/v0.1.25](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.25).

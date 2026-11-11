@@ -211,7 +211,7 @@ func (flow *DealDSLFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initializeStep{flow: flow}),
 		dex.DefineStep(preConditionStep{flow: flow}),
-		dex.DefineStep(executeActionStep{flow: flow}),
+		dex.DefineStep(executeAction{flow: flow}),
 		dex.DefineStep(postConditionStep{flow: flow}),
 	}
 }
@@ -270,7 +270,7 @@ func (step preConditionStep) WaitFor(
 	return dex.Until(ConditionMessages.ForOne(state.PreCondition.Name)), nil
 }
 
-func (step executeActionStep) Execute(
+func (step executeAction) Execute(
 	ctx dex.Context,
 	input actionStepInput,
 ) (*dex.StepDecision, error) {
@@ -290,12 +290,33 @@ func (step executeActionStep) Execute(
 	if err != nil {
 		return nil, err
 	}
-	updates, err := step.flow.actions.execute(actions[actionIndex], ActionInput{
+	if actionIndex < 0 || actionIndex >= len(actions) {
+		return nil, fmt.Errorf(
+			"action index %d is invalid for %s actions in state %q",
+			actionIndex,
+			input.Phase,
+			state.Name,
+		)
+	}
+	actionInput := ActionInput{
 		FlowID:      ctx.FlowID(),
 		ItemID:      process.ItemID,
 		ItemName:    process.ItemName,
 		TargetState: state.Name,
-	})
+	}
+	actionInput.ProcessID, err = ProcessID.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	actionInput.BuyerID, err = BuyerID.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	actionInput.StateData, err = StateData.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	updates, err := step.flow.actions.execute(actions[actionIndex], actionInput)
 	if err != nil {
 		return nil, err
 	}
@@ -303,8 +324,17 @@ func (step executeActionStep) Execute(
 		return nil, err
 	}
 	nextActionIndex := actionIndex + 1
+	if err := CurrentActionIndexToExecute.Set(ctx, nextActionIndex); err != nil {
+		return nil, err
+	}
 	if nextActionIndex < len(actions) {
-		return dex.GoTo(executeActionStep{flow: step.flow}, input), nil
+		return dex.GoTo(executeAction{flow: step.flow}, input), nil
+	}
+	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
+		return nil, err
+	}
+	if input.Phase == preActionPhase {
+		return step.flow.gotoState(ctx, state)
 	}
 	return dex.GoTo(
 		postConditionStep{flow: step.flow},
@@ -325,19 +355,29 @@ func (step postConditionStep) Execute(
 		return nil, err
 	}
 	if state.PostCondition == nil {
-		stateData, err := StateData.Get(ctx)
+		snapshot, err := readDealStateSnapshot(ctx)
 		if err != nil {
 			return nil, err
 		}
-		return dex.GracefulComplete(stateData), nil
+		return dex.GracefulComplete(snapshot), nil
+	}
+	if state.PostCondition.WaitFor != nil {
+		updates, resultErr := conditionUpdates(ctx, state.PostCondition.WaitFor.Name)
+		if resultErr != nil {
+			return nil, resultErr
+		}
+		if err := mergeStateData(ctx, updates); err != nil {
+			return nil, err
+		}
 	}
 	stateData, err := StateData.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
+	nextState := evaluateDecision(state.PostCondition.Decision, stateData)
 	return dex.GoTo(
 		preConditionStep{flow: step.flow},
-		stateStepInput{StateName: evaluateDecision(state.PostCondition.Decision, stateData)},
+		stateStepInput{StateName: nextState},
 	), nil
 }
 ```

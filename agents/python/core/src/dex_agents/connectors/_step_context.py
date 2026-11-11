@@ -11,10 +11,12 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar, cast
 
 from dex import AsyncContext, CodecRegistry, Value, WireKind
+from dex_connectors.sdk.singledispatch import Marker, State
 
 ValueT = TypeVar("ValueT")
 
@@ -59,7 +61,9 @@ class ConnectorStepContext:
         self._heartbeat = heartbeat
         self._save_checkpoint = save_checkpoint
         # The source reads it on a Retry; a failed save leaves the earlier value.
-        self._saved_heartbeat_value: object | None = None
+        self._fence_evidence: dict[str, FenceEvidence] = {}
+        # The source reads it to tell a lost fence checkpoint from an unfenced operation.
+        self._has_read_checkpoint = False
 
     @property
     def flow_id(self) -> str:
@@ -87,6 +91,7 @@ class ConnectorStepContext:
         Returns:
             ``True`` when the session read a checkpoint for this attempt.
         """
+        self._has_read_checkpoint = True
         return self._previous_checkpoint is not None
 
     def get_last_heartbeat_value(self, value_type: type[ValueT]) -> ValueT | None:
@@ -101,6 +106,7 @@ class ConnectorStepContext:
         Raises:
             Exception: If the checkpoint does not decode as ``value_type``.
         """
+        self._has_read_checkpoint = True
         if self._previous_checkpoint is None:
             return None
         if value_type is str:
@@ -124,7 +130,41 @@ class ConnectorStepContext:
         if self._save_checkpoint is None:
             raise RuntimeError("this tool Step cannot save heartbeat checkpoints")
         await self._save_checkpoint(encode_heartbeat_value(value))
-        self._saved_heartbeat_value = value
+        self._observe_saved_heartbeat_value(value)
+
+    def _observe_saved_heartbeat_value(self, value: object) -> None:
+        """Fold one saved fence marker of this attempt into its Call ID's evidence."""
+        if not isinstance(value, Marker) or value.attempt != self.attempt:
+            return
+        evidence = self._fence_evidence.setdefault(str(value.call_id), FenceEvidence())
+        if value.state is State.CLAIMED:
+            evidence.is_claimed = evidence.has_claimed = True
+            evidence.has_provider_id = evidence.has_provider_id or bool(value.provider_id)
+            evidence.has_not_sent_proof = False
+        elif value.state is State.CAN_RESEND:
+            # The fence allows canResend only after its own claim without a provider ID.
+            if evidence.is_claimed and not evidence.has_provider_id and not value.provider_id:
+                evidence.is_claimed = False
+                evidence.has_not_sent_proof = True
+        elif value.state is State.NOT_SENT and not evidence.has_claimed and not value.provider_id:
+            evidence.has_not_sent_proof = True
+
+
+@dataclass
+class FenceEvidence:
+    """What one call's saved fence markers prove in this attempt; later checkpoints cannot erase it.
+
+    Attributes:
+        is_claimed: A claim stands: no valid ``canResend`` followed it.
+        has_claimed: The attempt claimed a send at some point.
+        has_provider_id: A claim recorded a provider ID.
+        has_not_sent_proof: A ``notSent`` before any claim, or a valid ``canResend``.
+    """
+
+    is_claimed: bool = False
+    has_claimed: bool = False
+    has_provider_id: bool = False
+    has_not_sent_proof: bool = False
 
 
 def encode_heartbeat_value(value: object) -> str:

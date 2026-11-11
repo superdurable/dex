@@ -121,6 +121,41 @@ export interface PlanExecutionRequest {
 export type SessionSettings = Readonly<Record<string, unknown>>;
 
 /**
+ * Points to one image in a media store by the SHA-256 of its bytes.
+ *
+ * Session state never holds image bytes. A caller uploads the image with `MediaStore.putImage` first and puts the
+ * returned reference in {@link AgentUserMessage.images} or `ToolExecutionResult.images`. A runner reads the bytes back
+ * with `MediaStore.getImage` or `loadImages` when it builds model input.
+ *
+ * The store keys every object by its content, so uploading the same bytes twice returns the same reference, and
+ * reading a reference always returns the bytes it was made from. `validateImageReference` checks the fields.
+ *
+ * @example
+ * ```ts
+ * const reference = await mediaStore.putImage(await readFile("chart.png"));
+ * await sessions.sendUserMessage("session-42", "What does this chart show?", { images: [reference] });
+ * ```
+ * @since 0.5.0
+ */
+export interface AgentImageReference {
+  /** Always `"image"`. Wire field: `type`; a missing value reads as `"image"`. */
+  readonly type: "image";
+  /**
+   * Where the store keeps the bytes, ending in `/sha256/<sha256>`, such as `"s3://media/agents/sha256/<sha256>"`.
+   * Wire field: `uri`.
+   */
+  readonly uri: string;
+  /**
+   * `"image/png"`, `"image/jpeg"`, `"image/gif"`, or `"image/webp"`, detected from the bytes. Wire field: `mime_type`.
+   */
+  readonly mimeType: string;
+  /** SHA-256 of the bytes as 64 lowercase hex digits. Wire field: `sha256`. */
+  readonly sha256: string;
+  /** Size of the bytes, from 1 to `maxImageBytes`. Wire field: `size_bytes`. */
+  readonly sizeBytes: number;
+}
+
+/**
  * Input of the `StartAgentSession` Step, passed to `Client.startFlow`.
  *
  * @example
@@ -206,6 +241,14 @@ export interface FrameworkMessage {
   readonly toolOutput: string | null;
   /** Framework-native JSON for this message; the session replays it to the framework unchanged. */
   readonly frameworkItem: string;
+  /**
+   * Images of the message, for display, such as those of a tool result from {@link AgentToolCall.images}. The
+   * session sets the images of a user message itself, from {@link AgentUserMessage.images}. The session checks them
+   * with `validateImageReferences` before it stores the message; invalid ones fail the calling Step. Wire field:
+   * `images`; a decoded message omits it when there are none.
+   * @since 0.5.0
+   */
+  readonly images?: readonly AgentImageReference[];
 }
 
 /** One message stored in the `AgentMessages` AttributeMap under its zero-padded sequence. */
@@ -444,6 +487,12 @@ export interface AgentToolCall {
    * @since 0.4.0
    */
   readonly truncatedOutputBytes?: number | null;
+  /**
+   * Images the tool returned with {@link output} after `succeeded`, from `ToolExecutionResult.images`; none for every
+   * other call. Wire field: `images`; a decoded record omits it when there are none.
+   * @since 0.5.0
+   */
+  readonly images?: readonly AgentImageReference[];
 }
 
 /**
@@ -622,6 +671,15 @@ export interface AgentUserMessage {
    * `plan_mode`, `false` by default; a decoded message omits it when `false`, and `null` reads as `false`.
    */
   readonly planMode?: boolean;
+  /**
+   * Images the user attached, uploaded with `MediaStore.putImage` first. At most `maxImagesPerMessage`, each valid for
+   * `validateImageReference`. `send_user_message` rejects images when the session's runner does not implement
+   * {@link AgentFrameworkRunner.buildUserMessageWithImages}. Send images only after every Worker of the Flow type runs
+   * dex-agents 0.5.0: an earlier Worker drops them. Wire field: `images`; a decoded message omits it when there are
+   * none.
+   * @since 0.5.0
+   */
+  readonly images?: readonly AgentImageReference[];
 }
 
 /**

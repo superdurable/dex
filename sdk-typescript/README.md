@@ -581,13 +581,10 @@ and `getAllInstanceKeys` include buffered sets and deletes. The matching
 instances. Keys are decoded and sorted. Use
 `forceCompleteIfChannelsEmpty(...)` for conditional completion.
 
-Request IDs are optional for both durable waits. When omitted, the server
-derives a stable ID from the Step execution or Attribute condition. Reuse an
-override only for the same wait. `requestTimeoutMs` is the total SDK call budget
-across transparent transport reattachments. Omit it or use zero to wait
-indefinitely. A caller timeout or cancellation does not finish an accepted durable wait. Set `internalHandlerTimeoutMs` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value comfortably
-longer than normal request timeouts and reconnect gaps. Zero disables timed
-rollover. Request expiry throws `RequestTimeoutError`.
+Request IDs are optional for both waits. The Server does not read them for these
+waits. `requestTimeoutMs` bounds the total SDK call across transport
+reattachments; zero waits indefinitely. Request expiry throws
+`RequestTimeoutError`. A caller disconnect releases its wait slot.
 
 ### Async handlers
 
@@ -1032,11 +1029,7 @@ The build generates the diagnostic SDK version from `package.json`, so the
 runtime value follows the version stamped by the release workflow. The artifact
 version does not participate in compatibility decisions.
 
-## Search run inclusion
+## Search Flow runs
 
-Searches exclude runs with the ContinuedAsNew status by default. server-zd never reports that status. Application queries still
-need `FlowType` when using shared index slots. An explicit inclusion option
-removes only the default exclusion; it does not override query filters. Keep
-the query, inclusion option, and page size consistent across pages.
-
-Pass `{ includeContinuedAsNew: true }` as the fourth argument of `searchFlows(query, pageSize, nextPageToken, options)` for execution-chain inspection. The default is `false`.
+Searches return runs that match the query. Include `FlowType` when using shared
+index slots, and keep the query and page size consistent across pages.

@@ -363,7 +363,7 @@ started before the upgrade starts compacting once its Worker has one.
 - The summary call gets the earlier turns as plain text, without tools.
 - Provider-side compaction and a `prepareStep` the application adds outside this adapter change only the model input. Dex stores every message and owns the record.
 
-See [Compaction and the storage bound](https://docs.superdurable.io/agent-frameworks/deploy-agents#compaction).
+See [Compaction and the storage bound](https://docs.superdurable.io/reference/agents/session-limits#compaction).
 
 ## Limits
 

@@ -17,6 +17,7 @@ import {
   TIME_TRAVEL_TYPE,
 } from '@/lib/timeTravel';
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
+import { webURL } from '@/lib/basePath';
 
 /** The run a time travel created. Servers with run attempts keep the run ID and return a new attempt. */
 export interface TimeTravelResult {
@@ -101,7 +102,7 @@ export function TimeTravelDialog({
     }
     if (runAttempt > 0) payload.runAttempt = runAttempt;
     try {
-      const response = await fetch('/api/flows/time-travel', {
+      const response = await fetch(webURL('/api/flows/time-travel'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

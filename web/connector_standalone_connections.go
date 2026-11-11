@@ -223,11 +223,13 @@ func (setup *connectorSetup) newConnectorConnectionWriteExpectation(
 
 // putConnectionIfCurrent saves a connection of the authorized release as a compare-and-set under connectionsMu;
 // see doCheckConnectionWriteIsCurrent. Otherwise it saves nothing and returns errConnectorConnectionChanged.
+// See connectorConnectionStore.put for isAuthorizationCompleted.
 func (setup *connectorSetup) putConnectionIfCurrent(
 	ctx context.Context,
 	connection localConnectorConnection,
 	keepCredentialFields []string,
 	expectation connectorConnectionWriteExpectation,
+	isAuthorizationCompleted bool,
 ) error {
 	if !hasConnectorModule(connectorDefinitionIdentity{ModulePath: expectation.modulePath, ModuleVersion: expectation.moduleVersion},
 		connection.ModulePath, connection.ModuleVersion) {
@@ -238,7 +240,7 @@ func (setup *connectorSetup) putConnectionIfCurrent(
 		return err
 	}
 	defer setup.endConnectionWrite(fileLock)
-	if err := setup.store.put(fileLock, connection, keepCredentialFields, expectation.storedRevision); err != nil {
+	if err := setup.store.put(fileLock, connection, keepCredentialFields, expectation.storedRevision, isAuthorizationCompleted); err != nil {
 		return err
 	}
 	delete(setup.pendingConnections, connectorConnectionKey(connection.ConnectorID, connection.ConnectionName))

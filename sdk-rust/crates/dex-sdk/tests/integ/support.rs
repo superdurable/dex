@@ -8,39 +8,16 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use dex_protocol::dex::{ServerEngine, flow_service_client::FlowServiceClient};
 use dex_sdk::{
     BlobCache, BlobCacheConfig, Client, ClientOptions, Context, Flow, GrpcCode, HandlerResult,
     Registry, SdkResult, Step, StepDecision, StepExecutionId, StepList, TimerId, Worker,
     WorkerOptions,
 };
 use tempfile::TempDir;
-use tokio::runtime::Runtime;
-
-static SERVER_ENGINE: OnceLock<ServerEngine> = OnceLock::new();
-
-pub(crate) fn is_server_zd() -> bool {
-    let server_engine = SERVER_ENGINE.get_or_init(|| {
-        let server_address =
-            std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
-        let runtime = Runtime::new().expect("create server engine check runtime");
-        runtime.block_on(async {
-            FlowServiceClient::connect(format!("http://{server_address}"))
-                .await
-                .expect("connect FlowService for server engine check")
-                .get_server_info(())
-                .await
-                .expect("GetServerInfo for server engine check")
-                .into_inner()
-                .server_engine()
-        })
-    });
-    *server_engine == ServerEngine::Zd
-}
 
 pub(crate) struct DexDevTestEnvironment {
     pub(crate) client: Client,

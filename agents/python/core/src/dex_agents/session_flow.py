@@ -92,6 +92,7 @@ from dex_agents.compaction import (
     ContextSummaryResult,
 )
 from dex_agents.events import AgentEventType, AgentEventWriter
+from dex_agents.media import ImageValidationError, validate_image_references
 from dex_agents.persistence import (
     AGENT_MESSAGE_CHUNKS,
     AGENT_MESSAGE_INDEX,
@@ -145,6 +146,7 @@ from dex_agents.runner import (
     DeferredToolExecution,
     DeferredToolOutcome,
     FrameworkMessage,
+    ImageUserMessageBuilder,
     PlanModeRunner,
     ToolCallsRequested,
     ToolCallStepOptions,
@@ -178,6 +180,7 @@ from dex_agents.spend_limit import (
 from dex_agents.tracing import AgentTracingOptions
 from dex_agents.values import (
     AgentEvent,
+    AgentImageReference,
     AgentInterrupt,
     AgentInterruptResolution,
     AgentMessage,
@@ -754,10 +757,17 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
 
         Returns:
             ``True`` when the message was queued; ``False`` for whitespace-only
-            text, or for a ``plan_mode`` message when
-            ``AgentSessionOptions.plan_mode_enabled`` is not set.
+            text, for a ``plan_mode`` message when
+            ``AgentSessionOptions.plan_mode_enabled`` is not set, or for
+            ``images`` that ``validate_image_references`` refuses or that the
+            runner cannot take because it does not implement
+            ``ImageUserMessageBuilder``.
         """
         if not input.text.strip() or (input.plan_mode and not self._options.plan_mode_enabled):
+            return RPCResult(False)
+        if input.images and not (
+            isinstance(self._runner, ImageUserMessageBuilder) and _are_valid_images(input.images)
+        ):
             return RPCResult(False)
         QUEUED_USER_MESSAGES.publish(context, input)
         return RPCResult(True)
@@ -1222,7 +1232,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         with self._session_tracer.trace_user_message_activation(
             context, step_type, turn_id, message_sequence_key(sequence), text
         ):
-            user_messages = [self._runner.build_user_message(message.text) for message in messages]
+            user_messages = [self._build_stored_user_message(message) for message in messages]
             if any(user_message.role is not MessageRole.USER for user_message in user_messages):
                 raise ValueError("build_user_message must return a user message")
             state = _append_messages(
@@ -1247,6 +1257,18 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 if was_plan_draft:
                     _write_plan_updated(events, executed_plan)
         return self._go_to_message_step(context, self._run_model)
+
+    def _build_stored_user_message(self, message: AgentUserMessage) -> FrameworkMessage:
+        """Build the stored item of one user message; the session sets its images itself."""
+        if not message.images:
+            return replace(self._runner.build_user_message(message.text), images=())
+        images = tuple(message.images)
+        if isinstance(self._runner, ImageUserMessageBuilder):
+            built = self._runner.build_user_message_with_images(message.text, images)
+        else:
+            # A runner redeployed without image support still stores the images, for display.
+            built = self._runner.build_user_message(message.text)
+        return replace(built, images=images)
 
     def _interaction_mode_for_user_messages(
         self, context: Context, messages: Sequence[AgentUserMessage]
@@ -2322,6 +2344,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 status=ToolCallStatus.SUCCEEDED,
                 output=result.output,
                 truncated_output_bytes=result.truncated_output_bytes,
+                images=_tool_result_images(result),
             )
             tool_call_span.record_finished(succeeded)
             return _finish_tool_call(context, succeeded, events)
@@ -2413,7 +2436,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 return _record_tool_task_defect(tool_call, asked.error or "")
             return asked
         if isinstance(outcome, ToolExecutionResult):
-            return replace(polled, status=ToolCallStatus.SUCCEEDED, output=outcome.output)
+            return replace(
+                polled,
+                status=ToolCallStatus.SUCCEEDED,
+                output=outcome.output,
+                images=_tool_result_images(outcome),
+            )
         raise TypeError(
             "poll_tool_task must return ToolExecutionResult, ToolInputRequested, or ToolTaskPending"
         )
@@ -3709,6 +3737,7 @@ def _validate_framework_message(message: object) -> None:
     for name in ("text", "tool_call_id", "tool_name", "tool_arguments", "tool_output"):
         if not isinstance(getattr(message, name), str | None):
             raise TypeError(f"FrameworkMessage.{name} must be a str or None")
+    validate_image_references(list(message.images))
 
 
 def _rfc3339(moment: datetime) -> str:
@@ -3774,6 +3803,21 @@ _MESSAGE_CODEC = CodecRegistry().resolve(AgentMessage)
 _CHUNK_ENVELOPE_BYTES = len('{"messages":[]}')
 
 
+def _are_valid_images(images: Sequence[AgentImageReference]) -> bool:
+    try:
+        validate_image_references(images)
+    except ImageValidationError:
+        return False
+    return True
+
+
+def _tool_result_images(result: ToolExecutionResult) -> list[AgentImageReference]:
+    """Return the images of a tool result; an invalid one fails the tool Step attempt."""
+    images = list(result.images)
+    validate_image_references(images)
+    return images
+
+
 def _append_messages(
     context: Context,
     state: AgentState,
@@ -3792,6 +3836,9 @@ def _append_messages(
     if not messages and not starts_turn:
         AGENT_STATE.set(context, state)
         return state
+    for message in messages:
+        # A runner's images fail the Step here, before any message of the commit is written.
+        validate_image_references(list(message.images))
     stored_index = AGENT_MESSAGE_INDEX.get(context)
     index = stored_index or _EMPTY_MESSAGE_INDEX
     if not starts_turn and state.active_turn_id is not None:
@@ -3811,6 +3858,7 @@ def _append_messages(
             tool_output=message.tool_output,
             framework_item=message.framework_item,
             created_at=created_at,
+            images=list(message.images),
         )
         if _CHUNK_ENVELOPE_BYTES + _message_bytes(stored) > storage.chunk_max_bytes:
             # The first store writes the largest value this message ever needs.

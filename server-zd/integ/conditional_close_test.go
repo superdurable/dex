@@ -30,13 +30,9 @@ func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporal(t *testi
 	}
 }
 
-func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporalContinueAsNew(t *testing.T) {
+func TestConditionalForceCompleteOnInternalChannelEmptyWorkflowTemporalSyncDurability(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(
-			t,
-
-			minimumContinueAsNewSyncDurabilityConfig(),
-		)
+		doTestConditionalForceCompleteOnInternalChannelEmptyWorkflow(t, syncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

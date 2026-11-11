@@ -534,7 +534,6 @@ async fn run_differential_for_test(
         "text != 'rust'",
         "CloseTime IS NULL",
         "CloseTime IS NOT NULL",
-        "ExecutionStatus = 'ContinuedAsNew'",
         "WorkflowType = 'Engine'",
         "(keyword = 'red' OR flag = false) AND number IS NOT NULL",
         "FlowType = 'CheckoutFlow' ORDER BY StartTime ASC",

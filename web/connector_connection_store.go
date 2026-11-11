@@ -11,6 +11,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,11 +22,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -65,6 +69,8 @@ type localConnectorConnection struct {
 	Configuration       map[string]json.RawMessage `json:"configuration"`
 	Credentials         map[string]json.RawMessage `json:"credentials"`
 	CredentialExpiresAt *time.Time                 `json:"credentialExpiresAt,omitempty"`
+	// AuthorizationID is a non-secret UUIDv4 that each completed authorization replaces; credential refreshes keep it.
+	AuthorizationID string `json:"authorizationId,omitempty"`
 }
 
 // Local stores derive stored credential names without returning values.
@@ -331,22 +337,43 @@ func (store *connectorConnectionStore) putUseConfiguration(configuration localCo
 }
 
 // put replaces the connection, copying each keepCredentialFields value from the stored record.
+// It assigns a new authorizationId on isAuthorizationCompleted, a new record, or changed credentials.
 // It returns errConnectorConnectionChanged unless the stored record keeps expectedRevision ("" for absent).
 func (store *connectorConnectionStore) put(
 	fileLock *connectorConnectionsFileLock,
 	connection localConnectorConnection,
 	keepCredentialFields []string,
 	expectedRevision string,
+	isAuthorizationCompleted bool,
 ) error {
+	newAuthorizationID, err := newConnectorAuthorizationID()
+	if err != nil {
+		return err
+	}
 	return store.updateConnections(fileLock, func(file *connectorConnectionsFile) (bool, error) {
 		if err := requireStoredConnectionRevision(*file, connection.ConnectorID, connection.ConnectionName, expectedRevision); err != nil {
 			return false, err
 		}
-		return true, putConnectionInFile(file, connection, keepCredentialFields)
+		return true, putConnectionInFile(file, connection, keepCredentialFields, newAuthorizationID, isAuthorizationCompleted)
 	})
 }
 
-func putConnectionInFile(file *connectorConnectionsFile, connection localConnectorConnection, keepCredentialFields []string) error {
+// newConnectorAuthorizationID returns a random UUIDv4 read from crypto/rand.
+func newConnectorAuthorizationID() (string, error) {
+	authorizationID, err := uuid.NewRandomFromReader(rand.Reader)
+	if err != nil {
+		return "", fmt.Errorf("generate Connector connection authorizationId: %w", err)
+	}
+	return authorizationID.String(), nil
+}
+
+func putConnectionInFile(
+	file *connectorConnectionsFile,
+	connection localConnectorConnection,
+	keepCredentialFields []string,
+	newAuthorizationID string,
+	isAuthorizationCompleted bool,
+) error {
 	storedIndex := -1
 	for index := range file.Connections {
 		current := file.Connections[index]
@@ -365,12 +392,58 @@ func putConnectionInFile(file *connectorConnectionsFile, connection localConnect
 		}
 		connection.Credentials[name] = value
 	}
+	connection.AuthorizationID = newAuthorizationID
+	if storedIndex >= 0 && !isAuthorizationCompleted {
+		isSameCredentials, err := hasSameConnectorCredentials(file.Connections[storedIndex].Credentials, connection.Credentials)
+		if err != nil {
+			return err
+		}
+		if isSameCredentials {
+			connection.AuthorizationID = file.Connections[storedIndex].AuthorizationID
+		}
+	}
 	if storedIndex < 0 {
 		file.Connections = append(file.Connections, connection)
 	} else {
 		file.Connections[storedIndex] = connection
 	}
 	return nil
+}
+
+// hasSameConnectorCredentials compares JSON values, so key order, whitespace, and string escapes do not matter.
+func hasSameConnectorCredentials(stored map[string]json.RawMessage, next map[string]json.RawMessage) (bool, error) {
+	if len(stored) != len(next) {
+		return false, nil
+	}
+	for name, storedValue := range stored {
+		nextValue, found := next[name]
+		if !found {
+			return false, nil
+		}
+		decodedStored, err := decodeConnectorCredentialValue(storedValue)
+		if err != nil {
+			return false, fmt.Errorf("decode stored Connector credential %q: %w", name, err)
+		}
+		decodedNext, err := decodeConnectorCredentialValue(nextValue)
+		if err != nil {
+			return false, fmt.Errorf("decode Connector credential %q: %w", name, err)
+		}
+		if !reflect.DeepEqual(decodedStored, decodedNext) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// decodeConnectorCredentialValue keeps numbers as json.Number so the comparison never loses precision.
+func decodeConnectorCredentialValue(value json.RawMessage) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, err
+	}
+	return decoded, nil
 }
 
 // delete deletes the connection with its Trigger bindings and use configurations, and reports whether it existed.

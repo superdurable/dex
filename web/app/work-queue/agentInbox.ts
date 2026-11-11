@@ -20,6 +20,7 @@ import {
   type AgentSessionSchema,
 } from '../agents/sessionSchema';
 import { isOpenFlowStatusCode } from './liveness';
+import { webURL } from '@/lib/basePath';
 
 type AgentInterrupt = AgentInterruptRecord;
 
@@ -51,10 +52,10 @@ export function inboxSessionSchemas(
 /** Reads only PendingInterrupts, so a page of rows costs one small read each and no Worker. */
 export async function readInboxSession(flowId: string, signal?: AbortSignal): Promise<AgentSessionRead> {
   const summary = await readResponseJSON<FlowSummary>(
-    await fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, { cache: 'no-store', signal }),
+    await fetch(webURL(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`), { cache: 'no-store', signal }),
   );
   const state = await readResponseJSON<FlowState>(await fetch(
-    `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(summary.runId)}`,
+    webURL(`/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(summary.runId)}`),
     { cache: 'no-store', signal },
   ));
   const stored = state.attributes.find((entry) => entry.key === SESSION_ATTRIBUTE.pendingInterrupts)?.value;

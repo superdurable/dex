@@ -43,6 +43,7 @@ import {
   planningTurnToolRejection,
 } from "../../src/agent-plans.js";
 import {
+  decodeAgentImageReference,
   decodeAgentInterrupt,
   decodeAgentMessage,
   decodeAgentPlan,
@@ -53,6 +54,7 @@ import {
   decodeListAgentMessagesInput,
   decodePendingUserMessage,
   decodeQuestionAnswer,
+  encodeAgentImageReference,
   encodeAgentInterrupt,
   encodeAgentPlanTask,
   encodeCompactContextInput,
@@ -255,6 +257,10 @@ function codecOfFunctions<Value>(typeName: string, encode: (value: Value) => unk
 // Types that only appear inside other values have no definition of their own.
 const embeddedTypeCodecs: ReadonlyMap<string, Codec<unknown>> = new Map<string, Codec<unknown>>([
   ["QuestionAnswer", codecOfFunctions("QuestionAnswer", encodeQuestionAnswer, decodeQuestionAnswer)],
+  [
+    "AgentImageReference",
+    codecOfFunctions("AgentImageReference", encodeAgentImageReference, decodeAgentImageReference),
+  ],
   ["AgentInterrupt", codecOfFunctions("AgentInterrupt", encodeAgentInterrupt, decodeAgentInterrupt)],
   ["PendingUserMessage", codecOfFunctions("PendingUserMessage", encodePendingUserMessage, decodePendingUserMessage)],
   ["AgentPlanTask", codecOfFunctions("AgentPlanTask", encodeAgentPlanTask, decodeAgentPlanTask)],

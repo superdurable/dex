@@ -38,7 +38,13 @@ import type { AgentToolCall, ToolEffect } from "../agent-session-values.js";
 import { serializeJsonWithSpacedSeparators } from "../stepwise/json-schema-validation.js";
 import type { SourceToolDefinition, ToolSource } from "../stepwise/tool-source.js";
 import { checkConnectorInputSchema, compareCodePoints, findConnectorInputViolation } from "./connector-input-schema.js";
-import { ConnectorStepContext, readSavedHeartbeatValue } from "./connector-step-context.js";
+import {
+  ConnectorStepContext,
+  hasReadCheckpoint,
+  isFenceMarker,
+  readFenceEvidence,
+  readPreviousCheckpoint,
+} from "./connector-step-context.js";
 
 /**
  * Default {@link ConnectorToolSource.sourceName}.
@@ -83,9 +89,14 @@ export type ApprovalPredicate = (toolArguments: Readonly<Record<string, unknown>
  * - `succeeded`: a required branch, such as `sent` or `refunded`. The model reads the result value.
  * - `rejected`: a branch the manifest lists as `rejected` under `agent.branches`, such as `providerRejected`.
  *   Nothing took effect. The record is `failed` with an error the model reads, and the session continues.
- * - `failed`: `defect`, or an optional branch of a Query that `agent.branches` does not list.
- * - `outcome_unknown`: `uncertain`, a branch listed as `unknown`, or an optional branch of a Mutation that
- *   `agent.branches` does not list. The write may have taken effect.
+ * - `failed`: an optional branch of a Query that `agent.branches` does not list, including `defect`.
+ * - `outcome_unknown`: `uncertain`, a Mutation's `defect`, any optional branch of a Mutation whose single-dispatch
+ *   fence cannot prove that nothing was sent, a branch listed as `unknown`, or an optional branch of a Mutation
+ *   that `agent.branches` does not list. The write may have taken effect.
+ *
+ * Changed in 0.5.0: a Mutation's `defect` is always `outcome_unknown`, because the Connector SDK can select it
+ * after the provider was called. A Query's `defect` follows `agent.branches`. A fenced Mutation whose fence cannot
+ * prove that nothing was sent is `outcome_unknown` on any optional branch.
  * @since 0.4.0
  */
 export type ConnectorBranchOutcome = "succeeded" | "rejected" | "failed" | "outcome_unknown";
@@ -152,7 +163,14 @@ export interface ConnectorToolOptions<Input> {
   readonly manifest: ConnectorPackageManifest;
   /** The validator the package exports for the operation's input, such as `CreateRefundInputSchema`. */
   readonly inputValidator: ConnectorInputValidator<Input>;
-  /** Tool name; defaults to `<connectorId>_<operation in snake case>`, such as `stripe_create_refund`. */
+  /**
+   * Tool name; defaults to `<connectorId>_<operation in snake case>`, such as `stripe_create_refund`. The snake
+   * case is the one the Connector library uses for Python Step factory names: an acronym run stays one word, so
+   * `listStoryIDs` becomes `list_story_ids` and `getHTTPResponse` becomes `get_http_response`.
+   *
+   * Changed in 0.5.0: the default keeps an acronym run as one word; it used to split `listStoryIDs` into
+   * `list_story_i_d_s`.
+   */
   readonly name?: string;
   /** Model-facing description; defaults to the manifest's. */
   readonly description?: string;
@@ -210,15 +228,39 @@ export interface ConnectorTool {
 /**
  * Returns what a connector tool call records for one selected branch.
  *
+ * The rules apply in this order. The manifest listing comes after the checks that can only tighten an outcome to
+ * `outcome_unknown`:
+ *
+ * 1. `uncertain` is `outcome_unknown`, whatever `agent.branches` says or whether it is declared required. It means
+ *    the write may have happened, so a listing of it as `rejected` is a manifest error.
+ * 2. A Mutation's `defect` is `outcome_unknown`, whatever `agent.branches` says or whether it is declared required.
+ *    The Connector SDK selects `defect` for some attempts that already called the provider, such as an invalid
+ *    attempt or an undeclared branch, and a host cannot tell those apart.
+ * 3. A required branch other than `defect` is `succeeded`.
+ * 4. On a Mutation, any other branch is `outcome_unknown` when `mayHaveDispatched` is set: its single-dispatch
+ *    fence cannot prove that no request reached the provider.
+ * 5. A branch that `agent.branches` lists as `rejected` is `rejected`.
+ * 6. A branch that `agent.branches` lists as `unknown` is `outcome_unknown`.
+ * 7. Any other optional branch of a Mutation is `outcome_unknown`.
+ * 8. Any other branch of a Query, including `defect`, is `failed`.
+ *
  * The rule fails closed: an optional branch of a Mutation that the manifest does not classify is
  * `outcome_unknown`, because the write may have happened.
  *
+ * Changed in 0.5.0: added `mayHaveDispatched`. `agent.branches` no longer decides a Mutation's `defect`, which is
+ * `outcome_unknown` instead of `failed`. A Query's `defect` follows `agent.branches`.
+ *
  * @example
  * ```ts
- * classifyConnectorBranch({ kind: "mutation", branch: "invalidResponse", requiredBranches: new Set(["refunded"]),
- *   agentBranches: {} }); // "outcome_unknown"
+ * classifyConnectorBranch({ kind: "mutation", branch: "defect", requiredBranches: new Set(["refunded"]),
+ *   agentBranches: { defect: "rejected" } }); // "outcome_unknown"
  * ```
- * @param options - The operation kind, the selected branch, the required branches, and `agent.branches`.
+ * @param options - The operation kind, the selected branch, the required branches, `agent.branches`, and
+ * `mayHaveDispatched`: whether the attempt's single-dispatch fence checkpoints leave open that the request reached
+ * the provider, because this attempt claimed a send and no canResend followed, or the earlier attempt's checkpoint
+ * is missing, not a fence marker, malformed, foreign, or does not allow this attempt a send.
+ * {@link ConnectorToolSource} computes it. It defaults to `false`
+ * and applies only to a Mutation.
  * @returns The outcome to record.
  * @since 0.4.0
  */
@@ -227,16 +269,17 @@ export function classifyConnectorBranch(options: {
   readonly branch: string;
   readonly requiredBranches: ReadonlySet<string>;
   readonly agentBranches: Readonly<Record<string, string>>;
+  readonly mayHaveDispatched?: boolean;
 }): ConnectorBranchOutcome {
   const { kind, branch, requiredBranches, agentBranches } = options;
-  if (branch === defectBranch) {
-    return "failed";
-  }
-  if (branch === uncertainBranch) {
+  if (branch === uncertainBranch || (kind === "mutation" && branch === defectBranch)) {
     return "outcome_unknown";
   }
-  if (requiredBranches.has(branch)) {
+  if (branch !== defectBranch && requiredBranches.has(branch)) {
     return "succeeded";
+  }
+  if (kind === "mutation" && options.mayHaveDispatched === true) {
+    return "outcome_unknown";
   }
   const listed = Object.hasOwn(agentBranches, branch) ? agentBranches[branch] : undefined;
   if (listed === "rejected") {
@@ -264,6 +307,9 @@ export function classifyConnectorBranch(options: {
  * A call waits for `resolve_interrupt` when the manifest says `agent.approval: recommended`;
  * {@link ConnectorToolOptions.requiresApproval} overrides that. Arguments that break the schema never run, so
  * they never wait for approval.
+ *
+ * Changed in 0.5.0: the default tool name keeps an acronym run as one word, as the Connector library does:
+ * `listStoryIDs` becomes `list_story_ids`, not `list_story_i_d_s`.
  *
  * @example
  * ```ts
@@ -351,7 +397,7 @@ export function connectorTool<Input, Output>(
   const effect: ToolEffect =
     kind === "query" ? "read" : retry === "safe" ? "idempotent_write" : "non_idempotent_write";
   const inputValidator = options.inputValidator;
-  const toolName = options.name ?? `${connectorId}_${snakeCase(operationId)}`;
+  const toolName = options.name ?? `${connectorId}_${lowerCamelToSnake(operationId)}`;
   const invoke = async (call: Call, toolArguments: Readonly<Record<string, unknown>>): Promise<QueryResult<unknown>> => {
     const parsed = inputValidator.safeParse(toolArguments);
     if (!parsed.success) {
@@ -584,6 +630,7 @@ export class ConnectorToolSource implements ToolSource {
       branch: result.branch,
       requiredBranches: tool.requiredBranches,
       agentBranches: tool.agentBranches,
+      mayHaveDispatched: mayHaveDispatched(connectorCall, stepContext),
     });
     if (outcome === "succeeded") {
       return boundConnectorResult(encodeResultValue(result.value), tool.maxResultBytes ?? this.maxResultBytes);
@@ -704,18 +751,51 @@ function parseToolArguments(toolName: string, toolArguments: string): Readonly<R
   return values;
 }
 
-/** Reports whether this attempt's last saved fence marker proves the write was not sent. */
+/** Reports whether fence events leave open that the request was sent, as sdkgo does. */
+export function mayHaveDispatched(call: Call, context: ConnectorStepContext): boolean {
+  return observeFence(call, context).mayHaveDispatched;
+}
+
+/** Reports whether this attempt's fence recorded proof that the write was not sent. */
 export function isProvenNotSent(call: Call, context: ConnectorStepContext): boolean {
-  const marker = readSavedHeartbeatValue(context);
-  if (!isRecord(marker)) {
-    return false;
+  return observeFence(call, context).isProvenNotSent;
+}
+
+interface FenceObservation {
+  readonly mayHaveDispatched: boolean;
+  readonly isProvenNotSent: boolean;
+}
+
+function observeFence(call: Call, context: ConnectorStepContext): FenceObservation {
+  const evidence = readFenceEvidence(context, call.id);
+  const isClaimed = evidence?.isClaimed ?? false;
+  const hasNotSentProof = evidence?.hasNotSentProof ?? false;
+  const isPriorDispatchPossible = hasReadCheckpoint(context) && isPriorDispatchPossibleFor(call, context);
+  const isDispatchPossible = isClaimed || isPriorDispatchPossible;
+  return { mayHaveDispatched: isDispatchPossible, isProvenNotSent: hasNotSentProof && !isDispatchPossible };
+}
+
+/** Reports whether the earlier attempt's checkpoint denies this attempt a send. */
+function isPriorDispatchPossibleFor(call: Call, context: ConnectorStepContext): boolean {
+  const previousCheckpoint = readPreviousCheckpoint(context);
+  if (previousCheckpoint === undefined) {
+    // A lost checkpoint after attempt one may hide an earlier send.
+    return context.attempt > 1;
   }
-  return (
-    marker["callId"] === call.id &&
-    marker["attempt"] === context.attempt &&
-    (marker["state"] === "notSent" || marker["state"] === "canResend") &&
-    (marker["providerId"] === undefined || marker["providerId"] === "")
-  );
+  let previous: unknown;
+  try {
+    previous = JSON.parse(previousCheckpoint);
+  } catch {
+    return true;
+  }
+  // Not a marker or malformed: the fence fails closed, and so does this.
+  const isSendAllowed =
+    isFenceMarker(previous) &&
+    previous["callId"] === call.id &&
+    previous["attempt"] === context.attempt - 1 &&
+    (previous["state"] === "notSent" || previous["state"] === "canResend") &&
+    (previous["providerId"] === undefined || previous["providerId"] === "");
+  return !isSendAllowed;
 }
 
 function notSentDetail(tool: ConnectorTool, failure: Failure | undefined): string {
@@ -755,8 +835,43 @@ function boundedRetryPolicy(policy: {
   };
 }
 
-function snakeCase(identifier: string): string {
-  return identifier.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`).replace(/^_+/, "");
+/**
+ * Returns an operation ID in snake case, as connectorctl `lowerCamelToSnake` names the Python Step factories.
+ * @param operationId - The lower camel case operation ID, such as `listStoryIDs`.
+ * @returns The snake case name, such as `list_story_ids`.
+ */
+export function lowerCamelToSnake(operationId: string): string {
+  const characters = Array.from(operationId);
+  let converted = "";
+  for (const [index, character] of characters.entries()) {
+    if (!isAsciiUpper(character)) {
+      converted += character;
+      continue;
+    }
+    const previous = characters[index - 1];
+    const following = characters[index + 1];
+    const isPreviousLowerOrDigit = isAsciiLower(previous) || isAsciiDigit(previous);
+    // A trailing lowercase s pluralizes the acronym, as in listStoryIDs.
+    const isAcronymPlural = following === "s" && !isAsciiLower(characters[index + 2]);
+    const isEndOfAcronym = isAsciiUpper(previous) && isAsciiLower(following) && !isAcronymPlural;
+    if (isPreviousLowerOrDigit || isEndOfAcronym) {
+      converted += "_";
+    }
+    converted += character.toLowerCase();
+  }
+  return converted;
+}
+
+function isAsciiUpper(character: string | undefined): boolean {
+  return character !== undefined && character >= "A" && character <= "Z";
+}
+
+function isAsciiLower(character: string | undefined): boolean {
+  return character !== undefined && character >= "a" && character <= "z";
+}
+
+function isAsciiDigit(character: string | undefined): boolean {
+  return character !== undefined && character >= "0" && character <= "9";
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

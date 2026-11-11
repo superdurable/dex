@@ -163,6 +163,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Where is order 7?\"}",
+            "images": [],
             "role": "user",
             "sequence": 1,
             "text": "Where is order 7?",
@@ -175,6 +176,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"reasoning\\\",\\\"summary\\\":\\\"Look it up.\\\"}\",\"text\":null,\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 2,
             "text": null,
@@ -187,6 +189,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Let me check ☕.\\\"}\",\"text\":\"Let me check ☕.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 3,
             "text": "Let me check ☕.",
@@ -199,6 +202,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"lookup_order\\\",\\\"arguments\\\":\\\"{\\\\\\\"query\\\\\\\": \\\\\\\"7 – Grüße\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"lookup_order\",\"arguments\":\"{\\\"query\\\": \\\"7 – Grüße\\\"}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 4,
             "text": null,
@@ -211,6 +215,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"lookup_order\",\"output\":\"order 7 – Grüße: shipped\"}",
+            "images": [],
             "role": "tool",
             "sequence": 5,
             "text": null,
@@ -223,6 +228,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Order 7 shipped.\\\"}\",\"text\":\"Order 7 shipped.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 6,
             "text": "Order 7 shipped.",

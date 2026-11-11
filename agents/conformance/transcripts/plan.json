@@ -349,6 +349,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Plan the refund of order 7.\"}",
+            "images": [],
             "role": "user",
             "sequence": 1,
             "text": "Plan the refund of order 7.",
@@ -361,6 +362,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"write_todos\\\",\\\"arguments\\\":\\\"{\\\\\\\"todos\\\\\\\": [{\\\\\\\"content\\\\\\\": \\\\\\\"Look up order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"pending\\\\\\\"}, {\\\\\\\"content\\\\\\\": \\\\\\\"Refund order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"pending\\\\\\\"}]}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"pending\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"pending\\\"}]}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 2,
             "text": null,
@@ -373,6 +375,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"write_todos\",\"output\":\"{\\\"status\\\":\\\"updated\\\",\\\"revision\\\":1,\\\"task_count\\\":2}\"}",
+            "images": [],
             "role": "tool",
             "sequence": 3,
             "text": null,
@@ -385,6 +388,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Here is the plan.\\\"}\",\"text\":\"Here is the plan.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 4,
             "text": "Here is the plan.",
@@ -439,6 +443,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Plan the refund of order 7.\"}",
+            "images": [],
             "role": "user",
             "sequence": 1,
             "text": "Plan the refund of order 7.",
@@ -451,6 +456,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"write_todos\\\",\\\"arguments\\\":\\\"{\\\\\\\"todos\\\\\\\": [{\\\\\\\"content\\\\\\\": \\\\\\\"Look up order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"pending\\\\\\\"}, {\\\\\\\"content\\\\\\\": \\\\\\\"Refund order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"pending\\\\\\\"}]}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"pending\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"pending\\\"}]}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 2,
             "text": null,
@@ -463,6 +469,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"write_todos\",\"output\":\"{\\\"status\\\":\\\"updated\\\",\\\"revision\\\":1,\\\"task_count\\\":2}\"}",
+            "images": [],
             "role": "tool",
             "sequence": 3,
             "text": null,
@@ -475,6 +482,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Here is the plan.\\\"}\",\"text\":\"Here is the plan.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 4,
             "text": "Here is the plan.",
@@ -487,6 +495,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"[Dex] The user approved plan revision 1. Execute it and keep the task statuses current with write_todos.\"}",
+            "images": [],
             "role": "user",
             "sequence": 5,
             "text": "[Dex] The user approved plan revision 1. Execute it and keep the task statuses current with write_todos.",
@@ -499,6 +508,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-3-0\\\",\\\"name\\\":\\\"lookup_order\\\",\\\"arguments\\\":\\\"{\\\\\\\"query\\\\\\\": \\\\\\\"7\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"lookup_order\",\"arguments\":\"{\\\"query\\\": \\\"7\\\"}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 6,
             "text": null,
@@ -511,6 +521,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"lookup_order\",\"output\":\"order 7: shipped\"}",
+            "images": [],
             "role": "tool",
             "sequence": 7,
             "text": null,
@@ -523,6 +534,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-4-0\\\",\\\"name\\\":\\\"write_todos\\\",\\\"arguments\\\":\\\"{\\\\\\\"todos\\\\\\\": [{\\\\\\\"content\\\\\\\": \\\\\\\"Look up order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"completed\\\\\\\"}, {\\\\\\\"content\\\\\\\": \\\\\\\"Refund order 7\\\\\\\", \\\\\\\"status\\\\\\\": \\\\\\\"completed\\\\\\\"}]}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-4-0\",\"tool_name\":\"write_todos\",\"arguments\":\"{\\\"todos\\\": [{\\\"content\\\": \\\"Look up order 7\\\", \\\"status\\\": \\\"completed\\\"}, {\\\"content\\\": \\\"Refund order 7\\\", \\\"status\\\": \\\"completed\\\"}]}\"}]}",
+            "images": [],
             "role": "assistant",
             "sequence": 8,
             "text": null,
@@ -535,6 +547,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-4-0\",\"tool_name\":\"write_todos\",\"output\":\"{\\\"status\\\":\\\"updated\\\",\\\"revision\\\":2,\\\"task_count\\\":2}\"}",
+            "images": [],
             "role": "tool",
             "sequence": 9,
             "text": null,
@@ -547,6 +560,7 @@
           {
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Refunded.\\\"}\",\"text\":\"Refunded.\",\"tool_calls\":[]}",
+            "images": [],
             "role": "assistant",
             "sequence": 10,
             "text": "Refunded.",

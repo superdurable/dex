@@ -13,6 +13,7 @@ import type { V2Flow, V2SearchResult } from '@/lib/types';
 import { absorb, nothingHeld, readFailureReason, type Liveness } from '../work-queue/liveness';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
 import { filterValueType, parseFilterValues, type FilterRow } from './filters';
+import { webURL } from '@/lib/basePath';
 
 const EMPTY_WORK_QUEUE_PERMISSIONS: readonly string[] = [];
 
@@ -50,7 +51,7 @@ export function useFlowSearch(
     if (flowTypes.length === 0 || !definition) return;
     setLoading(true);
     try {
-      const response = await fetch('/api/v2/search', {
+      const response = await fetch(webURL('/api/v2/search'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

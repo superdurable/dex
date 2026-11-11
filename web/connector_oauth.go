@@ -136,7 +136,7 @@ func (setup *connectorSetup) handleOAuthStart(response http.ResponseWriter, requ
 		api.WriteCodedError(response, http.StatusBadRequest, "CONNECTOR_OAUTH_SETTING_INVALID", err.Error())
 		return
 	}
-	redirectURI := connectorOAuthRedirectURI(request)
+	redirectURI := setup.connectorOAuthRedirectURI(request)
 
 	state, err := randomConnectorToken(32)
 	if err != nil {
@@ -341,7 +341,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		ConnectionName: session.identity.ConnectionName, Configuration: session.configuration,
 		Credentials: credentials, CredentialExpiresAt: expiresAt,
 	}
-	if err := setup.putConnectionIfCurrent(request.Context(), connection, nil, session.connectionWrite); err != nil {
+	if err := setup.putConnectionIfCurrent(request.Context(), connection, nil, session.connectionWrite, true); err != nil {
 		if errors.Is(err, errConnectorConnectionChanged) {
 			api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_CHANGED",
 				"Connector connection changed during authorization; reload Connectors and start the authorization again")
@@ -350,7 +350,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		writeConnectorConnectionPutError(response, err, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
 		return
 	}
-	location := "/v1/connectors" +
+	location := joinBasePath(setup.basePath, "/v1/connectors") +
 		"?oauth=success&connectorId=" + url.QueryEscape(connection.ConnectorID) +
 		"&connectionName=" + url.QueryEscape(connection.ConnectionName)
 	http.Redirect(response, request, location, http.StatusSeeOther)
@@ -719,12 +719,13 @@ func declaredConnectorOAuthScopes(grant map[string]any) (map[string]bool, bool) 
 	return grantedScopes, true
 }
 
-func connectorOAuthRedirectURI(request *http.Request) string {
+// connectorOAuthRedirectURI is the callback URL under the Dex Web base path on the request's own origin.
+func (setup *connectorSetup) connectorOAuthRedirectURI(request *http.Request) string {
 	scheme := "http"
 	if request.TLS != nil {
 		scheme = "https"
 	}
-	return scheme + "://" + request.Host + "/api/v2/connector-oauth/callback"
+	return scheme + "://" + request.Host + joinBasePath(setup.basePath, "/api/v2/connector-oauth/callback")
 }
 
 func (setup *connectorSetup) deleteExpiredOAuthSessions(now time.Time) {

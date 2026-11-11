@@ -3,6 +3,10 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.0.11 - 2026-11-10
+
+- Remove the internal handler timeout rule from the `dex-sdk` Client wait guidance. Waits no longer have that setting.
+
 ## 1.0.10 - 2026-11-10
 
 - Classify Attribute Store sync as an Attribute feature, not a Component. Its rules move from `external-attribute-sync.md` into the Attribute Store sync section of `dex-sdk` `attribute.md`; the rules themselves are unchanged.

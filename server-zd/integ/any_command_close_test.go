@@ -29,13 +29,9 @@ func TestAnyCommandCloseFlowTemporal(t *testing.T) {
 	}
 }
 
-func TestAnyCommandCloseFlowTemporalContinueAsNew(t *testing.T) {
+func TestAnyCommandCloseFlowTemporalAsyncDurability(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestAnyCommandCloseFlow(
-			t,
-
-			minimumContinueAsNewAsyncDurabilityConfig(),
-		)
+		doTestAnyCommandCloseFlow(t, asyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

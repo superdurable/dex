@@ -119,19 +119,6 @@ describe('step graph', () => {
 
     expect(graph.nodes.find((node) => node.id === '__start__')).toMatchObject({
       label: 'Flow start',
-      previousRunId: '',
-    });
-  });
-
-  it('shows Continue-As-New lineage at the business topology source', () => {
-    const graph = buildStepGraph([
-      event(1, 'FlowStartedOrContinued', {}, {
-        continuedStart: { previousRunId: 'continued-run-id' },
-      }),
-    ]);
-
-    expect(graph.nodes.find((node) => node.id === '__start__')).toMatchObject({
-      previousRunId: 'continued-run-id',
     });
   });
 
@@ -418,7 +405,7 @@ describe('step graph', () => {
     });
   });
 
-  it('uses terminal SubFlow results restored in active continue-as-new state', () => {
+  it('uses terminal SubFlow results in active state', () => {
     const graph = buildStepGraph([], [{
       stepExecutionId: 'Parent-1',
       fromStepExecutionId: '__start__',

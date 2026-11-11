@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useMemo, useRef, useState, type JSX, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode, type RefObject } from 'react';
 import {
   ArrowDown,
   ArrowRight,
@@ -24,14 +24,16 @@ import type { FlowDefinitionGraph } from '@superdurable/flow-definition-renderer
 import { safeDecode } from './canvas/model/decode';
 import type { Branch, PocFlow, StepModel } from './canvas/model/pocFlow';
 import { ArrowDefs } from './canvas/render/ArrowDefs';
+import { paneHeightForWholeDrawing } from './canvas/render/camera';
 import { TileView } from './canvas/render/CardParts';
 import { Stage } from './canvas/render/Stage';
 import type { CanvasViewportHandle } from './canvas/render/viewport';
+import { FIT_MAX_ZOOM } from './canvas/render/zoom';
 import { useStageScene } from './canvas/useStageScene';
 import { detourMessage, hasDetour, isFailureHandling, withDetours } from './canvas/views/failureDetours';
 import { stageId } from './canvas/views/stageCard';
 import { stepTitle, tileOf } from './canvas/views/stepBox';
-import type { Direction } from './canvas/views/types';
+import type { Direction, Scene } from './canvas/views/types';
 import { Legend } from './flow/Legend';
 import { groupsFromDefinition } from './groupsFromGraph';
 import { stepContext } from './stepContext';
@@ -49,12 +51,18 @@ export function FlowDesignCanvas({
   graph,
   graphKey,
   connectorSettingsLink,
+  wholeMaxZoom,
+  onPreferredHeight,
 }: {
   graph: FlowDefinitionGraph;
   /** Identifies the definition; a new key redraws and refits the canvas. */
   graphKey: string;
   /** Shown in the Step panel of a Connector Step; omitted where no settings page exists. */
   connectorSettingsLink?: ReactNode;
+  /** Largest zoom for opening on, or fitting, the whole Flow; omitted for the default. */
+  wholeMaxZoom?: number;
+  /** Receives the height, in pixels, that opens on the whole Flow below the toolbar, per view and width. */
+  onPreferredHeight?: (heightPx: number) => void;
 }) {
   const [direction, setDirection] = useState<Direction>('tb');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -88,6 +96,15 @@ export function FlowDesignCanvas({
   }, [groups, openStageInPlace]);
 
   const selectedStep = flow.steps.find((step) => step.id === selectedId) ?? null;
+  const shellRef = useRef<HTMLDivElement>(null);
+  const { overlayInsetTopPx } = useReportPreferredCanvasHeight({
+    shellRef,
+    viewKey: `${graphKey}|${stages.view}`,
+    scene: stages.isSettled ? stages.scene : null,
+    isPanelOpen: selectedStep !== null,
+    wholeMaxZoom: wholeMaxZoom ?? FIT_MAX_ZOOM,
+    onPreferredHeight,
+  });
 
   if (flow.steps.length === 0 && flow.entries.length === 0) {
     return <div className="dg-empty">This Flow Definition Graph has no Steps to draw.</div>;
@@ -95,7 +112,7 @@ export function FlowDesignCanvas({
   if (!scene) return <div className="dg-empty">Drawing the Flow…</div>;
 
   return (
-    <div className="v2-shell dg" data-panel={selectedStep ? 'true' : undefined}>
+    <div ref={shellRef} className="v2-shell dg" data-panel={selectedStep ? 'true' : undefined}>
       <div className="pcanvas dg-canvas">
         <ArrowDefs />
         {/* Overlays on the canvas, not scene nodes: they stay readable at any zoom. Placed first so tab order reaches them before Step cards. */}
@@ -174,6 +191,8 @@ export function FlowDesignCanvas({
           fitKey={`${graphKey}|${stages.view}`}
           handleRef={viewportRef}
           showsZoomControls={false}
+          wholeMaxZoom={wholeMaxZoom}
+          insetTopPx={overlayInsetTopPx}
         />
         <p className="sr-only" aria-live="polite">{stages.cue?.message}</p>
         <p className="sr-only" aria-live="polite">{detourFor ? detourMessage(flow, detourFor) : ''}</p>
@@ -193,6 +212,81 @@ export function FlowDesignCanvas({
     </div>
   );
 }
+
+/**
+ * Reports one height per view and width; not while the Step panel is open.
+ * Returns `overlayInsetTopPx`: the pixels the overlays cover at the pane's top, or null when the host does not size the canvas.
+ */
+function useReportPreferredCanvasHeight({
+  shellRef,
+  viewKey,
+  scene,
+  isPanelOpen,
+  wholeMaxZoom,
+  onPreferredHeight,
+}: {
+  shellRef: RefObject<HTMLDivElement | null>;
+  /** Changes with the definition, the direction, and Collapsed or Expanded. */
+  viewKey: string;
+  /** The settled drawing, before failure detours; null while one is on its way. */
+  scene: Scene | null;
+  isPanelOpen: boolean;
+  wholeMaxZoom: number;
+  onPreferredHeight: ((heightPx: number) => void) | undefined;
+}): { overlayInsetTopPx: number | null } {
+  const [sizedView, setSizedView] = useState<{ viewKey: string; scene: Scene } | null>(null);
+  const [overlayInsetTopPx, setOverlayInsetTopPx] = useState<number | null>(null);
+  if (onPreferredHeight !== undefined && scene !== null && sizedView?.viewKey !== viewKey) setSizedView({ viewKey, scene });
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (onPreferredHeight === undefined || sizedView === null || shell === null || isPanelOpen) return undefined;
+    const measureAndReportHeight = (): void => {
+      const pane = shell.querySelector<HTMLElement>('.react-flow');
+      if (pane === null || pane.clientWidth < 8) return;
+      const shellBox = shell.getBoundingClientRect();
+      const paneBox = pane.getBoundingClientRect();
+      // The toolbar and corner controls float over the pane's top; the drawing opens below them.
+      const overlayBottom = Math.max(
+        paneBox.top,
+        ...Array.from(
+          shell.querySelectorAll('.dg-toolbar, .dg-zoom, .dg-legend-head'),
+          (overlayControl) => overlayControl.getBoundingClientRect().bottom,
+        ),
+      );
+      const insetTop = overlayBottom - paneBox.top + OVERLAY_GAP_PX;
+      setOverlayInsetTopPx(insetTop);
+      const paneHeight = paneHeightForWholeDrawing(sizedView.scene, pane.clientWidth, wholeMaxZoom, insetTop);
+      onPreferredHeight(Math.ceil(paneBox.top - shellBox.top + paneHeight + shellBox.bottom - paneBox.bottom));
+    };
+    measureAndReportHeight();
+    // Only a width change moves the answer; the height this reports would otherwise re-trigger it.
+    let observedShellWidth = shell.clientWidth;
+    const shellObserver = new ResizeObserver(() => {
+      if (shell.clientWidth === observedShellWidth) return;
+      observedShellWidth = shell.clientWidth;
+      measureAndReportHeight();
+    });
+    shellObserver.observe(shell);
+    // The toolbar grows when a late web font loads; its height never depends on the shell's height.
+    const toolbar = shell.querySelector<HTMLElement>('.dg-toolbar');
+    let observedToolbarHeight = toolbar?.offsetHeight ?? 0;
+    const toolbarObserver = new ResizeObserver(() => {
+      if (toolbar === null || toolbar.offsetHeight === observedToolbarHeight) return;
+      observedToolbarHeight = toolbar.offsetHeight;
+      measureAndReportHeight();
+    });
+    if (toolbar !== null) toolbarObserver.observe(toolbar);
+    return () => {
+      shellObserver.disconnect();
+      toolbarObserver.disconnect();
+    };
+  }, [isPanelOpen, onPreferredHeight, shellRef, sizedView, wholeMaxZoom]);
+  return { overlayInsetTopPx: onPreferredHeight === undefined ? null : overlayInsetTopPx };
+}
+
+/** Space below the overlays; a drawing opened on its start may lose its own frame margin. */
+const OVERLAY_GAP_PX = 8;
 
 const DIRECTION_OPTIONS: { id: Direction; label: string; Icon: typeof ArrowDown }[] = [
   { id: 'tb', label: 'Top to bottom', Icon: ArrowDown },

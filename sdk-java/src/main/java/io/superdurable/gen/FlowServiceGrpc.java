@@ -793,37 +793,6 @@ public final class FlowServiceGrpc {
     return getWaitForAttributeMethod;
   }
 
-  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.TriggerContinueAsNewRequest,
-      com.google.protobuf.Empty> getTriggerContinueAsNewMethod;
-
-  @io.grpc.stub.annotations.RpcMethod(
-      fullMethodName = SERVICE_NAME + '/' + "TriggerContinueAsNew",
-      requestType = io.superdurable.gen.TriggerContinueAsNewRequest.class,
-      responseType = com.google.protobuf.Empty.class,
-      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
-  public static io.grpc.MethodDescriptor<io.superdurable.gen.TriggerContinueAsNewRequest,
-      com.google.protobuf.Empty> getTriggerContinueAsNewMethod() {
-    io.grpc.MethodDescriptor<io.superdurable.gen.TriggerContinueAsNewRequest, com.google.protobuf.Empty> getTriggerContinueAsNewMethod;
-    if ((getTriggerContinueAsNewMethod = FlowServiceGrpc.getTriggerContinueAsNewMethod) == null) {
-      synchronized (FlowServiceGrpc.class) {
-        if ((getTriggerContinueAsNewMethod = FlowServiceGrpc.getTriggerContinueAsNewMethod) == null) {
-          FlowServiceGrpc.getTriggerContinueAsNewMethod = getTriggerContinueAsNewMethod =
-              io.grpc.MethodDescriptor.<io.superdurable.gen.TriggerContinueAsNewRequest, com.google.protobuf.Empty>newBuilder()
-              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
-              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "TriggerContinueAsNew"))
-              .setSampledToLocalTracing(true)
-              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
-                  io.superdurable.gen.TriggerContinueAsNewRequest.getDefaultInstance()))
-              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
-                  com.google.protobuf.Empty.getDefaultInstance()))
-              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("TriggerContinueAsNew"))
-              .build();
-        }
-      }
-    }
-    return getTriggerContinueAsNewMethod;
-  }
-
   private static volatile io.grpc.MethodDescriptor<com.google.protobuf.Empty,
       io.superdurable.gen.HealthInfo> getHealthCheckMethod;
 
@@ -1085,16 +1054,6 @@ public final class FlowServiceGrpc {
     }
 
     /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
-     * </pre>
-     */
-    default void triggerContinueAsNew(io.superdurable.gen.TriggerContinueAsNewRequest request,
-        io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
-      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getTriggerContinueAsNewMethod(), responseObserver);
-    }
-
-    /**
      */
     default void healthCheck(com.google.protobuf.Empty request,
         io.grpc.stub.StreamObserver<io.superdurable.gen.HealthInfo> responseObserver) {
@@ -1339,17 +1298,6 @@ public final class FlowServiceGrpc {
     }
 
     /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
-     * </pre>
-     */
-    public void triggerContinueAsNew(io.superdurable.gen.TriggerContinueAsNewRequest request,
-        io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
-      io.grpc.stub.ClientCalls.asyncUnaryCall(
-          getChannel().newCall(getTriggerContinueAsNewMethod(), getCallOptions()), request, responseObserver);
-    }
-
-    /**
      */
     public void healthCheck(com.google.protobuf.Empty request,
         io.grpc.stub.StreamObserver<io.superdurable.gen.HealthInfo> responseObserver) {
@@ -1553,16 +1501,6 @@ public final class FlowServiceGrpc {
     public io.superdurable.gen.WaitForAttributeResponse waitForAttribute(io.superdurable.gen.WaitForAttributeRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getWaitForAttributeMethod(), getCallOptions(), request);
-    }
-
-    /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
-     * </pre>
-     */
-    public com.google.protobuf.Empty triggerContinueAsNew(io.superdurable.gen.TriggerContinueAsNewRequest request) {
-      return io.grpc.stub.ClientCalls.blockingUnaryCall(
-          getChannel(), getTriggerContinueAsNewMethod(), getCallOptions(), request);
     }
 
     /**
@@ -1796,17 +1734,6 @@ public final class FlowServiceGrpc {
     }
 
     /**
-     * <pre>
-     * Deprecated: Dex does not continue Flows as new. This RPC always returns UNIMPLEMENTED.
-     * </pre>
-     */
-    public com.google.common.util.concurrent.ListenableFuture<com.google.protobuf.Empty> triggerContinueAsNew(
-        io.superdurable.gen.TriggerContinueAsNewRequest request) {
-      return io.grpc.stub.ClientCalls.futureUnaryCall(
-          getChannel().newCall(getTriggerContinueAsNewMethod(), getCallOptions()), request);
-    }
-
-    /**
      */
     public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.HealthInfo> healthCheck(
         com.google.protobuf.Empty request) {
@@ -1840,8 +1767,7 @@ public final class FlowServiceGrpc {
   private static final int METHODID_UPDATE_FLOW_CONFIG = 22;
   private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 23;
   private static final int METHODID_WAIT_FOR_ATTRIBUTE = 24;
-  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 25;
-  private static final int METHODID_HEALTH_CHECK = 26;
+  private static final int METHODID_HEALTH_CHECK = 25;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -1959,10 +1885,6 @@ public final class FlowServiceGrpc {
         case METHODID_WAIT_FOR_ATTRIBUTE:
           serviceImpl.waitForAttribute((io.superdurable.gen.WaitForAttributeRequest) request,
               (io.grpc.stub.StreamObserver<io.superdurable.gen.WaitForAttributeResponse>) responseObserver);
-          break;
-        case METHODID_TRIGGER_CONTINUE_AS_NEW:
-          serviceImpl.triggerContinueAsNew((io.superdurable.gen.TriggerContinueAsNewRequest) request,
-              (io.grpc.stub.StreamObserver<com.google.protobuf.Empty>) responseObserver);
           break;
         case METHODID_HEALTH_CHECK:
           serviceImpl.healthCheck((com.google.protobuf.Empty) request,
@@ -2162,13 +2084,6 @@ public final class FlowServiceGrpc {
               io.superdurable.gen.WaitForAttributeResponse>(
                 service, METHODID_WAIT_FOR_ATTRIBUTE)))
         .addMethod(
-          getTriggerContinueAsNewMethod(),
-          io.grpc.stub.ServerCalls.asyncUnaryCall(
-            new MethodHandlers<
-              io.superdurable.gen.TriggerContinueAsNewRequest,
-              com.google.protobuf.Empty>(
-                service, METHODID_TRIGGER_CONTINUE_AS_NEW)))
-        .addMethod(
           getHealthCheckMethod(),
           io.grpc.stub.ServerCalls.asyncUnaryCall(
             new MethodHandlers<
@@ -2248,7 +2163,6 @@ public final class FlowServiceGrpc {
               .addMethod(getUpdateFlowConfigMethod())
               .addMethod(getWaitForStepCompletionMethod())
               .addMethod(getWaitForAttributeMethod())
-              .addMethod(getTriggerContinueAsNewMethod())
               .addMethod(getHealthCheckMethod())
               .build();
         }

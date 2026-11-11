@@ -814,9 +814,8 @@ func testWebHistoryAndSummary(
 				}}},
 			}},
 			FlowConfigOverride: &dexpb.FlowConfig{
-				ContinueAsNewThreshold: ptr.Any(int32(1)),
-				StepDurability:         ptr.Any(durability),
-				WorkerTarget:           workerTarget,
+				StepDurability: ptr.Any(durability),
+				WorkerTarget:   workerTarget,
 			},
 			TimeoutHandlerOptions: &dexpb.FlowTimeoutHandlerOptions{
 				MethodTimeoutSeconds:      20,
@@ -839,8 +838,8 @@ func testWebHistoryAndSummary(
 		RunId:  startResponse.GetRunId(),
 	})
 	require.NoError(t, err)
-	require.Equal(t, flowID, summary.GetFlowExecutionId().GetFlowId())
-	require.Equal(t, startResponse.GetRunId(), summary.GetFlowExecutionId().GetRunId())
+	require.Equal(t, flowID, summary.GetFlowRunId().GetFlowId())
+	require.Equal(t, startResponse.GetRunId(), summary.GetFlowRunId().GetRunId())
 	require.Equal(t, requestID, summary.GetRequestId())
 	require.Equal(t, basic.FlowType, summary.GetFlowType())
 	require.NotNil(t, summary.GetStartTime())
@@ -911,61 +910,7 @@ func testWebHistoryAndSummary(
 		attributePayload,
 	)
 
-	continuedToRunID := continuedToRunID(firstRunEvents)
-	require.NotEmpty(t, continuedToRunID)
-	continuedEvents, _ := getAllWebHistoryEvents(
-		t,
-		ctx,
-		runtime.FlowClient,
-		flowID,
-		continuedToRunID,
-	)
-	require.NotEmpty(t, continuedEvents)
-	continuedFlowStarted := continuedEvents[0].GetFlowStartedOrContinued()
-	require.Equal(t, time.Minute, continuedFlowStarted.GetFlowTimeout().AsDuration())
-	require.Equal(
-		t,
-		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
-		continuedFlowStarted.GetFlowTimeoutPolicy(),
-	)
-	require.Equal(t, int32(20), continuedFlowStarted.GetTimeoutHandlerOptions().GetMethodTimeoutSeconds())
-	require.Equal(t, int32(10), continuedFlowStarted.GetTimeoutHandlerOptions().GetHeartbeatTimeoutSeconds())
-	require.Equal(t, int32(3), continuedFlowStarted.GetTimeoutHandlerOptions().GetRetryPolicy().GetMaximumAttempts())
-	require.Equal(t, []string{"web-test-map/"}, continuedFlowStarted.GetTimeoutHandlerOptions().GetLoadAttributeMapInstances())
-	continuedStart := continuedFlowStarted.GetContinuedStart()
-	require.NotNil(t, continuedStart)
-	require.Equal(t, startResponse.GetRunId(), continuedStart.GetPreviousRunId())
-	require.True(
-		t,
-		len(continuedStart.GetStepsToStart()) > 0 ||
-			len(continuedStart.GetStepsToResume()) > 0 ||
-			len(continuedStart.GetCompletedSteps()) > 0,
-	)
-	continuedStep := firstStepEvent(continuedEvents)
-	require.NotNil(t, continuedStep)
-	continuedExecute := firstExecuteEvent(continuedEvents)
-	require.NotNil(t, continuedExecute)
-	assertStepMethodRequestValues(
-		t,
-		ctx,
-		runtime.FlowClient,
-		flowID,
-		continuedStep.GetInput().GetStepInput(),
-		continuedStep.GetInput().GetAttributes(),
-		stepInput,
-		attributePayload,
-	)
-	assertStepMethodRequestValues(
-		t,
-		ctx,
-		runtime.FlowClient,
-		flowID,
-		continuedExecute.GetInput().GetStepInput(),
-		continuedExecute.GetInput().GetAttributes(),
-		stepInput,
-		attributePayload,
-	)
-	closeOutput := firstWebCloseOutput(continuedEvents)
+	closeOutput := firstWebCloseOutput(firstRunEvents)
 	require.NotNil(t, closeOutput)
 	require.NotEmpty(t, closeOutput.GetInternalBlobIdForStringValue())
 	loadedCloseOutput, err := runtime.FlowClient.LoadBlobs(
@@ -1006,7 +951,7 @@ func testWebHistoryAndSummary(
 	)
 	require.NoError(t, err)
 	require.False(t, waitResponse.GetEventAvailable())
-	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW, waitResponse.GetFlowStatus())
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, waitResponse.GetFlowStatus())
 
 }
 
@@ -1870,13 +1815,4 @@ func assertExternalChannelValuesLoad(
 
 func largeWebTestValue(prefix string) string {
 	return prefix + "-" + strings.Repeat("value", 300)
-}
-
-func continuedToRunID(events []*dexpb.FlowHistoryEvent) string {
-	for _, event := range events {
-		if event.GetFlowClosed().GetContinuedToRunId() != "" {
-			return event.GetFlowClosed().GetContinuedToRunId()
-		}
-	}
-	return ""
 }

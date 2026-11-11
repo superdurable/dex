@@ -136,12 +136,12 @@ test("signals, mapped signals, and skipped timer form one combination", async ()
   });
 });
 
-test("execute-only Steps survive Continue-As-New", async () => {
+test("execute-only Steps survive Flow configuration", async () => {
   const flow = new ExecuteOnlyFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("skip-wait-until");
     await client.startFlow(flow, id, 0, {
-      configOverride: { continueAsNewThreshold: 1 },
+      configOverride: { historyWindowEvents: 2500 },
     });
     assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 2);
   });
