@@ -18,12 +18,12 @@
 use std::sync::LazyLock;
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc, RpcList, Step,
-    StepDecision, StepList, StepMovement, Wait,
+    Channel, Context, Flow, HandlerError, HandlerResult, Join, JoinRound, PersistenceSchema, Rpc,
+    RpcList, Step, StepDecision, StepList, StepMovement, Wait,
 };
 use serde::{Deserialize, Serialize};
 
-use super::sorted;
+use super::{JoinBranchBuilder, sorted};
 
 static INVOICE_RECEIVED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("invoiceReceived"));
@@ -147,10 +147,18 @@ fn single_condition_result(context: &Context, channel: &Channel<String>) -> Hand
         .ok_or_else(|| HandlerError::new("MissingChannelMessage", "the join consumed no message"))
 }
 
-static PARCEL_PACKED: LazyLock<Channel<usize>> = LazyLock::new(|| Channel::new("parcelPacked"));
+static PARCEL_PACKED: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parcelPacked"));
 
-/// WCP-42 Thread Split and WCP-41 Thread Merge: GoToMany starts several
-/// executions of one Step type, and the merge waits for one message each.
+/// One parcel of a shipment, packed in its own thread.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParcelPacking {
+    pub index: usize,
+    pub round: JoinRound,
+}
+
+/// WCP-42 Thread Split and WCP-41 Thread Merge: a Join forks several
+/// executions of one Step type, and the merge waits for one result each.
 #[derive(Default)]
 pub struct ThreadSplitMergeFlow {
     split_shipment: SplitShipment,
@@ -168,7 +176,7 @@ impl Flow for ThreadSplitMergeFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&PARCEL_PACKED)
+        PersistenceSchema::new().join(&PARCEL_PACKED)
     }
 }
 
@@ -180,13 +188,26 @@ impl Step for SplitShipment {
 
     fn execute(
         &self,
-        _context: &mut Context,
+        context: &mut Context,
         parcel_count: Self::Input,
     ) -> HandlerResult<StepDecision> {
-        let parcels = (0..parcel_count).map(|index| StepMovement::to(&PackParcel, index));
-        Ok(StepDecision::go_to_many(
-            parcels.chain([StepMovement::to(&MergeParcels, parcel_count)]),
-        ))
+        let parcels = (0..parcel_count)
+            .map(|index| {
+                Box::new(move |round: &JoinRound| {
+                    StepMovement::to(
+                        &PackParcel,
+                        ParcelPacking {
+                            index,
+                            round: round.clone(),
+                        },
+                    )
+                }) as JoinBranchBuilder
+            })
+            .collect();
+        let movements = PARCEL_PACKED.fork(context, parcels, |round| {
+            StepMovement::to(&MergeParcels, round)
+        })?;
+        Ok(StepDecision::go_to_many(movements))
     }
 }
 
@@ -194,11 +215,10 @@ impl Step for SplitShipment {
 struct PackParcel;
 
 impl Step for PackParcel {
-    type Input = usize;
+    type Input = ParcelPacking;
 
-    fn execute(&self, context: &mut Context, index: Self::Input) -> HandlerResult<StepDecision> {
-        PARCEL_PACKED.publish(context, index)?;
-        Ok(StepDecision::dead_end())
+    fn execute(&self, context: &mut Context, parcel: Self::Input) -> HandlerResult<StepDecision> {
+        PARCEL_PACKED.end_branch(context, &parcel.round, parcel.index)
     }
 }
 
@@ -206,18 +226,14 @@ impl Step for PackParcel {
 struct MergeParcels;
 
 impl Step for MergeParcels {
-    type Input = usize;
+    type Input = JoinRound;
 
-    fn wait_for(&self, _context: &mut Context, parcel_count: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(PARCEL_PACKED.for_n(parcel_count)))
+    fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(PARCEL_PACKED.for_all_branches(&round)))
     }
 
-    fn execute(
-        &self,
-        context: &mut Context,
-        _parcel_count: Self::Input,
-    ) -> HandlerResult<StepDecision> {
-        let packed_parcels = PARCEL_PACKED.condition_results(context)?;
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        let packed_parcels = PARCEL_PACKED.branch_results(context, &round)?;
         Ok(StepDecision::graceful_complete(sorted(packed_parcels)))
     }
 }

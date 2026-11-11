@@ -19,6 +19,8 @@ package io.superdurable.dex.patterns.workflowpatterns;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.Join;
+import io.superdurable.dex.JoinRound;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
@@ -29,6 +31,8 @@ import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /** WCP-29 and WCP-32: the join fires, then its decision cancels the remaining branches. */
 @Component
 public class CancellingPartialJoinFlow implements Flow<Integer> {
@@ -38,9 +42,13 @@ public class CancellingPartialJoinFlow implements Flow<Integer> {
             Channel.define("carrierBReleased", String.class);
     public static final Channel<String> carrierCReleased =
             Channel.define("carrierCReleased", String.class);
-    public static final Channel<String> bidReceived = Channel.define("bidReceived", String.class);
+    public static final Join<String> bidReceived = Join.define("bidReceived", String.class);
     public static final Channel<String> carrierBookingConfirmed =
             Channel.define("carrierBookingConfirmed", String.class);
+
+    /** The join of one bid round: the bids it needs and the round it waits on. */
+    public record BidJoin(int requiredBids, JoinRound round) {
+    }
 
     private final RequestBids requestBids = new RequestBids();
     private final BidFromCarrierA bidFromCarrierA = new BidFromCarrierA();
@@ -110,86 +118,86 @@ public class CancellingPartialJoinFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer requiredBids) {
-            return StepDecision.goToMany(
-                    StepMovement.of(BidFromCarrierA.class, null),
-                    StepMovement.of(BidFromCarrierB.class, null),
-                    StepMovement.of(BidFromCarrierC.class, null),
-                    StepMovement.of(AcceptBids.class, requiredBids));
+            return StepDecision.goToMany(bidReceived.fork(
+                    context,
+                    List.of(
+                            round -> StepMovement.of(BidFromCarrierA.class, round),
+                            round -> StepMovement.of(BidFromCarrierB.class, round),
+                            round -> StepMovement.of(BidFromCarrierC.class, round)),
+                    round -> StepMovement.of(AcceptBids.class, new BidJoin(requiredBids, round))));
         }
     }
 
-    static final class BidFromCarrierA implements Step<Void> {
+    static final class BidFromCarrierA implements Step<JoinRound> {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Void input) {
+        public Wait waitFor(final Context context, final JoinRound round) {
             return Wait.until(carrierAReleased.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            bidReceived.publish(context, "A");
-            return StepDecision.deadEnd();
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return bidReceived.endBranch(context, round, "A");
         }
     }
 
-    static final class BidFromCarrierB implements Step<Void> {
+    static final class BidFromCarrierB implements Step<JoinRound> {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Void input) {
+        public Wait waitFor(final Context context, final JoinRound round) {
             return Wait.until(carrierBReleased.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            bidReceived.publish(context, "B");
-            return StepDecision.deadEnd();
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return bidReceived.endBranch(context, round, "B");
         }
     }
 
-    static final class BidFromCarrierC implements Step<Void> {
+    static final class BidFromCarrierC implements Step<JoinRound> {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Void input) {
+        public Wait waitFor(final Context context, final JoinRound round) {
             return Wait.until(carrierCReleased.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            bidReceived.publish(context, "C");
-            return StepDecision.deadEnd();
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return bidReceived.endBranch(context, round, "C");
         }
     }
 
-    static final class AcceptBids implements Step<Integer> {
+    static final class AcceptBids implements Step<BidJoin> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<BidJoin> getInputType() {
+            return BidJoin.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer requiredBids) {
-            return Wait.until(bidReceived.forN(requiredBids));
+        public Wait waitFor(final Context context, final BidJoin bidJoin) {
+            return Wait.until(bidReceived.forBranches(bidJoin.round(), bidJoin.requiredBids()));
         }
 
         @Override
         @SuppressWarnings("unchecked")
-        public StepDecision execute(final Context context, final Integer requiredBids) {
-            final String[] accepted =
-                    bidReceived.getConditionResults(context).stream().sorted().toArray(String[]::new);
+        public StepDecision execute(final Context context, final BidJoin bidJoin) {
+            final String[] accepted = bidReceived.getBranchResults(context, bidJoin.round()).stream()
+                    .sorted()
+                    .toArray(String[]::new);
             return StepDecision.goTo(ConfirmCarrierBooking.class, accepted)
-                    .withCancelingSteps(
+                    .withCancelingSiblingSteps(
                             BidFromCarrierA.class, BidFromCarrierB.class, BidFromCarrierC.class);
         }
     }

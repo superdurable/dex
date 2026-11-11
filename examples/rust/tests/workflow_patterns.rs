@@ -55,8 +55,8 @@ use dex_examples_rust::workflow_patterns::multiple_instances::{
     DesignTimeMultipleInstancesFlow, DynamicPartialJoinForMultipleInstancesFlow,
     GET_QUEUED_QUORUM_RELEASE_COUNT, GET_STARTED_ANALYSIS_COUNT,
     GET_STARTED_DESIGN_TIME_REVIEW_COUNT, GET_STARTED_EVALUATION_COUNT,
-    GET_STARTED_RUN_TIME_REVIEW_COUNT, IS_BID_ADMISSION_CLOSED, InspectedUnits, InspectionPlan,
-    InspectionRound, MultipleInstancesWithoutSynchronizationFlow,
+    GET_STARTED_RUN_TIME_REVIEW_COUNT, IGNORED_INSPECTIONS, IS_BID_ADMISSION_CLOSED,
+    InspectedUnits, InspectionPlan, InspectionRound, MultipleInstancesWithoutSynchronizationFlow,
     NoPriorKnowledgeMultipleInstancesFlow, OPEN_BID_GATE, OPEN_DESIGN_TIME_REVIEW_GATE,
     OPEN_RUN_TIME_REVIEW_GATE, OPEN_SAMPLE_GATE, RELEASE_INSPECTIONS, RELEASE_INVITATIONS,
     RELEASE_QUORUM_INSPECTIONS, RunTimeMultipleInstancesFlow, SIGN_CONTRACT, StartInspections,
@@ -65,9 +65,10 @@ use dex_examples_rust::workflow_patterns::multiple_instances::{
 use dex_examples_rust::workflow_patterns::partial_joins::{
     AcceptBids, AcceptedQuotes, BidFromCarrierA, BlockingJoinRound, BlockingPartialJoinFlow,
     CONFIRM_CARRIER_BOOKING, CancellingPartialJoinFlow, FiredBranchesRound,
-    GET_QUEUED_BRANCH_SIGNAL_COUNT, GET_QUEUED_CARRIER_RELEASE_COUNT, IgnoredQuotes, PlaceOrder,
-    ProcessRound, QuoteFromSupplierA, QuoteFromSupplierC, QuoteRound, RELEASE_CARRIER_BID,
-    RELEASE_SUPPLIER_QUOTE, RequestQuotes, SEND_BRANCH_SIGNAL, StructuredPartialJoinFlow,
+    GET_QUEUED_BRANCH_SIGNAL_COUNT, GET_QUEUED_CARRIER_RELEASE_COUNT, IGNORED_QUOTES,
+    IgnoredQuotes, PlaceOrder, ProcessRound, QuoteFromSupplierA, QuoteFromSupplierC, QuoteRound,
+    RELEASE_CARRIER_BID, RELEASE_SUPPLIER_QUOTE, RequestQuotes, SEND_BRANCH_SIGNAL,
+    StructuredPartialJoinFlow,
 };
 use dex_examples_rust::workflow_patterns::state_based::{
     ACCEPT_OFFER, APPROVE_RELEASE, CriticalSectionFlow, DECLINE_OFFER, DeferredChoiceFlow,
@@ -225,6 +226,15 @@ impl WorkflowPatternsEnvironment {
                 panic!("wait for an Attribute of {flow_id} to become {expected:?}: {error}")
             });
         assert_eq!(observed, expected);
+    }
+
+    /// Reads a committed Attribute that the Flow must have set.
+    fn read_attribute<T: Value>(&self, flow_id: &str, attribute: &Attribute<T>) -> T {
+        let (value,) = self
+            .client
+            .get_attributes(flow_id, (attribute,))
+            .unwrap_or_else(|error| panic!("read an Attribute of {flow_id}: {error}"));
+        value.unwrap_or_else(|| panic!("{flow_id} has no value for the Attribute"))
     }
 
     fn flow_status(&self, flow_id: &str) -> FlowStatus {
@@ -529,6 +539,7 @@ fn first_quote_round(required_quotes: usize) -> QuoteRound {
         required_quotes,
         round: 1,
         round_count: 2,
+        previous_round: None,
     }
 }
 
@@ -560,8 +571,8 @@ fn wcp09_structured_discriminator_fires_once_per_round() {
         [accepted_quotes(1, &["A"]), accepted_quotes(2, &["B"])]
     );
     assert_eq!(
-        single_output_of::<IgnoredQuotes>(&result, "ResetQuoteJoin"),
-        ignored_quotes(2, &["A", "C"])
+        environment.read_attribute(&flow_id, &IGNORED_QUOTES),
+        ignored_quotes(1, &["B", "C"])
     );
 }
 
@@ -598,8 +609,8 @@ fn wcp30_structured_partial_join_fires_once_per_round() {
         ]
     );
     assert_eq!(
-        single_output_of::<IgnoredQuotes>(&result, "ResetQuoteJoin"),
-        ignored_quotes(2, &["B"])
+        environment.read_attribute(&flow_id, &IGNORED_QUOTES),
+        ignored_quotes(1, &["C"])
     );
 }
 
@@ -620,6 +631,7 @@ fn wcp28_blocking_discriminator_blocks_a_next_round_signal_until_the_reset() {
         BlockingJoinRound {
             required_signals: 1,
             round: 1,
+            previous_round: None,
         },
     );
     let signal = |branch: &str| {
@@ -655,6 +667,7 @@ fn wcp31_blocking_partial_join_blocks_next_round_signals_until_the_reset() {
         BlockingJoinRound {
             required_signals: 2,
             round: 1,
+            previous_round: None,
         },
     );
     let signal = |branch: &str| {
@@ -884,6 +897,7 @@ fn wcp34_static_partial_join_for_instances_fires_once_per_round() {
             required_inspections: 2,
             round: 1,
             round_count: 2,
+            previous_round: None,
         },
     );
     environment.invoke(&flow_id, RELEASE_INSPECTIONS, 2);
@@ -905,16 +919,16 @@ fn wcp34_static_partial_join_for_instances_fires_once_per_round() {
         assert_eq!(units.len(), 2);
         assert!(units.is_subset(&BTreeSet::from([0, 1, 2])));
     }
-    let ignored: InspectedUnits = single_output_of(&result, "ResetInspectionJoin");
-    assert_eq!(ignored.round, 2);
+    let ignored = environment.read_attribute(&flow_id, &IGNORED_INSPECTIONS);
+    assert_eq!(ignored.round, 1);
     assert_eq!(ignored.unit_indexes.len(), 1);
-    let round_two_units: BTreeSet<usize> = batches[1]
+    let round_one_units: BTreeSet<usize> = batches[0]
         .unit_indexes
         .iter()
         .chain(&ignored.unit_indexes)
         .copied()
         .collect();
-    assert_eq!(round_two_units, BTreeSet::from([0, 1, 2]));
+    assert_eq!(round_one_units, BTreeSet::from([0, 1, 2]));
 }
 
 #[test]

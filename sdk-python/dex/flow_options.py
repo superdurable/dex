@@ -193,10 +193,11 @@ class StartFlowOptions:
             ``ignore_already_started`` is ``True`` and this request ID matches
             the request that started that run. Without that option, the retry
             raises ``FlowAlreadyStartedError`` even when the first attempt
-            created the Flow. The match applies only when the ID reuse policy
-            rejects the start. A policy that permits another run starts a new
-            run instead. Dex compares only request IDs, not input or other
-            options, so never reuse a request ID for a different logical start.
+            created the Flow. The match uses the latest run of the Flow ID and
+            takes precedence over the ID reuse policy. A retry never starts a
+            second run or terminates the run it started. Dex compares only
+            request IDs, not input or other options, so never reuse a request
+            ID for a different logical start.
 
     Examples:
         >>> options = (

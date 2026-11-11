@@ -15,19 +15,19 @@
  */
 
 import {
-  Channel,
+  Join,
   StepList,
   StepMovement,
   Wait,
-  deadEnd,
   doubleCodec,
   goToMany,
   gracefulComplete,
+  joinRoundCodec,
   stringCodec,
-  voidCodec,
   withCancelingSiblingSteps,
   type Context,
   type Flow,
+  type JoinRound,
   type PersistenceSchema,
   type Step,
   type StepDecision,
@@ -122,32 +122,35 @@ export class DynamicParallelStepsFlow implements Flow<number> {
   }
 }
 
-const completeCh = new Channel("parallel-complete", voidCodec);
+const workCompleted = new Join("parallel-complete", doubleCodec);
 
-class AwaitDoWork implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+interface WorkItem {
+  readonly index: number;
+  readonly round: JoinRound;
+}
+
+class AwaitDoWork implements Step<WorkItem> {
   public getStepType(): string {
     return "DoWork";
   }
-  public async execute(context: Context, _input: number): Promise<StepDecision> {
+  public async execute(context: Context, item: WorkItem): Promise<StepDecision> {
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
     });
-    completeCh.publish(context, undefined);
-    return deadEnd();
+    return workCompleted.endBranch(context, item.round, item.index);
   }
 }
 
-class Await implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+class Await implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
   public getStepType(): string {
     return "Await";
   }
-  public waitFor(_context: Context, count: number): Wait {
-    return Wait.until(completeCh.forN(count));
+  public waitFor(_context: Context, round: JoinRound): Wait {
+    return Wait.until(workCompleted.forAllBranches(round));
   }
-  public execute(_context: Context, count: number): StepDecision {
-    return gracefulComplete(count);
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return gracefulComplete(workCompleted.branchResults(context, round).length);
   }
 }
 
@@ -156,11 +159,14 @@ class AwaitInit implements Step<number> {
   public getStepType(): string {
     return "Init";
   }
-  public execute(_context: Context, count: number): StepDecision {
+  public execute(context: Context, count: number): StepDecision {
     return goToMany(
-      StepMovement.of(Await, count),
-      ...Array.from({ length: count }, (_, index) =>
-        StepMovement.of(AwaitDoWork, index),
+      ...workCompleted.fork(
+        context,
+        Array.from({ length: count }, (_, index) => (round: JoinRound) =>
+          StepMovement.of(AwaitDoWork, { index, round }),
+        ),
+        (round) => StepMovement.of(Await, round),
       ),
     );
   }
@@ -177,7 +183,7 @@ export class AwaitParallelStepsFlow implements Flow<number> {
     return StepList.startStep(this.init).otherSteps(this.work, this.awaitStep);
   }
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [completeCh] };
+    return { channels: [workCompleted] };
   }
 }
 
