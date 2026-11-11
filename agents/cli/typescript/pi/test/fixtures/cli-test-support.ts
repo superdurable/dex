@@ -255,6 +255,7 @@ export class TestHome {
     return {
       PATH: process.env.PATH ?? "",
       HOME: this.directory,
+      TMPDIR: tmpdir(),
       DEXCLI: dexcli,
       ...(process.env.DEX_SERVER_ZD_BINARY === undefined ? {} : { DEX_SERVER_ZD_BINARY: process.env.DEX_SERVER_ZD_BINARY }),
       DEX_AGENTS_DEX_PORT: String(this.ports.dexPort),

@@ -9,14 +9,16 @@
 // Timing and file ownership cases that the command cannot reach reliably as a child process.
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
-import { WorkspaceFiles } from "@superdurable/dex-agents-cli";
+import type { DeferredToolExecution } from "@superdurable/dex-agents";
+import { TurnConfigResolver, WorkspaceFiles, resolveConfig, type HarnessContext } from "@superdurable/dex-agents-cli";
 
-import { ProjectContextFiles } from "../../src/index.js";
+import { PiCodingToolSource, ProjectContextFiles, piHarness } from "../../src/index.js";
 import { PiToolCallOperations } from "../../src/pi-tool-call-operations.js";
 
 function newRoot(): string {
@@ -36,7 +38,55 @@ describe("local file access of the Pi tools", () => {
     await assert.rejects(operations.findMatchingPaths("*", workspace, 1000), /the turn was cancelled/);
   });
 
-  test("an ancestor's context file linked into its own subtree is skipped, and a sibling link loads", async () => {
+  test("a cancelled bash call with a cut output leaves no temporary file", async () => {
+    const workspace = newRoot();
+    const command = "seq 1 200000; sleep 30";
+    const effective = resolveConfig(
+      { local_tools: { browser: false, shell: { enabled: true, allow: [command] } } },
+      piHarness.configSection,
+      piHarness.defaultModel,
+    );
+    const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined));
+    const context: HarnessContext = {
+      flowType: "PiLocalFileAccessTest",
+      config: effective,
+      workspace,
+      instructions: null,
+      harnessOptions: {},
+      toolSources: [],
+      resolveTurn: (settings) => turns.resolveTurn(settings),
+      currentTurn: () => turns.currentTurn(),
+      resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
+    };
+    const outputFiles = (): string[] => readdirSync(tmpdir()).filter((name) => name.startsWith("pi-bash-"));
+    const filesBefore = new Set(outputFiles());
+    const cancellation = new AbortController();
+    const execution = {
+      flowId: "pi-local-file-access",
+      toolCall: {
+        toolCallId: "call-1",
+        turnId: "turn-1",
+        toolName: "bash",
+        arguments: JSON.stringify({ command }),
+        effect: "non_idempotent_write",
+        requiresApproval: false,
+      },
+      idempotencyKey: "pi-local-file-access/turn-1/call-1",
+      attempt: 1,
+      events: { writeEvent: () => undefined },
+      cancellationSignal: cancellation.signal,
+      deadline: undefined,
+      heartbeat: () => Promise.resolve(),
+    } as unknown as DeferredToolExecution;
+    const running = new PiCodingToolSource(context).executeDeferredToolCall(execution);
+    await delay(2_000);
+    assert.ok(outputFiles().some((name) => !filesBefore.has(name)), "Pi keeps the cut output in a temporary file");
+    cancellation.abort(new Error("the turn was cancelled"));
+    await assert.rejects(running);
+    assert.deepEqual(outputFiles().filter((name) => !filesBefore.has(name)), []);
+  });
+
+  test("an ancestor's context file that is a link is skipped, and a workspace link to a sibling loads", async () => {
     const root = newRoot();
     const workspace = join(root, "workspace");
     mkdirSync(join(root, "sub"), { recursive: true });
@@ -52,7 +102,7 @@ describe("local file access of the Pi tools", () => {
       files.map((file) => file.content),
       ["Workspace rules.\n"],
     );
-    assert.match(warnings.join("\n"), new RegExp(`${root}/AGENTS\\.md: it resolves to .*outside its directory`));
+    assert.match(warnings.join("\n"), new RegExp(`${root}/AGENTS\\.md: it is a link in a directory above the workspace`));
   });
 
   test("an ancestor's context file of another user is skipped; the workspace's is not checked", async (context) => {

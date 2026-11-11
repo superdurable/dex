@@ -219,8 +219,10 @@ export class WorkspaceFiles {
    * one hard link, as for {@link readFile}.
    *
    * @param path - The file, relative to the workspace or absolute inside it.
-   * @param maximumBytes - The largest file to read, at most and by default 64 MiB. It reads at most one byte more.
+   * @param maximumBytes - The largest file to read, a whole number of bytes from 0 to 64 MiB, the default. It reads at
+   * most one byte more.
    * @returns The content and its version.
+   * @throws {TypeError} When `maximumBytes` is not a whole number from 0 to 64 MiB.
    * @throws {WorkspaceFileRefusedError} When the path is outside, missing, not a regular file, hard-linked, or larger than
    * `maximumBytes`.
    * @since 0.5.0
@@ -229,7 +231,10 @@ export class WorkspaceFiles {
     path: string,
     maximumBytes: number = maximumWholeFileBytes,
   ): Promise<{ bytes: Buffer; version: WorkspaceFileVersion }> {
-    const limit = Math.min(Math.max(0, Math.floor(maximumBytes)), maximumWholeFileBytes);
+    if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0 || maximumBytes > maximumWholeFileBytes) {
+      throw new TypeError(`maximumBytes must be a whole number from 0 to ${maximumWholeFileBytes}`);
+    }
+    const limit = maximumBytes;
     const file = await this.openRegularFile(path);
     try {
       const bytes = await readAtMost(file.handle, limit);

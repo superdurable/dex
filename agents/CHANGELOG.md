@@ -83,21 +83,27 @@ for the Dex SDK and framework versions each release supports.
   provider's API key variable. pi-coding-agent's `read`, `grep`, `find`, `ls`,
   `write`, `edit`, and `bash` replace the runtime's file and shell tools, with
   the same rules: their file access goes through the runtime's workspace file
-  layer, and `bash` has the shell tool's 120-second default timeout
-  (`pi.bash_timeout_seconds`). Each model call adds the workspace's
-  `AGENTS.md` unless `pi.load_project_context` is `false`; a context file
-  linked out of its directory is skipped. See
+  layer. `bash` has the shell tool's 120-second default timeout
+  (`pi.bash_timeout_seconds`) and its 600-second maximum, and a command that
+  ran is a result with its exit status. `grep` and `find` walk the workspace
+  themselves, without `rg` or `fd`; `grep` skips files over 1 MiB, and each
+  call of either has a 10-second budget. Each model call adds the project's
+  `AGENTS.md` files unless `pi.load_project_context` is `false`: a file loads
+  only directly in its own directory, a file above the workspace must belong
+  to you or root, and a link above the workspace never loads. See
   [cli/typescript/pi](cli/typescript/pi/README.md).
 - TypeScript CLI runtime: **WorkspaceFiles**, the workspace file layer of the
   local file tools, is exported for harnesses that bring their own file tools,
-  with new methods **readFileWithVersion**, **replaceFileIfUnchanged**,
-  **statExisting**, and **readDirectoryEntries**. A refusal throws the new
+  with new methods **readFileWithVersion** (with an optional smaller
+  **maximumBytes**), **replaceFileIfUnchanged**, **statExisting**, and
+  **readDirectoryEntries**. A refusal throws the new
   **WorkspaceFileRefusedError**, a `ToolExecutionError` thrown before anything
   changed. See
   [cli/typescript/runtime](cli/typescript/runtime/README.md#the-harness-interface).
-- TypeScript CLI runtime: `read_file` and `edit_file` open files without
-  blocking, so a FIFO in the workspace fails at once as not a regular file
-  instead of hanging the call, as in the Python runtime.
+- TypeScript CLI runtime: `read_file`, `edit_file`, and `search_files` open
+  files without blocking, so a FIFO in the workspace fails at once as not a
+  regular file, or is skipped by a search, instead of hanging the call, as in
+  the Python runtime.
 - Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
   (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
   Claude Code CLI from its input. It returns a **ToolPolicy** for that call,

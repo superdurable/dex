@@ -46,9 +46,9 @@ interface ContextDirectory {
  *
  * The real path of each directory is pinned the first time the loader sees it and never derived again. A candidate
  * loads only when its real path is directly in its pinned directory: a link to a file elsewhere, even below that
- * directory, is skipped, as is a file with more than one hard link. In an ancestor of the workspace, a file must
- * belong to the current user or root, so another user's file in a shared directory such as `/tmp` never reaches the
- * instructions. Each skipped file is reported once through `warn`.
+ * directory, is skipped, as is a file with more than one hard link. In an ancestor of the workspace, a candidate
+ * that is a link is skipped, and a file must belong to the current user or root, so another user's file in a shared
+ * directory such as `/tmp` never reaches the instructions. Each skipped file is reported once through `warn`.
  *
  * @since 0.5.0
  */
@@ -104,7 +104,12 @@ export class ProjectContextFiles {
       if (candidate === undefined) {
         continue;
       }
-      const file = await this.readCandidate(candidate, directory);
+      if (candidate.isSymbolicLink && directory.isOwnershipChecked) {
+        // Another user may own the link while its target is ours, so links above the workspace never load.
+        this.warnOnce(candidate.path, "it is a link in a directory above the workspace");
+        continue;
+      }
+      const file = await this.readCandidate(candidate.path, directory);
       if (file !== undefined) {
         loaded.push(file);
       }
@@ -112,8 +117,8 @@ export class ProjectContextFiles {
     return loaded;
   }
 
-  /** Returns the first context file name in a directory that is a regular file or a link to one. */
-  private async findCandidate(directory: string): Promise<string | undefined> {
+  /** Returns the first context file in a directory that is a regular file or a link to one. */
+  private async findCandidate(directory: string): Promise<{ path: string; isSymbolicLink: boolean } | undefined> {
     for (const name of contextFileNames) {
       const path = join(directory, name);
       const entry = await lstat(path).catch(() => undefined);
@@ -123,7 +128,7 @@ export class ProjectContextFiles {
       // stat never blocks, even on a FIFO, and follows a link to see what it names.
       const target = entry.isSymbolicLink() ? await stat(path).catch(() => undefined) : entry;
       if (target?.isFile() === true) {
-        return path;
+        return { path, isSymbolicLink: entry.isSymbolicLink() };
       }
     }
     return undefined;

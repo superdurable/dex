@@ -7,9 +7,6 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { realpathSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { basename, dirname } from "node:path";
 
 import {
   createBashTool,
@@ -44,6 +41,7 @@ import {
 } from "@superdurable/dex-agents-cli";
 import { piAgentFunctionTool, type PiAgentToolLike } from "@superdurable/dex-agents-pi";
 
+import { BashOutputFiles } from "./bash-output-files.js";
 import { maximumShellTimeoutSeconds } from "./local-shell-execution.js";
 import { PiToolCallOperations } from "./pi-tool-call-operations.js";
 import { WorkspaceGrep, type WorkspaceGrepArguments } from "./workspace-grep.js";
@@ -424,38 +422,34 @@ function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolC
 
 /**
  * Makes a command that ran a result, as the runtime shell tool does: a non-zero exit, which Pi reports as an error,
- * and a timeout kill, which Pi throws, become output the model reads. A cut output's note no longer names Pi's
- * temporary file, which is deleted.
+ * and a timeout kill, which Pi throws, become output the model reads. Pi's temporary file of a cut output is deleted,
+ * after a cancellation too, and the result no longer names it.
  */
 function bashResultsAsOutput(tool: PiAgentToolLike, operations: PiToolCallOperations): PiAgentToolLike {
   return {
     ...tool,
     execute: async (toolCallId, params, signal, onUpdate) => {
+      const outputFiles = await BashOutputFiles.beforeCall();
       let text: string;
+      let isThrownMessage = false;
       try {
-        const result = await tool.execute(toolCallId, params, signal, onUpdate);
+        const result = await tool.execute(toolCallId, params, signal, (partialResult) => {
+          outputFiles.noteDetails(partialResult.details);
+          onUpdate?.(partialResult);
+        });
+        outputFiles.noteDetails(result.details);
         text = result.content.map((part) => (part.type === "text" ? part.text : "")).join("\n");
       } catch (error: unknown) {
         if (!operations.hasTimedOut || signal?.aborted === true) {
+          await outputFiles.removeFromText(describe(error), true);
           throw error;
         }
         text = describe(error);
+        isThrownMessage = true;
       }
-      return { content: [{ type: "text", text: await withoutTemporaryOutputPath(text) }] };
+      return { content: [{ type: "text", text: await outputFiles.removeFromText(text, isThrownMessage) }] };
     },
   };
-}
-
-/** Replaces Pi's "Full output: <temporary file>" note and deletes that file, which lies outside the workspace. */
-async function withoutTemporaryOutputPath(text: string): Promise<string> {
-  const match = /Full output: (\S+?)\]/.exec(text);
-  const temporaryPath = match?.[1];
-  if (temporaryPath === undefined || !basename(temporaryPath).startsWith("pi-bash") || dirname(temporaryPath) !== tmpdir()) {
-    return text;
-  }
-  // A leftover temporary file is harmless, so a failed delete does not fail the call.
-  await rm(temporaryPath, { force: true }).catch(() => undefined);
-  return text.replace(match?.[0] ?? "", "The full output is not kept; run the command again with less output]");
 }
 
 function readRecordedRefusal(toolSourceReference: string | null | undefined): string | null {
