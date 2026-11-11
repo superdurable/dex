@@ -45,9 +45,11 @@ type fakeDefinitionFlowService struct {
 	// failure makes the definition RPCs fail with this error.
 	failure error
 	// oversized Flow types make any GetFlowDefinitions call that asks for one fail with ResourceExhausted.
-	oversized     map[string]bool
-	listCalls     int
-	readFlowTypes [][]string
+	oversized map[string]bool
+	// isRepeatingPageToken makes every page after the first name the same next page token.
+	isRepeatingPageToken bool
+	listCalls            int
+	readFlowTypes        [][]string
 }
 
 func newFakeDefinitionFlowService(definitions map[string]string) *fakeDefinitionFlowService {
@@ -84,6 +86,9 @@ func (s *fakeDefinitionFlowService) ListFlowDefinitions(
 	response := &dexpb.ListFlowDefinitionsResponse{FlowTypes: flowTypes[start:end]}
 	if end < len(flowTypes) {
 		response.NextPageToken = strconv.Itoa(end)
+	}
+	if s.isRepeatingPageToken && request.GetNextPageToken() != "" {
+		response.NextPageToken = request.GetNextPageToken()
 	}
 	return response, nil
 }
@@ -415,7 +420,7 @@ func TestFlowTypeDefinitionRouteServesOneFlowTypeWithRevision(t *testing.T) {
 	})
 	handler := newDefinitionTestServer(t, "", service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/flow-definitions/"+url.PathEscape("Agent/Session"), nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/flow-definitions/by-type?flowType="+url.QueryEscape("Agent/Session"), nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	var body struct {
@@ -453,7 +458,7 @@ func TestFlowTypeDefinitionRouteServesOneFlowTypeWithRevision(t *testing.T) {
 		t.Fatal("reading one Flow type listed every definition")
 	}
 
-	notModified := httptest.NewRequest(http.MethodGet, "/api/flow-definitions/"+url.PathEscape("Agent/Session"), nil)
+	notModified := httptest.NewRequest(http.MethodGet, "/api/flow-definitions/by-type?flowType="+url.QueryEscape("Agent/Session"), nil)
 	notModified.Header.Set("If-None-Match", strconv.Quote(body.DefinitionRevision))
 	notModifiedResponse := httptest.NewRecorder()
 	handler.ServeHTTP(notModifiedResponse, notModified)
@@ -462,7 +467,7 @@ func TestFlowTypeDefinitionRouteServesOneFlowTypeWithRevision(t *testing.T) {
 	}
 
 	missingResponse := httptest.NewRecorder()
-	handler.ServeHTTP(missingResponse, httptest.NewRequest(http.MethodGet, "/api/flow-definitions/MissingFlow", nil))
+	handler.ServeHTTP(missingResponse, httptest.NewRequest(http.MethodGet, "/api/flow-definitions/by-type?flowType=MissingFlow", nil))
 	if missingResponse.Code != http.StatusNotFound || !strings.Contains(missingResponse.Body.String(), "FLOW_DEFINITION_NOT_FOUND") {
 		t.Fatalf("missing response = %d %s", missingResponse.Code, missingResponse.Body.String())
 	}
@@ -475,7 +480,7 @@ func TestV2RoutesLoadOnlyTheirFlowTypeAndCheckItsRevision(t *testing.T) {
 	})
 	handler := newDefinitionTestServer(t, "", service)
 	revisionResponse := httptest.NewRecorder()
-	handler.ServeHTTP(revisionResponse, httptest.NewRequest(http.MethodGet, "/api/flow-definitions/RefundFlow", nil))
+	handler.ServeHTTP(revisionResponse, httptest.NewRequest(http.MethodGet, "/api/flow-definitions/by-type?flowType=RefundFlow", nil))
 	revision := strings.Trim(revisionResponse.Header().Get("ETag"), `"`)
 	if revision == "" {
 		t.Fatalf("RefundFlow response = %d %s", revisionResponse.Code, revisionResponse.Body.String())

@@ -62,10 +62,16 @@ func serveFlowDefinitions(provider flowDefinitionLookup) http.HandlerFunc {
 }
 
 // serveFlowTypeDefinitions returns the definitions of one Flow type, so a run page reads only its own.
+// The Flow type is a query parameter because browsers rewrite a "." or ".." path segment.
 // It answers 304 when If-None-Match names the current revision.
 func serveFlowTypeDefinitions(provider flowDefinitionLookup) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		flowType := request.PathValue("flowType")
+		flowTypes := request.URL.Query()["flowType"]
+		if len(flowTypes) != 1 {
+			api.WriteCodedError(response, http.StatusBadRequest, "FLOW_TYPE_INVALID", "Send exactly one flowType query parameter")
+			return
+		}
+		flowType := flowTypes[0]
 		if flowType == "" || len(flowType) > maxRequestedFlowTypeBytes || !utf8.ValidString(flowType) {
 			api.WriteCodedError(response, http.StatusBadRequest, "FLOW_TYPE_INVALID", "Flow type is empty, too long, or not UTF-8")
 			return
@@ -112,10 +118,12 @@ func serveFlowDefinitionTypes(provider flowDefinitionLookup) http.HandlerFunc {
 	}
 }
 
+// requestMatchesETag applies the weak comparison that If-None-Match uses, including "*".
 func requestMatchesETag(request *http.Request, revision string) bool {
 	quoted := fmt.Sprintf("%q", revision)
 	for _, candidate := range strings.Split(request.Header.Get("If-None-Match"), ",") {
-		if strings.TrimSpace(candidate) == quoted {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == quoted {
 			return true
 		}
 	}

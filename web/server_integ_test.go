@@ -449,7 +449,7 @@ func TestWebServerLoadsFlowDefinitionsAtStartup(t *testing.T) {
 		t.Fatalf("unexpected multiple-Flow definition: %+v", catalog.Definitions[1])
 	}
 
-	billingResponse := get(t, harness.http.URL+"/api/flow-definitions/Billing")
+	billingResponse := get(t, harness.http.URL+"/api/flow-definitions/by-type?flowType=Billing")
 	defer billingResponse.Body.Close()
 	var billing struct {
 		DefinitionRevision string `json:"definitionRevision"`

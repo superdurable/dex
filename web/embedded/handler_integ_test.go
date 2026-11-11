@@ -235,7 +235,7 @@ func TestHandlerRoutesEachRequestToItsOwnDexServer(t *testing.T) {
 // A Target without FlowRenderingDirectory reads the definitions its own Dex Server stores.
 func TestHandlerServesUploadedDefinitionsWithoutADirectory(t *testing.T) {
 	host := newHostApplication(t, &embedded.Config{})
-	uploaded := host.send(t, http.MethodGet, "/dex-web/server-a/api/flow-definitions/UploadedFlow", "", nil)
+	uploaded := host.send(t, http.MethodGet, "/dex-web/server-a/api/flow-definitions/by-type?flowType=UploadedFlow", "", nil)
 	if uploaded.status != http.StatusOK || !strings.Contains(uploaded.body, `"source":"uploaded"`) ||
 		!strings.Contains(uploaded.body, `"v2":{"flowType":"UploadedFlow"`) {
 		t.Fatalf("UploadedFlow on server-a = %d %s", uploaded.status, uploaded.body)
@@ -249,7 +249,7 @@ func TestHandlerServesUploadedDefinitionsWithoutADirectory(t *testing.T) {
 	if catalog.status != http.StatusOK || !strings.Contains(catalog.body, `"flowType":"UploadedFlow"`) {
 		t.Fatalf("catalog on server-a = %d %s", catalog.status, catalog.body)
 	}
-	other := host.send(t, http.MethodGet, "/dex-web/server-b/api/flow-definitions/UploadedFlow", "", nil)
+	other := host.send(t, http.MethodGet, "/dex-web/server-b/api/flow-definitions/by-type?flowType=UploadedFlow", "", nil)
 	if other.status != http.StatusNotFound {
 		t.Fatalf("UploadedFlow on server-b = %d %s", other.status, other.body)
 	}

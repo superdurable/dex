@@ -30,6 +30,14 @@ const (
 	maxFlowDefinitionDepth = 128
 	// maxFlowDefinitionConnectorSteps bounds the Connector release lookups one definition causes.
 	maxFlowDefinitionConnectorSteps = 200
+	// maxFlowDefinitionDiagnostics bounds the diagnostics listed under a graph.
+	maxFlowDefinitionDiagnostics = 1000
+	// maxFlowDefinitionGroups bounds the Step groups of a Version 2.0 graph.
+	maxFlowDefinitionGroups = 1000
+	// maxFlowDefinitionGroupedSteps bounds the Step IDs of all groups; each Step joins at most one group.
+	maxFlowDefinitionGroupedSteps = maxFlowDefinitionNodes
+	// maxFlowDefinitionV2Items bounds each list in the v2 block, such as Actions or Display fields.
+	maxFlowDefinitionV2Items = 256
 )
 
 // checkFlowDefinitionDocumentLimits walks the JSON tokens iteratively, so deep nesting cannot exhaust the stack.
@@ -63,7 +71,7 @@ func checkFlowDefinitionDocumentLimits(data []byte) error {
 	}
 }
 
-// checkFlowDefinitionGraphLimits bounds the node, edge, and Connector Step counts of a parsed graph.
+// checkFlowDefinitionGraphLimits bounds the node and edge counts of a parsed graph.
 func checkFlowDefinitionGraphLimits(nodes []json.RawMessage, edges []json.RawMessage) error {
 	if len(nodes) > maxFlowDefinitionNodes {
 		return fmt.Errorf("it has %d nodes; the limit is %d", len(nodes), maxFlowDefinitionNodes)
@@ -71,6 +79,11 @@ func checkFlowDefinitionGraphLimits(nodes []json.RawMessage, edges []json.RawMes
 	if len(edges) > maxFlowDefinitionEdges {
 		return fmt.Errorf("it has %d edges; the limit is %d", len(edges), maxFlowDefinitionEdges)
 	}
+	return nil
+}
+
+// checkFlowDefinitionConnectorSteps bounds the Connector Steps of nodes that checkFlowDefinitionElements accepted.
+func checkFlowDefinitionConnectorSteps(nodes []json.RawMessage) error {
 	connectorSteps := 0
 	for _, raw := range nodes {
 		var node struct {

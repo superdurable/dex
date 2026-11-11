@@ -125,6 +125,12 @@ func flowDefinitionFromGraph(file string, graph []byte) (flowDefinition, error) 
 	if err := checkFlowDefinitionGraphLimits(header.Nodes, header.Edges); err != nil {
 		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s is too large: %w", file, err)
 	}
+	if err := checkFlowDefinitionElements(header.Nodes, header.Edges, header.Diagnostics); err != nil {
+		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s is malformed: %w", file, err)
+	}
+	if err := checkFlowDefinitionConnectorSteps(header.Nodes); err != nil {
+		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s is too large: %w", file, err)
+	}
 	if header.SchemaVersion == "2.0" && (header.Groups == nil || header.V2 == nil) {
 		return flowDefinition{}, fmt.Errorf("Flow Definition Graph 2.0 %s must contain groups and v2", file)
 	}
@@ -176,9 +182,15 @@ func validateFlowDefinitionV2(file string, graph []byte, header flowDefinitionHe
 	if err := decodeStrictFlowDefinitionJSON(document["groups"], &groups); err != nil {
 		return fmt.Errorf("Flow Definition Graph 2.0 %s has malformed groups: %w", file, err)
 	}
+	if len(groups) > maxFlowDefinitionGroups {
+		return fmt.Errorf("Flow Definition Graph 2.0 %s is too large: it has %d groups; the limit is %d", file, len(groups), maxFlowDefinitionGroups)
+	}
 	groupIDs := make(map[string]bool, len(groups))
 	stepIDs := make(map[string]bool)
 	for _, group := range groups {
+		if len(stepIDs)+len(group.StepIDs) > maxFlowDefinitionGroupedSteps {
+			return fmt.Errorf("Flow Definition Graph 2.0 %s is too large: its groups name more than %d Steps", file, maxFlowDefinitionGroupedSteps)
+		}
 		if !flowDefinitionGroupIDPattern.MatchString(group.ID) || strings.TrimSpace(group.Label) == "" || len(group.StepIDs) == 0 {
 			return fmt.Errorf("Flow Definition Graph 2.0 %s has an invalid group", file)
 		}
@@ -196,6 +208,9 @@ func validateFlowDefinitionV2(file string, graph []byte, header flowDefinitionHe
 	var definition api.V2Definition
 	if err := decodeStrictFlowDefinitionJSON(document["v2"], &definition); err != nil {
 		return fmt.Errorf("Flow Definition Graph 2.0 %s has malformed v2: %w", file, err)
+	}
+	if err := checkV2DefinitionItemCounts(definition); err != nil {
+		return fmt.Errorf("Flow Definition Graph 2.0 %s is too large: %w", file, err)
 	}
 	if err := validateV2Definition(definition); err != nil {
 		return fmt.Errorf("Flow Definition Graph 2.0 %s has invalid v2: %w", file, err)

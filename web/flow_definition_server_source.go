@@ -58,8 +58,11 @@ func (s *serverFlowDefinitionSource) listFlowTypes(ctx context.Context) ([]strin
 			return flowTypes, fmt.Errorf("list uploaded Flow definitions: %w", err)
 		}
 		flowTypes = append(flowTypes, response.GetFlowTypes()...)
-		if response.GetNextPageToken() == "" || response.GetNextPageToken() == pageToken {
+		if response.GetNextPageToken() == "" {
 			return flowTypes, nil
+		}
+		if response.GetNextPageToken() == pageToken {
+			return flowTypes, fmt.Errorf("list uploaded Flow definitions: the server repeated page token %q", pageToken)
 		}
 		pageToken = response.GetNextPageToken()
 	}

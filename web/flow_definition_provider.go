@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,6 +30,8 @@ import (
 const (
 	flowDefinitionSourceInvalid     = "FLOW_DEFINITION_INVALID"
 	flowDefinitionSourceUnavailable = "FLOW_DEFINITION_SOURCE_UNAVAILABLE"
+	// maxFlowNameScanBytes bounds how much of an oversized directory file Dex Web reads to find flow.name.
+	maxFlowNameScanBytes = 64 << 20
 )
 
 // Where one definition came from, as the catalog reports it.
@@ -104,6 +107,8 @@ type flowDefinitionDocument struct {
 	uploadedAt  *time.Time
 	// readErr is set when the document could not be read, so only it is invalid.
 	readErr error
+	// declaredFlowName is the flow.name of a file too large to read whole, so the directory still claims it.
+	declaredFlowName string
 }
 
 // DirectoryFlowDefinitionProvider reloads directory definitions on every request.
@@ -312,6 +317,12 @@ func readDirectoryDefinitionFiles(directory string) ([]flowDefinitionDocument, e
 		}
 		if info.Size() > maxFlowDefinitionBytes {
 			document.readErr = fmt.Errorf("Flow Definition Graph exceeds %d bytes: %s", maxFlowDefinitionBytes, document.path)
+			flowName, scanErr := scanFlowDefinitionFlowName(filePath)
+			if scanErr != nil {
+				document.readErr = fmt.Errorf("Flow Definition Graph exceeds %d bytes, and its flow.name could not be read: %s: %w",
+					maxFlowDefinitionBytes, document.path, scanErr)
+			}
+			document.declaredFlowName = flowName
 			documents = append(documents, document)
 			return nil
 		}
@@ -325,6 +336,64 @@ func readDirectoryDefinitionFiles(directory string) ([]flowDefinitionDocument, e
 	})
 	sort.Slice(documents, func(left int, right int) bool { return documents[left].path < documents[right].path })
 	return documents, err
+}
+
+// scanFlowDefinitionFlowName streams an oversized file to its top-level flow.name without reading it whole.
+// It returns "" when the file is not an object or has no flow object within maxFlowNameScanBytes.
+func scanFlowDefinitionFlowName(filePath string) (flowName string, returnErr error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer func() { returnErr = errors.Join(returnErr, file.Close()) }()
+	decoder := json.NewDecoder(io.LimitReader(file, maxFlowNameScanBytes))
+	opening, err := decoder.Token()
+	if err != nil {
+		return "", err
+	}
+	if opening != json.Delim('{') {
+		return "", nil
+	}
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return "", err
+		}
+		if key != "flow" {
+			if err := skipJSONValue(decoder); err != nil {
+				return "", err
+			}
+			continue
+		}
+		var flow struct {
+			Name string `json:"name"`
+		}
+		if err := decoder.Decode(&flow); err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(flow.Name), nil
+	}
+	return "", nil
+}
+
+// skipJSONValue reads past one value token by token, so a large value is never held whole.
+func skipJSONValue(decoder *json.Decoder) error {
+	depth := 0
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		switch token {
+		case json.Delim('{'), json.Delim('['):
+			depth++
+		case json.Delim('}'), json.Delim(']'):
+			depth--
+		}
+		if depth == 0 {
+			return nil
+		}
+	}
 }
 
 // buildFlowDefinitions validates each document on its own, so a bad document marks only itself invalid.
@@ -386,6 +455,9 @@ func validateFlowDefinitionDocument(name string, document flowDefinitionDocument
 func fallbackFlowName(document flowDefinitionDocument) string {
 	if document.flowType != "" {
 		return document.flowType
+	}
+	if document.declaredFlowName != "" {
+		return document.declaredFlowName
 	}
 	var header struct {
 		Flow struct {

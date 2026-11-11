@@ -174,7 +174,7 @@ func (pages *sitePages) newTargetRouteMux(routes targetRoutes) *http.ServeMux {
 		})
 	}
 	mux.HandleFunc("GET /api/flow-definitions", serveFlowDefinitions(routes.flowDefinitions))
-	mux.HandleFunc("GET /api/flow-definitions/{flowType}", serveFlowTypeDefinitions(routes.flowDefinitions))
+	mux.HandleFunc("GET /api/flow-definitions/by-type", serveFlowTypeDefinitions(routes.flowDefinitions))
 	mux.HandleFunc("GET /api/flow-definition-types", serveFlowDefinitionTypes(routes.flowDefinitions))
 	if routes.connectorSetup != nil {
 		routes.connectorSetup.registerHandlers(mux)
