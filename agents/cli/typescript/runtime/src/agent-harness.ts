@@ -105,6 +105,18 @@ export interface AgentHarness {
    */
   readonly replacedLocalTools?: readonly LocalToolGroup[];
   /**
+   * Whether the harness's runner fixes its tools when the Flow is built, instead of listing the tool sources in
+   * every model call. Defaults to `false`; every TypeScript adapter lists them per model call.
+   *
+   * With `true`, the runtime lists the connector tools the file enables before it calls
+   * {@link createSessionFlow}, so the connector source's `cachedTools()` holds them. When the connectors MCP server
+   * does not answer at startup, or that listing fails, the command warns that this run has no connector tools and
+   * that a restart brings them back. The Python runtime calls it `is_tool_set_fixed_at_build`.
+   *
+   * @since 0.5.0
+   */
+  readonly isToolSetFixedAtBuild?: boolean;
+  /**
    * Builds the session Flow. The runtime calls it once at startup and registers the Flow in its Worker and Client.
    *
    * @param context - The configuration, the instructions, the tool sources, and the per-turn resolver.

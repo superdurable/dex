@@ -172,6 +172,8 @@ search:
   outboxPollInterval: 100ms
   outboxAckInterval: 1s
   outboxMaxAckEntries: 10000
+flowDefinitions:
+  maxDefinitionBytes: 8388608
 limits:
   # Active state of one run; history and superseded values do not count.
   maxFlowStateBytes: 67108864

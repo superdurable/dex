@@ -23,6 +23,12 @@ adapter depends on the published core instead.
 | [`python/claude-agent-sdk`](python/claude-agent-sdk) | [`dex-agents-claude-agent-sdk`](https://pypi.org/project/dex-agents-claude-agent-sdk/) | Claude Agent SDK |
 | [`cli/python/runtime`](cli/python/runtime) | `dex-agents-cli` (`dex_agents_cli`), not published yet | Shared runtime of the Python CLI commands: configuration, `dexcli dev`, connector and local tools, terminal chat |
 | [`cli/python/claude-sdk`](cli/python/claude-sdk) | `dex-agents-claude-sdk-cli`, not published yet | The `dex-agents-claude-sdk` command: a Claude Agent SDK agent in the terminal |
+| [`cli/python/openai-sdk`](cli/python/openai-sdk) | `dex-agents-openai-sdk-cli`, not published yet | The `dex-agents-openai-sdk` command: an OpenAI Agents SDK agent in the terminal |
+| [`cli/python/pydantic-ai`](cli/python/pydantic-ai) | `dex-agents-pydantic-ai-cli`, not published yet | The `dex-agents-pydantic-ai` command: a Pydantic AI agent in the terminal |
+| [`cli/python/deepagents`](cli/python/deepagents) | `dex-agents-deepagents-cli`, not published yet | The `dex-agents-deepagents` command: a Deep Agents agent on the LangGraph adapter in the terminal |
+| [`cli/python/google-adk`](cli/python/google-adk) | `dex-agents-google-adk-cli`, not published yet | The `dex-agents-google-adk` command: a Google ADK agent in the terminal |
+| [`cli/python/builtin`](cli/python/builtin) | `dex-agents-builtin-cli`, not published yet | The `dex-agents-builtin` command: the Dex built-in agent loop on LiteLLM in the terminal |
+| [`cli/python/testing`](cli/python/testing) | `dex-agents-cli-testing`, never published | Test support of the Python commands: model API stubs, fixtures, and shared terminal scenarios |
 | [`typescript/core`](typescript/core) | [`@superdurable/dex-agents`](https://www.npmjs.com/package/@superdurable/dex-agents) | Shared session Flow, the built-in agent loop (`/builtin-loop`), the AI SDK model client (`/ai-sdk`, optional peer `ai`), connector tools (`/connectors`, optional peer `@superdurable/connectors-sdk`), and `/testing` |
 | [`go/core`](go/core) | `github.com/superdurable/dex/agents/go/core` (package `dexagents`), not tagged yet | Shared session Flow, the built-in agent loop (`builtinloop`), the OpenAI and Anthropic model clients (`openaimodel`, `anthropicmodel`), and `agentstest` |
 | [`typescript/vercel-ai`](typescript/vercel-ai) | [`@superdurable/dex-agents-vercel-ai`](https://www.npmjs.com/package/@superdurable/dex-agents-vercel-ai) | Vercel AI SDK |
@@ -30,6 +36,10 @@ adapter depends on the published core instead.
 | [`typescript/mastra`](typescript/mastra) | [`@superdurable/dex-agents-mastra`](https://www.npmjs.com/package/@superdurable/dex-agents-mastra) | Mastra |
 | [`typescript/claude-agent-sdk`](typescript/claude-agent-sdk) | [`@superdurable/dex-agents-claude-agent-sdk`](https://www.npmjs.com/package/@superdurable/dex-agents-claude-agent-sdk) | Claude Agent SDK |
 | [`cli/typescript/claude-sdk`](cli/typescript/claude-sdk) | `@superdurable/dex-agents-claude-sdk-cli`, not published yet | The `dex-agents-claude-sdk` command: a Claude Agent SDK agent in the terminal |
+| [`cli/typescript/openai-sdk`](cli/typescript/openai-sdk) | `@superdurable/dex-agents-openai-sdk-cli`, not published yet | The `dex-agents-openai-sdk` command: an OpenAI Agents SDK agent in the terminal |
+| [`cli/typescript/vercel-ai`](cli/typescript/vercel-ai) | `@superdurable/dex-agents-vercel-ai-cli`, not published yet | The `dex-agents-vercel-ai` command: a Vercel AI SDK agent in the terminal |
+| [`cli/typescript/mastra`](cli/typescript/mastra) | `@superdurable/dex-agents-mastra-cli`, not published yet | The `dex-agents-mastra` command: a Mastra agent in the terminal |
+| [`cli/typescript/builtin`](cli/typescript/builtin) | `@superdurable/dex-agents-builtin-cli`, not published yet | The `dex-agents-builtin` command: the Dex built-in agent loop without a framework in the terminal |
 | [`typescript/pi`](typescript/pi) | `@superdurable/dex-agents-pi`, not published yet | Pi: pi-ai models and Pi tools on the built-in agent loop, so Dex runs the loop, not Pi |
 
 ## UI streams

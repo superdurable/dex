@@ -149,7 +149,26 @@ async function buildPython(sourceRoot, generatedRoot, version, temporaryRoot) {
   }
   await run(pythonPath, ['-m', 'pdoc', '--docformat', 'google', '--no-show-source', '-o', generatedRoot,
     'dex', '!dex.dexpb', '!dex._native'], sourceRoot, {PYTHONPATH: sourceRoot});
+  await retargetMissingPdocMemberAnchors(join(generatedRoot, 'dex.html'), version);
   await writeFile(join(generatedRoot, 'index.html'), htmlDocument(`Dex Python SDK ${version} API`, '<h1>Python SDK API reference</h1><p><a href="dex.html">Open the dex package</a></p>'));
+}
+
+async function retargetMissingPdocMemberAnchors(htmlPath, version) {
+  const html = await readFile(htmlPath, 'utf8');
+  const anchors = new Set([...html.matchAll(/\s(?:id|name)="([^"]+)"/g)].map((match) => match[1]));
+  // pdoc omits these inherited error member anchors in the retained Python releases.
+  const affectedVersions = new Set(['1.44.0', '1.43.0', '1.40.0', '1.39.1', '1.38.0']);
+  const affectedMembers = new Set(['BlobMessageTooLargeError.detail', 'BlobMessageTooLargeError.code']);
+  const updated = html.replace(/href="#([^"]+)"/g, (link, fragment) => {
+    if (anchors.has(fragment) || !affectedVersions.has(version) || !affectedMembers.has(fragment)) return link;
+    let parent = fragment;
+    while (parent.includes('.')) {
+      parent = parent.slice(0, parent.lastIndexOf('.'));
+      if (anchors.has(parent)) return `href="#${parent}"`;
+    }
+    return link;
+  });
+  if (updated !== html) await writeFile(htmlPath, updated);
 }
 
 async function buildTypeScript(sourceRoot, generatedRoot, version) {

@@ -1,0 +1,53 @@
+[project]
+name = "dex-agents-cli-testing"
+# Never published: the harness command packages use it as a path dev dependency.
+version = "0.1.0"
+description = "Test support for the Dex Agents CLI harness commands: model API stubs and fixtures"
+authors = [{name = "Super Durable"}]
+requires-python = ">=3.11"
+dependencies = [
+    "dex-agents[mcp]==0.1.0",
+    "dex-agents-cli==0.1.0",
+    "dex-python-sdk==1.38.0",
+    "pexpect>=4.9,<5",
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.26,<2",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15,<2",
+    "ruff>=0.8,<0.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = "==0.12.2"
+
+[tool.uv.sources]
+dex-agents = { path = "../../../python/core", editable = true }
+dex-agents-cli = { path = "../runtime", editable = true }
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "RUF"]
+# Test helpers poll files and spawn children on purpose.
+ignore = ["ASYNC109", "ASYNC110", "ASYNC220", "ASYNC221"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dex_agents", "dex_agents_cli", "dex_agents_cli_testing"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["pexpect", "pexpect.*"]
+ignore_missing_imports = true

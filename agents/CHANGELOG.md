@@ -96,6 +96,32 @@ for the Dex SDK and framework versions each release supports.
   has the command, file tools stay in the workspace, and the tool Step checks an
   approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
   [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
+- Python commands for the other harnesses, not published yet, on the shared
+  CLI runtime: **dex-agents-openai-sdk** (OpenAI Agents SDK),
+  **dex-agents-pydantic-ai** (Pydantic AI), **dex-agents-deepagents** (Deep
+  Agents on the LangGraph adapter), **dex-agents-google-adk** (Google ADK), and
+  **dex-agents-builtin** (the Dex built-in agent loop on LiteLLM). Each uses the
+  runtime's local and connector tools, so every tool call is its own Dex tool
+  Step with the runtime's policy, and each model call uses its turn's model and
+  instructions. Provider keys come only from each provider's standard
+  environment variables. The configuration file's `langgraph` section is now
+  `deepagents`. See [cli/python](cli/python).
+- The TypeScript **dex-agents-openai-sdk**, **dex-agents-vercel-ai**,
+  **dex-agents-mastra**, and **dex-agents-builtin** commands
+  (`@superdurable/dex-agents-<name>-cli`), not published yet: an OpenAI Agents
+  SDK, Vercel AI SDK, Mastra, or built-in loop agent in the terminal on the shared
+  CLI runtime, with its connector and local tools. Each turn uses the model and
+  instructions its session settings resolve to. Provider keys come from each
+  provider's standard environment variables, such as `OPENAI_API_KEY`. See
+  [cli/typescript/openai-sdk](cli/typescript/openai-sdk/README.md),
+  [vercel-ai](cli/typescript/vercel-ai/README.md),
+  [mastra](cli/typescript/mastra/README.md), and
+  [builtin](cli/typescript/builtin/README.md).
+- TypeScript CLI runtime: a harness whose runner fixes its tools when the Flow
+  is built sets **AgentHarness.isToolSetFixedAtBuild**. The runtime then lists
+  the file's connector tools before building the Flow and, when the connectors
+  MCP server does not answer at startup, says that a restart brings them back.
+  See [cli/typescript/runtime](cli/typescript/runtime/README.md#connectors).
 - Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
   (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
   Claude Code CLI from its input. It returns a **ToolPolicy** for that call,
