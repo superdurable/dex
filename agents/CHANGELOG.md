@@ -13,12 +13,13 @@ for the Dex SDK and framework versions each release supports.
   application can use the SDK's **Join** helper with the agents packages
   without overriding the SDK version. The npm adapters peer-depend on
   `@superdurable/dex` `1.44.0`.
-- The SDK pin stays exact. SDK 1.43.0 removed the Continue-As-New APIs and
-  renamed `FlowExecutionID` to `FlowRunID` in the generated bindings, so a
-  later SDK minor may change APIs that an application shares with the agents
-  packages. The agents packages used none of the removed APIs; an application
-  that did changes with the upgrade. See the
-  [SDK 1.43 change log](../docs/reference/python/changelog.mdx).
+- The SDK pin stays exact, because an SDK minor release may break APIs that
+  an application shares with the agents packages. The agents packages use
+  none of the APIs that SDK 1.43.0 removed. Before upgrading, read the
+  breaking changes of SDK 1.43 in the
+  [Python](../docs/reference/python/changelog.mdx),
+  [TypeScript](../docs/reference/typescript/changelog.mdx), and
+  [Go](../docs/reference/go/changelog.mdx) SDK change logs.
 - Dex SDK 1.44.0 still needs a Dex Server with protocol 4: server-zd v0.1.17
   or later.
 - Agents CI, the nightly long run, and the publish workflows test against

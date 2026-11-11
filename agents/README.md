@@ -148,10 +148,8 @@ Dex Server with protocol 4: server-zd v0.1.17 or later. Upgrade the server
 before the Workers.
 
 0.5.0 uses Dex SDK v1.44.0 in every language, including the Go core
-(`github.com/superdurable/dex/sdk-go` `v1.44.0`). SDK 1.43.0 removed the
-Continue-As-New APIs and renamed `FlowExecutionID` to `FlowRunID` in the
-generated bindings, so an application that used them changes with the
-upgrade. That SDK also needs a Dex Server with protocol 4: server-zd v0.1.17
+(`github.com/superdurable/dex/sdk-go` `v1.44.0`). Before upgrading, read the
+breaking changes of SDK 1.43 in the SDK change logs. That SDK also needs a Dex Server with protocol 4: server-zd v0.1.17
 or later.
 
 ## Releases
