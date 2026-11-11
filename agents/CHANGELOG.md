@@ -122,7 +122,8 @@ for the Dex SDK and framework versions each release supports.
     forwards to `builtinloop` and is marked `Deprecated:`.
   - The framework adapters and the agents CLI runtime import the new names.
 - The error text for a session message that the built-in agent loop cannot
-  read now says "built-in agent loop item" instead of "Stepwise item", and the
+  read now says "built-in agent loop item" (Python and Go cores) or "built-in
+  loop item" (TypeScript core) instead of "Stepwise item", and the
   error for a framework run state it cannot read says "built-in loop" instead
   of "Stepwise" (Go and TypeScript cores). The
   Python loggers are now named `dex_agents.builtin_loop.*`, and the Go core's
