@@ -19,7 +19,7 @@ Dex runs the agent loop, not Pi. The session is the [built-in agent loop](/agent
 
 Pi supplies two things:
 
-- **The model call.** Each **RunModel** attempt sends one pi-ai request. pi-ai's own retries are off, so a retry is a new **RunModel** attempt that the Flow history shows. Bedrock is the exception: the AWS SDK retries inside one attempt, 3 times by default, as the AWS configuration sets. So the attempts in the Flow history do not count Bedrock requests. See [Not supported](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#not-supported) in the package README.
+- **The model call.** Each **RunModel** attempt sends one pi-ai request. pi-ai's own retries are off, so a retry is a new **RunModel** attempt that the Flow history shows. Bedrock is the exception: the AWS SDK retries inside one attempt, with 3 attempts in total by default, as the AWS configuration sets. So the attempts in the Flow history do not count Bedrock requests. See [Not supported](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#not-supported) in the package README.
 - **The tools.** Each tool is a Pi **AgentTool**. Each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first.
 
 Pi's **Agent**, **agentLoop**, and the **pi-durable** harness are not used. This makes the package different from the other adapters, which run their framework's own loop inside the session.

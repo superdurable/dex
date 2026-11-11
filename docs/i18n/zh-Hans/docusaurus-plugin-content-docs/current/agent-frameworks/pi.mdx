@@ -19,7 +19,7 @@ Agent loop 由 Dex 运行，不由 Pi 运行。Session 就是 Dex Agents 的[内
 
 Pi 只提供两样东西：
 
-- **模型调用。** 每次 **RunModel** attempt 发出一次 pi-ai 请求。pi-ai 自己的重试已关闭，所以一次重试就是一次新的 **RunModel** attempt，Flow 历史中可以看到。Bedrock 是例外：AWS SDK 会在一次 attempt 内重试，默认 3 次，次数由 AWS 配置决定。所以 Flow 历史中的 attempt 数不等于 Bedrock 的请求数。见包的 README 中的 [Not supported](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#not-supported)。
+- **模型调用。** 每次 **RunModel** attempt 发出一次 pi-ai 请求。pi-ai 自己的重试已关闭，所以一次重试就是一次新的 **RunModel** attempt，Flow 历史中可以看到。Bedrock 是例外：AWS SDK 会在一次 attempt 内重试，默认总共尝试 3 次，次数由 AWS 配置决定。所以 Flow 历史中的 attempt 数不等于 Bedrock 的请求数。见包的 README 中的 [Not supported](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#not-supported)。
 - **Tool。** 每个 tool 是一个 Pi **AgentTool**。每个 tool call 在自己的 Step 中并行运行：read 或 idempotent write 用 **CallTool**，其他写操作用 **CallSingleAttemptTool**。需要审批的调用先在 **AwaitToolApproval** 中等待。
 
 不使用 Pi 的 **Agent**、**agentLoop** 和 **pi-durable** harness。这一点与其他 adapter 不同：其他 adapter 在 session 中运行各自 framework 的 loop。
