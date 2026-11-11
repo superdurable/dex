@@ -1,6 +1,8 @@
 {
   "description": "Session Flow types of the Dex Agents CLI. A runtime registers <harness Flow type>-<suffix>. The suffix is 6 lowercase base36 characters (0-9a-z): take the SHA-256 of the UTF-8 text \"<host_name>\\n<user_id>\\n<config_identity>\\n<workspace>\", read its first 8 bytes as an unsigned big-endian integer, reduce it modulo 36^6 (2176782336), write the remainder in base36 with lowercase letters, and left-pad it with 0 to 6 characters. Every CLI runtime must produce flow_type from harness_flow_type and the four inputs of each case. Hand-written; see README.md and agents/cli/README.md.",
   "harness_flow_type": "Agent",
+  "session_action_permission": "dex-agents-cli.operate",
+  "session_action_permission_description": "The permission every session Action requires in the session Flow Definition Graph that a CLI runtime's Worker uploads. Every CLI runtime uses this exact text, so runtimes of two languages that share a session Flow type upload the same graph.",
   "cases": [
     {
       "name": "ascii-defaults",

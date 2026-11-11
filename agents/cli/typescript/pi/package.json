@@ -42,13 +42,13 @@
     "minimatch": "11.0.3"
   },
   "peerDependencies": {
-    "@superdurable/dex": "1.44.0",
+    "@superdurable/dex": "1.45.0",
     "@superdurable/dex-agents": "^0.1.0",
     "@superdurable/dex-agents-cli": "^0.1.0",
     "@superdurable/dex-agents-pi": "^0.1.0"
   },
   "devDependencies": {
-    "@superdurable/dex": "1.44.0",
+    "@superdurable/dex": "1.45.0",
     "@superdurable/dex-agents": "file:../../../typescript/core",
     "@superdurable/dex-agents-cli": "file:../runtime",
     "@superdurable/dex-agents-pi": "file:../../../typescript/pi",

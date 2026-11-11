@@ -26,6 +26,7 @@ export {
   namespaceSessionFlowType,
   processAgentCliIo,
   runAgentCli,
+  sessionActionPermission,
   type AgentCliIo,
   type SessionEnvironmentIdentity,
 } from "./agent-cli.js";

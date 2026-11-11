@@ -14,13 +14,14 @@ import hashlib
 import json
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from dex_agents import render_session_flow_graph
-from dex_agents.session_graph import main
+from dex_agents import render_session_flow_graph, session_flow_definition_document
+from dex_agents.session_graph import SESSION_FLOW_GRAPH_GENERATED_AT, main
 from tests.test_conformance import SUITE_DIR, generate
 
 SESSION_ACTIONS = ["resolve_interrupt", "answer_question", "steer_user_message", "cancel_turn"]
@@ -39,6 +40,24 @@ def test_the_rendered_text_matches_every_core_s() -> None:
     for case in read_suite_json("session_graph_renderings.json")["cases"]:
         text = render_session_flow_graph(case["flow_type"], case["action_permission"])
         assert hashlib.sha256(text.encode()).hexdigest() == case["sha256"], case["flow_type"]
+
+
+def test_the_flow_definition_document_carries_the_rendered_graph_and_the_template_time() -> None:
+    renderings = read_suite_json("session_graph_renderings.json")
+    for case in renderings["cases"]:
+        document = session_flow_definition_document(case["flow_type"], case["action_permission"])
+        assert document.flow_type == case["flow_type"]
+        assert document.content == render_session_flow_graph(
+            case["flow_type"], case["action_permission"]
+        )
+        assert isinstance(document.content, str)
+        assert hashlib.sha256(document.content.encode()).hexdigest() == case["sha256"]
+        assert document.generated_at == datetime.fromisoformat(renderings["generated_at"])
+    assert SESSION_FLOW_GRAPH_GENERATED_AT.microsecond == 0
+    template = (SUITE_DIR / "session_graph.json").read_bytes()
+    assert hashlib.sha256(template).hexdigest() == renderings["template_sha256"]
+    with pytest.raises(ValueError):
+        session_flow_definition_document("SupportAgent", "Bad Permission")
 
 
 def test_the_graph_names_every_registered_step_and_rpc() -> None:
