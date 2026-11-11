@@ -10,6 +10,7 @@ import type {
   AgentFrameworkRunner,
   AgentSessionFlow,
   DeferredToolOutcome,
+  MediaStore,
   SessionSettings,
   ToolSource,
 } from "@superdurable/dex-agents";
@@ -44,6 +45,7 @@ export const localToolGroups: readonly LocalToolGroup[] = Object.freeze(["files"
  * terminal chat. The harness only builds the session Flow from a {@link HarnessContext}. It works for a runner-based
  * adapter, which passes `context.toolSources` to its framework runner and calls `createAgentSessionFlow`, and for
  * a built-in loop harness, which puts them in `AgentDefinition.toolSources` and calls `createBuiltinAgentSessionFlow`.
+ * An adapter that takes a media store gets `context.mediaStore`, so the model sees the images the user attaches.
  *
  * A harness that brings its own tools for some local tool groups, such as Claude Code's Read, Write, and Bash,
  * lists those groups in {@link replacedLocalTools}. The runtime then leaves them out of `context.toolSources`, and
@@ -142,6 +144,17 @@ export interface HarnessContext {
    * Each call runs in its own Dex tool Step.
    */
   readonly toolSources: readonly ToolSource[];
+  /**
+   * The store of the session's images, built from the file's `media` section: the images the user attaches with
+   * `/image` and the images connector tools return.
+   *
+   * Pass it to the adapter, such as `mediaStore: context.mediaStore`, so its runner reads the images from the same
+   * store. A runner shows a user message's images only when it implements `buildUserMessageWithImages`; otherwise
+   * the terminal chat says the message was not sent.
+   *
+   * @since 0.5.0
+   */
+  readonly mediaStore: MediaStore;
   /**
    * Returns one turn's configuration and instructions from the session settings the turn started with.
    *

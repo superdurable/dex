@@ -14,6 +14,7 @@ import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+import { InMemoryMediaStore } from "@superdurable/dex-agents";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -31,6 +32,7 @@ import {
   scriptedHarness,
   scriptedHarnessDirectoryVariable,
   scriptedHarnessVariantVariable,
+  scriptedHarnessWithoutImages,
   shellReplacingScriptedHarness,
 } from "./scripted-harness.js";
 
@@ -244,7 +246,13 @@ export class TestHome {
       DEX_AGENTS_WEB_PORT: String(this.ports.webPort),
       [scriptedHarnessDirectoryVariable]: this.markerDirectory,
       ...(this.harness === shellReplacingScriptedHarness ? { [scriptedHarnessVariantVariable]: "shell-replacing" } : {}),
+      ...(this.harness === scriptedHarnessWithoutImages ? { [scriptedHarnessVariantVariable]: "without-images" } : {}),
     };
+  }
+
+  /** `~/.dex/agents/media`, where `media.store: auto` keeps images. */
+  public get mediaDirectory(): string {
+    return join(this.directory, ".dex", "agents", "media");
   }
 }
 
@@ -312,6 +320,8 @@ export class SessionClients {
       instructions: null,
       harnessOptions: {},
       toolSources: [],
+      // This Client runs no Worker; the command's Worker reads the images from its own store.
+      mediaStore: new InMemoryMediaStore(),
       resolveTurn: (settings) => turns.resolveTurn(settings),
       currentTurn: () => turns.currentTurn(),
       resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
