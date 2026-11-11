@@ -13,13 +13,17 @@ Dex 替代的是 **pi-durable**，不是 Pi。你的 pi-ai 模型和 Pi tool 继
 
 Dex 不是可以直接替换的版本。Harness 的入口代码要改写：**Harness.open**、root conversation、**submit** 和 **wait** 改为 Dex 的 session Flow、Worker 和 Client 调用。
 
-下面这些不用改：
+通过下面的检查后，这些部分可以沿用：
 
 - pi-ai 模型，通过 **createPiAiModelClient** 使用；
 - Pi **AgentTool** tool，通过 **piAgentFunctionTool** 使用；
-- 不使用 harness **api** 的 **defineTool** tool，通过 **piDurableFunctionTool** 使用。
+- **defineTool** tool，通过 **piDurableFunctionTool** 使用。
 
-使用 **api** 的 tool 要改写，见 [Tool](#tools)。
+迁移每个 tool 之前先检查：
+
+- 它没有设置 **executionMode: "sequential"**。Dex 并行运行同一次模型回复中的 tool call，两个 wrapper 都会拒绝这样的 tool。
+- 没有 **replay** 的 **AgentTool**，包装时要显式传入 **effect**。
+- **defineTool** tool 不使用 **api**，也不返回 **control**。否则要改写，见 [Tool](#tools)。
 
 **pi-durable** API 的兼容层可以让你只改 import 和初始化。它由 [issue #1571](https://github.com/superdurable/dex/issues/1571) 跟踪。
 
@@ -64,20 +68,7 @@ Dex 不是可以直接替换的版本。Harness 的入口代码要改写：**Har
 
 ### 改写前：pi-durable {#before}
 
-**pi-durable** 应用在一个存储上打开 harness，取得 root conversation，提交输入，然后等待回答。它的 tool 来自 registry 中的 extension。下面的代码按 **pi-durable** 的 README 编写：
-
-```typescript
-const storage = await openNodeSqliteStorage("./session.sqlite");
-const harness = await Harness.open(storage, { models, registry }, context);
-const root = await harness.root(context, {
-  agent: { model: { provider: "openai", modelId: "gpt-5-mini" } },
-});
-const submission = await root.submit(
-  { type: "input", content: "Please cancel order 1002", requestId: "request-1" },
-  context,
-);
-const settled = await submission.wait(context);
-```
+**pi-durable** 应用用 **Harness.open** 在一个存储上打开 harness。它用 **root()** 取得 root conversation，用带 **requestId** 的 **submit()** 提交输入，再用 **wait()** 等待回答。它的 tool 来自 registry 中的 extension。[改写后：Client 调用](#after-client-calls) 下面的表格把这些调用逐一对应到 Dex。
 
 ### 改写后：session Flow {#after-session-flow}
 
@@ -192,20 +183,15 @@ Worker 注册这个 session Flow，并连接到 Dex Server。任何 Worker 都�
 
 使用 **api** 的 tool 依赖 **pi-durable** harness，所以要改写成 Pi **AgentTool**。两种写法很接近。**AgentTool** 的 **execute** 接收 tool call ID、参数、取消信号，以及用于输出运行进度的 **onUpdate** 回调。
 
-一个通过 **api.output** 输出结果的 **pi-durable** tool：
+**pi-durable** tool 的 **execute** 接收参数、**api** 和 context。常见的写法是用 **api.output()** 写出结果，再返回空结果。改写方法：
 
-```typescript
-const lookUpOrder = defineTool({
-  name: "look_up_order",
-  description: "Look up one order by its order ID and return its items and status.",
-  parameters: obj({ order_id: str() }),
-  replay: "safe",
-  execute: async (args, api) => {
-    api.output(orderDesk.describeOrder(args.order_id));
-    return {};
-  },
-});
-```
+| pi-durable **defineTool** | Pi **AgentTool** |
+| --- | --- |
+| **execute(args, api, context)** | **execute(toolCallId, params, signal, onUpdate)** |
+| 用 **api.output()** 写出的结果 | 在结果的 **content** 中返回的文本 |
+| 通过 **api.output()** 输出的运行进度 | **onUpdate** |
+| **replay** | **replay**，或显式的 **effect** |
+| 没有 label | **label** |
 
 改写成 **AgentTool** 后的同一个 tool，来自 Pi example。它把文本作为结果返回：
 
@@ -235,7 +221,7 @@ const lookUpOrder = defineTool({
 | **output()** | **AgentTool** 的 **onUpdate** 回调，用于运行进度。模型看到的是返回的结果。 |
 | **commit()**、document | Attribute |
 | **createTask()** | 子 Flow |
-| **executeTool()** | 直接调用另一个 tool 的函数。 |
+| **executeTool()** | 内层操作需要自己的记录、恢复或审批时，把它建模为模型调用的独立 tool，或者独立的 Step 或子 Flow。普通函数调用没有这些。只有内层副作用可以安全重复时才用普通函数调用，因为外层 tool 重新运行时它也会重复。 |
 
 ## Fork {#fork}
 

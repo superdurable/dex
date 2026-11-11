@@ -13,13 +13,17 @@ Dex replaces **pi-durable**, not Pi. Your pi-ai models and Pi tools stay. Dex ta
 
 Dex is not a drop-in replacement. You rewrite the harness entry code: **Harness.open**, the root conversation, **submit**, and **wait** become a Dex session Flow, a Worker, and Client calls.
 
-These parts carry over without change:
+These parts carry over, when they pass the checks below:
 
 - pi-ai models, through **createPiAiModelClient**;
 - Pi **AgentTool** tools, through **piAgentFunctionTool**;
-- **defineTool** tools that do not use the harness **api**, through **piDurableFunctionTool**.
+- **defineTool** tools, through **piDurableFunctionTool**.
 
-A tool that uses **api** must be rewritten. See [Tools](#tools).
+Check each tool before you move it:
+
+- It does not set **executionMode: "sequential"**. Dex runs the tool calls of one model response in parallel, and both wrappers reject such a tool.
+- An **AgentTool** without **replay** gets an explicit **effect** when you wrap it.
+- A **defineTool** tool does not use **api** and does not return **control**. A tool that does must be rewritten. See [Tools](#tools).
 
 A compatibility layer for the **pi-durable** API would let you change only the imports and the setup. It is tracked in [issue #1571](https://github.com/superdurable/dex/issues/1571).
 
@@ -64,20 +68,7 @@ Both keep durable execution state. They differ in who runs the work and what hap
 
 ### Before: pi-durable {#before}
 
-A **pi-durable** application opens a harness over a storage, gets the root conversation, submits input, and waits for the answer. Its tools come from extensions in a registry. This code follows the **pi-durable** README:
-
-```typescript
-const storage = await openNodeSqliteStorage("./session.sqlite");
-const harness = await Harness.open(storage, { models, registry }, context);
-const root = await harness.root(context, {
-  agent: { model: { provider: "openai", modelId: "gpt-5-mini" } },
-});
-const submission = await root.submit(
-  { type: "input", content: "Please cancel order 1002", requestId: "request-1" },
-  context,
-);
-const settled = await submission.wait(context);
-```
+A **pi-durable** application opens a harness over a storage with **Harness.open**. It gets the root conversation with **root()**, submits input with **submit()** and a **requestId**, and waits for the answer with **wait()**. Its tools come from extensions in a registry. The table under [After: the Client calls](#after-client-calls) maps each of these calls to Dex.
 
 ### After: the session Flow {#after-session-flow}
 
@@ -192,20 +183,15 @@ Wrap a **defineTool** tool that does not use **api** with **piDurableFunctionToo
 
 A tool that uses **api** depends on the **pi-durable** harness, so rewrite it as a Pi **AgentTool**. The two shapes are close. An **AgentTool**'s **execute** receives the tool call ID, the arguments, a cancellation signal, and an **onUpdate** callback for running output.
 
-A **pi-durable** tool that streams its result through **api.output**:
+A **pi-durable** tool's **execute** receives the arguments, **api**, and a context. A typical tool writes its result with **api.output()** and returns an empty result. To rewrite it:
 
-```typescript
-const lookUpOrder = defineTool({
-  name: "look_up_order",
-  description: "Look up one order by its order ID and return its items and status.",
-  parameters: obj({ order_id: str() }),
-  replay: "safe",
-  execute: async (args, api) => {
-    api.output(orderDesk.describeOrder(args.order_id));
-    return {};
-  },
-});
-```
+| pi-durable **defineTool** | Pi **AgentTool** |
+| --- | --- |
+| **execute(args, api, context)** | **execute(toolCallId, params, signal, onUpdate)** |
+| The result written with **api.output()** | The text returned in the result's **content** |
+| Running output through **api.output()** | **onUpdate** |
+| **replay** | **replay**, or an explicit **effect** |
+| No label | A **label** |
 
 The same tool as an **AgentTool**, from the Pi example. It returns its text as the result:
 
@@ -235,7 +221,7 @@ Each **api** method has a Dex counterpart:
 | **output()** | The **onUpdate** callback of **AgentTool**, for running output. The returned result is what the model sees. |
 | **commit()**, documents | Attributes |
 | **createTask()** | A child Flow |
-| **executeTool()** | Call the other tool's function directly. |
+| **executeTool()** | Model the inner operation as its own tool that the model calls, or as its own Step or child Flow, when it needs its own record, recovery, or approval. A plain function call has none of these. Use one only when the inner effect is safe to repeat, because a rerun of the outer tool repeats it. |
 
 ## Fork {#fork}
 

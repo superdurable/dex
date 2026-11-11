@@ -19,14 +19,14 @@ Dex runs the agent loop, not Pi. The session is the [built-in agent loop](/agent
 
 Pi supplies two things:
 
-- **The model call.** Each **RunModel** Step sends one pi-ai request. pi-ai's own retries are off, so a retry is a new **RunModel** attempt that the Flow history shows.
+- **The model call.** Each **RunModel** attempt sends one pi-ai request. pi-ai's own retries are off, so a retry is a new **RunModel** attempt that the Flow history shows. Bedrock is the exception: the AWS SDK retries inside one attempt, 3 times by default, as the AWS configuration sets. So the attempts in the Flow history do not count Bedrock requests. See [Not supported](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#not-supported) in the package README.
 - **The tools.** Each tool is a Pi **AgentTool**. Each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first.
 
 Pi's **Agent**, **agentLoop**, and the **pi-durable** harness are not used. This makes the package different from the other adapters, which run their framework's own loop inside the session.
 
 A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**.
 
-Each model response is stored as the pi-ai message that the model returned. Dex hands it to pi-ai unchanged on every later call. pi-ai converts it for another provider, so a session can change its model between turns.
+Each model response is stored as a pi-ai message with the fields that later model calls need: the content with its thinking signatures, the provider and model that produced it, and its token usage. Local telemetry, such as timestamps and cost, is not stored. Every later call replays these fields. pi-ai converts them for another provider, so a session can change its model between turns. [Stored messages](https://github.com/superdurable/dex/tree/main/agents/typescript/pi#stored-messages) in the package README lists the fields.
 
 ## Install
 
@@ -109,13 +109,15 @@ Every Dex tool declares its [effect class](/agent-frameworks#effect-classes). A 
 | The tool declares | **effect** passed | Effect class |
 | --- | --- | --- |
 | anything | yes | the passed effect |
-| **replay: "safe"** | no | **idempotent_write**: retried |
+| **replay: "safe"** | no | **idempotent_write**: rerun when a run is interrupted |
 | **replay: "never"** | no | **non_idempotent_write**: approved first, runs at most once |
 | no **replay** | no | an error when the session Flow is built |
 
-In the example, **look_up_order** passes **effect: "read"**, so it runs without approval and retries on failure. **cancel_order** declares **replay: "never"**, so it waits for approval and runs at most once.
+In the example, **look_up_order** passes **effect: "read"**, so it runs without approval. **cancel_order** declares **replay: "never"**, so it waits for approval and runs at most once.
 
-A tool result with **isError**, or a thrown **ToolExecutionError**, records the call as **failed**. The model sees the message, and the session continues. A plain error thrown by a **non_idempotent_write** tool may come after the write, so the call records **outcome_unknown** and never runs again.
+The effect class decides what happens when a run is interrupted, such as by a Worker crash. Dex reruns an interrupted **read** or **idempotent_write** call in its **CallTool** Step. It never reruns a **non_idempotent_write** call.
+
+An error that the tool reports is not retried. A result with **isError**, a thrown **ToolExecutionError**, or a plain error thrown by a **read** or **idempotent_write** tool records the call as **failed**. The model sees the message, and the session continues. A plain error thrown by a **non_idempotent_write** tool may come after the write, so the call records **outcome_unknown** and never runs again.
 
 ### The model
 
