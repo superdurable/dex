@@ -276,6 +276,7 @@
             "output": null,
             "rejection_message": null,
             "requires_approval": false,
+            "runner_tool_state": null,
             "skipped": false,
             "status": "awaiting_answer",
             "task_answer_pending": false,

@@ -731,6 +731,10 @@ type AgentToolCall struct {
 	// Images are the images a tool returned with its output. The Go core never sets them; it keeps
 	// the field so a record written by another core round-trips.
 	Images []AgentImageReference `json:"images"`
+	// RunnerToolState is opaque text from ToolExecutionResult.RunnerToolState after succeeded, which only
+	// the runner reads, or nil. The session never shows it to the model or in trace attributes. A record
+	// written before 0.5.0 has none, and a Worker before 0.5.0 ignores it. Since 0.5.0.
+	RunnerToolState *string `json:"runner_tool_state"`
 }
 
 // MarshalJSON encodes the wire object, writing empty lists as [] rather than null.

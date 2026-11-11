@@ -552,6 +552,13 @@ class AgentToolCall:
             from ``ToolExecutionResult.images``. Empty for every other call.
 
             .. versionadded:: 0.5.0
+        runner_tool_state: Opaque text from
+            ``ToolExecutionResult.runner_tool_state`` after ``SUCCEEDED``, which
+            only the runner reads, or ``None``. The session never shows it to
+            the model, in the browser snapshot, or in trace attributes. A record
+            written before 0.5.0 has none, and a Worker before 0.5.0 ignores it.
+
+            .. versionadded:: 0.5.0
     """
 
     tool_call_id: str
@@ -582,6 +589,7 @@ class AgentToolCall:
     skipped: bool = False
     truncated_output_bytes: int | None = None
     images: list[AgentImageReference] = field(default_factory=list)
+    runner_tool_state: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

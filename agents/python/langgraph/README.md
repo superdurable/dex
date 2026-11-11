@@ -199,6 +199,95 @@ Pass `messages_key` when the message list has another state key.
 `durable_tool_node` defers all calls of one model message with one interrupt,
 so they run as parallel Steps.
 
+## A Deep Agents agent
+
+Since 0.5.0 a [Deep Agents](https://github.com/langchain-ai/deepagents) agent
+from `deepagents.create_deep_agent` runs as an agent session. It is a
+`create_agent` graph, so it registers with `langchain_agent_session_flow`.
+Install `deepagents` yourself; the tests use deepagents 0.7.32:
+
+```python
+from deepagents import create_deep_agent
+from dex_agents import ToolEffect, ToolPolicy
+from dex_agents_langgraph import DurableToolCallMiddleware, langchain_agent_session_flow
+
+
+def build_research_agent():
+    return create_deep_agent(
+        "anthropic:claude-sonnet-4-5",
+        tools=[search_papers],
+        middleware=[DurableToolCallMiddleware()],
+    )
+
+
+research_agent = langchain_agent_session_flow(
+    build_research_agent,
+    flow_type="ResearchAgent",
+    should_defer_tool_calls_before_middleware=True,
+    excluded_tool_names=["task"],
+    tool_policies={
+        "search_papers": ToolPolicy(ToolEffect.READ),
+        "read_file": ToolPolicy(ToolEffect.READ),
+        "ls": ToolPolicy(ToolEffect.READ),
+        "write_file": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=False),
+        "edit_file": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=False),
+    },
+)
+```
+
+- `should_defer_tool_calls_before_middleware=True` makes the deferral the
+  outermost tool wrapper. `create_deep_agent` places the middleware you pass
+  after its own, so `DurableToolCallMiddleware` cannot be first there. Deep
+  Agents' own tool wrappers, such as the large-result eviction of its
+  `FilesystemMiddleware`, then never run in a session. The runner changes
+  only its own copy of the root graph, so the graph you pass is unchanged.
+- `excluded_tool_names=["task"]` turns off subagents. The model is not
+  offered `task`, and a tool Step never runs it. See the limits below.
+- Deep Agents keeps `messages` and `files` in `DeltaChannel` state channels.
+  Each turn-local checkpoint stores their whole value, so they survive a
+  Worker restart while tool calls run.
+- Its file tools on the default `StateBackend` read and write the `files`
+  channel in their own tool Steps. The tool Step receives the state of the
+  call's deferral, without the message list. Its writes go in the result's
+  `runner_tool_state`, which the session stores on the call's record apart
+  from the output, and the next `RunModel` applies them to the graph once.
+- Each turn starts from the stored messages, so the `files` of a turn are
+  gone in the next turn. Use a `FilesystemBackend` or a `StoreBackend` for
+  files that must last. Their tools write in their own tool Steps, so give
+  them a write `ToolPolicy`.
+- `excluded_tool_names` also frees a name for a tool source. Exclude
+  `read_file` to let a tool source offer its own `read_file`, for example.
+  Without the exclusion, a source tool whose name a graph tool uses is
+  refused.
+- `select_turn_chat_model` picks the model of each turn, for example from
+  `turn.session_settings`. `DurableToolCallMiddleware` gives it to every model
+  request of the turn:
+
+```python
+models: dict[str, BaseChatModel] = {}
+
+
+def select_turn_chat_model(turn: AgentTurnContext) -> BaseChatModel | None:
+    model_id = turn.session_settings.get("model")
+    if model_id is None:
+        return None
+    if model_id not in models:
+        models[model_id] = init_chat_model(model_id)
+    return models[model_id]
+```
+
+### Deep Agents limits
+
+Each limit has a workaround.
+
+| Limit | Workaround |
+| --- | --- |
+| **Subagents run inline.** `task` runs the subagent's whole loop inside one tool Step. Its model and tool calls get no Steps, no approvals, and no tool sources, and a retry of the Step repeats the whole subagent. Whether subagents should become their own sessions is an open design question. | Exclude `task`. When a subagent's calls need their own durability, run it as a separate agent session and give the parent a tool that starts it and reads its answer. |
+| **No Dex built-in tools.** The adapter does not offer `write_todos`, `ask_user`, or `durable_wait` from `AgentSessionOptions.built_in_tools`. | Plan with LangChain's `TodoListMiddleware`, whose `write_todos` returns a `Command`, which works since 0.5.0, or with a read-only tool that returns the plan. Ask the user in the turn's answer, and continue with the next user message. Run long waits on the built-in agent loop. |
+| **Summarization is not a separate model call.** Deep Agents' `SummarizationMiddleware` calls its model inside a `RunModel` Step. The usage counts it, but it gets no model call record of its own, and a retry repeats it. It always uses the model the agent was built with, not `select_turn_chat_model`'s. Its offload of earlier messages goes to the per-turn `files`, and its rewrite of the history is not stored, because stored history is append-only. | Replace it with a middleware named `SummarizationMiddleware` that adds nothing, and use Dex [compaction](#compaction) instead. |
+| **Rebuilt system messages lose cache breakpoints.** A middleware that replaces the system message with plain text, such as one that adds instructions for each turn, drops the Anthropic `cache_control` breakpoints that middleware before it set on the message's content blocks. | Keep the existing content blocks and add yours before them, or set the instructions when you build the agent. |
+| **Large state in records.** A state-reading tool call stores the non-message graph state, such as every file in `files`, in its record, and a file write stores its writes in the record's `runner_tool_state`. The session fails when its run state outgrows the Dex limit. | Keep large or many files in a `FilesystemBackend` or a `StoreBackend`. |
+
 ## Tool sources and connector tools
 
 `tool_sources` takes the core's tool sources, such as `ConnectorToolSource`,
@@ -395,7 +484,9 @@ Put `DurableToolCallMiddleware` first in `middleware`, so it is the outermost
 tool wrapper. Middleware listed before it see every tool call. Middleware
 listed after it never see a call inside a session, because the tool runs
 outside the graph. Model middleware, such as dynamic tool selection or
-summarization, keeps working; its model calls run inside `RunModel`.
+summarization, keeps working; its model calls run inside `RunModel`. When
+the agent builder decides the order, as `create_deep_agent` does, set
+`should_defer_tool_calls_before_middleware=True` for the same effect.
 
 LangChain's `HumanInTheLoopMiddleware` raises its own interrupts, which the
 session cannot answer. Use `ToolPolicy(..., requires_approval=True)` and
@@ -422,6 +513,22 @@ idempotency keys, the snapshot, an agent without the middleware, and the
 model and response that name each `chat` span, with an in-process Worker and
 an in-memory span exporter. Construction tests cover two tool nodes with one
 tool name.
+
+`tests/test_deep_agents.py` runs real `create_deep_agent` agents with the
+scripted chat model: a `write_file` to the `files` channel read back with
+`read_file` after a Worker restart, which replays the same conversation as a
+session without the restart; a tool that returns a `Command` and a later tool
+that reads the state it set; `task` excluded from model requests and tool
+Steps; a tool source's `read_file` that replaces the excluded graph tool, and
+the refused collision without the exclusion; and session settings that pick
+the model of each turn. They also check that a middleware tool wrapper never
+runs when the deferral comes first, and that two runners sharing one graph
+keep their own middleware order. Further cases cover state writes that apply
+once through a failed tool attempt and a `RunModel` rerun after a Worker
+restart, which sends the same model request; live records whose browser
+snapshot has no `runner_tool_state`; tool output that looks like recorded
+state, which passes through untouched; and parallel writes that cross the run
+state limit and fail the session.
 
 `tests/test_connector_tools.py` runs connector tools from a copy of the core
 tests' fake ledger Connector (`tests/fake_ledger`), once with a `create_agent`
@@ -523,16 +630,21 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
 - `FrameworkRunState` holds the graph checkpoint, including the replayed
   history, while tool calls run. Very long sessions store a large value;
   [compaction](#compaction) bounds it to the summary and the kept turns.
-- Tools run outside the graph, so they cannot use `ToolRuntime`,
-  `InjectedState`, or `InjectedStore`, and cannot return a graph `Command`.
-  `InjectedToolCallId` works. A response artifact (`content_and_artifact`) is
-  dropped; the model sees the content.
+- Tools run outside the graph. Since 0.5.0 a tool with a `ToolRuntime` or
+  `InjectedState` parameter receives the root graph's state at its deferral,
+  without the message list, and a runtime without a store or a `context`.
+  `InjectedStore` does not work. A tool may return a `Command` whose
+  `update` mapping holds its `ToolMessage`; `goto` and `graph` fail the tool
+  Step. `InjectedToolCallId` works. A response artifact
+  (`content_and_artifact`) is dropped; the model sees the content.
 - A subgraph compiled with `checkpointer=False` restarts on resume, so the
   runner fails the turn instead of letting it repeat its tool calls.
 - The graph may raise no interrupts of its own, and static `interrupt_before`
   or `interrupt_after` nodes fail the turn.
-- State channels of type `DeltaChannel` are rejected, because the stored
-  checkpoint keeps only the last checkpoint of each namespace.
+- A `DeltaChannel` state channel in a subgraph is rejected, because the
+  stored run state keeps only the last checkpoint of each namespace. Since
+  0.5.0 the root graph may use one; each turn-local checkpoint stores its
+  whole value.
 - The graph runs without a runtime `context`, so `Runtime.context` is
   `None` in nodes and middleware.
 - Tool call IDs from the model must be non-empty, contain no `/`, and be
@@ -555,3 +667,15 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
   tool connections exist only in Workers.
 - User messages get the ID `dex-user-<hex>`; a stored message without an ID
   replays as `dex-message-<sequence>`.
+- A state-reading graph tool gets its state through the call's
+  `tool_source_reference`, which only tool sources use otherwise. A tool's
+  state writes, from a returned `Command` or from the task's send, go in the
+  result's `runner_tool_state`, a core field that the session stores apart
+  from the output and never shows to the model, browser snapshots, or traces.
+  The next `RunModel` replays them through the graph task's own send, as a
+  tool that writes state inside the graph does. Only the committed attempt of
+  a tool Step stores them, and a retried `RunModel` restores the checkpoint
+  from before the replay, so each write applies once. Both use the
+  checkpoint serializer.
+- A replayed tool result has the ID `dex-tool-result-<turn_id>-<tool_call_id>`,
+  so a retried model call sends the same messages.

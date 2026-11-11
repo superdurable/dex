@@ -594,6 +594,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "deepagents", specifier = ">=0.7.32,<0.8" },
     { name = "dex-agents", extras = ["connectors"], editable = "../../../python/core" },
     { name = "mypy", specifier = ">=1.15,<2" },
     { name = "opentelemetry-sdk", specifier = ">=1.45,<2" },

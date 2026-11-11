@@ -102,6 +102,7 @@ TOOL_CALLS = [
         status=ToolCallStatus.SUCCEEDED,
         output="order 7 is shipped",
         deferral_order=0,
+        runner_tool_state='{"writes":[]}',
     ),
     AgentToolCall(
         tool_call_id="call-2",

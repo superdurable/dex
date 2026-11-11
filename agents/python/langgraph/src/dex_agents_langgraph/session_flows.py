@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import timedelta
 
 from dex_agents import (
@@ -19,6 +19,7 @@ from dex_agents import (
     AgentSessionFlow,
     AgentSessionOptions,
     AgentTracingOptions,
+    AgentTurnContext,
     CompactionPolicy,
     MediaStore,
     ToolEffect,
@@ -49,6 +50,9 @@ def langchain_agent_session_flow(
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     media_store: MediaStore | None = None,
+    excluded_tool_names: Collection[str] = (),
+    select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None = None,
+    should_defer_tool_calls_before_middleware: bool = False,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for a ``create_agent`` agent.
 
@@ -66,6 +70,34 @@ def langchain_agent_session_flow(
     ``DurableToolCallMiddleware`` offers to every model request. Each call
     runs in its own tool Step through its source, which picks the effect
     class, approval, timeout, and retry policy, as in an agent on the built-in loop.
+
+    A Deep Agents agent from ``deepagents.create_deep_agent`` registers the
+    same way: pass ``DurableToolCallMiddleware()`` in its ``middleware`` and set
+    ``should_defer_tool_calls_before_middleware=True``, because
+    ``create_deep_agent`` places your middleware after its own. Its
+    ``DeltaChannel`` state, its file tools on the default ``StateBackend``,
+    and tools that return a ``Command`` work in a session. Each turn starts
+    from the stored messages, so its ``files`` last for one turn. Exclude
+    ``"task"`` with ``excluded_tool_names`` to turn off its subagents, whose
+    model and tool calls would otherwise run inside one tool Step.
+
+    Deep Agents example:
+        >>> from deepagents import create_deep_agent
+        >>>
+        >>> def build_research_agent():
+        ...     return create_deep_agent(
+        ...         "anthropic:claude-sonnet-4-5",
+        ...         tools=[search_papers],
+        ...         middleware=[DurableToolCallMiddleware()],
+        ...     )
+        >>>
+        >>> flow = langchain_agent_session_flow(
+        ...     build_research_agent,
+        ...     flow_type="ResearchAgent",
+        ...     should_defer_tool_calls_before_middleware=True,
+        ...     excluded_tool_names=["task"],
+        ...     tool_policies={"search_papers": ToolPolicy(ToolEffect.READ)},
+        ... )
 
     Example:
         >>> from langchain.agents import create_agent
@@ -145,6 +177,28 @@ def langchain_agent_session_flow(
             See ``LangGraphAgentRunner``.
 
             .. versionadded:: 0.5.0
+        excluded_tool_names: Names of the agent's tools that the session never
+            offers or runs, such as ``"task"`` to turn off Deep Agents'
+            subagents. A tool source may list a tool of the same name, which
+            then replaces the agent's tool. See ``LangGraphAgentRunner``.
+            Defaults to none.
+
+            .. versionadded:: 0.5.0
+        select_turn_chat_model: Function that picks the chat model of a turn
+            from its ``AgentTurnContext``, such as from
+            ``turn.session_settings``. ``DurableToolCallMiddleware`` gives the
+            model it returns to every model request of the turn; ``None``
+            keeps the agent's model. ``None``, the default, never changes it.
+            See ``LangGraphAgentRunner``.
+
+            .. versionadded:: 0.5.0
+        should_defer_tool_calls_before_middleware: Whether to defer each tool
+            call before any middleware tool wrapper runs, as if
+            ``DurableToolCallMiddleware`` came first in ``middleware``. Set it
+            for a Deep Agents agent. Defaults to ``False``. See
+            ``LangGraphAgentRunner``.
+
+            .. versionadded:: 0.5.0
 
     Returns:
         The session Flow.
@@ -153,12 +207,17 @@ def langchain_agent_session_flow(
         ValueError: If ``flow_type`` is empty, an option is not positive,
             ``compaction`` is set without ``summary_model``, or a
             compiled ``agent`` has no ``messages`` channel, uses a
-            ``DeltaChannel``, or has two tool nodes whose different tools share
-            a name that ``tools`` does not settle, or a tool source is invalid
-            as ``LangGraphAgentRunner`` describes.
-        TypeError: If ``agent`` is neither a compiled graph nor callable, or
-            a tool source lacks a ``ToolSource`` method or a non-blank
-            ``source_name``.
+            ``DeltaChannel`` in a subgraph, or has two tool nodes whose
+            different tools share a name that ``tools`` does not settle,
+            ``excluded_tool_names`` names a tool of ``tools``, or a tool
+            source is invalid as ``LangGraphAgentRunner`` describes.
+        TypeError: If ``agent`` is neither a compiled graph nor callable, a
+            tool source lacks a ``ToolSource`` method or a non-blank
+            ``source_name``, or ``excluded_tool_names`` is a string.
+
+    .. versionchanged:: 0.5.0
+        A ``DeltaChannel`` in the root graph, as in a Deep Agents agent, is
+        accepted.
     """
     return _graph_session_flow(
         agent,
@@ -179,6 +238,9 @@ def langchain_agent_session_flow(
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
         media_store=media_store,
+        excluded_tool_names=excluded_tool_names,
+        select_turn_chat_model=select_turn_chat_model,
+        should_defer_tool_calls_before_middleware=should_defer_tool_calls_before_middleware,
     )
 
 
@@ -200,6 +262,9 @@ def langgraph_agent_session_flow(
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     media_store: MediaStore | None = None,
+    excluded_tool_names: Collection[str] = (),
+    select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None = None,
+    should_defer_tool_calls_before_middleware: bool = False,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for a custom LangGraph graph.
 
@@ -285,6 +350,28 @@ def langgraph_agent_session_flow(
             ``LangGraphAgentRunner``.
 
             .. versionadded:: 0.5.0
+        excluded_tool_names: Names of the graph's tools that the session never
+            offers or runs, such as ``"task"`` to turn off Deep Agents'
+            subagents. A tool source may list a tool of the same name, which
+            then replaces the graph's tool. See ``LangGraphAgentRunner``.
+            Defaults to none.
+
+            .. versionadded:: 0.5.0
+        select_turn_chat_model: Function that picks the chat model of a turn
+            from its ``AgentTurnContext``, such as from
+            ``turn.session_settings``. ``DurableToolCallMiddleware`` gives the
+            model it returns to every model request of the turn; ``None``
+            keeps the graph's model. ``None``, the default, never changes it.
+            See ``LangGraphAgentRunner``.
+
+            .. versionadded:: 0.5.0
+        should_defer_tool_calls_before_middleware: Whether to defer each tool
+            call before any middleware tool wrapper runs, as if
+            ``DurableToolCallMiddleware`` came first in ``middleware``. Set it
+            for a Deep Agents agent. Defaults to ``False``. See
+            ``LangGraphAgentRunner``.
+
+            .. versionadded:: 0.5.0
 
     Returns:
         The session Flow.
@@ -293,12 +380,16 @@ def langgraph_agent_session_flow(
         ValueError: If ``flow_type`` is empty, an option is not positive,
             ``compaction`` is set without ``summary_model``, or a
             compiled ``graph`` has no ``messages_key`` channel, uses a
-            ``DeltaChannel``, or has two tool nodes whose different tools share
-            a name that ``tools`` does not settle, or a tool source is invalid
-            as ``LangGraphAgentRunner`` describes.
-        TypeError: If ``graph`` is neither a compiled graph nor callable, or
-            a tool source lacks a ``ToolSource`` method or a non-blank
-            ``source_name``.
+            ``DeltaChannel`` in a subgraph, or has two tool nodes whose
+            different tools share a name that ``tools`` does not settle,
+            ``excluded_tool_names`` names a tool of ``tools``, or a tool
+            source is invalid as ``LangGraphAgentRunner`` describes.
+        TypeError: If ``graph`` is neither a compiled graph nor callable, a
+            tool source lacks a ``ToolSource`` method or a non-blank
+            ``source_name``, or ``excluded_tool_names`` is a string.
+
+    .. versionchanged:: 0.5.0
+        A ``DeltaChannel`` in the root graph is accepted.
     """
     return _graph_session_flow(
         graph,
@@ -319,6 +410,9 @@ def langgraph_agent_session_flow(
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
         media_store=media_store,
+        excluded_tool_names=excluded_tool_names,
+        select_turn_chat_model=select_turn_chat_model,
+        should_defer_tool_calls_before_middleware=should_defer_tool_calls_before_middleware,
     )
 
 
@@ -334,6 +428,9 @@ def _graph_session_flow(
     tool_sources: Sequence[ToolSource],
     tool_source_listing_timeout: timedelta,
     media_store: MediaStore | None,
+    excluded_tool_names: Collection[str],
+    select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None,
+    should_defer_tool_calls_before_middleware: bool,
 ) -> AgentSessionFlow:
     if options.compaction is not None and summary_model is None:
         raise ValueError("compaction needs a summary_model")
@@ -346,5 +443,8 @@ def _graph_session_flow(
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
         media_store=media_store,
+        excluded_tool_names=excluded_tool_names,
+        select_turn_chat_model=select_turn_chat_model,
+        should_defer_tool_calls_before_middleware=should_defer_tool_calls_before_middleware,
     )
     return AgentSessionFlow(runner, flow_type=flow_type, options=options)

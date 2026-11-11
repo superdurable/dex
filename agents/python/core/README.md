@@ -1823,7 +1823,7 @@ Dex and no web framework. An application mounts two endpoints:
   out the fields only the session's Steps use: `framework_item` on messages,
   the framework's replay data, which can hold the agent's instructions, and
   `tool_source_reference`, `trace_context`, `input_continuation`,
-  `input_answers`, and `task_answer_pending` on tool calls. Read them with `get_agent_snapshot` on the
+  `input_answers`, `task_answer_pending`, and `runner_tool_state` on tool calls. Read them with `get_agent_snapshot` on the
   server when needed. It includes `session_settings` as stored, so keep
   anything a browser must not see out of session settings, or remove the key.
 - **Events.** `await stream_agent_event_frames(client, flow, session_id,
