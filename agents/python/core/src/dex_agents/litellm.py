@@ -25,7 +25,6 @@ from typing import Any, Literal
 
 try:
     import litellm
-    from litellm.llms.vertex_ai.common_utils import get_supports_system_message
 except ImportError as error:  # pragma: no cover - exercised by the built-package smoke test
     raise ImportError(
         "dex_agents.litellm needs LiteLLM; install it with: pip install 'dex-agents[litellm]'"
@@ -61,16 +60,24 @@ ApiKeyProvider = Callable[[], str | None | Awaitable[str | None]]
 #: .. versionadded:: 0.5.0
 TOOL_RESULT_IMAGES_TEXT = "The {tool_name} tool call {tool_call_id} returned these images."
 
+#: Text that replaces a tool result's images in its tool message for Gemini models on
+#: Gemini and Vertex AI, after the tool's output. ``str.format`` it with ``images``,
+#: such as ``"1 image"`` or ``"2 images"``.
+#:
+#: .. versionadded:: 0.5.0
+TOOL_RESULT_IMAGES_OMITTED_TEXT = (
+    "[The tool returned {images}; this model does not receive images from tool results.]"
+)
+
 #: Input tokens ``estimate_input_tokens`` counts for each image, whose bytes it never reads.
 #:
 #: .. versionadded:: 0.5.0
 ESTIMATED_IMAGE_INPUT_TOKENS = 1600
 
-# Chat Completions providers whose models take images in a tool result. Gemini 2.5 refuses
-# LiteLLM's multimodal function response, so Gemini and Vertex AI get the user message.
+# Chat Completions providers whose LiteLLM conversion keeps images in a tool result.
 _TOOL_MESSAGE_IMAGE_PROVIDERS = frozenset({"anthropic", "bedrock"})
 
-# LiteLLM providers whose Gemini models get tool images in the function response turn.
+# Gemini 2.5 and 3 disagree on where tool images go, so Gemini models on these get none.
 _GEMINI_PROVIDERS = frozenset({"gemini", "vertex_ai", "vertex_ai_beta"})
 
 # Input fields the Responses API accepts back for each output item type.
@@ -106,15 +113,15 @@ class LiteLLMModelClient:
     * Chat Completions: a user message's ``content`` is a ``text`` part and
       one ``image_url`` part per image. For Anthropic and Bedrock, whose
       LiteLLM conversion keeps images in a tool result, a tool message's
-      ``content`` is the same list of parts. Every other provider, such as
-      OpenAI, Gemini, and Vertex AI, gets only text in a tool message: the
-      tool message keeps the text, and after the last tool message of the run
-      follows one user message per tool result with images, holding
-      ``TOOL_RESULT_IMAGES_TEXT`` and then the image parts. Gemini 2.5 models
-      refuse images in a function response. For Gemini models, on Gemini
-      and Vertex AI, the request's ``contents`` puts those user messages'
-      parts in the same ``user`` content as the function responses, after
-      them, so ``user`` and ``model`` turns still alternate.
+      ``content`` is the same list of parts. Gemini models on Gemini and
+      Vertex AI do not receive a tool result's images: the tool message holds
+      the text and then ``TOOL_RESULT_IMAGES_OMITTED_TEXT``. Gemini 2.5
+      refuses images in a function response, Gemini 3 needs them there, and
+      LiteLLM converts neither correctly. Their user messages keep images.
+      Every other provider, such as OpenAI, gets only text in a tool message:
+      the tool message keeps the text, and after the last tool message of the
+      run follows one user message per tool result with images, holding
+      ``TOOL_RESULT_IMAGES_TEXT`` and then the image parts.
 
     .. versionchanged:: 0.5.0
        Sends the images of user text and tool result items.
@@ -157,6 +164,7 @@ class LiteLLMModelClient:
             raise ValueError("model must not be blank")
         self._model = model
         self._provider = _provider_name(model)
+        self._is_gemini_model = _is_gemini_model(model)
         self._api = api or (RESPONSES_API if self._provider == "openai" else CHAT_COMPLETIONS_API)
         self._api_base = api_base
         self._api_key_provider = api_key_provider
@@ -386,6 +394,7 @@ class LiteLLMModelClient:
                 provider=self._provider,
                 api=CHAT_COMPLETIONS_API,
                 image_bytes=request.image_bytes,
+                should_omit_tool_result_images=self._is_gemini_model,
             ),
             stream_options={"include_usage": True},
         )
@@ -397,12 +406,6 @@ class LiteLLMModelClient:
         if request.settings.reasoning_effort is not None:
             options["reasoning_effort"] = request.settings.reasoning_effort
         options.update(request.settings.provider_options)
-        if request.image_bytes is not None and any(
-            isinstance(item, ToolResultItem) and item.images for item in request.input_items
-        ):
-            contents = _gemini_contents_with_one_user_turn(options["messages"], self._model)
-            if contents is not None:
-                options["extra_body"] = {"contents": contents, **(options.get("extra_body") or {})}
         stream = await litellm.acompletion(**options)
         message = _ChatMessageAssembler()
         async with _closing_stream(stream):
@@ -551,6 +554,7 @@ def _chat_messages(
     provider: str,
     api: str,
     image_bytes: Mapping[str, bytes] | None = None,
+    should_omit_tool_result_images: bool = False,
 ) -> list[dict[str, Any]]:
     """Return the Chat Completions messages; ``image_bytes=None`` leaves every image out."""
     messages: list[dict[str, Any]] = []
@@ -577,7 +581,13 @@ def _chat_messages(
         elif isinstance(item, ToolResultItem):
             tool_content: str | list[dict[str, Any]] = item.output
             if item.images and image_bytes is not None:
-                if provider in _TOOL_MESSAGE_IMAGE_PROVIDERS:
+                if should_omit_tool_result_images:
+                    image_count = len(item.images)
+                    note = TOOL_RESULT_IMAGES_OMITTED_TEXT.format(
+                        images=f"{image_count} image{'' if image_count == 1 else 's'}"
+                    )
+                    tool_content = f"{item.output}\n\n{note}" if item.output else note
+                elif provider in _TOOL_MESSAGE_IMAGE_PROVIDERS:
                     tool_content = _chat_parts(item.output, item.images, image_bytes)
                 else:
                     text = TOOL_RESULT_IMAGES_TEXT.format(
@@ -590,42 +600,6 @@ def _chat_messages(
                 {"role": "tool", "tool_call_id": item.tool_call_id, "content": tool_content}
             )
     return messages
-
-
-def _gemini_contents_with_one_user_turn(
-    messages: list[dict[str, Any]], model: str
-) -> list[dict[str, Any]] | None:
-    """Return LiteLLM's Gemini ``contents`` with adjacent ``user`` contents merged; turns alternate.
-
-    Returns:
-        The merged contents, or ``None`` when the model is not Gemini on
-        Gemini or Vertex AI, or when no ``user`` contents are adjacent.
-    """
-    try:
-        model_name, provider, _, _ = litellm.get_llm_provider(model)
-    except Exception:
-        return None
-    if provider not in _GEMINI_PROVIDERS or "gemini" not in model_name.lower():
-        return None
-    # LiteLLM sends system messages as system_instruction when the model supports them.
-    conversation = messages
-    if get_supports_system_message(model=model_name, custom_llm_provider=provider):
-        conversation = [message for message in messages if message["role"] != "system"]
-    gemini_config: Any
-    if provider == "gemini":
-        gemini_config = litellm.GoogleAIStudioGeminiConfig()
-    else:
-        gemini_config = litellm.VertexGeminiConfig()
-    contents: list[dict[str, Any]] = gemini_config._transform_messages(
-        messages=conversation, model=model_name, litellm_params={}
-    )
-    merged: list[dict[str, Any]] = []
-    for content in contents:
-        if merged and merged[-1]["role"] == "user" and content["role"] == "user":
-            merged[-1] = {"role": "user", "parts": [*merged[-1]["parts"], *content["parts"]]}
-        else:
-            merged.append(content)
-    return merged if len(merged) < len(contents) else None
 
 
 def _responses_parts(
@@ -781,6 +755,15 @@ def _is_forced_tool_use_unsupported(model: str) -> bool:
     except ImportError:
         return False
     return bool(AnthropicModelInfo.forced_tool_use_unsupported(model_name))
+
+
+def _is_gemini_model(model: str) -> bool:
+    """Report whether LiteLLM sends the model to Gemini on the Gemini API or Vertex AI."""
+    try:
+        model_name, provider, _, _ = litellm.get_llm_provider(model)
+    except Exception:
+        return False
+    return provider in _GEMINI_PROVIDERS and "gemini" in model_name.lower()
 
 
 def _provider_name(model: str) -> str:

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from litellm.llms.vertex_ai.vertex_llm_base import VertexBase
 
 from dex_agents import AgentImageReference, build_image_reference
 from dex_agents.builtin_loop import (
@@ -28,9 +29,9 @@ from dex_agents.builtin_loop import (
 )
 from dex_agents.litellm import (
     ESTIMATED_IMAGE_INPUT_TOKENS,
+    TOOL_RESULT_IMAGES_OMITTED_TEXT,
     TOOL_RESULT_IMAGES_TEXT,
     LiteLLMModelClient,
-    _gemini_contents_with_one_user_turn,
 )
 from tests.test_litellm_model_client import (
     FakeProviderTransport,
@@ -223,53 +224,89 @@ async def test_anthropic_gets_image_blocks_in_the_user_message_and_inside_the_to
     assert tool_result["content"][1]["source"]["media_type"] == "image/jpeg"
 
 
-async def test_gemini_gets_tool_images_in_the_function_response_turn_after_the_responses(
-    transport: FakeProviderTransport,
-) -> None:
-    client = LiteLLMModelClient(
-        "gemini/gemini-2.5-flash", api_base=transport.base_url, api_key_provider=lambda: "key"
+GEMINI_MODELS = [
+    "gemini/gemini-2.5-flash",
+    "vertex_ai/gemini-2.5-flash",
+    "vertex_ai_beta/gemini-2.5-flash",
+]
+
+
+@pytest.fixture
+def vertex_access_token(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Skip Google auth for Vertex AI models; return their location ``request_options``."""
+
+    def access_token(*_: Any, **__: Any) -> tuple[str, str]:
+        return "token", "project"
+
+    async def access_token_async(*_: Any, **__: Any) -> tuple[str, str]:
+        return "token", "project"
+
+    monkeypatch.setattr(VertexBase, "_ensure_access_token", access_token)
+    monkeypatch.setattr(VertexBase, "_ensure_access_token_async", access_token_async)
+    return {"vertex_project": "project", "vertex_location": "us-central1"}
+
+
+def fake_transport_client(
+    model: str, transport: FakeProviderTransport, vertex_options: dict[str, str]
+) -> LiteLLMModelClient:
+    return LiteLLMModelClient(
+        model,
+        api_base=transport.base_url,
+        api_key_provider=lambda: "key",
+        request_options=vertex_options if model.startswith("vertex_ai") else None,
     )
+
+
+def two_screenshot_results() -> list[ModelInputItem]:
+    """A user image, then two tool results: three images with text and one without."""
+    return [
+        UserTextItem(text="Look.", images=[PNG_REFERENCE]),
+        ModelOutputItem(
+            provider="dex-scripted",
+            api="scripted",
+            item="{}",
+            tool_calls=(
+                ModelToolCall(
+                    tool_call_id="call_1", tool_name="screenshot", arguments='{"page": 1}'
+                ),
+                ModelToolCall(
+                    tool_call_id="call_2", tool_name="screenshot", arguments='{"page": 2}'
+                ),
+            ),
+        ),
+        ToolResultItem(
+            tool_call_id="call_1",
+            tool_name="screenshot",
+            output="First.",
+            images=[JPEG_REFERENCE, JPEG_REFERENCE],
+        ),
+        ToolResultItem(
+            tool_call_id="call_2", tool_name="screenshot", output="", images=[JPEG_REFERENCE]
+        ),
+    ]
+
+
+def inline_data_parts(body: dict[str, Any]) -> list[tuple[int, dict[str, str]]]:
+    """Return every ``inline_data`` of the request with the index of its content."""
+    return [
+        (index, part["inline_data"])
+        for index, content in enumerate(body["contents"])
+        for part in content["parts"]
+        if "inline_data" in part
+    ]
+
+
+@pytest.mark.parametrize("model", GEMINI_MODELS)
+async def test_gemini_models_get_a_note_instead_of_tool_images_and_keep_user_images(
+    transport: FakeProviderTransport, vertex_access_token: dict[str, str], model: str
+) -> None:
+    client = fake_transport_client(model, transport, vertex_access_token)
     transport.responses.append((200, _gemini_text_stream("Two screenshots.")))
 
-    await client.call_model(
-        image_request(
-            [
-                UserTextItem(text="Look.", images=[PNG_REFERENCE]),
-                ModelOutputItem(
-                    provider="dex-scripted",
-                    api="scripted",
-                    item="{}",
-                    tool_calls=(
-                        ModelToolCall(
-                            tool_call_id="call_1", tool_name="screenshot", arguments='{"page": 1}'
-                        ),
-                        ModelToolCall(
-                            tool_call_id="call_2", tool_name="screenshot", arguments='{"page": 2}'
-                        ),
-                    ),
-                ),
-                ToolResultItem(
-                    tool_call_id="call_1",
-                    tool_name="screenshot",
-                    output="First.",
-                    images=[JPEG_REFERENCE],
-                ),
-                ToolResultItem(
-                    tool_call_id="call_2",
-                    tool_name="screenshot",
-                    output="Second.",
-                    images=[PNG_REFERENCE],
-                ),
-                UserTextItem(text="And now?"),
-            ]
-        ),
-        RecordedOutput(),
-    )
+    await client.call_model(image_request(two_screenshot_results()), RecordedOutput())
 
     _, body = transport.requests[0]
     assert body["system_instruction"] == {"parts": [{"text": "You help with orders."}]}
-    # One user turn holds the function responses, which carry text only because Gemini 2.5
-    # refuses images there, and then the images, so user and model turns alternate.
     assert body["contents"] == [
         {
             "role": "user",
@@ -285,24 +322,111 @@ async def test_gemini_gets_tool_images_in_the_function_response_turn_after_the_r
         {
             "role": "user",
             "parts": [
-                {"function_response": {"name": "screenshot", "response": {"content": "First."}}},
-                {"function_response": {"name": "screenshot", "response": {"content": "Second."}}},
                 {
-                    "text": TOOL_RESULT_IMAGES_TEXT.format(
-                        tool_name="screenshot", tool_call_id="call_1"
-                    )
+                    "function_response": {
+                        "name": "screenshot",
+                        "response": {
+                            "content": "First.\n\n"
+                            + TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="2 images")
+                        },
+                    }
                 },
-                {"inline_data": inline_data(JPEG_REFERENCE, JPEG)},
                 {
-                    "text": TOOL_RESULT_IMAGES_TEXT.format(
-                        tool_name="screenshot", tool_call_id="call_2"
-                    )
+                    "function_response": {
+                        "name": "screenshot",
+                        "response": {
+                            "content": TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="1 image")
+                        },
+                    }
                 },
-                {"inline_data": inline_data(PNG_REFERENCE, PNG)},
-                {"text": "And now?"},
             ],
         },
     ]
+    assert inline_data_parts(body) == [(0, inline_data(PNG_REFERENCE, PNG))]
+
+
+async def test_gemini_3_gets_the_note_in_function_responses_that_keep_their_ids(
+    transport: FakeProviderTransport, vertex_access_token: dict[str, str]
+) -> None:
+    client = fake_transport_client("vertex_ai/gemini-3.6-flash", transport, vertex_access_token)
+    transport.responses.append((200, _gemini_text_stream("Two screenshots.")))
+
+    await client.call_model(image_request(two_screenshot_results()), RecordedOutput())
+
+    _, body = transport.requests[0]
+    assert [content["role"] for content in body["contents"]] == ["user", "model", "user"]
+    assert body["contents"][2]["parts"] == [
+        {
+            "function_response": {
+                "name": "screenshot",
+                "response": {
+                    "content": "First.\n\n"
+                    + TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="2 images")
+                },
+                "id": "call_1",
+            }
+        },
+        {
+            "function_response": {
+                "name": "screenshot",
+                "response": {"content": TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="1 image")},
+                "id": "call_2",
+            }
+        },
+    ]
+    assert inline_data_parts(body) == [(0, inline_data(PNG_REFERENCE, PNG))]
+
+
+async def test_a_gemini_response_schema_prompt_fallback_survives_tool_images(
+    transport: FakeProviderTransport,
+) -> None:
+    schema = {"type": "object", "properties": {"answer": {"type": "string"}}}
+    # LiteLLM sends gemini-2.0-flash its response_schema as a user prompt, not natively.
+    client = LiteLLMModelClient(
+        "gemini/gemini-2.0-flash",
+        api_base=transport.base_url,
+        api_key_provider=lambda: "key",
+        request_options={"response_schema": schema},
+    )
+    transport.responses.append((200, _gemini_text_stream("{}")))
+
+    await client.call_model(image_request(two_screenshot_results()), RecordedOutput())
+
+    _, body = transport.requests[0]
+    texts = [
+        part["text"] for content in body["contents"] for part in content["parts"] if "text" in part
+    ]
+    assert any(text.startswith("Use this JSON schema:") and "answer" in text for text in texts)
+    function_responses = [
+        part["function_response"]["response"]["content"]
+        for content in body["contents"]
+        for part in content["parts"]
+        if "function_response" in part
+    ]
+    assert function_responses[1] == TOOL_RESULT_IMAGES_OMITTED_TEXT.format(images="1 image")
+    assert [index for index, _ in inline_data_parts(body)] == [0]
+
+
+async def test_claude_on_vertex_ai_still_gets_tool_images_in_a_user_message(
+    transport: FakeProviderTransport, vertex_access_token: dict[str, str]
+) -> None:
+    client = fake_transport_client("vertex_ai/claude-sonnet-4-5", transport, vertex_access_token)
+    transport.responses.append((200, _anthropic_text_stream("Two screenshots.")))
+
+    await client.call_model(image_request(two_screenshot_results()), RecordedOutput())
+
+    _, body = transport.requests[0]
+    tool_turn = body["messages"][-1]["content"]
+    assert [(block["type"], block.get("content")) for block in tool_turn[:2]] == [
+        ("tool_result", "First."),
+        ("tool_result", ""),
+    ]
+    assert [block["type"] for block in tool_turn[2:]] == ["text", "image", "image", "text", "image"]
+    assert tool_turn[2]["text"] == TOOL_RESULT_IMAGES_TEXT.format(
+        tool_name="screenshot", tool_call_id="call_1"
+    )
+    assert base64.b64decode(tool_turn[3]["source"]["data"]) == JPEG
+    assert "does not receive images" not in json.dumps(body)
 
 
 async def test_gemini_contents_stay_litellm_s_own_without_tool_images(
@@ -328,56 +452,6 @@ async def test_gemini_contents_stay_litellm_s_own_without_tool_images(
     assert [content["role"] for content in body["contents"]] == ["user", "model", "user"]
     assert body["contents"][2]["parts"] == [
         {"function_response": {"name": "screenshot", "response": {"content": "None."}}}
-    ]
-
-
-@pytest.mark.parametrize(
-    ("model", "merges"),
-    [
-        ("vertex_ai/gemini-2.5-flash", True),
-        ("vertex_ai_beta/gemini-2.5-flash", True),
-        ("gemini/gemini-2.5-flash", True),
-        ("vertex_ai/claude-sonnet-4-5", False),
-        ("openai/gpt-4o", False),
-    ],
-)
-def test_only_gemini_models_get_their_user_contents_merged(model: str, merges: bool) -> None:
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": "Be brief."},
-        {"role": "user", "content": "Look."},
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": "call_1",
-                    "type": "function",
-                    "function": {"name": "screenshot", "arguments": "{}"},
-                }
-            ],
-        },
-        {"role": "tool", "tool_call_id": "call_1", "content": "Took one."},
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Its images."},
-                {"type": "image_url", "image_url": {"url": data_url(JPEG_REFERENCE, JPEG)}},
-            ],
-        },
-    ]
-
-    contents = _gemini_contents_with_one_user_turn(messages, model)
-
-    if not merges:
-        assert contents is None
-        return
-    assert contents is not None
-    assert [content["role"] for content in contents] == ["user", "model", "user"]
-    assert contents[0]["parts"] == [{"text": "Look."}]
-    assert contents[2]["parts"] == [
-        {"function_response": {"name": "screenshot", "response": {"content": "Took one."}}},
-        {"text": "Its images."},
-        {"inline_data": inline_data(JPEG_REFERENCE, JPEG)},
     ]
 
 

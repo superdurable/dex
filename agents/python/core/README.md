@@ -887,15 +887,21 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
   user message's `content` is a `text` part and one `image_url` part per
   image. For Anthropic and Bedrock, whose LiteLLM conversion keeps images in
   a tool result, a tool message's `content` is the same list of parts. Every
-  other provider, such as OpenAI Chat Completions, Gemini, and Vertex AI, gets
-  only text in a tool message, because Gemini 2.5 models refuse images in a
-  function response: the tool message keeps the text, and
+  other provider, such as OpenAI Chat Completions or Claude on Vertex AI,
+  gets only text in a tool message: the tool message keeps the text, and
   after the last tool message of that run follows one user message per tool
   result with images, holding `TOOL_RESULT_IMAGES_TEXT` (`The <tool_name> tool
   call <tool_call_id> returned these images.`) and then the image parts.
-  For Gemini models on Gemini and Vertex AI, the request's `contents` puts
-  those parts in the same `user` content as the function responses, after
-  them, so `user` and `model` turns alternate.
+- **Known limitation: Gemini through LiteLLM sees no tool result images.**
+  Gemini models on the Gemini API and Vertex AI (`gemini/`, `vertex_ai/`, and
+  `vertex_ai_beta/`) get images in user messages, but not the images of a
+  tool result. Their tool message holds the text and then
+  `TOOL_RESULT_IMAGES_OMITTED_TEXT`, such as `[The tool returned 2 images;
+  this model does not receive images from tool results.]`, and no user
+  message follows with the images. Gemini 2.5 refuses images in a function
+  response, Gemini 3 accepts them only there, and LiteLLM's conversion gets
+  neither right. To show a Gemini model a tool's image, send it in a user
+  message.
 - **Your own model client.** Convert each reference in `images` to the
   provider's image part with its bytes from `ModelRequest.image_bytes`, and
   raise when they are missing. A client that ignores `images` shows the
