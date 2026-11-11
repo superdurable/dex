@@ -10,6 +10,14 @@ import {Join, StepList, StepMovement, goToMany, gracefulComplete, joinRoundCodec
 
 const reviewCompleted = new Join("reviewCompleted", stringCodec);
 
+class ReviewerDirectory {
+  forEach(visit: (reviewer: string) => unknown): void {
+    visit("directory");
+  }
+}
+
+const reviewerDirectory = new ReviewerDirectory();
+
 interface ReviewInput {
   readonly reviewer: string;
   readonly round: JoinRound;
@@ -54,6 +62,23 @@ class RequestReviews implements Step<readonly string[]> {
       const eachBuilders: ((round: JoinRound) => StepMovement<ReviewInput>)[] = [];
       reviewers.forEach((reviewer) => eachBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer, round})));
       return goToMany(...reviewCompleted.fork(context, eachBuilders, (round) => StepMovement.of(CollectReviews, round)));
+    }
+    if (reviewers.includes("choice")) {
+      // Conditional pushes onto a plain movement list each add one possible movement.
+      const choiceMovements: StepMovement<any>[] = [];
+      if (reviewers.includes("legal")) {
+        choiceMovements.push(StepMovement.of(ReviewDocument, {reviewer: "legal", round: {roundKey: "choice", branchCount: 2}}));
+      }
+      if (reviewers.includes("finance")) {
+        choiceMovements.push(StepMovement.of(EscalateReview, {reviewer: "finance", round: {roundKey: "choice", branchCount: 2}}));
+      }
+      return choiceMovements.length === 0 ? gracefulComplete([]) : goToMany(...choiceMovements);
+    }
+    if (reviewers.includes("custom")) {
+      // A push in a callback that is not provably an array iteration may repeat.
+      const customMovements: StepMovement<any>[] = [];
+      reviewerDirectory.forEach((reviewer: string) => customMovements.push(StepMovement.of(EscalateReview, {reviewer, round: {roundKey: "custom", branchCount: 1}})));
+      return goToMany(...customMovements);
     }
     if (reviewers.includes("plain")) {
       // A single push onto a plain movement list adds one movement.

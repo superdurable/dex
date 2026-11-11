@@ -9,9 +9,9 @@
     "name": "ReviewJoinFlow",
     "startStepId": "step:RequestReviews",
     "span": {
-      "startLine": 140,
+      "startLine": 165,
       "startColumn": 1,
-      "endLine": 152,
+      "endLine": 177,
       "endColumn": 2
     }
   },
@@ -23,22 +23,22 @@
       "parentId": "step:RequestReviews",
       "phase": "execute",
       "span": {
-        "startLine": 25,
+        "startLine": 33,
         "startColumn": 3,
-        "endLine": 99,
+        "endLine": 124,
         "endColumn": 4
       }
     },
     {
-      "id": "decision:step:CollectReviews:136:12",
+      "id": "decision:step:CollectReviews:161:12",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:CollectReviews",
       "phase": "execute",
       "span": {
-        "startLine": 136,
+        "startLine": 161,
         "startColumn": 12,
-        "endLine": 136,
+        "endLine": 161,
         "endColumn": 75
       },
       "decision": {
@@ -46,15 +46,15 @@
       }
     },
     {
-      "id": "decision:step:EscalateReview:110:12",
+      "id": "decision:step:EscalateReview:135:12",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:EscalateReview",
       "phase": "execute",
       "span": {
-        "startLine": 110,
+        "startLine": 135,
         "startColumn": 12,
-        "endLine": 110,
+        "endLine": 135,
         "endColumn": 91
       },
       "decision": {
@@ -62,16 +62,16 @@
       }
     },
     {
-      "id": "decision:step:RequestReviews:28:14",
+      "id": "decision:step:RequestReviews:106:14",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "reviewers.length \u003e 2",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"choice\")) \u0026\u0026 !(reviewers.includes(\"custom\")) \u0026\u0026 !(reviewers.includes(\"plain\")) \u0026\u0026 !(reviewers.includes(\"sibling\")) \u0026\u0026 reviewers.includes(\"shadow\")",
       "phase": "execute",
       "span": {
-        "startLine": 28,
+        "startLine": 106,
         "startColumn": 14,
-        "endLine": 28,
+        "endLine": 106,
         "endColumn": 123
       },
       "decision": {
@@ -79,17 +79,51 @@
       }
     },
     {
-      "id": "decision:step:RequestReviews:34:14",
+      "id": "decision:step:RequestReviews:109:14",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 reviewers.length \u003e 1",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"choice\")) \u0026\u0026 !(reviewers.includes(\"custom\")) \u0026\u0026 !(reviewers.includes(\"plain\")) \u0026\u0026 !(reviewers.includes(\"sibling\")) \u0026\u0026 !(reviewers.includes(\"shadow\")) \u0026\u0026 reviewers.length \u003e 0",
       "phase": "execute",
       "span": {
-        "startLine": 34,
+        "startLine": 109,
         "startColumn": 14,
-        "endLine": 34,
-        "endColumn": 121
+        "endLine": 113,
+        "endColumn": 9
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:RequestReviews:123:12",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:RequestReviews",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"choice\")) \u0026\u0026 !(reviewers.includes(\"custom\")) \u0026\u0026 !(reviewers.includes(\"plain\")) \u0026\u0026 !(reviewers.includes(\"sibling\")) \u0026\u0026 !(reviewers.includes(\"shadow\")) \u0026\u0026 !(reviewers.length \u003e 0)",
+      "phase": "execute",
+      "span": {
+        "startLine": 123,
+        "startColumn": 12,
+        "endLine": 123,
+        "endColumn": 34
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:RequestReviews:36:14",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:RequestReviews",
+      "condition": "reviewers.length \u003e 2",
+      "phase": "execute",
+      "span": {
+        "startLine": 36,
+        "startColumn": 14,
+        "endLine": 36,
+        "endColumn": 123
       },
       "decision": {
         "type": "goToMany"
@@ -100,7 +134,7 @@
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 reviewers.includes(\"loop\")",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 reviewers.length \u003e 1",
       "phase": "execute",
       "span": {
         "startLine": 42,
@@ -117,29 +151,12 @@
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 reviewers.includes(\"late\")",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 reviewers.includes(\"loop\")",
       "phase": "execute",
       "span": {
         "startLine": 50,
         "startColumn": 14,
         "endLine": 50,
-        "endColumn": 40
-      },
-      "decision": {
-        "type": "goToMany"
-      }
-    },
-    {
-      "id": "decision:step:RequestReviews:56:14",
-      "kind": "decision",
-      "name": "goToMany",
-      "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 reviewers.includes(\"each\")",
-      "phase": "execute",
-      "span": {
-        "startLine": 56,
-        "startColumn": 14,
-        "endLine": 56,
         "endColumn": 121
       },
       "decision": {
@@ -147,51 +164,68 @@
       }
     },
     {
-      "id": "decision:step:RequestReviews:62:14",
+      "id": "decision:step:RequestReviews:58:14",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 reviewers.includes(\"plain\")",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 reviewers.includes(\"late\")",
       "phase": "execute",
       "span": {
-        "startLine": 62,
+        "startLine": 58,
         "startColumn": 14,
-        "endLine": 62,
-        "endColumn": 41
+        "endLine": 58,
+        "endColumn": 40
       },
       "decision": {
         "type": "goToMany"
       }
     },
     {
-      "id": "decision:step:RequestReviews:69:16",
+      "id": "decision:step:RequestReviews:64:14",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:RequestReviews",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 reviewers.includes(\"each\")",
+      "phase": "execute",
+      "span": {
+        "startLine": 64,
+        "startColumn": 14,
+        "endLine": 64,
+        "endColumn": 121
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:RequestReviews:75:45",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"plain\")) \u0026\u0026 reviewers.includes(\"sibling\") \u0026\u0026 reviewers.length \u003e 4",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 reviewers.includes(\"choice\") \u0026\u0026 choiceMovements.length === 0",
       "phase": "execute",
       "span": {
-        "startLine": 69,
-        "startColumn": 16,
-        "endLine": 69,
-        "endColumn": 36
+        "startLine": 75,
+        "startColumn": 45,
+        "endLine": 75,
+        "endColumn": 65
       },
       "decision": {
         "type": "gracefulComplete"
       }
     },
     {
-      "id": "decision:step:RequestReviews:71:16",
+      "id": "decision:step:RequestReviews:75:68",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"plain\")) \u0026\u0026 reviewers.includes(\"sibling\") \u0026\u0026 !(reviewers.length \u003e 4)",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 reviewers.includes(\"choice\") \u0026\u0026 !(choiceMovements.length === 0)",
       "phase": "execute",
       "span": {
-        "startLine": 71,
-        "startColumn": 16,
-        "endLine": 71,
-        "endColumn": 126
+        "startLine": 75,
+        "startColumn": 68,
+        "endLine": 75,
+        "endColumn": 96
       },
       "decision": {
         "type": "goToMany"
@@ -202,62 +236,79 @@
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"plain\")) \u0026\u0026 !(reviewers.includes(\"sibling\")) \u0026\u0026 reviewers.includes(\"shadow\")",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"choice\")) \u0026\u0026 reviewers.includes(\"custom\")",
       "phase": "execute",
       "span": {
         "startLine": 81,
         "startColumn": 14,
         "endLine": 81,
-        "endColumn": 123
+        "endColumn": 42
       },
       "decision": {
         "type": "goToMany"
       }
     },
     {
-      "id": "decision:step:RequestReviews:84:14",
+      "id": "decision:step:RequestReviews:87:14",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"plain\")) \u0026\u0026 !(reviewers.includes(\"sibling\")) \u0026\u0026 !(reviewers.includes(\"shadow\")) \u0026\u0026 reviewers.length \u003e 0",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"choice\")) \u0026\u0026 !(reviewers.includes(\"custom\")) \u0026\u0026 reviewers.includes(\"plain\")",
       "phase": "execute",
       "span": {
-        "startLine": 84,
+        "startLine": 87,
         "startColumn": 14,
-        "endLine": 88,
-        "endColumn": 9
+        "endLine": 87,
+        "endColumn": 41
       },
       "decision": {
         "type": "goToMany"
       }
     },
     {
-      "id": "decision:step:RequestReviews:98:12",
+      "id": "decision:step:RequestReviews:94:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:RequestReviews",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"choice\")) \u0026\u0026 !(reviewers.includes(\"custom\")) \u0026\u0026 !(reviewers.includes(\"plain\")) \u0026\u0026 reviewers.includes(\"sibling\") \u0026\u0026 reviewers.length \u003e 4",
+      "phase": "execute",
+      "span": {
+        "startLine": 94,
+        "startColumn": 16,
+        "endLine": 94,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:RequestReviews:96:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"plain\")) \u0026\u0026 !(reviewers.includes(\"sibling\")) \u0026\u0026 !(reviewers.includes(\"shadow\")) \u0026\u0026 !(reviewers.length \u003e 0)",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.includes(\"loop\")) \u0026\u0026 !(reviewers.includes(\"late\")) \u0026\u0026 !(reviewers.includes(\"each\")) \u0026\u0026 !(reviewers.includes(\"choice\")) \u0026\u0026 !(reviewers.includes(\"custom\")) \u0026\u0026 !(reviewers.includes(\"plain\")) \u0026\u0026 reviewers.includes(\"sibling\") \u0026\u0026 !(reviewers.length \u003e 4)",
       "phase": "execute",
       "span": {
-        "startLine": 98,
-        "startColumn": 12,
-        "endLine": 98,
-        "endColumn": 34
+        "startLine": 96,
+        "startColumn": 16,
+        "endLine": 96,
+        "endColumn": 126
       },
       "decision": {
         "type": "goToMany"
       }
     },
     {
-      "id": "decision:step:ReviewDocument:122:12",
+      "id": "decision:step:ReviewDocument:147:12",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:ReviewDocument",
       "phase": "execute",
       "span": {
-        "startLine": 122,
+        "startLine": 147,
         "startColumn": 12,
-        "endLine": 122,
+        "endLine": 147,
         "endColumn": 75
       },
       "decision": {
@@ -285,9 +336,9 @@
       "name": "CollectReviews",
       "phase": "execute",
       "span": {
-        "startLine": 146,
+        "startLine": 171,
         "startColumn": 108,
-        "endLine": 146,
+        "endLine": 171,
         "endColumn": 128
       },
       "metadata": {
@@ -300,9 +351,9 @@
       "name": "EscalateReview",
       "phase": "execute",
       "span": {
-        "startLine": 146,
+        "startLine": 171,
         "startColumn": 86,
-        "endLine": 146,
+        "endLine": 171,
         "endColumn": 106
       },
       "metadata": {
@@ -316,9 +367,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 146,
+        "startLine": 171,
         "startColumn": 31,
-        "endLine": 146,
+        "endLine": 171,
         "endColumn": 51
       },
       "metadata": {
@@ -331,9 +382,9 @@
       "name": "ReviewDocument",
       "phase": "execute",
       "span": {
-        "startLine": 146,
+        "startLine": 171,
         "startColumn": 64,
-        "endLine": 146,
+        "endLine": 171,
         "endColumn": 84
       },
       "metadata": {
@@ -345,71 +396,124 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:28:14",
+      "from": "decision:step:RequestReviews:106:14",
       "to": "step:CollectReviews",
       "label": "fan-out",
       "span": {
-        "startLine": 28,
+        "startLine": 106,
         "startColumn": 83,
-        "endLine": 28,
+        "endLine": 106,
         "endColumn": 121
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:28:14",
+      "from": "decision:step:RequestReviews:106:14",
       "to": "step:ReviewDocument",
       "label": "fan-out",
-      "multiplicity": "×N",
       "span": {
-        "startLine": 27,
-        "startColumn": 80,
-        "endLine": 27,
-        "endColumn": 130
+        "startLine": 101,
+        "startColumn": 53,
+        "endLine": 101,
+        "endColumn": 112
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:34:14",
+      "from": "decision:step:RequestReviews:109:14",
       "to": "step:CollectReviews",
       "label": "fan-out",
       "span": {
-        "startLine": 34,
-        "startColumn": 81,
-        "endLine": 34,
-        "endColumn": 119
+        "startLine": 112,
+        "startColumn": 20,
+        "endLine": 112,
+        "endColumn": 58
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:34:14",
-      "to": "step:EscalateReview",
+      "from": "decision:step:RequestReviews:109:14",
+      "to": "step:ReviewDocument",
       "label": "fan-out",
+      "multiplicity": "×N",
       "span": {
-        "startLine": 33,
-        "startColumn": 47,
-        "endLine": 33,
-        "endColumn": 107
+        "startLine": 111,
+        "startColumn": 59,
+        "endLine": 111,
+        "endColumn": 109
       }
     },
     {
       "id": "edge:0005",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:34:14",
-      "to": "step:ReviewDocument",
+      "from": "decision:step:RequestReviews:123:12",
+      "to": "step:CollectReviews",
       "label": "fan-out",
       "span": {
-        "startLine": 32,
-        "startColumn": 51,
-        "endLine": 32,
-        "endColumn": 109
+        "startLine": 121,
+        "startColumn": 18,
+        "endLine": 121,
+        "endColumn": 56
       }
     },
     {
       "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:123:12",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "span": {
+        "startLine": 118,
+        "startColumn": 20,
+        "endLine": 118,
+        "endColumn": 79
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:123:12",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "span": {
+        "startLine": 119,
+        "startColumn": 20,
+        "endLine": 119,
+        "endColumn": 81
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:36:14",
+      "to": "step:CollectReviews",
+      "label": "fan-out",
+      "span": {
+        "startLine": 36,
+        "startColumn": 83,
+        "endLine": 36,
+        "endColumn": 121
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:36:14",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "multiplicity": "×N",
+      "span": {
+        "startLine": 35,
+        "startColumn": 80,
+        "endLine": 35,
+        "endColumn": 130
+      }
+    },
+    {
+      "id": "edge:0010",
       "kind": "transition",
       "from": "decision:step:RequestReviews:42:14",
       "to": "step:CollectReviews",
@@ -422,214 +526,201 @@
       }
     },
     {
-      "id": "edge:0007",
+      "id": "edge:0011",
       "kind": "transition",
       "from": "decision:step:RequestReviews:42:14",
       "to": "step:EscalateReview",
       "label": "fan-out",
-      "multiplicity": "×N",
       "span": {
-        "startLine": 40,
-        "startColumn": 49,
-        "endLine": 40,
-        "endColumn": 99
-      }
-    },
-    {
-      "id": "edge:0008",
-      "kind": "transition",
-      "from": "decision:step:RequestReviews:50:14",
-      "to": "step:CollectReviews",
-      "label": "fan-out",
-      "span": {
-        "startLine": 47,
-        "startColumn": 84,
-        "endLine": 47,
-        "endColumn": 122
-      }
-    },
-    {
-      "id": "edge:0009",
-      "kind": "transition",
-      "from": "decision:step:RequestReviews:50:14",
-      "to": "step:ReviewDocument",
-      "label": "fan-out",
-      "span": {
-        "startLine": 46,
-        "startColumn": 51,
-        "endLine": 46,
-        "endColumn": 110
-      }
-    },
-    {
-      "id": "edge:0010",
-      "kind": "transition",
-      "from": "decision:step:RequestReviews:56:14",
-      "to": "step:CollectReviews",
-      "label": "fan-out",
-      "span": {
-        "startLine": 56,
-        "startColumn": 81,
-        "endLine": 56,
-        "endColumn": 119
-      }
-    },
-    {
-      "id": "edge:0011",
-      "kind": "transition",
-      "from": "decision:step:RequestReviews:56:14",
-      "to": "step:EscalateReview",
-      "label": "fan-out",
-      "multiplicity": "×N",
-      "span": {
-        "startLine": 55,
-        "startColumn": 79,
-        "endLine": 55,
-        "endColumn": 129
+        "startLine": 41,
+        "startColumn": 47,
+        "endLine": 41,
+        "endColumn": 107
       }
     },
     {
       "id": "edge:0012",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:62:14",
-      "to": "step:EscalateReview",
+      "from": "decision:step:RequestReviews:42:14",
+      "to": "step:ReviewDocument",
       "label": "fan-out",
       "span": {
-        "startLine": 61,
-        "startColumn": 27,
-        "endLine": 61,
-        "endColumn": 123
+        "startLine": 40,
+        "startColumn": 51,
+        "endLine": 40,
+        "endColumn": 109
       }
     },
     {
       "id": "edge:0013",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:62:14",
-      "to": "step:ReviewDocument",
+      "from": "decision:step:RequestReviews:50:14",
+      "to": "step:CollectReviews",
       "label": "fan-out",
       "span": {
-        "startLine": 60,
-        "startColumn": 31,
-        "endLine": 60,
-        "endColumn": 127
+        "startLine": 50,
+        "startColumn": 81,
+        "endLine": 50,
+        "endColumn": 119
       }
     },
     {
       "id": "edge:0014",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:71:16",
-      "to": "step:CollectReviews",
+      "from": "decision:step:RequestReviews:50:14",
+      "to": "step:EscalateReview",
       "label": "fan-out",
+      "multiplicity": "×N",
       "span": {
-        "startLine": 71,
-        "startColumn": 86,
-        "endLine": 71,
-        "endColumn": 124
+        "startLine": 48,
+        "startColumn": 49,
+        "endLine": 48,
+        "endColumn": 99
       }
     },
     {
       "id": "edge:0015",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:71:16",
-      "to": "step:ReviewDocument",
+      "from": "decision:step:RequestReviews:58:14",
+      "to": "step:CollectReviews",
       "label": "fan-out",
       "span": {
-        "startLine": 66,
-        "startColumn": 54,
-        "endLine": 66,
-        "endColumn": 112
+        "startLine": 55,
+        "startColumn": 84,
+        "endLine": 55,
+        "endColumn": 122
       }
     },
     {
       "id": "edge:0016",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:81:14",
-      "to": "step:CollectReviews",
+      "from": "decision:step:RequestReviews:58:14",
+      "to": "step:ReviewDocument",
       "label": "fan-out",
       "span": {
-        "startLine": 81,
-        "startColumn": 83,
-        "endLine": 81,
-        "endColumn": 121
+        "startLine": 54,
+        "startColumn": 51,
+        "endLine": 54,
+        "endColumn": 110
       }
     },
     {
       "id": "edge:0017",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:81:14",
-      "to": "step:ReviewDocument",
+      "from": "decision:step:RequestReviews:64:14",
+      "to": "step:CollectReviews",
       "label": "fan-out",
       "span": {
-        "startLine": 76,
-        "startColumn": 53,
-        "endLine": 76,
-        "endColumn": 112
+        "startLine": 64,
+        "startColumn": 81,
+        "endLine": 64,
+        "endColumn": 119
       }
     },
     {
       "id": "edge:0018",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:84:14",
-      "to": "step:CollectReviews",
+      "from": "decision:step:RequestReviews:64:14",
+      "to": "step:EscalateReview",
       "label": "fan-out",
+      "multiplicity": "×N",
       "span": {
-        "startLine": 87,
-        "startColumn": 20,
-        "endLine": 87,
-        "endColumn": 58
+        "startLine": 63,
+        "startColumn": 79,
+        "endLine": 63,
+        "endColumn": 129
       }
     },
     {
       "id": "edge:0019",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:84:14",
-      "to": "step:ReviewDocument",
+      "from": "decision:step:RequestReviews:75:68",
+      "to": "step:EscalateReview",
       "label": "fan-out",
-      "multiplicity": "×N",
       "span": {
-        "startLine": 86,
-        "startColumn": 59,
-        "endLine": 86,
-        "endColumn": 109
+        "startLine": 73,
+        "startColumn": 30,
+        "endLine": 73,
+        "endColumn": 129
       }
     },
     {
       "id": "edge:0020",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:98:12",
-      "to": "step:CollectReviews",
+      "from": "decision:step:RequestReviews:75:68",
+      "to": "step:ReviewDocument",
       "label": "fan-out",
       "span": {
-        "startLine": 96,
-        "startColumn": 18,
-        "endLine": 96,
-        "endColumn": 56
+        "startLine": 70,
+        "startColumn": 30,
+        "endLine": 70,
+        "endColumn": 127
       }
     },
     {
       "id": "edge:0021",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:98:12",
-      "to": "step:ReviewDocument",
+      "from": "decision:step:RequestReviews:81:14",
+      "to": "step:EscalateReview",
       "label": "fan-out",
+      "multiplicity": "×N",
       "span": {
-        "startLine": 93,
-        "startColumn": 20,
-        "endLine": 93,
-        "endColumn": 79
+        "startLine": 80,
+        "startColumn": 76,
+        "endLine": 80,
+        "endColumn": 164
       }
     },
     {
       "id": "edge:0022",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:98:12",
+      "from": "decision:step:RequestReviews:87:14",
+      "to": "step:EscalateReview",
+      "label": "fan-out",
+      "span": {
+        "startLine": 86,
+        "startColumn": 27,
+        "endLine": 86,
+        "endColumn": 123
+      }
+    },
+    {
+      "id": "edge:0023",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:87:14",
       "to": "step:ReviewDocument",
       "label": "fan-out",
       "span": {
-        "startLine": 94,
-        "startColumn": 20,
-        "endLine": 94,
-        "endColumn": 81
+        "startLine": 85,
+        "startColumn": 31,
+        "endLine": 85,
+        "endColumn": 127
+      }
+    },
+    {
+      "id": "edge:0024",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:96:16",
+      "to": "step:CollectReviews",
+      "label": "fan-out",
+      "span": {
+        "startLine": 96,
+        "startColumn": 86,
+        "endLine": 96,
+        "endColumn": 124
+      }
+    },
+    {
+      "id": "edge:0025",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:96:16",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "span": {
+        "startLine": 91,
+        "startColumn": 54,
+        "endLine": 91,
+        "endColumn": 112
       }
     }
   ],

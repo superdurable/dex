@@ -84,12 +84,12 @@ func TestTypeScriptJoinGolden(t *testing.T) {
 
 func TestTypeScriptJoinUndeterminedBuilderListIsDynamic(t *testing.T) {
 	singlePush := `pairBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer: "backup", round}));`
-	plainPush := `plainMovements.push(StepMovement.of(EscalateReview, {reviewer: "plain", round: {roundKey: "plain", branchCount: 2}}));`
+	eachPush := "reviewers.forEach((reviewer) => eachBuilders.push("
 	cases := map[string]struct{ original, replacement string }{
-		"conditional push":         {singlePush, "if (reviewers.length > 5) " + singlePush},
-		"list passed along":        {singlePush, "reorderBuilders(pairBuilders);\n      " + singlePush},
-		"push in another callback": {singlePush, "scheduleLater(() => " + strings.TrimSuffix(singlePush, ";") + ");"},
-		"plain conditional push":   {plainPush, "if (reviewers.length > 5) " + plainPush},
+		"conditional push":            {singlePush, "if (reviewers.length > 5) " + singlePush},
+		"list passed along":           {singlePush, "reorderBuilders(pairBuilders);\n      " + singlePush},
+		"push in another callback":    {singlePush, "scheduleLater(() => " + strings.TrimSuffix(singlePush, ";") + ");"},
+		"push in a non-array forEach": {eachPush, "reviewerDirectory.forEach((reviewer) => eachBuilders.push("},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
