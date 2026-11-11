@@ -918,7 +918,9 @@ implements the sealed `ChannelDef` as a map, so registration, the duplicate-name
 check, and loads reuse the ChannelMap paths. `Fork` reads the Step execution ID
 as the round key and records the Join name in the invocation Context, so a
 second `Fork` of the same Join in one invocation fails deterministically.
-Branch reports publish to the round's instance. Join conditions are `ForN`
+Branch reports publish to the round's instance. `Join.ChannelMap` returns that
+same-name `ChannelMap[T]` for reads and loads; applications never publish to it.
+Join conditions are `ForN`
 conditions on that instance; an invalid round or count is stored as the
 Condition error and rejects the Wait at serialization. `JoinRound` is the only
 new persisted shape: `{"roundKey": string, "branchCount": integer}` in Step

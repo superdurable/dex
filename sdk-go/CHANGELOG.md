@@ -23,6 +23,8 @@
   `Join.ForAllBranches`, `Join.ForFirstBranch`, or `Join.ForBranches` and reads
   `Join.BranchResults`. The next round's split Step resets the previous round
   with `Join.ForRemainingBranches` and reads `Join.RemainingBranchResults`.
+  `Join.ChannelMap` returns the underlying ChannelMap for reading or loading a
+  round's pending results; applications never publish to it.
   `JoinRound` is stored in Step inputs as
   `{"roundKey": string, "branchCount": integer}`.
   [Reference](https://docs.superdurable.io/reference/go/waits)

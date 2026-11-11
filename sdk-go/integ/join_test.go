@@ -51,7 +51,7 @@ const (
 
 var (
 	joinResults       = dex.DefineJoin[string]("go-join-results")
-	joinResultsView   = dex.DefineChannelMap[string]("go-join-results")
+	joinResultsCopy   = dex.DefineChannelMap[string]("go-join-results")
 	joinBranchRelease = dex.DefineChannelMap[dex.None]("go-join-branch-release")
 	joinGate          = dex.DefineChannel[dex.None]("go-join-gate")
 )
@@ -155,13 +155,13 @@ func (joinFlow) OpenJoinGate(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.No
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-// GetJoinChannelSizes reads the Join's instance through a same-name ChannelMap view.
+// GetJoinChannelSizes reads a round's pending results through the Join's ChannelMap.
 func (joinFlow) GetJoinChannelSizes(
 	ctx dex.Context,
 	input joinChannelSizesInput,
 ) (*dex.RPCResult[joinChannelSizes], error) {
 	return &dex.RPCResult[joinChannelSizes]{Output: joinChannelSizes{
-		PendingResults:  joinResultsView.Size(ctx, input.RoundKey),
+		PendingResults:  joinResults.ChannelMap().Size(ctx, input.RoundKey),
 		PendingReleases: joinBranchRelease.Size(ctx, input.BranchName),
 	}}, nil
 }
@@ -429,7 +429,7 @@ func (joinDuplicateNameFlow) GetSteps() []dex.StepDef {
 }
 
 func (joinDuplicateNameFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{joinResults, joinResultsView}}
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{joinResults, joinResultsCopy}}
 }
 
 func TestJoinAllOfCountsResultsReportedBeforeTheJoinWaits(t *testing.T) {

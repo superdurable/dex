@@ -20,7 +20,7 @@ Not released yet. The next minor release, sdk-go/v1.41.0, ships these changes.
 
 ### Added
 
-- **Join** and **JoinRound** synchronize parallel branches of one Flow. **DefineJoin** defines a Join over a ChannelMap of branch results. **Join.Fork** starts the branches and the join Step with one **JoinRound**; **Join.ForkWithRoundKey** takes an explicit round key for RPCs. Branches report with **Join.EndBranch** or **Join.ReportBranchResult**. The join Step waits with **Join.ForAllBranches**, **Join.ForFirstBranch**, or **Join.ForBranches** and reads **Join.BranchResults**. The next round's split Step resets the previous round with **Join.ForRemainingBranches** and reads **Join.RemainingBranchResults**. [Reference](/reference/go/waits).
+- **Join** and **JoinRound** synchronize parallel branches of one Flow. **DefineJoin** defines a Join over a ChannelMap of branch results. **Join.Fork** starts the branches and the join Step with one **JoinRound**; **Join.ForkWithRoundKey** takes an explicit round key for RPCs. Branches report with **Join.EndBranch** or **Join.ReportBranchResult**. The join Step waits with **Join.ForAllBranches**, **Join.ForFirstBranch**, or **Join.ForBranches** and reads **Join.BranchResults**. The next round's split Step resets the previous round with **Join.ForRemainingBranches** and reads **Join.RemainingBranchResults**. **Join.ChannelMap** returns the underlying ChannelMap for reading or loading a round's pending results. [Reference](/reference/go/waits).
 
 ## 1.40 {#v1-40}
 

@@ -742,4 +742,7 @@ func TestJoinRoundJSONContract(t *testing.T) {
 	if quoteReceived.JoinName() != "quoteReceived" {
 		t.Fatalf("unexpected Join name %q", quoteReceived.JoinName())
 	}
+	if quoteReceived.ChannelMap() != dex.DefineChannelMap[string]("quoteReceived") {
+		t.Fatalf("Join.ChannelMap must return the registered ChannelMap, got %q", quoteReceived.ChannelMap().ChannelName())
+	}
 }

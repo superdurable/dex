@@ -423,6 +423,27 @@ func (join Join[T]) JoinName() string {
 	return join.channelMap.name
 }
 
+// ChannelMap returns the ChannelMap that stores this Join's branch results.
+//
+// Use it to inspect a round's pending results with the ChannelMap API. The instance key of a round
+// is its JoinRound.RoundKey. For example, an RPC can read how many late results a round left with
+// Size, or load the round's instance with LoadMessages in its options and read them with
+// PendingMessages. The returned ChannelMap has the Join's name, so every API that accepts the
+// registered ChannelMap accepts it, including load options.
+//
+// Never publish to the returned ChannelMap or delete its messages. Report results only with
+// EndBranch or ReportBranchResult. A direct publish or delete changes the count that the join
+// Conditions rely on, so a join can trigger early or wait forever.
+//
+//	func (QuoteFlow) CountLateQuotes(ctx dex.Context, round dex.JoinRound) (*dex.RPCResult[int], error) {
+//		return &dex.RPCResult[int]{Output: QuoteReceived.ChannelMap().Size(ctx, round.RoundKey)}, nil
+//	}
+//
+// See the Join example. Since 1.41.0.
+func (join Join[T]) ChannelMap() ChannelMap[T] {
+	return join.channelMap
+}
+
 func (join Join[T]) channelName() string {
 	return join.channelMap.name
 }

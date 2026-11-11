@@ -523,7 +523,10 @@ that forks the same Join in a loop resets each round in the next split Step's
 WaitFor with `ForRemainingBranches(previousRound, n)` and reads the late results
 with `RemainingBranchResults`. RPCs have no Step execution ID and use
 `ForkWithRoundKey`. One invocation forks one Join at most once. Invalid counts
-fail when Dex serializes the Wait. The `Join` doc comment lists the traps,
+fail when Dex serializes the Wait. `Join.ChannelMap` returns the registered
+ChannelMap, so an RPC can read or load a round's pending results with the
+round's `RoundKey` as the instance key. Never publish to it directly; report
+only with `EndBranch` or `ReportBranchResult`. The `Join` doc comment lists the traps,
 including canceled branches and canceling joins.
 
 ### Soft Flow timeout
