@@ -58,8 +58,10 @@ import (
 //     the join Step together with its branches, report a canceled result for the branch from the
 //     canceling RPC with ReportBranchResult, or combine the join Condition with a Timer in AnyOf.
 //   - When a join Step is canceled after its wait consumed results but before its Execute commits,
-//     Dex returns those results to the front of the round's instance, so a new join Step for the same
-//     round can consume them. A cancellation by the Flow close drops them instead.
+//     what happens to those results depends on the server version. A server that returns consumed
+//     messages on cancellation puts them back at the front of the round's instance, so a new join
+//     Step for the same round can consume them. An older server drops them, and that round can no
+//     longer be joined. See https://docs.superdurable.io/reference/server/changelog.
 //   - Results reported after a canceling join, and results of the last round when nothing resets
 //     it, stay pending in the round's instance until the Flow closes. They do not block
 //     GracefulComplete.
