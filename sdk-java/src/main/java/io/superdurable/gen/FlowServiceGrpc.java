@@ -1158,14 +1158,13 @@ public final class FlowServiceGrpc {
      * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
      * Workers call it at startup so that Dex Web can render their Flows without
      * a definition directory. The server keeps one document for each Flow type
-     * and decides each item separately:
-     *   - CREATED: no document was stored for the Flow type.
-     *   - UNCHANGED: the stored document has the same SHA-256 digest. Nothing is
-     *     written.
-     *   - REPLACED: the digest differs and generated_at is strictly later than the
-     *     stored generated_at, compared at microsecond precision, or force is set.
-     *   - KEPT_EXISTING: otherwise. The stored document stays, and the result
-     *     reports its digest and generation time.
+     * and decides each item separately. The outcome is CREATED when no document
+     * was stored for the Flow type. It is UNCHANGED when the stored document has
+     * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+     * digest differs and generated_at is strictly later than the stored
+     * generated_at, compared at microsecond precision, or when force is set.
+     * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+     * reports its digest and generation time.
      * Items are independent. Concurrent uploads of one Flow type are safe: each
      * item's outcome is decided against the document stored when its write
      * commits. If the call fails partway, earlier items may already be stored;
@@ -1467,14 +1466,13 @@ public final class FlowServiceGrpc {
      * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
      * Workers call it at startup so that Dex Web can render their Flows without
      * a definition directory. The server keeps one document for each Flow type
-     * and decides each item separately:
-     *   - CREATED: no document was stored for the Flow type.
-     *   - UNCHANGED: the stored document has the same SHA-256 digest. Nothing is
-     *     written.
-     *   - REPLACED: the digest differs and generated_at is strictly later than the
-     *     stored generated_at, compared at microsecond precision, or force is set.
-     *   - KEPT_EXISTING: otherwise. The stored document stays, and the result
-     *     reports its digest and generation time.
+     * and decides each item separately. The outcome is CREATED when no document
+     * was stored for the Flow type. It is UNCHANGED when the stored document has
+     * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+     * digest differs and generated_at is strictly later than the stored
+     * generated_at, compared at microsecond precision, or when force is set.
+     * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+     * reports its digest and generation time.
      * Items are independent. Concurrent uploads of one Flow type are safe: each
      * item's outcome is decided against the document stored when its write
      * commits. If the call fails partway, earlier items may already be stored;
@@ -1739,14 +1737,13 @@ public final class FlowServiceGrpc {
      * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
      * Workers call it at startup so that Dex Web can render their Flows without
      * a definition directory. The server keeps one document for each Flow type
-     * and decides each item separately:
-     *   - CREATED: no document was stored for the Flow type.
-     *   - UNCHANGED: the stored document has the same SHA-256 digest. Nothing is
-     *     written.
-     *   - REPLACED: the digest differs and generated_at is strictly later than the
-     *     stored generated_at, compared at microsecond precision, or force is set.
-     *   - KEPT_EXISTING: otherwise. The stored document stays, and the result
-     *     reports its digest and generation time.
+     * and decides each item separately. The outcome is CREATED when no document
+     * was stored for the Flow type. It is UNCHANGED when the stored document has
+     * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+     * digest differs and generated_at is strictly later than the stored
+     * generated_at, compared at microsecond precision, or when force is set.
+     * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+     * reports its digest and generation time.
      * Items are independent. Concurrent uploads of one Flow type are safe: each
      * item's outcome is decided against the document stored when its write
      * commits. If the call fails partway, earlier items may already be stored;
@@ -2034,14 +2031,13 @@ public final class FlowServiceGrpc {
      * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
      * Workers call it at startup so that Dex Web can render their Flows without
      * a definition directory. The server keeps one document for each Flow type
-     * and decides each item separately:
-     *   - CREATED: no document was stored for the Flow type.
-     *   - UNCHANGED: the stored document has the same SHA-256 digest. Nothing is
-     *     written.
-     *   - REPLACED: the digest differs and generated_at is strictly later than the
-     *     stored generated_at, compared at microsecond precision, or force is set.
-     *   - KEPT_EXISTING: otherwise. The stored document stays, and the result
-     *     reports its digest and generation time.
+     * and decides each item separately. The outcome is CREATED when no document
+     * was stored for the Flow type. It is UNCHANGED when the stored document has
+     * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+     * digest differs and generated_at is strictly later than the stored
+     * generated_at, compared at microsecond precision, or when force is set.
+     * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+     * reports its digest and generation time.
      * Items are independent. Concurrent uploads of one Flow type are safe: each
      * item's outcome is decided against the document stored when its write
      * commits. If the call fails partway, earlier items may already be stored;
