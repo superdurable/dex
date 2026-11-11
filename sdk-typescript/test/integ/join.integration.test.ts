@@ -64,6 +64,7 @@ test("all-branches join counts results reported before it waits, in report order
     await waitForStep(client, id, "JoinAllOfBranch", 2);
     await client.invokeRPC(flow.releaseBranch, id, "A");
     await waitForStep(client, id, "JoinAllOfBranch", 1);
+    // The join Step starts only now, after both results were committed.
     await client.invokeRPC(flow.openJoinGate, id);
     assert.deepEqual(await flowOutput<JoinOutcome>(client, id), { branchCount: 2, results: ["B", "A"] });
   });
@@ -139,7 +140,16 @@ test("first-branch join cancels sibling branches and leaves the late result pend
     await waitForStep(client, id, "JoinFirstWinBranchB");
     await client.invokeRPC(flow.openJoinGate, id);
     await waitForStep(client, id, "JoinFirstWinAccept");
-    assert.equal(await client.invokeRPC(flow.getPendingResultCount, id, "JoinFirstWinSplit-1"), 1);
+    // C's release finds no active branch, because the join canceled it.
+    await client.invokeRPC(flow.releaseBranch, id, "C");
+    const roundKey = "JoinFirstWinSplit-1";
+    assert.equal(await client.invokeRPC(flow.getPendingResultCount, id, roundKey), 1);
+    assert.deepEqual(
+      await client.invokeRPCWithOptions(flow.getPendingResults, id, roundKey, {
+        loadChannelMapInstances: [flow.pendingResultsLoad(roundKey)],
+      }),
+      ["B"],
+    );
     // Graceful completion would wait forever if branch C were still active.
     await client.invokeRPC(flow.finish, id);
     assert.equal((await client.waitForFlow(id, flowResultTimeoutMs)).singleOutput(stringCodec), "A");

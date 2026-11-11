@@ -29,6 +29,7 @@ import {
   stringCodec,
   voidCodec,
   withCancelingSiblingSteps,
+  type ChannelMapLoad,
   type Context,
   type Flow,
   type JoinRound,
@@ -82,11 +83,15 @@ function branchBuilder(step: JoinBranchStep, branchName: string) {
   return (round: JoinRound) => StepMovement.of(step, { branchName, round });
 }
 
-function pendingResultCount(join: Join<string>, context: Context, roundKey: string): number {
-  return (registeredChannelDefinition(join as Join<unknown>) as ChannelMap<unknown>).size(context, roundKey);
+function joinResultChannelMap(join: Join<string>): ChannelMap<string> {
+  return registeredChannelDefinition(join as Join<unknown>) as ChannelMap<string>;
 }
 
-// All-of join whose branches report before the join's gate opens.
+function pendingResultCount(join: Join<string>, context: Context, roundKey: string): number {
+  return joinResultChannelMap(join).size(context, roundKey);
+}
+
+// All-of join whose join Step starts waiting only after its branches reported.
 
 const allOfResult = new Join("joinAllOfResult", stringCodec);
 const allOfRelease = new ChannelMap("joinAllOfRelease", stringCodec);
@@ -105,8 +110,27 @@ class AllOfSplit implements Step<readonly string[]> {
     return goToMany(...allOfResult.fork(
       context,
       branchNames.map((branchName) => branchBuilder(this.flow.branch, branchName)),
-      (round) => StepMovement.of(this.flow.accept, round),
+      (round) => StepMovement.of(this.flow.gate, round),
     ));
+  }
+}
+
+/** Holds the round until the test opens the gate, so the join Step starts waiting late. */
+class AllOfGate implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+
+  public constructor(private readonly flow: JoinAllOfFlow) {}
+
+  public getStepType(): string {
+    return "JoinAllOfGate";
+  }
+
+  public waitFor(): Wait {
+    return Wait.until(allOfGate.forOne());
+  }
+
+  public execute(_context: Context, round: JoinRound): StepDecision {
+    return goTo(this.flow.accept, round);
   }
 }
 
@@ -118,7 +142,7 @@ class AllOfAccept implements Step<JoinRound> {
   }
 
   public waitFor(_context: Context, round: JoinRound): Wait {
-    return Wait.allOf(allOfGate.forOne(), allOfResult.forAllBranches(round));
+    return Wait.until(allOfResult.forAllBranches(round));
   }
 
   public execute(context: Context, round: JoinRound): StepDecision {
@@ -132,6 +156,7 @@ class AllOfAccept implements Step<JoinRound> {
 
 export class JoinAllOfFlow implements Flow<readonly string[]> {
   public readonly branch = new JoinBranchStep("JoinAllOfBranch", allOfResult, allOfRelease);
+  public readonly gate = new AllOfGate(this);
   public readonly accept = new AllOfAccept();
   private readonly split = new AllOfSplit(this);
 
@@ -140,7 +165,7 @@ export class JoinAllOfFlow implements Flow<readonly string[]> {
   }
 
   public getSteps() {
-    return StepList.startStep(this.split).otherSteps(this.branch, this.accept);
+    return StepList.startStep(this.split).otherSteps(this.branch, this.gate, this.accept);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
@@ -453,6 +478,18 @@ export class JoinFirstWinFlow implements Flow<void> {
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
   public getPendingResultCount(context: Context, roundKey: string): RPCResult<number> {
     return { output: pendingResultCount(firstWinResult, context, roundKey) };
+  }
+
+  /** Loads a round's pending results for {@link JoinFirstWinFlow.getPendingResults}. */
+  public pendingResultsLoad(roundKey: string): ChannelMapLoad {
+    return joinResultChannelMap(firstWinResult).loadMessages(roundKey);
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: stringListCodec })
+  public getPendingResults(context: Context, roundKey: string): RPCResult<readonly string[]> {
+    return {
+      output: joinResultChannelMap(firstWinResult).pendingMessages(context, roundKey).map((message) => message.value),
+    };
   }
 }
 

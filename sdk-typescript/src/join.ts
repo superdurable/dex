@@ -134,16 +134,42 @@ const forkedJoinNamesByContext = new WeakMap<Context, Set<string>>();
  *   `withCancelingSiblingSteps(decision, BranchA, BranchB)`. `fork` puts every branch and the join
  *   Step in one decision, so they are siblings. Sibling cancellation does not reach later Steps of
  *   a multi-Step branch; use `withCancelingSteps` there when only one round runs at a time. Steps
- *   started by an RPC are siblings of every Step started by any call of that RPC.
+ *   started by an RPC are siblings of every Step started by any call of that RPC, so for a round
+ *   forked by {@link Join.forkWithRoundKey} in an RPC, cancel the branches with `withCancelingSteps`.
  * - A canceled branch reports nothing, so an all-branches join keeps waiting. Cancel the join Step
  *   together with the branches, add a Timer, or report a substitute result for the canceled branch
  *   from the canceling RPC with {@link Join.reportBranchResult}.
+ * - The same holds for a reset: `forRemainingBranches` waits for results that canceled branches
+ *   never report. A cancelling join's round therefore resets only when an RPC reports a substitute
+ *   result for each canceled branch. Without that, do not reset the round; its late results stay
+ *   until the Flow ends.
  * - When Dex cancels a join Step after its wait consumed results but before its `execute` commits,
- *   Dex returns those results to the front of the round's instance, unless the canceling decision
- *   closes the Flow.
+ *   what happens to those results depends on the server version. A server that requeues consumed
+ *   messages on cancellation returns them to the front of the round's instance, unless the
+ *   canceling decision closes the Flow unconditionally. An older server drops them, and the round
+ *   can no longer fire. See the
+ *   [server change log](https://docs.superdurable.io/reference/server/changelog).
  *
  * @example
  * ```ts
+ * import {
+ *   Join,
+ *   StepList,
+ *   StepMovement,
+ *   Wait,
+ *   goToMany,
+ *   gracefulComplete,
+ *   joinRoundCodec,
+ *   jsonCodec,
+ *   stringCodec,
+ *   type Context,
+ *   type Flow,
+ *   type JoinRound,
+ *   type PersistenceSchema,
+ *   type Step,
+ *   type StepDecision,
+ * } from "@superdurable/dex";
+ *
  * const quoteReceived = new Join("quoteReceived", stringCodec);
  *
  * interface QuoteRequest {
@@ -158,7 +184,7 @@ const forkedJoinNamesByContext = new WeakMap<Context, Set<string>>();
  *   readonly round: JoinRound;
  * }
  *
- * // Split: waits for the previous round's reset, then starts three branches and the join Step.
+ * // Split: waits for the previous round's reset, then starts two branches and the join Step.
  * class RequestQuotes implements Step<QuoteRequest> {
  *   public getStepType(): string {
  *     return "RequestQuotes";
@@ -168,6 +194,7 @@ const forkedJoinNamesByContext = new WeakMap<Context, Set<string>>();
  *     if (request.previousRound === undefined) {
  *       return Wait.skipImmediately();
  *     }
+ *     // The join consumed requiredQuotes results; consume the rest of that round.
  *     return Wait.until(
  *       quoteReceived.forRemainingBranches(request.previousRound, request.requiredQuotes),
  *     );
@@ -189,7 +216,7 @@ const forkedJoinNamesByContext = new WeakMap<Context, Set<string>>();
  *   }
  * }
  *
- * // Branch: reports exactly one result and ends.
+ * // Branches: each reports exactly one result and ends.
  * class QuoteFromSupplierA implements Step<JoinRound> {
  *   public readonly inputCodec = joinRoundCodec;
  *
@@ -202,7 +229,17 @@ const forkedJoinNamesByContext = new WeakMap<Context, Set<string>>();
  *   }
  * }
  *
- * // QuoteFromSupplierB is the same and reports "B".
+ * class QuoteFromSupplierB implements Step<JoinRound> {
+ *   public readonly inputCodec = joinRoundCodec;
+ *
+ *   public getStepType(): string {
+ *     return "QuoteFromSupplierB";
+ *   }
+ *
+ *   public execute(context: Context, round: JoinRound): StepDecision {
+ *     return quoteReceived.endBranch(context, round, "B");
+ *   }
+ * }
  *
  * // Join: continues after the first requiredQuotes results, then starts the next round.
  * class AcceptQuotes implements Step<QuoteJoinInput> {
@@ -220,16 +257,41 @@ const forkedJoinNamesByContext = new WeakMap<Context, Set<string>>();
  *     if (input.request.roundNumber >= input.request.roundCount) {
  *       return goToMany(placeOrder);
  *     }
- *     return goToMany(placeOrder, StepMovement.of(RequestQuotes, {
+ *     const nextRequest: QuoteRequest = {
  *       ...input.request,
  *       roundNumber: input.request.roundNumber + 1,
  *       previousRound: input.round,
- *     }));
+ *     };
+ *     return goToMany(placeOrder, StepMovement.of(RequestQuotes, nextRequest));
  *   }
  * }
  *
- * class QuoteFlow implements Flow<QuoteRequest> {
- *   // getFlowType and getSteps register RequestQuotes, both branches, AcceptQuotes, and PlaceOrder.
+ * class PlaceOrder implements Step<readonly string[]> {
+ *   public readonly inputCodec = jsonCodec<readonly string[]>();
+ *
+ *   public getStepType(): string {
+ *     return "PlaceOrder";
+ *   }
+ *
+ *   public execute(_context: Context, quotes: readonly string[]): StepDecision {
+ *     return gracefulComplete(quotes);
+ *   }
+ * }
+ *
+ * export class QuoteFlow implements Flow<QuoteRequest> {
+ *   public getFlowType(): string {
+ *     return "QuoteFlow";
+ *   }
+ *
+ *   public getSteps() {
+ *     return StepList.startStep(new RequestQuotes()).otherSteps(
+ *       new QuoteFromSupplierA(),
+ *       new QuoteFromSupplierB(),
+ *       new AcceptQuotes(),
+ *       new PlaceOrder(),
+ *     );
+ *   }
+ *
  *   public getPersistenceSchema(): PersistenceSchema {
  *     return { channels: [quoteReceived] };
  *   }
@@ -471,6 +533,11 @@ export class Join<T> {
    * did not consume. The next round therefore starts only after every branch of the previous round
    * has reported, and the previous round leaves no messages behind. When nothing remains, it is
    * ready immediately. See {@link Join} for an example.
+   *
+   * A canceled branch never reports, so this Condition never becomes ready for a round whose
+   * branches were canceled. Reset such a round only after an RPC reports a substitute result for
+   * each canceled branch with {@link Join.reportBranchResult}. Never add canceled branches to
+   * `receivedCount`.
    * @param round - Previous round, as the join Step received it.
    * @param receivedCount - Number of results the join consumed: the `count` of `forBranches`, 1 for
    * `forFirstBranch`, or `round.branchCount` for `forAllBranches`. It must be from 0 to
