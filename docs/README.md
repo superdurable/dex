@@ -326,6 +326,10 @@ change the generator's output root. By default it writes undecorated HTML to
 `.cache/api-reference/<language>/<minor>/`, which Git and Docker ignore.
 Generated HTML is never committed.
 
+CI runs `scripts/refresh-api-reference-cache.mjs` instead, which needs
+`DEX_API_TOOL_HASH`; run it without arguments for its usage. Its `refresh`
+command does not fetch tags, and `refresh latest` deletes non-latest trees.
+
 ### Assembly and indexing
 
 `scripts/assemble-api-reference.mjs` copies the generated trees into
