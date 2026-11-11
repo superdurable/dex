@@ -74,7 +74,7 @@ Released 2026-11-06 as [sdk-python/v1.37.0](https://github.com/superdurable/dex/
 
 ### Added
 
-- **FlowServiceTlsOptions** and **flow_service_tls** on Client and Worker options enable verified TLS, with optional extra root CAs and a server-name override. Omitting the option keeps plaintext connections. [API reference](pathname:///api/python/1.37/dex.html#FlowServiceTlsOptions).
+- **FlowServiceTlsOptions** and **flow_service_tls** on Client and Worker options enable verified TLS, with optional extra root CAs and a server-name override. Omitting the option keeps plaintext connections. [API reference](pathname:///api/python/latest/dex.html#FlowServiceTlsOptions).
 
 ## 1.35 {#v1-35}
 
@@ -84,13 +84,13 @@ Released 2026-11-06 as [sdk-python/v1.35.0](https://github.com/superdurable/dex/
 
 - Workers and the Client’s first call now require server-zd 0.1.17 or later (protocol version 4). Upgrade all server processes before upgrading the SDK. [Reference](/reference/server/upgrades).
 - Worker startup fails when **max_concurrent_tasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/python/workers#capacity-and-shutdown).
-- **RetryPolicy.total_duration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/python/1.35/dex.html#RetryPolicy.total_duration).
+- **RetryPolicy.total_duration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/python/latest/dex.html#RetryPolicy.total_duration).
 - A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
 - A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/python/failure-and-retries#same-attempt-redelivery).
 
 ### Added
 
-- **RecoveryErrorInfo.attempt_progress** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/python/1.35/dex.html#RecoveryErrorInfo.attempt_progress).
+- **RecoveryErrorInfo.attempt_progress** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/python/latest/dex.html#RecoveryErrorInfo.attempt_progress).
 
 ### Changed
 
@@ -124,6 +124,6 @@ Released 2026-10-31 as [sdk-python/v1.29.0](https://github.com/superdurable/dex/
 ### Added
 
 - Generated history responses expose the pruned event range and first retained event ID. Step event contexts also carry related event IDs and the WaitFor completion time. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.29.0).
-- **Client.get_attributes** and **AsyncClient.get_attributes** read committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap.instance** selects an instance, and **AttributeValues** provides typed result lookup. [API reference](pathname:///api/python/1.29/dex.html).
+- **Client.get_attributes** and **AsyncClient.get_attributes** read committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap.instance** selects an instance, and **AttributeValues** provides typed result lookup. [API reference](pathname:///api/python/latest/dex.html).
 
 Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=sdk-python&expanded=true).

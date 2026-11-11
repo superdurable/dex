@@ -69,6 +69,9 @@ from dex_agents import (
     ToolTaskStarted,
     resolve_tool_policy,
 )
+from dex_agents.builtin_loop import (
+    ScriptedModelClient,
+)
 from dex_agents.mcp import (
     IDEMPOTENCY_KEY_META_KEY,
     MCP_GET_PROMPT_TOOL_NAME,
@@ -106,9 +109,6 @@ from dex_agents.mcp._tool_source import (
     _ToolCallSucceeded,
 )
 from dex_agents.mcp._tools import mcp_tool_from_listing
-from dex_agents.stepwise import (
-    ScriptedModelClient,
-)
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
     AgentTestStack,

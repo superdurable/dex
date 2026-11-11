@@ -24,7 +24,7 @@ from dex_agents import (
     ToolEffect,
     ToolPolicy,
 )
-from dex_agents.stepwise import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
+from dex_agents.builtin_loop import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.serde.base import SerializerProtocol
@@ -65,7 +65,7 @@ def langchain_agent_session_flow(
     ``tool_sources``, such as ``ConnectorToolSource``, add tools that
     ``DurableToolCallMiddleware`` offers to every model request. Each call
     runs in its own tool Step through its source, which picks the effect
-    class, approval, timeout, and retry policy, as in a Stepwise agent.
+    class, approval, timeout, and retry policy, as in an agent on the built-in loop.
 
     Example:
         >>> from langchain.agents import create_agent

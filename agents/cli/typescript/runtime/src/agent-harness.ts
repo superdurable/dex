@@ -37,13 +37,13 @@ export type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
 export const localToolGroups: readonly LocalToolGroup[] = Object.freeze(["files", "shell", "web_fetch", "browser"]);
 
 /**
- * One agent harness that a Dex Agents CLI command runs, such as the Claude Agent SDK or a Stepwise agent.
+ * One agent harness that a Dex Agents CLI command runs, such as the Claude Agent SDK or a built-in loop agent.
  *
  * A harness package implements this interface and calls {@link runAgentCli} from its bin. The runtime owns
  * everything else: the configuration file, the Dex server, the connectors, the local tools, the Worker, and the
  * terminal chat. The harness only builds the session Flow from a {@link HarnessContext}. It works for a runner-based
  * adapter, which passes `context.toolSources` to its framework runner and calls `createAgentSessionFlow`, and for
- * a Stepwise harness, which puts them in `AgentDefinition.toolSources` and calls `createStepwiseAgentSessionFlow`.
+ * a built-in loop harness, which puts them in `AgentDefinition.toolSources` and calls `createBuiltinAgentSessionFlow`.
  *
  * A harness that brings its own tools for some local tool groups, such as Claude Code's Read, Write, and Bash,
  * lists those groups in {@link replacedLocalTools}. The runtime then leaves them out of `context.toolSources`, and
@@ -54,7 +54,7 @@ export const localToolGroups: readonly LocalToolGroup[] = Object.freeze(["files"
  *
  * @example
  * ```ts
- * import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
+ * import { createBuiltinAgentSessionFlow } from "@superdurable/dex-agents/builtin-loop";
  * import { runAgentCli, type AgentHarness } from "@superdurable/dex-agents-cli";
  *
  * const harness: AgentHarness = {
@@ -63,7 +63,7 @@ export const localToolGroups: readonly LocalToolGroup[] = Object.freeze(["files"
  *   flowType: "DexAgentsBuiltinCliSession",
  *   defaultModel: "openai/gpt-5-mini",
  *   createSessionFlow: (context) =>
- *     createStepwiseAgentSessionFlow(
+ *     createBuiltinAgentSessionFlow(
  *       {
  *         name: "assistant",
  *         instructions: (turn) => context.resolveTurn(turn.sessionSettings ?? {}).instructions ?? "Help the user.",
@@ -90,7 +90,7 @@ export interface AgentHarness {
   /**
    * The base Flow type of the command's sessions, such as `DexAgentsClaudeSdkCliSession`. Keep it stable.
    *
-   * The runtime registers `<flowType>-<hash>`, from `namespaceSessionFlowType`, where the hash covers the
+   * The runtime registers `<flowType>-<suffix>`, from `namespaceSessionFlowType`, where the suffix hashes the
    * host name, the user, the configuration file's real path, and the workspace. A Worker then takes only the
    * Steps of sessions started in the same execution environment, so an approved write or shell command runs
    * where it was approved. Processes in the same environment share their sessions' Steps. `--resume` and the
@@ -104,6 +104,18 @@ export interface AgentHarness {
    * Defaults to none.
    */
   readonly replacedLocalTools?: readonly LocalToolGroup[];
+  /**
+   * Whether the harness's runner fixes its tools when the Flow is built, instead of listing the tool sources in
+   * every model call. Defaults to `false`; every TypeScript adapter lists them per model call.
+   *
+   * With `true`, the runtime lists the connector tools the file enables before it calls
+   * {@link createSessionFlow}, so the connector source's `cachedTools()` holds them. When the connectors MCP server
+   * does not answer at startup, or that listing fails, the command warns that this run has no connector tools and
+   * that a restart brings them back. The Python runtime calls it `is_tool_set_fixed_at_build`.
+   *
+   * @since 0.5.0
+   */
+  readonly isToolSetFixedAtBuild?: boolean;
   /**
    * Builds the session Flow. The runtime calls it once at startup and registers the Flow in its Worker and Client.
    *
@@ -172,14 +184,14 @@ export interface HarnessContext {
    * @example
    * ```ts
    * execute: async ({ command }, call) => {
-   *   const permissions = await context.resolveToolStepPermissions(call); // a Stepwise ToolCallContext
+   *   const permissions = await context.resolveToolStepPermissions(call); // a built-in loop ToolCallContext
    *   if (!isLocalToolGroupEnabled(permissions, "shell")) {
    *     throw new ToolExecutionError("shell commands are switched off; the command did not run");
    *   }
    *   return runCommand(command);
    * }
    * ```
-   * @param step - The Step's `flowId` and `turnId`; a Stepwise `ToolCallContext` has both.
+   * @param step - The Step's `flowId` and `turnId`; a built-in loop `ToolCallContext` has both.
    * @returns The Step's turn configuration on this Worker.
    * @throws {ConfigError} When the turn's settings widen this Worker's file; refuse the call then.
    */

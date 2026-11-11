@@ -69,7 +69,7 @@ from dex_agents import (
     estimate_stored_input_tokens,
     select_turn_boundary_cutoff,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     FrameworkToolSourceRouter,
     ToolSource,
@@ -727,7 +727,7 @@ def adk_agent_session_flow(
     Tool sources add tools that always run in their own tool Step, reads
     included. ``ConnectorToolSource`` offers reviewed Connector operations
     this way: each call gets the operation's effect class, approval, Call ID,
-    timeout, and retry policy from its manifest, as in a Stepwise agent.
+    timeout, and retry policy from its manifest, as in an agent on the built-in loop.
 
     Example:
         >>> from google.adk.agents import LlmAgent

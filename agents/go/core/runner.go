@@ -377,7 +377,7 @@ type DeferredToolExecution struct {
 	SaveHeartbeatCheckpoint func(checkpoint string) error
 }
 
-// AgentFrameworkRunner runs one agent framework, or the Stepwise loop, inside the session Flow.
+// AgentFrameworkRunner runs one agent framework, or the built-in agent loop, inside the session Flow.
 //
 // Implement it once per framework and pass the runner to NewAgentSessionFlow.
 // The session calls it from Steps, so every method may run again after a

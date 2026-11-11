@@ -11,7 +11,7 @@
 A session's settings are a JSON object that the application chooses when it
 starts the session, such as ``{"model": "gpt-5-mini"}``, and can replace with
 ``update_session_settings``. A runner reads them from
-``AgentTurnContext.session_settings``; a Stepwise agent maps them to a model
+``AgentTurnContext.session_settings``; an agent on the built-in loop maps them to a model
 client with ``AgentDefinition.resolve_model``.
 
 Settings are stored in the session's Flow state and returned by

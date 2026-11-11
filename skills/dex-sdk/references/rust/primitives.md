@@ -500,7 +500,7 @@ building blocks:
 | --- | --- | --- |
 | Static parallel Steps | `go_to_many([StepMovement::to(&A, x.clone()), StepMovement::to(&B, x)])` | `patterns/parallel` |
 | Dynamic parallel Steps | `go_to_many((0..n).map(\|i\| StepMovement::to(&Work, i)))` | `patterns/parallel` |
-| Await all Steps | branches publish to a Channel and `dead_end()`; joiner waits `for_n(count)` | `patterns/parallel` |
+| Await all Steps | `JOIN.fork(context, branches, \|round\| StepMovement::to(&Await, round))?`; each branch returns `JOIN.end_branch(context, &round, result)`; the join Step waits `JOIN.for_all_branches(&round)`; register with `PersistenceSchema::join` | `patterns/parallel` |
 | First win | winner returns `.cancel_sibling_step(&Same)` | `patterns/parallel` |
 | Parallel SubFlows | `Wait::all_of(conditions)` built from `SubFlow::run` | `patterns/parallel_subflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |

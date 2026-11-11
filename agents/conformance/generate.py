@@ -148,6 +148,22 @@ from dex_agents.built_in_tools import (
     parse_durable_wait_arguments,
     parse_write_todos_arguments,
 )
+from dex_agents.builtin_loop import (
+    CONTEXT_SUMMARY_INSTRUCTIONS,
+    CONTEXT_SUMMARY_NOTE_HEADER,
+    CONTEXT_SUMMARY_REQUEST,
+    DEFAULT_MAX_MODEL_CALLS_PER_TURN,
+    TOOL_CALL_LIMIT_REACHED_RESULT,
+    AgentDefinition,
+    build_context_summary_note,
+    build_context_summary_omission_note,
+    builtin_agent_session_flow,
+)
+from dex_agents.builtin_loop.runner import (
+    _read_tool_source_envelope,
+    _write_tool_source_envelope,
+    build_unknown_tool_error,
+)
 from dex_agents.mcp._resource_and_prompt_tools import (
     build_resource_and_prompt_tools,
     read_server_name,
@@ -160,22 +176,6 @@ from dex_agents.session_flow import (
     MESSAGE_PAGE_LIMIT,
     MISSING_TOOL_TASK_POLLER,
     SNAPSHOT_MESSAGE_LIMIT,
-)
-from dex_agents.stepwise import (
-    CONTEXT_SUMMARY_INSTRUCTIONS,
-    CONTEXT_SUMMARY_NOTE_HEADER,
-    CONTEXT_SUMMARY_REQUEST,
-    DEFAULT_MAX_MODEL_CALLS_PER_TURN,
-    TOOL_CALL_LIMIT_REACHED_RESULT,
-    AgentDefinition,
-    build_context_summary_note,
-    build_context_summary_omission_note,
-    stepwise_agent_session_flow,
-)
-from dex_agents.stepwise.runner import (
-    _read_tool_source_envelope,
-    _write_tool_source_envelope,
-    build_unknown_tool_error,
 )
 from dex_agents.testing import ScriptedModelClient, ScriptedModelReply
 
@@ -677,9 +677,11 @@ def build_value_documents() -> list[dict[str, Any]]:
         )
         .value(
             "full",
-            "With an initial message and session settings.",
+            "With an initial message, session settings, and a start environment.",
             AgentSessionStartInput(
-                initial_message=TRICKY_TEXT, session_settings=FULL_SESSION_SETTINGS
+                initial_message=TRICKY_TEXT,
+                session_settings=FULL_SESSION_SETTINGS,
+                start_environment={"host_name": "build-01", "workspace": TRICKY_TEXT},
             ),
         )
         .value("defaults", "Without an initial message or settings.", AgentSessionStartInput())
@@ -687,6 +689,11 @@ def build_value_documents() -> list[dict[str, Any]]:
             "released-0.1.0",
             "As dex-agents 0.1.0 wrote it, without session_settings.",
             {"initial_message": "hello"},
+        )
+        .wire(
+            "released-0.4.0",
+            "As dex-agents 0.4.0 wrote it, without start_environment.",
+            {"initial_message": "hello", "session_settings": {"model": "gpt-5-mini"}},
         )
     )
 
@@ -1289,7 +1296,7 @@ def build_manifest_flow() -> Any:
         instructions="Describe the session Flow.",
         model=ScriptedModelClient(lambda request: ScriptedModelReply(text="ok")),
     )
-    return stepwise_agent_session_flow(definition, flow_type=MANIFEST_FLOW_TYPE)
+    return builtin_agent_session_flow(definition, flow_type=MANIFEST_FLOW_TYPE)
 
 
 def build_session_flow_graph() -> dict[str, Any]:

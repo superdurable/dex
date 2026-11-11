@@ -44,7 +44,7 @@ mkdir -p "$dist_dir/python" "$dist_dir/typescript"
 dist_dir="$(cd "$dist_dir" && pwd)"
 
 python_packages=(core openai-agents pydantic-ai langgraph google-adk claude-agent-sdk)
-typescript_packages=(core vercel-ai openai-agents mastra claude-agent-sdk)
+typescript_packages=(core vercel-ai openai-agents mastra claude-agent-sdk pi)
 
 run_python() {
   uv run --no-project --python 3.11 python "$@"
@@ -154,7 +154,7 @@ smoke_test_python_core_modules() {
   (cd "$project_dir" && .venv/bin/python - <<'PY'
 import importlib
 
-for module in ("dex_agents.stepwise", "dex_agents.testing"):
+for module in ("dex_agents.builtin_loop", "dex_agents.stepwise", "dex_agents.testing"):
     importlib.import_module(module)
 # Checked first: the litellm extra installs boto3 too.
 try:
@@ -274,15 +274,16 @@ smoke_test_typescript_core_subpaths() {
     fi
     printf '%s\n' \
       'import * as core from "@superdurable/dex-agents";' \
+      'import * as builtinLoop from "@superdurable/dex-agents/builtin-loop";' \
       'import * as stepwise from "@superdurable/dex-agents/stepwise";' \
       'import * as testing from "@superdurable/dex-agents/testing";' \
       'import * as connectors from "@superdurable/dex-agents/connectors";' \
-      'export const exportedNames: string[] = [...Object.keys(core), ...Object.keys(stepwise), ...Object.keys(testing), ...Object.keys(connectors)];' \
+      'export const exportedNames: string[] = [...Object.keys(core), ...Object.keys(builtinLoop), ...Object.keys(stepwise), ...Object.keys(testing), ...Object.keys(connectors)];' \
       >consumer.ts
     npx tsc --strict --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck \
       --types node consumer.ts
     node --input-type=module -e "
-      for (const subpath of ['', '/stepwise', '/testing', '/connectors']) {
+      for (const subpath of ['', '/builtin-loop', '/stepwise', '/testing', '/connectors']) {
         const module = await import('@superdurable/dex-agents' + subpath);
         if (Object.keys(module).length === 0) throw new Error('@superdurable/dex-agents' + subpath + ' exports nothing');
         console.log('@superdurable/dex-agents' + subpath, 'exports', Object.keys(module).join(', '));

@@ -82,7 +82,7 @@ from dex_agents import (
     estimate_text_tokens,
     select_turn_boundary_cutoff,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     FrameworkToolSourceRouter,
     SourceToolListing,
@@ -677,7 +677,7 @@ def pydantic_ai_session_flow(
     Tool sources add tools that always run in their own tool Step, reads
     included. ``ConnectorToolSource`` offers reviewed Connector operations
     this way: each call gets the operation's effect class, approval, Call ID,
-    timeout, and retry policy from its manifest, as in a Stepwise agent.
+    timeout, and retry policy from its manifest, as in an agent on the built-in loop.
 
     Example:
         >>> agent = Agent("openai:gpt-5.2", instructions="Help with orders.")

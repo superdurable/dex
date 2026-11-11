@@ -41,6 +41,7 @@ from mcp_types import (
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
 
+from dex_agents.builtin_loop.tool_sources import SourceToolDefinition
 from dex_agents.events import AgentEventWriter
 from dex_agents.mcp._dex_conventions import (
     REJECTED_OUTCOME_FALLBACK_MESSAGE,
@@ -89,7 +90,6 @@ from dex_agents.runner import (
     ToolTaskPollOutcome,
     ToolTaskStarted,
 )
-from dex_agents.stepwise.tool_sources import SourceToolDefinition
 from dex_agents.values import AgentToolCall, QuestionAnswer, QuestionResolution, ToolEffect
 
 #: ``_meta`` key that carries the session's idempotency key on every ``tools/call``.
@@ -118,7 +118,7 @@ DEFAULT_MCP_CONNECTION_TIMEOUT = timedelta(seconds=30)
 #: Default number of connection attempts before a request reports the server unreachable.
 DEFAULT_MCP_CONNECTION_ATTEMPTS = 3
 
-#: Default ``McpToolSource.source_name``, which stored Stepwise calls are routed by.
+#: Default ``McpToolSource.source_name``, which stored built-in loop calls are routed by.
 DEFAULT_MCP_SOURCE_NAME = "mcp"
 
 #: Default age after which ``list_tools`` lists a server again, in the background.
@@ -777,7 +777,7 @@ class McpToolSource:
             tool_name: ``McpTool.name`` the model called.
             arguments: Tool arguments as JSON text.
             listed_tool: The ``McpTool`` that the listing offered for this
-                model call, as the Stepwise runner passes it, so a refresh
+                model call, as the built-in loop runner passes it, so a refresh
                 that finished meanwhile cannot change or remove it. ``None``,
                 the default, looks the tool up in the current listing.
 

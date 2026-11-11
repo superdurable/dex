@@ -172,7 +172,7 @@ describe("session Flow types", () => {
 
   test("the same environment gives the same type, and a changed workspace or user gives another", () => {
     assert.equal(namespaceSessionFlowType("Agent", base), namespaceSessionFlowType("Agent", { ...base }));
-    assert.match(namespaceSessionFlowType("Agent", base), /^Agent-[0-9a-f]{12}$/);
+    assert.match(namespaceSessionFlowType("Agent", base), /^Agent-[0-9a-z]{6}$/);
     assert.notEqual(namespaceSessionFlowType("Agent", base), namespaceSessionFlowType("Agent", { ...base, workspace: "/home/a/other" }));
     assert.notEqual(namespaceSessionFlowType("Agent", base), namespaceSessionFlowType("Agent", { ...base, userId: "502" }));
   });

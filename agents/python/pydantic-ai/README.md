@@ -194,7 +194,7 @@ flow = pydantic_ai_session_flow(
   tool Step the operation's timeout and retry policy. A `tool_policies` entry
   for a connector tool changes only its approval.
 - Writes of one model response run one at a time in the model's order, as in a
-  Stepwise agent. Once one does not succeed, the later ones record `failed`
+  built-in loop agent. Once one does not succeed, the later ones record `failed`
   with `skipped`.
 - Definition fails with `ValueError` when two sources share a `source_name`,
   or a source's `declared_tool_names` repeat a function tool of the agent, or

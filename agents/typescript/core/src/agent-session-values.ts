@@ -111,7 +111,7 @@ export interface PlanExecutionRequest {
  *
  * Set them in {@link AgentSessionStartInput.sessionSettings} and replace them with the
  * `update_session_settings` RPC. A runner reads the settings of the running turn from
- * `AgentTurnContext.sessionSettings`; a Stepwise agent maps them to a model client with
+ * `AgentTurnContext.sessionSettings`; a built-in loop agent maps them to a model client with
  * `AgentDefinition.resolveModel`. Keys keep their spelling on the wire; nothing is converted to snake_case.
  *
  * Settings are stored in the session and returned by `get_agent_snapshot`, so never put a secret in them. Put a
@@ -181,6 +181,16 @@ export interface AgentSessionStartInput {
    * dex-agents 0.2.0, because a 0.1.0 Worker drops them. Wire field: `session_settings`.
    */
   readonly sessionSettings?: SessionSettings | null;
+  /**
+   * Where the program that started the session ran, as string keys and values, such as a host name and a workspace
+   * path. Absent or `null` records nothing. The session never reads it: it stays in the Flow's start input, so a run
+   * shows the environment that started it. The Dex Agents CLI records its host, user, configuration file, and
+   * workspace here. Never put a secret in it. Workers before dex-agents 0.5.0 ignore it. Wire field:
+   * `start_environment`.
+   *
+   * @since 0.5.0
+   */
+  readonly startEnvironment?: Readonly<Record<string, string>> | null;
 }
 
 /** Small durable summary of an agent session, stored in the `AgentState` Attribute. */

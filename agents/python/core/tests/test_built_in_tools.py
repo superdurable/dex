@@ -27,9 +27,9 @@ from dex_agents import (
     ToolExecutionError,
     ToolPolicy,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     AgentDefinition,
-    StepwiseAgentRunner,
+    BuiltinLoopAgentRunner,
     ToolCallContext,
     function_tool,
 )
@@ -110,7 +110,7 @@ async def test_a_session_built_in_sharing_a_function_tool_name_fails_before_any_
         return "asked"
 
     model = ScriptedModelClient(lambda request: ScriptedModelReply(text="never"))
-    runner = StepwiseAgentRunner(
+    runner = BuiltinLoopAgentRunner(
         AgentDefinition(
             name="agent", instructions="Help.", model=model, tools=[application_ask_user]
         )

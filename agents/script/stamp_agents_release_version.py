@@ -20,7 +20,7 @@ from pathlib import Path
 
 AGENTS_DIR = Path(__file__).resolve().parents[1]
 PYTHON_PACKAGES = ("core", "openai-agents", "pydantic-ai", "langgraph", "google-adk", "claude-agent-sdk")
-TYPESCRIPT_PACKAGES = ("core", "vercel-ai", "openai-agents", "mastra", "claude-agent-sdk")
+TYPESCRIPT_PACKAGES = ("core", "vercel-ai", "openai-agents", "mastra", "claude-agent-sdk", "pi")
 PYTHON_CORE_DISTRIBUTION = "dex-agents"
 TYPESCRIPT_CORE_PACKAGE = "@superdurable/dex-agents"
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$")

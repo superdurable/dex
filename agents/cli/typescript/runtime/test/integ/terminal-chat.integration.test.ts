@@ -7,9 +7,12 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { existsSync, writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
+import { promisify } from "node:util";
 
 import { pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
@@ -66,6 +69,34 @@ describe("terminal chat with connectors and session settings", () => {
       "local_tools: {browser: false}",
       extra,
     ].join("\n");
+
+  test("a new session records where the command runs in its start input", async () => {
+    const home = newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    const { stdout } = await promisify(execFile)(home.environment().DEXCLI ?? "dexcli", [
+      "flow",
+      "history",
+      sessionId,
+      "--server",
+      engine.serverAddress,
+      "--output",
+      "json",
+    ]);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    const [firstEvent] = (JSON.parse(stdout) as { events: { payload: StartedPayload }[] }).events;
+    assert.ok(firstEvent !== undefined, "the history has the start event");
+    const started = firstEvent.payload;
+    assert.equal(started.flowType, home.sessionFlowType());
+    assert.deepEqual(started.initialStart.stepInput.start_environment, {
+      host_name: hostname(),
+      user_id: String(process.getuid?.() ?? userInfo().username),
+      config_identity: realpathSync(home.configPath),
+      workspace: realpathSync.native(home.workspace),
+      user_name: userInfo().username,
+    });
+  });
 
   test("one chat turn streams the reply, reusing the running dexcli dev", async () => {
     const cli = start(newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n"));
@@ -440,3 +471,9 @@ describe("terminal chat with connectors and session settings", () => {
     assert.match(resumeWithOtherWorkspace.stderr.all, /with the configuration file and workspace, that started it/);
   });
 });
+
+/** The payload of the history event that starts a Flow, as dexcli flow history prints it. */
+interface StartedPayload {
+  readonly flowType: string;
+  readonly initialStart: { readonly stepInput: { readonly start_environment: Record<string, string> } };
+}

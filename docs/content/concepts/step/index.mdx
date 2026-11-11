@@ -220,6 +220,10 @@ any one of several groups of conditions. After the wait, **Execute** reads what
 satisfied it, such as the Channel messages it consumed. See
 [Waits](/reference/python/waits).
 
+To wait for parallel branches, use a **Join**. It is not another kind of
+condition: it waits on a ChannelMap that the branches report to. See
+[Await Parallel Steps](/design-patterns/parallel/await).
+
 ## StepDecision {#stepdecision-movements}
 
 **Execute** returns a **StepDecision**. It can go to one next Step or to

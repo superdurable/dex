@@ -2,7 +2,7 @@
 
 A Channel is an ordered, durable, typed message queue scoped to one Flow run. A Step's WaitFor waits on it. One matching wait consumes each message. A canceled Step returns what it consumed; see [Wait and consume](#wait-and-consume).
 
-Use a Channel for queued intent: commands, approvals, events, and joins. Use Attributes for current state and Streams for best-effort progress.
+Use a Channel for queued intent: commands, approvals, and events. To join parallel branches, use a Join: a ChannelMap of branch results that counts the branches and keys each round; see [patterns.md](patterns.md#await-parallel-steps). Use Attributes for current state and Streams for best-effort progress.
 
 A ChannelMap partitions one message contract by a runtime key, such as an approval per tool-call ID. Each instance is its own FIFO queue. Instance keys cannot contain `/`.
 

@@ -424,14 +424,24 @@ func (ExecuteMethodFailurePolicy) EnumDescriptor() ([]byte, []int) {
 	return file_dex_proto_rawDescGZIP(), []int{6}
 }
 
+// Decides whether StartFlow may start a new run for a Flow ID that already has a run.
+// Dex checks the latest run only. A Flow ID without runs always starts.
+// A retry of the latest run's start request skips this policy; see StartFlowRequest.request_id.
 type IdReusePolicy int32
 
 const (
-	IdReusePolicy_ID_REUSE_POLICY_UNSPECIFIED                         IdReusePolicy = 0
+	// Same as ID_REUSE_POLICY_DISALLOW_REUSE.
+	IdReusePolicy_ID_REUSE_POLICY_UNSPECIFIED IdReusePolicy = 0
+	// Starts a new run when the latest run closed as FAILED, CANCELED, or TERMINATED.
+	// Rejects the start when the latest run is RUNNING or COMPLETED.
+	// A Flow timeout closes a run as FAILED or CANCELED under FAIL or CANCEL; under HANDLER, the handler decides.
 	IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY IdReusePolicy = 1
-	IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING                 IdReusePolicy = 2
-	IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE                      IdReusePolicy = 3
-	IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING          IdReusePolicy = 4
+	// Starts a new run when the latest run is closed, whatever its status.
+	IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING IdReusePolicy = 2
+	// Rejects the start whenever the Flow ID has a run.
+	IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE IdReusePolicy = 3
+	// Terminates a running latest run, then starts a new run. Never rejects a new request.
+	IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING IdReusePolicy = 4
 )
 
 // Enum value maps for IdReusePolicy.
@@ -3781,9 +3791,12 @@ func (x *FlowTimeoutHandlerOptions) GetLoadChannelMapInstances() []string {
 	return nil
 }
 
+// Chooses the StartFlow result when Dex does not start a new run.
 type FlowAlreadyStartedOptions struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	IgnoreAlreadyStartedError bool                   `protobuf:"varint,1,opt,name=ignore_already_started_error,json=ignoreAlreadyStartedError,proto3" json:"ignore_already_started_error,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// True returns the latest run's ID when the request ID matches that run's start request ID.
+	// Otherwise, and whenever this is false, StartFlow fails with ALREADY_EXISTS (FLOW_ALREADY_STARTED).
+	IgnoreAlreadyStartedError bool `protobuf:"varint,1,opt,name=ignore_already_started_error,json=ignoreAlreadyStartedError,proto3" json:"ignore_already_started_error,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -4178,9 +4191,12 @@ type StartFlowRequest struct {
 	StepInput          *Value                 `protobuf:"bytes,8,opt,name=step_input,json=stepInput,proto3" json:"step_input,omitempty"`
 	StepOptions        *StepOptions           `protobuf:"bytes,9,opt,name=step_options,json=stepOptions,proto3" json:"step_options,omitempty"`
 	FlowStartOptions   *FlowStartOptions      `protobuf:"bytes,10,opt,name=flow_start_options,json=flowStartOptions,proto3" json:"flow_start_options,omitempty"`
-	RequestId          string                 `protobuf:"bytes,11,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Required. Identifies one logical start; Dex records it on the run it starts.
+	// A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+	// flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+	RequestId     string `protobuf:"bytes,11,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StartFlowRequest) Reset() {

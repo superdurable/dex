@@ -26,9 +26,9 @@ from dex_agents.runner import (
     build_turn_failure_note,
     describe_tool_call_outcome,
 )
-from dex_agents.stepwise.model import ModelOutputItem, ModelToolCall, ToolResultItem, UserTextItem
-from dex_agents.stepwise.function_tools import function_tool
-from dex_agents.stepwise.transcript import encode_stepwise_message
+from dex_agents.builtin_loop.model import ModelOutputItem, ModelToolCall, ToolResultItem, UserTextItem
+from dex_agents.builtin_loop.function_tools import function_tool
+from dex_agents.builtin_loop.transcript import encode_builtin_loop_message
 from dex_agents.values import (
     AgentEvent,
     AgentInterrupt,
@@ -179,7 +179,11 @@ EVENT = AgentEvent(
 )
 
 VALUES: list[tuple[str, type, object]] = [
-    ("AgentSessionStartInput", AgentSessionStartInput, AgentSessionStartInput(initial_message="hi")),
+    (
+        "AgentSessionStartInput",
+        AgentSessionStartInput,
+        AgentSessionStartInput(initial_message="hi", start_environment={"host_name": "h\u00f6st"}),
+    ),
     ("AgentState", AgentState, STATE),
     ("AgentMessage", AgentMessage, MESSAGE),
     *((f"AgentToolCall/{call.tool_call_id}", AgentToolCall, call) for call in TOOL_CALLS),
@@ -304,7 +308,7 @@ def stepwise_items() -> list[str]:
             tool_calls=[ModelToolCall(tool_call_id="c", tool_name="t", arguments='{"a": 1}')],
         ),
     ]
-    return [encode_stepwise_message(item).framework_item for item in items]
+    return [encode_builtin_loop_message(item).framework_item for item in items]
 
 
 SCHEMA = {
@@ -367,7 +371,7 @@ class _DiscardedOutput:
 def anthropic_item() -> dict[str, object]:
     """Store an Anthropic response as the LiteLLM client does, and replay it."""
     from dex_agents.litellm import _chat_messages, _ChatMessageAssembler, _compact_json  # noqa: PLC0415
-    from dex_agents.stepwise.model import ModelRequest, ModelRequestMetadata, ModelSettings  # noqa: PLC0415
+    from dex_agents.builtin_loop.model import ModelRequest, ModelRequestMetadata, ModelSettings  # noqa: PLC0415
 
     assembler = _ChatMessageAssembler()
     for chunk in [

@@ -12,14 +12,14 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import {
   ScriptedModelClient,
-  createStepwiseAgentSessionFlow,
+  createBuiltinAgentSessionFlow,
   functionTool,
   type FunctionTool,
-  type StepwiseAgentRunner,
+  type BuiltinLoopAgentRunner,
   type ModelClient,
   type ModelRequest,
   type ScriptedModelReply,
-} from "@superdurable/dex-agents/stepwise";
+} from "@superdurable/dex-agents/builtin-loop";
 
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 
@@ -27,7 +27,10 @@ import { isLocalToolGroupEnabled, type AgentHarness, type HarnessContext } from 
 
 /** Environment variable naming the directory where the scripted model writes gate markers. */
 export const scriptedHarnessDirectoryVariable = "DEX_AGENTS_CLI_TEST_DIRECTORY";
-/** Environment variable that selects `shell-replacing` for {@link shellReplacingScriptedHarness}. */
+/**
+ * Environment variable that selects `shell-replacing` for {@link shellReplacingScriptedHarness} or `fixed-tool-set`
+ * for {@link fixedToolSetScriptedHarness}.
+ */
 export const scriptedHarnessVariantVariable = "DEX_AGENTS_CLI_TEST_HARNESS";
 
 /**
@@ -48,6 +51,9 @@ export const scriptedHarness: AgentHarness = {
   defaultModel: "scripted/default",
   createSessionFlow: (context: HarnessContext) => createScriptedSessionFlow(context, []),
 };
+
+/** The scripted harness declaring that its runner fixes its tools when the Flow is built. */
+export const fixedToolSetScriptedHarness: AgentHarness = { ...scriptedHarness, isToolSetFixedAtBuild: true };
 
 /**
  * The scripted harness with the `shell` group replaced by its own `replacement_shell` function tool, which answers
@@ -78,7 +84,7 @@ export const shellReplacingScriptedHarness: AgentHarness = {
 function createScriptedSessionFlow(
   context: HarnessContext,
   tools: readonly FunctionTool[],
-): AgentSessionFlow<StepwiseAgentRunner> {
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const models = new Map<string, ModelClient>();
   const modelFor = (model: string): ModelClient => {
     let client = models.get(model);
@@ -88,7 +94,7 @@ function createScriptedSessionFlow(
     }
     return client;
   };
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "scripted",
       instructions: (turn) => context.resolveTurn(turn.sessionSettings ?? {}).instructions ?? "You are a scripted test agent.",
