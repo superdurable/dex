@@ -6,7 +6,6 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { validateToolArguments, type JsonObject } from "@earendil-works/pi-ai";
 import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
 import type { FunctionTool, ToolCallContext } from "@superdurable/dex-agents/builtin-loop";
 
@@ -15,6 +14,7 @@ import {
   describePiToolContent,
   throwPiToolArgumentsFailure,
   throwPiToolExecutionFailure,
+  validatePiToolArguments,
   writePiToolProgress,
   type PiToolContentPart,
 } from "./pi-tool-content.js";
@@ -56,7 +56,14 @@ export interface PiAgentToolLike {
   readonly replay?: "never" | "safe";
   /** Pi's per-tool execution mode. Dex always runs the calls of one model response in parallel. */
   readonly executionMode?: "sequential" | "parallel";
-  /** Pi's shim that repairs raw arguments; Dex calls it before pi-ai validates the arguments. */
+  /**
+   * Pi's shim that repairs raw arguments, such as an argument shape an earlier version of the tool accepted.
+   *
+   * The built-in agent loop runner calls it with the decoded arguments before it checks them against
+   * `parameters`, so a repaired old shape passes that check. It must be synchronous and deterministic and have
+   * no side effects, because every attempt converts the stored arguments again. A throw or a Promise fails the
+   * call: the model sees `invalid arguments for <tool>: <message>`, and `execute` does not run.
+   */
   readonly prepareArguments?: (args: unknown) => unknown;
   /**
    * Runs the tool, as Pi's `AgentTool.execute`.
@@ -104,23 +111,27 @@ export interface PiAgentFunctionToolOptions {
  * tool.
  *
  * Each call runs `tool.execute(toolCallId, params, signal, onUpdate)`:
- * - The built-in loop runner first checks the raw arguments against `parameters`. Then `prepareArguments`, when the tool
- *   has one, repairs them, and pi-ai's `validateToolArguments` validates and coerces them, as Pi does.
+ * - `prepareArguments`, when the tool has one, repairs the raw arguments first. The built-in agent loop runner
+ *   then checks them against `parameters`, and pi-ai's `validateToolArguments` validates and coerces them, as Pi
+ *   does.
  * - `signal` is the attempt's cancellation signal.
  * - The text of each `onUpdate` partial result is written as a `pi.tool_progress` event with `tool_call_id`,
  *   `tool_name`, and `text`.
  * - The result's text parts, joined by newlines, are the output the model sees. Each image part becomes
  *   `[image omitted: <mime type>]`. `details` is not stored.
- * - A result with `isError: true`, a thrown `ToolExecutionError`, or arguments that fail validation become a
- *   `ToolExecutionError`: the call is recorded as failed, the model sees the failure, and the session continues.
- * - Any other thrown error becomes a `ToolExecutionError` too, as in Pi, except for a `non_idempotent_write`
- *   tool. Its write may have taken effect, so the error propagates and the session records `outcome_unknown`,
- *   as for any `CallSingleAttemptTool`; the call never runs again. To report a definite failure from such a
- *   tool, return `isError: true` or throw `ToolExecutionError`.
+ * - A result with `isError: true`, a thrown `ToolExecutionError`, or arguments that fail conversion or validation
+ *   become a `ToolExecutionError`: the call is recorded as failed, the model sees the failure, and the session
+ *   continues.
+ * - Any other thrown error is handled by the call's effect, which is the effect after `AgentDefinition.toolPolicies`
+ *   when a policy overrides the wrapped one. For `read` and `idempotent_write` it becomes a `ToolExecutionError`
+ *   too, as in Pi. For `non_idempotent_write` and `unclassified` the tool may have changed state, so the error
+ *   propagates and the session records `outcome_unknown`, as for any `CallSingleAttemptTool`; the call never runs
+ *   again. A context without an effect, such as one built by hand in a test, is handled like `unclassified`. To
+ *   report a definite failure from such a tool, return `isError: true` or throw `ToolExecutionError`.
  * - An error thrown after Dex cancelled the attempt is rethrown unchanged.
  *
  * Dex runs the calls of one model response in parallel, so `executionMode: "sequential"` is not supported. Dex
- * ignores the result's `terminate` hint; the built-in loop `decideTurnContinuation` hook ends a turn after tools.
+ * ignores the result's `terminate` hint.
  *
  * Pass the idempotency key yourself when a tool writes: Pi tools do not receive Dex's `ToolCallContext`, so wrap
  * such a tool with `functionTool` instead when it needs `idempotencyKey`.
@@ -171,7 +182,8 @@ export function piAgentFunctionTool(tool: PiAgentToolLike, options: PiAgentFunct
     parameters: tool.parameters,
     effect,
     requiresApproval: options.requiresApproval,
-    execute: (args, context) => executePiAgentTool(tool, effect, args, context),
+    prepareArguments: tool.prepareArguments?.bind(tool),
+    execute: (args, context) => executePiAgentTool(tool, args, context),
   });
 }
 
@@ -193,13 +205,12 @@ function inferPiAgentToolEffect(tool: PiAgentToolLike, effect: ToolEffect | unde
 
 async function executePiAgentTool(
   tool: PiAgentToolLike,
-  effect: ToolEffect,
   args: unknown,
   context: ToolCallContext,
 ): Promise<string> {
   let params: unknown;
   try {
-    params = validatePiAgentToolArguments(tool, args, context.toolCallId);
+    params = validatePiToolArguments(tool, args, context.toolCallId);
   } catch (error) {
     throwPiToolArgumentsFailure(context, error);
   }
@@ -209,20 +220,11 @@ async function executePiAgentTool(
       writePiToolProgress(context, tool.name, describePiToolContent(partialResult?.content)),
     );
   } catch (error) {
-    throwPiToolExecutionFailure(context, effect, error);
+    throwPiToolExecutionFailure(context, error);
   }
   const output = describePiToolContent(result?.content);
   if (result?.isError === true) {
     throw new ToolExecutionError(output === "" ? `${tool.name} failed` : output);
   }
   return output;
-}
-
-/** Repairs and validates arguments as Pi's agent loop does; pi-ai's validation coerces them. */
-function validatePiAgentToolArguments(tool: PiAgentToolLike, args: unknown, toolCallId: string): unknown {
-  const preparedArguments = tool.prepareArguments === undefined ? args : tool.prepareArguments(args);
-  return validateToolArguments(
-    { name: tool.name, description: tool.description, parameters: tool.parameters },
-    { type: "toolCall", id: toolCallId, name: tool.name, arguments: preparedArguments as JsonObject },
-  );
 }

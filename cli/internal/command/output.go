@@ -67,7 +67,7 @@ func tableRows(value any) ([]map[string]any, []string) {
 		}
 		return rows, tableHeaders(rows)
 	case map[string]any:
-		for _, key := range []string{"flows", "events", "methods", "messages"} {
+		for _, key := range []string{"flows", "events", "methods", "messages", "definitions", "flowTypes"} {
 			if entries, ok := current[key].([]any); ok {
 				return tableRows(entries)
 			}
