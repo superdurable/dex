@@ -301,6 +301,10 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
 - **Without a store**, the session refuses user images: `send_user_message`
   returns `False`. A tool result's images then reach the model only as the
   result's text.
+- **Chat Completions models.** The SDK's Chat Completions converter keeps only
+  the text of a tool result, unless a LiteLLM or any-llm model preserves all
+  of its content. Use a Responses model when the model must see tool images.
+  User images reach both.
 
 ## Compaction
 
