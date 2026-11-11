@@ -1,0 +1,52 @@
+name: Prepare skills release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: skills-release-prep
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare skills release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Assemble the skills fragments and push the release-prep branch
+        run: |
+          set -euo pipefail
+          release_date="$(date -u +%F)"
+          python3 script/release/changelog_fragments.py prepare skills --date "${release_date}"
+          version="$(tr -d '[:space:]' < skills/VERSION)"
+          branch="release-prep/skills-v${version}"
+          git switch -c "${branch}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A skills changelog.d
+          git commit -m "Skills: release ${version}"
+          # GITHUB_TOKEN pull requests would not trigger Check Gate CI, so a person opens it.
+          git push origin "${branch}"
+          compare_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1"
+          {
+            echo "## Skills release ${version}"
+            echo
+            echo "Pushed \`${branch}\`. Open its pull request with the \`release-prep\` label: ${compare_url}"
+            echo
+            echo '```text'
+            git show --stat --format='%s' HEAD
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  reject-non-main:
+    name: Reject non-main dispatch
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Skills releases are prepared only from main" >&2
+          exit 1

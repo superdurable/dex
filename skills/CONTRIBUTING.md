@@ -115,11 +115,12 @@ python3 /path/to/skill-creator/scripts/quick_validate.py dex-connector-contribut
 
 `check-doc-map.py` needs the Dex checkout because it reads `docs/content/`.
 Without arguments it validates the map. Skills CI runs only the checks that
-depend on the commit. Check Gate CI runs both scripts with `--base-ref` and
-`--pr-body-file`, using the pull request description it fetches from GitHub
-when it runs, to enforce the release metadata and the doc-map pairing. A stale
-Skills CI run therefore cannot approve a description. A manual dispatch of
-Check Gate CI runs only the non-PR checks and validates no pull request
+depend on the commit. Check Gate CI runs `check-doc-map.py` with `--base-ref`
+and `--pr-body-file` to enforce the doc-map pairing, and the Dex
+`script/release/changelog_fragments.py check-pr` to enforce the release
+files. Both use the pull request description it fetches from GitHub when it
+runs, so a stale Skills CI run cannot approve a description. A manual dispatch
+of Check Gate CI runs only the non-PR checks and validates no pull request
 description. To run the description checks locally, pass a base such as
 `--base-ref origin/main` and a file with the description.
 
@@ -132,28 +133,52 @@ current instructions.
 
 ## Version and release
 
-Bump `VERSION` and add a `CHANGELOG.md` entry only when stable content
-changes: a rule, a Primitive concept or relation, a Component, a design
-pattern, skill routing, or packaging. Keep every plugin and marketplace
-manifest on that exact version where the format supports a version, and keep
-`CHANGELOG.md` short. The 0.x release notes are archived in
-`CHANGELOG-0.x.md`.
+A stable content change adds a change-log fragment in the Dex repository: a
+rule, a Primitive concept or relation, a Component, a design pattern, skill
+routing, or packaging. Create it from the Dex checkout:
 
-- Increment PATCH for corrections to an existing rule or concept.
-- Increment MINOR for new product workflows, languages, patterns, or other
+```bash
+python3 script/release/changelog_fragments.py new skills --bump patch
+```
+
+Write the change-log bullets in the new `changelog.d/skills/` file. Keep them
+short. Its `bump` sets the release level:
+
+- `patch` for corrections to an existing rule or concept.
+- `minor` for new product workflows, languages, patterns, or other
   backward-compatible capabilities.
-- Increment MAJOR for incompatible plugin or skill identity changes.
+- `major` for incompatible plugin or skill identity changes.
 
-A typo, link, or wording-only change needs no bump. Check Gate CI requires a
-`VERSION` and `CHANGELOG.md` update for any change under `dex-sdk/`,
-`dex-app-builder/`, or `dex-connector-contributor/`, unless the pull request
-description contains this line:
+A typo, link, or wording-only change needs no fragment. Check Gate CI requires
+a fragment for any change under `dex-sdk/`, `dex-app-builder/`, or
+`dex-connector-contributor/`, unless the pull request description contains
+this line:
 
 ```text
 skills-release: no bump needed: <reason>
 ```
 
-After a pull request lands on Dex `main`, the skills mirror syncs the package.
-The mirror's Release workflow validates it and creates `v<version>` from the
-matching changelog section. If the tag already exists, the workflow skips
-release creation.
+Never edit `VERSION`, `dex-sdk/VERSION`, the plugin and marketplace
+manifests, or `CHANGELOG.md` by hand. Check Gate CI rejects such an edit
+outside a release-prep pull request, unless the description contains a line
+`changelog: correction: <reason>`. The 0.x release notes are archived in
+`CHANGELOG-0.x.md`.
+
+To release, the release cutter runs **Prepare skills release** in the Dex
+GitHub Actions, or runs this on a fresh branch from Dex `main`:
+
+```bash
+python3 script/release/changelog_fragments.py prepare skills --date <YYYY-MM-DD>
+```
+
+It bumps `VERSION` by the largest fragment bump and writes that version into
+`dex-sdk/VERSION` and every manifest that supports one. It adds the
+`CHANGELOG.md` entry and deletes the fragments. Open its pull request with the
+`release-prep` label. Check Gate CI repeats the assembly on the base and
+requires the same files.
+
+When that pull request lands on Dex `main`, the `VERSION` change syncs the
+package to the mirror. The mirror's Release workflow validates it and creates
+`v<version>` from the matching changelog section. If the tag already exists,
+the workflow skips release creation. Other skills changes reach the mirror
+with the next release, or with a manual run of **Mirror Dex skills**.

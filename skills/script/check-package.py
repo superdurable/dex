@@ -35,7 +35,6 @@ HOOK_CONFIGS = {"claude": "./hooks/claude.json", "cursor": "./hooks/cursor.json"
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 CHANGELOG_HEADING = re.compile(r"^## (?P<version>\d+\.\d+\.\d+)(?: - .+)?\s*$", re.MULTILINE)
 SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-RELEASE_OPT_OUT = re.compile(r"^\s*(?:[-*]\s+)?skills-release:\s*no bump needed:[ \t]*\S", re.IGNORECASE | re.MULTILINE)
 
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 FENCED_BLOCK = re.compile(r"^(```|~~~).*?^\1", re.DOTALL | re.MULTILINE)
@@ -155,13 +154,7 @@ def fail(message: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--base-ref", help="check that skill changes since this ref carry release metadata")
-    parser.add_argument("--pr-body", default="", help="pull request description, for the release opt-out marker")
-    parser.add_argument("--pr-body-file", help="file holding the pull request description; overrides --pr-body")
-    arguments = parser.parse_args()
-    pr_body = read_pr_body(arguments.pr_body, arguments.pr_body_file)
-
+    argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
     version = (ROOT / "VERSION").read_text().strip()
     check_versions(version)
     check_manifests(version)
@@ -170,16 +163,7 @@ def main() -> None:
     check_skill_content(skills)
     check_agent_rules()
     check_open_source_boundary()
-    if arguments.base_ref:
-        check_release_change(arguments.base_ref, version, pr_body)
     print(f"validated superdurable-dex {version} with three root skills")
-
-
-def read_pr_body(pr_body: str, pr_body_file: str | None) -> str:
-    """Returns the pull request description, preferring the file that Check Gate fetched at gate time."""
-    if pr_body_file is None:
-        return pr_body
-    return Path(pr_body_file).read_text()
 
 
 def check_versions(version: str) -> None:
@@ -377,28 +361,6 @@ def check_open_source_boundary() -> None:
             continue
         if DOWNSTREAM_PRODUCT_NAME.search(content):
             fail(f"{relative_path} must not describe a product built on Dex")
-
-
-def check_release_change(base_ref: str, version: str, pr_body: str) -> None:
-    changed = set(git_output("diff", "--name-only", "--relative", f"{base_ref}...HEAD").splitlines())
-    if not any(path.startswith(tuple(f"{name}/" for name in SKILL_NAMES)) for path in changed):
-        return
-    if RELEASE_OPT_OUT.search(pr_body):
-        print("skill content changed without a release: the pull request states 'skills-release: no bump needed'")
-        return
-    try:
-        base_version = git_output("show", f"{base_ref}:./VERSION").strip()
-    except subprocess.CalledProcessError:
-        print("no skills VERSION at the base; skipping the release metadata check")
-        return
-    missing = {"VERSION", "CHANGELOG.md"} - changed
-    if missing:
-        fail(
-            f"skill changes must update {', '.join(sorted(missing))}, or the pull request description "
-            "must contain a line 'skills-release: no bump needed: <reason>'"
-        )
-    if version_tuple(version) <= version_tuple(base_version):
-        fail(f"VERSION must increase beyond {base_version}")
 
 
 def external_url_problem(url: str) -> str | None:

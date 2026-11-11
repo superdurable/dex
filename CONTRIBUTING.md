@@ -163,9 +163,13 @@ check until the record is updated.
 ## Skills mirror
 
 Contribute skills in [`skills/`](skills/) in this repository. Its CI runs the
-skills validators. A merge to Dex main syncs that directory to the read-only
-[`superdurable/dex-skills`](https://github.com/superdurable/dex-skills) mirror;
-the mirror publishes releases when `VERSION` changes. If the sync fails its
+skills validators. A skills change adds a fragment under
+[`changelog.d/skills/`](changelog.d/README.md). A skills release-prep pull
+request assembles the fragments and changes `skills/VERSION`. Its merge to Dex
+main syncs that directory to the read-only
+[`superdurable/dex-skills`](https://github.com/superdurable/dex-skills) mirror,
+and the mirror publishes the release. Run **Mirror Dex skills** by hand to sync
+other changes sooner. See [`skills/CONTRIBUTING.md`](skills/CONTRIBUTING.md#version-and-release). If the sync fails its
 drift check, compare the mirror HEAD tree with the last synced Dex commit's
 `skills/` tree (from the mirror commit's `Dex-Commit` trailer). Restore the
 mirror to that tree, then rerun the sync; do not overwrite unexplained edits.

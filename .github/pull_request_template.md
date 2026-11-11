@@ -10,4 +10,6 @@
 
 <!-- What ran locally, and what CI covers. -->
 
+<!-- A skills content change adds a changelog.d/skills/ fragment: python3 script/release/changelog_fragments.py new skills --bump <level>. Never edit VERSION, manifests, or change-log heads by hand. -->
+
 <!-- Fixes #123 -->
