@@ -6,9 +6,9 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""The ``dex-agents-builtin`` command: a Dex Stepwise agent in the terminal.
+"""The ``dex-agents-builtin`` command: a Dex built-in loop agent in the terminal.
 
-It builds the agent session Flow with the Dex Stepwise loop on LiteLLM and
+It builds the agent session Flow with the Dex built-in agent loop on LiteLLM and
 runs it with the shared Dex Agents CLI runtime. See the package README.
 """
 

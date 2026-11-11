@@ -46,7 +46,7 @@ from dex_agents import (
     estimate_text_tokens,
     select_turn_boundary_cutoff,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     FrameworkToolSourceRouter,
     SourceToolListing,

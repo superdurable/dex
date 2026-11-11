@@ -25,8 +25,8 @@ import (
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
 	"github.com/superdurable/dex/agents/go/core/anthropicmodel"
+	"github.com/superdurable/dex/agents/go/core/builtinloop"
 	"github.com/superdurable/dex/agents/go/core/internal/pythonjson"
-	"github.com/superdurable/dex/agents/go/core/stepwise"
 )
 
 // pythonCoreDir is the Python core, whose locked environment runs the parity scripts.
@@ -136,12 +136,12 @@ func TestGoReEncodesPythonWireValuesByteForByte(t *testing.T) {
 		require.Equal(t, expected.StepExecutionID, goEvents[index].StepExecutionID)
 	}
 
-	tool, err := stepwise.NewFunctionTool("checked", "Check arguments.", python.Schema.Schema, dexagents.ToolEffectRead,
-		func(context.Context, json.RawMessage, stepwise.ToolCallContext) (string, error) { return "ok", nil })
+	tool, err := builtinloop.NewFunctionTool("checked", "Check arguments.", python.Schema.Schema, dexagents.ToolEffectRead,
+		func(context.Context, json.RawMessage, builtinloop.ToolCallContext) (string, error) { return "ok", nil })
 	require.NoError(t, err)
 	require.Len(t, python.Schema.Messages, len(python.Schema.Arguments))
 	for index, arguments := range python.Schema.Arguments {
-		output, err := tool.Invoke(context.Background(), arguments, stepwise.ToolCallContext{})
+		output, err := tool.Invoke(context.Background(), arguments, builtinloop.ToolCallContext{})
 		if err != nil {
 			output = err.Error()
 		}
@@ -158,19 +158,19 @@ func TestGoReEncodesPythonWireValuesByteForByte(t *testing.T) {
 		map[string]any{"type": "redacted_thinking", "data": "opaque=="},
 	}, python.Anthropic.Replayed[0]["thinking_blocks"], "the Python core replays the item with its thinking")
 
-	items := []stepwise.ModelInputItem{
-		stepwise.UserTextItem{Text: "Ünïcode <&> \"q\""},
-		stepwise.ToolResultItem{ToolCallID: "call-1", ToolName: "lookup_order", Output: "ok ✓"},
-		stepwise.ModelOutputItem{Provider: "openai", API: "responses", Item: `{"type":"message"}`, Text: ptr("hi")},
-		stepwise.ModelOutputItem{Provider: "dex-scripted", API: "scripted", Item: `{"type":"function_call"}`,
-			ToolCalls: []stepwise.ModelToolCall{{ToolCallID: "c", ToolName: "t", Arguments: `{"a": 1}`}}},
+	items := []builtinloop.ModelInputItem{
+		builtinloop.UserTextItem{Text: "Ünïcode <&> \"q\""},
+		builtinloop.ToolResultItem{ToolCallID: "call-1", ToolName: "lookup_order", Output: "ok ✓"},
+		builtinloop.ModelOutputItem{Provider: "openai", API: "responses", Item: `{"type":"message"}`, Text: ptr("hi")},
+		builtinloop.ModelOutputItem{Provider: "dex-scripted", API: "scripted", Item: `{"type":"function_call"}`,
+			ToolCalls: []builtinloop.ModelToolCall{{ToolCallID: "c", ToolName: "t", Arguments: `{"a": 1}`}}},
 	}
 	require.Len(t, python.StepwiseItems, len(items))
 	for index, item := range items {
-		message, err := stepwise.EncodeStepwiseMessage(item)
+		message, err := builtinloop.EncodeBuiltinLoopMessage(item)
 		require.NoError(t, err)
 		require.Equal(t, python.StepwiseItems[index], message.FrameworkItem)
-		decoded, err := stepwise.DecodeStepwiseMessage(dexagents.AgentMessage{FrameworkItem: python.StepwiseItems[index]})
+		decoded, err := builtinloop.DecodeBuiltinLoopMessage(dexagents.AgentMessage{FrameworkItem: python.StepwiseItems[index]})
 		require.NoError(t, err)
 		require.Equal(t, item, decoded)
 	}
@@ -200,7 +200,7 @@ func runPythonScript(t *testing.T, script string, arguments ...string) string {
 }
 
 // goAnthropicItem streams the response that the Python script assembles through the Go client.
-func goAnthropicItem(t *testing.T) stepwise.ModelOutputItem {
+func goAnthropicItem(t *testing.T) builtinloop.ModelOutputItem {
 	t.Helper()
 	events := []string{
 		`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-test","content":[],"usage":{"input_tokens":1,"output_tokens":1}}}`,
@@ -232,8 +232,8 @@ func goAnthropicItem(t *testing.T) stepwise.ModelOutputItem {
 	defer server.Close()
 	client := anthropicmodel.NewMessagesModelClient(
 		anthropic.NewClient(option.WithBaseURL(server.URL), option.WithAPIKey("test-key")), "claude-test")
-	response, err := client.CallModel(context.Background(), stepwise.ModelRequest{
-		InputItems: []stepwise.ModelInputItem{stepwise.UserTextItem{Text: "where is 7?"}},
+	response, err := client.CallModel(context.Background(), builtinloop.ModelRequest{
+		InputItems: []builtinloop.ModelInputItem{builtinloop.UserTextItem{Text: "where is 7?"}},
 	}, discardedOutput{})
 	require.NoError(t, err)
 	require.Len(t, response.OutputItems, 1)

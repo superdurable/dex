@@ -30,9 +30,9 @@ from dex_agents import (
     ToolEffect,
     TurnCompleted,
 )
-from dex_agents.litellm import CHAT_COMPLETIONS_API, RESPONSES_API, LiteLLMModelClient
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     AgentDefinition,
+    BuiltinLoopAgentRunner,
     ModelInputItem,
     ModelOutputItem,
     ModelRequest,
@@ -40,11 +40,11 @@ from dex_agents.stepwise import (
     ModelSettings,
     ModelToolDefinition,
     NamedToolChoice,
-    StepwiseAgentRunner,
     ToolResultItem,
     UserTextItem,
-    encode_stepwise_message,
+    encode_builtin_loop_message,
 )
+from dex_agents.litellm import CHAT_COMPLETIONS_API, RESPONSES_API, LiteLLMModelClient
 
 ENCRYPTED_REASONING = "gAAAAABo-Opaque+/=encrypted" + chr(0x2028) + "reasoning\\content"
 THINKING_TEXT = "The user wants order 7.\nI should call lookup_order."
@@ -323,7 +323,7 @@ async def test_the_first_call_of_a_planning_turn_reaches_a_model_that_refuses_fo
 ) -> None:
     # A closed local port: a request that is built and sent fails to connect.
     client = LiteLLMModelClient(model, api_base="http://127.0.0.1:9", api_key_provider=lambda: "k")
-    runner = StepwiseAgentRunner(_planning_definition(client))
+    runner = BuiltinLoopAgentRunner(_planning_definition(client))
 
     with pytest.raises(Exception) as raised:
         await runner.run_model_step(_planning_turn())
@@ -339,7 +339,7 @@ async def test_a_planning_turn_offers_write_todos_without_forcing_and_a_text_ans
     )
     transport.responses.append((200, _anthropic_text_stream("Which database do you use?")))
 
-    outcome = await StepwiseAgentRunner(_planning_definition(client)).run_model_step(
+    outcome = await BuiltinLoopAgentRunner(_planning_definition(client)).run_model_step(
         _planning_turn()
     )
 
@@ -540,7 +540,7 @@ def _write_todos_definition() -> ModelToolDefinition:
 
 
 def _planning_turn() -> AgentTurnContext:
-    user_message = encode_stepwise_message(UserTextItem(text="Plan the migration"))
+    user_message = encode_builtin_loop_message(UserTextItem(text="Plan the migration"))
     return AgentTurnContext(
         flow_id="session-1",
         turn_id="turn-1",

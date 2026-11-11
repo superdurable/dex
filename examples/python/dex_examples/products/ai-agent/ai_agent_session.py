@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The AIAgentSession Flow: a Dex Agents Stepwise agent with the Worker's MCP and Slack tools.
+"""The AIAgentSession Flow: a Dex Agents built-in loop agent with the Worker's MCP and Slack tools.
 
 The models the Worker allows, the system prompt, the context window, and the
 MCP servers are Worker configuration, shared by every session of this Worker.

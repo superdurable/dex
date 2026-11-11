@@ -2,7 +2,7 @@
 name = "dex-agents-builtin-cli"
 # Every agents package shares one version; agents/script/stamp_agents_release_version.py sets it.
 version = "0.1.0"
-description = "The dex-agents-builtin command: a durable Dex Stepwise agent in your terminal"
+description = "The dex-agents-builtin command: a durable Dex built-in loop agent in your terminal"
 authors = [{name = "Super Durable"}]
 readme = "README.md"
 license = "LicenseRef-Sustainable-Use-1.0"

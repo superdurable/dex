@@ -174,7 +174,7 @@
     },
     "builtin": {
       "$ref": "#/$defs/harness_options",
-      "description": "Options of the built-in (Stepwise) command. Omitted: its defaults."
+      "description": "Options of the built-in agent loop command. Omitted: its defaults."
     }
   },
   "not": {

@@ -30,7 +30,7 @@ from dex_agents import (
     ToolExecutionResult,
     ToolPolicy,
 )
-from dex_agents.stepwise import FrameworkToolSourceRouter
+from dex_agents.builtin_loop import FrameworkToolSourceRouter
 
 
 @dataclass(frozen=True)

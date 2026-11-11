@@ -20,14 +20,14 @@ import {
   type ModelCallMetadata,
 } from "../../src/index.js";
 import {
-  StepwiseAgentRunner,
+  BuiltinLoopAgentRunner,
   contextSummaryInstructions,
   contextSummaryNoteHeader,
   functionTool,
   type AgentDefinition,
   type ModelInputItem,
   type ModelRequest,
-} from "../../src/stepwise/index.js";
+} from "../../src/builtin-loop/index.js";
 import { FileGate, InvocationLog, ScriptedModelClient, type ScriptedModelReply } from "../../src/testing/index.js";
 
 /** Flow type of the compaction test agent, the same as the Python core's. */
@@ -80,7 +80,7 @@ export function createCompactionTestAgentFlow(
   windowTokens = defaultWindowTokens,
   summaryPadCharacters = 0,
   options: CompactionTestAgentOptions = {},
-): AgentSessionFlow<StepwiseAgentRunner> {
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const invocations = new InvocationLog(join(markerDirectory, "invocations.log"));
   const respond = async (request: ModelRequest): Promise<ScriptedModelReply> => {
     const isSummary = request.instructions === contextSummaryInstructions;
@@ -143,7 +143,7 @@ export function createCompactionTestAgentFlow(
   };
   const runner =
     options.summaryModelCallMetadata === undefined
-      ? new StepwiseAgentRunner(definition)
+      ? new BuiltinLoopAgentRunner(definition)
       : new SummaryMetadataRunner(definition, options.summaryModelCallMetadata);
   return createAgentSessionFlow(runner, options.flowType ?? compactionTestAgentFlowType, {
     builtInTools: ["write_todos"],
@@ -185,7 +185,7 @@ export function readMessageStorageEnvironment(
   };
 }
 
-class SummaryMetadataRunner extends StepwiseAgentRunner {
+class SummaryMetadataRunner extends BuiltinLoopAgentRunner {
   public constructor(
     definition: AgentDefinition,
     private readonly metadata: ModelCallMetadata,

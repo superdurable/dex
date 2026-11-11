@@ -33,7 +33,7 @@ import {
   type ToolCallStepOptions,
   type ToolExecutionResult,
 } from "@superdurable/dex-agents";
-import { defaultToolSourceListingTimeoutMs, type ToolSource } from "@superdurable/dex-agents/stepwise";
+import { defaultToolSourceListingTimeoutMs, type ToolSource } from "@superdurable/dex-agents/builtin-loop";
 import * as zodV3 from "zod/v3";
 import * as zodV4 from "zod/v4";
 

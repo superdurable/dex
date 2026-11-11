@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""The built-in harness: a Dex Stepwise agent on LiteLLM with the runtime's tools."""
+"""The built-in harness: a Dex built-in loop agent on LiteLLM with the runtime's tools."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything
 # isort: split
 
 from dex_agents import AgentSessionFlow, BuiltInTool
+from dex_agents.builtin_loop import AgentDefinition, InstructionContext, builtin_agent_session_flow
 from dex_agents.litellm import LiteLLMModelClient
-from dex_agents.stepwise import AgentDefinition, InstructionContext, stepwise_agent_session_flow
 from dex_agents_cli import ConfigError, HarnessContext, LocalToolGroup
 
 #: The Flow type of the command's sessions, before the runtime namespaces it.
@@ -36,7 +36,7 @@ DEFAULT_INSTRUCTIONS = (
 
 
 class BuiltinHarness:
-    """The ``dex-agents-builtin`` command: a Dex Stepwise agent in the terminal.
+    """The ``dex-agents-builtin`` command: a Dex built-in loop agent in the terminal.
 
     Every model call is one LiteLLM request with the turn's model, so any
     LiteLLM provider works with its standard environment variables. The
@@ -51,7 +51,7 @@ class BuiltinHarness:
     replaced_local_tools: frozenset[LocalToolGroup] = frozenset()
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
-        """Build the Stepwise agent session Flow from the effective configuration.
+        """Build the built-in loop agent session Flow from the effective configuration.
 
         Args:
             context: The configuration, workspace, and tool sources.
@@ -83,7 +83,7 @@ class BuiltinHarness:
             tool_sources=list(context.tool_sources),
             built_in_tools=frozenset({BuiltInTool.ASK_USER}),
         )
-        return stepwise_agent_session_flow(definition, flow_type=context.flow_type)
+        return builtin_agent_session_flow(definition, flow_type=context.flow_type)
 
 
 def validate_builtin_section(options: Mapping[str, Any]) -> None:

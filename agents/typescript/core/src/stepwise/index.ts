@@ -6,44 +6,49 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-export { type AgentDefinition, type InstructionContext, type PlanningToolChoice } from "./agent-definition.js";
-export {
-  functionTool,
-  type FunctionTool,
-  type FunctionToolDefinition,
-  type ToolCallContext,
-} from "./function-tool.js";
-export {
-  type ModelClient,
-  type ModelInputItem,
-  type ModelOutputItem,
-  type ModelOutputWriter,
-  type ModelRequest,
-  type ModelRequestMetadata,
-  type ModelResponse,
-  type ModelSettings,
-  type ModelToolCall,
-  type ModelToolChoice,
-  type ModelToolDefinition,
-  type ModelToolResultItem,
-  type ModelUserTextItem,
-} from "./model-client.js";
-export {
-  ScriptedModelClient,
-  defaultMaxRecordedRequests,
-  scriptedModelApi,
-  scriptedModelProvider,
-  type ScriptedModelReply,
-  type ScriptedModelResponder,
-  type ScriptedToolCall,
-} from "./scripted-model-client.js";
-export { createStepwiseAgentSessionFlow } from "./stepwise-agent-session-flow.js";
-export {
-  buildContextSummaryNote,
-  buildContextSummaryOmissionNote,
-  contextSummaryInstructions,
-  contextSummaryNoteHeader,
-  contextSummaryRequest,
-} from "../agent-context-compaction.js";
-export { StepwiseAgentRunner, defaultToolSourceListingTimeoutMs } from "./stepwise-agent-runner.js";
-export { type SourceToolDefinition, type ToolSource } from "./tool-source.js";
+/**
+ * Deprecated alias of `@superdurable/dex-agents/builtin-loop`, the built-in agent loop.
+ *
+ * Every name it exported still works and refers to the same value. Two names changed:
+ * `StepwiseAgentRunner` is `BuiltinLoopAgentRunner`, and `createStepwiseAgentSessionFlow` is
+ * `createBuiltinAgentSessionFlow`.
+ *
+ * @example
+ * ```ts
+ * // Before
+ * import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
+ * // After
+ * import { createBuiltinAgentSessionFlow } from "@superdurable/dex-agents/builtin-loop";
+ * ```
+ *
+ * @deprecated Since 0.5.0. Import from `@superdurable/dex-agents/builtin-loop` instead.
+ * @module
+ */
+
+import { createBuiltinAgentSessionFlow } from "../builtin-loop/builtin-agent-session-flow.js";
+import { BuiltinLoopAgentRunner } from "../builtin-loop/builtin-loop-agent-runner.js";
+
+export * from "../builtin-loop/index.js";
+
+/**
+ * The {@link BuiltinLoopAgentRunner} under its old name.
+ *
+ * @deprecated Since 0.5.0. Use `BuiltinLoopAgentRunner` from `@superdurable/dex-agents/builtin-loop`; it is the
+ * same class.
+ */
+export const StepwiseAgentRunner = BuiltinLoopAgentRunner;
+
+/**
+ * The {@link BuiltinLoopAgentRunner} type under its old name.
+ *
+ * @deprecated Since 0.5.0. Use `BuiltinLoopAgentRunner` from `@superdurable/dex-agents/builtin-loop`.
+ */
+export type StepwiseAgentRunner = BuiltinLoopAgentRunner;
+
+/**
+ * {@link createBuiltinAgentSessionFlow} under its old name.
+ *
+ * @deprecated Since 0.5.0. Use `createBuiltinAgentSessionFlow` from `@superdurable/dex-agents/builtin-loop`; it
+ * is the same function.
+ */
+export const createStepwiseAgentSessionFlow = createBuiltinAgentSessionFlow;

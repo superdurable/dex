@@ -1,13 +1,13 @@
 # dex-agents-builtin-cli
 
 `dex-agents-builtin-cli` provides the `dex-agents-builtin` command. It runs
-the Dex built-in agent loop, Stepwise mode, as a durable Dex agent session
+the Dex built-in agent loop as a durable Dex agent session
 and chats with it in your terminal. No agent framework is involved: the
 session's own `RunModel` Step makes one model call through
 [LiteLLM](https://docs.litellm.ai/), and every tool call runs in its own Dex
 tool Step. The shared runtime, [`dex-agents-cli`](../runtime/README.md),
 starts or reuses `dexcli dev`, connects the connectors MCP server, and runs
-the Worker. This package only builds the Stepwise agent with the
+the Worker. This package only builds the built-in loop agent with the
 [core's LiteLLM model client](../../../python/core/README.md).
 
 ## Running it

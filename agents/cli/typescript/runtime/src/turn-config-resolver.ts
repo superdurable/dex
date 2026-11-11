@@ -24,7 +24,7 @@ const maximumCachedTurns = 64;
 
 /**
  * The session and turn of one tool Step: a `DeferredToolExecution`'s `flowId` and `toolCall.turnId`, or a
- * Stepwise `ToolCallContext`'s `flowId` and `turnId`.
+ * built-in loop `ToolCallContext`'s `flowId` and `turnId`.
  *
  * @since 0.5.0
  */

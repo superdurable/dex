@@ -11,12 +11,12 @@ import { join } from "node:path";
 import { createAiSdkModelClient } from "../../src/ai-sdk/index.js";
 import { createAgentSessionFlow, type AgentSessionFlow, type ToolPolicy } from "../../src/index.js";
 import {
-  StepwiseAgentRunner,
-  createStepwiseAgentSessionFlow,
+  BuiltinLoopAgentRunner,
+  createBuiltinAgentSessionFlow,
   functionTool,
   type AgentDefinition,
   type ToolCallContext,
-} from "../../src/stepwise/index.js";
+} from "../../src/builtin-loop/index.js";
 import { FileGate, InvocationLog } from "../../src/testing/index.js";
 import { createStepwiseScriptedLanguageModel } from "./stepwise-scripted-language-model.js";
 
@@ -32,7 +32,7 @@ export interface StepwiseTestAgentOptions {
   readonly maxModelCallsPerTurn?: number;
   /**
    * Tool policies passed only to `createAgentSessionFlow`, not in the agent definition, so the Flow is
-   * built from a `StepwiseAgentRunner` and these options.
+   * built from a `BuiltinLoopAgentRunner` and these options.
    */
   readonly sessionToolPolicies?: Readonly<Record<string, ToolPolicy>>;
 }
@@ -46,7 +46,7 @@ export interface StepwiseTestAgentOptions {
 export function createStepwiseTestAgentFlow(
   markerDirectory: string,
   options: StepwiseTestAgentOptions = {},
-): AgentSessionFlow<StepwiseAgentRunner> {
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const recordRun = (toolName: string, context: ToolCallContext) =>
     new InvocationLog(join(markerDirectory, `${toolName}.log`)).record(
       `${context.flowId} ${context.toolCallId} attempt ${context.attempt} key ${context.idempotencyKey}`,
@@ -109,9 +109,9 @@ export function createStepwiseTestAgentFlow(
   };
   const flowType = options.flowType ?? stepwiseTestAgentFlowType;
   if (options.sessionToolPolicies === undefined) {
-    return createStepwiseAgentSessionFlow(definition, flowType);
+    return createBuiltinAgentSessionFlow(definition, flowType);
   }
-  return createAgentSessionFlow(new StepwiseAgentRunner(definition), flowType, {
+  return createAgentSessionFlow(new BuiltinLoopAgentRunner(definition), flowType, {
     builtInTools: definition.builtInTools ?? [],
     toolPolicies: options.sessionToolPolicies,
   });

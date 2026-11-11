@@ -31,6 +31,7 @@ rests on ordinary Steps, Attributes, Channels, and Timers.
 | `agents/typescript/openai-agents` (`@superdurable/dex-agents-openai-agents`) | TypeScript | OpenAI Agents SDK |
 | `agents/typescript/mastra` (`@superdurable/dex-agents-mastra`) | TypeScript | Mastra |
 | `agents/typescript/claude-agent-sdk` (`@superdurable/dex-agents-claude-agent-sdk`) | TypeScript | Claude Agent SDK |
+| `agents/typescript/pi` (`@superdurable/dex-agents-pi`) | TypeScript | Pi: pi-ai models and Pi tools on Stepwise mode |
 
 Each package has its own manifest and lockfile, so adapters pin framework
 versions independently and never share a lock. An adapter depends on its

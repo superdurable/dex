@@ -50,7 +50,7 @@ import {
   runResourceAndPromptTool,
   serializeToolOutputJson,
 } from "./mcp-resource-and-prompt-tools.js";
-import type { SourceToolDefinition } from "../stepwise/tool-source.js";
+import type { SourceToolDefinition } from "../builtin-loop/tool-source.js";
 import {
   readDexErrorOutcome,
   readDexToolDeclaration,
@@ -82,7 +82,7 @@ export const defaultMcpTaskTtlMs = 86_400_000;
 export const defaultMcpConnectionTimeoutMs = 30_000;
 /** Default number of connection attempts before a request reports the server unreachable. */
 export const defaultMcpConnectionAttempts = 3;
-/** Default {@link McpToolSourceOptions.sourceName}, which stored Stepwise calls are routed by. */
+/** Default {@link McpToolSourceOptions.sourceName}, which stored built-in loop calls are routed by. */
 export const defaultMcpSourceName = "mcp";
 /** Default age in milliseconds after which `listTools` lists a server again, in the background: 5 minutes. */
 export const defaultMcpListingTtlMs = 300_000;
@@ -205,7 +205,7 @@ export interface McpToolSourceOptions {
    * Whether {@link McpToolSource.listTools} also offers `mcp_list_resources_and_prompts`, `mcp_read_resource`,
    * and `mcp_get_prompt`, after the servers' tools, when at least one server is configured. Their requests are
    * bounded by `connectionTimeoutMs`. Defaults to `false`. Enable it on one source of an agent only: two sources
-   * with it list the same names, which the Stepwise runner refuses. See {@link McpToolSource}.
+   * with it list the same names, which the built-in loop runner refuses. See {@link McpToolSource}.
    */
   readonly resourceAndPromptToolsEnabled?: boolean;
   /**
@@ -219,7 +219,7 @@ export interface McpToolSourceOptions {
    */
   readonly listingFailureBackoffMs?: number;
   /**
-   * The source's stable name in a Stepwise agent's `toolSources`, which stored calls are routed by. Defaults to
+   * The source's stable name in a built-in loop agent's `toolSources`, which stored calls are routed by. Defaults to
    * {@link defaultMcpSourceName}, `"mcp"`, so adding or removing a server keeps it. An agent with two `McpToolSource`
    * instances must name at least one, because names must be unique.
    */
@@ -563,7 +563,7 @@ export class McpToolSource {
   }
 
   /**
-   * The name a Stepwise agent's `toolSources` routes stored calls by: `sourceName` as passed, or
+   * The name a built-in loop agent's `toolSources` routes stored calls by: `sourceName` as passed, or
    * {@link defaultMcpSourceName}, `"mcp"`.
    */
   public get sourceName(): string {
@@ -596,7 +596,7 @@ export class McpToolSource {
   }
 
   /**
-   * Returns the tool names this source lists whatever its servers offer, so the Stepwise runner refuses a name
+   * Returns the tool names this source lists whatever its servers offer, so the built-in loop runner refuses a name
    * collision when it is constructed instead of on every model call.
    * @returns The resource and prompt tool names when they are enabled, else none.
    */
@@ -719,7 +719,7 @@ export class McpToolSource {
    * @param turn - The `RunModel` context.
    * @param call - Framework tool call ID, the {@link McpTool.name} the model called, the arguments as JSON
    * text, and optionally `listedTool`, the {@link McpTool} the listing offered for this model call, as the
-   * Stepwise runner passes it, so a refresh that finished meanwhile cannot change or remove it. Without it, the
+   * built-in loop runner passes it, so a refresh that finished meanwhile cannot change or remove it. Without it, the
    * tool is looked up in the current listing.
    * @returns The call to put in `ToolCallsRequested.toolCalls`.
    * @throws {RangeError} When no `listedTool` is given and {@link listTools} has not run or the tool is unknown.

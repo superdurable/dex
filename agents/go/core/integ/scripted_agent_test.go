@@ -21,7 +21,7 @@ import (
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
 	"github.com/superdurable/dex/agents/go/core/agentstest"
-	"github.com/superdurable/dex/agents/go/core/stepwise"
+	"github.com/superdurable/dex/agents/go/core/builtinloop"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -53,21 +53,21 @@ func scriptedAgentFlowsByType(flows []dex.Flow) scriptedAgentFlows {
 // newScriptedAgentFlows builds the Stepwise agents of the tests around one coordination directory.
 func newScriptedAgentFlows(coordinationDir string) ([]dex.Flow, error) {
 	tools := scriptedTools{coordinationDir: coordinationDir}
-	lookupOrder, err := stepwise.NewFunctionTool("lookup_order", "Look up an order by its ID.",
+	lookupOrder, err := builtinloop.NewFunctionTool("lookup_order", "Look up an order by its ID.",
 		json.RawMessage(`{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"]}`),
 		dexagents.ToolEffectRead, tools.lookupOrder)
 	if err != nil {
 		return nil, err
 	}
-	refundOrder, err := stepwise.NewFunctionTool("refund_order", "Refund an order.",
+	refundOrder, err := builtinloop.NewFunctionTool("refund_order", "Refund an order.",
 		json.RawMessage(`{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"]}`),
 		dexagents.ToolEffectNonIdempotentWrite, tools.refundOrder)
 	if err != nil {
 		return nil, err
 	}
-	chargeCard, err := stepwise.NewFunctionTool("charge_card", "Charge the card on file.",
+	chargeCard, err := builtinloop.NewFunctionTool("charge_card", "Charge the card on file.",
 		json.RawMessage(`{"type":"object","properties":{"amount":{"type":"integer","minimum":1},"block":{"type":"boolean"}},"required":["amount"],"additionalProperties":false}`),
-		dexagents.ToolEffectNonIdempotentWrite, tools.chargeCard, stepwise.WithRequiresApproval(false))
+		dexagents.ToolEffectNonIdempotentWrite, tools.chargeCard, builtinloop.WithRequiresApproval(false))
 	if err != nil {
 		return nil, err
 	}
@@ -75,21 +75,21 @@ func newScriptedAgentFlows(coordinationDir string) ([]dex.Flow, error) {
 	newFlow := func(
 		flowType string,
 		sessionOptions []dexagents.AgentSessionOption,
-		options ...stepwise.AgentDefinitionOption,
+		options ...builtinloop.AgentDefinitionOption,
 	) (dex.Flow, error) {
-		definition, err := stepwise.NewAgentDefinition("scripted", "You are a scripted test agent.",
+		definition, err := builtinloop.NewAgentDefinition("scripted", "You are a scripted test agent.",
 			slowFirstAttemptModelClient{scripted: agentstest.NewScriptedModelClient(script.respond), coordinationDir: coordinationDir},
-			append([]stepwise.AgentDefinitionOption{stepwise.WithFunctionTools(lookupOrder, refundOrder, chargeCard)}, options...)...)
+			append([]builtinloop.AgentDefinitionOption{builtinloop.WithFunctionTools(lookupOrder, refundOrder, chargeCard)}, options...)...)
 		if err != nil {
 			return nil, err
 		}
-		return stepwise.NewStepwiseAgentSessionFlow(definition, flowType, sessionOptions...)
+		return builtinloop.NewBuiltinAgentSessionFlow(definition, flowType, sessionOptions...)
 	}
 	scripted, err := newFlow(scriptedAgentFlowType, nil)
 	if err != nil {
 		return nil, err
 	}
-	deadline, err := newFlow(deadlineAgentFlowType, nil, stepwise.WithInterruptDeadline(approvalDeadline))
+	deadline, err := newFlow(deadlineAgentFlowType, nil, builtinloop.WithInterruptDeadline(approvalDeadline))
 	if err != nil {
 		return nil, err
 	}
@@ -106,21 +106,21 @@ func newScriptedAgentFlows(coordinationDir string) ([]dex.Flow, error) {
 	if err != nil {
 		return nil, err
 	}
-	checkpointTool, err := stepwise.NewFunctionTool("checkpointed_job", "Run a job that resumes from a checkpoint.",
+	checkpointTool, err := builtinloop.NewFunctionTool("checkpointed_job", "Run a job that resumes from a checkpoint.",
 		json.RawMessage(`{"type":"object"}`), dexagents.ToolEffectRead,
-		func(context.Context, json.RawMessage, stepwise.ToolCallContext) (string, error) {
+		func(context.Context, json.RawMessage, builtinloop.ToolCallContext) (string, error) {
 			return "", errors.New("checkpointRunner runs this tool")
 		})
 	if err != nil {
 		return nil, err
 	}
-	checkpointDefinition, err := stepwise.NewAgentDefinition("checkpoint", "You run jobs.",
-		agentstest.NewScriptedModelClient(script.respond), stepwise.WithFunctionTools(checkpointTool))
+	checkpointDefinition, err := builtinloop.NewAgentDefinition("checkpoint", "You run jobs.",
+		agentstest.NewScriptedModelClient(script.respond), builtinloop.WithFunctionTools(checkpointTool))
 	if err != nil {
 		return nil, err
 	}
 	checkpoint, err := dexagents.NewAgentSessionFlow(
-		checkpointRunner{StepwiseAgentRunner: stepwise.NewStepwiseAgentRunner(checkpointDefinition), coordinationDir: coordinationDir},
+		checkpointRunner{BuiltinLoopAgentRunner: builtinloop.NewBuiltinLoopAgentRunner(checkpointDefinition), coordinationDir: coordinationDir},
 		checkpointAgentFlowType)
 	if err != nil {
 		return nil, err
@@ -137,13 +137,13 @@ func newScriptedAgentFlows(coordinationDir string) ([]dex.Flow, error) {
 // The models are "default", "alpha", and "beta". "which-model" answers "model <name>: <instructions>",
 // and the first attempt of "think slowly" blocks after it wrote marker "settings-model-attempt-1".
 func newSettingsAgentFlow(script scriptedConversation, coordinationDir string) (dex.Flow, error) {
-	models := map[string]stepwise.ModelClient{}
+	models := map[string]builtinloop.ModelClient{}
 	for _, name := range []string{"default", "alpha", "beta"} {
 		models[name] = namedModelClient{
 			name: name, scripted: agentstest.NewScriptedModelClient(script.respond), coordinationDir: coordinationDir,
 		}
 	}
-	resolveModel := func(sessionSettings map[string]any) (stepwise.ModelClient, error) {
+	resolveModel := func(sessionSettings map[string]any) (builtinloop.ModelClient, error) {
 		name, hasName := sessionSettings["model"].(string)
 		if !hasName {
 			name = "default"
@@ -154,18 +154,18 @@ func newSettingsAgentFlow(script scriptedConversation, coordinationDir string) (
 		}
 		return model, nil
 	}
-	instructions := func(instructionContext stepwise.InstructionContext) (string, error) {
+	instructions := func(instructionContext builtinloop.InstructionContext) (string, error) {
 		if persona, hasPersona := instructionContext.SessionSettings["persona"]; hasPersona {
 			return fmt.Sprintf("You are the settings agent. Persona: %v.", persona), nil
 		}
 		return "You are the settings agent.", nil
 	}
-	definition, err := stepwise.NewAgentDefinition("settings", "unused", models["default"],
-		stepwise.WithModelResolver(resolveModel), stepwise.WithInstructionsFunction(instructions))
+	definition, err := builtinloop.NewAgentDefinition("settings", "unused", models["default"],
+		builtinloop.WithModelResolver(resolveModel), builtinloop.WithInstructionsFunction(instructions))
 	if err != nil {
 		return nil, err
 	}
-	return stepwise.NewStepwiseAgentSessionFlow(definition, settingsAgentFlowType)
+	return builtinloop.NewBuiltinAgentSessionFlow(definition, settingsAgentFlowType)
 }
 
 // namedModelClient answers "which-model" and "think slowly" with its own name.
@@ -177,21 +177,21 @@ type namedModelClient struct {
 
 func (client namedModelClient) CallModel(
 	ctx context.Context,
-	request stepwise.ModelRequest,
-	output stepwise.ModelOutputWriter,
-) (stepwise.ModelResponse, error) {
+	request builtinloop.ModelRequest,
+	output builtinloop.ModelOutputWriter,
+) (builtinloop.ModelResponse, error) {
 	userTexts := agentstest.UserTexts(request)
 	switch lastText := userTexts[len(userTexts)-1]; {
 	case lastText == "which-model":
 		return client.reply(ctx, request, output, fmt.Sprintf("model %s: %s", client.name, request.Instructions))
 	case lastText == "think slowly" && request.Metadata.Attempt == 1:
 		if err := output.WriteTextDelta("thinking"); err != nil {
-			return stepwise.ModelResponse{}, err
+			return builtinloop.ModelResponse{}, err
 		}
 		writeMarker(client.coordinationDir, "settings-model-attempt-1")
 		// The test SIGKILLs this Worker while the model call runs.
 		<-ctx.Done()
-		return stepwise.ModelResponse{}, ctx.Err()
+		return builtinloop.ModelResponse{}, ctx.Err()
 	case lastText == "think slowly":
 		return client.reply(ctx, request, output,
 			fmt.Sprintf("answered on attempt %d by %s", request.Metadata.Attempt, client.name))
@@ -202,24 +202,24 @@ func (client namedModelClient) CallModel(
 
 func (client namedModelClient) reply(
 	ctx context.Context,
-	request stepwise.ModelRequest,
-	output stepwise.ModelOutputWriter,
+	request builtinloop.ModelRequest,
+	output builtinloop.ModelOutputWriter,
 	text string,
-) (stepwise.ModelResponse, error) {
-	answer := agentstest.NewScriptedModelClient(func(stepwise.ModelRequest) (agentstest.ScriptedModelReply, error) {
+) (builtinloop.ModelResponse, error) {
+	answer := agentstest.NewScriptedModelClient(func(builtinloop.ModelRequest) (agentstest.ScriptedModelReply, error) {
 		return agentstest.ScriptedModelReply{Text: text}, nil
 	})
 	return answer.CallModel(ctx, request, output)
 }
 
-func (client namedModelClient) EstimateInputTokens(request stepwise.ModelRequest) int64 {
+func (client namedModelClient) EstimateInputTokens(request builtinloop.ModelRequest) int64 {
 	return client.scripted.EstimateInputTokens(request)
 }
 
 // checkpointRunner saves a heartbeat checkpoint on attempt 1, fails attempts 1 and 2, and records
 // what each later attempt read, so a test sees whether attempt 2 carried the checkpoint forward.
 type checkpointRunner struct {
-	*stepwise.StepwiseAgentRunner
+	*builtinloop.BuiltinLoopAgentRunner
 	coordinationDir string
 }
 
@@ -254,7 +254,7 @@ type scriptedConversation struct {
 	coordinationDir string
 }
 
-func (script scriptedConversation) respond(request stepwise.ModelRequest) (agentstest.ScriptedModelReply, error) {
+func (script scriptedConversation) respond(request builtinloop.ModelRequest) (agentstest.ScriptedModelReply, error) {
 	userTexts := agentstest.UserTexts(request)
 	lastText := userTexts[len(userTexts)-1]
 	results := agentstest.ToolResults(request)
@@ -329,7 +329,7 @@ type scriptedTools struct {
 	coordinationDir string
 }
 
-func (tools scriptedTools) lookupOrder(_ context.Context, arguments json.RawMessage, _ stepwise.ToolCallContext) (string, error) {
+func (tools scriptedTools) lookupOrder(_ context.Context, arguments json.RawMessage, _ builtinloop.ToolCallContext) (string, error) {
 	var input struct {
 		OrderID string `json:"order_id"`
 	}
@@ -342,7 +342,7 @@ func (tools scriptedTools) lookupOrder(_ context.Context, arguments json.RawMess
 	return fmt.Sprintf("order %s is shipped", input.OrderID), nil
 }
 
-func (tools scriptedTools) refundOrder(_ context.Context, arguments json.RawMessage, call stepwise.ToolCallContext) (string, error) {
+func (tools scriptedTools) refundOrder(_ context.Context, arguments json.RawMessage, call builtinloop.ToolCallContext) (string, error) {
 	var input struct {
 		OrderID string `json:"order_id"`
 	}
@@ -355,7 +355,7 @@ func (tools scriptedTools) refundOrder(_ context.Context, arguments json.RawMess
 	return fmt.Sprintf("refunded %s with key %s", input.OrderID, call.IdempotencyKey), nil
 }
 
-func (tools scriptedTools) chargeCard(ctx context.Context, arguments json.RawMessage, _ stepwise.ToolCallContext) (string, error) {
+func (tools scriptedTools) chargeCard(ctx context.Context, arguments json.RawMessage, _ builtinloop.ToolCallContext) (string, error) {
 	var input struct {
 		Amount  int  `json:"amount"`
 		IsBlock bool `json:"block"`
@@ -402,34 +402,34 @@ type slowFirstAttemptModelClient struct {
 
 func (client slowFirstAttemptModelClient) CallModel(
 	ctx context.Context,
-	request stepwise.ModelRequest,
-	output stepwise.ModelOutputWriter,
-) (stepwise.ModelResponse, error) {
+	request builtinloop.ModelRequest,
+	output builtinloop.ModelOutputWriter,
+) (builtinloop.ModelResponse, error) {
 	userTexts := agentstest.UserTexts(request)
 	if userTexts[len(userTexts)-1] == "think slowly" && request.Metadata.Attempt == 1 {
 		if err := output.WriteTextDelta("thinking"); err != nil {
-			return stepwise.ModelResponse{}, err
+			return builtinloop.ModelResponse{}, err
 		}
 		writeMarker(client.coordinationDir, "model-attempt-1")
 		// The test SIGKILLs this Worker while the model call runs.
 		<-ctx.Done()
-		return stepwise.ModelResponse{}, ctx.Err()
+		return builtinloop.ModelResponse{}, ctx.Err()
 	}
 	return client.scripted.CallModel(ctx, request, output)
 }
 
-func (client slowFirstAttemptModelClient) EstimateInputTokens(request stepwise.ModelRequest) int64 {
+func (client slowFirstAttemptModelClient) EstimateInputTokens(request builtinloop.ModelRequest) int64 {
 	return client.scripted.EstimateInputTokens(request)
 }
 
 // newTypingOnlyFlow builds a Flow of another core's Flow type; a Client uses it only to type calls.
 func newTypingOnlyFlow(flowType string) (*dexagents.AgentSessionFlow, error) {
-	definition, err := stepwise.NewAgentDefinition("typing-only", "unused",
-		agentstest.NewScriptedModelClient(func(stepwise.ModelRequest) (agentstest.ScriptedModelReply, error) {
+	definition, err := builtinloop.NewAgentDefinition("typing-only", "unused",
+		agentstest.NewScriptedModelClient(func(builtinloop.ModelRequest) (agentstest.ScriptedModelReply, error) {
 			return agentstest.ScriptedModelReply{}, nil
 		}))
 	if err != nil {
 		return nil, err
 	}
-	return stepwise.NewStepwiseAgentSessionFlow(definition, flowType)
+	return builtinloop.NewBuiltinAgentSessionFlow(definition, flowType)
 }

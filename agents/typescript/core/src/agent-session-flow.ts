@@ -170,7 +170,7 @@ export interface AgentSessionOptions {
    * to `false`.
    *
    * It requires `write_todos` in {@link builtInTools} and a runner whose
-   * {@link AgentFrameworkRunner.supportsPlanMode} is `true`, such as the Stepwise runner.
+   * {@link AgentFrameworkRunner.supportsPlanMode} is `true`, such as the built-in loop runner.
    */
   readonly planModeEnabled?: boolean;
   /**

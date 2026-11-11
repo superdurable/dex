@@ -26,11 +26,11 @@ import pexpect
 from dex import AsyncClient, BlobCacheConfig, ClientOptions, Registry, open_blob_cache
 
 from dex_agents import AgentSessionClient
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     AgentDefinition,
     ScriptedModelClient,
     ScriptedModelReply,
-    stepwise_agent_session_flow,
+    builtin_agent_session_flow,
 )
 from dex_agents.testing import DEXCLI_ENVIRONMENT_VARIABLE
 from dex_agents_cli_testing.model_api import ModelApiStub
@@ -182,7 +182,7 @@ async def session_client(
         instructions="",
         model=ScriptedModelClient(lambda _: ScriptedModelReply(text="unused")),
     )
-    flow = stepwise_agent_session_flow(definition, flow_type=flow_type)
+    flow = builtin_agent_session_flow(definition, flow_type=flow_type)
     cache_dir.mkdir(parents=True, exist_ok=True)
     blob_cache = open_blob_cache(BlobCacheConfig(str(cache_dir), 64 * 1024 * 1024))
     client = AsyncClient(
