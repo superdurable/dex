@@ -8,7 +8,7 @@
 
 import { validateToolArguments, type JsonObject } from "@earendil-works/pi-ai";
 import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
-import type { FunctionTool, ToolCallContext } from "@superdurable/dex-agents/stepwise";
+import type { FunctionTool, ToolCallContext } from "@superdurable/dex-agents/builtin-loop";
 
 import {
   buildPiFunctionTool,
@@ -75,7 +75,7 @@ export interface PiDurableFunctionToolOptions {
 }
 
 /**
- * Wraps a `pi-durable` tool made with `defineTool` as a Stepwise {@link FunctionTool}, for tools that do not use
+ * Wraps a `pi-durable` tool made with `defineTool` as a built-in loop {@link FunctionTool}, for tools that do not use
  * the Harness `api`.
  *
  * Use it to move simple tools from `pi-durable` to Dex unchanged. The effect comes from `options.effect` or from
@@ -95,7 +95,7 @@ export interface PiDurableFunctionToolOptions {
  *   the rule above handles like any thrown error. A tool that uses `api` must be rewritten as a Pi `AgentTool` for `piAgentFunctionTool`, or as a Dex
  *   `functionTool`.
  * - A result with `control` fails the call with a `ToolExecutionError`. The tool's effect has already happened by
- *   then. Use the Stepwise `decideTurnContinuation` hook to end a turn after tools.
+ *   then. Use the built-in loop `decideTurnContinuation` hook to end a turn after tools.
  * - `executionMode: "sequential"` throws here, because Dex runs the calls of one model response in parallel.
  *
  * @example

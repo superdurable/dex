@@ -4,7 +4,26 @@ All twelve Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
-## Unreleased
+## 0.5.0 (not released yet)
+
+### Dex SDK 1.44.0
+
+- Every package requires Dex SDK 1.44.0 (`dex-python-sdk==1.44.0`,
+  `@superdurable/dex` `1.44.0`, Go `sdk-go` `v1.44.0`) instead of 1.38.0, so an
+  application can use the SDK's **Join** helper with the agents packages
+  without overriding the SDK version. The npm adapters peer-depend on
+  `@superdurable/dex` `1.44.0`.
+- The SDK pin stays exact. SDK 1.43.0 removed the Continue-As-New APIs and
+  renamed `FlowExecutionID` to `FlowRunID` in the generated bindings, so a
+  later SDK minor may change APIs that an application shares with the agents
+  packages. The agents packages used none of the removed APIs; an application
+  that did changes with the upgrade. See the
+  [SDK 1.43 change log](../docs/reference/python/changelog.mdx).
+- Dex SDK 1.44.0 still needs a Dex Server with protocol 4: server-zd v0.1.17
+  or later.
+- Agents CI, the nightly long run, and the publish workflows test against
+  `dexcli` 1.44.0. The Python and TypeScript CLI runtimes download `dexcli`
+  1.44.0 when none is installed.
 
 ### Dex MCP conventions
 
@@ -82,8 +101,8 @@ for the Dex SDK and framework versions each release supports.
   **ClaudeCodeToolDenial** to refuse it, or nothing for the session's policies,
   so `Bash` can run allow-listed commands without approval. See
   [Per-call decisions for Claude Code tools](python/claude-agent-sdk/README.md#per-call-decisions-for-claude-code-tools).
-- New npm package `@superdurable/dex-agents-pi` (not published yet) runs Pi
-  agents on the Stepwise session Flow. Dex runs the agent loop; pi-ai makes
+- New npm package `@superdurable/dex-agents-pi`, first published in 0.5.0, runs
+  Pi agents on the built-in agent loop's session Flow. Dex runs the agent loop; pi-ai makes
   each model call and Pi tools run as Dex tool Steps. It peer-depends on
   `@earendil-works/pi-ai@^1.5.1`, tested with 1.5.1.
   **createPiAiModelClient(model, { apiKey, headers, prepareRequest })** makes
@@ -156,7 +175,7 @@ for the Dex SDK and framework versions each release supports.
 - `send_user_message` returns `false` for invalid images, or for images when
   the runner does not implement **ImageUserMessageBuilder**
   (`buildUserMessageWithImages`). No built-in runner implements it yet; image
-  input for Stepwise and the framework adapters comes later.
+  input for the built-in loop and the framework adapters comes later.
 - Runners read bytes with **load_images** (`loadImages`) and may choose them
   with **collect_turn_images** (`collectTurnImages`).
 - Go core: no image input. Its values carry `images`, so a value written by
@@ -191,7 +210,8 @@ for the Dex SDK and framework versions each release supports.
     `EncodeStepwiseMessage` -> `EncodeBuiltinLoopMessage`;
     `DecodeStepwiseMessage` -> `DecodeBuiltinLoopMessage`. Package `stepwise`
     forwards to `builtinloop` and is marked `Deprecated:`.
-  - The framework adapters and the agents CLI runtime import the new names.
+  - The framework adapters, the Pi adapter, and the agents CLI runtime import
+    the new names.
 - The error text for a session message that the built-in agent loop cannot
   read now says "built-in agent loop item" (Python and Go cores) or "built-in
   loop item" (TypeScript core) instead of "Stepwise item", and the
