@@ -14,6 +14,7 @@ import { after, before, describe, test } from "node:test";
 
 import type { Context } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@superdurable/dex-agents";
+import { createStepwiseAgentSessionFlow, type ModelClient } from "@superdurable/dex-agents/stepwise";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -25,8 +26,8 @@ import {
   readStepHistory,
 } from "@superdurable/dex-agents/testing";
 
-import { piAgentFunctionTool, piToolProgressEventType } from "../../src/index.js";
-import { FakeModelServer } from "../fixtures/fake-model-server.js";
+import { createPiAiModelClient, piAgentFunctionTool, piToolProgressEventType } from "../../src/index.js";
+import { FakeModelServer, createFakeOpenAiModel } from "../fixtures/fake-model-server.js";
 import { createPiTestAgentFlow } from "../fixtures/pi-test-agent.js";
 
 describe("Pi agents on the Stepwise session Flow with an in-process Worker", () => {
@@ -35,6 +36,7 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
   let environment: AgentTestEnvironment;
   let sessions: AgentSessionTestClient;
   let preparedSessions: AgentSessionTestClient;
+  let unknownItemSessions: AgentSessionTestClient;
   let markerDirectory: string;
   let anthropicModelId = "claude-fake-1";
   const prepareRequestFailures = new Set<string>();
@@ -66,13 +68,26 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
         return context;
       },
     });
+    const unknownItemFlow = createStepwiseAgentSessionFlow(
+      {
+        name: "pi-unknown-item",
+        instructions: "",
+        model: createPiAiModelClient(createFakeOpenAiModel(modelServer.baseUrl), { apiKey: "test-key" }),
+        resolveModel: (settings) =>
+          settings["model"] === "future"
+            ? futurePiAiModelClient
+            : createPiAiModelClient(createFakeOpenAiModel(modelServer.baseUrl), { apiKey: "test-key" }),
+      },
+      "PiUnknownItemAgent",
+    );
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
-      flows: [flow, preparedFlow],
+      flows: [flow, preparedFlow, unknownItemFlow],
       isWorkerInProcess: true,
     });
     sessions = new AgentSessionTestClient(environment.client, flow);
     preparedSessions = new AgentSessionTestClient(environment.client, preparedFlow);
+    unknownItemSessions = new AgentSessionTestClient(environment.client, unknownItemFlow);
   });
 
   after(async () => {
@@ -502,6 +517,23 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
     assert.equal(outputs.get("durable_charge"), `charged 5-${token}`);
   });
 
+  test("a stored pi-ai item in a format this pi-ai cannot read fails the turn with both versions named", async () => {
+    const token = newToken();
+    const sessionId = `pi-unknown-item-${token}`;
+    modelServer.script(token, () => ({ text: "never sent" }));
+    await unknownItemSessions.startSession(sessionId, `future ${token}`, {}, { model: "future" });
+    await unknownItemSessions.waitForCompletedTurns(sessionId, 1);
+    assert.equal(await unknownItemSessions.updateSessionSettings(sessionId, { model: "openai" }), true);
+    assert.equal(await unknownItemSessions.sendUserMessage(sessionId, `now ${token}`), true);
+    const state = await unknownItemSessions.waitForCompletedTurns(sessionId, 2, { timeoutMs: 120_000 });
+
+    assert.match(
+      state.lastTurnError ?? "",
+      /a stored pi-ai model output from pi-ai 9\.0\.0 cannot be replayed by pi-ai 1\.5\.1: its format is 2, not 1/,
+    );
+    assert.equal(modelServer.requests(token).length, 0);
+  });
+
   /** Each call's name, effect, and approval from `tool_call_deferred`, and its final status from `tool_call_finished`. */
   async function describeToolCalls(sessionId: string, toolCallIds: readonly string[]): Promise<unknown[]> {
     const payloads = (await sessions.listAgentEvents(sessionId)).map((event) => ({
@@ -523,6 +555,22 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
       .map((entry) => entry.stepType);
   }
 });
+
+/** Writes a pi-ai item as a future version of this package might, to test that replay refuses it. */
+const futurePiAiModelClient: ModelClient = {
+  async callModel() {
+    const item = JSON.stringify({ format: 2, piAiVersion: "9.0.0", message: { role: "assistant", content: [] } });
+    return {
+      outputItems: [{ type: "model_output", provider: "fake-openai", api: "pi-ai", item, text: "from the future", toolCalls: [] }],
+      text: "from the future",
+      toolCalls: [],
+      usage: { modelCalls: 1, inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0 },
+      responseModel: "future",
+      finishReason: "stop",
+    };
+  },
+  estimateInputTokens: () => 0,
+};
 
 function newToken(): string {
   return randomUUID().slice(0, 8);
