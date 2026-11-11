@@ -140,7 +140,7 @@ check and before opening task streams:
   the working directory, or by the file name when the file is outside it.
   The rest of the document is sent unchanged.
 - The uploader is **sdk-typescript/&lt;version&gt;**.
-- Created and replaced definitions are logged with **console.info**, unchanged ones with **console.debug**, and a kept newer definition with **console.warn**.
+- Created and replaced definitions are logged with **console.info**, and a kept newer definition with **console.warn**. Unchanged definitions are not logged.
 - A failed upload, including a server older than 0.1.26 that returns
   **UNIMPLEMENTED**, is logged with **console.warn**. The Worker still starts.
 

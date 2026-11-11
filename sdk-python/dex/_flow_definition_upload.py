@@ -143,10 +143,10 @@ def upload_worker_flow_definitions(
     for request, batch in upload_requests(selected, uploader, False):
         try:
             response = upload(request)
+            _log_worker_upload_results(batch, response)
         except Exception as failure:
             _log_worker_upload_failure(failure)
             return
-        _log_worker_upload_results(batch, response)
 
 
 async def upload_worker_flow_definitions_async(
@@ -162,10 +162,10 @@ async def upload_worker_flow_definitions_async(
     for request, batch in upload_requests(selected, uploader, False):
         try:
             response = await upload(request)
+            _log_worker_upload_results(batch, response)
         except Exception as failure:
             _log_worker_upload_failure(failure)
             return
-        _log_worker_upload_results(batch, response)
 
 
 def flow_definition_uploader(sdk_version: str) -> str:

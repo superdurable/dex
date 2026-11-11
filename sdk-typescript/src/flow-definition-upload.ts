@@ -155,11 +155,11 @@ function logWorkerUploadResults(
   for (const result of uploadResultsFromResponse(response)) {
     const definition = definitionsByFlowType.get(result.flowType);
     const origin = definition?.origin ?? "unknown";
+    // Node has no log levels, so an unchanged definition stays silent on every restart.
     if (result.outcome === FlowDefinitionUploadOutcome.UNCHANGED) {
-      console.debug(
-        `Flow definition is unchanged: flowType=${result.flowType} origin=${origin} digest=${result.storedDigest}`,
-      );
-    } else if (result.outcome === FlowDefinitionUploadOutcome.KEPT_EXISTING) {
+      continue;
+    }
+    if (result.outcome === FlowDefinitionUploadOutcome.KEPT_EXISTING) {
       const uploadedDigest = definition === undefined
         ? "unknown"
         : createHash("sha256").update(definition.content).digest("hex");

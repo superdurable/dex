@@ -682,8 +682,8 @@ export interface StopFlowOptions {
  * the current working directory, or to the file name.
  *
  * The Server replaces a stored definition only with a different one generated later. The Worker
- * logs created and replaced definitions with `console.info`, unchanged ones with `console.debug`,
- * and a kept newer definition with `console.warn`. Upload failures, including a Server without
+ * logs created and replaced definitions with `console.info` and a kept newer definition with
+ * `console.warn`. It does not log unchanged definitions. Upload failures, including a Server without
  * this API, are logged with `console.warn` and never stop the Worker from starting. Use
  * `Client.uploadFlowDefinitions` with `force` to roll a definition back.
  *
