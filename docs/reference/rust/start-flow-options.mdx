@@ -138,7 +138,7 @@ The ID reuse policy determines whether Dex rejects the start in the first place:
 | **IDReusePolicy** | Existing active Flow | Existing closed Flow |
 |-------------------|----------------------|----------------------|
 | **IDReuseDefault** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. |
-| **IDReuseAllowIfPreviousFailed** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run only after a failed run; otherwise rejects it. |
+| **IDReuseAllowIfPreviousFailed** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run when the latest run failed, was canceled, or was terminated. A Flow timeout closes a run as failed or canceled under the fail or cancel timeout policy; under the handler policy, the handler's outcome decides. Rejects the start after a completed run. |
 | **IDReuseAllowIfNotRunning** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run. |
 | **IDReuseDisallow** | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. |
 | **IDReuseTerminateIfRunning** | Terminates the active run and starts a replacement. It does not produce an already-started error. | Starts a new run. |

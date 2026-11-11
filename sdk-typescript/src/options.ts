@@ -179,7 +179,12 @@ export type ActiveStepSearchMode =
 export const IdReusePolicy = Object.freeze({
   /** Uses the Dex server default, which rejects every previously used Flow ID. */
   DEFAULT: "default",
-  /** Reuses an ID only after an unsuccessful closed run. */
+  /**
+   * Starts a new run only when the latest run closed abnormally: failed, canceled, or terminated.
+   * A Flow timeout closes a run as failed or canceled under the fail or cancel timeout policy.
+   * Under the handler policy, the timeout handler's outcome decides. A running or completed latest
+   * run rejects the start.
+   */
   ALLOW_IF_PREVIOUS_FAILED: "allowIfPreviousFailed",
   /** Reuses an ID after any closed run. */
   ALLOW_IF_NOT_RUNNING: "allowIfNotRunning",

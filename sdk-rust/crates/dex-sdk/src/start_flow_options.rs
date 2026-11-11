@@ -29,7 +29,10 @@ use crate::{
 pub enum IdReusePolicy {
     /// Uses the Dex server's configured reuse policy.
     Default,
-    /// Allows reuse only when the previous run failed.
+    /// Starts a new run only when the latest run closed abnormally: failed, canceled, or
+    /// terminated. A Flow timeout closes a run as failed or canceled under the fail or cancel
+    /// timeout policy. Under the handler policy, the timeout handler's outcome decides. A running
+    /// or completed latest run rejects the start.
     AllowIfPreviousFailed,
     /// Allows reuse when no run with the ID is currently active.
     AllowIfNotRunning,
