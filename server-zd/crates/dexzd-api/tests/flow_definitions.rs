@@ -73,7 +73,7 @@ async fn upload_outcome(
     let response = definitions
         .upload_flow_definitions(TenantId::DEFAULT, request(vec![upload]))
         .await
-        .unwrap();
+        .expect("the upload succeeds");
     response.results[0].outcome()
 }
 
@@ -86,7 +86,7 @@ async fn stored_content(definitions: &FlowDefinitions, flow_type: &str) -> Vec<u
             },
         )
         .await
-        .unwrap();
+        .expect("the Get succeeds");
     response.definitions[0].content.clone()
 }
 
@@ -414,8 +414,8 @@ struct StatusDetails {
 }
 
 fn sub_status(status: &tonic::Status) -> ErrorSubStatus {
-    let envelope = StatusDetails::decode(status.details()).unwrap();
+    let envelope = StatusDetails::decode(status.details()).expect("status details decode");
     ServiceErrorResponse::decode(envelope.details[0].value.as_slice())
-        .unwrap()
+        .expect("ServiceErrorResponse decodes")
         .sub_status()
 }
