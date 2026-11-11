@@ -225,16 +225,28 @@ assert.match(home, /简体中文/);
 assert.match(home, /Build with AI/);
 assert.match(home, /href="\/build-with-ai\/dex-developer-skill\/">Overview<\/a>/);
 
-const conceptsPosition = home.indexOf('>Concepts<');
-const componentsPosition = home.indexOf('>Components<');
-const agentFrameworksPosition = home.indexOf('>Agent Frameworks<');
-const agentSkillsPosition = home.indexOf('>Agent Skills<');
-const designPatternsPosition = home.indexOf('>Design Patterns<');
-assert.ok(agentSkillsPosition >= 0);
-assert.ok(conceptsPosition > agentSkillsPosition);
-assert.ok(componentsPosition > conceptsPosition);
-assert.ok(agentFrameworksPosition > componentsPosition);
-assert.ok(designPatternsPosition > agentFrameworksPosition);
+// The sidebar comes before the page content, so the first match of each label is its sidebar group.
+const sidebarGroupOrder = [
+  'Get Started',
+  'Build with AI',
+  'Durable Agents',
+  'Concepts',
+  'Design Patterns',
+  'Examples',
+  'Run Dex',
+  'Developer Reference',
+  'Correctness and Expressiveness',
+  'Glossary',
+];
+let previousGroupPosition = -1;
+for (const label of sidebarGroupOrder) {
+  const position = home.indexOf(`>${label}<`);
+  assert.ok(position > previousGroupPosition, `Sidebar group out of order or missing: ${label}`);
+  previousGroupPosition = position;
+}
+for (const retiredLabel of ['Agent Skills', 'Agent Frameworks', 'Product Examples', 'Intro and Quick Start']) {
+  assert.ok(!home.includes(`>${retiredLabel}<`), `Retired sidebar label still present: ${retiredLabel}`);
+}
 
 const zhHome = await readFile(join(root, 'zh-Hans', 'index.html'), 'utf8');
 // The browser fills in the star count, so static HTML must hold neither the count nor its label.

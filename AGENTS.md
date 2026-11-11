@@ -289,6 +289,10 @@ build it.
 These rules add to `.cursor/rules/docs-writing.mdc`,
 `.cursor/rules/docs-i18n.mdc`, and `.cursor/rules/docs.mdc`.
 
+- Page structure, voice, and the page rewrite steps follow the "Page structure
+  and voice" section of `.cursor/rules/docs-writing.mdc`. The reasons are in
+  `docs/design/plan/docs-revisit.md`. The Components pages sit in the
+  sidebar's Run Dex group.
 - Concept pages are the Concepts, Components, and Design pattern pages. Use
   short sentences there. Put one idea in each sentence.
 - Concept pages contain no version numbers and no compatibility notes for

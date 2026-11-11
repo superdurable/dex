@@ -171,8 +171,9 @@ build it.
 
 ### Docs Writing, Languages, and Markdown Export
 
-See `.cursor/rules/docs-writing.mdc` for concept pages, version marks, and
-the reader read-through, `.cursor/rules/docs-i18n.mdc` for which pages are
+See `.cursor/rules/docs-writing.mdc` for concept pages, version marks, the
+reader read-through, and page structure, voice, and the page rewrite steps,
+`.cursor/rules/docs-i18n.mdc` for which pages are
 bilingual, and `.cursor/rules/docs.mdc` for the Markdown export.
 
 ## No Downstream Product Information
