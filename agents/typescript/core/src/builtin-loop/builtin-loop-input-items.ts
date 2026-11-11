@@ -6,10 +6,19 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { outcomeUnknownToolResult, type AgentMessage, type FrameworkMessage } from "../agent-session-values.js";
+import {
+  outcomeUnknownToolResult,
+  type AgentImageReference,
+  type AgentMessage,
+  type FrameworkMessage,
+} from "../agent-session-values.js";
 import type { ModelInputItem, ModelToolCall, ModelToolResultItem } from "./model-client.js";
 
-/** Returns the session message that stores one item; `frameworkItem` is the item's compact snake_case JSON. */
+/**
+ * Returns the session message that stores one item; `frameworkItem` is the item's compact snake_case JSON. A user
+ * text or tool result item with images adds an `images` list of references; a tool result message also shows them
+ * in `images`.
+ */
 export function toBuiltinLoopFrameworkMessage(item: ModelInputItem): FrameworkMessage {
   switch (item.type) {
     case "user_text":
@@ -17,7 +26,7 @@ export function toBuiltinLoopFrameworkMessage(item: ModelInputItem): FrameworkMe
         ...emptyProjection,
         role: "user",
         text: item.text,
-        frameworkItem: JSON.stringify({ type: "user_text", text: item.text }),
+        frameworkItem: JSON.stringify({ type: "user_text", text: item.text, ...encodeImages(item.images) }),
       };
     case "tool_result":
       return {
@@ -31,7 +40,9 @@ export function toBuiltinLoopFrameworkMessage(item: ModelInputItem): FrameworkMe
           tool_call_id: item.toolCallId,
           tool_name: item.toolName,
           output: item.output,
+          ...encodeImages(item.images),
         }),
+        ...((item.images ?? []).length === 0 ? {} : { images: item.images }),
       };
     case "model_output": {
       const singleToolCall = item.toolCalls.length === 1 ? item.toolCalls[0] : undefined;
@@ -118,13 +129,14 @@ function decodeModelInputItem(value: unknown): ModelInputItem {
   const record = requireRecord(value, "built-in loop item");
   switch (record["type"]) {
     case "user_text":
-      return { type: "user_text", text: requireString(record, "text") };
+      return { type: "user_text", text: requireString(record, "text"), ...decodeImages(record) };
     case "tool_result":
       return {
         type: "tool_result",
         toolCallId: requireString(record, "tool_call_id"),
         toolName: requireString(record, "tool_name"),
         output: requireString(record, "output"),
+        ...decodeImages(record),
       };
     case "model_output": {
       const text = record["text"] ?? null;
@@ -154,6 +166,50 @@ function decodeModelInputItem(value: unknown): ModelInputItem {
     default:
       throw new TypeError(`unknown built-in loop item type ${JSON.stringify(record["type"])}`);
   }
+}
+
+/** An item without images keeps the bytes it had before images existed. */
+function encodeImages(images: readonly AgentImageReference[] | undefined): { readonly images?: readonly object[] } {
+  if (images === undefined || images.length === 0) {
+    return {};
+  }
+  return {
+    images: images.map((image) => ({
+      type: image.type,
+      uri: image.uri,
+      mime_type: image.mimeType,
+      sha256: image.sha256,
+      size_bytes: image.sizeBytes,
+    })),
+  };
+}
+
+function decodeImages(record: Readonly<Record<string, unknown>>): {
+  readonly images?: readonly AgentImageReference[];
+} {
+  const images = record["images"] ?? [];
+  if (!Array.isArray(images)) {
+    throw new TypeError("images must be an array");
+  }
+  if (images.length === 0) {
+    return {};
+  }
+  return {
+    images: images.map((image): AgentImageReference => {
+      const imageRecord = requireRecord(image, "images item");
+      const sizeBytes = imageRecord["size_bytes"];
+      if (typeof sizeBytes !== "number") {
+        throw new TypeError("size_bytes must be a number");
+      }
+      return {
+        type: "image",
+        uri: requireString(imageRecord, "uri"),
+        mimeType: requireString(imageRecord, "mime_type"),
+        sha256: requireString(imageRecord, "sha256"),
+        sizeBytes,
+      };
+    }),
+  };
 }
 
 const emptyProjection = {

@@ -132,10 +132,10 @@ Images that connector tools return go to the same store.
   in TypeScript. Without it the command stops with a configuration error.
 
 The model sees the images only when the harness's runner takes images. The
-Claude Agent SDK, OpenAI Agents SDK, Pydantic AI, Deep Agents, Google ADK,
-Vercel AI SDK, and Mastra commands do. With another harness, such as the
-built-in commands for now, the command says the message was not sent and
-removes the attached images; send the message again without them.
+built-in, Claude Agent SDK, OpenAI Agents SDK, Pydantic AI, Deep Agents,
+Google ADK, Vercel AI SDK, and Mastra commands do. With another harness, the
+command says the message was not sent and removes the attached images; send
+the message again without them.
 
 ## Sessions in Dex Web
 

@@ -7,8 +7,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { crc32, deflateSync } from "node:zlib";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
@@ -18,6 +20,24 @@ import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.
 import { MockResponsesApi } from "../fixtures/mock-responses-api.js";
 
 const noConnectors = { connectors: { enabled: [] }, local_tools: { browser: false } };
+
+/** Returns a 1x1 PNG. */
+function pngBytes(): Buffer {
+  const chunk = (kind: string, data: Buffer): Buffer => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(kind, "latin1"), data]);
+    const checksum = Buffer.alloc(4);
+    checksum.writeUInt32BE(crc32(body));
+    return Buffer.concat([length, body, checksum]);
+  };
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", Buffer.from([0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0])),
+    chunk("IDAT", deflateSync(Buffer.from([0, 0xff, 0, 0]))),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 
 function call(toolName: string, toolInput: Readonly<Record<string, unknown>>): string {
   return `call ${toolName} ${JSON.stringify(toolInput)}`;
@@ -61,6 +81,28 @@ describe("dex-agents-builtin with the AI SDK OpenAI provider against a scripted 
     processes.push(cli);
     return cli;
   }
+
+  test("an image attached with /image reaches the Responses API", async () => {
+    const home = newHome(noConnectors);
+    const png = pngBytes();
+    writeFileSync(join(home.directory, "chart.png"), png);
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine("/image ~/chart.png");
+    await cli.stdout.waitFor("Attached chart.png (image/png");
+    cli.writeLine("say hi");
+    await cli.stdout.waitFor("said: hi");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    const sha256 = createHash("sha256").update(png).digest("hex");
+    assert.deepEqual(readFileSync(join(home.directory, ".dex", "agents", "media", "sha256", sha256)), png);
+    const encoded = png.toString("base64");
+    const bodies = api.modelRequests().map((body) => JSON.stringify(body));
+    assert.ok(
+      bodies.some((body) => body.includes(encoded)),
+      bodies.join("\n"),
+    );
+  });
 
   test("a turn streams the answer, --resume continues the session, and the key is never written down", async () => {
     const home = newHome(noConnectors);

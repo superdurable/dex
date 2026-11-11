@@ -830,12 +830,14 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   `MediaStoreError`. Reads check the file's size first, read at most one byte past `size_bytes`, and run
   `verify_image_bytes`. It needs a POSIX file system. Deleting a session
   deletes no file.
-- **Built-in runners.** The framework adapters show images to their model
-  when built with a `media_store`: they implement
+- **Built-in runners.** The built-in loop and the framework adapters show
+  images to their model when built with a `media_store`: they implement
   `ImageUserMessageBuilder`, keep references in their stored items, and load
   the bytes for each model call. Without a store they do not, and their
-  sessions refuse images. The built-in loop does not implement it yet, so its
-  sessions refuse images.
+  sessions refuse images. For the built-in loop, pass it to
+  `builtin_agent_session_flow(definition, flow_type=..., media_store=store)`
+  or `BuiltinLoopAgentRunner(definition, media_store=store)`; see
+  [Images on the built-in loop](#images-on-the-built-in-loop).
 - **MCP tools.** `McpToolSource(..., media_store=store)` uploads the `image`
   content of a successful result inside the tool Step and returns the
   references in `ToolExecutionResult.images`; see
@@ -849,6 +851,66 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   image fail the same way.
 - Send images only after every Worker of the Flow type runs 0.5.0: an earlier
   Worker drops them.
+
+### Images on the built-in loop
+
+```python
+store = S3MediaStore("agent-media", "sessions")
+flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media_store=store)
+```
+
+- **Stored items.** The `user_text` item of a message with images, and the
+  `tool_result` item of a call whose record has images, add an `images` list
+  of references after their other fields:
+  `{"type":"user_text","text":"...","images":[{"type":"image","uri":"...","mime_type":"image/png","sha256":"...","size_bytes":48213}]}`.
+  An item without images has no `images` key, so its bytes are unchanged.
+  The tool result message also shows the references in `images`. Session
+  state never holds image bytes.
+- **Model calls.** `UserTextItem.images` and `ToolResultItem.images` carry the
+  references into the `ModelRequest`. Right before each model call, the
+  runner reads the bytes of every image in the request with `load_images`
+  and passes them in `ModelRequest.image_bytes`, keyed by SHA-256. A retried
+  `RunModel` attempt, or one on a new Worker after a crash, builds the same
+  request from the same references and bytes. A store read that fails fails
+  that attempt, which retries; after the last attempt the turn records the
+  error in `last_turn_error`.
+- **Summaries and estimates.** The model call that writes a context summary
+  sees the text of the summarized items, without their images.
+  `estimate_input_tokens` gets requests without image bytes; the LiteLLM
+  client counts `ESTIMATED_IMAGE_INPUT_TOKENS` (1600) for each image it
+  sends, so not for a Gemini model's tool result images.
+- **Without a store.** A tool result's references are still stored for
+  display, but the model sees only the text.
+- **LiteLLM.** `LiteLLMModelClient` sends each image after the item's text as
+  a base64 `data:` URL. On the Responses API, a user message's `content` and
+  a `function_call_output`'s `output` are an `input_text` part and one
+  `input_image` part per image, with `detail` `"auto"`. On Chat Completions, a
+  user message's `content` is a `text` part and one `image_url` part per
+  image. For Anthropic and Bedrock, whose LiteLLM conversion keeps images in
+  a tool result, a tool message's `content` is the same list of parts. Every
+  other provider, such as OpenAI Chat Completions or Claude on Vertex AI,
+  gets only text in a tool message: the tool message keeps the text, and
+  after the last tool message of that run follows one user message per tool
+  result with images, holding `TOOL_RESULT_IMAGES_TEXT` (`The <tool_name> tool
+  call <tool_call_id> returned these images.`) and then the image parts.
+- **Known limitation: Gemini through LiteLLM sees no tool result images.**
+  Gemini models on the Gemini API and Vertex AI (`gemini/`, `vertex_ai/`, and
+  `vertex_ai_beta/`) get images in user messages, but not the images of a
+  tool result. Their tool message, or `function_call_output` on the
+  Responses API, holds the text and then `TOOL_RESULT_IMAGES_OMITTED_TEXT`,
+  such as `[The tool returned 2 images; this model does not receive images
+  from tool results.]`, and no user message follows with the images. Gemini 2.5 refuses images in a function
+  response, Gemini 3 accepts them only there, and LiteLLM's conversion gets
+  neither right. To show a Gemini model a tool's image, send it in a user
+  message.
+- **Your own model client.** Convert each reference in `images` to the
+  provider's image part with its bytes from `ModelRequest.image_bytes`, and
+  raise when they are missing. A client that ignores `images` shows the
+  model the text only.
+- **Which tools return images.** A tool source's
+  `ToolExecutionResult.images`, such as the image content of an
+  `McpToolSource(..., media_store=store)` result. Give the source the store
+  the runner reads. A function tool returns text only.
 
 ## The runner contract
 
@@ -2378,8 +2440,9 @@ The plan records each of these decisions too.
   wrong `readOnlyHint` on a write makes that write run without approval and
   retry; set `trusts_tool_annotations=False` or a `ToolPolicy` for servers you
   do not control.
-- Images: the built-in loop sends no images to a model yet, and the media
-  stores keep no local read cache, so each `load_images` reads the store.
+- Images: a function tool of the built-in loop cannot return images, and the
+  media stores keep no local read cache, so each `load_images` reads the
+  store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
 - The adapters report only the model information their framework exposes, so

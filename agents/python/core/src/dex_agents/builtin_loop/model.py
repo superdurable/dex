@@ -14,7 +14,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, TypeAlias
 
-from dex_agents.values import AgentUsage
+from dex_agents.values import AgentImageReference, AgentUsage
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -63,9 +63,16 @@ class UserTextItem:
 
     Attributes:
         text: The text.
+        images: The images of a user message, after the text, in order. The
+            item holds references only; the request's ``image_bytes`` holds
+            their bytes. Empty for a message without images and for every
+            note Dex adds.
+
+            .. versionadded:: 0.5.0
     """
 
     text: str
+    images: Sequence[AgentImageReference] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -104,11 +111,17 @@ class ToolResultItem:
         tool_call_id: The tool call this result answers.
         tool_name: Tool name of that call.
         output: Result text the model sees.
+        images: The images the tool returned with ``output``, from
+            ``AgentToolCall.images``, in order. The item holds references
+            only; the request's ``image_bytes`` holds their bytes.
+
+            .. versionadded:: 0.5.0
     """
 
     tool_call_id: str
     tool_name: str
     output: str
+    images: Sequence[AgentImageReference] = ()
 
 
 #: One item of a model request: user text, a stored model output item, or a tool result.
@@ -182,6 +195,14 @@ class ModelRequest:
         tool_choice: How the model may use ``tools``.
         settings: Model settings of the agent.
         metadata: The ``RunModel`` attempt that makes the call.
+        image_bytes: The bytes of every image of ``input_items``, keyed by
+            ``AgentImageReference.sha256``. The runner reads them from its
+            media store right before ``call_model``, so a client never reads
+            a store. Empty when the input has no images, and in the requests
+            passed to ``estimate_input_tokens``, which count each image
+            without its bytes.
+
+            .. versionadded:: 0.5.0
     """
 
     instructions: str
@@ -190,6 +211,7 @@ class ModelRequest:
     tool_choice: ToolChoice
     settings: ModelSettings
     metadata: ModelRequestMetadata
+    image_bytes: Mapping[str, bytes] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -253,6 +275,12 @@ class ModelClient(Protocol):
       provider and API.
     * Read provider credentials from the Worker's environment or a credential
       provider, never from Flow input or Attributes.
+
+    A user text or tool result item may carry ``images``. A client that sends
+    images converts each one to the provider's image part, with its bytes from
+    ``ModelRequest.image_bytes``, and raises when they are missing. A client
+    that ignores ``images`` shows the model the text only. The runner sends
+    images only when it has a media store; see ``BuiltinLoopAgentRunner``.
 
     A client may also implement ``supports_forced_tool_choice(settings) -> bool``
     to report whether its model accepts a forced tool choice, a named tool or

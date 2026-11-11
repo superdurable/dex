@@ -25,7 +25,7 @@ from dex_agents.runner import (
     OUTCOME_UNKNOWN_TOOL_RESULT,
     FrameworkMessage,
 )
-from dex_agents.values import AgentMessage, MessageRole
+from dex_agents.values import AgentImageReference, AgentMessage, MessageRole
 
 #: ``framework_item`` ``type`` of stored user text.
 USER_TEXT_ITEM_TYPE = "user_text"
@@ -40,7 +40,11 @@ def encode_builtin_loop_message(item: ModelInputItem) -> FrameworkMessage:
 
     The ``framework_item`` is a JSON object with a ``type`` of ``user_text``,
     ``model_output``, or ``tool_result``. A model output item keeps the
-    provider's item as a JSON string, so its bytes survive storage.
+    provider's item as a JSON string, so its bytes survive storage. A user text
+    or tool result item with images adds an ``images`` list of image
+    references, never their bytes; an item without images has no ``images``
+    key. A tool result message also shows its images in
+    ``FrameworkMessage.images``.
 
     .. versionadded:: 0.5.0
        Replaces ``encode_stepwise_message``, which stays as a deprecated alias.
@@ -55,7 +59,9 @@ def encode_builtin_loop_message(item: ModelInputItem) -> FrameworkMessage:
         return FrameworkMessage(
             role=MessageRole.USER,
             text=item.text,
-            framework_item=_compact_json({"type": USER_TEXT_ITEM_TYPE, "text": item.text}),
+            framework_item=_compact_json(
+                {"type": USER_TEXT_ITEM_TYPE, "text": item.text, **_encode_images(item.images)}
+            ),
         )
     if isinstance(item, ToolResultItem):
         return FrameworkMessage(
@@ -69,8 +75,10 @@ def encode_builtin_loop_message(item: ModelInputItem) -> FrameworkMessage:
                     "tool_call_id": item.tool_call_id,
                     "tool_name": item.tool_name,
                     "output": item.output,
+                    **_encode_images(item.images),
                 }
             ),
+            images=tuple(item.images),
         )
     single_call = item.tool_calls[0] if len(item.tool_calls) == 1 else None
     return FrameworkMessage(
@@ -118,12 +126,13 @@ def decode_builtin_loop_message(message: AgentMessage) -> ModelInputItem:
         stored: dict[str, Any] = json.loads(message.framework_item)
         item_type = stored["type"]
         if item_type == USER_TEXT_ITEM_TYPE:
-            return UserTextItem(text=stored["text"])
+            return UserTextItem(text=stored["text"], images=_decode_images(stored))
         if item_type == TOOL_RESULT_ITEM_TYPE:
             return ToolResultItem(
                 tool_call_id=stored["tool_call_id"],
                 tool_name=stored["tool_name"],
                 output=stored["output"],
+                images=_decode_images(stored),
             )
         if item_type == MODEL_OUTPUT_ITEM_TYPE:
             return ModelOutputItem(
@@ -189,6 +198,37 @@ def _outcome_unknown_results(calls: Iterable[ModelToolCall]) -> Sequence[ToolRes
         )
         for call in calls
     ]
+
+
+def _encode_images(images: Sequence[AgentImageReference]) -> dict[str, Any]:
+    if not images:
+        # An item without images keeps the bytes it had before images existed.
+        return {}
+    return {
+        "images": [
+            {
+                "type": image.type,
+                "uri": image.uri,
+                "mime_type": image.mime_type,
+                "sha256": image.sha256,
+                "size_bytes": image.size_bytes,
+            }
+            for image in images
+        ]
+    }
+
+
+def _decode_images(stored: dict[str, Any]) -> tuple[AgentImageReference, ...]:
+    return tuple(
+        AgentImageReference(
+            type=image.get("type", "image"),
+            uri=image["uri"],
+            mime_type=image["mime_type"],
+            sha256=image["sha256"],
+            size_bytes=image["size_bytes"],
+        )
+        for image in stored.get("images", [])
+    )
 
 
 def _compact_json(value: dict[str, Any]) -> str:

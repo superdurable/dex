@@ -6,4 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-export { aiSdkModelClientApi, createAiSdkModelClient, type AiSdkModelClientOptions } from "./ai-sdk-model-client.js";
+export {
+  aiSdkModelClientApi,
+  createAiSdkModelClient,
+  estimatedImageInputTokens,
+  type AiSdkModelClientOptions,
+} from "./ai-sdk-model-client.js";

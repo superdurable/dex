@@ -45,7 +45,7 @@ export {
   type ScriptedModelResponder,
   type ScriptedToolCall,
 } from "./scripted-model-client.js";
-export { createBuiltinAgentSessionFlow } from "./builtin-agent-session-flow.js";
+export { createBuiltinAgentSessionFlow, type BuiltinAgentSessionFlowOptions } from "./builtin-agent-session-flow.js";
 export {
   buildContextSummaryNote,
   buildContextSummaryOmissionNote,

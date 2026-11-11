@@ -49,6 +49,7 @@ from dex_agents.compaction import (
     build_context_summary_note,
     build_context_summary_omission_note,
 )
+from dex_agents.media import MediaStore, load_images
 from dex_agents.persistence import DEFAULT_AGENT_EVENTS_CAPACITY_BYTES
 from dex_agents.plans import build_plan_note
 from dex_agents.runner import (
@@ -74,6 +75,7 @@ from dex_agents.runner import (
 from dex_agents.session_flow import AgentSessionFlow, AgentSessionOptions
 from dex_agents.spend_limit import ModelSpendLimit
 from dex_agents.values import (
+    AgentImageReference,
     AgentPlan,
     AgentToolCall,
     InteractionMode,
@@ -482,6 +484,19 @@ class BuiltinLoopAgentRunner:
     ``ToolTaskCanceller``, it passes a task that ``cancel_turn`` abandoned to
     that source's optional ``cancel_tool_task``.
 
+    With a ``media_store``, the runner shows images to the model. It
+    implements ``ImageUserMessageBuilder``, so ``send_user_message`` accepts
+    images: the stored ``user_text`` item keeps their references after the
+    text. A tool result item keeps the references of
+    ``AgentToolCall.images``. Before each model call, the runner reads the
+    bytes of every image in the request with ``load_images`` and passes them
+    in ``ModelRequest.image_bytes``; the model client converts each image to
+    the provider's image part. A failed read fails that ``RunModel`` attempt,
+    which retries. The model call that writes a context summary sees the
+    text of the items only. Without a store the runner has no
+    ``build_user_message_with_images``, so the session refuses user images,
+    and a tool result's images are stored but not shown to the model.
+
     .. versionadded:: 0.5.0
        Replaces ``StepwiseAgentRunner``, which stays as a deprecated alias.
 
@@ -496,13 +511,36 @@ class BuiltinLoopAgentRunner:
     #: The runner honors ``AgentTurnContext.interaction_mode``, so plan mode can be enabled.
     supports_plan_mode = True
 
-    def __init__(self, definition: AgentDefinition) -> None:
+    def __init__(
+        self, definition: AgentDefinition, *, media_store: MediaStore | None = None
+    ) -> None:
         """Create the runner for one agent.
 
         Args:
             definition: The agent. The runner keeps no other state.
+            media_store: The store that holds the session's images, such as
+                ``S3MediaStore``. With a store, the runner has
+                ``build_user_message_with_images``, so user messages may carry
+                images, and every model call reads the bytes of the images
+                it shows from the store; a failed read fails the ``RunModel``
+                attempt. Use the store the clients and tools upload to.
+                ``None``, the default, refuses user images and shows tool
+                result images to the model as text only. With a store the
+                runner gets the instance attribute
+                ``build_user_message_with_images``, which stores user text and
+                its images as one ``user_text`` item that holds the
+                references, unless its class defines
+                ``build_user_message_with_images``: a subclass's own method
+                stays in use.
+
+                .. versionadded:: 0.5.0
         """
         self._definition = definition
+        # Name-mangled, so a subclass attribute of the same name changes nothing here.
+        self.__media_store = media_store
+        if media_store is not None and not hasattr(type(self), "build_user_message_with_images"):
+            # The session accepts images only from a runner with this attribute.
+            self.build_user_message_with_images = self._build_user_message_with_images
         self._tools_by_name = {tool.name: tool for tool in definition.tools}
         self._sources_by_name = {source.source_name: source for source in definition.tool_sources}
         # The last listing of each source, for the synchronous estimate_input_tokens.
@@ -528,6 +566,11 @@ class BuiltinLoopAgentRunner:
         """
         return encode_builtin_loop_message(UserTextItem(text=text))
 
+    def _build_user_message_with_images(
+        self, text: str, images: Sequence[AgentImageReference]
+    ) -> FrameworkMessage:
+        return encode_builtin_loop_message(UserTextItem(text=text, images=tuple(images)))
+
     async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
         """Make one model call of the turn.
 
@@ -552,9 +595,9 @@ class BuiltinLoopAgentRunner:
                 repeats a function tool, an enabled built-in tool, or another
                 source's tool. No model request is made.
             TypeError: If ``decide_turn_continuation`` returns another value.
-            Exception: What the model client or ``decide_turn_continuation``
-                raises. A tool source whose ``list_tools`` raises or times out
-                offers no tools instead.
+            Exception: What the model client, the media store, or
+                ``decide_turn_continuation`` raises. A tool source whose
+                ``list_tools`` raises or times out offers no tools instead.
         """
         reserved = sorted(
             tool.name for tool in self._definition.tools if tool.name in turn.enabled_built_in_tools
@@ -590,7 +633,7 @@ class BuiltinLoopAgentRunner:
         ):
             # The definition checks only ``model``; a resolved client is checked when it is used.
             raise ValueError(_FORCED_PLANNING_TOOL_CHOICE_UNSUPPORTED)
-        response = await model.call_model(request, turn.events)
+        response = await model.call_model(await self._add_image_bytes(request), turn.events)
         usage = replace(response.usage, model_calls=1)
         new_messages = [
             *(encode_builtin_loop_message(item) for item in unstored_items),
@@ -818,7 +861,9 @@ class BuiltinLoopAgentRunner:
             model_calls >= self._definition.max_model_calls_per_turn,
             self._cached_source_tools(),
         )
-        return self._resolve_model(turn.session_settings).estimate_input_tokens(request)
+        return self._resolve_model(turn.session_settings).estimate_input_tokens(
+            self._shown_images_only(request)
+        )
 
     def select_compaction_cutoff(
         self, turn: AgentTurnContext, retained_token_budget: int
@@ -922,7 +967,8 @@ class BuiltinLoopAgentRunner:
             items.append(UserTextItem(text=build_context_summary_note(request.previous_summary)))
         if omitted_count:
             items.append(UserTextItem(text=build_context_summary_omission_note(omitted_count)))
-        items.extend(range_items)
+        # The summary call reads no image bytes, so it sees each item's text only.
+        items.extend(_strip_images(range_items))
         items.append(UserTextItem(text=CONTEXT_SUMMARY_REQUEST))
         return ModelRequest(
             instructions=CONTEXT_SUMMARY_INSTRUCTIONS,
@@ -943,7 +989,7 @@ class BuiltinLoopAgentRunner:
             replace(
                 self._summary_request(request, [], omitted_count=0),
                 instructions="",
-                input_items=[item],
+                input_items=_strip_images([item]),
             )
         )
 
@@ -990,7 +1036,7 @@ class BuiltinLoopAgentRunner:
         return self._resolve_model(turn.session_settings).estimate_input_tokens(
             ModelRequest(
                 instructions="",
-                input_items=items,
+                input_items=items if self.__media_store is not None else _strip_images(items),
                 tools=[],
                 tool_choice="none",
                 settings=self._definition.model_settings,
@@ -1002,6 +1048,26 @@ class BuiltinLoopAgentRunner:
                 ),
             )
         )
+
+    async def _add_image_bytes(self, request: ModelRequest) -> ModelRequest:
+        """Return the request with the bytes of its images, read from the store right now."""
+        if self.__media_store is None:
+            return self._shown_images_only(request)
+        references = [
+            image
+            for item in request.input_items
+            if isinstance(item, UserTextItem | ToolResultItem)
+            for image in item.images
+        ]
+        if not references:
+            return request
+        return replace(request, image_bytes=await load_images(self.__media_store, references))
+
+    def _shown_images_only(self, request: ModelRequest) -> ModelRequest:
+        if self.__media_store is not None:
+            return request
+        # Without a store the model sees no image, such as a tool source's.
+        return replace(request, input_items=_strip_images(request.input_items))
 
     def _instructions(self, turn: AgentTurnContext) -> str:
         instructions = self._definition.instructions
@@ -1231,7 +1297,9 @@ def builtin_agent_session_options(definition: AgentDefinition) -> AgentSessionOp
     )
 
 
-def builtin_agent_session_flow(definition: AgentDefinition, *, flow_type: str) -> AgentSessionFlow:
+def builtin_agent_session_flow(
+    definition: AgentDefinition, *, flow_type: str, media_store: MediaStore | None = None
+) -> AgentSessionFlow:
     """Build the durable session Flow of one agent on the built-in agent loop.
 
     Register the Flow in a Registry created with ``allow_async_handlers=True``
@@ -1252,16 +1320,22 @@ def builtin_agent_session_flow(definition: AgentDefinition, *, flow_type: str) -
         definition: The agent.
         flow_type: Protocol Flow type, unique within the Registry. Keep it
             stable: running sessions resume by it.
+        media_store: The store that holds the session's images, passed to
+            ``BuiltinLoopAgentRunner``. With a store, ``send_user_message``
+            accepts images and the model sees user and tool result images.
+            ``None``, the default, refuses user images.
+
+            .. versionadded:: 0.5.0
 
     Returns:
-        ``AgentSessionFlow(BuiltinLoopAgentRunner(definition), ...)`` with options
-        from ``builtin_agent_session_options``.
+        ``AgentSessionFlow(BuiltinLoopAgentRunner(definition, media_store=media_store), ...)``
+        with options from ``builtin_agent_session_options``.
 
     Raises:
         ValueError: If ``flow_type`` is blank.
     """
     return AgentSessionFlow(
-        BuiltinLoopAgentRunner(definition),
+        BuiltinLoopAgentRunner(definition, media_store=media_store),
         flow_type=flow_type,
         options=builtin_agent_session_options(definition),
     )
@@ -1378,6 +1452,15 @@ def _stored_input_items_with_plan_note(turn: AgentTurnContext) -> list[ModelInpu
     return items
 
 
+def _strip_images(items: Sequence[ModelInputItem]) -> list[ModelInputItem]:
+    return [
+        replace(item, images=())
+        if isinstance(item, UserTextItem | ToolResultItem) and item.images
+        else item
+        for item in items
+    ]
+
+
 def _read_run_state(framework_run_state: str | None) -> tuple[int, int]:
     """Return the turn's model calls and consecutive continuations, absent until the first."""
     if framework_run_state is None:
@@ -1419,6 +1502,7 @@ def _unstored_tool_results(turn: AgentTurnContext) -> list[ToolResultItem]:
             tool_call_id=record.tool_call_id,
             tool_name=record.tool_name,
             output=describe_tool_call_outcome(record),
+            images=tuple(record.images),
         )
         for record in records
         if record.tool_call_id not in stored_result_ids

@@ -6,9 +6,38 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { MediaStore } from "../agent-media.js";
 import { createAgentSessionFlow, type AgentSessionFlow, type AgentSessionOptions } from "../agent-session-flow.js";
 import type { AgentDefinition } from "./agent-definition.js";
 import { BuiltinLoopAgentRunner } from "./builtin-loop-agent-runner.js";
+
+/**
+ * Options of {@link createBuiltinAgentSessionFlow} that are not part of the agent definition.
+ *
+ * @since 0.5.0
+ */
+export interface BuiltinAgentSessionFlowOptions {
+  /**
+   * The media store that holds the session's images, such as `S3MediaStore` from `@superdurable/dex-agents/s3`.
+   * Defaults to none.
+   *
+   * With a store, `send_user_message` accepts images, and the model sees each image of a user message or a tool
+   * result. Stored messages keep only references: the runner reads the bytes with `loadImages` right before each
+   * model call, so a store read failure fails that call and its `RunModel` Step retries. Use the same store, or one
+   * that reads the same objects, in every Worker process of the Flow type. Without a store, `send_user_message`
+   * refuses images and tool result images do not reach the model.
+   *
+   * @example
+   * ```ts
+   * import { S3MediaStore } from "@superdurable/dex-agents/s3";
+   *
+   * const mediaStore = S3MediaStore.fromStoreUri("s3://agent-media/sessions");
+   * const flow = createBuiltinAgentSessionFlow(supportAgent, "SupportAgent", { mediaStore });
+   * ```
+   * @since 0.5.0
+   */
+  readonly mediaStore?: MediaStore;
+}
 
 /**
  * Creates the agent session Flow for an agent defined in Dex terms, run by the built-in agent loop.
@@ -36,6 +65,7 @@ import { BuiltinLoopAgentRunner } from "./builtin-loop-agent-runner.js";
  * ```
  * @param definition - The agent definition.
  * @param flowType - Flow type, unique within the Registry. Keep it stable: running sessions resume by it.
+ * @param flowOptions - The media store; see {@link BuiltinAgentSessionFlowOptions}. Since 0.5.0.
  * @returns A new Flow; its `runner` is the {@link BuiltinLoopAgentRunner}.
  * @throws {TypeError} When the definition is invalid; see {@link BuiltinLoopAgentRunner} and
  * `createAgentSessionFlow`.
@@ -49,8 +79,9 @@ import { BuiltinLoopAgentRunner } from "./builtin-loop-agent-runner.js";
 export function createBuiltinAgentSessionFlow(
   definition: AgentDefinition,
   flowType: string,
+  flowOptions: BuiltinAgentSessionFlowOptions = {},
 ): AgentSessionFlow<BuiltinLoopAgentRunner> {
-  const runner = new BuiltinLoopAgentRunner(definition);
+  const runner = new BuiltinLoopAgentRunner(definition, flowOptions.mediaStore);
   const options: AgentSessionOptions = {
     ...(definition.toolPolicies === undefined ? {} : { toolPolicies: definition.toolPolicies }),
     ...(definition.defaultToolEffect === undefined ? {} : { defaultToolEffect: definition.defaultToolEffect }),

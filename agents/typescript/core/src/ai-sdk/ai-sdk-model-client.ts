@@ -20,7 +20,7 @@ import {
   type ToolSet,
 } from "ai";
 
-import { emptyAgentUsage, type AgentUsage } from "../agent-session-values.js";
+import { emptyAgentUsage, type AgentImageReference, type AgentUsage } from "../agent-session-values.js";
 import type {
   ModelClient,
   ModelInputItem,
@@ -34,6 +34,13 @@ import type {
 
 /** API name recorded on every output item of this client. */
 export const aiSdkModelClientApi = "ai-sdk";
+
+/**
+ * Input tokens `estimateInputTokens` counts for each image, whose bytes it never reads.
+ *
+ * @since 0.5.0
+ */
+export const estimatedImageInputTokens = 1600;
 
 type StreamTextOptions = Parameters<typeof streamText>[0];
 type ReasoningEffort = NonNullable<StreamTextOptions["reasoning"]>;
@@ -70,6 +77,12 @@ export interface AiSdkModelClientOptions {
  * of the same provider, and only its text and tool calls to any other model, so a session can change
  * model between turns. Tool results reach the model as text. For a model ID string, the string itself
  * names the provider, so a model switch between two strings replays text only.
+ *
+ * Images of user text and tool result items reach the model as AI SDK `file` parts with their bytes from
+ * `ModelRequest.imageBytes`, after the item's text and in order: a user message's content is a text part and one
+ * file part per image, and a tool result with images has `content` output, a text part and one file part per
+ * image. The provider package converts them; a provider that takes no images in a tool result handles them as
+ * its package does. Changed in 0.5.0: sends images.
  *
  * It requires the optional peer dependency `ai`, version 7.0.159 or a later 7.x release, and uses only
  * its public API; install it next to the provider package.
@@ -111,7 +124,10 @@ class AiSdkModelClient implements ModelClient {
     const result = streamText({
       model: this.model,
       ...(request.instructions.trim() === "" ? {} : { system: request.instructions }),
-      messages: request.inputItems.reduce<ModelMessage[]>((messages, item) => this.appendInputItem(messages, item), []),
+      messages: request.inputItems.reduce<ModelMessage[]>(
+        (messages, item) => this.appendInputItem(messages, item, request.imageBytes ?? new Map()),
+        [],
+      ),
       ...(request.tools.length === 0 ? {} : { tools, toolChoice: toAiSdkToolChoice(request.toolChoice) }),
       ...(settings.temperature === undefined ? {} : { temperature: settings.temperature }),
       ...(settings.maxOutputTokens === undefined ? {} : { maxOutputTokens: settings.maxOutputTokens }),
@@ -186,13 +202,24 @@ class AiSdkModelClient implements ModelClient {
   public estimateInputTokens(request: ModelRequest): number {
     const characters =
       request.instructions.length + JSON.stringify(request.inputItems).length + JSON.stringify(request.tools).length;
-    return Math.ceil(characters / 4);
+    const imageCount = request.inputItems.reduce(
+      (count, item) => count + (item.type === "model_output" ? 0 : (item.images ?? []).length),
+      0,
+    );
+    return Math.ceil(characters / 4) + imageCount * estimatedImageInputTokens;
   }
 
-  private appendInputItem(messages: ModelMessage[], item: ModelInputItem): ModelMessage[] {
+  private appendInputItem(
+    messages: ModelMessage[],
+    item: ModelInputItem,
+    imageBytes: ReadonlyMap<string, Uint8Array>,
+  ): ModelMessage[] {
     switch (item.type) {
       case "user_text":
-        messages.push({ role: "user", content: [{ type: "text", text: item.text }] });
+        messages.push({
+          role: "user",
+          content: [{ type: "text", text: item.text }, ...toFileParts(item.images, imageBytes)],
+        });
         return messages;
       case "model_output": {
         const message = this.replayModelOutput(item);
@@ -202,11 +229,15 @@ class AiSdkModelClient implements ModelClient {
         return messages;
       }
       case "tool_result": {
+        const fileParts = toFileParts(item.images, imageBytes);
         const part: ToolModelMessage["content"][number] = {
           type: "tool-result",
           toolCallId: item.toolCallId,
           toolName: item.toolName,
-          output: { type: "text", value: item.output },
+          output:
+            fileParts.length === 0
+              ? { type: "text", value: item.output }
+              : { type: "content", value: [{ type: "text", text: item.output }, ...fileParts] },
         };
         const lastMessage = messages.at(-1);
         if (lastMessage?.role === "tool") {
@@ -242,6 +273,27 @@ class AiSdkModelClient implements ModelClient {
     }
     return { role: "assistant", content };
   }
+}
+
+/** An AI SDK file part with raw bytes; it fits both user message content and tool result content. */
+interface ImageFilePart {
+  readonly type: "file";
+  readonly mediaType: string;
+  readonly data: { readonly type: "data"; readonly data: Uint8Array };
+}
+
+/** One AI SDK file part per image, with the bytes the runner loaded for the request. */
+function toFileParts(
+  images: readonly AgentImageReference[] | undefined,
+  imageBytes: ReadonlyMap<string, Uint8Array>,
+): ImageFilePart[] {
+  return (images ?? []).map((image): ImageFilePart => {
+    const data = imageBytes.get(image.sha256);
+    if (data === undefined) {
+      throw new TypeError(`the model request has no bytes for image ${image.uri}`);
+    }
+    return { type: "file", mediaType: image.mimeType, data: { type: "data", data } };
+  });
 }
 
 /** The model's arguments as JSON text; an invalid call keeps its raw text, so the tool Step reports it. */

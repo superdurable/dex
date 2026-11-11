@@ -784,10 +784,11 @@ return { output: "Took a screenshot.", images: [reference] };
   follows a symbolic link. The Python core opens every path relative to an open directory and has no such window.
   Reads check the file's size first, read at most one byte past `sizeBytes`, and run `verifyImageBytes`. It needs a POSIX file system. Deleting a
   session deletes no file.
-- **Built-in runners.** The framework adapters show images to their model when built with a `mediaStore`: they
-  implement `buildUserMessageWithImages`, keep references in their stored items, and load the bytes for each model
-  call. Without a store they do not, and their sessions refuse images. The built-in loop does not implement it yet, so its
-  sessions refuse images.
+- **Built-in runners.** The built-in loop and the framework adapters show images to their model when built with a
+  `mediaStore`: they implement `buildUserMessageWithImages`, keep references in their stored items, and load the bytes
+  for each model call. Without a store they do not, and their sessions refuse images. For the built-in loop, pass it
+  to `createBuiltinAgentSessionFlow(definition, flowType, { mediaStore })` or `new BuiltinLoopAgentRunner(definition,
+  mediaStore)`; see [Images on the built-in loop](#images-on-the-built-in-loop).
 - **MCP tools.** `new McpToolSource(servers, { mediaStore })` uploads the `image` content of a successful result
   inside the tool Step and returns the references in `ToolExecutionResult.images`. Give it the store the runner
   reads.
@@ -797,6 +798,40 @@ return { output: "Took a screenshot.", images: [reference] };
   in `lastTurnError`, after its user message, with nothing else stored; later turns that replay the image fail the
   same way.
 - Send images only after every Worker of the Flow type runs 0.5.0: an earlier Worker drops them.
+
+### Images on the built-in loop
+
+```ts
+import { S3MediaStore } from "@superdurable/dex-agents/s3";
+
+const mediaStore = S3MediaStore.fromStoreUri("s3://agent-media/sessions");
+const flow = createBuiltinAgentSessionFlow(supportAgent, "SupportAgent", { mediaStore });
+```
+
+- **Stored items.** The `user_text` item of a message with images, and the `tool_result` item of a call whose record
+  has images, add an `images` list of snake_case references after their other fields, the same JSON as the Python
+  core. An item without images has no `images` key, so its bytes are unchanged. The tool result message also shows
+  the references in `images`. Session state never holds image bytes.
+- **Model calls.** `ModelUserTextItem.images` and `ModelToolResultItem.images` carry the references into the
+  `ModelRequest`. Right before each model call, the runner reads the bytes of every image in the request with
+  `loadImages` and passes them in `ModelRequest.imageBytes`, keyed by SHA-256. A retried `RunModel` attempt, or one on
+  a new Worker after a crash, builds the same request from the same references and bytes. A store read that fails
+  fails that attempt, which retries; after the last attempt the turn records the error in `lastTurnError`.
+- **Summaries and estimates.** The model call that writes a context summary sees the text of the summarized items,
+  without their images. `estimateInputTokens` gets requests without image bytes; the AI SDK client counts
+  `estimatedImageInputTokens` (1600) for each image.
+- **Without a store.** A tool result's references are still stored for display, but the model sees only the text.
+- **AI SDK.** `createAiSdkModelClient` sends each image after the item's text as an AI SDK `file` part with its bytes:
+  `{ type: "file", mediaType, data: { type: "data", data } }`. A user message's content is a text part and one file
+  part per image. A tool result with images has `content` output, a text part and one file part per image; the
+  provider package converts it, and a provider that takes no images in a tool result handles them as its package
+  does.
+- **Your own model client.** Convert each reference in `images` to the provider's image part with its bytes from
+  `ModelRequest.imageBytes`, and throw when they are missing. A client that ignores `images` shows the model the text
+  only.
+- **Which tools return images.** A tool source's `ToolExecutionResult.images`, such as the image content of a
+  `new McpToolSource(servers, { mediaStore })` result. Give the source the store the runner reads. A function tool
+  returns text or JSON only.
 
 ## Message storage and retention
 
@@ -2489,8 +2524,8 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   attempts, on every `listTools` call until it answers. A server that binds
   tasks to its protocol session, such as a stateful server on the SDK's task
   store, cannot resume a task across attempts; the retry calls the tool again.
-- Images: the built-in loop sends no images to a model yet, and the media stores keep no local read cache, so each
-  `loadImages` reads the store.
+- Images: a function tool of the built-in loop cannot return images, and the media stores keep no local read cache,
+  so each `loadImages` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
 - The adapters report only the model information their framework exposes, so
