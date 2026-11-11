@@ -31,7 +31,7 @@ import {
   type HarnessContext,
   type LocalToolGroup,
   type TurnConfig,
-} from "@superdurable/dex-agents-cli";
+} from "@superdurable/dex-agents-cli-core";
 import {
   ClaudeAgentRunner,
   ClaudeCodeToolDenial,
@@ -40,7 +40,7 @@ import {
 } from "@superdurable/dex-agents-claude-agent-sdk";
 
 /**
- * The base Flow type of the command's sessions, before the runtime namespaces it.
+ * The base Flow type of the command's sessions, before the CLI core namespaces it.
  *
  * @since 0.5.0
  */
@@ -80,7 +80,7 @@ export interface ClaudeCodeLocalTool {
 }
 
 /**
- * Claude Code's tools that replace the runtime's `files`, `shell`, and `web_fetch` groups, in the order the
+ * Claude Code's tools that replace the CLI core's `files`, `shell`, and `web_fetch` groups, in the order the
  * command offers them.
  *
  * @since 0.5.0
@@ -102,8 +102,8 @@ const maximumSymbolicLinkHops = 40;
 /**
  * The `dex-agents-claude-sdk` command: a Claude Agent SDK agent in the terminal.
  *
- * Claude Code's own Read, Grep, Glob, Write, Edit, Bash, and WebFetch tools replace the runtime's `files`, `shell`,
- * and `web_fetch` groups; the runtime's browser tools and connector tools stay. Each turn offers only the Claude
+ * Claude Code's own Read, Grep, Glob, Write, Edit, Bash, and WebFetch tools replace the CLI core's `files`, `shell`,
+ * and `web_fetch` groups; the CLI core's browser tools and connector tools stay. Each turn offers only the Claude
  * Code tools whose group the turn switches on, plus, in a resumed segment, the tools of calls the turn already
  * recorded, so their records replay; new calls of a switched-off tool are refused. The workspace is the working
  * directory. Reads run at once,
@@ -113,7 +113,7 @@ const maximumSymbolicLinkHops = 40;
  *
  * @example
  * ```ts
- * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli";
+ * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli-core";
  * import { claudeSdkHarness } from "@superdurable/dex-agents-claude-sdk-cli";
  *
  * process.exit(await runAgentCli(claudeSdkHarness, processAgentCliIo()));
@@ -164,7 +164,7 @@ export function validateClaudeSection(options: Readonly<Record<string, unknown>>
 }
 
 /**
- * Applies the runtime's local tool rules to Claude Code's own tools.
+ * Applies the CLI core's local tool rules to Claude Code's own tools.
  *
  * @since 0.5.0
  */

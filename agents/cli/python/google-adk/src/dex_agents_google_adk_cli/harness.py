@@ -6,14 +6,14 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""The Google ADK harness: an ADK ``LlmAgent`` on Gemini with the runtime's tools."""
+"""The Google ADK harness: an ADK ``LlmAgent`` on Gemini with the CLI core's tools."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
-import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
+import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
@@ -25,10 +25,10 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 
 from dex_agents import AgentSessionFlow
-from dex_agents_cli import ConfigError, HarnessContext, LocalToolGroup
+from dex_agents_cli_core import ConfigError, HarnessContext, LocalToolGroup
 from dex_agents_google_adk import adk_agent_session_flow
 
-#: The Flow type of the command's sessions, before the runtime namespaces it.
+#: The Flow type of the command's sessions, before the CLI core namespaces it.
 GOOGLE_ADK_CLI_FLOW_TYPE = "DexAgentsGoogleAdkCliSession"
 
 #: The Gemini model the command uses when the configuration file sets none.
@@ -46,7 +46,7 @@ class GoogleAdkHarness:
 
     The agent is one ADK ``LlmAgent`` on the Gemini API. Each model call
     sends the running turn's model and instructions, so session settings
-    that change them apply from the next turn. The runtime's connector and
+    that change them apply from the next turn. The CLI core's connector and
     local tools are the agent's only tools.
     """
 

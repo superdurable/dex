@@ -21,7 +21,7 @@ adapter depends on the published core instead.
 | [`python/langgraph`](python/langgraph) | [`dex-agents-langgraph`](https://pypi.org/project/dex-agents-langgraph/) | LangChain `create_agent` and LangGraph |
 | [`python/google-adk`](python/google-adk) | [`dex-agents-google-adk`](https://pypi.org/project/dex-agents-google-adk/) | Google ADK |
 | [`python/claude-agent-sdk`](python/claude-agent-sdk) | [`dex-agents-claude-agent-sdk`](https://pypi.org/project/dex-agents-claude-agent-sdk/) | Claude Agent SDK |
-| [`cli/python/runtime`](cli/python/runtime) | `dex-agents-cli` (`dex_agents_cli`), not published yet | Shared runtime of the Python CLI commands: configuration, `dexcli dev`, connector and local tools, terminal chat |
+| [`cli/python/core`](cli/python/core) | `dex-agents-cli-core` (`dex_agents_cli_core`), not published yet | Shared core of the Python CLI commands: configuration, `dexcli dev`, connector and local tools, terminal chat |
 | [`cli/python/claude-sdk`](cli/python/claude-sdk) | `dex-agents-claude-sdk-cli`, not published yet | The `dex-agents-claude-sdk` command: a Claude Agent SDK agent in the terminal |
 | [`cli/python/openai-sdk`](cli/python/openai-sdk) | `dex-agents-openai-sdk-cli`, not published yet | The `dex-agents-openai-sdk` command: an OpenAI Agents SDK agent in the terminal |
 | [`cli/python/pydantic-ai`](cli/python/pydantic-ai) | `dex-agents-pydantic-ai-cli`, not published yet | The `dex-agents-pydantic-ai` command: a Pydantic AI agent in the terminal |
@@ -35,7 +35,7 @@ adapter depends on the published core instead.
 | [`typescript/openai-agents`](typescript/openai-agents) | [`@superdurable/dex-agents-openai-agents`](https://www.npmjs.com/package/@superdurable/dex-agents-openai-agents) | OpenAI Agents SDK |
 | [`typescript/mastra`](typescript/mastra) | [`@superdurable/dex-agents-mastra`](https://www.npmjs.com/package/@superdurable/dex-agents-mastra) | Mastra |
 | [`typescript/claude-agent-sdk`](typescript/claude-agent-sdk) | [`@superdurable/dex-agents-claude-agent-sdk`](https://www.npmjs.com/package/@superdurable/dex-agents-claude-agent-sdk) | Claude Agent SDK |
-| [`cli/typescript/runtime`](cli/typescript/runtime) | `@superdurable/dex-agents-cli`, not published yet | Shared runtime of the TypeScript CLI commands: configuration, `dexcli dev`, connector and local tools, terminal chat |
+| [`cli/typescript/core`](cli/typescript/core) | `@superdurable/dex-agents-cli-core`, not published yet | Shared core of the TypeScript CLI commands: configuration, `dexcli dev`, connector and local tools, terminal chat |
 | [`cli/typescript/claude-sdk`](cli/typescript/claude-sdk) | `@superdurable/dex-agents-claude-sdk-cli`, not published yet | The `dex-agents-claude-sdk` command: a Claude Agent SDK agent in the terminal |
 | [`cli/typescript/openai-sdk`](cli/typescript/openai-sdk) | `@superdurable/dex-agents-openai-sdk-cli`, not published yet | The `dex-agents-openai-sdk` command: an OpenAI Agents SDK agent in the terminal |
 | [`cli/typescript/vercel-ai`](cli/typescript/vercel-ai) | `@superdurable/dex-agents-vercel-ai-cli`, not published yet | The `dex-agents-vercel-ai` command: a Vercel AI SDK agent in the terminal |
@@ -168,7 +168,7 @@ or later.
 
 Publishing a GitHub Release with the tag `agents/v<version>` from a commit on
 `main` publishes all twenty-five packages in dependency order: the core, the
-adapters, the CLI runtime, then the CLI commands. `dex-agents-cli-testing`
+adapters, the CLI core, then the CLI commands. `dex-agents-cli-testing`
 is never published.
 [`agents-python-publish.yml`](../.github/workflows/agents-python-publish.yml)
 uploads to PyPI and
@@ -188,7 +188,7 @@ It sets one version in all fourteen `pyproject.toml` files (the thirteen
 published ones and `dex-agents-cli-testing`) and thirteen `package.json`
 files, their lockfiles, and every constraint between agents packages: the
 adapters' on their core, and the CLI packages' on the core, their adapter,
-and the CLI runtime. Python pins `==<version>`; npm peer-depends on
+and the CLI core. Python pins `==<version>`; npm peer-depends on
 `^<version>`. Run it locally to bump the committed version, and pass
 `--check` to verify it.
 
@@ -198,7 +198,7 @@ and installs them into fresh projects without path dependencies: the core
 first, then each adapter. It imports every TypeScript core subpath with and
 without the optional peer `ai`. It then runs one Pydantic AI session and one Vercel
 AI SDK session against `dexcli dev --engine zd` with a scripted model, using
-the adapters' own test fixtures. Last, it installs the CLI runtime and each
+the adapters' own test fixtures. Last, it installs the CLI core and each
 CLI command from the built artifacts alone and runs each command's `--help`
 and `init --yes` with a scratch `HOME`; neither needs a model key or a Dex
 server. Agents CI runs it on every change, so packaging regressions fail CI:
@@ -211,7 +211,7 @@ DEXCLI=/path/to/dexcli agents/script/smoke-test-built-packages.sh all
 
 PyPI accepts only about five new projects per day. A release that publishes
 more new PyPI names than that uploads in two runs. The first release of the
-CLI packages has seven new names: `dex-agents-cli` and six commands.
+CLI packages has seven new names: `dex-agents-cli-core` and six commands.
 
 The PyPI workflow's `skip_packages` input leaves CLI command distributions
 out of one upload. It accepts only command names, because nothing else in the

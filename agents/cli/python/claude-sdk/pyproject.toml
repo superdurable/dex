@@ -18,7 +18,7 @@ dependencies = [
     "claude-agent-sdk>=0.2.176,<0.3",
     "dex-agents==0.1.0",
     "dex-agents-claude-agent-sdk==0.1.0",
-    "dex-agents-cli==0.1.0",
+    "dex-agents-cli-core==0.1.0",
     "dex-python-sdk==1.45.0",
 ]
 
@@ -49,7 +49,7 @@ required-version = "==0.12.2"
 [tool.uv.sources]
 dex-agents = { path = "../../../python/core", editable = true }
 dex-agents-claude-agent-sdk = { path = "../../../python/claude-agent-sdk", editable = true }
-dex-agents-cli = { path = "../runtime", editable = true }
+dex-agents-cli-core = { path = "../core", editable = true }
 
 [tool.ruff]
 target-version = "py311"
@@ -65,7 +65,7 @@ known-first-party = [
     "dex_agents",
     "dex_agents_claude_agent_sdk",
     "dex_agents_claude_sdk_cli",
-    "dex_agents_cli",
+    "dex_agents_cli_core",
     "tests",
 ]
 

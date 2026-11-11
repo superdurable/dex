@@ -15,7 +15,7 @@ import {
   type WorkspaceDirectoryEntry,
   type WorkspaceFileVersion,
   type WorkspaceFiles,
-} from "@superdurable/dex-agents-cli";
+} from "@superdurable/dex-agents-cli-core";
 import { Minimatch } from "minimatch";
 
 import { LocalShellExecution } from "./local-shell-execution.js";
@@ -23,7 +23,7 @@ import { LocalShellExecution } from "./local-shell-execution.js";
 const skippedFindDirectories = new Set([".git", "node_modules"]);
 /** The longest one `find` call walks the workspace, in milliseconds, as `grep`'s budget. */
 const findTimeBudgetMs = 10_000;
-/** The largest file `edit` changes: the runtime's check before the rename reads at most 4 MiB. */
+/** The largest file `edit` changes: the CLI core's check before the rename reads at most 4 MiB. */
 const maximumEditableBytes = 4 * 1024 * 1024;
 
 /** The stats pi-coding-agent's `ls` reads. */
@@ -37,7 +37,7 @@ type FindMatcher = (relativePath: string, absolutePath: string, name: string) =>
 /**
  * One Pi tool call's file and shell operations, which pi-coding-agent's tools take as `operations`.
  *
- * Every file access goes through the runtime's {@link WorkspaceFiles}, with the absolute path Pi finally chose, so
+ * Every file access goes through the CLI core's {@link WorkspaceFiles}, with the absolute path Pi finally chose, so
  * the workspace boundary applies to the file Pi opens. A write that fails with anything but a refusal may have
  * changed a file. The shell operation records when the shell process started.
  */

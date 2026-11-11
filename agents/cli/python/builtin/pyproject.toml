@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "dex-agents[litellm]==0.1.0",
-    "dex-agents-cli==0.1.0",
+    "dex-agents-cli-core==0.1.0",
     "dex-python-sdk==1.45.0",
     "litellm>=1.104,<1.106",
 ]
@@ -48,7 +48,7 @@ required-version = "==0.12.2"
 
 [tool.uv.sources]
 dex-agents = { path = "../../../python/core", editable = true }
-dex-agents-cli = { path = "../runtime", editable = true }
+dex-agents-cli-core = { path = "../core", editable = true }
 dex-agents-cli-testing = { path = "../testing", editable = true }
 
 [tool.ruff]
@@ -64,7 +64,7 @@ ignore = ["ASYNC109", "ASYNC110", "ASYNC220", "ASYNC221"]
 known-first-party = [
     "dex_agents",
     "dex_agents_builtin_cli",
-    "dex_agents_cli",
+    "dex_agents_cli_core",
     "dex_agents_cli_testing",
     "tests",
 ]

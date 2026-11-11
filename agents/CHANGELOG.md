@@ -23,7 +23,7 @@ for the Dex SDK and framework versions each release supports.
 - Dex SDK 1.44.0 still needs a Dex Server with protocol 4: server-zd v0.1.17
   or later.
 - Agents CI, the nightly long run, and the publish workflows test against
-  `dexcli` 1.44.0. The Python and TypeScript CLI runtimes download `dexcli`
+  `dexcli` 1.44.0. The Python and TypeScript CLI cores download `dexcli`
   1.44.0 when none is installed.
 
 ### Dex MCP conventions
@@ -77,7 +77,7 @@ for the Dex SDK and framework versions each release supports.
 
 ### Added
 
-- Python CLI runtime (`dex-agents-cli`, not published yet): the shared runtime
+- Python CLI core (`dex-agents-cli-core`, not published yet): the shared CLI core
   of the Python harness commands. It reads `~/.dex/agents/<harness>.yaml` and
   asks the init questions on first run, reuses or starts `dexcli dev`
   (downloading a checksum-verified `dexcli` when none is installed), offers the
@@ -85,24 +85,24 @@ for the Dex SDK and framework versions each release supports.
   tools as Dex tool Steps, narrows each turn by the session settings, and chats
   in the terminal with inline approvals and Ctrl-C to cancel a turn. Harness
   packages implement **AgentHarness**. See
-  [cli/python/runtime](cli/python/runtime/README.md).
+  [cli/python/core](cli/python/core/README.md).
 - The **dex-agents-claude-sdk** command, in Python (`dex-agents-claude-sdk-cli`)
   and TypeScript (`@superdurable/dex-agents-claude-sdk-cli`), not published
-  yet: a Claude Agent SDK agent in the terminal on the shared CLI runtime.
+  yet: a Claude Agent SDK agent in the terminal on the shared CLI core.
   Claude Code's own Read, Grep, Glob, Write, Edit, Bash, and WebFetch tools
-  replace the runtime's file, shell, and web fetch tools, with the same rules:
+  replace the CLI core's file, shell, and web fetch tools, with the same rules:
   each turn offers only the groups its session settings switch on, reads run at
   once, writes and shell commands wait for approval unless the shell allow list
   has the command, file tools stay in the workspace, and the tool Step checks an
   approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
   [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
 - The **dex-agents-pi** command (`@superdurable/dex-agents-pi-cli`, not
-  published yet): a Pi coding agent in the terminal on the shared CLI runtime,
+  published yet): a Pi coding agent in the terminal on the shared CLI core,
   where Dex runs the agent loop and pi-ai makes each model call. The model is
   `<provider>/<model>` from pi-ai's catalog, and the key comes only from the
   provider's API key variable. pi-coding-agent's `read`, `grep`, `find`, `ls`,
-  `write`, `edit`, and `bash` replace the runtime's file and shell tools, with
-  the same rules: their file access goes through the runtime's workspace file
+  `write`, `edit`, and `bash` replace the CLI core's file and shell tools, with
+  the same rules: their file access goes through the CLI core's workspace file
   layer. `bash` has the shell tool's 120-second default timeout
   (`pi.bash_timeout_seconds`) and its 600-second maximum, and a command that
   ran is a result with its exit status. `grep` and `find` walk the workspace
@@ -112,25 +112,25 @@ for the Dex SDK and framework versions each release supports.
   only directly in its own directory, and above the workspace the file, and a
   link to it, must belong to you or root. See
   [cli/typescript/pi](cli/typescript/pi/README.md).
-- TypeScript CLI runtime: **WorkspaceFiles**, the workspace file layer of the
+- TypeScript CLI core: **WorkspaceFiles**, the workspace file layer of the
   local file tools, is exported for harnesses that bring their own file tools,
   with new methods **readFileWithVersion** (with an optional smaller
   **maximumBytes**), **replaceFileIfUnchanged**, **statExisting**, and
   **readDirectoryEntries**. A refusal throws the new
   **WorkspaceFileRefusedError**, a `ToolExecutionError` thrown before anything
   changed. See
-  [cli/typescript/runtime](cli/typescript/runtime/README.md#the-harness-interface).
-- TypeScript CLI runtime: `read_file`, `edit_file`, and `search_files` open
+  [cli/typescript/core](cli/typescript/core/README.md#the-harness-interface).
+- TypeScript CLI core: `read_file`, `edit_file`, and `search_files` open
   files without blocking, so a FIFO in the workspace fails at once as not a
   regular file, or is skipped by a search, instead of hanging the call, as in
-  the Python runtime.
+  the Python CLI core.
 - Python commands for the other harnesses, not published yet, on the shared
-  CLI runtime: **dex-agents-openai-sdk** (OpenAI Agents SDK),
+  CLI core: **dex-agents-openai-sdk** (OpenAI Agents SDK),
   **dex-agents-pydantic-ai** (Pydantic AI), **dex-agents-deepagents** (Deep
   Agents on the LangGraph adapter), **dex-agents-google-adk** (Google ADK), and
   **dex-agents-builtin** (the Dex built-in agent loop on LiteLLM). Each uses the
-  runtime's local and connector tools, so every tool call is its own Dex tool
-  Step with the runtime's policy, and each model call uses its turn's model and
+  CLI core's local and connector tools, so every tool call is its own Dex tool
+  Step with the CLI core's policy, and each model call uses its turn's model and
   instructions. Provider keys come only from each provider's standard
   environment variables. The configuration file's `langgraph` section is now
   `deepagents`. See [cli/python](cli/python).
@@ -138,18 +138,18 @@ for the Dex SDK and framework versions each release supports.
   **dex-agents-mastra**, and **dex-agents-builtin** commands
   (`@superdurable/dex-agents-<name>-cli`), not published yet: an OpenAI Agents
   SDK, Vercel AI SDK, Mastra, or built-in loop agent in the terminal on the shared
-  CLI runtime, with its connector and local tools. Each turn uses the model and
+  CLI core, with its connector and local tools. Each turn uses the model and
   instructions its session settings resolve to. Provider keys come from each
   provider's standard environment variables, such as `OPENAI_API_KEY`. See
   [cli/typescript/openai-sdk](cli/typescript/openai-sdk/README.md),
   [vercel-ai](cli/typescript/vercel-ai/README.md),
   [mastra](cli/typescript/mastra/README.md), and
   [builtin](cli/typescript/builtin/README.md).
-- TypeScript CLI runtime: a harness whose runner fixes its tools when the Flow
-  is built sets **AgentHarness.isToolSetFixedAtBuild**. The runtime then lists
+- TypeScript CLI core: a harness whose runner fixes its tools when the Flow
+  is built sets **AgentHarness.isToolSetFixedAtBuild**. The CLI core then lists
   the file's connector tools before building the Flow and, when the connectors
   MCP server does not answer at startup, says that a restart brings them back.
-  See [cli/typescript/runtime](cli/typescript/runtime/README.md#connectors).
+  See [cli/typescript/core](cli/typescript/core/README.md#connectors).
 - Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
   (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
   Claude Code CLI from its input. It returns a **ToolPolicy** for that call,
@@ -175,7 +175,7 @@ for the Dex SDK and framework versions each release supports.
   values that say where the program that started the session ran. The session
   never reads it; it stays in the Flow's start input. Python
   `AgentSessionClient.start_session` and TypeScript `startAgentSession` take
-  it. Workers before 0.5.0 ignore it. The CLI runtimes record their host name,
+  it. Workers before 0.5.0 ignore it. The CLI cores record their host name,
   user ID and user name, configuration identity, and workspace there.
 - Python and TypeScript cores: new **ToolCallContext.effect**, the effect of a
   built-in agent loop function tool call after the tool policies are applied.
@@ -320,7 +320,7 @@ for the Dex SDK and framework versions each release supports.
     `EncodeStepwiseMessage` -> `EncodeBuiltinLoopMessage`;
     `DecodeStepwiseMessage` -> `DecodeBuiltinLoopMessage`. Package `stepwise`
     forwards to `builtinloop` and is marked `Deprecated:`.
-  - The framework adapters, the Pi adapter, and the agents CLI runtime import
+  - The framework adapters, the Pi adapter, and the agents CLI core import
     the new names.
 - The error text for a session message that the built-in agent loop cannot
   read now says "built-in agent loop item" (Python and Go cores) or "built-in
@@ -330,7 +330,7 @@ for the Dex SDK and framework versions each release supports.
   Python loggers are now named `dex_agents.builtin_loop.*`, and the Go core's
   panic messages for a nil model client or definition start with
   `builtinloop:` instead of `stepwise:`.
-- Breaking, Python and TypeScript CLI runtimes: the session Flow type suffix is
+- Breaking, Python and TypeScript CLI cores: the session Flow type suffix is
   now 6 lowercase base36 characters instead of 12 hex digits, from the same
   SHA-256 of the host name, user, configuration identity, and workspace: the
   digest's first 8 bytes as an unsigned big-endian integer, modulo 36^6, in
@@ -340,7 +340,7 @@ for the Dex SDK and framework versions each release supports.
   `current_session_environment_identity`, and `SessionEnvironmentIdentity`
   match the TypeScript `namespaceSessionFlowType`.
   `agents/conformance/cli_session_flow_types.json` fixes the suffix for every
-  CLI runtime.
+  CLI core.
 - Breaking, Python and TypeScript cores: a connector tool's default name now
   uses the Connector library's snake case (connectorctl `lowerCamelToSnake`),
   which also names the Python Step factories. An acronym run stays one word.

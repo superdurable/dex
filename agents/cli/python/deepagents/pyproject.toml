@@ -17,7 +17,7 @@ classifiers = [
 dependencies = [
     "deepagents>=0.7.32,<0.8",
     "dex-agents==0.1.0",
-    "dex-agents-cli==0.1.0",
+    "dex-agents-cli-core==0.1.0",
     "dex-agents-langgraph==0.1.0",
     "dex-python-sdk==1.45.0",
     "langchain>=1.4.7,<2",
@@ -53,7 +53,7 @@ required-version = "==0.12.2"
 
 [tool.uv.sources]
 dex-agents = { path = "../../../python/core", editable = true }
-dex-agents-cli = { path = "../runtime", editable = true }
+dex-agents-cli-core = { path = "../core", editable = true }
 dex-agents-cli-testing = { path = "../testing", editable = true }
 dex-agents-langgraph = { path = "../../../python/langgraph", editable = true }
 
@@ -69,7 +69,7 @@ ignore = ["ASYNC109", "ASYNC110", "ASYNC220", "ASYNC221"]
 [tool.ruff.lint.isort]
 known-first-party = [
     "dex_agents",
-    "dex_agents_cli",
+    "dex_agents_cli_core",
     "dex_agents_cli_testing",
     "dex_agents_deepagents_cli",
     "dex_agents_langgraph",

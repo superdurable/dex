@@ -318,7 +318,7 @@ dependencies = [
     { name = "claude-agent-sdk" },
     { name = "dex-agents" },
     { name = "dex-agents-claude-agent-sdk" },
-    { name = "dex-agents-cli" },
+    { name = "dex-agents-cli-core" },
     { name = "dex-python-sdk" },
 ]
 
@@ -336,7 +336,7 @@ requires-dist = [
     { name = "claude-agent-sdk", specifier = ">=0.2.176,<0.3" },
     { name = "dex-agents", editable = "../../../python/core" },
     { name = "dex-agents-claude-agent-sdk", editable = "../../../python/claude-agent-sdk" },
-    { name = "dex-agents-cli", editable = "../runtime" },
+    { name = "dex-agents-cli-core", editable = "../core" },
     { name = "dex-python-sdk", specifier = "==1.45.0" },
 ]
 
@@ -350,9 +350,9 @@ dev = [
 ]
 
 [[package]]
-name = "dex-agents-cli"
+name = "dex-agents-cli-core"
 version = "0.1.0"
-source = { editable = "../runtime" }
+source = { editable = "../core" }
 dependencies = [
     { name = "dex-agents", extra = ["mcp"] },
     { name = "dex-python-sdk" },

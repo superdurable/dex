@@ -37,7 +37,7 @@
             }
           ],
           "default": "auto",
-          "description": "auto: reuse the running dexcli dev server of this machine, or start one. Otherwise the http or https URL of a Dex server, without user info. Its host is a DNS name whose last label starts with a letter, a dotted IPv4 address, or a bracketed IPv6 address. After the schema, the runtime also checks that each IPv4 part is 0 or a decimal from 1 to 255 without a leading zero, that an IPv6 address is valid, that no DNS label starts with xn--, and that the port is at most 65535."
+          "description": "auto: reuse the running dexcli dev server of this machine, or start one. Otherwise the http or https URL of a Dex server, without user info. Its host is a DNS name whose last label starts with a letter, a dotted IPv4 address, or a bracketed IPv6 address. After the schema, the CLI core also checks that each IPv4 part is 0 or a decimal from 1 to 255 without a leading zero, that an IPv6 address is valid, that no DNS label starts with xn--, and that the port is at most 65535."
         }
       }
     },
@@ -60,7 +60,7 @@
             }
           ],
           "default": "auto",
-          "description": "The connectors MCP server. auto: the server that dexcli dev provides. Otherwise its http or https URL on a loopback host: 127.0.0.1, localhost, or [::1], without user info. After the schema, the runtime also checks that the port is at most 65535."
+          "description": "The connectors MCP server. auto: the server that dexcli dev provides. Otherwise its http or https URL on a loopback host: 127.0.0.1, localhost, or [::1], without user info. After the schema, the CLI core also checks that the port is at most 65535."
         },
         "enabled": {
           "$ref": "#/$defs/connector_entries",
@@ -164,7 +164,7 @@
         "endpoint": {
           "type": "string",
           "pattern": "^https?://(?:(?:[A-Za-z0-9-]+\\.)*[A-Za-z][A-Za-z0-9-]*|[0-9]{1,3}(?:\\.[0-9]{1,3}){3}|\\[[0-9A-Fa-f:.]+\\])(?::[0-9]{1,5})?(?:/[!-~]*)?(?![\\s\\S])",
-          "description": "The http or https URL of an S3-compatible service, such as http://127.0.0.1:9000; omitted, AWS S3. Only valid with an s3 store. With an endpoint, the bucket is addressed in the URL path, as most S3-compatible services need. The host rules and the runtime checks are those of dex.server."
+          "description": "The http or https URL of an S3-compatible service, such as http://127.0.0.1:9000; omitted, AWS S3. Only valid with an s3 store. With an endpoint, the bucket is addressed in the URL path, as most S3-compatible services need. The host rules and the CLI core checks are those of dex.server."
         }
       },
       "not": {

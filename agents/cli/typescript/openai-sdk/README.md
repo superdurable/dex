@@ -4,7 +4,7 @@
 command. It runs an
 [OpenAI Agents SDK](https://openai.github.io/openai-agents-js/) agent as a
 durable Dex agent session and chats with it in your terminal. The shared
-runtime, [`@superdurable/dex-agents-cli`](../runtime/README.md), starts or
+CLI core, [`@superdurable/dex-agents-cli-core`](../core/README.md), starts or
 reuses `dexcli dev`, connects the connectors MCP server, offers the local
 tools, and runs the Worker. This package only builds the agent with the
 [OpenAI Agents SDK adapter](../../../typescript/openai-agents/README.md).
@@ -22,7 +22,7 @@ The first run asks the `init` questions and writes
 `~/.dex/agents/openai-sdk.yaml`. Then type a message. Approve or reject tool
 calls with `y` or `n`, and type `/exit` to leave. The session stays in Dex,
 and the command prints the `--resume` line that continues it. See the
-[runtime README](../runtime/README.md) for every subcommand and option, and
+[CLI core README](../core/README.md) for every subcommand and option, and
 [`agents/cli`](../../README.md) for the configuration file.
 
 ## Models and keys
@@ -41,9 +41,9 @@ already records every model call and tool call.
 The `openai` section has no options yet, and any key in it is a configuration
 error.
 
-The agent offers the connectors MCP server's tools and the runtime's
-[local tools](../runtime/README.md#local-tools), each call in its own tool Step
-with the runtime's approval rules. Its instructions are a function of the
+The agent offers the connectors MCP server's tools and the CLI core's
+[local tools](../core/README.md#local-tools), each call in its own tool Step
+with the CLI core's approval rules. Its instructions are a function of the
 running turn, and it sets no model, so the SDK asks the command's model
 provider, **TurnModelProvider**, in each model call. Each turn therefore uses
 the model and instructions its session settings resolve to. The adapter lists
@@ -59,7 +59,7 @@ image, and images that tools return go to the same store. See
 
 ## Development
 
-`ci.sh` builds the core, the OpenAI Agents SDK adapter, and the runtime, which
+`ci.sh` builds the core, the OpenAI Agents SDK adapter, and the CLI core, which
 this package installs from the repository, then typechecks and runs the
 integration tests against a private `dexcli dev`:
 

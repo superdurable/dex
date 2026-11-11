@@ -45,10 +45,10 @@ dist_dir="$(cd "$dist_dir" && pwd)"
 
 # A "cli/<name>" package lives in agents/cli/<language>/<name>. Dependencies come before dependents.
 python_library_packages=(core openai-agents pydantic-ai langgraph google-adk claude-agent-sdk)
-python_cli_packages=(cli/runtime cli/claude-sdk cli/openai-sdk cli/pydantic-ai cli/deepagents cli/google-adk cli/builtin)
+python_cli_packages=(cli/core cli/claude-sdk cli/openai-sdk cli/pydantic-ai cli/deepagents cli/google-adk cli/builtin)
 python_packages=("${python_library_packages[@]}" "${python_cli_packages[@]}")
 typescript_library_packages=(core vercel-ai openai-agents mastra claude-agent-sdk pi)
-typescript_cli_packages=(cli/runtime cli/claude-sdk cli/openai-sdk cli/vercel-ai cli/mastra cli/builtin cli/pi)
+typescript_cli_packages=(cli/core cli/claude-sdk cli/openai-sdk cli/vercel-ai cli/mastra cli/builtin cli/pi)
 typescript_packages=("${typescript_library_packages[@]}" "${typescript_cli_packages[@]}")
 
 run_python() {
@@ -74,7 +74,7 @@ python_module_name() {
 python_distribution_name() {
   case "$1" in
     core) echo "dex-agents" ;;
-    cli/runtime) echo "dex-agents-cli" ;;
+    cli/core) echo "dex-agents-cli-core" ;;
     cli/*) echo "dex-agents-${1#cli/}-cli" ;;
     *) echo "dex-agents-$1" ;;
   esac
@@ -201,14 +201,14 @@ from pathlib import Path
 
 distribution, module_name = sys.argv[1:]
 venv = Path(".venv").resolve()
-for name, module in dict([(distribution, module_name), ("dex-agents-cli", "dex_agents_cli"), ("dex-agents", "dex_agents")]).items():
+for name, module in dict([(distribution, module_name), ("dex-agents-cli-core", "dex_agents_cli_core"), ("dex-agents", "dex_agents")]).items():
     imported = importlib.import_module(module)
     if venv not in Path(imported.__file__).resolve().parents:
         raise SystemExit(f"{module} imported from {imported.__file__}, not the installed wheel")
     print(f"{name} {importlib.metadata.version(name)} imports from {Path(imported.__file__).parent}")
 PY
     )
-    [[ "$package" == "cli/runtime" ]] && continue
+    [[ "$package" == "cli/core" ]] && continue
     smoke_test_cli_command "dex-agents-${package#cli/}" "$project_dir/.venv/bin" "$project_dir/home"
   done
 }
@@ -293,7 +293,7 @@ smoke_test_python_connectors_extra() {
 typescript_package_name() {
   case "$1" in
     core) echo "@superdurable/dex-agents" ;;
-    cli/runtime) echo "@superdurable/dex-agents-cli" ;;
+    cli/core) echo "@superdurable/dex-agents-cli-core" ;;
     cli/*) echo "@superdurable/dex-agents-${1#cli/}-cli" ;;
     *) echo "@superdurable/dex-agents-$1" ;;
   esac
@@ -569,15 +569,15 @@ smoke_test_typescript_cli() {
         echo "expected one installed copy of each agents package, found more of: $duplicates" >&2
         exit 1
       fi
-      if [[ "$package" == "cli/runtime" ]]; then
+      if [[ "$package" == "cli/core" ]]; then
         printf 'import { runAgentCli } from "%s";\nexport const run: typeof runAgentCli = runAgentCli;\n' \
           "$package_name" >consumer.ts
         npx tsc --strict --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck \
           --types node consumer.ts
         node --input-type=module -e "
-          const runtime = await import('$package_name');
-          if (typeof runtime.runAgentCli !== 'function') throw new Error('$package_name lacks runAgentCli');
-          console.log('$package_name exports', Object.keys(runtime).join(', '));
+          const cliCore = await import('$package_name');
+          if (typeof cliCore.runAgentCli !== 'function') throw new Error('$package_name lacks runAgentCli');
+          console.log('$package_name exports', Object.keys(cliCore).join(', '));
         "
       else
         smoke_test_cli_command "dex-agents-${package#cli/}" "$project_dir/node_modules/.bin" "$project_dir/home"

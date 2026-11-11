@@ -40,7 +40,7 @@ import {
   type HarnessContext,
   type LocalToolGroup,
   type TurnConfig,
-} from "@superdurable/dex-agents-cli";
+} from "@superdurable/dex-agents-cli-core";
 import { piAgentFunctionTool, type PiAgentToolLike } from "@superdurable/dex-agents-pi";
 
 import { BashOutputFiles } from "./bash-output-files.js";
@@ -64,7 +64,7 @@ export interface PiCodingLocalTool {
 }
 
 /**
- * pi-coding-agent's tools that replace the runtime's `files` and `shell` groups, by their Pi names, in the order
+ * pi-coding-agent's tools that replace the CLI core's `files` and `shell` groups, by their Pi names, in the order
  * the command offers them.
  *
  * @since 0.5.0
@@ -80,7 +80,7 @@ export const piCodingLocalTools: Readonly<Record<string, PiCodingLocalTool>> = O
 });
 
 /**
- * Seconds a `bash` command runs before it is killed when the model passes no `timeout`: the runtime shell tool's
+ * Seconds a `bash` command runs before it is killed when the model passes no `timeout`: the CLI core shell tool's
  * default.
  *
  * @since 0.5.0
@@ -88,7 +88,7 @@ export const piCodingLocalTools: Readonly<Record<string, PiCodingLocalTool>> = O
 export const defaultBashTimeoutSeconds = 120;
 
 /**
- * The largest `bash` timeout in seconds, from the model or the configuration: the runtime shell tool's maximum.
+ * The largest `bash` timeout in seconds, from the model or the configuration: the CLI core shell tool's maximum.
  *
  * @since 0.5.0
  */
@@ -98,22 +98,22 @@ const refusalReferenceKey = "refused";
 
 /**
  * pi-coding-agent's `read`, `grep`, `find`, `ls`, `write`, `edit`, and `bash` tools as a {@link ToolSource}, so each
- * call runs in its own Dex tool Step with the CLI runtime's local tool rules.
+ * call runs in its own Dex tool Step with the CLI core's local tool rules.
  *
  * - Each model call lists the tools whose group the running turn switches on.
  * - Reads run at once. `write` and `edit` wait for approval on every call. A `bash` command waits unless the turn's
  *   shell allow list has its exact text. `approval.always` adds approval by tool name.
  * - In its tool Step, a call is checked again with the executing Worker's configuration through
  *   `HarnessContext.resolveToolStepPermissions`. A call refused there records `failed` and does not run.
- * - Every file access of the file tools goes through the runtime's `WorkspaceFiles`, with the path Pi finally
- *   opens, so the runtime's workspace boundary applies: no path outside the workspace, no final symbolic link
+ * - Every file access of the file tools goes through the CLI core's `WorkspaceFiles`, with the path Pi finally
+ *   opens, so the CLI core's workspace boundary applies: no path outside the workspace, no final symbolic link
  *   followed, no file with more than one hard link, and writes by temporary file and rename. `edit` fails with a
  *   conflict when the file changed after it read it. `find` and `grep` walk the workspace and read its files
  *   through it instead of running `fd` and `rg`; they do not read ignore files.
  * - A read tool's failure records `failed`, and the model sees why. A `write` or `edit` refused before it changed
  *   anything (`WorkspaceFileRefusedError`) records `failed`; any other failure may come after a change, such as
  *   after the rename, and records `outcome_unknown`.
- * - A `bash` command that ran is a result the model reads, as the runtime shell tool's: its output ends with
+ * - A `bash` command that ran is a result the model reads, as the CLI core shell tool's: its output ends with
  *   `Command exited with code N` for a non-zero exit, or `Command timed out after N seconds` when its timeout killed
  *   it. A call that fails before its shell process starts records `failed`. A failure after that records
  *   `outcome_unknown`, and the call never runs again. A call without `timeout` gets the source's default timeout;
@@ -427,7 +427,7 @@ function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolC
 }
 
 /**
- * Makes a command that ran a result, as the runtime shell tool does: a non-zero exit, which Pi reports as an error,
+ * Makes a command that ran a result, as the CLI core shell tool does: a non-zero exit, which Pi reports as an error,
  * and a timeout kill, which Pi throws, become output the model reads. Pi's temporary file of a cut output is deleted,
  * after a cancellation too, and the result no longer names it.
  */

@@ -8,7 +8,7 @@
 
 /**
  * The `dex-agents-mastra` command: a Mastra agent in the terminal. It builds the agent session Flow with the Mastra
- * adapter and runs it with the shared Dex Agents CLI runtime.
+ * adapter and runs it with the shared Dex Agents CLI core.
  *
  * @packageDocumentation
  */

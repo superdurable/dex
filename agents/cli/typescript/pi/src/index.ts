@@ -9,7 +9,7 @@
 /**
  * The `dex-agents-pi` command: a Pi coding agent in the terminal. Dex runs the agent loop with the built-in agent
  * loop session Flow, pi-ai makes each model call, and pi-coding-agent's tools run as Dex tool Steps, on the shared
- * Dex Agents CLI runtime.
+ * Dex Agents CLI core.
  *
  * @packageDocumentation
  */

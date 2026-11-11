@@ -187,7 +187,7 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.doesNotMatch(JSON.stringify(content), /image omitted/);
   });
 
-  test("read and ls run at once, and the Pi tools replace the runtime's file and shell tools", async () => {
+  test("read and ls run at once, and the Pi tools replace the CLI core's file and shell tools", async () => {
     const home = newHome(noConnectors);
     mkdirSync(home.workspace, { recursive: true });
     writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");

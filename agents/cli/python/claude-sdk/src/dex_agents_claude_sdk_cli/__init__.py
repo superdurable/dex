@@ -9,10 +9,10 @@
 """The ``dex-agents-claude-sdk`` command: a Claude Agent SDK agent in the terminal.
 
 It builds the agent session Flow with the Claude Agent SDK adapter and runs
-it with the shared Dex Agents CLI runtime. See the package README.
+it with the shared Dex Agents CLI core. See the package README.
 """
 
-import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
+import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
@@ -27,7 +27,7 @@ from dex_agents_claude_sdk_cli.harness import (
     ClaudeSdkHarness,
     validate_claude_section,
 )
-from dex_agents_cli import ConfigError, command_name, run_agent_cli
+from dex_agents_cli_core import ConfigError, command_name, run_agent_cli
 
 __all__ = [
     "CLAUDE_CODE_LOCAL_TOOLS",

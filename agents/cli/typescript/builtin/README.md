@@ -4,7 +4,7 @@
 command. It runs an agent with the built-in agent loop of
 [`@superdurable/dex-agents`](../../../typescript/core/README.md), with no agent
 framework, as a durable Dex agent session, and chats with it in your terminal.
-The shared runtime, [`@superdurable/dex-agents-cli`](../runtime/README.md),
+The shared CLI core, [`@superdurable/dex-agents-cli-core`](../core/README.md),
 starts or reuses `dexcli dev`, connects the connectors MCP server, offers the
 local tools, and runs the Worker. This package only builds the agent with the
 core's AI SDK model client.
@@ -22,7 +22,7 @@ The first run asks the `init` questions and writes
 `~/.dex/agents/builtin.yaml`. Then type a message. Approve or reject tool
 calls with `y` or `n`, and type `/exit` to leave. The session stays in Dex,
 and the command prints the `--resume` line that continues it. See the
-[runtime README](../runtime/README.md) for every subcommand and option, and
+[CLI core README](../core/README.md) for every subcommand and option, and
 [`agents/cli`](../../README.md) for the configuration file.
 
 ## Models and keys
@@ -45,15 +45,15 @@ The `builtin` section has no options yet, and any key in it is a
 configuration error. Each turn uses the model and instructions its session
 settings resolve to.
 
-The agent offers the connectors MCP server's tools, the runtime's
-[local tools](../runtime/README.md#local-tools), and the `ask_user` built-in
+The agent offers the connectors MCP server's tools, the CLI core's
+[local tools](../core/README.md#local-tools), and the `ask_user` built-in
 tool, whose questions you answer in the terminal. Every model call is one
-`RunModel` Step, and every tool call is its own tool Step with the runtime's
+`RunModel` Step, and every tool call is its own tool Step with the CLI core's
 approval rules.
 
 ## Development
 
-`ci.sh` builds the core and the runtime, which this package installs from the
+`ci.sh` builds the core and the CLI core, which this package installs from the
 repository, then typechecks and runs the integration tests against a private
 `dexcli dev`:
 

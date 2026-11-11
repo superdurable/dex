@@ -9,5 +9,5 @@ section: Dex SDK 1.45.0
   [Go](../docs/reference/go/changelog.mdx) SDK change logs: a Step type with
   "-" can no longer start SubFlows. The agents packages start none.
 - Agents CI, the nightly long run, and the publish workflows test against
-  `dexcli` 1.45.0. The Python and TypeScript CLI runtimes download `dexcli`
+  `dexcli` 1.45.0. The Python and TypeScript CLI cores download `dexcli`
   1.45.0 when none is installed.

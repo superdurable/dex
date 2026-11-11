@@ -17,10 +17,10 @@ section: Showing sessions in Dex Web
   needs one upload with `force`. The conformance file
   `session_graph_renderings.json` records the time and the template hash, and
   `generate.py` refuses a template change without a later time.
-- Python and TypeScript CLI runtimes: the command uploads the graph of its
+- Python and TypeScript CLI cores: the command uploads the graph of its
   suffixed session Flow type when it starts, so CLI sessions appear in Dex Web
   with `dexcli dev` 1.45.0. The outcome and any failure go to
   `~/.dex/agents/<harness>.log`, not the terminal. The session Actions require `dex-agents-cli.operate`
   (**SESSION_ACTION_PERMISSION**, `sessionActionPermission`) in every CLI
-  runtime; the conformance file `cli_session_flow_types.json` fixes it.
+  core; the conformance file `cli_session_flow_types.json` fixes it.
 - Go core: no session graph yet.

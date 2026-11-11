@@ -1,12 +1,12 @@
 {
-  "description": "Dex Agents CLI configuration behavior every CLI runtime must match: YAML parsing, schema validation, file defaults, the media store, session override narrowing, operation names, and the shell allow list. Hand-written; see README.md and agents/cli/README.md.",
+  "description": "Dex Agents CLI configuration behavior every CLI core must match: YAML parsing, schema validation, file defaults, the media store, session override narrowing, operation names, and the shell allow list. Hand-written; see README.md and agents/cli/README.md.",
   "schemas": {
     "config": "agents/cli/config.schema.json",
     "session_settings": "agents/cli/session-settings.schema.json"
   },
   "error_codes": {
     "yaml": "The file is not one YAML 1.2 document with unique keys. path is always \"\".",
-    "schema": "The value fails the schema. Runtimes may report schema errors in any order. Each schema case has exactly one violation, and a runtime passes it when validation fails and the expected instance location path and keyword are among its validator's errors, nested anyOf errors included.",
+    "schema": "The value fails the schema. CLI cores may report schema errors in any order. Each schema case has exactly one violation, and a CLI core passes it when validation fails and the expected instance location path and keyword are among its validator's errors, nested anyOf errors included.",
     "invalid_url": "dex.server, connectors.mcp, or media.endpoint passes the schema but is not a URL a WHATWG URL parser accepts with a port of at most 65535: an IPv4 part that is not 0 or a decimal from 1 to 255 without a leading zero, an invalid IPv6 address, a DNS label starting with xn--, or a port over 65535. path is the field.",
     "duplicate_tool": "One entry names the same operation twice, in two spellings. path is the entry.",
     "duplicate_connection": "Two entries cover the same connection. path is the later entry.",
@@ -14,7 +14,7 @@
     "widens_connectors": "A session entry is not inside any entry of the file. path is the entry.",
     "widens_local_tools": "A session switches on what the file switches off, or allows a command the file does not."
   },
-  "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings. A TypeScript runtime must compare code points: the default Array sort compares UTF-16 code units and puts U+10000 before U+E000.",
+  "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings. A TypeScript CLI core must compare code points: the default Array sort compares UTF-16 code units and puts U+10000 before U+E000.",
   "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then connectors.mcp, then media.endpoint; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser.",
   "harness_sections": [
     "claude",
@@ -49,7 +49,7 @@
     },
     {
       "name": "empty-file",
-      "description": "An empty file is null; the runtime reads it as {}.",
+      "description": "An empty file is null; the CLI core reads it as {}.",
       "text": "",
       "value": null
     },

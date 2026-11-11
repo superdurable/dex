@@ -8,7 +8,7 @@
 
 /**
  * The `dex-agents-openai-sdk` command: an OpenAI Agents SDK agent in the terminal. It builds the agent session Flow
- * with the OpenAI Agents SDK adapter and runs it with the shared Dex Agents CLI runtime.
+ * with the OpenAI Agents SDK adapter and runs it with the shared Dex Agents CLI core.
  *
  * @packageDocumentation
  */

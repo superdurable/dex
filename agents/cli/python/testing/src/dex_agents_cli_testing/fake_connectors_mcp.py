@@ -9,7 +9,7 @@
 """A fake connectors MCP server: ``python -m dex_agents_cli_testing.fake_connectors_mcp <port>``.
 
 It serves a Hacker News read and a Slack write with the connector ``_meta``
-keys the runtime filters by, and logs every tool run to
+keys the CLI core filters by, and logs every tool run to
 ``$FAKE_MCP_STATE_DIR/mcp-invocations.log``.
 """
 
@@ -25,7 +25,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp_types import ToolAnnotations
 
 from dex_agents.testing import InvocationLog
-from dex_agents_cli import canonical_operation_name
+from dex_agents_cli_core import canonical_operation_name
 
 STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_MCP_STATE_DIR"
 INVOCATION_LOG_NAME = "mcp-invocations.log"

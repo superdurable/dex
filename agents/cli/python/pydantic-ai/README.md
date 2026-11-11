@@ -2,8 +2,8 @@
 
 `dex-agents-pydantic-ai-cli` provides the `dex-agents-pydantic-ai` command. It
 runs a [Pydantic AI](https://ai.pydantic.dev/) agent as a durable Dex agent
-session and chats with it in your terminal. The shared runtime,
-[`dex-agents-cli`](../runtime/README.md), starts or reuses `dexcli dev`,
+session and chats with it in your terminal. The shared CLI core,
+[`dex-agents-cli-core`](../core/README.md), starts or reuses `dexcli dev`,
 connects the connectors MCP server, and runs the Worker. This package only
 builds the agent with the
 [Pydantic AI adapter](../../../python/pydantic-ai/README.md).
@@ -21,7 +21,7 @@ The first run asks the `init` questions and writes
 `~/.dex/agents/pydantic-ai.yaml`. Then type a message at the `>` prompt.
 Approve or reject tool calls with `y` or `n`, and press Ctrl-D to exit. The
 session stays in Dex, and the command prints the `--resume` line that
-continues it. See the [runtime README](../runtime/README.md#running-a-command)
+continues it. See the [CLI core README](../core/README.md#running-a-command)
 for every subcommand and option, and [`agents/cli`](../../README.md) for the
 configuration file.
 
@@ -47,12 +47,12 @@ has no options yet, and any key in it is a configuration error.
 
 ## Tools
 
-The agent's tools are the runtime's: its local tool source and the connector
+The agent's tools are the CLI core's: its local tool source and the connector
 tools of the connectors MCP server. Every call runs in its own Dex tool Step,
-with the runtime's policy. Reads run at once, file writes and shell commands
+with the CLI core's policy. Reads run at once, file writes and shell commands
 wait for approval unless the shell allow list has the command, and the file
 tools stay in the workspace. See the
-[runtime README](../runtime/README.md) for the local tools.
+[CLI core README](../core/README.md) for the local tools.
 
 ## Images
 
@@ -64,7 +64,7 @@ image, and images that tools return go to the same store. See
 ## Development
 
 Develop with uv 0.12.2. The package resolves `dex-agents`, the adapter, the
-runtime, and the shared test support from this repository by path. `uv.lock`
+CLI core, and the shared test support from this repository by path. `uv.lock`
 pins `pydantic-ai-slim` to the version the adapter's lock pins, and `ci.sh`
 checks that. `ci.sh` installs the locked dependencies, checks lint and types,
 and runs the tests against a private `dexcli dev`:

@@ -9,7 +9,7 @@
 """Test-only reference resolver for the Dex Agents CLI configuration.
 
 It proves that ``agents/conformance/cli_config.json`` is consistent with the
-rules in ``agents/cli/README.md``. The CLI runtimes implement the same rules
+rules in ``agents/cli/README.md``. The CLI cores implement the same rules
 in their own code; they do not import this module.
 """
 

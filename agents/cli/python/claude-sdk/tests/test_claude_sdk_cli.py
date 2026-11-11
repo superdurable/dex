@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from dex_agents_claude_sdk_cli import CLAUDE_SDK_CLI_FLOW_TYPE
-from dex_agents_cli import session_flow_type
+from dex_agents_cli_core import session_flow_type
 from tests.conftest import (
     MOCK_API_KEY,
     CliHome,

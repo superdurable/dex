@@ -7,11 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { Agent, OpenAIProvider, type Model, type ModelProvider } from "@openai/agents";
-import { ConfigError, type AgentHarness, type HarnessContext, type ResolvedTurn } from "@superdurable/dex-agents-cli";
+import { ConfigError, type AgentHarness, type HarnessContext, type ResolvedTurn } from "@superdurable/dex-agents-cli-core";
 import { createOpenAIAgentsSessionFlow } from "@superdurable/dex-agents-openai-agents";
 
 /**
- * The base Flow type of the command's sessions, before the runtime namespaces it.
+ * The base Flow type of the command's sessions, before the CLI core namespaces it.
  *
  * @since 0.5.0
  */
@@ -38,7 +38,7 @@ const openaiModelPrefix = "openai/";
 /**
  * The `dex-agents-openai-sdk` command: an OpenAI Agents SDK agent in the terminal.
  *
- * The agent offers the runtime's connector and local tools and calls the OpenAI Responses API through the SDK's
+ * The agent offers the CLI core's connector and local tools and calls the OpenAI Responses API through the SDK's
  * `OpenAIProvider`, which reads `OPENAI_API_KEY` and `OPENAI_BASE_URL`. The model is an OpenAI model name, such as
  * `gpt-5.2`; an `openai/` prefix is accepted and dropped. Each turn uses the model and instructions its session
  * settings resolve to. The SDK's trace upload is off, because the Dex session already records every model and tool
@@ -46,7 +46,7 @@ const openaiModelPrefix = "openai/";
  *
  * @example
  * ```ts
- * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli";
+ * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli-core";
  * import { openaiSdkHarness } from "@superdurable/dex-agents-openai-sdk-cli";
  *
  * process.exit(await runAgentCli(openaiSdkHarness, processAgentCliIo()));

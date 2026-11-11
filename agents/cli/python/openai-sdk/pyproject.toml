@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "dex-agents==0.1.0",
-    "dex-agents-cli==0.1.0",
+    "dex-agents-cli-core==0.1.0",
     "dex-agents-openai-agents==0.1.0",
     "dex-python-sdk==1.45.0",
     "openai-agents>=0.24,<0.25",
@@ -49,7 +49,7 @@ required-version = "==0.12.2"
 
 [tool.uv.sources]
 dex-agents = { path = "../../../python/core", editable = true }
-dex-agents-cli = { path = "../runtime", editable = true }
+dex-agents-cli-core = { path = "../core", editable = true }
 dex-agents-cli-testing = { path = "../testing", editable = true }
 dex-agents-openai-agents = { path = "../../../python/openai-agents", editable = true }
 
@@ -67,7 +67,7 @@ known-first-party = [
     "dex_agents",
     "dex_agents_openai_agents",
     "dex_agents_openai_sdk_cli",
-    "dex_agents_cli",
+    "dex_agents_cli_core",
     "dex_agents_cli_testing",
     "tests",
 ]

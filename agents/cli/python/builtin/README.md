@@ -5,7 +5,7 @@ the Dex built-in agent loop as a durable Dex agent session
 and chats with it in your terminal. No agent framework is involved: the
 session's own `RunModel` Step makes one model call through
 [LiteLLM](https://docs.litellm.ai/), and every tool call runs in its own Dex
-tool Step. The shared runtime, [`dex-agents-cli`](../runtime/README.md),
+tool Step. The shared CLI core, [`dex-agents-cli-core`](../core/README.md),
 starts or reuses `dexcli dev`, connects the connectors MCP server, and runs
 the Worker. This package only builds the built-in loop agent with the
 [core's LiteLLM model client](../../../python/core/README.md).
@@ -24,7 +24,7 @@ The first run asks the `init` questions and writes
 or reject tool calls with `y` or `n`, answer the agent's questions, and press
 Ctrl-D to exit. The session stays in Dex, and the command prints the
 `--resume` line that continues it. See the
-[runtime README](../runtime/README.md#running-a-command) for every subcommand
+[CLI core README](../core/README.md#running-a-command) for every subcommand
 and option, and [`agents/cli`](../../README.md) for the configuration file.
 
 LiteLLM reads each provider's standard environment variables, such as
@@ -43,17 +43,17 @@ no options yet, and any key in it is a configuration error.
 
 ## Tools
 
-The agent's tools are the runtime's: its local tool source and the connector
+The agent's tools are the CLI core's: its local tool source and the connector
 tools of the connectors MCP server. Every call runs in its own Dex tool Step,
-with the runtime's policy. Reads run at once, file writes and shell commands
+with the CLI core's policy. Reads run at once, file writes and shell commands
 wait for approval unless the shell allow list has the command, and the file
 tools stay in the workspace. See the
-[runtime README](../runtime/README.md) for the local tools. The agent can also
+[CLI core README](../core/README.md) for the local tools. The agent can also
 ask you a question with the `ask_user` built-in tool.
 
 ## Development
 
-Develop with uv 0.12.2. The package resolves `dex-agents` and the runtime
+Develop with uv 0.12.2. The package resolves `dex-agents` and the CLI core
 from this repository by path. `uv.lock` pins `litellm` to the version the
 core's lock pins, and `ci.sh` checks that. `ci.sh` installs the locked
 dependencies, checks lint and types, and runs the tests against a private

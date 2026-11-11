@@ -8,7 +8,7 @@
 
 /**
  * The `dex-agents-vercel-ai` command: a Vercel AI SDK agent in the terminal. It builds the agent session Flow with
- * the Vercel AI SDK adapter and runs it with the shared Dex Agents CLI runtime.
+ * the Vercel AI SDK adapter and runs it with the shared Dex Agents CLI core.
  *
  * @packageDocumentation
  */

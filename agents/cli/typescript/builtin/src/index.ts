@@ -8,7 +8,7 @@
 
 /**
  * The `dex-agents-builtin` command: an agent run by the Dex Agents core's built-in agent loop in the terminal. It
- * builds the agent session Flow with the core's AI SDK model client and runs it with the shared Dex Agents CLI runtime.
+ * builds the agent session Flow with the core's AI SDK model client and runs it with the shared Dex Agents CLI core.
  *
  * @packageDocumentation
  */
