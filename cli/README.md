@@ -192,7 +192,7 @@ must exist and be reachable before startup.
 --connectors-mcp-version string    Connectors MCP server release X.Y.Z (default newest compatible)
 --dex-port int                     Dex gRPC port (default 8801)
 --engine string                    compatibility option; server-zd is the only engine (default zd)
---flow-rendering-dir string        directory containing Flow Definition Graph JSON files
+--flow-rendering-dir string        directory containing Flow Definition Graph JSON files (optional)
 --open                             open Dex Web after readiness (default true)
 --server-log-folder string         keep server logs (default stderr)
 --web-port int                     Dex Web port (default 8802)
@@ -723,6 +723,22 @@ that value is false, its expired history objects stay until its retention ends.
 To delete them sooner, set the field to true for that run with UpdateFlowConfig
 through an older dexcli or SDK, or a direct gRPC request; see
 [History offload](https://docs.superdurable.io/reference/server/configuration#history-offload).
+
+## Upload Flow definitions
+
+`dexcli flow-definition upload <path>... [--force]` stores Flow Definition
+Graph 2.0 JSON files on the server. Directories are read recursively for
+`*.json` files, with the same rules as the Go SDK's `ReadFlowDefinitionFiles`;
+other JSON files, such as `package.json`, are skipped with a note on stderr.
+The output lists each Flow type with its outcome: `CREATED`, `REPLACED`,
+`UNCHANGED`, or `KEPT_EXISTING`. `--force` replaces a stored definition even
+when it has a later generated time. `dexcli flow-definition list` prints every
+Flow type that has a stored definition.
+
+```bash
+dexcli flow-definition upload ./build --server dex.example.com:8801
+dexcli flow-definition list --server dex.example.com:8801
+```
 
 ## Call any FlowService API
 

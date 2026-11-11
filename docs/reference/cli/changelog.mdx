@@ -14,7 +14,12 @@ Not released yet. The next minor release, cli-v1.45.0, ships these changes.
 
 ### Added
 
+- **dexcli flow-definition upload** stores Flow Definition Graph 2.0 JSON files or directories on the server and prints the outcome for each Flow type. **--force** replaces a stored definition even when its generation time is later. **dexcli flow-definition list** lists the Flow types that have a stored definition. [Reference](/reference/cli/#flow-definition).
 - **dexcli visualize** writes a top-level **generatedAt** field, an RFC 3339 UTC timestamp, into each Version 2.0 Flow Definition Graph. Set **SOURCE_DATE_EPOCH** to make it reproducible; an invalid value is a usage error. Version 1.0 output is unchanged. Dex Web older than 1.45 rejects a graph that has **generatedAt**, so upgrade Dex Web with dexcli. [Reference](/reference/web/flow-visualization#generated-at).
+
+### Changed
+
+- **dexcli dev** bundles server-zd 0.1.26, which stores uploaded Flow Definition Graphs. [Reference](/reference/server/changelog#v0-1-26).
 
 ### Fixed
 
