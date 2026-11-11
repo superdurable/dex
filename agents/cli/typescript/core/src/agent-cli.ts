@@ -351,9 +351,8 @@ class AgentCliCommand {
       ...connection,
       pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
     });
-    // Like the Python CLI core, send library warnings, such as a lost Worker stream, to the log file.
     mkdirSync(this.environment.agentsDirectory, { recursive: true });
-    this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath());
+    this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath(), this.log);
     await this.worker.start();
     await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
     await this.uploadSessionFlowDefinition(this.client, flowType);
@@ -656,14 +655,21 @@ const mediaDirectoryName = "media";
 /** A media store that may hold connections, which `close` releases. */
 type ClosableMediaStore = MediaStore & { close?(): void };
 
-/** Sends `console.warn` and `console.error` to a log file until {@link restore}. */
+/** The SDK Worker's task-stream reconnect messages; issue #1657 tracks a logger option to replace this. */
+const workerReconnectMessage =
+  /^(Worker task stream disconnected|Worker task stream did not register|Worker task registration failed|send Worker (task|keepalive) Pong)\b/;
+
+/** Logs library `console.warn` and `console.error` calls, and shows their first line unless it is reconnect noise. */
 class LibraryConsoleRedirection {
   private readonly originalWarn = console.warn;
   private readonly originalError = console.error;
 
-  public constructor(private readonly logFilePath: string) {
-    console.warn = (...values: unknown[]) => this.append("WARN", values);
-    console.error = (...values: unknown[]) => this.append("ERROR", values);
+  public constructor(
+    private readonly logFilePath: string,
+    private readonly showLine: (line: string) => void,
+  ) {
+    console.warn = (...values: unknown[]) => this.handle("WARN", values);
+    console.error = (...values: unknown[]) => this.handle("ERROR", values);
   }
 
   public restore(): void {
@@ -671,11 +677,15 @@ class LibraryConsoleRedirection {
     console.error = this.originalError;
   }
 
-  private append(level: string, values: readonly unknown[]): void {
+  private handle(level: string, values: readonly unknown[]): void {
+    const text = format(...values);
     try {
-      appendFileSync(this.logFilePath, `${new Date().toISOString()} ${level} ${format(...values)}\n`);
+      appendFileSync(this.logFilePath, `${new Date().toISOString()} ${level} ${text}\n`);
     } catch {
       // An unwritable log file loses only this diagnostic line.
+    }
+    if (!workerReconnectMessage.test(text)) {
+      this.showLine(`${text.split("\n", 1)[0] ?? ""} (details in ${this.logFilePath})`);
     }
   }
 }

@@ -167,10 +167,15 @@ Changed in 0.6.0: a **dexcli dev** that the command started stops when the
 command exits, and Dex Web stops with it. This happens on **/exit**, at the end
 of input, on the Ctrl-C that exits, on a failure, and on SIGTERM or SIGHUP. The
 command stops the whole process group of **dexcli dev**, which includes
-**dex-server-zd**. It sends SIGTERM, and SIGKILL after 20 seconds. It then
-removes **~/.dex/agents/dexcli-dev.json** and prints
-"Stopped the dexcli dev this command started." Before 0.6.0, the started
-**dexcli dev** kept running after the command exited.
+**dex-server-zd**. It removes **~/.dex/agents/dexcli-dev.json**, sends
+SIGTERM, and sends SIGKILL after 20 seconds. Another SIGTERM, SIGHUP, or
+Ctrl-C during those 20 seconds sends SIGKILL at once. The command then prints
+"Stopped the dexcli dev this command started." It signals the group only
+while **dexcli dev** itself still runs. If **dexcli dev** exits but processes
+of its group still run, the command prints their process group so that you can
+stop them. Windows has no process groups, so there the command signals only
+**dexcli dev**; the Python commands first send it CTRL_BREAK_EVENT. Before 0.6.0, the started **dexcli dev** kept running
+after the command exited.
 
 A **dexcli dev** that the command reused keeps running. This includes one you
 started yourself and one that another command started. Sessions and their
@@ -181,14 +186,16 @@ To share one Dex server across commands, run **dexcli dev** yourself before
 you start them, or set **dex.server** to a URL. Two commands that both use
 **auto** share the **dexcli dev** that the first one started. It stops when
 the first command exits. The second command then fails with exit code 1 and a
-short error that names the stopped **dexcli dev**. During the chat, warnings of
-the Dex SDK and other libraries, such as a lost Worker connection, go to the
-log file **~/.dex/agents/HARNESS.log**, not the terminal.
+short error that names the stopped **dexcli dev**. In the TypeScript commands,
+the Worker's reconnect messages, such as for a lost Dex server, go only to the
+log file **~/.dex/agents/HARNESS.log**. Other library warnings show their first
+line on the terminal and their full text in that file.
 
-A record in **~/.dex/agents/dexcli-dev.json** whose process still runs, for
-example after the command that started it crashed, is treated like any other
-running **dexcli dev**: a later command reuses it and never stops it. Stop it
-with **kill** and the pid in the record.
+A command killed with SIGKILL, or one that crashes, cannot stop the
+**dexcli dev** it started. That **dexcli dev** keeps running, and its record in
+**~/.dex/agents/dexcli-dev.json** stays. A later command reuses it like any
+other running **dexcli dev** and never stops it. Stop it with **kill** and the
+pid in the record.
 
 These checks tell a **dexcli dev** from an unrelated service. They do not
 authenticate it: another local user's process that binds the ports first and
@@ -575,6 +582,10 @@ graph and its Actions.
 - **Deep Agents does not compact.** A long **dex-agents-deepagents** session
   ends when its input no longer fits the model's context window. Start a new
   session then. See [Compaction](/reference/agents/session-limits#compaction).
+- **A killed command leaves its dexcli dev running.** When the command gets
+  SIGKILL or crashes, the **dexcli dev** it started keeps running. Later
+  commands reuse it and do not stop it; stop it with **kill**. See
+  [The local Dex server](#dex-server).
 - **The local server check does not authenticate.** On a shared machine, set
   **dex.server** and **connectors.mcp** to URLs you trust. See
   [The local Dex server](#dex-server).

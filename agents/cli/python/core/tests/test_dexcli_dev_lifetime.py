@@ -21,7 +21,9 @@ import httpx2
 import pexpect
 import pytest
 
-from dex_agents.testing import PrivateDexEngine, find_free_ports
+from dex_agents.testing import DEXCLI_ENVIRONMENT_VARIABLE, PrivateDexEngine, find_free_ports
+from dex_agents_cli_core.cli import _CommandDexServer
+from dex_agents_cli_core.environment import CommandEnvironment
 from tests.conftest import CliHome, config_yaml, expect, wait_for_exit
 
 _NO_CONNECTORS = {"connectors": {"enabled": []}, "local_tools": {"browser": False}}
@@ -189,3 +191,63 @@ async def test_a_second_session_reuses_the_first_and_fails_short_when_it_exits(
     )
     assert await wait_for_exit(second) == 1
     assert "Traceback" not in (second.before or "")
+
+
+_SIGTERM_IGNORING_DEXCLI = """#!/bin/sh
+if [ "$1" != "dev" ]; then exec "$DEX_TEST_REAL_DEXCLI" "$@"; fi
+trap 'touch "$DEX_TEST_TERM_MARKER"' TERM
+"$DEX_TEST_REAL_DEXCLI" "$@" &
+while :; do sleep 1; done
+"""
+
+
+async def test_a_signal_while_the_stop_waits_kills_the_dexcli_dev_at_once(
+    private_ports_home: CliHome, tmp_path: Path
+) -> None:
+    # The wrapper records SIGTERM and keeps running, as a stuck dexcli dev would.
+    wrapper = tmp_path / "dexcli-wrapper.sh"
+    wrapper.write_text(_SIGTERM_IGNORING_DEXCLI)
+    wrapper.chmod(0o755)
+    term_marker = tmp_path / "dexcli-wrapper.terminated"
+    private_ports_home.extra_environment.update(
+        DEXCLI=str(wrapper),
+        DEX_TEST_REAL_DEXCLI=os.environ[DEXCLI_ENVIRONMENT_VARIABLE],
+        DEX_TEST_TERM_MARKER=str(term_marker),
+    )
+    child, started_pid = await _start_session(private_ports_home)
+    assert started_pid is not None
+    child.sendline("/exit")
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _STOP_SECONDS
+    while not term_marker.exists():
+        assert loop.time() < deadline, "the dexcli dev wrapper never received SIGTERM"
+        await asyncio.sleep(0.1)
+    signalled_at = loop.time()
+    child.kill(signal.SIGTERM)
+    assert await wait_for_exit(child) == 128 + signal.SIGTERM
+    assert loop.time() - signalled_at < 10, "the command must not wait out the grace period"
+    await _assert_stopped(private_ports_home, started_pid)
+
+
+def test_termination_signal_setup_is_skipped_where_the_event_loop_has_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    probe_loop = asyncio.new_event_loop()
+    loop_class = type(probe_loop)
+    probe_loop.close()
+
+    def unsupported(*arguments: object) -> None:
+        raise NotImplementedError("as on Windows")
+
+    removed: list[int] = []
+    monkeypatch.setattr(loop_class, "add_signal_handler", unsupported)
+    monkeypatch.setattr(
+        loop_class, "remove_signal_handler", lambda _loop, number: removed.append(number)
+    )
+    server = _CommandDexServer(CommandEnvironment.from_environment({"HOME": str(tmp_path)}))
+
+    async def command() -> int:
+        return 7
+
+    assert server.run(command()) == 7
+    assert removed == []

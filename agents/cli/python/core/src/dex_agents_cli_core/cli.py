@@ -99,7 +99,9 @@ _SESSION_LIST_PAGE_SIZE = 50
 _SESSION_START_TIMEOUT_SECONDS = 60.0
 _SESSION_START_POLL_SECONDS = 0.1
 _LOGGER = logging.getLogger(__name__)
-_TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+_TERMINATION_SIGNALS = tuple(
+    getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)
+)
 
 
 class CommandError(Exception):
@@ -201,8 +203,13 @@ class _CommandDexServer:
             received_signals.append(signal_number)
             command_task.cancel()
 
+        handled_signals: list[int] = []
         for signal_number in _TERMINATION_SIGNALS:
-            loop.add_signal_handler(signal_number, cancel_on_signal, signal_number)
+            try:
+                loop.add_signal_handler(signal_number, cancel_on_signal, signal_number)
+            except NotImplementedError:
+                break  # Windows loops take no signal handlers; Ctrl-C stays KeyboardInterrupt.
+            handled_signals.append(signal_number)
         try:
             return await self._fail_short_on_a_lost_server(command)
         except asyncio.CancelledError:
@@ -210,7 +217,7 @@ class _CommandDexServer:
                 raise
             return 128 + received_signals[0]
         finally:
-            for signal_number in _TERMINATION_SIGNALS:
+            for signal_number in handled_signals:
                 loop.remove_signal_handler(signal_number)
 
     async def resolve(self, config: EffectiveConfig) -> DexServerEndpoint:

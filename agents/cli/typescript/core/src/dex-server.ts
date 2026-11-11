@@ -7,7 +7,18 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import {
+  closeSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -28,6 +39,8 @@ const identityProbeFlowId = "dex-agents-cli-identity-probe";
 // Longer than the 10 seconds dexcli dev gives dex-server-zd to shut down.
 const stopGracePeriodMs = 20_000;
 const killWaitMs = 5_000;
+// dexcli dev stops dex-server-zd before it exits; this only catches a member that outlives it.
+const leftoverWaitMs = 2_000;
 const stoppedLine = "Stopped the dexcli dev this command started.";
 const sharingHint = "To share one dexcli dev across sessions, run dexcli dev yourself first.";
 
@@ -189,11 +202,7 @@ export class StartedDexcliDevProcess {
         child.once("exit", () => resolve());
       }
     });
-    for (const signal of ["SIGTERM", "SIGHUP", "SIGINT"] as const) {
-      const listener = (): void => void this.stopAndExit(signal);
-      this.signalListeners.set(signal, listener);
-      process.on(signal, listener);
-    }
+    this.listenForTerminationSignals();
   }
 
   /** Leaves Ctrl-C to the terminal chat, which cancels a turn on the first one. */
@@ -202,8 +211,9 @@ export class StartedDexcliDevProcess {
   }
 
   /**
-   * Stops the group once, SIGTERM then SIGKILL, and removes the record.
-   * @returns A Promise that resolves after the group exited, at once when nothing was started.
+   * Stops the group once, SIGTERM then SIGKILL, and removes the record. A signal during the stop kills the group
+   * at once and exits.
+   * @returns A Promise that resolves after the leader exited, at once when nothing was started.
    */
   public stop(): Promise<void> {
     this.stopping ??= this.doStop();
@@ -211,41 +221,82 @@ export class StartedDexcliDevProcess {
   }
 
   private async doStop(): Promise<void> {
-    for (const signal of [...this.signalListeners.keys()]) {
-      this.removeSignalListener(signal);
-    }
     const child = this.child;
     const pid = child?.pid;
     if (child === undefined || pid === undefined) {
+      this.removeSignalListeners();
       return;
     }
-    const hasLeaderExited = child.exitCode !== null || child.signalCode !== null;
-    if (readStartedDexcliDev(this.environment)?.pid === pid) {
-      rmSync(startedRecordPath(this.environment), { force: true });
+    this.listenForTerminationSignals();
+    removeRecordOf(this.environment, pid);
+    const wasRunning = this.isLeaderRunning();
+    if (wasRunning) {
+      signalProcessGroup(pid, "SIGTERM");
+      if (!(await resolvesWithin(this.exited, stopGracePeriodMs))) {
+        this.killGroupWhileLeaderRuns();
+        await resolvesWithin(this.exited, killWaitMs);
+      }
     }
-    // An exited, reaped group's ID may belong to another process group by now.
-    if (hasLeaderExited && !isProcessGroupAlive(pid)) {
-      return;
+    // Signal 0 delivers nothing, so asking about a group ID that may be reused is harmless.
+    if (await isTrueWithin(() => !isProcessGroupAlive(pid), leftoverWaitMs)) {
+      if (wasRunning) {
+        this.writeLine(stoppedLine);
+      }
+    } else {
+      this.writeLine(`dexcli dev (pid ${pid}) exited, but processes of its group still run; stop them with: kill -- -${pid}`);
     }
-    signalProcessGroup(pid, "SIGTERM");
-    if (!(await waitForProcessGroupExit(pid, this.exited, stopGracePeriodMs))) {
+    this.removeSignalListeners();
+  }
+
+  /** Node reaps the leader just before it sets these fields, so until then its group ID stays this group's. */
+  private isLeaderRunning(): boolean {
+    return this.child !== undefined && this.child.exitCode === null && this.child.signalCode === null;
+  }
+
+  private killGroupWhileLeaderRuns(): void {
+    const pid = this.child?.pid;
+    if (pid !== undefined && this.isLeaderRunning()) {
       signalProcessGroup(pid, "SIGKILL");
-      await waitForProcessGroupExit(pid, this.exited, killWaitMs);
-    }
-    try {
-      this.log(stoppedLine);
-    } catch {
-      // After SIGHUP the terminal may be gone; the server is stopped either way.
     }
   }
 
-  private async stopAndExit(signal: NodeJS.Signals): Promise<void> {
+  private onTerminationSignal(signal: NodeJS.Signals): void {
     // After SIGHUP the terminal is gone; its read and write errors must not end the command before the stop.
     for (const stream of [process.stdin, process.stdout, process.stderr]) {
       stream.on("error", () => undefined);
     }
-    await this.stop();
-    process.exit(128 + constants.signals[signal]);
+    const exitCode = 128 + constants.signals[signal];
+    if (this.stopping === undefined) {
+      void this.stop().then(() => process.exit(exitCode));
+      return;
+    }
+    // A signal during the grace period means: do not wait any longer.
+    this.killGroupWhileLeaderRuns();
+    process.exit(exitCode);
+  }
+
+  private listenForTerminationSignals(): void {
+    for (const signal of ["SIGTERM", "SIGHUP", "SIGINT"] as const) {
+      if (!this.signalListeners.has(signal)) {
+        const listener = (): void => this.onTerminationSignal(signal);
+        this.signalListeners.set(signal, listener);
+        process.on(signal, listener);
+      }
+    }
+  }
+
+  private removeSignalListeners(): void {
+    for (const signal of [...this.signalListeners.keys()]) {
+      this.removeSignalListener(signal);
+    }
+  }
+
+  private writeLine(line: string): void {
+    try {
+      this.log(line);
+    } catch {
+      // After SIGHUP the terminal may be gone; the server is stopped either way.
+    }
   }
 
   private removeSignalListener(signal: NodeJS.Signals): void {
@@ -458,24 +509,53 @@ function isProcessGroupAlive(pid: number): boolean {
   }
 }
 
-/** Waits for the leader's exit, then for the rest of its group; returns whether the group exited in time. */
-async function waitForProcessGroupExit(pid: number, leaderExited: Promise<void>, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
+/** Returns whether a Promise resolves within the timeout. */
+async function resolvesWithin(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
   // A referenced timer keeps Node running while it waits for the unreferenced child.
   const timeoutCancellation = new AbortController();
   const timeout = delay(timeoutMs, "timeout" as const, { signal: timeoutCancellation.signal }).catch(() => "cancelled" as const);
-  const outcome = await Promise.race([leaderExited.then(() => "exited" as const), timeout]);
+  const outcome = await Promise.race([promise.then(() => "resolved" as const), timeout]);
   timeoutCancellation.abort();
-  if (outcome === "timeout") {
-    return false;
-  }
-  while (Date.now() < deadline) {
-    if (!isProcessGroupAlive(pid)) {
+  return outcome === "resolved";
+}
+
+/** Polls a condition; returns whether it became true within the timeout. */
+async function isTrueWithin(condition: () => boolean, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (condition()) {
       return true;
+    }
+    if (Date.now() >= deadline) {
+      return false;
     }
     await delay(pollIntervalMs);
   }
-  return false;
+}
+
+/** Removes the record only when it names `pid`; renaming it aside first keeps a record written meanwhile. */
+function removeRecordOf(environment: CliEnvironment, pid: number): void {
+  const recordPath = startedRecordPath(environment);
+  const claimedPath = `${recordPath}.${process.pid}-${randomBytes(4).toString("hex")}.removing`;
+  try {
+    renameSync(recordPath, claimedPath);
+  } catch {
+    return; // No record.
+  }
+  let recordedPid: unknown;
+  try {
+    recordedPid = (JSON.parse(readFileSync(claimedPath, "utf8")) as { pid?: unknown }).pid;
+  } catch {
+    recordedPid = undefined;
+  }
+  if (recordedPid !== pid) {
+    try {
+      linkSync(claimedPath, recordPath);
+    } catch {
+      // A newer record took its place; that one stays.
+    }
+  }
+  rmSync(claimedPath, { force: true });
 }
 
 function isProcessAlive(pid: number): boolean {

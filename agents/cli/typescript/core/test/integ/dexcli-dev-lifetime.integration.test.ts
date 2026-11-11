@@ -168,6 +168,28 @@ describe("The dexcli dev a command started stops when it exits; a reused one kee
     assert.doesNotMatch(second.stderr.all, /Worker task stream disconnected|\n\s+at /);
   });
 
+  test("a signal while the stop waits for a dexcli dev that ignores SIGTERM kills it at once and exits", async () => {
+    const [dexPort, webPort] = await findFreeLoopbackPorts(2);
+    const home = new SigtermIgnoringDexcliHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 });
+    home.writeConfig(config);
+    const cli = track(CliProcess.start(home));
+    const pid = await startedPid(cli.stderr);
+    await cli.waitForSession();
+    cli.writeLine("/exit");
+    await pollUntil(() => existsSync(home.termMarkerPath) || undefined, {
+      timeoutMs: 30_000,
+      description: "the dexcli dev wrapper to receive SIGTERM",
+    });
+    const signalledAt = Date.now();
+    cli.signal("SIGTERM");
+    assert.equal(await cli.waitForExit(), 143);
+    assert.ok(Date.now() - signalledAt < 10_000, "the command must not wait out the 20-second grace period");
+    await pollUntil(() => !isProcessGroupAlive(pid) || undefined, {
+      timeoutMs: 10_000,
+      description: `the dexcli dev process group ${pid} to be killed`,
+    });
+  });
+
   test("closing the terminal stops the started dexcli dev", async () => {
     const home = await newPrivateHome();
     const cli = CliProcess.startInTerminal(home);
@@ -185,6 +207,35 @@ function isProcessGroupAlive(pid: number): boolean {
     return true;
   } catch (error: unknown) {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/** Runs `dexcli dev` as the child of a shell that records SIGTERM and keeps running, as a stuck server would. */
+const sigtermIgnoringDexcliScript = `#!/bin/sh
+if [ "$1" != "dev" ]; then exec "$DEX_TEST_REAL_DEXCLI" "$@"; fi
+trap 'touch "$DEX_TEST_TERM_MARKER"' TERM
+"$DEX_TEST_REAL_DEXCLI" "$@" &
+while :; do sleep 1; done
+`;
+
+/** A test home whose `DEXCLI` is {@link sigtermIgnoringDexcliScript}. */
+class SigtermIgnoringDexcliHome extends TestHome {
+  public readonly termMarkerPath = join(this.directory, "dexcli-wrapper.terminated");
+  private readonly wrapperPath = join(this.directory, "dexcli-wrapper.sh");
+
+  public constructor(ports: { readonly dexPort: number; readonly webPort: number }) {
+    super(ports);
+    writeFileSync(this.wrapperPath, sigtermIgnoringDexcliScript, { mode: 0o755 });
+  }
+
+  public override environment(): NodeJS.ProcessEnv {
+    const environment = super.environment();
+    return {
+      ...environment,
+      DEXCLI: this.wrapperPath,
+      DEX_TEST_REAL_DEXCLI: environment.DEXCLI,
+      DEX_TEST_TERM_MARKER: this.termMarkerPath,
+    };
   }
 }
 

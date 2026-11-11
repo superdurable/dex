@@ -135,13 +135,25 @@ share, or set `dex.server` and `connectors.mcp` to URLs you trust.
 
 A `dexcli dev` that the command started stops when the command exits: on
 `/exit`, the end of input, the Ctrl-C that exits, a failure, SIGTERM, or
-SIGHUP. The command sends SIGTERM to its process group, which includes
-`dex-server-zd`, and SIGKILL after 20 seconds. It removes
-`~/.dex/agents/dexcli-dev.json` when the record still names that process, and
-prints "Stopped the dexcli dev this command started." SIGTERM and SIGHUP cancel
-the command's task, so its cleanup runs, and the command exits with 128 plus
-the signal number. The `dexcli dev` state stays in `~/.dex/zd/<dex port>`, so
-a later command that starts it again can `--resume` a session.
+SIGHUP. The command removes `~/.dex/agents/dexcli-dev.json` when the record
+still names that process; it renames the record aside first, so a record
+another command writes meanwhile stays. It then sends SIGTERM to the process
+group, which includes `dex-server-zd`, and SIGKILL after 20 seconds, and prints
+"Stopped the dexcli dev this command started." A SIGTERM, SIGHUP, or Ctrl-C
+during those 20 seconds sends SIGKILL at once and exits with 128 plus the
+signal number. The command signals the group only while its `Popen` has not
+reaped `dexcli dev`, because after that the group ID may be reused. If group
+members outlive `dexcli dev`, it prints their group instead of signalling it.
+SIGTERM and SIGHUP cancel the command's task, so its cleanup runs, and the
+command exits with 128 plus the signal number. On Windows, where event loops
+take no signal handlers, Ctrl-C stays the usual KeyboardInterrupt, and the
+command sends `dexcli dev`, started in its own process group, CTRL_BREAK_EVENT
+and then ends it. The `dexcli dev` state stays in `~/.dex/zd/<dex port>`, so a
+later command that starts it again can `--resume` a session.
+
+A command killed with SIGKILL, or one that crashes, cannot stop the
+`dexcli dev` it started: it keeps running and its record stays. Later commands
+reuse it and never stop it. Stop it with `kill` and the pid in the record.
 
 A `dexcli dev` that the command reused is never stopped: one the user started,
 or one that another command started and still records. Only the process this

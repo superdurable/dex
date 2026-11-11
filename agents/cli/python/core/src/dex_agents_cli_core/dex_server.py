@@ -17,12 +17,15 @@ import os
 import secrets
 import signal
 import subprocess
+import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, replace
 from enum import Enum
 from pathlib import Path
+from types import FrameType
+from typing import Any
 from urllib.parse import urlsplit
 
 import httpx2
@@ -57,6 +60,8 @@ _PROBE_BLOB_CACHE_BYTES = 1024 * 1024
 # Longer than the 10 seconds dexcli dev gives dex-server-zd to shut down.
 _STOP_GRACE_SECONDS = 20.0
 _KILL_WAIT_SECONDS = 5.0
+# dexcli dev stops dex-server-zd before it exits; this only catches a member that outlives it.
+_LEFTOVER_WAIT_SECONDS = 2.0
 _STOPPED_LINE = "Stopped the dexcli dev this command started."
 _SHARING_HINT = "To share one dexcli dev across sessions, run dexcli dev yourself first."
 
@@ -108,6 +113,8 @@ class StartedDexcliDevProcess:
     def stop(self, report: Callable[[str], None]) -> None:
         """Stop the process group once, SIGTERM then SIGKILL, and remove the record.
 
+        A signal during the stop kills the group at once and exits.
+
         Args:
             report: Prints the stopped line.
         """
@@ -115,16 +122,23 @@ class StartedDexcliDevProcess:
         if process is None:
             return
         _remove_record_of(self._environment, process.pid)
-        # An exited, reaped group's ID may belong to another process group by now.
-        if process.poll() is not None and not _is_process_group_alive(process.pid):
-            return
-        _signal_process_group(process.pid, signal.SIGTERM)
-        if not _wait_for_process_group_exit(process, _STOP_GRACE_SECONDS):
-            _signal_process_group(process.pid, signal.SIGKILL)
-            _wait_for_process_group_exit(process, _KILL_WAIT_SECONDS)
+        # Once poll() reaps the leader, its group ID may be reused, so it is never signalled again.
+        was_running = process.poll() is None
+        if was_running:
+            with _signals_kill_the_group(process):
+                _terminate_process_group(process)
+                if not _waits_for_exit(process, _STOP_GRACE_SECONDS):
+                    _kill_process_group_while_leader_runs(process)
+                    _waits_for_exit(process, _KILL_WAIT_SECONDS)
         # After SIGHUP the terminal may be gone; the server is stopped either way.
         with contextlib.suppress(OSError, ValueError):
-            report(_STOPPED_LINE)
+            if _has_group_members_after_exit(process.pid):
+                report(
+                    f"dexcli dev (pid {process.pid}) exited, but processes of its group still "
+                    f"run; stop them with: kill -- -{process.pid}"
+                )
+            elif was_running:
+                report(_STOPPED_LINE)
 
 
 async def describe_lost_dexcli_dev(web_url: str) -> str | None:
@@ -265,7 +279,9 @@ async def _start_dev_server(
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 # Its own session keeps it out of the terminal's Ctrl-C and SIGHUP.
-                start_new_session=True,
+                start_new_session=sys.platform != "win32",
+                # On Windows its own process group can receive CTRL_BREAK_EVENT alone.
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
             )
         except OSError as error:
             raise DexServerError(f"cannot run {dexcli}: {error.strerror}") from error
@@ -310,7 +326,7 @@ async def _wait_for_ready_output(
                 f"dexcli dev exited with code {process.returncode}:\n{_tail(log_path)}"
             )
         await asyncio.sleep(_POLL_INTERVAL_SECONDS)
-    _signal_process_group(process.pid, signal.SIGKILL)
+    _kill_process_group_while_leader_runs(process)
     raise DexServerError(
         f"dexcli dev was not ready in {_START_TIMEOUT_SECONDS:.0f}s:\n{_tail(log_path)}"
     )
@@ -407,20 +423,69 @@ async def _is_dex_flow_service(address: str) -> bool:
         return False
 
 
-def _signal_process_group(pid: int, signal_number: signal.Signals) -> None:
+def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
+    """Ask the group of a running, unreaped leader to stop."""
+    if sys.platform == "win32":
+        # Its own process group gets CTRL_BREAK_EVENT, which dexcli handles as an interrupt.
+        with contextlib.suppress(OSError):
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+        return
     with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pid, signal_number)
+        os.killpg(process.pid, signal.SIGTERM)
 
 
-def _wait_for_process_group_exit(process: subprocess.Popen[bytes], timeout: float) -> bool:
-    """Reap the leader, then wait for the rest of its group; return whether it exited in time."""
-    deadline = time.monotonic() + timeout
+def _kill_process_group_while_leader_runs(process: subprocess.Popen[bytes]) -> None:
+    """Kill the group only while the leader is unreaped, so its group ID is still ours."""
+    if process.returncode is not None:
+        return
+    if sys.platform == "win32":
+        with contextlib.suppress(OSError):
+            process.kill()
+        return
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(process.pid, signal.SIGKILL)
+
+
+def _waits_for_exit(process: subprocess.Popen[bytes], timeout: float) -> bool:
     try:
         process.wait(timeout)
     except subprocess.TimeoutExpired:
         return False
-    while time.monotonic() < deadline:
-        if not _is_process_group_alive(process.pid):
+    return True
+
+
+@contextlib.contextmanager
+def _signals_kill_the_group(process: subprocess.Popen[bytes]) -> Iterator[None]:
+    """While the command waits for the group, a termination signal kills it at once and exits."""
+
+    def kill_and_exit(signal_number: int, frame: FrameType | None) -> None:
+        _kill_process_group_while_leader_runs(process)
+        os._exit(128 + signal_number)
+
+    previous_handlers: dict[int, Any] = {}
+    names = ("SIGTERM", "SIGHUP", "SIGINT")
+    try:
+        for number in (getattr(signal, name) for name in names if hasattr(signal, name)):
+            previous_handlers[number] = signal.signal(number, kill_and_exit)
+    except ValueError:
+        pass  # Only the main thread can set handlers; the stop then just waits.
+    try:
+        yield
+    finally:
+        for number, handler in previous_handlers.items():
+            signal.signal(number, handler)
+
+
+def _has_group_members_after_exit(pid: int) -> bool:
+    """Report whether members of an exited leader's group still run after a short wait.
+
+    Signal 0 delivers nothing, so asking about a group ID that may be reused is harmless.
+    """
+    if sys.platform == "win32":
+        return False
+    deadline = time.monotonic() + _LEFTOVER_WAIT_SECONDS
+    while _is_process_group_alive(pid):
+        if time.monotonic() >= deadline:
             return True
         time.sleep(_POLL_INTERVAL_SECONDS)
     return False
@@ -437,17 +502,26 @@ def _is_process_group_alive(pid: int) -> bool:
 
 
 def _remove_record_of(environment: CommandEnvironment, pid: int) -> None:
-    """Remove the ``dexcli dev`` record when it still names this process."""
+    """Remove the record only when it names ``pid``; renaming it aside keeps a newer one."""
     path = environment.dev_server_state_path
+    claimed = path.with_name(f"{path.name}.{os.getpid()}-{secrets.token_hex(4)}.removing")
     try:
-        recorded = json.loads(path.read_text(encoding="utf-8"))
+        path.rename(claimed)
+    except OSError:
+        return  # No record.
+    try:
+        recorded = json.loads(claimed.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return
-    if isinstance(recorded, dict) and recorded.get("pid") == pid:
-        path.unlink(missing_ok=True)
+        recorded = None
+    if not (isinstance(recorded, dict) and recorded.get("pid") == pid):
+        with contextlib.suppress(OSError):  # A newer record took its place; that one stays.
+            os.link(claimed, path)
+    claimed.unlink(missing_ok=True)
 
 
 def _is_process_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        return _is_windows_process_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -455,6 +529,27 @@ def _is_process_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+if sys.platform == "win32":
+
+    def _is_windows_process_alive(pid: int) -> bool:
+        # os.kill(pid, 0) would end the process on Windows.
+        import ctypes
+
+        process_query_limited_information = 0x1000
+        error_access_denied = 5
+        still_active = 259
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+        if not handle:
+            return bool(ctypes.GetLastError() == error_access_denied)
+        try:
+            exit_code = ctypes.c_ulong()
+            is_read = kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            return bool(is_read) and exit_code.value == still_active
+        finally:
+            kernel32.CloseHandle(handle)
 
 
 def _tail(log_path: Path) -> str:
