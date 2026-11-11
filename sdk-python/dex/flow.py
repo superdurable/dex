@@ -258,7 +258,7 @@ class PersistenceSchema:
         A Join registers as its underlying ChannelMap, so its name must differ
         from every other definition of the Flow.
 
-        .. versionchanged:: 1.43.0
+        .. versionchanged:: 1.44.0
            Accepts Join definitions.
 
         Args:

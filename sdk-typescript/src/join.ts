@@ -39,7 +39,7 @@ import { ChannelMap, type Channel, type Condition } from "./wait.js";
  *   }
  * }
  * ```
- * @since 1.43.0
+ * @since 1.44.0
  */
 export interface JoinRound {
   /**
@@ -79,7 +79,7 @@ export interface JoinRound {
  * ```
  * Decoding throws a TypeError when `roundKey` is not a non-empty string without `/`, or when
  * `branchCount` is not a non-negative safe integer.
- * @since 1.43.0
+ * @since 1.44.0
  */
 export const joinRoundCodec: Codec<JoinRound> = jsonCodec<JoinRound>({
   typeName: "JoinRound",
@@ -299,7 +299,7 @@ const forkedJoinNamesByContext = new WeakMap<Context, Set<string>>();
  * For a runtime number of branches, map the inputs to branch builders, as the
  * {@link Join.forkWithRoundKey} example does.
  * @typeParam T - Result type that each branch reports.
- * @since 1.43.0
+ * @since 1.44.0
  */
 export class Join<T> {
   /**
@@ -336,7 +336,7 @@ export class Join<T> {
    *   loadChannelMapInstances: [quoteReceived.channelMap.loadMessages(round.roundKey)],
    * });
    * ```
-   * @since 1.43.0
+   * @since 1.44.0
    */
   public readonly channelMap: ChannelMap<T>;
 

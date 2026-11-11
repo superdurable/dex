@@ -8,6 +8,14 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Rust SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.44 {#v1-44}
+
+Not released yet. The next minor release, sdk-rust/v1.44.0, ships these changes.
+
+### Added
+
+- **Join** and **JoinRound** join parallel branches of one Flow. **Join::fork** starts the branches and one join Step from a split Step, keyed by its Step execution ID; **Join::fork_with_round_key** takes an explicit key, as in an RPC. Branches report with **Join::end_branch** or **Join::report_branch_result**. The join Step waits with **Join::for_all_branches**, **Join::for_first_branch**, or **Join::for_branches** and reads **Join::branch_results**. **Join::for_remaining_branches** and **Join::remaining_branch_results** reset a round before the next one. Register a Join with **PersistenceSchema::join**. **Join::channel_map** returns the registered Channel map, for reading a round's pending results. [Reference](/reference/rust/waits).
+
 ## 1.43 {#v1-43}
 
 Released 2026-11-10 as [sdk-rust/v1.43.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.43.0).
@@ -17,10 +25,6 @@ Released 2026-11-10 as [sdk-rust/v1.43.0](https://github.com/superdurable/dex/re
 - Removed **Client::trigger_continue_as_new**, **FlowStatus::ContinuedAsNew**, **FlowConfig::continue_as_new_threshold**, **FlowConfig::continue_as_new_page_size_bytes**, **SearchFlowsOptions**, and **Client::search_flows_with_options**. Use **Client::search_flows_page** for pagination. [Reference](/reference/rust/flow#flow-config).
 - Removed **WaitForStepCompletionOptions::internal_handler_timeout** and **WaitForAttributeOptions::internal_handler_timeout**. Request IDs remain accepted but the server does not read them for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
 - Generated bindings rename **FlowExecutionId** to **FlowRunId** and **flow_execution_id** to **flow_run_id**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
-
-### Added
-
-- **Join** and **JoinRound** join parallel branches of one Flow. **Join::fork** starts the branches and one join Step from a split Step, keyed by its Step execution ID; **Join::fork_with_round_key** takes an explicit key, as in an RPC. Branches report with **Join::end_branch** or **Join::report_branch_result**. The join Step waits with **Join::for_all_branches**, **Join::for_first_branch**, or **Join::for_branches** and reads **Join::branch_results**. **Join::for_remaining_branches** and **Join::remaining_branch_results** reset a round before the next one. Register a Join with **PersistenceSchema::join**. **Join::channel_map** returns the registered Channel map, for reading a round's pending results. [Reference](/reference/rust/waits).
 
 ## 1.40 {#v1-40}
 
