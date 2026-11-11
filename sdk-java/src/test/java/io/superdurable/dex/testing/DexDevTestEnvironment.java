@@ -49,19 +49,29 @@ public final class DexDevTestEnvironment implements AutoCloseable {
     public static DexDevTestEnvironment start(
             final Path cacheDirectory,
             final Flow<?>... flows) throws IOException {
-        final String serverAddress = System.getProperty(
-                "dex.test.serverAddress",
-                "127.0.0.1:8801");
+        return start(cacheDirectory, WorkerOptions.newBuilder(), flows);
+    }
+
+    public static DexDevTestEnvironment start(
+            final Path cacheDirectory,
+            final WorkerOptions.Builder workerOptions,
+            final Flow<?>... flows) throws IOException {
+        final String serverAddress = serverAddress();
         final Registry registry = new Registry(Arrays.asList(flows));
         final BlobCache blobCache = BlobCache.open(new BlobCacheConfig(
                 cacheDirectory.toString(),
                 CACHE_SIZE_BYTES));
-        final WorkerOptions.Builder workerOptions = WorkerOptions.newBuilder()
-                .serverAddress(serverAddress);
-        final Worker worker = new Worker(
-                registry,
-                blobCache,
-                workerOptions.build());
+        workerOptions.serverAddress(serverAddress);
+        final Worker worker;
+        try {
+            worker = new Worker(
+                    registry,
+                    blobCache,
+                    workerOptions.build());
+        } catch (RuntimeException failure) {
+            blobCache.close();
+            throw failure;
+        }
         final AtomicReference<Throwable> workerFailure = new AtomicReference<Throwable>();
         final Thread workerThread = new Thread(() -> {
             try {
@@ -93,6 +103,10 @@ public final class DexDevTestEnvironment implements AutoCloseable {
                 workerThread,
                 workerFailure,
                 client);
+    }
+
+    public static String serverAddress() {
+        return System.getProperty("dex.test.serverAddress", "127.0.0.1:8801");
     }
 
     public Client client() {

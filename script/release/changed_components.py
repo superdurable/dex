@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agents_release_notes import CHANGELOG_PATH, ReleaseNotesError, extract_version_section
+from changelog_fragments import TreeReader, release_readiness_errors
 
 VERSION_PATTERN = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -195,6 +196,9 @@ def write_outputs(output_path: Path, version: str, agents_version: str | None) -
             collisions.append(target)
         if selected and component.key == "agents":
             preflight_errors.extend(agents_changelog_errors(component_version))
+        if selected:
+            # The release snapshots the reference from main, so its change-log entry must already be there.
+            preflight_errors.extend(release_readiness_errors(TreeReader(Path.cwd(), None), component.key, component_version))
 
     summary = ["### Changed-component release plan", "", "| Component | Baseline | Result |", "|---|---|---|"]
     output_lines = [f"version={version}", f"agents_version={agents_version or ''}"]

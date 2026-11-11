@@ -276,6 +276,21 @@ for the Dex SDK and framework versions each release supports.
   another core round-trips, and `send_user_message` returns `false` for a
   message with images.
 - Shared cases: `agents/conformance/images.json`.
+- Agents CLI, Python and TypeScript: a new configuration section **media**.
+  `media.store` is `auto`, a **LocalDirectoryMediaStore** at
+  `~/.dex/agents/media`, or `s3://<bucket>[/<prefix>]`, an **S3MediaStore**
+  with an optional `media.endpoint` for an S3-compatible service. Credentials
+  come from the environment or the standard AWS credential chain, never from
+  the file. Session settings cannot change the store.
+  In the chat, **/image <path>** copies an image file into the store and
+  attaches it to the next message; a harness whose runner takes no images
+  says the message was not sent. **HarnessContext.media_store**
+  (`mediaStore`) hands the store to the harness, and connector tool images go
+  to the same store. The Claude Agent SDK, OpenAI Agents SDK, Pydantic AI,
+  Deep Agents, and Google ADK commands in Python and the Claude Agent SDK,
+  OpenAI Agents SDK, Vercel AI SDK, and Mastra commands in TypeScript pass the
+  store to their adapter, so their models see the images. See
+  [Images](cli/README.md#images).
 
 ### Changed
 

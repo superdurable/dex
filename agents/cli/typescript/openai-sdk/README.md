@@ -50,6 +50,13 @@ the model and instructions its session settings resolve to. The adapter lists
 the connector tools in every model call rather than when the Flow is built, so
 connector tools that appear while the command runs need no restart.
 
+## Images
+
+`/image <path>` attaches an image file to the next message. The command gives
+the OpenAI Agents SDK adapter the media store of `media.store`, so the model sees the
+image, and images that tools return go to the same store. See
+[Images](../../README.md#images).
+
 ## Development
 
 `ci.sh` builds the core, the OpenAI Agents SDK adapter, and the runtime, which
