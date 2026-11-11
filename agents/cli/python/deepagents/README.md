@@ -3,7 +3,7 @@
 `dex-agents-deepagents-cli` provides the `dex-agents-deepagents` command. It
 runs a [Deep Agents](https://github.com/langchain-ai/deepagents) agent as a
 durable Dex agent session and chats with it in your terminal. The shared
-runtime, [`dex-agents-cli`](../runtime/README.md), starts or reuses
+CLI core, [`dex-agents-cli-core`](../core/README.md), starts or reuses
 `dexcli dev`, connects the connectors MCP server, and runs the Worker. This
 package only builds the agent with `create_deep_agent` and runs it on the
 [LangGraph adapter](../../../python/langgraph/README.md).
@@ -22,7 +22,7 @@ The first run asks the `init` questions and writes
 `~/.dex/agents/deepagents.yaml`. Then type a message at the `>` prompt.
 Approve or reject tool calls with `y` or `n`, and press Ctrl-D to exit. The
 session stays in Dex, and the command prints the `--resume` line that
-continues it. See the [runtime README](../runtime/README.md#running-a-command)
+continues it. See the [CLI core README](../core/README.md#running-a-command)
 for every subcommand and option, and [`agents/cli`](../../README.md) for the
 configuration file.
 
@@ -57,16 +57,16 @@ its policy asks for it.
 
 | Deep Agents tool | In this command |
 | --- | --- |
-| `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep` | Removed. The runtime's local tools provide `read_file`, `write_file`, `edit_file`, `list_directory`, and `search_files` on the real workspace, with the runtime's rules: reads run at once, writes wait for approval. |
-| `execute` | Removed. The runtime's `run_shell_command` runs in the workspace and waits for approval unless `local_tools.shell.allow` has the command. |
+| `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep` | Removed. The CLI core's local tools provide `read_file`, `write_file`, `edit_file`, `list_directory`, and `search_files` on the real workspace, with the CLI core's rules: reads run at once, writes wait for approval. |
+| `execute` | Removed. The CLI core's `run_shell_command` runs in the workspace and waits for approval unless `local_tools.shell.allow` has the command. |
 | `task` (subagents) | Excluded with the adapter's `excluded_tool_names`. A subagent would make its own model and tool calls inside one tool Step, without their own Steps or approvals. |
 | `write_todos` | Kept, as a read-only tool that runs at once. Its result repeats the plan, so the plan stays in the conversation. |
 
-- The runtime's web fetch, browser, and connector tools are offered as well.
+- The CLI core's web fetch, browser, and connector tools are offered as well.
   `local_tools`, `approval.always`, and session settings work as for every
   command.
 - Deep Agents' own file tools work on a virtual file system in the agent
-  state, and their names are the runtime's. The command replaces Deep
+  state, and their names are the CLI core's. The command replaces Deep
   Agents' `FilesystemMiddleware` with one that adds no tools. The session
   Flow excludes `task`, defers each tool call before any middleware tool
   wrapper, and gives every model call the turn's model through the adapter's
@@ -91,7 +91,7 @@ image, and images that tools return go to the same store. See
 ## Development
 
 Develop with uv 0.12.2. The package resolves `dex-agents`, the LangGraph
-adapter, the runtime, and the test support package from this repository by
+adapter, the CLI core, and the test support package from this repository by
 path. `ci.sh` installs the locked dependencies, checks that LangChain and
 LangGraph match the adapter's lock, checks lint and types, and runs the tests
 against a private `dexcli dev`:

@@ -13,12 +13,12 @@ import {
   type BuiltinLoopAgentRunner,
   type ModelClient,
 } from "@superdurable/dex-agents/builtin-loop";
-import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli";
+import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli-core";
 
 import { createProviderLanguageModel } from "./provider-language-models.js";
 
 /**
- * The base Flow type of the command's sessions, before the runtime namespaces it.
+ * The base Flow type of the command's sessions, before the CLI core namespaces it.
  *
  * @since 0.5.0
  */
@@ -45,13 +45,13 @@ export const defaultInstructions =
  * framework, in the terminal.
  *
  * Every model call is one `RunModel` Step through the core's AI SDK model client, and every tool call is its own
- * tool Step. The agent offers the runtime's connector and local tools and the `ask_user` built-in tool. The model
+ * tool Step. The agent offers the CLI core's connector and local tools and the `ask_user` built-in tool. The model
  * ID is `openai/<model>` or `anthropic/<model>`; each turn uses the model and instructions its session settings
  * resolve to. The `builtin` section has no options yet; any key in it is a configuration error.
  *
  * @example
  * ```ts
- * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli";
+ * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli-core";
  * import { builtinHarness } from "@superdurable/dex-agents-builtin-cli";
  *
  * process.exit(await runAgentCli(builtinHarness, processAgentCliIo()));

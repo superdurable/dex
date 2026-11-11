@@ -8,7 +8,7 @@
 
 // Loaded with --import: every write's check after its rename fails, as if its directory moved right after it.
 
-import { WorkspaceFiles } from "@superdurable/dex-agents-cli";
+import { WorkspaceFiles } from "@superdurable/dex-agents-cli-core";
 
 (WorkspaceFiles.prototype as unknown as { isOpenedFileAt: () => Promise<boolean> }).isOpenedFileAt = () =>
   Promise.resolve(false);

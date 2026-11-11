@@ -12,14 +12,14 @@ import { Worker } from "node:worker_threads";
 
 import { DEFAULT_MAX_BYTES, formatSize, truncateHead, truncateLine } from "@earendil-works/pi-coding-agent";
 import { ToolExecutionError } from "@superdurable/dex-agents";
-import { WorkspaceFileRefusedError, type WorkspaceFiles } from "@superdurable/dex-agents-cli";
+import { WorkspaceFileRefusedError, type WorkspaceFiles } from "@superdurable/dex-agents-cli-core";
 import type { PiAgentToolResultLike } from "@superdurable/dex-agents-pi";
 import { Minimatch } from "minimatch";
 
 const defaultMatchLimit = 100;
 const maximumLineCharacters = 500;
 const skippedDirectories = new Set([".git", "node_modules"]);
-/** The largest file `grep` reads, as the runtime's `search_files`; larger files are skipped. */
+/** The largest file `grep` reads, as the CLI core's `search_files`; larger files are skipped. */
 const maximumSearchedFileBytes = 1024 * 1024;
 
 /**
@@ -79,10 +79,10 @@ interface GrepSearch {
 }
 
 /**
- * Pi's `grep` tool on the runtime's {@link WorkspaceFiles}, instead of `rg`.
+ * Pi's `grep` tool on the CLI core's {@link WorkspaceFiles}, instead of `rg`.
  *
  * It walks the search directory without following links and without `.git` and `node_modules`, and reads each
- * regular file of at most 1 MiB through the runtime layer, so a file outside the workspace or with more than one
+ * regular file of at most 1 MiB through the CLI core layer, so a file outside the workspace or with more than one
  * hard link is skipped. FIFOs, sockets, devices, larger files, and files with a NUL byte are skipped too; the result
  * says how many files were too large. Matching runs in a worker thread, and the whole call, reading included, has
  * one time budget, so a pattern that backtracks without end fails the call instead of blocking the Worker. Output
@@ -111,7 +111,7 @@ export class WorkspaceGrep {
    * @param grepArguments - The tool's arguments.
    * @param signal - Aborted when Dex cancels the call.
    * @returns The tool result.
-   * @throws {ToolExecutionError} When the path is outside, missing, or a file the runtime refuses, the pattern or glob
+   * @throws {ToolExecutionError} When the path is outside, missing, or a file the CLI core refuses, the pattern or glob
    * is invalid, or the call takes longer than its time budget.
    */
   public async search(

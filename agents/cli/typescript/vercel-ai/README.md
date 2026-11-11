@@ -2,8 +2,8 @@
 
 `@superdurable/dex-agents-vercel-ai-cli` provides the `dex-agents-vercel-ai`
 command. It runs a [Vercel AI SDK](https://ai-sdk.dev) agent as a durable Dex
-agent session and chats with it in your terminal. The shared runtime,
-[`@superdurable/dex-agents-cli`](../runtime/README.md), starts or reuses
+agent session and chats with it in your terminal. The shared CLI core,
+[`@superdurable/dex-agents-cli-core`](../core/README.md), starts or reuses
 `dexcli dev`, connects the connectors MCP server, offers the local tools, and
 runs the Worker. This package only builds the agent with the
 [Vercel AI SDK adapter](../../../typescript/vercel-ai/README.md).
@@ -21,7 +21,7 @@ The first run asks the `init` questions and writes
 `~/.dex/agents/vercel-ai.yaml`. Then type a message. Approve or reject tool
 calls with `y` or `n`, and type `/exit` to leave. The session stays in Dex,
 and the command prints the `--resume` line that continues it. See the
-[runtime README](../runtime/README.md) for every subcommand and option, and
+[CLI core README](../core/README.md) for every subcommand and option, and
 [`agents/cli`](../../README.md) for the configuration file.
 
 ## Models and keys
@@ -44,9 +44,9 @@ provider package reads it from the environment on each model call.
 The `vercel_ai` section has no options yet, and any key in it is a
 configuration error.
 
-The agent offers the connectors MCP server's tools and the runtime's
-[local tools](../runtime/README.md#local-tools), each call in its own tool Step
-with the runtime's approval rules. The adapter takes one model and fixed
+The agent offers the connectors MCP server's tools and the CLI core's
+[local tools](../core/README.md#local-tools), each call in its own tool Step
+with the CLI core's approval rules. The adapter takes one model and fixed
 instructions per Flow, so the command passes it a language model,
 **TurnLanguageModel**, that serves each model call with the running turn's
 model and adds the turn's instructions as the system message. Each turn
@@ -61,7 +61,7 @@ image, and images that tools return go to the same store. See
 
 ## Development
 
-`ci.sh` builds the core, the Vercel AI SDK adapter, and the runtime, which this
+`ci.sh` builds the core, the Vercel AI SDK adapter, and the CLI core, which this
 package installs from the repository, then typechecks and runs the integration
 tests against a private `dexcli dev`:
 

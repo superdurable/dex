@@ -7,7 +7,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli";
+import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli-core";
 
 import { vercelAiHarness } from "./vercel-ai-harness.js";
 

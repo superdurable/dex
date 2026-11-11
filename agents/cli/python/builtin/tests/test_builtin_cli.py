@@ -18,7 +18,7 @@ import zlib
 from pathlib import Path
 
 from dex_agents_builtin_cli import BUILTIN_CLI_FLOW_TYPE
-from dex_agents_cli import session_flow_type
+from dex_agents_cli_core import session_flow_type
 from dex_agents_cli_testing import scenarios
 from dex_agents_cli_testing.commands import CommandHome, expect, wait_for_exit
 from dex_agents_cli_testing.fixtures import FakeConnectorsMcp

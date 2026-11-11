@@ -448,9 +448,9 @@ dev = [
 ]
 
 [[package]]
-name = "dex-agents-cli"
+name = "dex-agents-cli-core"
 version = "0.1.0"
-source = { editable = "../runtime" }
+source = { editable = "../core" }
 dependencies = [
     { name = "dex-agents", extra = ["mcp"] },
     { name = "dex-python-sdk" },
@@ -484,7 +484,7 @@ version = "0.1.0"
 source = { editable = "../testing" }
 dependencies = [
     { name = "dex-agents", extra = ["mcp"] },
-    { name = "dex-agents-cli" },
+    { name = "dex-agents-cli-core" },
     { name = "dex-python-sdk" },
     { name = "pexpect" },
     { name = "pytest" },
@@ -494,7 +494,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "dex-agents", extras = ["mcp"], editable = "../../../python/core" },
-    { name = "dex-agents-cli", editable = "../runtime" },
+    { name = "dex-agents-cli-core", editable = "../core" },
     { name = "dex-python-sdk", specifier = "==1.45.0" },
     { name = "pexpect", specifier = ">=4.9,<5" },
     { name = "pytest", specifier = ">=8.3,<9" },
@@ -541,7 +541,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "dex-agents" },
-    { name = "dex-agents-cli" },
+    { name = "dex-agents-cli-core" },
     { name = "dex-agents-google-adk" },
     { name = "dex-python-sdk" },
     { name = "google-adk" },
@@ -560,7 +560,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dex-agents", editable = "../../../python/core" },
-    { name = "dex-agents-cli", editable = "../runtime" },
+    { name = "dex-agents-cli-core", editable = "../core" },
     { name = "dex-agents-google-adk", editable = "../../../python/google-adk" },
     { name = "dex-python-sdk", specifier = "==1.45.0" },
     { name = "google-adk", specifier = ">=2.13,<3" },

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dex_agents_cli import session_flow_type
+from dex_agents_cli_core import session_flow_type
 from dex_agents_cli_testing import scenarios
 from dex_agents_cli_testing.commands import CommandHome
 from dex_agents_cli_testing.fixtures import FakeConnectorsMcp

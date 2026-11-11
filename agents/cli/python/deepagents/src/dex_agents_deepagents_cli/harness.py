@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
+import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
@@ -26,10 +26,10 @@ from langchain_core.messages import SystemMessage
 from langchain_core.tools import BaseTool, StructuredTool
 
 from dex_agents import AgentSessionFlow, AgentTurnContext
-from dex_agents_cli import ConfigError, HarnessContext, LocalToolGroup, current_turn_config
+from dex_agents_cli_core import ConfigError, HarnessContext, LocalToolGroup, current_turn_config
 from dex_agents_langgraph import DurableToolCallMiddleware, langchain_agent_session_flow
 
-#: The Flow type of the command's sessions, before the runtime namespaces it.
+#: The Flow type of the command's sessions, before the CLI core namespaces it.
 DEEPAGENTS_CLI_FLOW_TYPE = "DexAgentsDeepAgentsCliSession"
 
 #: The model the command uses when the configuration file sets none.
@@ -55,8 +55,8 @@ class DeepAgentsHarness:
     The agent comes from ``create_deep_agent`` and runs on the Dex LangGraph
     adapter, so every model call is a ``RunModel`` Step and every tool call
     its own tool Step. Deep Agents' own file tools are removed and its
-    ``task`` subagent tool is excluded: the runtime's local tools provide
-    files and shell commands with the runtime's policies, and a subagent would
+    ``task`` subagent tool is excluded: the CLI core's local tools provide
+    files and shell commands with the CLI core's policies, and a subagent would
     run its model and tool calls inside one tool Step, out of Dex's sight.
     ``write_todos`` stays as a read-only tool that records the plan in the
     conversation.
@@ -212,7 +212,7 @@ class TurnInstructionsMiddleware(AgentMiddleware[Any, Any, Any]):
 
 
 class _WithoutFilesystemTools(AgentMiddleware[Any, Any, Any]):
-    """Replace Deep Agents' file tools, whose names the runtime's local tools use."""
+    """Replace Deep Agents' file tools, whose names the CLI core's local tools use."""
 
     @property
     def name(self) -> str:

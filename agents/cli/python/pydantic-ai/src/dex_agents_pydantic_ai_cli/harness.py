@@ -6,14 +6,14 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""The Pydantic AI harness: a Pydantic AI agent with the runtime's tools."""
+"""The Pydantic AI harness: a Pydantic AI agent with the CLI core's tools."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
-import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
+import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
@@ -22,10 +22,10 @@ from pydantic_ai.models import Model, infer_model
 from pydantic_ai.models.wrapper import WrapperModel
 
 from dex_agents import AgentSessionFlow
-from dex_agents_cli import ConfigError, HarnessContext, LocalToolGroup, current_turn_config
+from dex_agents_cli_core import ConfigError, HarnessContext, LocalToolGroup, current_turn_config
 from dex_agents_pydantic_ai import pydantic_ai_session_flow
 
-#: The Flow type of the command's sessions, before the runtime namespaces it.
+#: The Flow type of the command's sessions, before the CLI core namespaces it.
 PYDANTIC_AI_CLI_FLOW_TYPE = "DexAgentsPydanticAiCliSession"
 
 #: The Pydantic AI model the command uses when the configuration file sets none.
@@ -44,7 +44,7 @@ class PydanticAiHarness:
     Every model call uses the turn's model, a Pydantic AI model name such as
     ``openai:gpt-5.2`` or ``anthropic:claude-opus-5-5``, and the turn's
     instructions. The provider reads its standard environment variables. The
-    runtime's connector and local tools are the agent's only tools.
+    CLI core's connector and local tools are the agent's only tools.
     """
 
     name = "pydantic-ai"

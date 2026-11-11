@@ -7,11 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { Agent } from "@mastra/core/agent";
-import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli";
+import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli-core";
 import { createMastraAgentSessionFlow } from "@superdurable/dex-agents-mastra";
 
 /**
- * The base Flow type of the command's sessions, before the runtime namespaces it.
+ * The base Flow type of the command's sessions, before the CLI core namespaces it.
  *
  * @since 0.5.0
  */
@@ -36,14 +36,14 @@ export const defaultInstructions =
 /**
  * The `dex-agents-mastra` command: a Mastra agent in the terminal.
  *
- * The agent offers the runtime's connector and local tools. The model ID is any Mastra model router ID, such as
+ * The agent offers the CLI core's connector and local tools. The model ID is any Mastra model router ID, such as
  * `openai/gpt-5.2` or `anthropic/claude-sonnet-4-5`, and Mastra reads the provider's standard API key variable.
  * Each turn uses the model and instructions its session settings resolve to. The `mastra` section has no options
  * yet; any key in it is a configuration error.
  *
  * @example
  * ```ts
- * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli";
+ * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli-core";
  * import { mastraHarness } from "@superdurable/dex-agents-mastra-cli";
  *
  * process.exit(await runAgentCli(mastraHarness, processAgentCliIo()));

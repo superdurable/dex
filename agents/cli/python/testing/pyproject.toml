@@ -7,7 +7,7 @@ authors = [{name = "Super Durable"}]
 requires-python = ">=3.11"
 dependencies = [
     "dex-agents[mcp]==0.1.0",
-    "dex-agents-cli==0.1.0",
+    "dex-agents-cli-core==0.1.0",
     "dex-python-sdk==1.45.0",
     "pexpect>=4.9,<5",
     "pytest>=8.3,<9",
@@ -29,7 +29,7 @@ required-version = "==0.12.2"
 
 [tool.uv.sources]
 dex-agents = { path = "../../../python/core", editable = true }
-dex-agents-cli = { path = "../runtime", editable = true }
+dex-agents-cli-core = { path = "../core", editable = true }
 
 [tool.ruff]
 target-version = "py311"
@@ -41,7 +41,7 @@ select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "RUF"]
 ignore = ["ASYNC109", "ASYNC110", "ASYNC220", "ASYNC221"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["dex_agents", "dex_agents_cli", "dex_agents_cli_testing"]
+known-first-party = ["dex_agents", "dex_agents_cli_core", "dex_agents_cli_testing"]
 
 [tool.mypy]
 python_version = "3.11"

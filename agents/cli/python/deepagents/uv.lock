@@ -463,9 +463,9 @@ dev = [
 ]
 
 [[package]]
-name = "dex-agents-cli"
+name = "dex-agents-cli-core"
 version = "0.1.0"
-source = { editable = "../runtime" }
+source = { editable = "../core" }
 dependencies = [
     { name = "dex-agents", extra = ["mcp"] },
     { name = "dex-python-sdk" },
@@ -499,7 +499,7 @@ version = "0.1.0"
 source = { editable = "../testing" }
 dependencies = [
     { name = "dex-agents", extra = ["mcp"] },
-    { name = "dex-agents-cli" },
+    { name = "dex-agents-cli-core" },
     { name = "dex-python-sdk" },
     { name = "pexpect" },
     { name = "pytest" },
@@ -509,7 +509,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "dex-agents", extras = ["mcp"], editable = "../../../python/core" },
-    { name = "dex-agents-cli", editable = "../runtime" },
+    { name = "dex-agents-cli-core", editable = "../core" },
     { name = "dex-python-sdk", specifier = "==1.45.0" },
     { name = "pexpect", specifier = ">=4.9,<5" },
     { name = "pytest", specifier = ">=8.3,<9" },
@@ -529,7 +529,7 @@ source = { editable = "." }
 dependencies = [
     { name = "deepagents" },
     { name = "dex-agents" },
-    { name = "dex-agents-cli" },
+    { name = "dex-agents-cli-core" },
     { name = "dex-agents-langgraph" },
     { name = "dex-python-sdk" },
     { name = "langchain" },
@@ -552,7 +552,7 @@ dev = [
 requires-dist = [
     { name = "deepagents", specifier = ">=0.7.32,<0.8" },
     { name = "dex-agents", editable = "../../../python/core" },
-    { name = "dex-agents-cli", editable = "../runtime" },
+    { name = "dex-agents-cli-core", editable = "../core" },
     { name = "dex-agents-langgraph", editable = "../../../python/langgraph" },
     { name = "dex-python-sdk", specifier = "==1.45.0" },
     { name = "langchain", specifier = ">=1.4.7,<2" },

@@ -4,8 +4,8 @@
 a [Pi](https://github.com/earendil-works/pi) coding agent as a durable Dex agent
 session and chats with it in your terminal. Dex runs the agent loop: each model
 call is one `RunModel` Step through pi-ai, and each tool call is its own Dex
-tool Step. The shared runtime,
-[`@superdurable/dex-agents-cli`](../runtime/README.md), starts or reuses
+tool Step. The shared CLI core,
+[`@superdurable/dex-agents-cli-core`](../core/README.md), starts or reuses
 `dexcli dev`, connects the connectors MCP server, and runs the Worker. This
 package builds the agent with the Pi framework package,
 [`@superdurable/dex-agents-pi`](../../../typescript/pi/README.md), and serves
@@ -25,7 +25,7 @@ The first run asks the `init` questions and writes `~/.dex/agents/pi.yaml`.
 Then type a message. Approve or reject tool calls with `y` or `n`, and type
 `/exit` to leave. The session stays in Dex, and the command prints the
 `--resume` line that continues it. See the
-[runtime README](../runtime/README.md) for every subcommand and option, and
+[CLI core README](../core/README.md) for every subcommand and option, and
 [`agents/cli`](../../README.md) for the configuration file.
 
 ## Models and API keys
@@ -68,7 +68,7 @@ pi:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `pi.load_project_context` | `true` | Whether each model call adds the project context files, as Pi does. See below. |
-| `pi.bash_timeout_seconds` | `120` | Seconds a `bash` command runs before it is killed when the model passes no `timeout`, the same default as the runtime's shell tool. A whole number from 1 to 600, the runtime shell tool's maximum. |
+| `pi.bash_timeout_seconds` | `120` | Seconds a `bash` command runs before it is killed when the model passes no `timeout`, the same default as the CLI core's shell tool. A whole number from 1 to 600, the CLI core shell tool's maximum. |
 | `pi.provider_base_urls` | `{}` | An `http` or `https` URL per provider, which replaces the URL in pi-ai's catalog, such as a proxy or a compatible endpoint. |
 
 Any other key in the section is a configuration error.
@@ -91,7 +91,7 @@ so an edited file applies from the next model call, and two turns of one
 session may see different instructions. Set `pi.load_project_context: false`
 to add none.
 
-Each file is read with the runtime's workspace file rules, at most 1 MiB,
+Each file is read with the CLI core's workspace file rules, at most 1 MiB,
 without blocking. The command pins the real path of each directory (the
 workspace, each directory above it, and Pi's global directory) the first time
 it sees it and never derives it again, so a directory later swapped for a link
@@ -107,8 +107,8 @@ prints one warning. This holds whatever `local_tools.files` says.
 
 ## Tools and approvals
 
-pi-coding-agent's tools replace the runtime's `files` and `shell` groups. The
-runtime's web fetch, browser, and connector tools stay, and the agent can ask
+pi-coding-agent's tools replace the CLI core's `files` and `shell` groups. The
+CLI core's web fetch, browser, and connector tools stay, and the agent can ask
 you questions.
 
 | `local_tools` group | Pi tools | Effect | Approval |
@@ -123,7 +123,7 @@ you questions.
   hard link, or an edit conflict, records `failed` and the model sees why. Any
   other failure of a `write` or `edit`, such as one after the rename, records
   `outcome_unknown`. A `bash` command that ran is a result, as with the
-  runtime's shell tool: its output ends with `Command exited with code N` for
+  CLI core's shell tool: its output ends with `Command exited with code N` for
   a non-zero exit, or `Command timed out after N seconds` when its timeout
   killed it. A `bash` call that fails before its shell process starts, such as
   with an invalid `timeout`, records `failed`; one that fails after it started,
@@ -131,11 +131,11 @@ you questions.
   refuses a file over 4 MiB as too large to edit.
 - Each turn offers only the groups its session settings switch on.
   `approval.always` adds approval by tool name, such as `read`.
-- Every file access of the file tools goes through the runtime's workspace
+- Every file access of the file tools goes through the CLI core's workspace
   file layer (`WorkspaceFiles`, see the
-  [runtime README](../runtime/README.md#local-tools)), with the path Pi
+  [CLI core README](../core/README.md#local-tools)), with the path Pi
   finally opens, including `read`'s fallbacks for curly quotes, Unicode
-  normalization, and screenshot file names. So the runtime's rules apply: a
+  normalization, and screenshot file names. So the CLI core's rules apply: a
   path that leaves the workspace through `..`, an absolute path, `~`, or a
   symbolic link fails; files open without following a final link and must
   still be the file the path names; a file with more than one hard link is
@@ -144,11 +144,11 @@ you questions.
   the file changed after it read it. The check runs in the tool Step, so a
   `write` or `edit` to an outside path still asks for approval and then
   fails. This is not a sandbox: an approved `bash` command, or any other
-  program, can change the workspace while a call runs, and the runtime
+  program, can change the workspace while a call runs, and the CLI core
   README describes the remaining write race.
 - The working directory of every tool is the workspace. A `bash` command
   without a `timeout` argument is killed after `pi.bash_timeout_seconds`, 120
-  by default, as the runtime's shell tool; a `timeout` over 600 seconds is
+  by default, as the CLI core's shell tool; a `timeout` over 600 seconds is
   refused. When a command's output is too long, the result shows its end and
   says the rest is not kept: the command deletes the temporary file in which
   Pi keeps the full output, because it lies outside the workspace.
@@ -162,10 +162,10 @@ you questions.
   do not read `.gitignore`. `find` matches Pi's glob rules. `grep` reads each
   regular file through the layer, skipping files with more than one hard link,
   files outside the workspace, FIFOs and other special files, and binary
-  files. It skips files over 1 MiB, as the runtime's `search_files` does, and
+  files. It skips files over 1 MiB, as the CLI core's `search_files` does, and
   says how many it skipped. It takes Pi's options (`pattern`, `path`, `glob`,
   `ignoreCase`, `literal`, `context`, `limit`), reads a `path` starting with
-  `@` or `~` as Pi does, and fails when that `path` names a file the runtime
+  `@` or `~` as Pi does, and fails when that `path` names a file the CLI core
   refuses. It matches with JavaScript regular expressions, close to `rg`'s
   syntax, in a worker thread. A `grep` or `find` call has 10 seconds in all,
   reading included, so a pattern that backtracks without end, or a huge tree,
@@ -188,7 +188,7 @@ own stream makes every model call.
 
 `/image <path>` attaches an image file to the next message, and the model sees
 it. The command gives the built-in loop the media store of `media.store`, as
-the runtime describes in [Images](../../README.md#images).
+the CLI core describes in [Images](../../README.md#images).
 
 `read` of a PNG, JPEG, GIF, or WebP file in the workspace returns the image
 too. Its tool Step reads the file through the workspace file layer, uploads
@@ -207,21 +207,21 @@ image first. Any other Pi tool that returns images is handled the same way.
 
 ## Sessions and other machines
 
-`dex.server` may point at a Dex server instead of `dexcli dev`; the runtime
+`dex.server` may point at a Dex server instead of `dexcli dev`; the CLI core
 handles the connection. A session belongs to the execution environment that
-started it: the runtime names the session Flow type after the host, the user,
+started it: the CLI core names the session Flow type after the host, the user,
 the configuration file, and the workspace, and `--resume` works only in that
 environment. See
-[the runtime README](../runtime/README.md#sessions-belong-to-one-execution-environment).
-This command builds its Flow with the runtime's Flow type and checks tool
-permissions only through the runtime's helpers, so it follows the runtime's
+[the CLI core README](../core/README.md#sessions-belong-to-one-execution-environment).
+This command builds its Flow with the CLI core's Flow type and checks tool
+permissions only through the CLI core's helpers, so it follows the CLI core's
 rules. Model replies are stored in pi-ai's format with the pi-ai version; a
 pi-ai that cannot read a stored reply fails the model call with an error that
 names both versions.
 
 ## Development
 
-`ci.sh` builds the core, the Pi package, and the runtime, which this package
+`ci.sh` builds the core, the Pi package, and the CLI core, which this package
 installs from the repository, then typechecks and runs the integration tests
 against a private `dexcli dev`:
 

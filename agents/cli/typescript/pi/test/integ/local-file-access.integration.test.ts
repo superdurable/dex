@@ -16,7 +16,7 @@ import { describe, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
 import type { DeferredToolExecution } from "@superdurable/dex-agents";
-import { TurnConfigResolver, WorkspaceFiles, resolveConfig, type HarnessContext } from "@superdurable/dex-agents-cli";
+import { TurnConfigResolver, WorkspaceFiles, resolveConfig, type HarnessContext } from "@superdurable/dex-agents-cli-core";
 
 import { PiCodingToolSource, ProjectContextFiles, piHarness } from "../../src/index.js";
 import { PiToolCallOperations } from "../../src/pi-tool-call-operations.js";

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
+import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
@@ -42,7 +42,7 @@ from dex_agents_claude_agent_sdk import (
     ClaudeAgentRunner,
     ClaudeCodeToolDenial,
 )
-from dex_agents_cli import (
+from dex_agents_cli_core import (
     ConfigError,
     EffectiveConfig,
     HarnessContext,
@@ -53,7 +53,7 @@ from dex_agents_cli import (
     resolve_turn_tool_policy,
 )
 
-#: The Flow type of the command's sessions, before the runtime namespaces it.
+#: The Flow type of the command's sessions, before the CLI core namespaces it.
 CLAUDE_SDK_CLI_FLOW_TYPE = "DexAgentsClaudeSdkCliSession"
 
 #: The model the command uses when the configuration file sets none.
@@ -74,7 +74,7 @@ class _ClaudeCodeLocalTool:
     path_argument: str | None
 
 
-# Claude Code's tools that replace the runtime's files, shell, and web_fetch groups.
+# Claude Code's tools that replace the CLI core's files, shell, and web_fetch groups.
 CLAUDE_CODE_LOCAL_TOOLS: Mapping[str, _ClaudeCodeLocalTool] = {
     "Read": _ClaudeCodeLocalTool(LocalToolGroup.FILES, ToolEffect.READ, False, "file_path"),
     "Grep": _ClaudeCodeLocalTool(LocalToolGroup.FILES, ToolEffect.READ, False, "path"),
@@ -98,8 +98,8 @@ class ClaudeSdkHarness:
     """The ``dex-agents-claude-sdk`` command: a Claude Agent SDK agent in the terminal.
 
     Claude Code's own Read, Grep, Glob, Write, Edit, Bash, and WebFetch tools
-    replace the runtime's ``files``, ``shell``, and ``web_fetch`` groups; the
-    runtime's browser tools and connector tools stay. Each turn offers only
+    replace the CLI core's ``files``, ``shell``, and ``web_fetch`` groups; the
+    CLI core's browser tools and connector tools stay. Each turn offers only
     the Claude Code tools whose group the turn switches on, plus, in a
     resumed segment, the tools of calls the turn already recorded, so their
     records replay; new calls of a switched-off tool are refused. The
@@ -166,7 +166,7 @@ def validate_claude_section(options: Mapping[str, Any]) -> None:
 
 
 class ClaudeCodeLocalTools:
-    """Apply the runtime's local tool rules to Claude Code's own tools."""
+    """Apply the CLI core's local tool rules to Claude Code's own tools."""
 
     def __init__(self, context: HarnessContext) -> None:
         """Bind the rules to one command's configuration and workspace.

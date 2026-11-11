@@ -9,16 +9,16 @@
 """The ``dex-agents-google-adk`` command: a Google ADK agent in the terminal.
 
 It builds the agent session Flow with the Google ADK adapter and
-runs it with the shared Dex Agents CLI runtime. See the package README.
+runs it with the shared Dex Agents CLI core. See the package README.
 """
 
-import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
+import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
 import sys
 
-from dex_agents_cli import ConfigError, command_name, run_agent_cli
+from dex_agents_cli_core import ConfigError, command_name, run_agent_cli
 from dex_agents_google_adk_cli.harness import (
     DEFAULT_GOOGLE_ADK_MODEL,
     DEFAULT_INSTRUCTIONS,

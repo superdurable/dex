@@ -2,8 +2,8 @@
 
 `@superdurable/dex-agents-mastra-cli` provides the `dex-agents-mastra`
 command. It runs a [Mastra](https://mastra.ai) agent as a durable Dex agent
-session and chats with it in your terminal. The shared runtime,
-[`@superdurable/dex-agents-cli`](../runtime/README.md), starts or reuses
+session and chats with it in your terminal. The shared CLI core,
+[`@superdurable/dex-agents-cli-core`](../core/README.md), starts or reuses
 `dexcli dev`, connects the connectors MCP server, offers the local tools, and
 runs the Worker. This package only builds the agent with the
 [Mastra adapter](../../../typescript/mastra/README.md).
@@ -21,7 +21,7 @@ The first run asks the `init` questions and writes
 `~/.dex/agents/mastra.yaml`. Then type a message. Approve or reject tool calls
 with `y` or `n`, and type `/exit` to leave. The session stays in Dex, and the
 command prints the `--resume` line that continues it. See the
-[runtime README](../runtime/README.md) for every subcommand and option, and
+[CLI core README](../core/README.md) for every subcommand and option, and
 [`agents/cli`](../../README.md) for the configuration file.
 
 ## Models and keys
@@ -44,9 +44,9 @@ does not call the AI SDK itself.
 The `mastra` section has no options yet, and any key in it is a configuration
 error.
 
-The agent offers the connectors MCP server's tools and the runtime's
-[local tools](../runtime/README.md#local-tools), each call in its own tool Step
-with the runtime's approval rules. The Mastra agent's model and instructions
+The agent offers the connectors MCP server's tools and the CLI core's
+[local tools](../core/README.md#local-tools), each call in its own tool Step
+with the CLI core's approval rules. The Mastra agent's model and instructions
 are functions that Mastra calls in every model call, so each turn uses the
 model and instructions its session settings resolve to.
 
@@ -59,7 +59,7 @@ image, and images that tools return go to the same store. See
 
 ## Development
 
-`ci.sh` builds the core, the Mastra adapter, and the runtime, which this
+`ci.sh` builds the core, the Mastra adapter, and the CLI core, which this
 package installs from the repository, then typechecks and runs the integration
 tests against a private `dexcli dev`:
 

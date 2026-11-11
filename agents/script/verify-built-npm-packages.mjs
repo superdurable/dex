@@ -14,13 +14,13 @@ import { join } from "node:path";
 
 const [distDirectory, releaseVersion, ...packages] = process.argv.slice(2);
 const corePackageName = "@superdurable/dex-agents";
-const cliRuntimePackageName = `${corePackageName}-cli`;
+const cliCorePackageName = `${corePackageName}-cli-core`;
 const problems = [];
 
-// Maps an agents package, such as core, vercel-ai, cli/runtime, or cli/builtin, to its npm name and directory.
+// Maps an agents package, such as core, vercel-ai, cli/core, or cli/builtin, to its npm name and directory.
 function describePackage(packageId) {
   if (packageId === "core") return { packageName: corePackageName, directory: "agents/typescript/core" };
-  if (packageId === "cli/runtime") return { packageName: cliRuntimePackageName, directory: "agents/cli/typescript/runtime" };
+  if (packageId === "cli/core") return { packageName: cliCorePackageName, directory: "agents/cli/typescript/core" };
   if (packageId.startsWith("cli/")) {
     const name = packageId.slice("cli/".length);
     return { packageName: `${corePackageName}-${name}-cli`, directory: `agents/cli/typescript/${name}`, command: `dex-agents-${name}` };
@@ -43,8 +43,8 @@ for (const packageDirectoryName of packages) {
   const manifest = JSON.parse(execFileSync("tar", ["-xzOf", tarball, "package/package.json"], { encoding: "utf8" }));
   const label = `${packageName}@${releaseVersion}`;
 
-  // The CLI runtime also ships the shared configuration schemas.
-  const schemaMembers = packageName === cliRuntimePackageName
+  // The CLI core also ships the shared configuration schemas.
+  const schemaMembers = packageName === cliCorePackageName
     ? ["package/dist/schemas/config.schema.json", "package/dist/schemas/session-settings.schema.json"]
     : [];
   for (const member of ["package/LICENSE", "package/README.md", "package/dist/src/index.js", "package/dist/src/index.d.ts", ...schemaMembers]) {
@@ -111,7 +111,7 @@ for (const packageDirectoryName of packages) {
     }
   }
   if (packageDirectoryName !== "core") {
-    const requiredPeers = command === undefined ? [corePackageName] : [corePackageName, cliRuntimePackageName];
+    const requiredPeers = command === undefined ? [corePackageName] : [corePackageName, cliCorePackageName];
     for (const peer of requiredPeers) {
       if (manifest.peerDependencies?.[peer] === undefined) problems.push(`${label} must peer-depend on ${peer}@^${releaseVersion}`);
     }

@@ -3,7 +3,7 @@
 `dex-agents-openai-sdk-cli` provides the `dex-agents-openai-sdk` command. It
 runs an [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/)
 agent as a durable Dex agent session and chats with it in your terminal. The
-shared runtime, [`dex-agents-cli`](../runtime/README.md), starts or reuses
+shared CLI core, [`dex-agents-cli-core`](../core/README.md), starts or reuses
 `dexcli dev`, connects the connectors MCP server, and runs the Worker. This
 package only builds the agent with the
 [OpenAI Agents SDK adapter](../../../python/openai-agents/README.md).
@@ -21,7 +21,7 @@ The first run asks the `init` questions and writes
 `~/.dex/agents/openai-sdk.yaml`. Then type a message at the `>` prompt.
 Approve or reject tool calls with `y` or `n`, and press Ctrl-D to exit. The
 session stays in Dex, and the command prints the `--resume` line that
-continues it. See the [runtime README](../runtime/README.md#running-a-command)
+continues it. See the [CLI core README](../core/README.md#running-a-command)
 for every subcommand and option, and [`agents/cli`](../../README.md) for the
 configuration file.
 
@@ -40,12 +40,12 @@ has no options yet, and any key in it is a configuration error.
 
 ## Tools
 
-The agent's tools are the runtime's: its local tool source and the connector
+The agent's tools are the CLI core's: its local tool source and the connector
 tools of the connectors MCP server. Every call runs in its own Dex tool Step,
-with the runtime's policy. Reads run at once, file writes and shell commands
+with the CLI core's policy. Reads run at once, file writes and shell commands
 wait for approval unless the shell allow list has the command, and the file
 tools stay in the workspace. See the
-[runtime README](../runtime/README.md) for the local tools.
+[CLI core README](../core/README.md) for the local tools.
 
 The SDK fixes an agent's tools when the command starts. The command offers
 the connector tools that the configuration file enables and that the
@@ -66,7 +66,7 @@ image, and images that tools return go to the same store. See
 ## Development
 
 Develop with uv 0.12.2. The package resolves `dex-agents`, the adapter, the
-runtime, and the shared test support from this repository by path. `uv.lock`
+CLI core, and the shared test support from this repository by path. `uv.lock`
 pins `openai-agents` and `openai` to the versions the adapter's lock pins, and
 `ci.sh` checks that. `ci.sh` installs the locked dependencies, checks lint and
 types, and runs the tests against a private `dexcli dev`:

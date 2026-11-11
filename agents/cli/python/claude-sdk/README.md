@@ -3,7 +3,7 @@
 `dex-agents-claude-sdk-cli` provides the `dex-agents-claude-sdk` command. It
 runs a [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python)
 agent as a durable Dex agent session and chats with it in your terminal. The
-shared runtime, [`dex-agents-cli`](../runtime/README.md), starts or reuses
+shared CLI core, [`dex-agents-cli-core`](../core/README.md), starts or reuses
 `dexcli dev`, connects the connectors MCP server, and runs the Worker. This
 package only builds the agent with the
 [Claude Agent SDK adapter](../../../python/claude-agent-sdk/README.md).
@@ -24,7 +24,7 @@ The first run asks the `init` questions and writes
 `~/.dex/agents/claude-sdk.yaml`. Then type a message at the `>` prompt. Approve
 or reject tool calls with `y` or `n`, and press Ctrl-D to exit. The session
 stays in Dex, and the command prints the `--resume` line that continues it.
-See the [runtime README](../runtime/README.md#running-a-command) for every
+See the [CLI core README](../core/README.md#running-a-command) for every
 subcommand and option, and [`agents/cli`](../../README.md) for the
 configuration file.
 
@@ -40,8 +40,8 @@ error.
 
 ## Local tools
 
-Claude Code's own tools replace the runtime's `files`, `shell`, and
-`web_fetch` tools. The runtime's browser tools and connector tools stay.
+Claude Code's own tools replace the CLI core's `files`, `shell`, and
+`web_fetch` tools. The CLI core's browser tools and connector tools stay.
 
 | `local_tools` group | Claude Code tools | Approval |
 | --- | --- | --- |
@@ -87,7 +87,7 @@ image, and images that tools return go to the same store. See
 ## Development
 
 Develop with uv 0.12.2. The package resolves `dex-agents`, the adapter, and
-the runtime from this repository by path. `ci.sh` installs the locked
+the CLI core from this repository by path. `ci.sh` installs the locked
 dependencies, checks lint and types, and runs the tests against a private
 `dexcli dev`:
 
