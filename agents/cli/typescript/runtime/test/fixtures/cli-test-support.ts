@@ -147,7 +147,8 @@ export class CliProcess {
    * @returns The exit code.
    */
   public async waitForExit(timeoutMs = defaultWaitMs): Promise<number | null> {
-    const timeout = delay(timeoutMs).then(() => "timeout" as const);
+    // An unreferenced timer, so a command that exited early does not keep the test process alive.
+    const timeout = delay(timeoutMs, undefined, { ref: false }).then(() => "timeout" as const);
     const result = await Promise.race([this.exited, timeout]);
     if (result === "timeout") {
       throw new Error(`the command did not exit; stdout:\n${this.stdout.all}\nstderr:\n${this.stderr.all}`);

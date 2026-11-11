@@ -160,7 +160,8 @@ for the Dex SDK and framework versions each release supports.
   `media.store` is `auto`, a **LocalDirectoryMediaStore** at
   `~/.dex/agents/media`, or `s3://<bucket>[/<prefix>]`, an **S3MediaStore**
   with an optional `media.endpoint` for an S3-compatible service. Credentials
-  come only from the environment. Session settings cannot change the store.
+  come from the environment or the standard AWS credential chain, never from
+  the file. Session settings cannot change the store.
   In the chat, **/image <path>** copies an image file into the store and
   attaches it to the next message; a harness whose runner takes no images
   says the message was not sent. **HarnessContext.media_store**
