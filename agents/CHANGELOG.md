@@ -76,6 +76,15 @@ for the Dex SDK and framework versions each release supports.
   has the command, file tools stay in the workspace, and the tool Step checks an
   approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
   [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
+- The **dex-agents-pi** command (`@superdurable/dex-agents-pi-cli`, not
+  published yet): a Pi coding agent in the terminal on the shared CLI runtime,
+  where Dex runs the agent loop and pi-ai makes each model call. The model is
+  `<provider>/<model>` from pi-ai's catalog, and the key comes only from the
+  provider's API key variable. pi-coding-agent's `read`, `grep`, `find`, `ls`,
+  `write`, `edit`, and `bash` replace the runtime's file and shell tools, with
+  the same rules, and each model call adds the workspace's `AGENTS.md` unless
+  `pi.load_project_context` is `false`. See
+  [cli/typescript/pi](cli/typescript/pi/README.md).
 - Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
   (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
   Claude Code CLI from its input. It returns a **ToolPolicy** for that call,

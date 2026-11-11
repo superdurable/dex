@@ -31,6 +31,7 @@ adapter depends on the published core instead.
 | [`typescript/claude-agent-sdk`](typescript/claude-agent-sdk) | [`@superdurable/dex-agents-claude-agent-sdk`](https://www.npmjs.com/package/@superdurable/dex-agents-claude-agent-sdk) | Claude Agent SDK |
 | [`cli/typescript/claude-sdk`](cli/typescript/claude-sdk) | `@superdurable/dex-agents-claude-sdk-cli`, not published yet | The `dex-agents-claude-sdk` command: a Claude Agent SDK agent in the terminal |
 | [`typescript/pi`](typescript/pi) | `@superdurable/dex-agents-pi`, not published yet | Pi: pi-ai models and Pi tools on Stepwise mode, where Dex runs the agent loop |
+| [`cli/typescript/pi`](cli/typescript/pi) | `@superdurable/dex-agents-pi-cli`, not published yet | The `dex-agents-pi` command: a Pi coding agent in the terminal |
 
 ## UI streams
 
