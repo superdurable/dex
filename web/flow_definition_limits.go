@@ -38,6 +38,8 @@ const (
 	maxFlowDefinitionGroupedSteps = maxFlowDefinitionNodes
 	// maxFlowDefinitionV2Items bounds each list in the v2 block, such as Actions or Display fields.
 	maxFlowDefinitionV2Items = 256
+	// maxFlowDefinitionStartInputItems bounds the fields and enum values of a start input, counted at every depth.
+	maxFlowDefinitionStartInputItems = 1024
 )
 
 // checkFlowDefinitionDocumentLimits walks the JSON tokens iteratively, so deep nesting cannot exhaust the stack.

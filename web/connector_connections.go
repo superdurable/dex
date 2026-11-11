@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -84,6 +85,29 @@ type connectorUISession struct {
 type connectorCatalogDocument struct {
 	DefinitionRevision string                       `json:"definitionRevision"`
 	Definitions        []connectorCatalogDefinition `json:"definitions"`
+}
+
+// UnmarshalJSON decodes each definition on its own and skips one it cannot read, so a single bad
+// definition never hides the connections of the others.
+func (document *connectorCatalogDocument) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		DefinitionRevision string            `json:"definitionRevision"`
+		Definitions        []json.RawMessage `json:"definitions"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	document.DefinitionRevision = raw.DefinitionRevision
+	document.Definitions = make([]connectorCatalogDefinition, 0, len(raw.Definitions))
+	for index, rawDefinition := range raw.Definitions {
+		var definition connectorCatalogDefinition
+		if err := json.Unmarshal(rawDefinition, &definition); err != nil {
+			slog.Warn("Connector setup skips a Flow definition it cannot read", "definitionIndex", index, "error", err)
+			continue
+		}
+		document.Definitions = append(document.Definitions, definition)
+	}
+	return nil
 }
 
 type connectorCatalogDefinition struct {
