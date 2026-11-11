@@ -1,0 +1,252 @@
+{
+  "schemaVersion": "2.0",
+  "valid": true,
+  "source": {
+    "language": "typescript",
+    "path": "join.ts"
+  },
+  "flow": {
+    "name": "ReviewJoinFlow",
+    "startStepId": "step:RequestReviews",
+    "span": {
+      "startLine": 71,
+      "startColumn": 1,
+      "endLine": 83,
+      "endColumn": 2
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:RequestReviews",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:RequestReviews",
+      "phase": "execute",
+      "span": {
+        "startLine": 25,
+        "startColumn": 3,
+        "endLine": 42,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "decision:step:CollectReviews:67:12",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:CollectReviews",
+      "phase": "execute",
+      "span": {
+        "startLine": 67,
+        "startColumn": 12,
+        "endLine": 67,
+        "endColumn": 75
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:RequestReviews:27:14",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:RequestReviews",
+      "condition": "reviewers.length \u003e 0",
+      "phase": "execute",
+      "span": {
+        "startLine": 27,
+        "startColumn": 14,
+        "endLine": 31,
+        "endColumn": 9
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:RequestReviews:41:12",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:RequestReviews",
+      "condition": "!(reviewers.length \u003e 0)",
+      "phase": "execute",
+      "span": {
+        "startLine": 41,
+        "startColumn": 12,
+        "endLine": 41,
+        "endColumn": 34
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:ReviewDocument:53:12",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:ReviewDocument",
+      "phase": "execute",
+      "span": {
+        "startLine": 53,
+        "startColumn": 12,
+        "endLine": 53,
+        "endColumn": 75
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "resource:channel:reviewCompleted",
+      "kind": "channel",
+      "name": "reviewCompleted",
+      "span": {
+        "startLine": 11,
+        "startColumn": 25,
+        "endLine": 11,
+        "endColumn": 65
+      },
+      "resource": {
+        "valueType": "string",
+        "map": true
+      }
+    },
+    {
+      "id": "step:CollectReviews",
+      "kind": "step",
+      "name": "CollectReviews",
+      "phase": "execute",
+      "span": {
+        "startLine": 77,
+        "startColumn": 86,
+        "endLine": 77,
+        "endColumn": 106
+      },
+      "metadata": {
+        "explanation": "Complete the Flow with the collected review results."
+      }
+    },
+    {
+      "id": "step:RequestReviews",
+      "kind": "step",
+      "name": "RequestReviews",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 77,
+        "startColumn": 31,
+        "endLine": 77,
+        "endColumn": 51
+      },
+      "metadata": {
+        "explanation": "Start one review per reviewer, or a fixed pair of reviews, and the join Step."
+      }
+    },
+    {
+      "id": "step:ReviewDocument",
+      "kind": "step",
+      "name": "ReviewDocument",
+      "phase": "execute",
+      "span": {
+        "startLine": 77,
+        "startColumn": 64,
+        "endLine": 77,
+        "endColumn": 84
+      },
+      "metadata": {
+        "explanation": "Report one review result and end the branch."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:27:14",
+      "to": "step:CollectReviews",
+      "label": "fan-out",
+      "span": {
+        "startLine": 30,
+        "startColumn": 20,
+        "endLine": 30,
+        "endColumn": 58
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:27:14",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "multiplicity": "×N",
+      "span": {
+        "startLine": 29,
+        "startColumn": 59,
+        "endLine": 29,
+        "endColumn": 109
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:41:12",
+      "to": "step:CollectReviews",
+      "label": "fan-out",
+      "span": {
+        "startLine": 39,
+        "startColumn": 18,
+        "endLine": 39,
+        "endColumn": 56
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:41:12",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "span": {
+        "startLine": 36,
+        "startColumn": 20,
+        "endLine": 36,
+        "endColumn": 79
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:41:12",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "span": {
+        "startLine": 37,
+        "startColumn": 20,
+        "endLine": 37,
+        "endColumn": 81
+      }
+    }
+  ],
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "join",
+      "label": "Join",
+      "stepIds": [
+        "step:ReviewDocument",
+        "step:CollectReviews",
+        "step:RequestReviews"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
+}

@@ -38,6 +38,7 @@ class TypeScriptAnalyzer {
     this.stepInstances = new Map();
     this.registeredIdentities = new Map();
     this.resourceNodes = new Map();
+    this.joinResourceIDs = new Set();
     this.targetFailures = new Map();
     this.currentFrame = {};
     this.connectorSteps = new Map();
@@ -154,14 +155,17 @@ class TypeScriptAnalyzer {
     expression = this.unwrap(expression);
     if (!expression || !this.ts.isNewExpression(expression)) return;
     const constructor = this.dexName(expression.expression);
-    const kind = {Attribute:"attribute",AttributeMap:"attribute",Channel:"channel",ChannelMap:"channel",Stream:"stream"}[constructor];
+    const kind = {Attribute:"attribute",AttributeMap:"attribute",Channel:"channel",ChannelMap:"channel",Join:"channel",Stream:"stream"}[constructor];
     if (!kind) return;
     const resourceName = this.staticLiteral(expression.arguments?.[0]);
     if (typeof resourceName !== "string") { this.error("dynamic_resource_name",`resource ${name} must use a static name`,expression); return; }
     const nodeID = `resource:${kind}:${name}`;
     this.resources.set(name,nodeID);
     this.resourceNodes.set(expression,nodeID);
-    this.graph.nodes.push({id:nodeID,kind,name:resourceName,span:this.span(expression),resource:{valueType:this.resourceValueType(expression),map:constructor.endsWith("Map")}});
+    // A Join is a ChannelMap of branch results keyed by round.
+    const isJoin = constructor === "Join";
+    if (isJoin) this.joinResourceIDs.add(nodeID);
+    this.graph.nodes.push({id:nodeID,kind,name:resourceName,span:this.span(expression),resource:{valueType:this.resourceValueType(expression),map:isJoin || constructor.endsWith("Map")}});
   }
 
   resourceValueType(expression) {
@@ -616,6 +620,7 @@ class TypeScriptAnalyzer {
 
   decisionType(expression) {
     if (!this.ts.isCallExpression(expression)) return undefined;
+    if (this.isJoinMethodCall(expression,["endBranch"])) return "deadEnd";
     const name = this.dexName(expression.expression);
     if (cancelingDecisions.has(name)) return this.decisionType(this.unwrap(expression.arguments[0]));
     return name === "goTo" || name === "goToMany" || terminalDecisions.has(name) ? name : undefined;
@@ -649,7 +654,8 @@ class TypeScriptAnalyzer {
     if (this.ts.isSpreadElement(argument)) {
       const spread = this.unwrap(argument.expression);
       if (this.ts.isArrayLiteralExpression(spread)) return spread.elements.flatMap(element => this.movementArgument(element,locals));
-      if (this.ts.isIdentifier(spread)) return (locals.get(spread.text) || []).map(movement => ({...movement,multiplicity:movement.multiplicity || "×N"}));
+      if (this.ts.isIdentifier(spread)) return (locals.get(spread.text) || []).map(movement => movement.isJoinFork ? movement : {...movement,multiplicity:movement.multiplicity || "×N"});
+      if (this.isJoinMethodCall(spread,["fork","forkWithRoundKey"])) return this.joinForkMovements(spread);
       return this.callbackMovements(spread);
     }
     const movement = this.parseMovement(argument);
@@ -663,6 +669,43 @@ class TypeScriptAnalyzer {
     if (!expression || !this.ts.isCallExpression(expression) || !this.ts.isPropertyAccessExpression(expression.expression)) return undefined;
     if (expression.expression.name.text !== "of" || this.dexName(expression.expression.expression) !== "StepMovement" || !expression.arguments.length) return undefined;
     return {kind:"transition",target:this.stepTarget(expression.arguments[0]),targetNode:expression.arguments[0],label:"fan-out",span:this.span(expression)};
+  }
+
+  isJoinMethodCall(expression,methodNames) {
+    if (!this.ts.isCallExpression(expression) || !this.ts.isPropertyAccessExpression(expression.expression)) return false;
+    if (!methodNames.includes(expression.expression.name.text)) return false;
+    return this.joinResourceIDs.has(this.resourceFor(expression.expression.expression));
+  }
+
+  // Join.fork and forkWithRoundKey take branch builders second and the join builder third.
+  joinForkMovements(call) {
+    const [, branchBuilders, joinBuilder] = call.arguments;
+    const movements = [];
+    const builders = this.unwrap(branchBuilders);
+    if (builders && this.ts.isArrayLiteralExpression(builders)) {
+      for (const builder of builders.elements) movements.push(...this.builderMovements(builder));
+    } else if (builders && this.ts.isCallExpression(builders)) {
+      const mapped = this.callbackMovements(builders);
+      if (!mapped.length) this.dynamicTarget("Join branch builders must build their movements directly in the handler",builders);
+      movements.push(...mapped);
+    } else if (builders) {
+      this.dynamicTarget("Join branch builders must build their movements directly in the handler",builders);
+    }
+    if (joinBuilder) movements.push(...this.builderMovements(joinBuilder));
+    return movements.map(movement => ({...movement,isJoinFork:true}));
+  }
+
+  builderMovements(builder) {
+    const value = this.unwrap(builder);
+    const movements = [];
+    if (value && (this.ts.isArrowFunction(value) || this.ts.isFunctionExpression(value))) {
+      this.walk(value.body,node => {
+        const movement = this.parseMovement(node);
+        if (movement) movements.push(movement);
+      });
+    }
+    if (!movements.length) this.dynamicTarget("Join builders must return StepMovement.of with a static target",builder);
+    return movements;
   }
 
   callbackMovements(expression) {
@@ -687,7 +730,7 @@ class TypeScriptAnalyzer {
         if (movement) result.set(node.name.text,[movement]);
         else if (this.ts.isArrayLiteralExpression(value)) result.set(node.name.text,value.elements.flatMap(element => this.movementArgument(element,result)));
         else if (this.ts.isCallExpression(value)) {
-          const movements = this.callbackMovements(value);
+          const movements = this.isJoinMethodCall(value,["fork","forkWithRoundKey"]) ? this.joinForkMovements(value) : this.callbackMovements(value);
           if (movements.length) result.set(node.name.text,movements);
         }
       }
