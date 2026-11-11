@@ -104,7 +104,9 @@ const maximumSymbolicLinkHops = 40;
  *
  * Claude Code's own Read, Grep, Glob, Write, Edit, Bash, and WebFetch tools replace the runtime's `files`, `shell`,
  * and `web_fetch` groups; the runtime's browser tools and connector tools stay. Each turn offers only the Claude
- * Code tools whose group the turn switches on, with the workspace as the working directory. Reads run at once,
+ * Code tools whose group the turn switches on, plus, in a resumed segment, the tools of calls the turn already
+ * recorded, so their records replay; new calls of a switched-off tool are refused. The workspace is the working
+ * directory. Reads run at once,
  * Write, Edit, and Bash wait for approval, and a Bash command whose whole text is in the shell allow list runs at
  * once. File tools refuse paths outside the workspace. The `claude` section has no options yet; any key in it is a
  * configuration error.
@@ -183,8 +185,8 @@ export class ClaudeCodeLocalTools {
    * The environment passes through unchanged, so `ANTHROPIC_API_KEY` or the machine's Claude Code login reaches
    * the CLI.
    *
-   * @returns Options with only the Claude Code tools the turn switches on, the workspace as `cwd`, and no settings
-   * files.
+   * @returns Options with the Claude Code tools the turn switches on and the tools of calls the turn already
+   * recorded, the workspace as `cwd`, and no settings files.
    */
   public buildOptions(): ClaudeAgentQueryOptions {
     const turn = this.context.currentTurn();

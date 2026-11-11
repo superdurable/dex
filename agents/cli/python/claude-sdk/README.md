@@ -52,7 +52,10 @@ Claude Code's own tools replace the runtime's `files`, `shell`, and
 
 - Each turn offers only the tools whose group the turn switches on, after
   the session settings narrow the file. A switched-off group's tools are not
-  offered, and a call of one is refused.
+  offered, and a call of one is refused. One exception: a resumed segment
+  also lists the Claude Code tools the turn already recorded calls of, so the
+  CLI can replay those records; a new call of such a tool is still refused
+  while its group is off.
 - `approval.always` adds approval to any of these tools by name, such as
   `Read`.
 - Claude Code runs in the workspace. The file tools refuse a path outside it,
