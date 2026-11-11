@@ -41,7 +41,7 @@ import (
 //
 // See NewStandaloneContext for a complete example.
 //
-// Since 1.41.0.
+// Since 1.43.0.
 type StandaloneContextOptions struct {
 	// FlowID is returned by Context.FlowID. Empty is allowed and returned as empty.
 	// Choose a fixed value when code derives idempotency keys from it.
@@ -248,7 +248,7 @@ type StandaloneContextOptions struct {
 //		return SendInvoiceStep{}.Execute(ctx, invoiceID)
 //	}
 //
-// Since 1.41.0.
+// Since 1.43.0.
 func NewStandaloneContext(
 	parent context.Context,
 	options StandaloneContextOptions,
