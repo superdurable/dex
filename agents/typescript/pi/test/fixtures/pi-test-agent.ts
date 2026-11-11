@@ -76,6 +76,7 @@ export function createPiTestAgentFlow(options: PiTestAgentOptions) {
         piAgentFunctionTool(tools.getWeather(), { effect: "read" }),
         piAgentFunctionTool(tools.failLookup(), { effect: "read" }),
         piAgentFunctionTool(tools.sendEmail()),
+        piAgentFunctionTool(tools.submitPayment()),
         piAgentFunctionTool(tools.deleteFile(), { effect: "unclassified" }),
         piAgentFunctionTool(tools.renameCustomer(), { effect: "read" }),
         piDurableFunctionTool(tools.durableForecast()),
@@ -144,6 +145,22 @@ class PiTestTools {
       execute: async (toolCallId, params: { to: string }, signal) => {
         await this.recordAndWait("send_email", toolCallId, params.to, signal);
         return textResult(`email sent to ${params.to}`);
+      },
+    };
+  }
+
+  public submitPayment(): PiAgentToolLike {
+    return {
+      name: "submit_payment",
+      description: "Submit a payment; `throw` throws, `reject` reports a failure.",
+      parameters: { type: "object", properties: { outcome: { type: "string" } }, required: ["outcome"] },
+      replay: "never",
+      execute: async (toolCallId, params: { outcome: string }) => {
+        new InvocationLog(join(this.markerDirectory, "submit_payment.log")).record(`${params.outcome} ${toolCallId}`);
+        if (params.outcome.startsWith("throw")) {
+          throw new Error("payment gateway timed out");
+        }
+        return { content: [{ type: "text", text: "card declined" }], details: undefined, isError: true };
       },
     };
   }

@@ -211,9 +211,15 @@ their effect. A call runs `tool.execute(toolCallId, params, signal, onUpdate)`:
 - The result's text parts, joined by newlines, are what the model sees. An
   image part becomes `[image omitted: <mime type>]` for now. `details` is not
   stored.
-- A thrown error, a result with `isError: true`, or invalid arguments become a
-  `ToolExecutionError`: the call is recorded as failed, the model sees the
-  message, and the session continues, as in Pi.
+- A result with `isError: true`, a thrown `ToolExecutionError`, or invalid
+  arguments become a `ToolExecutionError`: the call is recorded as failed, the
+  model sees the message, and the session continues.
+- Any other thrown error is handled by the tool's effect. For `read`,
+  `idempotent_write`, and `unclassified` it becomes a `ToolExecutionError`
+  too, as in Pi. For `non_idempotent_write` the write may have taken effect,
+  so the error propagates: the session records `outcome_unknown`, as for any
+  `CallSingleAttemptTool`, and the call never runs again. Return
+  `isError: true` or throw `ToolExecutionError` to report a definite failure.
 
 ### `pi-durable` tools
 
@@ -223,7 +229,9 @@ effect comes from `effect`, or else from `replay`: `safe` gives
 `idempotent_write`, and `unsafe` or no `replay` gives `non_idempotent_write`.
 
 - Reading any property of `api`, such as `api.commit` or `api.executeTool`,
-  throws an error that names it, and the model sees it. Rewrite such a tool as
+  throws an error that names it. Thrown errors follow the same rule as for
+  `AgentTool`: the model sees it, except that a `non_idempotent_write` tool
+  records `outcome_unknown`. Rewrite such a tool as
   a Pi `AgentTool` or a Dex `functionTool`.
 - A result with `control` fails the call with a `ToolExecutionError`. The
   tool's effect has already happened by then.

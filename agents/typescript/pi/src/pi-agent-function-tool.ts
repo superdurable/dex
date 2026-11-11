@@ -13,7 +13,8 @@ import type { FunctionTool, ToolCallContext } from "@superdurable/dex-agents/ste
 import {
   buildPiFunctionTool,
   describePiToolContent,
-  rethrowIfCancelled,
+  throwPiToolArgumentsFailure,
+  throwPiToolExecutionFailure,
   writePiToolProgress,
   type PiToolContentPart,
 } from "./pi-tool-content.js";
@@ -110,9 +111,13 @@ export interface PiAgentFunctionToolOptions {
  *   `tool_name`, and `text`.
  * - The result's text parts, joined by newlines, are the output the model sees. Each image part becomes
  *   `[image omitted: <mime type>]`. `details` is not stored.
- * - A thrown error, a result with `isError: true`, or arguments that fail validation become a
- *   `ToolExecutionError`, so the model sees the failure and the session continues, as in Pi. An error thrown
- *   after Dex cancelled the attempt is rethrown unchanged.
+ * - A result with `isError: true`, a thrown `ToolExecutionError`, or arguments that fail validation become a
+ *   `ToolExecutionError`: the call is recorded as failed, the model sees the failure, and the session continues.
+ * - Any other thrown error becomes a `ToolExecutionError` too, as in Pi, except for a `non_idempotent_write`
+ *   tool. Its write may have taken effect, so the error propagates and the session records `outcome_unknown`,
+ *   as for any `CallSingleAttemptTool`; the call never runs again. To report a definite failure from such a
+ *   tool, return `isError: true` or throw `ToolExecutionError`.
+ * - An error thrown after Dex cancelled the attempt is rethrown unchanged.
  *
  * Dex runs the calls of one model response in parallel, so `executionMode: "sequential"` is not supported. Dex
  * ignores the result's `terminate` hint; the Stepwise `decideTurnContinuation` hook ends a turn after tools.
@@ -159,13 +164,14 @@ export function piAgentFunctionTool(tool: PiAgentToolLike, options: PiAgentFunct
       `Pi tool ${tool.name} has executionMode "sequential", but Dex runs the tool calls of one model response in parallel`,
     );
   }
+  const effect = inferPiAgentToolEffect(tool, options.effect);
   return buildPiFunctionTool({
     name: tool.name,
     description: tool.description,
     parameters: tool.parameters,
-    effect: inferPiAgentToolEffect(tool, options.effect),
+    effect,
     requiresApproval: options.requiresApproval,
-    execute: (args, context) => executePiAgentTool(tool, args, context),
+    execute: (args, context) => executePiAgentTool(tool, effect, args, context),
   });
 }
 
@@ -185,19 +191,25 @@ function inferPiAgentToolEffect(tool: PiAgentToolLike, effect: ToolEffect | unde
   }
 }
 
-async function executePiAgentTool(tool: PiAgentToolLike, args: unknown, context: ToolCallContext): Promise<string> {
+async function executePiAgentTool(
+  tool: PiAgentToolLike,
+  effect: ToolEffect,
+  args: unknown,
+  context: ToolCallContext,
+): Promise<string> {
+  let params: unknown;
+  try {
+    params = validatePiAgentToolArguments(tool, args, context.toolCallId);
+  } catch (error) {
+    throwPiToolArgumentsFailure(context, error);
+  }
   let result: PiAgentToolResultLike;
   try {
-    const params = validatePiAgentToolArguments(tool, args, context.toolCallId);
     result = await tool.execute(context.toolCallId, params, context.cancellationSignal, (partialResult) =>
       writePiToolProgress(context, tool.name, describePiToolContent(partialResult?.content)),
     );
   } catch (error) {
-    rethrowIfCancelled(context, error);
-    if (error instanceof ToolExecutionError) {
-      throw error;
-    }
-    throw new ToolExecutionError(error instanceof Error ? error.message : String(error), { cause: error });
+    throwPiToolExecutionFailure(context, effect, error);
   }
   const output = describePiToolContent(result?.content);
   if (result?.isError === true) {

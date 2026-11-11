@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { ToolEffect } from "@superdurable/dex-agents";
+import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
 import { functionTool, type FunctionTool, type ToolCallContext } from "@superdurable/dex-agents/stepwise";
 
 /**
@@ -67,9 +67,18 @@ export function buildPiFunctionTool(parts: PiFunctionToolParts): FunctionTool {
   });
 }
 
-/** Rethrows an error caused by Dex cancelling the attempt, so it is not reported to the model as a tool failure. */
-export function rethrowIfCancelled(context: ToolCallContext, error: unknown): void {
-  if (context.cancellationSignal.aborted) {
+/** Converts a failure before the tool ran, such as invalid arguments, into a failure the model sees. */
+export function throwPiToolArgumentsFailure(context: ToolCallContext, error: unknown): never {
+  if (context.cancellationSignal.aborted || error instanceof ToolExecutionError) {
     throw error;
   }
+  throw new ToolExecutionError(error instanceof Error ? error.message : String(error), { cause: error });
+}
+
+/** A plain error of a `non_idempotent_write` propagates, so the session records `outcome_unknown`. */
+export function throwPiToolExecutionFailure(context: ToolCallContext, effect: ToolEffect, error: unknown): never {
+  if (effect === "non_idempotent_write" && !(error instanceof ToolExecutionError)) {
+    throw error;
+  }
+  throwPiToolArgumentsFailure(context, error);
 }

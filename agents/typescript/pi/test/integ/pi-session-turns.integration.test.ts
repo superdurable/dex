@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
 import type { Context } from "@earendil-works/pi-ai";
-import type { AgentMessage } from "@superdurable/dex-agents";
+import { outcomeUnknownToolResult, type AgentMessage } from "@superdurable/dex-agents";
 import { createStepwiseAgentSessionFlow, type ModelClient } from "@superdurable/dex-agents/stepwise";
 import {
   AgentSessionTestClient,
@@ -330,6 +330,41 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
     }
     const events = await sessions.listAgentEvents(sessionId);
     assert.equal(events.some((event) => event.type === "turn_cancelled"), true);
+  });
+
+  test("a non_idempotent_write Pi tool that throws records outcome_unknown, and one that reports isError fails", async () => {
+    const token = newToken();
+    const sessionId = `pi-write-error-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? {
+            toolCalls: [
+              { id: "call_throw", name: "submit_payment", arguments: JSON.stringify({ outcome: `throw-${token}` }) },
+              { id: "call_reject", name: "submit_payment", arguments: JSON.stringify({ outcome: `reject-${token}` }) },
+            ],
+          }
+        : { text: "One payment is unknown and one was declined." },
+    );
+    await sessions.startSession(sessionId, `pay ${token}`);
+    for (let approved = 0; approved < 2; approved++) {
+      const interrupt = await sessions.waitForPendingInterrupt(sessionId, "submit_payment");
+      assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    }
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    assert.deepEqual(await describeToolCalls(sessionId, ["call_throw", "call_reject"]), [
+      ["submit_payment", "non_idempotent_write", true, "outcome_unknown"],
+      ["submit_payment", "non_idempotent_write", true, "failed"],
+    ]);
+    const outputs = new Map(
+      (await sessions.getAgentSnapshot(sessionId)).messages
+        .filter((message) => message.role === "tool")
+        .map((message) => [message.toolCallId, message.toolOutput]),
+    );
+    assert.equal(outputs.get("call_throw"), outcomeUnknownToolResult);
+    assert.equal(outputs.get("call_reject"), "The tool call failed: card declined");
+    const runs = new InvocationLog(join(markerDirectory, "submit_payment.log")).names().filter((name) => name.includes(token));
+    assert.deepEqual(runs.sort(), [`reject-${token} call_reject`, `throw-${token} call_throw`]);
   });
 
   test("an unclassified Pi tool waits for resolve_interrupt before it runs", async () => {

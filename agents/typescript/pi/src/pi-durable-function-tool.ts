@@ -10,7 +10,13 @@ import { validateToolArguments, type JsonObject } from "@earendil-works/pi-ai";
 import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
 import type { FunctionTool, ToolCallContext } from "@superdurable/dex-agents/stepwise";
 
-import { buildPiFunctionTool, describePiToolContent, rethrowIfCancelled, type PiToolContentPart } from "./pi-tool-content.js";
+import {
+  buildPiFunctionTool,
+  describePiToolContent,
+  throwPiToolArgumentsFailure,
+  throwPiToolExecutionFailure,
+  type PiToolContentPart,
+} from "./pi-tool-content.js";
 
 /**
  * The result of a `pi-durable` tool, as `piDurableFunctionTool` reads it. A `ToolExecutionResult` satisfies it.
@@ -79,12 +85,14 @@ export interface PiDurableFunctionToolOptions {
  * Each call runs `tool.execute(args, api, context)`. The arguments pass `prepareArguments`, when the tool has one,
  * and pi-ai's validation, as in `pi-durable`. `context.abortSignal` is the attempt's cancellation signal; the
  * context has no values and a no-op `telemetry`. The result's text parts, joined by newlines, are the output the
- * model sees, and each image part becomes `[image omitted: <mime type>]`. A thrown error, a result with
- * `isError: true`, or invalid arguments become a `ToolExecutionError`, so the model sees the failure.
+ * model sees, and each image part becomes `[image omitted: <mime type>]`. A result with `isError: true`, a thrown
+ * `ToolExecutionError`, or invalid arguments become a `ToolExecutionError`, so the model sees the failure. Any
+ * other thrown error does too, except for a `non_idempotent_write` tool: its write may have taken effect, so the
+ * error propagates and the session records `outcome_unknown` without running the call again.
  *
  * Dex does not support the Harness parts of a `pi-durable` tool:
- * - Reading any property of `api`, such as `api.commit` or `api.executeTool`, throws an error that names it. A
- *   tool that uses `api` must be rewritten as a Pi `AgentTool` for `piAgentFunctionTool`, or as a Dex
+ * - Reading any property of `api`, such as `api.commit` or `api.executeTool`, throws an error that names it, which
+ *   the rule above handles like any thrown error. A tool that uses `api` must be rewritten as a Pi `AgentTool` for `piAgentFunctionTool`, or as a Dex
  *   `functionTool`.
  * - A result with `control` fails the call with a `ToolExecutionError`. The tool's effect has already happened by
  *   then. Use the Stepwise `decideTurnContinuation` hook to end a turn after tools.
@@ -119,31 +127,38 @@ export function piDurableFunctionTool(tool: PiDurableToolLike, options: PiDurabl
       `pi-durable tool ${tool.name} has executionMode "sequential", but Dex runs the tool calls of one model response in parallel`,
     );
   }
+  const effect = options.effect ?? (tool.replay === "safe" ? "idempotent_write" : "non_idempotent_write");
   return buildPiFunctionTool({
     name: tool.name,
     description: tool.description,
     parameters: tool.parameters,
-    effect: options.effect ?? (tool.replay === "safe" ? "idempotent_write" : "non_idempotent_write"),
+    effect,
     requiresApproval: undefined,
-    execute: (args, context) => executePiDurableTool(tool, args, context),
+    execute: (args, context) => executePiDurableTool(tool, effect, args, context),
   });
 }
 
-async function executePiDurableTool(tool: PiDurableToolLike, args: unknown, context: ToolCallContext): Promise<string> {
-  let result: PiDurableToolResultLike;
+async function executePiDurableTool(
+  tool: PiDurableToolLike,
+  effect: ToolEffect,
+  args: unknown,
+  context: ToolCallContext,
+): Promise<string> {
+  let validatedArguments: unknown;
   try {
     const preparedArguments = tool.prepareArguments === undefined ? args : tool.prepareArguments(args);
-    const validatedArguments: unknown = validateToolArguments(
+    validatedArguments = validateToolArguments(
       { name: tool.name, description: tool.description, parameters: tool.parameters },
       { type: "toolCall", id: context.toolCallId, name: tool.name, arguments: preparedArguments as JsonObject },
     );
+  } catch (error) {
+    throwPiToolArgumentsFailure(context, error);
+  }
+  let result: PiDurableToolResultLike;
+  try {
     result = await tool.execute(validatedArguments, createUnsupportedHarnessApi(tool.name), createToolContext(context));
   } catch (error) {
-    rethrowIfCancelled(context, error);
-    if (error instanceof ToolExecutionError) {
-      throw error;
-    }
-    throw new ToolExecutionError(error instanceof Error ? error.message : String(error), { cause: error });
+    throwPiToolExecutionFailure(context, effect, error);
   }
   if (result?.control !== undefined) {
     throw new ToolExecutionError(
