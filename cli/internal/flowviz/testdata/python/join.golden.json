@@ -1,0 +1,641 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "join.py"
+  },
+  "flow": {
+    "name": "QuoteFlow",
+    "startStepId": "step:RequestQuotes",
+    "span": {
+      "startLine": 118,
+      "startColumn": 1,
+      "endLine": 138,
+      "endColumn": 71
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:AcceptQuotes",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:AcceptQuotes",
+      "phase": "execute",
+      "span": {
+        "startLine": 98,
+        "startColumn": 5,
+        "endLine": 102,
+        "endColumn": 100
+      }
+    },
+    {
+      "id": "decision:rpc:request_reviews:126:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:request_reviews",
+      "phase": "rpc",
+      "span": {
+        "startLine": 126,
+        "startColumn": 16,
+        "endLine": 126,
+        "endColumn": 53
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:AcceptQuotes:101:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:AcceptQuotes",
+      "condition": "input.request.round_number == 2",
+      "phase": "execute",
+      "span": {
+        "startLine": 101,
+        "startColumn": 20,
+        "endLine": 101,
+        "endColumn": 53
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:AcceptQuotes:102:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AcceptQuotes",
+      "condition": "not (input.request.round_number == 2)",
+      "phase": "execute",
+      "span": {
+        "startLine": 102,
+        "startColumn": 16,
+        "endLine": 102,
+        "endColumn": 100
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CollectReviews:115:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:CollectReviews",
+      "phase": "execute",
+      "span": {
+        "startLine": 115,
+        "startColumn": 16,
+        "endLine": 115,
+        "endColumn": 86
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:QuoteFromSupplierA:85:16",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:QuoteFromSupplierA",
+      "phase": "execute",
+      "span": {
+        "startLine": 85,
+        "startColumn": 16,
+        "endLine": 85,
+        "endColumn": 62
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:QuoteFromSupplierB:91:16",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:QuoteFromSupplierB",
+      "phase": "execute",
+      "span": {
+        "startLine": 91,
+        "startColumn": 16,
+        "endLine": 91,
+        "endColumn": 26
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:RequestQuotes:77:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:RequestQuotes",
+      "phase": "execute",
+      "span": {
+        "startLine": 77,
+        "startColumn": 16,
+        "endLine": 77,
+        "endColumn": 38
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:ReviewDocument:107:16",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:ReviewDocument",
+      "phase": "execute",
+      "span": {
+        "startLine": 107,
+        "startColumn": 16,
+        "endLine": 107,
+        "endColumn": 84
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "resource:channel:QUOTE_RECEIVED",
+      "kind": "channel",
+      "name": "quoteReceived",
+      "span": {
+        "startLine": 31,
+        "startColumn": 1,
+        "endLine": 31,
+        "endColumn": 44
+      },
+      "resource": {
+        "valueType": "str",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:channel:SUPPLIER_RELEASED",
+      "kind": "channel",
+      "name": "supplierReleased",
+      "span": {
+        "startLine": 32,
+        "startColumn": 1,
+        "endLine": 32,
+        "endColumn": 53
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:request_reviews",
+      "kind": "rpc",
+      "name": "request_reviews",
+      "span": {
+        "startLine": 120,
+        "startColumn": 5,
+        "endLine": 126,
+        "endColumn": 53
+      }
+    },
+    {
+      "id": "step:AcceptQuotes",
+      "kind": "step",
+      "name": "AcceptQuotes",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 132,
+        "startColumn": 13,
+        "endLine": 132,
+        "endColumn": 27
+      }
+    },
+    {
+      "id": "step:CollectReviews",
+      "kind": "step",
+      "name": "CollectReviews",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 134,
+        "startColumn": 13,
+        "endLine": 134,
+        "endColumn": 29
+      }
+    },
+    {
+      "id": "step:QuoteFromSupplierA",
+      "kind": "step",
+      "name": "QuoteFromSupplierA",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 130,
+        "startColumn": 13,
+        "endLine": 130,
+        "endColumn": 33
+      }
+    },
+    {
+      "id": "step:QuoteFromSupplierB",
+      "kind": "step",
+      "name": "QuoteFromSupplierB",
+      "phase": "execute",
+      "span": {
+        "startLine": 131,
+        "startColumn": 13,
+        "endLine": 131,
+        "endColumn": 33
+      }
+    },
+    {
+      "id": "step:RequestQuotes",
+      "kind": "step",
+      "name": "RequestQuotes",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 129,
+        "startColumn": 36,
+        "endLine": 129,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "step:ReviewDocument",
+      "kind": "step",
+      "name": "ReviewDocument",
+      "phase": "execute",
+      "span": {
+        "startLine": 133,
+        "startColumn": 13,
+        "endLine": 133,
+        "endColumn": 29
+      }
+    },
+    {
+      "id": "wait-dispatch:RequestQuotes",
+      "kind": "wait_dispatch",
+      "name": "WaitFor",
+      "parentId": "step:RequestQuotes",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 63,
+        "startColumn": 5,
+        "endLine": 66,
+        "endColumn": 104
+      }
+    },
+    {
+      "id": "wait:AcceptQuotes:96:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:AcceptQuotes",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 96,
+        "startColumn": 16,
+        "endLine": 96,
+        "endColumn": 90
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "quoteReceived[input.join_round].for REQUIRED_QUOTES branches",
+            "resourceId": "resource:channel:QUOTE_RECEIVED",
+            "expression": "input.join_round, REQUIRED_QUOTES",
+            "span": {
+              "startLine": 96,
+              "startColumn": 27,
+              "endLine": 96,
+              "endColumn": 89
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:CollectReviews:112:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:CollectReviews",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 112,
+        "startColumn": 16,
+        "endLine": 112,
+        "endColumn": 66
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "quoteReceived[input].for all branches",
+            "resourceId": "resource:channel:QUOTE_RECEIVED",
+            "expression": "input",
+            "span": {
+              "startLine": 112,
+              "startColumn": 27,
+              "endLine": 112,
+              "endColumn": 65
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:QuoteFromSupplierA:82:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:QuoteFromSupplierA",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 82,
+        "startColumn": 16,
+        "endLine": 82,
+        "endColumn": 55
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "supplierReleased.for 1",
+            "resourceId": "resource:channel:SUPPLIER_RELEASED",
+            "span": {
+              "startLine": 82,
+              "startColumn": 27,
+              "endLine": 82,
+              "endColumn": 54
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:RequestQuotes:65:20:0",
+      "kind": "wait",
+      "name": "skipWaitImmediately",
+      "parentId": "step:RequestQuotes",
+      "condition": "input.previous_round is None",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 65,
+        "startColumn": 20,
+        "endLine": 65,
+        "endColumn": 43
+      },
+      "wait": {
+        "type": "skipWaitImmediately",
+        "conditions": []
+      }
+    },
+    {
+      "id": "wait:RequestQuotes:66:16:1",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:RequestQuotes",
+      "condition": "not (input.previous_round is None)",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 66,
+        "startColumn": 16,
+        "endLine": 66,
+        "endColumn": 104
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "quoteReceived[input.previous_round].for remaining branches after REQUIRED_QUOTES",
+            "resourceId": "resource:channel:QUOTE_RECEIVED",
+            "expression": "input.previous_round, REQUIRED_QUOTES",
+            "span": {
+              "startLine": 66,
+              "startColumn": 27,
+              "endLine": 66,
+              "endColumn": 103
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:rpc:request_reviews:126:16",
+      "to": "step:CollectReviews",
+      "label": "fan-out",
+      "span": {
+        "startLine": 59,
+        "startColumn": 12,
+        "endLine": 59,
+        "endColumn": 55
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:rpc:request_reviews:126:16",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "multiplicity": "×N",
+      "span": {
+        "startLine": 55,
+        "startColumn": 31,
+        "endLine": 55,
+        "endColumn": 97
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:AcceptQuotes:102:16",
+      "to": "step:RequestQuotes",
+      "label": "go_to",
+      "span": {
+        "startLine": 102,
+        "startColumn": 16,
+        "endLine": 102,
+        "endColumn": 100
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:RequestQuotes:77:16",
+      "to": "step:AcceptQuotes",
+      "label": "fan-out",
+      "span": {
+        "startLine": 75,
+        "startColumn": 32,
+        "endLine": 75,
+        "endColumn": 96
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:RequestQuotes:77:16",
+      "to": "step:QuoteFromSupplierA",
+      "label": "fan-out",
+      "span": {
+        "startLine": 72,
+        "startColumn": 36,
+        "endLine": 72,
+        "endColumn": 83
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:RequestQuotes:77:16",
+      "to": "step:QuoteFromSupplierB",
+      "label": "fan-out",
+      "span": {
+        "startLine": 73,
+        "startColumn": 36,
+        "endLine": 73,
+        "endColumn": 83
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:channel:QUOTE_RECEIVED",
+      "to": "step:AcceptQuotes",
+      "label": "branch_results",
+      "span": {
+        "startLine": 99,
+        "startColumn": 20,
+        "endLine": 99,
+        "endColumn": 76
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_read",
+      "from": "resource:channel:QUOTE_RECEIVED",
+      "to": "step:CollectReviews",
+      "label": "branch_results",
+      "span": {
+        "startLine": 115,
+        "startColumn": 39,
+        "endLine": 115,
+        "endColumn": 84
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "wait_condition",
+      "from": "resource:channel:QUOTE_RECEIVED",
+      "to": "wait:AcceptQuotes:96:16:0",
+      "label": "quoteReceived[input.join_round].for REQUIRED_QUOTES branches",
+      "span": {
+        "startLine": 96,
+        "startColumn": 27,
+        "endLine": 96,
+        "endColumn": 89
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "wait_condition",
+      "from": "resource:channel:QUOTE_RECEIVED",
+      "to": "wait:CollectReviews:112:16:0",
+      "label": "quoteReceived[input].for all branches",
+      "span": {
+        "startLine": 112,
+        "startColumn": 27,
+        "endLine": 112,
+        "endColumn": 65
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "wait_condition",
+      "from": "resource:channel:QUOTE_RECEIVED",
+      "to": "wait:RequestQuotes:66:16:1",
+      "label": "quoteReceived[input.previous_round].for remaining branches after REQUIRED_QUOTES",
+      "span": {
+        "startLine": 66,
+        "startColumn": 27,
+        "endLine": 66,
+        "endColumn": 103
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "wait_condition",
+      "from": "resource:channel:SUPPLIER_RELEASED",
+      "to": "wait:QuoteFromSupplierA:82:16:0",
+      "label": "supplierReleased.for 1",
+      "span": {
+        "startLine": 82,
+        "startColumn": 27,
+        "endLine": 82,
+        "endColumn": 54
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "resource_publish",
+      "from": "step:QuoteFromSupplierA",
+      "to": "resource:channel:QUOTE_RECEIVED",
+      "label": "end_branch",
+      "span": {
+        "startLine": 85,
+        "startColumn": 16,
+        "endLine": 85,
+        "endColumn": 62
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "resource_publish",
+      "from": "step:QuoteFromSupplierB",
+      "to": "resource:channel:QUOTE_RECEIVED",
+      "label": "report_branch_result",
+      "span": {
+        "startLine": 90,
+        "startColumn": 9,
+        "endLine": 90,
+        "endColumn": 65
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "resource_publish",
+      "from": "step:ReviewDocument",
+      "to": "resource:channel:QUOTE_RECEIVED",
+      "label": "end_branch",
+      "span": {
+        "startLine": 107,
+        "startColumn": 16,
+        "endLine": 107,
+        "endColumn": 84
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    }
+  ],
+  "diagnostics": []
+}

@@ -1,0 +1,32 @@
+---
+id: channel
+title: Channel
+sidebar_label: Channel
+---
+
+# Channel
+
+This page lists the Go SDK names for [Channels](/concepts/primitives/channel).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Go SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Go API | Dex behavior |
+| --- | --- | --- |
+| Define a Channel | **DefineChannel**, which returns a **Channel** | [Channels](/reference/server/runtime-data#channels) |
+| Define a ChannelMap | **DefineChannelMap**, which returns a **ChannelMap** | [ChannelMap](/reference/server/runtime-data#channelmap) |
+| Declare it in the Flow | **Channels** of **PersistenceSchema**, returned from **GetPersistenceSchema** | [Flow definition](./flow.mdx#flow-definition) |
+| Publish a message from a Step or RPC | **Publish** | [Commits](./step.mdx#commit-boundary) |
+| Wait for messages | **ForOne**, **ForN**, **AtLeast**, **AtMost**, and **AtLeastAtMost** | [Wait conditions](/reference/server/runtime-data#channel-conditions) |
+| Read the messages a wait consumed | **GetConditionResults** | [Channel results](./waits.mdx#channel-results) |
+| Load pending messages for a method | **ChannelMap.LoadMessages**, with the load fields of **StepOptions** or **RPCOptions** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Read loaded pending messages | **PendingMessages** and **FindPendingMessage** | [Pending messages](/reference/server/runtime-data#manage-pending-messages) |
+| Delete a pending message | **Delete** | [Pending messages](/reference/server/runtime-data#manage-pending-messages) |
+| Read the number of pending messages | **Size** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Count ChannelMap instances and list their keys | **ChannelMap.MapSize** and **ChannelMap.AllInstanceKeys** | [ChannelMap](/reference/server/runtime-data#channelmap) |
+| Complete the Flow only when Channels are empty | **ForceCompleteIfChannelsEmpty** | [ForceCompleteIfChannelsEmpty](./step-decisions.mdx#forcecompleteifchannelsempty) |
+
+## Example {#example}
+
+Example: [examples/go/primitives/channel/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/channel/workflow.go)

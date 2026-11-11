@@ -1,0 +1,26 @@
+---
+id: subflow
+title: SubFlow
+sidebar_label: SubFlow
+---
+
+# SubFlow
+
+This page lists the Rust SDK names for [SubFlows](/concepts/primitives/subflow).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Rust SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Rust API | Dex behavior |
+| --- | --- | --- |
+| Start a child Flow and wait for it | **SubFlow::run** in **wait_for** | [SubFlows](/reference/server/runtime-data#subflows) |
+| Set the child timeout, Attributes, and configuration | **SubFlowOptions**, with **SubFlow::run_with_options** | [SubFlowOptions](/reference/server/runtime-data#subflow-options) |
+| Choose what happens to an existing child | **reuse_policy** of **SubFlowOptions**, with **SubFlowReusePolicy** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Read the child result | **SubFlow::condition_result** or **SubFlow::condition_result_at** in **execute**. It returns a **FlowResult**. | [SubFlow results](./waits.mdx#subflow-results) |
+| Read the generated child Flow ID | **SubFlow::flow_id** or **SubFlow::flow_id_at** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Stop a child that lost an **AnyOf** | **Client::stop_flow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+
+## Example {#example}
+
+Example: [examples/rust/src/primitives/subflow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/subflow/flow.rs)

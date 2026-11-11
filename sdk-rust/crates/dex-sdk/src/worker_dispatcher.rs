@@ -1299,6 +1299,9 @@ impl<'a> ConditionMapper<'a> {
                     at_most: optional_count(at_most)?,
                 });
             }
+            ConditionKind::Invalid(reason) => {
+                return Err(HandlerError::new("dex_sdk::HandlerError", reason));
+            }
             ConditionKind::SubFlow(definition) => {
                 let target = self
                     .registry

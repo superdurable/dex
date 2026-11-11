@@ -18,7 +18,7 @@
     "typecheck": "tsc",
     "test:site": "npm run test:reference && node tests/site-smoke.mjs",
     "check": "npm run typecheck && npm run build && npm run test:site",
-    "test:reference": "node --test tests/snapshot-reference.test.mjs"
+    "test:reference": "node --test tests/snapshot-reference.test.mjs tests/api-reference-cache.test.mjs"
   },
   "dependencies": {
     "@docusaurus/core": "3.8.1",

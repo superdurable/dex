@@ -51,6 +51,10 @@ mod internal_channel_test;
 mod internal_channel_waiting_workflow;
 #[path = "integ/internal_channel_workflow.rs"]
 mod internal_channel_workflow;
+#[path = "integ/join_test.rs"]
+mod join_test;
+#[path = "integ/join_workflow.rs"]
+mod join_workflow;
 #[path = "integ/multi_output_test.rs"]
 mod multi_output_test;
 #[path = "integ/multi_output_workflow.rs"]

@@ -89,8 +89,10 @@ type goTransition struct {
 	label           string
 	condition       string
 	multiplicity    string
-	span            *Span
-	metadata        map[string]any
+	// hasKnownMultiplicity keeps a Join.Fork movement's multiplicity when spread into GoToMany.
+	hasKnownMultiplicity bool
+	span                 *Span
+	metadata             map[string]any
 }
 
 type goDecisionOutcome struct {
@@ -1002,7 +1004,7 @@ func (analyzer *goAnalyzer) decisionType(expression ast.Expr, allowRPC bool) str
 		return "forceComplete"
 	case "ForceFail":
 		return "forceFail"
-	case "DeadEnd":
+	case "DeadEnd", "EndBranch":
 		return "deadEnd"
 	case "ForceCompleteIfChannelsEmpty":
 		return "forceCompleteIfChannelsEmpty"
@@ -1083,6 +1085,14 @@ func (analyzer *goAnalyzer) goChannelConditionLabel(resourceID string, method st
 	}
 	label := name + instance
 	switch method {
+	case "ForAllBranches":
+		label += ".for all branches"
+	case "ForFirstBranch":
+		label += ".for first branch"
+	case "ForBranches":
+		label += ".for " + count(0, "N") + " branches"
+	case "ForRemainingBranches":
+		label += ".for remaining branches after " + count(0, "N")
 	case "ForOne":
 		label += ".for 1"
 	case "ForN":
@@ -1112,6 +1122,13 @@ func (analyzer *goAnalyzer) transitionsFromExpression(expression ast.Expr, condi
 		if allowMovement {
 			result := make([]goTransition, 0)
 			ast.Inspect(expression, func(current ast.Node) bool {
+				if movements, isLocalNextSteps := analyzer.localNextSteps(current, locals); isLocalNextSteps {
+					for _, movement := range movements {
+						movement.condition = condition
+						result = append(result, movement)
+					}
+					return false
+				}
 				movement, movementOK := current.(*ast.CallExpr)
 				if movementOK && analyzer.callName(movement) == "MovementOf" {
 					result = append(result, analyzer.movementTransition(movement, condition))
@@ -1149,7 +1166,7 @@ func (analyzer *goAnalyzer) transitionsFromExpression(expression ast.Expr, condi
 			if identifier, identifierOK := argument.(*ast.Ident); identifierOK {
 				for _, movement := range locals[identifier.Name] {
 					movement.condition = condition
-					if call.Ellipsis.IsValid() {
+					if call.Ellipsis.IsValid() && !movement.hasKnownMultiplicity {
 						movement.multiplicity = "×N"
 					}
 					result = append(result, movement)
@@ -1174,6 +1191,8 @@ func (analyzer *goAnalyzer) transitionsFromExpression(expression ast.Expr, condi
 		}
 	case "GracefulComplete", "ForceComplete", "ForceFail", "DeadEnd":
 		return []goTransition{{kind: "terminal", target: name, label: terminalLabel(name), condition: condition, span: analyzer.span(call)}}
+	case "EndBranch":
+		return []goTransition{{kind: "terminal", target: "DeadEnd", label: terminalLabel("DeadEnd"), condition: condition, span: analyzer.span(call)}}
 	}
 	return nil
 }
@@ -1204,13 +1223,22 @@ func (analyzer *goAnalyzer) collectLocalMovements(body *ast.BlockStmt) map[strin
 				if !ok || index >= len(node.Rhs) {
 					continue
 				}
-				literal, literalOK := node.Rhs[index].(*ast.CompositeLit)
-				if !literalOK {
-					continue
-				}
-				for _, element := range literal.Elts {
-					if call, callOK := element.(*ast.CallExpr); callOK && analyzer.callName(call) == "MovementOf" {
-						locals[identifier.Name] = append(locals[identifier.Name], analyzer.movementTransition(call, ""))
+				switch value := node.Rhs[index].(type) {
+				case *ast.CompositeLit:
+					for _, element := range value.Elts {
+						if call, callOK := element.(*ast.CallExpr); callOK && analyzer.callName(call) == "MovementOf" {
+							locals[identifier.Name] = append(locals[identifier.Name], analyzer.movementTransition(call, ""))
+							continue
+						}
+						if builder, builderOK := element.(*ast.FuncLit); builderOK {
+							locals[identifier.Name] = append(locals[identifier.Name], analyzer.joinBuilderMovements(builder, "")...)
+						}
+					}
+				case *ast.FuncLit:
+					locals[identifier.Name] = append(locals[identifier.Name], analyzer.joinBuilderMovements(value, "")...)
+				case *ast.CallExpr:
+					if name := analyzer.callName(value); name == "Fork" || name == "ForkWithRoundKey" {
+						locals[identifier.Name] = append(locals[identifier.Name], analyzer.joinForkMovements(value, locals)...)
 					}
 				}
 			}
@@ -1219,6 +1247,10 @@ func (analyzer *goAnalyzer) collectLocalMovements(body *ast.BlockStmt) map[strin
 				return true
 			}
 			identifier, ok := node.Args[0].(*ast.Ident)
+			if builder, builderOK := node.Args[1].(*ast.FuncLit); ok && builderOK {
+				locals[identifier.Name] = append(locals[identifier.Name], analyzer.joinBuilderMovements(builder, "×N")...)
+				return true
+			}
 			movement, movementOK := node.Args[1].(*ast.CallExpr)
 			if !ok || !movementOK || analyzer.callName(movement) != "MovementOf" {
 				return true
@@ -1230,6 +1262,52 @@ func (analyzer *goAnalyzer) collectLocalMovements(body *ast.BlockStmt) map[strin
 		return true
 	})
 	return locals
+}
+
+// localNextSteps resolves RPCResult{NextSteps: movements} when movements is a collected local.
+func (analyzer *goAnalyzer) localNextSteps(node ast.Node, locals map[string][]goTransition) ([]goTransition, bool) {
+	field, isField := node.(*ast.KeyValueExpr)
+	if !isField {
+		return nil, false
+	}
+	key, isKeyIdentifier := field.Key.(*ast.Ident)
+	value, isValueIdentifier := field.Value.(*ast.Ident)
+	if !isKeyIdentifier || !isValueIdentifier || key.Name != "NextSteps" {
+		return nil, false
+	}
+	movements, found := locals[value.Name]
+	return movements, found
+}
+
+// joinForkMovements returns the branch and join movements that a Join.Fork call builds.
+func (analyzer *goAnalyzer) joinForkMovements(call *ast.CallExpr, locals map[string][]goTransition) []goTransition {
+	movements := make([]goTransition, 0)
+	for _, argument := range call.Args {
+		if identifier, isIdentifier := argument.(*ast.Ident); isIdentifier {
+			movements = append(movements, locals[identifier.Name]...)
+			continue
+		}
+		movements = append(movements, analyzer.joinBuilderMovements(argument, "")...)
+	}
+	for index := range movements {
+		movements[index].hasKnownMultiplicity = true
+	}
+	return movements
+}
+
+func (analyzer *goAnalyzer) joinBuilderMovements(builder ast.Node, multiplicity string) []goTransition {
+	movements := make([]goTransition, 0)
+	ast.Inspect(builder, func(current ast.Node) bool {
+		movement, isMovement := current.(*ast.CallExpr)
+		if isMovement && analyzer.callName(movement) == "MovementOf" {
+			transition := analyzer.movementTransition(movement, "")
+			transition.multiplicity = multiplicity
+			movements = append(movements, transition)
+			return false
+		}
+		return true
+	})
+	return movements
 }
 
 func (analyzer *goAnalyzer) walkStatements(statements []ast.Stmt, condition string, visit func(ast.Expr, string) bool) bool {
@@ -1557,7 +1635,7 @@ func unwrapCallFun(expression ast.Expr) ast.Expr {
 func (analyzer *goAnalyzer) resourceDetails(call *ast.CallExpr) ResourceDetails {
 	details := ResourceDetails{ValueType: "unknown"}
 	name := analyzer.callName(call)
-	details.Map = name == "DefineAttributeMap" || name == "DefineChannelMap"
+	details.Map = name == "DefineAttributeMap" || name == "DefineChannelMap" || name == "DefineJoin"
 	switch function := call.Fun.(type) {
 	case *ast.IndexExpr:
 		details.ValueType = analyzer.expressionString(function.Index)
@@ -1591,7 +1669,8 @@ func goWaitType(name string) string {
 
 func isGoChannelCondition(name string) bool {
 	switch name {
-	case "ForOne", "ForN", "AtLeast", "AtMost", "AtLeastAtMost":
+	case "ForOne", "ForN", "AtLeast", "AtMost", "AtLeastAtMost",
+		"ForAllBranches", "ForFirstBranch", "ForBranches", "ForRemainingBranches":
 		return true
 	default:
 		return false
@@ -1650,7 +1729,7 @@ func goResourceKind(name string) string {
 	switch name {
 	case "DefineAttribute", "DefineAttributeMap":
 		return "attribute"
-	case "DefineChannel", "DefineChannelMap":
+	case "DefineChannel", "DefineChannelMap", "DefineJoin":
 		return "channel"
 	case "DefineStream":
 		return "stream"
@@ -1662,16 +1741,18 @@ func goResourceKind(name string) string {
 func goResourceEdgeKind(method string, phase string) string {
 	if phase == "wait_for" {
 		switch method {
-		case "ForOne", "ForN", "AtLeast", "AtMost", "AtLeastAtMost":
+		case "ForOne", "ForN", "AtLeast", "AtMost", "AtLeastAtMost",
+			"ForAllBranches", "ForFirstBranch", "ForBranches", "ForRemainingBranches":
 			return "wait_condition"
 		}
 	}
 	switch method {
-	case "Get", "Size", "MapSize", "AllInstanceKeys", "GetConditionResults", "PendingMessages", "FindPendingMessage":
+	case "Get", "Size", "MapSize", "AllInstanceKeys", "GetConditionResults", "PendingMessages", "FindPendingMessage",
+		"BranchResults", "RemainingBranchResults":
 		return "resource_read"
 	case "Set", "Delete":
 		return "resource_write"
-	case "Publish":
+	case "Publish", "EndBranch", "ReportBranchResult":
 		return "resource_publish"
 	case "Write":
 		return "resource_write"
