@@ -42,5 +42,17 @@ node --version
 
 # Every test runs the AI SDK OpenAI provider against a local scripted Responses API.
 npm ci
+# The command must run the Vercel AI SDK version that the adapter's own lockfile tests.
+node -e '
+const { readFileSync } = require("node:fs");
+const lockedVersion = (path) => JSON.parse(readFileSync(path, "utf8")).packages["node_modules/ai"].version;
+const commandVersion = lockedVersion("package-lock.json");
+const adapterVersion = lockedVersion("../../../typescript/vercel-ai/package-lock.json");
+if (commandVersion !== adapterVersion) {
+  console.error(`package-lock.json has ai ${commandVersion}, the adapter lockfile ${adapterVersion}`);
+  process.exit(1);
+}
+console.log(`ai ${commandVersion}, as in the adapter lockfile`);
+'
 npm run typecheck
 npm test

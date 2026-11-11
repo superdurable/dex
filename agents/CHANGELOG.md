@@ -87,6 +87,11 @@ for the Dex SDK and framework versions each release supports.
   [vercel-ai](cli/typescript/vercel-ai/README.md),
   [mastra](cli/typescript/mastra/README.md), and
   [builtin](cli/typescript/builtin/README.md).
+- TypeScript CLI runtime: a harness whose runner fixes its tools when the Flow
+  is built sets **AgentHarness.isToolSetFixedAtBuild**. The runtime then lists
+  the file's connector tools before building the Flow and, when the connectors
+  MCP server does not answer at startup, says that a restart brings them back.
+  See [cli/typescript/runtime](cli/typescript/runtime/README.md#connectors).
 - Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
   (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
   Claude Code CLI from its input. It returns a **ToolPolicy** for that call,

@@ -37,7 +37,7 @@
     "test": "npm run build && node --test --test-concurrency=1 --test-timeout=300000 'dist/test/integ/*.integration.test.js'"
   },
   "dependencies": {
-    "@openai/agents": "^0.21.0",
+    "@openai/agents": "0.21.0",
     "zod": "^4.0.0"
   },
   "peerDependencies": {

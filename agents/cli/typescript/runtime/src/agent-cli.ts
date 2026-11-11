@@ -390,12 +390,31 @@ class AgentCliCommand {
       throw new Error(`the connectors MCP server is unavailable: ${availability.reason}`);
     }
     const source = new ConnectorsMcpToolSource(url, turns, this.log);
+    const isToolSetFixed = this.harness.isToolSetFixedAtBuild === true;
     if (!availability.isAvailable) {
-      this.log(`Connector tools are unavailable for now; each turn tries again: ${availability.reason}`);
+      this.log(
+        isToolSetFixed
+          ? `The connectors MCP server is unavailable: ${availability.reason}. ${this.restartForConnectorTools()}`
+          : `Connector tools are unavailable for now; each turn tries again: ${availability.reason}`,
+      );
       return source;
     }
     await this.reportUnauthorizedConnectors(effective, await source.readIdentities(), server, isOpeningConnectorsPage);
+    if (isToolSetFixed) {
+      // Outside a model call the listing uses the file's configuration.
+      await source.listTools();
+      if (!source.isAvailable) {
+        this.log(`The connectors MCP server could not be listed. ${this.restartForConnectorTools()}`);
+      }
+    }
     return source;
+  }
+
+  private restartForConnectorTools(): string {
+    return (
+      `dex-agents-${this.harness.name} fixes its tools when it starts, so this run has no connector tools. ` +
+      "Restart it once the connectors MCP server answers."
+    );
   }
 
   private async reportUnauthorizedConnectors(

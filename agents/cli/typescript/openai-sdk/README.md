@@ -46,7 +46,9 @@ The agent offers the connectors MCP server's tools and the runtime's
 with the runtime's approval rules. Its instructions are a function of the
 running turn, and it sets no model, so the SDK asks the command's model
 provider, **TurnModelProvider**, in each model call. Each turn therefore uses
-the model and instructions its session settings resolve to.
+the model and instructions its session settings resolve to. The adapter lists
+the connector tools in every model call rather than when the Flow is built, so
+connector tools that appear while the command runs need no restart.
 
 ## Development
 

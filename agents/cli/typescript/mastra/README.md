@@ -34,6 +34,11 @@ environment variable, such as `OPENAI_API_KEY` (with optional
 `OPENAI_BASE_URL`) or `ANTHROPIC_API_KEY`. The command never prints or stores
 a key.
 
+The package pins `@mastra/core` to the version the Mastra adapter's lockfile
+tests, and `ci.sh` fails when the two lockfiles differ. Mastra brings its own
+copies of `@ai-sdk/provider`, 3.x and 4.x, for its model router; the command
+does not call the AI SDK itself.
+
 ## Configuration and tools
 
 The `mastra` section has no options yet, and any key in it is a configuration

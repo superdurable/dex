@@ -257,6 +257,15 @@ not available, such as one answering 503 while it starts, or an older
 lists the server again, so its tools appear once it is ready. An explicit
 `connectors.mcp` URL that is not available stops the command.
 
+A harness whose runner fixes its tools when the Flow is built declares
+`isToolSetFixedAtBuild: true`. The runtime then lists the connector tools the
+file enables before it builds the Flow, so the connector source's
+`cachedTools()` holds them. When the server does not answer at startup, or
+that listing fails, the warning says the run has no connector tools and to
+restart the command once the server answers. Every TypeScript adapter lists
+its tool sources in each model call, so none of the TypeScript commands sets
+it; the Python runtime's `is_tool_set_fixed_at_build` is the same switch.
+
 The agent sees each connector tool by its MCP name, such as
 `slack_post_thread_reply`. `connectors.enabled` matches only these `_meta`
 keys of each tool, never its name:

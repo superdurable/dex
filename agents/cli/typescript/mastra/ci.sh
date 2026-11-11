@@ -40,7 +40,19 @@ node --version
 (cd ../../../typescript/mastra && npm ci && npm run build)
 (cd ../runtime && npm ci && npm run build)
 
-# Every test runs the AI SDK OpenAI provider against a local scripted Responses API.
+# Every test runs Mastra's model router against a local scripted Responses API.
 npm ci
+# The command must run the Mastra version that the adapter's own lockfile tests.
+node -e '
+const { readFileSync } = require("node:fs");
+const lockedVersion = (path) => JSON.parse(readFileSync(path, "utf8")).packages["node_modules/@mastra/core"].version;
+const commandVersion = lockedVersion("package-lock.json");
+const adapterVersion = lockedVersion("../../../typescript/mastra/package-lock.json");
+if (commandVersion !== adapterVersion) {
+  console.error(`package-lock.json has @mastra/core ${commandVersion}, the adapter lockfile ${adapterVersion}`);
+  process.exit(1);
+}
+console.log(`@mastra/core ${commandVersion}, as in the adapter lockfile`);
+'
 npm run typecheck
 npm test

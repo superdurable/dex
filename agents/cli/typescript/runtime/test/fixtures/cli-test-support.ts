@@ -28,6 +28,7 @@ import {
   type HarnessContext,
 } from "../../src/index.js";
 import {
+  fixedToolSetScriptedHarness,
   scriptedHarness,
   scriptedHarnessDirectoryVariable,
   scriptedHarnessVariantVariable,
@@ -244,6 +245,7 @@ export class TestHome {
       DEX_AGENTS_WEB_PORT: String(this.ports.webPort),
       [scriptedHarnessDirectoryVariable]: this.markerDirectory,
       ...(this.harness === shellReplacingScriptedHarness ? { [scriptedHarnessVariantVariable]: "shell-replacing" } : {}),
+      ...(this.harness === fixedToolSetScriptedHarness ? { [scriptedHarnessVariantVariable]: "fixed-tool-set" } : {}),
     };
   }
 }

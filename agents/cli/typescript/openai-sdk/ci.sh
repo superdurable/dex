@@ -40,7 +40,19 @@ node --version
 (cd ../../../typescript/openai-agents && npm ci && npm run build)
 (cd ../runtime && npm ci && npm run build)
 
-# Every test runs the AI SDK OpenAI provider against a local scripted Responses API.
+# Every test runs the OpenAI Agents SDK's OpenAI provider against a local scripted Responses API.
 npm ci
+# The command must run the OpenAI Agents SDK version that the adapter's own lockfile tests.
+node -e '
+const { readFileSync } = require("node:fs");
+const lockedVersion = (path) => JSON.parse(readFileSync(path, "utf8")).packages["node_modules/@openai/agents"].version;
+const commandVersion = lockedVersion("package-lock.json");
+const adapterVersion = lockedVersion("../../../typescript/openai-agents/package-lock.json");
+if (commandVersion !== adapterVersion) {
+  console.error(`package-lock.json has @openai/agents ${commandVersion}, the adapter lockfile ${adapterVersion}`);
+  process.exit(1);
+}
+console.log(`@openai/agents ${commandVersion}, as in the adapter lockfile`);
+'
 npm run typecheck
 npm test

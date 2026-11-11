@@ -126,10 +126,21 @@ describe("dex-agents-mastra with the Mastra model router against a scripted Resp
     assert.equal(connectors.runCount("slack_post_thread_reply"), 1);
   });
 
-  test("session settings change the next turn's model and instructions", async () => {
+  test("session settings change the model and instructions of the next turn and its call after a tool", async () => {
     const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");
     const cli = start(home);
     const sessionId = await cli.waitForSession();
+    cli.writeLine(call("read_file", { path: "notes.txt" }));
+    await cli.stdout.waitFor("read_file: buy milk");
+    const firstTurnRequests = api.modelRequests();
+    assert.ok(firstTurnRequests.length >= 2);
+    for (const request of firstTurnRequests) {
+      assert.equal(request["model"], "gpt-5.2");
+      assert.doesNotMatch(JSON.stringify(request), /Answer like a pirate\./);
+    }
+
     const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
     try {
       await sessions.updateSessionSettings(sessionId, {
@@ -139,13 +150,18 @@ describe("dex-agents-mastra with the Mastra model router against a scripted Resp
     } finally {
       await environment.close();
     }
-    cli.writeLine("say ahoy");
-    await cli.stdout.waitFor("said: ahoy");
+    cli.writeLine(call("read_file", { path: "notes.txt" }));
+    await cli.stdout.waitFor("read_file: buy milk");
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
-    const request = api.modelRequests().at(-1);
-    assert.equal(request?.["model"], "gpt-5-nano");
-    assert.match(JSON.stringify(request), /Answer like a pirate\./);
+    const nextTurnRequests = api.modelRequests().slice(firstTurnRequests.length);
+    // The first request calls the tool; the last one carries its result.
+    assert.ok(nextTurnRequests.length >= 2);
+    for (const request of [nextTurnRequests[0], nextTurnRequests.at(-1)]) {
+      assert.equal(request?.["model"], "gpt-5-nano");
+      assert.match(JSON.stringify(request), /Answer like a pirate\./);
+    }
+    assert.match(JSON.stringify(nextTurnRequests.at(-1)), /buy milk/);
   });
 
   test("a key in the mastra section is a configuration error", async () => {
