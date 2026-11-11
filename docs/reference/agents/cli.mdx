@@ -389,7 +389,7 @@ OS-level isolation, such as a container, closes that gap.
 ### Harnesses with their own tools {#harness-tools}
 
 Three commands replace some local tools with their framework's own tools. Use
-these names in **approval.always**. The other groups keep the runtime's tools.
+these names in **approval.always**. The other groups keep the CLI core's tools.
 
 | Command | Group | Tools | Approval |
 | --- | --- | --- | --- |
@@ -410,12 +410,12 @@ these names in **approval.always**. The other groups keep the runtime's tools.
   so a Worker that dies during a turn segment can run one of them twice. The
   browser and Connector tools still run in their own Steps.
 - **Pi.** Each call is its own tool Step, and a **write**, **edit**, or
-  **bash** call never runs twice. The file tools go through the runtime's
+  **bash** call never runs twice. The file tools go through the CLI core's
   workspace rules. **find** and **grep** walk the workspace themselves, so the
   command needs neither **fd** nor **rg**. They skip **.git** and
   **node_modules** and do not read **.gitignore**. A **grep** or **find** call
   has 10 seconds in all.
-- **Deep Agents.** The runtime's file and shell tools replace Deep Agents' own,
+- **Deep Agents.** The CLI core's file and shell tools replace Deep Agents' own,
   which would work on a virtual file system. The **task** tool is not offered,
   because a subagent would make its own model and tool calls inside one tool
   Step. **write_todos** is kept as a read that returns the plan as text.
