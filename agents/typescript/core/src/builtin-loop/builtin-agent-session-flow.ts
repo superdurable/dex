@@ -8,19 +8,19 @@
 
 import { createAgentSessionFlow, type AgentSessionFlow, type AgentSessionOptions } from "../agent-session-flow.js";
 import type { AgentDefinition } from "./agent-definition.js";
-import { StepwiseAgentRunner } from "./stepwise-agent-runner.js";
+import { BuiltinLoopAgentRunner } from "./builtin-loop-agent-runner.js";
 
 /**
- * Creates the agent session Flow for an agent defined in Dex terms, run by the built-in Stepwise loop.
+ * Creates the agent session Flow for an agent defined in Dex terms, run by the built-in agent loop.
  *
- * It builds the session Flow with a {@link StepwiseAgentRunner} and derives the session options from
+ * It builds the session Flow with a {@link BuiltinLoopAgentRunner} and derives the session options from
  * the definition, so tool policies, built-in tools, plan mode, the deadlines, and compaction are declared once. The Flow is the
  * same session Flow every adapter uses, with the same Steps, RPCs, and events. Construct it once at
  * application startup and register the same object in the Worker and Client Registry.
  *
  * @example
  * ```ts
- * const supportAgentFlow = createStepwiseAgentSessionFlow(
+ * const supportAgentFlow = createBuiltinAgentSessionFlow(
  *   {
  *     name: "support",
  *     instructions: "You help customers with their orders.",
@@ -36,16 +36,21 @@ import { StepwiseAgentRunner } from "./stepwise-agent-runner.js";
  * ```
  * @param definition - The agent definition.
  * @param flowType - Flow type, unique within the Registry. Keep it stable: running sessions resume by it.
- * @returns A new Flow; its `runner` is the {@link StepwiseAgentRunner}.
- * @throws {TypeError} When the definition is invalid; see {@link StepwiseAgentRunner} and
+ * @returns A new Flow; its `runner` is the {@link BuiltinLoopAgentRunner}.
+ * @throws {TypeError} When the definition is invalid; see {@link BuiltinLoopAgentRunner} and
  * `createAgentSessionFlow`.
  * @throws {RangeError} When a limit or deadline in the definition is out of range.
+ *
+ * It replaces `createStepwiseAgentSessionFlow`, which `@superdurable/dex-agents/stepwise` keeps as a deprecated
+ * alias.
+ *
+ * @since 0.5.0
  */
-export function createStepwiseAgentSessionFlow(
+export function createBuiltinAgentSessionFlow(
   definition: AgentDefinition,
   flowType: string,
-): AgentSessionFlow<StepwiseAgentRunner> {
-  const runner = new StepwiseAgentRunner(definition);
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
+  const runner = new BuiltinLoopAgentRunner(definition);
   const options: AgentSessionOptions = {
     ...(definition.toolPolicies === undefined ? {} : { toolPolicies: definition.toolPolicies }),
     ...(definition.defaultToolEffect === undefined ? {} : { defaultToolEffect: definition.defaultToolEffect }),

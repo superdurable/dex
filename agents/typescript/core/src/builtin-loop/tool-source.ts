@@ -35,7 +35,7 @@ export interface SourceToolDefinition {
 }
 
 /**
- * Tools that a Stepwise agent lists at run time, such as an MCP server's tools, run one tool Step per call.
+ * Tools that a built-in loop agent lists at run time, such as an MCP server's tools, run one tool Step per call.
  *
  * Put a source in `AgentDefinition.toolSources`. `McpToolSource` from `@superdurable/dex-agents/mcp`
  * implements it. In every `RunModel` of a chat or executing turn, the runner awaits {@link listTools} and
@@ -58,7 +58,7 @@ export interface SourceToolDefinition {
  * @example
  * ```ts
  * const tools = new McpToolSource([{ name: "files", transport: "stdio", command: "mcp-files" }]);
- * const flow = createStepwiseAgentSessionFlow(
+ * const flow = createBuiltinAgentSessionFlow(
  *   { name: "files", instructions: "You manage reports.", model, toolSources: [tools] },
  *   "FilesAgent",
  * );

@@ -1,8 +1,8 @@
 # AI Agent
 
 This Python application is a general, long-running AI Agent built on
-[Dex Agents](../../../agents/python/core/README.md) (`dex-agents`). It is a
-Stepwise agent: the library's built-in agent loop, with no agent framework.
+[Dex Agents](../../../agents/python/core/README.md) (`dex-agents`). It runs on
+the library's built-in agent loop, with no agent framework.
 Every model call is one **RunModel** Step and every tool call is its own Step,
 so a crash repeats at most the one call that was running.
 

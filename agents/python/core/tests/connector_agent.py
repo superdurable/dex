@@ -34,15 +34,15 @@ from typing import Any
 from dex_connectors.sdk import ConnectionRef
 
 from dex_agents import AgentSessionFlow
-from dex_agents.connectors import ConnectorToolSource, connector_tool
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     AgentDefinition,
     ModelRequest,
     ScriptedModelClient,
     ScriptedModelReply,
     ScriptedToolCall,
-    stepwise_agent_session_flow,
+    builtin_agent_session_flow,
 )
+from dex_agents.connectors import ConnectorToolSource, connector_tool
 from dex_agents.testing import FileGate
 from tests.fake_ledger import (
     STATE_DIR_ENVIRONMENT_VARIABLE,
@@ -160,7 +160,7 @@ def build_connector_agent_flow(
         model=ScriptedModelClient(reply),
         tool_sources=[build_connector_source(state_dir, max_result_bytes, dropped_tools)],
     )
-    return stepwise_agent_session_flow(definition, flow_type=CONNECTOR_AGENT_FLOW_TYPE)
+    return builtin_agent_session_flow(definition, flow_type=CONNECTOR_AGENT_FLOW_TYPE)
 
 
 def build_connector_agent_flow_from_environment() -> AgentSessionFlow:

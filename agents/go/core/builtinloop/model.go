@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-package stepwise
+package builtinloop
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 	dexagents "github.com/superdurable/dex/agents/go/core"
 )
 
-// ModelSettings tunes every model call of one Stepwise agent.
+// ModelSettings tunes every model call of one built-in loop agent.
 //
 // A nil field leaves the setting to the provider's default. ProviderOptions
 // pass through to the provider request unchanged, so a client can expose a
@@ -23,7 +23,7 @@ import (
 //
 //	temperature := 0.2
 //	maxOutputTokens := int64(4000)
-//	settings := stepwise.ModelSettings{Temperature: &temperature, MaxOutputTokens: &maxOutputTokens}
+//	settings := builtinloop.ModelSettings{Temperature: &temperature, MaxOutputTokens: &maxOutputTokens}
 type ModelSettings struct {
 	// Temperature is the sampling temperature, or nil.
 	Temperature *float64
@@ -188,7 +188,7 @@ type ModelOutputWriter interface {
 
 // ModelClient makes exactly one model request for one RunModel attempt.
 //
-// Implement it to connect Stepwise mode to a model provider, or use
+// Implement it to connect the built-in agent loop to a model provider, or use
 // openaimodel or anthropicmodel. Every client follows four rules:
 //
 //   - One request per call, with no retries of its own. Retries are RunModel

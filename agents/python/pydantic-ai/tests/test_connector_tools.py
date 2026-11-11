@@ -30,8 +30,8 @@ from dex_agents import (
     ToolCallStepOptionsProvider,
     ToolEffect,
 )
+from dex_agents.builtin_loop import FrameworkToolSourceRouter
 from dex_agents.connectors import ConnectorToolSource, connector_tool
-from dex_agents.stepwise import FrameworkToolSourceRouter
 from dex_agents_pydantic_ai import PydanticAIRunner, pydantic_ai_session_flow
 from tests.conftest import ScriptedAgentHarness
 from tests.connector_agent import WITHDRAWN_FILE_NAME, build_connector_agent, build_connector_source

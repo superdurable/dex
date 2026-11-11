@@ -1,7 +1,7 @@
 {
   "name": "@superdurable/dex-agents-builtin-cli",
   "version": "0.1.0",
-  "description": "The dex-agents-builtin command: a durable Stepwise agent in your terminal",
+  "description": "The dex-agents-builtin command: a durable built-in loop agent in your terminal",
   "license": "LicenseRef-Sustainable-Use-1.0",
   "repository": {
     "type": "git",

@@ -19,7 +19,7 @@ import {
   type ToolTaskPollOutcome,
 } from "./agent-framework-runner.js";
 import type { AgentToolCall } from "./agent-session-values.js";
-import type { SourceToolDefinition, ToolSource } from "./stepwise/tool-source.js";
+import type { SourceToolDefinition, ToolSource } from "./builtin-loop/tool-source.js";
 
 /**
  * Default `AgentDefinition.toolSourceListingTimeoutMs`: 10 seconds. It is also the default time one model call of a
@@ -68,7 +68,7 @@ export interface ToolSourceRouterOptions {
 }
 
 /**
- * Serves {@link ToolSource}s from a framework runner, so their calls run in tool Steps as the Stepwise runner runs
+ * Serves {@link ToolSource}s from a framework runner, so their calls run in tool Steps as the built-in loop runner runs
  * them.
  *
  * A framework adapter that implements {@link AgentFrameworkRunner} builds one router from its `toolSources`. In each
@@ -79,7 +79,7 @@ export interface ToolSourceRouterOptions {
  * {@link executeDeferredToolCall} on any Worker, with the full execution: the Step context, the heartbeat
  * checkpoint, and the attempt. {@link toolCallStepOptions}, {@link pollToolTask}, and {@link cancelToolTask} route
  * the same way. A runner whose `executeDeferredToolCall` returns only results, and so polls no tool tasks, uses
- * {@link executeDeferredToolCallForResult} instead. `StepwiseAgentRunner` uses a router too.
+ * {@link executeDeferredToolCallForResult} instead. `BuiltinLoopAgentRunner` uses a router too.
  *
  * Construction refuses a source without a {@link ToolSource} method or a non-blank, unique `sourceName`, and a
  * name that a source declares through `declaredToolNames` when it repeats a local tool, a built-in tool, or another

@@ -9,10 +9,10 @@
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createAiSdkModelClient } from "@superdurable/dex-agents/ai-sdk";
 import {
-  createStepwiseAgentSessionFlow,
+  createBuiltinAgentSessionFlow,
+  type BuiltinLoopAgentRunner,
   type ModelClient,
-  type StepwiseAgentRunner,
-} from "@superdurable/dex-agents/stepwise";
+} from "@superdurable/dex-agents/builtin-loop";
 import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli";
 
 import { createProviderLanguageModel } from "./provider-language-models.js";
@@ -41,7 +41,7 @@ export const defaultInstructions =
   "the connected services.";
 
 /**
- * The `dex-agents-builtin` command: an agent run by the Dex Agents core's built-in Stepwise loop, with no agent
+ * The `dex-agents-builtin` command: an agent run by the Dex Agents core's built-in agent loop, with no agent
  * framework, in the terminal.
  *
  * Every model call is one `RunModel` Step through the core's AI SDK model client, and every tool call is its own
@@ -67,7 +67,7 @@ export const builtinHarness: AgentHarness = {
 };
 
 /**
- * Builds the Stepwise agent session Flow from the effective configuration.
+ * Builds the built-in loop agent session Flow from the effective configuration.
  *
  * @param context - The configuration, workspace, and tool sources.
  * @returns The Flow, with `context.flowType` as its type.
@@ -75,7 +75,7 @@ export const builtinHarness: AgentHarness = {
  * @throws {Error} When the file's model is not `openai/<model>` or `anthropic/<model>`.
  * @since 0.5.0
  */
-export function createBuiltinSessionFlow(context: HarnessContext): AgentSessionFlow<StepwiseAgentRunner> {
+export function createBuiltinSessionFlow(context: HarnessContext): AgentSessionFlow<BuiltinLoopAgentRunner> {
   validateBuiltinSection(context.harnessOptions);
   const modelClients = new Map<string, ModelClient>();
   const modelClientFor = (modelId: string): ModelClient => {
@@ -86,7 +86,7 @@ export function createBuiltinSessionFlow(context: HarnessContext): AgentSessionF
     }
     return client;
   };
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "assistant",
       instructions: (turn) => context.resolveTurn(turn.sessionSettings ?? {}).instructions ?? defaultInstructions,

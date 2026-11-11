@@ -1,7 +1,7 @@
 # @superdurable/dex-agents-builtin-cli
 
 `@superdurable/dex-agents-builtin-cli` provides the `dex-agents-builtin`
-command. It runs an agent with the built-in Stepwise loop of
+command. It runs an agent with the built-in agent loop of
 [`@superdurable/dex-agents`](../../../typescript/core/README.md), with no agent
 framework, as a durable Dex agent session, and chats with it in your terminal.
 The shared runtime, [`@superdurable/dex-agents-cli`](../runtime/README.md),

@@ -11,12 +11,12 @@ import { join } from "node:path";
 import type { AgentSessionFlow, SessionSettings } from "../../src/index.js";
 import {
   ScriptedModelClient,
-  StepwiseAgentRunner,
-  createStepwiseAgentSessionFlow,
+  BuiltinLoopAgentRunner,
+  createBuiltinAgentSessionFlow,
   functionTool,
   type ModelRequest,
   type ScriptedModelReply,
-} from "../../src/stepwise/index.js";
+} from "../../src/builtin-loop/index.js";
 import { FileGate, InvocationLog } from "../../src/testing/index.js";
 
 /** Flow type of the session settings test agent. */
@@ -34,7 +34,7 @@ const modelNames = ["default", "alpha", "beta"] as const;
  * the `lookup` FileGate for a query that starts with `gated`; `lookup-then-stall <query>` also waits at the
  * `model` FileGate in the second model call. After the tool, the model answers `lookup_order: <output>`.
  */
-export function createSessionSettingsTestAgentFlow(markerDirectory: string): AgentSessionFlow<StepwiseAgentRunner> {
+export function createSessionSettingsTestAgentFlow(markerDirectory: string): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const modelLog = new InvocationLog(join(markerDirectory, "models.log"));
   const waitAtGate = async (gateName: string, signal?: AbortSignal) => {
     const gate = new FileGate(markerDirectory, gateName);
@@ -63,7 +63,7 @@ export function createSessionSettingsTestAgentFlow(markerDirectory: string): Age
   const models = Object.fromEntries(
     modelNames.map((name) => [name, new ScriptedModelClient((request) => respond(name, request))]),
   ) as Record<(typeof modelNames)[number], ScriptedModelClient>;
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "settings-test",
       instructions: ({ sessionSettings }) => {

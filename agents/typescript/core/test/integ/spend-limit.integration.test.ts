@@ -30,7 +30,7 @@ import {
   executeCompletedEvent,
   readStepHistory,
 } from "../../src/testing/index.js";
-import { ScriptedModelClient, createStepwiseAgentSessionFlow } from "../../src/stepwise/index.js";
+import { ScriptedModelClient, createBuiltinAgentSessionFlow } from "../../src/builtin-loop/index.js";
 import { createCompactionTestAgentFlow, readLoggedCompactionModelCalls } from "../fixtures/compaction-test-agent.js";
 import { createScriptedAgentFlow, scriptedAgentMarkerDirectoryVariable } from "../fixtures/scripted-agent-runner.js";
 import {
@@ -119,7 +119,7 @@ describe("the application's spend limit", () => {
 
   test("a Stepwise definition carries the spend limit", () => {
     const model = new ScriptedModelClient(() => ({ text: "hi" }));
-    const flow = createStepwiseAgentSessionFlow(
+    const flow = createBuiltinAgentSessionFlow(
       { name: "agent", instructions: "Help.", model, spendLimit },
       "SpendLimitStepwiseAgent",
     );

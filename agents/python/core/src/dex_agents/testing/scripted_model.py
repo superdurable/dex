@@ -6,9 +6,9 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""The scripted model client, kept at its 0.1.0 path; it lives in ``dex_agents.stepwise``."""
+"""The scripted model client, kept at its 0.1.0 path; it lives in ``dex_agents.builtin_loop``."""
 
-from dex_agents.stepwise.scripted_model import (
+from dex_agents.builtin_loop.scripted_model import (
     SCRIPTED_MODEL_API,
     SCRIPTED_MODEL_PROVIDER,
     ScriptedModelClient,

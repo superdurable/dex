@@ -26,7 +26,7 @@ from dex_agents import (
     ToolTaskPoll,
     ToolTaskPollOutcome,
 )
-from dex_agents.stepwise import SourceToolDefinition
+from dex_agents.builtin_loop import SourceToolDefinition
 from dex_agents_cli.config import EffectiveConfig
 from dex_agents_cli.harness import LocalToolGroup
 from dex_agents_cli.local_tools.browser import BrowserSessions

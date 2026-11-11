@@ -62,8 +62,8 @@ import type {
 import {
   pairToolCallsWithResults,
   readStoredModelInputItem,
-  toStepwiseFrameworkMessage,
-} from "./stepwise-input-items.js";
+  toBuiltinLoopFrameworkMessage,
+} from "./builtin-loop-input-items.js";
 import {
   ToolSourceRouter,
   defaultToolSourceListingTimeoutMs,
@@ -94,9 +94,9 @@ const discardedModelOutput: ModelOutputWriter = {
 };
 
 /**
- * The {@link AgentFrameworkRunner} of the built-in Stepwise loop.
+ * The {@link AgentFrameworkRunner} of the built-in agent loop.
  *
- * {@link createStepwiseAgentSessionFlow} creates one; construct it directly only to pass it to
+ * {@link createBuiltinAgentSessionFlow} creates one; construct it directly only to pass it to
  * `createAgentSessionFlow` with options of your own. Each `RunModel` makes at most one model call
  * through {@link AgentDefinition.model}, from committed state only: the stored messages, the results
  * of the previous model response from the turn's final records, and the instructions. The runner
@@ -110,11 +110,15 @@ const discardedModelOutput: ModelOutputWriter = {
  *
  * @example
  * ```ts
- * const runner = new StepwiseAgentRunner(definition);
+ * const runner = new BuiltinLoopAgentRunner(definition);
  * const flow = createAgentSessionFlow(runner, "SupportAgent", { builtInTools: ["ask_user"] });
  * ```
+ *
+ * It replaces `StepwiseAgentRunner`, which `@superdurable/dex-agents/stepwise` keeps as a deprecated alias.
+ *
+ * @since 0.5.0
  */
-export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOutcome> {
+export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredToolOutcome> {
   /** The agent definition, frozen at construction. */
   public readonly definition: AgentDefinition;
   /** The runner honors {@link AgentTurnContext.interactionMode}, so plan mode can be enabled. */
@@ -193,7 +197,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
    * @returns The message with role `user`.
    */
   public buildUserMessage(text: string): FrameworkMessage {
-    return toStepwiseFrameworkMessage({ type: "user_text", text });
+    return toBuiltinLoopFrameworkMessage({ type: "user_text", text });
   }
 
   /**
@@ -225,7 +229,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     const response = await this.resolveModel(turn.sessionSettings).callModel(request, turn.events);
     requireModelResponse(response);
     const usage = { ...response.usage, modelCalls: 1 };
-    const newMessages = [...unstoredToolResults, ...response.outputItems].map(toStepwiseFrameworkMessage);
+    const newMessages = [...unstoredToolResults, ...response.outputItems].map(toBuiltinLoopFrameworkMessage);
     if (response.toolCalls.length === 0) {
       return { kind: "completed", newMessages, usage };
     }
@@ -241,7 +245,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       );
       return {
         kind: "completed",
-        newMessages: [...newMessages, ...notRunResults.map(toStepwiseFrameworkMessage)],
+        newMessages: [...newMessages, ...notRunResults.map(toBuiltinLoopFrameworkMessage)],
         usage,
       };
     }
@@ -362,7 +366,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
    * @returns One `tool_result` message per unstored result, in deferral order.
    */
   public buildUnfinishedTurnMessages(turn: AgentTurnContext): readonly FrameworkMessage[] {
-    return buildUnstoredToolResults(turn).map(toStepwiseFrameworkMessage);
+    return buildUnstoredToolResults(turn).map(toBuiltinLoopFrameworkMessage);
   }
 
   /**
@@ -702,7 +706,7 @@ function readModelCallCount(frameworkRunState: string | null): number {
   }
   const parsed = JSON.parse(frameworkRunState) as { readonly model_calls?: unknown };
   if (typeof parsed.model_calls !== "number" || !Number.isSafeInteger(parsed.model_calls)) {
-    throw new TypeError("FrameworkRunState is not a Stepwise run state");
+    throw new TypeError("FrameworkRunState is not a built-in loop run state");
   }
   return parsed.model_calls;
 }

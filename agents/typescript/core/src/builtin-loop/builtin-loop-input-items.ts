@@ -10,7 +10,7 @@ import { outcomeUnknownToolResult, type AgentMessage, type FrameworkMessage } fr
 import type { ModelInputItem, ModelToolCall, ModelToolResultItem } from "./model-client.js";
 
 /** Returns the session message that stores one item; `frameworkItem` is the item's compact snake_case JSON. */
-export function toStepwiseFrameworkMessage(item: ModelInputItem): FrameworkMessage {
+export function toBuiltinLoopFrameworkMessage(item: ModelInputItem): FrameworkMessage {
   switch (item.type) {
     case "user_text":
       return {
@@ -59,12 +59,12 @@ export function toStepwiseFrameworkMessage(item: ModelInputItem): FrameworkMessa
   }
 }
 
-/** Reads the Stepwise item stored in one session message. */
+/** Reads the built-in loop item stored in one session message. */
 export function readStoredModelInputItem(message: AgentMessage): ModelInputItem {
   try {
     return decodeModelInputItem(JSON.parse(message.frameworkItem));
   } catch (error: unknown) {
-    throw new TypeError(`message ${message.sequence} is not a Stepwise item`, { cause: error });
+    throw new TypeError(`message ${message.sequence} is not a built-in loop item`, { cause: error });
   }
 }
 
@@ -115,7 +115,7 @@ function createOutcomeUnknownResult(toolCall: ModelToolCall): ModelToolResultIte
 }
 
 function decodeModelInputItem(value: unknown): ModelInputItem {
-  const record = requireRecord(value, "Stepwise item");
+  const record = requireRecord(value, "built-in loop item");
   switch (record["type"]) {
     case "user_text":
       return { type: "user_text", text: requireString(record, "text") };
@@ -152,7 +152,7 @@ function decodeModelInputItem(value: unknown): ModelInputItem {
       };
     }
     default:
-      throw new TypeError(`unknown Stepwise item type ${JSON.stringify(record["type"])}`);
+      throw new TypeError(`unknown built-in loop item type ${JSON.stringify(record["type"])}`);
   }
 }
 

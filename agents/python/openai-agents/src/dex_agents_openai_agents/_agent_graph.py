@@ -50,7 +50,7 @@ from dex_agents import (
     ToolPolicy,
     describe_tool_call_outcome,
 )
-from dex_agents.stepwise import SourceToolDefinition, SourceToolListing
+from dex_agents.builtin_loop import SourceToolDefinition, SourceToolListing
 
 PROVIDER_HOSTED_TOOL_TYPES = (
     FileSearchTool,

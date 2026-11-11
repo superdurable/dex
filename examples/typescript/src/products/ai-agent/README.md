@@ -23,7 +23,7 @@ HTTP routes and a browser UI. It is the TypeScript counterpart of the
 
 Files:
 
-- [`ai-agent-flow.ts`](./ai-agent-flow.ts): the Stepwise agent definition.
+- [`ai-agent-flow.ts`](./ai-agent-flow.ts): the agent definition on the built-in agent loop.
 - [`ai-agent-config.ts`](./ai-agent-config.ts): Worker configuration and the MCP configuration loader.
 - [`scripted-model.ts`](./scripted-model.ts): the demo model `mock/dex`.
 - [`notes-mcp-server.ts`](./notes-mcp-server.ts): a credential-free demo MCP server over stdio.
@@ -73,7 +73,7 @@ Unknown keys are refused. `trust_read_only_annotations` is off by default: every
 then waits for approval and runs at most once. Turn it on only for a server whose read-only and
 idempotent hints you trust. The demo `notes` server trusts its hints, so `search_notes` runs at once.
 
-The Stepwise loop lists the MCP tools before every model call, so a server that is down offers no
+The built-in agent loop lists the MCP tools before every model call, so a server that is down offers no
 tools until it is back.
 
 ## Run it

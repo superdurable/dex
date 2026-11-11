@@ -54,17 +54,17 @@ from dex_agents import (
     ModelCallMetadata,
     ToolEffect,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
     CONTEXT_SUMMARY_NOTE_HEADER,
     AgentDefinition,
+    BuiltinLoopAgentRunner,
     ModelInputItem,
     ModelRequest,
-    StepwiseAgentRunner,
     ToolResultItem,
     UserTextItem,
+    builtin_agent_session_options,
     function_tool,
-    stepwise_agent_session_options,
 )
 from dex_agents.testing import (
     FileGate,
@@ -99,7 +99,7 @@ _TOOL_RESULTS_PREFIX = "tool results: "
 _SUMMARY_COMMAND_LIMIT = 10
 
 
-class _SummaryMetadataRunner(StepwiseAgentRunner):
+class _SummaryMetadataRunner(BuiltinLoopAgentRunner):
     def __init__(self, definition: AgentDefinition, metadata: ModelCallMetadata) -> None:
         super().__init__(definition)
         self._metadata = metadata
@@ -169,7 +169,7 @@ def build_compaction_agent_flow(
         built_in_tools=frozenset({BuiltInTool.WRITE_TODOS}),
         compaction=CompactionPolicy(context_window_tokens=window_tokens),
     )
-    options = stepwise_agent_session_options(definition)
+    options = builtin_agent_session_options(definition)
     if tracing is not None:
         options = replace(options, tracing=tracing)
     if message_storage:
@@ -177,7 +177,7 @@ def build_compaction_agent_flow(
     if os.environ.get(SPEND_LIMIT_ENVIRONMENT_VARIABLE):
         options = replace(options, spend_limit=FileSpendLimit(state_dir))
     runner = (
-        StepwiseAgentRunner(definition)
+        BuiltinLoopAgentRunner(definition)
         if summary_model_call_metadata is None
         else _SummaryMetadataRunner(definition, summary_model_call_metadata)
     )

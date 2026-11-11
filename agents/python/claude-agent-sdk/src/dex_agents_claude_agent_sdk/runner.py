@@ -51,7 +51,7 @@ from dex_agents import (
     ToolExecutionResult,
     TurnCompleted,
 )
-from dex_agents.stepwise import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
+from dex_agents.builtin_loop import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
 from dex_agents_claude_agent_sdk.custom_tool_server import build_custom_tool_server
 from dex_agents_claude_agent_sdk.session_store import TurnSegmentSessionStore
 from dex_agents_claude_agent_sdk.tool_gate import (
