@@ -99,6 +99,26 @@ func defaultOptions(lookupEnv func(string) (string, bool)) options {
 	}
 }
 
+// maxSourceDateEpochSeconds is 9999-12-31T23:59:59Z, the last time RFC 3339 can represent.
+const maxSourceDateEpochSeconds = 253402300799
+
+// resolveFlowDefinitionGeneratedAt returns the UTC time, in whole seconds, that stamps a
+// generated Flow Definition Graph. It returns SOURCE_DATE_EPOCH when that variable is set
+// and non-empty, and now otherwise. It returns an error when SOURCE_DATE_EPOCH is not a
+// decimal number of seconds from 0 to maxSourceDateEpochSeconds.
+func resolveFlowDefinitionGeneratedAt(lookupEnv func(string) (string, bool), now time.Time) (time.Time, error) {
+	epochValue, hasEpoch := lookupEnv("SOURCE_DATE_EPOCH")
+	epochValue = strings.TrimSpace(epochValue)
+	if !hasEpoch || epochValue == "" {
+		return now.UTC().Truncate(time.Second), nil
+	}
+	epochSeconds, err := strconv.ParseInt(epochValue, 10, 64)
+	if err != nil || epochSeconds < 0 || epochSeconds > maxSourceDateEpochSeconds {
+		return time.Time{}, fmt.Errorf("SOURCE_DATE_EPOCH must be an integer number of seconds from 0 to %d, got %q", maxSourceDateEpochSeconds, epochValue)
+	}
+	return time.Unix(epochSeconds, 0).UTC(), nil
+}
+
 func parseRootOptions(args []string, options *options) ([]string, error) {
 	flags := newFlagSet("dexcli", io.Discard)
 	addCommonFlags(flags, options)

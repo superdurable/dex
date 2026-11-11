@@ -12,6 +12,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -254,9 +255,16 @@ func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {
 	require.Equal(t, true, failureEdge.Metadata["skipWaitFor"])
 
 	graph.Source.Path = "examples/go/products/connector-factory/workflow.go"
-	firstJSON, err := flowviz.MarshalJSON(graph)
-	require.NoError(t, err)
 	golden, err := os.ReadFile(filepath.Join(repositoryRoot, "docs/src/data/flow-definitions/connector-factory.json"))
+	require.NoError(t, err)
+	var goldenStamp struct {
+		GeneratedAt string `json:"generatedAt"`
+	}
+	require.NoError(t, json.Unmarshal(golden, &goldenStamp))
+	require.NotEmpty(t, goldenStamp.GeneratedAt)
+	// The docs generator stamps generatedAt from the source's commit time; Analyze leaves it empty.
+	graph.GeneratedAt = goldenStamp.GeneratedAt
+	firstJSON, err := flowviz.MarshalJSON(graph)
 	require.NoError(t, err)
 	require.Equal(t, string(golden), string(firstJSON))
 	secondGraph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{
@@ -264,6 +272,7 @@ func TestVisualizeV2ConnectorFactoryExample(t *testing.T) {
 	})
 	require.NoError(t, err)
 	secondGraph.Source.Path = graph.Source.Path
+	secondGraph.GeneratedAt = graph.GeneratedAt
 	secondJSON, err := flowviz.MarshalJSON(secondGraph)
 	require.NoError(t, err)
 	require.Equal(t, firstJSON, secondJSON)

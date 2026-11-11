@@ -59,6 +59,14 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	if err := validateVisualizeOptions(options); err != nil {
 		return newUsageError("visualize", err)
 	}
+	generatedAt := ""
+	if options.schemaVersion == flowviz.SchemaVersionV2 {
+		generationTime, err := resolveFlowDefinitionGeneratedAt(a.lookupEnv, time.Now())
+		if err != nil {
+			return newUsageError("visualize", err)
+		}
+		generatedAt = generationTime.Format(time.RFC3339)
+	}
 	graph, err := flowviz.Analyze(ctx, source, flowviz.AnalyzeOptions{
 		Language:      options.language,
 		PythonPath:    options.pythonPath,
@@ -68,6 +76,7 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	if err != nil {
 		return newOperationError("visualize", err)
 	}
+	graph.GeneratedAt = generatedAt
 	jsonData, err := flowviz.MarshalJSON(graph)
 	if err != nil {
 		return newOperationError("visualize", err)
@@ -237,4 +246,7 @@ func printVisualizeUsage(output io.Writer) {
 	fmt.Fprintln(output, "  --open                              open Flow Rendering in the default browser (default true)")
 	fmt.Fprintln(output, "  --out path-prefix|-                 JSON output prefix, or - for stdout (requires --json)")
 	fmt.Fprintln(output, "  --python path                       Python 3.11+ interpreter")
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "Environment:")
+	fmt.Fprintln(output, "  SOURCE_DATE_EPOCH                   Unix seconds for the 2.0 generatedAt field (default now)")
 }
