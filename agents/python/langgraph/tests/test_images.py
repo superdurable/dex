@@ -35,6 +35,7 @@ from tests.image_agents import (
     IMAGE_AGENT_FLOW_TYPES,
     IMAGE_CREATE_AGENT_FLOW_TYPE,
     MODEL_INPUTS_LOG_NAME,
+    NON_ASCII_DATA,
     NOT_AN_IMAGE,
     STATE_DIR_ENVIRONMENT_VARIABLE,
     build_image_agent_flows,
@@ -216,6 +217,30 @@ async def test_a_tool_image_the_store_refuses_fails_the_call_without_storing_its
     ]
     assert [message.images for message in tool_messages] == [[]]
     assert_no_image_bytes_stored(snapshot, NOT_AN_IMAGE)
+
+
+@pytest.mark.parametrize("image_flow_type", IMAGE_AGENT_FLOW_TYPES)
+@pytest.mark.parametrize("form", ["non_ascii_base64", "non_ascii_data_url"])
+async def test_a_write_whose_image_is_not_ascii_fails_once_without_a_retry(
+    image_harness: ImageAgentHarness, form: str
+) -> None:
+    await image_harness.stack.start_worker()
+    session_id = image_harness.new_session_id()
+    await image_harness.sessions.start_session(
+        session_id, f'call publish_chart {{"form": "{form}"}}'
+    )
+    snapshot = await image_harness.wait_for_turns(session_id, 1)
+
+    tool_messages = [message for message in snapshot.messages if message.role is MessageRole.TOOL]
+    assert [message.tool_output for message in tool_messages] == [
+        "The tool call failed: tool publish_chart returned image 1, which is not valid base64"
+    ]
+    history = await image_harness.read_step_history(session_id)
+    tool_steps = [entry for entry in history if entry.step_type == "CallSingleAttemptTool"]
+    assert [entry.final_attempt for entry in tool_steps] == [1]
+    stored = "\n".join(message.framework_item for message in snapshot.messages)
+    for form_of_data in (NON_ASCII_DATA, json.dumps(NON_ASCII_DATA)[1:-1], "not-ascii"):
+        assert form_of_data not in stored
 
 
 @pytest.mark.parametrize("image_flow_type", IMAGE_AGENT_FLOW_TYPES)

@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from typing import Any, TypeVar
@@ -112,7 +111,8 @@ async def upload_content_images(
         number = len(references) + 1
         try:
             data = base64.b64decode(encoded, validate=True)
-        except binascii.Error:
+        except ValueError:
+            # binascii.Error, or a ValueError for text that is not ASCII.
             data = None
         if data is None or base64.b64encode(data).decode("ascii") != encoded:
             raise ToolExecutionError(

@@ -16,7 +16,9 @@ Both use the scripted chat model, which records the images it receives in
 * ``render_chart`` is the graph's own tool. It returns a PNG as a base64 image
   block; ``form`` picks a ``data:`` URL (``data_url``), the nonstandard
   ``image/jpg`` type (``jpg_mime``), or bytes that are not an image
-  (``not_an_image``) instead.
+  (``not_an_image``) instead, or data that is not ASCII (``non_ascii_base64``,
+  ``non_ascii_data_url``).
+* ``publish_chart`` is a single-attempt write of the graph with the same ``form``.
 
 The store is a ``LocalDirectoryMediaStore`` under the state directory, shared
 by the test and the Worker. The custom graph's model node calls
@@ -71,11 +73,14 @@ MEDIA_DIRECTORY_NAME = "media"
 TOOL_POLICIES = {
     "take_screenshot": ToolPolicy(ToolEffect.READ),
     "render_chart": ToolPolicy(ToolEffect.READ),
+    "publish_chart": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
 }
 
 
 #: Bytes ``render_chart`` returns as an image with ``form`` ``not_an_image``.
 NOT_AN_IMAGE = b"this is not an image, only text bytes"
+#: Image data that is not ASCII, which no base64 decoder accepts.
+NON_ASCII_DATA = "iVBORw0KGgo\u00e9\u00fc-not-ascii"
 
 
 def solid_png(red: int, green: int, blue: int) -> bytes:
@@ -160,7 +165,7 @@ def build_image_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
         langchain_agent_session_flow(
             create_agent(
                 _image_model(state_dir),
-                tools=[build_render_chart_tool()],
+                tools=[build_render_chart_tool(), build_publish_chart_tool()],
                 middleware=[DurableToolCallMiddleware()],
             ),
             flow_type=IMAGE_CREATE_AGENT_FLOW_TYPE,
@@ -183,7 +188,7 @@ def build_image_agent_flows_from_environment() -> list[AgentSessionFlow]:
 
 
 def build_image_state_graph(state_dir: Path) -> CompiledGraph:
-    tools = [build_render_chart_tool()]
+    tools = [build_render_chart_tool(), build_publish_chart_tool()]
     model = _image_model(state_dir)
 
     async def call_model(state: MessagesState) -> dict[str, list[AIMessage]]:
@@ -204,20 +209,34 @@ def build_render_chart_tool() -> BaseTool:
     @tool
     def render_chart(form: str = "base64") -> list[dict[str, str]]:
         """Render a chart."""
-        encoded = base64.b64encode(chart_png()).decode()
-        image = {
-            "base64": {"type": "image", "base64": encoded, "mime_type": "image/png"},
-            "data_url": {"type": "image", "url": f"data:image/png;base64,{encoded}"},
-            "jpg_mime": {"type": "image", "base64": encoded, "mime_type": "image/jpg"},
-            "not_an_image": {
-                "type": "image",
-                "base64": base64.b64encode(NOT_AN_IMAGE).decode(),
-                "mime_type": "image/png",
-            },
-        }[form]
-        return [{"type": "text", "text": "rendered a chart"}, image]
+        return [{"type": "text", "text": "rendered a chart"}, _chart_image_block(form)]
 
     return render_chart
+
+
+def build_publish_chart_tool() -> BaseTool:
+    @tool
+    def publish_chart(form: str) -> list[dict[str, str]]:
+        """Publish a chart; publishing it again publishes a second one."""
+        return [{"type": "text", "text": "published a chart"}, _chart_image_block(form)]
+
+    return publish_chart
+
+
+def _chart_image_block(form: str) -> dict[str, str]:
+    encoded = base64.b64encode(chart_png()).decode()
+    return {
+        "base64": {"type": "image", "base64": encoded, "mime_type": "image/png"},
+        "data_url": {"type": "image", "url": f"data:image/png;base64,{encoded}"},
+        "jpg_mime": {"type": "image", "base64": encoded, "mime_type": "image/jpg"},
+        "not_an_image": {
+            "type": "image",
+            "base64": base64.b64encode(NOT_AN_IMAGE).decode(),
+            "mime_type": "image/png",
+        },
+        "non_ascii_base64": {"type": "image", "base64": NON_ASCII_DATA, "mime_type": "image/png"},
+        "non_ascii_data_url": {"type": "image", "url": f"data:image/png;base64,{NON_ASCII_DATA}"},
+    }[form]
 
 
 def _image_model(state_dir: Path) -> ScriptedChatModel:
