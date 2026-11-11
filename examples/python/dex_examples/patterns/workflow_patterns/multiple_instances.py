@@ -17,15 +17,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Callable
 
 from dex import (
     Attribute,
     AttributeMap,
     Channel,
-    ChannelMap,
     Context,
     Flow,
+    Join,
+    JoinRound,
     PersistenceSchema,
     RPCResult,
     Step,
@@ -88,13 +89,13 @@ class MultipleInstancesWithoutSynchronizationFlow(Flow[list[str]]):
             INVITATION_RELEASED.publish(context, "released")
 
 
-# WCP-13 and WCP-14: the count is known when instances start, so ForN joins them.
+# WCP-13 and WCP-14: the count is known when instances start, so a Join joins them.
 
 # Each instance marks itself started, then waits at a gate, so all run at once.
 
 STARTED_REVIEWERS = AttributeMap("startedReviewers", bool)
 REVIEW_GATE_OPENED = Channel("reviewGateOpened", str)
-REVIEW_COMPLETED = Channel("reviewCompleted", str)
+REVIEW_COMPLETED = Join("reviewCompleted", str)
 DESIGN_TIME_REVIEWERS = ("legal", "finance", "security")
 
 
@@ -103,40 +104,53 @@ def open_gate(context: Context, gate: Channel[str], count: int) -> None:
         gate.publish(context, "opened")
 
 
-def start_reviews(reviewers: list[str]) -> StepDecision:
-    movements: list[StepMovement[Any]] = [
-        StepMovement.of(ReviewDocument, reviewer) for reviewer in reviewers
-    ]
-    movements.append(StepMovement.of(CollectReviews, len(reviewers)))
-    return go_to_many(*movements)
+@dataclass(frozen=True)
+class ReviewAssignment:
+    reviewer: str
+    join_round: JoinRound
 
 
-class ReviewDocument(Step[str]):
-    def wait_for(self, context: Context, input: str) -> Wait:
-        STARTED_REVIEWERS.set(context, input, True)
+def build_review(reviewer: str) -> Callable[[JoinRound], StepMovement[ReviewAssignment]]:
+    return lambda join_round: StepMovement.of(
+        ReviewDocument, ReviewAssignment(reviewer, join_round)
+    )
+
+
+def start_reviews(context: Context, reviewers: list[str]) -> StepDecision:
+    return go_to_many(
+        *REVIEW_COMPLETED.fork(
+            context,
+            [build_review(reviewer) for reviewer in reviewers],
+            lambda join_round: StepMovement.of(CollectReviews, join_round),
+        )
+    )
+
+
+class ReviewDocument(Step[ReviewAssignment]):
+    def wait_for(self, context: Context, input: ReviewAssignment) -> Wait:
+        STARTED_REVIEWERS.set(context, input.reviewer, True)
         return Wait.until(REVIEW_GATE_OPENED.for_one())
 
-    def execute(self, context: Context, input: str) -> StepDecision:
-        REVIEW_COMPLETED.publish(context, input)
-        return dead_end()
+    def execute(self, context: Context, input: ReviewAssignment) -> StepDecision:
+        return REVIEW_COMPLETED.end_branch(context, input.join_round, input.reviewer)
 
 
-class CollectReviews(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
-        return Wait.until(REVIEW_COMPLETED.for_n(input))
+class CollectReviews(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
+        return Wait.until(REVIEW_COMPLETED.for_all_branches(input))
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        return graceful_complete(sorted(REVIEW_COMPLETED.results(context)))
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return graceful_complete(sorted(REVIEW_COMPLETED.branch_results(context, input)))
 
 
 class StartDesignTimeReviews(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
-        return start_reviews(list(DESIGN_TIME_REVIEWERS))
+        return start_reviews(context, list(DESIGN_TIME_REVIEWERS))
 
 
 class StartRunTimeReviews(Step[list[str]]):
     def execute(self, context: Context, input: list[str]) -> StepDecision:
-        return start_reviews(input)
+        return start_reviews(context, input)
 
 
 class DesignTimeMultipleInstancesFlow(Flow[None]):
@@ -272,8 +286,8 @@ class NoPriorKnowledgeMultipleInstancesFlow(Flow[list[str]]):
         open_gate(context, SAMPLE_GATE_OPENED, input)
 
 
-# WCP-34: instances publish to their round's ChannelMap instance; a reset re-enables
-# the join.
+# WCP-34: instances report to their round of a Join; the next round's split resets the
+# previous round.
 
 
 @dataclass(frozen=True)
@@ -282,12 +296,19 @@ class InspectionRound:
     required_inspections: int
     round: int
     round_count: int
+    previous_round: JoinRound | None = None
+
+
+@dataclass(frozen=True)
+class InspectionJoin:
+    inspection_round: InspectionRound
+    join_round: JoinRound
 
 
 @dataclass(frozen=True)
 class UnitInspection:
-    round: int
     unit_index: int
+    join_round: JoinRound
 
 
 @dataclass(frozen=True)
@@ -297,21 +318,47 @@ class InspectedUnits:
 
 
 INSPECTION_RELEASED = Channel("inspectionReleased", str)
-UNIT_INSPECTED = ChannelMap("unitInspected", int)
+UNIT_INSPECTED = Join("unitInspected", int)
+# The ignored late inspections of the most recently reset round.
+IGNORED_INSPECTIONS = Attribute("ignoredInspections", InspectedUnits)
 
 
-def inspection_round_instance(round: int) -> str:
-    return f"round-{round}"
+def build_unit_inspection(unit_index: int) -> Callable[[JoinRound], StepMovement[UnitInspection]]:
+    return lambda join_round: StepMovement.of(
+        InspectUnit, UnitInspection(unit_index, join_round)
+    )
 
 
 class StartInspections(Step[InspectionRound]):
+    def wait_for(self, context: Context, input: InspectionRound) -> Wait:
+        if input.previous_round is None:
+            return Wait.skip_immediately()
+        return Wait.until(
+            UNIT_INSPECTED.for_remaining_branches(
+                input.previous_round, input.required_inspections
+            )
+        )
+
     def execute(self, context: Context, input: InspectionRound) -> StepDecision:
-        movements: list[StepMovement[Any]] = [
-            StepMovement.of(InspectUnit, UnitInspection(input.round, unit_index))
-            for unit_index in range(input.inspection_count)
-        ]
-        movements.append(StepMovement.of(AcceptInspections, input))
-        return go_to_many(*movements)
+        if input.previous_round is not None:
+            ignored_units = sorted(
+                UNIT_INSPECTED.remaining_branch_results(context, input.previous_round)
+            )
+            IGNORED_INSPECTIONS.set(
+                context, InspectedUnits(input.round - 1, ignored_units)
+            )
+        return go_to_many(
+            *UNIT_INSPECTED.fork(
+                context,
+                [
+                    build_unit_inspection(unit_index)
+                    for unit_index in range(input.inspection_count)
+                ],
+                lambda join_round: StepMovement.of(
+                    AcceptInspections, InspectionJoin(input, join_round)
+                ),
+            )
+        )
 
 
 class InspectUnit(Step[UnitInspection]):
@@ -319,46 +366,37 @@ class InspectUnit(Step[UnitInspection]):
         return Wait.until(INSPECTION_RELEASED.for_one())
 
     def execute(self, context: Context, input: UnitInspection) -> StepDecision:
-        UNIT_INSPECTED.publish(
-            context, inspection_round_instance(input.round), input.unit_index
+        return UNIT_INSPECTED.end_branch(context, input.join_round, input.unit_index)
+
+
+class AcceptInspections(Step[InspectionJoin]):
+    def wait_for(self, context: Context, input: InspectionJoin) -> Wait:
+        return Wait.until(
+            UNIT_INSPECTED.for_branches(
+                input.join_round, input.inspection_round.required_inspections
+            )
         )
-        return dead_end()
 
-
-class AcceptInspections(Step[InspectionRound]):
-    def wait_for(self, context: Context, input: InspectionRound) -> Wait:
-        instance = inspection_round_instance(input.round)
-        return Wait.until(UNIT_INSPECTED.for_n(instance, input.required_inspections))
-
-    def execute(self, context: Context, input: InspectionRound) -> StepDecision:
-        instance = inspection_round_instance(input.round)
+    def execute(self, context: Context, input: InspectionJoin) -> StepDecision:
+        inspection_round = input.inspection_round
         approved = InspectedUnits(
-            input.round, sorted(UNIT_INSPECTED.results(context, instance))
+            inspection_round.round,
+            sorted(UNIT_INSPECTED.branch_results(context, input.join_round)),
         )
-        return go_to_many(
-            StepMovement.of(ApproveBatch, approved),
-            StepMovement.of(ResetInspectionJoin, input),
-        )
+        movements: list[StepMovement[Any]] = [StepMovement.of(ApproveBatch, approved)]
+        if inspection_round.round < inspection_round.round_count:
+            next_round = replace(
+                inspection_round,
+                round=inspection_round.round + 1,
+                previous_round=input.join_round,
+            )
+            movements.append(StepMovement.of(StartInspections, next_round))
+        return go_to_many(*movements)
 
 
 class ApproveBatch(Step[InspectedUnits]):
     def execute(self, context: Context, input: InspectedUnits) -> StepDecision:
         return graceful_complete(input)
-
-
-class ResetInspectionJoin(Step[InspectionRound]):
-    def wait_for(self, context: Context, input: InspectionRound) -> Wait:
-        instance = inspection_round_instance(input.round)
-        remaining = input.inspection_count - input.required_inspections
-        return Wait.until(UNIT_INSPECTED.for_n(instance, remaining))
-
-    def execute(self, context: Context, input: InspectionRound) -> StepDecision:
-        if input.round < input.round_count:
-            return go_to(StartInspections, replace(input, round=input.round + 1))
-        instance = inspection_round_instance(input.round)
-        return graceful_complete(
-            InspectedUnits(input.round, sorted(UNIT_INSPECTED.results(context, instance)))
-        )
 
 
 class StaticPartialJoinForMultipleInstancesFlow(Flow[InspectionRound]):
@@ -367,18 +405,16 @@ class StaticPartialJoinForMultipleInstancesFlow(Flow[InspectionRound]):
         self.inspect_unit = InspectUnit()
         self.accept_inspections = AcceptInspections()
         self.approve_batch = ApproveBatch()
-        self.reset_inspection_join = ResetInspectionJoin()
 
     def get_steps(self) -> StepList[InspectionRound]:
         return StepList.start_step(self.start_inspections).other_steps(
             self.inspect_unit,
             self.accept_inspections,
             self.approve_batch,
-            self.reset_inspection_join,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(INSPECTION_RELEASED, UNIT_INSPECTED)
+        return PersistenceSchema.of(INSPECTION_RELEASED, UNIT_INSPECTED, IGNORED_INSPECTIONS)
 
     @rpc
     def release_inspections(self, context: Context, input: int) -> None:
@@ -396,39 +432,66 @@ class PartialInspection:
 
 
 QUORUM_INSPECTION_RELEASED = Channel("quorumInspectionReleased", str)
-QUORUM_UNIT_INSPECTED = Channel("quorumUnitInspected", int)
+QUORUM_UNIT_INSPECTED = Join("quorumUnitInspected", int)
 QUORUM_CERTIFIED = Channel("quorumCertified", str)
+
+
+@dataclass(frozen=True)
+class QuorumUnitInspection:
+    unit_index: int
+    join_round: JoinRound
+
+
+@dataclass(frozen=True)
+class QuorumJoin:
+    required_inspections: int
+    join_round: JoinRound
+
+
+def build_quorum_unit_inspection(
+    unit_index: int,
+) -> Callable[[JoinRound], StepMovement[QuorumUnitInspection]]:
+    return lambda join_round: StepMovement.of(
+        InspectQuorumUnit, QuorumUnitInspection(unit_index, join_round)
+    )
 
 
 class StartQuorumInspections(Step[PartialInspection]):
     def execute(self, context: Context, input: PartialInspection) -> StepDecision:
-        movements: list[StepMovement[Any]] = [
-            StepMovement.of(InspectQuorumUnit, index)
-            for index in range(input.inspection_count)
-        ]
-        movements.append(
-            StepMovement.of(AcceptQuorumInspections, input.required_inspections)
+        return go_to_many(
+            *QUORUM_UNIT_INSPECTED.fork(
+                context,
+                [
+                    build_quorum_unit_inspection(unit_index)
+                    for unit_index in range(input.inspection_count)
+                ],
+                lambda join_round: StepMovement.of(
+                    AcceptQuorumInspections,
+                    QuorumJoin(input.required_inspections, join_round),
+                ),
+            )
         )
-        return go_to_many(*movements)
 
 
-class InspectQuorumUnit(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
+class InspectQuorumUnit(Step[QuorumUnitInspection]):
+    def wait_for(self, context: Context, input: QuorumUnitInspection) -> Wait:
         return Wait.until(QUORUM_INSPECTION_RELEASED.for_one())
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        QUORUM_UNIT_INSPECTED.publish(context, input)
-        return dead_end()
+    def execute(self, context: Context, input: QuorumUnitInspection) -> StepDecision:
+        return QUORUM_UNIT_INSPECTED.end_branch(context, input.join_round, input.unit_index)
 
 
-class AcceptQuorumInspections(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
-        return Wait.until(QUORUM_UNIT_INSPECTED.for_n(input))
+class AcceptQuorumInspections(Step[QuorumJoin]):
+    def wait_for(self, context: Context, input: QuorumJoin) -> Wait:
+        return Wait.until(
+            QUORUM_UNIT_INSPECTED.for_branches(input.join_round, input.required_inspections)
+        )
 
-    def execute(self, context: Context, input: int) -> StepDecision:
+    def execute(self, context: Context, input: QuorumJoin) -> StepDecision:
         return go_to(
-            CertifyQuorum, sorted(QUORUM_UNIT_INSPECTED.results(context))
-        ).with_canceling_steps(InspectQuorumUnit)
+            CertifyQuorum,
+            sorted(QUORUM_UNIT_INSPECTED.branch_results(context, input.join_round)),
+        ).with_canceling_sibling_steps(InspectQuorumUnit)
 
 
 class CertifyQuorum(Step[list[int]]):

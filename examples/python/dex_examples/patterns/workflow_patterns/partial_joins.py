@@ -18,11 +18,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from typing import Any
+
 from dex import (
+    Attribute,
     Channel,
-    ChannelMap,
     Context,
     Flow,
+    Join,
+    JoinRound,
     PersistenceSchema,
     RPCResult,
     Step,
@@ -30,7 +34,6 @@ from dex import (
     StepList,
     StepMovement,
     Wait,
-    dead_end,
     go_to,
     go_to_many,
     graceful_complete,
@@ -47,14 +50,9 @@ def require_branch_letter(value: str) -> str:
     return value
 
 
-# Signals are keyed by round, so a later signal never counts toward an earlier round.
-def round_instance(round: int) -> str:
-    return f"round-{round}"
-
-
 # WCP-9 (required_quotes 1) and WCP-30 (required_quotes 2).
 
-# A reset Step consumes the late quotes of a round, then re-enables the join.
+# The next RequestQuotes consumes the late quotes of a round, then re-enables the join.
 
 
 @dataclass(frozen=True)
@@ -62,6 +60,13 @@ class QuoteRound:
     required_quotes: int
     round: int
     round_count: int
+    previous_round: JoinRound | None = None
+
+
+@dataclass(frozen=True)
+class QuoteJoin:
+    quote_round: QuoteRound
+    join_round: JoinRound
 
 
 @dataclass(frozen=True)
@@ -84,75 +89,85 @@ SUPPLIER_RELEASED = {
     "B": SUPPLIER_B_RELEASED,
     "C": SUPPLIER_C_RELEASED,
 }
-QUOTE_RECEIVED = ChannelMap("quoteReceived", str)
+QUOTE_RECEIVED = Join("quoteReceived", str)
+# The late quotes of the most recently reset round.
+IGNORED_QUOTES = Attribute("ignoredQuotes", IgnoredQuotes)
 
 
 class RequestQuotes(Step[QuoteRound]):
+    def wait_for(self, context: Context, input: QuoteRound) -> Wait:
+        if input.previous_round is None:
+            return Wait.skip_immediately()
+        return Wait.until(
+            QUOTE_RECEIVED.for_remaining_branches(input.previous_round, input.required_quotes)
+        )
+
     def execute(self, context: Context, input: QuoteRound) -> StepDecision:
+        if input.previous_round is not None:
+            ignored = sorted(
+                QUOTE_RECEIVED.remaining_branch_results(context, input.previous_round)
+            )
+            IGNORED_QUOTES.set(context, IgnoredQuotes(input.round - 1, ignored))
         return go_to_many(
-            StepMovement.of(QuoteFromSupplierA, input.round),
-            StepMovement.of(QuoteFromSupplierB, input.round),
-            StepMovement.of(QuoteFromSupplierC, input.round),
-            StepMovement.of(AcceptQuotes, input),
+            *QUOTE_RECEIVED.fork(
+                context,
+                [
+                    lambda join_round: StepMovement.of(QuoteFromSupplierA, join_round),
+                    lambda join_round: StepMovement.of(QuoteFromSupplierB, join_round),
+                    lambda join_round: StepMovement.of(QuoteFromSupplierC, join_round),
+                ],
+                lambda join_round: StepMovement.of(AcceptQuotes, QuoteJoin(input, join_round)),
+            )
         )
 
 
-class QuoteFromSupplierA(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
+class QuoteFromSupplierA(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(SUPPLIER_A_RELEASED.for_one())
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        QUOTE_RECEIVED.publish(context, round_instance(input), "A")
-        return dead_end()
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return QUOTE_RECEIVED.end_branch(context, input, "A")
 
 
-class QuoteFromSupplierB(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
+class QuoteFromSupplierB(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(SUPPLIER_B_RELEASED.for_one())
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        QUOTE_RECEIVED.publish(context, round_instance(input), "B")
-        return dead_end()
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return QUOTE_RECEIVED.end_branch(context, input, "B")
 
 
-class QuoteFromSupplierC(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
+class QuoteFromSupplierC(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(SUPPLIER_C_RELEASED.for_one())
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        QUOTE_RECEIVED.publish(context, round_instance(input), "C")
-        return dead_end()
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return QUOTE_RECEIVED.end_branch(context, input, "C")
 
 
-class AcceptQuotes(Step[QuoteRound]):
-    def wait_for(self, context: Context, input: QuoteRound) -> Wait:
+class AcceptQuotes(Step[QuoteJoin]):
+    def wait_for(self, context: Context, input: QuoteJoin) -> Wait:
         return Wait.until(
-            QUOTE_RECEIVED.for_n(round_instance(input.round), input.required_quotes)
+            QUOTE_RECEIVED.for_branches(input.join_round, input.quote_round.required_quotes)
         )
 
-    def execute(self, context: Context, input: QuoteRound) -> StepDecision:
-        accepted = sorted(QUOTE_RECEIVED.results(context, round_instance(input.round)))
-        return go_to_many(
-            StepMovement.of(PlaceOrder, AcceptedQuotes(input.round, accepted)),
-            StepMovement.of(ResetQuoteJoin, input),
-        )
+    def execute(self, context: Context, input: QuoteJoin) -> StepDecision:
+        quote_round = input.quote_round
+        accepted = sorted(QUOTE_RECEIVED.branch_results(context, input.join_round))
+        movements: list[StepMovement[Any]] = [
+            StepMovement.of(PlaceOrder, AcceptedQuotes(quote_round.round, accepted))
+        ]
+        if quote_round.round < quote_round.round_count:
+            next_round = replace(
+                quote_round, round=quote_round.round + 1, previous_round=input.join_round
+            )
+            movements.append(StepMovement.of(RequestQuotes, next_round))
+        return go_to_many(*movements)
 
 
 class PlaceOrder(Step[AcceptedQuotes]):
     def execute(self, context: Context, input: AcceptedQuotes) -> StepDecision:
         return graceful_complete(input)
-
-
-class ResetQuoteJoin(Step[QuoteRound]):
-    def wait_for(self, context: Context, input: QuoteRound) -> Wait:
-        remaining_quotes = BRANCH_COUNT - input.required_quotes
-        return Wait.until(QUOTE_RECEIVED.for_n(round_instance(input.round), remaining_quotes))
-
-    def execute(self, context: Context, input: QuoteRound) -> StepDecision:
-        if input.round < input.round_count:
-            return go_to(RequestQuotes, replace(input, round=input.round + 1))
-        ignored = sorted(QUOTE_RECEIVED.results(context, round_instance(input.round)))
-        return graceful_complete(IgnoredQuotes(input.round, ignored))
 
 
 class StructuredPartialJoinFlow(Flow[QuoteRound]):
@@ -163,7 +178,6 @@ class StructuredPartialJoinFlow(Flow[QuoteRound]):
         self.quote_from_supplier_c = QuoteFromSupplierC()
         self.accept_quotes = AcceptQuotes()
         self.place_order = PlaceOrder()
-        self.reset_quote_join = ResetQuoteJoin()
 
     def get_steps(self) -> StepList[QuoteRound]:
         return StepList.start_step(self.request_quotes).other_steps(
@@ -172,12 +186,15 @@ class StructuredPartialJoinFlow(Flow[QuoteRound]):
             self.quote_from_supplier_c,
             self.accept_quotes,
             self.place_order,
-            self.reset_quote_join,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(
-            SUPPLIER_A_RELEASED, SUPPLIER_B_RELEASED, SUPPLIER_C_RELEASED, QUOTE_RECEIVED
+            SUPPLIER_A_RELEASED,
+            SUPPLIER_B_RELEASED,
+            SUPPLIER_C_RELEASED,
+            QUOTE_RECEIVED,
+            IGNORED_QUOTES,
         )
 
     @rpc
@@ -194,6 +211,13 @@ class StructuredPartialJoinFlow(Flow[QuoteRound]):
 class BlockingJoinRound:
     required_signals: int
     round: int
+    previous_round: JoinRound | None = None
+
+
+@dataclass(frozen=True)
+class BlockingJoinInput:
+    blocking_round: BlockingJoinRound
+    join_round: JoinRound
 
 
 @dataclass(frozen=True)
@@ -206,77 +230,87 @@ BRANCH_A_SIGNAL = Channel("branchASignal", str)
 BRANCH_B_SIGNAL = Channel("branchBSignal", str)
 BRANCH_C_SIGNAL = Channel("branchCSignal", str)
 BRANCH_SIGNALS = {"A": BRANCH_A_SIGNAL, "B": BRANCH_B_SIGNAL, "C": BRANCH_C_SIGNAL}
-BRANCH_COMPLETED = ChannelMap("branchCompleted", str)
+BRANCH_COMPLETED = Join("branchCompleted", str)
 BLOCKING_JOIN_ROUNDS = 2
 
 
 class StartBlockingRound(Step[BlockingJoinRound]):
+    def wait_for(self, context: Context, input: BlockingJoinRound) -> Wait:
+        if input.previous_round is None:
+            return Wait.skip_immediately()
+        return Wait.until(
+            BRANCH_COMPLETED.for_remaining_branches(
+                input.previous_round, input.required_signals
+            )
+        )
+
     def execute(self, context: Context, input: BlockingJoinRound) -> StepDecision:
         return go_to_many(
-            StepMovement.of(SignalFromBranchA, input.round),
-            StepMovement.of(SignalFromBranchB, input.round),
-            StepMovement.of(SignalFromBranchC, input.round),
-            StepMovement.of(BlockingJoin, input),
+            *BRANCH_COMPLETED.fork(
+                context,
+                [
+                    lambda join_round: StepMovement.of(SignalFromBranchA, join_round),
+                    lambda join_round: StepMovement.of(SignalFromBranchB, join_round),
+                    lambda join_round: StepMovement.of(SignalFromBranchC, join_round),
+                ],
+                lambda join_round: StepMovement.of(
+                    BlockingJoin, BlockingJoinInput(input, join_round)
+                ),
+            )
         )
 
 
-class SignalFromBranchA(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
+class SignalFromBranchA(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(BRANCH_A_SIGNAL.for_one())
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        BRANCH_COMPLETED.publish(context, round_instance(input), "A")
-        return dead_end()
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return BRANCH_COMPLETED.end_branch(context, input, "A")
 
 
-class SignalFromBranchB(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
+class SignalFromBranchB(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(BRANCH_B_SIGNAL.for_one())
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        BRANCH_COMPLETED.publish(context, round_instance(input), "B")
-        return dead_end()
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return BRANCH_COMPLETED.end_branch(context, input, "B")
 
 
-class SignalFromBranchC(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
+class SignalFromBranchC(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(BRANCH_C_SIGNAL.for_one())
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        BRANCH_COMPLETED.publish(context, round_instance(input), "C")
-        return dead_end()
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return BRANCH_COMPLETED.end_branch(context, input, "C")
 
 
-class BlockingJoin(Step[BlockingJoinRound]):
-    def wait_for(self, context: Context, input: BlockingJoinRound) -> Wait:
+class BlockingJoin(Step[BlockingJoinInput]):
+    def wait_for(self, context: Context, input: BlockingJoinInput) -> Wait:
         return Wait.until(
-            BRANCH_COMPLETED.for_n(round_instance(input.round), input.required_signals)
+            BRANCH_COMPLETED.for_branches(
+                input.join_round, input.blocking_round.required_signals
+            )
         )
 
-    def execute(self, context: Context, input: BlockingJoinRound) -> StepDecision:
-        fired = sorted(BRANCH_COMPLETED.results(context, round_instance(input.round)))
-        return go_to_many(
-            StepMovement.of(ProcessRound, ProcessedRound(input.round, fired)),
-            StepMovement.of(ResetBlockingJoin, input),
-        )
+    def execute(self, context: Context, input: BlockingJoinInput) -> StepDecision:
+        blocking_round = input.blocking_round
+        fired = sorted(BRANCH_COMPLETED.branch_results(context, input.join_round))
+        movements: list[StepMovement[Any]] = [
+            StepMovement.of(ProcessRound, ProcessedRound(blocking_round.round, fired))
+        ]
+        if blocking_round.round < BLOCKING_JOIN_ROUNDS:
+            next_round = replace(
+                blocking_round,
+                round=blocking_round.round + 1,
+                previous_round=input.join_round,
+            )
+            movements.append(StepMovement.of(StartBlockingRound, next_round))
+        return go_to_many(*movements)
 
 
 class ProcessRound(Step[ProcessedRound]):
     def execute(self, context: Context, input: ProcessedRound) -> StepDecision:
         return graceful_complete(input)
-
-
-class ResetBlockingJoin(Step[BlockingJoinRound]):
-    def wait_for(self, context: Context, input: BlockingJoinRound) -> Wait:
-        remaining_signals = BRANCH_COUNT - input.required_signals
-        return Wait.until(
-            BRANCH_COMPLETED.for_n(round_instance(input.round), remaining_signals)
-        )
-
-    def execute(self, context: Context, input: BlockingJoinRound) -> StepDecision:
-        if input.round < BLOCKING_JOIN_ROUNDS:
-            return go_to(StartBlockingRound, replace(input, round=input.round + 1))
-        return graceful_complete(input.round)
 
 
 class BlockingPartialJoinFlow(Flow[BlockingJoinRound]):
@@ -287,7 +321,6 @@ class BlockingPartialJoinFlow(Flow[BlockingJoinRound]):
         self.signal_from_branch_c = SignalFromBranchC()
         self.blocking_join = BlockingJoin()
         self.process_round = ProcessRound()
-        self.reset_blocking_join = ResetBlockingJoin()
 
     def get_steps(self) -> StepList[BlockingJoinRound]:
         return StepList.start_step(self.start_blocking_round).other_steps(
@@ -296,7 +329,6 @@ class BlockingPartialJoinFlow(Flow[BlockingJoinRound]):
             self.signal_from_branch_c,
             self.blocking_join,
             self.process_round,
-            self.reset_blocking_join,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
@@ -325,55 +357,66 @@ CARRIER_RELEASED = {
     "B": CARRIER_B_RELEASED,
     "C": CARRIER_C_RELEASED,
 }
-BID_RECEIVED = Channel("bidReceived", str)
+BID_RECEIVED = Join("bidReceived", str)
 CARRIER_BOOKING_CONFIRMED = Channel("carrierBookingConfirmed", str)
+
+
+@dataclass(frozen=True)
+class CarrierBidJoin:
+    required_bids: int
+    join_round: JoinRound
 
 
 class RequestBids(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         return go_to_many(
-            StepMovement.of(BidFromCarrierA, None),
-            StepMovement.of(BidFromCarrierB, None),
-            StepMovement.of(BidFromCarrierC, None),
-            StepMovement.of(AcceptBids, input),
+            *BID_RECEIVED.fork(
+                context,
+                [
+                    lambda join_round: StepMovement.of(BidFromCarrierA, join_round),
+                    lambda join_round: StepMovement.of(BidFromCarrierB, join_round),
+                    lambda join_round: StepMovement.of(BidFromCarrierC, join_round),
+                ],
+                lambda join_round: StepMovement.of(
+                    AcceptBids, CarrierBidJoin(input, join_round)
+                ),
+            )
         )
 
 
-class BidFromCarrierA(Step[None]):
-    def wait_for(self, context: Context, input: None) -> Wait:
+class BidFromCarrierA(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(CARRIER_A_RELEASED.for_one())
 
-    def execute(self, context: Context, input: None) -> StepDecision:
-        BID_RECEIVED.publish(context, "A")
-        return dead_end()
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return BID_RECEIVED.end_branch(context, input, "A")
 
 
-class BidFromCarrierB(Step[None]):
-    def wait_for(self, context: Context, input: None) -> Wait:
+class BidFromCarrierB(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(CARRIER_B_RELEASED.for_one())
 
-    def execute(self, context: Context, input: None) -> StepDecision:
-        BID_RECEIVED.publish(context, "B")
-        return dead_end()
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return BID_RECEIVED.end_branch(context, input, "B")
 
 
-class BidFromCarrierC(Step[None]):
-    def wait_for(self, context: Context, input: None) -> Wait:
+class BidFromCarrierC(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(CARRIER_C_RELEASED.for_one())
 
-    def execute(self, context: Context, input: None) -> StepDecision:
-        BID_RECEIVED.publish(context, "C")
-        return dead_end()
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return BID_RECEIVED.end_branch(context, input, "C")
 
 
-class AcceptBids(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
-        return Wait.until(BID_RECEIVED.for_n(input))
+class AcceptBids(Step[CarrierBidJoin]):
+    def wait_for(self, context: Context, input: CarrierBidJoin) -> Wait:
+        return Wait.until(BID_RECEIVED.for_branches(input.join_round, input.required_bids))
 
-    def execute(self, context: Context, input: int) -> StepDecision:
+    def execute(self, context: Context, input: CarrierBidJoin) -> StepDecision:
         return go_to(
-            ConfirmCarrierBooking, sorted(BID_RECEIVED.results(context))
-        ).with_canceling_steps(BidFromCarrierA, BidFromCarrierB, BidFromCarrierC)
+            ConfirmCarrierBooking,
+            sorted(BID_RECEIVED.branch_results(context, input.join_round)),
+        ).with_canceling_sibling_steps(BidFromCarrierA, BidFromCarrierB, BidFromCarrierC)
 
 
 class ConfirmCarrierBooking(Step[list[str]]):
