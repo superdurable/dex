@@ -61,6 +61,10 @@ type V2Definition struct {
 type V2AgentSession struct {
 	// StartStepSkipWaitFor is true when the StartAgentSession Start Step has no wait phase.
 	StartStepSkipWaitFor bool
+	// Language is the graph's source language.
+	Language string
+	// HasQuestions is true when the graph declares the AwaitQuestionAnswer Step.
+	HasQuestions bool
 	// RPCNames are the RPCs the graph declares.
 	RPCNames map[string]bool
 }
@@ -212,6 +216,7 @@ type V2ActionInputField struct {
 type v2Handler struct {
 	client                     dexpb.FlowServiceClient
 	loadDefinitions            V2DefinitionLoader
+	loadFlowTypeDefinitions    V2FlowTypeDefinitionLoader
 	checkStartFlowWorkerHealth V2WorkerHealthChecker
 	serverEngine               *ServerEngineResolver
 }
@@ -220,10 +225,18 @@ type v2Handler struct {
 type V2DefinitionSnapshot struct {
 	Definitions map[string]V2Definition
 	Revision    string
+	// FlowTypeRevisions maps a Flow type to the revision of its own definition. A Flow type that it does not
+	// name uses Revision. A request about some Flow types must send their revisions in the
+	// X-Dex-Flow-Definition-Revision header, separated by commas.
+	FlowTypeRevisions map[string]string
 }
 
 // V2DefinitionLoader loads one validated definition snapshot.
 type V2DefinitionLoader func(context.Context) (V2DefinitionSnapshot, error)
+
+// V2FlowTypeDefinitionLoader loads the definitions of only the given Flow types. A Flow type without a
+// valid definition is left out of the snapshot.
+type V2FlowTypeDefinitionLoader func(ctx context.Context, flowTypes []string) (V2DefinitionSnapshot, error)
 
 // V2WorkerHealthChecker checks whether Dex Web can reach a Worker target.
 type V2WorkerHealthChecker func(context.Context, string) error
@@ -231,11 +244,47 @@ type V2WorkerHealthChecker func(context.Context, string) error
 // V2HandlerConfig controls server-side v2 behavior.
 type V2HandlerConfig struct {
 	WorkerHealthChecker V2WorkerHealthChecker
+	// FlowTypeDefinitionLoader defaults nil, which makes every route load every definition. When set, routes
+	// about named Flow types load only those, and only GET /api/v2/catalog loads every definition.
+	FlowTypeDefinitionLoader V2FlowTypeDefinitionLoader
 }
 
-type v2CatalogEntry struct {
-	FlowType   string       `json:"flowType"`
+// V2CatalogEntry is the JSON that describes one Flow type's v2 contract to the browser.
+type V2CatalogEntry struct {
+	// FlowType is the Flow type the contract belongs to.
+	FlowType string `json:"flowType"`
+	// Definition is the validated v2 contract.
 	Definition V2Definition `json:"definition"`
+	// DefinitionRevision is the revision a request about this Flow type sends; empty when none is checked.
+	DefinitionRevision string `json:"definitionRevision,omitempty"`
+	// AgentSession is set when the Flow type is a Dex Agents session.
+	AgentSession *V2CatalogAgentSession `json:"agentSession,omitempty"`
+}
+
+// V2CatalogAgentSession is the browser's view of a Dex Agents session graph.
+type V2CatalogAgentSession struct {
+	// Language is the source language of the session Flow.
+	Language string `json:"language"`
+	// HasQuestions is true when the graph declares the question Step.
+	HasQuestions bool `json:"hasQuestions"`
+	// RPCNames are the RPCs the graph declares, sorted.
+	RPCNames []string `json:"rpcNames"`
+}
+
+// NewV2CatalogEntry describes definition for the browser, with the revision that requests about it send.
+func NewV2CatalogEntry(flowType string, definition V2Definition, revision string) V2CatalogEntry {
+	entry := V2CatalogEntry{FlowType: flowType, Definition: definition, DefinitionRevision: revision}
+	if definition.AgentSession != nil {
+		rpcNames := make([]string, 0, len(definition.AgentSession.RPCNames))
+		for rpcName := range definition.AgentSession.RPCNames {
+			rpcNames = append(rpcNames, rpcName)
+		}
+		sort.Strings(rpcNames)
+		entry.AgentSession = &V2CatalogAgentSession{
+			Language: definition.AgentSession.Language, HasQuestions: definition.AgentSession.HasQuestions, RPCNames: rpcNames,
+		}
+	}
+	return entry
 }
 
 type v2Filter struct {
@@ -326,7 +375,7 @@ func RegisterDynamicV2Handlers(
 		panic("Dex FlowService client must not be nil")
 	}
 	handler := &v2Handler{
-		client: client, loadDefinitions: loader,
+		client: client, loadDefinitions: loader, loadFlowTypeDefinitions: config.FlowTypeDefinitionLoader,
 		checkStartFlowWorkerHealth: config.WorkerHealthChecker,
 		serverEngine:               NewServerEngineResolver(client),
 	}
@@ -344,7 +393,7 @@ func RegisterDynamicV2Handlers(
 }
 
 func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request) {
-	snapshot, ok := h.loadSnapshot(response, request, false)
+	snapshot, ok := h.loadSnapshot(response, request, nil, false)
 	if !ok {
 		return
 	}
@@ -353,11 +402,9 @@ func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request)
 		flowTypes = append(flowTypes, flowType)
 	}
 	sort.Strings(flowTypes)
-	entries := make([]v2CatalogEntry, 0, len(flowTypes))
+	entries := make([]V2CatalogEntry, 0, len(flowTypes))
 	for _, flowType := range flowTypes {
-		entries = append(entries, v2CatalogEntry{
-			FlowType: flowType, Definition: snapshot.Definitions[flowType],
-		})
+		entries = append(entries, NewV2CatalogEntry(flowType, snapshot.Definitions[flowType], snapshot.revisionFor(flowType)))
 	}
 	setDefinitionETag(response, snapshot.Revision)
 	writeJSON(response, http.StatusOK, map[string]interface{}{
@@ -369,13 +416,17 @@ func (h *v2Handler) catalog(response http.ResponseWriter, request *http.Request)
 }
 
 func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) {
-	snapshot, ok := h.loadSnapshot(response, request, true)
-	if !ok {
-		return
-	}
 	var body v2SearchRequest
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	requestedFlowTypes := body.FlowTypes
+	if len(requestedFlowTypes) == 0 {
+		requestedFlowTypes = []string{body.FlowType}
+	}
+	snapshot, ok := h.loadSnapshot(response, request, requestedFlowTypes, true)
+	if !ok {
 		return
 	}
 	permissions, permitted := h.resolvePermissions(response, body.WorkQueuePermissions)
@@ -470,10 +521,6 @@ func (h *v2Handler) loadSummaries(
 }
 
 func (h *v2Handler) display(response http.ResponseWriter, request *http.Request) {
-	snapshot, ok := h.loadSnapshot(response, request, true)
-	if !ok {
-		return
-	}
 	for parameter, values := range request.URL.Query() {
 		if (parameter != "flowType" && parameter != "flowId") || len(values) != 1 {
 			WriteError(response, http.StatusBadRequest, "display accepts only one flowType and flowId", nil)
@@ -482,6 +529,10 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 	}
 	flowType := request.URL.Query().Get("flowType")
 	flowID := request.URL.Query().Get("flowId")
+	snapshot, ok := h.loadSnapshot(response, request, []string{flowType}, true)
+	if !ok {
+		return
+	}
 	definition, ok := snapshot.Definitions[flowType]
 	if !ok || flowID == "" {
 		WriteError(response, http.StatusBadRequest, "flowType and flowId are required", nil)
@@ -533,13 +584,13 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 }
 
 func (h *v2Handler) editDisplay(response http.ResponseWriter, request *http.Request) {
-	snapshot, ok := h.loadSnapshot(response, request, true)
-	if !ok {
-		return
-	}
 	var body v2EditRequest
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	snapshot, ok := h.loadSnapshot(response, request, []string{body.FlowType}, true)
+	if !ok {
 		return
 	}
 	definition, ok := snapshot.Definitions[body.FlowType]
@@ -649,13 +700,13 @@ func encodeActionPermissionConditionValue(value interface{}) (*dexpb.Value, erro
 }
 
 func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Request) {
-	snapshot, ok := h.loadSnapshot(response, request, true)
-	if !ok {
-		return
-	}
 	var body v2ActionRequest
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	snapshot, ok := h.loadSnapshot(response, request, []string{body.FlowType}, true)
+	if !ok {
 		return
 	}
 	permissions, permitted := h.resolvePermissions(response, body.WorkQueuePermissions)
@@ -672,7 +723,7 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 		WriteError(response, http.StatusBadRequest, "rpcName is not a declared Action", nil)
 		return
 	}
-	if snapshot.Revision != "" {
+	if snapshot.revisionFor(body.FlowType) != "" {
 		if !containsPermission(permissions, action.RequiredPermission) {
 			WriteError(response, http.StatusForbidden, "Action permission denied", nil)
 			return
@@ -721,12 +772,21 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 	}))
 }
 
+// loadSnapshot loads the definitions of flowTypes, or every definition when flowTypes is nil. With
+// requireRevision, the request must carry the revision of each requested Flow type that has a definition.
 func (h *v2Handler) loadSnapshot(
 	response http.ResponseWriter,
 	request *http.Request,
+	flowTypes []string,
 	requireRevision bool,
 ) (V2DefinitionSnapshot, bool) {
-	snapshot, err := h.loadDefinitions(request.Context())
+	var snapshot V2DefinitionSnapshot
+	var err error
+	if flowTypes != nil && h.loadFlowTypeDefinitions != nil {
+		snapshot, err = h.loadFlowTypeDefinitions(request.Context(), flowTypes)
+	} else {
+		snapshot, err = h.loadDefinitions(request.Context())
+	}
 	if err != nil {
 		code := "FLOW_DEFINITION_SOURCE_UNAVAILABLE"
 		message := "Flow Definition source is unavailable"
@@ -740,7 +800,7 @@ func (h *v2Handler) loadSnapshot(
 		WriteCodedError(response, http.StatusServiceUnavailable, code, message)
 		return V2DefinitionSnapshot{}, false
 	}
-	if requireRevision && snapshot.Revision != "" && request.Header.Get(V2DefinitionRevisionHeader) != snapshot.Revision {
+	if requireRevision && !snapshot.matchesRevisionHeader(flowTypes, request.Header.Get(V2DefinitionRevisionHeader)) {
 		WriteCodedError(
 			response,
 			http.StatusConflict,
@@ -750,6 +810,35 @@ func (h *v2Handler) loadSnapshot(
 		return V2DefinitionSnapshot{}, false
 	}
 	return snapshot, true
+}
+
+// revisionFor returns the revision of flowType's definition, or "" when the snapshot checks no revision.
+func (snapshot V2DefinitionSnapshot) revisionFor(flowType string) string {
+	if revision, ok := snapshot.FlowTypeRevisions[flowType]; ok {
+		return revision
+	}
+	return snapshot.Revision
+}
+
+// matchesRevisionHeader reports whether header, a comma-separated revision list, names the revision of every
+// requested Flow type that has a definition. Without requested Flow types it checks the snapshot revision.
+func (snapshot V2DefinitionSnapshot) matchesRevisionHeader(flowTypes []string, header string) bool {
+	sent := make(map[string]bool)
+	for _, revision := range strings.Split(header, ",") {
+		sent[strings.TrimSpace(revision)] = true
+	}
+	if flowTypes == nil {
+		return snapshot.Revision == "" || sent[snapshot.Revision]
+	}
+	for _, flowType := range flowTypes {
+		if _, defined := snapshot.Definitions[flowType]; !defined {
+			continue
+		}
+		if revision := snapshot.revisionFor(flowType); revision != "" && !sent[revision] {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *v2Handler) resolvePermissions(response http.ResponseWriter, permissions []string) ([]string, bool) {

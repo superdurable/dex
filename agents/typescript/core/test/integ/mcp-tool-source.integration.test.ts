@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,9 +69,11 @@ import {
   fakeMcpReadyLine,
   fakeMcpServerModulePath,
   fakeMcpStateDirectoryVariable,
+  screenshotPngBase64,
 } from "../fixtures/fake-mcp-server-names.js";
 import {
   McpScriptedAgentRunner,
+  createMcpMediaStore,
   createMcpScriptedAgentFlow,
   createMcpToolSource,
   mcpAgentGatewayUrlVariable,
@@ -232,7 +234,7 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
     const exporter = new InMemorySpanExporter();
     const tracerProvider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
     const tracedFlow = createAgentSessionFlow(
-      new McpScriptedAgentRunner(createMcpToolSource(stateDirectory, httpUrl)),
+      new McpScriptedAgentRunner(createMcpToolSource(stateDirectory, httpUrl), createMcpMediaStore(stateDirectory)),
       "TracedMcpScriptedAgent",
       { toolPolicies: mcpAgentToolPolicies, tracing: { tracerProvider } },
     );
@@ -295,6 +297,47 @@ describe("MCP tools run as tool Steps against local stdio and Streamable HTTP se
       callTool.map((entry) => entry.finalAttempt),
       [2],
     );
+  });
+
+  for (const server of ["local", "remote"]) {
+    test(`MCP image content from the ${server} server becomes a reference the model loads`, async () => {
+      await startWorker();
+      const sessionId = `mcp-image-${server}-${randomUUID()}`;
+      await sessions.startSession(sessionId, `call ${server}__take_screenshot {}`);
+      await sessions.waitForCompletedTurns(sessionId, 1);
+
+      const png = new Uint8Array(Buffer.from(screenshotPngBase64, "base64"));
+      const sha256 = createHash("sha256").update(png).digest("hex");
+      const snapshot = await sessions.getAgentSnapshot(sessionId);
+      const toolMessage = snapshot.messages.find((message) => message.role === "tool");
+      assert.equal(toolMessage?.toolOutput, "captured the page\n[image 1]");
+      const images = toolMessage?.images ?? [];
+      assert.deepEqual(
+        images.map((image) => [image.sha256, image.mimeType, image.sizeBytes]),
+        [[sha256, "image/png", png.length]],
+      );
+      assert.deepEqual(await createMcpMediaStore(stateDirectory).getImage(images[0]!), png);
+      assert.equal(toolMessage?.frameworkItem.includes(screenshotPngBase64), false);
+      assert.equal(
+        snapshot.messages.at(-1)?.text,
+        `${server}__take_screenshot: captured the page\n[image 1] image ${sha256} ${png.length}`,
+      );
+    });
+  }
+
+  test("MCP image content that is not an image fails the call", async () => {
+    await startWorker();
+    const sessionId = `mcp-broken-image-${randomUUID()}`;
+    await sessions.startSession(sessionId, 'call remote__take_screenshot {"broken": true}');
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const toolMessage = (await sessions.getAgentSnapshot(sessionId)).messages.find((message) => message.role === "tool");
+    assert.equal(
+      toolMessage?.toolOutput,
+      "The tool call failed: MCP tool remote__take_screenshot returned image 1, which is not a supported image: " +
+        "image is not PNG, JPEG, GIF, or WebP",
+    );
+    assert.deepEqual(toolMessage?.images ?? [], []);
   });
 
   test("an unclassified write waits for approval and runs once", async () => {

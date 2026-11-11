@@ -214,6 +214,13 @@ export interface Step<Input> {
   readonly inputCodec?: Codec<Input>;
   /**
    * Returns the protocol Step type.
+   *
+   * A Step type that starts SubFlows must not contain "-".
+   * Dex joins the parts of a generated child Flow ID with "-", so a dash makes that ID ambiguous.
+   * When such a Step's waitFor returns a SubFlow condition, the server rejects the result.
+   * It fails the attempt without retry, so under the default policy the Flow fails.
+   * Step types that never start SubFlows may still contain "-".
+   * Changed in 1.45.0: a Step whose Step type contains "-" can no longer start SubFlows.
    * @returns A non-empty Step type unique within the containing Flow.
    */
   getStepType(): string;

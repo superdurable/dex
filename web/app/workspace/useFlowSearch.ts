@@ -38,7 +38,8 @@ export function useFlowSearch(
   filters: readonly FilterRow[],
   workQueuePermissions: readonly string[] = EMPTY_WORK_QUEUE_PERMISSIONS,
 ): FlowSearch {
-  const { catalog, definitionUpdateKey, handleDefinitionError } = useWebCatalog();
+  const { revisionFor, definitionUpdateKey, handleDefinitionError } = useWebCatalog();
+  const definitionRevision = revisionFor(flowTypes);
   const [held, setHeld] = useState(() => nothingHeld<V2Flow[]>());
   const [loading, setLoading] = useState(false);
   const [nextPageToken, setNextPageToken] = useState('');
@@ -55,7 +56,7 @@ export function useFlowSearch(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
+          ...definitionRevisionHeaders(definitionRevision),
         },
         body: JSON.stringify({
           flowTypes,
@@ -86,7 +87,7 @@ export function useFlowSearch(
     } finally {
       setLoading(false);
     }
-  }, [catalog?.definitionRevision, definition, definitionUpdateKey, filters, flowTypesKey, handleDefinitionError, workQueuePermissions]);
+  }, [definitionRevision, definition, definitionUpdateKey, filters, flowTypesKey, handleDefinitionError, workQueuePermissions]);
 
   // `filters` only changes when the reader submits, so this cannot fire per keystroke.
   useEffect(() => {

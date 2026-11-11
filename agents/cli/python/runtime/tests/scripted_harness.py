@@ -19,28 +19,50 @@ The last user message picks the reply:
 * ``ask``: asks the user a question with the ``ask_user`` built-in tool.
 * ``slow``: waits five minutes before answering, so the turn can be cancelled.
 * ``fail``: raises, so the model call fails and, after its retries, the turn.
+* ``images``: lists the session's images that the model call loaded from the
+  media store, as ``saw image <sha256> <bytes>`` joined by ``; ``, or
+  ``saw no images``.
 * anything else: ``echo: <text>``.
 
 After tool results it answers ``done: <tool>=<output> | ...``.
+
+With a context media store, the runner takes user messages with images, as an
+image-capable adapter does; ``supports_images=False`` builds a runner without.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from contextvars import ContextVar
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
-from dex_agents import AgentSessionFlow, BuiltInTool, ToolEffect, ToolPolicy
+from dex_agents import (
+    AgentImageReference,
+    AgentSessionFlow,
+    AgentTurnContext,
+    AgentTurnOutcome,
+    BuiltInTool,
+    FrameworkMessage,
+    MediaStore,
+    ToolEffect,
+    ToolPolicy,
+    collect_turn_images,
+    load_images,
+)
 from dex_agents.builtin_loop import (
     AgentDefinition,
+    BuiltinLoopAgentRunner,
     InstructionContext,
     ModelRequest,
     ScriptedModelClient,
     ScriptedModelReply,
     ScriptedToolCall,
     builtin_agent_session_flow,
+    builtin_agent_session_options,
     function_tool,
 )
 from dex_agents_cli import (
@@ -55,8 +77,14 @@ from dex_agents_cli import (
 SCRIPTED_FLOW_TYPE = "DexAgentsCliScriptedAgent"
 DEFAULT_SCRIPTED_MODEL = "scripted-model"
 DEFAULT_INSTRUCTIONS = "You are the scripted test agent."
+#: Set to ``1`` to make ``tests.scripted_cli`` run a harness whose runner takes no images.
+WITHOUT_IMAGES_ENVIRONMENT_VARIABLE = "DEX_AGENTS_TEST_WITHOUT_IMAGES"
 _SLOW_REPLY_SECONDS = 300
 _MAX_SHOWN_OUTPUT = 300
+# The image bytes the running model call loaded, by SHA-256, in load order.
+_LOADED_IMAGES: ContextVar[Mapping[str, bytes]] = ContextVar(
+    "scripted_loaded_images", default=MappingProxyType({})
+)
 
 
 class ScriptedHarness:
@@ -74,10 +102,12 @@ class ScriptedHarness:
         *,
         has_replacement_shell_tool: bool = False,
         is_tool_set_fixed_at_build: bool = False,
+        supports_images: bool = True,
     ) -> None:
         self._tool_policies = dict(tool_policies or {})
         self._has_replacement_shell_tool = has_replacement_shell_tool
         self.is_tool_set_fixed_at_build = is_tool_set_fixed_at_build
+        self._supports_images = supports_images
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         cached_at_build = sorted(
@@ -118,7 +148,35 @@ class ScriptedHarness:
             built_in_tools=frozenset({BuiltInTool.ASK_USER}),
             tool_policies=self._tool_policies,
         )
-        return builtin_agent_session_flow(definition, flow_type=context.flow_type)
+        if not self._supports_images or context.media_store is None:
+            return builtin_agent_session_flow(definition, flow_type=context.flow_type)
+        return AgentSessionFlow(
+            ImageScriptedRunner(definition, context.media_store),
+            flow_type=context.flow_type,
+            options=builtin_agent_session_options(definition),
+        )
+
+
+class ImageScriptedRunner(BuiltinLoopAgentRunner):
+    """The built-in loop runner with image support; each model call loads the images first."""
+
+    def __init__(self, definition: AgentDefinition, media_store: MediaStore) -> None:
+        super().__init__(definition)
+        self._media_store = media_store
+
+    def build_user_message_with_images(
+        self, text: str, images: Sequence[AgentImageReference]
+    ) -> FrameworkMessage:
+        # The session stores the references on the message; the model call reads them there.
+        return self.build_user_message(text)
+
+    async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
+        loaded = await load_images(self._media_store, collect_turn_images(turn))
+        token = _LOADED_IMAGES.set(loaded)
+        try:
+            return await super().run_model_step(turn)
+        finally:
+            _LOADED_IMAGES.reset(token)
 
 
 def build_session_flow_without_tools(flow_type: str = SCRIPTED_FLOW_TYPE) -> AgentSessionFlow:
@@ -182,6 +240,12 @@ def _responder(model_name: str, cached_at_build: list[str]) -> Any:
                 )
             case "fail":
                 raise RuntimeError("the scripted model was told to fail")
+            case "images":
+                loaded = _LOADED_IMAGES.get()
+                seen = "; ".join(
+                    f"saw image {sha256} {len(data)}" for sha256, data in loaded.items()
+                )
+                return ScriptedModelReply(text=seen or "saw no images")
             case "slow":
                 await asyncio.sleep(_SLOW_REPLY_SECONDS)
                 return ScriptedModelReply(text="slow reply")

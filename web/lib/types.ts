@@ -168,20 +168,62 @@ export interface StepGraphEdge {
   target: string;
 }
 
-export interface FlowDefinitionEntry {
+/** Where Dex Web read a definition: a directory file, a Worker upload, or dexcli visualize. */
+export type FlowDefinitionSource = 'directory' | 'uploaded' | 'visualize';
+
+/** One definition without its graph, as definition listings return it. */
+export interface FlowDefinitionSummary {
   id: string;
   file: string;
-  schemaVersion: '1.0' | '2.0';
+  /** Empty when Dex Web rejected the definition before reading its version. */
+  schemaVersion: '1.0' | '2.0' | '';
   flowName: string;
   sourceLanguage: string;
   sourcePath: string;
   valid: boolean;
+  source: FlowDefinitionSource;
+  digest?: string;
+  generatedAt?: string;
+  uploadedAt?: string;
+  /** Why Dex Web rejected this definition; a rejected definition has no graph. */
+  error?: string;
+}
+
+/** A definition Dex Web accepted, with the graph to draw. */
+export interface FlowDefinitionEntry extends FlowDefinitionSummary {
+  schemaVersion: '1.0' | '2.0';
   graph: FlowDefinitionGraph;
+}
+
+/** The Dex Agents session parts of a graph, read by Dex Web's server. */
+export interface V2AgentSessionInfo {
+  language: string;
+  hasQuestions: boolean;
+  rpcNames: string[];
 }
 
 export interface V2CatalogEntry {
   flowType: string;
   definition: FlowV2Definition;
+  /** Sent with every request about this Flow type, so a changed definition is noticed. */
+  definitionRevision?: string;
+  agentSession?: V2AgentSessionInfo;
+}
+
+/** Every Flow type with a definition, without reading any definition. */
+export interface FlowDefinitionTypeList {
+  configured: boolean;
+  operatorAPI: boolean;
+  flowTypes: { flowType: string; source: FlowDefinitionSource }[];
+  sourceErrors?: string[];
+}
+
+/** Every definition of one Flow type, with graphs, and its v2 contract when it has a valid one. */
+export interface FlowTypeDefinitions {
+  flowType: string;
+  definitionRevision: string;
+  definitions: (FlowDefinitionSummary & { graph?: FlowDefinitionGraph })[];
+  v2: V2CatalogEntry | null;
 }
 
 export interface V2Catalog {
@@ -225,5 +267,7 @@ export interface FlowDefinitionCatalog {
   source?: string;
   definitionRevision?: string;
   definitionCount: number;
-  definitions: FlowDefinitionEntry[];
+  definitions: FlowDefinitionSummary[];
+  /** A source that failed as a whole, such as an unreachable Dex Server. */
+  sourceErrors?: string[];
 }

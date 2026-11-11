@@ -18,7 +18,7 @@ at most the one call that was running.
 
 Applications usually install an adapter, which brings in this package. To
 build a runner of your own, install the core directly. It needs Python 3.11 or
-later and requires the released `dex-python-sdk==1.38.0`:
+later and requires the released `dex-python-sdk==1.44.0`:
 
 ```bash
 pip install dex-agents
@@ -152,15 +152,23 @@ request, when only the session options enable that built-in.
 `builtin_agent_session_flow` derives the `AgentSessionOptions` from it.
 
 `@function_tool(effect=..., requires_approval=None, name=None,
-description=None, parameters_schema=None)` turns a plain sync or async
+description=None, parameters_schema=None, prepare_arguments=None)` turns a plain sync or async
 function into a tool. The name defaults to the function name, the description
 to the docstring, and the JSON Schema is derived from the type hints with the
 standard library: `str`, `int`, `float`, `bool`, `None`, `list`, `dict`,
 `Literal`, `Enum`, unions, dataclasses, `TypedDict`, and
 `Annotated[T, "description"]`. A parameter typed `ToolCallContext` receives the
 idempotency key, attempt, Flow ID, turn ID, tool call ID, event writer,
-heartbeat, and the answers to the tool's questions. A sync function runs in a
-worker thread. Arguments that break the schema, and an unknown tool name,
+heartbeat, the answers to the tool's questions, and `effect`: the call's effect
+after the tool policies, which chose its tool Step. A wrapper that turns errors
+into `ToolExecutionError` lets them propagate for `NON_IDEMPOTENT_WRITE` and
+`UNCLASSIFIED`, the default of a hand-built context. A sync function runs in a
+worker thread. `prepare_arguments`, a synchronous and deterministic function,
+converts the decoded arguments before the schema check, such as an argument
+shape an earlier version of the tool took; an exception it raises fails the
+call like a schema violation, `CancelledError` passes through, and an
+awaitable result is refused. The stored tool call and the approval interrupt
+keep the model's original arguments. Arguments that break the schema, and an unknown tool name,
 raise `ToolExecutionError`, which the model sees: arguments that are not JSON
 give `invalid arguments for <tool>: arguments are not valid JSON`. A `str` result is the
 output; any other result is serialized as JSON.
@@ -759,9 +767,16 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   `MediaStoreError`. Reads check the file's size first, read at most one byte past `size_bytes`, and run
   `verify_image_bytes`. It needs a POSIX file system. Deleting a session
   deletes no file.
-- **Built-in runners.** In this release no built-in runner shows images to a
-  model: the built-in loop and the framework adapters do not implement
-  `ImageUserMessageBuilder`, so their sessions refuse images.
+- **Built-in runners.** The framework adapters show images to their model
+  when built with a `media_store`: they implement
+  `ImageUserMessageBuilder`, keep references in their stored items, and load
+  the bytes for each model call. Without a store they do not, and their
+  sessions refuse images. The built-in loop does not implement it yet, so its
+  sessions refuse images.
+- **MCP tools.** `McpToolSource(..., media_store=store)` uploads the `image`
+  content of a successful result inside the tool Step and returns the
+  references in `ToolExecutionResult.images`; see
+  [MCP tools](#mcp-tools-dex_agentsmcp). Give it the store the runner reads.
 - **Retention.** Deleting a session deletes no object. A runner reads the
   images again whenever a model call replays them, so a bucket lifecycle rule
   must keep each object at least as long as any session that references it
@@ -1344,6 +1359,8 @@ every `tools/call` only when this is `True`.
 | What happens | Recorded | Re-issued? |
 | --- | --- | --- |
 | A result | `succeeded`: text blocks joined with newlines, other content as JSON | - |
+| A result with `image` content, on a source built with `media_store` | `succeeded`: each image uploaded and recorded in `images`; the text shows `[image <n>]` in its place, counting from 1. More than 20 images, base64 that is invalid or not canonical, or bytes that are not a supported image: `failed` (`ToolExecutionError`) | - |
+| An `isError`, `rejected`, or `unknown` result with `image` content | As above, with `[image <n> omitted]` for each image in the text, with or without a store, so the recorded error holds no image bytes | As above |
 | An `isError` result, or a JSON-RPC error response other than `-32603` | `failed` with the text (`ToolExecutionError`) | No |
 | A result or error with the Dex `outcome` key | `outcome_unknown` or `failed`; see [Dex MCP conventions](#dex-mcp-conventions) | No |
 | The call was never sent: its server is not configured, or 3 connection attempts failed | `failed` | No |
@@ -2258,7 +2275,7 @@ The plan records each of these decisions too.
   wrong `readOnlyHint` on a write makes that write run without approval and
   retry; set `trusts_tool_annotations=False` or a `ToolPolicy` for servers you
   do not control.
-- Images: no built-in runner sends images to a model yet, and the media
+- Images: the built-in loop sends no images to a model yet, and the media
   stores keep no local read cache, so each `load_images` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.

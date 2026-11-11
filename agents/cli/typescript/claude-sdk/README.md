@@ -58,6 +58,13 @@ adds approval by tool name, Claude Code reads no settings files, and the tool St
 call again on the Worker that runs it. These tools run inside the Claude Code
 CLI, so a Worker that dies during a turn segment can run one of them twice.
 
+## Images
+
+`/image <path>` attaches an image file to the next message. The command gives
+the Claude Agent SDK adapter the media store of `media.store`, so the model sees the
+image, and images that tools return go to the same store. See
+[Images](../../README.md#images).
+
 ## Development
 
 `ci.sh` builds the core, the Claude adapter, and the runtime, which this

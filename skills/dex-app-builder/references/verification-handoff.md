@@ -150,7 +150,7 @@ Dex Web is optional; when it has a file for a Flow type, that file wins over
 the Server's definition. Dex Web marks an invalid definition with its error and
 keeps the others working. After deploying, confirm that Designs lists every
 Flow type with its graph. The
-[Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization)
+[Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization#definition-sources)
 has the definition sources, and each SDK's Workers reference, such as the
 [Go Workers reference](https://docs.superdurable.io/reference/go/workers),
 has the Worker setting.

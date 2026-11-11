@@ -6,9 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+
 import {
+  LocalDirectoryMediaStore,
   createAgentSessionFlow,
   describeToolCallOutcome,
+  loadImages,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type AgentTurnContext,
@@ -16,6 +21,7 @@ import {
   type DeferredToolExecution,
   type DeferredToolOutcome,
   type FrameworkMessage,
+  type MediaStore,
   type ToolTaskCancellation,
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
@@ -50,10 +56,15 @@ type RequestedCall = readonly [toolCallId: string, toolName: string, toolArgumen
  * The model reads `call <tool> <json>` from the user message, joined with ` && call ` for parallel calls,
  * and asks for those MCP tools. The second model call answers `<tool>: <result>` per call, joined with
  * `; `. The `local` server runs the fake MCP server over stdio; `remote` is the Streamable HTTP URL. Tasks of
- * a server without protocol sessions are polled through `pollToolTask`.
+ * a server without protocol sessions are polled through `pollToolTask`. Images of MCP results go to a
+ * `LocalDirectoryMediaStore` under the state directory; the second model call loads them and adds
+ * `image <sha256> <size>` per image, computed from the loaded bytes, to that call's summary.
  */
 export class McpScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOutcome> {
-  public constructor(private readonly tools: McpToolSource) {}
+  public constructor(
+    private readonly tools: McpToolSource,
+    private readonly mediaStore: MediaStore,
+  ) {}
 
   public buildUserMessage(text: string): FrameworkMessage {
     return message("user", text);
@@ -102,7 +113,7 @@ export class McpScriptedAgentRunner implements AgentFrameworkRunner<DeferredTool
     return this.tools.cancelToolTask(cancellation);
   }
 
-  private answerWithResults(turn: AgentTurnContext, calls: readonly RequestedCall[]): AgentTurnOutcome {
+  private async answerWithResults(turn: AgentTurnContext, calls: readonly RequestedCall[]): Promise<AgentTurnOutcome> {
     const newMessages: FrameworkMessage[] = [];
     const summaries: string[] = [];
     for (const [toolCallId, toolName, toolArguments] of calls) {
@@ -111,6 +122,7 @@ export class McpScriptedAgentRunner implements AgentFrameworkRunner<DeferredTool
         throw new Error(`no record for ${toolCallId}`);
       }
       const result = describeToolCallOutcome(record);
+      const images = record.images ?? [];
       newMessages.push({
         role: "tool",
         text: null,
@@ -118,9 +130,17 @@ export class McpScriptedAgentRunner implements AgentFrameworkRunner<DeferredTool
         toolName,
         toolArguments,
         toolOutput: result,
-        frameworkItem: JSON.stringify({ toolCallId, result }),
+        frameworkItem: JSON.stringify(
+          images.length === 0 ? { toolCallId, result } : { toolCallId, result, images: images.map((image) => image.uri) },
+        ),
+        ...(images.length === 0 ? {} : { images }),
       });
-      summaries.push(`${toolName}: ${result}`);
+      const loaded = await loadImages(this.mediaStore, images);
+      const seen = images.map((image) => {
+        const data = loaded.get(image.sha256) ?? new Uint8Array();
+        return `image ${createHash("sha256").update(data).digest("hex")} ${data.length}`;
+      });
+      summaries.push([`${toolName}: ${result}`, ...seen].join(" "));
     }
     newMessages.push(message("assistant", summaries.join("; ")));
     return { kind: "completed", newMessages, usage };
@@ -145,7 +165,12 @@ export function createMcpToolSource(
     { transport: "streamable_http", name: "remote", url: httpUrl },
     ...(gatewayUrl === undefined ? [] : [{ transport: "streamable_http" as const, name: "gateway", url: gatewayUrl }]),
     ...(sessionsUrl === undefined ? [] : [{ transport: "streamable_http" as const, name: "sessions", url: sessionsUrl }]),
-  ]);
+  ], { mediaStore: createMcpMediaStore(stateDirectory) });
+}
+
+/** Builds the store that holds the images of MCP results, under the state directory. */
+export function createMcpMediaStore(stateDirectory: string): MediaStore {
+  return new LocalDirectoryMediaStore(join(stateDirectory, "media"));
 }
 
 /** Builds the MCP scripted agent's session Flow. */
@@ -156,7 +181,10 @@ export function createMcpScriptedAgentFlow(
   sessionsUrl?: string,
 ): AgentSessionFlow<McpScriptedAgentRunner> {
   return createAgentSessionFlow(
-    new McpScriptedAgentRunner(createMcpToolSource(stateDirectory, httpUrl, gatewayUrl, sessionsUrl)),
+    new McpScriptedAgentRunner(
+      createMcpToolSource(stateDirectory, httpUrl, gatewayUrl, sessionsUrl),
+      createMcpMediaStore(stateDirectory),
+    ),
     mcpScriptedAgentFlowType,
     { toolPolicies: mcpAgentToolPolicies },
   );

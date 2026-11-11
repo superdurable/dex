@@ -137,3 +137,18 @@ message AttributeIndexRegistration {
   int32 index_type = 3;
   int64 registered_at_unix_micros = 4;
 }
+
+// The Flow Definition Graph document that UploadFlowDefinitions stored for one Flow type, at
+// <prefix>/registry/flow-definitions/<tenant_id>/types/<percent-encoded Flow type>.
+// Created only with If-None-Match and replaced only with If-Match.
+message FlowDefinitionRecord {
+  string flow_type = 1;
+  // 32-byte SHA-256 of content.
+  bytes digest = 2;
+  int64 generated_at_unix_micros = 3;
+  int64 uploaded_at_unix_micros = 4;
+  // Diagnostic uploader string from the request, at most 128 bytes.
+  string uploader = 5;
+  // The uploaded document, byte for byte. The highest field number, so it encodes last.
+  bytes content = 6;
+}

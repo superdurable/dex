@@ -27,6 +27,7 @@ import {
   type ToolPolicy,
 } from "@superdurable/dex-agents";
 
+import { buildToolImageOutputs } from "./openai-agents-images.js";
 import { runningModelStepScope } from "./openai-agents-tool-scopes.js";
 
 type AnyAgent = Agent<any, any>;
@@ -304,11 +305,16 @@ function gateFunctionTool(originalTool: AnyFunctionTool, toolName: string): AnyF
   return cloneFunctionTool(originalTool, {
     needsApproval: approvalRequiredPolicy,
     inputGuardrails: [],
-    invoke: async (_runContext, _input, details) => describeRecordedToolCall(toolName, details),
+    invoke: async (_runContext, _input, details) =>
+      describeRecordedToolCall(toolName, details, originalTool.outputSchema !== undefined),
   });
 }
 
-function describeRecordedToolCall(toolName: string, details: FunctionToolCallDetails): string {
+function describeRecordedToolCall(
+  toolName: string,
+  details: FunctionToolCallDetails,
+  hasOutputSchema: boolean,
+): string | ReturnType<typeof buildToolImageOutputs> {
   const modelStep = runningModelStepScope.getStore();
   if (modelStep === undefined) {
     throw new Error(`tool ${toolName} of a Dex agent session ran outside RunModel`);
@@ -328,7 +334,12 @@ function describeRecordedToolCall(toolName: string, details: FunctionToolCallDet
   if (record.toolName !== toolName) {
     throw new Error(`tool ${toolName} call ${toolCallId} resumed with the record of tool ${record.toolName}`);
   }
-  return describeToolCallOutcome(record);
+  const output = describeToolCallOutcome(record);
+  // An output schema makes the SDK send the output as JSON text, which holds no images.
+  if (!modelStep.showsToolImages || hasOutputSchema || record.images === undefined || record.images.length === 0) {
+    return output;
+  }
+  return buildToolImageOutputs(output, record.images);
 }
 
 function requireClonedAgent(clonedAgents: ReadonlyMap<AnyAgent, AnyAgent>, agent: AnyAgent): AnyAgent {

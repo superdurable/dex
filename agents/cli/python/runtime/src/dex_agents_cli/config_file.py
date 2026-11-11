@@ -111,6 +111,7 @@ def default_config_values(harness: AgentHarness) -> dict[str, Any]:
                 "web_fetch": True,
                 "browser": True,
             },
+            "media": {"store": "auto"},
         }
     )
     return values

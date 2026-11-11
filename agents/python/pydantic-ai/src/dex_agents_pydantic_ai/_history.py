@@ -24,7 +24,17 @@ from pydantic_ai import (
 )
 from pydantic_ai.messages import UserContent
 
-from dex_agents import AgentMessage, FrameworkMessage, MessageRole
+from dex_agents import (
+    MAX_IMAGES_PER_MESSAGE,
+    AgentImageReference,
+    AgentMessage,
+    FrameworkMessage,
+    MessageRole,
+)
+from dex_agents_pydantic_ai._images import (
+    image_reference_placeholder,
+    tool_return_image_references,
+)
 
 
 def build_user_prompt_message(text: str) -> FrameworkMessage:
@@ -33,6 +43,17 @@ def build_user_prompt_message(text: str) -> FrameworkMessage:
         role=MessageRole.USER,
         text=text,
         framework_item=serialize_model_message(request),
+    )
+
+
+def build_user_prompt_message_with_images(
+    text: str, images: Sequence[AgentImageReference]
+) -> FrameworkMessage:
+    content: list[UserContent] = [text, *map(image_reference_placeholder, images)]
+    return FrameworkMessage(
+        role=MessageRole.USER,
+        text=text,
+        framework_item=serialize_model_message(ModelRequest(parts=[UserPromptPart(content)])),
     )
 
 
@@ -68,6 +89,8 @@ def project_model_message(message: ModelMessage) -> FrameworkMessage:
         tool_call_id=tool_return.tool_call_id if tool_return else None,
         tool_name=tool_return.tool_name if tool_return else None,
         tool_output=tool_return.model_response_str(wrap_if_error=False) if tool_return else None,
+        # Display only; framework_item keeps every image of parallel tool returns.
+        images=tool_return_image_references(message)[:MAX_IMAGES_PER_MESSAGE],
     )
 
 

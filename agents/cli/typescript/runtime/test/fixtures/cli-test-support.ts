@@ -32,6 +32,7 @@ import {
   scriptedHarness,
   scriptedHarnessDirectoryVariable,
   scriptedHarnessVariantVariable,
+  scriptedHarnessWithoutImages,
   shellReplacingScriptedHarness,
 } from "./scripted-harness.js";
 
@@ -254,8 +255,14 @@ export class TestHome {
       DEX_AGENTS_WEB_PORT: String(this.ports.webPort),
       [scriptedHarnessDirectoryVariable]: this.markerDirectory,
       ...(this.harness === shellReplacingScriptedHarness ? { [scriptedHarnessVariantVariable]: "shell-replacing" } : {}),
+      ...(this.harness === scriptedHarnessWithoutImages ? { [scriptedHarnessVariantVariable]: "without-images" } : {}),
       ...(this.harness === fixedToolSetScriptedHarness ? { [scriptedHarnessVariantVariable]: "fixed-tool-set" } : {}),
     };
+  }
+
+  /** `~/.dex/agents/media`, where `media.store: auto` keeps images. */
+  public get mediaDirectory(): string {
+    return join(this.directory, ".dex", "agents", "media");
   }
 }
 

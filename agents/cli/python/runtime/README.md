@@ -78,6 +78,27 @@ approval prints `[approval] <tool> <arguments>`; answer `y`, or `n` with an
 optional reason. A question from the agent prints `[question]`; answer with the
 text or a choice number, or an empty line to decline.
 
+`/image <path>` attaches an image file to the next message. A leading `~` is
+the home directory, and a relative path is relative to the current directory.
+The command refuses a missing or special file, a file over `MAX_IMAGE_BYTES`
+(3,750,000 bytes, checked before it reads the file), and bytes that are not
+PNG, JPEG, GIF, or WebP; it prints `[image not attached]` with the reason. A
+valid image is copied into the media store, which prints `[image attached]
+chart.png (image/png, 48 KB)`, and goes with the next message. A message
+carries at most `MAX_IMAGES_PER_MESSAGE` (20) images. When the harness's runner
+does not implement `build_user_message_with_images`, the message is not sent:
+the command prints `[not sent] this agent does not take images` and removes
+the attached images.
+
+The media store comes from `media.store`, built once when the command starts:
+`auto` is a `LocalDirectoryMediaStore` at `~/.dex/agents/media`, and
+`s3://<bucket>[/<prefix>]` is an `S3MediaStore`, with path-style addressing
+when `media.endpoint` is set. Its credentials come from the environment or the
+standard AWS chain. The S3 store needs the `dex-agents[s3]` extra in the
+command's environment; without it, or with a store the core refuses, the
+command exits with code 2. The connectors MCP source uploads the images of
+connector tool results to the same store.
+
 The first Ctrl-C during a turn cancels it (`cancel_turn`), and a second Ctrl-C
 exits. Ctrl-C while idle, Ctrl-D, and `/exit` also exit. Exiting never ends the
 session: it stays in Dex, and the command prints the `--resume` line that
@@ -274,7 +295,7 @@ These checks have limits:
   URLs, so the browser never reads local files. Each session has one page in
   the Worker process. Every tool returns the page's URL, title, and
   accessibility snapshot as text;
-  there are no screenshots until image support. After a Worker restart a
+  the browser tools take no screenshots. After a Worker restart a
   session has no page until the agent navigates again.
 - `approval.always` adds approval to any tool by name.
 - Each tool's effect and approval are a floor. An explicit `ToolPolicy` in
@@ -360,6 +381,7 @@ harness may replace only `FILES` and `SHELL`.
 | `instructions: str \| None` | `system_prompt`, else the text of `system_prompt_file`, else `None` for the harness default. |
 | `harness_options: Mapping[str, Any]` | The harness's own section, `{}` by default. |
 | `tool_sources: Sequence[ToolSource]` | The connector and local tool sources, which apply each turn's settings themselves. Offer all of them. |
+| `media_store: MediaStore \| None` | The media store of `media.store`, holding the images of `/image` and of connector tool results. Pass it to an adapter that takes one, such as `media_store=context.media_store`. The runtime always sets it; it is `None` only in a context a test builds without one. |
 | `resolve_turn(session_settings) -> ResolvedTurn` | A turn's narrowed configuration with its `model` and `instructions`. Raises `ConfigError` for rejected settings. |
 | `resolve_tool_step_permissions(call=None) -> ResolvedTurn` | The permissions a replacement tool's own Step applies: this Worker's file narrowed by the session settings recorded for the call's turn. Pass the `DeferredToolExecution` from a runner, or nothing from a built-in loop function tool. Raises `RuntimeError` without a call outside a tool Step and a model call. |
 | `current_turn() -> ResolvedTurn` | The turn whose model call or tool Step is running, or the file's configuration outside both. In a tool Step it is the configuration of the turn that made the call, from the settings the session recorded for that turn, so a replacement tool sees the turn's switches, shell allow list, and `approval.always`. |
@@ -367,7 +389,7 @@ harness may replace only `FILES` and `SHELL`.
 The returned Flow must use `context.flow_type`, which is namespaced as
 [Sessions and Flow types](#sessions-and-flow-types) describes. The runtime wraps its runner so
 that each model call resolves the turn first, keeping the runner's optional
-protocols, and registers the result.
+protocols, such as `build_user_message_with_images`, and registers the result.
 
 A harness that replaces a local tool group gives its own tools the runtime's
 rules with these helpers:

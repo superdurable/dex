@@ -50,6 +50,17 @@ func serverZDWireInlineThresholdBytes(objectPayloadThresholdBytes int) int {
 
 func startBinaryDexService(t *testing.T, testConfig serverZDTestConfig) *integRuntime {
 	t.Helper()
+	runtime, _ := startBinaryDexServiceInDirectory(t, testConfig, t.TempDir())
+	return runtime
+}
+
+// startBinaryDexServiceInDirectory starts a server on dataDirectory; stop its process to start another there.
+func startBinaryDexServiceInDirectory(
+	t *testing.T,
+	testConfig serverZDTestConfig,
+	dataDirectory string,
+) (*integRuntime, *binaryDexProcess) {
+	t.Helper()
 
 	require.NotEmpty(t, *dexServerBinary, "set -dex-server-binary or DEX_SERVER_BINARY")
 
@@ -60,7 +71,6 @@ func startBinaryDexService(t *testing.T, testConfig serverZDTestConfig) *integRu
 	// Per-test servers skip fsync for speed; YAML, unlike a flag, also suits older binaries.
 	configuration["dev"] = map[string]any{"durabilityMode": "processCrashSafe"}
 	createAttributeSyncFencingTables(t, testConfig.AttributeStore.Stores)
-	dataDirectory := t.TempDir()
 	address, err := reserveBinaryDexAddress()
 	require.NoError(t, err)
 	configurationPath := filepath.Join(dataDirectory, "integ-testconfig.yaml")
@@ -69,7 +79,7 @@ func startBinaryDexService(t *testing.T, testConfig serverZDTestConfig) *integRu
 	require.NoError(t, os.WriteFile(configurationPath, configurationBytes, 0o600))
 	arguments := []string{"dev", "--data-dir", dataDirectory, "--listen", address, "--config", configurationPath}
 	outputPath := filepath.Join(dataDirectory, "server.log")
-	outputFile, err := os.Create(outputPath)
+	outputFile, err := os.OpenFile(outputPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	require.NoError(t, err)
 	command := exec.Command(*dexServerBinary, arguments...)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -122,7 +132,7 @@ func startBinaryDexService(t *testing.T, testConfig serverZDTestConfig) *integRu
 	if testConfig.MaxWaitSeconds > 0 {
 		runtime.FlowClient.(*externalDexFlowClient).maxWaitSeconds = int32(testConfig.MaxWaitSeconds)
 	}
-	return configurePullWorkerClientWithCredential(t, runtime, testConfig.Credential)
+	return configurePullWorkerClientWithCredential(t, runtime, testConfig.Credential), process
 }
 
 func binaryDexConfig(testConfig serverZDTestConfig) (map[string]any, string) {
@@ -191,6 +201,9 @@ func binaryDexConfig(testConfig serverZDTestConfig) (map[string]any, string) {
 	}
 	if len(testConfig.AttributeStore.Stores) > 0 {
 		configuration["attributeStore"] = binaryAttributeStoreConfig(testConfig.AttributeStore)
+	}
+	if testConfig.FlowDefinitionMaxBytes > 0 {
+		configuration["flowDefinitions"] = map[string]any{"maxDefinitionBytes": testConfig.FlowDefinitionMaxBytes}
 	}
 	return configuration, ""
 }

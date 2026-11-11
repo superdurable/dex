@@ -28,6 +28,7 @@ use tonic::{Code, Request};
 use uuid::Uuid;
 
 mod attribute_reads;
+mod flow_definitions;
 pub(crate) mod flow_service_tls;
 
 pub use flow_service_tls::FlowServiceTlsOptions;

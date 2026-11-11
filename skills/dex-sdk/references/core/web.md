@@ -23,7 +23,7 @@ Dex Web is the operator UI for Dex. It finds Flows, follows a run, shows its inp
 - The graph names the Flow and Step types the Worker registers. Regenerate it after every Flow change and ship it with the Worker build that runs that Flow.
 - Dex Web validates each graph on its own. An invalid graph shows its error; the other Flow types keep working.
 
-Worker settings are in each SDK's Workers reference: [Go](https://docs.superdurable.io/reference/go/workers), [Python](https://docs.superdurable.io/reference/python/workers), [Java](https://docs.superdurable.io/reference/java/workers), [TypeScript](https://docs.superdurable.io/reference/typescript/workers), and [Rust](https://docs.superdurable.io/reference/rust/workers). Definition sources and limits are in the [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization).
+Worker settings are in each SDK's Workers reference: [Go](https://docs.superdurable.io/reference/go/workers), [Python](https://docs.superdurable.io/reference/python/workers#flow-definitions), [Java](https://docs.superdurable.io/reference/java/workers#upload-flow-definitions), [TypeScript](https://docs.superdurable.io/reference/typescript/workers#flow-definitions), and [Rust](https://docs.superdurable.io/reference/rust/workers#upload-flow-definitions). Definition sources and limits are in the [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization#definition-sources).
 
 ## Diagnose with Dex Web
 

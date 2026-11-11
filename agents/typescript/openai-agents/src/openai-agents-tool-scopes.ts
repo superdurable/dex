@@ -15,6 +15,8 @@ export interface RunningModelStep {
   readonly turn: AgentTurnContext;
   /** Resumed call IDs not yet returned; each result is returned once. */
   readonly unreturnedResumedToolCallIds: Set<string>;
+  /** Whether a recorded result shows its images to the model, which needs a media store. */
+  readonly showsToolImages: boolean;
 }
 
 // Tool wrappers are built once per Flow, so they find the running Step through async context.

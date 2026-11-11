@@ -65,6 +65,7 @@ class CliHome:
         dex_port: The Dex port the CLI probes for and passes to ``dexcli dev``.
         web_port: The Dex Web port.
         opened_urls: The file the fake ``BROWSER`` appends each opened URL to.
+        extra_environment: More variables of every CLI process, such as a harness variant.
     """
 
     home: Path
@@ -72,6 +73,12 @@ class CliHome:
     web_port: int
     opened_urls: Path
     children: list[pexpect.spawn] = field(default_factory=list)
+    extra_environment: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def media_directory(self) -> Path:
+        """Return ``~/.dex/agents/media``, where ``media.store: auto`` keeps images."""
+        return self.home / ".dex" / "agents" / "media"
 
     @property
     def config_path(self) -> Path:
@@ -106,6 +113,7 @@ class CliHome:
             PYTHONUNBUFFERED="1",
             TERM="dumb",
         )
+        environment.update(self.extra_environment)
         return environment
 
     def spawn(self, *arguments: str) -> pexpect.spawn:

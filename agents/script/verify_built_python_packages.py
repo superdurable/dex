@@ -21,27 +21,44 @@ from pathlib import Path
 
 FORBIDDEN_MEMBER_PATTERN = re.compile(r"(^|/)(tests?|__pycache__|\.venv|\.mypy_cache|\.ruff_cache)(/|$)|\.pyc$")
 CORE_DISTRIBUTION = "dex-agents"
+CLI_RUNTIME_DISTRIBUTION = "dex-agents-cli"
 OTEL_EXTRA_MARKER_PATTERN = re.compile(r"""extra\s*==\s*["']otel["']""")
+INTERNAL_REQUIREMENT_PATTERN = re.compile(r"^(dex-agents(?:-[a-z0-9-]+)?)(\[[^\]]*\])?\s*([^;]*)")
 
 
 def canonical_version(version: str) -> str:
     """Return the PEP 440 spelling that build backends use in file names."""
-    match = re.fullmatch(r"([0-9]+\.[0-9]+\.[0-9]+)(?:[.-]?(a|b|rc|alpha|beta)[.-]?([0-9]+))?", version)
+    match = re.fullmatch(
+        r"([0-9]+\.[0-9]+\.[0-9]+)(?:[.-]?(a|b|rc|alpha|beta)[.-]?([0-9]+))?(?:[.-]?dev[.-]?([0-9]+))?", version
+    )
     if match is None:
         return version
-    core, label, number = match.groups()
-    if label is None:
-        return core
-    label = {"alpha": "a", "beta": "b"}.get(label, label)
-    return f"{core}{label}{number}"
+    core, label, number, dev_number = match.groups()
+    canonical = core
+    if label is not None:
+        canonical += {"alpha": "a", "beta": "b"}.get(label, label) + number
+    if dev_number is not None:
+        canonical += f".dev{dev_number}"
+    return canonical
 
 
 def distribution_name(package: str) -> str:
-    return CORE_DISTRIBUTION if package == "core" else f"{CORE_DISTRIBUTION}-{package}"
+    """Map an agents package, such as core, pydantic-ai, cli/runtime, or cli/builtin, to its distribution."""
+    if package == "core":
+        return CORE_DISTRIBUTION
+    if package == "cli/runtime":
+        return CLI_RUNTIME_DISTRIBUTION
+    if package.startswith("cli/"):
+        return f"{CORE_DISTRIBUTION}-{package.removeprefix('cli/')}-cli"
+    return f"{CORE_DISTRIBUTION}-{package}"
 
 
 def module_name(package: str) -> str:
-    return "dex_agents" if package == "core" else f"dex_agents_{package.replace('-', '_')}"
+    return distribution_name(package).replace("-", "_")
+
+
+def is_cli_command(package: str) -> bool:
+    return package.startswith("cli/") and package != "cli/runtime"
 
 
 def verify_package(dist_dir: Path, package: str, version: str) -> list[str]:
@@ -56,6 +73,8 @@ def verify_package(dist_dir: Path, package: str, version: str) -> list[str]:
     with zipfile.ZipFile(wheel_path) as wheel:
         members = wheel.namelist()
         metadata = Parser().parsestr(wheel.read(f"{file_stem}.dist-info/METADATA").decode())
+        entry_points_member = f"{file_stem}.dist-info/entry_points.txt"
+        entry_points = wheel.read(entry_points_member).decode() if entry_points_member in members else ""
     module = module_name(package)
     expected_members = (f"{module}/__init__.py", f"{module}/py.typed", f"{file_stem}.dist-info/licenses/LICENSE")
     problems += [f"{wheel_path.name} lacks {member}" for member in expected_members if member not in members]
@@ -72,8 +91,12 @@ def verify_package(dist_dir: Path, package: str, version: str) -> list[str]:
     requirements = metadata.get_all("Requires-Dist") or []
     if any(" @ " in requirement or "file:" in requirement for requirement in requirements):
         problems.append(f"{wheel_path.name} has a direct or path requirement: {requirements}")
-    if package != "core" and f"{CORE_DISTRIBUTION}=={version}" not in requirements:
-        problems.append(f"{wheel_path.name} does not require {CORE_DISTRIBUTION}=={version}: {requirements}")
+    if package != "core":
+        problems += verify_internal_requirements(wheel_path.name, package, requirements, version)
+    if is_cli_command(package):
+        command = f"{CORE_DISTRIBUTION}-{package.removeprefix('cli/')}"
+        if not re.search(rf"(?m)^{re.escape(command)}\s*=\s*{module}:", entry_points):
+            problems.append(f"{wheel_path.name} has no {command} console script in {module}")
     if package == "core":
         problems += verify_optional_opentelemetry(wheel_path.name, metadata, requirements)
 
@@ -84,6 +107,27 @@ def verify_package(dist_dir: Path, package: str, version: str) -> list[str]:
             problems.append(f"{sdist_path.name} lacks {member}")
     problems += [f"{sdist_path.name} contains {member}" for member in sdist_members
                  if FORBIDDEN_MEMBER_PATTERN.search(member)]
+    return problems
+
+
+def verify_internal_requirements(wheel_name: str, package: str, requirements: list[str], version: str) -> list[str]:
+    """Every agents distribution a non-core package requires must be pinned to the release version."""
+    problems: list[str] = []
+    required_names: set[str] = set()
+    for requirement in requirements:
+        match = INTERNAL_REQUIREMENT_PATTERN.match(requirement)
+        if match is None:
+            continue
+        name, _, specifier = match.groups()
+        required_names.add(name)
+        specifier = specifier.strip()
+        if not specifier.startswith("==") or canonical_version(specifier[2:].strip()) != version:
+            problems.append(f"{wheel_name} requires {requirement}, not {name}=={version}")
+    expected_names = {CORE_DISTRIBUTION}
+    if is_cli_command(package):
+        expected_names.add(CLI_RUNTIME_DISTRIBUTION)
+    for name in sorted(expected_names - required_names):
+        problems.append(f"{wheel_name} does not require {name}=={version}: {requirements}")
     return problems
 
 

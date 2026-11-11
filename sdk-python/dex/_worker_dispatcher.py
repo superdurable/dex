@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from inspect import isawaitable, isgenerator
 from typing import Any, Callable, Generator, cast
@@ -53,6 +54,8 @@ from dex.step import (
 from dex.wait import Wait, WaitKind
 
 _TIMEOUT_HANDLER_STEP_TYPE = "sys:timeout_handler"
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class WorkerDispatcher:
@@ -117,7 +120,7 @@ class WorkerDispatcher:
                 publish_to_channel=context.publications,
                 delete_from_channel=context.channel_deletions,
             )
-            waiting = self._map_wait(flow, wait)
+            waiting = self._map_wait(flow, step.name, wait)
             if waiting is not None:
                 response.waiting_condition.CopyFrom(waiting)
             yield pb.InvokeWaitForMethodOutput(result=response)
@@ -623,6 +626,7 @@ class WorkerDispatcher:
     def _map_wait(
         self,
         flow: _RegisteredFlow,
+        step_type: str,
         wait: Wait,
     ) -> pb.WaitingCondition | None:
         if wait.kind is WaitKind.SKIP_IMMEDIATELY:
@@ -648,6 +652,12 @@ class WorkerDispatcher:
                 )
         else:
             raise ValueError("unsupported Wait kind")
+        if mapper.sub_flows and "-" in step_type:
+            _LOGGER.warning(
+                'Step type "%s" contains "-" and cannot start SubFlows; '
+                "the server fails this attempt without retry. Rename the Step type.",
+                step_type,
+            )
         waiting.timer_conditions.extend(mapper.timers)
         waiting.channel_conditions.extend(mapper.channels)
         waiting.sub_flow_conditions.extend(mapper.sub_flows)

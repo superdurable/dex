@@ -30,6 +30,7 @@ _CURRENT_TURN: ContextVar[ResolvedTurn] = ContextVar("dex_agents_cli_turn")
 # Optional runner members the session finds with isinstance checks; a wrapper must keep them.
 _OPTIONAL_RUNNER_METHODS = (
     "build_unfinished_turn_messages",
+    "build_user_message_with_images",
     "tool_call_step_options",
     "poll_tool_task",
     "cancel_tool_task",

@@ -147,7 +147,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
                 publish_to_channel=context.publications,
                 delete_from_channel=context.channel_deletions,
             )
-            waiting = self._map_wait(flow, wait)
+            waiting = self._map_wait(flow, step.name, wait)
             if waiting is not None:
                 response.waiting_condition.CopyFrom(waiting)
         except InvalidStepResultError as error:

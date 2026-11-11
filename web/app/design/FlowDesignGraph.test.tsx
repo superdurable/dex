@@ -46,6 +46,7 @@ function entryOf(file: string): FlowDefinitionEntry {
     sourceLanguage: graph.source.language,
     sourcePath: graph.source.path,
     valid: graph.valid,
+    source: 'directory',
     graph,
   };
 }
@@ -74,6 +75,27 @@ describe('Flow design graph', () => {
     await waitFor(() => expect(document.querySelector('.v2-shell.dg')).not.toBeNull(), { timeout: 4_000 });
     expect(screen.queryByText('This Flow Definition Graph has no Steps to draw.')).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('draws a wait whose conditions are null, as dexcli visualize 1.44 and older writes for a failure-only WaitFor', async () => {
+    const entry = entryOf(SCHEMA_2_FILE);
+    const nodes = entry.graph.nodes.map((node) => (
+      node.kind === 'wait' ? { ...node, wait: { type: 'failure', conditions: null } } : node
+    )) as unknown as typeof entry.graph.nodes;
+    render(<MemoryRouter><FlowDesignGraph definition={{ ...entry, graph: { ...entry.graph, nodes } }} /></MemoryRouter>);
+    await waitFor(() => expect(document.querySelector('.v2-shell.dg')).not.toBeNull(), { timeout: 4_000 });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it.each([
+    ['an empty wait', {}],
+    ['a condition without a label', { type: 'allOf', conditions: [{ kind: 'channel' }] }],
+    ['an empty condition', { type: 'allOf', conditions: [{}] }],
+  ])('shows %s as malformed instead of drawing it', (_name, wait) => {
+    const entry = entryOf(SCHEMA_2_FILE);
+    const nodes = entry.graph.nodes.map((node) => (node.kind === 'wait' ? { ...node, wait } : node)) as unknown as typeof entry.graph.nodes;
+    render(<MemoryRouter><FlowDesignGraph definition={{ ...entry, graph: { ...entry.graph, nodes } }} /></MemoryRouter>);
+    expect(screen.getByRole('alert').textContent).toContain('malformed wait');
   });
 
   it('draws every Step of a schema 1.0 file', async () => {
