@@ -14,7 +14,7 @@ Not released yet. The next minor release, cli-v1.45.0, ships these changes.
 
 ### Added
 
-- **dexcli visualize** writes a top-level **generatedAt** field, an RFC 3339 UTC timestamp, into each Version 2.0 Flow Definition Graph. Set **SOURCE_DATE_EPOCH** to make it reproducible; an invalid value is a usage error. Version 1.0 output is unchanged. [Reference](/reference/web/flow-visualization#generated-at).
+- **dexcli visualize** writes a top-level **generatedAt** field, an RFC 3339 UTC timestamp, into each Version 2.0 Flow Definition Graph. Set **SOURCE_DATE_EPOCH** to make it reproducible; an invalid value is a usage error. Version 1.0 output is unchanged. Dex Web older than 1.45 rejects a graph that has **generatedAt**, so upgrade Dex Web with dexcli. [Reference](/reference/web/flow-visualization#generated-at).
 
 ## 1.44 {#v1-44}
 
