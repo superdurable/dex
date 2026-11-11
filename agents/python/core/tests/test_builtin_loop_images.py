@@ -13,7 +13,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -23,11 +23,21 @@ from uuid import uuid4
 import pytest_asyncio
 
 from dex_agents import (
+    AgentImageReference,
     AgentSessionClient,
     AgentSessionFlow,
     AgentSnapshot,
+    FrameworkMessage,
+    InMemoryMediaStore,
     LocalDirectoryMediaStore,
     MessageRole,
+    build_image_reference,
+)
+from dex_agents.builtin_loop import (
+    AgentDefinition,
+    BuiltinLoopAgentRunner,
+    ScriptedModelClient,
+    ScriptedModelReply,
 )
 from dex_agents.testing import (
     AgentTestStack,
@@ -326,3 +336,27 @@ def _as_async(predicate: Callable[[], bool]) -> Callable[[], Awaitable[bool]]:
         return predicate()
 
     return check
+
+
+def test_a_subclass_image_builder_stays_in_use_with_a_media_store() -> None:
+    class CustomImageRunner(BuiltinLoopAgentRunner):
+        def build_user_message_with_images(
+            self, text: str, images: Sequence[AgentImageReference]
+        ) -> FrameworkMessage:
+            return FrameworkMessage(role=MessageRole.USER, text="custom", framework_item="{}")
+
+    definition = AgentDefinition(
+        name="subclass",
+        instructions="Help.",
+        model=ScriptedModelClient(lambda request: ScriptedModelReply(text="ok")),
+    )
+    store = InMemoryMediaStore("subclass")
+    reference = build_image_reference(PNG, store.store_uri)
+
+    custom = CustomImageRunner(definition, media_store=store)
+    builtin = BuiltinLoopAgentRunner(definition, media_store=store)
+
+    assert custom.build_user_message_with_images("hi", [reference]).text == "custom"
+    stored = json.loads(builtin.build_user_message_with_images("hi", [reference]).framework_item)
+    assert [image["sha256"] for image in stored["images"]] == [reference.sha256]
+    assert not hasattr(BuiltinLoopAgentRunner(definition), "build_user_message_with_images")

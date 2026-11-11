@@ -218,6 +218,47 @@ async def test_anthropic_gets_image_blocks_in_the_user_message_and_inside_the_to
     assert tool_result["content"][1]["source"]["media_type"] == "image/jpeg"
 
 
+async def test_gemini_gets_tool_images_in_a_user_message_after_the_function_response(
+    transport: FakeProviderTransport,
+) -> None:
+    client = LiteLLMModelClient(
+        "gemini/gemini-2.5-flash", api_base=transport.base_url, api_key_provider=lambda: "key"
+    )
+    transport.responses.append((200, _gemini_text_stream("A screenshot.")))
+
+    await client.call_model(
+        image_request(
+            [
+                UserTextItem(text="Look.", images=[PNG_REFERENCE]),
+                neutral_tool_calls("call_1"),
+                ToolResultItem(
+                    tool_call_id="call_1",
+                    tool_name="screenshot",
+                    output="Took one.",
+                    images=[JPEG_REFERENCE],
+                ),
+            ]
+        ),
+        RecordedOutput(),
+    )
+
+    _, body = transport.requests[0]
+    parts = [part for content in body["contents"] for part in content["parts"]]
+    response_index = next(index for index, part in enumerate(parts) if "function_response" in part)
+    # The function response holds text only; Gemini 2.5 refuses images there.
+    assert "inline_data" not in json.dumps(parts[response_index])
+    assert [
+        part.get("inline_data") for part in parts[:response_index] if "inline_data" in part
+    ] == [{"mime_type": "image/png", "data": base64.b64encode(PNG).decode()}]
+    following = parts[response_index + 1 :]
+    assert {
+        "text": TOOL_RESULT_IMAGES_TEXT.format(tool_name="screenshot", tool_call_id="call_1")
+    } in (following)
+    assert {
+        "inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(JPEG).decode()}
+    } in (following)
+
+
 async def test_a_request_without_the_bytes_of_an_image_fails_before_it_is_sent(
     transport: FakeProviderTransport,
 ) -> None:
@@ -267,4 +308,14 @@ def _chat_completion_text_stream(text: str) -> list[tuple[str, dict[str, Any]]]:
         ("message", {**chunk, "choices": [{"index": 0, "finish_reason": "stop", "delta": {}}]}),
         ("message", {**chunk, "choices": [],
                      "usage": {"prompt_tokens": 20, "completion_tokens": 3, "total_tokens": 23}}),
+    ]  # fmt: skip
+
+
+def _gemini_text_stream(text: str) -> list[tuple[str, dict[str, Any]]]:
+    return [
+        ("message", {"candidates": [{"content": {"role": "model", "parts": [{"text": text}]},
+                                     "finishReason": "STOP", "index": 0}],
+                     "usageMetadata": {"promptTokenCount": 20, "candidatesTokenCount": 3,
+                                       "totalTokenCount": 23},
+                     "modelVersion": "gemini-2.5-flash"}),
     ]  # fmt: skip

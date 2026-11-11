@@ -65,11 +65,9 @@ TOOL_RESULT_IMAGES_TEXT = "The {tool_name} tool call {tool_call_id} returned the
 #: .. versionadded:: 0.5.0
 ESTIMATED_IMAGE_INPUT_TOKENS = 1600
 
-# Chat Completions providers whose LiteLLM conversion keeps image parts of a tool message
-# in the tool result: Anthropic, Bedrock, Gemini, and Vertex AI.
-_TOOL_MESSAGE_IMAGE_PROVIDERS = frozenset(
-    {"anthropic", "bedrock", "gemini", "vertex_ai", "vertex_ai_beta"}
-)
+# Chat Completions providers whose models take images in a tool result. Gemini 2.5 refuses
+# LiteLLM's multimodal function response, so Gemini and Vertex AI get the user message.
+_TOOL_MESSAGE_IMAGE_PROVIDERS = frozenset({"anthropic", "bedrock"})
 
 # Input fields the Responses API accepts back for each output item type.
 _RESPONSES_REPLAY_FIELDS: Mapping[str, tuple[str, ...]] = {
@@ -102,13 +100,17 @@ class LiteLLMModelClient:
       and one ``input_image`` part per image, with ``detail`` ``"auto"``. A
       ``function_call_output``'s ``output`` is the same list of parts.
     * Chat Completions: a user message's ``content`` is a ``text`` part and
-      one ``image_url`` part per image. For Anthropic, Bedrock, Gemini, and
-      Vertex AI, whose LiteLLM conversion keeps images in a tool result, a
-      tool message's ``content`` is the same list of parts. Every other
-      provider, such as OpenAI, takes only text in a tool message: the tool
-      message keeps the text, and after the last tool message of the run
+      one ``image_url`` part per image. For Anthropic and Bedrock, whose
+      LiteLLM conversion keeps images in a tool result, a tool message's
+      ``content`` is the same list of parts. Every other provider, such as
+      OpenAI, Gemini, and Vertex AI, gets only text in a tool message: the
+      tool message keeps the text, and after the last tool message of the run
       follows one user message per tool result with images, holding
-      ``TOOL_RESULT_IMAGES_TEXT`` and then the image parts.
+      ``TOOL_RESULT_IMAGES_TEXT`` and then the image parts. Gemini 2.5 models
+      refuse images in a function response.
+
+    .. versionchanged:: 0.5.0
+       Sends the images of user text and tool result items.
 
     Example:
         >>> model = LiteLLMModelClient("openai/gpt-5-mini")
@@ -195,6 +197,10 @@ class LiteLLMModelClient:
                 image of the input.
             Exception: What LiteLLM raises, such as a rate limit error. The
                 ``RunModel`` Step retries under its retry policy.
+
+        .. versionchanged:: 0.5.0
+           Sends the images of user text and tool result items, with their
+           bytes from ``request.image_bytes``; see the class documentation.
         """
         options = await self._common_options(request)
         if self._api == RESPONSES_API:

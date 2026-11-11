@@ -529,15 +529,16 @@ class BuiltinLoopAgentRunner:
                 runner gets the instance attribute
                 ``build_user_message_with_images``, which stores user text and
                 its images as one ``user_text`` item that holds the
-                references. The class declares neither, so a subclass may
-                define its own ``build_user_message_with_images``.
+                references, unless its class defines
+                ``build_user_message_with_images``: a subclass's own method
+                stays in use.
 
                 .. versionadded:: 0.5.0
         """
         self._definition = definition
         # Name-mangled, so a subclass attribute of the same name changes nothing here.
         self.__media_store = media_store
-        if media_store is not None:
+        if media_store is not None and not hasattr(type(self), "build_user_message_with_images"):
             # The session accepts images only from a runner with this attribute.
             self.build_user_message_with_images = self._build_user_message_with_images
         self._tools_by_name = {tool.name: tool for tool in definition.tools}

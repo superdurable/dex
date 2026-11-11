@@ -141,7 +141,8 @@ const discardedModelOutput: ModelOutputWriter = {
  * converts each image to the provider's image part. A failed read fails that `RunModel` attempt, which retries. The
  * model call that writes a context summary sees the text of the items only. Without a store the session refuses
  * user images, and a tool result's images are stored but not shown to the model. The class declares neither member,
- * so a subclass may still define its own `buildUserMessageWithImages` or `mediaStore`.
+ * so a subclass may still define its own `buildUserMessageWithImages` or `mediaStore`; a subclass method stays in use
+ * with a store.
  *
  * @example
  * ```ts
@@ -170,7 +171,8 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
    * @param mediaStore - The store that holds the session's images, such as `S3MediaStore`. With it, the runner
    * accepts user messages with images and shows them and tool result images to the model, reading the bytes for
    * each model call; stored messages hold only references. It also gets an own `buildUserMessageWithImages`, which
-   * stores user text and its images as one `user_text` item that holds the references, not the bytes. Use the store
+   * stores user text and its images as one `user_text` item that holds the references, not the bytes, unless a
+   * subclass defines its own `buildUserMessageWithImages`, which then stays in use. Use the store
    * the clients and tools upload to. Omit it to refuse user images and show tool result images to the model as text
    * only. Since 0.5.0.
    *
@@ -241,7 +243,8 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     if (mediaStore !== undefined) {
       // The session accepts images only from a runner with this method; the class leaves it undeclared for subclasses.
       const runner: AgentFrameworkRunner<DeferredToolOutcome> = this;
-      runner.buildUserMessageWithImages = (text: string, images: readonly AgentImageReference[]): FrameworkMessage =>
+      // A subclass's own method is already on the prototype chain, and it stays in use.
+      runner.buildUserMessageWithImages ??= (text: string, images: readonly AgentImageReference[]): FrameworkMessage =>
         toBuiltinLoopFrameworkMessage({ type: "user_text", text, images: [...images] });
     }
   }

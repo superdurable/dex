@@ -885,10 +885,11 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
   a `function_call_output`'s `output` are an `input_text` part and one
   `input_image` part per image, with `detail` `"auto"`. On Chat Completions, a
   user message's `content` is a `text` part and one `image_url` part per
-  image. For Anthropic, Bedrock, Gemini, and Vertex AI, whose LiteLLM
-  conversion keeps images in a tool result, a tool message's `content` is the
-  same list of parts. Every other provider, such as OpenAI Chat Completions,
-  takes only text in a tool message: the tool message keeps the text, and
+  image. For Anthropic and Bedrock, whose LiteLLM conversion keeps images in
+  a tool result, a tool message's `content` is the same list of parts. Every
+  other provider, such as OpenAI Chat Completions, Gemini, and Vertex AI, gets
+  only text in a tool message, because Gemini 2.5 models refuse images in a
+  function response: the tool message keeps the text, and
   after the last tool message of that run follows one user message per tool
   result with images, holding `TOOL_RESULT_IMAGES_TEXT` (`The <tool_name> tool
   call <tool_call_id> returned these images.`) and then the image parts.

@@ -15,7 +15,16 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { InMemoryMediaStore, LocalDirectoryMediaStore, type AgentSnapshot } from "../../src/index.js";
+import {
+  InMemoryMediaStore,
+  LocalDirectoryMediaStore,
+  type AgentFrameworkRunner,
+  type DeferredToolOutcome,
+  type AgentImageReference,
+  type AgentSnapshot,
+  type FrameworkMessage,
+} from "../../src/index.js";
+import { BuiltinLoopAgentRunner, ScriptedModelClient, type AgentDefinition } from "../../src/builtin-loop/index.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -294,5 +303,39 @@ describe("images through a built-in loop session", () => {
         },
       ],
     });
+  });
+});
+
+describe("a built-in loop runner subclass with its own image builder", () => {
+  class CustomImageRunner extends BuiltinLoopAgentRunner {
+    public buildUserMessageWithImages(text: string, _images: readonly AgentImageReference[]): FrameworkMessage {
+      return { ...this.buildUserMessage(text), text: "custom" };
+    }
+  }
+
+  test("keeps its own builder with a media store", async () => {
+    const definition: AgentDefinition = {
+      name: "subclass",
+      instructions: "Help.",
+      model: new ScriptedModelClient(() => ({ text: "ok" })),
+    };
+    const store = new InMemoryMediaStore("subclass");
+    const reference = await store.putImage(png);
+
+    const custom = new CustomImageRunner(definition, store);
+    // The class leaves the builder undeclared, so read it through the runner contract.
+    const builtin: AgentFrameworkRunner<DeferredToolOutcome> = new BuiltinLoopAgentRunner(definition, store);
+    const withoutStore: AgentFrameworkRunner<DeferredToolOutcome> = new BuiltinLoopAgentRunner(definition);
+
+    assert.equal(custom.buildUserMessageWithImages("hi", [reference]).text, "custom");
+    assert.equal(Object.hasOwn(custom, "buildUserMessageWithImages"), false);
+    const stored = JSON.parse(builtin.buildUserMessageWithImages?.("hi", [reference]).frameworkItem ?? "{}") as {
+      readonly images: readonly { readonly sha256: string }[];
+    };
+    assert.deepEqual(
+      stored.images.map((image) => image.sha256),
+      [reference.sha256],
+    );
+    assert.equal(withoutStore.buildUserMessageWithImages, undefined);
   });
 });
