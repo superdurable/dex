@@ -54,6 +54,9 @@ const (
 	FlowService_WaitForStepCompletion_FullMethodName = "/dex.FlowService/WaitForStepCompletion"
 	FlowService_WaitForAttribute_FullMethodName      = "/dex.FlowService/WaitForAttribute"
 	FlowService_HealthCheck_FullMethodName           = "/dex.FlowService/HealthCheck"
+	FlowService_UploadFlowDefinitions_FullMethodName = "/dex.FlowService/UploadFlowDefinitions"
+	FlowService_ListFlowDefinitions_FullMethodName   = "/dex.FlowService/ListFlowDefinitions"
+	FlowService_GetFlowDefinitions_FullMethodName    = "/dex.FlowService/GetFlowDefinitions"
 )
 
 // FlowServiceClient is the client API for FlowService service.
@@ -89,6 +92,52 @@ type FlowServiceClient interface {
 	WaitForStepCompletion(ctx context.Context, in *WaitForStepCompletionRequest, opts ...grpc.CallOption) (*WaitForStepCompletionResponse, error)
 	WaitForAttribute(ctx context.Context, in *WaitForAttributeRequest, opts ...grpc.CallOption) (*WaitForAttributeResponse, error)
 	HealthCheck(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*HealthInfo, error)
+	// Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+	//
+	// Workers call it at startup so that Dex Web can render their Flows without
+	// a definition directory. The server keeps one document for each Flow type
+	// and decides each item separately:
+	//   - CREATED: no document was stored for the Flow type.
+	//   - UNCHANGED: the stored document has the same SHA-256 digest. Nothing is
+	//     written.
+	//   - REPLACED: the digest differs and generated_at is strictly later than the
+	//     stored generated_at, compared at microsecond precision, or force is set.
+	//   - KEPT_EXISTING: otherwise. The stored document stays, and the result
+	//     reports its digest and generation time.
+	//
+	// Items are independent. Concurrent uploads of one Flow type are safe: each
+	// item's outcome is decided against the document stored when its write
+	// commits. If the call fails partway, earlier items may already be stored;
+	// repeating the call is safe and reports them as UNCHANGED.
+	//
+	// The server checks only that each document is a JSON object of at most
+	// flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+	// "2.", and that its flow.name equals flow_type. Dex Web validates the full
+	// graph when it reads it.
+	//
+	// Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+	// anything, for an invalid item, more than 256 items, a repeated flow_type, a
+	// missing generated_at, or a generated_at more than 24 hours after the
+	// server's clock. Fails with Unavailable when object storage fails; the call
+	// is then safe to retry.
+	UploadFlowDefinitions(ctx context.Context, in *UploadFlowDefinitionsRequest, opts ...grpc.CallOption) (*UploadFlowDefinitionsResponse, error)
+	// Lists the Flow types that have a stored definition, one page at a time.
+	//
+	// It returns names only; call GetFlowDefinitions for content and metadata.
+	// Pages follow the order of the stored object keys, which is stable but is
+	// not exactly the order of Flow types. A Flow type first stored during a
+	// listing may or may not appear. Fails with InvalidArgument for a negative
+	// page_size or an invalid page token, and with Unavailable when object
+	// storage fails.
+	ListFlowDefinitions(ctx context.Context, in *ListFlowDefinitionsRequest, opts ...grpc.CallOption) (*ListFlowDefinitionsResponse, error)
+	// Returns the stored Flow definitions of the requested Flow types, with content.
+	//
+	// A requested Flow type that has no stored definition is left out of the
+	// response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+	// Flow types, more than 256, or an invalid Flow type. Fails with
+	// ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+	// would not fit in one response message; request fewer Flow types.
+	GetFlowDefinitions(ctx context.Context, in *GetFlowDefinitionsRequest, opts ...grpc.CallOption) (*GetFlowDefinitionsResponse, error)
 }
 
 type flowServiceClient struct {
@@ -359,6 +408,36 @@ func (c *flowServiceClient) HealthCheck(ctx context.Context, in *emptypb.Empty, 
 	return out, nil
 }
 
+func (c *flowServiceClient) UploadFlowDefinitions(ctx context.Context, in *UploadFlowDefinitionsRequest, opts ...grpc.CallOption) (*UploadFlowDefinitionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UploadFlowDefinitionsResponse)
+	err := c.cc.Invoke(ctx, FlowService_UploadFlowDefinitions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) ListFlowDefinitions(ctx context.Context, in *ListFlowDefinitionsRequest, opts ...grpc.CallOption) (*ListFlowDefinitionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFlowDefinitionsResponse)
+	err := c.cc.Invoke(ctx, FlowService_ListFlowDefinitions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) GetFlowDefinitions(ctx context.Context, in *GetFlowDefinitionsRequest, opts ...grpc.CallOption) (*GetFlowDefinitionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetFlowDefinitionsResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetFlowDefinitions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FlowServiceServer is the server API for FlowService service.
 // All implementations must embed UnimplementedFlowServiceServer
 // for forward compatibility.
@@ -392,6 +471,52 @@ type FlowServiceServer interface {
 	WaitForStepCompletion(context.Context, *WaitForStepCompletionRequest) (*WaitForStepCompletionResponse, error)
 	WaitForAttribute(context.Context, *WaitForAttributeRequest) (*WaitForAttributeResponse, error)
 	HealthCheck(context.Context, *emptypb.Empty) (*HealthInfo, error)
+	// Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+	//
+	// Workers call it at startup so that Dex Web can render their Flows without
+	// a definition directory. The server keeps one document for each Flow type
+	// and decides each item separately:
+	//   - CREATED: no document was stored for the Flow type.
+	//   - UNCHANGED: the stored document has the same SHA-256 digest. Nothing is
+	//     written.
+	//   - REPLACED: the digest differs and generated_at is strictly later than the
+	//     stored generated_at, compared at microsecond precision, or force is set.
+	//   - KEPT_EXISTING: otherwise. The stored document stays, and the result
+	//     reports its digest and generation time.
+	//
+	// Items are independent. Concurrent uploads of one Flow type are safe: each
+	// item's outcome is decided against the document stored when its write
+	// commits. If the call fails partway, earlier items may already be stored;
+	// repeating the call is safe and reports them as UNCHANGED.
+	//
+	// The server checks only that each document is a JSON object of at most
+	// flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+	// "2.", and that its flow.name equals flow_type. Dex Web validates the full
+	// graph when it reads it.
+	//
+	// Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+	// anything, for an invalid item, more than 256 items, a repeated flow_type, a
+	// missing generated_at, or a generated_at more than 24 hours after the
+	// server's clock. Fails with Unavailable when object storage fails; the call
+	// is then safe to retry.
+	UploadFlowDefinitions(context.Context, *UploadFlowDefinitionsRequest) (*UploadFlowDefinitionsResponse, error)
+	// Lists the Flow types that have a stored definition, one page at a time.
+	//
+	// It returns names only; call GetFlowDefinitions for content and metadata.
+	// Pages follow the order of the stored object keys, which is stable but is
+	// not exactly the order of Flow types. A Flow type first stored during a
+	// listing may or may not appear. Fails with InvalidArgument for a negative
+	// page_size or an invalid page token, and with Unavailable when object
+	// storage fails.
+	ListFlowDefinitions(context.Context, *ListFlowDefinitionsRequest) (*ListFlowDefinitionsResponse, error)
+	// Returns the stored Flow definitions of the requested Flow types, with content.
+	//
+	// A requested Flow type that has no stored definition is left out of the
+	// response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+	// Flow types, more than 256, or an invalid Flow type. Fails with
+	// ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+	// would not fit in one response message; request fewer Flow types.
+	GetFlowDefinitions(context.Context, *GetFlowDefinitionsRequest) (*GetFlowDefinitionsResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
 
@@ -479,6 +604,15 @@ func (UnimplementedFlowServiceServer) WaitForAttribute(context.Context, *WaitFor
 }
 func (UnimplementedFlowServiceServer) HealthCheck(context.Context, *emptypb.Empty) (*HealthInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method HealthCheck not implemented")
+}
+func (UnimplementedFlowServiceServer) UploadFlowDefinitions(context.Context, *UploadFlowDefinitionsRequest) (*UploadFlowDefinitionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UploadFlowDefinitions not implemented")
+}
+func (UnimplementedFlowServiceServer) ListFlowDefinitions(context.Context, *ListFlowDefinitionsRequest) (*ListFlowDefinitionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListFlowDefinitions not implemented")
+}
+func (UnimplementedFlowServiceServer) GetFlowDefinitions(context.Context, *GetFlowDefinitionsRequest) (*GetFlowDefinitionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetFlowDefinitions not implemented")
 }
 func (UnimplementedFlowServiceServer) mustEmbedUnimplementedFlowServiceServer() {}
 func (UnimplementedFlowServiceServer) testEmbeddedByValue()                     {}
@@ -969,6 +1103,60 @@ func _FlowService_HealthCheck_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_UploadFlowDefinitions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UploadFlowDefinitionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).UploadFlowDefinitions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_UploadFlowDefinitions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).UploadFlowDefinitions(ctx, req.(*UploadFlowDefinitionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_ListFlowDefinitions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFlowDefinitionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).ListFlowDefinitions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_ListFlowDefinitions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).ListFlowDefinitions(ctx, req.(*ListFlowDefinitionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_GetFlowDefinitions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFlowDefinitionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetFlowDefinitions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetFlowDefinitions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetFlowDefinitions(ctx, req.(*GetFlowDefinitionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FlowService_ServiceDesc is the grpc.ServiceDesc for FlowService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1079,6 +1267,18 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "HealthCheck",
 			Handler:    _FlowService_HealthCheck_Handler,
+		},
+		{
+			MethodName: "UploadFlowDefinitions",
+			Handler:    _FlowService_UploadFlowDefinitions_Handler,
+		},
+		{
+			MethodName: "ListFlowDefinitions",
+			Handler:    _FlowService_ListFlowDefinitions_Handler,
+		},
+		{
+			MethodName: "GetFlowDefinitions",
+			Handler:    _FlowService_GetFlowDefinitions_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

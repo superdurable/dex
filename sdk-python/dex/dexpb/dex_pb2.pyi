@@ -187,6 +187,8 @@ class ErrorSubStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ERROR_SUB_STATUS_FLOW_CLOSING: _ClassVar[ErrorSubStatus]
     ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED: _ClassVar[ErrorSubStatus]
     ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG: _ClassVar[ErrorSubStatus]
+    ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID: _ClassVar[ErrorSubStatus]
+    ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE: _ClassVar[ErrorSubStatus]
 
 class CloseDecisionType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -229,6 +231,14 @@ class StepAttemptProgress(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     STEP_ATTEMPT_PROGRESS_UNSPECIFIED: _ClassVar[StepAttemptProgress]
     STEP_ATTEMPT_PROGRESS_NOT_STARTED: _ClassVar[StepAttemptProgress]
     STEP_ATTEMPT_PROGRESS_NOT_COMPLETED: _ClassVar[StepAttemptProgress]
+
+class FlowDefinitionUploadOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    FLOW_DEFINITION_UPLOAD_OUTCOME_UNSPECIFIED: _ClassVar[FlowDefinitionUploadOutcome]
+    FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED: _ClassVar[FlowDefinitionUploadOutcome]
+    FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED: _ClassVar[FlowDefinitionUploadOutcome]
+    FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED: _ClassVar[FlowDefinitionUploadOutcome]
+    FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING: _ClassVar[FlowDefinitionUploadOutcome]
 SERVER_ENGINE_UNSPECIFIED: ServerEngine
 SERVER_ENGINE_TEMPORAL: ServerEngine
 SERVER_ENGINE_CADENCE: ServerEngine
@@ -335,6 +345,8 @@ ERROR_SUB_STATUS_REQUEST_TIMEOUT: ErrorSubStatus
 ERROR_SUB_STATUS_FLOW_CLOSING: ErrorSubStatus
 ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED: ErrorSubStatus
 ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG: ErrorSubStatus
+ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID: ErrorSubStatus
+ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE: ErrorSubStatus
 CLOSE_DECISION_TYPE_UNSPECIFIED: CloseDecisionType
 CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY: CloseDecisionType
 CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE: CloseDecisionType
@@ -359,6 +371,11 @@ INTERNAL_TIMER_STATUS_SKIPPED: InternalTimerStatus
 STEP_ATTEMPT_PROGRESS_UNSPECIFIED: StepAttemptProgress
 STEP_ATTEMPT_PROGRESS_NOT_STARTED: StepAttemptProgress
 STEP_ATTEMPT_PROGRESS_NOT_COMPLETED: StepAttemptProgress
+FLOW_DEFINITION_UPLOAD_OUTCOME_UNSPECIFIED: FlowDefinitionUploadOutcome
+FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED: FlowDefinitionUploadOutcome
+FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED: FlowDefinitionUploadOutcome
+FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED: FlowDefinitionUploadOutcome
+FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING: FlowDefinitionUploadOutcome
 
 class ServerInfo(_message.Message):
     __slots__ = ("server_version", "minimum_supported_protocol_version", "current_protocol_version", "server_engine")
@@ -2198,3 +2215,91 @@ class NodeLeaseHolderUnknown(_message.Message):
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     detail: str
     def __init__(self, detail: _Optional[str] = ...) -> None: ...
+
+class FlowDefinitionUpload(_message.Message):
+    __slots__ = ("flow_type", "content", "generated_at")
+    FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    GENERATED_AT_FIELD_NUMBER: _ClassVar[int]
+    flow_type: str
+    content: bytes
+    generated_at: _timestamp_pb2.Timestamp
+    def __init__(self, flow_type: _Optional[str] = ..., content: _Optional[bytes] = ..., generated_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class UploadFlowDefinitionsRequest(_message.Message):
+    __slots__ = ("definitions", "uploader", "force")
+    DEFINITIONS_FIELD_NUMBER: _ClassVar[int]
+    UPLOADER_FIELD_NUMBER: _ClassVar[int]
+    FORCE_FIELD_NUMBER: _ClassVar[int]
+    definitions: _containers.RepeatedCompositeFieldContainer[FlowDefinitionUpload]
+    uploader: str
+    force: bool
+    def __init__(self, definitions: _Optional[_Iterable[_Union[FlowDefinitionUpload, _Mapping]]] = ..., uploader: _Optional[str] = ..., force: _Optional[bool] = ...) -> None: ...
+
+class FlowDefinitionUploadResult(_message.Message):
+    __slots__ = ("flow_type", "outcome", "stored_digest", "stored_generated_at")
+    FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    STORED_DIGEST_FIELD_NUMBER: _ClassVar[int]
+    STORED_GENERATED_AT_FIELD_NUMBER: _ClassVar[int]
+    flow_type: str
+    outcome: FlowDefinitionUploadOutcome
+    stored_digest: str
+    stored_generated_at: _timestamp_pb2.Timestamp
+    def __init__(self, flow_type: _Optional[str] = ..., outcome: _Optional[_Union[FlowDefinitionUploadOutcome, str]] = ..., stored_digest: _Optional[str] = ..., stored_generated_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class UploadFlowDefinitionsResponse(_message.Message):
+    __slots__ = ("results",)
+    RESULTS_FIELD_NUMBER: _ClassVar[int]
+    results: _containers.RepeatedCompositeFieldContainer[FlowDefinitionUploadResult]
+    def __init__(self, results: _Optional[_Iterable[_Union[FlowDefinitionUploadResult, _Mapping]]] = ...) -> None: ...
+
+class FlowDefinitionInfo(_message.Message):
+    __slots__ = ("flow_type", "digest", "generated_at", "uploaded_at", "uploader")
+    FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
+    DIGEST_FIELD_NUMBER: _ClassVar[int]
+    GENERATED_AT_FIELD_NUMBER: _ClassVar[int]
+    UPLOADED_AT_FIELD_NUMBER: _ClassVar[int]
+    UPLOADER_FIELD_NUMBER: _ClassVar[int]
+    flow_type: str
+    digest: str
+    generated_at: _timestamp_pb2.Timestamp
+    uploaded_at: _timestamp_pb2.Timestamp
+    uploader: str
+    def __init__(self, flow_type: _Optional[str] = ..., digest: _Optional[str] = ..., generated_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., uploaded_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., uploader: _Optional[str] = ...) -> None: ...
+
+class ListFlowDefinitionsRequest(_message.Message):
+    __slots__ = ("page_size", "next_page_token")
+    PAGE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    page_size: int
+    next_page_token: str
+    def __init__(self, page_size: _Optional[int] = ..., next_page_token: _Optional[str] = ...) -> None: ...
+
+class ListFlowDefinitionsResponse(_message.Message):
+    __slots__ = ("flow_types", "next_page_token")
+    FLOW_TYPES_FIELD_NUMBER: _ClassVar[int]
+    NEXT_PAGE_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    flow_types: _containers.RepeatedScalarFieldContainer[str]
+    next_page_token: str
+    def __init__(self, flow_types: _Optional[_Iterable[str]] = ..., next_page_token: _Optional[str] = ...) -> None: ...
+
+class GetFlowDefinitionsRequest(_message.Message):
+    __slots__ = ("flow_types",)
+    FLOW_TYPES_FIELD_NUMBER: _ClassVar[int]
+    flow_types: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, flow_types: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class FlowDefinition(_message.Message):
+    __slots__ = ("info", "content")
+    INFO_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    info: FlowDefinitionInfo
+    content: bytes
+    def __init__(self, info: _Optional[_Union[FlowDefinitionInfo, _Mapping]] = ..., content: _Optional[bytes] = ...) -> None: ...
+
+class GetFlowDefinitionsResponse(_message.Message):
+    __slots__ = ("definitions",)
+    DEFINITIONS_FIELD_NUMBER: _ClassVar[int]
+    definitions: _containers.RepeatedCompositeFieldContainer[FlowDefinition]
+    def __init__(self, definitions: _Optional[_Iterable[_Union[FlowDefinition, _Mapping]]] = ...) -> None: ...
