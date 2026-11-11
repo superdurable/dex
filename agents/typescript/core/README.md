@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.38.0
+npm i @superdurable/dex-agents @superdurable/dex@1.44.0
 ```
 
-`@superdurable/dex` 1.38.0 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.44.0 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -714,8 +714,13 @@ return { output: "Took a screenshot.", images: [reference] };
   follows a symbolic link. The Python core opens every path relative to an open directory and has no such window.
   Reads check the file's size first, read at most one byte past `sizeBytes`, and run `verifyImageBytes`. It needs a POSIX file system. Deleting a
   session deletes no file.
-- **Built-in runners.** In this release no built-in runner shows images to a model: the built-in loop and the framework
-  adapters do not implement `buildUserMessageWithImages`, so their sessions refuse images.
+- **Built-in runners.** The framework adapters show images to their model when built with a `mediaStore`: they
+  implement `buildUserMessageWithImages`, keep references in their stored items, and load the bytes for each model
+  call. Without a store they do not, and their sessions refuse images. The built-in loop does not implement it yet, so its
+  sessions refuse images.
+- **MCP tools.** `new McpToolSource(servers, { mediaStore })` uploads the `image` content of a successful result
+  inside the tool Step and returns the references in `ToolExecutionResult.images`. Give it the store the runner
+  reads.
 - **Retention.** Deleting a session deletes no object. A runner reads the images again whenever a model call replays
   them, so a bucket lifecycle rule must keep each object at least as long as any session that references it can
   still run a turn or replay its history. When an object is gone, the turn that needs it fails with `MediaStoreError`
@@ -1305,7 +1310,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.38.0 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.44.0 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or
@@ -1437,6 +1442,8 @@ signal aborts the request.
 | What happens | Recorded | Re-issued? |
 | --- | --- | --- |
 | A result | `succeeded`: text blocks joined with newlines, other content as JSON | - |
+| A result with `image` content, on a source built with `mediaStore` | `succeeded`: each image uploaded and recorded in `images`; the text shows `[image <n>]` in its place, counting from 1. More than 20 images, base64 that is invalid or not canonical, or bytes that are not a supported image: `failed` (`ToolExecutionError`) | - |
+| An `isError`, `rejected`, or `unknown` result with `image` content | As above, with `[image <n> omitted]` for each image in the text, with or without a store, so the recorded error holds no image bytes | As above |
 | An `isError` result, or a JSON-RPC error response other than `-32603` | `failed` with the text (`ToolExecutionError`) | No |
 | A result or error with the Dex `outcome` key | `outcome_unknown` or `failed`; see [Dex MCP conventions](#dex-mcp-conventions) | No |
 | The call was never sent: its server is not configured, or 3 connection attempts failed | `failed` | No |
@@ -2369,7 +2376,7 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   attempts, on every `listTools` call until it answers. A server that binds
   tasks to its protocol session, such as a stateful server on the SDK's task
   store, cannot resume a task across attempts; the retry calls the tool again.
-- Images: no built-in runner sends images to a model yet, and the media stores keep no local read cache, so each
+- Images: the built-in loop sends no images to a model yet, and the media stores keep no local read cache, so each
   `loadImages` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.

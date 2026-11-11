@@ -81,6 +81,13 @@ its policy asks for it.
   configuration does not set. A long session ends when its input no longer
   fits the model's context window; start a new session then.
 
+## Images
+
+`/image <path>` attaches an image file to the next message. The command gives
+the LangChain adapter the media store of `media.store`, so the model sees the
+image, and images that tools return go to the same store. See
+[Images](../../README.md#images).
+
 ## Development
 
 Develop with uv 0.12.2. The package resolves `dex-agents`, the LangGraph

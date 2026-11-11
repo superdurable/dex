@@ -143,6 +143,7 @@ export function createClaudeSdkSessionFlow(context: HarnessContext): AgentSessio
   const runner = new ReauthorizingClaudeAgentRunner(context, localTools, (_options) => localTools.buildOptions(), {
     toolSources: context.toolSources,
     claudeCodeToolPermission: (turn, toolName, toolInput) => localTools.decideToolCall(turn, toolName, toolInput),
+    ...(context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore }),
   });
   return createAgentSessionFlow(runner, context.flowType);
 }

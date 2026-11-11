@@ -9,6 +9,7 @@
 package web_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -18,9 +19,29 @@ import (
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	dexweb "github.com/superdurable/dex/web"
 	"github.com/superdurable/dex/web/assets"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var indexScriptPattern = regexp.MustCompile(`src="([^"]+\.js)"`)
+
+// definitionlessFlowServiceClient is a Dex Server older than uploaded definitions; other RPCs are not called.
+type definitionlessFlowServiceClient struct {
+	dexpb.FlowServiceClient
+}
+
+func (definitionlessFlowServiceClient) ListFlowDefinitions(
+	context.Context, *dexpb.ListFlowDefinitionsRequest, ...grpc.CallOption,
+) (*dexpb.ListFlowDefinitionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "ListFlowDefinitions is not implemented")
+}
+
+func (definitionlessFlowServiceClient) GetFlowDefinitions(
+	context.Context, *dexpb.GetFlowDefinitionsRequest, ...grpc.CallOption,
+) (*dexpb.GetFlowDefinitionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "GetFlowDefinitions is not implemented")
+}
 
 func TestBasePathServesPagesAssetsAndAPIUnderPrefix(t *testing.T) {
 	service := &flowService{}
@@ -68,7 +89,7 @@ func TestBasePathServesPagesAssetsAndAPIUnderPrefix(t *testing.T) {
 }
 
 func TestBasePathRedirectsPrefixAndRejectsDotSegments(t *testing.T) {
-	server, err := dexweb.NewServer(&dexweb.Config{BindAddress: "127.0.0.1", BasePath: "/dex"}, dexpb.NewFlowServiceClient(nil), assets.Files)
+	server, err := dexweb.NewServer(&dexweb.Config{BindAddress: "127.0.0.1", BasePath: "/dex"}, definitionlessFlowServiceClient{}, assets.Files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +149,7 @@ func TestBasePathAPIKeepsHostAllowlist(t *testing.T) {
 
 func TestInvalidBasePathsAreRejected(t *testing.T) {
 	for _, basePath := range []string{"dex", "//dex", "/dex//web", "/dex/../web", "/dex/./web", "/dex%2Fweb", "/dex web", "/dex?x=1", "/dex#x", `/dex\web`, "/" + strings.Repeat("a", 1100)} {
-		if _, err := dexweb.NewServer(&dexweb.Config{BasePath: basePath}, dexpb.NewFlowServiceClient(nil), assets.Files); err == nil {
+		if _, err := dexweb.NewServer(&dexweb.Config{BasePath: basePath}, definitionlessFlowServiceClient{}, assets.Files); err == nil {
 			t.Fatalf("base path %q was accepted", basePath)
 		}
 	}
@@ -154,7 +175,7 @@ func TestFrameAncestorsControlFramingHeaders(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			server, err := dexweb.NewServer(&dexweb.Config{FrameAncestors: testCase.frameAncestors}, dexpb.NewFlowServiceClient(nil), assets.Files)
+			server, err := dexweb.NewServer(&dexweb.Config{FrameAncestors: testCase.frameAncestors}, definitionlessFlowServiceClient{}, assets.Files)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +209,7 @@ func TestFramingHeadersCoverRedirectsAndErrors(t *testing.T) {
 		{name: "allowlist", frameAncestors: []string{"https://host.example"}, wantPolicy: "frame-ancestors https://host.example"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			server, err := dexweb.NewServer(&dexweb.Config{BasePath: "/dex", FrameAncestors: testCase.frameAncestors}, dexpb.NewFlowServiceClient(nil), assets.Files)
+			server, err := dexweb.NewServer(&dexweb.Config{BasePath: "/dex", FrameAncestors: testCase.frameAncestors}, definitionlessFlowServiceClient{}, assets.Files)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -86,6 +86,7 @@ class DeepAgentsHarness:
             lambda: build_deep_agent(file_model),
             flow_type=context.flow_type,
             tool_sources=context.tool_sources,
+            media_store=context.media_store,
             excluded_tool_names=[TASK_TOOL_NAME],
             select_turn_chat_model=TurnChatModelSelector(file_model),
             should_defer_tool_calls_before_middleware=True,

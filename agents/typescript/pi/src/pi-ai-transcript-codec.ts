@@ -15,7 +15,7 @@ import {
   type ToolResultMessage,
   type Usage,
 } from "@earendil-works/pi-ai";
-import type { ModelInputItem, ModelOutputItem, ModelToolCall } from "@superdurable/dex-agents/stepwise";
+import type { ModelInputItem, ModelOutputItem, ModelToolCall } from "@superdurable/dex-agents/builtin-loop";
 
 /**
  * API name recorded on every output item of the pi-ai model client, as `ModelOutputItem.api`.

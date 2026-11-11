@@ -23,6 +23,7 @@ from uuid import UUID, uuid4
 from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
     AgentFrameworkRunner,
+    AgentImageReference,
     AgentToolCall,
     AgentTurnContext,
     AgentTurnOutcome,
@@ -33,6 +34,7 @@ from dex_agents import (
     DeferredToolExecution,
     DeferredToolOutcome,
     FrameworkMessage,
+    MediaStore,
     ModelCallMetadata,
     ToolCallsRequested,
     ToolCallStatus,
@@ -84,6 +86,11 @@ from dex_agents_langgraph._checkpoints import (
     restore_suspended_graph_checkpoints,
 )
 from dex_agents_langgraph._delta_channels import checkpointed_delta_channels
+from dex_agents_langgraph._images import (
+    image_reference_block,
+    message_image_references,
+    upload_content_images,
+)
 from dex_agents_langgraph._tool_state import (
     StateWrite,
     build_graph_state_reader,
@@ -206,6 +213,10 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     resumed model call restores a checkpoint that already holds its input, so
     it never compacts. Without a policy nothing changes.
 
+    With a ``media_store``, the runner also implements
+    ``ImageUserMessageBuilder``, so user messages and tool results may carry
+    images. See the ``media_store`` argument of the constructor.
+
     Example:
         >>> runner = LangGraphAgentRunner(agent)
         >>> flow = AgentSessionFlow(
@@ -227,6 +238,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         summary_model: BaseChatModel | None = None,
         tool_sources: Sequence[ToolSource] = (),
         tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+        media_store: MediaStore | None = None,
         excluded_tool_names: Collection[str] = (),
         select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None = None,
         should_defer_tool_calls_before_middleware: bool = False,
@@ -271,6 +283,27 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 seconds.
 
                 .. versionadded:: 0.4.0
+            media_store: The store that holds the session's images, such as
+                ``S3MediaStore``. With a store, the runner has
+                ``build_user_message_with_images``, so ``send_user_message``
+                accepts images. A user message is stored as a ``HumanMessage``
+                whose content is a text block, then one placeholder block per
+                image: ``{"type": "image", "url": <uri>, "mime_type": ...,
+                "extras": {"dex_image_reference": <reference>}}``. A tool call
+                record's images go into its ``ToolMessage`` content after the
+                output text block, as the same placeholders. Stored messages and
+                checkpoints never hold bytes. Right before each model call,
+                ``DurableToolCallMiddleware``, or ``inline_image_references`` in
+                the model node of a custom graph, reads the bytes with
+                ``load_images`` and replaces each placeholder with
+                ``{"type": "image", "base64": ..., "mime_type": ...}``. A failed
+                read fails the model call, which retries. A tool of the graph
+                that returns base64 image blocks has the images uploaded in its
+                tool Step and recorded as references. ``None``, the default,
+                keeps the runner without image support, so the session refuses
+                images.
+
+                .. versionadded:: 0.5.0
             excluded_tool_names: Names of graph tools that the session never
                 offers or runs, such as ``"task"`` to turn off Deep Agents'
                 subagents. ``DurableToolCallMiddleware`` removes them from
@@ -355,6 +388,10 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             ),
             listing_timeout=tool_source_listing_timeout,
         )
+        self._media_store = media_store
+        if media_store is not None:
+            # The session accepts images only from a runner that has this method.
+            self.build_user_message_with_images = self._build_user_message_with_images
 
     def build_user_message(self, text: str) -> FrameworkMessage:
         """Store user text as a LangChain ``HumanMessage``.
@@ -371,6 +408,35 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         """
         return langchain_message_to_framework_message(
             HumanMessage(content=text, id=f"dex-user-{uuid4().hex}")
+        )
+
+    def _build_user_message_with_images(
+        self, text: str, images: Sequence[AgentImageReference]
+    ) -> FrameworkMessage:
+        """Store user text and images as one LangChain ``HumanMessage`` with image placeholders.
+
+        It is ``build_user_message_with_images`` of a runner built with a
+        ``media_store``. The content is a text block, then one placeholder
+        image block per image, in order, whose ``url`` is the reference's
+        ``uri`` and whose ``extras`` hold the reference. Before each model
+        call the placeholders are replaced with the bytes.
+
+        .. versionadded:: 0.5.0
+
+        Args:
+            text: The user message text.
+            images: The message's images, at least one.
+
+        Returns:
+            A ``MessageRole.USER`` message holding a ``HumanMessage`` with a
+            new ``"dex-user-<hex>"`` ID.
+        """
+        content: list[str | dict[str, Any]] = [
+            {"type": "text", "text": text},
+            *map(image_reference_block, images),
+        ]
+        return langchain_message_to_framework_message(
+            HumanMessage(content=content, id=f"dex-user-{uuid4().hex}")
         )
 
     async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
@@ -432,6 +498,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             tools_by_name=loaded_graph.tools_by_name,
             source_tools=[_source_tool_as_langchain_tool(tool) for tool in source_tools.tools],
             source_tool_listing=source_tools,
+            media_store=self._media_store,
             state_serializer=self._state_serializer,
             excluded_tool_names=self._excluded_tool_names,
             turn_chat_model=None
@@ -598,7 +665,12 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
         Returns:
             The tool's output text. Content that is not a string is JSON text.
-            For a source call, the source's outcome.
+            With a ``media_store``, base64 image blocks in the content are
+            uploaded and returned as references, and the output is the rest of
+            the content. For a source call, the source's outcome.
+
+            .. versionchanged:: 0.5.0
+                Base64 image blocks become references with a ``media_store``.
 
         Raises:
             ToolExecutionError: The graph has no such tool, the arguments do not
@@ -661,11 +733,18 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 f"tool {record.tool_name} returned {type(result).__name__}; "
                 "a tool of an agent session must return content or a Command"
             )
+        images: list[AgentImageReference] = []
+        if self._media_store is not None and isinstance(result.content, list):
+            remaining, images = await upload_content_images(
+                result.content, self._media_store, record.tool_name
+            )
+            result = result.model_copy(update={"content": remaining})
         output = _tool_message_output(result)
         if result.status == "error":
             raise ToolExecutionError(output)
         return ToolExecutionResult(
             output=output,
+            images=images,
             runner_tool_state=encode_runner_tool_state(state_writes, self._state_serializer)
             if state_writes
             else None,
@@ -778,6 +857,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                         tool_name=record.tool_name,
                         status=record.status,
                         output=describe_tool_call_outcome(record),
+                        images=record.images,
                         runner_tool_state=record.runner_tool_state
                         if is_graph_tool_result
                         else None,
@@ -933,6 +1013,11 @@ class _TurnCallbackHandler(BaseCallbackHandler):
     ) -> None:
         # LangChain puts the chat model's _get_ls_params, such as ls_model_name, in run metadata.
         request_model = _metadata_text(metadata or {}, "ls_model_name")
+        if any(message_image_references(message) for batch in messages for message in batch):
+            raise RuntimeError(
+                "an image reference reached the chat model; call inline_image_references in "
+                "the model node of a custom graph"
+            )
         with self._lock:
             self._request_models_by_run_id[run_id] = request_model
 

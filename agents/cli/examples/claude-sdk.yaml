@@ -23,4 +23,6 @@ local_tools:
     allow: ["git status", "ls"]          # These commands run without approval.
   web_fetch: true
   browser: true                           # The browser is downloaded on first use.
+media:
+  store: auto     # Images in ~/.dex/agents/media, or s3://bucket/prefix for Workers on other machines.
 claude: {}                                # Options of this harness command.

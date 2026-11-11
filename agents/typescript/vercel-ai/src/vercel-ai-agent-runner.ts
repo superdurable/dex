@@ -41,6 +41,7 @@ import {
   toolEffectFromMcpToolAnnotations,
   type AgentEventWriter,
   type AgentFrameworkRunner,
+  type AgentImageReference,
   type AgentToolCall,
   type AgentTurnContext,
   type AgentTurnOutcome,
@@ -52,6 +53,7 @@ import {
   type FrameworkMessage,
   type ListedSourceTool,
   type McpToolAnnotations,
+  type MediaStore,
   type ModelCallMetadata,
   type ResolvedToolPolicy,
   type SourceToolDefinition,
@@ -64,7 +66,9 @@ import {
 
 import { runInAgentToolExecutionScope } from "./agent-tool-execution-scope.js";
 import { toGenAIProviderName } from "./gen-ai-provider-names.js";
+import { replaceImagePlaceholders } from "./vercel-ai-model-images.js";
 import {
+  addToolResultImages,
   appendToolResultParts,
   createRecordedToolResultPart,
   isModelMessage,
@@ -73,6 +77,7 @@ import {
   serializeJsonValue,
   serializeToolOutput,
   toFrameworkMessage,
+  toUserFrameworkMessageWithImages,
 } from "./vercel-ai-model-messages.js";
 
 /** Settings of `streamText` that the runner passes through unchanged on every model call. */
@@ -158,11 +163,44 @@ interface ModelCallResult {
  * It implements the compaction methods, so with `AgentSessionOptions.compaction` the session compacts at turn
  * boundaries and the summary enters as the first message. Tool source tools are listed in every `RunModel` and
  * offered as JSON Schema tools without `execute`; their calls run through the source in their tool Steps.
+ * With a media store it shows images to the model; without one the session refuses images.
  */
 export class VercelAiAgentRunner implements AgentFrameworkRunner {
+  /**
+   * Stores user text and its images as one user message whose image parts hold references, not bytes.
+   *
+   * It is present only when the runner has a media store, so a session without one refuses images. Each model call
+   * reads the bytes from the store and sends every image as a `file` part after the text, in reference order.
+   *
+   * @param text - The user message text.
+   * @param images - The message's images, uploaded to the runner's media store.
+   * @returns The `"user"` message the session stores as the turn's first message.
+   * @since 0.5.0
+   */
+  public readonly buildUserMessageWithImages?: (
+    text: string,
+    images: readonly AgentImageReference[],
+  ) => FrameworkMessage;
   private fixedInputTokens: number | undefined;
 
-  public constructor(private readonly agent: ResolvedVercelAiAgentDefinition) {}
+  /**
+   * Creates a runner for one resolved agent definition. Most applications call `createVercelAiAgentSessionFlow`.
+   *
+   * @param agent - The resolved agent: model, instructions, tools, and tool sources.
+   * @param mediaStore - The store that holds the session's images. With it, the runner accepts user messages with
+   * images and shows them and tool result images to the model, reading the bytes for each model call; stored
+   * messages hold only references. Omit it to refuse images. Since 0.5.0.
+   *
+   * Changed in 0.5.0: takes `mediaStore`.
+   */
+  public constructor(
+    private readonly agent: ResolvedVercelAiAgentDefinition,
+    private readonly mediaStore: MediaStore | undefined = undefined,
+  ) {
+    if (mediaStore !== undefined) {
+      this.buildUserMessageWithImages = toUserFrameworkMessageWithImages;
+    }
+  }
 
   public buildUserMessage(text: string): FrameworkMessage {
     return toFrameworkMessage({ role: "user", content: text });
@@ -244,9 +282,14 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
       }
     }
     const modelCallTools = await this.createModelCallTools(turn);
+    // A copy with image bytes goes to the model; turnMessages keep the placeholders that are stored.
+    const modelInput =
+      this.mediaStore === undefined
+        ? [...history, ...turnMessages]
+        : await replaceImagePlaceholders([...history, ...turnMessages], this.mediaStore);
     const modelCall = await runInAgentToolExecutionScope(
       { flowId: turn.flowId, turnId: turn.turnId, attempt: turn.attempt, idempotencyKey: null, events: turn.events },
-      () => this.streamModelCall(turn, [...history, ...turnMessages], modelCallTools, modelSteps),
+      () => this.streamModelCall(turn, modelInput, modelCallTools, modelSteps),
     );
     turnMessages = [...turnMessages, ...modelCall.responseMessages];
     modelSteps = [...modelSteps, ...modelCall.steps.map((step) => recordModelStep(step, modelSteps.length))];
@@ -363,6 +406,12 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
   }
 
   private async createRecordedToolResult(record: AgentToolCall): Promise<ToolResultPart> {
+    const part = await this.createRecordedToolResultWithoutImages(record);
+    // Without a media store the model cannot see images, so the result stays as before.
+    return this.mediaStore === undefined ? part : addToolResultImages(part, record.images ?? []);
+  }
+
+  private async createRecordedToolResultWithoutImages(record: AgentToolCall): Promise<ToolResultPart> {
     // A source's output is text, such as a truncated connector result, so the model reads it unchanged.
     if (record.status === "succeeded" && this.agent.toolSources.isSourceToolCall(record)) {
       return {

@@ -21,6 +21,7 @@ from dex_agents import (
     AgentTracingOptions,
     AgentTurnContext,
     CompactionPolicy,
+    MediaStore,
     ToolEffect,
     ToolPolicy,
 )
@@ -48,6 +49,7 @@ def langchain_agent_session_flow(
     summary_model: BaseChatModel | None = None,
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    media_store: MediaStore | None = None,
     excluded_tool_names: Collection[str] = (),
     select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None = None,
     should_defer_tool_calls_before_middleware: bool = False,
@@ -168,6 +170,13 @@ def langchain_agent_session_flow(
             source's ``list_tools``. Defaults to 10 seconds.
 
             .. versionadded:: 0.4.0
+        media_store: The store that holds the session's images. With a store,
+            user messages and tool results may carry images, which
+            ``DurableToolCallMiddleware`` gives the model as base64 image
+            blocks. ``None``, the default, makes the session refuse images.
+            See ``LangGraphAgentRunner``.
+
+            .. versionadded:: 0.5.0
         excluded_tool_names: Names of the agent's tools that the session never
             offers or runs, such as ``"task"`` to turn off Deep Agents'
             subagents. A tool source may list a tool of the same name, which
@@ -228,6 +237,7 @@ def langchain_agent_session_flow(
         summary_model=summary_model,
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
+        media_store=media_store,
         excluded_tool_names=excluded_tool_names,
         select_turn_chat_model=select_turn_chat_model,
         should_defer_tool_calls_before_middleware=should_defer_tool_calls_before_middleware,
@@ -251,6 +261,7 @@ def langgraph_agent_session_flow(
     summary_model: BaseChatModel | None = None,
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    media_store: MediaStore | None = None,
     excluded_tool_names: Collection[str] = (),
     select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None = None,
     should_defer_tool_calls_before_middleware: bool = False,
@@ -331,6 +342,14 @@ def langgraph_agent_session_flow(
             source's ``list_tools``. Defaults to 10 seconds.
 
             .. versionadded:: 0.4.0
+        media_store: The store that holds the session's images. With a store,
+            user messages and tool results may carry images. The model node
+            calls ``inline_image_references`` before the chat model call to
+            give the model the bytes as base64 image blocks. ``None``, the
+            default, makes the session refuse images. See
+            ``LangGraphAgentRunner``.
+
+            .. versionadded:: 0.5.0
         excluded_tool_names: Names of the graph's tools that the session never
             offers or runs, such as ``"task"`` to turn off Deep Agents'
             subagents. A tool source may list a tool of the same name, which
@@ -390,6 +409,7 @@ def langgraph_agent_session_flow(
         summary_model=summary_model,
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
+        media_store=media_store,
         excluded_tool_names=excluded_tool_names,
         select_turn_chat_model=select_turn_chat_model,
         should_defer_tool_calls_before_middleware=should_defer_tool_calls_before_middleware,
@@ -407,6 +427,7 @@ def _graph_session_flow(
     summary_model: BaseChatModel | None,
     tool_sources: Sequence[ToolSource],
     tool_source_listing_timeout: timedelta,
+    media_store: MediaStore | None,
     excluded_tool_names: Collection[str],
     select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None,
     should_defer_tool_calls_before_middleware: bool,
@@ -421,6 +442,7 @@ def _graph_session_flow(
         summary_model=summary_model,
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
+        media_store=media_store,
         excluded_tool_names=excluded_tool_names,
         select_turn_chat_model=select_turn_chat_model,
         should_defer_tool_calls_before_middleware=should_defer_tool_calls_before_middleware,

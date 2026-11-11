@@ -27,7 +27,7 @@ npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdura
 The application installs exactly one copy of each, because the Dex Registry
 matches Flow classes and RPC registrations by identity, and the session
 recognizes `ToolExecutionError` only from its own copy of the core. `@openai/agents` is a peer dependency too.
-Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.38.0, and
+Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.44.0, and
 `@openai/agents` `^0.21.0` (tested with 0.21.0).
 
 Develop the package inside this repository with `./ci.sh`. There
@@ -194,6 +194,7 @@ session Flow with an OpenAI Agents SDK runner. A turn with one read tool runs
 | `maxTurns` | SDK default, 10 | Maximum model calls in one turn across all of its `RunModel` Steps; `null` disables the limit |
 | `createContext` | returns `undefined` | `(flowId) => TContext`, called for every `RunModel` and every tool Step attempt; the result is `RunContext.context` |
 | `shouldRunMcpServerToolsInline` | `false` | Accept agents with `mcpServers`, whose tools run inside `RunModel`; see Limits |
+| `mediaStore` | none | Since 0.5.0. The `MediaStore` of the session's images; with it the model sees images. See [Images](#images) |
 
 `createContext` runs in whichever Worker process runs the Step. Its value is
 never persisted, so use it for process-local dependencies and values derived
@@ -343,6 +344,46 @@ attempt, and that invalid arguments, guardrail rejections, and tripwires record
 `failed` before the tool runs. Dex discards a cancelled attempt's result, so
 only a direct runner call observes it.
 
+## Images
+
+Since 0.5.0 the runner can show images to the model. Pass `mediaStore` to
+`createOpenAIAgentsSessionFlow`. Use the store that your clients and tools
+upload to, such as `S3MediaStore` from `@superdurable/dex-agents/s3`, or
+`LocalDirectoryMediaStore` when every client and Worker runs on one machine.
+
+```ts
+import { S3MediaStore } from "@superdurable/dex-agents/s3";
+
+const mediaStore = new S3MediaStore({ bucket: "agent-media", prefix: "sessions" });
+const flow = createOpenAIAgentsSessionFlow(agent, "SupportAgent", { mediaStore });
+
+const reference = await mediaStore.putImage(chartPng);
+await sessions.sendUserMessage("session-42", "What does this chart show?", { images: [reference] });
+```
+
+- **User images.** The model sees one user message. Its `content` is an
+  `input_text` part, then one `input_image` part per image, in order.
+- **Tool images.** A tool source's tool, such as a connector tool, returns
+  images with `{ output, images: [reference] }`. The model sees the SDK's own
+  tool result form: a `function_call_result` whose `output` list is an
+  `input_text` part, then one `input_image` part per image. No extra message
+  is added. The stored tool message carries the record's `images`. A function
+  tool returns text only: its output is recorded as text, so an image it
+  returns reaches the model as JSON text.
+- **References, never bytes.** Stored items and the serialized `RunState` set
+  each image part's `image` to the reference's `uri`. Every model call reads
+  the bytes with `loadImages` and sends each image as a `data:` URL of its MIME
+  type. It does so in a per-run `callModelInputFilter` that calls
+  `runConfig.callModelInputFilter` first, so your filter sees the `uri`. Model
+  tracing with sensitive data sees the `data:` URLs. A failed read fails the
+  `RunModel` attempt, which retries.
+- **Without a store**, the session refuses user images: `sendUserMessage`
+  returns `false`. A tool result's images then reach the model only as the
+  result's text.
+- **Chat Completions models.** The SDK's Chat Completions converter keeps only
+  the text of a tool result, and throws with `strictFeatureValidation`. Use a
+  Responses model when the model must see tool images. User images reach both.
+
 ## Compaction
 
 Since 0.3.0 the runner can compact a session that would outgrow the model's
@@ -404,7 +445,8 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
   model calls. It includes the turn's whole input history and model responses,
   so it grows with the conversation.
 - A resumed call returns its recorded text, so a structured tool output, such
-  as an image, reaches the model as JSON text.
+  as an image, reaches the model as JSON text. A tool source returns images as
+  references instead; see [Images](#images).
 - `reasoning_delta` comes only from Responses API reasoning summary events.
 - The limits of `@superdurable/dex-agents` apply: a `RunModel` rerun repeats
   its model call, and sessions never complete on their own. See

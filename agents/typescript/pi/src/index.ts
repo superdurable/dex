@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 /**
- * Runs Pi agents on Dex: Dex runs the agent loop in its Stepwise session Flow, pi-ai makes each model call, and
+ * Runs Pi agents on Dex: Dex runs the agent loop in its built-in agent loop session Flow, pi-ai makes each model call, and
  * Pi tools run as Dex tool Steps.
  *
  * @packageDocumentation

@@ -74,7 +74,10 @@ class PydanticAiHarness:
             TurnModel(context.config.model), instructions=instructions, name="pydantic-ai"
         )
         return pydantic_ai_session_flow(
-            agent, flow_type=context.flow_type, tool_sources=context.tool_sources
+            agent,
+            flow_type=context.flow_type,
+            tool_sources=context.tool_sources,
+            media_store=context.media_store,
         )
 
 

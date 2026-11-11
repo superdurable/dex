@@ -45,6 +45,7 @@ function definitionWithStreams(streams: Array<{ name: string; valueType: string 
     sourceLanguage: 'go',
     sourcePath: 'checkout.go',
     valid: true,
+    source: 'directory',
     graph: { ...graph, nodes },
   };
 }

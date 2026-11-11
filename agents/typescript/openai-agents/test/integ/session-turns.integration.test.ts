@@ -20,6 +20,7 @@ import {
   type ReadableSpan,
 } from "@opentelemetry/sdk-trace-base";
 import {
+  InMemoryMediaStore,
   messageSequenceKey,
   outcomeUnknownToolResult,
   type AgentEvent,
@@ -36,6 +37,7 @@ import {
   readStepHistory,
 } from "@superdurable/dex-agents/testing";
 
+import { userPng } from "../fixtures/image-openai-agent.js";
 import { createScriptedOpenAIAgentFlow } from "../fixtures/scripted-openai-agent.js";
 
 describe("OpenAI Agents SDK sessions in Step mode with an in-process Worker", () => {
@@ -509,6 +511,24 @@ describe("OpenAI Agents SDK sessions in Step mode with an in-process Worker", ()
     assert.deepEqual(toolLog("refund_order", sessionId), [`${sessionId} call_1_refund_order attempt 1`]);
     const note = (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text ?? "";
     assert.match(note, /^\[Dex\] The previous turn failed after these tool calls ran:\n- refund_order /);
+  });
+
+  test("a runner without a media store refuses images", async () => {
+    const sessionId = newSessionId("refused-images");
+    await sessions.startSession(sessionId);
+    const reference = await new InMemoryMediaStore().putImage(userPng);
+
+    assert.equal(await sessions.sendUserMessage(sessionId, "hi", false, [reference]), false);
+    assert.equal(await sessions.sendUserMessage(sessionId, "hi"), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      snapshot.messages.map((message) => [message.text, message.images ?? []]),
+      [
+        ["hi", []],
+        ["echo: hi", []],
+      ],
+    );
   });
 
   async function executedStepTypes(sessionId: string): Promise<string[]> {

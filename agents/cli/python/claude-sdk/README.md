@@ -77,6 +77,13 @@ Claude Code's own tools replace the runtime's `files`, `shell`, and
   call in it can run twice. Connector and browser tools run in their own
   Steps and are recorded.
 
+## Images
+
+`/image <path>` attaches an image file to the next message. The command gives
+the Claude Agent SDK adapter the media store of `media.store`, so the model sees the
+image, and images that tools return go to the same store. See
+[Images](../../README.md#images).
+
 ## Development
 
 Develop with uv 0.12.2. The package resolves `dex-agents`, the adapter, and

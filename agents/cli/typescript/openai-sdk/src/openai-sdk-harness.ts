@@ -78,6 +78,7 @@ export function createOpenAISdkSessionFlow(context: HarnessContext): ReturnType<
   return createOpenAIAgentsSessionFlow(agent, context.flowType, {
     runConfig: { modelProvider: new TurnModelProvider(() => context.currentTurn()), tracingDisabled: true },
     toolSources: context.toolSources,
+    ...(context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore }),
   });
 }
 

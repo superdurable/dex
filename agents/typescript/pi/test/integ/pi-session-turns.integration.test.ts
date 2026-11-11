@@ -16,9 +16,9 @@ import type { Context } from "@earendil-works/pi-ai";
 import { outcomeUnknownToolResult, type AgentMessage } from "@superdurable/dex-agents";
 import {
   contextSummaryRequest,
-  createStepwiseAgentSessionFlow,
+  createBuiltinAgentSessionFlow,
   type ModelClient,
-} from "@superdurable/dex-agents/stepwise";
+} from "@superdurable/dex-agents/builtin-loop";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -34,7 +34,7 @@ import { createPiAiModelClient, piAgentFunctionTool, piToolProgressEventType } f
 import { FakeModelServer, createFakeOpenAiModel } from "../fixtures/fake-model-server.js";
 import { createPiTestAgentFlow } from "../fixtures/pi-test-agent.js";
 
-describe("Pi agents on the Stepwise session Flow with an in-process Worker", () => {
+describe("Pi agents on the built-in agent loop session Flow with an in-process Worker", () => {
   let engine: PrivateDexEngine;
   let modelServer: FakeModelServer;
   let environment: AgentTestEnvironment;
@@ -82,7 +82,7 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
       anthropicReasoningEffort: () => anthropicReasoningEffort,
       compaction: { contextWindowTokens: 20_000 },
     });
-    const unknownItemFlow = createStepwiseAgentSessionFlow(
+    const unknownItemFlow = createBuiltinAgentSessionFlow(
       {
         name: "pi-unknown-item",
         instructions: "",

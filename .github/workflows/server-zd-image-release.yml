@@ -86,6 +86,24 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
+      # Every later job needs metadata, so this stops the image build and push.
+      - name: Require the change-log entry on the tagged commit
+        if: steps.version.outputs.publish == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! python3 script/release/changelog_fragments.py check-ready server "${VERSION}"; then
+            message="The change-log entry for server-zd/v${VERSION} must be merged to main before the tag. Delete the release and its tag, merge the release-prep pull request, then tag again."
+            echo "::error::${message}"
+            {
+              echo "## Change log not ready for server-zd ${VERSION}"
+              echo
+              echo "${message}"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
 
   smoke:
     name: Smoke ${{ matrix.arch }}

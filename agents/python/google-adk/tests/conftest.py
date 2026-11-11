@@ -36,6 +36,7 @@ from tests.connector_agent import CONNECTOR_AGENT_FLOW_TYPE, build_connector_age
 from tests.fake_ledger import (
     STATE_DIR_ENVIRONMENT_VARIABLE as LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE,
 )
+from tests.image_adk_agent import IMAGE_ADK_AGENT_FLOW_TYPE, build_image_adk_flow
 from tests.scripted_adk_agent import (
     INVOCATION_LOG_NAME,
     STATE_DIR_ENVIRONMENT_VARIABLE,
@@ -47,6 +48,7 @@ from tests.scripted_adk_topologies import build_topology_flows
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
 WORKER_MODULE = "tests.adk_worker"
 CONNECTOR_WORKER_MODULE = "tests.connector_worker"
+IMAGE_WORKER_MODULE = "tests.image_adk_worker"
 
 
 @dataclass
@@ -158,3 +160,21 @@ async def connector_harness(tmp_path: Path) -> AsyncIterator[AdkAgentHarness]:
         worker_env={LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
     ) as stack:
         yield AdkAgentHarness(stack, flows, flow, stack.sessions(flow), state_dir)
+
+
+@pytest_asyncio.fixture
+async def image_harness(tmp_path: Path) -> AsyncIterator[AdkAgentHarness]:
+    """Starts a private engine for the agent whose runner has a local directory media store."""
+    state_dir = tmp_path / "agent-state"
+    state_dir.mkdir()
+    flow = build_image_adk_flow(state_dir)
+    async with AgentTestStack(
+        tmp_path,
+        [flow],
+        IMAGE_WORKER_MODULE,
+        worker_cwd=PACKAGE_DIR,
+        worker_env={STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
+    ) as stack:
+        yield AdkAgentHarness(
+            stack, {IMAGE_ADK_AGENT_FLOW_TYPE: flow}, flow, stack.sessions(flow), state_dir
+        )

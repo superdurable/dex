@@ -77,7 +77,10 @@ export function createMastraCliSessionFlow(context: HarnessContext): ReturnType<
     instructions: () => context.currentTurn().instructions ?? defaultInstructions,
     model: () => context.currentTurn().model,
   });
-  return createMastraAgentSessionFlow(agent, context.flowType, { toolSources: context.toolSources });
+  return createMastraAgentSessionFlow(agent, context.flowType, {
+    toolSources: context.toolSources,
+    ...(context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore }),
+  });
 }
 
 /**

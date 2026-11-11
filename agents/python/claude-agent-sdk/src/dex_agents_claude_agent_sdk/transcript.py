@@ -12,17 +12,24 @@ The Claude Code CLI writes one JSON object per transcript line. The adapter
 stores those entries, unchanged, inside ``AgentMessage.framework_item`` and
 inside ``FrameworkRunState``, and hands them back to the CLI on the next turn.
 The one exception is ``last-prompt`` entries, which it neither stores nor
-hands back, including ones that adapter 0.4.0 stored.
+hands back, including ones that adapter 0.4.0 stored. With a media store,
+stored entries hold image references instead of image bytes; see
+``transcript_images``.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from dex_agents import AgentMessage, FrameworkMessage, MessageRole
+from dex_agents import AgentImageReference, AgentMessage, FrameworkMessage, MessageRole
+from dex_agents_claude_agent_sdk.transcript_images import (
+    decode_image_reference,
+    image_block,
+    image_references_in,
+)
 
 #: ``framework_item`` ``kind`` of a user message the session stored before its turn ran.
 USER_PROMPT_ITEM_KIND = "user_prompt"
@@ -47,32 +54,41 @@ class SuspendedClaudeTurn:
     turn_entries: list[TranscriptEntry]
 
 
-def encode_user_prompt_item(text: str) -> str:
-    return json.dumps({"kind": USER_PROMPT_ITEM_KIND, "text": text}, ensure_ascii=False)
+def encode_user_prompt_item(text: str, images: Sequence[AgentImageReference] = ()) -> str:
+    item: dict[str, Any] = {"kind": USER_PROMPT_ITEM_KIND, "text": text}
+    if images:
+        item["images"] = [asdict(image) for image in images]
+    return json.dumps(item, ensure_ascii=False)
 
 
 def build_turn_prompt_content(
     messages: Sequence[AgentMessage], turn_id: str
-) -> str | list[dict[str, str]]:
+) -> str | list[dict[str, Any]]:
+    """Return the turn's prompt; its image blocks hold references until the runner loads them."""
     # Prompts and turn-failure notes after the last transcript never reached the CLI.
-    unsent_prompt_texts: list[str] = []
+    unsent_prompts: list[tuple[str, list[AgentImageReference]]] = []
     for message in messages:
         item = json.loads(message.framework_item)
         if item.get("kind") == CLAUDE_TRANSCRIPT_ITEM_KIND:
-            unsent_prompt_texts = []
+            unsent_prompts = []
         elif item.get("kind") == USER_PROMPT_ITEM_KIND:
-            unsent_prompt_texts.append(item["text"])
+            images = [decode_image_reference(fields) for fields in item.get("images", [])]
+            unsent_prompts.append((item["text"], images))
     current_prompt = messages[-1] if messages else None
     if (
         current_prompt is None
         or current_prompt.role is not MessageRole.USER
         or current_prompt.turn_id != turn_id
-        or not unsent_prompt_texts
+        or not unsent_prompts
     ):
         raise RuntimeError(f"turn {turn_id} does not end with its stored prompt")
-    if len(unsent_prompt_texts) == 1:
-        return unsent_prompt_texts[0]
-    return [{"type": "text", "text": text} for text in unsent_prompt_texts]
+    if len(unsent_prompts) == 1 and not unsent_prompts[0][1]:
+        return unsent_prompts[0][0]
+    return [
+        block
+        for text, images in unsent_prompts
+        for block in [{"type": "text", "text": text}, *(image_block(image) for image in images)]
+    ]
 
 
 def load_session_transcript(messages: Iterable[AgentMessage]) -> ClaudeSessionTranscript:
@@ -227,6 +243,8 @@ def _tool_result_message(
         tool_call_id=tool_call_id,
         tool_name=tool_names_by_id.get(tool_call_id),
         tool_output=tool_result_text(single_result.get("content")),
+        # The images the model saw in this result; stored blocks hold only references.
+        images=tuple(image_references_in(single_result.get("content"))),
     )
 
 
