@@ -15,6 +15,7 @@ const sidebars: SidebarsConfig = {
     'upgrades',
     'credentials',
     'dex-web',
+    'cli',
     'changelog',
   ],
 };

@@ -168,6 +168,8 @@ Harness 是运行 agent loop 的代码：内置 loop 或某个 framework。下�
 | [Vercel AI SDK](/agent-frameworks/vercel-ai-sdk) | TypeScript | 每个 **RunModel** Step 调用一次模型。每个 tool call 是独立的 Step。 | TypeScript 应用中已有 AI SDK 的 tool 和模型。 |
 | [Mastra](/agent-frameworks/mastra) | TypeScript | 每个 **RunModel** Step 调用一次模型。每个 Agent tool call 是独立的 Step。 | 已有 Mastra Agent。 |
 
+想在终端里试用某个 harness、又不想写应用，可以运行它的 CLI 命令。见 [CLI commands](/reference/agents/cli)。
+
 ## Example {#the-examples}
 
 每个 framework 页面都使用同一个订单客服 Agent。它在一个内存中的订单系统上有两个 tool：

@@ -1,0 +1,4 @@
+---
+section: Added
+---
+- Dex Agents CLI commands run an agent in your terminal as a durable Dex agent session, one command per harness. Python: **dex-agents-builtin**, **dex-agents-claude-sdk**, **dex-agents-openai-sdk**, **dex-agents-pydantic-ai**, **dex-agents-deepagents**, and **dex-agents-google-adk**, from the PyPI packages **dex-agents-NAME-cli**. TypeScript: **dex-agents-builtin**, **dex-agents-claude-sdk**, **dex-agents-openai-sdk**, **dex-agents-vercel-ai**, **dex-agents-mastra**, and **dex-agents-pi**, from the npm packages **@superdurable/dex-agents-NAME-cli**. Each command reuses or starts **dexcli dev**, offers Connector tools through the Connectors MCP server and local tools with approvals, attaches images with **/image**, and resumes sessions with **--resume**. [Reference](/reference/agents/cli).
