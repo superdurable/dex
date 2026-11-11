@@ -164,7 +164,7 @@ INI
   smoke_test_python_cli "$release_version"
 }
 
-# Installs the CLI runtime and each command from the built wheels alone, then runs what needs no model key or server.
+# Installs each CLI package from the built wheels alone and runs its offline checks.
 smoke_test_python_cli() {
   local release_version="$1"
   local package
@@ -200,7 +200,7 @@ PY
   done
 }
 
-# Runs a CLI command's --help and init --yes with a scratch HOME; neither reaches a model provider or a Dex server.
+# Runs --help and init --yes with a scratch HOME; neither reaches a model provider or server.
 smoke_test_cli_command() {
   local command="$1" bin_dir="$2" home_dir="$3"
   local help_output
@@ -528,7 +528,7 @@ JSON
   smoke_test_typescript_cli "$release_version"
 }
 
-# Installs the CLI runtime and each command from the built tarballs, then runs what needs no model key or server.
+# Installs each CLI package from the built tarballs and runs its offline checks.
 smoke_test_typescript_cli() {
   local release_version="$1"
   local package

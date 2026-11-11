@@ -152,7 +152,7 @@ jobs:
           name: agents-typescript-tarballs
           path: dist
       # The core publishes first so every adapter's peer dependency on it resolves.
-      # The CLI runtime follows the adapters, and the CLI commands, which peer-depend on both, come last.
+      # The CLI runtime and commands follow the adapters.
       - name: Publish tarballs with trusted publishing
         shell: bash
         env:

@@ -184,7 +184,7 @@ jobs:
             exit 1
           fi
       # The core publishes first so every adapter's dex-agents==<version> requirement resolves.
-      # A version already on PyPI is skipped, so a later run uploads only what an earlier one left out.
+      # Versions already on PyPI are skipped, so a rerun uploads only the rest.
       - name: Publish distributions with trusted publishing
         shell: bash
         env:
