@@ -824,6 +824,99 @@ public final class FlowServiceGrpc {
     return getHealthCheckMethod;
   }
 
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.UploadFlowDefinitionsRequest,
+      io.superdurable.gen.UploadFlowDefinitionsResponse> getUploadFlowDefinitionsMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "UploadFlowDefinitions",
+      requestType = io.superdurable.gen.UploadFlowDefinitionsRequest.class,
+      responseType = io.superdurable.gen.UploadFlowDefinitionsResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.UploadFlowDefinitionsRequest,
+      io.superdurable.gen.UploadFlowDefinitionsResponse> getUploadFlowDefinitionsMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.UploadFlowDefinitionsRequest, io.superdurable.gen.UploadFlowDefinitionsResponse> getUploadFlowDefinitionsMethod;
+    if ((getUploadFlowDefinitionsMethod = FlowServiceGrpc.getUploadFlowDefinitionsMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getUploadFlowDefinitionsMethod = FlowServiceGrpc.getUploadFlowDefinitionsMethod) == null) {
+          FlowServiceGrpc.getUploadFlowDefinitionsMethod = getUploadFlowDefinitionsMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.UploadFlowDefinitionsRequest, io.superdurable.gen.UploadFlowDefinitionsResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "UploadFlowDefinitions"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.UploadFlowDefinitionsRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.UploadFlowDefinitionsResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("UploadFlowDefinitions"))
+              .build();
+        }
+      }
+    }
+    return getUploadFlowDefinitionsMethod;
+  }
+
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.ListFlowDefinitionsRequest,
+      io.superdurable.gen.ListFlowDefinitionsResponse> getListFlowDefinitionsMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "ListFlowDefinitions",
+      requestType = io.superdurable.gen.ListFlowDefinitionsRequest.class,
+      responseType = io.superdurable.gen.ListFlowDefinitionsResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.ListFlowDefinitionsRequest,
+      io.superdurable.gen.ListFlowDefinitionsResponse> getListFlowDefinitionsMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.ListFlowDefinitionsRequest, io.superdurable.gen.ListFlowDefinitionsResponse> getListFlowDefinitionsMethod;
+    if ((getListFlowDefinitionsMethod = FlowServiceGrpc.getListFlowDefinitionsMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getListFlowDefinitionsMethod = FlowServiceGrpc.getListFlowDefinitionsMethod) == null) {
+          FlowServiceGrpc.getListFlowDefinitionsMethod = getListFlowDefinitionsMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.ListFlowDefinitionsRequest, io.superdurable.gen.ListFlowDefinitionsResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "ListFlowDefinitions"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.ListFlowDefinitionsRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.ListFlowDefinitionsResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("ListFlowDefinitions"))
+              .build();
+        }
+      }
+    }
+    return getListFlowDefinitionsMethod;
+  }
+
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.GetFlowDefinitionsRequest,
+      io.superdurable.gen.GetFlowDefinitionsResponse> getGetFlowDefinitionsMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "GetFlowDefinitions",
+      requestType = io.superdurable.gen.GetFlowDefinitionsRequest.class,
+      responseType = io.superdurable.gen.GetFlowDefinitionsResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.GetFlowDefinitionsRequest,
+      io.superdurable.gen.GetFlowDefinitionsResponse> getGetFlowDefinitionsMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.GetFlowDefinitionsRequest, io.superdurable.gen.GetFlowDefinitionsResponse> getGetFlowDefinitionsMethod;
+    if ((getGetFlowDefinitionsMethod = FlowServiceGrpc.getGetFlowDefinitionsMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getGetFlowDefinitionsMethod = FlowServiceGrpc.getGetFlowDefinitionsMethod) == null) {
+          FlowServiceGrpc.getGetFlowDefinitionsMethod = getGetFlowDefinitionsMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.GetFlowDefinitionsRequest, io.superdurable.gen.GetFlowDefinitionsResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "GetFlowDefinitions"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.GetFlowDefinitionsRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.GetFlowDefinitionsResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("GetFlowDefinitions"))
+              .build();
+        }
+      }
+    }
+    return getGetFlowDefinitionsMethod;
+  }
+
   /**
    * Creates a new async stub that supports all call types for the service
    */
@@ -1058,6 +1151,69 @@ public final class FlowServiceGrpc {
     default void healthCheck(com.google.protobuf.Empty request,
         io.grpc.stub.StreamObserver<io.superdurable.gen.HealthInfo> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getHealthCheckMethod(), responseObserver);
+    }
+
+    /**
+     * <pre>
+     * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+     * Workers call it at startup so that Dex Web can render their Flows without
+     * a definition directory. The server keeps one document for each Flow type
+     * and decides each item separately. The outcome is CREATED when no document
+     * was stored for the Flow type. It is UNCHANGED when the stored document has
+     * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+     * digest differs and generated_at is strictly later than the stored
+     * generated_at, compared at microsecond precision, or when force is set.
+     * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+     * reports its digest and generation time.
+     * Items are independent. Concurrent uploads of one Flow type are safe: each
+     * item's outcome is decided against the document stored when its write
+     * commits. If the call fails partway, earlier items may already be stored;
+     * repeating the call is safe and reports them as UNCHANGED.
+     * The server checks only that each document is a JSON object of at most
+     * flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+     * "2.", and that its flow.name equals flow_type. Dex Web validates the full
+     * graph when it reads it.
+     * Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+     * anything, for an invalid item, more than 256 items, a repeated flow_type, a
+     * missing generated_at, or a generated_at more than 24 hours after the
+     * server's clock. Fails with Unavailable when object storage fails; the call
+     * is then safe to retry.
+     * </pre>
+     */
+    default void uploadFlowDefinitions(io.superdurable.gen.UploadFlowDefinitionsRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.UploadFlowDefinitionsResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getUploadFlowDefinitionsMethod(), responseObserver);
+    }
+
+    /**
+     * <pre>
+     * Lists the Flow types that have a stored definition, one page at a time.
+     * It returns names only; call GetFlowDefinitions for content and metadata.
+     * Pages follow the order of the stored object keys, which is stable but is
+     * not exactly the order of Flow types. A Flow type first stored during a
+     * listing may or may not appear. Fails with InvalidArgument for a negative
+     * page_size or an invalid page token, and with Unavailable when object
+     * storage fails.
+     * </pre>
+     */
+    default void listFlowDefinitions(io.superdurable.gen.ListFlowDefinitionsRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.ListFlowDefinitionsResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getListFlowDefinitionsMethod(), responseObserver);
+    }
+
+    /**
+     * <pre>
+     * Returns the stored Flow definitions of the requested Flow types, with content.
+     * A requested Flow type that has no stored definition is left out of the
+     * response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+     * Flow types, more than 256, or an invalid Flow type. Fails with
+     * ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+     * would not fit in one response message; request fewer Flow types.
+     * </pre>
+     */
+    default void getFlowDefinitions(io.superdurable.gen.GetFlowDefinitionsRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowDefinitionsResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getGetFlowDefinitionsMethod(), responseObserver);
     }
   }
 
@@ -1304,6 +1460,72 @@ public final class FlowServiceGrpc {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
           getChannel().newCall(getHealthCheckMethod(), getCallOptions()), request, responseObserver);
     }
+
+    /**
+     * <pre>
+     * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+     * Workers call it at startup so that Dex Web can render their Flows without
+     * a definition directory. The server keeps one document for each Flow type
+     * and decides each item separately. The outcome is CREATED when no document
+     * was stored for the Flow type. It is UNCHANGED when the stored document has
+     * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+     * digest differs and generated_at is strictly later than the stored
+     * generated_at, compared at microsecond precision, or when force is set.
+     * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+     * reports its digest and generation time.
+     * Items are independent. Concurrent uploads of one Flow type are safe: each
+     * item's outcome is decided against the document stored when its write
+     * commits. If the call fails partway, earlier items may already be stored;
+     * repeating the call is safe and reports them as UNCHANGED.
+     * The server checks only that each document is a JSON object of at most
+     * flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+     * "2.", and that its flow.name equals flow_type. Dex Web validates the full
+     * graph when it reads it.
+     * Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+     * anything, for an invalid item, more than 256 items, a repeated flow_type, a
+     * missing generated_at, or a generated_at more than 24 hours after the
+     * server's clock. Fails with Unavailable when object storage fails; the call
+     * is then safe to retry.
+     * </pre>
+     */
+    public void uploadFlowDefinitions(io.superdurable.gen.UploadFlowDefinitionsRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.UploadFlowDefinitionsResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getUploadFlowDefinitionsMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     * <pre>
+     * Lists the Flow types that have a stored definition, one page at a time.
+     * It returns names only; call GetFlowDefinitions for content and metadata.
+     * Pages follow the order of the stored object keys, which is stable but is
+     * not exactly the order of Flow types. A Flow type first stored during a
+     * listing may or may not appear. Fails with InvalidArgument for a negative
+     * page_size or an invalid page token, and with Unavailable when object
+     * storage fails.
+     * </pre>
+     */
+    public void listFlowDefinitions(io.superdurable.gen.ListFlowDefinitionsRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.ListFlowDefinitionsResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getListFlowDefinitionsMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     * <pre>
+     * Returns the stored Flow definitions of the requested Flow types, with content.
+     * A requested Flow type that has no stored definition is left out of the
+     * response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+     * Flow types, more than 256, or an invalid Flow type. Fails with
+     * ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+     * would not fit in one response message; request fewer Flow types.
+     * </pre>
+     */
+    public void getFlowDefinitions(io.superdurable.gen.GetFlowDefinitionsRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowDefinitionsResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getGetFlowDefinitionsMethod(), getCallOptions()), request, responseObserver);
+    }
   }
 
   /**
@@ -1508,6 +1730,69 @@ public final class FlowServiceGrpc {
     public io.superdurable.gen.HealthInfo healthCheck(com.google.protobuf.Empty request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getHealthCheckMethod(), getCallOptions(), request);
+    }
+
+    /**
+     * <pre>
+     * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+     * Workers call it at startup so that Dex Web can render their Flows without
+     * a definition directory. The server keeps one document for each Flow type
+     * and decides each item separately. The outcome is CREATED when no document
+     * was stored for the Flow type. It is UNCHANGED when the stored document has
+     * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+     * digest differs and generated_at is strictly later than the stored
+     * generated_at, compared at microsecond precision, or when force is set.
+     * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+     * reports its digest and generation time.
+     * Items are independent. Concurrent uploads of one Flow type are safe: each
+     * item's outcome is decided against the document stored when its write
+     * commits. If the call fails partway, earlier items may already be stored;
+     * repeating the call is safe and reports them as UNCHANGED.
+     * The server checks only that each document is a JSON object of at most
+     * flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+     * "2.", and that its flow.name equals flow_type. Dex Web validates the full
+     * graph when it reads it.
+     * Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+     * anything, for an invalid item, more than 256 items, a repeated flow_type, a
+     * missing generated_at, or a generated_at more than 24 hours after the
+     * server's clock. Fails with Unavailable when object storage fails; the call
+     * is then safe to retry.
+     * </pre>
+     */
+    public io.superdurable.gen.UploadFlowDefinitionsResponse uploadFlowDefinitions(io.superdurable.gen.UploadFlowDefinitionsRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getUploadFlowDefinitionsMethod(), getCallOptions(), request);
+    }
+
+    /**
+     * <pre>
+     * Lists the Flow types that have a stored definition, one page at a time.
+     * It returns names only; call GetFlowDefinitions for content and metadata.
+     * Pages follow the order of the stored object keys, which is stable but is
+     * not exactly the order of Flow types. A Flow type first stored during a
+     * listing may or may not appear. Fails with InvalidArgument for a negative
+     * page_size or an invalid page token, and with Unavailable when object
+     * storage fails.
+     * </pre>
+     */
+    public io.superdurable.gen.ListFlowDefinitionsResponse listFlowDefinitions(io.superdurable.gen.ListFlowDefinitionsRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getListFlowDefinitionsMethod(), getCallOptions(), request);
+    }
+
+    /**
+     * <pre>
+     * Returns the stored Flow definitions of the requested Flow types, with content.
+     * A requested Flow type that has no stored definition is left out of the
+     * response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+     * Flow types, more than 256, or an invalid Flow type. Fails with
+     * ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+     * would not fit in one response message; request fewer Flow types.
+     * </pre>
+     */
+    public io.superdurable.gen.GetFlowDefinitionsResponse getFlowDefinitions(io.superdurable.gen.GetFlowDefinitionsRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getGetFlowDefinitionsMethod(), getCallOptions(), request);
     }
   }
 
@@ -1740,6 +2025,72 @@ public final class FlowServiceGrpc {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
           getChannel().newCall(getHealthCheckMethod(), getCallOptions()), request);
     }
+
+    /**
+     * <pre>
+     * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+     * Workers call it at startup so that Dex Web can render their Flows without
+     * a definition directory. The server keeps one document for each Flow type
+     * and decides each item separately. The outcome is CREATED when no document
+     * was stored for the Flow type. It is UNCHANGED when the stored document has
+     * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+     * digest differs and generated_at is strictly later than the stored
+     * generated_at, compared at microsecond precision, or when force is set.
+     * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+     * reports its digest and generation time.
+     * Items are independent. Concurrent uploads of one Flow type are safe: each
+     * item's outcome is decided against the document stored when its write
+     * commits. If the call fails partway, earlier items may already be stored;
+     * repeating the call is safe and reports them as UNCHANGED.
+     * The server checks only that each document is a JSON object of at most
+     * flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+     * "2.", and that its flow.name equals flow_type. Dex Web validates the full
+     * graph when it reads it.
+     * Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+     * anything, for an invalid item, more than 256 items, a repeated flow_type, a
+     * missing generated_at, or a generated_at more than 24 hours after the
+     * server's clock. Fails with Unavailable when object storage fails; the call
+     * is then safe to retry.
+     * </pre>
+     */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.UploadFlowDefinitionsResponse> uploadFlowDefinitions(
+        io.superdurable.gen.UploadFlowDefinitionsRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getUploadFlowDefinitionsMethod(), getCallOptions()), request);
+    }
+
+    /**
+     * <pre>
+     * Lists the Flow types that have a stored definition, one page at a time.
+     * It returns names only; call GetFlowDefinitions for content and metadata.
+     * Pages follow the order of the stored object keys, which is stable but is
+     * not exactly the order of Flow types. A Flow type first stored during a
+     * listing may or may not appear. Fails with InvalidArgument for a negative
+     * page_size or an invalid page token, and with Unavailable when object
+     * storage fails.
+     * </pre>
+     */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.ListFlowDefinitionsResponse> listFlowDefinitions(
+        io.superdurable.gen.ListFlowDefinitionsRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getListFlowDefinitionsMethod(), getCallOptions()), request);
+    }
+
+    /**
+     * <pre>
+     * Returns the stored Flow definitions of the requested Flow types, with content.
+     * A requested Flow type that has no stored definition is left out of the
+     * response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+     * Flow types, more than 256, or an invalid Flow type. Fails with
+     * ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+     * would not fit in one response message; request fewer Flow types.
+     * </pre>
+     */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.GetFlowDefinitionsResponse> getFlowDefinitions(
+        io.superdurable.gen.GetFlowDefinitionsRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getGetFlowDefinitionsMethod(), getCallOptions()), request);
+    }
   }
 
   private static final int METHODID_GET_SERVER_INFO = 0;
@@ -1768,6 +2119,9 @@ public final class FlowServiceGrpc {
   private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 23;
   private static final int METHODID_WAIT_FOR_ATTRIBUTE = 24;
   private static final int METHODID_HEALTH_CHECK = 25;
+  private static final int METHODID_UPLOAD_FLOW_DEFINITIONS = 26;
+  private static final int METHODID_LIST_FLOW_DEFINITIONS = 27;
+  private static final int METHODID_GET_FLOW_DEFINITIONS = 28;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -1889,6 +2243,18 @@ public final class FlowServiceGrpc {
         case METHODID_HEALTH_CHECK:
           serviceImpl.healthCheck((com.google.protobuf.Empty) request,
               (io.grpc.stub.StreamObserver<io.superdurable.gen.HealthInfo>) responseObserver);
+          break;
+        case METHODID_UPLOAD_FLOW_DEFINITIONS:
+          serviceImpl.uploadFlowDefinitions((io.superdurable.gen.UploadFlowDefinitionsRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.UploadFlowDefinitionsResponse>) responseObserver);
+          break;
+        case METHODID_LIST_FLOW_DEFINITIONS:
+          serviceImpl.listFlowDefinitions((io.superdurable.gen.ListFlowDefinitionsRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.ListFlowDefinitionsResponse>) responseObserver);
+          break;
+        case METHODID_GET_FLOW_DEFINITIONS:
+          serviceImpl.getFlowDefinitions((io.superdurable.gen.GetFlowDefinitionsRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.GetFlowDefinitionsResponse>) responseObserver);
           break;
         default:
           throw new AssertionError();
@@ -2090,6 +2456,27 @@ public final class FlowServiceGrpc {
               com.google.protobuf.Empty,
               io.superdurable.gen.HealthInfo>(
                 service, METHODID_HEALTH_CHECK)))
+        .addMethod(
+          getUploadFlowDefinitionsMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.UploadFlowDefinitionsRequest,
+              io.superdurable.gen.UploadFlowDefinitionsResponse>(
+                service, METHODID_UPLOAD_FLOW_DEFINITIONS)))
+        .addMethod(
+          getListFlowDefinitionsMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.ListFlowDefinitionsRequest,
+              io.superdurable.gen.ListFlowDefinitionsResponse>(
+                service, METHODID_LIST_FLOW_DEFINITIONS)))
+        .addMethod(
+          getGetFlowDefinitionsMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.GetFlowDefinitionsRequest,
+              io.superdurable.gen.GetFlowDefinitionsResponse>(
+                service, METHODID_GET_FLOW_DEFINITIONS)))
         .build();
   }
 
@@ -2164,6 +2551,9 @@ public final class FlowServiceGrpc {
               .addMethod(getWaitForStepCompletionMethod())
               .addMethod(getWaitForAttributeMethod())
               .addMethod(getHealthCheckMethod())
+              .addMethod(getUploadFlowDefinitionsMethod())
+              .addMethod(getListFlowDefinitionsMethod())
+              .addMethod(getGetFlowDefinitionsMethod())
               .build();
         }
       }

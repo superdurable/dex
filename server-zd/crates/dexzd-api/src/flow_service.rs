@@ -17,17 +17,19 @@ use dexzd_keyspace::TenantId;
 use dexzd_protocol::dex::flow_service_server::{self, FlowServiceServer};
 use dexzd_protocol::dex::{
     DeleteChannelMessageRequest, FlowResult, GetAttributesRequest, GetAttributesResponse,
-    GetChannelMessagesRequest, GetChannelMessagesResponse, GetFlowStateRequest,
-    GetFlowStateResponse, GetFlowSummaryRequest, GetFlowSummaryResponse, GetHistoryEventsRequest,
-    GetHistoryEventsResponse, HealthInfo, InvokeRpcRequest, InvokeRpcResponse,
+    GetChannelMessagesRequest, GetChannelMessagesResponse, GetFlowDefinitionsRequest,
+    GetFlowDefinitionsResponse, GetFlowStateRequest, GetFlowStateResponse, GetFlowSummaryRequest,
+    GetFlowSummaryResponse, GetHistoryEventsRequest, GetHistoryEventsResponse, HealthInfo,
+    InvokeRpcRequest, InvokeRpcResponse, ListFlowDefinitionsRequest, ListFlowDefinitionsResponse,
     ListStreamMessagesRequest, ListStreamMessagesResponse, LoadBlobsRequest, LoadBlobsResponse,
     PublishToChannelRequest, ReadStreamRequest, ReadStreamResponse, ResetFlowRequest,
     ResetFlowResponse, SearchFlowsRequest, SearchFlowsResponse, ServerEngine, ServerInfo,
     SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StartFlowResponse, StopFlowRequest,
     SyncAttributeIndexRequest, SyncAttributeIndexResponse, UpdateFlowConfigRequest,
-    WaitForAttributeRequest, WaitForAttributeResponse, WaitForFlowRequest,
-    WaitForHistoryEventRequest, WaitForHistoryEventResponse, WaitForStepCompletionRequest,
-    WaitForStepCompletionResponse, WriteStreamRequest,
+    UploadFlowDefinitionsRequest, UploadFlowDefinitionsResponse, WaitForAttributeRequest,
+    WaitForAttributeResponse, WaitForFlowRequest, WaitForHistoryEventRequest,
+    WaitForHistoryEventResponse, WaitForStepCompletionRequest, WaitForStepCompletionResponse,
+    WriteStreamRequest,
 };
 use dexzd_search::{SearchBackend, SearchError, SearchRequest};
 use tonic::{Request, Response, Status};
@@ -35,7 +37,8 @@ use tonic::{Request, Response, Status};
 use crate::client_deadline::WaitCallDeadline;
 use crate::stream_operations::STREAM_READ_TIMEOUT_MESSAGE;
 use crate::{
-    AttributeIndexes, FlowOperationError, FlowOperations, FlowServiceConfig, StreamOperations,
+    AttributeIndexes, FlowDefinitions, FlowOperationError, FlowOperations, FlowServiceConfig,
+    StreamOperations,
 };
 
 /// Oldest client protocol version this server accepts; equal to the Go Server's.
@@ -51,6 +54,8 @@ pub struct FlowServiceDependencies {
     pub stream_operations: StreamOperations,
     /// Attribute index registration and the search field registry.
     pub attribute_indexes: Arc<AttributeIndexes>,
+    /// Uploaded Flow Definition Graph documents.
+    pub flow_definitions: Arc<FlowDefinitions>,
     /// SearchFlows backend; `None` makes SearchFlows return `Unimplemented`.
     pub search_backend: Option<Arc<dyn SearchBackend>>,
 }
@@ -435,6 +440,42 @@ impl flow_service_server::FlowService for DexFlowService {
                     self.operations()
                         .wait_for_attribute(TenantId::DEFAULT, request.into_inner()),
                 )
+                .await,
+        )
+    }
+
+    async fn upload_flow_definitions(
+        &self,
+        request: Request<UploadFlowDefinitionsRequest>,
+    ) -> Result<Response<UploadFlowDefinitionsResponse>, Status> {
+        respond(
+            self.dependencies
+                .flow_definitions
+                .upload_flow_definitions(TenantId::DEFAULT, request.into_inner())
+                .await,
+        )
+    }
+
+    async fn list_flow_definitions(
+        &self,
+        request: Request<ListFlowDefinitionsRequest>,
+    ) -> Result<Response<ListFlowDefinitionsResponse>, Status> {
+        respond(
+            self.dependencies
+                .flow_definitions
+                .list_flow_definitions(TenantId::DEFAULT, request.into_inner())
+                .await,
+        )
+    }
+
+    async fn get_flow_definitions(
+        &self,
+        request: Request<GetFlowDefinitionsRequest>,
+    ) -> Result<Response<GetFlowDefinitionsResponse>, Status> {
+        respond(
+            self.dependencies
+                .flow_definitions
+                .get_flow_definitions(TenantId::DEFAULT, request.into_inner())
                 .await,
         )
     }
