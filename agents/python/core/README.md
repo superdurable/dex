@@ -2262,7 +2262,7 @@ The plan records each of these decisions too.
   wrong `readOnlyHint` on a write makes that write run without approval and
   retry; set `trusts_tool_annotations=False` or a `ToolPolicy` for servers you
   do not control.
-- Images: no built-in runner sends images to a model yet, and the media
+- Images: the Stepwise runner sends no images to a model yet, and the media
   stores keep no local read cache, so each `load_images` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.

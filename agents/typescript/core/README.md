@@ -2363,7 +2363,7 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   attempts, on every `listTools` call until it answers. A server that binds
   tasks to its protocol session, such as a stateful server on the SDK's task
   store, cannot resume a task across attempts; the retry calls the tool again.
-- Images: no built-in runner sends images to a model yet, and the media stores keep no local read cache, so each
+- Images: the Stepwise runner sends no images to a model yet, and the media stores keep no local read cache, so each
   `loadImages` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
