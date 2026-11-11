@@ -206,6 +206,8 @@ impl Step for StepSecond {
 
 用 **AnyOf** 或 **AllOf** 组合条件。**AnyCombinationOf** 在几组条件中任意一组全部满足时成立。等待结束后，**Execute** 可以读取满足它的结果，比如它消费的 Channel 消息。见 [Waits](/reference/python/waits)。
 
+要等待并行分支，用 **Join**。它不是另一类条件：它等待的是各分支上报结果的 ChannelMap。见 [Await Parallel Steps](/design-patterns/parallel/await)。
+
 ## StepDecision {#stepdecision-movements}
 
 **Execute** 返回一个 **StepDecision**。它可以进入下一个 Step，也可以同时进入多个 Step。分支、循环和并行工作都这样构建。
