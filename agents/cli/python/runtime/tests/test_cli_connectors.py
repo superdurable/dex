@@ -69,6 +69,26 @@ async def test_a_connector_read_runs_at_once_and_an_approved_write_runs_once(
     assert sent["io.superdurable.connectors/expectedOperation"] == "postThreadReply"
 
 
+async def test_the_file_enabled_connector_tools_are_cached_before_the_flow_is_built(
+    cli_home: CliHome, fake_mcp: FakeConnectorsMcp
+) -> None:
+    # A runner that fixes its tools when it is built, as the OpenAI Agents SDK one does, sees them.
+    cli_home.write_config(
+        config_yaml(
+            {
+                "connectors": {"mcp": fake_mcp.url, "enabled": ["hackernews"]},
+                "local_tools": NO_LOCAL_TOOLS,
+            }
+        )
+    )
+    child = cli_home.spawn()
+    await expect(child, "> ")
+    child.sendline("cached")
+    await expect(child, "cached: hackernews_get_top_stories\r")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+
+
 async def test_a_tool_name_rebound_to_another_connection_is_refused_before_it_is_sent(
     cli_home: CliHome, fake_mcp: FakeConnectorsMcp
 ) -> None:

@@ -11,6 +11,7 @@
 The last user message picks the reply:
 
 * ``tools``: lists the offered tool names, sorted.
+* ``cached``: lists the sources' cached tool names when the Flow was built, sorted.
 * ``model``: names the turn's model; ``prompt``: shows the turn's instructions.
 * ``history``: lists the earlier user messages.
 * ``call <tool> <json arguments>``: calls one tool.
@@ -77,12 +78,17 @@ class ScriptedHarness:
         self._has_replacement_shell_tool = has_replacement_shell_tool
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
+        cached_at_build = sorted(
+            tool.name
+            for source in context.tool_sources
+            for tool in getattr(source, "cached_tools", tuple)()
+        )
         models: dict[str, ScriptedModelClient] = {}
 
         def resolve_model(session_settings: Mapping[str, Any]) -> ScriptedModelClient:
             model_name = context.resolve_turn(session_settings).model
             if model_name not in models:
-                models[model_name] = ScriptedModelClient(_responder(model_name))
+                models[model_name] = ScriptedModelClient(_responder(model_name, cached_at_build))
             return models[model_name]
 
         def instructions(instruction_context: InstructionContext) -> str:
@@ -128,7 +134,7 @@ def build_session_flow_without_tools(flow_type: str = SCRIPTED_FLOW_TYPE) -> Age
     return ScriptedHarness().create_session_flow(context)
 
 
-def _responder(model_name: str) -> Any:
+def _responder(model_name: str, cached_at_build: list[str]) -> Any:
     async def respond(request: ModelRequest) -> ScriptedModelReply:
         results = ScriptedModelClient.tool_results(request)
         if results:
@@ -143,6 +149,8 @@ def _responder(model_name: str) -> Any:
             case "tools":
                 names = sorted(tool.name for tool in request.tools)
                 return ScriptedModelReply(text="tools: " + ",".join(names))
+            case "cached":
+                return ScriptedModelReply(text="cached: " + ",".join(cached_at_build))
             case "model":
                 return ScriptedModelReply(text=f"model: {model_name}")
             case "prompt":

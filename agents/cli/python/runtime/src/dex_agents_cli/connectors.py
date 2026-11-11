@@ -38,7 +38,7 @@ from dex_agents.mcp import (
     McpToolSource,
 )
 from dex_agents.stepwise import SourceToolDefinition
-from dex_agents_cli.config import ConnectorsConfig
+from dex_agents_cli.config import ConnectorsConfig, EffectiveConfig
 from dex_agents_cli.tool_policy import disabled_tool_call, raise_if_disabled
 from dex_agents_cli.turns import (
     TurnConfigResolver,
@@ -268,7 +268,7 @@ class ConnectorsMcpToolSource:
         return self._url
 
     def cached_tools(self) -> tuple[ConnectorToolDefinition, ...]:
-        """Return the last listing."""
+        """Return the last listing, or the startup listing of ``list_file_enabled_tools``."""
         return self._last_listing
 
     async def list_tools(self) -> Sequence[SourceToolDefinition]:
@@ -281,6 +281,23 @@ class ConnectorsMcpToolSource:
         turn_config = current_turn_config()
         if turn_config is None:
             return ()
+        return await self._list_enabled_tools(turn_config)
+
+    async def list_file_enabled_tools(self) -> Sequence[SourceToolDefinition]:
+        """List the tools the configuration file enables, before any turn runs.
+
+        The command calls it at startup, so ``cached_tools`` has the tools
+        before the harness builds its Flow. A runner that fixes its tools when
+        it is built, such as the OpenAI Agents SDK runner, can offer only these.
+
+        Returns:
+            The listed tools; none while the server does not answer.
+        """
+        return await self._list_enabled_tools(self._resolver.file_config)
+
+    async def _list_enabled_tools(
+        self, turn_config: EffectiveConfig
+    ) -> Sequence[SourceToolDefinition]:
         try:
             mcp_tools = await self._mcp.list_tools(refresh=True)
             catalog = await read_connector_catalog(self._url)

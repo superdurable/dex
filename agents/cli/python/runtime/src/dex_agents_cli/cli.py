@@ -379,7 +379,9 @@ async def _connect_connectors(
             url, resolver, is_available=False, report=_report_on_standard_error
         )
     _report_unauthorized(config, catalog, endpoint.web_url)
-    return ConnectorsMcpToolSource(url, resolver, report=_report_on_standard_error)
+    source = ConnectorsMcpToolSource(url, resolver, report=_report_on_standard_error)
+    await source.list_file_enabled_tools()
+    return source
 
 
 def _report_unauthorized(
