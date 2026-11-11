@@ -474,6 +474,7 @@ func TestJoinPartialRoundsResetBeforeTheNextRoundStarts(t *testing.T) {
 		RoundCount:       2,
 	})
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "A", nil)
+	waitForJoinStep(t, flowID, joinBranchStep{}, 1)
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "B", nil)
 	waitForJoinStep(t, flowID, joinStep{}, 1)
 
@@ -486,6 +487,8 @@ func TestJoinPartialRoundsResetBeforeTheNextRoundStarts(t *testing.T) {
 
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "C", nil)
 	waitForJoinStep(t, flowID, joinSplitStep{}, 2)
+	// Round two's branch A consumed the early release; it is the fourth branch execution.
+	waitForJoinStep(t, flowID, joinBranchStep{}, 4)
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "C", nil)
 
 	summary := waitForJoinSummary(t, flowID)
