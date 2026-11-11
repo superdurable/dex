@@ -174,7 +174,7 @@ python3 script/release/changelog_fragments.py prepare skills --date <YYYY-MM-DD>
 It bumps `VERSION` by the largest fragment bump and writes that version into
 `dex-sdk/VERSION` and every manifest that supports one. It adds the
 `CHANGELOG.md` entry and deletes the fragments. The workflow pushes a new
-`release-prep/skills-v<version>-<run ID>` branch on every run. Open its pull
+`release-prep/skills-v<version>-<run ID>-<attempt>` branch on every run. Open its pull
 request with the `release-prep` label. Check Gate CI repeats the assembly on the base and
 requires the same files.
 

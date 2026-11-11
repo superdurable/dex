@@ -24,7 +24,7 @@ jobs:
           python3 script/release/changelog_fragments.py prepare skills --date "${release_date}"
           version="$(tr -d '[:space:]' < skills/VERSION)"
           # The run ID keeps the branch new when a later fragment needs another prep.
-          branch="release-prep/skills-v${version}-${GITHUB_RUN_ID}"
+          branch="release-prep/skills-v${version}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git switch -c "${branch}"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

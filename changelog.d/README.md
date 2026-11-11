@@ -45,7 +45,7 @@ python3 script/release/changelog_fragments.py prepare skills --date <YYYY-MM-DD>
 ```
 
 The **Prepare skills release** workflow does the same and pushes a new
-`release-prep/skills-v<version>-<run ID>` branch on every run.
+`release-prep/skills-v<version>-<run ID>-<attempt>` branch on every run.
 Open the pull request with the `release-prep` label. Check Gate CI reads the
 version and date from the new entry, runs the same assembly on the base, and
 requires identical files. When a fragment lands on main first, the check fails

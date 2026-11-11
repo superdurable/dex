@@ -263,6 +263,18 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(message, result.stderr)
 
+    def test_a_grace_pull_request_cannot_bump_over_pending_fragments(self) -> None:
+        self.land_fragments("fix-000001")
+        self.git("switch", "-c", "legacy-over-fragments")
+        self.write(SKILL_FILE, self.read(SKILL_FILE) + "\nA new rule.\n")
+        self.legacy_bump(self.next_patch(self.base_version))
+        self.commit("legacy bump over fragments")
+
+        result = self.check_pr(pr_number=LEGACY_PR_NUMBER)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unreleased skills fragments: changelog.d/skills/fix-000001.md", result.stderr)
+
     def test_every_published_skills_file_needs_a_fragment(self) -> None:
         for path in ("skills/README.md", "skills/script/check-package.py", "skills/hooks/new-hook.sh"):
             with self.subTest(path=path):
