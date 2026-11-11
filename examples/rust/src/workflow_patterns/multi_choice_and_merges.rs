@@ -19,12 +19,12 @@
 use std::sync::LazyLock;
 
 use dex_sdk::{
-    Attribute, Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Step,
-    StepDecision, StepList, StepMovement, StepOptions, Value, Wait,
+    Attribute, Channel, Context, Flow, HandlerError, HandlerResult, Join, JoinRound,
+    PersistenceSchema, Step, StepDecision, StepList, StepMovement, StepOptions, Value, Wait,
 };
 use serde::{Deserialize, Serialize};
 
-use super::sorted;
+use super::{round_branch, sorted};
 
 /// The notification branches a caller selects.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -35,12 +35,11 @@ pub struct NotificationChannelSelection {
     pub send_push: bool,
 }
 
-static NOTIFICATION_SENT: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("notificationSent"));
+static NOTIFICATION_SENT: LazyLock<Join<String>> = LazyLock::new(|| Join::new("notificationSent"));
 
 /// WCP-6 Multi-Choice, WCP-7 Structured Synchronizing Merge, and WCP-37
-/// Local Synchronizing Merge: the diverging decision passes the selected
-/// branch count to the join Step.
+/// Local Synchronizing Merge: the diverging decision forks the selected
+/// branches, and the join waits for each of them.
 #[derive(Default)]
 pub struct MultiChoiceSynchronizingMergeFlow {
     select_notification_channels: SelectNotificationChannels,
@@ -62,7 +61,7 @@ impl Flow for MultiChoiceSynchronizingMergeFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&NOTIFICATION_SENT)
+        PersistenceSchema::new().join(&NOTIFICATION_SENT)
     }
 }
 
@@ -74,26 +73,26 @@ impl Step for SelectNotificationChannels {
 
     fn execute(
         &self,
-        _context: &mut Context,
+        context: &mut Context,
         selection: Self::Input,
     ) -> HandlerResult<StepDecision> {
         let mut branches = Vec::new();
         if selection.send_email {
-            branches.push(StepMovement::to(&SendEmail, ()));
+            branches.push(round_branch(SendEmail));
         }
         if selection.send_sms {
-            branches.push(StepMovement::to(&SendSms, ()));
+            branches.push(round_branch(SendSms));
         }
         if selection.send_push {
-            branches.push(StepMovement::to(&SendPush, ()));
+            branches.push(round_branch(SendPush));
         }
         if branches.is_empty() {
             return Ok(StepDecision::graceful_complete(Vec::<String>::new()));
         }
-        let merge = StepMovement::to(&SynchronizingMerge, branches.len());
-        Ok(StepDecision::go_to_many(
-            std::iter::once(merge).chain(branches),
-        ))
+        let movements = NOTIFICATION_SENT.fork(context, branches, |round| {
+            StepMovement::to(&SynchronizingMerge, round)
+        })?;
+        Ok(StepDecision::go_to_many(movements))
     }
 }
 
@@ -101,11 +100,10 @@ impl Step for SelectNotificationChannels {
 struct SendEmail;
 
 impl Step for SendEmail {
-    type Input = ();
+    type Input = JoinRound;
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        NOTIFICATION_SENT.publish(context, self.step_type().to_string())?;
-        Ok(StepDecision::dead_end())
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        NOTIFICATION_SENT.end_branch(context, &round, self.step_type().to_string())
     }
 }
 
@@ -113,11 +111,10 @@ impl Step for SendEmail {
 struct SendSms;
 
 impl Step for SendSms {
-    type Input = ();
+    type Input = JoinRound;
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        NOTIFICATION_SENT.publish(context, self.step_type().to_string())?;
-        Ok(StepDecision::dead_end())
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        NOTIFICATION_SENT.end_branch(context, &round, self.step_type().to_string())
     }
 }
 
@@ -125,11 +122,10 @@ impl Step for SendSms {
 struct SendPush;
 
 impl Step for SendPush {
-    type Input = ();
+    type Input = JoinRound;
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        NOTIFICATION_SENT.publish(context, self.step_type().to_string())?;
-        Ok(StepDecision::dead_end())
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        NOTIFICATION_SENT.end_branch(context, &round, self.step_type().to_string())
     }
 }
 
@@ -137,18 +133,14 @@ impl Step for SendPush {
 struct SynchronizingMerge;
 
 impl Step for SynchronizingMerge {
-    type Input = usize;
+    type Input = JoinRound;
 
-    fn wait_for(&self, _context: &mut Context, branch_count: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(NOTIFICATION_SENT.for_n(branch_count)))
+    fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(NOTIFICATION_SENT.for_all_branches(&round)))
     }
 
-    fn execute(
-        &self,
-        context: &mut Context,
-        _branch_count: Self::Input,
-    ) -> HandlerResult<StepDecision> {
-        let notifications = NOTIFICATION_SENT.condition_results(context)?;
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        let notifications = NOTIFICATION_SENT.branch_results(context, &round)?;
         Ok(StepDecision::graceful_complete(sorted(notifications)))
     }
 }

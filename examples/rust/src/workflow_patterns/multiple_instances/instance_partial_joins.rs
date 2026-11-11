@@ -17,12 +17,13 @@
 use std::sync::LazyLock;
 
 use dex_sdk::{
-    Attribute, AttributeMap, Channel, ChannelMap, Context, Flow, HandlerResult, PersistenceSchema,
-    Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepMovement, StepOptions, Wait,
+    Attribute, AttributeMap, Channel, Context, Flow, HandlerResult, Join, JoinRound,
+    PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepMovement,
+    StepOptions, Wait,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::workflow_patterns::{round_instance, sorted};
+use crate::workflow_patterns::{JoinBranchBuilder, sorted};
 
 /// One round of the static partial join.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -32,14 +33,47 @@ pub struct InspectionRound {
     pub required_inspections: usize,
     pub round: u32,
     pub round_count: u32,
+    /// The Join round to reset before this round starts; `None` in round 1.
+    pub previous_round: Option<JoinRound>,
+}
+
+/// The input of the join Step of one inspection round.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InspectionRoundJoin {
+    pub inspection_round: InspectionRound,
+    pub join_round: JoinRound,
 }
 
 /// One inspection instance of a round.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnitInspection {
-    pub round: u32,
+    pub round: JoinRound,
     pub unit_index: usize,
+}
+
+/// Returns one inspection branch builder per unit index below `inspection_count`.
+fn unit_inspection_branches<InspectionStep>(
+    step: InspectionStep,
+    inspection_count: usize,
+) -> Vec<JoinBranchBuilder>
+where
+    InspectionStep: Step<Input = UnitInspection> + Copy + 'static,
+{
+    (0..inspection_count)
+        .map(|unit_index| {
+            Box::new(move |round: &JoinRound| {
+                StepMovement::to(
+                    &step,
+                    UnitInspection {
+                        round: round.clone(),
+                        unit_index,
+                    },
+                )
+            }) as JoinBranchBuilder
+        })
+        .collect()
 }
 
 /// The unit indexes that one Step of a round consumed.
@@ -52,21 +86,21 @@ pub struct InspectedUnits {
 
 static INSPECTION_RELEASED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("inspectionReleased"));
-static UNIT_INSPECTED: LazyLock<ChannelMap<usize>> =
-    LazyLock::new(|| ChannelMap::new("unitInspected"));
+static UNIT_INSPECTED: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("unitInspected"));
+pub static IGNORED_INSPECTIONS: LazyLock<Attribute<InspectedUnits>> =
+    LazyLock::new(|| Attribute::new("ignoredInspections"));
 
 pub const RELEASE_INSPECTIONS: Rpc<usize, ()> = Rpc::new("release_inspections");
 
 /// WCP-34 Static Partial Join for Multiple Instances: the join fires after
-/// the required instances of a round, and a reset Step absorbs the rest
-/// before the next round re-enables the join.
+/// the required instances of a round, and the next round's split resets
+/// the rest before the join re-enables.
 #[derive(Default)]
 pub struct StaticPartialJoinForMultipleInstancesFlow {
     start_inspections: StartInspections,
     inspect_unit: InspectUnit,
     accept_inspections: AcceptInspections,
     approve_batch: ApproveBatch,
-    reset_inspection_join: ResetInspectionJoin,
 }
 
 impl StaticPartialJoinForMultipleInstancesFlow {
@@ -86,13 +120,13 @@ impl Flow for StaticPartialJoinForMultipleInstancesFlow {
             .and(&self.inspect_unit)
             .and(&self.accept_inspections)
             .and(&self.approve_batch)
-            .and(&self.reset_inspection_join)
     }
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
             .channel(&INSPECTION_RELEASED)
-            .channel_map(&UNIT_INSPECTED)
+            .join(&UNIT_INSPECTED)
+            .attribute(&IGNORED_INSPECTIONS)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -106,27 +140,47 @@ pub struct StartInspections;
 impl Step for StartInspections {
     type Input = InspectionRound;
 
-    fn execute(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+    /// Resets the previous round: waits for the instances its join did not accept.
+    fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
+        match &round.previous_round {
+            None => Ok(Wait::skip_immediately()),
+            Some(previous_round) => Ok(Wait::until(
+                UNIT_INSPECTED.for_remaining_branches(previous_round, round.required_inspections),
+            )),
+        }
+    }
+
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
         if round.required_inspections > round.inspection_count {
             return Ok(StepDecision::force_fail(
                 "required inspections exceed the inspection count",
             ));
         }
-        let inspections = (0..round.inspection_count).map(|unit_index| {
+        if let Some(previous_round) = &round.previous_round {
+            let late_units = UNIT_INSPECTED.remaining_branch_results(context, previous_round)?;
+            IGNORED_INSPECTIONS.set(
+                context,
+                InspectedUnits {
+                    round: round.round - 1,
+                    unit_indexes: sorted(late_units),
+                },
+            )?;
+        }
+        let inspections = unit_inspection_branches(InspectUnit, round.inspection_count);
+        let movements = UNIT_INSPECTED.fork(context, inspections, |join_round| {
             StepMovement::to(
-                &InspectUnit,
-                UnitInspection {
-                    round: round.round,
-                    unit_index,
+                &AcceptInspections,
+                InspectionRoundJoin {
+                    inspection_round: round,
+                    join_round,
                 },
             )
-        });
-        let join = StepMovement::to(&AcceptInspections, round.clone());
-        Ok(StepDecision::go_to_many(inspections.chain([join])))
+        })?;
+        Ok(StepDecision::go_to_many(movements))
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct InspectUnit;
 
 impl Step for InspectUnit {
@@ -141,12 +195,7 @@ impl Step for InspectUnit {
         context: &mut Context,
         inspection: Self::Input,
     ) -> HandlerResult<StepDecision> {
-        UNIT_INSPECTED.publish(
-            context,
-            &round_instance(inspection.round),
-            inspection.unit_index,
-        )?;
-        Ok(StepDecision::dead_end())
+        UNIT_INSPECTED.end_branch(context, &inspection.round, inspection.unit_index)
     }
 }
 
@@ -154,26 +203,33 @@ impl Step for InspectUnit {
 struct AcceptInspections;
 
 impl Step for AcceptInspections {
-    type Input = InspectionRound;
+    type Input = InspectionRoundJoin;
 
-    fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(UNIT_INSPECTED.for_n(
-            &round_instance(round.round),
-            round.required_inspections,
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(UNIT_INSPECTED.for_branches(
+            &input.join_round,
+            input.inspection_round.required_inspections,
         )))
     }
 
-    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        let round = input.inspection_round;
         let inspected_units = InspectedUnits {
             round: round.round,
-            unit_indexes: sorted(
-                UNIT_INSPECTED.condition_results(context, &round_instance(round.round))?,
-            ),
+            unit_indexes: sorted(UNIT_INSPECTED.branch_results(context, &input.join_round)?),
         };
-        Ok(StepDecision::go_to_many([
-            StepMovement::to(&ApproveBatch, inspected_units),
-            StepMovement::to(&ResetInspectionJoin, round),
-        ]))
+        let mut movements = vec![StepMovement::to(&ApproveBatch, inspected_units)];
+        if round.round < round.round_count {
+            movements.push(StepMovement::to(
+                &StartInspections,
+                InspectionRound {
+                    round: round.round + 1,
+                    previous_round: Some(input.join_round),
+                    ..round
+                },
+            ));
+        }
+        Ok(StepDecision::go_to_many(movements))
     }
 }
 
@@ -192,39 +248,6 @@ impl Step for ApproveBatch {
     }
 }
 
-#[derive(Default)]
-struct ResetInspectionJoin;
-
-impl Step for ResetInspectionJoin {
-    type Input = InspectionRound;
-
-    fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
-        let remaining_inspections = round.inspection_count - round.required_inspections;
-        Ok(Wait::until(UNIT_INSPECTED.for_n(
-            &round_instance(round.round),
-            remaining_inspections,
-        )))
-    }
-
-    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
-        let unit_indexes =
-            sorted(UNIT_INSPECTED.condition_results(context, &round_instance(round.round))?);
-        if round.round < round.round_count {
-            return Ok(StepDecision::go_to(
-                &StartInspections,
-                InspectionRound {
-                    round: round.round + 1,
-                    ..round
-                },
-            ));
-        }
-        Ok(StepDecision::graceful_complete(InspectedUnits {
-            round: round.round,
-            unit_indexes,
-        }))
-    }
-}
-
 /// How many inspection instances to start, and how many complete the join.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -235,8 +258,8 @@ pub struct InspectionPlan {
 
 static QUORUM_INSPECTION_RELEASED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("quorumInspectionReleased"));
-static QUORUM_UNIT_INSPECTED: LazyLock<Channel<usize>> =
-    LazyLock::new(|| Channel::new("quorumUnitInspected"));
+static QUORUM_UNIT_INSPECTED: LazyLock<Join<usize>> =
+    LazyLock::new(|| Join::new("quorumUnitInspected"));
 static QUORUM_CERTIFIED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("quorumCertified"));
 
@@ -245,8 +268,16 @@ pub const GET_QUEUED_QUORUM_RELEASE_COUNT: Rpc<(), usize> =
     Rpc::new("get_queued_quorum_release_count");
 pub const CERTIFY_QUORUM: Rpc<(), ()> = Rpc::new("certify_quorum");
 
+/// The input of the join Step of the quorum inspections.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuorumInspectionJoin {
+    pub required_inspections: usize,
+    pub join_round: JoinRound,
+}
+
 /// WCP-35 Cancelling Partial Join for Multiple Instances: the join cancels
-/// the instances that have not reported.
+/// the sibling instances that have not reported.
 #[derive(Default)]
 pub struct CancellingPartialJoinForMultipleInstancesFlow {
     start_quorum_inspections: StartQuorumInspections,
@@ -289,7 +320,7 @@ impl Flow for CancellingPartialJoinForMultipleInstancesFlow {
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
             .channel(&QUORUM_INSPECTION_RELEASED)
-            .channel(&QUORUM_UNIT_INSPECTED)
+            .join(&QUORUM_UNIT_INSPECTED)
             .channel(&QUORUM_CERTIFIED)
     }
 
@@ -310,28 +341,37 @@ struct StartQuorumInspections;
 impl Step for StartQuorumInspections {
     type Input = InspectionPlan;
 
-    fn execute(&self, _context: &mut Context, plan: Self::Input) -> HandlerResult<StepDecision> {
-        let inspections =
-            (0..plan.inspection_count).map(|index| StepMovement::to(&InspectQuorumUnit, index));
-        Ok(StepDecision::go_to_many(inspections.chain([
-            StepMovement::to(&AcceptQuorumInspections, plan.required_inspections),
-        ])))
+    fn execute(&self, context: &mut Context, plan: Self::Input) -> HandlerResult<StepDecision> {
+        let inspections = unit_inspection_branches(InspectQuorumUnit, plan.inspection_count);
+        let movements = QUORUM_UNIT_INSPECTED.fork(context, inspections, |join_round| {
+            StepMovement::to(
+                &AcceptQuorumInspections,
+                QuorumInspectionJoin {
+                    required_inspections: plan.required_inspections,
+                    join_round,
+                },
+            )
+        })?;
+        Ok(StepDecision::go_to_many(movements))
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct InspectQuorumUnit;
 
 impl Step for InspectQuorumUnit {
-    type Input = usize;
+    type Input = UnitInspection;
 
-    fn wait_for(&self, _context: &mut Context, _index: Self::Input) -> HandlerResult<Wait> {
+    fn wait_for(&self, _context: &mut Context, _inspection: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::until(QUORUM_INSPECTION_RELEASED.for_one()))
     }
 
-    fn execute(&self, context: &mut Context, index: Self::Input) -> HandlerResult<StepDecision> {
-        QUORUM_UNIT_INSPECTED.publish(context, index)?;
-        Ok(StepDecision::dead_end())
+    fn execute(
+        &self,
+        context: &mut Context,
+        inspection: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        QUORUM_UNIT_INSPECTED.end_branch(context, &inspection.round, inspection.unit_index)
     }
 }
 
@@ -339,26 +379,19 @@ impl Step for InspectQuorumUnit {
 pub struct AcceptQuorumInspections;
 
 impl Step for AcceptQuorumInspections {
-    type Input = usize;
+    type Input = QuorumInspectionJoin;
 
-    fn wait_for(
-        &self,
-        _context: &mut Context,
-        required_inspections: Self::Input,
-    ) -> HandlerResult<Wait> {
-        Ok(Wait::until(
-            QUORUM_UNIT_INSPECTED.for_n(required_inspections),
-        ))
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(QUORUM_UNIT_INSPECTED.for_branches(
+            &input.join_round,
+            input.required_inspections,
+        )))
     }
 
-    fn execute(
-        &self,
-        context: &mut Context,
-        _required_inspections: Self::Input,
-    ) -> HandlerResult<StepDecision> {
-        let inspected_units = QUORUM_UNIT_INSPECTED.condition_results(context)?;
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        let inspected_units = QUORUM_UNIT_INSPECTED.branch_results(context, &input.join_round)?;
         Ok(StepDecision::go_to(&CertifyQuorum, sorted(inspected_units))
-            .cancel_step(&InspectQuorumUnit))
+            .cancel_sibling_step(&InspectQuorumUnit))
     }
 }
 

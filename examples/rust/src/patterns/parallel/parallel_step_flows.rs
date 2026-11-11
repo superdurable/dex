@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList,
+    Context, Flow, HandlerResult, Join, JoinRound, PersistenceSchema, Step, StepDecision, StepList,
     StepMovement, Wait,
 };
+use serde::{Deserialize, Serialize};
 use std::{sync::LazyLock, thread, time::Duration};
 
 #[derive(Default)]
@@ -120,7 +121,7 @@ impl Flow for AwaitParallelStepsFlow {
             .and(&self.await_step)
     }
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&COMPLETE)
+        PersistenceSchema::new().join(&COMPLETE)
     }
 }
 #[derive(Default)]
@@ -130,40 +131,58 @@ impl Step for AwaitInit {
     fn step_type(&self) -> &'static str {
         "InitStep"
     }
-    fn execute(&self, _: &mut Context, count: usize) -> HandlerResult<StepDecision> {
-        let mut movements = vec![StepMovement::to(&Await, count)];
-        movements.extend((0..count).map(|index| StepMovement::to(&AwaitWork, index)));
+    fn execute(&self, context: &mut Context, count: usize) -> HandlerResult<StepDecision> {
+        let branches = (0..count)
+            .map(|index| {
+                Box::new(move |round: &JoinRound| {
+                    StepMovement::to(
+                        &AwaitWork,
+                        WorkItem {
+                            index,
+                            round: round.clone(),
+                        },
+                    )
+                }) as Box<dyn FnOnce(&JoinRound) -> StepMovement>
+            })
+            .collect();
+        let movements =
+            COMPLETE.fork(context, branches, |round| StepMovement::to(&Await, round))?;
         Ok(StepDecision::go_to_many(movements))
     }
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct WorkItem {
+    pub index: usize,
+    pub round: JoinRound,
 }
 #[derive(Default)]
 struct AwaitWork;
 impl Step for AwaitWork {
-    type Input = usize;
+    type Input = WorkItem;
     fn step_type(&self) -> &'static str {
         "DoWork"
     }
-    fn execute(&self, context: &mut Context, _: usize) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, item: WorkItem) -> HandlerResult<StepDecision> {
         thread::sleep(Duration::from_millis(fastrand::u64(50..500)));
-        COMPLETE.publish(context, ())?;
-        Ok(StepDecision::dead_end())
+        COMPLETE.end_branch(context, &item.round, item.index)
     }
 }
 #[derive(Default)]
 struct Await;
 impl Step for Await {
-    type Input = usize;
+    type Input = JoinRound;
     fn step_type(&self) -> &'static str {
         "Await"
     }
-    fn wait_for(&self, _: &mut Context, count: usize) -> HandlerResult<Wait> {
-        Ok(Wait::until(COMPLETE.for_n(count)))
+    fn wait_for(&self, _: &mut Context, round: JoinRound) -> HandlerResult<Wait> {
+        Ok(Wait::until(COMPLETE.for_all_branches(&round)))
     }
-    fn execute(&self, _: &mut Context, count: usize) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete(count))
+    fn execute(&self, context: &mut Context, round: JoinRound) -> HandlerResult<StepDecision> {
+        let results = COMPLETE.branch_results(context, &round)?;
+        Ok(StepDecision::graceful_complete(results.len()))
     }
 }
-static COMPLETE: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("parallel-complete"));
+static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-complete"));
 
 #[derive(Default)]
 pub struct FirstWinParallelStepsFlow {
