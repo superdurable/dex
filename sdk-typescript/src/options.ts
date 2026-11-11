@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { Credential } from "./credential.js";
+import type { FlowDefinitionDocument } from "./flow-definition.js";
 import type { Attribute, AttributeLock, AttributeMap, AttributeMapLoad } from "./persistence.js";
 import type { RetryPolicy, StepDurability, StepOptions, StepTarget } from "./step.js";
 import type { Channel, ChannelMap, ChannelMapLoad } from "./wait.js";
@@ -672,6 +673,33 @@ export interface StopFlowOptions {
  *
  * Every Worker pulls tasks over an outbound connection to the Dex Server.
  * See {@link PullWorkerOptions} for capacity and shutdown settings.
+ *
+ * Dex Web draws a run's graph from the Flow definition that the Server stores for its Flow type.
+ * A Worker configured with `flowDefinitionPaths` or `flowDefinitions` uploads them once per start,
+ * after protocol negotiation and Attribute index synchronization and before it opens task streams.
+ * It uploads only definitions whose Flow type this Worker registers and logs the skipped ones with
+ * `console.info`. It rewrites an absolute `source.path` inside each document to a path relative to
+ * the current working directory, or to the file name.
+ *
+ * The Server replaces a stored definition only with a different one generated later. The Worker
+ * logs created and replaced definitions with `console.info`, unchanged ones with `console.debug`,
+ * and a kept newer definition with `console.warn`. Upload failures, including a Server without
+ * this API, are logged with `console.warn` and never stop the Worker from starting. Use
+ * `Client.uploadFlowDefinitions` with `force` to roll a definition back.
+ *
+ * The Worker constructor throws for a missing path, a file that is not a JSON object with a
+ * `flow.name` string, an invalid `generatedAt`, an in-memory document whose `flow.name` differs
+ * from its Flow type, or two definitions for the same Flow type from any sources.
+ *
+ * Changed in 1.45.0: added `flowDefinitionPaths` and `flowDefinitions`.
+ *
+ * @example
+ * ```ts
+ * const worker = new Worker(registry, cache, {
+ *   serverAddress: "dex.internal:8801",
+ *   flowDefinitionPaths: ["build/flow-definitions"],
+ * });
+ * ```
  */
 export interface WorkerOptions {
   /** Task capacity and shutdown settings; omitted uses the defaults in {@link PullWorkerOptions}. */
@@ -698,6 +726,26 @@ export interface WorkerOptions {
    * @since 1.38.0
    */
   readonly grpcMaxMessageBytes?: number;
+  /**
+   * Flow Definition Graph (FDG 2.0) files or directories that the Worker uploads when it starts.
+   *
+   * Defaults to none. A directory is searched recursively for `*.json` files.
+   * Each file's `flow.name` is its Flow type. Its top-level `generatedAt` (RFC 3339) is the
+   * generation time; without it the file's modification time is used. The Worker constructor reads
+   * the files. See {@link WorkerOptions} for when and how the Worker uploads them.
+   *
+   * @since 1.45.0
+   */
+  readonly flowDefinitionPaths?: readonly string[];
+  /**
+   * In-memory FDG documents that the Worker uploads when it starts.
+   *
+   * Defaults to none. Use them when the application renders its graph in code. See
+   * {@link FlowDefinitionDocument}.
+   *
+   * @since 1.45.0
+   */
+  readonly flowDefinitions?: readonly FlowDefinitionDocument[];
 }
 
 /**

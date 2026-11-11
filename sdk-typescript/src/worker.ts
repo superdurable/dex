@@ -11,8 +11,19 @@ import { Metadata } from "@grpc/grpc-js";
 import type { BlobCache } from "./blob-cache.js";
 import { credentialInterceptors } from "./credential.js";
 import { createFlowServiceChannel } from "./flow-service-tls.js";
-import { FlowServiceClient, type ServerInfo } from "./gen/dex.js";
-import { registeredAttributeIndexes, type Registry } from "./flow.js";
+import {
+  flowDefinitionUploader,
+  prepareFlowDefinitions,
+  uploadWorkerFlowDefinitions,
+  type PreparedFlowDefinition,
+} from "./flow-definition-upload.js";
+import {
+  FlowServiceClient,
+  type ServerInfo,
+  type UploadFlowDefinitionsRequest,
+  type UploadFlowDefinitionsResponse,
+} from "./gen/dex.js";
+import { registeredAttributeIndexes, registeredFlowTypes, type Registry } from "./flow.js";
 import type { WorkerOptions } from "./options.js";
 import { negotiateServerProtocol } from "./server-protocol.js";
 import { sdkVersion } from "./sdk-version.generated.js";
@@ -49,6 +60,7 @@ type WorkerState = "created" | "starting" | "running" | "stopping" | "stopped" |
  */
 export class Worker {
   private readonly flowService: InstanceType<typeof FlowServiceClient>;
+  private readonly flowDefinitions: readonly PreparedFlowDefinition[];
   private readonly pullWorker: PullWorker;
   private readonly stopped: Promise<void>;
   private resolveStopped!: () => void;
@@ -66,12 +78,15 @@ export class Worker {
    * @param options - Server connectivity, task capacity, bearer credential, startup settings, and gRPC message size limit; uses local defaults when omitted.
    * @throws {TypeError} When the Worker ID is invalid, or `flowServiceTls` is set and the address or TLS settings are invalid.
    * @throws {RangeError} When a pull capacity or drain timeout is invalid, or `grpcMaxMessageBytes` is negative or not an integer.
+   * @throws {Error} When a configured Flow definition cannot be loaded or two Flow definitions describe the same Flow type.
+   * Changed in 1.45.0: loads `flowDefinitionPaths` and `flowDefinitions` and throws for an invalid or duplicate Flow definition.
    */
   public constructor(
     public readonly registry: Registry,
     public readonly blobCache: BlobCache,
     public readonly options: WorkerOptions = {},
   ) {
+    this.flowDefinitions = prepareFlowDefinitions(options.flowDefinitionPaths ?? [], options.flowDefinitions ?? []);
     const channel = createFlowServiceChannel(
       options.serverAddress ?? "localhost:8801",
       options.flowServiceTls,
@@ -109,6 +124,8 @@ export class Worker {
    * @throws {Error} The Server is incompatible, unreachable (the gRPC error is the cause), or startup fails.
    * @throws {Error} maxConcurrentTasks exceeds matching.maxConcurrentTasksCap; the Worker half-closes its streams.
    * @throws {PullRegistrationError} The Server permanently rejects every stream before any registers.
+   * Changed in 1.45.0: uploads the configured Flow definitions before opening task streams. An upload
+   * failure is logged with `console.warn` and does not fail start.
    */
   public async start(): Promise<void> {
     if (this.state !== "created") {
@@ -123,6 +140,12 @@ export class Worker {
       const serverInfo = await getServerInfo(this.flowService, timeoutMs);
       this.negotiatedProtocolVersion = negotiateServerProtocol(serverInfo, sdkVersion);
       await syncAttributeIndexes(this.flowService, this.registry, timeoutMs);
+      await uploadWorkerFlowDefinitions(
+        (request) => uploadFlowDefinitions(this.flowService, request, timeoutMs),
+        this.flowDefinitions,
+        registeredFlowTypes(this.registry),
+        flowDefinitionUploader(sdkVersion),
+      );
       this.pullWorker.start();
       await this.pullWorker.waitStarted();
       if (this.state !== "starting") throw new Error("Worker stopped during startup");
@@ -287,5 +310,21 @@ function syncAttributeIndexes(
         resolve();
       },
     );
+  });
+}
+
+function uploadFlowDefinitions(
+  service: InstanceType<typeof FlowServiceClient>,
+  request: UploadFlowDefinitionsRequest,
+  timeoutMs: number,
+): Promise<UploadFlowDefinitionsResponse> {
+  return new Promise((resolve, reject) => {
+    service.uploadFlowDefinitions(request, new Metadata(), { deadline: Date.now() + timeoutMs }, (error, response) => {
+      if (error !== null) {
+        reject(error);
+        return;
+      }
+      resolve(response);
+    });
   });
 }

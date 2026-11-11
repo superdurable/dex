@@ -229,6 +229,10 @@ export function registeredRPCByName(flow: RegisteredFlow, name: string): Registe
   return registered;
 }
 
+export function registeredFlowTypes(registry: Registry): ReadonlySet<string> {
+  return new Set(metadata(registry).flowsByName.keys());
+}
+
 export function registeredAttributeIndexes(
   registry: Registry,
 ): ReadonlyMap<string, ProtoIndexType> {
