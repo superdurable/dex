@@ -90,9 +90,10 @@ export class MediaStoreError extends Error {
  *
  * Implementations key every object by the SHA-256 of its bytes, under a location of their own, so `putImage` is
  * idempotent: the same bytes give the same reference and one object, however often a retried tool Step or client
- * uploads them. Use `S3MediaStore` from `@superdurable/dex-agents/s3` for an S3-compatible bucket, or
- * {@link InMemoryMediaStore} in tests. Upload with `putImage` before a reference enters a message or a tool result,
- * and read with `getImage` or {@link loadImages} when building model input.
+ * uploads them. Use `S3MediaStore` from `@superdurable/dex-agents/s3` for an S3-compatible bucket,
+ * `LocalDirectoryMediaStore` when every client and Worker runs on one machine, or {@link InMemoryMediaStore} in tests.
+ * Upload with `putImage` before a reference enters a message or a tool result, and read with `getImage` or
+ * {@link loadImages} when building model input.
  *
  * @example
  * ```ts
