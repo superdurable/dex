@@ -25,6 +25,7 @@ import {
   type ConnectorStudioFrameAppearance,
 } from './connectorStudioTheme';
 import { CONNECTORS_COPY } from './copy';
+import { ConnectionErrorBoundary } from './ConnectionErrorBoundary';
 import './connectors.css';
 import { webURL } from '@/lib/basePath';
 
@@ -138,7 +139,8 @@ interface ReleaseManifest {
     configuration: { fields: ManifestField[] };
     auth: {
       type?: string;
-      fields: ManifestField[];
+      /** Absent when the release declares no credential fields, such as an auth type of none. */
+      fields?: ManifestField[];
       guide?: { startURL: string; steps: string[] };
       oauth2?: {
         scopes?: ManifestOAuthScopes;
@@ -240,7 +242,7 @@ export function ConnectorsPage() {
       headers: connectorWriteHeaders(catalog),
       body: JSON.stringify({ connectorId: selected.connectorId, connectionName: selected.connectionName }),
     }).then((response) => readResponseJSON<UISessionResponse>(response))
-      .then((value) => setSession(value))
+      .then((value) => setSession(uiSessionWithEmptyFieldLists(value)))
       .catch((sessionError: unknown) => {
         if (!controller.signal.aborted) setError(errorMessage(sessionError));
       }).finally(() => {
@@ -291,12 +293,14 @@ export function ConnectorsPage() {
     );
   }
   if (!catalog) return <div className="page-loading">{CONNECTORS_COPY.loading}</div>;
-  const setupTabs = selected && session ? connectorSetupTabs(selected, Boolean(session.entrypointUrl)) : [];
+  // The previous connection's session lingers for one render after the selection changes.
+  const selectedSession = selected && session && connectionKey(session) === connectionKey(selected) ? session : null;
+  const setupTabs = selected && selectedSession ? connectorSetupTabs(selected, Boolean(selectedSession.entrypointUrl)) : [];
   const requestedSetupTab = setupTabs.find((tab) => tab.key === selectedSetupTabKey);
   const activeSetupTab = selected && setupTabs.length > 0
     ? requestedSetupTab && (requestedSetupTab.kind === 'authorize' || selected.status === 'Ready')
       ? requestedSetupTab
-      : setupTabs.find((tab) => tab.key === initialConnectorSetupTabKey(selected, Boolean(session?.entrypointUrl))) ?? setupTabs[0]
+      : setupTabs.find((tab) => tab.key === initialConnectorSetupTabKey(selected, Boolean(selectedSession?.entrypointUrl))) ?? setupTabs[0]
     : null;
   const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
@@ -329,21 +333,23 @@ export function ConnectorsPage() {
                     {catalog.connections.map((connection) => {
                       const isSelected = !isAddingConnection && selected ? connectionKey(connection) === connectionKey(selected) : false;
                       return <li className="rsw-item" data-selected={isSelected ? 'true' : undefined} key={connectionKey(connection)}>
-                        <ConnectionRow
-                          connection={connection}
-                          isSelected={isSelected}
-                          onSelect={() => {
-                            setIsAddingConnection(false);
-                            setSelected(connection);
-                            setSelectedSetupTabKey('authorize');
-                          }}
-                        />
-                        {isSelected && activeSetupTab && <ConnectorSetupNavigation
-                          activeTab={activeSetupTab}
-                          connection={connection}
-                          onSelect={setSelectedSetupTabKey}
-                          tabs={setupTabs}
-                        />}
+                        <ConnectionErrorBoundary className="sq-state v2-error">
+                          <ConnectionRow
+                            connection={connection}
+                            isSelected={isSelected}
+                            onSelect={() => {
+                              setIsAddingConnection(false);
+                              setSelected(connection);
+                              setSelectedSetupTabKey('authorize');
+                            }}
+                          />
+                          {isSelected && activeSetupTab && <ConnectorSetupNavigation
+                            activeTab={activeSetupTab}
+                            connection={connection}
+                            onSelect={setSelectedSetupTabKey}
+                            tabs={setupTabs}
+                          />}
+                        </ConnectionErrorBoundary>
                       </li>;
                     })}
                   </ul>
@@ -382,20 +388,23 @@ export function ConnectorsPage() {
               </div>
             ) : selected ? (
               <div className="v2-case sc">
-                <ConnectionHeader connection={selected} />
-                {selected.standalone && <p className="sc-why connector-standalone-note">{CONNECTORS_COPY.standaloneNote}</p>}
-                {error && <p className="v2-error" role="alert">{error}</p>}
-                {selected.status === 'Conflict' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.conflict}</p>}
-                {selected.status === 'Unsupported' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.unsupported}</p>}
-                {selected.credentialExpiresAt && <p className="sc-state">Token expires <time>{selected.credentialExpiresAt}</time></p>}
-                {busy && <p className="sc-state" role="status">{CONNECTORS_COPY.loadingRelease}</p>}
-                {session && activeSetupTab && <ConnectorSetupPanel
-                  activeTab={activeSetupTab} catalog={catalog} connection={selected} session={session}
-                  hasSavedSetup={savedSetupConnectionKey === connectionKey(selected)}
-                  onConfigured={load} onError={setError} onSelect={setSelectedSetupTabKey}
-                  onSetupSaved={async () => { await load(); setSavedSetupConnectionKey(connectionKey(selected)); }}
-                  setupTabs={setupTabs}
-                />}
+                {/* The footer stays outside, so a connection that cannot render can still be removed. */}
+                <ConnectionErrorBoundary key={connectionKey(selected)}>
+                  <ConnectionHeader connection={selected} />
+                  {selected.standalone && <p className="sc-why connector-standalone-note">{CONNECTORS_COPY.standaloneNote}</p>}
+                  {error && <p className="v2-error" role="alert">{error}</p>}
+                  {selected.status === 'Conflict' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.conflict}</p>}
+                  {selected.status === 'Unsupported' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.unsupported}</p>}
+                  {selected.credentialExpiresAt && <p className="sc-state">Token expires <time>{selected.credentialExpiresAt}</time></p>}
+                  {busy && <p className="sc-state" role="status">{CONNECTORS_COPY.loadingRelease}</p>}
+                  {selectedSession && activeSetupTab && <ConnectorSetupPanel
+                    activeTab={activeSetupTab} catalog={catalog} connection={selected} session={selectedSession}
+                    hasSavedSetup={savedSetupConnectionKey === connectionKey(selected)}
+                    onConfigured={load} onError={setError} onSelect={setSelectedSetupTabKey}
+                    onSetupSaved={async () => { await load(); setSavedSetupConnectionKey(connectionKey(selected)); }}
+                    setupTabs={setupTabs}
+                  />}
+                </ConnectionErrorBoundary>
                 <div className="sc-block connector-connection-footer">
                   {isConnectionDeletable(selected) && (
                     <button className="rhd-stop" disabled={busy} onClick={() => void deleteCredentials()} type="button">
@@ -1059,7 +1068,7 @@ function AuthorizationGuide({guide, redirectURI}: {guide: {startURL: string; ste
   return <section aria-label="Authorization guide" className="connector-authorization-guide">
     <h4 className="rsw-zonehead">Authorization guide</h4>
     <p>Start at <a href={guide.startURL} rel="noreferrer" target="_blank">{guide.startURL}</a></p>
-    <ol>{guide.steps.map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
+    <ol>{(guide.steps ?? []).map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
     {redirectURI && <div className="connector-redirect-uri"><span className="rsq-label">Redirect URI</span><CopyValue label="Redirect URI" value={redirectURI} /></div>}
   </section>;
 }
@@ -1323,13 +1332,28 @@ function formFieldText(value: unknown): string {
 export function selectedManifestAuth(auth: ReleaseManifest['spec']['auth'], methodId: string): ManifestAuthMethod {
   if (!auth.methods?.length) {
     return {
-      id: '', displayName: '', description: '', type: auth.type ?? 'none', fields: auth.fields,
+      id: '', displayName: '', description: '', type: auth.type ?? 'none', fields: auth.fields ?? [],
       guide: auth.guide, oauth2: auth.oauth2,
     };
   }
   return auth.methods.find((method) => method.id === methodId)
     ?? auth.methods.find((method) => method.id === auth.defaultMethod)
     ?? auth.methods[0];
+}
+
+// The server sends an empty field list as null, so the page reads every field list as an array.
+export function uiSessionWithEmptyFieldLists(session: UISessionResponse): UISessionResponse {
+  const spec = session.manifest?.spec;
+  if (!spec) return session;
+  return {...session, manifest: {...session.manifest, spec: {
+    ...spec,
+    configuration: {...spec.configuration, fields: spec.configuration?.fields ?? []},
+    auth: spec.auth && {
+      ...spec.auth,
+      fields: spec.auth.fields ?? [],
+      methods: spec.auth.methods?.map((method) => ({...method, fields: method.fields ?? []})),
+    },
+  }}};
 }
 
 export function requestedOAuthScopesText(oauth2: ManifestAuthMethod['oauth2']): string {

@@ -103,6 +103,46 @@ func TestStandaloneConnectionIsAddedAuthorizedListedAndDeletedWithoutAFlow(t *te
 	}
 }
 
+func TestStandaloneCredentialFreeConnectionIsAddedAndSavedWithoutCredentials(t *testing.T) {
+	directory := t.TempDir()
+	setup := connectorTestSetup(t, directory, connectorTestDefinitionProvider(t, nil))
+	identity := connectorDefinitionIdentity{
+		ConnectorID: "hacker-news-daily", ConnectionName: "public",
+		ModulePath: "github.com/superdurable/dex-connectors-library/connectors/hackernews/go", ModuleVersion: "v0.24.0",
+	}
+	installConnectorTestReleaseWithAuth(t, setup, identity, "hacker-news", connectorManifestAuth{Type: "none", ConnectionKind: "none"})
+	mux := http.NewServeMux()
+	setup.registerHandlers(mux)
+
+	added := sendStandaloneTestRequest(t, setup, mux, http.MethodPost, "/api/v2/connector-connections",
+		`{"connectorId":"hacker-news-daily","connectionName":"public","modulePath":"`+identity.ModulePath+`","moduleVersion":"v0.24.0"}`)
+	if added.Code != http.StatusOK {
+		t.Fatalf("add status = %d: %s", added.Code, added.Body.String())
+	}
+	// Dex Web must render this auth object, which has no fields key.
+	session := sendStandaloneTestRequest(t, setup, mux, http.MethodPost, "/api/v2/connector-ui-sessions",
+		`{"connectorId":"hacker-news-daily","connectionName":"public"}`)
+	if session.Code != http.StatusOK || !strings.Contains(session.Body.String(), `"auth":{"type":"none","connectionKind":"none"}`) {
+		t.Fatalf("UI session status = %d: %s", session.Code, session.Body.String())
+	}
+
+	// The body Dex Web sends when the release declares no credential fields.
+	saved := sendStandaloneTestRequest(t, setup, mux, http.MethodPut, "/api/v2/connector-connections/hacker-news-daily/public",
+		`{"modulePath":"`+identity.ModulePath+`","moduleVersion":"v0.24.0","provider":"hacker-news","authMethodId":"",`+
+			`"configuration":{},"credentials":{},"keepCredentialFields":[],"credentialExpiresAt":null}`)
+	if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), `"status":"Ready"`) {
+		t.Fatalf("save status = %d: %s", saved.Code, saved.Body.String())
+	}
+	stored := getConnectorTestConnection(t, setup, "hacker-news-daily", "public")
+	if stored.Provider != "hacker-news" || stored.ModuleVersion != "v0.24.0" || len(stored.Credentials) != 0 {
+		t.Fatalf("stored connection = %+v", stored)
+	}
+	views := listStandaloneTestViews(t, setup)
+	if len(views) != 1 || views[0].Status != "Ready" || !views[0].IsStandalone || len(setup.pendingConnectionSnapshot()) != 0 {
+		t.Fatalf("views after save = %+v", views)
+	}
+}
+
 func TestStandaloneConnectionAddRejectsInvalidAndExistingConnections(t *testing.T) {
 	flowIdentity := connectorDefinitionIdentity{
 		ConnectorID: "gmail", OperationID: "sendMessage", OperationKind: "mutation", ConnectionName: "sender",

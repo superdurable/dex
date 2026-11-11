@@ -30,6 +30,9 @@ export const CONNECTORS_COPY = {
   resizeList: 'Resize the connector list',
   conflict: 'The same connector and connection name use different module versions. Align the Flow dependencies before configuring.',
   unsupported: 'Automatic setup requires an exact official release and a static ConnectionName.',
+  connectionRenderFailed(detail: string): string {
+    return `This connection could not be shown: ${detail}`;
+  },
   connectionLabel(connectionName: string): string {
     return connectionName ? `Connection ${connectionName}` : 'Unnamed connection';
   },
