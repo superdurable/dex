@@ -194,7 +194,14 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
   - `context.resolveToolStepPermissions({ flowId, turnId })`: the permissions
     inside the harness's own tool Step, which runs outside the model call and
     maybe on another Worker: this Worker's file narrowed by the settings the
-    turn started with. Check them right before acting.
+    turn started with. Check them right before acting;
+  - `WorkspaceFiles`: the workspace file layer of the local file tools, with
+    the rules under Local tools. A harness's own file tools read, list, and
+    write through it, including `readFileWithVersion`,
+    `replaceFileIfUnchanged`, `statExisting`, and `readDirectoryEntries` for
+    tools that need bytes, versions, stats, or raw entries. A refusal throws
+    `WorkspaceFileRefusedError` before anything changed; any other failure of
+    a write may come after a change, such as after its rename.
 
   Reads run at once, writes and shell commands wait for approval, and the
   working directory is `context.workspace`. A replacement shell tool, for
@@ -253,6 +260,8 @@ Each call is one Dex tool Step, recorded in the session.
   without following a final link, and the opened file must still be the one
   the path names, so a link swapped in meanwhile fails. A file with more than
   one hard link is refused. Searches check every file they open the same way.
+  Reads and searches open files without blocking, so a FIFO or device in
+  the workspace fails at once as not a regular file, and a search skips it.
   `write_file` and `edit_file` write a new file in the checked directory and
   rename it over the target, and never write through a link. After the
   rename, the target must be the written file inside the workspace.

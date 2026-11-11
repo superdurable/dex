@@ -349,6 +349,8 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
         self.write(GO_CHANGELOG, self.read(GO_CHANGELOG).replace("- A legacy fix.\n", "- A legacy fix.\n- Another fix.\n"))
         self.commit("legacy edit")
         self.assertEqual(self.check_pr(pr_number=LEGACY_PR_NUMBER).returncode, 0)
+        self.assertEqual(self.check_pr(pr_number="1615").returncode, 0)
+        self.assertEqual(self.check_pr(pr_number="1616").returncode, 1)
         self.assertEqual(self.check_pr().returncode, 1)
         self.write("changelog.d/go/pending-000001.md", "---\nsection: Fixed\n---\n- Pending.\n")
         self.commit("pending fragment")

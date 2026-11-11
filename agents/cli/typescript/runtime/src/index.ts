@@ -77,6 +77,12 @@ export {
 } from "./dex-server.js";
 export { LocalToolSource, localToolNames } from "./local-tools/local-tool-source.js";
 export {
+  WorkspaceFileRefusedError,
+  WorkspaceFiles,
+  type WorkspaceDirectoryEntry,
+  type WorkspaceFileVersion,
+} from "./local-tools/workspace-files.js";
+export {
   TurnConfigResolver,
   type ToolStepTurn,
   type TurnSessionSettingsReader,

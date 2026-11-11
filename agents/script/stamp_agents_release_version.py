@@ -29,7 +29,7 @@ PYTHON_PACKAGES = (
 )
 TYPESCRIPT_PACKAGES = (
     "core", "vercel-ai", "openai-agents", "mastra", "claude-agent-sdk", "pi",
-    "cli/runtime", "cli/claude-sdk", "cli/openai-sdk", "cli/vercel-ai", "cli/mastra", "cli/builtin",
+    "cli/runtime", "cli/claude-sdk", "cli/openai-sdk", "cli/vercel-ai", "cli/mastra", "cli/builtin", "cli/pi",
 )
 PYTHON_CORE_DISTRIBUTION = "dex-agents"
 TYPESCRIPT_CORE_PACKAGE = "@superdurable/dex-agents"

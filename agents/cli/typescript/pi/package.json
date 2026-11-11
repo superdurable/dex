@@ -1,0 +1,62 @@
+{
+  "name": "@superdurable/dex-agents-pi-cli",
+  "version": "0.1.0",
+  "description": "The dex-agents-pi command: a durable Pi coding agent in your terminal",
+  "license": "LicenseRef-Sustainable-Use-1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superdurable/dex.git",
+    "directory": "agents/cli/typescript/pi"
+  },
+  "homepage": "https://github.com/superdurable/dex/tree/main/agents/cli/typescript/pi#readme",
+  "bugs": {
+    "url": "https://github.com/superdurable/dex/issues"
+  },
+  "type": "module",
+  "types": "./dist/src/index.d.ts",
+  "engines": {
+    "node": "^22.19.0 || ^24.0.0"
+  },
+  "bin": {
+    "dex-agents-pi": "dist/src/bin.js"
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test --test-concurrency=1 --test-timeout=300000 'dist/test/integ/*.integration.test.js'"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.5.1",
+    "@earendil-works/pi-coding-agent": "1.5.1",
+    "minimatch": "11.0.3"
+  },
+  "peerDependencies": {
+    "@superdurable/dex": "1.44.0",
+    "@superdurable/dex-agents": "^0.1.0",
+    "@superdurable/dex-agents-cli": "^0.1.0",
+    "@superdurable/dex-agents-pi": "^0.1.0"
+  },
+  "devDependencies": {
+    "@superdurable/dex": "1.44.0",
+    "@superdurable/dex-agents": "file:../../../typescript/core",
+    "@superdurable/dex-agents-cli": "file:../runtime",
+    "@superdurable/dex-agents-pi": "file:../../../typescript/pi",
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
