@@ -238,6 +238,8 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       }
       case "send_email":
         return { output: `email sent for ${call.idempotencyKey}` };
+      case "approve_framework_write":
+        return { output: "approved for the resumed turn", isFinishedByResumedTurn: true };
       case "charge_card": {
         const gate = new FileGate(this.markerDirectory, "charge_card");
         gate.markReached();

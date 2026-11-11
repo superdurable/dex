@@ -491,6 +491,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     } finally {
       segmentInput.close();
       turn.cancellationSignal.removeEventListener("abort", abortSegment);
+      toolCallGate.finishUnreportedToolCalls();
     }
     const result = observer.successfulResult();
     const segmentTranscript = sessionStore.takeSegmentTranscript();
@@ -527,8 +528,9 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
    * marked approved here; the resumed turn runs it.
    *
    * @param call - The approved record and its idempotency key.
-   * @returns The source's output; the custom tool's text output; or {@link approvedCliToolOutput} for a tool that
-   * runs inside the CLI. Non-text content of a custom tool is replaced by a short placeholder. With a media store, its
+   * @returns The source's output; the custom tool's text output; or {@link approvedCliToolOutput} with
+   * `isFinishedByResumedTurn` for a tool that runs inside the CLI, whose `tool_call_finished` the resumed turn writes
+   * from the CLI's result. Non-text content of a custom tool is replaced by a short placeholder. With a media store, its
    * MCP `image` content is uploaded and returned as `images` instead.
    * @throws {ToolExecutionError} When the arguments do not match the input schema, the custom tool
    * returned `isError`, or the source threw it. The model sees the text. The runner also throws it when a source
@@ -552,7 +554,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     }
     const customTool = this.toolCatalog.customTool(record.toolName);
     if (customTool === undefined) {
-      return { output: approvedCliToolOutput };
+      return { output: approvedCliToolOutput, isFinishedByResumedTurn: true };
     }
     const toolArguments = parseCustomToolArguments(customTool, record.arguments);
     const handlerExtra = {

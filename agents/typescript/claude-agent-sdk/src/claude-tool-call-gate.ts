@@ -19,8 +19,10 @@ import {
   type SdkMcpToolDefinition,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  approvalDeadlinePassed,
   describeToolCallOutcome,
   isFinalToolCallStatus,
+  planningTurnToolRejection,
   resolveToolPolicy,
   toolEffectFromMcpToolAnnotations,
   type AgentToolCall,
@@ -76,6 +78,11 @@ const settledReplayMessage = (toolName: string, toolUseId: string): string =>
   `${toolName} did not run: the recorded call ${toolUseId} was already resumed in an earlier turn segment.`;
 const repeatedReplayMessage = (toolName: string, toolUseId: string): string =>
   `${toolName} did not run: the recorded call ${toolUseId} was already resumed in this turn segment.`;
+const userRejectionMessage = (toolName: string, rejectionMessage: string): string =>
+  `The user rejected this ${toolName} call: ${rejectionMessage}`;
+const userRejectionWithoutReasonMessage = (toolName: string): string => `The user rejected this ${toolName} call.`;
+// Rejections the session records itself, which keep their own text.
+const sessionRejectionMessages: ReadonlySet<string> = new Set([approvalDeadlinePassed, planningTurnToolRejection]);
 
 /** Names and classifies every tool a Claude agent can call in one turn segment. */
 /**
@@ -266,6 +273,8 @@ export class ToolCallGate {
   private readonly decidedToolUseIds = new Set<string>();
   private readonly runningToolNames = new Map<string, string>();
   private readonly customToolCallPlans = new Map<string, CustomToolCallPlan>();
+  // Refusals of replayed CLI tool calls, by tool use ID, which canUseTool returns without a hook prefix.
+  private readonly replayRefusals = new Map<string, { readonly toolName: string; readonly text: string }>();
 
   // settledToolUseIds: calls the stored transcript already answers; only a pending deferral may replay.
   // recordedImages: loaded before the CLI starts, so a store failure fails the attempt instead of reaching the model.
@@ -327,7 +336,13 @@ export class ToolCallGate {
     this.decidedToolUseIds.add(callId);
     if (record !== undefined) {
       // A recorded call is decided only for its own tool.
-      return this.replayRecordedToolCall(record, servedToolName, policyToolName);
+      const replay = this.replayRecordedToolCall(record, servedToolName, policyToolName);
+      const refusal = askedRefusal(replay);
+      if (refusal !== undefined) {
+        // Claude Code reports a hook denial as a hook error, so canUseTool denies instead.
+        this.replayRefusals.set(callId, { toolName: policyToolName, text: refusal });
+      }
+      return replay;
     }
     if (servedToolName !== undefined && this.toolCatalog.isReplayOnlyTool(servedToolName)) {
       // A new call would run under a new Call ID; only the source's listing permits that.
@@ -390,6 +405,12 @@ export class ToolCallGate {
     const servedToolName = this.toolCatalog.servedToolName(cliToolName);
     const policyToolName = servedToolName ?? cliToolName;
     const callId = options.toolUseID;
+    const refusal = this.replayRefusals.get(callId);
+    // Another tool under the same ID keeps the refusal for its own tool.
+    if (refusal !== undefined && refusal.toolName === policyToolName) {
+      this.replayRefusals.delete(callId);
+      return denyPermission(refusal.text, callId);
+    }
     const record = this.turn.recordedToolCall(callId);
     const isDecided = this.decidedToolUseIds.has(callId) || this.replayedToolUseIds.has(callId);
     // A resumed call can skip the hook when the CLI starts it before the hooks are registered.
@@ -440,6 +461,14 @@ export class ToolCallGate {
     }
     this.runningToolNames.delete(toolUseId);
     this.turn.events.writeToolCallFinished(toolUseId, toolName, isError ? "failed" : "succeeded");
+  }
+
+  /** Reports every call that started in the segment without a result as an unknown outcome. */
+  public finishUnreportedToolCalls(): void {
+    for (const [toolUseId, toolName] of this.runningToolNames) {
+      this.turn.events.writeToolCallFinished(toolUseId, toolName, "outcome_unknown");
+    }
+    this.runningToolNames.clear();
   }
 
   // The CLI's recorded input includes every hook's updatedInput; another call than ours is a defect.
@@ -493,10 +522,11 @@ export class ToolCallGate {
       return preToolUseDecision("allow", undefined, recordedInput);
     }
     if (record.status === "succeeded") {
-      this.permitInlineToolCall(record.toolCallId, record.toolName);
+      // The tool Step wrote tool_call_started; the CLI's result writes the one finish.
+      this.runningToolNames.set(record.toolCallId, record.toolName);
       return preToolUseDecision("allow", undefined, recordedInput);
     }
-    return preToolUseDecision("deny", describeToolCallOutcome(record));
+    return preToolUseDecision("ask", claudeCodeToolRefusal(record));
   }
 
   private permitInlineToolCall(toolUseId: string, policyToolName: string): void {
@@ -554,6 +584,21 @@ export class ToolCallGate {
   }
 }
 
+// The tool result of a CLI tool call that a final record keeps from running.
+function claudeCodeToolRefusal(record: AgentToolCall): string {
+  const rejectionMessage = record.rejectionMessage ?? undefined;
+  const isUserRejection =
+    record.status === "rejected" &&
+    (record.cancellationReason ?? undefined) === undefined &&
+    (rejectionMessage === undefined || !sessionRejectionMessages.has(rejectionMessage));
+  if (!isUserRejection) {
+    return describeToolCallOutcome(record);
+  }
+  return rejectionMessage === undefined || rejectionMessage === ""
+    ? userRejectionWithoutReasonMessage(record.toolName)
+    : userRejectionMessage(record.toolName, rejectionMessage);
+}
+
 /** Renders a final record as the custom tool result the model sees on resume. */
 export function recordedToolCallResult(record: AgentToolCall): CustomToolResult {
   return textToolResult(describeToolCallOutcome(record), record.status !== "succeeded");
@@ -591,6 +636,15 @@ function preToolUseDecision(
       ...(updatedInput === undefined ? {} : { updatedInput }),
     },
   };
+}
+
+// The refusal text of an `ask` decision, or `undefined` for another decision.
+function askedRefusal(hookOutput: HookJSONOutput): string | undefined {
+  const specificOutput = "hookSpecificOutput" in hookOutput ? hookOutput.hookSpecificOutput : undefined;
+  if (specificOutput?.hookEventName !== "PreToolUse" || specificOutput.permissionDecision !== "ask") {
+    return undefined;
+  }
+  return specificOutput.permissionDecisionReason ?? "";
 }
 
 // A replay's allow always names the recorded input, never the input the CLI passed.

@@ -423,9 +423,17 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
       true,
     );
     const rejected = await agent.waitForTurns(rejectedSessionId, 1);
-    // Like the real CLI, a PreToolUse denial reaches the model with a hook prefix.
-    assert.equal(rejected.messages.at(-1)?.text, "Bash: PreToolUse:Bash hook error: not on this machine");
+    // canUseTool denies the replay, so the model sees no hook error prefix.
+    assert.equal(rejected.messages.at(-1)?.text, "Bash: The user rejected this Bash call: not on this machine");
     assert.equal(agent.invocations.count("Bash"), 1);
+    // The tool Step reports the approved call; the CLI's run inside the resumed turn does not.
+    assert.deepEqual(await toolEventsOf(agent, approvedSessionId), [
+      ["tool_call_started", interrupt.toolCallId, undefined],
+      ["tool_call_finished", interrupt.toolCallId, "succeeded"],
+    ]);
+    assert.deepEqual(await toolEventsOf(agent, rejectedSessionId), [
+      ["tool_call_finished", rejection.toolCallId, "rejected"],
+    ]);
   });
 
   test("a resumed segment that fails after a write leaves a note that the next turn sends", async () => {
@@ -469,6 +477,15 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
     assert.equal(agent.invocations.count("publish"), 1);
   });
 });
+
+async function toolEventsOf(agent: ClaudeAgentTestHarness, sessionId: string): Promise<unknown[][]> {
+  return (await agent.listEvents(sessionId))
+    .filter((event) => event.type === "tool_call_started" || event.type === "tool_call_finished")
+    .map((event) => {
+      const payload = JSON.parse(event.payload) as { tool_call_id: string; status?: string };
+      return [event.type, payload.tool_call_id, payload.status];
+    });
+}
 
 function isTextBlockList(content: unknown): content is { text: string }[] {
   return Array.isArray(content) && content.length > 0 && content.every((block) => block?.type === "text");

@@ -112,6 +112,30 @@ async def test_rejected_write_never_runs_and_the_model_sees_the_rejection(
     assert [payload["status"] for payload in finished] == ["rejected"]
 
 
+async def test_a_call_finished_by_the_resumed_turn_writes_no_finished_event(
+    harness: ScriptedAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call publish {"message": "later", "finished_by_resumed_turn": true}'
+    )
+    interrupt = await _wait_for_pending_interrupt(harness, session_id)
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    # The record is final, so the turn resumes; only the runner may report the finish.
+    assert snapshot.messages[-1].text == "publish: published later"
+    tool_events = [
+        (event.type, json.loads(event.payload)["tool_call_id"])
+        for event in await harness.agent_events(session_id)
+        if event.type in (AgentEventType.TOOL_CALL_STARTED, AgentEventType.TOOL_CALL_FINISHED)
+    ]
+    assert tool_events == [(AgentEventType.TOOL_CALL_STARTED, interrupt.tool_call_id)]
+
+
 async def test_resolve_interrupt_returns_false_the_second_time(
     harness: ScriptedAgentHarness,
 ) -> None:

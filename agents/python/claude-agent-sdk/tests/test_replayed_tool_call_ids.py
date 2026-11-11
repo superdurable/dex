@@ -56,6 +56,7 @@ class RecordedCallsTurn:
     def __init__(self, records: list[AgentToolCall]) -> None:
         self._records = {record.tool_call_id: record for record in records}
         self.events = self
+        self.written_events: list[tuple[str, str, ToolCallStatus | None]] = []
 
     def recorded_tool_call(self, tool_call_id: str) -> AgentToolCall | None:
         return self._records.get(tool_call_id)
@@ -66,12 +67,12 @@ class RecordedCallsTurn:
         return ToolPolicy(framework_effect or ToolEffect.UNCLASSIFIED, requires_approval=False)
 
     def write_tool_call_started(self, tool_call_id: str, tool_name: str) -> None:
-        return None
+        self.written_events.append(("started", tool_call_id, None))
 
     def write_tool_call_finished(
         self, tool_call_id: str, tool_name: str, status: ToolCallStatus
     ) -> None:
-        return None
+        self.written_events.append(("finished", tool_call_id, status))
 
 
 async def test_custom_or_source_record_is_never_replayed_as_bash(tmp_path: Path) -> None:
@@ -184,6 +185,51 @@ async def test_tool_use_id_gets_one_hook_decision_per_segment(tmp_path: Path) ->
     assert result["is_error"] is True
 
 
+async def test_replayed_cli_call_finishes_once_from_its_result_or_the_segment_end(
+    tmp_path: Path,
+) -> None:
+    records = [
+        _succeeded_record("call-1", "Bash", {"command": "echo one"}),
+        _succeeded_record("call-2", "Bash", {"command": "echo two"}),
+    ]
+    turn = RecordedCallsTurn(records)
+    gate = _gate_for_turn(tmp_path, turn)
+    for call_id in ("call-1", "call-2"):
+        replay = await gate.decide_pre_tool_use(_hook_input("Bash", call_id), call_id, HOOK_CONTEXT)
+        assert _decision(replay)[0] == "allow"
+    # The tool Step wrote tool_call_started, so the replay writes no second one.
+    assert turn.written_events == []
+
+    gate.record_tool_result("call-1", True)
+    gate.record_tool_result("call-1", False)
+    # A segment that ends before call-2 reports a result closes it as an unknown outcome.
+    gate.finish_unreported_tool_calls()
+    gate.finish_unreported_tool_calls()
+    assert turn.written_events == [
+        ("finished", "call-1", ToolCallStatus.FAILED),
+        ("finished", "call-2", ToolCallStatus.OUTCOME_UNKNOWN),
+    ]
+
+
+async def test_stored_refusal_answers_only_the_tool_it_was_stored_for(tmp_path: Path) -> None:
+    rejected_record = replace(
+        _succeeded_record("call-1", "Bash", {"command": "rm -rf build"}),
+        status=ToolCallStatus.REJECTED,
+        output=None,
+        rejection_message="no",
+    )
+    gate = _gate(tmp_path, [rejected_record])
+    replay = await gate.decide_pre_tool_use(_hook_input("Bash", "call-1"), "call-1", HOOK_CONTEXT)
+    rejection = "The user rejected this Bash call: no"
+    assert _decision(replay) == ("ask", rejection, None)
+
+    # Another tool under the same ID gets the replay denial, not the Bash refusal.
+    assert await _ask_permission(gate, "Write", "call-1") == PermissionResultDeny(
+        message=REPEATED_REPLAY_MESSAGE.format(tool_name="Write", tool_use_id="call-1")
+    )
+    assert await _ask_permission(gate, "Bash", "call-1") == PermissionResultDeny(message=rejection)
+
+
 async def test_recorded_call_is_replayed_at_most_once_per_segment(tmp_path: Path) -> None:
     record = _succeeded_record("call-1", "Bash", {"command": "echo reviewed"})
     repeated = REPEATED_REPLAY_MESSAGE.format(tool_name="Bash", tool_use_id="call-1")
@@ -222,19 +268,28 @@ async def test_recorded_call_is_replayed_at_most_once_per_segment(tmp_path: Path
     rejected_output = await rejected.decide_pre_tool_use(
         _hook_input("Bash", "call-1"), "call-1", HOOK_CONTEXT
     )
-    assert _decision(rejected_output)[0] == "deny"
+    # A hook denial reaches the model as a hook error, so the ask that follows denies it.
+    rejection = "The user rejected this Bash call: no"
+    assert _decision(rejected_output) == ("ask", rejection, None)
+    assert await _ask_permission(rejected, "Bash", "call-1") == PermissionResultDeny(
+        message=rejection
+    )
     assert await _ask_permission(rejected, "Bash", "call-1") == PermissionResultDeny(
         message=repeated
     )
 
 
 def _gate(tmp_path: Path, records: list[AgentToolCall]) -> ToolCallGate:
+    return _gate_for_turn(tmp_path, RecordedCallsTurn(records))
+
+
+def _gate_for_turn(tmp_path: Path, turn: RecordedCallsTurn) -> ToolCallGate:
     catalog = ToolCatalog(
         build_custom_tools(tmp_path),
         "tools",
         replay_only_tool_names=REPLAY_ONLY_SOURCE_TOOL_NAMES,
     )
-    return ToolCallGate(cast(AgentTurnContext, RecordedCallsTurn(records)), catalog, ())
+    return ToolCallGate(cast(AgentTurnContext, turn), catalog, ())
 
 
 def _succeeded_record(
