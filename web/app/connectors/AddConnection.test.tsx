@@ -182,15 +182,32 @@ const hackerNewsSession = {
   },
 };
 
-function connectionView(connectorId: string, connectionName: string, status: string, modulePath: string, moduleVersion: string) {
+type ConnectionFixture = { connectorId: string; connectionName: string } & Record<string, unknown>;
+
+function connectionView(connectorId: string, connectionName: string, status: string, modulePath: string, moduleVersion: string): ConnectionFixture {
   const displayName = [hackerNewsEntry, slackEntry].find((entry) => entry.connectorId === connectorId)?.displayName;
   return { connectorId, displayName, connectionName, modulePath, moduleVersion, status, uses: [], standalone: true };
 }
 
 type RecordedRequest = { method: string; url: string; body?: string };
 
+interface ConnectorAPIStubOptions {
+  /** The Hacker News Daily UI session body; defaults to the captured one. */
+  hackerNewsSessionBody?: unknown;
+  /** Answers the Slack UI session; defaults to the 502 dexcli dev returned. */
+  slackSession?: () => Promise<Response>;
+  /** Replaces the connection list after a DELETE removes a connection. */
+  afterDelete?: (connections: ConnectionFixture[]) => ConnectionFixture[];
+}
+
+function slackReleaseUnavailableResponse() {
+  return new Response(JSON.stringify({
+    error: 'Connector release metadata or UI is unavailable', code: 'CONNECTOR_RELEASE_UNAVAILABLE',
+  }), { status: 502 });
+}
+
 // Answers like dexcli dev: the Slack release is unavailable, and Hacker News Daily needs no credentials.
-function stubConnectorAPI(initialConnections: ReturnType<typeof connectionView>[], hackerNewsManifest: unknown = hackerNewsSession.manifest) {
+function stubConnectorAPI(initialConnections: ConnectionFixture[], options: ConnectorAPIStubOptions = {}) {
   let connections = initialConnections;
   const requests: RecordedRequest[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -211,18 +228,20 @@ function stubConnectorAPI(initialConnections: ReturnType<typeof connectionView>[
     }
     if (url === '/api/v2/connector-ui-sessions') {
       const request = JSON.parse(body ?? '{}') as { connectorId: string };
-      if (request.connectorId === 'slack') {
-        return new Response(JSON.stringify({
-          error: 'Connector release metadata or UI is unavailable', code: 'CONNECTOR_RELEASE_UNAVAILABLE',
-        }), { status: 502 });
-      }
-      return new Response(JSON.stringify({ ...hackerNewsSession, manifest: hackerNewsManifest }));
+      if (request.connectorId === 'slack') return (options.slackSession ?? (async () => slackReleaseUnavailableResponse()))();
+      return new Response(JSON.stringify(options.hackerNewsSessionBody ?? hackerNewsSession));
     }
     if (url === '/api/v2/connector-connections/hacker-news-daily/public' && method === 'PUT') {
       connections = connections.map((connection) => connection.connectorId === 'hacker-news-daily'
         ? { ...connection, status: 'Ready', provider: 'hacker-news' }
         : connection);
       return new Response(JSON.stringify({ connectorId: 'hacker-news-daily', connectionName: 'public', status: 'Ready' }));
+    }
+    if (url.startsWith('/api/v2/connector-connections/') && method === 'DELETE') {
+      const [connectorId, connectionName] = url.slice('/api/v2/connector-connections/'.length).split('/').map(decodeURIComponent);
+      const remaining = connections.filter((connection) => connection.connectorId !== connectorId || connection.connectionName !== connectionName);
+      connections = options.afterDelete?.(remaining) ?? remaining;
+      return new Response(JSON.stringify({ deleted: true }));
     }
     return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
   }));
@@ -243,6 +262,11 @@ const slackConnection = connectionView('slack', 'support-slack', 'Ready', slackE
 const pendingHackerNewsConnection = connectionView(
   'hacker-news-daily', 'public', 'Missing', hackerNewsEntry.modulePath, hackerNewsEntry.moduleVersion,
 );
+// A release without an auth object fails to render even after the page reads absent lists as empty.
+const unrenderableHackerNewsSession = {
+  ...hackerNewsSession,
+  manifest: { metadata: { displayName: 'Hacker News Daily', description: '' }, spec: { provider: 'hacker-news' } },
+};
 
 describe('A credential-free connection on the Connectors page', () => {
   it('adds and saves a connection whose release declares no credential fields', async () => {
@@ -276,11 +300,31 @@ describe('A credential-free connection on the Connectors page', () => {
     expect(list.textContent).toContain('Slack');
   });
 
+  it('renders a Connector UI unit whose server JSON has null bindings and configuration', async () => {
+    const readyConnection = {
+      ...pendingHackerNewsConnection, status: 'Ready', standalone: undefined,
+      uses: [{
+        flowName: 'DigestFlow', stepId: 'read', stepName: 'ReadStoriesStep', operationId: 'listStories', operationKind: 'query',
+        configurationUI: { units: [{ id: 'feed', unitId: 'feedPicker', label: 'Feed', required: false, bindings: null }] },
+        configuration: null, configured: false,
+      }],
+    };
+    stubConnectorAPI([readyConnection], { hackerNewsSessionBody: {
+      ...hackerNewsSession,
+      sessionNonce: 'nonce', entrypointUrl: '/api/v2/connector-ui-sessions/nonce/index.html',
+      manifest: { ...hackerNewsSession.manifest, spec: {
+        ...hackerNewsSession.manifest.spec, studio: { setup: { backendCapabilities: null }, units: [{ id: 'feedPicker', description: 'Feed.', outputs: null }] },
+      } },
+    } });
+    renderConnectorsPage();
+    expect(await screen.findByTitle('Hacker News Daily Connector Feed')).not.toBeNull();
+    expect(screen.getByRole('tab', { name: /listStories/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('shows a connection that cannot render as an error and keeps the page', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    stubConnectorAPI([pendingHackerNewsConnection, slackConnection], {
-      metadata: { displayName: 'Hacker News Daily', description: '' }, spec: { provider: 'hacker-news' },
-    });
+    stubConnectorAPI([pendingHackerNewsConnection, slackConnection], { hackerNewsSessionBody: unrenderableHackerNewsSession });
     renderConnectorsPage();
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('This connection could not be shown');
@@ -291,5 +335,57 @@ describe('A credential-free connection on the Connectors page', () => {
     fireEvent.click(within(list).getByRole('button', { name: /Slack/ }));
     expect(await screen.findByRole('heading', { name: 'Slack' })).not.toBeNull();
     expect((await screen.findByRole('alert')).textContent).toBe('Connector release metadata or UI is unavailable');
+  });
+
+  it('removes a connection that cannot render, and a list row recovers on the next load', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    // A display name that is not a string makes the list row itself fail to render.
+    const unrenderableSlackRow = { ...slackConnection, displayName: 42 };
+    const requests = stubConnectorAPI([pendingHackerNewsConnection, unrenderableSlackRow], {
+      hackerNewsSessionBody: unrenderableHackerNewsSession,
+      afterDelete: (connections) => connections.map((connection) => ({ ...connection, displayName: 'Slack' })),
+    });
+    renderConnectorsPage();
+    await waitFor(() => expect(screen.getAllByRole('alert').map((alert) => alert.textContent)).toEqual([
+      expect.stringContaining('This connection could not be shown'),
+      expect.stringContaining('This connection could not be shown'),
+    ]));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove connection' }));
+    expect(await screen.findByRole('heading', { name: 'Slack' })).not.toBeNull();
+    expect(requests.some((request) => request.method === 'DELETE'
+      && request.url === '/api/v2/connector-connections/hacker-news-daily/public')).toBe(true);
+    const list = screen.getByRole('list', { name: 'Connections' });
+    expect(within(list).getByRole('button', { name: /Slack/ }).getAttribute('aria-current')).toBe('true');
+    expect(list.textContent).not.toContain('could not be shown');
+    consoleError.mockRestore();
+  });
+
+  it('never shows the previous connection\'s setup while the next UI session loads', async () => {
+    let answerSlackSession: (response: Response) => void = () => undefined;
+    const slackSession = new Promise<Response>((resolve) => { answerSlackSession = resolve; });
+    stubConnectorAPI([pendingHackerNewsConnection, { ...slackConnection, status: 'Missing' }], {
+      slackSession: () => slackSession,
+    });
+    renderConnectorsPage();
+    expect(await screen.findByRole('heading', { name: 'Hacker News Daily setup' })).not.toBeNull();
+
+    const list = screen.getByRole('list', { name: 'Connections' });
+    fireEvent.click(within(list).getByRole('button', { name: /Slack/ }));
+    expect(await screen.findByRole('heading', { name: 'Slack' })).not.toBeNull();
+    expect(screen.getByRole('status').textContent).toBe('Loading Connector release…');
+    expect(screen.queryByRole('heading', { name: 'Hacker News Daily setup' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save local credentials' })).toBeNull();
+
+    answerSlackSession(new Response(JSON.stringify({
+      connectorId: 'slack', connectionName: 'support-slack', manifest: {
+        metadata: { displayName: 'Slack', description: 'Slack threads.' },
+        spec: { provider: 'slack', configuration: { fields: [] }, auth: { type: 'apiKey', fields: [
+          { name: 'bot_token', type: 'secretString', description: 'Bot token.', required: true },
+        ] } },
+      },
+    })));
+    expect(await screen.findByRole('heading', { name: 'Slack setup' })).not.toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Hacker News Daily setup' })).toBeNull();
   });
 });
