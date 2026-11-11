@@ -10,23 +10,31 @@ import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { parseArgs } from "node:util";
 
 import { Client, FlowNotFoundError, Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 import {
+  LocalDirectoryMediaStore,
   startAgentSession,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type DeferredToolOutcome,
+  type MediaStore,
   type ToolSource,
   type TurnSessionSettings,
 } from "@superdurable/dex-agents";
 
 import type { AgentHarness, HarnessContext, LocalToolGroup } from "./agent-harness.js";
 import { localToolGroups } from "./agent-harness.js";
-import { ConfigError, canonicalOperationName, isCoveredByConnectorEntry, type EffectiveConfig } from "./cli-config.js";
+import {
+  ConfigError,
+  canonicalOperationName,
+  isCoveredByConnectorEntry,
+  type EffectiveConfig,
+  type MediaConfig,
+} from "./cli-config.js";
 import { readCliEnvironment, type CliEnvironment } from "./cli-environment.js";
 import {
   askInitQuestions,
@@ -166,6 +174,7 @@ class AgentCliCommand {
   private blobCache: BlobCache | undefined;
   private blobCacheDirectory: string | undefined;
   private localTools: LocalToolSource | undefined;
+  private mediaStore: ClosableMediaStore | undefined;
   private sessionFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> | undefined;
 
   public constructor(
@@ -192,6 +201,9 @@ class AgentCliCommand {
       return 1;
     }
     const effective = this.applyOverrides(loaded.effective);
+    if (this.parsed.subcommand === "run") {
+      this.mediaStore = await createMediaStore(effective.media, this.environment.agentsDirectory);
+    }
     const server = await resolveDexServer(effective.dex.server, this.environment, this.log);
     if (server.webUrl !== null) {
       this.log(`Dex Web: ${server.webUrl}`);
@@ -211,6 +223,7 @@ class AgentCliCommand {
     await this.client?.close().catch(() => undefined);
     await this.worker?.close().catch(() => undefined);
     await this.localTools?.close().catch(() => undefined);
+    this.mediaStore?.close?.();
     this.blobCache?.close();
     if (this.blobCacheDirectory !== undefined) {
       rmSync(this.blobCacheDirectory, { recursive: true, force: true });
@@ -268,8 +281,13 @@ class AgentCliCommand {
     const workspace = this.prepareWorkspace(effective, loaded);
     const identity = this.sessionEnvironmentIdentity(loaded, workspace);
     const flowType = namespaceSessionFlowType(this.harness.flowType, identity);
+    const mediaStore = this.mediaStore;
+    if (mediaStore === undefined) {
+      throw new Error("the run subcommand builds the media store before the chat starts");
+    }
     // Both sources stay registered even when switched off, so they refuse calls another process requested.
-    const connectorSource = (await this.connectConnectors(effective, server, turns, true)) ?? new DisabledConnectorsToolSource();
+    const connectorSource =
+      (await this.connectConnectors(effective, server, turns, true, mediaStore)) ?? new DisabledConnectorsToolSource();
     this.localTools = new LocalToolSource(workspace, this.offeredLocalToolGroups(effective), turns, this.log);
     const toolSources: ToolSource[] = [connectorSource, this.localTools];
     const context: HarnessContext = {
@@ -279,6 +297,7 @@ class AgentCliCommand {
       instructions: turns.currentTurn().instructions,
       harnessOptions: effective.harness_options,
       toolSources,
+      mediaStore,
       resolveTurn: (sessionSettings) => turns.resolveTurn(sessionSettings),
       currentTurn: () => turns.currentTurn(),
       resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
@@ -306,9 +325,12 @@ class AgentCliCommand {
     await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
     const sessionId = await this.openSession(this.client, flow, flowType, identity);
     this.io.stdout.write(
-      `Session ${sessionId}. Type a message; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
+      `Session ${sessionId}. Type a message; /image <path> attaches an image to the next one; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
     );
-    const chat = new TerminalChat(this.client, flow, sessionId, this.terminalInput(), this.io.stdout);
+    const chat = new TerminalChat(this.client, flow, sessionId, this.terminalInput(), this.io.stdout, {
+      mediaStore,
+      homeDirectory: this.environment.homeDirectory,
+    });
     const isFailed = await chat.run();
     this.io.stdout.write(`\nSession ${sessionId} keeps running. Resume it with: dex-agents-${this.harness.name} --resume ${sessionId}\n`);
     return isFailed ? 1 : 0;
@@ -375,6 +397,7 @@ class AgentCliCommand {
     server: DexServerConnection,
     turns: TurnConfigResolver,
     isOpeningConnectorsPage: boolean,
+    mediaStore: MediaStore,
   ): Promise<ConnectorsMcpToolSource | undefined> {
     if (effective.connectors.enabled !== null && effective.connectors.enabled.length === 0) {
       return undefined;
@@ -391,7 +414,7 @@ class AgentCliCommand {
     if (!availability.isAvailable && !isAuto) {
       throw new Error(`the connectors MCP server is unavailable: ${availability.reason}`);
     }
-    const source = new ConnectorsMcpToolSource(url, turns, this.log);
+    const source = new ConnectorsMcpToolSource(url, turns, this.log, mediaStore);
     const isToolSetFixed = this.harness.isToolSetFixedAtBuild === true;
     if (!availability.isAvailable) {
       this.log(
@@ -554,6 +577,44 @@ class AgentCliCommand {
 
 /** The configuration identity of a run without a configuration file. */
 const defaultsConfigIdentity = "defaults";
+
+/** The directory under `~/.dex/agents` that `media.store: auto` keeps images in. */
+const mediaDirectoryName = "media";
+
+/** A media store that may hold connections, which `close` releases. */
+type ClosableMediaStore = MediaStore & { close?(): void };
+
+/**
+ * Builds the store of `media.store`: the local directory `~/.dex/agents/media` for `auto`, else the S3 bucket.
+ * The S3 store loads only for an `s3://` store, so the default store needs no AWS SDK.
+ */
+async function createMediaStore(media: MediaConfig, agentsDirectory: string): Promise<ClosableMediaStore> {
+  try {
+    if (media.store === "auto") {
+      return new LocalDirectoryMediaStore(resolve(agentsDirectory, mediaDirectoryName));
+    }
+    let s3: typeof import("@superdurable/dex-agents/s3");
+    try {
+      s3 = await import("@superdurable/dex-agents/s3");
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "ERR_MODULE_NOT_FOUND") {
+        throw error;
+      }
+      throw new UsageError(
+        `media.store ${media.store} needs the @aws-sdk/client-s3 package next to @superdurable/dex-agents; install it with: npm install @aws-sdk/client-s3`,
+      );
+    }
+    return s3.S3MediaStore.fromStoreUri(
+      media.store,
+      media.endpoint === null ? {} : { endpoint: media.endpoint, forcePathStyle: true },
+    );
+  } catch (error: unknown) {
+    if (error instanceof TypeError || error instanceof RangeError) {
+      throw new UsageError(`media.store ${media.store}: ${error.message}`);
+    }
+    throw error;
+  }
+}
 
 /**
  * The execution environment a session's Steps must run in, as {@link namespaceSessionFlowType} hashes it. The runtime

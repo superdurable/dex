@@ -137,6 +137,7 @@ class ClaudeSdkHarness:
             local_tools.build_options,
             tool_sources=context.tool_sources,
             claude_code_tool_permission=local_tools.decide_tool_call,
+            media_store=context.media_store,
         )
         return AgentSessionFlow(
             runner,

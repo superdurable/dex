@@ -49,6 +49,13 @@ once, writes and shell commands wait for approval unless the shell allow list
 has the command, and file tools stay in the workspace. See the
 [runtime README](../runtime/README.md) for the tools and their rules.
 
+## Images
+
+`/image <path>` attaches an image file to the next message. The command gives
+the Google ADK adapter the media store of `media.store`, so the model sees the
+image, and images that tools return go to the same store. See
+[Images](../../README.md#images).
+
 ## Development
 
 Develop with uv 0.12.2. The package resolves `dex-agents`, the adapter, the

@@ -52,6 +52,13 @@ instructions per Flow, so the command passes it a language model,
 model and adds the turn's instructions as the system message. Each turn
 therefore uses the model and instructions its session settings resolve to.
 
+## Images
+
+`/image <path>` attaches an image file to the next message. The command gives
+the Vercel AI SDK adapter the media store of `media.store`, so the model sees the
+image, and images that tools return go to the same store. See
+[Images](../../README.md#images).
+
 ## Development
 
 `ci.sh` builds the core, the Vercel AI SDK adapter, and the runtime, which this

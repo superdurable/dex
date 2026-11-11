@@ -87,7 +87,10 @@ class GoogleAdkHarness:
             before_model_callback=use_turn_model,
         )
         return adk_agent_session_flow(
-            agent, flow_type=context.flow_type, tool_sources=context.tool_sources
+            agent,
+            flow_type=context.flow_type,
+            tool_sources=context.tool_sources,
+            media_store=context.media_store,
         )
 
 
