@@ -308,6 +308,13 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn('gh workflow run "${PUBLISHER_WORKFLOW}"', coordinated_workflow)
         self.assertIn('-f "publish=true"', coordinated_workflow)
 
+    def test_agents_publishers_never_run_on_release_events(self) -> None:
+        for workflow in ("agents-python-publish.yml", "agents-typescript-publish.yml"):
+            publisher = (CHANGED_COMPONENTS_WORKFLOW.parent / workflow).read_text(encoding="utf-8")
+            self.assertNotIn("\n  release:", publisher, workflow)
+            self.assertNotIn("github.event.release", publisher, workflow)
+            self.assertIn("\n  workflow_dispatch:", publisher, workflow)
+
     def test_docker_web_release_uses_web_path_tag(self) -> None:
         workflow = WEB_RELEASE_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("startsWith(github.event.release.tag_name, 'web/v')", workflow)

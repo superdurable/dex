@@ -166,21 +166,76 @@ or later.
 
 ## Releases
 
-Publishing a GitHub Release with the tag `agents/v<version>` from a commit on
-`main` publishes all twenty-six packages in dependency order: the core, the
-adapters, the CLI core, then the CLI commands. `dex-agents-cli-testing`
-is never published.
+One release publishes all twenty-six packages at one version, in dependency
+order: the core, the adapters, the CLI core, then the CLI commands.
+`dex-agents-cli-testing` is never published.
 [`agents-python-publish.yml`](../.github/workflows/agents-python-publish.yml)
 uploads to PyPI and
 [`agents-typescript-publish.yml`](../.github/workflows/agents-typescript-publish.yml)
 uploads to npm with provenance, both through trusted publishing. A prerelease
-version such as `0.2.0-rc.1` gets the npm dist-tag `next`. Running either
-workflow by hand stamps, builds, and smoke-tests without uploading unless
-`publish` is selected. A run that uploads starts from `main` or from the
-release tag `agents/v<version>` on `main`. **Release changed components**
-releases the family when `agents/**` changed and its `agents_version` input
-is set. It creates the tag, then runs both workflows on that tag, so they
-publish the released commit even if `main` has moved on.
+version such as `0.2.0-rc.1` gets the npm dist-tag `next`.
+
+Both workflows run only when dispatched. Creating or publishing a GitHub
+Release never uploads packages. A dispatch stamps, builds, and smoke-tests
+without uploading unless `publish` is selected. A run that uploads starts
+from `main` or from the tag `agents/v<version>`, which must be on `main`.
+Dispatch it on the tag, so it builds the released commit even if `main` has
+moved on.
+
+### Release steps
+
+1. Merge the release-prep pull request. It writes the `## <version>` entry of
+   `agents/CHANGELOG.md` and the entry of the Developer reference change log.
+   See [`changelog.d/README.md`](../changelog.d/README.md#release):
+
+   ```bash
+   python3 script/release/changelog_fragments.py prepare agents --version <version> --date <YYYY-MM-DD>
+   ```
+
+2. Push the tag on a commit on `main`:
+
+   ```bash
+   git tag agents/v<version> <commit on main>
+   git push origin agents/v<version>
+   ```
+
+3. Publish the npm packages:
+
+   ```bash
+   gh workflow run agents-typescript-publish.yml --ref agents/v<version> \
+     -f version=<version> -f publish=true
+   ```
+
+4. Publish the PyPI packages. A release with no new PyPI project needs one
+   run with `skip_packages` empty. A release with new PyPI projects needs one
+   run per new project; see
+   [Releasing new PyPI projects](#releasing-new-pypi-projects):
+
+   ```bash
+   gh workflow run agents-python-publish.yml --ref agents/v<version> \
+     -f version=<version> -f publish=true [-f skip_packages="<new commands not yet registered>"]
+   ```
+
+5. Create the GitHub Release by hand, after the day's publisher runs succeed. Its notes
+   come from [`script/release/agents_release_notes.py`](../script/release/agents_release_notes.py).
+   Pass the previous `agents/v*` tag. Attach the wheels of CLI commands that
+   are not on PyPI yet, so users can install them before a later day's upload.
+   Take them from the `agents-python-distributions` artifact of a Python
+   publisher run on the tag:
+
+   ```bash
+   python3 script/release/agents_release_notes.py <version> \
+     --previous-tag agents/v<previous version> --output agents-release-notes.md
+   gh run download <Python publisher run ID> --name agents-python-distributions --dir agents-dist
+   gh release create agents/v<version> --verify-tag --title "Dex agents <version>" \
+     --notes-file agents-release-notes.md --latest=false \
+     [agents-dist/dex_agents_<command>_cli-<version>-*.whl ...]
+   ```
+
+6. Snapshot the agents Developer reference on `main` with
+   `node docs/scripts/snapshot-reference.mjs agents <version>`, run
+   `npm run check --prefix docs`, and open its docs pull request. See
+   [Release automation](../docs/README.md#release-automation).
 
 Both workflows stamp the release version first with
 [`script/stamp_agents_release_version.py`](script/stamp_agents_release_version.py).
@@ -207,44 +262,51 @@ server. Agents CI runs it on every change, so packaging regressions fail CI:
 DEXCLI=/path/to/dexcli agents/script/smoke-test-built-packages.sh all
 ```
 
-### Splitting a release across PyPI's new-project limit
+### Releasing new PyPI projects
 
-PyPI accepts only about five new projects per day. A release that publishes
-more new PyPI names than that uploads in two runs. The first release of the
-CLI packages has seven new names: `dex-agents-cli-core` and six commands.
+A new PyPI project needs a pending trusted publisher before its first
+upload. PyPI allows one pending publisher at a time, and it accepts only
+about five new projects per day. So a release with new PyPI projects uploads
+them one per run, and may span several days.
 
-The PyPI workflow's `skip_packages` input leaves CLI command distributions
+The Python workflow's `skip_packages` input leaves CLI command distributions
 out of one upload. It accepts only command names, because nothing else in the
-release depends on a command. It always builds and smoke-tests all thirteen
-distributions. A later run skips every file PyPI already has. Do not
-publish such a release by hand from the GitHub Releases page: the `release`
-event has no skip input and would upload all seven new names.
+release depends on a command. So a release can add at most one new project
+that is not a CLI command, and that project uploads in the first run. Every
+run builds and smoke-tests all thirteen distributions, and skips each file
+PyPI already has. A run that reaches a new project without a pending
+publisher fails there; the next run uploads the rest.
 
-1. Day 1: run **Release changed components** from `main` with all three
-   inputs. `version` is its required shared version for the other changed
-   components, the next Dex release version, such as `1.45.0`.
-   `agents_version` is the agents version, such as `0.5.0`.
-   `agents_python_skip_packages` names the last two commands. It creates
-   the Release, publishes every npm package, and uploads every other PyPI
-   distribution:
+For each new project, in turn:
 
-   ```bash
-   gh workflow run release-changed-components.yml --ref main \
-     -f version=1.45.0 -f agents_version=0.5.0 \
-     -f agents_python_skip_packages="dex-agents-google-adk-cli dex-agents-builtin-cli"
-   ```
-
-2. Day 2: run **Publish agents Python packages to PyPI** on the release tag,
-   so it builds the released commit, with `publish` selected and
-   `skip_packages` empty. It uploads the two skipped commands:
+1. Register its pending trusted publisher on PyPI for
+   `agents-python-publish.yml`.
+2. Dispatch the Python workflow on the tag, with `skip_packages` naming every
+   new command that is not registered yet:
 
    ```bash
-   gh workflow run agents-python-publish.yml --ref agents/v0.5.0 \
-     -f version=0.5.0 -f publish=true
+   gh workflow run agents-python-publish.yml --ref agents/v<version> \
+     -f version=<version> -f publish=true \
+     -f skip_packages="<new commands not yet registered>"
    ```
 
-Each new name needs its PyPI pending trusted publisher before the run that
-uploads it.
+3. After the run succeeds, the project exists and its publisher is no longer
+   pending. Register the next one.
+
+The last run leaves `skip_packages` empty. When the daily limit stops the
+uploads, create the GitHub Release anyway and attach the wheels of the
+commands still waiting.
+
+### Release changed components
+
+**Release changed components** can release the agents packages together with
+the other components: set its `agents_version` input. It creates the tag and
+the Release, then dispatches both workflows on the tag once, passing
+`agents_python_skip_packages` as `skip_packages`. Release the remaining new
+PyPI projects with the steps above. It releases every component that changed
+since its last release at the shared `version`. So it cannot release the
+agents packages alone while other components have changed; use the release
+steps above instead.
 
 ## Adding a package
 
