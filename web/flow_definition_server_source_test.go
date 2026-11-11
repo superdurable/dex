@@ -97,6 +97,11 @@ func (s *fakeDefinitionFlowService) GetFlowDefinitions(
 	if err := s.definitionRPCError(); err != nil {
 		return nil, err
 	}
+	for _, flowType := range request.GetFlowTypes() {
+		if strings.Contains(flowType, " ") {
+			return nil, status.Error(codes.InvalidArgument, "invalid Flow type")
+		}
+	}
 	response := &dexpb.GetFlowDefinitionsResponse{}
 	for _, flowType := range request.GetFlowTypes() {
 		if s.oversized[flowType] {
@@ -489,6 +494,14 @@ func TestV2RoutesLoadOnlyTheirFlowTypeAndCheckItsRevision(t *testing.T) {
 	}
 	if response := search("sha256:other," + revision); response.Code != http.StatusOK {
 		t.Fatalf("current search = %d %s", response.Code, response.Body.String())
+	}
+	invalid := httptest.NewRequest(http.MethodPost, "/api/v2/search", strings.NewReader(`{"flowTypes":["RefundFlow","bad name"]}`))
+	invalid.Header.Set("Content-Type", "application/json")
+	invalid.Header.Set("X-Dex-Flow-Definition-Revision", revision)
+	invalidResponse := httptest.NewRecorder()
+	handler.ServeHTTP(invalidResponse, invalid)
+	if invalidResponse.Code != http.StatusBadRequest || !strings.Contains(invalidResponse.Body.String(), `bad name\" has no valid`) {
+		t.Fatalf("search with a Flow type the server rejects = %d %s", invalidResponse.Code, invalidResponse.Body.String())
 	}
 	for _, request := range service.readRequests() {
 		if slices.Contains(request, "OtherFlow") {

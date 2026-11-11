@@ -101,7 +101,11 @@ func (s *serverFlowDefinitionSource) readBatch(ctx context.Context, flowTypes []
 	case codes.OK:
 	case codes.Unimplemented:
 		return nil, nil
-	case codes.ResourceExhausted:
+	case codes.ResourceExhausted, codes.InvalidArgument:
+		// A browser can name a Flow type the server rejects; that Flow type has no definition.
+		if len(flowTypes) == 1 && status.Code(err) == codes.InvalidArgument {
+			return nil, nil
+		}
 		if len(flowTypes) == 1 {
 			return []flowDefinitionDocument{{
 				origin: flowDefinitionOriginUploaded, flowType: flowTypes[0],
