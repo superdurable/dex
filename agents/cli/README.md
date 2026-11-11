@@ -42,6 +42,8 @@ local_tools:
   shell: {enabled: true, allow: ["git status", "ls"]}
   web_fetch: true
   browser: true
+media:
+  store: auto
 claude: {}
 ```
 
@@ -59,7 +61,9 @@ claude: {}
 | `local_tools.shell.enabled` | `true` | Run shell commands in `workspace`. Each command waits for approval unless the allow list has it. |
 | `local_tools.shell.allow` | `[]` | Commands that run without approval. A command matches only when its whole text equals an entry. `ls -la` does not match `ls`. |
 | `local_tools.web_fetch` | `true` | Fetch web pages. |
-| `local_tools.browser` | `true` | Drive a local browser. Reads (navigating and text snapshots) run at once; clicks, form fills, and submits wait for approval. There are no screenshots until image support lands. The browser is downloaded on first use. |
+| `local_tools.browser` | `true` | Drive a local browser. Reads (navigating and text snapshots) run at once; clicks, form fills, and submits wait for approval. The browser tools take no screenshots. The browser is downloaded on first use. |
+| `media.store` | `auto` | Where the session's images are stored. `auto` is the directory `~/.dex/agents/media` on this machine. `s3://<bucket>` or `s3://<bucket>/<prefix>` is an S3 bucket, for Workers on other machines. See Images below. |
+| `media.endpoint` | none (AWS S3) | The `http` or `https` URL of an S3-compatible service, such as `http://127.0.0.1:9000`. Only valid with an `s3://` store. It follows the URL rules of `dex.server`. |
 | `claude`, `openai`, `pydantic_ai`, `langgraph`, `google_adk`, `vercel_ai`, `mastra`, `pi`, `builtin` | `{}` | Options of one harness. Each command defines its own section's fields and ignores the other sections. |
 
 Other keys are errors, and `null` is never a valid value: omit the field to
@@ -75,7 +79,7 @@ which each harness command defines.
 ### URLs
 
 `dex.server` and `connectors.mcp` take `auto` or an `http` or `https` URL with
-no user info (`user:pass@`). The host is a DNS name whose last label starts
+no user info (`user:pass@`). `media.endpoint` takes such a URL, without `auto`. The host is a DNS name whose last label starts
 with a letter, a four-part IPv4 address, or a bracketed IPv6 address;
 `connectors.mcp` allows only `127.0.0.1`, `localhost`, and `[::1]`. A port is
 optional. The schema checks this shape. After the schema, the command rejects
@@ -101,6 +105,36 @@ letter or a digit, and an acronym stays one word, so `listStoryIDs` is
 Two entries must not cover the same connection, so `slack` and `slack/work`
 cannot appear together. An empty list gives the agent no connector tools.
 
+### Images
+
+In the chat, `/image <path>` attaches an image file to your next message. A
+leading `~` is the home directory, and a relative path is relative to the
+directory you started the command in. The file must be a regular file of at
+most 3,750,000 bytes, in PNG, JPEG, GIF, or WebP. The command checks the size
+before it reads the file. It then copies the image into the media store and
+shows `[image attached] chart.png (image/png, 48 KB)` or similar. A message
+carries at most 20 images. A file that fails a check is not attached, and the
+command says why.
+
+Session state keeps only a reference to each image. The bytes stay in the
+media store, one copy per distinct image, named by its SHA-256. The store
+keeps its own copy, so moving or deleting the original file changes nothing.
+Images that connector tools return go to the same store.
+
+- `media.store: auto` keeps images in `~/.dex/agents/media` on this machine.
+  Only Workers on this machine can read them.
+- `media.store: s3://<bucket>/<prefix>` keeps them in an S3 bucket, for
+  Workers on other machines. Credentials come from the environment or the
+  standard AWS chain, never from the file. With `media.endpoint`, the
+  command addresses the bucket in the URL path, as most S3-compatible
+  services need. The S3 store needs the agents library's S3 support:
+  `pip install 'dex-agents[s3]'` in Python, the `@aws-sdk/client-s3` package
+  in TypeScript. Without it the command stops with a configuration error.
+
+The model sees the images only when the harness's runner takes images. With
+another harness, the command says the message was not sent and removes the
+attached images; send the message again without them.
+
 ## Session settings
 
 Each session has a settings JSON object of at most 16 KiB, set when it starts
@@ -119,8 +153,8 @@ session in Dex Web can edit its settings.
 | `local_tools.shell.allow` | Replaces the file's allow list with a subset of it. |
 
 Other top-level keys are ignored, so the settings can also hold keys that
-other readers use. This includes `dex`, `workspace`, `system_prompt_file`, and
-the harness sections, which belong to the file only. The command reports each
+other readers use. This includes `dex`, `workspace`, `system_prompt_file`,
+`media`, and the harness sections, which belong to the file only. The command reports each
 ignored key as a warning, but the turn still runs. Inside a known field, an
 unknown key is an error, so `connectors.mcp` fails.
 
