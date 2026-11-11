@@ -12,6 +12,7 @@ package io.superdurable.dex;
 
 import com.google.protobuf.Empty;
 import io.grpc.Codec;
+import io.grpc.Context;
 import io.grpc.DecompressorRegistry;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -21,6 +22,7 @@ import io.superdurable.gen.ServerInfo;
 import io.superdurable.gen.SyncAttributeIndexRequest;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -65,8 +67,10 @@ public final class Worker implements AutoCloseable {
     private final FlowServiceGrpc.FlowServiceBlockingStub flowService;
     private final PullWorker pullWorker;
     private final String sdkVersion;
+    private final List<FlowDefinitionDocument> flowDefinitions;
     private final NegotiatedServerProtocol serverProtocol = new NegotiatedServerProtocol();
     private State state = State.CREATED;
+    private Context.CancellableContext flowDefinitionUpload;
     private boolean hasStartCalled;
 
     /**
@@ -87,7 +91,10 @@ public final class Worker implements AutoCloseable {
      * @param blobCache the nonnull cache used to hydrate blob-backed invocation values
      * @param options the nonnull worker options
      * @throws IllegalArgumentException if any argument is {@code null} or the pull Worker ID
-     *     conflicts with a registered Flow type, or TLS settings or the TLS address are invalid
+     *     conflicts with a registered Flow type, or TLS settings or the TLS address are invalid.
+     *     Changed in 1.45.0: also thrown when two Flow definition sources share a Flow type, or an
+     *     in-memory Flow definition is not a Flow Definition Graph 2.x naming its Flow type, or a
+     *     configured Flow definition path is missing or invalid.
      */
     public Worker(
             final Registry registry,
@@ -98,6 +105,8 @@ public final class Worker implements AutoCloseable {
         }
         this.registry = registry;
         this.options = options;
+        this.flowDefinitions = FlowDefinitionSources.collect(
+                options.getFlowDefinitionPaths(), options.getFlowDefinitions());
         final ManagedChannelBuilder<?> channelBuilder = FlowServiceTlsTransport.channelBuilder(
                 options.getServerAddress(), options.getFlowServiceTls());
         this.handlers = newHandlerExecutor(options.getPull().getMaxConcurrentTasks());
@@ -144,6 +153,12 @@ public final class Worker implements AutoCloseable {
      * <p>Changed in 1.35.0: startup requires protocol 4 (server-zd 0.1.17 or newer) and fails
      * without background retry if maxConcurrentTasks exceeds matching.maxConcurrentTasksCap.
      * Readiness is based on registered slot kinds rather than individual routing queues.
+     *
+     * <p>Changed in 1.45.0: after syncing Attribute indexes and before opening the pull streams, the
+     * Worker uploads the Flow definitions configured with
+     * {@link WorkerOptions.Builder#flowDefinitionPaths(java.util.List)} and
+     * {@link WorkerOptions.Builder#flowDefinitions(java.util.List)}. An upload failure is logged as
+     * a warning and does not stop the Worker.
      *
      * @throws PullRegistrationError if an uncovered permanent stream rejection stops the Worker
      *     with stopOnPermanentStreamRejection enabled, before or after readiness
@@ -270,7 +285,9 @@ public final class Worker implements AutoCloseable {
                 throw new IllegalStateException("cannot synchronize Attribute indexes", failure);
             }
             state = State.RUNNING;
+            flowDefinitionUpload = Context.current().withCancellation();
         }
+        uploadFlowDefinitions();
 
         try {
             pullWorker.runBlocking();
@@ -278,6 +295,23 @@ public final class Worker implements AutoCloseable {
             if (Thread.currentThread().isInterrupted()) {
                 stop();
             }
+        }
+    }
+
+    // Runs outside the lifecycle lock; stop cancels the context to end an in-flight upload.
+    private void uploadFlowDefinitions() {
+        final Context.CancellableContext upload;
+        synchronized (this) {
+            upload = flowDefinitionUpload;
+        }
+        try {
+            if (!flowDefinitions.isEmpty() && !upload.isCancelled()) {
+                upload.run(() -> FlowDefinitionUploads.uploadAtWorkerStart(flowService,
+                        options.getCredential(), options.getAttributeIndexSyncTimeout(), flowDefinitions,
+                        registry.getFlowTypes()));
+            }
+        } finally {
+            upload.cancel(null);
         }
     }
 
@@ -312,6 +346,9 @@ public final class Worker implements AutoCloseable {
                 return;
             }
             state = State.STOPPING;
+            if (flowDefinitionUpload != null) {
+                flowDefinitionUpload.cancel(null);
+            }
         }
         shutdownResources();
         synchronized (this) {
