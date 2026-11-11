@@ -76,6 +76,9 @@ export function flowDefinitionShapeProblem(graph: unknown): string | null {
       }
     }
   }
+  for (const [index, node] of (graph.nodes as Record<string, unknown>[]).entries()) {
+    if (node.wait !== undefined && !isReadableWait(node.wait)) return `Its node ${index} has a malformed wait.`;
+  }
   if (graph.groups !== undefined) {
     if (!Array.isArray(graph.groups)) return 'Its groups are malformed.';
     for (const [index, group] of graph.groups.entries()) {
@@ -86,6 +89,15 @@ export function flowDefinitionShapeProblem(graph: unknown): string | null {
     }
   }
   return null;
+}
+
+/** A wait the canvas can read; null conditions, which dexcli visualize 1.44 and older writes, read as none. */
+function isReadableWait(wait: unknown): boolean {
+  if (!isRecord(wait) || typeof wait.type !== 'string') return false;
+  if (wait.conditions === null) return true;
+  return Array.isArray(wait.conditions) && wait.conditions.every((condition) => (
+    isRecord(condition) && typeof condition.kind === 'string' && typeof condition.label === 'string'
+  ));
 }
 
 /** Counts code points, as the server does, but only for a string whose UTF-16 length could exceed the limit. */

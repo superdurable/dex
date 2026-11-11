@@ -82,13 +82,19 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     return () => latestLoads.current.get(kind) === load;
   }, []);
 
+  /** Reads the Flow type list; only the newest read sets the list or the error, and an aborted read sets neither. */
   const loadFlowTypes = useCallback(async (signal?: AbortSignal) => {
     const isLatest = startLoad('flow-types');
-    const response = await fetch(webURL('/api/flow-definition-types'), { cache: 'no-store', signal });
-    const value = await readResponseJSON<FlowDefinitionTypeList>(response);
-    if (!isLatest()) return;
-    setFlowTypes(value);
-    setError('');
+    try {
+      const response = await fetch(webURL('/api/flow-definition-types'), { cache: 'no-store', signal });
+      const value = await readResponseJSON<FlowDefinitionTypeList>(response);
+      if (!isLatest() || signal?.aborted) return;
+      setFlowTypes(value);
+      setError('');
+    } catch (loadError) {
+      if (!isLatest() || signal?.aborted) return;
+      setError(loadError instanceof Error ? loadError.message : 'Dex Web catalog failed to load');
+    }
   }, [startLoad]);
 
   const loadCatalog = useCallback(async () => {
@@ -126,11 +132,7 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadFlowTypes(controller.signal).catch((loadError: unknown) => {
-      if (!controller.signal.aborted) {
-        setError(loadError instanceof Error ? loadError.message : 'Dex Web catalog failed to load');
-      }
-    }).finally(() => {
+    void loadFlowTypes(controller.signal).finally(() => {
       if (!controller.signal.aborted) setReady(true);
     });
     return () => controller.abort();
@@ -182,9 +184,7 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     }
     setNotice('Flow Definition updated. Review the refreshed definition and confirm the operation again.');
     setDefinitionUpdateKey((current) => current + 1);
-    void loadFlowTypes().catch((loadError: unknown) => {
-      setError(loadError instanceof Error ? loadError.message : 'Dex Web catalog failed to reload');
-    });
+    void loadFlowTypes();
     if (isCatalogRequested.current) void loadCatalog();
     for (const flowType of requestedFlowTypes.current) void loadFlowTypeDefinitions(flowType);
     return true;

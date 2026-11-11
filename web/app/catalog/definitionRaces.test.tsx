@@ -94,6 +94,39 @@ describe('stale definition answers', () => {
   });
 });
 
+describe('stale Flow type list answers', () => {
+  function ErrorProbe() {
+    const { error, handleDefinitionError } = useWebCatalog();
+    return (
+      <>
+        <output aria-label="error">{error}</output>
+        <button
+          onClick={() => handleDefinitionError(new DexAPIError('changed', 409, undefined, 'FLOW_DEFINITION_CHANGED'))}
+          type="button"
+        >
+          Reload
+        </button>
+      </>
+    );
+  }
+
+  it('never let an older failure replace a newer list with an error', async () => {
+    const pending: ((succeeds: boolean) => void)[] = [];
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => {
+      pending.push((succeeds) => resolve(succeeds
+        ? json({ configured: true, operatorAPI: false, flowTypes: [] })
+        : json({ error: 'list unavailable' }, 503)));
+    })));
+    render(<WebCatalogProvider><ErrorProbe /></WebCatalogProvider>);
+    await waitFor(() => expect(pending).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect(pending).toHaveLength(2));
+    await act(async () => { pending[1](true); });
+    await act(async () => { pending[0](false); });
+    expect(screen.getByLabelText('error').textContent).toBe('');
+  });
+});
+
 describe('hostile graphs in the browser', () => {
   const graph = (overrides: Record<string, unknown>) => ({
     schemaVersion: '2.0', valid: true, source: { language: 'go', path: 'f.go' }, flow: { name: 'F' },
