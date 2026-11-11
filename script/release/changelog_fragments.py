@@ -78,6 +78,8 @@ FRONT_MATTER_LINE = re.compile(r"^(?P<key>[a-z_]+):[ \t]*(?P<value>.*?)\s*$")
 RELEASE_PREP_LABEL = "release-prep"
 # Pull requests up to this number were opened before fragments and may keep the old flow.
 LEGACY_CHANGELOG_PR_MAX = 1608
+# Component change logs moved to fragments later, with #1612.
+LEGACY_COMPONENT_CHANGELOG_PR_MAX = 1615
 CORRECTION_LINE = re.compile(r"^\s*(?:[-*]\s+)?changelog:\s*correction:[ \t]*\S", re.IGNORECASE | re.MULTILINE)
 SKILLS_NO_BUMP_LINE = re.compile(
     r"^\s*(?:[-*]\s+)?skills-release:\s*no bump needed:[ \t]*\S", re.IGNORECASE | re.MULTILINE
@@ -368,7 +370,10 @@ def check_pull_request(
                 " instead, or add a line 'changelog: correction: <reason>' to the pull request description"
             )
     if not is_correction:
-        errors.extend(component_output_errors(base, head, changed_paths, is_legacy))
+        is_component_legacy = (
+            pull_request.number is not None and pull_request.number <= LEGACY_COMPONENT_CHANGELOG_PR_MAX
+        )
+        errors.extend(component_output_errors(base, head, changed_paths, is_component_legacy))
     changed_base_fragments = sorted(
         change.path for change in changes if change.status in ("M", "D") and is_fragment_path(change.path)
     )
