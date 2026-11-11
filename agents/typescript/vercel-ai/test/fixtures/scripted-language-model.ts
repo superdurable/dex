@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { MockLanguageModelV4 } from "ai/test";
@@ -39,6 +40,30 @@ export function scriptedResponseId(turnNumber: number, prompt: LanguageModelProm
   return `scripted-response-${turnNumber}-${prompt.length}`;
 }
 
+/** File in the marker directory with one {@link RecordedModelPrompt} JSON line per model call. */
+export const modelPromptsLogName = "model-prompts.jsonl";
+
+/** The prompt of one model call, as the language model received it; bytes appear as `{ base64 }`. */
+export interface RecordedModelPrompt {
+  readonly flowId: string;
+  readonly turnId: string;
+  readonly attempt: number;
+  readonly prompt: unknown;
+}
+
+/** Reads the recorded prompts of one session, in call order. */
+export function readRecordedModelPrompts(markerDirectory: string, flowId: string): RecordedModelPrompt[] {
+  const path = join(markerDirectory, modelPromptsLogName);
+  if (!existsSync(path)) {
+    return [];
+  }
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line) as RecordedModelPrompt)
+    .filter((recorded) => recorded.flowId === flowId);
+}
+
 /** Scripted AI SDK model that decides only from its prompt; the README's Development section lists its commands. */
 export function createScriptedLanguageModel(markerDirectory: string): MockLanguageModelV4 {
   return new MockLanguageModelV4({
@@ -65,6 +90,13 @@ async function* streamScriptedResponse(
   new InvocationLog(join(markerDirectory, "model-calls.log")).record(
     `${scope?.flowId} ${scope?.turnId} attempt ${scope?.attempt}`,
   );
+  const recordedPrompt: RecordedModelPrompt = {
+    flowId: scope?.flowId ?? "",
+    turnId: scope?.turnId ?? "",
+    attempt: scope?.attempt ?? 0,
+    prompt: encodeBytesAsBase64(prompt),
+  };
+  appendFileSync(join(markerDirectory, modelPromptsLogName), `${JSON.stringify(recordedPrompt)}\n`);
   const turnNumber = prompt.filter((message) => message.role === "user").length;
   yield { type: "stream-start", warnings: [] };
   // A provider may send no response metadata; the AI SDK then fills in its own.
@@ -220,6 +252,22 @@ function readPromptText(message: LanguageModelPromptMessage): string {
   return message.content
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("");
+}
+
+function encodeBytesAsBase64(value: unknown): unknown {
+  if (value instanceof Uint8Array) {
+    return { base64: Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("base64") };
+  }
+  if (value instanceof URL) {
+    return { url: value.toString() };
+  }
+  if (Array.isArray(value)) {
+    return value.map(encodeBytesAsBase64);
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, encodeBytesAsBase64(nested)]));
+  }
+  return value;
 }
 
 function readableStreamFromAsyncIterable<Part>(parts: AsyncIterable<Part>): ReadableStream<Part> {
