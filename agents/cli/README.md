@@ -59,7 +59,7 @@ claude: {}
 | `local_tools.shell.enabled` | `true` | Run shell commands in `workspace`. Each command waits for approval unless the allow list has it. |
 | `local_tools.shell.allow` | `[]` | Commands that run without approval. A command matches only when its whole text equals an entry. `ls -la` does not match `ls`. |
 | `local_tools.web_fetch` | `true` | Fetch web pages. |
-| `local_tools.browser` | `true` | Drive a local browser. Reading and screenshots run at once; clicks, form fills, and submits wait for approval. The browser is downloaded on first use. |
+| `local_tools.browser` | `true` | Drive a local browser. Reads (navigating and text snapshots) run at once; clicks, form fills, and submits wait for approval. There are no screenshots until image support lands. The browser is downloaded on first use. |
 | `claude`, `openai`, `pydantic_ai`, `langgraph`, `google_adk`, `vercel_ai`, `mastra`, `pi`, `builtin` | `{}` | Options of one harness. Each command defines its own section's fields and ignores the other sections. |
 
 Other keys are errors, and `null` is never a valid value: omit the field to

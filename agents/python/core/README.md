@@ -1306,6 +1306,15 @@ Every `tools/call` carries the session's idempotency key,
 `<flowId>/<turnId>/<toolCallId>`, in `_meta` under
 `IDEMPOTENCY_KEY_META_KEY` (`io.superdurable.dex/idempotencyKey`). The MCP SDK
 adds `traceparent` to `_meta` when OpenTelemetry has an active trace.
+`execute_deferred_tool_call(call, request_meta=...)` adds more `_meta`
+entries to the request, such as the identity a caller expects the server to
+check before it runs the call; the idempotency key wins over an entry of the
+same name. `will_resume_tool_task_without_sending(call)` is `True` only when
+executing the call returns a task an earlier attempt started and can never send
+`tools/call`: the session polls tasks, the server uses Streamable HTTP, and the
+call's checkpoint names the task. A task polled inside the call may be sent
+again when the server lost it, so such a caller skips a check it makes before
+every `tools/call` only when this is `True`.
 
 | What happens | Recorded | Re-issued? |
 | --- | --- | --- |
