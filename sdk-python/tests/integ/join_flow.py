@@ -219,7 +219,7 @@ class AsyncSplitReviews(Step[list[str]]):
         movements = BRANCH_RESULT.fork(
             context,
             [build_async_review(reviewer) for reviewer in input],
-            build_collect_all,
+            build_async_collect_all,
         )
         return go_to_many(*movements)
 
@@ -231,13 +231,30 @@ class AsyncReviewBranch(Step[ReviewInput]):
         return BRANCH_RESULT.end_branch(context, input.join_round, input.reviewer)
 
 
+class AsyncCollectAllBranches(Step[JoinRound]):
+    async def wait_for(  # type: ignore[override]
+        self, context: AsyncContext, input: JoinRound
+    ) -> Wait:
+        return Wait.until(BRANCH_RESULT.for_all_branches(input))
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, input: JoinRound
+    ) -> StepDecision:
+        results = BRANCH_RESULT.branch_results(context, input)
+        return graceful_complete(JoinOutcome(input.branch_count, list(results)))
+
+
+def build_async_collect_all(join_round: JoinRound) -> StepMovement[Any]:
+    return StepMovement.of(AsyncCollectAllBranches, join_round)
+
+
 class AsyncMultiInstanceJoinFlow(Flow[list[str]]):
     def get_flow_type(self) -> str:
         return "PythonAsyncMultiInstanceJoinFlow"
 
     def get_steps(self) -> StepList[list[str]]:
         return StepList.start_step(AsyncSplitReviews()).other_steps(
-            AsyncReviewBranch(), CollectAllBranches()
+            AsyncReviewBranch(), AsyncCollectAllBranches()
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
@@ -362,12 +379,11 @@ class CancellingFirstBranchJoinFlow(ReleasableJoinFlow[None]):
     def get_flow_type(self) -> str:
         return "PythonCancellingFirstBranchJoinFlow"
 
-    # Join exposes no pending-message API; the test reads its underlying ChannelMap.
-    @rpc(load_channel_maps=(BRANCH_RESULT._channel_map,))
+    @rpc(load_channel_maps=(BRANCH_RESULT.channel_map,))
     def get_pending_results(
         self, context: Context, round_key: str
     ) -> RPCResult[list[str]]:
-        pending = BRANCH_RESULT._channel_map.pending_messages(context, round_key)
+        pending = BRANCH_RESULT.channel_map.pending_messages(context, round_key)
         return RPCResult([message.value for message in pending])
 
     def get_steps(self) -> StepList[None]:

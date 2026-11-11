@@ -280,7 +280,7 @@ class PersistenceSchema:
             elif isinstance(definition, (Channel, ChannelMap)):
                 channels.append(definition)
             elif isinstance(definition, Join):
-                channels.append(definition._channel_map)
+                channels.append(definition.channel_map)
             elif isinstance(definition, Stream):
                 streams.append(definition)
             else:

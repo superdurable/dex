@@ -327,6 +327,30 @@ class Join(Generic[ResultT]):
         """
         return self._channel_map.value_type
 
+    @property
+    def channel_map(self) -> ChannelMap[ResultT]:
+        """Return the ChannelMap that holds this Join's branch results.
+
+        Use it to inspect a round's pending results with the existing ChannelMap
+        API. The instance key of a round is its :attr:`JoinRound.round_key`. For
+        example, an RPC declares ``@rpc(load_channel_maps=(join.channel_map,))``
+        and then reads ``join.channel_map.pending_messages(context,
+        join_round.round_key)``, or reads the count with ``size``. The returned
+        object is the definition that ``PersistenceSchema.of`` registers for this
+        Join, so every API that checks registration accepts it.
+
+        Never publish to it, delete from it, or wait on it directly. Report
+        results with :meth:`end_branch` or :meth:`report_branch_result`, and wait
+        with the Join condition methods. A direct publication counts as a branch
+        result and breaks the exactly-once count of the round.
+
+        .. versionadded:: 1.41.0
+
+        Returns:
+            The registered ChannelMap with the Join's name and result type.
+        """
+        return self._channel_map
+
     def fork(
         self,
         context: Context,

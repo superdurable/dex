@@ -251,6 +251,10 @@ def test_join_round_wire_format_uses_camel_case_field_names() -> None:
     }
     persisted = values.encode_dynamic({"roundKey": "round-1", "branchCount": 0})
     assert values.decode(persisted, values.codec(JoinRound)) == JoinRound("round-1", 0)
+    extended = values.encode_dynamic(
+        {"roundKey": "round-2", "branchCount": 4, "addedLater": True}
+    )
+    assert values.decode(extended, values.codec(JoinRound)) == JoinRound("round-2", 4)
 
 
 def test_persistence_schema_registers_join_as_its_channel_map() -> None:
@@ -258,6 +262,7 @@ def test_persistence_schema_registers_join_as_its_channel_map() -> None:
     schema = PersistenceSchema.of(STATUS, quote_received)
     assert len(schema.channels) == 1
     channel_map = schema.channels[0]
+    assert channel_map is quote_received.channel_map
     assert isinstance(channel_map, ChannelMap)
     assert channel_map.name == "quoteReceived"
     assert channel_map.value_type is str

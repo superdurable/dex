@@ -21,7 +21,7 @@ Not released yet. The next minor release, sdk-python/v1.41.0, ships these change
 
 ### Added
 
-- **Join** and **JoinRound** synchronize parallel branches of a Flow. **Join.fork** starts a round from the split Step and builds the branch and join movements, so the application keeps no branch count or round key. Branches report with **end_branch** or **report_branch_result**. The join Step waits with **for_all_branches**, **for_first_branch**, or **for_branches**, and the next round resets the previous one with **for_remaining_branches**. RPC handlers use **fork_with_round_key**. [Reference](/reference/python/waits).
+- **Join** and **JoinRound** synchronize parallel branches of a Flow. **Join.fork** starts a round from the split Step and builds the branch and join movements, so the application keeps no branch count or round key. Branches report with **end_branch** or **report_branch_result**. The join Step waits with **for_all_branches**, **for_first_branch**, or **for_branches**, and the next round resets the previous one with **for_remaining_branches**. RPC handlers use **fork_with_round_key**. **Join.channel_map** returns the registered ChannelMap, so an RPC can load and read a round's pending results. [Reference](/reference/python/waits).
 
 ## 1.40 {#v1-40}
 

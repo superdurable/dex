@@ -21,6 +21,8 @@
   reads `branch_results`. The next round's split Step resets the previous round
   with `for_remaining_branches`. RPC handlers use `fork_with_round_key`. A Join
   is a ChannelMap with the same name, and `PersistenceSchema.of` accepts it.
+  `Join.channel_map` returns that registered ChannelMap, so an RPC can load
+  and read a round's pending results.
 - Add `FlowConfig.offload_history` to choose whether a run offloads its history
   to object storage. `None` means `True`. Set it to `False` for many short runs
   that close soon, to avoid object storage requests. Set it at start through
