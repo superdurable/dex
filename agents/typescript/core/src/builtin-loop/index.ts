@@ -16,8 +16,10 @@ export {
 } from "./agent-definition.js";
 export {
   functionTool,
+  functionToolResult,
   type FunctionTool,
   type FunctionToolDefinition,
+  type FunctionToolResult,
   type PreparedToolArguments,
   type ToolCallContext,
 } from "./function-tool.js";

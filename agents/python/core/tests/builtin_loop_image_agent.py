@@ -22,6 +22,18 @@ The model reads the current turn's user text:
 * ``screenshot-continue`` calls ``take_screenshot`` with the text ``continue
   after tools``, so ``decide_turn_continuation`` continues the turn with the
   user text ``Describe the screenshot.``, which the model answers ``described``.
+* ``function-screenshot`` and ``function-screenshot-hold <gate>`` work like
+  ``screenshot`` and ``screenshot-hold``, but call ``take_function_screenshot``,
+  a function tool that uploads the PNG through ``ToolCallContext.media_store``
+  and returns a ``FunctionToolResult``. Without a store it returns a reference
+  it built itself. It logs ``store present`` or ``store absent`` with its
+  attempt in ``function-tool-stores.log``.
+* ``function-invalid-image`` calls ``return_invalid_function_image``, a
+  single-attempt write function tool that returns a reference with an
+  unsupported MIME type.
+* ``function-plain-json`` and ``function-plain-json-images`` call
+  ``return_plain_result_json``, a function tool that returns a ``dict`` with
+  the fields of a ``FunctionToolResult``, without or with one image reference.
 
 Every model call appends one JSON line to ``model-requests.log``: each input
 item's kind and text, with each image as its MIME type and the SHA-256 and
@@ -41,6 +53,7 @@ import os
 import struct
 import sys
 import zlib
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -57,20 +70,25 @@ from dex_agents import (
     ToolExecutionResult,
     ToolTaskPoll,
     ToolTaskPollOutcome,
+    build_image_reference,
 )
 from dex_agents.builtin_loop import (
     AgentDefinition,
     ContinueTurn,
+    FunctionTool,
+    FunctionToolResult,
     ModelRequest,
     ScriptedModelClient,
     ScriptedModelReply,
     ScriptedToolCall,
     SourceToolDefinition,
+    ToolCallContext,
     ToolResultItem,
     TurnContinuation,
     TurnContinuationContext,
     UserTextItem,
     builtin_agent_session_flow,
+    function_tool,
 )
 from dex_agents.mcp import McpStdioServerConfig, McpToolSource
 from dex_agents.testing import FileGate, InvocationLog
@@ -82,6 +100,11 @@ STATE_DIR_ENVIRONMENT_VARIABLE = "BUILTIN_IMAGE_AGENT_STATE_DIR"
 MODEL_REQUESTS_LOG_NAME = "model-requests.log"
 MEDIA_DIRECTORY_NAME = "media"
 SCREENSHOT_TOOL_NAME = "take_screenshot"
+FUNCTION_SCREENSHOT_TOOL_NAME = "take_function_screenshot"
+INVALID_FUNCTION_IMAGE_TOOL_NAME = "return_invalid_function_image"
+PLAIN_RESULT_JSON_TOOL_NAME = "return_plain_result_json"
+FUNCTION_TOOL_STORES_LOG_NAME = "function-tool-stores.log"
+NO_STORE_URI = "file:///no-media-store"
 MCP_SCREENSHOT_TOOL_NAME = "local__take_screenshot"
 STORE_READS_FAIL_FILE_NAME = "store-reads-fail"
 STORE_READS_LOG_NAME = "store-reads.log"
@@ -205,16 +228,33 @@ class ImageModelScript:
                 if isinstance(item, UserTextItem | ToolResultItem)
             )
             return ScriptedModelReply(text=f"saw {count} images")
+        tool_name = SCREENSHOT_TOOL_NAME
+        if command.startswith("function-screenshot"):
+            tool_name = FUNCTION_SCREENSHOT_TOOL_NAME
+            command = command.removeprefix("function-")
         if command == "screenshot" or command.startswith("screenshot-hold "):
             if not ScriptedModelClient.tool_results(request):
-                return ScriptedModelReply(
-                    tool_calls=[ScriptedToolCall(tool_name=SCREENSHOT_TOOL_NAME)]
-                )
+                return ScriptedModelReply(tool_calls=[ScriptedToolCall(tool_name=tool_name)])
             if command.startswith("screenshot-hold "):
                 gate = FileGate(self._state_dir, command.removeprefix("screenshot-hold "))
                 gate.mark_reached()
                 await gate.wait_for_release()
             return ScriptedModelReply(text="screenshot taken")
+        if command == "function-invalid-image":
+            if not ScriptedModelClient.tool_results(request):
+                return ScriptedModelReply(
+                    tool_calls=[ScriptedToolCall(tool_name=INVALID_FUNCTION_IMAGE_TOOL_NAME)]
+                )
+            return ScriptedModelReply(text="invalid image returned")
+        if command in ("function-plain-json", "function-plain-json-images"):
+            if not ScriptedModelClient.tool_results(request):
+                arguments = {"with_images": command == "function-plain-json-images"}
+                return ScriptedModelReply(
+                    tool_calls=[
+                        ScriptedToolCall(tool_name=PLAIN_RESULT_JSON_TOOL_NAME, arguments=arguments)
+                    ]
+                )
+            return ScriptedModelReply(text="plain json returned")
         if command == "screenshot-continue":
             return ScriptedModelReply(
                 text=CONTINUE_AFTER_TOOLS_TEXT,
@@ -229,6 +269,46 @@ class ImageModelScript:
                 )
             return ScriptedModelReply(text="mcp screenshot taken")
         raise ValueError(f"unknown image command {command!r}")
+
+
+def build_function_image_tools(state_dir: Path) -> list[FunctionTool]:
+    """Build the function tools that return images through ``FunctionToolResult``."""
+    stores = InvocationLog(state_dir / FUNCTION_TOOL_STORES_LOG_NAME)
+
+    @function_tool(effect=ToolEffect.READ, name=FUNCTION_SCREENSHOT_TOOL_NAME)
+    async def take_function_screenshot(context: ToolCallContext) -> FunctionToolResult:
+        """Take a screenshot of the screen."""
+        if context.media_store is None:
+            stores.record(f"store absent attempt {context.attempt}")
+            reference = build_image_reference(screenshot_png(), NO_STORE_URI)
+        else:
+            stores.record(f"store present attempt {context.attempt}")
+            reference = await context.media_store.put_image(screenshot_png())
+        return FunctionToolResult(output="Took a function screenshot.", images=[reference])
+
+    @function_tool(
+        effect=ToolEffect.NON_IDEMPOTENT_WRITE,
+        requires_approval=False,
+        name=INVALID_FUNCTION_IMAGE_TOOL_NAME,
+    )
+    async def return_invalid_function_image() -> FunctionToolResult:
+        """Return an image reference with an unsupported MIME type."""
+        reference = build_image_reference(screenshot_png(), NO_STORE_URI)
+        invalid = AgentImageReference(**{**asdict(reference), "mime_type": "image/bmp"})
+        return FunctionToolResult(output="returned a bad image", images=[invalid])
+
+    @function_tool(effect=ToolEffect.READ, name=PLAIN_RESULT_JSON_TOOL_NAME)
+    def return_plain_result_json(with_images: bool) -> dict[str, Any]:
+        """Return plain JSON with the fields of a function tool result."""
+        return plain_result_json(with_images)
+
+    return [take_function_screenshot, return_invalid_function_image, return_plain_result_json]
+
+
+def plain_result_json(with_images: bool) -> dict[str, Any]:
+    """Build a ``dict`` with the fields of a ``FunctionToolResult``."""
+    images = [asdict(build_image_reference(screenshot_png(), NO_STORE_URI))] if with_images else []
+    return {"output": "data", "images": images}
 
 
 def continue_after_tools(context: TurnContinuationContext) -> TurnContinuation:
@@ -260,6 +340,7 @@ def build_builtin_image_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
         name="image-agent",
         instructions="You look at images.",
         model=ScriptedModelClient(ImageModelScript(state_dir).respond),
+        tools=build_function_image_tools(state_dir),
         tool_sources=[ScreenshotToolSource(store), mcp_tools],
         decide_turn_continuation=continue_after_tools,
     )

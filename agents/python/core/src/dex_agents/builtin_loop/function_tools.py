@@ -32,8 +32,9 @@ from typing import (
 
 from dex_agents.builtin_loop.model import ModelToolDefinition
 from dex_agents.events import AgentEventWriter
+from dex_agents.media import MediaStore
 from dex_agents.runner import ToolExecutionError, ToolInputRequested, ToolPolicy
-from dex_agents.values import QuestionAnswer, ToolEffect
+from dex_agents.values import AgentImageReference, QuestionAnswer, ToolEffect
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -86,6 +87,12 @@ class ToolCallContext:
                     raise ToolExecutionError(str(error)) from error
 
             .. versionadded:: 0.5.0
+        media_store: The store that holds the session's images, the one the
+            runner was built with, or ``None`` when it has none. Upload image
+            bytes with ``put_image`` and return the references in a
+            ``FunctionToolResult``. See ``FunctionToolResult`` for an example.
+
+            .. versionadded:: 0.5.0
     """
 
     flow_id: str
@@ -98,6 +105,49 @@ class ToolCallContext:
     input_answers: Sequence[QuestionAnswer] = ()
     input_continuation: str | None = None
     effect: ToolEffect = ToolEffect.UNCLASSIFIED
+    media_store: MediaStore | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class FunctionToolResult:
+    """Return text and images from a function tool.
+
+    Return it from a function tool to show the model images with the output.
+    Upload each image's bytes with ``ToolCallContext.media_store`` inside the
+    call, then return the references. A retried attempt uploads the same
+    bytes to the same object, so uploading again is safe.
+
+    The runner returns the result as ``ToolExecutionResult(output, images)``,
+    so the session checks the images exactly as it checks a tool source's
+    images. More than ``MAX_IMAGES_PER_MESSAGE`` images, or a reference that
+    ``validate_image_reference`` refuses, fails the attempt with
+    ``ImageValidationError``. A failed attempt of a ``READ`` or
+    ``IDEMPOTENT_WRITE`` tool retries; a failed single-attempt call records
+    ``outcome_unknown``. Images from a runner without a media store raise
+    ``ToolExecutionError`` instead, because no retry could show them: the
+    session records ``FAILED`` once and the model sees the error text. A
+    result without images is the same as returning ``output`` as a ``str``.
+
+    Example:
+        >>> @function_tool(effect=ToolEffect.READ)
+        ... async def take_screenshot(context: ToolCallContext) -> str | FunctionToolResult:
+        ...     \"\"\"Take a screenshot of the screen.\"\"\"
+        ...     if context.media_store is None:
+        ...         return "Screenshots need a media store."
+        ...     reference = await context.media_store.put_image(await screen.capture_png())
+        ...     return FunctionToolResult(output="Took a screenshot.", images=[reference])
+
+    Attributes:
+        output: Tool output text the model sees.
+        images: Images the model sees after ``output``, uploaded with
+            ``MediaStore.put_image``, at most ``MAX_IMAGES_PER_MESSAGE``.
+            Defaults to none.
+
+    .. versionadded:: 0.5.0
+    """
+
+    output: str
+    images: Sequence[AgentImageReference] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -154,23 +204,29 @@ class FunctionTool:
             name=self.name, description=self.description, parameters=self.parameters
         )
 
-    async def invoke(self, arguments: str, context: ToolCallContext) -> str | ToolInputRequested:
+    async def invoke(
+        self, arguments: str, context: ToolCallContext
+    ) -> str | FunctionToolResult | ToolInputRequested:
         """Convert and check the arguments, then call the function once.
 
         ``prepare_arguments``, when set, converts the decoded arguments before
         the schema check.
 
         A synchronous function runs in a worker thread. A ``str`` result is the
-        output. A ``ToolInputRequested`` result passes through. Any other
-        result is serialized as JSON; dataclasses become objects and enum
-        members become their values.
+        output. A ``FunctionToolResult`` or ``ToolInputRequested`` result
+        passes through. Any other result is serialized as JSON; dataclasses
+        become objects and enum members become their values.
+
+        .. versionchanged:: 0.5.0
+            A ``FunctionToolResult`` result passes through.
 
         Args:
             arguments: Tool arguments as JSON text.
             context: Identity of the call.
 
         Returns:
-            The output text, or the function's ``ToolInputRequested``.
+            The output text, the function's ``FunctionToolResult``, or its
+            ``ToolInputRequested``.
 
         Raises:
             ToolExecutionError: If the arguments break the schema,
@@ -196,7 +252,7 @@ class FunctionTool:
             result = await self.function(**call_arguments)
         else:
             result = await asyncio.to_thread(self.function, **call_arguments)
-        if isinstance(result, ToolInputRequested | str):
+        if isinstance(result, ToolInputRequested | FunctionToolResult | str):
             return result
         return json.dumps(_json_value(result), ensure_ascii=False)
 

@@ -173,7 +173,9 @@ awaitable result is refused. The stored tool call and the approval interrupt
 keep the model's original arguments. Arguments that break the schema, and an unknown tool name,
 raise `ToolExecutionError`, which the model sees: arguments that are not JSON
 give `invalid arguments for <tool>: arguments are not valid JSON`. A `str` result is the
-output; any other result is serialized as JSON.
+output, and a `FunctionToolResult` adds images; see
+[Images from function tools](#images-from-function-tools). Any other result is
+serialized as JSON.
 
 In `RunModel`, the runner builds the model input from committed state only:
 the instructions, every stored item, the plan note from `build_plan_note`
@@ -747,12 +749,17 @@ reference = await store.put_image(Path("chart.png").read_bytes())
 await sessions.send_user_message("session-42", "What does this chart show?", images=[reference])
 ```
 
-A tool returns images the same way, uploading inside its call:
+A tool source returns images the same way, uploading inside its call. This
+is a tool source's `execute_deferred_tool_call` result:
 
 ```python
 reference = await store.put_image(screenshot_png)
 return ToolExecutionResult(output="Took a screenshot.", images=[reference])
 ```
+
+A function tool returns `FunctionToolResult(output=..., images=[...])`
+instead, because the runner serializes its other results as JSON; see
+[Images from function tools](#images-from-function-tools).
 
 - **One object per image.** The object key is `<prefix>/sha256/<sha256>`, and
   the reference's `uri` ends in `/sha256/<sha256>`. `S3MediaStore.put_image`
@@ -879,8 +886,9 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
   `estimate_input_tokens` gets requests without image bytes; the LiteLLM
   client counts `ESTIMATED_IMAGE_INPUT_TOKENS` (1600) for each image it
   sends, so not for a Gemini model's tool result images.
-- **Without a store.** A tool result's references are still stored for
-  display, but the model sees only the text.
+- **Without a store.** A tool source result's references are still stored
+  for display, but the model sees only the text. A function tool's images
+  fail the call instead, without a retry.
 - **LiteLLM.** `LiteLLMModelClient` sends each image after the item's text as
   a base64 `data:` URL. On the Responses API, a user message's `content` and
   a `function_call_output`'s `output` are an `input_text` part and one
@@ -910,7 +918,43 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
 - **Which tools return images.** A tool source's
   `ToolExecutionResult.images`, such as the image content of an
   `McpToolSource(..., media_store=store)` result. Give the source the store
-  the runner reads. A function tool returns text only.
+  the runner reads. A function tool returns a `FunctionToolResult`; see
+  [Images from function tools](#images-from-function-tools).
+
+### Images from function tools
+
+A function tool gets the runner's media store as `ToolCallContext.media_store`,
+or `None` when the runner has none. It uploads the bytes inside its call and
+returns the references with its text in a `FunctionToolResult`:
+
+```python
+from dex_agents.builtin_loop import FunctionToolResult, ToolCallContext, function_tool
+
+
+@function_tool(effect=ToolEffect.READ)
+async def take_screenshot(context: ToolCallContext) -> str | FunctionToolResult:
+    """Take a screenshot of the screen."""
+    if context.media_store is None:
+        return "Screenshots need a media store."
+    reference = await context.media_store.put_image(await screen.capture_png())
+    return FunctionToolResult(output="Took a screenshot.", images=[reference])
+```
+
+- The runner returns it as `ToolExecutionResult(output, images)`, so the
+  images are stored, checked, and shown to the model exactly like a tool
+  source's. A plain `dict` with `output` and `images` keys is still
+  serialized as JSON.
+- More than `MAX_IMAGES_PER_MESSAGE` images, or a reference that
+  `validate_image_reference` refuses, fails the attempt with
+  `ImageValidationError`. A failed attempt of a `READ` or
+  `IDEMPOTENT_WRITE` tool retries; a single-attempt call records
+  `outcome_unknown`.
+- Images from a runner without a media store raise `ToolExecutionError`,
+  because no retry could show them. The session records `FAILED` once,
+  without a retry, and the model sees the error text.
+- A retried attempt uploads the same bytes to the same object, so uploading
+  again is safe. A replay reads the stored references, so the tool does not
+  run again.
 
 ## The runner contract
 
@@ -2440,9 +2484,8 @@ The plan records each of these decisions too.
   wrong `readOnlyHint` on a write makes that write run without approval and
   retry; set `trusts_tool_annotations=False` or a `ToolPolicy` for servers you
   do not control.
-- Images: a function tool of the built-in loop cannot return images, and the
-  media stores keep no local read cache, so each `load_images` reads the
-  store.
+- Images: the media stores keep no local read cache, so each `load_images`
+  reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
 - The adapters report only the model information their framework exposes, so

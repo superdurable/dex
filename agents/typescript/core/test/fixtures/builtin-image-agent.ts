@@ -17,6 +17,14 @@
 //   server returns an image block, then answers `mcp screenshot taken`.
 // - `screenshot-continue` calls `take_screenshot` with the text `continue after tools`, so `decideTurnContinuation`
 //   continues the turn with the user text `Describe the screenshot.`, which the model answers `described`.
+// - `function-screenshot` and `function-screenshot-hold <gate>` work like `screenshot` and `screenshot-hold`, but call
+//   `take_function_screenshot`, a function tool that uploads the PNG through `ToolCallContext.mediaStore` and returns
+//   `functionToolResult`. Without a store it returns a reference it built itself. It logs `store present` or
+//   `store absent` with its attempt in `function-tool-stores.log`.
+// - `function-invalid-image` calls `return_invalid_function_image`, a single-attempt write function tool that returns
+//   a reference with an unsupported media type.
+// - `function-plain-json` and `function-plain-json-images` call `return_plain_result_json`, a function tool that
+//   returns a plain object with the fields of a `FunctionToolResult`, without or with one image reference.
 // While the file `store-reads-fail` exists in the state directory, every image read fails with MediaStoreError and
 // is logged as `read-failed <sha256>` in `store-reads.log`.
 // Every call appends one JSON line to `model-prompts.log`: each prompt message's role and parts, with each file
@@ -37,12 +45,15 @@ import type {
   ToolTaskPollOutcome,
 } from "../../src/agent-framework-runner.js";
 import type { AgentSessionFlow } from "../../src/agent-session-flow.js";
-import { MediaStoreError, type MediaStore } from "../../src/agent-media.js";
+import { MediaStoreError, buildImageReference, type MediaStore } from "../../src/agent-media.js";
 import type { AgentImageReference } from "../../src/agent-session-values.js";
 import { createAiSdkModelClient } from "../../src/ai-sdk/index.js";
 import {
   createBuiltinAgentSessionFlow,
+  functionTool,
+  functionToolResult,
   type BuiltinLoopAgentRunner,
+  type FunctionTool,
   type SourceToolDefinition,
   type ToolSource,
   type TurnContinuation,
@@ -59,6 +70,11 @@ export const builtinImageAgentStateDirectoryVariable = "BUILTIN_IMAGE_AGENT_STAT
 export const modelPromptsLogName = "model-prompts.log";
 export const screenshotToolName = "take_screenshot";
 export const mcpScreenshotToolName = "local__take_screenshot";
+export const functionScreenshotToolName = "take_function_screenshot";
+export const invalidFunctionImageToolName = "return_invalid_function_image";
+export const plainResultJsonToolName = "return_plain_result_json";
+export const functionToolStoresLogName = "function-tool-stores.log";
+const noStoreUri = "file:///no-media-store";
 export const storeReadsFailFileName = "store-reads-fail";
 export const storeReadsLogName = "store-reads.log";
 export const continuationMessage = "Describe the screenshot.";
@@ -109,6 +125,7 @@ export function createBuiltinImageAgentFlows(
     name: "image-agent",
     instructions: "You look at images.",
     model: createAiSdkModelClient(createImageLanguageModel(stateDirectory)),
+    tools: createFunctionImageTools(stateDirectory),
     toolSources: [new ScreenshotToolSource(switchableStore), mcpTools],
     decideTurnContinuation: continueAfterTools,
   };
@@ -137,6 +154,68 @@ export function readLoggedPrompts(stateDirectory: string): SeenMessage[][] {
  */
 export function seenImage(data: Uint8Array, mediaType: string): SeenPart {
   return { type: "file", mediaType, sha256: sha256Of(data), size: data.length };
+}
+
+/** Creates the function tools that return images through `functionToolResult`. */
+function createFunctionImageTools(stateDirectory: string): FunctionTool[] {
+  const stores = new InvocationLog(join(stateDirectory, functionToolStoresLogName));
+  return [
+    functionTool({
+      name: functionScreenshotToolName,
+      description: "Take a screenshot of the screen.",
+      parameters: { type: "object", properties: {} },
+      effect: "read",
+      execute: async (_args, context) => {
+        let reference: AgentImageReference;
+        if (context.mediaStore === undefined) {
+          stores.record(`store absent attempt ${context.attempt}`);
+          reference = buildImageReference(screenshotPng(), noStoreUri);
+        } else {
+          stores.record(`store present attempt ${context.attempt}`);
+          reference = await context.mediaStore.putImage(screenshotPng());
+        }
+        return functionToolResult({ output: "Took a function screenshot.", images: [reference] });
+      },
+    }),
+    functionTool({
+      name: invalidFunctionImageToolName,
+      description: "Return an image reference with an unsupported media type.",
+      parameters: { type: "object", properties: {} },
+      effect: "non_idempotent_write",
+      requiresApproval: false,
+      execute: () => {
+        const reference = buildImageReference(screenshotPng(), noStoreUri);
+        return functionToolResult({
+          output: "returned a bad image",
+          images: [{ ...reference, mimeType: "image/bmp" }],
+        });
+      },
+    }),
+    functionTool<{ readonly withImages: boolean }>({
+      name: plainResultJsonToolName,
+      description: "Return plain JSON with the fields of a function tool result.",
+      parameters: {
+        type: "object",
+        properties: { withImages: { type: "boolean" } },
+        required: ["withImages"],
+      },
+      effect: "read",
+      execute: (args) => plainResultJson(args.withImages),
+    }),
+  ];
+}
+
+/**
+ * Builds the plain object that `return_plain_result_json` returns.
+ * @param withImages - Whether the object lists one image reference.
+ * @returns An object with the fields of a function tool result that no factory created.
+ */
+export function plainResultJson(withImages: boolean): Record<string, unknown> {
+  return {
+    kind: "function_tool_result",
+    output: "data",
+    images: withImages ? [buildImageReference(screenshotPng(), noStoreUri)] : [],
+  };
 }
 
 /** Continues with a user message after the tools of a response that says so. */
@@ -229,18 +308,49 @@ async function* streamImageResponse(
     yield* streamAnswer(`saw ${fileCount} images`);
     return;
   }
-  if (command === "screenshot" || command.startsWith("screenshot-hold ")) {
+  const isFunctionScreenshot = command.startsWith("function-screenshot");
+  const screenshotCommand = isFunctionScreenshot ? command.slice("function-".length) : command;
+  if (screenshotCommand === "screenshot" || screenshotCommand.startsWith("screenshot-hold ")) {
     if (!hasToolResult) {
-      yield { type: "tool-call", toolCallId: `call-${seen.length}`, toolName: screenshotToolName, input: "{}" };
+      const toolName = isFunctionScreenshot ? functionScreenshotToolName : screenshotToolName;
+      yield { type: "tool-call", toolCallId: `call-${seen.length}`, toolName, input: "{}" };
       yield finishPart("tool-calls");
       return;
     }
-    if (command.startsWith("screenshot-hold ")) {
-      const gate = new FileGate(stateDirectory, command.slice("screenshot-hold ".length));
+    if (screenshotCommand.startsWith("screenshot-hold ")) {
+      const gate = new FileGate(stateDirectory, screenshotCommand.slice("screenshot-hold ".length));
       gate.markReached();
       await gate.waitForRelease(options.abortSignal);
     }
     yield* streamAnswer("screenshot taken");
+    return;
+  }
+  if (command === "function-invalid-image") {
+    if (!hasToolResult) {
+      yield {
+        type: "tool-call",
+        toolCallId: `call-${seen.length}`,
+        toolName: invalidFunctionImageToolName,
+        input: "{}",
+      };
+      yield finishPart("tool-calls");
+      return;
+    }
+    yield* streamAnswer("invalid image returned");
+    return;
+  }
+  if (command === "function-plain-json" || command === "function-plain-json-images") {
+    if (!hasToolResult) {
+      yield {
+        type: "tool-call",
+        toolCallId: `call-${seen.length}`,
+        toolName: plainResultJsonToolName,
+        input: JSON.stringify({ withImages: command === "function-plain-json-images" }),
+      };
+      yield finishPart("tool-calls");
+      return;
+    }
+    yield* streamAnswer("plain json returned");
     return;
   }
   if (command === "screenshot-continue") {

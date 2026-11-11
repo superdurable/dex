@@ -33,6 +33,7 @@ import {
   type DeferredToolOutcome,
   type ResolvedToolPolicy,
   type ToolCallStepOptions,
+  type ToolExecutionResult,
   type ToolTaskCancellation,
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
@@ -48,7 +49,7 @@ import {
   type SessionSettings,
 } from "../agent-session-values.js";
 import type { AgentDefinition, ContinueTurn, TurnContinuation } from "./agent-definition.js";
-import type { FunctionTool, ToolCallContext } from "./function-tool.js";
+import { isFunctionToolResult, type FunctionTool, type FunctionToolResult, type ToolCallContext } from "./function-tool.js";
 import { findJsonSchemaViolation, serializeJsonWithSpacedSeparators } from "./json-schema-validation.js";
 import type {
   ModelClient,
@@ -140,9 +141,9 @@ const discardedModelOutput: ModelOutputWriter = {
  * every image in the request with `loadImages` and passes them in `ModelRequest.imageBytes`; the model client
  * converts each image to the provider's image part. A failed read fails that `RunModel` attempt, which retries. The
  * model call that writes a context summary sees the text of the items only. Without a store the session refuses
- * user images, and a tool result's images are stored but not shown to the model. The class declares neither member,
- * so a subclass may still define its own `buildUserMessageWithImages` or `mediaStore`; a subclass method stays in use
- * with a store.
+ * user images, and a tool source result's images are stored but not shown to the model. A function tool's images fail
+ * the call instead, without a retry. The class declares neither member, so a subclass may still define its own
+ * `buildUserMessageWithImages` or `mediaStore`; a subclass method stays in use with a store.
  *
  * @example
  * ```ts
@@ -372,12 +373,18 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
    * one, and checking them against the tool's schema, or passes a call that a
    * tool source built in `runModelStep` to that source, with the source's own `toolSourceReference` and without a
    * listing. Any other name is an unknown tool and never reaches a source.
+   * A function tool's {@link ToolCallContext.mediaStore} is this runner's store.
+   *
+   * Changed in 0.5.0: a function tool receives the media store and may return a {@link FunctionToolResult} with
+   * images.
    * @param call - The deferred call.
-   * @returns The output: a `string` result unchanged, any other result as JSON; the tool's
-   * {@link ToolInputRequested}; or a source's outcome, such as {@link ToolTaskStarted}.
+   * @returns The output: a `string` result unchanged, a {@link FunctionToolResult} as its output and images, any
+   * other result as JSON; the tool's {@link ToolInputRequested}; or a source's outcome, such as
+   * {@link ToolTaskStarted}.
    * @throws {ToolExecutionError} For an unknown tool, arguments that are not a JSON object or break the
-   * schema, a non-cancellation error or a thenable result of the tool's `prepareArguments`, or a
-   * `ToolExecutionError` from the tool or its source.
+   * schema, a non-cancellation error or a thenable result of the tool's `prepareArguments`, a
+   * `ToolExecutionError` from the tool or its source, or a function tool that returned images while this runner has
+   * no media store.
    * @throws {RangeError} When a source built the call but the definition no longer has it, so the effect decides
    * the outcome.
    * @throws Any other error of the tool source.
@@ -409,6 +416,7 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
       inputAnswers: call.inputAnswers ?? [],
       inputContinuation: toolCall.inputContinuation ?? null,
       heartbeat: () => call.heartbeat(),
+      ...(this.#mediaStore === undefined ? {} : { mediaStore: this.#mediaStore }),
     };
     const result = await tool.execute(toolArguments, context);
     if (typeof result === "string") {
@@ -417,7 +425,20 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     if ((result as { readonly kind?: unknown } | null)?.kind === "tool_input_requested") {
       return result as DeferredToolOutcome;
     }
+    if (isFunctionToolResult(result)) {
+      return this.toToolExecutionResult(tool.name, result);
+    }
     return { output: serializeJsonWithSpacedSeparators(result === undefined ? null : result) };
+  }
+
+  private toToolExecutionResult(toolName: string, result: FunctionToolResult): ToolExecutionResult {
+    if (result.images === undefined || result.images.length === 0) {
+      return { output: result.output };
+    }
+    if (this.#mediaStore === undefined) {
+      throw new ToolExecutionError(`function tool ${toolName} returned images, but the runner has no media store`);
+    }
+    return { output: result.output, images: result.images };
   }
 
   /**

@@ -7,10 +7,13 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { AgentEventWriter, ToolInputRequested } from "../agent-framework-runner.js";
-import type { QuestionAnswer, ToolEffect } from "../agent-session-values.js";
+import type { MediaStore } from "../agent-media.js";
+import type { AgentImageReference, QuestionAnswer, ToolEffect } from "../agent-session-values.js";
 
 const toolNamePattern = /^[A-Za-z0-9_-]{1,64}$/;
 const toolEffects: readonly ToolEffect[] = ["read", "idempotent_write", "non_idempotent_write", "unclassified"];
+// Identity, not fields, marks a result, so a tool's plain JSON with the same keys stays JSON.
+const createdFunctionToolResults = new WeakSet<object>();
 
 /**
  * A value that {@link FunctionToolDefinition.prepareArguments} may return: any value except a Promise or another
@@ -99,10 +102,93 @@ export interface ToolCallContext {
   /** `continuation` of the call's last {@link ToolInputRequested}, or `null`. */
   readonly inputContinuation: string | null;
   /**
+   * The store that holds the session's images, the one the runner was built with, or `undefined` when it has none.
+   *
+   * Upload image bytes with `putImage` and return the references with {@link functionToolResult}. See
+   * {@link functionToolResult} for an example.
+   * @since 0.5.0
+   */
+  readonly mediaStore?: MediaStore;
+  /**
    * Records a heartbeat. The session already records one every 20 seconds while the tool runs.
    * @returns A Promise that resolves when the Worker accepted the heartbeat.
    */
   heartbeat(): Promise<void>;
+}
+
+/**
+ * Text and images that a function tool returns. Create it with {@link functionToolResult}.
+ *
+ * Only an object that {@link functionToolResult} created is a result with images. Any other object with the same
+ * fields, such as a copy or a literal, is serialized as JSON like every other tool result.
+ * @since 0.5.0
+ */
+export interface FunctionToolResult {
+  /** Tool output text the model sees. */
+  readonly output: string;
+  /**
+   * Images the model sees after {@link output}, uploaded with `MediaStore.putImage`, at most
+   * `maxImagesPerMessage`. Omit it for none.
+   */
+  readonly images?: readonly AgentImageReference[];
+}
+
+/**
+ * Creates a function tool result with text and images.
+ *
+ * Return it from {@link FunctionToolDefinition.execute} to show the model images with the output. Upload each
+ * image's bytes with {@link ToolCallContext.mediaStore} inside the call, then return the references. A retried
+ * attempt uploads the same bytes to the same object, so uploading again is safe.
+ *
+ * The runner returns the result as a `ToolExecutionResult` with the same output and images, so the session checks
+ * the images exactly as it checks a tool source's images. More than `maxImagesPerMessage` images, or a reference
+ * that `validateImageReference` refuses, fails the attempt with `ImageValidationError`. A failed attempt of a
+ * `read` or `idempotent_write` tool retries; a failed single-attempt call records `outcome_unknown`. Images from a
+ * runner without a media store throw `ToolExecutionError` instead, because no retry could show them: the session
+ * records `failed` once and the model sees the error text. A result without images is the same as returning
+ * `output` as a string. Return the object it creates: a copy is serialized as JSON.
+ *
+ * @example
+ * ```ts
+ * const takeScreenshot = functionTool<Record<string, never>>({
+ *   name: "take_screenshot",
+ *   description: "Take a screenshot of the screen.",
+ *   parameters: { type: "object", properties: {} },
+ *   effect: "read",
+ *   execute: async (_args, context) => {
+ *     if (context.mediaStore === undefined) {
+ *       return "Screenshots need a media store.";
+ *     }
+ *     const reference = await context.mediaStore.putImage(await screen.capturePng());
+ *     return functionToolResult({ output: "Took a screenshot.", images: [reference] });
+ *   },
+ * });
+ * ```
+ * @param result - The output text and, optionally, the image references.
+ * @returns The frozen result, to return from `execute`.
+ * @throws {TypeError} When `output` is not a string or `images` is not an array.
+ * @since 0.5.0
+ */
+export function functionToolResult(result: {
+  readonly output: string;
+  readonly images?: readonly AgentImageReference[];
+}): FunctionToolResult {
+  if (typeof result?.output !== "string") {
+    throw new TypeError("function tool result output must be a string");
+  }
+  if (result.images !== undefined && !Array.isArray(result.images)) {
+    throw new TypeError("function tool result images must be an array");
+  }
+  const created: FunctionToolResult = Object.freeze({
+    output: result.output,
+    ...(result.images === undefined ? {} : { images: result.images }),
+  });
+  createdFunctionToolResults.add(created);
+  return created;
+}
+
+export function isFunctionToolResult(value: unknown): value is FunctionToolResult {
+  return typeof value === "object" && value !== null && createdFunctionToolResults.has(value);
 }
 
 /** Definition passed to {@link functionTool}. */
@@ -156,11 +242,14 @@ export interface FunctionToolDefinition<Arguments> {
   /**
    * Runs the tool once, inside its own tool Step.
    *
-   * A `string` result is the output the model sees. A {@link ToolInputRequested} result asks the user a
+   * A `string` result is the output the model sees. A {@link FunctionToolResult} from {@link functionToolResult}
+   * shows the model its output and images. A {@link ToolInputRequested} result asks the user a
    * question; return it only before the tool took any effect, and the tool runs again with the answer in
    * {@link ToolCallContext.inputAnswers}. Any other result is serialized as JSON, with the separators
    * of Python's `json.dumps`. Throw `ToolExecutionError` for a failure the model should see; any other
    * error fails the attempt, as {@link ToolExecutionError} describes.
+   *
+   * Changed in 0.5.0: a {@link FunctionToolResult} result shows the model its images.
    * @param args - Arguments that passed the {@link parameters} check.
    * @param context - Idempotency key, attempt, events, and heartbeat of this run.
    * @returns The tool result.
