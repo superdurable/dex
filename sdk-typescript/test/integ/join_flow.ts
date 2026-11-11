@@ -46,6 +46,11 @@ export interface BranchInput {
   readonly round: JoinRound;
 }
 
+export interface HandoffReport {
+  readonly round: JoinRound;
+  readonly result: string;
+}
+
 export interface JoinOutcome {
   readonly branchCount: number;
   readonly results: readonly string[];
@@ -724,9 +729,9 @@ export class JoinRPCForkFlow implements Flow<void> {
     return { output: undefined, nextSteps };
   }
 
-  @rpc({ inputCodec: joinRoundCodec })
-  public reportHandoffResult(context: Context, round: JoinRound): void {
-    rpcForkResult.reportBranchResult(context, round, "B-from-rpc");
+  @rpc({ inputCodec: jsonCodec<HandoffReport>() })
+  public reportHandoffResult(context: Context, report: HandoffReport): void {
+    rpcForkResult.reportBranchResult(context, report.round, report.result);
   }
 }
 

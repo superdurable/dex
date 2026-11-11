@@ -77,6 +77,12 @@ class QuoteJoinInput:
 
 
 @dataclass
+class HandoffReport:
+    join_round: JoinRound
+    result: str
+
+
+@dataclass
 class JoinDeadlineOutcome:
     has_timer_fired: bool
     results: list[str]
@@ -511,8 +517,8 @@ class RpcForkJoinFlow(ReleasableJoinFlow[None]):
         return RPCResult(None, next_steps=movements)
 
     @rpc
-    def report_handoff_result(self, context: Context, join_round: JoinRound) -> None:
-        BRANCH_RESULT.report_branch_result(context, join_round, "Y-from-rpc")
+    def report_handoff_result(self, context: Context, report: HandoffReport) -> None:
+        BRANCH_RESULT.report_branch_result(context, report.join_round, report.result)
 
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(IdleStart()).other_steps(

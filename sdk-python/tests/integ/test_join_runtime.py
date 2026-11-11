@@ -35,6 +35,7 @@ from .join_flow import (
     CancellingFirstBranchJoinFlow,
     DuplicateJoinNameFlow,
     ForkTwiceJoinFlow,
+    HandoffReport,
     JoinConditionValidationFlow,
     JoinDeadlineFlow,
     JoinDeadlineOutcome,
@@ -250,11 +251,15 @@ async def _rpc_forks_only_with_an_explicit_round_key() -> None:
 
         await client.invoke_rpc(flow.fork_with_key_in_rpc, flow_id, "rpc-round-1")
         await client.invoke_rpc(
-            flow.report_handoff_result, flow_id, JoinRound("rpc-round-1", 2)
+            flow.report_handoff_result,
+            flow_id,
+            HandoffReport(JoinRound("rpc-round-1", 2), "handoff-result"),
         )
         await client.invoke_rpc(flow.release_branch, flow_id, "A")
         result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
-        assert result.single_output(JoinOutcome) == JoinOutcome(2, ["Y-from-rpc", "A"])
+        assert result.single_output(JoinOutcome) == JoinOutcome(
+            2, ["handoff-result", "A"]
+        )
 
 
 @pytest.mark.parametrize(

@@ -193,10 +193,13 @@ test("an RPC forks only with an explicit slash-free round key", async () => {
     const slashFailure = await expectError(client.invokeRPC(flow.startRound, id, "slash"), WorkerInvocationError);
     assert.match(slashFailure.workerErrorDetail, /must not contain '\/'/);
     await client.invokeRPC(flow.startRound, id, "key");
-    await client.invokeRPC(flow.reportHandoffResult, id, { roundKey: "rpc-round-1", branchCount: 2 });
+    await client.invokeRPC(flow.reportHandoffResult, id, {
+      round: { roundKey: "rpc-round-1", branchCount: 2 },
+      result: "handoff-result",
+    });
     assert.deepEqual(
       await flowOutput<{ readonly roundKey: string; readonly results: readonly string[] }>(client, id),
-      { roundKey: "rpc-round-1", results: ["A", "B-from-rpc"] },
+      { roundKey: "rpc-round-1", results: ["A", "handoff-result"] },
     );
   });
 });
