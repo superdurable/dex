@@ -69,9 +69,12 @@ class LocalDirectoryMediaStore:
     concurrent uploads of the same bytes leave one file; an existing file with
     other bytes is replaced. Directories the store creates get mode ``0700``
     and image files mode ``0600``, narrowed further by the process umask.
-    Before each put returns, the store syncs the image file, the ``sha256``
-    directory, the root, and the root's parent, and it syncs the parent of
-    every other directory it creates, so a returned reference survives a crash.
+    When ``put_image`` writes the image, it syncs the file before the rename.
+    Before every ``put_image`` returns, including when an identical file
+    already exists and nothing is written, it syncs the ``sha256`` directory,
+    the root, and the root's parent. It also syncs the parent of each directory
+    it creates. Directories above the root's parent must already be durable: a
+    concurrent creator of a deeper missing ancestor is out of scope.
 
     The store follows no symbolic link under the root: it opens every path
     relative to an open directory, and refuses a ``sha256`` directory or an
