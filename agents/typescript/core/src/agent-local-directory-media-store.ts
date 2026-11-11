@@ -7,9 +7,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { randomBytes } from "node:crypto";
-import { constants } from "node:fs";
-import { lstat, mkdir, open, rename, unlink, type FileHandle } from "node:fs/promises";
+import { constants, type Stats } from "node:fs";
+import { lstat, mkdir, open, realpath, rename, stat, unlink, type FileHandle } from "node:fs/promises";
 import { posix } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   MediaStoreError,
@@ -26,6 +27,9 @@ const directoryMode = 0o700;
 const fileMode = 0o600;
 // Errors of an O_NOFOLLOW | O_NONBLOCK open that name a symbolic link or a non-regular file.
 const notRegularFileErrorCodes: ReadonlySet<string> = new Set(["ELOOP", "EISDIR", "ENXIO", "EOPNOTSUPP"]);
+// Opens to try, and milliseconds between them, while concurrent putImage calls replace the file.
+const openAttempts = 10;
+const openRetryDelayMs = 5;
 
 /**
  * Keeps image bytes in a local directory, one file per distinct image.
@@ -42,12 +46,17 @@ const notRegularFileErrorCodes: ReadonlySet<string> = new Set(["ELOOP", "EISDIR"
  * `putImage` copies the bytes into a temporary file in the same directory, syncs it, and renames it into place, so a
  * reader never sees a partial image. An existing file with the same bytes is success, so retried and concurrent uploads
  * of the same bytes leave one file; an existing file with other bytes is replaced. Directories the store creates get
- * mode `0700` and image files mode `0600`, narrowed further by the process umask.
+ * mode `0700` and image files mode `0600`, narrowed further by the process umask. The store syncs the parent of every
+ * directory it creates, and the `sha256` directory after each rename, so a returned reference survives a crash.
  *
- * The store follows no symbolic link under the root: it refuses a `sha256` directory or an image file that is a
- * symbolic link or not a regular file, with `MediaStoreError`, on both upload and read. The root itself may be a
- * symbolic link. Node.js has no `openat`, so the `sha256` directory is checked with `lstat` and the file is opened with
- * `O_NOFOLLOW`; a process that can write under the root could swap the directory between the two. `getImage` reads only
+ * The store refuses a `sha256` directory or an image file that is a symbolic link or not a regular file, and an image
+ * file with more than one hard link, with `MediaStoreError`, on both upload and read. The root itself may be a symbolic
+ * link. Node.js has no `openat`, so this store opens files by path and checks before and after each operation: it
+ * checks the `sha256` directory with `lstat` and opens the file with `O_NOFOLLOW`, then confirms that the real path of
+ * the `sha256` directory is still the root's and that the path still names the opened or written file. A read that
+ * fails the check returns nothing, and a write that fails it removes the file it wrote when it can still find it. A
+ * process of the same user that can write the `0700` root can still race a directory swap between these checks; the
+ * Python core opens every path relative to an open directory and has no such window. `getImage` reads only
  * references under this store's root, refuses a file whose size differs from the reference before reading it, reads at
  * most one byte more than `sizeBytes`, and checks the bytes with `verifyImageBytes`. It needs a POSIX file system; on
  * Windows the constructor throws.
@@ -108,24 +117,27 @@ export class LocalDirectoryMediaStore implements MediaStore {
    * @returns The reference.
    * @throws {ImageValidationError} When the bytes are not a valid image for `buildImageReference`. Nothing is written.
    * @throws {MediaStoreError} When the `sha256` directory or the image's file is a symbolic link or not a directory or
-   * regular file.
+   * regular file, the image's file has more than one hard link, or the `sha256` directory changed during the write.
    * @throws A Node.js system error (`NodeJS.ErrnoException`) when the file system refuses a write, such as for missing
    * permissions or a full disk. Retrying is safe.
    */
   public async putImage(data: Uint8Array): Promise<AgentImageReference> {
     const reference = buildImageReference(data, this.storeUri);
     const copy = Uint8Array.from(data);
-    await mkdir(this.root, { recursive: true, mode: directoryMode });
+    await this.makeRoot();
     try {
-      await mkdir(this.imageDirectory(), { mode: directoryMode });
+      await this.requireImageDirectory();
     } catch (error) {
-      if (!isSystemError(error, "EEXIST")) {
+      if (!isSystemError(error, "ENOENT")) {
         throw error;
       }
+      await makeDirectory(this.imageDirectory());
+      // Also after EEXIST: the racing creator may not have synced it yet.
+      await syncDirectory(this.root);
+      await this.requireImageDirectory();
     }
-    await this.requireImageDirectory();
     if (!(await this.hasImageFile(reference, copy))) {
-      await this.replaceImageFile(reference.sha256, copy);
+      await this.replaceImageFile(reference, copy);
     }
     return reference;
   }
@@ -137,7 +149,7 @@ export class LocalDirectoryMediaStore implements MediaStore {
    * @returns The exact bytes, checked with `verifyImageBytes`.
    * @throws {ImageValidationError} When the reference's fields are invalid.
    * @throws {MediaStoreError} When the reference is outside this store's root, the file is missing, is a symbolic link
-   * or not a regular file, or its bytes do not match.
+   * or not a regular file, has more than one hard link, moved during the read, or its bytes do not match.
    * @throws A Node.js system error (`NodeJS.ErrnoException`) when the file system refuses the read for another reason.
    */
   public async getImage(reference: AgentImageReference): Promise<Uint8Array> {
@@ -173,6 +185,20 @@ export class LocalDirectoryMediaStore implements MediaStore {
     return `${this.root}/${imageDirectoryName}`;
   }
 
+  /** Creates the root and its missing parents with mode `0700`, syncing the parent of each. */
+  private async makeRoot(): Promise<void> {
+    const missing: string[] = [];
+    let path = this.root;
+    while (!(await isDirectory(path))) {
+      missing.push(path);
+      path = posix.dirname(path);
+    }
+    for (const directory of missing.reverse()) {
+      await makeDirectory(directory);
+      await syncDirectory(posix.dirname(directory));
+    }
+  }
+
   /** Throws `MediaStoreError` unless the `sha256` directory is a real directory, not a symbolic link. */
   private async requireImageDirectory(): Promise<void> {
     const stats = await lstat(this.imageDirectory());
@@ -204,8 +230,20 @@ export class LocalDirectoryMediaStore implements MediaStore {
     }
   }
 
-  /** Opens the reference's image file, refusing symbolic links and special files. */
+  /** Opens the reference's image file, refusing symbolic links, special files, hard links, and moved files. */
   private async openImageFile(reference: AgentImageReference): Promise<FileHandle> {
+    for (let attempt = 0; attempt < openAttempts; attempt += 1) {
+      const handle = await this.openImageFileOnce(reference);
+      if (handle !== undefined) {
+        return handle;
+      }
+      await delay(openRetryDelayMs * (attempt + 1));
+    }
+    throw new MediaStoreError(`image ${reference.uri} was replaced while the media store opened it`);
+  }
+
+  /** Returns the open file, or `undefined` when a rename replaced it after the open. */
+  private async openImageFileOnce(reference: AgentImageReference): Promise<FileHandle | undefined> {
     const notRegularFile = (cause?: unknown): MediaStoreError =>
       new MediaStoreError(`image ${reference.uri} is a symbolic link or not a regular file in the media store`, {
         cause,
@@ -223,41 +261,140 @@ export class LocalDirectoryMediaStore implements MediaStore {
       }
       throw error;
     }
-    if (!(await handle.stat()).isFile()) {
+    const stats = await handle.stat();
+    if (!stats.isFile()) {
       await handle.close();
       throw notRegularFile();
+    }
+    if (stats.nlink === 0) {
+      await handle.close();
+      return undefined;
+    }
+    if (stats.nlink !== 1) {
+      await handle.close();
+      // Another name for the inode may lie outside the root.
+      throw new MediaStoreError(`image ${reference.uri} has more than one hard link in the media store`);
+    }
+    if (!(await this.isImageDirectoryInStore())) {
+      await handle.close();
+      throw this.directoryChanged(reference);
+    }
+    if (!(await isSameFile(this.imagePath(reference.sha256), stats))) {
+      // A concurrent rename replaced the file after the open; the caller opens it again.
+      await handle.close();
+      return undefined;
     }
     return handle;
   }
 
-  private async replaceImageFile(sha256: string, data: Uint8Array): Promise<void> {
+  /** Returns whether the `sha256` directory is a real directory whose real path is the root's. */
+  private async isImageDirectoryInStore(): Promise<boolean> {
+    try {
+      if (!(await lstat(this.imageDirectory())).isDirectory()) {
+        return false;
+      }
+      const expectedDirectory = posix.join(await realpath(this.root), imageDirectoryName);
+      return (await realpath(this.imageDirectory())) === expectedDirectory;
+    } catch (error) {
+      if (isSystemError(error, "ENOENT", "ENOTDIR", "ELOOP")) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  private directoryChanged(reference: AgentImageReference): MediaStoreError {
+    return new MediaStoreError(
+      `media store directory ${this.imageDirectory()} changed while image ${reference.uri} was read or written`,
+    );
+  }
+
+  private async replaceImageFile(reference: AgentImageReference, data: Uint8Array): Promise<void> {
     const directory = this.imageDirectory();
-    const temporaryPath = `${directory}/.${sha256}.${randomBytes(8).toString("hex")}.tmp`;
+    const imagePath = this.imagePath(reference.sha256);
+    const temporaryPath = `${directory}/.${reference.sha256}.${randomBytes(8).toString("hex")}.tmp`;
     const handle = await open(
       temporaryPath,
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
       fileMode,
     );
+    let written: Stats;
     try {
       try {
         await handle.writeFile(data);
         await handle.sync();
+        written = await handle.stat();
       } finally {
         await handle.close();
       }
       // rename replaces the entry itself, never a link's target, and is atomic.
-      await rename(temporaryPath, this.imagePath(sha256));
+      await rename(temporaryPath, imagePath);
     } catch (error) {
       // The original error matters more than a temporary file left behind.
       await unlink(temporaryPath).catch(() => undefined);
       throw error;
     }
-    const directoryHandle = await open(directory, constants.O_RDONLY);
-    try {
-      await directoryHandle.sync();
-    } finally {
-      await directoryHandle.close();
+    if (!(await this.isImageDirectoryInStore())) {
+      await removeIfSameFile(imagePath, written);
+      throw this.directoryChanged(reference);
     }
+    // A concurrent putImage may have renamed its own copy over ours; accept it only when it holds these bytes.
+    if (!(await isSameFile(imagePath, written)) && !(await this.hasImageFile(reference, data))) {
+      throw this.directoryChanged(reference);
+    }
+    await syncDirectory(directory);
+  }
+}
+
+async function isSameFile(path: string, file: Stats): Promise<boolean> {
+  try {
+    const placed = await lstat(path);
+    return placed.dev === file.dev && placed.ino === file.ino;
+  } catch (error) {
+    if (isSystemError(error, "ENOENT", "ENOTDIR", "ELOOP")) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    // Any failure means "create it"; mkdir then reports the real error.
+    return false;
+  }
+}
+
+async function makeDirectory(path: string): Promise<void> {
+  try {
+    await mkdir(path, { mode: directoryMode });
+  } catch (error) {
+    if (!isSystemError(error, "EEXIST")) {
+      throw error;
+    }
+  }
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  const handle = await open(path, constants.O_RDONLY);
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Removes the file at `path` when it is still `file`, wherever the path now leads. */
+async function removeIfSameFile(path: string, file: Stats): Promise<void> {
+  try {
+    const placed = await lstat(path);
+    if (placed.dev === file.dev && placed.ino === file.ino) {
+      await unlink(path);
+    }
+  } catch {
+    // Best effort: the caller already throws, and the file may be gone.
   }
 }
 

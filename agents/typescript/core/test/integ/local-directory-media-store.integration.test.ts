@@ -12,16 +12,19 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { open, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, test } from "node:test";
@@ -60,6 +63,7 @@ interface LocalDirectorySuite {
     readonly missing: string;
     readonly not_regular_file: string;
     readonly not_directory: string;
+    readonly hard_link: string;
   };
 }
 
@@ -95,6 +99,35 @@ function modeOf(path: string): number {
 
 function withUri(reference: AgentImageReference, uri: string): AgentImageReference {
   return { ...reference, uri };
+}
+
+type FileHandleMethod = "stat" | "sync";
+
+/** Runs `body` while `method` of every FileHandle first runs `before`; restores the method afterwards. */
+async function withFileHandleHook<T>(
+  method: FileHandleMethod,
+  before: (handle: FileHandle) => Promise<void>,
+  body: () => Promise<T>,
+): Promise<T> {
+  const probe = await open(tmpdir(), "r");
+  const prototype = Object.getPrototypeOf(probe) as Record<FileHandleMethod, (...args: unknown[]) => Promise<unknown>>;
+  await probe.close();
+  const original = prototype[method];
+  prototype[method] = async function (this: FileHandle, ...args: unknown[]): Promise<unknown> {
+    await before(this);
+    return original.apply(this, args);
+  };
+  try {
+    return await body();
+  } finally {
+    prototype[method] = original;
+  }
+}
+
+/** Moves `<root>/sha256` aside and puts a symbolic link to `target` in its place. */
+function swapImageDirectory(root: string, target: string): void {
+  renameSync(join(root, "sha256"), join(root, "sha256-moved"));
+  symlinkSync(target, join(root, "sha256"));
 }
 
 describe("LocalDirectoryMediaStore conformance cases", () => {
@@ -283,5 +316,100 @@ describe("LocalDirectoryMediaStore on the file system", () => {
     assert.equal(store.root, join(directory, "link"));
     assert.deepEqual(imageFileNames(join(directory, "target")), [reference.sha256]);
     assert.deepEqual(await store.getImage(reference), png);
+  });
+
+  test("a file with another hard link is refused", async () => {
+    const directory = newDirectory();
+    const outside = join(directory, "outside.png");
+    writeFileSync(outside, png);
+    const store = new LocalDirectoryMediaStore(join(directory, "media"));
+    await store.putImage(jpeg);
+    const reference = buildImageReference(png, store.storeUri);
+    linkSync(outside, store.imagePath(reference.sha256));
+    const hardLink = { name: "MediaStoreError", message: errors.hard_link.replace("{uri}", reference.uri) };
+
+    await assert.rejects(store.getImage(reference), hardLink);
+    await assert.rejects(store.putImage(png), hardLink);
+    assert.equal(statSync(outside).nlink, 2);
+  });
+
+  test("the first putImage syncs the parent of every directory it creates", async () => {
+    const directory = newDirectory();
+    const root = join(directory, "parent", "media");
+    const store = new LocalDirectoryMediaStore(root);
+    const synced = new Set<number>();
+
+    const reference = await withFileHandleHook(
+      "sync",
+      async (handle) => {
+        synced.add((await handle.stat()).ino);
+      },
+      () => store.putImage(png),
+    );
+
+    for (const created of [join(directory, "parent"), root, join(root, "sha256")]) {
+      assert.ok(synced.has(statSync(join(created, "..")).ino), `the parent of ${created} was synced`);
+    }
+    // The sha256 directory after the rename, and the image file itself.
+    assert.ok(synced.has(statSync(join(root, "sha256")).ino));
+    assert.ok(synced.has(statSync(store.imagePath(reference.sha256)).ino));
+  });
+
+  test("a read whose directory is swapped after the open returns nothing", async () => {
+    const directory = newDirectory();
+    const root = join(directory, "media");
+    const store = new LocalDirectoryMediaStore(root);
+    const reference = await store.putImage(png);
+    const outside = new LocalDirectoryMediaStore(join(directory, "outside"));
+    await outside.putImage(png);
+    let isArmed = true;
+
+    await assert.rejects(
+      withFileHandleHook(
+        "stat",
+        async () => {
+          if (isArmed) {
+            isArmed = false;
+            swapImageDirectory(root, join(directory, "outside", "sha256"));
+          }
+        },
+        () => store.getImage(reference),
+      ),
+      {
+        name: "MediaStoreError",
+        message: `media store directory ${root}/sha256 changed while image ${reference.uri} was read or written`,
+      },
+    );
+  });
+
+  test("a write whose directory is swapped before it lands is removed and refused", async () => {
+    const directory = newDirectory();
+    const root = join(directory, "media");
+    const store = new LocalDirectoryMediaStore(root);
+    const reference = await store.putImage(png);
+    // A file with other bytes makes putImage write again after it checks the existing file.
+    writeFileSync(store.imagePath(reference.sha256), Buffer.concat([png, Buffer.from([0])]));
+    const outsideDirectory = join(directory, "outside");
+    mkdirSync(outsideDirectory);
+    let statCalls = 0;
+
+    await assert.rejects(
+      withFileHandleHook(
+        "stat",
+        async () => {
+          // The first stat checks the opened file; the second compares its size, before the new write.
+          statCalls += 1;
+          if (statCalls === 2) {
+            swapImageDirectory(root, outsideDirectory);
+          }
+        },
+        () => store.putImage(png),
+      ),
+      {
+        name: "MediaStoreError",
+        message: `media store directory ${root}/sha256 changed while image ${reference.uri} was read or written`,
+      },
+    );
+    assert.deepEqual(readdirSync(outsideDirectory), []);
   });
 });

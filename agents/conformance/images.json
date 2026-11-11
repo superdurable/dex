@@ -532,6 +532,7 @@
     "description": "Read and write errors of LocalDirectoryMediaStore; {uri} is the reference's uri, {path} an absolute path.",
     "missing": "image {uri} is not in the media store",
     "not_regular_file": "image {uri} is a symbolic link or not a regular file in the media store",
-    "not_directory": "media store directory {path} is a symbolic link or not a directory"
+    "not_directory": "media store directory {path} is a symbolic link or not a directory",
+    "hard_link": "image {uri} has more than one hard link in the media store"
   }
 }

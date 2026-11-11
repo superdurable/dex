@@ -744,9 +744,11 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   the same in every core. `put_image` copies the bytes into a temporary file
   in the same directory and renames it into place; an existing file with the
   same bytes is success. Directories it creates get mode `0700` and files
-  `0600`. It follows no symbolic link under the root, and refuses a link or a
-  special file there with `MediaStoreError`. Reads check the file's size
-  first, read at most one byte past `size_bytes`, and run
+  `0600`, and it syncs the parent of each new directory before the first
+  `put_image` returns. It opens every path relative to an open directory, so
+  it follows no symbolic link under the root. It refuses a symbolic link, a
+  special file, or an image file with more than one hard link there with
+  `MediaStoreError`. Reads check the file's size first, read at most one byte past `size_bytes`, and run
   `verify_image_bytes`. It needs a POSIX file system. Deleting a session
   deletes no file.
 - **Built-in runners.** In this release no built-in runner shows images to a

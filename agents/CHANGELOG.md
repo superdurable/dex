@@ -70,9 +70,13 @@ for the Dex SDK and framework versions each release supports.
   `<root>/sha256/<sha256>`, and its `uri` is `file://<root>/sha256/<sha256>`
   with the absolute root percent-encoded, the same in every core. Writes go
   through a temporary file and a rename, an existing file with the same bytes
-  is success, and new directories and files get modes `0700` and `0600`. It
-  follows no symbolic link under the root and checks the SHA-256, size, and
-  type on read. It needs a POSIX file system.
+  is success, new directories and files get modes `0700` and `0600`, and the
+  parent of each new directory is synced. It refuses symbolic links, special
+  files, and files with more than one hard link under the root, and checks the
+  SHA-256, size, and type on read. Python opens every path relative to an open
+  directory; TypeScript, without `openat`, checks the directory and the file
+  before and after each operation, which a same-user process that can write
+  the root can still race. It needs a POSIX file system.
 - PNG, JPEG, GIF, and WebP, detected from the bytes with a cheap structural
   check, up to **MAX_IMAGE_BYTES** (`maxImageBytes`, 3,750,000 bytes,
   5,000,000 bytes as base64) each, and at most **MAX_IMAGES_PER_MESSAGE**

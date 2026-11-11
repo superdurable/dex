@@ -244,3 +244,45 @@ async def test_the_root_itself_may_be_a_symbolic_link(tmp_path: Path) -> None:
     assert store.root == str(tmp_path / "link")
     assert image_files(tmp_path / "target") == [reference.sha256]
     assert await store.get_image(reference) == PNG
+
+
+async def test_a_file_with_another_hard_link_is_refused(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(PNG)
+    store = LocalDirectoryMediaStore(tmp_path / "media")
+    await store.put_image(JPEG)
+    reference = build_image_reference(PNG, store.store_uri)
+    os.link(outside, store.image_path(reference.sha256))
+    hard_link = ERRORS["hard_link"].format(uri=reference.uri)
+
+    with pytest.raises(MediaStoreError) as on_read:
+        await store.get_image(reference)
+    with pytest.raises(MediaStoreError) as on_write:
+        await store.put_image(PNG)
+
+    assert str(on_read.value) == hard_link
+    assert str(on_write.value) == hard_link
+    assert outside.stat().st_nlink == 2
+
+
+async def test_the_first_put_syncs_the_parent_of_every_directory_it_creates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: set[int] = set()
+    fsync = os.fsync
+
+    def recording_fsync(fd: int) -> None:
+        synced.add(os.fstat(fd).st_ino)
+        fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    root = tmp_path / "parent" / "media"
+    store = LocalDirectoryMediaStore(root)
+
+    reference = await store.put_image(PNG)
+
+    created = [tmp_path / "parent", root, root / "sha256"]
+    assert {path.parent.stat().st_ino for path in created} <= synced
+    # The sha256 directory after the rename, and the image file itself.
+    assert (root / "sha256").stat().st_ino in synced
+    assert Path(store.image_path(reference.sha256)).stat().st_ino in synced

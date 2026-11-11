@@ -26,6 +26,7 @@ import os
 import posixpath
 import secrets
 import stat
+import time
 from urllib.parse import quote
 
 from dex_agents.media import (
@@ -45,6 +46,9 @@ _FILE_MODE = 0o600
 # Errors of an O_NOFOLLOW | O_NONBLOCK open that name a symbolic link or a non-regular file.
 _NOT_REGULAR_FILE_ERRNOS = frozenset({errno.ELOOP, errno.EISDIR, errno.ENXIO, errno.EOPNOTSUPP})
 _NOT_DIRECTORY_ERRNOS = frozenset({errno.ELOOP, errno.ENOTDIR})
+# Opens to try, and seconds between them, while concurrent puts replace the file.
+_OPEN_ATTEMPTS = 10
+_OPEN_RETRY_DELAY = 0.005
 
 
 class LocalDirectoryMediaStore:
@@ -64,16 +68,19 @@ class LocalDirectoryMediaStore:
     image. An existing file with the same bytes is success, so retried and
     concurrent uploads of the same bytes leave one file; an existing file with
     other bytes is replaced. Directories the store creates get mode ``0700``
-    and image files mode ``0600``, narrowed further by the process umask.
+    and image files mode ``0600``, narrowed further by the process umask. The
+    store syncs the parent of every directory it creates, and the ``sha256``
+    directory after each rename, so a returned reference survives a crash.
 
-    The store follows no symbolic link under the root: it refuses a ``sha256``
-    directory or an image file that is a symbolic link or not a regular file,
-    with ``MediaStoreError``, on both upload and read. The root itself may be a
-    symbolic link. ``get_image`` reads only references under this store's
-    root, refuses a file whose size differs from the reference before reading
-    it, reads at most one byte more than ``size_bytes``, and checks the bytes
-    with ``verify_image_bytes``. It needs a POSIX file system; on Windows the
-    constructor raises.
+    The store follows no symbolic link under the root: it opens every path
+    relative to an open directory, and refuses a ``sha256`` directory or an
+    image file that is a symbolic link or not a regular file, and an image file
+    with more than one hard link, with ``MediaStoreError``, on both upload and
+    read. The root itself may be a symbolic link. ``get_image`` reads only
+    references under this store's root, refuses a file whose size differs from
+    the reference before reading it, reads at most one byte more than
+    ``size_bytes``, and checks the bytes with ``verify_image_bytes``. It needs
+    a POSIX file system; on Windows the constructor raises.
 
     Session deletion does not delete files. A runner reads a session's images
     again whenever a model call replays them, so keep every file at least as
@@ -159,7 +166,8 @@ class LocalDirectoryMediaStore:
             ImageValidationError: If the bytes are not a valid image for
                 ``build_image_reference``. Nothing is written.
             MediaStoreError: If the ``sha256`` directory or the image's file
-                is a symbolic link or not a directory or regular file.
+                is a symbolic link or not a directory or regular file, or the
+                image's file has more than one hard link.
             OSError: If the file system refuses a write, such as for missing
                 permissions or a full disk. Retrying is safe.
         """
@@ -180,7 +188,7 @@ class LocalDirectoryMediaStore:
             ImageValidationError: If the reference's fields are invalid.
             MediaStoreError: If the reference is outside this store's root,
                 the file is missing, is a symbolic link or not a regular file,
-                or its bytes do not match.
+                has more than one hard link, or its bytes do not match.
             OSError: If the file system refuses the read for another reason.
         """
         require_store_image_reference(reference, self._store_uri)
@@ -191,9 +199,14 @@ class LocalDirectoryMediaStore:
         self._make_root()
         root_fd = os.open(self._root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
-            with contextlib.suppress(FileExistsError):
-                os.mkdir(_IMAGE_DIRECTORY_NAME, _DIRECTORY_MODE, dir_fd=root_fd)
-            directory_fd = self._open_image_directory(root_fd)
+            try:
+                directory_fd = self._open_image_directory(root_fd)
+            except FileNotFoundError:
+                with contextlib.suppress(FileExistsError):
+                    os.mkdir(_IMAGE_DIRECTORY_NAME, _DIRECTORY_MODE, dir_fd=root_fd)
+                # Also after FileExistsError: the racing creator may not have synced it yet.
+                os.fsync(root_fd)
+                directory_fd = self._open_image_directory(root_fd)
         finally:
             os.close(root_fd)
         try:
@@ -212,6 +225,7 @@ class LocalDirectoryMediaStore:
         for directory in reversed(missing):
             with contextlib.suppress(FileExistsError):
                 os.mkdir(directory, _DIRECTORY_MODE)
+            _sync_directory(posixpath.dirname(directory))
 
     def _has_image_file(
         self, directory_fd: int, reference: AgentImageReference, data: bytes
@@ -268,7 +282,18 @@ class LocalDirectoryMediaStore:
             raise
 
     def _open_image_file(self, directory_fd: int, reference: AgentImageReference) -> int:
-        """Open the reference's image file, refusing symbolic links and special files."""
+        """Open the reference's image file, refusing links and special files."""
+        for attempt in range(_OPEN_ATTEMPTS):
+            file_fd = self._open_image_file_once(directory_fd, reference)
+            if file_fd is not None:
+                return file_fd
+            time.sleep(_OPEN_RETRY_DELAY * (attempt + 1))
+        raise MediaStoreError(f"image {reference.uri} was replaced while the media store opened it")
+
+    def _open_image_file_once(
+        self, directory_fd: int, reference: AgentImageReference
+    ) -> int | None:
+        """Return the open file, or ``None`` when a rename replaced it after the open."""
         not_regular_file = MediaStoreError(
             f"image {reference.uri} is a symbolic link or not a regular file in the media store"
         )
@@ -283,9 +308,19 @@ class LocalDirectoryMediaStore:
             if error.errno in _NOT_REGULAR_FILE_ERRNOS:
                 raise not_regular_file from error
             raise
-        if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+        status = os.fstat(file_fd)
+        if not stat.S_ISREG(status.st_mode):
             os.close(file_fd)
             raise not_regular_file
+        if status.st_nlink == 0:
+            os.close(file_fd)
+            return None
+        if status.st_nlink != 1:
+            os.close(file_fd)
+            # Another name for the inode may lie outside the root.
+            raise MediaStoreError(
+                f"image {reference.uri} has more than one hard link in the media store"
+            )
         return file_fd
 
 
@@ -331,6 +366,14 @@ def _replace_file(directory_fd: int, name: str, data: bytes) -> None:
             os.unlink(temporary_name, dir_fd=directory_fd)
         raise
     os.fsync(directory_fd)
+
+
+def _sync_directory(path: str) -> None:
+    directory_fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _read_at_most(file_fd: int, limit: int) -> bytes:
