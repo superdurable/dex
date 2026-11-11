@@ -51,8 +51,11 @@ known-first-party = ["dex_agents", "dex_agents_cli_core", "dex_agents_cli_testin
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src"]
+files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 module = ["pexpect", "pexpect.*"]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

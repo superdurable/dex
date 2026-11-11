@@ -34,6 +34,8 @@ CONNECTIONS_SCHEMA_VERSION = "connectors.dex.dev/local-connections/v1alpha1"
 HACKER_NEWS_CONNECTOR_ID = "hacker-news-daily"
 HACKER_NEWS_MODULE_PATH = "github.com/superdurable/dex-connectors-library/connectors/hackernews/go"
 _DEXCLI_TIMEOUT_SECONDS = 60
+_STOP_SECONDS = 30.0
+_KILL_SECONDS = 10.0
 _STEP_EXECUTION_NUMBER = re.compile(r"-\d+$")
 
 
@@ -212,13 +214,21 @@ class DexServer:
         raise RuntimeError(f"dexcli dev did not become ready; see {log_path}")
 
     def stop_if_started(self) -> None:
-        """Stop the dexcli dev this object started; never a reused one."""
-        if self._process is not None and self._process.poll() is None:
-            os.killpg(self._process.pid, signal.SIGTERM)
-            try:
-                self._process.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                os.killpg(self._process.pid, signal.SIGKILL)
+        """Stop the dexcli dev this object started, with every process of its group.
+
+        The group is stopped even after dexcli itself exited, since its children can
+        outlive it. A reused server is never stopped.
+        """
+        process = self._process
+        if process is None:
+            return
+        # start_new_session made dexcli the leader, so its PID is the group ID.
+        process_group_id = process.pid
+        _signal_process_group(process_group_id, signal.SIGTERM)
+        if not _wait_for_process_group_exit(process, process_group_id, _STOP_SECONDS):
+            _signal_process_group(process_group_id, signal.SIGKILL)
+            if not _wait_for_process_group_exit(process, process_group_id, _KILL_SECONDS):
+                raise RuntimeError(f"dexcli dev process group {process_group_id} did not exit")
         self._process = None
 
     def dexcli_json(self, *arguments: str) -> Any:
@@ -395,6 +405,28 @@ def _post_json_rpc(
         if line.startswith("data: "):
             return json.loads(line.removeprefix("data: ")), response_headers
     return json.loads(text), response_headers
+
+
+def _signal_process_group(process_group_id: int, signal_number: signal.Signals) -> None:
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process_group_id, signal_number)
+
+
+def _wait_for_process_group_exit(
+    leader: subprocess.Popen[bytes], process_group_id: int, timeout_seconds: float
+) -> bool:
+    """Return whether the group emptied within the timeout; reaps the leader meanwhile."""
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        # An unreaped leader stays a zombie member of the group.
+        leader.poll()
+        try:
+            os.killpg(process_group_id, 0)
+        except ProcessLookupError:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
 
 
 def _free_ports(count: int) -> list[int]:

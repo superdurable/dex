@@ -21,14 +21,15 @@ It serves, on one port of 127.0.0.1:
 Replies come from a scenario file (see ``model_scenario``) that reloads when
 it changes, and fall back to the ``say`` / ``call`` / ``recall`` script. Any
 model name is accepted. Every request is appended to a JSONL log, with
-credential headers reduced to their names and query values and
-credential-like body keys redacted.
+credential headers reduced to their names, query values redacted, and the
+values of credential-like body keys redacted at any depth.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import signal
 import threading
 import time
@@ -46,10 +47,26 @@ from dex_agents_cli_testing.responses_api import ResponsesApiStub
 from dex_agents_cli_testing.scripted_model import ScriptedConversation, ScriptedReply
 
 READY_LINE_PREFIX = "Mock model API listening on "
-CREDENTIAL_HEADERS = ("authorization", "x-api-key", "x-goog-api-key", "api-key")
-CREDENTIAL_BODY_KEYS = frozenset(
-    ("api_key", "apikey", "key", "authorization", "token", "access_token", "password", "secret")
+CREDENTIAL_NAMES = frozenset(
+    (
+        "api_key",
+        "apikey",
+        "key",
+        "token",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "secret",
+        "client_secret",
+        "password",
+        "authorization",
+        "proxy_authorization",
+        "cookie",
+        "set_cookie",
+    )
 )
+CREDENTIAL_NAME_SUFFIXES = ("_token", "_secret", "_key", "_password")
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 REDACTED = "<redacted>"
 _LOGGED_QUERY_PARAMETERS = frozenset(("alt", "beta"))
 _LOGGED_OUTPUT_CHARACTERS = 4000
@@ -129,12 +146,12 @@ class MockModelApi(ModelApiStub):
             "path": _redacted_path(request.path),
             "status": status,
             "credential_headers": sorted(
-                name for name in request.headers if name in CREDENTIAL_HEADERS
+                name for name in request.headers if is_credential_name(name)
             ),
             "headers": {
                 name: value
                 for name, value in request.headers.items()
-                if name not in CREDENTIAL_HEADERS
+                if not is_credential_name(name)
             },
         }
         if error is not None:
@@ -147,6 +164,16 @@ class MockModelApi(ModelApiStub):
         record["body"] = _redacted_value(request.body)
         with self._log_lock, self._request_log_path.open("a", encoding="utf-8") as log:
             log.write(json.dumps(record) + "\n")
+
+
+def is_credential_name(name: str) -> bool:
+    """Report whether a header, query, or body key name looks like it holds a credential.
+
+    The check ignores case and treats ``-`` and camelCase boundaries as ``_``, so
+    ``X-Api-Key``, ``clientSecret``, and ``client_secret`` all match.
+    """
+    words = _CAMEL_CASE_BOUNDARY.sub("_", name).lower().replace("-", "_")
+    return words in CREDENTIAL_NAMES or words.endswith(CREDENTIAL_NAME_SUFFIXES)
 
 
 def _redacted_path(path: str) -> str:
@@ -166,7 +193,7 @@ def _redacted_value(value: object) -> object:
     """Return a JSON value with the values of credential-like keys replaced."""
     if isinstance(value, Mapping):
         return {
-            key: REDACTED if str(key).lower() in CREDENTIAL_BODY_KEYS else _redacted_value(item)
+            key: REDACTED if is_credential_name(str(key)) else _redacted_value(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
