@@ -30,8 +30,8 @@ from dex_agents import (
     ToolCallStepOptionsProvider,
     ToolEffect,
 )
+from dex_agents.builtin_loop import FrameworkToolSourceRouter
 from dex_agents.connectors import ConnectorToolSource, connector_tool
-from dex_agents.stepwise import FrameworkToolSourceRouter
 from dex_agents_openai_agents import OpenAIAgentsRunner, openai_agents_session_flow
 from dex_agents_openai_agents._agent_graph import ActiveTurn
 from tests.conftest import SupportAgentHarness as ScriptedAgentHarness

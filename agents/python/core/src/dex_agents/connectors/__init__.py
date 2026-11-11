@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""Connector operations as Stepwise agent tools.
+"""Connector operations as tools of an agent on the built-in loop.
 
 Install the extra ``dex-agents[connectors]``, which brings in the Connector
 SDK. Name each reviewed operation an agent may use with ``connector_tool`` and

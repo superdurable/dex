@@ -32,7 +32,7 @@ from dex_agents import (
     ToolCallStatus,
     ToolEffect,
 )
-from dex_agents.stepwise import TOOL_CALL_LIMIT_REACHED_RESULT
+from dex_agents.builtin_loop import TOOL_CALL_LIMIT_REACHED_RESULT
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
     WAIT_FOR_COMPLETED_EVENT,

@@ -52,12 +52,12 @@ export interface ScriptedModelReply {
 export type ScriptedModelResponder = (request: ModelRequest) => ScriptedModelReply | Promise<ScriptedModelReply>;
 
 /**
- * A Stepwise {@link ModelClient} that answers every model call from a script, for demos and tests without a
+ * A built-in agent loop {@link ModelClient} that answers every model call from a script, for demos and tests without a
  * model key. It mirrors the Python core's `ScriptedModelClient`.
  *
- * Use it as `AgentDefinition.model` to run a Stepwise agent with no provider account: a local demo
+ * Use it as `AgentDefinition.model` to run a built-in loop agent with no provider account: a local demo
  * mode of an application, a tutorial, or an integration test. It is a supported part of
- * `@superdurable/dex-agents/stepwise` and needs no optional peer. `@superdurable/dex-agents/testing`
+ * `@superdurable/dex-agents/builtin-loop` and needs no optional peer. `@superdurable/dex-agents/testing`
  * exports the same class.
  *
  * The script is a function of the whole {@link ModelRequest}, so it can read the user text, with
@@ -73,7 +73,7 @@ export type ScriptedModelResponder = (request: ModelRequest) => ScriptedModelRep
  *   ScriptedModelClient.toolResults(request).length > 0
  *     ? { text: "done" }
  *     : { toolCalls: [{ toolName: "lookup_order", arguments: { order_id: "7" } }] });
- * const flow = createStepwiseAgentSessionFlow(
+ * const flow = createBuiltinAgentSessionFlow(
  *   { name: "demo", instructions: "Help.", model, tools: [lookupOrder] }, "DemoAgent");
  * ```
  */

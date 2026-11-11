@@ -23,7 +23,7 @@ import {
   type ContextSummary,
 } from "../../src/index.js";
 import {
-  StepwiseAgentRunner,
+  BuiltinLoopAgentRunner,
   buildContextSummaryOmissionNote,
   contextSummaryInstructions,
   contextSummaryNoteHeader,
@@ -32,8 +32,8 @@ import {
   type ModelInputItem,
   type ModelOutputItem,
   type ModelRequest,
-} from "../../src/stepwise/index.js";
-import { toStepwiseFrameworkMessage } from "../../src/stepwise/stepwise-input-items.js";
+} from "../../src/builtin-loop/index.js";
+import { toBuiltinLoopFrameworkMessage } from "../../src/builtin-loop/builtin-loop-input-items.js";
 import {
   convertAgentSnapshotToJson,
   streamAgentUIMessageChunks,
@@ -556,7 +556,7 @@ describe("context compaction", () => {
       answer,
     ];
     const messages = rangeItems.map((item, index) => ({
-      ...toStepwiseFrameworkMessage(item),
+      ...toBuiltinLoopFrameworkMessage(item),
       sequence: index + 1,
       turnId: "turn-1",
       createdAt: "2026-11-01T12:00:00.000Z",
@@ -583,7 +583,7 @@ describe("context compaction", () => {
       [60, undefined],
       [70, 10],
     ] as const) {
-      const runner = new StepwiseAgentRunner({
+      const runner = new BuiltinLoopAgentRunner({
         name: "agent",
         instructions: "Help.",
         model,

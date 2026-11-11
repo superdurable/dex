@@ -11,13 +11,13 @@ import type { AgentSessionFlow } from "../../src/index.js";
 import { McpToolSource } from "../../src/mcp/index.js";
 import {
   ScriptedModelClient,
-  createStepwiseAgentSessionFlow,
+  createBuiltinAgentSessionFlow,
   functionTool,
   type AgentDefinition,
   type ModelRequest,
   type ScriptedModelReply,
-  type StepwiseAgentRunner,
-} from "../../src/stepwise/index.js";
+  type BuiltinLoopAgentRunner,
+} from "../../src/builtin-loop/index.js";
 import { fakeMcpServerModulePath, fakeMcpStateDirectoryVariable } from "./fake-mcp-server-names.js";
 
 /** Flow type of the Stepwise agent whose tools come from a function tool and an `McpToolSource`. */
@@ -76,6 +76,6 @@ export function createMcpStepwiseDefinition(stateDirectory: string, httpUrl: str
 }
 
 /** Builds the agent's session Flow. */
-export function createMcpStepwiseFlow(definition: AgentDefinition): AgentSessionFlow<StepwiseAgentRunner> {
-  return createStepwiseAgentSessionFlow(definition, mcpStepwiseAgentFlowType);
+export function createMcpStepwiseFlow(definition: AgentDefinition): AgentSessionFlow<BuiltinLoopAgentRunner> {
+  return createBuiltinAgentSessionFlow(definition, mcpStepwiseAgentFlowType);
 }

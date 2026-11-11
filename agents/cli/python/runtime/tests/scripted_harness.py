@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""A Stepwise test harness whose scripted model obeys commands in the user's message.
+"""A built-in loop test harness whose scripted model obeys commands in the user's message.
 
 The last user message picks the reply:
 
@@ -33,15 +33,15 @@ from pathlib import Path
 from typing import Any
 
 from dex_agents import AgentSessionFlow, BuiltInTool, ToolEffect, ToolPolicy
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     AgentDefinition,
     InstructionContext,
     ModelRequest,
     ScriptedModelClient,
     ScriptedModelReply,
     ScriptedToolCall,
+    builtin_agent_session_flow,
     function_tool,
-    stepwise_agent_session_flow,
 )
 from dex_agents_cli import (
     AgentHarness,
@@ -60,7 +60,7 @@ _MAX_SHOWN_OUTPUT = 300
 
 
 class ScriptedHarness:
-    """The test harness: a Stepwise agent on a scripted model, with every local tool group."""
+    """The test harness: a built-in loop agent on a scripted model, with every local tool group."""
 
     name = "scripted"
     config_section = "builtin"
@@ -118,7 +118,7 @@ class ScriptedHarness:
             built_in_tools=frozenset({BuiltInTool.ASK_USER}),
             tool_policies=self._tool_policies,
         )
-        return stepwise_agent_session_flow(definition, flow_type=context.flow_type)
+        return builtin_agent_session_flow(definition, flow_type=context.flow_type)
 
 
 def build_session_flow_without_tools(flow_type: str = SCRIPTED_FLOW_TYPE) -> AgentSessionFlow:

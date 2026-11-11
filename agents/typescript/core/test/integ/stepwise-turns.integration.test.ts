@@ -17,7 +17,7 @@ import { MockLanguageModelV4 } from "ai/test";
 
 import { createAiSdkModelClient } from "../../src/ai-sdk/index.js";
 import { ToolExecutionError, createAgentSessionFlow, type AgentEvent, type AgentMessage } from "../../src/index.js";
-import { StepwiseAgentRunner, createStepwiseAgentSessionFlow, functionTool } from "../../src/stepwise/index.js";
+import { BuiltinLoopAgentRunner, createBuiltinAgentSessionFlow, functionTool } from "../../src/builtin-loop/index.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -63,7 +63,7 @@ describe("Stepwise agent turns with an in-process Worker", () => {
       sessionToolPolicies: { charge_card: { effect: "non_idempotent_write", requiresApproval: true } },
     });
     const builtInClashFlow = createAgentSessionFlow(
-      new StepwiseAgentRunner({
+      new BuiltinLoopAgentRunner({
         name: "built-in-clash",
         instructions: "",
         model: createAiSdkModelClient(createStepwiseScriptedLanguageModel(markerDirectory)),
@@ -80,7 +80,7 @@ describe("Stepwise agent turns with an in-process Worker", () => {
       "StepwiseBuiltInClashAgent",
       { builtInTools: ["ask_user"] },
     );
-    const scriptedClientFlow = createStepwiseAgentSessionFlow(
+    const scriptedClientFlow = createBuiltinAgentSessionFlow(
       {
         name: "scripted-client",
         instructions: "Help.",
@@ -621,7 +621,7 @@ describe("Stepwise agent turns with an in-process Worker", () => {
   });
 
   test("function tool argument errors use the Python core's text", async () => {
-    const runner = new StepwiseAgentRunner({
+    const runner = new BuiltinLoopAgentRunner({
       name: "arguments",
       instructions: "",
       model: new ScriptedModelClient(() => ({})),
@@ -680,20 +680,20 @@ describe("Stepwise agent turns with an in-process Worker", () => {
     });
     assert.throws(
       () =>
-        createStepwiseAgentSessionFlow(
+        createBuiltinAgentSessionFlow(
           { name: "clash", instructions: "", model, tools: [durableWaitTool], builtInTools: ["durable_wait"] },
           "ClashAgent",
         ),
       /uses the name of an enabled built-in tool/,
     );
-    const flow = createStepwiseAgentSessionFlow(
+    const flow = createBuiltinAgentSessionFlow(
       { name: "ordinary", instructions: "", model, tools: [durableWaitTool], builtInTools: ["ask_user"] },
       "OrdinaryAgent",
     );
     assert.deepEqual(flow.options.builtInTools, ["ask_user"]);
     assert.throws(
       () =>
-        createAgentSessionFlow(new StepwiseAgentRunner({ name: "policy", instructions: "", model }), "PolicyAgent", {
+        createAgentSessionFlow(new BuiltinLoopAgentRunner({ name: "policy", instructions: "", model }), "PolicyAgent", {
           builtInTools: ["ask_user"],
           toolPolicies: { ask_user: { effect: "read" } },
         }),

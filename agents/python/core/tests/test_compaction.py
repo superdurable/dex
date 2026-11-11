@@ -60,11 +60,12 @@ from dex_agents import (
     MessageRole,
     message_sequence_key,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
     CONTEXT_SUMMARY_NOTE_HEADER,
     CONTEXT_SUMMARY_REQUEST,
     AgentDefinition,
+    BuiltinLoopAgentRunner,
     ModelInputItem,
     ModelOutputItem,
     ModelOutputWriter,
@@ -72,11 +73,10 @@ from dex_agents.stepwise import (
     ModelResponse,
     ModelSettings,
     ModelToolCall,
-    StepwiseAgentRunner,
     ToolResultItem,
     UserTextItem,
     build_context_summary_omission_note,
-    encode_stepwise_message,
+    encode_builtin_loop_message,
 )
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
@@ -415,7 +415,7 @@ async def test_the_summary_cap_leaves_out_whole_model_responses() -> None:
             sequence=sequence,
             turn_id="turn-1",
             created_at="2026-11-01T12:00:00.000Z",
-            **vars(encode_stepwise_message(item)),
+            **vars(encode_builtin_loop_message(item)),
         )
         for sequence, item in enumerate(range_items, start=1)
     ]
@@ -429,7 +429,7 @@ async def test_the_summary_cap_leaves_out_whole_model_responses() -> None:
             model=model,
             model_settings=ModelSettings(max_output_tokens=max_output_tokens),
         )
-        await StepwiseAgentRunner(definition).summarize_context(
+        await BuiltinLoopAgentRunner(definition).summarize_context(
             ContextSummaryRequest(
                 flow_id="session-1",
                 turn_id="turn-1",

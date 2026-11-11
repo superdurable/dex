@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-package stepwise
+package builtinloop
 
 import (
 	"context"
@@ -69,7 +69,7 @@ func WithRequiresApproval(isApprovalRequired bool) FunctionToolOption {
 	})
 }
 
-// FunctionTool runs one Go function as a Stepwise tool in its own Step.
+// FunctionTool runs one Go function as a built-in agent loop tool in its own Step.
 //
 // Create it with NewFunctionTool or NewTypedFunctionTool. The effect picks the
 // tool call Step and the default approval, exactly as dexagents.ToolPolicy
@@ -90,12 +90,12 @@ type FunctionTool struct {
 
 // NewFunctionTool creates a function tool from a JSON Schema and a function of the JSON arguments.
 //
-//	lookupOrder, err := stepwise.NewFunctionTool(
+//	lookupOrder, err := builtinloop.NewFunctionTool(
 //		"lookup_order",
 //		"Look up an order by its ID.",
 //		json.RawMessage(`{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"]}`),
 //		dexagents.ToolEffectRead,
-//		func(ctx context.Context, arguments json.RawMessage, call stepwise.ToolCallContext) (string, error) {
+//		func(ctx context.Context, arguments json.RawMessage, call builtinloop.ToolCallContext) (string, error) {
 //			var input struct {
 //				OrderID string `json:"order_id"`
 //			}
@@ -152,10 +152,10 @@ func NewFunctionTool(
 //		OrderID     string `json:"order_id"`
 //		AmountCents int64  `json:"amount_cents"`
 //	}
-//	refundOrder, err := stepwise.NewTypedFunctionTool("refund_order", "Refund part of an order.",
+//	refundOrder, err := builtinloop.NewTypedFunctionTool("refund_order", "Refund part of an order.",
 //		json.RawMessage(`{"type":"object","properties":{"order_id":{"type":"string"},"amount_cents":{"type":"integer","minimum":1}},"required":["order_id","amount_cents"]}`),
 //		dexagents.ToolEffectNonIdempotentWrite,
-//		func(ctx context.Context, arguments RefundArguments, call stepwise.ToolCallContext) (string, error) {
+//		func(ctx context.Context, arguments RefundArguments, call builtinloop.ToolCallContext) (string, error) {
 //			return payments.Refund(ctx, arguments.OrderID, arguments.AmountCents, call.IdempotencyKey)
 //		})
 //

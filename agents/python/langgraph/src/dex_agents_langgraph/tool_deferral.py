@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dex_agents import AgentTurnContext, ToolCallStatus, ToolEffect, ToolPolicy
-from dex_agents.stepwise import SourceToolDefinition, SourceToolListing
+from dex_agents.builtin_loop import SourceToolDefinition, SourceToolListing
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, AnyMessage, ToolCall, ToolMessage
 from langchain_core.runnables import RunnableConfig

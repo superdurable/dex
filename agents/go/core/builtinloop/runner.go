@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-package stepwise
+package builtinloop
 
 import (
 	"context"
@@ -54,11 +54,11 @@ type InstructionContext struct {
 // show, so never put the settings in an error message. Only model calls see
 // the settings: tool calls do not receive them.
 //
-//	models := map[string]stepwise.ModelClient{
+//	models := map[string]builtinloop.ModelClient{
 //		"gpt-5-mini": openaimodel.NewResponsesModelClient(client, "gpt-5-mini"),
 //		"gpt-5":      openaimodel.NewResponsesModelClient(client, "gpt-5"),
 //	}
-//	resolveModel := func(sessionSettings map[string]any) (stepwise.ModelClient, error) {
+//	resolveModel := func(sessionSettings map[string]any) (builtinloop.ModelClient, error) {
 //		if model, isAllowed := models[fmt.Sprint(sessionSettings["model"])]; isAllowed {
 //			return model, nil
 //		}
@@ -154,21 +154,21 @@ func WithEventStreamCapacityBytes(capacityBytes int64) AgentDefinitionOption {
 	})
 }
 
-// AgentDefinition declares one Stepwise agent in Dex terms: instructions, model, and tools.
+// AgentDefinition declares one built-in loop agent in Dex terms: instructions, model, and tools.
 //
-// Pass it to NewStepwiseAgentSessionFlow, which builds the session Flow and
+// Pass it to NewBuiltinAgentSessionFlow, which builds the session Flow and
 // derives its session options, so tool policies and the interrupt deadline
 // are declared once. Every model call runs in its own RunModel Step and every
 // tool call in its own tool Step.
 //
-//	definition, err := stepwise.NewAgentDefinition("support", "You help customers with their orders.",
+//	definition, err := builtinloop.NewAgentDefinition("support", "You help customers with their orders.",
 //		openaimodel.NewResponsesModelClient(openai.NewClient(), "gpt-5-mini"),
-//		stepwise.WithFunctionTools(lookupOrder, refundOrder),
-//		stepwise.WithInterruptDeadline(24*time.Hour))
+//		builtinloop.WithFunctionTools(lookupOrder, refundOrder),
+//		builtinloop.WithInterruptDeadline(24*time.Hour))
 //	if err != nil {
 //		return err
 //	}
-//	flow, err := stepwise.NewStepwiseAgentSessionFlow(definition, "SupportAgent")
+//	flow, err := builtinloop.NewBuiltinAgentSessionFlow(definition, "SupportAgent")
 type AgentDefinition struct {
 	name                     string
 	instructions             string
@@ -184,7 +184,7 @@ type AgentDefinition struct {
 	eventStreamCapacityBytes int64
 }
 
-// NewAgentDefinition declares one Stepwise agent.
+// NewAgentDefinition declares one built-in loop agent.
 //
 // name is used in events and must not be blank. instructions are the system
 // instructions unless WithInstructionsFunction computes them. model must not
@@ -192,7 +192,7 @@ type AgentDefinition struct {
 // unknown default effect, or a non-positive model call limit.
 func NewAgentDefinition(name string, instructions string, model ModelClient, options ...AgentDefinitionOption) (*AgentDefinition, error) {
 	if model == nil {
-		panic("stepwise: NewAgentDefinition needs a model client")
+		panic("builtinloop: NewAgentDefinition needs a model client")
 	}
 	definition := &AgentDefinition{
 		name:                 name,
@@ -232,7 +232,7 @@ func (definition *AgentDefinition) Name() string {
 	return definition.name
 }
 
-// StepwiseAgentRunner runs an AgentDefinition as the native Dex Agents loop, with no framework.
+// BuiltinLoopAgentRunner runs an AgentDefinition as the native Dex Agents loop, with no framework.
 //
 // It implements dexagents.AgentFrameworkRunner and
 // dexagents.UnfinishedTurnMessageBuilder. RunModelStep makes at most one
@@ -240,25 +240,29 @@ func (definition *AgentDefinition) Name() string {
 // the assistant item that asks for tools commits with the tool call records,
 // and the tool results commit with the next model call. A tool call is never
 // sent to a provider without a result. Most applications use
-// NewStepwiseAgentSessionFlow instead of constructing it.
-type StepwiseAgentRunner struct {
+// NewBuiltinAgentSessionFlow instead of constructing it.
+//
+// Since 0.5.0. It replaces stepwise.StepwiseAgentRunner.
+type BuiltinLoopAgentRunner struct {
 	definition  *AgentDefinition
 	toolsByName map[string]*FunctionTool
 }
 
-// NewStepwiseAgentRunner creates the runner for one agent. definition must not be nil.
-func NewStepwiseAgentRunner(definition *AgentDefinition) *StepwiseAgentRunner {
+// NewBuiltinLoopAgentRunner creates the runner for one agent. definition must not be nil.
+//
+// Since 0.5.0. It replaces stepwise.NewStepwiseAgentRunner.
+func NewBuiltinLoopAgentRunner(definition *AgentDefinition) *BuiltinLoopAgentRunner {
 	if definition == nil {
-		panic("stepwise: NewStepwiseAgentRunner needs a definition")
+		panic("builtinloop: NewBuiltinLoopAgentRunner needs a definition")
 	}
 	toolsByName := make(map[string]*FunctionTool, len(definition.tools))
 	for _, tool := range definition.tools {
 		toolsByName[tool.name] = tool
 	}
-	return &StepwiseAgentRunner{definition: definition, toolsByName: toolsByName}
+	return &BuiltinLoopAgentRunner{definition: definition, toolsByName: toolsByName}
 }
 
-// NewStepwiseAgentSessionFlow builds the durable session Flow of one Stepwise agent.
+// NewBuiltinAgentSessionFlow builds the durable session Flow of one built-in loop agent.
 //
 // Register the Flow in a Registry and serve it with a Worker. Call it through
 // dexagents.AgentSessionClient, as for any runner. flowType is the protocol
@@ -266,7 +270,9 @@ func NewStepwiseAgentRunner(definition *AgentDefinition) *StepwiseAgentRunner {
 // sessions resume by it. sessionOptions apply after the options the
 // definition derives, such as dexagents.WithMessageWindowSize. It returns the
 // errors of dexagents.NewAgentSessionFlow.
-func NewStepwiseAgentSessionFlow(
+//
+// Since 0.5.0. It replaces stepwise.NewStepwiseAgentSessionFlow.
+func NewBuiltinAgentSessionFlow(
 	definition *AgentDefinition,
 	flowType string,
 	sessionOptions ...dexagents.AgentSessionOption,
@@ -282,12 +288,12 @@ func NewStepwiseAgentSessionFlow(
 		options = append(options, dexagents.WithEventStreamCapacityBytes(definition.eventStreamCapacityBytes))
 	}
 	options = append(options, sessionOptions...)
-	return dexagents.NewAgentSessionFlow(NewStepwiseAgentRunner(definition), flowType, options...)
+	return dexagents.NewAgentSessionFlow(NewBuiltinLoopAgentRunner(definition), flowType, options...)
 }
 
 // BuildUserMessage stores user text, and Dex notes, as a provider-neutral user_text item.
-func (runner *StepwiseAgentRunner) BuildUserMessage(text string) (dexagents.FrameworkMessage, error) {
-	return EncodeStepwiseMessage(UserTextItem{Text: text})
+func (runner *BuiltinLoopAgentRunner) BuildUserMessage(text string) (dexagents.FrameworkMessage, error) {
+	return EncodeBuiltinLoopMessage(UserTextItem{Text: text})
 }
 
 // RunModelStep makes one model call of the turn.
@@ -295,7 +301,7 @@ func (runner *StepwiseAgentRunner) BuildUserMessage(text string) (dexagents.Fram
 // It returns *dexagents.ToolCallsRequested when the model asked for tools,
 // otherwise *dexagents.TurnCompleted. Both carry the previous round's tool
 // results and the new output items. Errors are the model client's.
-func (runner *StepwiseAgentRunner) RunModelStep(
+func (runner *BuiltinLoopAgentRunner) RunModelStep(
 	ctx context.Context,
 	turn dexagents.AgentTurnContext,
 ) (dexagents.AgentTurnOutcome, error) {
@@ -324,14 +330,14 @@ func (runner *StepwiseAgentRunner) RunModelStep(
 	usage.ModelCalls = 1
 	newMessages := make([]dexagents.FrameworkMessage, 0, len(unstoredResults)+len(response.OutputItems))
 	for _, result := range unstoredResults {
-		message, err := EncodeStepwiseMessage(result)
+		message, err := EncodeBuiltinLoopMessage(result)
 		if err != nil {
 			return nil, err
 		}
 		newMessages = append(newMessages, message)
 	}
 	for _, item := range response.OutputItems {
-		message, err := EncodeStepwiseMessage(item)
+		message, err := EncodeBuiltinLoopMessage(item)
 		if err != nil {
 			return nil, err
 		}
@@ -344,7 +350,7 @@ func (runner *StepwiseAgentRunner) RunModelStep(
 		// The model ignored that no tools were offered; answer each call instead of running it.
 		notRun := fmt.Sprintf(ToolCallLimitReachedResultFormat, runner.definition.maxModelCallsPerTurn)
 		for _, call := range response.ToolCalls {
-			message, err := EncodeStepwiseMessage(ToolResultItem{ToolCallID: call.ToolCallID, ToolName: call.ToolName, Output: notRun})
+			message, err := EncodeBuiltinLoopMessage(ToolResultItem{ToolCallID: call.ToolCallID, ToolName: call.ToolName, Output: notRun})
 			if err != nil {
 				return nil, err
 			}
@@ -377,7 +383,7 @@ func (runner *StepwiseAgentRunner) RunModelStep(
 //
 // It returns the tool output, or a *dexagents.ToolExecutionError when the tool
 // is unknown, the arguments break its schema, or the tool returned one.
-func (runner *StepwiseAgentRunner) ExecuteDeferredToolCall(
+func (runner *BuiltinLoopAgentRunner) ExecuteDeferredToolCall(
 	ctx context.Context,
 	call dexagents.DeferredToolExecution,
 ) (dexagents.DeferredToolOutcome, error) {
@@ -404,7 +410,7 @@ func (runner *StepwiseAgentRunner) ExecuteDeferredToolCall(
 // BuildUnfinishedTurnMessages returns the results of the turn's tool calls that are not stored yet.
 //
 // It returns one tool_result message per unstored result.
-func (runner *StepwiseAgentRunner) BuildUnfinishedTurnMessages(
+func (runner *BuiltinLoopAgentRunner) BuildUnfinishedTurnMessages(
 	_ context.Context,
 	turn dexagents.AgentTurnContext,
 ) ([]dexagents.FrameworkMessage, error) {
@@ -414,7 +420,7 @@ func (runner *StepwiseAgentRunner) BuildUnfinishedTurnMessages(
 	}
 	messages := make([]dexagents.FrameworkMessage, 0, len(results))
 	for _, result := range results {
-		message, err := EncodeStepwiseMessage(result)
+		message, err := EncodeBuiltinLoopMessage(result)
 		if err != nil {
 			return nil, err
 		}
@@ -423,7 +429,7 @@ func (runner *StepwiseAgentRunner) BuildUnfinishedTurnMessages(
 	return messages, nil
 }
 
-func (runner *StepwiseAgentRunner) modelRequest(
+func (runner *BuiltinLoopAgentRunner) modelRequest(
 	turn dexagents.AgentTurnContext,
 	unstoredResults []ModelInputItem,
 	isToolBudgetSpent bool,
@@ -434,7 +440,7 @@ func (runner *StepwiseAgentRunner) modelRequest(
 	}
 	items := make([]ModelInputItem, 0, len(turn.Messages)+len(unstoredResults))
 	for _, message := range turn.Messages {
-		item, err := DecodeStepwiseMessage(message)
+		item, err := DecodeBuiltinLoopMessage(message)
 		if err != nil {
 			return ModelRequest{}, err
 		}
@@ -464,7 +470,7 @@ func (runner *StepwiseAgentRunner) modelRequest(
 	return request, nil
 }
 
-func (runner *StepwiseAgentRunner) instructions(turn dexagents.AgentTurnContext) (string, error) {
+func (runner *BuiltinLoopAgentRunner) instructions(turn dexagents.AgentTurnContext) (string, error) {
 	if runner.definition.instructionsFunction == nil {
 		return runner.definition.instructions, nil
 	}
@@ -474,7 +480,7 @@ func (runner *StepwiseAgentRunner) instructions(turn dexagents.AgentTurnContext)
 	})
 }
 
-func (runner *StepwiseAgentRunner) resolveModel(turn dexagents.AgentTurnContext) (ModelClient, error) {
+func (runner *BuiltinLoopAgentRunner) resolveModel(turn dexagents.AgentTurnContext) (ModelClient, error) {
 	if runner.definition.resolveModel == nil {
 		return runner.definition.model, nil
 	}
@@ -488,7 +494,7 @@ func (runner *StepwiseAgentRunner) resolveModel(turn dexagents.AgentTurnContext)
 	return model, nil
 }
 
-func (runner *StepwiseAgentRunner) toolPolicy(turn dexagents.AgentTurnContext, toolName string) dexagents.ToolPolicy {
+func (runner *BuiltinLoopAgentRunner) toolPolicy(turn dexagents.AgentTurnContext, toolName string) dexagents.ToolPolicy {
 	if _, hasPolicy := turn.ToolPolicies[toolName]; hasPolicy {
 		return dexagents.ResolveToolPolicy(toolName, turn.ToolPolicies, turn.DefaultToolEffect, nil)
 	}
@@ -509,7 +515,7 @@ func modelCallCount(frameworkRunState *string) (int, error) {
 		ModelCalls *int `json:"model_calls"`
 	}
 	if err := json.Unmarshal([]byte(*frameworkRunState), &runState); err != nil || runState.ModelCalls == nil {
-		return 0, fmt.Errorf("Stepwise framework run state %q has no model_calls: %v", *frameworkRunState, err)
+		return 0, fmt.Errorf("built-in loop framework run state %q has no model_calls: %v", *frameworkRunState, err)
 	}
 	return *runState.ModelCalls, nil
 }

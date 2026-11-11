@@ -350,7 +350,7 @@ harness may replace only `FILES` and `SHELL`.
 | `harness_options: Mapping[str, Any]` | The harness's own section, `{}` by default. |
 | `tool_sources: Sequence[ToolSource]` | The connector and local tool sources, which apply each turn's settings themselves. Offer all of them. |
 | `resolve_turn(session_settings) -> ResolvedTurn` | A turn's narrowed configuration with its `model` and `instructions`. Raises `ConfigError` for rejected settings. |
-| `resolve_tool_step_permissions(call=None) -> ResolvedTurn` | The permissions a replacement tool's own Step applies: this Worker's file narrowed by the session settings recorded for the call's turn. Pass the `DeferredToolExecution` from a runner, or nothing from a Stepwise function tool. Raises `RuntimeError` without a call outside a tool Step and a model call. |
+| `resolve_tool_step_permissions(call=None) -> ResolvedTurn` | The permissions a replacement tool's own Step applies: this Worker's file narrowed by the session settings recorded for the call's turn. Pass the `DeferredToolExecution` from a runner, or nothing from a built-in loop function tool. Raises `RuntimeError` without a call outside a tool Step and a model call. |
 | `current_turn() -> ResolvedTurn` | The turn whose model call or tool Step is running, or the file's configuration outside both. In a tool Step it is the configuration of the turn that made the call, from the settings the session recorded for that turn, so a replacement tool sees the turn's switches, shell allow list, and `approval.always`. |
 
 The returned Flow must use `context.flow_type`, which is namespaced as
@@ -385,7 +385,7 @@ def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
     )
 ```
 
-A Stepwise harness puts the sources in `AgentDefinition.tool_sources` and
+A built-in loop harness puts the sources in `AgentDefinition.tool_sources` and
 resolves the model and instructions from the session settings it is given:
 
 ```python
@@ -402,7 +402,7 @@ def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         resolve_model=resolve_model,
         tool_sources=list(context.tool_sources),
     )
-    return stepwise_agent_session_flow(definition, flow_type=context.flow_type)
+    return builtin_agent_session_flow(definition, flow_type=context.flow_type)
 ```
 
 ## Development
@@ -417,7 +417,7 @@ DEXCLI=/path/to/dexcli ./ci.sh
 ```
 
 The tests run the commands as processes, in a pseudo-terminal where a test
-needs one, with a scripted Stepwise harness (`tests/scripted_harness.py`), a
+needs one, with a scripted built-in loop harness (`tests/scripted_harness.py`), a
 fake connectors MCP server, and a private home directory each. They also run
 every case of `agents/conformance/cli_config.json`. The browser test downloads
 Playwright's headless Chromium when it is missing and skips only when it

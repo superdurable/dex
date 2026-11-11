@@ -12,14 +12,14 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import {
   ScriptedModelClient,
-  createStepwiseAgentSessionFlow,
+  createBuiltinAgentSessionFlow,
   functionTool,
   type FunctionTool,
-  type StepwiseAgentRunner,
+  type BuiltinLoopAgentRunner,
   type ModelClient,
   type ModelRequest,
   type ScriptedModelReply,
-} from "@superdurable/dex-agents/stepwise";
+} from "@superdurable/dex-agents/builtin-loop";
 
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 
@@ -78,7 +78,7 @@ export const shellReplacingScriptedHarness: AgentHarness = {
 function createScriptedSessionFlow(
   context: HarnessContext,
   tools: readonly FunctionTool[],
-): AgentSessionFlow<StepwiseAgentRunner> {
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const models = new Map<string, ModelClient>();
   const modelFor = (model: string): ModelClient => {
     let client = models.get(model);
@@ -88,7 +88,7 @@ function createScriptedSessionFlow(
     }
     return client;
   };
-  return createStepwiseAgentSessionFlow(
+  return createBuiltinAgentSessionFlow(
     {
       name: "scripted",
       instructions: (turn) => context.resolveTurn(turn.sessionSettings ?? {}).instructions ?? "You are a scripted test agent.",
