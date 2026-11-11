@@ -52,7 +52,7 @@ FRONT_MATTER_LINE = re.compile(r"^(?P<key>[a-z_]+):[ \t]*(?P<value>.*?)\s*$")
 
 RELEASE_PREP_LABEL = "release-prep"
 # Pull requests up to this number were opened before fragments and may keep the old flow.
-LEGACY_CHANGELOG_PR_MAX = 1607
+LEGACY_CHANGELOG_PR_MAX = 1608
 CORRECTION_LINE = re.compile(r"^\s*(?:[-*]\s+)?changelog:\s*correction:[ \t]*\S", re.IGNORECASE | re.MULTILINE)
 SKILLS_NO_BUMP_LINE = re.compile(
     r"^\s*(?:[-*]\s+)?skills-release:\s*no bump needed:[ \t]*\S", re.IGNORECASE | re.MULTILINE
