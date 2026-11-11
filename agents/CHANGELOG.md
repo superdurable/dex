@@ -109,8 +109,9 @@ for the Dex SDK and framework versions each release supports.
   so `Bash` can run allow-listed commands without approval. See
   [Per-call decisions for Claude Code tools](python/claude-agent-sdk/README.md#per-call-decisions-for-claude-code-tools).
 - New npm package `@superdurable/dex-agents-pi` (not published yet) runs Pi
-  agents on the Stepwise session Flow. Dex runs the agent loop; pi-ai makes
-  each model call and Pi tools run as Dex tool Steps. It peer-depends on
+  agents on the built-in agent loop session Flow. Dex runs the agent loop;
+  pi-ai makes each model call and Pi tools run as Dex tool Steps. It
+  peer-depends on
   `@earendil-works/pi-ai@^1.5.1`, tested with 1.5.1.
   **createPiAiModelClient(model, { apiKey, headers, prepareRequest })** makes
   one pi-ai request per `RunModel` attempt, stores the replay fields of pi-ai's
@@ -120,7 +121,12 @@ for the Dex SDK and framework versions each release supports.
   `AgentTool`; without an effect, `replay: "safe"` gives `idempotent_write`,
   `replay: "never"` gives `non_idempotent_write`, and a tool with neither
   fails when the definition is built. **piDurableFunctionTool(tool, { effect })**
-  wraps a `pi-durable` tool that does not use the Harness `api`. See
+  wraps a `pi-durable` tool that does not use the Harness `api`. A Pi tool's
+  `prepareArguments` becomes the function tool's **prepareArguments**, so an
+  old argument shape is converted before the schema check. A plain error a
+  tool throws follows the call's **ToolCallContext.effect**, the effect after
+  `toolPolicies`: it fails the call for `read` and `idempotent_write`, and
+  records `outcome_unknown` for `non_idempotent_write` and `unclassified`. See
   [typescript/pi](typescript/pi/README.md).
 - Python, TypeScript, and Go cores: **AgentSessionStartInput** has an optional
   `start_environment` (`startEnvironment`, `StartEnvironment`), string keys and

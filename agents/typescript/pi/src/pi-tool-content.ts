@@ -6,8 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { validateToolArguments, type JsonObject } from "@earendil-works/pi-ai";
 import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
-import { functionTool, type FunctionTool, type ToolCallContext } from "@superdurable/dex-agents/stepwise";
+import {
+  functionTool,
+  type FunctionTool,
+  type PreparedToolArguments,
+  type ToolCallContext,
+} from "@superdurable/dex-agents/builtin-loop";
 
 /**
  * One part of a Pi tool result's content: text, or an image the model cannot see on Dex yet.
@@ -64,19 +70,38 @@ export interface PiFunctionToolParts {
   readonly parameters: unknown;
   readonly effect: ToolEffect;
   readonly requiresApproval: boolean | undefined;
+  /** The Pi tool's argument repair, which the runner calls before the schema check. */
+  readonly prepareArguments: ((args: unknown) => unknown) | undefined;
   readonly execute: (args: unknown, context: ToolCallContext) => Promise<string>;
 }
 
 /** Builds the Dex function tool, so a Pi tool gets every check `functionTool` makes. */
 export function buildPiFunctionTool(parts: PiFunctionToolParts): FunctionTool {
+  const prepareArguments = parts.prepareArguments;
   return functionTool<unknown>({
     name: parts.name,
     description: parts.description,
     parameters: parts.parameters as Readonly<Record<string, unknown>>,
     effect: parts.effect,
     ...(parts.requiresApproval === undefined ? {} : { requiresApproval: parts.requiresApproval }),
+    // The runner refuses a thenable result at run time, so the cast keeps the core contract.
+    ...(prepareArguments === undefined
+      ? {}
+      : { prepareArguments: (args: unknown) => prepareArguments(args) as PreparedToolArguments }),
     execute: parts.execute,
   });
+}
+
+/** Validates converted arguments with pi-ai, as Pi's agent loop does; pi-ai's validation coerces them. */
+export function validatePiToolArguments(
+  tool: { readonly name: string; readonly description: string; readonly parameters: object },
+  args: unknown,
+  toolCallId: string,
+): unknown {
+  return validateToolArguments(
+    { name: tool.name, description: tool.description, parameters: tool.parameters },
+    { type: "toolCall", id: toolCallId, name: tool.name, arguments: args as JsonObject },
+  );
 }
 
 /** Converts a failure before the tool ran, such as invalid arguments, into a failure the model sees. */
@@ -87,9 +112,11 @@ export function throwPiToolArgumentsFailure(context: ToolCallContext, error: unk
   throw new ToolExecutionError(error instanceof Error ? error.message : String(error), { cause: error });
 }
 
-/** A plain error of a `non_idempotent_write` propagates, so the session records `outcome_unknown`. */
-export function throwPiToolExecutionFailure(context: ToolCallContext, effect: ToolEffect, error: unknown): never {
-  if (effect === "non_idempotent_write" && !(error instanceof ToolExecutionError)) {
+/** A plain error propagates unless the call's effect after policies is `read` or `idempotent_write`. */
+export function throwPiToolExecutionFailure(context: ToolCallContext, wrappedEffect: ToolEffect, error: unknown): never {
+  const effect: ToolEffect = context.effect ?? wrappedEffect;
+  const isRetrySafe = effect === "read" || effect === "idempotent_write";
+  if (!isRetrySafe && !(error instanceof ToolExecutionError)) {
     throw error;
   }
   throwPiToolArgumentsFailure(context, error);

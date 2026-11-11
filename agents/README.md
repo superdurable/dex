@@ -40,7 +40,7 @@ adapter depends on the published core instead.
 | [`cli/typescript/vercel-ai`](cli/typescript/vercel-ai) | `@superdurable/dex-agents-vercel-ai-cli`, not published yet | The `dex-agents-vercel-ai` command: a Vercel AI SDK agent in the terminal |
 | [`cli/typescript/mastra`](cli/typescript/mastra) | `@superdurable/dex-agents-mastra-cli`, not published yet | The `dex-agents-mastra` command: a Mastra agent in the terminal |
 | [`cli/typescript/builtin`](cli/typescript/builtin) | `@superdurable/dex-agents-builtin-cli`, not published yet | The `dex-agents-builtin` command: the Dex built-in agent loop without a framework in the terminal |
-| [`typescript/pi`](typescript/pi) | `@superdurable/dex-agents-pi`, not published yet | Pi: pi-ai models and Pi tools on Stepwise mode, where Dex runs the agent loop |
+| [`typescript/pi`](typescript/pi) | `@superdurable/dex-agents-pi`, not published yet | Pi: pi-ai models and Pi tools on the built-in agent loop, where Dex runs the agent loop |
 
 ## UI streams
 
