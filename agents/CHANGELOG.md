@@ -119,6 +119,25 @@ for the Dex SDK and framework versions each release supports.
   `AgentSessionClient.start_session` and TypeScript `startAgentSession` take
   it. Workers before 0.5.0 ignore it. The CLI runtimes record their host name,
   user ID and user name, configuration identity, and workspace there.
+- Python and TypeScript cores: new **ToolCallContext.effect**, the effect of a
+  built-in agent loop function tool call after the tool policies are applied.
+  It is the effect that chose `CallTool` or `CallSingleAttemptTool`, so a wrapper that
+  turns errors into `ToolExecutionError` can let errors of a
+  `non_idempotent_write` or `unclassified` call propagate and the session
+  records `outcome_unknown`. The runner always sets it. A context built by
+  hand has no effect: the field is optional in TypeScript, so existing
+  contexts still compile, and defaults to `UNCLASSIFIED` in Python. Treat
+  either as an unknown effect and handle the call as a write.
+- Python and TypeScript cores: built-in agent loop function tools take an
+  optional **prepare_arguments** (`prepareArguments`) that converts the model's decoded
+  arguments before the schema check, such as an argument shape an earlier
+  version of the tool took. Its result is checked and passed to the tool. An
+  error it raises fails the call like a schema violation:
+  `invalid arguments for <tool>: <message>`; a cancellation passes through
+  unchanged. It must be synchronous and deterministic: an awaitable result
+  fails the call with `argument conversion must be synchronous`, and the
+  TypeScript type **PreparedToolArguments** refuses a Promise. The stored tool
+  call and the approval interrupt keep the model's original arguments.
 
 ### Images
 

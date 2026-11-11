@@ -11,6 +11,7 @@ export {
   functionTool,
   type FunctionTool,
   type FunctionToolDefinition,
+  type PreparedToolArguments,
   type ToolCallContext,
 } from "./function-tool.js";
 export {

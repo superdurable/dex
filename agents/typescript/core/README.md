@@ -198,7 +198,16 @@ A function tool declares its effect, which picks `CallTool` or
 model's arguments against the tool's JSON Schema before `execute` runs, and a
 mismatch or an unknown tool reaches the model as a tool failure. `execute`
 receives the arguments and a `ToolCallContext` with the idempotency key,
-attempt, events, heartbeat, and the answers to the tool's own questions. A
+attempt, events, heartbeat, the answers to the tool's own questions, and
+`effect`: the call's effect after the tool policies, which chose its tool Step.
+A wrapper that turns errors into `ToolExecutionError` lets them propagate for a
+`non_idempotent_write` or `unclassified` effect, and for an absent one, which
+only a hand-built context has. `prepareArguments`, a synchronous and deterministic function, converts the
+decoded arguments before the schema check, such as an argument shape an earlier
+version of the tool took; a throw fails the call like a schema violation, a
+cancellation passes through, and a Promise result is refused. The
+stored tool call and the approval interrupt keep the model's original
+arguments. A
 `string` result is the output, and a `ToolInputRequested` result asks the user
 first. Any other result is JSON with the separators of Python's `json.dumps`,
 so the model sees the same text as from the Python core; the one exception is a
