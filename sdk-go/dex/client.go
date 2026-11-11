@@ -1116,6 +1116,65 @@ func (client *Client) HealthCheck(ctx context.Context) (HealthInfo, error) {
 	return mapHealthInfo(response)
 }
 
+// UploadFlowDefinitions stores Flow Definition Graph (FDG 2.0) documents on the Dex server.
+//
+// Use it from a CI or deployment script to publish the graphs that Dex Web draws, when
+// no Worker uploads them through WorkerOptions.FlowDefinitionPaths or
+// WorkerOptions.FlowDefinitions. Unlike a Worker, it uploads every document whatever
+// Flow types this Client's Registry contains. ReadFlowDefinitionFiles reads documents from files.
+//
+// The server keeps one document per Flow type. A different document with a later
+// GeneratedAt replaces the stored one (FlowDefinitionUploadReplaced); an identical one
+// is FlowDefinitionUploadUnchanged; a different one with the same or an earlier
+// GeneratedAt is FlowDefinitionUploadKeptExisting. Set force to replace every
+// different stored document whatever its GeneratedAt, for example to roll a definition back.
+// An absolute source.path in a document is rewritten to a relative path or a base name before upload.
+//
+// The documents are validated locally first: each needs a non-empty FlowType equal to its
+// flow.name, a schemaVersion starting with "2.", a non-zero GeneratedAt, and a distinct
+// FlowType. A validation failure returns an error before any request. The SDK sends at most
+// 256 documents per request; the server validates each request as a whole, so a
+// rejected request stores none of its documents.
+//
+//	documents, err := dex.ReadFlowDefinitionFiles([]string{"flow-definitions"}, nil)
+//	if err != nil {
+//		return err
+//	}
+//	results, err := client.UploadFlowDefinitions(ctx, documents, false)
+//	if err != nil {
+//		return err
+//	}
+//	for _, result := range results {
+//		log.Printf("%s: %s", result.FlowType, result.Outcome)
+//	}
+//
+// It returns one result for each document, in input order. On a request failure, it
+// returns the results of the earlier requests that the server applied together with a
+// *ServiceError whose Op is "UploadFlowDefinitions". A server without this API fails
+// with codes.Unimplemented.
+//
+// Since 1.45.0.
+func (client *Client) UploadFlowDefinitions(
+	ctx context.Context,
+	documents []FlowDefinitionDocument,
+	force bool,
+) ([]FlowDefinitionUploadResult, error) {
+	if err := client.validateCall(ctx); err != nil {
+		return nil, err
+	}
+	if err := validateFlowDefinitionDocuments(documents); err != nil {
+		return nil, err
+	}
+	results, err := uploadFlowDefinitionDocuments(
+		ctx, client.service, documents, goSDKFlowDefinitionUploader(currentGoSDKVersion()), force,
+	)
+	mapped := mapFlowDefinitionUploadResults(results)
+	if err != nil {
+		return mapped, translateRPCError(err, "UploadFlowDefinitions", "", flowTargetNone)
+	}
+	return mapped, nil
+}
+
 // WriteStream appends one best-effort message with client-supplied source metadata.
 //
 // stream must be registered in exactly one Flow schema in this Client's Registry. flowID need not

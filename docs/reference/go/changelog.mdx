@@ -10,7 +10,11 @@ This page lists user-visible changes to the Go SDK, newest first; each section c
 
 ## 1.45 {#v1-45}
 
-Not released yet. The next release, sdk-go/v1.45.0, ships these changes.
+Released 2026-11-11 as [sdk-go/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.45.0).
+
+### Added
+
+- **WorkerOptions.FlowDefinitionPaths** and **WorkerOptions.FlowDefinitions** upload the Flow Definition Graph 2.0 documents of the Worker's registered Flow types when the Worker starts. A failed upload only logs a warning. **ReadFlowDefinitionFiles** reads documents with the same rules, and **Client.UploadFlowDefinitions** uploads them from a deployment script and reports each **FlowDefinitionUploadOutcome**. [Reference](/reference/go/workers#flow-definitions).
 
 ### Breaking
 
@@ -117,7 +121,7 @@ Released 2026-11-06 as [sdk-go/v1.35.0](https://github.com/superdurable/dex/rele
 
 ## 1.32 {#v1-32}
 
-Released 2026-11-01 as [sdk-go/v1.32.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.32.0). Reference: [1.32.x](/reference/go/1.32.x/).
+Released 2026-11-01 as [sdk-go/v1.32.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.32.0). Reference: [1.32.x](/reference/go/).
 
 ### Added
 

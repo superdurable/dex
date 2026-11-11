@@ -422,7 +422,7 @@ class RecordingModelCallSpan implements ModelCallSpan {
       this.setUsageAttributes(span, outcome.usage);
     }
     let outputMessages: ChatMessage[];
-    if (outcome.kind === "completed") {
+    if (outcome.kind === "completed" || outcome.kind === "turn_continued") {
       const producedIndex = firstProducedMessageIndex(outcome.newMessages);
       span.setAttribute("dex.agent.output_messages.keys", this.appendedMessageKeys.slice(producedIndex));
       outputMessages = outcome.newMessages.slice(producedIndex).map(chatMessage);

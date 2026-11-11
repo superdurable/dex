@@ -1,0 +1,41 @@
+{
+  "reference": [
+    {
+      "type": "link",
+      "label": "← Developer Reference",
+      "href": "/reference/"
+    },
+    "index",
+    "flow",
+    "start-flow-options",
+    {
+      "type": "category",
+      "label": "Step",
+      "link": {
+        "type": "doc",
+        "id": "step"
+      },
+      "items": [
+        "step-options",
+        "step-decisions",
+        "waits"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Primitives",
+      "items": [
+        "attribute",
+        "rpc",
+        "channel",
+        "stream",
+        "timer",
+        "subflow"
+      ]
+    },
+    "client",
+    "failure-and-retries",
+    "workers",
+    "changelog"
+  ]
+}

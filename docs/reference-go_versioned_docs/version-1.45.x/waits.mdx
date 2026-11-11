@@ -1,0 +1,179 @@
+---
+id: waits
+title: Waits
+sidebar_label: Waits
+---
+
+# Waits
+
+**WaitFor** returns a **Wait**: a wait type and the conditions to wait for.
+Dex stores the wait durably and checks the conditions whenever related state
+changes. A condition waits for a [Timer](/concepts/primitives/timer), a
+[Channel](/concepts/primitives/channel), or a [SubFlow](/concepts/primitives/subflow).
+
+- **Until** waits for one condition.
+- **AnyOf** is met when any condition is met.
+- **AllOf** is met when all conditions are met.
+- **AnyCombinationOf** is met when any one group of conditions is all met.
+
+**Until**, **AnyOf**, and **AllOf** do not need condition IDs. Read Channel
+results from the Channel definition, and check Timer outcomes through the
+**Context**. Add a condition ID only where an API requires one, such as
+**AnyCombinationOf** or a Timer that you select by ID.
+
+```go
+return dex.AnyOf(
+	SignalA.ForOne(),
+	dex.Timer(timeout),
+), nil
+```
+
+Example: [examples/go/primitives/wait-types/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/wait-types/workflow.go)
+
+```go
+return dex.AllOf(
+	SignalA.ForOne(),
+	SignalB.ForOne(),
+), nil
+```
+
+Example: [examples/go/primitives/wait-types/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/wait-types/workflow.go)
+
+<a id="step-execution-local"></a>To pass a value from **WaitFor** to **Execute**, see
+[Step execution local](./step.mdx#step-execution-local).
+
+## Condition results {#condition-results}
+
+After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
+[Channel](/concepts/primitives/channel), call **GetConditionResults** on the Channel to read the
+messages the wait consumed. For a [SubFlow](/concepts/primitives/subflow),
+call **SubFlowResult** to read the child Flow result.
+
+In an **AnyOf**, Dex consumes messages only from the Channel condition that it
+selects to satisfy the Wait. Other Channel conditions consume nothing, even if
+they are also ready, and their messages stay queued.
+
+When several **AnyOf** conditions are ready at the same check, Dex selects the
+first ready one in this order: Timer conditions, then Channel conditions, then
+SubFlow conditions, each kind in the order you declared them. A condition that
+is not ready does not block a later one that is. So across kinds, the order of
+the arguments in your call does not decide which condition wins.
+
+Use **AnyOf** when any ready condition may win. If the Step must keep waiting
+for a higher-priority input, return only that condition until it resolves.
+
+<a id="channel-结果"></a>
+
+### Channel results {#channel-results}
+
+```go
+var Approval = dex.DefineChannel[string]("Approval")
+
+type channelWait struct {
+	dex.StepDefaults
+}
+
+func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+	return dex.AnyOf(
+		Approval.ForOne(),
+		dex.Timer(time.Duration(input)*time.Second),
+	), nil
+}
+
+func (channelWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.GracefulComplete("approval timed out"), nil
+	}
+	results, err := Approval.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(results[0]), nil
+}
+```
+
+Example: [examples/go/primitives/channel/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/channel/workflow.go)
+
+<a id="subflow-结果"></a>
+
+### SubFlow results {#subflow-results}
+
+```go
+func (subFlowParent) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var output int
+	if err := result.DecodeSingleOutput(&output); err != nil {
+		return nil, err
+	}
+	flowID, err := dex.SubFlowID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
+}
+```
+
+Example: [examples/go/primitives/subflow/parent_flow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/subflow/parent_flow.go)
+
+## Join parallel branches {#join}
+
+Since 1.44.0. A **Join** waits for the parallel branches that one Step
+started. It stores branch results in a ChannelMap with the Join's name, so
+its conditions are Channel conditions. They combine with **AnyOf**, **AllOf**,
+and Timers.
+
+- **DefineJoin** defines a Join. Add it to **Channels** of **PersistenceSchema**, like a ChannelMap.
+- **Join.Fork** starts one round from a split Step. It returns the branch movements
+  and the join Step movement. **Join.ForkWithRoundKey** does the same with an explicit
+  round key, for example in an RPC.
+- A branch reports its result with **Join.EndBranch** or **Join.ReportBranchResult**.
+- The join Step waits with **Join.ForAllBranches**, **Join.ForFirstBranch**, or **Join.ForBranches**, and reads **Join.BranchResults**.
+- The next round's split Step resets the previous round with
+  **Join.ForRemainingBranches**, and reads **Join.RemainingBranchResults**.
+- **Join.ChannelMap** returns the underlying ChannelMap, for reading a round's
+  pending results. Never publish to it directly.
+
+The [Join API reference](pathname:///api/go/latest/dex/#type-join) documents each method. The
+[Await Parallel Steps](/design-patterns/parallel/await) pattern shows the whole
+shape.
+
+Example: [examples/go/patterns/parallel/await_parallel.go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/parallel/await_parallel.go)
+
+## AnyCombinationOf {#anycombinationof}
+
+**AnyCombinationOf** is met when every condition in any one group is met. Each
+group is an all-of combination.
+
+Dex consumes messages only from the Channel conditions of the group it selects.
+Conditions that belong only to other ready groups consume nothing, and their
+messages stay queued.
+
+Every condition in the groups needs a unique **condition ID**.
+
+```go
+return dex.AnyComboOf(
+	dex.Combo(
+		SignalA.ForOne(dex.WithConditionID("signal-a")),
+		dex.Timer(timeout, dex.WithConditionID("timeout")),
+	),
+	dex.Combo(
+		SignalB.ForOne(dex.WithConditionID("signal-b")),
+	),
+), nil
+```
+
+Example: [examples/go/primitives/wait-types/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/wait-types/workflow.go)
+
+## Skip immediately {#skip-immediately}
+
+**SkipWaitImmediately** waits for no condition. Use it when **WaitFor**
+decides at run time that the Step should not wait.
+
+```go
+return dex.SkipWaitImmediately(), nil
+```
+
+Example: [examples/go/primitives/flow/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/flow/workflow.go)

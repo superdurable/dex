@@ -1,0 +1,39 @@
+---
+id: subflow
+title: SubFlow
+sidebar_label: SubFlow
+---
+
+# SubFlow
+
+This page lists the Java SDK names for [SubFlows](/concepts/primitives/subflow).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Java SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Java API | Dex behavior |
+| --- | --- | --- |
+| Start a child Flow and wait for it | **SubFlow.run** in **waitFor** | [SubFlows](/reference/server/runtime-data#subflows) |
+| Set the child timeout, Attributes, and configuration | **SubFlowOptions** | [SubFlowOptions](/reference/server/runtime-data#subflow-options) |
+| Choose what happens to an existing child | **reusePolicy** of **SubFlowOptions.Builder**, with **SubFlowReusePolicy** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Read the child result | **SubFlow.getConditionResults** in **execute**. It returns a **FlowResult**. | [SubFlow results](./waits.mdx#subflow-results) |
+| Read the generated child Flow ID | **SubFlow.getFlowId** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Stop a child that lost an **AnyOf** | **Client.stopFlow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+
+## Step types that start SubFlows {#step-types-that-start-subflows}
+
+The generated child Flow ID is **SubFlow:\{parent Flow ID\}-\{Step execution ID\}-\{index\}**.
+The Step execution ID starts with the Step type. A Step whose Step type contains **-**
+cannot start SubFlows, because the dash would make the child Flow ID ambiguous. When
+**waitFor** of such a Step returns a **SubFlow.run** condition, the Worker sends the
+result and logs a warning. The server rejects the result as an invalid Worker response
+and fails the attempt without retry. With the default failure policy, the Flow fails.
+Steps that start no SubFlows may keep a dash in their Step type. To start SubFlows from
+the Step, rename its Step type, for example by overriding **getStepType**.
+
+Changed in 1.45: a Step whose Step type contains **-** can no longer start SubFlows.
+
+## Example {#example}
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java)

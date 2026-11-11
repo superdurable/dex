@@ -397,7 +397,7 @@ The example page has its own approval buttons. To approve from Dex Web instead, 
 
 ### Approve in Dex Web {#approve-in-dex-web}
 
-Dex Web needs the session graph to show the **Agent session** tab and its controls. Dex Web reads the graph only when it starts. So stop **dexcli dev**, render the graph once for the Flow type, and start **dexcli dev** again with **--flow-rendering-dir**:
+Dex Web needs the session graph to show the **Agent session** tab and its controls. Render the graph once for the Flow type into a directory, and start **dexcli dev** with **--flow-rendering-dir**. If **dexcli dev** already runs without that flag, stop it first. Dex Web reads the directory again on each page load, so a graph you render again shows without a restart:
 
 ```bash
 mkdir -p definitions

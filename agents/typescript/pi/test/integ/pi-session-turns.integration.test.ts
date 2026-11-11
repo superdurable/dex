@@ -13,11 +13,18 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
 import type { Context } from "@earendil-works/pi-ai";
-import { outcomeUnknownToolResult, type AgentMessage } from "@superdurable/dex-agents";
+import {
+  ToolExecutionError,
+  outcomeUnknownToolResult,
+  type AgentEventWriter,
+  type AgentMessage,
+  type ToolEffect,
+} from "@superdurable/dex-agents";
 import {
   contextSummaryRequest,
   createBuiltinAgentSessionFlow,
   type ModelClient,
+  type ToolCallContext,
 } from "@superdurable/dex-agents/builtin-loop";
 import {
   AgentSessionTestClient,
@@ -30,7 +37,12 @@ import {
   readStepHistory,
 } from "@superdurable/dex-agents/testing";
 
-import { createPiAiModelClient, piAgentFunctionTool, piToolProgressEventType } from "../../src/index.js";
+import {
+  createPiAiModelClient,
+  piAgentFunctionTool,
+  piDurableFunctionTool,
+  piToolProgressEventType,
+} from "../../src/index.js";
 import { FakeModelServer, createFakeOpenAiModel } from "../fixtures/fake-model-server.js";
 import { createPiTestAgentFlow } from "../fixtures/pi-test-agent.js";
 
@@ -42,6 +54,7 @@ describe("Pi agents on the built-in agent loop session Flow with an in-process W
   let preparedSessions: AgentSessionTestClient;
   let unknownItemSessions: AgentSessionTestClient;
   let compactingSessions: AgentSessionTestClient;
+  let policySessions: AgentSessionTestClient;
   let markerDirectory: string;
   let anthropicModelId = "claude-fake-1";
   let anthropicReasoningEffort: string | null | undefined;
@@ -93,11 +106,21 @@ describe("Pi agents on the built-in agent loop session Flow with an in-process W
       },
       "PiUnknownItemAgent",
     );
+    const policyFlow = createPiTestAgentFlow({
+      flowType: "PiToolPolicyAgent",
+      modelServerBaseUrl: modelServer.baseUrl,
+      markerDirectory,
+      toolPolicies: {
+        fail_lookup: { effect: "non_idempotent_write", requiresApproval: false },
+        durable_fail_lookup: { effect: "unclassified", requiresApproval: false },
+      },
+    });
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
-      flows: [flow, preparedFlow, unknownItemFlow, compactingFlow],
+      flows: [flow, preparedFlow, unknownItemFlow, compactingFlow, policyFlow],
       isWorkerInProcess: true,
     });
+    policySessions = new AgentSessionTestClient(environment.client, policyFlow);
     sessions = new AgentSessionTestClient(environment.client, flow);
     preparedSessions = new AgentSessionTestClient(environment.client, preparedFlow);
     unknownItemSessions = new AgentSessionTestClient(environment.client, unknownItemFlow);
@@ -416,20 +439,112 @@ describe("Pi agents on the built-in agent loop session Flow with an in-process W
     ]);
   });
 
-  test("prepareArguments repairs arguments before pi-ai validates them", async () => {
+  test("prepareArguments converts an old argument shape before the schema check, and its throw fails the call", async () => {
     const token = newToken();
     const sessionId = `pi-prepare-arguments-${token}`;
+    const convertedCallId = `call_rename_${token}`;
+    const rejectedCallId = `call_legacy_${token}`;
     modelServer.script(token, (_request, index) =>
       index === 0
-        ? { toolCalls: [{ id: "call_rename", name: "rename_customer", arguments: JSON.stringify({ old_name: `n-${token}` }) }] }
-        : { text: "Renamed." },
+        ? {
+            toolCalls: [
+              { id: convertedCallId, name: "rename_customer", arguments: JSON.stringify({ old_name: `n-${token}` }) },
+              { id: rejectedCallId, name: "rename_customer", arguments: JSON.stringify({ legacy_id: `l-${token}` }) },
+            ],
+          }
+        : { text: "Renamed one." },
     );
     await sessions.startSession(sessionId, `rename ${token}`);
     await sessions.waitForCompletedTurns(sessionId, 1);
 
-    const toolMessage = (await sessions.getAgentSnapshot(sessionId)).messages.find((message) => message.role === "tool");
-    assert.equal(toolMessage?.toolOutput, `renamed to n-${token}`);
+    assert.deepEqual(await describeToolCalls(sessionId, [convertedCallId, rejectedCallId]), [
+      ["rename_customer", "read", false, "succeeded"],
+      ["rename_customer", "read", false, "failed"],
+    ]);
+    const outputs = new Map(
+      (await sessions.getAgentSnapshot(sessionId)).messages
+        .filter((message) => message.role === "tool")
+        .map((message) => [message.toolCallId, message.toolOutput]),
+    );
+    assert.equal(outputs.get(convertedCallId), `renamed to n-${token}`);
+    assert.match(
+      outputs.get(rejectedCallId) ?? "",
+      /invalid arguments for rename_customer: legacy_id is no longer supported/,
+    );
+    const runs = new InvocationLog(join(markerDirectory, "rename_customer.log")).names().filter((name) => name.includes(token));
+    assert.deepEqual(runs, [`n-${token} ${convertedCallId}`]);
   });
+
+  test("a hand-built context without an effect lets a plain error of a read-wrapped Pi tool propagate", async () => {
+    const plainError = new Error("backend offline");
+    const agentTool = piAgentFunctionTool(
+      {
+        name: "absent_effect_lookup",
+        description: "A lookup that fails.",
+        parameters: { type: "object", properties: {} },
+        execute: async () => {
+          throw plainError;
+        },
+      },
+      { effect: "read" },
+    );
+    const durableTool = piDurableFunctionTool(
+      {
+        name: "absent_effect_durable_lookup",
+        description: "A pi-durable lookup that fails.",
+        parameters: { type: "object", properties: {} },
+        execute: async () => {
+          throw plainError;
+        },
+      },
+      { effect: "read" },
+    );
+    for (const tool of [agentTool, durableTool]) {
+      await assert.rejects(tool.execute({}, createHandBuiltToolCallContext(undefined)), (error) => error === plainError);
+      await assert.rejects(
+        tool.execute({}, createHandBuiltToolCallContext("read")),
+        (error) => error instanceof ToolExecutionError && error.message === "backend offline",
+      );
+    }
+  });
+
+  test("a tool policy that raises a Pi tool to non_idempotent_write or unclassified records outcome_unknown for a plain error", async () => {
+    const token = newToken();
+    const sessionId = `pi-policy-effect-${token}`;
+    const raisedWriteCallId = `call_fail_${token}`;
+    const raisedUnclassifiedCallId = `call_durable_fail_${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? {
+            toolCalls: [
+              { id: raisedWriteCallId, name: "fail_lookup", arguments: "{}" },
+              { id: raisedUnclassifiedCallId, name: "durable_fail_lookup", arguments: JSON.stringify({ key: `k-${token}` }) },
+            ],
+          }
+        : { text: "Both outcomes are unknown." },
+    );
+    await policySessions.startSession(sessionId, `policy ${token}`);
+    await policySessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    assert.deepEqual(await describeToolCalls(sessionId, [raisedWriteCallId, raisedUnclassifiedCallId], policySessions), [
+      ["fail_lookup", "non_idempotent_write", false, "outcome_unknown"],
+      ["durable_fail_lookup", "unclassified", false, "outcome_unknown"],
+    ]);
+    const outputs = new Map(
+      (await policySessions.getAgentSnapshot(sessionId)).messages
+        .filter((message) => message.role === "tool")
+        .map((message) => [message.toolCallId, message.toolOutput]),
+    );
+    assert.equal(outputs.get(raisedWriteCallId), outcomeUnknownToolResult);
+    assert.equal(outputs.get(raisedUnclassifiedCallId), outcomeUnknownToolResult);
+    assert.deepEqual(
+      new InvocationLog(join(markerDirectory, "fail_lookup.log")).names().filter((name) => name === raisedWriteCallId),
+      [raisedWriteCallId],
+    );
+    assert.deepEqual(
+      new InvocationLog(join(markerDirectory, "durable_fail_lookup.log")).names().filter((name) => name === `k-${token}`),
+      [`k-${token}`],
+    );  });
 
   test("a tool loop whose model changed mid-turn sends no thinking for the rest of it, and the next turn thinks", async () => {
     const token = newToken();
@@ -756,8 +871,12 @@ describe("Pi agents on the built-in agent loop session Flow with an in-process W
   });
 
   /** Each call's name, effect, and approval from `tool_call_deferred`, and its final status from `tool_call_finished`. */
-  async function describeToolCalls(sessionId: string, toolCallIds: readonly string[]): Promise<unknown[]> {
-    const payloads = (await sessions.listAgentEvents(sessionId)).map((event) => ({
+  async function describeToolCalls(
+    sessionId: string,
+    toolCallIds: readonly string[],
+    sessionClient: AgentSessionTestClient = sessions,
+  ): Promise<unknown[]> {
+    const payloads = (await sessionClient.listAgentEvents(sessionId)).map((event) => ({
       type: event.type,
       payload: JSON.parse(event.payload) as Record<string, unknown>,
     }));
@@ -843,6 +962,24 @@ const storedItemModelClients = new Map<string, ModelClient>([
     }),
   ],
 ]);
+
+/** A context as a unit test builds it by hand; the runner always sets `effect`. */
+function createHandBuiltToolCallContext(effect: ToolEffect | undefined): ToolCallContext {
+  return {
+    flowId: "hand-built-flow",
+    turnId: "turn-1",
+    toolCallId: "call_hand_built",
+    idempotencyKey: "hand-built-flow/turn-1/call_hand_built",
+    attempt: 1,
+    ...(effect === undefined ? {} : { effect }),
+    events: { turnId: "turn-1", attempt: 1, writeEvent: () => undefined } as unknown as AgentEventWriter,
+    cancellationSignal: new AbortController().signal,
+    deadline: undefined,
+    inputAnswers: [],
+    inputContinuation: null,
+    heartbeat: async () => undefined,
+  };
+}
 
 function newToken(): string {
   return randomUUID().slice(0, 8);

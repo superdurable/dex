@@ -71,6 +71,8 @@ export interface FlowDefinitionDiagnostic {
 
 export interface FlowDefinitionGraph {
   schemaVersion: '1.0' | '2.0';
+  /** RFC 3339 UTC time when dexcli visualize generated a 2.0 graph; older graphs omit it. */
+  generatedAt?: string;
   valid: boolean;
   source: {
     language: 'go' | 'python' | 'typescript';

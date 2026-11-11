@@ -167,6 +167,11 @@ func validateFlowDefinitionV2(file string, graph []byte, header flowDefinitionHe
 			return fmt.Errorf("Flow Definition Graph 2.0 %s is missing field %q", file, field)
 		}
 	}
+	if generatedAt, exists := document["generatedAt"]; exists {
+		if err := validateFlowDefinitionGeneratedAt(generatedAt); err != nil {
+			return fmt.Errorf("Flow Definition Graph 2.0 %s has malformed generatedAt: %w", file, err)
+		}
+	}
 	if err := validateFlowDefinitionObjectFields(document["source"], []string{"language", "path"}, []string{"language", "path"}); err != nil {
 		return fmt.Errorf("Flow Definition Graph 2.0 %s has malformed source: %w", file, err)
 	}
@@ -343,6 +348,17 @@ func markRPCLockUnresolved(locks map[string]api.V2RPCLocks, rpcName string, reas
 		rpcLocks.UnresolvedReason = reason
 	}
 	locks[rpcName] = rpcLocks
+}
+
+func validateFlowDefinitionGeneratedAt(data []byte) error {
+	var generatedAt string
+	if err := json.Unmarshal(data, &generatedAt); err != nil {
+		return fmt.Errorf("must be a string: %w", err)
+	}
+	if _, err := time.Parse(time.RFC3339, generatedAt); err != nil {
+		return fmt.Errorf("must be an RFC 3339 timestamp: %w", err)
+	}
+	return nil
 }
 
 func decodeStrictFlowDefinitionJSON(data []byte, target interface{}) error {

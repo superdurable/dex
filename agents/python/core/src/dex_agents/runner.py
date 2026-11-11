@@ -377,8 +377,67 @@ class TurnCompleted:
         usage: Usage of this model call only.
         model_call_metadata: Model and response of this model call, for the
             ``chat`` span. ``None``, the default, leaves the span named ``chat``.
+        turn_error: Error text that ends the turn as failed instead of
+            completed. The session still stores ``new_messages`` and records
+            ``usage`` in the same commit, then sets ``last_turn_error`` to
+            this text and writes a ``turn_failed`` event instead of
+            ``turn_completed``. No retry follows, so use it only for a
+            deliberate stop that a retry would repeat, such as a limit the
+            runner enforces; raise instead for a failure that a retry may
+            fix. Snapshots and the UI stream show the text, so keep secrets
+            out of it. ``None``, the default, completes the turn.
+
+            .. versionadded:: 0.5.0
     """
 
+    new_messages: Sequence[FrameworkMessage]
+    usage: AgentUsage = field(default_factory=AgentUsage)
+    model_call_metadata: ModelCallMetadata | None = None
+    turn_error: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class TurnContinued:
+    """Report an answer without tool calls after which the turn makes another model call.
+
+    The session stores ``new_messages``, records ``usage``, keeps
+    ``framework_run_state``, and moves to ``RunModel`` again, all in one
+    commit, within the same turn. That next ``RunModel`` is its own Step, so
+    a retry there repeats only its own model call. End ``new_messages`` with a
+    user message when the next request must end with one, as Anthropic models
+    from Claude 4.6 on require. The built-in loop returns this outcome when
+    ``AgentDefinition.decide_turn_continuation`` returns a ``ContinueTurn``,
+    with its message as the last of ``new_messages``.
+
+    A runner that returns it with messages must implement
+    ``UnfinishedTurnMessageBuilder``, as for
+    ``ToolCallsRequested.new_messages``. Otherwise ``RunModel`` treats it as a
+    runner defect: it records the model call's usage and fails the turn in
+    the same commit, with no retry. A runner that never returns it needs no
+    change.
+
+    .. versionadded:: 0.5.0
+
+    Example:
+        >>> return TurnContinued(
+        ...     framework_run_state=json.dumps({"model_calls": 2}),
+        ...     new_messages=[*previous_tool_results, *this_response],
+        ...     usage=usage,
+        ... )
+
+    Attributes:
+        framework_run_state: Framework-serialized state from which the next
+            ``RunModel`` continues the turn. It must be non-empty. The session
+            returns it unchanged as ``AgentTurnContext.framework_run_state``.
+        new_messages: Items the session appends now: the previous model
+            response's unstored tool results, if any, this model response,
+            and any user message for the next call.
+        usage: Usage of this model call only.
+        model_call_metadata: Model and response of this model call, for the
+            ``chat`` span. ``None``, the default, leaves the span named ``chat``.
+    """
+
+    framework_run_state: str
     new_messages: Sequence[FrameworkMessage]
     usage: AgentUsage = field(default_factory=AgentUsage)
     model_call_metadata: ModelCallMetadata | None = None
@@ -427,8 +486,8 @@ class ToolCallsRequested:
     new_messages: Sequence[FrameworkMessage] = ()
 
 
-#: The result of one ``run_model_step`` call.
-AgentTurnOutcome: TypeAlias = TurnCompleted | ToolCallsRequested
+#: The result of one ``run_model_step`` call. ``TurnContinued`` joined it in 0.5.0.
+AgentTurnOutcome: TypeAlias = TurnCompleted | ToolCallsRequested | TurnContinued
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -448,7 +507,8 @@ class AgentTurnContext:
             message belongs to this turn. After compaction, only the messages
             after ``context_summary.last_sequence``.
         framework_run_state: The value from this turn's last
-            ``ToolCallsRequested``, or ``None`` for the turn's first model call.
+            ``ToolCallsRequested`` or ``TurnContinued``, or ``None`` for the
+            turn's first model call.
         tool_calls: Every tool call record of this turn by tool call ID. When
             ``RunModel`` runs, every record is final.
         tool_policies: Explicit policies from ``AgentSessionOptions``.
@@ -497,7 +557,7 @@ class AgentTurnContext:
 
     @property
     def is_resuming(self) -> bool:
-        """Report whether this model call continues the turn after tool calls.
+        """Report whether this model call continues the turn after tool calls or ``TurnContinued``.
 
         Returns:
             ``True`` when ``framework_run_state`` is set.
@@ -961,7 +1021,8 @@ class AgentFrameworkRunner(Protocol[ToolOutcomeT_co]):
 
         Return ``ToolCallsRequested`` with one ``DeferredToolCall`` per tool
         call of the response, each with ``turn.resolve_tool_policy``. Return
-        ``TurnCompleted`` when the response is the final answer. Never run a
+        ``TurnCompleted`` when the response is the final answer, or
+        ``TurnContinued`` to make another model call without a user message. Never run a
         tool here, unless the framework cannot defer it; document such tools
         as at-least-once.
 
@@ -969,7 +1030,7 @@ class AgentFrameworkRunner(Protocol[ToolOutcomeT_co]):
             turn: Committed session state for this model call.
 
         Returns:
-            ``TurnCompleted`` or ``ToolCallsRequested``.
+            ``TurnCompleted``, ``ToolCallsRequested``, or ``TurnContinued``.
 
         Raises:
             Exception: Any exception fails the attempt. ``RunModel`` retries up

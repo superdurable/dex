@@ -1,0 +1,39 @@
+---
+id: client
+title: Client
+sidebar_label: Client
+---
+
+# Client
+
+This page lists the Rust SDK names for the [Client](/concepts/client).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Rust SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Rust API | Dex behavior |
+| --- | --- | --- |
+| Create a Client | **Client::try_new** or **Client::new**, with **Registry**, **BlobCache**, and **ClientOptions** | [Client requests](/reference/server/runtime-client) |
+| Start a Flow | **start_flow**, or **start_flow_with_options** with **StartFlowOptions** | [Start a Flow](/reference/server/runtime-client#start-a-flow) |
+| Invoke an RPC | **invoke_rpc** and **invoke_rpc_without_input** | [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc) |
+| Read Attributes | **get_attributes** | [Read Attributes](/reference/server/runtime-client#read-attributes) |
+| Wait for a Flow to close | **wait_for_flow** and **wait_for_flow_with_timeout** | [Wait for a Flow](/reference/server/runtime-client#wait-for-a-flow) |
+| Wait for a Step execution to complete | **wait_for_step_completion**, with **WaitForStepCompletionOptions** | [Wait for a Step](/reference/server/runtime-client#wait-for-a-step) |
+| Wait until an Attribute matches | **wait_for_attribute_match** and **wait_for_attribute_map_instance_match**, with **WaitForAttributeOptions** | [Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match) |
+| Describe a Flow | **describe_flow** | [Describe a Flow](/reference/server/runtime-client#describe-a-flow) |
+| Search Flows | **search_flows**, **search_flows_page**, and **search_flows_with_options** | [Search Flows](/reference/server/runtime-client#search-flows) |
+| Stop a Flow | **stop_flow**, with **StopFlowOptions** | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+| Skip a Timer | **skip_timer** | [Skip a Timer](/reference/server/runtime-client#skip-a-timer) |
+| Update FlowConfig | **update_flow_config** | [Update FlowConfig](./flow.mdx#update-flow-config-with-a-client) |
+| Write and read a Stream | **write_stream**, **read_stream**, and **list_stream_messages** | [Stream](./stream.mdx) |
+| Upload Flow definitions | **upload_flow_definitions**, with **FlowDefinitionDocument**; returns **FlowDefinitionUploadResult** values. Since 1.45.0 | [Flow definitions](/reference/server/runtime-client#flow-definitions) |
+| Time travel a Flow | **time_travel**, with **TimeTravelOptions** | [Time travel](/reference/server/runtime-client#time-travel) |
+| Handle a failed request | **SdkError**, with **ServiceError** and **ErrorSubStatus** | [Client requests](/reference/server/runtime-client) |
+
+Every **Client** method blocks the calling thread. An internal Tokio runtime
+performs the requests.
+
+## Example {#example}
+
+Example: [examples/rust/src/primitives/client_apis/controller.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/client_apis/controller.rs)

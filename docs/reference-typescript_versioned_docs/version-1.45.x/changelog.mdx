@@ -1,0 +1,147 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to the TypeScript SDK, newest first; each section covers the changes since the previous release of this component.
+
+## 1.45 {#v1-45}
+
+Released 2026-11-11 as [sdk-typescript/v1.45.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.45.0).
+
+### Added
+
+- **WorkerOptions.flowDefinitionPaths** and **WorkerOptions.flowDefinitions** make a Worker upload Flow Definition Graph documents when it starts, so Dex Web can draw its Flows without a definition directory. The Worker uploads only registered Flow types, shares **source.path** only as a relative path, and keeps starting when the upload fails. **FlowDefinitionDocument** describes an in-memory document. Requires server-zd 0.1.26 or later. [Reference](/reference/typescript/1.45.x/workers#flow-definitions).
+- **Client.uploadFlowDefinitions** uploads Flow definitions from a deploy script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. [Reference](/reference/typescript/1.45.x/workers#flow-definitions).
+
+### Breaking
+
+- A Step whose Step type contains "-" can no longer start SubFlows. The generated child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash let two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the server rejects the result as an invalid Worker response and fails the attempt without retry; under the default policy the Flow fails. The Worker logs a warning that names the Step type. To migrate, rename the Step type that **getStepType** returns so it has no "-". Step types with "-" that never start SubFlows are unaffected. [Reference](/reference/typescript/1.45.x/subflow#step-types-that-start-subflows).
+
+### Fixed
+
+- The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [Reference](/reference/typescript/1.45.x/waits).
+
+## 1.44 {#v1-44}
+
+Released 2026-11-10 as [sdk-typescript/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.44.0).
+
+### Added
+
+- **Join** synchronizes parallel branches through a ChannelMap of branch results. **Join.fork** starts one round from a Step and creates its **JoinRound** token; **Join.forkWithRoundKey** does the same with an explicit key, for example in an RPC. Branches report with **Join.endBranch** or **Join.reportBranchResult**. The join Step waits with **Join.forAllBranches**, **Join.forFirstBranch**, or **Join.forBranches** and reads **Join.branchResults**. The next round resets the previous one with **Join.forRemainingBranches** and reads **Join.remainingBranchResults**. **joinRoundCodec** encodes a JoinRound as a JSON object with the fields **roundKey** and **branchCount**, and **PersistenceSchema.channels** accepts a Join. **Join.channelMap** is the registered ChannelMap, for reading a round's pending results, for example in an RPC; never publish to it directly. [Reference](/reference/typescript/1.45.x/waits).
+
+## 1.43 {#v1-43}
+
+Released 2026-11-10 as [sdk-typescript/v1.43.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.43.0).
+
+### Breaking
+
+- Removed **Client.triggerContinueAsNew**, the **continuedAsNew** Flow status, **FlowConfig.continueAsNewThreshold**, **FlowConfig.continueAsNewPageSizeBytes**, **SearchFlowsOptions**, and the fourth **Client.searchFlows** argument. [Reference](/reference/typescript/1.45.x/flow#flow-config).
+- Removed **WaitForStepCompletionOptions.internalHandlerTimeoutMs** and **WaitForAttributeOptions.internalHandlerTimeoutMs**. Request IDs remain accepted but the server does not read them for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **flowExecutionId** to **flowRunId**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
+
+## 1.40 {#v1-40}
+
+Released 2026-11-09 as [sdk-typescript/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.40.0).
+
+### Added
+
+- **FlowConfig.offloadHistory** chooses whether a run offloads its history to object storage. Omitting it means true. Set it to false for many short runs that close soon. Set it at start through **StartFlowOptions.configOverride** or in a SubFlow **configOverride**. A SubFlow otherwise inherits its parent's value, and **Client.updateFlowConfig** rejects it with INVALID_ARGUMENT. It requires server-zd 0.1.23 or later. [Reference](/reference/server/configuration#history-offload).
+
+### Changed
+
+- **FlowConfig.deleteExpiredHistoryObjects** is deprecated. It has no effect, and the SDK no longer sends it. Existing code that sets it still compiles.
+
+## 1.39 {#v1-39}
+
+Released 2026-11-09 as [sdk-typescript/v1.39.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.39.0). Patch release [sdk-typescript/v1.39.1](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.39.1) followed the same day.
+
+### Added
+
+- **Action** and **whenAttributeMatches** declare an RPC that a person can invoke from Dex Web: pass a new **Action** with a label, a required permission, and a condition as the **action** option of **@rpc** or **declareRPCMethod**. The condition is optional. Workers send the Flow's Action permission mappings, and **startFlow** and SubFlow starts record the permissions the initial Attributes make available. This arrived in 1.39.1. [Reference](/reference/web/dex-web#actions).
+- **FlowConfig.deleteExpiredHistoryObjects** controls expired history object deletion at start, on update, and for SubFlows. It requires history offload and server-zd 0.1.22 or later.
+- **ActiveStepSearchMode.WITH_WAIT_FOR** and **ActiveStepSearchMode.DISABLED** match the Python and Go SDKs.
+
+### Fixed
+
+- **startFlow**, **updateFlowConfig**, and SubFlow **configOverride** send any **ActiveStepSearchMode** other than ALL. Before, they sent the unspecified mode.
+- A LoadBlobs request names at most 1,000 entries. The SDK batches larger requests and keeps the input order.
+
+## 1.38 {#v1-38}
+
+Released 2026-11-07 as [sdk-typescript/v1.38.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.38.0).
+
+### Added
+
+- **FlowConfig.historyWindowEvents** sets about how many of the newest history events a run keeps for history reads and Time Travel. Set it at start, change it with **updateFlowConfig**, or override it for a SubFlow. Omitting it uses the server's **history.windowEvents** setting. Dex rejects a value that is not positive or exceeds **history.maxWindowEvents** with INVALID_ARGUMENT. It requires server-zd 0.1.21 or later. [Reference](/reference/server/configuration#history-window).
+
+### Changed
+
+- The gRPC receive limit rises from 4 MiB to **DEFAULT_GRPC_MAX_MESSAGE_BYTES** (32 MiB) on every FlowService channel and Worker task stream. Set **grpcMaxMessageBytes** on **ClientOptions** or **WorkerOptions** to change it. A negative or non-integer value throws RangeError.
+
+### Fixed
+
+- A LoadBlobs request splits in half when its response exceeds a gRPC message size limit, so a Worker with an empty blob cache no longer fails on a long Flow. A single blob that does not fit rejects with the new **BlobMessageTooLargeError**.
+
+## 1.37 {#v1-37}
+
+Released 2026-11-06 as [sdk-typescript/v1.37.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.37.0). Reference: [1.37.x](/reference/typescript/1.37.x/).
+
+This release has no runtime behavior changes; the SDK changes in this interval are API documentation and example updates.
+
+## 1.35 {#v1-35}
+
+Released 2026-11-06 as [sdk-typescript/v1.35.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.35.0). Reference: [1.35.x](/reference/typescript/1.35.x/).
+
+### Breaking
+
+- Workers and the Client’s first call now require server-zd 0.1.17 or later (protocol version 4). Upgrade all server processes before upgrading the SDK. [Reference](/reference/server/upgrades).
+- Worker startup fails when **maxConcurrentTasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/typescript/1.45.x/workers#capacity-and-shutdown).
+- **RetryPolicy.totalDurationMs** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/typescript/latest/interfaces/RetryPolicy.html#totaldurationms).
+- A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
+- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/typescript/1.45.x/failure-and-retries#same-attempt-redelivery).
+
+### Added
+
+- **RecoveryErrorInfo.attemptProgress** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/typescript/latest/interfaces/RecoveryErrorInfo.html).
+- **declareRPCMethod** declares RPC handlers without decorators. **RPCMethodName** checks eligible method names at compile time. [API reference](pathname:///api/typescript/latest/functions/declareRPCMethod.html).
+- **flowServiceTls** on Client and Worker options enables verified TLS, with optional **additionalRootCAsPem** and **serverName**. Omitting it keeps plaintext connections. [API reference](pathname:///api/typescript/latest/interfaces/FlowServiceTlsOptions.html).
+
+### Changed
+
+- Workers open one execution stream per slot; **reservedRpcTasks** selects RPC-only slots. By default, a Worker with at least two slots reserves one for RPCs. [Reference](/reference/typescript/1.45.x/workers#capacity-and-shutdown).
+- **close** drains running handlers and returns tasks that did not start without consuming a retry. [Reference](/reference/typescript/1.45.x/workers#capacity-and-shutdown).
+
+### Deprecated
+
+- **idleStreamsPerQueue** is accepted but ignored, and **pullReservedRpcDeclines** always reports zero. Use execution-slot capacity and queue metrics instead. [Reference](/reference/typescript/1.45.x/workers#reserved-rpc-capacity).
+
+## 1.32 {#v1-32}
+
+Released 2026-11-01 as [sdk-typescript/v1.32.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.32.0). Reference: [1.32.x](/reference/typescript/1.45.x/).
+
+### Added
+
+- Generated protocol bindings include **AdminService**, with **DescribeActiveNode** and **StepDownActiveNode** for inspecting and stepping down the active server process. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.32.0).
+
+## 1.30 {#v1-30}
+
+Released 2026-10-31 as [sdk-typescript/v1.30.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.30.0). Reference: [1.30.x](/reference/typescript/1.45.x/).
+
+### Added
+
+- Generated protocol bindings add **ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED** and **ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG** for Attribute index admission errors. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.30.0).
+
+## 1.29 {#v1-29}
+
+Released 2026-10-31 as [sdk-typescript/v1.29.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.29.0). Reference: [1.29.x](/reference/typescript/1.45.x/).
+
+### Added
+
+- Generated history responses expose the pruned event range and first retained event ID. Step event contexts also carry related event IDs and the WaitFor completion time. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.29.0).
+- **Client.getAttributes** reads committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap.instance** selects an instance, and results form a typed tuple in read order. [API reference](pathname:///api/typescript/latest/classes/Client.html).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=sdk-typescript&expanded=true).

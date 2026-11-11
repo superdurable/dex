@@ -11,6 +11,7 @@ dexcli is the Dex command-line tool. Its output is JSON first, so scripts and ag
 | `dexcli api` | Call any public API method. |
 | `dexcli web` | Serve Dex Web against an existing Server, for example over an SSH tunnel. |
 | `dexcli visualize` | Draw the Flow Definition Graph from Flow source. Dex Web's canvas uses it. |
+| `dexcli flow-definition` | Publish Flow Definition Graphs to the Server, where Dex Web reads them. See [web.md](web.md#flow-definition-graphs). |
 | `dexcli version check` | Check protocol compatibility with a Server before deploying a Worker. |
 | `dexcli admin` | Describe or step down the active Server process. |
 

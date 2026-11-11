@@ -34,7 +34,7 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 | **--web-port** | **8802**; embedded Dex Web port. |
 | **--open** | **true**; use **--open=false** to keep the browser closed. |
 | **--server-log-folder** | Empty; logs go to stderr. When set, also writes **dex-server-zd.log** in that directory. |
-| **--flow-rendering-dir** | Optional Flow Definition Graph JSON directory. |
+| **--flow-rendering-dir** | Empty; optional Flow Definition Graph JSON directory. Leave it empty when Workers or **dexcli flow-definition upload** store the definitions on the server. |
 | **--connector-config-dir** | **$HOME/.dex/connectors**; local Connector credentials. |
 | **--connector-release-override** | Repeatable **connector-id=artifact-directory** for a local Connector release. |
 | **--allowed-hosts** | Empty; comma-separated host names that Dex Web **/api** requests may name besides loopback names and IP addresses. Since 1.42. See [Allowed hosts](/reference/web/dex-web#allowed-hosts). |
@@ -205,6 +205,49 @@ another tunnel port and **--web-port** to run both. Dex Web has no
 authentication, so keep **--bind-address** on loopback. See
 [View a remote server with dexcli web](/reference/web/dex-web#dexcli-web) for every
 flag.
+
+## Upload Flow definitions {#flow-definition}
+
+**flow-definition upload** stores Flow Definition Graph 2.0 JSON on the server.
+Pass files or directories. Since 1.45.
+
+```bash
+dexcli flow-definition upload ./flow-definitions --server dex.example.com:8801
+```
+
+It reads files with the Go SDK rules:
+
+- A missing path, or a named file that is not a valid FDG 2.x document, fails
+  the command with a usage error. **flow.name** is the Flow type.
+- A directory is read recursively. Files whose extension is **.json**, in any
+  letter case, are considered. Other JSON files, such as **package.json** or FDG
+  1.x files, are skipped and logged on stderr.
+- The generated time is the top-level **generatedAt**, which must be a valid
+  RFC 3339 time such as **2026-11-01T00:00:00Z**. Without it, the file modification time is used. It
+  is truncated to whole milliseconds.
+- Two files with the same Flow type fail the command before anything is sent.
+- An absolute **source.path** is sent relative to the working directory, or as
+  its base name. A relative one is sent unchanged.
+
+The output lists each Flow type with its **outcome**, **storedDigest**, and
+**storedGeneratedAt**. The outcome is **CREATED**, **REPLACED**, **UNCHANGED**,
+or **KEPT_EXISTING**. **KEPT_EXISTING** means the server already has a different
+definition with the same or a later generated time; its entry also has
+**uploadedDigest** and **uploadedGeneratedAt**. An outcome this dexcli does not
+know prints a warning on stderr. Add **--force** to replace it
+anyway, for example to roll back. The command sends at most 256 definitions per
+request. A request fails as a whole, and the command stops at the first failed
+request.
+
+**flow-definition list** prints every Flow type that has a stored definition. It
+reads all pages.
+
+```bash
+dexcli flow-definition list --server dex.example.com:8801
+```
+
+Workers can upload the same files when they start. See
+[Go Workers](/reference/go/workers#flow-definitions).
 
 ## Friendly Flow operations
 

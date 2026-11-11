@@ -174,11 +174,14 @@ export interface AgentTurnContext {
    */
   readonly messages: readonly AgentMessage[];
   /**
-   * Framework run state from this turn's previous {@link ToolCallsRequested} outcome, or `null` for
-   * the turn's first model call.
+   * Framework run state from this turn's previous {@link ToolCallsRequested} or {@link TurnContinued} outcome,
+   * or `null` for the turn's first model call.
    */
   readonly frameworkRunState: string | null;
-  /** Whether this model call continues the turn after tool calls, that is, `frameworkRunState` is set. */
+  /**
+   * Whether this model call continues the turn after tool calls or after a {@link TurnContinued} outcome, that
+   * is, `frameworkRunState` is set.
+   */
   readonly isResuming: boolean;
   /**
    * Tool call records of this turn, in deferral order; every record is final. Give the framework the
@@ -349,6 +352,63 @@ export interface TurnCompleted {
   readonly usage: AgentUsage;
   /** Model and response of this model call, for the `chat` span. When omitted, the span is named `chat`. */
   readonly modelCallMetadata?: ModelCallMetadata;
+  /**
+   * Error text that ends the turn as failed instead of completed.
+   *
+   * When it is set, the session still stores {@link newMessages} and records {@link usage} in the same commit.
+   * It then sets the turn's `lastTurnError` to this text and writes a `turn_failed` event instead of
+   * `turn_completed`. No retry follows, so use it only for a deliberate stop that a retry would repeat, such as a
+   * limit the runner enforces. Throw instead for a failure that a retry may fix. Omit it, the default, to complete
+   * the turn. Snapshots and the UI stream show the text, so keep secrets out of it.
+   *
+   * @since 0.5.0
+   */
+  readonly turnError?: string;
+}
+
+/**
+ * Outcome of a model call that answered without tool calls, after which the turn continues with another model
+ * call.
+ *
+ * The session stores {@link newMessages}, records {@link usage}, keeps {@link frameworkRunState}, and moves to
+ * `RunModel` again, all in one commit, within the same turn. That next `RunModel` is its own Step, so a retry there
+ * repeats only its own model call. Its {@link AgentTurnContext.messages} include these messages. End them with a
+ * user message when the next request must end with one, as Anthropic models from Claude 4.6 on require. The
+ * built-in loop returns this outcome when `AgentDefinition.decideTurnContinuation` returns a continuation, with its
+ * message as the last of {@link newMessages}.
+ *
+ * A runner that returns it with messages must implement {@link AgentFrameworkRunner.buildUnfinishedTurnMessages},
+ * as for {@link ToolCallsRequested.newMessages}; the session fails the turn otherwise. A runner that never returns
+ * it needs no change.
+ *
+ * @example
+ * ```ts
+ * return {
+ *   kind: "turn_continued",
+ *   frameworkRunState: JSON.stringify({ model_calls: modelCalls + 1 }),
+ *   newMessages: [...previousToolResults, ...thisResponse, continuationUserMessage],
+ *   usage,
+ * };
+ * ```
+ * @since 0.5.0
+ */
+export interface TurnContinued {
+  /** Discriminator. */
+  readonly kind: "turn_continued";
+  /**
+   * Non-empty serialized framework state from which the next `RunModel` continues the turn. The session keeps it
+   * opaquely in `FrameworkRunState`, as it keeps {@link ToolCallsRequested.frameworkRunState}.
+   */
+  readonly frameworkRunState: string;
+  /**
+   * Messages of the turn to store now: the previous model response's unstored tool results, if any, this model
+   * response, and any user message for the next call. The next {@link AgentTurnContext.messages} include them.
+   */
+  readonly newMessages: readonly FrameworkMessage[];
+  /** Usage of this model call only. */
+  readonly usage: AgentUsage;
+  /** Model and response of this model call, for the `chat` span. When omitted, the span is named `chat`. */
+  readonly modelCallMetadata?: ModelCallMetadata;
 }
 
 /** Outcome of a model call that requested tool calls. */
@@ -383,8 +443,12 @@ export interface ToolCallsRequested {
   readonly modelCallMetadata?: ModelCallMetadata;
 }
 
-/** Result of {@link AgentFrameworkRunner.runModelStep}. */
-export type AgentTurnOutcome = TurnCompleted | ToolCallsRequested;
+/**
+ * Result of {@link AgentFrameworkRunner.runModelStep}.
+ *
+ * Changed in 0.5.0: {@link TurnContinued} joined the union, so code that handles every kind handles it too.
+ */
+export type AgentTurnOutcome = TurnCompleted | ToolCallsRequested | TurnContinued;
 
 /** One tool call that a tool Step asks the runner to run. */
 export interface DeferredToolExecution {
@@ -810,8 +874,9 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * Makes the turn's next model call, at most one.
    *
    * @param turn - Turn context; see {@link AgentTurnContext}.
-   * @returns {@link TurnCompleted} with every new message of the turn, or {@link ToolCallsRequested}
-   * with the framework run state and every tool call of the model response.
+   * @returns {@link TurnCompleted} with every new message of the turn, {@link ToolCallsRequested}
+   * with the framework run state and every tool call of the model response, or {@link TurnContinued} to make
+   * another model call within the same turn.
    * @throws Any error to retry the model call; after the last attempt the turn fails.
    */
   runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome>;

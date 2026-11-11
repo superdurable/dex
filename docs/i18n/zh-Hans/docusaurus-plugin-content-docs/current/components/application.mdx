@@ -18,6 +18,8 @@ Worker 和 Client 连接 Dex Server（server-zd）。每个 Worker 都是拉取�
 
 Dex 把所有 Flow、SubFlow、Step 和 RPC 调用都发给你的 Worker，不需要配置 Worker 地址。[Dex Web](/components/web) 或 **dexcli** 启动的 Flow 也在你的 Worker 上运行。
 
+Worker 启动时，可以把它的 Flow 的 Flow Definition Graph 发布到 server。Dex Web 从 server 读取它们，画出每个 Flow。
+
 <a id="启用拉取模式"></a>
 
 ## 启动 Worker {#enable-pull-mode}

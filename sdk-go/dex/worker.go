@@ -20,7 +20,9 @@ import (
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -60,6 +62,27 @@ type WorkerOptions struct {
 	// api.grpcMaxMessageBytes, and the smaller limit wins.
 	// Keep it above the largest application value plus headroom for the message envelope.
 	GrpcMaxMessageBytes int
+	// FlowDefinitionPaths lists Flow Definition Graph (FDG 2.0) JSON files or directories to upload at Start.
+	// Default: nil uploads none. Directories are read recursively, and only their ".json" files are read.
+	// ReadFlowDefinitionFiles describes how each file becomes a FlowDefinitionDocument.
+	// NewWorker reads the files and returns an error for an unreadable or invalid file.
+	// Dex Web then draws the graph and offers the Actions of these Flow types without a local
+	// Flow Rendering directory. See Start for the upload rules.
+	//
+	//	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	//		FlowDefinitionPaths: []string{"flow-definitions"},
+	//	})
+	//
+	// Since 1.45.0.
+	FlowDefinitionPaths []string
+	// FlowDefinitions lists in-memory FDG 2.0 documents to upload at Start, alongside FlowDefinitionPaths.
+	// Default: nil uploads none. Each document needs a FlowType equal to its flow.name and a non-zero
+	// GeneratedAt; NewWorker returns an error otherwise. NewWorker also returns an error when a Flow type
+	// appears twice, including once here and once in FlowDefinitionPaths.
+	// See FlowDefinitionDocument for an example.
+	//
+	// Since 1.45.0.
+	FlowDefinitions []FlowDefinitionDocument
 }
 
 // PullWorkerOptions configures outbound execution slot streams.
@@ -204,6 +227,9 @@ type Worker struct {
 	serverProtocol            *negotiatedServerProtocol
 	logger                    Logger
 	pull                      *pullWorker
+	flowDefinitions           []FlowDefinitionDocument
+	// cancelFlowDefinitionUpload is set under lifecycleMu before Start uploads; Stop calls it when set.
+	cancelFlowDefinitionUpload context.CancelFunc
 
 	lifecycleMu sync.Mutex
 	state       workerState
@@ -246,6 +272,11 @@ func NewWorker(
 	if err != nil {
 		return nil, err
 	}
+	logger := resolveLogger(options.Logger, cache.Logger())
+	flowDefinitions, err := resolveWorkerFlowDefinitions(options, logger)
+	if err != nil {
+		return nil, err
+	}
 	dialOptions, err := messageLimits.flowServiceDialOptions(flowServiceAddress, options.Credential, options.FlowServiceTLS)
 	if err != nil {
 		return nil, err
@@ -258,7 +289,6 @@ func NewWorker(
 		return nil, fmt.Errorf("dex: create FlowService client: %w", err)
 	}
 
-	logger := resolveLogger(options.Logger, cache.Logger())
 	flowService := dexpb.NewFlowServiceClient(flowConn)
 	serverProtocol := &negotiatedServerProtocol{}
 	service := newWorkerService(
@@ -292,6 +322,7 @@ func NewWorker(
 		serverProtocol:            serverProtocol,
 		logger:                    logger,
 		pull:                      pull,
+		flowDefinitions:           flowDefinitions,
 		state:                     workerCreated,
 		done:                      make(chan struct{}),
 	}, nil
@@ -324,6 +355,18 @@ func resolveWorkerOptions(
 	return flowServiceAddress, syncTimeout, nil
 }
 
+func resolveWorkerFlowDefinitions(options WorkerOptions, logger Logger) ([]FlowDefinitionDocument, error) {
+	var fromPaths []FlowDefinitionDocument
+	if len(options.FlowDefinitionPaths) > 0 {
+		documents, err := ReadFlowDefinitionFiles(options.FlowDefinitionPaths, logger)
+		if err != nil {
+			return nil, err
+		}
+		fromPaths = documents
+	}
+	return mergeFlowDefinitionDocuments(fromPaths, options.FlowDefinitions)
+}
+
 func validatePlaintextTarget(address string) error {
 	trimmed := strings.TrimSpace(address)
 	if trimmed != address {
@@ -347,6 +390,10 @@ func validatePlaintextTarget(address string) error {
 // Start may be called exactly once. Before serving, it negotiates a Server
 // protocol (exactly version 4), synchronizes Attribute indexes, and waits up to
 // WorkerOptions.AttributeIndexSyncTimeout for each startup request.
+// It then uploads the Flow definitions of WorkerOptions.FlowDefinitionPaths and
+// WorkerOptions.FlowDefinitions whose Flow type is registered in the Registry, and
+// logs the skipped ones. Upload failures, including a Server without the upload API,
+// are logged as warnings and never stop Start. Since 1.45.0.
 // Start fails without retry if MaxConcurrentTasks exceeds the limit reported by the first
 // registration after Start. A lower limit reported on a later reconnect only logs a warning;
 // the Server rejects any surplus stream, and the Worker keeps running.
@@ -394,14 +441,79 @@ func (worker *Worker) Start() (startErr error) {
 		worker.finish()
 		return fmt.Errorf("dex: sync attribute indexes: %w", err)
 	}
+	uploadCtx, cancelUpload := context.WithTimeout(context.Background(), worker.attributeIndexSyncTimeout)
+	worker.cancelFlowDefinitionUpload = cancelUpload
 	worker.state = workerRunning
 	worker.lifecycleMu.Unlock()
+	worker.uploadRegisteredFlowDefinitions(uploadCtx)
+	cancelUpload()
 	startErr = worker.pull.run()
 	worker.lifecycleMu.Lock()
 	worker.state = workerStopped
 	worker.lifecycleMu.Unlock()
 	worker.finish()
 	return startErr
+}
+
+// uploadRegisteredFlowDefinitions logs every failure because upload must never stop Start.
+// uploadCtx is one deadline for every batch; Stop cancels it.
+func (worker *Worker) uploadRegisteredFlowDefinitions(uploadCtx context.Context) {
+	if len(worker.flowDefinitions) == 0 {
+		return
+	}
+	documents := make([]FlowDefinitionDocument, 0, len(worker.flowDefinitions))
+	for _, document := range worker.flowDefinitions {
+		if _, isRegistered := worker.registry.flows[document.FlowType]; !isRegistered {
+			worker.logger.Info("dex: skip Flow definition of a Flow type this Worker does not register", "flowType", document.FlowType)
+			continue
+		}
+		documents = append(documents, document)
+	}
+	if len(documents) == 0 {
+		return
+	}
+	results, err := uploadFlowDefinitionDocuments(
+		uploadCtx, worker.flowService, documents, goSDKFlowDefinitionUploader(worker.sdkVersion), false,
+	)
+	for index, result := range results {
+		if index >= len(documents) {
+			break
+		}
+		worker.logFlowDefinitionUploadResult(result, documents[index])
+	}
+	if err == nil {
+		return
+	}
+	if status.Code(err) == codes.Unimplemented {
+		worker.logger.Warn("dex: the Dex server does not support Flow definition upload; upgrade it to store Flow definitions", "error", err)
+		return
+	}
+	worker.logger.Warn("dex: upload Flow definitions failed; the Worker continues without them", "error", err)
+}
+
+// logFlowDefinitionUploadResult relies on the server returning results in request order.
+func (worker *Worker) logFlowDefinitionUploadResult(result *dexpb.FlowDefinitionUploadResult, document FlowDefinitionDocument) {
+	outcome := mapFlowDefinitionUploadOutcome(result.GetOutcome())
+	keyValues := []any{"flowType", result.GetFlowType(), "outcome", outcome.String(), "storedDigest", result.GetStoredDigest()}
+	switch outcome {
+	case FlowDefinitionUploadCreated, FlowDefinitionUploadReplaced:
+		worker.logger.Info("dex: uploaded Flow definition", keyValues...)
+	case FlowDefinitionUploadUnchanged:
+		worker.logger.Debug("dex: Flow definition unchanged", keyValues...)
+	case FlowDefinitionUploadOutcomeUnknown:
+		worker.logger.Warn(fmt.Sprintf("dex: unknown upload outcome %s", result.GetOutcome()), keyValues...)
+	case FlowDefinitionUploadKeptExisting:
+		worker.logger.Warn(
+			"dex: the Dex server kept a different Flow definition with the same or a later generated time",
+			append(keyValues,
+				"storedGeneratedAt", result.GetStoredGeneratedAt().AsTime(),
+				"uploadedDigest", flowDefinitionContentDigest(
+					rewriteFlowDefinitionSourcePath(document.Content, currentWorkingDirectory()),
+				),
+				"uploadedGeneratedAt", document.GeneratedAt,
+			)...,
+		)
+	}
 }
 
 // WaitPullRegistered waits for at least one registered STEP_AND_RPC stream and, when reserved, one RPC_ONLY stream.
@@ -515,6 +627,9 @@ func (worker *Worker) Stop(ctx context.Context) error {
 		return nil
 	case workerRunning:
 		worker.state = workerStopping
+		if worker.cancelFlowDefinitionUpload != nil {
+			worker.cancelFlowDefinitionUpload()
+		}
 		worker.pull.stop()
 	case workerStopping:
 	case workerStopped:

@@ -140,15 +140,20 @@ written next to blocking diagnostics. Regenerate after every Flow change and
 after upgrading `dexcli`, because the rendered type names must match the
 Worker.
 
-A deployed Dex Web loads the same files from a definition directory. It scans
-the directory on each request that needs definitions, so changes appear
-without a restart. The directory has no manifest or atomic switch. Publish
-only a complete set of validated definitions: an invalid file, an unsupported
-schema version, or two definitions for one Flow type makes the whole source
-invalid and fails readiness. After publishing, confirm that readiness reports
-the expected definition count and the catalog lists every Flow type. The
-[Dex Web reference](https://docs.superdurable.io/reference/web/dex-web) has
-the directory setting and the readiness and catalog endpoints.
+A deployed Dex Web reads the definitions from the Dex Server. Ship the
+validated files with the Worker build and give them to the Worker, which
+publishes them when it starts. A deployment script can publish them with
+`dexcli` instead. The Server keeps one definition per Flow type. A definition
+with a later generation time, recorded in the definition, replaces an older
+one, whatever the upload order. A definition directory for
+Dex Web is optional; when it has a file for a Flow type, that file wins over
+the Server's definition. Dex Web marks an invalid definition with its error and
+keeps the others working. After deploying, confirm that Designs lists every
+Flow type with its graph. The
+[Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization#definition-sources)
+has the definition sources, and each SDK's Workers reference, such as the
+[Go Workers reference](https://docs.superdurable.io/reference/go/workers#flow-definitions),
+has the Worker setting.
 
 ## Deployment, only when requested
 

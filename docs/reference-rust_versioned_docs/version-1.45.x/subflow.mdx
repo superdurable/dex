@@ -1,0 +1,46 @@
+---
+id: subflow
+title: SubFlow
+sidebar_label: SubFlow
+---
+
+# SubFlow
+
+This page lists the Rust SDK names for [SubFlows](/concepts/primitives/subflow).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Rust SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Rust API | Dex behavior |
+| --- | --- | --- |
+| Start a child Flow and wait for it | **SubFlow::run** in **wait_for** | [SubFlows](/reference/server/runtime-data#subflows) |
+| Set the child timeout, Attributes, and configuration | **SubFlowOptions**, with **SubFlow::run_with_options** | [SubFlowOptions](/reference/server/runtime-data#subflow-options) |
+| Choose what happens to an existing child | **reuse_policy** of **SubFlowOptions**, with **SubFlowReusePolicy** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Read the child result | **SubFlow::condition_result** or **SubFlow::condition_result_at** in **execute**. It returns a **FlowResult**. | [SubFlow results](./waits.mdx#subflow-results) |
+| Read the generated child Flow ID | **SubFlow::flow_id** or **SubFlow::flow_id_at** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Stop a child that lost an **AnyOf** | **Client::stop_flow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+
+## Step types that start SubFlows {#step-type-rule}
+
+Changed in 1.45: a Step whose Step type contains a dash (-) cannot start
+SubFlows.
+
+Dex builds each child Flow ID from the parent Flow ID, the Step execution ID,
+and the SubFlow index. It joins them with a dash. The Step execution ID starts
+with the Step type. A dash in the Step type therefore lets two parents generate
+the same child Flow ID.
+
+If such a Step returns a **Wait** with a **SubFlow** Condition from
+**wait_for**, the Worker logs a warning and sends the result unchanged. The
+server rejects it as an invalid Worker response. It fails the attempt without
+retry, so under the default policy the Flow fails. Steps with a dash in their
+Step type can still use every other Condition.
+
+To start SubFlows from the Step, rename its Step type. Override
+**Step::step_type** to return a name without a dash. The default Step type is
+the Rust type name, which never contains a dash.
+
+## Example {#example}
+
+Example: [examples/rust/src/primitives/subflow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/subflow/flow.rs)

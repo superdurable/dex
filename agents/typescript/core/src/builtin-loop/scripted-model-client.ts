@@ -180,8 +180,11 @@ export class ScriptedModelClient implements ModelClient {
 
   /**
    * Returns the tool results after the last user item of a request.
+   *
+   * A continuation message from `decideTurnContinuation` is a user item too. After one, this returns only the
+   * results that follow it, so a script that decides from these results must also read the earlier ones itself.
    * @param request - The request.
-   * @returns The current turn's tool results, oldest first.
+   * @returns The tool results after the last user item, oldest first.
    */
   public static toolResults(request: ModelRequest): ModelToolResultItem[] {
     let results: ModelToolResultItem[] = [];
