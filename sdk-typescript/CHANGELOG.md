@@ -22,7 +22,9 @@
   split waits with `forRemainingBranches` and reads `remainingBranchResults`.
   `joinRoundCodec` encodes a `JoinRound` as `{"roundKey", "branchCount"}`.
   `PersistenceSchema.channels` now also accepts a `Join`, which registers as a
-  ChannelMap with the same name.
+  ChannelMap with the same name. `Join.channelMap` returns that registered
+  ChannelMap for reading a round's pending results, for example in an RPC;
+  applications never publish to it directly.
 - Add `FlowConfig.offloadHistory` to choose whether a run offloads its history
   to object storage. Omitting it means `true`. Set it to `false` for many short
   runs that close soon, to avoid object storage requests. Set it at start

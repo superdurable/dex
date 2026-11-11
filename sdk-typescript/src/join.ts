@@ -87,7 +87,6 @@ export const joinRoundCodec: Codec<JoinRound> = jsonCodec<JoinRound>({
   decode: decodeJoinRound,
 });
 
-const channelMapsByJoin = new WeakMap<Join<unknown>, ChannelMap<unknown>>();
 const forkedJoinNamesByContext = new WeakMap<Context, Set<string>>();
 
 /**
@@ -304,6 +303,44 @@ const forkedJoinNamesByContext = new WeakMap<Context, Set<string>>();
  */
 export class Join<T> {
   /**
+   * The ChannelMap that carries this Join's branch results, named {@link Join.name}.
+   *
+   * Use it to read a round's pending results with the existing ChannelMap API. The instance key
+   * of a round is its {@link JoinRound.roundKey}. For example, an RPC selects the round with
+   * `join.channelMap.loadMessages(round.roundKey)` in its load options, then reads
+   * `join.channelMap.pendingMessages(context, round.roundKey)` or
+   * `join.channelMap.size(context, round.roundKey)`. Pending results are the results that no join
+   * or reset has consumed, such as late results after a first-branch join.
+   *
+   * This is the exact definition the Flow registers when its PersistenceSchema lists the Join, so
+   * every API that checks for a registered ChannelMap accepts it.
+   *
+   * Never publish to it or delete its messages directly. Report results only with
+   * {@link Join.endBranch} or {@link Join.reportBranchResult}. A direct publication or deletion
+   * breaks the rule that each branch adds exactly one result per round, so joins and resets
+   * count wrong.
+   *
+   * @example
+   * ```ts
+   * class QuoteFlow implements Flow<never> {
+   *   // getFlowType, getSteps, and getPersistenceSchema register the Steps and quoteReceived.
+   *
+   *   @rpc()
+   *   public getLateQuotes(context: Context, round: JoinRound): RPCResult<readonly string[]> {
+   *     const messages = quoteReceived.channelMap.pendingMessages(context, round.roundKey);
+   *     return { output: messages.map((message) => message.value) };
+   *   }
+   * }
+   *
+   * const lateQuotes = await client.invokeRPCWithOptions(quoteFlow.getLateQuotes, "quote-42", round, {
+   *   loadChannelMapInstances: [quoteReceived.channelMap.loadMessages(round.roundKey)],
+   * });
+   * ```
+   * @since 1.41.0
+   */
+  public readonly channelMap: ChannelMap<T>;
+
+  /**
    * Creates a Join definition for a PersistenceSchema.
    * @param name - Durable name of the Join and of its ChannelMap. It must be non-empty, must not
    * contain `/`, and must be unique among the Flow's persistence definitions. Changing it while
@@ -316,7 +353,7 @@ export class Join<T> {
     public readonly name: string,
     public readonly codec: Codec<T>,
   ) {
-    channelMapsByJoin.set(this as Join<unknown>, new ChannelMap(name, codec) as ChannelMap<unknown>);
+    this.channelMap = new ChannelMap(name, codec);
   }
 
   /**
@@ -510,7 +547,7 @@ export class Join<T> {
    */
   public reportBranchResult(context: Context, round: JoinRound, result: T): void {
     requireJoinRound(round);
-    this.channelMap().publish(context, round.roundKey, result);
+    this.channelMap.publish(context, round.roundKey, result);
   }
 
   /**
@@ -527,7 +564,7 @@ export class Join<T> {
    */
   public forAllBranches(round: JoinRound, conditionId?: string): Condition {
     requireJoinRound(round);
-    return this.channelMap().forN(round.roundKey, round.branchCount, conditionId);
+    return this.channelMap.forN(round.roundKey, round.branchCount, conditionId);
   }
 
   /**
@@ -570,7 +607,7 @@ export class Join<T> {
         `Join ${this.name} branch count ${count} must be an integer from 1 to ${round.branchCount}`,
       );
     }
-    return this.channelMap().forN(round.roundKey, count, conditionId);
+    return this.channelMap.forN(round.roundKey, count, conditionId);
   }
 
   /**
@@ -586,7 +623,7 @@ export class Join<T> {
    */
   public branchResults(context: Context, round: JoinRound): readonly T[] {
     requireJoinRound(round);
-    return this.channelMap().results(context, round.roundKey);
+    return this.channelMap.results(context, round.roundKey);
   }
 
   /**
@@ -618,7 +655,7 @@ export class Join<T> {
         `Join ${this.name} received count ${receivedCount} must be an integer from 0 to ${round.branchCount}`,
       );
     }
-    return this.channelMap().forN(round.roundKey, round.branchCount - receivedCount, conditionId);
+    return this.channelMap.forN(round.roundKey, round.branchCount - receivedCount, conditionId);
   }
 
   /**
@@ -648,24 +685,13 @@ export class Join<T> {
     return Object.freeze(movements);
   }
 
-  private channelMap(): ChannelMap<T> {
-    return joinChannelMap(this as Join<unknown>) as ChannelMap<T>;
-  }
 }
 
 /** Returns the ChannelMap a Flow registers for a Join, or the definition itself otherwise. */
 export function registeredChannelDefinition(
   definition: Channel<unknown> | ChannelMap<unknown> | Join<unknown>,
 ): Channel<unknown> | ChannelMap<unknown> {
-  return definition instanceof Join ? joinChannelMap(definition) : definition;
-}
-
-function joinChannelMap(join: Join<unknown>): ChannelMap<unknown> {
-  const channelMap = channelMapsByJoin.get(join);
-  if (channelMap === undefined) {
-    throw new TypeError(`Join ${join.name} was not created by the Join constructor`);
-  }
-  return channelMap;
+  return definition instanceof Join ? definition.channelMap : definition;
 }
 
 function requireJoinRound(round: JoinRound): void {

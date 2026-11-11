@@ -932,6 +932,9 @@ test("Join registers its ChannelMap and publishes to the round instance", () => 
     }
   }
   const registry = new Registry([new JoinContractFlow()]);
+  assert.ok(quoteReceived.channelMap instanceof ChannelMap);
+  assert.equal(quoteReceived.channelMap.name, "quoteReceived");
+  assert.equal(registeredFlowByName(registry, "JoinContractFlow").persistence.get("quoteReceived"), quoteReceived.channelMap);
   const context = new InvocationContext(
     "execute",
     registeredFlowByName(registry, "JoinContractFlow"),

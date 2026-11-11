@@ -39,7 +39,6 @@ import {
   type StepDecision,
   type StepOptions,
 } from "../../src/index.js";
-import { registeredChannelDefinition } from "../../src/join.js";
 
 export interface BranchInput {
   readonly branchName: string;
@@ -81,14 +80,6 @@ class JoinBranchStep implements Step<BranchInput> {
 
 function branchBuilder(step: JoinBranchStep, branchName: string) {
   return (round: JoinRound) => StepMovement.of(step, { branchName, round });
-}
-
-function joinResultChannelMap(join: Join<string>): ChannelMap<string> {
-  return registeredChannelDefinition(join as Join<unknown>) as ChannelMap<string>;
-}
-
-function pendingResultCount(join: Join<string>, context: Context, roundKey: string): number {
-  return joinResultChannelMap(join).size(context, roundKey);
 }
 
 // All-of join whose join Step starts waiting only after its branches reported.
@@ -361,7 +352,7 @@ export class JoinIsolationFlow implements Flow<void> {
 
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
   public getPendingResultCount(context: Context, roundKey: string): RPCResult<number> {
-    return { output: pendingResultCount(isolationResult, context, roundKey) };
+    return { output: isolationResult.channelMap.size(context, roundKey) };
   }
 
   @rpc({ inputCodec: stringCodec })
@@ -477,18 +468,18 @@ export class JoinFirstWinFlow implements Flow<void> {
 
   @rpc({ inputCodec: stringCodec, outputCodec: doubleCodec })
   public getPendingResultCount(context: Context, roundKey: string): RPCResult<number> {
-    return { output: pendingResultCount(firstWinResult, context, roundKey) };
+    return { output: firstWinResult.channelMap.size(context, roundKey) };
   }
 
   /** Loads a round's pending results for {@link JoinFirstWinFlow.getPendingResults}. */
   public pendingResultsLoad(roundKey: string): ChannelMapLoad {
-    return joinResultChannelMap(firstWinResult).loadMessages(roundKey);
+    return firstWinResult.channelMap.loadMessages(roundKey);
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: stringListCodec })
   public getPendingResults(context: Context, roundKey: string): RPCResult<readonly string[]> {
     return {
-      output: joinResultChannelMap(firstWinResult).pendingMessages(context, roundKey).map((message) => message.value),
+      output: firstWinResult.channelMap.pendingMessages(context, roundKey).map((message) => message.value),
     };
   }
 }
