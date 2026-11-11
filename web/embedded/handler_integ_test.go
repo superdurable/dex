@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -64,6 +65,37 @@ func (s *dexServer) StopFlow(ctx context.Context, request *dexpb.StopFlowRequest
 	}
 	s.stopRequests <- request
 	return &emptypb.Empty{}, nil
+}
+
+// uploadedFlowDefinition is the one definition server-a stores; server-b stores none.
+const uploadedFlowDefinition = `{"schemaVersion":"2.0","valid":true,"source":{"language":"go","path":"flow.go"},` +
+	`"flow":{"name":"UploadedFlow"},"nodes":[],"edges":[],"diagnostics":[],` +
+	`"groups":[{"id":"control","label":"Control","stepIds":["step:control"]}],` +
+	`"v2":{"indexedAttributes":[],"summary":{"rpcName":"GetDexSummary","fields":[]},` +
+	`"display":{"rpcName":"GetDexDisplay","fields":[]},"actions":[]}}`
+
+func (s *dexServer) ListFlowDefinitions(ctx context.Context, _ *dexpb.ListFlowDefinitionsRequest) (*dexpb.ListFlowDefinitionsResponse, error) {
+	if err := s.checkToken(ctx); err != nil {
+		return nil, err
+	}
+	if s.name != "server-a" {
+		return &dexpb.ListFlowDefinitionsResponse{}, nil
+	}
+	return &dexpb.ListFlowDefinitionsResponse{FlowTypes: []string{"UploadedFlow"}}, nil
+}
+
+func (s *dexServer) GetFlowDefinitions(ctx context.Context, request *dexpb.GetFlowDefinitionsRequest) (*dexpb.GetFlowDefinitionsResponse, error) {
+	if err := s.checkToken(ctx); err != nil {
+		return nil, err
+	}
+	response := &dexpb.GetFlowDefinitionsResponse{}
+	if s.name == "server-a" && slices.Contains(request.GetFlowTypes(), "UploadedFlow") {
+		response.Definitions = []*dexpb.FlowDefinition{{
+			Info:    &dexpb.FlowDefinitionInfo{FlowType: "UploadedFlow", Digest: "unused"},
+			Content: []byte(uploadedFlowDefinition),
+		}}
+	}
+	return response, nil
 }
 
 func (s *dexServer) checkToken(ctx context.Context) error {
@@ -197,6 +229,29 @@ func TestHandlerRoutesEachRequestToItsOwnDexServer(t *testing.T) {
 		if result.status != http.StatusOK || !strings.Contains(result.body, `"serverEngine":"`+engine+`"`) {
 			t.Fatalf("catalog on %s = %d %s", serverID, result.status, result.body)
 		}
+	}
+}
+
+// A Target without FlowRenderingDirectory reads the definitions its own Dex Server stores.
+func TestHandlerServesUploadedDefinitionsWithoutADirectory(t *testing.T) {
+	host := newHostApplication(t, &embedded.Config{})
+	uploaded := host.send(t, http.MethodGet, "/dex-web/server-a/api/flow-definitions/UploadedFlow", "", nil)
+	if uploaded.status != http.StatusOK || !strings.Contains(uploaded.body, `"source":"uploaded"`) ||
+		!strings.Contains(uploaded.body, `"v2":{"flowType":"UploadedFlow"`) {
+		t.Fatalf("UploadedFlow on server-a = %d %s", uploaded.status, uploaded.body)
+	}
+	types := host.send(t, http.MethodGet, "/dex-web/server-a/api/flow-definition-types", "", nil)
+	if types.status != http.StatusOK || !strings.Contains(types.body, `{"flowType":"UploadedFlow","source":"uploaded"}`) ||
+		!strings.Contains(types.body, `"configured":true`) {
+		t.Fatalf("Flow types on server-a = %d %s", types.status, types.body)
+	}
+	catalog := host.send(t, http.MethodGet, "/dex-web/server-a/api/v2/catalog", "", nil)
+	if catalog.status != http.StatusOK || !strings.Contains(catalog.body, `"flowType":"UploadedFlow"`) {
+		t.Fatalf("catalog on server-a = %d %s", catalog.status, catalog.body)
+	}
+	other := host.send(t, http.MethodGet, "/dex-web/server-b/api/flow-definitions/UploadedFlow", "", nil)
+	if other.status != http.StatusNotFound {
+		t.Fatalf("UploadedFlow on server-b = %d %s", other.status, other.body)
 	}
 }
 
