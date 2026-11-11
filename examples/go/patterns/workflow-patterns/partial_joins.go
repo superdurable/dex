@@ -538,9 +538,6 @@ func (BidFromCarrierC) Execute(ctx dex.Context, joinRound dex.JoinRound) (*dex.S
 type AcceptBids struct{ dex.StepDefaults }
 
 func (AcceptBids) WaitFor(_ dex.Context, input BidJoinInput) (*dex.Wait, error) {
-	if input.RequiredBids == 1 {
-		return dex.Until(BidReceivedJoin.ForFirstBranch(input.JoinRound)), nil
-	}
 	return dex.Until(BidReceivedJoin.ForBranches(input.JoinRound, input.RequiredBids)), nil
 }
 

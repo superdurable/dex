@@ -55,7 +55,7 @@ func (awaitInit) Execute(ctx dex.Context, count int) (*dex.StepDecision, error) 
 	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, count)
 	for index := range count {
 		branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
-			return dex.MovementOf(awaitWork{}, awaitWorkInput{Index: index, Round: round})
+			return dex.MovementOf(awaitWork{}, WorkItem{Index: index, Round: round})
 		})
 	}
 	movements, err := WorkCompletedJoin.Fork(ctx, branchBuilders, func(round dex.JoinRound) dex.StepMovement {
@@ -67,18 +67,19 @@ func (awaitInit) Execute(ctx dex.Context, count int) (*dex.StepDecision, error) 
 	return dex.GoToMany(movements...), nil
 }
 
-type awaitWorkInput struct {
+// WorkItem is the input of one DoWork branch.
+type WorkItem struct {
 	Index int           `json:"index"`
 	Round dex.JoinRound `json:"round"`
 }
 
 type awaitWork struct {
-	dex.StepDefaultsNoWaitFor[awaitWorkInput]
+	dex.StepDefaultsNoWaitFor[WorkItem]
 }
 
 func (awaitWork) GetStepType() string { return "DoWork" }
 
-func (awaitWork) Execute(ctx dex.Context, input awaitWorkInput) (*dex.StepDecision, error) {
+func (awaitWork) Execute(ctx dex.Context, input WorkItem) (*dex.StepDecision, error) {
 	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
 	return WorkCompletedJoin.EndBranch(ctx, input.Round, input.Index)
 }
