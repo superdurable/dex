@@ -77,7 +77,9 @@ func (SelectNotificationChannels) Execute(
 			return dex.MovementOf(SendPush{}, round)
 		})
 	}
-	// A round with no selected branch satisfies ForAllBranches immediately.
+	if len(branchBuilders) == 0 {
+		return dex.GracefulComplete([]string{}), nil
+	}
 	movements, err := NotificationSentJoin.Fork(ctx, branchBuilders, func(round dex.JoinRound) dex.StepMovement {
 		return dex.MovementOf(SynchronizingMerge{}, round)
 	})
