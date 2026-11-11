@@ -24,16 +24,13 @@ import {
   KeyValues,
   StepDecisionView,
   StepMethodDetails,
-  StepMovements,
   StepOptionsView,
   StepOutputs,
   ValueBlock,
-  WaitingConditionView,
   asData,
   asDataArray,
   displayValue,
   flowTimeoutFields,
-  hasData,
   isPresent,
   type Data,
 } from './StepMethodSections';
@@ -57,9 +54,6 @@ const eventTitles: Record<FlowHistoryEvent['type'], string> = {
 
 export function eventTitle(event: FlowHistoryEvent): string {
   if (isSetAttributesEvent(event)) return 'Attributes updated';
-  if (event.type === 'FlowStartedOrContinued' && hasData(asData(event.payload.continuedStart))) {
-    return 'Flow continued';
-  }
   return eventTitles[event.type];
 }
 
@@ -93,66 +87,6 @@ function InitialStartDetails({ payload, showHeading = true }: { payload: Data; s
   );
 }
 
-function ContinuedStartDetails({
-  payload,
-  parentFlowId,
-  showHeading = true,
-}: {
-  payload: Data;
-  parentFlowId: string;
-  showHeading?: boolean;
-}) {
-  const continued = asData(payload.continuedStart);
-  const resumes = asDataArray(continued.stepsToResume);
-  const pendingChannels = asData(continued.pendingChannelMessages);
-  return (
-    <>
-      <DetailSection title={showHeading ? 'Continued run' : undefined}>
-        <Fields values={[
-          ['Previous run ID', continued.previousRunId],
-          ...flowTimeoutFields(payload),
-        ]} />
-      </DetailSection>
-      {Array.isArray(continued.stepsToStart) && continued.stepsToStart.length > 0 && (
-        <DetailSection title="Steps to start"><StepMovements values={continued.stepsToStart} /></DetailSection>
-      )}
-      {resumes.length > 0 && (
-        <DetailSection title="Steps to resume">
-          <div className="semantic-records">
-            {resumes.map((resume, index) => (
-              <div className="semantic-record" key={`${String(resume.stepExecutionId)}-${index}`}>
-                <Fields values={[['Execution ID', resume.stepExecutionId]]} />
-                <StepMovements values={[resume.step]} />
-                <WaitingConditionView
-                  value={resume.waitingCondition}
-                  parentFlowId={parentFlowId}
-                  stepExecutionId={String(resume.stepExecutionId ?? '')}
-                />
-                <KeyValues values={resume.stepExeLocals} />
-              </div>
-            ))}
-          </div>
-        </DetailSection>
-      )}
-      {Object.keys(pendingChannels).length > 0 && (
-        <DetailSection title="Pending channels">
-          <ChannelMessages values={Object.entries(pendingChannels).flatMap(([channelName, entry]) => (
-            asDataArray(asData(entry).messages).map((message) => ({ channelName, value: message.value }))
-          ))} />
-        </DetailSection>
-      )}
-      {Array.isArray(continued.attributes) && continued.attributes.length > 0 && (
-        <DetailSection title="Attributes"><KeyValues values={continued.attributes} /></DetailSection>
-      )}
-      {Array.isArray(continued.completedSteps) && continued.completedSteps.length > 0 && (
-        <DetailSection title="Completed steps"><StepOutputs values={continued.completedSteps} /></DetailSection>
-      )}
-      <FlowConfigView value={payload.flowConfig} />
-      <FlowTimeoutHandlerOptionsView value={payload.timeoutHandlerOptions} />
-    </>
-  );
-}
-
 function FlowClosedDetails({ payload }: { payload: Data }) {
   const errorType = isPresent(payload.errorType) ? flowErrorTypeLabel(payload.errorType) : undefined;
   return (
@@ -160,7 +94,6 @@ function FlowClosedDetails({ payload }: { payload: Data }) {
       <DetailSection title="Outcome">
         <Fields values={[
           ['Status', flowStatusLabel(payload.flowStatus)],
-          ['Continued to run', payload.continuedToRunId],
         ]} />
       </DetailSection>
       {(isPresent(payload.errorMessage) || (errorType && errorType !== 'Unspecified')) && (
@@ -268,13 +201,7 @@ export function SemanticEventDetails({
     return <StepMethodDetails event={event} history={history} parentFlowId={parentFlowId} />;
   }
   if (event.type === 'FlowStartedOrContinued') {
-    return hasData(asData(event.payload.continuedStart))
-      ? <ContinuedStartDetails
-          payload={event.payload}
-          parentFlowId={parentFlowId}
-          showHeading={showStartHeading}
-        />
-      : <InitialStartDetails payload={event.payload} showHeading={showStartHeading} />;
+    return <InitialStartDetails payload={event.payload} showHeading={showStartHeading} />;
   }
   if (event.type === 'FlowClosed') return <FlowClosedDetails payload={event.payload} />;
   if (event.type === 'TimeTravelFork') {

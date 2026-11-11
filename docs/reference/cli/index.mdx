@@ -223,8 +223,7 @@ stored payload.
 
 **flow watch** first prints the semantic history events that exist, then
 long-polls for new ones. Each line is one JSON object. It stops when the run
-reaches a terminal status. With **--follow-runs**, it keeps following the
-current run of the Flow ID.
+reaches a terminal status.
 
 Stop and time travel always require an exact **--run-id** and **--yes**. This
 keeps an agent that looked up an older run from changing a newer one.

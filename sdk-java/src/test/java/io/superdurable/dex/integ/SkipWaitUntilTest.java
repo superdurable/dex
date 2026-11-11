@@ -44,7 +44,7 @@ public final class SkipWaitUntilTest {
             final int input = 0;
             final StartFlowOptions options = StartFlowOptions.newBuilder()
                     .configOverride(FlowConfig.newBuilder()
-                            .continueAsNewThreshold(1)
+                            .historyWindowEvents(2500)
                             .build())
                     .build();
             environment.client().startFlow(WORKFLOW, flowId, input, options);

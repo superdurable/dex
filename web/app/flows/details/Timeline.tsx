@@ -108,14 +108,8 @@ export function previousRunLink(flowId: string, event: FlowHistoryEvent): { sear
 }
 
 function previousRunID(event: FlowHistoryEvent): string {
-  if (event.type === 'TimeTravelFork') {
-    return typeof event.payload.previousRunId === 'string' ? event.payload.previousRunId : '';
-  }
-  if (event.type !== 'FlowStartedOrContinued') return '';
-  const continued = event.payload.continuedStart;
-  if (!continued || typeof continued !== 'object') return '';
-  const value = (continued as Record<string, unknown>).previousRunId;
-  return typeof value === 'string' ? value : '';
+  if (event.type !== 'TimeTravelFork') return '';
+  return typeof event.payload.previousRunId === 'string' ? event.payload.previousRunId : '';
 }
 
 export function Timeline({
@@ -486,7 +480,7 @@ const TimelineRow = memo(function TimelineRow({
                   title={previousRunId}
                   to={previousRunTarget}
                 >
-                  {event.type === 'TimeTravelFork' ? 'Time Travel fork' : 'Flow continued'}
+                  {eventTitle(event)}
                 </Link>
               ) : eventTitle(event)}
             </h3>

@@ -563,7 +563,6 @@ fn golden_sql_covers_operators_and_types() {
         ("CloseTime IS NULL", "close_time_ns IS NULL", vec![]),
         ("CloseTime IS NOT NULL", "close_time_ns IS NOT NULL", vec![]),
         ("WorkflowType = 'Engine'", "TRUE", vec![]),
-        ("ExecutionStatus = 'ContinuedAsNew'", "FALSE", vec![]),
         (
             "ActiveStepTypes = 'ChargeOrder'",
             "$2::text = ANY(active_step_types)",

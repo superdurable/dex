@@ -35,7 +35,7 @@ func mapSearchEntry(entry *dexpb.SearchFlowsResponseEntry) flowExecution {
 }
 
 func mapSummary(summary *dexpb.GetFlowSummaryResponse) flowSummary {
-	execution := summary.GetFlowExecutionId()
+	execution := summary.GetFlowRunId()
 	return flowSummary{
 		FlowID:         execution.GetFlowId(),
 		RunID:          execution.GetRunId(),
@@ -349,8 +349,6 @@ func flowStatusLabel(status dexpb.FlowStatus) string {
 		return "Terminated"
 	case dexpb.FlowStatus_FLOW_STATUS_CANCELED:
 		return "Canceled"
-	case dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW:
-		return "Continued as new"
 	default:
 		return "Unspecified"
 	}

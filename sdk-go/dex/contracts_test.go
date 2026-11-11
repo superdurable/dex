@@ -287,7 +287,6 @@ func TestPublicContractsCompile(t *testing.T) {
 	durability := dex.StepDurabilitySync
 	config := dex.FlowConfig{
 		ActiveStepSearchMode:        &mode,
-		ContinueAsNewThreshold:      ptr.Any(int32(100)),
 		StepDurability:              &durability,
 		AttributeStoreNames:         []string{"profiles"},
 		HistoryWindowEvents:         ptr.Any(int32(50000)),
@@ -680,15 +679,6 @@ var _ func(
 	any,
 	any,
 ) error = (*dex.Client).InvokeRPC
-
-var _ func(
-	*dex.Client,
-	context.Context,
-	string,
-	int32,
-	string,
-	dex.SearchFlowsOptions,
-) (dex.SearchFlowsPage, error) = (*dex.Client).SearchFlowsWithOptions
 
 func TestBlobMessageTooLargeErrorSupportsErrorsAs(t *testing.T) {
 	tooLarge := error(&dex.ServiceError{Op: "LoadBlobs", Code: codes.ResourceExhausted})

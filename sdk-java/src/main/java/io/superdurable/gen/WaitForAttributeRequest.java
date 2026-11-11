@@ -132,27 +132,12 @@ private static final long serialVersionUID = 0L;
     return requestTimeoutSeconds_;
   }
 
-  public static final int INTERNAL_HANDLER_TIMEOUT_SECONDS_FIELD_NUMBER = 4;
-  private int internalHandlerTimeoutSeconds_ = 0;
-  /**
-   * <pre>
-   * Deprecated: Dex rejects a negative value and otherwise ignores this field.
-   * </pre>
-   *
-   * <code>int32 internal_handler_timeout_seconds = 4;</code>
-   * @return The internalHandlerTimeoutSeconds.
-   */
-  @java.lang.Override
-  public int getInternalHandlerTimeoutSeconds() {
-    return internalHandlerTimeoutSeconds_;
-  }
-
   public static final int REQUEST_ID_FIELD_NUMBER = 5;
   @SuppressWarnings("serial")
   private volatile java.lang.Object requestId_ = "";
   /**
    * <pre>
-   * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+   * Optional request identifier. The Server does not read it for this wait.
    * </pre>
    *
    * <code>string request_id = 5;</code>
@@ -173,7 +158,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+   * Optional request identifier. The Server does not read it for this wait.
    * </pre>
    *
    * <code>string request_id = 5;</code>
@@ -217,9 +202,6 @@ private static final long serialVersionUID = 0L;
     if (requestTimeoutSeconds_ != 0) {
       output.writeInt32(3, requestTimeoutSeconds_);
     }
-    if (internalHandlerTimeoutSeconds_ != 0) {
-      output.writeInt32(4, internalHandlerTimeoutSeconds_);
-    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 5, requestId_);
     }
@@ -237,10 +219,6 @@ private static final long serialVersionUID = 0L;
     if (requestTimeoutSeconds_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(3, requestTimeoutSeconds_);
-    }
-    if (internalHandlerTimeoutSeconds_ != 0) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(4, internalHandlerTimeoutSeconds_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(5, requestId_);
@@ -278,8 +256,6 @@ private static final long serialVersionUID = 0L;
     }
     if (getRequestTimeoutSeconds()
         != other.getRequestTimeoutSeconds()) return false;
-    if (getInternalHandlerTimeoutSeconds()
-        != other.getInternalHandlerTimeoutSeconds()) return false;
     if (!getRequestId()
         .equals(other.getRequestId())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -301,8 +277,6 @@ private static final long serialVersionUID = 0L;
     }
     hash = (37 * hash) + REQUEST_TIMEOUT_SECONDS_FIELD_NUMBER;
     hash = (53 * hash) + getRequestTimeoutSeconds();
-    hash = (37 * hash) + INTERNAL_HANDLER_TIMEOUT_SECONDS_FIELD_NUMBER;
-    hash = (53 * hash) + getInternalHandlerTimeoutSeconds();
     hash = (37 * hash) + REQUEST_ID_FIELD_NUMBER;
     hash = (53 * hash) + getRequestId().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
@@ -449,7 +423,6 @@ private static final long serialVersionUID = 0L;
         matchBuilder_ = null;
       }
       requestTimeoutSeconds_ = 0;
-      internalHandlerTimeoutSeconds_ = 0;
       requestId_ = "";
       return this;
     }
@@ -498,9 +471,6 @@ private static final long serialVersionUID = 0L;
         result.requestTimeoutSeconds_ = requestTimeoutSeconds_;
       }
       if (((from_bitField0_ & 0x00000008) != 0)) {
-        result.internalHandlerTimeoutSeconds_ = internalHandlerTimeoutSeconds_;
-      }
-      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.requestId_ = requestId_;
       }
       result.bitField0_ |= to_bitField0_;
@@ -529,12 +499,9 @@ private static final long serialVersionUID = 0L;
       if (other.getRequestTimeoutSeconds() != 0) {
         setRequestTimeoutSeconds(other.getRequestTimeoutSeconds());
       }
-      if (other.getInternalHandlerTimeoutSeconds() != 0) {
-        setInternalHandlerTimeoutSeconds(other.getInternalHandlerTimeoutSeconds());
-      }
       if (!other.getRequestId().isEmpty()) {
         requestId_ = other.requestId_;
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000008;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -580,14 +547,9 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 24
-            case 32: {
-              internalHandlerTimeoutSeconds_ = input.readInt32();
-              bitField0_ |= 0x00000008;
-              break;
-            } // case 32
             case 42: {
               requestId_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000010;
+              bitField0_ |= 0x00000008;
               break;
             } // case 42
             default: {
@@ -847,54 +809,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private int internalHandlerTimeoutSeconds_ ;
-    /**
-     * <pre>
-     * Deprecated: Dex rejects a negative value and otherwise ignores this field.
-     * </pre>
-     *
-     * <code>int32 internal_handler_timeout_seconds = 4;</code>
-     * @return The internalHandlerTimeoutSeconds.
-     */
-    @java.lang.Override
-    public int getInternalHandlerTimeoutSeconds() {
-      return internalHandlerTimeoutSeconds_;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex rejects a negative value and otherwise ignores this field.
-     * </pre>
-     *
-     * <code>int32 internal_handler_timeout_seconds = 4;</code>
-     * @param value The internalHandlerTimeoutSeconds to set.
-     * @return This builder for chaining.
-     */
-    public Builder setInternalHandlerTimeoutSeconds(int value) {
-
-      internalHandlerTimeoutSeconds_ = value;
-      bitField0_ |= 0x00000008;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Deprecated: Dex rejects a negative value and otherwise ignores this field.
-     * </pre>
-     *
-     * <code>int32 internal_handler_timeout_seconds = 4;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearInternalHandlerTimeoutSeconds() {
-      bitField0_ = (bitField0_ & ~0x00000008);
-      internalHandlerTimeoutSeconds_ = 0;
-      onChanged();
-      return this;
-    }
-
     private java.lang.Object requestId_ = "";
     /**
      * <pre>
-     * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+     * Optional request identifier. The Server does not read it for this wait.
      * </pre>
      *
      * <code>string request_id = 5;</code>
@@ -914,7 +832,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+     * Optional request identifier. The Server does not read it for this wait.
      * </pre>
      *
      * <code>string request_id = 5;</code>
@@ -935,7 +853,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+     * Optional request identifier. The Server does not read it for this wait.
      * </pre>
      *
      * <code>string request_id = 5;</code>
@@ -946,13 +864,13 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       requestId_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+     * Optional request identifier. The Server does not read it for this wait.
      * </pre>
      *
      * <code>string request_id = 5;</code>
@@ -960,13 +878,13 @@ private static final long serialVersionUID = 0L;
      */
     public Builder clearRequestId() {
       requestId_ = getDefaultInstance().getRequestId();
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000008);
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Optional logical idempotency key. Empty derives wait-for-attribute:{encoded condition}.
+     * Optional request identifier. The Server does not read it for this wait.
      * </pre>
      *
      * <code>string request_id = 5;</code>
@@ -978,7 +896,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       requestId_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }

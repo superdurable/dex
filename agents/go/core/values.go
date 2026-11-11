@@ -425,6 +425,19 @@ type AgentMessage struct {
 	// CreatedAt is the RFC 3339 time when the session stored the message, in UTC with
 	// milliseconds and "Z".
 	CreatedAt string `json:"created_at"`
+	// Images are the item's images, for display. The Go core never sets them; it keeps the field
+	// so a message written by another core round-trips.
+	Images []AgentImageReference `json:"images"`
+}
+
+// MarshalJSON encodes the wire object, writing an empty Images as [] rather than null.
+//
+// It returns an error only when a field cannot be encoded.
+func (message AgentMessage) MarshalJSON() ([]byte, error) {
+	type wireAgentMessage AgentMessage
+	encoded := wireAgentMessage(message)
+	encoded.Images = nonNilSlice(encoded.Images)
+	return json.Marshal(encoded)
 }
 
 // UnmarshalJSON decodes the wire object and checks its required fields.
@@ -437,7 +450,39 @@ func (message *AgentMessage) UnmarshalJSON(data []byte) error {
 		"sequence", "turn_id", "role", "framework_item", "created_at"); err != nil {
 		return err
 	}
+	decoded.Images = nonNilSlice(decoded.Images)
 	*message = AgentMessage(decoded)
+	return nil
+}
+
+// AgentImageReference points to one image in a media store by the SHA-256 of its bytes.
+//
+// The Go core has no media store; it keeps references so values written by another core
+// round-trip.
+type AgentImageReference struct {
+	// Type is always "image". A missing type decodes as "image".
+	Type string `json:"type"`
+	// URI is where the store keeps the bytes, ending in "/sha256/<SHA256>".
+	URI string `json:"uri"`
+	// MimeType is "image/png", "image/jpeg", "image/gif", or "image/webp".
+	MimeType string `json:"mime_type"`
+	// SHA256 is the SHA-256 of the bytes as 64 lowercase hex digits.
+	SHA256 string `json:"sha256"`
+	// SizeBytes is the size of the bytes.
+	SizeBytes int64 `json:"size_bytes"`
+}
+
+// UnmarshalJSON decodes the wire object; a missing type decodes as "image".
+//
+// It returns an error for a missing required field or a wrong JSON type.
+func (reference *AgentImageReference) UnmarshalJSON(data []byte) error {
+	type wireAgentImageReference AgentImageReference
+	decoded := wireAgentImageReference{Type: "image"}
+	if err := decodeWireObject(data, &decoded, "AgentImageReference",
+		"uri", "mime_type", "sha256", "size_bytes"); err != nil {
+		return err
+	}
+	*reference = AgentImageReference(decoded)
 	return nil
 }
 
@@ -677,6 +722,9 @@ type AgentToolCall struct {
 	Skipped bool `json:"skipped"`
 	// TruncatedOutputBytes is the size of the full output when Output holds a truncated copy, or nil.
 	TruncatedOutputBytes *int64 `json:"truncated_output_bytes"`
+	// Images are the images a tool returned with its output. The Go core never sets them; it keeps
+	// the field so a record written by another core round-trips.
+	Images []AgentImageReference `json:"images"`
 }
 
 // MarshalJSON encodes the wire object, writing empty lists as [] rather than null.
@@ -687,6 +735,7 @@ func (toolCall AgentToolCall) MarshalJSON() ([]byte, error) {
 	encoded := wireAgentToolCall(toolCall)
 	encoded.InputAnswers = nonNilSlice(encoded.InputAnswers)
 	encoded.InputChoices = nonNilSlice(encoded.InputChoices)
+	encoded.Images = nonNilSlice(encoded.Images)
 	return json.Marshal(encoded)
 }
 
@@ -702,6 +751,7 @@ func (toolCall *AgentToolCall) UnmarshalJSON(data []byte) error {
 	}
 	decoded.InputAnswers = nonNilSlice(decoded.InputAnswers)
 	decoded.InputChoices = nonNilSlice(decoded.InputChoices)
+	decoded.Images = nonNilSlice(decoded.Images)
 	*toolCall = AgentToolCall(decoded)
 	return nil
 }
@@ -851,6 +901,19 @@ type AgentUserMessage struct {
 	// PlanMode asks for a planning turn. This Go core has no plan mode, so send_user_message
 	// returns false for a message with PlanMode set.
 	PlanMode bool `json:"plan_mode"`
+	// Images are the images the user attached. This Go core has no image input, so
+	// send_user_message returns false for a message with images.
+	Images []AgentImageReference `json:"images"`
+}
+
+// MarshalJSON encodes the wire object, writing an empty Images as [] rather than null.
+//
+// It returns an error only when a field cannot be encoded.
+func (message AgentUserMessage) MarshalJSON() ([]byte, error) {
+	type wireAgentUserMessage AgentUserMessage
+	encoded := wireAgentUserMessage(message)
+	encoded.Images = nonNilSlice(encoded.Images)
+	return json.Marshal(encoded)
 }
 
 // UnmarshalJSON decodes the wire object; a null plan_mode decodes as false.
@@ -862,6 +925,7 @@ func (message *AgentUserMessage) UnmarshalJSON(data []byte) error {
 	if err := decodeWireObject(data, &decoded, "AgentUserMessage", "text"); err != nil {
 		return err
 	}
+	decoded.Images = nonNilSlice(decoded.Images)
 	*message = AgentUserMessage(decoded)
 	return nil
 }

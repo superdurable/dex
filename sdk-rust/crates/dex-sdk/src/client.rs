@@ -19,9 +19,9 @@ use dex_protocol::dex::{
     GetFlowSummaryRequest, IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest,
     ListStreamMessagesRequest, ReadStreamRequest, ResetFlowRequest, SearchFlowsRequest,
     SkipTimerRequest, StartFlowRequest, StepDurability as ProtoStepDurability, StopFlowRequest,
-    StopType as ProtoStopType, TriggerContinueAsNewRequest, UpdateFlowConfigRequest,
-    WaitForAttributeRequest, WaitForFlowRequest, WaitForStepCompletionRequest,
-    WorkerTarget as ProtoWorkerTarget, WriteStreamRequest,
+    StopType as ProtoStopType, UpdateFlowConfigRequest, WaitForAttributeRequest,
+    WaitForFlowRequest, WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget,
+    WriteStreamRequest,
 };
 use tokio::runtime::Runtime;
 use tonic::{Code, Request};
@@ -48,9 +48,9 @@ use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, AttributeMatch, BlobCache, ClientOptions, Flow,
     FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, FlowTimeoutPolicy, IdReusePolicy,
     Registry, RetryPolicy, Rpc, RpcInvokeOptions, SdkError, SdkResult, SearchFlowEntry,
-    SearchFlowsOptions, SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability,
-    StepExecutionId, StopFlowOptions, Stream, StreamMessage, StreamMessagesPage, TimeTravelOptions,
-    TimerId, Value, WaitForAttributeOptions, WaitForStepCompletionOptions,
+    SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability, StepExecutionId,
+    StopFlowOptions, Stream, StreamMessage, StreamMessagesPage, TimeTravelOptions, TimerId, Value,
+    WaitForAttributeOptions, WaitForStepCompletionOptions,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -542,8 +542,8 @@ impl Client {
                 })
         })?;
         let execution = response
-            .flow_execution_id
-            .ok_or_else(|| service_error("GetFlowSummary omitted FlowExecutionID"))?;
+            .flow_run_id
+            .ok_or_else(|| service_error("GetFlowSummary omitted FlowRunID"))?;
         Ok(FlowInfo {
             flow_id: execution.flow_id,
             run_id: execution.run_id,
@@ -573,17 +573,6 @@ impl Client {
         page_size: i32,
         next_page_token: &str,
     ) -> SdkResult<SearchFlowsPage> {
-        self.search_flows_with_options(query, page_size, next_page_token, SearchFlowsOptions::new())
-    }
-
-    /// Searches with explicit inclusion options; retain query and options across pages. An empty token starts pagination.
-    pub fn search_flows_with_options(
-        &self,
-        query: &str,
-        page_size: i32,
-        next_page_token: &str,
-        options: SearchFlowsOptions,
-    ) -> SdkResult<SearchFlowsPage> {
         if page_size < 0 {
             return Err(invalid("search page size must not be negative"));
         }
@@ -595,7 +584,6 @@ impl Client {
                     query: query.to_string(),
                     page_size,
                     next_page_token: next_page_token.to_string(),
-                    include_continued_as_new: options.include_continued_as_new,
                 })
                 .await
                 .map(|response| response.into_inner())
@@ -774,7 +762,10 @@ impl Client {
 
     /// Blocks until one Step execution completes or its request budget expires.
     ///
-    /// The server derives a stable Request ID from the Step execution when none is supplied.
+    /// The Server does not read the request ID for this wait.
+    /// All long-poll waits on one Flow share a cap that defaults to 1,000
+    /// (`limits.maxLongPollWaitersPerFlow`). A wait over the cap returns a service error with
+    /// `ResourceExhausted`. A wait frees its slot when it returns or the caller disconnects.
     ///
     /// # Errors
     ///
@@ -788,7 +779,6 @@ impl Client {
         options: WaitForStepCompletionOptions,
     ) -> SdkResult<()> {
         let request_budget = ClientRequestBudget::new(options.request_timeout)?;
-        let internal_handler_timeout_seconds = seconds32(options.internal_handler_timeout)?;
         self.require_server_protocol_within_budget(
             "wait_for_step_completion",
             flow_id,
@@ -811,7 +801,6 @@ impl Client {
                         step_type: request_step_type,
                         step_execution_number: request_step_execution_number,
                         request_timeout_seconds: request_attempt.request_timeout_seconds,
-                        internal_handler_timeout_seconds,
                         request_id,
                     });
                     if let Some(transport_timeout) = request_attempt.transport_timeout {
@@ -839,12 +828,16 @@ impl Client {
 
     /// Blocks until a singleton Attribute in the current run satisfies `attribute_match`.
     ///
-    /// Returns the current value observed by the successful wait. The server derives a stable
-    /// Request ID from the condition when none is supplied. String and Boolean
+    /// Returns the current value observed by the successful wait. The Server does not read the
+    /// request ID for this wait. String and Boolean
     /// Attributes support equality matches. Integer and floating-point Attributes support every
     /// match. A positive request-timeout expiry returns [`SdkError::RequestTimeout`]. A
     /// hard-delete Attribute, defined with [`Attribute::hard_delete_on_null`], returns
     /// [`SdkError::InvalidArgument`] before the Client contacts Dex.
+    ///
+    /// All long-poll waits on one Flow share a cap that defaults to 1,000
+    /// (`limits.maxLongPollWaitersPerFlow`). A wait over the cap returns a service error with
+    /// `ResourceExhausted`. A wait frees its slot when it returns or the caller disconnects.
     pub fn wait_for_attribute_match<T: Value>(
         &self,
         flow_id: &str,
@@ -858,8 +851,8 @@ impl Client {
 
     /// Blocks until one AttributeMap instance satisfies `attribute_match`.
     ///
-    /// This targets the current run and otherwise has the same match, request-timeout and handler-generation,
-    /// request-ID, return-value, and error behavior as [`Self::wait_for_attribute_match`]. A
+    /// This targets the current run and otherwise has the same match, request-timeout,
+    /// request-ID, wait-cap, return-value, and error behavior as [`Self::wait_for_attribute_match`]. A
     /// hard-delete AttributeMap, defined with [`AttributeMap::hard_delete_on_null`], returns
     /// [`SdkError::InvalidArgument`] before the Client contacts Dex.
     pub fn wait_for_attribute_map_instance_match<T: Value>(
@@ -889,7 +882,6 @@ impl Client {
         let mut encoded_match = attribute_match.encode()?;
         encoded_match.key = key.to_string();
         let request_budget = ClientRequestBudget::new(options.request_timeout)?;
-        let internal_handler_timeout_seconds = seconds32(options.internal_handler_timeout)?;
         self.require_server_protocol_within_budget(
             "wait_for_attribute_match",
             flow_id,
@@ -903,7 +895,6 @@ impl Client {
                 flow_id: flow_id.to_string(),
                 r#match: Some(encoded_match.clone()),
                 request_timeout_seconds: request_attempt.request_timeout_seconds,
-                internal_handler_timeout_seconds,
                 request_id: options.request_id.clone(),
             });
             if let Some(transport_timeout) = request_attempt.transport_timeout {
@@ -961,23 +952,6 @@ impl Client {
                         flow_id: flow_id.to_string(),
                         run_id: String::new(),
                         flow_config: Some(flow_config),
-                    })
-                    .await
-            },
-        )
-    }
-
-    /// Requests that an active Flow roll its history into a successor run.
-    pub fn trigger_continue_as_new(&self, flow_id: &str) -> SdkResult<()> {
-        self.call_empty(
-            "trigger_continue_as_new",
-            Some(flow_id),
-            FlowTargetRequirement::Active,
-            |mut service| async move {
-                service
-                    .trigger_continue_as_new(TriggerContinueAsNewRequest {
-                        flow_id: flow_id.to_string(),
-                        run_id: String::new(),
                     })
                     .await
             },
@@ -1377,16 +1351,6 @@ pub(crate) fn map_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlo
                 }
                 ActiveStepSearchMode::Disabled => ProtoSearchMode::Disabled as i32,
             }),
-        continue_as_new_threshold: config
-            .and_then(|config| config.continue_as_new_threshold)
-            .map(i32::try_from)
-            .transpose()
-            .map_err(|_| invalid("continue-as-new threshold exceeds int32"))?,
-        continue_as_new_page_size_in_bytes: config
-            .and_then(|config| config.continue_as_new_page_size_bytes)
-            .map(i32::try_from)
-            .transpose()
-            .map_err(|_| invalid("continue-as-new page size exceeds int32"))?,
         step_durability: config
             .and_then(|config| config.step_durability)
             .map(|durability| {
@@ -1437,7 +1401,6 @@ pub(crate) fn map_flow_status(status: i32) -> SdkResult<FlowStatus> {
         }
         Some(ProtoFlowStatus::Terminated) => Ok(FlowStatus::Terminated),
         Some(ProtoFlowStatus::Canceled) => Ok(FlowStatus::Canceled),
-        Some(ProtoFlowStatus::ContinuedAsNew) => Ok(FlowStatus::ContinuedAsNew),
         _ => Err(invalid(format!("unknown Flow status {status}"))),
     }
 }

@@ -533,13 +533,10 @@ integers and doubles support every operator. Every AttributeMap and ChannelMap
 instance must be non-empty and must not contain `/`. Objects,
 bytes, null, non-finite doubles, and invalid ordering fail before the RPC.
 
-Request IDs are optional for both durable waits. When omitted, the server
-derives a stable ID from the Step execution or Attribute condition. Reuse an
-override only for the same wait. `RequestTimeout` is the total SDK call budget
-across transparent transport reattachments. Zero waits indefinitely until the
-caller context is canceled. A caller timeout or cancellation does not finish an accepted durable wait. Set `InternalHandlerTimeout` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value
-comfortably longer than normal request timeouts and reconnect gaps. Zero
-disables timed rollover. Request expiry returns `*dex.RequestTimeoutError`.
+Request IDs are optional for both waits. The Server does not read them for these
+waits. `RequestTimeout` bounds the total SDK call across transport reattachments;
+zero waits indefinitely. Request expiry returns `*dex.RequestTimeoutError`.
+A caller disconnect releases its wait slot.
 
 Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
@@ -1005,8 +1002,8 @@ Flows without a starting step require nil input.
 
 The SDK generates request IDs for StartFlow and InvokeRPC. A
 `StartFlowOptions.RequestID` may provide a stable business identifier spanning
-separate calls. Durable wait request IDs are optional overrides of server-derived
-stable IDs.
+separate calls. Step completion and Attribute waits accept an optional request
+ID, but the server does not read it.
 
 A stable request ID alone does not make a StartFlow retry succeed. A retried
 StartFlow returns the existing run only when `AlreadyStarted.IgnoreError` is
@@ -1165,8 +1162,9 @@ Initial indexed values are validated by `dex.InitialAttribute` and
 `dex.InitialAttributeMapValue`.
 
 The SDK generates UUIDs for StartFlow and InvokeRPC.
-`StartFlowOptions.RequestID` may override the generated start ID. Durable waits
-use server-derived IDs unless the caller supplies an override.
+`StartFlowOptions.RequestID` may override the generated start ID. Step
+completion and Attribute waits accept a request ID, but the server does not
+read it.
 
 Large string and object values may be returned as blob references. Worker
 inputs and Client results hydrate before handler or application decode. Decode
@@ -1249,11 +1247,7 @@ The diagnostic SDK version comes from Go build information for the
 `github.com/superdurable/dex/sdk-go` module. Source builds without module version
 metadata report `dev`; neither value changes compatibility decisions.
 
-## Search run inclusion
+## Search Flow runs
 
-Searches exclude runs with the ContinuedAsNew status by default. server-zd never reports that status. Application queries still
-need `FlowType` when using shared index slots. An explicit inclusion option
-removes only the default exclusion; it does not override query filters. Keep
-the query, inclusion option, and page size consistent across pages.
-
-Use `SearchFlowsWithOptions(ctx, query, pageSize, nextPageToken, SearchFlowsOptions{IncludeContinuedAsNew: true})` for execution-chain inspection. `SearchFlows` uses the default exclusion.
+Searches return runs that match the query. Include `FlowType` when using shared
+index slots, and keep the query and page size consistent across pages.

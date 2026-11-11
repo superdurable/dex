@@ -13,24 +13,20 @@ use crate::{SdkError, SdkResult};
 #[derive(Clone, Debug, Default)]
 /// Configures one durable Step completion wait.
 ///
-/// The server derives a stable Request ID from the Step execution when none is supplied.
+/// The Server does not read the request ID for this wait.
 /// `request_timeout` bounds the SDK call across transport reattachments.
-/// Temporal permits 10 in-flight Updates per Workflow Execution. `internal_handler_timeout`
-/// reclaims accepted waits that outlive callers and could consume those slots. Active callers
-/// transparently start another generation, which adds another Update to history.
 pub struct WaitForStepCompletionOptions {
     pub(crate) request_id: String,
     pub(crate) request_timeout: Duration,
-    pub(crate) internal_handler_timeout: Duration,
 }
 
 impl WaitForStepCompletionOptions {
-    /// Creates an infinite wait that uses the server-derived stable Request ID.
+    /// Creates an infinite wait.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Overrides the stable Request ID derived from the Step execution.
+    /// Sets an optional request ID; the Server does not read it.
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = request_id.into();
         self
@@ -39,17 +35,6 @@ impl WaitForStepCompletionOptions {
     /// Sets the total SDK call budget. Zero waits indefinitely.
     pub fn request_timeout(mut self, request_timeout: Duration) -> Self {
         self.request_timeout = request_timeout;
-        self
-    }
-
-    /// Sets the Temporal Update handler generation lifetime.
-    ///
-    /// Use a positive value only when abandoned waits can approach Temporal's in-flight Update
-    /// limit. Active callers transparently start another generation. Zero disables rollover.
-    /// Prefer a value longer than normal request timeouts and reconnect gaps because every
-    /// generation counts toward Temporal's 2,000-Update history limit.
-    pub fn internal_handler_timeout(mut self, internal_handler_timeout: Duration) -> Self {
-        self.internal_handler_timeout = internal_handler_timeout;
         self
     }
 }
@@ -57,24 +42,20 @@ impl WaitForStepCompletionOptions {
 #[derive(Clone, Debug, Default)]
 /// Configures one durable Attribute match wait.
 ///
-/// The server derives a stable Request ID from the Attribute condition when none is supplied.
+/// The Server does not read the request ID for this wait.
 /// `request_timeout` bounds the SDK call across transport reattachments.
-/// Temporal permits 10 in-flight Updates per Workflow Execution. `internal_handler_timeout`
-/// reclaims accepted waits that outlive callers and could consume those slots. Active callers
-/// transparently start another generation, which adds another Update to history.
 pub struct WaitForAttributeOptions {
     pub(crate) request_id: String,
     pub(crate) request_timeout: Duration,
-    pub(crate) internal_handler_timeout: Duration,
 }
 
 impl WaitForAttributeOptions {
-    /// Creates an infinite wait that uses the server-derived stable Request ID.
+    /// Creates an infinite wait.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Overrides the stable Request ID derived from the Attribute condition.
+    /// Sets an optional request ID; the Server does not read it.
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = request_id.into();
         self
@@ -83,17 +64,6 @@ impl WaitForAttributeOptions {
     /// Sets the total SDK call budget. Zero waits indefinitely.
     pub fn request_timeout(mut self, request_timeout: Duration) -> Self {
         self.request_timeout = request_timeout;
-        self
-    }
-
-    /// Sets the Temporal Update handler generation lifetime.
-    ///
-    /// Use a positive value only when abandoned waits can approach Temporal's in-flight Update
-    /// limit. Active callers transparently start another generation. Zero disables rollover.
-    /// Prefer a value longer than normal request timeouts and reconnect gaps because every
-    /// generation counts toward Temporal's 2,000-Update history limit.
-    pub fn internal_handler_timeout(mut self, internal_handler_timeout: Duration) -> Self {
-        self.internal_handler_timeout = internal_handler_timeout;
         self
     }
 }

@@ -3,6 +3,8 @@
 状态：Implementation in progress
 日期：2026-08-05
 
+说明：Dex issue #1072 移除了 run 续接机制。下文涉及该机制的段落记录当时基于 Temporal/Cadence 的设计，不代表当前行为。
+
 ## 1. Phase 1 范围
 
 Phase 1 确定：
@@ -90,7 +92,7 @@ service FlowService {
 ### 4.1 Proto
 
 ```proto
-message FlowExecutionID {
+message FlowRunID {
   string flow_id = 1;
   string run_id = 2;
 }
@@ -102,7 +104,7 @@ message GetFlowSummaryRequest {
 }
 
 message GetFlowSummaryResponse {
-  FlowExecutionID flow_execution_id = 1;
+  FlowRunID flow_run_id = 1;
   string first_run_id = 2;
   string request_id = 3;
   string flow_type = 4;
@@ -217,7 +219,7 @@ message TimeTravelForkHistoryEvent {
 
 ```proto
 message FlowStartedOrContinuedHistoryEvent {
-  FlowExecutionID flow_execution_id = 1;
+  FlowRunID flow_run_id = 1;
   string flow_type = 2;
   FlowConfig flow_config = 3;
 

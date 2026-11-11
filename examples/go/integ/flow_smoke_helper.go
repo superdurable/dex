@@ -287,7 +287,7 @@ func isTerminalFlowClosedFailure(payload map[string]any) bool {
 	switch status := payload["flowStatus"].(type) {
 	case string:
 		switch status {
-		case "FLOW_STATUS_COMPLETED", "FLOW_STATUS_CONTINUED_AS_NEW", "FLOW_STATUS_RUNNING":
+		case "FLOW_STATUS_COMPLETED", "FLOW_STATUS_RUNNING":
 			return false
 		case "FLOW_STATUS_UNSPECIFIED", "":
 		default:

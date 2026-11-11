@@ -28,7 +28,7 @@ func TestStateApiFailTemporal(t *testing.T) {
 		doTestStateApiFail(
 			t,
 
-			minimumContinueAsNewAsyncDurabilityConfig(),
+			asyncDurabilityConfig(),
 			dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED,
 		)
 		smallWaitForFastTest()

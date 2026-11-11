@@ -25,7 +25,6 @@ pub(super) fn response_entry(row: &Row) -> Result<dex::SearchFlowsResponseEntry,
         "Canceled" => FlowStatus::Canceled,
         "Terminated" => FlowStatus::Terminated,
         "TimedOut" => FlowStatus::ServerSideTimeoutInternalOnly,
-        "ContinuedAsNew" => FlowStatus::ContinuedAsNew,
         _ => {
             return Err(SearchError::Internal(format!(
                 "SQL visibility run has unknown execution status {execution_status}"

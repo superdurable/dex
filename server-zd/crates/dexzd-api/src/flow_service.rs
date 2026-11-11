@@ -24,8 +24,8 @@ use dexzd_protocol::dex::{
     PublishToChannelRequest, ReadStreamRequest, ReadStreamResponse, ResetFlowRequest,
     ResetFlowResponse, SearchFlowsRequest, SearchFlowsResponse, ServerEngine, ServerInfo,
     SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StartFlowResponse, StopFlowRequest,
-    SyncAttributeIndexRequest, SyncAttributeIndexResponse, TriggerContinueAsNewRequest,
-    UpdateFlowConfigRequest, WaitForAttributeRequest, WaitForAttributeResponse, WaitForFlowRequest,
+    SyncAttributeIndexRequest, SyncAttributeIndexResponse, UpdateFlowConfigRequest,
+    WaitForAttributeRequest, WaitForAttributeResponse, WaitForFlowRequest,
     WaitForHistoryEventRequest, WaitForHistoryEventResponse, WaitForStepCompletionRequest,
     WaitForStepCompletionResponse, WriteStreamRequest,
 };
@@ -437,13 +437,6 @@ impl flow_service_server::FlowService for DexFlowService {
                 )
                 .await,
         )
-    }
-
-    async fn trigger_continue_as_new(
-        &self,
-        _request: Request<TriggerContinueAsNewRequest>,
-    ) -> Result<Response<()>, Status> {
-        Err(FlowOperationError::unimplemented("server-zd does not support Continue-As-New").into())
     }
 
     async fn health_check(&self, _request: Request<()>) -> Result<Response<HealthInfo>, Status> {

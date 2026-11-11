@@ -104,7 +104,6 @@ if $coverage; then
     --test flow_service_tls \
     -- \
     --ignored \
-    --skip test_subflow_partial_results_survive_continue_as_new_without_restart \
     --test-threads=1
   mkdir -p coverage
   cargo llvm-cov report -p dex-sdk --lcov --output-path coverage/lcov.info
@@ -116,6 +115,5 @@ else
     --test flow_service_tls \
     -- \
     --ignored \
-    --skip test_subflow_partial_results_survive_continue_as_new_without_restart \
     --test-threads=1
 fi

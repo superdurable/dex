@@ -13,6 +13,7 @@
 import { FlowNotActiveOrNotFoundError, FlowNotFoundError, type Client } from "@superdurable/dex";
 
 import type { AgentFrameworkRunner, DeferredToolOutcome } from "./agent-framework-runner.js";
+import { validateImageReferences } from "./agent-media.js";
 import type { AgentSessionFlow } from "./agent-session-flow.js";
 import type { AgentSnapshot, AgentUserMessage } from "./agent-session-values.js";
 
@@ -119,8 +120,10 @@ function mayHideSessionFailure(snapshot: AgentSnapshot): boolean {
  * @param client - An open Client whose Registry contains `flow`.
  * @param flow - The registered agent session Flow.
  * @param sessionId - Running session.
- * @param message - The user message.
- * @returns `true` when queued; `false` for blank text, or for a `planMode` message when plan mode is off.
+ * @param message - The user message. Upload its {@link AgentUserMessage.images} with `MediaStore.putImage` first.
+ * @returns `true` when queued; `false` for blank text, for a `planMode` message when plan mode is off, or for images
+ * when the session's runner does not implement `buildUserMessageWithImages`.
+ * @throws {ImageValidationError} When `validateImageReferences` refuses the images; nothing is sent. Since 0.5.0.
  * @throws {@link AgentSessionFailedError} when the session failed. Its `reason` says why.
  * @throws {FlowNotActiveOrNotFoundError} When the session is not running.
  * @throws {DexServiceError} With `RESOURCE_EXHAUSTED` when the message does not fit under
@@ -132,6 +135,7 @@ export async function sendAgentUserMessage(
   sessionId: string,
   message: AgentUserMessage,
 ): Promise<boolean> {
+  validateImageReferences(message.images ?? []);
   try {
     return await client.invokeRPC(flow.sendUserMessage, sessionId, message);
   } catch (error) {

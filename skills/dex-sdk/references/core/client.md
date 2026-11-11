@@ -89,7 +89,6 @@ Attribute-match and Step-completion waits observe durable state. They are not an
 - The Server caps each transport wait internally; the SDK reattaches with the same Request ID without resetting the request timeout.
 - A wait's Request ID is optional. A wait reads current committed state, so repeating it is safe.
 - Each waiting call holds a wait slot on the Flow only while it waits. Keep concurrent waiters per Flow bounded; the Server rejects waits beyond its limits with RESOURCE_EXHAUSTED.
-- Leave any deprecated internal handler timeout unset.
 - Attribute waits target the active run. If the Flow can close before the wait attaches, handle the error through authoritative state.
 
 Attribute match:

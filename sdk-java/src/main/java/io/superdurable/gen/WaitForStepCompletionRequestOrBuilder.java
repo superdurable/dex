@@ -67,17 +67,7 @@ public interface WaitForStepCompletionRequestOrBuilder extends
 
   /**
    * <pre>
-   * Deprecated: Dex rejects a negative value and otherwise ignores this field.
-   * </pre>
-   *
-   * <code>int32 internal_handler_timeout_seconds = 5;</code>
-   * @return The internalHandlerTimeoutSeconds.
-   */
-  int getInternalHandlerTimeoutSeconds();
-
-  /**
-   * <pre>
-   * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+   * Optional request identifier. The Server does not read it for this wait.
    * </pre>
    *
    * <code>string request_id = 6;</code>
@@ -86,7 +76,7 @@ public interface WaitForStepCompletionRequestOrBuilder extends
   java.lang.String getRequestId();
   /**
    * <pre>
-   * Optional logical idempotency key. Empty derives wait-for-step-completion:{Step execution ID}.
+   * Optional request identifier. The Server does not read it for this wait.
    * </pre>
    *
    * <code>string request_id = 6;</code>

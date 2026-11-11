@@ -219,18 +219,6 @@ func smallWaitForFastTest() {
 	}
 }
 
-func minimumContinueAsNewAsyncDurabilityConfig() *dexpb.FlowConfig {
-	config := asyncDurabilityConfig()
-	config.ContinueAsNewThreshold = ptr.Any(int32(1))
-	return config
-}
-
-func minimumContinueAsNewSyncDurabilityConfig() *dexpb.FlowConfig {
-	config := syncDurabilityConfig()
-	config.ContinueAsNewThreshold = ptr.Any(int32(1))
-	return config
-}
-
 func asyncDurabilityConfig() *dexpb.FlowConfig {
 	return &dexpb.FlowConfig{
 		StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
@@ -245,11 +233,9 @@ func syncDurabilityConfig() *dexpb.FlowConfig {
 
 func copyFlowConfigForMutation(flowConfig *dexpb.FlowConfig) *dexpb.FlowConfig {
 	return &dexpb.FlowConfig{
-		ActiveStepSearchMode:         flowConfig.ActiveStepSearchMode,
-		ContinueAsNewThreshold:       flowConfig.ContinueAsNewThreshold,
-		ContinueAsNewPageSizeInBytes: flowConfig.ContinueAsNewPageSizeInBytes,
-		StepDurability:               flowConfig.StepDurability,
-		WorkerTarget:                 flowConfig.WorkerTarget,
+		ActiveStepSearchMode: flowConfig.ActiveStepSearchMode,
+		StepDurability:       flowConfig.StepDurability,
+		WorkerTarget:         flowConfig.WorkerTarget,
 	}
 }
 
@@ -401,7 +387,6 @@ func assertSearchFlows(
 	flowClient dexpb.FlowServiceClient,
 	query string,
 	expectedCount int,
-	includeContinuedAsNew bool,
 ) {
 	t.Helper()
 	assertions := require.New(t)
@@ -409,9 +394,8 @@ func assertSearchFlows(
 
 	if expectedCount == 0 {
 		searchResp, err := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-			IncludeContinuedAsNew: includeContinuedAsNew,
-			Query:                 query,
-			PageSize:              2,
+			Query:    query,
+			PageSize: 2,
 		})
 		require.NoError(t, err)
 		assertions.Empty(searchResp.GetFlowRuns(), "expected zero results for query %v", query)
@@ -423,10 +407,9 @@ func assertSearchFlows(
 	currentCount := 0
 	for currentCount < expectedCount {
 		searchResp, err := flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-			IncludeContinuedAsNew: includeContinuedAsNew,
-			Query:                 query,
-			PageSize:              2,
-			NextPageToken:         nextPageToken,
+			Query:         query,
+			PageSize:      2,
+			NextPageToken: nextPageToken,
 		})
 		require.NoError(t, err)
 
@@ -442,10 +425,9 @@ func assertSearchFlows(
 			if searchResp.GetNextPageToken() != "" {
 				nextPageToken = searchResp.GetNextPageToken()
 				searchResp, err = flowClient.SearchFlows(ctx, &dexpb.SearchFlowsRequest{
-					IncludeContinuedAsNew: includeContinuedAsNew,
-					Query:                 query,
-					PageSize:              2,
-					NextPageToken:         nextPageToken,
+					Query:         query,
+					PageSize:      2,
+					NextPageToken: nextPageToken,
 				})
 				require.NoError(t, err)
 				assertions.Empty(t, searchResp.GetFlowRuns())

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Breaking change:** Removed `Client::trigger_continue_as_new`,
+  `FlowStatus::ContinuedAsNew`, `FlowConfig::continue_as_new_threshold`,
+  `FlowConfig::continue_as_new_page_size_bytes`, `SearchFlowsOptions`, and
+  `Client::search_flows_with_options`. Use `Client::search_flows_page` for
+  pagination.
+
+- **Breaking change:** Removed
+  `WaitForStepCompletionOptions::internal_handler_timeout` and
+  `WaitForAttributeOptions::internal_handler_timeout`. Request IDs remain
+  accepted, but the server does not read them for these waits.
+
+- **Breaking change:** `dex-protocol` renames `FlowExecutionId` to `FlowRunId`
+  and `flow_execution_id` to `flow_run_id`. ProtoJSON uses `flowRunId`.
+
 - Add `FlowConfig::offload_history` to choose whether a run offloads its history
   to object storage. Omitting it means `true`. Pass `false` for many short runs
   that close soon, to avoid object storage requests. Set it at start through

@@ -122,7 +122,7 @@ def test_flow_config_override() -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("config-override")
         options = StartFlowOptions(
-            config_override=FlowConfig(continue_as_new_threshold=1)
+            config_override=FlowConfig(history_window_events=2500)
         )
         environment.client.start_flow(flow, flow_id, 0, options)
         assert (

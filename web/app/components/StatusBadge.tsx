@@ -9,7 +9,6 @@
 import {
   Activity,
   Ban,
-  CircleArrowRight,
   CircleCheck,
   CircleHelp,
   CircleX,
@@ -27,8 +26,6 @@ const statusIcons: Record<string, LucideIcon> = {
   timedout: TimerOff,
   terminated: OctagonX,
   canceled: Ban,
-  'continued-as-new': CircleArrowRight,
-  continuedasnew: CircleArrowRight,
 };
 
 /** Shows a Flow status as text with a matching icon, so color is never the only signal. */

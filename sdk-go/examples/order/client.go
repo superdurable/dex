@@ -251,8 +251,7 @@ func updateOrderConfig(
 		ctx,
 		flowID,
 		dex.FlowConfig{
-			ContinueAsNewThreshold: ptr.Any(int32(100)),
-			StepDurability:         ptr.Any(dex.StepDurabilityAsync),
+			StepDurability: ptr.Any(dex.StepDurabilityAsync),
 		},
 	)
 }
@@ -270,14 +269,6 @@ func waitForOrderStep(
 		},
 		dex.WaitForStepCompletionOptions{RequestID: uuid.NewString(), RequestTimeout: 10 * time.Second},
 	)
-}
-
-func continueOrderAsNew(
-	ctx context.Context,
-	client *dex.Client,
-	flowID string,
-) error {
-	return client.TriggerContinueAsNew(ctx, flowID)
 }
 
 func checkHealth(

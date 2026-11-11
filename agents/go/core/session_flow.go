@@ -451,8 +451,10 @@ func (flow *AgentSessionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 //
 // It returns true when the message was queued, and false for whitespace-only
 // text or a message with PlanMode set, because this Go core has no plan mode.
+// It also returns false for a message with images, because this Go core has no
+// image input.
 func (flow *AgentSessionFlow) SendUserMessage(ctx dex.Context, input AgentUserMessage) (*dex.RPCResult[bool], error) {
-	if isBlankText(input.Text) || input.PlanMode {
+	if isBlankText(input.Text) || input.PlanMode || len(input.Images) > 0 {
 		return &dex.RPCResult[bool]{Output: false}, nil
 	}
 	if err := QueuedUserMessagesChannel.Publish(ctx, input); err != nil {

@@ -385,12 +385,6 @@ pub(crate) fn apply_flow_config_update(
     if update.active_step_search_mode.is_some() {
         config.active_step_search_mode = update.active_step_search_mode;
     }
-    if update.continue_as_new_threshold.is_some() {
-        config.continue_as_new_threshold = update.continue_as_new_threshold;
-    }
-    if update.continue_as_new_page_size_in_bytes.is_some() {
-        config.continue_as_new_page_size_in_bytes = update.continue_as_new_page_size_in_bytes;
-    }
     if update.step_durability.is_some() {
         config.step_durability = update.step_durability;
     }

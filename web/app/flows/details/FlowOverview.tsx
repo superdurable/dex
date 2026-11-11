@@ -23,8 +23,6 @@ const sectionExpandByKey = new Map<string, boolean>();
 
 /** Deprecated Flow configuration fields that Dex stores but ignores. */
 const ignoredFlowConfigKeys = new Set([
-  'continueAsNewThreshold',
-  'continueAsNewPageSizeInBytes',
   'deleteExpiredHistoryObjects',
 ]);
 
@@ -110,9 +108,6 @@ export function FlowOverview({
   const closed = summary.flowStatus === 'Running'
     ? undefined
     : events.findLast((event) => event.type === 'FlowClosed');
-  const isContinuedStart = Boolean(started?.payload.continuedStart
-    && typeof started.payload.continuedStart === 'object'
-    && Object.keys(started.payload.continuedStart).length > 0);
   const [collapsedActiveStepIds, setCollapsedActiveStepIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -300,7 +295,7 @@ export function FlowOverview({
           <p className="overview-quiet overview-quiet-line">No queued steps · No completed outputs</p>
         )}
 
-        <OverviewSection title={isContinuedStart ? 'Continued start input' : 'Start input'}>
+        <OverviewSection title="Start input">
           {started ? (
             <div className="semantic-event">
               <SemanticEventDetails

@@ -991,12 +991,6 @@ final class WorkerDispatcher {
                     break;
             }
         }
-        if (config.getContinueAsNewThreshold() != null) {
-            mapped.setContinueAsNewThreshold(config.getContinueAsNewThreshold());
-        }
-        if (config.getContinueAsNewPageSizeBytes() != null) {
-            mapped.setContinueAsNewPageSizeInBytes(config.getContinueAsNewPageSizeBytes());
-        }
         if (config.getStepDurability() != null) {
             mapped.setStepDurability(mapDurability(config.getStepDurability()));
         }

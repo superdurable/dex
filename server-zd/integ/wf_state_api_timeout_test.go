@@ -25,7 +25,7 @@ func TestStateApiTimeoutTemporal(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestStateApiTimeout(t, nil)
 		smallWaitForFastTest()
-		doTestStateApiTimeout(t, minimumContinueAsNewSyncDurabilityConfig())
+		doTestStateApiTimeout(t, syncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }

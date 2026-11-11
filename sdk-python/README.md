@@ -898,13 +898,10 @@ buffered sets and deletes. The matching `ChannelMap` methods are RPC-only,
 include buffered publishes, and omit empty instances. Keys are decoded and
 sorted. Use `force_complete_if_channels_empty(...)` for conditional completion.
 
-Request IDs are optional for both durable waits. When omitted, the server
-derives a stable ID from the Step execution or Attribute condition. Reuse an
-override only for the same wait. `request_timeout` is the total SDK call budget
-across transparent transport reattachments. Zero waits indefinitely.
-A caller timeout or cancellation does not finish an accepted durable wait. Set `internal_handler_timeout` only when abandoned waits can accumulate. An active call transparently registers its wait again. Prefer a value comfortably longer than
-normal request timeouts and reconnect gaps. Zero disables timed rollover.
-Request expiry raises `RequestTimeoutError`.
+Request IDs are optional for both waits. The Server does not read them for these
+waits. `request_timeout` bounds the total SDK call across transport reattachments;
+zero waits indefinitely. A caller disconnect releases its wait slot.
+
 
 `Client.wait_for_flow` and `AsyncClient.wait_for_flow` return a
 `FlowResult` after hydrating every output-bearing completion. Use
@@ -1151,11 +1148,7 @@ It does not affect protocol compatibility.
 [Sustainable Use License 1.0](LICENSE), with legacy portions under their
 original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 
-## Search run inclusion
+## Search Flow runs
 
-Searches exclude runs with the ContinuedAsNew status by default. server-zd never reports that status. Application queries still
-need `FlowType` when using shared index slots. An explicit inclusion option
-removes only the default exclusion; it does not override query filters. Keep
-the query, inclusion option, and page size consistent across pages.
-
-Pass keyword-only `include_continued_as_new=True` to synchronous or asynchronous `search_flows` for execution-chain inspection. The default is `False`.
+Searches return runs that match the query. Include `FlowType` when using shared
+index slots, and keep the query and page size consistent across pages.

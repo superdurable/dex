@@ -10,6 +10,7 @@ import { jsonCodec, type Codec } from "@superdurable/dex";
 
 import type {
   AgentEvent,
+  AgentImageReference,
   AgentInterrupt,
   AgentInterruptKind,
   AgentInterruptResolution,
@@ -289,6 +290,38 @@ export function decodeAgentState(value: unknown): AgentState {
   };
 }
 
+export function encodeAgentImageReference(value: AgentImageReference): unknown {
+  return {
+    type: value.type,
+    uri: value.uri,
+    mime_type: value.mimeType,
+    sha256: value.sha256,
+    size_bytes: value.sizeBytes,
+  };
+}
+
+export function decodeAgentImageReference(value: unknown): AgentImageReference {
+  const reader = new WireRecordReader(value, "AgentImageReference");
+  return {
+    // Another type decodes as it is, so validateImageReference refuses it as Python does.
+    type: (reader.readNullableString("type") ?? "image") as "image",
+    uri: reader.readString("uri"),
+    mimeType: reader.readString("mime_type"),
+    sha256: reader.readString("sha256"),
+    sizeBytes: reader.readInteger("size_bytes"),
+  };
+}
+
+function encodeImages(images: readonly AgentImageReference[] | undefined): unknown[] {
+  return (images ?? []).map(encodeAgentImageReference);
+}
+
+/** Decodes an `images` field; decoded values omit it when there are none, as they do `planMode`. */
+function decodeImages(reader: WireRecordReader): { readonly images?: readonly AgentImageReference[] } {
+  const images = reader.readArrayOrEmpty("images").map(decodeAgentImageReference);
+  return images.length === 0 ? {} : { images };
+}
+
 export function encodeAgentMessage(value: AgentMessage): unknown {
   return {
     sequence: value.sequence,
@@ -301,6 +334,7 @@ export function encodeAgentMessage(value: AgentMessage): unknown {
     tool_output: value.toolOutput,
     framework_item: value.frameworkItem,
     created_at: value.createdAt,
+    images: encodeImages(value.images),
   };
 }
 
@@ -317,6 +351,7 @@ export function decodeAgentMessage(value: unknown): AgentMessage {
     toolOutput: reader.readNullableString("tool_output"),
     frameworkItem: reader.readString("framework_item"),
     createdAt: reader.readString("created_at"),
+    ...decodeImages(reader),
   };
 }
 
@@ -349,6 +384,7 @@ export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {
     write_queued: value.writeQueued ?? false,
     skipped: value.skipped ?? false,
     truncated_output_bytes: value.truncatedOutputBytes ?? null,
+    images: encodeImages(value.images),
   };
 }
 
@@ -382,6 +418,7 @@ export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
     skipped: reader.readBooleanOrDefault("skipped", false),
     truncatedOutputBytes: reader.readNullableInteger("truncated_output_bytes"),
     ...(traceContext === null ? {} : { traceContext }),
+    ...decodeImages(reader),
   };
   const toolSourceReference = reader.readNullableString("tool_source_reference");
   return toolSourceReference === null ? toolCall : { ...toolCall, toolSourceReference };
@@ -481,13 +518,13 @@ export function decodeAgentUsage(value: unknown): AgentUsage {
 }
 
 export function encodeAgentUserMessage(value: AgentUserMessage): unknown {
-  return { text: value.text, plan_mode: value.planMode ?? false };
+  return { text: value.text, plan_mode: value.planMode ?? false, images: encodeImages(value.images) };
 }
 
 export function decodeAgentUserMessage(value: unknown): AgentUserMessage {
   const reader = new WireRecordReader(value, "AgentUserMessage");
   const planMode = reader.readBooleanOrDefault("plan_mode", false);
-  return { text: reader.readString("text"), ...(planMode ? { planMode } : {}) };
+  return { text: reader.readString("text"), ...(planMode ? { planMode } : {}), ...decodeImages(reader) };
 }
 
 export function encodeAgentPlan(value: AgentPlan): unknown {

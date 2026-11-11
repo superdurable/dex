@@ -25,7 +25,7 @@ func TestStateApiFailAndProceedTemporal(t *testing.T) {
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestStateApiFailAndProceed(t, nil)
 		smallWaitForFastTest()
-		doTestStateApiFailAndProceed(t, minimumContinueAsNewSyncDurabilityConfig())
+		doTestStateApiFailAndProceed(t, syncDurabilityConfig())
 		smallWaitForFastTest()
 		doTestStateApiFailAndProceed(t, asyncDurabilityConfig())
 		smallWaitForFastTest()

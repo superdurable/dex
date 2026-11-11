@@ -144,6 +144,43 @@ func TestConnectorConnectionStoreRefusesStaleWriteAfterExternalCredentialWriteBa
 	}
 }
 
+func TestConnectorConnectionStoreKeepsExternalWriteBackWithTheSameAuthorizationID(t *testing.T) {
+	store, err := newConnectorConnectionStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.putCurrentForTest(testLocalConnectorConnection("github", "reviewer", "token-one", nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	authorizationID := requireConnectorTestAuthorizationID(t, store, "github", "reviewer")
+	external := readConnectorConnectionsFileForTest(t, store)
+	external.Connections[0].Credentials["access_token"] = json.RawMessage(`"token-refreshed"`)
+	holder := startConnectionsLockHolderForTest(t, store, &external)
+
+	waitContext, isWaiting := withConnectorConnectionsFileLockWaitObserverForTest(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- store.putLockedForTest(waitContext, testLocalConnectorConnection("gmail", "sender", "gmail-token", nil), "")
+	}()
+	awaitConnectorConnectionsFileLockWaitForTest(t, isWaiting)
+	holder.release(t)
+	if err := receiveConnectorWriteResultForTest(t, done); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, found, err := store.get("github", "reviewer")
+	if err != nil || !found {
+		t.Fatalf("found = %v, err = %v", found, err)
+	}
+	if string(stored.Credentials["access_token"]) != `"token-refreshed"` || stored.AuthorizationID != authorizationID {
+		t.Fatalf("record after the external write-back = %s / %q, want the refreshed token and %q",
+			stored.Credentials["access_token"], stored.AuthorizationID, authorizationID)
+	}
+	if got := requireConnectorTestAuthorizationID(t, store, "gmail", "sender"); got == authorizationID {
+		t.Fatal("two added connections share an authorizationId")
+	}
+}
+
 func TestConnectorConnectionStoreWriteTimesOutWhileExternalLockIsHeld(t *testing.T) {
 	store, err := newConnectorConnectionStore(t.TempDir())
 	if err != nil {

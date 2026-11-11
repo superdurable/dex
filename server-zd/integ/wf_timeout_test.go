@@ -34,7 +34,7 @@ func TestFlowTimeoutTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestFlowTimeout(t, nil, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED)
 		smallWaitForFastTest()
-		doTestFlowTimeout(t, minimumContinueAsNewSyncDurabilityConfig(), dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL)
+		doTestFlowTimeout(t, syncDurabilityConfig(), dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL)
 		smallWaitForFastTest()
 		doTestFlowTimeout(t, nil, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL)
 		smallWaitForFastTest()

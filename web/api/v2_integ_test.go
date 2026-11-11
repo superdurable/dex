@@ -126,9 +126,9 @@ func (client *v2TestClient) GetFlowSummary(
 		flowType = "RefundFlow"
 	}
 	return &dexpb.GetFlowSummaryResponse{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: request.GetFlowId(), RunId: "current-run"},
-		FlowType:        flowType,
-		FlowStatus:      flowStatus,
+		FlowRunId:  &dexpb.FlowRunID{FlowId: request.GetFlowId(), RunId: "current-run"},
+		FlowType:   flowType,
+		FlowStatus: flowStatus,
 	}, nil
 }
 

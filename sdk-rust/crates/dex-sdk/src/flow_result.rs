@@ -108,10 +108,7 @@ impl FlowResult {
 
     /// Returns whether the observed run can no longer execute.
     pub fn is_terminal(&self) -> bool {
-        !matches!(
-            self.status,
-            FlowStatus::Running | FlowStatus::ContinuedAsNew
-        )
+        !matches!(self.status, FlowStatus::Running)
     }
 
     /// Returns output-bearing completions in server collection order.

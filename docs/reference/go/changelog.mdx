@@ -12,6 +12,12 @@ This page lists user-visible changes to the Go SDK, newest first; each section c
 
 Not released yet. The next minor release, sdk-go/v1.43.0, ships these changes.
 
+### Breaking
+
+- Removed **Client.TriggerContinueAsNew**, **FlowContinuedAsNew**, **FlowConfig.ContinueAsNewThreshold**, **FlowConfig.ContinueAsNewPageSizeBytes**, **SearchFlowsOptions**, **Client.SearchFlowsWithOptions**, and **IncludeContinuedAsNew**. Use **Client.SearchFlows** for run searches. [Reference](/reference/go/flow#flow-config).
+- Removed **WaitForStepCompletionOptions.InternalHandlerTimeout** and **WaitForAttributeOptions.InternalHandlerTimeout**. **RequestID** remains accepted but the server does not read it for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **FlowExecutionId** to **FlowRunId** on response and history messages. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
+
 ### Added
 
 - **NewStandaloneContext** and **StandaloneContextOptions** create a **Context** for running Step code outside a Worker, such as in a tool server or a test. The caller supplies the metadata, including the required **Attempt**, and seeds the last heartbeat value and step-execution locals. The **OnRecordHeartbeat**, **OnSetStepExecutionLocal**, and **OnRecordEvent** hooks receive what the Step code records, so the caller can persist it. [API reference](pathname:///api/go/latest/dex/#type-standalonecontextoptions).

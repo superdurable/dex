@@ -4,8 +4,9 @@ Each `v<N>` directory holds object storage contents and the committed state that
 version wrote. Every later version must decode them, restore them, and replay them to the same
 state, as the Beta compatibility rule requires for persisted data.
 
-Before server-zd 1.0, regenerate `v1` with its generator when apply results change and update
-its pin. From 1.0 on, recorded versions are immutable: never edit, regenerate, or delete a
+Before server-zd 1.0, regenerate the newest version with its generator when apply results
+change and update its pin. `v1` stays frozen: it holds the FlowConfig fields 2 and 3 that #1072
+removed, and its replay restores them before the comparison. From 1.0 on, recorded versions are immutable: never edit, regenerate, or delete a
 `v<N>` directory. Add the next number instead. Never hand-edit generated testdata.
 
 ## What the tests check
@@ -28,12 +29,12 @@ against every `v<N>` directory:
 - It records the workload twice and requires identical bytes, so the generator stays usable.
 - It records the workload into a temporary directory. The result must match the newest version's
   `objects/` and `state.txt` byte for byte. A change to the bytes the engine writes for this
-  workload fails this test. That is not a flake: regenerate `v1` before 1.0, or add a new version
-  afterward. Older versions stay protected by their pins and the replay tests.
+  workload fails this test. That is not a flake: regenerate the newest version before 1.0, or
+  add a new version afterward. Older versions stay protected by their pins and the replay tests.
 
 A replay difference after 1.0 is a compatibility break. Fix the code, never the recorded data.
 A change to the result of applying an already committed command needs a new behavior version
-after 1.0. Before 1.0, regenerate `v1` when apply results change.
+after 1.0. Before 1.0, regenerate the newest version when apply results change.
 
 ## Layout of a version
 
