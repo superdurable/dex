@@ -422,7 +422,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：最先到达的分支把控制传下去，并取消其他分支。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp29.php)。
 
-**Dex 实现**：拆分 Step 用 **Join** fork 各分支，汇合 Step 等待 **ForBranches** 取 1。它的 decision 取消分支 Step type 中属于它的 sibling 的 Step。**Fork** 在同一个 decision 里启动分支和汇合 Step，所以这些 sibling 正好是本轮的分支。
+**Dex 实现**：拆分 Step 用 **Join** fork 各分支，汇合 Step 等待 **ForBranches** 取 1。它的 decision 取消属于分支 Step type 的 sibling Step。**Fork** 在同一个 decision 里启动分支和汇合 Step，所以这些 sibling 正好是本轮的分支。
 
 **评级**：**+**。同一个汇合 Step 既触发又取消。被取消的分支永远不会上报结果。
 
@@ -482,7 +482,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：m 个实例运行。其中 n 个完成时，下一个任务开始，其余实例被取消。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp35.php)。
 
-**Dex 实现**：拆分 Step 用 **Join** fork m 个实例，汇合 Step 等待 **ForBranches** 取 n。它的 decision 取消实例 Step type 中属于它的 sibling 的 Step。
+**Dex 实现**：拆分 Step 用 **Join** fork m 个实例，汇合 Step 等待 **ForBranches** 取 n。它的 decision 取消属于实例 Step type 的 sibling Step。
 
 **评级**：**+**。与 WCP-32 相同，只是分支换成了实例。
 
