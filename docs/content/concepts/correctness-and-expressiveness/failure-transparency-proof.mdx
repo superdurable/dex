@@ -37,8 +37,8 @@ the same Flow without them. It has three parts.
   also produce it, by having no failure.
 - **The ending stays the same.** Take a whole run with failures. Remove the
   repeats. The result is a whole run without failures that ends the same way:
-  it completes, gets stuck, or keeps running. The reverse also holds, but only
-  when the client sends no **StartFlow** retry.
+  it completes, gets stuck, or keeps running. The reverse direction is proved
+  only when the client sends no **StartFlow** retry.
 
 A repeated effect is never new. It is an exact copy of an earlier effect of the
 same Step method.
