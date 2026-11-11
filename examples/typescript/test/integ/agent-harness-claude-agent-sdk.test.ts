@@ -55,14 +55,16 @@ registerOrderSupportScenarios({
     try {
       Object.assign(process.env, {
         ANTHROPIC_API_KEY: "sk-ant-test-worker-key",
+        ANTHROPIC_BASE_URL: "http://127.0.0.1:9/anthropic",
         ANTHROPIC_AUTH_TOKEN: "another-credential",
         CLAUDE_CODE_USE_BEDROCK: "1",
         PATH: "/usr/bin:/bin",
       });
       assert.deepEqual(
         Object.keys(buildClaudeCliEnvironment()).filter((name) => name.startsWith("ANTHROPIC") || name.startsWith("CLAUDE")),
-        ["ANTHROPIC_API_KEY"],
+        ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"],
       );
+      assert.equal(buildClaudeCliEnvironment().ANTHROPIC_BASE_URL, "http://127.0.0.1:9/anthropic");
       assert.equal(buildClaudeCliEnvironment().PATH, "/usr/bin:/bin");
     } finally {
       process.env = savedEnvironment;
