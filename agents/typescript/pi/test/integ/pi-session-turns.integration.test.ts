@@ -1,0 +1,547 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { after, before, describe, test } from "node:test";
+
+import type { Context } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@superdurable/dex-agents";
+import {
+  AgentSessionTestClient,
+  AgentTestEnvironment,
+  FileGate,
+  InvocationLog,
+  PrivateDexEngine,
+  executeCompletedEvent,
+  pollUntil,
+  readStepHistory,
+} from "@superdurable/dex-agents/testing";
+
+import { piAgentFunctionTool, piToolProgressEventType } from "../../src/index.js";
+import { FakeModelServer } from "../fixtures/fake-model-server.js";
+import { createPiTestAgentFlow } from "../fixtures/pi-test-agent.js";
+
+describe("Pi agents on the Stepwise session Flow with an in-process Worker", () => {
+  let engine: PrivateDexEngine;
+  let modelServer: FakeModelServer;
+  let environment: AgentTestEnvironment;
+  let sessions: AgentSessionTestClient;
+  let preparedSessions: AgentSessionTestClient;
+  let markerDirectory: string;
+  let anthropicModelId = "claude-fake-1";
+  const prepareRequestFailures = new Set<string>();
+
+  before(async () => {
+    engine = await PrivateDexEngine.start();
+    modelServer = await FakeModelServer.start();
+    markerDirectory = mkdtempSync(join(engine.stateDirectory, "markers-"));
+    const flow = createPiTestAgentFlow({
+      flowType: "PiTestAgent",
+      modelServerBaseUrl: modelServer.baseUrl,
+      markerDirectory,
+      anthropicModelId: () => anthropicModelId,
+    });
+    const preparedFlow = createPiTestAgentFlow({
+      flowType: "PiPreparedRequestAgent",
+      modelServerBaseUrl: modelServer.baseUrl,
+      markerDirectory,
+      prepareRequest: (context: Context, metadata) => {
+        const token = findSessionToken(context);
+        if (token !== undefined && prepareRequestFailures.delete(token)) {
+          throw new Error("prepareRequest failed on the first attempt");
+        }
+        context.messages.push({
+          role: "user",
+          content: `[prepared for ${metadata.turnId} attempt ${metadata.attempt}]`,
+          timestamp: 0,
+        });
+        return context;
+      },
+    });
+    environment = await AgentTestEnvironment.start({
+      serverAddress: engine.serverAddress,
+      flows: [flow, preparedFlow],
+      isWorkerInProcess: true,
+    });
+    sessions = new AgentSessionTestClient(environment.client, flow);
+    preparedSessions = new AgentSessionTestClient(environment.client, preparedFlow);
+  });
+
+  after(async () => {
+    await environment?.close();
+    await modelServer?.close();
+    await engine?.stop();
+  });
+
+  test("two Pi tools of one response run in parallel tool Steps, and their results reach the next model call", async () => {
+    const token = newToken();
+    const sessionId = `pi-parallel-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? {
+            text: "Checking. ",
+            toolCalls: [
+              { id: "call_lookup", name: "lookup_order", arguments: JSON.stringify({ order_id: `o-${token}` }) },
+              { id: "call_weather", name: "get_weather", arguments: JSON.stringify({ city: `Paris-${token}` }) },
+            ],
+            usage: { input: 10, output: 5, cacheRead: 4 },
+          }
+        : { text: "Order shipped and it is sunny.", usage: { input: 20, output: 7, cacheRead: 0 } },
+    );
+    await sessions.startSession(sessionId, `check ${token}`);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(snapshot.messages.map(describeMessage), [
+      `1 turn-1 user check ${token}`,
+      "2 turn-1 assistant Checking. ",
+      `3 turn-1 tool tool_result lookup_order order o-${token} shipped`,
+      `4 turn-1 tool tool_result get_weather sunny in Paris-${token}\n[image omitted: image/png]`,
+      "5 turn-1 assistant Order shipped and it is sunny.",
+    ]);
+    const storedItem = JSON.parse(snapshot.messages[1]?.frameworkItem ?? "null") as {
+      provider: string;
+      api: string;
+      item: string;
+      tool_calls: unknown[];
+    };
+    assert.equal(storedItem.api, "pi-ai");
+    assert.equal(storedItem.provider, "fake-openai");
+    assert.equal(storedItem.tool_calls.length, 2);
+    const envelope = JSON.parse(storedItem.item) as { format: number; piAiVersion: string; message: any };
+    assert.equal(envelope.format, 1);
+    assert.equal(envelope.piAiVersion, "1.5.1");
+    assert.equal(envelope.message.stopReason, "toolUse");
+    assert.deepEqual(snapshot.usage, {
+      modelCalls: 2,
+      inputTokens: 34,
+      outputTokens: 12,
+      cachedInputTokens: 4,
+      reasoningTokens: 0,
+    });
+    assert.deepEqual(await describeToolCalls(sessionId, ["call_lookup", "call_weather"]), [
+      ["lookup_order", "idempotent_write", false, "succeeded"],
+      ["get_weather", "read", false, "succeeded"],
+    ]);
+
+    const requests = modelServer.requests(token);
+    assert.equal(requests.length, 2);
+    assert.deepEqual(
+      requests[0]?.body["tools"].map((tool: { function: { name: string } }) => tool.function.name).slice(0, 4),
+      ["lookup_order", "get_weather", "fail_lookup", "send_email"],
+    );
+    assert.deepEqual(
+      requests[1]?.body["messages"].map((message: { role: string }) => message.role),
+      ["system", "user", "assistant", "tool", "tool"],
+    );
+    assert.deepEqual(
+      requests[1]?.body["messages"].slice(3).map((message: { content: string }) => message.content),
+      [`order o-${token} shipped`, `sunny in Paris-${token}\n[image omitted: image/png]`],
+    );
+    const progress = (await sessions.listAgentEvents(sessionId)).filter((event) => event.type === piToolProgressEventType);
+    assert.deepEqual(progress.map((event) => JSON.parse(event.payload)), [
+      { tool_call_id: "call_lookup", tool_name: "lookup_order", text: `looking up o-${token}` },
+    ]);
+    const stepTypes = await executedStepTypes(sessionId);
+    assert.deepEqual(stepTypes.slice(0, 2), ["StartAgentSession", "RunModel"]);
+    assert.deepEqual(stepTypes.slice(2, 4).sort(), ["CallTool", "CallTool"]);
+    assert.deepEqual(stepTypes.slice(4), ["ResumeTurn", "RunModel"]);
+  });
+
+  test("Anthropic thinking signatures replay byte for byte within a turn and in the next turn", async () => {
+    const token = newToken();
+    const sessionId = `pi-thinking-${token}`;
+    const signature = `sig-${token}-${"x".repeat(40)}+/=`;
+    modelServer.script(token, (_request, index) => {
+      switch (index) {
+        case 0:
+          return {
+            thinking: { text: "I should look it up.", signature },
+            toolCalls: [{ id: "toolu_1", name: "lookup_order", arguments: JSON.stringify({ order_id: `o-${token}` }) }],
+          };
+        case 1:
+          return { text: "It shipped." };
+        default:
+          return { thinking: { text: "Second turn.", signature: `${signature}-2` }, text: "Still shipped." };
+      }
+    });
+    await sessions.startSession(sessionId, `thinking ${token}`, {}, { model: "anthropic" });
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    assert.equal(await sessions.sendUserMessage(sessionId, `again ${token}`), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+
+    const requests = modelServer.requests(token);
+    assert.equal(requests.length, 3);
+    assert.equal(requests[0]?.body["thinking"]?.type, "enabled");
+    const expectedAssistant = [
+      { type: "thinking", thinking: "I should look it up.", signature },
+      { type: "tool_use", id: "toolu_1", name: "lookup_order", input: { order_id: `o-${token}` } },
+    ];
+    for (const request of requests.slice(1)) {
+      const assistant = request.body["messages"].find((message: { role: string }) => message.role === "assistant");
+      assert.deepEqual(stripCacheControl(assistant.content), expectedAssistant);
+    }
+    const lastMessages = requests[2]?.body["messages"] as { role: string; content: unknown[] }[];
+    assert.deepEqual(stripCacheControl(lastMessages[3]?.content), [{ type: "text", text: "It shipped." }]);
+    const reasoning = (await sessions.listAgentEvents(sessionId)).filter((event) => event.type === "reasoning_delta");
+    assert.deepEqual(reasoning.map((event) => JSON.parse(event.payload).text), ["I should look it up.", "Second turn."]);
+  });
+
+  test("a session that switches from Anthropic to OpenAI replays the Anthropic messages without their signatures", async () => {
+    const token = newToken();
+    const sessionId = `pi-switch-${token}`;
+    modelServer.script(token, (request) =>
+      request.format === "anthropic"
+        ? { thinking: { text: "Thinking first.", signature: `sig-${token}` }, text: "Anthropic answer." }
+        : { text: "OpenAI answer." },
+    );
+    await sessions.startSession(sessionId, `switch ${token}`, {}, { model: "anthropic" });
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    assert.equal(await sessions.updateSessionSettings(sessionId, { model: "openai" }), true);
+    assert.equal(await sessions.sendUserMessage(sessionId, `now openai ${token}`), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+
+    const requests = modelServer.requests(token);
+    assert.deepEqual(requests.map((request) => request.format), ["anthropic", "openai"]);
+    const openAiMessages = requests[1]?.body["messages"] as { role: string; content: unknown }[];
+    assert.deepEqual(openAiMessages.map((message) => message.role), ["system", "user", "assistant", "user"]);
+    assert.equal(openAiMessages[2]?.content, "Anthropic answer.");
+    assert.equal(JSON.stringify(requests[1]?.body).includes(`sig-${token}`), false);
+    assert.equal((await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text, "OpenAI answer.");
+  });
+
+  test("a Pi tool that throws reaches the model as a failed result and the session continues", async () => {
+    const token = newToken();
+    const sessionId = `pi-tool-error-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0 ? { toolCalls: [{ id: "call_fail", name: "fail_lookup", arguments: "{}" }] } : { text: "The warehouse is down." },
+    );
+    await sessions.startSession(sessionId, `fail ${token}`);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(await describeToolCalls(sessionId, ["call_fail"]), [["fail_lookup", "read", false, "failed"]]);
+    assert.equal(snapshot.messages.at(-1)?.text, "The warehouse is down.");
+    const toolMessage = modelServer.requests(token)[1]?.body["messages"].at(-1) as { role: string; content: string };
+    assert.equal(toolMessage.role, "tool");
+    assert.match(toolMessage.content, /warehouse offline/);
+  });
+
+  test("an HTTP 500 and a stream broken after text retry RunModel and store no partial reply", async () => {
+    const token = newToken();
+    const sessionId = `pi-model-retry-${token}`;
+    modelServer.script(token, (_request, index) => {
+      if (index === 0) {
+        return { isServerError: true };
+      }
+      if (index === 1) {
+        return { text: "partial answer", isCutBeforeStop: true };
+      }
+      return { text: "complete answer" };
+    });
+    await sessions.startSession(sessionId, `retry ${token}`);
+    const state = await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.equal(state.lastTurnError, null);
+
+    assert.equal(modelServer.requests(token).length, 3);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(snapshot.messages.map(describeMessage), [
+      `1 turn-1 user retry ${token}`,
+      "2 turn-1 assistant complete answer",
+    ]);
+    assert.equal(snapshot.usage.modelCalls, 1);
+    const runModelAttempts = (await readStepHistory(engine.serverAddress, sessionId)).filter(
+      (entry) => entry.stepType === "RunModel" && entry.eventType === executeCompletedEvent,
+    );
+    assert.equal(runModelAttempts.length, 1);
+  });
+
+  test("a stream broken after a complete tool call retries RunModel and never runs the tool", async () => {
+    const token = newToken();
+    const sessionId = `pi-cut-tool-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? {
+            toolCalls: [{ id: "call_email", name: "send_email", arguments: JSON.stringify({ to: `cut-${token}` }) }],
+            isCutBeforeStop: true,
+          }
+        : { text: "I did not send anything." },
+    );
+    await sessions.startSession(sessionId, `cut ${token}`);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(await describeToolCalls(sessionId, ["call_email"]), [[undefined, undefined, undefined, undefined]]);
+    assert.deepEqual(snapshot.pendingInterrupts, []);
+    assert.equal(snapshot.messages.at(-1)?.text, "I did not send anything.");
+    assert.equal(new InvocationLog(join(markerDirectory, "send_email.log")).names().some((name) => name.includes(token)), false);
+    assert.deepEqual(await executedStepTypes(sessionId), ["StartAgentSession", "RunModel"]);
+  });
+
+  test("cancelling the turn aborts the streaming provider request", async () => {
+    const token = newToken();
+    const sessionId = `pi-cancel-${token}`;
+    let releaseStream: () => void = () => undefined;
+    const streamHeld = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+    modelServer.script(token, () => ({ text: "thinking out loud", pauseAfterText: () => streamHeld }));
+    try {
+      await sessions.startSession(sessionId, `cancel ${token}`);
+      await pollUntil(
+        async () =>
+          (await sessions.listAgentEvents(sessionId)).some((event) => event.type === "text_delta") ? true : undefined,
+        { description: `text_delta in ${sessionId}` },
+      );
+      assert.equal(await sessions.cancelTurn(sessionId), true);
+      await pollUntil(() => (modelServer.requests(token)[0]?.isAbortedByClient === true ? true : undefined), {
+        description: "the provider request is aborted",
+      });
+      await sessions.waitForAgentState(
+        sessionId,
+        (state) => state.status === "waiting_for_user_message",
+        "the cancelled turn to end",
+      );
+    } finally {
+      releaseStream();
+    }
+    const events = await sessions.listAgentEvents(sessionId);
+    assert.equal(events.some((event) => event.type === "turn_cancelled"), true);
+  });
+
+  test("an unclassified Pi tool waits for resolve_interrupt before it runs", async () => {
+    const token = newToken();
+    const sessionId = `pi-approval-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? { toolCalls: [{ id: "call_delete", name: "delete_file", arguments: JSON.stringify({ path: `f-${token}` }) }] }
+        : { text: "Deleted." },
+    );
+    await sessions.startSession(sessionId, `delete ${token}`);
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "delete_file");
+    assert.equal(interrupt.kind, "tool_approval");
+    const deleteLog = new InvocationLog(join(markerDirectory, "delete_file.log"));
+    assert.equal(deleteLog.names().some((name) => name.includes(token)), false);
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    assert.deepEqual(deleteLog.names().filter((name) => name.includes(token)), [`f-${token} call_delete`]);
+    assert.deepEqual(await executedStepTypes(sessionId), [
+      "StartAgentSession",
+      "RunModel",
+      "AwaitToolApproval",
+      "CallSingleAttemptTool",
+      "ResumeTurn",
+      "RunModel",
+    ]);
+  });
+
+  test("prepareArguments repairs arguments before pi-ai validates them", async () => {
+    const token = newToken();
+    const sessionId = `pi-prepare-arguments-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? { toolCalls: [{ id: "call_rename", name: "rename_customer", arguments: JSON.stringify({ old_name: `n-${token}` }) }] }
+        : { text: "Renamed." },
+    );
+    await sessions.startSession(sessionId, `rename ${token}`);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const toolMessage = (await sessions.getAgentSnapshot(sessionId)).messages.find((message) => message.role === "tool");
+    assert.equal(toolMessage?.toolOutput, `renamed to n-${token}`);
+  });
+
+  test("a tool loop whose model changed mid-turn sends no thinking, and the next turn thinks again", async () => {
+    const token = newToken();
+    const sessionId = `pi-model-change-${token}`;
+    const gateName = `gated-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? {
+            thinking: { text: "Look it up.", signature: `sig-${token}` },
+            toolCalls: [{ id: "toolu_gated", name: "lookup_order", arguments: JSON.stringify({ order_id: gateName }) }],
+          }
+        : { text: `answer ${index}` },
+    );
+    try {
+      await sessions.startSession(sessionId, `change ${token}`, {}, { model: "anthropic" });
+      const gate = new FileGate(markerDirectory, gateName);
+      await gate.waitUntilReached();
+      anthropicModelId = "claude-fake-2";
+      gate.release();
+      await sessions.waitForCompletedTurns(sessionId, 1);
+      assert.equal(await sessions.sendUserMessage(sessionId, `next ${token}`), true);
+      await sessions.waitForCompletedTurns(sessionId, 2);
+    } finally {
+      anthropicModelId = "claude-fake-1";
+    }
+
+    const requests = modelServer.requests(token);
+    assert.deepEqual(requests.map((request) => request.body["model"]), ["claude-fake-1", "claude-fake-2", "claude-fake-2"]);
+    assert.equal(requests[0]?.body["thinking"]?.type, "enabled");
+    assert.notEqual(requests[1]?.body["thinking"]?.type, "enabled");
+    assert.equal(requests[2]?.body["thinking"]?.type, "enabled");
+  });
+
+  test("an AgentTool's replay gives its effect, and a tool with neither replay nor effect fails at definition", async () => {
+    const token = newToken();
+    const sessionId = `pi-effects-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? { toolCalls: [{ id: "call_email", name: "send_email", arguments: JSON.stringify({ to: `e-${token}` }) }] }
+        : { text: "Sent." },
+    );
+    await sessions.startSession(sessionId, `email ${token}`);
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    const waiting = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      waiting.toolCalls.map((toolCall) => [toolCall.toolName, toolCall.effect, toolCall.requiresApproval]),
+      [["send_email", "non_idempotent_write", true]],
+    );
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    assert.deepEqual(await executedStepTypes(sessionId), [
+      "StartAgentSession",
+      "RunModel",
+      "AwaitToolApproval",
+      "CallSingleAttemptTool",
+      "ResumeTurn",
+      "RunModel",
+    ]);
+
+    const undeclared = {
+      name: "undeclared",
+      description: "A tool without replay.",
+      parameters: { type: "object" },
+      execute: async () => ({ content: [], details: undefined }),
+    };
+    assert.throws(() => piAgentFunctionTool(undeclared), {
+      name: "TypeError",
+      message: /declares no replay, so pass its effect/,
+    });
+    assert.equal(piAgentFunctionTool(undeclared, { effect: "read" }).effect, "read");
+    assert.equal(piAgentFunctionTool({ ...undeclared, replay: "safe" }, { effect: "read" }).effect, "read");
+    assert.throws(() => piAgentFunctionTool({ ...undeclared, replay: "safe", executionMode: "sequential" }), {
+      name: "TypeError",
+      message: /sequential/,
+    });
+  });
+
+  test("prepareRequest changes only the request it prepares, and a failure retries RunModel", async () => {
+    const token = newToken();
+    const sessionId = `pi-prepare-request-${token}`;
+    prepareRequestFailures.add(token);
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? { toolCalls: [{ id: "call_lookup", name: "lookup_order", arguments: JSON.stringify({ order_id: `p-${token}` }) }] }
+        : { text: "Prepared answer." },
+    );
+    await preparedSessions.startSession(sessionId, `prepare ${token}`);
+    await preparedSessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    const requests = modelServer.requests(token);
+    assert.equal(requests.length, 2, "the failed attempt sent no request");
+    assert.deepEqual(
+      requests.map((request) =>
+        (request.body["messages"] as { role: string; content: unknown }[])
+          .filter((message) => typeof message.content === "string" && message.content.startsWith("[prepared"))
+          .map((message) => message.content),
+      ),
+      [["[prepared for turn-1 attempt 2]"], ["[prepared for turn-1 attempt 1]"]],
+    );
+    assert.equal(requests[1]?.body["messages"].at(-1).content, "[prepared for turn-1 attempt 1]");
+    const snapshot = await preparedSessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.some((message) => (message.text ?? "").includes("[prepared")), false);
+    assert.equal(snapshot.messages.at(-1)?.text, "Prepared answer.");
+  });
+
+  test("pi-durable tools: replay gives the effect, and api use and control fail visibly", async () => {
+    const token = newToken();
+    const sessionId = `pi-durable-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? {
+            toolCalls: [
+              { id: "call_forecast", name: "durable_forecast", arguments: JSON.stringify({ city: `Oslo-${token}` }) },
+              { id: "call_nested", name: "durable_nested_call", arguments: "{}" },
+              { id: "call_finish", name: "durable_finish_turn", arguments: "{}" },
+              { id: "call_charge", name: "durable_charge", arguments: JSON.stringify({ amount: `5-${token}` }) },
+            ],
+          }
+        : { text: "Mixed results." },
+    );
+    await sessions.startSession(sessionId, `durable ${token}`);
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "durable_charge");
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      await describeToolCalls(sessionId, ["call_forecast", "call_nested", "call_finish", "call_charge"]),
+      [
+        ["durable_forecast", "idempotent_write", false, "succeeded"],
+        ["durable_nested_call", "read", false, "failed"],
+        ["durable_finish_turn", "read", false, "failed"],
+        ["durable_charge", "non_idempotent_write", true, "succeeded"],
+      ],
+    );
+    const outputs = new Map(
+      snapshot.messages.filter((message) => message.role === "tool").map((message) => [message.toolName, message.toolOutput]),
+    );
+    assert.equal(outputs.get("durable_forecast"), `forecast for Oslo-${token}: rain`);
+    assert.match(outputs.get("durable_nested_call") ?? "", /used api\.executeTool, which is not supported on Dex/);
+    assert.match(outputs.get("durable_finish_turn") ?? "", /returned control \{"terminate":true\}, which is not supported on Dex/);
+    assert.equal(outputs.get("durable_charge"), `charged 5-${token}`);
+  });
+
+  /** Each call's name, effect, and approval from `tool_call_deferred`, and its final status from `tool_call_finished`. */
+  async function describeToolCalls(sessionId: string, toolCallIds: readonly string[]): Promise<unknown[]> {
+    const payloads = (await sessions.listAgentEvents(sessionId)).map((event) => ({
+      type: event.type,
+      payload: JSON.parse(event.payload) as Record<string, unknown>,
+    }));
+    const findPayload = (type: string, toolCallId: string) =>
+      payloads.find((event) => event.type === type && event.payload["tool_call_id"] === toolCallId)?.payload;
+    return toolCallIds.map((toolCallId) => {
+      const deferred = findPayload("tool_call_deferred", toolCallId);
+      const finished = findPayload("tool_call_finished", toolCallId);
+      return [deferred?.["tool_name"], deferred?.["effect"], deferred?.["requires_approval"], finished?.["status"]];
+    });
+  }
+
+  async function executedStepTypes(sessionId: string): Promise<string[]> {
+    return (await readStepHistory(engine.serverAddress, sessionId))
+      .filter((entry) => entry.eventType === executeCompletedEvent)
+      .map((entry) => entry.stepType);
+  }
+});
+
+function newToken(): string {
+  return randomUUID().slice(0, 8);
+}
+
+function findSessionToken(context: Context): string | undefined {
+  const first = context.messages.find((message) => message.role === "user");
+  const text = typeof first?.content === "string" ? first.content : "";
+  return text.split(" ")[1];
+}
+
+function describeMessage(message: AgentMessage): string {
+  const item = JSON.parse(message.frameworkItem) as { type: string };
+  const detail =
+    message.text ?? [item.type, message.toolName, message.toolOutput].filter((part) => part !== null).join(" ");
+  return `${message.sequence} ${message.turnId} ${message.role} ${detail}`;
+}
+
+/** Anthropic content blocks without pi-ai's prompt cache markers, which move to the newest message. */
+function stripCacheControl(content: unknown): unknown {
+  return (content as Record<string, unknown>[]).map(({ cache_control: _cacheControl, ...block }) => block);
+}
