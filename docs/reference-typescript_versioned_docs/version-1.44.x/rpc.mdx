@@ -1,0 +1,39 @@
+---
+id: rpc
+title: RPC
+sidebar_label: RPC
+---
+
+# RPC
+
+This page lists the TypeScript SDK names for [RPCs](/concepts/primitives/rpc).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [TypeScript SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | TypeScript API | Dex behavior |
+| --- | --- | --- |
+| Define an RPC handler | **@rpc** on a Flow method, or **declareRPCMethod** | [Flow definition](./flow.mdx#flow-definition) |
+| Set the durable RPC name | **name** of **RPCOptions**. It defaults to the method name. | [Flow definition](./flow.mdx#flow-definition) |
+| Set the RPC timeout | **timeoutMs** of **RPCOptions** | [RPC timeout](/reference/server/runtime-data#rpc-timeout) |
+| Lock Attributes for the whole call | **lockAttributes** of **RPCOptions** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Request transactional reads and writes without locks | **isTransactional** of **RPCOptions** | [Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes) |
+| Load AttributeMap values and Channel messages | **loadAttributeMaps**, **loadAttributeMapInstances**, **loadChannels**, **loadChannelMaps**, and **loadChannelMapInstances** of **RPCOptions** | [Selective state loading](/reference/server/runtime-data#load-collection-state) |
+| Return the output and start next Steps | **RPCResult**, with **output** and **nextSteps** | [RPCs](/reference/server/runtime-data#rpcs) |
+| Cancel running Steps | **cancelingSteps** of **RPCResult** | [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) |
+| Let a person invoke the RPC from Dex Web | **action** of **RPCOptions**, with **Action** | [Actions](/reference/web/dex-web#actions) |
+| Invoke the RPC from a Client | **Client.invokeRPC** | [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc) |
+| Lock or load map instances chosen at call time | **RPCInvokeOptions**, with **Client.invokeRPCWithOptions** | [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances) |
+
+**@rpc** and **declareRPCMethod** take the same **RPCOptions**.
+
+## RPC codecs {#rpc-codecs}
+
+TypeScript uses JSON when **inputCodec** or **outputCodec** is omitted. Provide
+a codec when the input or output is not JSON, including scalar values such as
+strings, numbers, booleans, and bigints.
+
+## Example {#example}
+
+Example: [examples/typescript/src/primitives/rpc/rpc-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/rpc/rpc-flow.ts)

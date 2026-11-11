@@ -1,0 +1,34 @@
+---
+id: attribute
+title: Attribute
+sidebar_label: Attribute
+---
+
+# Attribute
+
+This page lists the Java SDK names for [Attributes](/concepts/primitives/attribute).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Java SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Java API | Dex behavior |
+| --- | --- | --- |
+| Define a singleton Attribute | **Attribute.define** | [Attributes](/reference/server/runtime-data#attributes) |
+| Define an AttributeMap | **AttributeMap.define** | [Attributes](/reference/server/runtime-data#attributes) |
+| Declare it in the Flow | **PersistenceSchema.of**, returned from **getPersistenceSchema** | [Flow definition](./flow.mdx#flow-definition) |
+| Read, write, and delete a value in a Step or RPC | **get**, **set**, and **delete** | [Commits](./step.mdx#commit-boundary) |
+| Address one AttributeMap instance | **AttributeMap.instance**, or the instance key argument of **get**, **set**, and **delete** | [Attributes](/reference/server/runtime-data#attributes) |
+| Count AttributeMap instances and list their keys | **AttributeMap.getMapSize** and **AttributeMap.getAllInstanceKeys** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Load AttributeMap values for a method | **addWaitForLoadAttributeMap**, **addExecuteLoadAttributeMap**, and their instance variants of **StepOptions.Builder**, or **loadAttributeMaps** and **loadAttributeMapInstances** of **@RPC** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Lock a value for a read-modify-write | **AttributeLock.of**, with **addWaitForLock** and **addExecuteLock** of **StepOptions.Builder**, or **lockAttributes** and **lockAttributeMaps** of **@RPC** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Index a value for search | **AttributeIndex** and **AttributeIndex.Type**, passed to **define** | [Indexes](/reference/server/runtime-data#attribute-indexes) |
+| Project writes to an Attribute Store | **syncToAttributeStore** | [Attribute sync](/reference/server/attribute-store-sync) |
+| Store a value that can be erased | **hardDeleteOnNull** | [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes) |
+| Set a value when the Flow starts | **StartFlowOptions.Builder.addAttribute** | [Attributes at start](./start-flow-options.mdx#attributes) |
+| Read values from outside the Flow | **Client.getAttributes** | [Read Attributes](/reference/server/runtime-client#read-attributes) |
+| Wait until a value matches | **Client.waitForAttributeMatch**, with **AttributeMatch** | [Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match) |
+
+## Example {#example}
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java)

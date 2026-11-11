@@ -1,0 +1,38 @@
+---
+id: client
+title: Client
+sidebar_label: Client
+---
+
+# Client
+
+This page lists the Go SDK names for the [Client](/concepts/client).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Go SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Go API | Dex behavior |
+| --- | --- | --- |
+| Create a Client | **NewClient**, with **ClientOptions**. It returns a **Client**. | [Client requests](/reference/server/runtime-client) |
+| Start a Flow | **StartFlow**, with **StartFlowOptions** | [Start a Flow](/reference/server/runtime-client#start-a-flow) |
+| Invoke an RPC | **InvokeRPC** | [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc) |
+| Read Attributes | **GetAttributes** | [Read Attributes](/reference/server/runtime-client#read-attributes) |
+| Wait for a Flow to close | **WaitForFlow**, with **WaitForFlowOptions** | [Wait for a Flow](/reference/server/runtime-client#wait-for-a-flow) |
+| Wait for a Step execution to complete | **WaitForStepCompletion**, with **WaitForStepCompletionOptions** | [Wait for a Step](/reference/server/runtime-client#wait-for-a-step) |
+| Wait until an Attribute matches | **WaitForAttributeMatch**, with **WaitForAttributeOptions** | [Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match) |
+| Describe a Flow | **DescribeFlow** | [Describe a Flow](/reference/server/runtime-client#describe-a-flow) |
+| Search Flows | **SearchFlows** | [Search Flows](/reference/server/runtime-client#search-flows) |
+| Stop a Flow | **StopFlow**, with **StopOptions** | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+| Skip a Timer | **SkipTimer** | [Skip a Timer](/reference/server/runtime-client#skip-a-timer) |
+| Update FlowConfig | **UpdateFlowConfig** | [Update FlowConfig](./flow.mdx#update-flow-config-with-a-client) |
+| Write and read a Stream | **WriteStream**, **ReadStream**, and **ListStreamMessages** | [Stream](./stream.mdx) |
+| Time travel a Flow | **TimeTravel**, with **TimeTravelOptions** | [Time travel](/reference/server/runtime-client#time-travel) |
+| Handle a failed request | **ServiceError**, with **ErrorSubStatus** | [Client requests](/reference/server/runtime-client) |
+
+Every **Client** method that calls Dex Server takes a **context.Context** as
+its first argument. Canceling a wait ends the call. It does not stop the Flow.
+
+## Example {#example}
+
+Example: [examples/go/primitives/client-apis/controller.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/client-apis/controller.go)
