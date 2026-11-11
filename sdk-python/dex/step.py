@@ -429,11 +429,11 @@ class Step(Generic[InputT], ABC):
         .. versionchanged:: 1.28.0
            Several instances of a Step class can register with distinct Step types.
 
-        .. versionchanged:: 1.44.0
+        .. versionchanged:: 1.45.0
            A Step whose Step type contains ``-`` can no longer start SubFlows.
-           Its ``wait_for`` fails with :class:`dex.InvalidStepResultError` when
-           the returned Wait contains a SubFlow Condition. Rename the Step type
-           to start SubFlows from it.
+           When its returned Wait contains a SubFlow Condition, the server
+           rejects the result and fails the attempt without retry. Rename the
+           Step type to start SubFlows from it.
 
         Returns:
             A non-empty name unique within the containing Flow.

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import timedelta
 from typing import Any, cast
 
@@ -18,7 +19,6 @@ from dex import (
     AsyncContext,
     Context,
     Flow,
-    InvalidStepResultError,
     Registry,
     Step,
     StepDecision,
@@ -35,11 +35,6 @@ from dex._worker_dispatcher import WorkerDispatcher
 from dex.dexpb import dex_pb2 as pb
 
 DASHED_STEP_TYPE = "b-C"
-DASHED_STEP_TYPE_DETAIL = (
-    'Step type "b-C" contains "-" and cannot start SubFlows: the child Flow ID '
-    'joins the parent Flow ID, Step execution ID, and SubFlow index with "-", '
-    "so a dash makes it ambiguous. Rename the Step type."
-)
 
 
 class ChildStep(Step[None]):
@@ -156,18 +151,27 @@ async def _async_wait_for(step_type: str, input: str) -> pb.InvokeWaitForMethodR
     return outputs[-1].result
 
 
-def test_dashed_step_type_cannot_start_sub_flows() -> None:
-    with pytest.raises(InvalidStepResultError) as raised:
-        _wait_for(DASHED_STEP_TYPE, "sub-flow")
-    assert raised.value.step_type == DASHED_STEP_TYPE
-    assert raised.value.method == "wait_for"
-    assert raised.value.detail == DASHED_STEP_TYPE_DETAIL
+def test_dashed_step_type_sends_sub_flow_wait_unchanged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="dex._worker_dispatcher"):
+        response = _wait_for(DASHED_STEP_TYPE, "sub-flow")
+    sub_flows = response.waiting_condition.sub_flow_conditions
+    assert [sub_flow.sub_flow_type for sub_flow in sub_flows] == ["ChildFlow"]
+    assert any(
+        'Step type "b-C" contains "-"' in record.getMessage()
+        for record in caplog.records
+    )
 
 
-def test_dashed_step_type_can_wait_without_sub_flows() -> None:
-    response = _wait_for(DASHED_STEP_TYPE, "timer")
+def test_dashed_step_type_can_wait_without_sub_flows(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="dex._worker_dispatcher"):
+        response = _wait_for(DASHED_STEP_TYPE, "timer")
     assert len(response.waiting_condition.timer_conditions) == 1
     assert not response.waiting_condition.sub_flow_conditions
+    assert not caplog.records
 
 
 def test_dash_free_step_type_starts_sub_flows() -> None:
@@ -176,9 +180,7 @@ def test_dash_free_step_type_starts_sub_flows() -> None:
     assert [sub_flow.sub_flow_type for sub_flow in sub_flows] == ["ChildFlow"]
 
 
-def test_async_dashed_step_type_cannot_start_sub_flows() -> None:
-    with pytest.raises(InvalidStepResultError) as raised:
-        asyncio.run(_async_wait_for(DASHED_STEP_TYPE, "sub-flow"))
-    assert raised.value.detail == DASHED_STEP_TYPE_DETAIL
-    response = asyncio.run(_async_wait_for("StartChild", "sub-flow"))
-    assert len(response.waiting_condition.sub_flow_conditions) == 1
+def test_async_dashed_step_type_sends_sub_flow_wait_unchanged() -> None:
+    response = asyncio.run(_async_wait_for(DASHED_STEP_TYPE, "sub-flow"))
+    sub_flows = response.waiting_condition.sub_flow_conditions
+    assert [sub_flow.sub_flow_type for sub_flow in sub_flows] == ["ChildFlow"]

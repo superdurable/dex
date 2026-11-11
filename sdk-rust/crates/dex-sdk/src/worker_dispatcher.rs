@@ -38,7 +38,7 @@ use crate::rpc::encode_rpc_output;
 use crate::server_protocol::NegotiatedServerProtocolVersion;
 use crate::step::{StepDecisionKind, StepMovement};
 use crate::step_options::ErasedStepOptions;
-use crate::sub_flow::require_sub_flow_step_type;
+use crate::sub_flow::warn_dashed_sub_flow_step_type;
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::wait::{Condition, ConditionKind, Wait, WaitKind};
@@ -184,7 +184,7 @@ impl WorkerDispatcher {
             let handler_result = catch_handler_panic(|| {
                 let wait = flow.handler.wait_for(step.name, &mut context, &input)?;
                 map_wait(&registry, &flow, &negotiated_protocol_version, wait)
-                    .and_then(|condition| require_sub_flow_step_type(step.name, condition))
+                    .map(|condition| warn_dashed_sub_flow_step_type(step.name, condition))
                     .map_err(|error| {
                         HandlerError::invalid_step_result(
                             flow.name,

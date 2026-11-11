@@ -8,13 +8,17 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Python SDK, newest first; each section covers the changes since the previous release of this component.
 
-## 1.44 {#v1-44}
+## 1.45 {#v1-45}
 
-Not released yet. The next minor release, sdk-python/v1.44.0, ships these changes.
+Not released yet. The next minor release, sdk-python/v1.45.0, ships these changes.
 
 ### Breaking
 
-- A Step whose Step type contains "-" can no longer start SubFlows. A dash made the generated child Flow ID ambiguous, so two parents could share one child. The Worker now fails **wait_for** with **InvalidStepResultError** when such a Step returns a Wait that contains **SubFlow.run**, and the server rejects the result too. Default Step types are class names and are not affected. To migrate, change **get_step_type** to return a Step type without a dash. [Reference](/reference/python/subflow#step-types-that-start-subflows).
+- A Step whose Step type contains "-" can no longer start SubFlows. A dash made the generated child Flow ID ambiguous, so two parents could share one child. When such a Step returns a Wait that contains **SubFlow.run**, the server rejects the result as an invalid Worker response and fails the attempt without retry. The Worker logs a warning first. Default Step types are class names and are not affected. To migrate, change **get_step_type** to return a Step type without a dash. [Reference](/reference/python/subflow#step-types-that-start-subflows).
+
+## 1.44 {#v1-44}
+
+Not released yet. The next minor release, sdk-python/v1.44.0, ships these changes.
 
 ### Added
 

@@ -297,9 +297,9 @@ fn assert_ok(outcome: &ApplyOutcome) {
     );
 }
 
-/// Parents `a-b` (Step `C`) and `a` (Step `b-C`) would both derive `SubFlow:a-b-C-1-0`.
+/// Parents `a-b` (Step `C`) and `a` (Step `b-C`) would share `SubFlow:a-b-C-1-0`; no retry policy is set.
 #[test]
-fn a_step_type_with_a_dash_cannot_start_sub_flows() {
+fn a_step_type_with_a_dash_fails_its_wait_for_without_retry_instead_of_starting_sub_flows() {
     let mut harness = Harness::new();
     assert_ok(&harness.start_parent_and_complete_wait_for(
         "a-b",
@@ -320,6 +320,10 @@ fn a_step_type_with_a_dash_cannot_start_sub_flows() {
     );
     let step = harness.step("a", SECOND_PARENT_RUN, "b-C-1");
     assert_eq!(step.phase, StepExecutionPhase::Failed as i32);
+    assert!(
+        step.invocation.is_none(),
+        "the default retry policy schedules no retry"
+    );
     let record = harness.record("a", SECOND_PARENT_RUN);
     assert_eq!(record.status, FlowStatus::Failed as i32);
     let error_message = record.close.expect("the run is closed").error_message;

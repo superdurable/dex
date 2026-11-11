@@ -23,7 +23,8 @@ A Flow registers its Steps, its persistence schema, and its RPC handlers.
 
 Implement **getFlowType** and **getStepType** to supply the durable Flow type
 and Step type.
-A Step type that starts SubFlows must not contain "-". See
+A Step type that starts SubFlows must not contain "-". The server rejects such
+a SubFlow and fails the attempt without retry. See
 [Step types that start SubFlows](./subflow.mdx#step-types-that-start-subflows).
 
 ## FlowConfig {#flow-config}

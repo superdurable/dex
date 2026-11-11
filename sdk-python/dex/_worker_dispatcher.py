@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from inspect import isawaitable, isgenerator
 from typing import Any, Callable, Generator, cast
@@ -53,6 +54,8 @@ from dex.step import (
 from dex.wait import Wait, WaitKind
 
 _TIMEOUT_HANDLER_STEP_TYPE = "sys:timeout_handler"
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class WorkerDispatcher:
@@ -650,7 +653,11 @@ class WorkerDispatcher:
         else:
             raise ValueError("unsupported Wait kind")
         if mapper.sub_flows and "-" in step_type:
-            raise ValueError(_dashed_sub_flow_starter_detail(step_type))
+            _LOGGER.warning(
+                'Step type "%s" contains "-" and cannot start SubFlows; '
+                "the server fails this attempt without retry. Rename the Step type.",
+                step_type,
+            )
         waiting.timer_conditions.extend(mapper.timers)
         waiting.channel_conditions.extend(mapper.channels)
         waiting.sub_flow_conditions.extend(mapper.sub_flows)
@@ -978,15 +985,6 @@ class WorkerDispatcher:
         if seconds < 0 or not seconds.is_integer() or seconds > 2**31 - 1:
             raise ValueError("duration must be whole seconds within int32")
         return int(seconds)
-
-
-def _dashed_sub_flow_starter_detail(step_type: str) -> str:
-    return (
-        f'Step type "{step_type}" contains "-" and cannot start SubFlows: '
-        "the child Flow ID joins the parent Flow ID, Step execution ID, and "
-        'SubFlow index with "-", so a dash makes it ambiguous. '
-        "Rename the Step type."
-    )
 
 
 class _ConditionMapper:

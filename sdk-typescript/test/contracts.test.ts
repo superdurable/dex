@@ -393,7 +393,7 @@ test("SubFlows always send the exact pull Worker target with and without config 
   }
 });
 
-test("a Step type containing a dash cannot start SubFlows", async () => {
+test("a Step type containing a dash still sends its SubFlow WaitFor result for the server to reject", async () => {
   class DashChildStep implements Step<void> {
     public readonly inputCodec = voidCodec;
     public getStepType(): string { return "DashChildStep"; }
@@ -430,15 +430,17 @@ test("a Step type containing a dash cannot start SubFlows", async () => {
     flowType: parent.getFlowType(), stepType,
     stepInput: encodeValue(voidCodec, undefined),
   }));
-  await assert.rejects(invoke("b-C"), (failure: unknown) => {
-    assert.ok(failure instanceof InvalidStepResultError);
-    assert.equal(failure.stepType, "b-C");
-    assert.match(
-      failure.message,
-      /Step type "b-C" contains "-" and cannot start SubFlows: the child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash makes it ambiguous\. Rename the Step type\./,
-    );
-    return true;
-  });
+  const warnings: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args); };
+  try {
+    const dashedResult = await invoke("b-C");
+    assert.equal(dashedResult.waitingCondition?.subFlowConditions[0]?.subFlowType, "DashChildFlow");
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.equal(warnings.length, 1);
+  assert.match(String(warnings[0]?.[0]), /Step type "b-C" contains "-" and cannot start SubFlows/);
   const started = await invoke("bC");
   assert.equal(started.waitingCondition?.subFlowConditions[0]?.subFlowType, "DashChildFlow");
   const timed = await invoke("dash-timer");

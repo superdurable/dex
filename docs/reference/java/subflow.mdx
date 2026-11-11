@@ -26,13 +26,13 @@ them in the [Java SDK API reference](./index.mdx#api-reference).
 The generated child Flow ID is **SubFlow:\{parent Flow ID\}-\{Step execution ID\}-\{index\}**.
 The Step execution ID starts with the Step type. A Step whose Step type contains **-**
 cannot start SubFlows, because the dash would make the child Flow ID ambiguous. When
-**waitFor** of such a Step returns a **SubFlow.run** condition, the Worker fails the
-invocation with **InvalidStepResultException** and sends nothing to the server. The
-server rejects the same result as a non-retryable invalid Worker response. Steps that
-start no SubFlows may keep a dash in their Step type. To start SubFlows from the Step,
-rename its Step type, for example by overriding **getStepType**.
+**waitFor** of such a Step returns a **SubFlow.run** condition, the Worker sends the
+result and logs a warning. The server rejects the result as an invalid Worker response
+and fails the attempt without retry. With the default failure policy, the Flow fails.
+Steps that start no SubFlows may keep a dash in their Step type. To start SubFlows from
+the Step, rename its Step type, for example by overriding **getStepType**.
 
-Changed in 1.44.0: a Step whose Step type contains **-** can no longer start SubFlows.
+Changed in 1.45: a Step whose Step type contains **-** can no longer start SubFlows.
 
 ## Example {#example}
 

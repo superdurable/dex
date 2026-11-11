@@ -8,7 +8,7 @@
 
 use dex_protocol::dex::{SubFlowCondition, TimerCondition, WaitingCondition};
 
-use super::require_sub_flow_step_type;
+use super::warn_dashed_sub_flow_step_type;
 
 fn sub_flow_wait() -> Option<WaitingCondition> {
     Some(WaitingCondition {
@@ -22,29 +22,21 @@ fn sub_flow_wait() -> Option<WaitingCondition> {
 }
 
 #[test]
-fn dashed_step_type_cannot_start_sub_flows() {
-    let error = require_sub_flow_step_type("b-C", sub_flow_wait())
-        .expect_err("a dashed Step type must not start SubFlows");
+fn dashed_step_type_sends_sub_flows_unchanged_for_the_server_to_reject() {
+    let condition = warn_dashed_sub_flow_step_type("b-C", sub_flow_wait());
 
-    assert_eq!(
-        "Step type \"b-C\" contains \"-\" and cannot start SubFlows: the child Flow ID joins the \
-         parent Flow ID, Step execution ID, and SubFlow index with \"-\", so a dash makes it \
-         ambiguous. Rename the Step type.",
-        error.to_string()
-    );
+    assert_eq!(sub_flow_wait(), condition);
 }
 
 #[test]
-fn dash_free_step_type_starts_sub_flows() {
-    let condition = require_sub_flow_step_type("StartChildren", sub_flow_wait())
-        .expect("a dash-free Step type starts SubFlows")
-        .expect("waiting condition");
+fn dash_free_step_type_sends_sub_flows_unchanged() {
+    let condition = warn_dashed_sub_flow_step_type("StartChildren", sub_flow_wait());
 
-    assert_eq!(1, condition.sub_flow_conditions.len());
+    assert_eq!(sub_flow_wait(), condition);
 }
 
 #[test]
-fn dashed_step_type_without_sub_flows_is_accepted() {
+fn dashed_step_type_without_sub_flows_is_sent_unchanged() {
     let timer_wait = Some(WaitingCondition {
         timer_conditions: vec![TimerCondition {
             duration_seconds: 1,
@@ -53,13 +45,9 @@ fn dashed_step_type_without_sub_flows_is_accepted() {
         ..Default::default()
     });
 
-    let condition = require_sub_flow_step_type("wait-a-moment", timer_wait)
-        .expect("a dashed Step type may wait without SubFlows")
-        .expect("waiting condition");
-    assert_eq!(1, condition.timer_conditions.len());
-    assert!(
-        require_sub_flow_step_type("skip-wait", None)
-            .expect("skipping the wait is accepted")
-            .is_none()
+    assert_eq!(
+        timer_wait.clone(),
+        warn_dashed_sub_flow_step_type("wait-a-moment", timer_wait)
     );
+    assert!(warn_dashed_sub_flow_step_type("skip-wait", None).is_none());
 }

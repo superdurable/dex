@@ -796,7 +796,7 @@ class ConditionMapper {
         }),
       );
     } else {
-      requireSubFlowStartingStepType(this.stepType);
+      warnIfDashedStepTypeStartsSubFlow(this.stepType);
       const targetFlow = condition.subFlow;
       if (targetFlow === undefined) {
         throw new TypeError("SubFlow requires a target Flow");
@@ -839,13 +839,12 @@ function attributeWritesWithActionPermissionMappings(
   };
 }
 
-// Child Flow IDs join their parts with "-", so a dash in the Step type makes them ambiguous.
-function requireSubFlowStartingStepType(stepType: string): void {
+// The server owns this rule; it fails the attempt without retry.
+function warnIfDashedStepTypeStartsSubFlow(stepType: string): void {
   if (stepType.includes("-")) {
-    throw new TypeError(
-      `Step type "${stepType}" contains "-" and cannot start SubFlows: the child Flow ID joins ` +
-        `the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash makes it ` +
-        `ambiguous. Rename the Step type.`,
+    console.warn(
+      `Step type "${stepType}" contains "-" and cannot start SubFlows; the server will reject this ` +
+        `WaitFor result. Rename the Step type.`,
     );
   }
 }

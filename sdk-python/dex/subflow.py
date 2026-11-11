@@ -65,11 +65,11 @@ class SubFlow:
         names and contain no dash. Rename a Step type set by ``get_step_type``
         if it contains one.
 
-        .. versionchanged:: 1.44.0
-           The Worker rejects a Wait that contains a SubFlow Condition when the
-           returning Step's Step type contains ``-``. The Step's ``wait_for``
-           fails with :class:`dex.InvalidStepResultError` before anything is
-           sent to the server.
+        .. versionchanged:: 1.45.0
+           The server rejects a SubFlow started by a Step whose Step type
+           contains ``-``. It treats the Wait as an invalid Worker response and
+           fails the attempt without retry. The Worker logs a warning before it
+           sends the Wait.
 
         Args:
             flow: The exact target Flow instance registered by the Worker.
@@ -83,8 +83,6 @@ class SubFlow:
             ValueError: If the condition ID is invalid, or when the Worker maps a
                 Flow without a starting Step.
             FlowDefinitionError: When the Worker maps an unregistered Flow.
-            InvalidStepResultError: When the Worker maps the Condition for a Step
-                whose Step type contains ``-``.
             ValueMappingError: When the Worker cannot encode the child input.
         """
         resolved = options or SubFlowOptions()

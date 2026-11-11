@@ -46,8 +46,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.logging.Logger;
 
 final class WorkerDispatcher {
+    private static final Logger LOGGER = Logger.getLogger(WorkerDispatcher.class.getName());
     private static final String TIMEOUT_HANDLER_STEP_TYPE = "sys:timeout_handler";
 
     private final Registry registry;
@@ -333,7 +335,7 @@ final class WorkerDispatcher {
             throw new InvalidStepResultException(source + " returned an unsupported Wait kind");
         }
         if (!mapper.subFlows.isEmpty()) {
-            requireSubFlowStartingStepType(source, step.getName());
+            warnSubFlowFromDashedStepType(source, step.getName());
         }
         waiting.addAllTimerConditions(mapper.timers);
         waiting.addAllChannelConditions(mapper.channels);
@@ -341,14 +343,13 @@ final class WorkerDispatcher {
         return waiting.build();
     }
 
-    private static void requireSubFlowStartingStepType(
+    private static void warnSubFlowFromDashedStepType(
             final String source,
             final String stepType) {
         if (stepType.contains("-")) {
-            throw new InvalidStepResultException(source + ": Step type \"" + stepType
-                    + "\" contains \"-\" and cannot start SubFlows: the child Flow ID joins"
-                    + " the parent Flow ID, Step execution ID, and SubFlow index with \"-\","
-                    + " so a dash makes it ambiguous. Rename the Step type.");
+            LOGGER.warning(source + ": Step type \"" + stepType
+                    + "\" contains \"-\" and cannot start SubFlows; the server rejects this"
+                    + " WaitFor result without retry. Rename the Step type.");
         }
     }
 

@@ -8,13 +8,17 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the TypeScript SDK, newest first; each section covers the changes since the previous release of this component.
 
-## 1.44 {#v1-44}
+## 1.45 {#v1-45}
 
-Not released yet. The next minor release, sdk-typescript/v1.44.0, ships these changes.
+Not released yet. The next minor release, sdk-typescript/v1.45.0, ships these changes.
 
 ### Breaking
 
-- A Step whose Step type contains "-" can no longer start SubFlows. The generated child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash let two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the Worker reports an **InvalidStepResultError** before it sends anything to the server, and the server rejects it too. To migrate, rename the Step type that **getStepType** returns so it has no "-". Step types with "-" that never start SubFlows are unaffected. [Reference](/reference/typescript/subflow#step-types-that-start-subflows).
+- A Step whose Step type contains "-" can no longer start SubFlows. The generated child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash let two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the server rejects the result as an invalid Worker response and fails the attempt without retry; under the default policy the Flow fails. The Worker logs a warning that names the Step type. To migrate, rename the Step type that **getStepType** returns so it has no "-". Step types with "-" that never start SubFlows are unaffected. [Reference](/reference/typescript/subflow#step-types-that-start-subflows).
+
+## 1.44 {#v1-44}
+
+Not released yet. The next minor release, sdk-typescript/v1.44.0, ships these changes.
 
 ### Added
 

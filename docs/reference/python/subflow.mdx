@@ -23,7 +23,7 @@ them in the [Python SDK API reference](./index.mdx#api-reference).
 
 ## Step types that start SubFlows {#step-types-that-start-subflows}
 
-Since 1.44: a Step whose Step type contains "-" cannot start SubFlows.
+Changed in 1.45: a Step whose Step type contains "-" cannot start SubFlows.
 
 The generated child Flow ID is **SubFlow:\{parent Flow ID\}-\{Step execution ID\}-\{index\}**.
 The Step execution ID is **\{Step type\}-\{n\}**. Because the parts are joined with
@@ -33,10 +33,10 @@ parent **a-b** at Step type **C** and parent **a** at Step type **b-C** would bo
 
 The default Step type is the Step class name, which contains no dash. Only an
 override of **get_step_type** can add one. When such a Step returns a Wait that
-contains **SubFlow.run**, the Worker fails its **wait_for** with
-**InvalidStepResultError** before it sends anything to the server. The server
-also rejects such a result as an invalid Worker response and does not retry it.
-The Step can still wait on Timers and Channels.
+contains **SubFlow.run**, the server rejects the result as an invalid Worker
+response. It fails the attempt without retry, so the Flow fails under the
+default policy. The Worker sends the result unchanged and logs a warning that
+names the Step type. The Step can still wait on Timers and Channels.
 
 To migrate, rename the Step type so it contains no dash.
 

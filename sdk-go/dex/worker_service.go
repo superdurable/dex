@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
@@ -116,7 +117,7 @@ func (service *workerService) invokeWaitForMethod(
 	if err != nil {
 		return err
 	}
-	waiting, err := mapRegisteredWait(service.registry, flow, step.stepType, wait)
+	waiting, err := mapRegisteredWait(service.registry, flow, wait)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
 			FlowType: flow.flowType,
@@ -124,6 +125,14 @@ func (service *workerService) invokeWaitForMethod(
 			Method:   "WaitFor",
 			Err:      err,
 		})
+	}
+	// The server rejects this result without retry; the SDK only warns.
+	if len(waiting.GetSubFlowConditions()) > 0 && strings.Contains(step.stepType, "-") {
+		service.logger.Warn(
+			"a Step type that contains \"-\" cannot start SubFlows; the server will fail this attempt without retry",
+			"flowType", flow.flowType,
+			"stepType", step.stepType,
+		)
 	}
 	attributeWrites, actionPermissionMappings :=
 		invocation.mappedAttributeWritesWithActionPermissionMappings()

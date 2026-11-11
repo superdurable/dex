@@ -100,10 +100,11 @@ func Timer(duration time.Duration, options ...ConditionOption) Condition {
 // Only a Step whose Step type contains no "-" can start SubFlows. The child Flow ID joins the
 // parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash makes it ambiguous.
 // Default Step types are Go type names and never contain "-"; only a GetStepType override can.
-// When such a Step returns a Wait with a SubFlow Condition, the Worker rejects the WaitFor result
-// with an InvalidStepResultError and sends nothing to the server. Rename the Step type to fix it.
+// When such a Step returns a Wait with a SubFlow Condition, the Worker logs a warning and sends the
+// WaitFor result unchanged. The server rejects it as an invalid Worker response and fails the
+// attempt without retry, so the Flow fails under the default policy. Rename the Step type to fix it.
 //
-// Changed in 1.44.0: a Step whose Step type contains "-" can no longer start SubFlows.
+// Changed in 1.45.0: a Step whose Step type contains "-" can no longer start SubFlows.
 //
 //	return dex.Until(dex.SubFlow(ChargeFlow{}, chargeInput)), nil
 func SubFlow(target Flow, input any, options ...SubFlowOptions) Condition {

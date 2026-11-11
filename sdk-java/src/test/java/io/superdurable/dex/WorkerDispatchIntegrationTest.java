@@ -313,31 +313,14 @@ final class WorkerDispatchIntegrationTest {
     }
 
     @Test
-    void rejectsSubFlowsFromStepTypesContainingDash() throws Exception {
+    void sendsSubFlowConditionsFromStepTypesContainingDash() throws Exception {
         final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
         try {
-            final InvokeWaitForMethodResponse dashFree = invokeWaitFor(
-                    running, waitRequest(concrete("subflow")));
-            assertEquals("BridgeFlow", dashFree.getWaitingCondition()
+            final InvokeWaitForMethodResponse dashed = invokeWaitFor(
+                    running, waitRequest("Bridge-SubFlowStep", concrete("subflow")));
+            assertEquals(1, dashed.getWaitingCondition().getTimerConditionsCount());
+            assertEquals("BridgeFlow", dashed.getWaitingCondition()
                     .getSubFlowConditions(0).getSubFlowType());
-
-            final InvokeWaitForMethodResponse dashedWithoutSubFlow = invokeWaitFor(
-                    running, waitRequest("Bridge-SubFlowStep", concrete("timer")));
-            assertEquals(1, dashedWithoutSubFlow.getWaitingCondition().getTimerConditionsCount());
-
-            final StatusRuntimeException failure = assertThrows(
-                    StatusRuntimeException.class,
-                    () -> invokeWaitFor(running,
-                            waitRequest("Bridge-SubFlowStep", concrete("subflow"))));
-            final WorkerErrorResponse details = StatusProto.fromThrowable(failure)
-                    .getDetails(0)
-                    .unpack(WorkerErrorResponse.class);
-            assertEquals(InvalidStepResultException.class.getName(), details.getErrorType());
-            assertTrue(details.getDetail().contains(
-                    "Step type \"Bridge-SubFlowStep\" contains \"-\" and cannot start SubFlows:"
-                            + " the child Flow ID joins the parent Flow ID, Step execution ID,"
-                            + " and SubFlow index with \"-\", so a dash makes it ambiguous."
-                            + " Rename the Step type."));
         } finally {
             running.close();
         }
@@ -1342,9 +1325,6 @@ final class WorkerDispatchIntegrationTest {
             }
             if ("empty-id".equals(input)) {
                 return Wait.allOf(commands.forOne(""));
-            }
-            if ("subflow".equals(input)) {
-                return Wait.allOf(SubFlow.run(BridgeFlow.class, "child"));
             }
             return Wait.skipImmediately();
         }

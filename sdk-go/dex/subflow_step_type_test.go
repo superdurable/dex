@@ -12,8 +12,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
@@ -98,13 +96,24 @@ func (dashedTimerStep) Execute(Context, None) (*StepDecision, error) {
 	return DeadEnd(), nil
 }
 
-func TestWorkerRejectsSubFlowFromDashedStepType(t *testing.T) {
-	client, closeService := newWorkerClientForFlows(
-		t,
-		[]Flow{subFlowStepTypeParentFlow{}, subFlowStepTypeChildFlow{}},
-		nil,
-	)
-	defer closeService()
+type recordingWarnLogger struct {
+	testLogger
+	warnings []string
+}
+
+func (logger *recordingWarnLogger) Warn(message string, _ ...any) {
+	logger.warnings = append(logger.warnings, message)
+}
+
+func TestWorkerSendsSubFlowFromDashedStepTypeToServer(t *testing.T) {
+	registered, err := NewRegistry([]Flow{subFlowStepTypeParentFlow{}, subFlowStepTypeChildFlow{}})
+	require.NoError(t, err)
+	serverProtocol := &negotiatedServerProtocol{}
+	serverProtocol.version.Store(maximumSupportedServerProtocolVersion)
+	logger := &recordingWarnLogger{}
+	client := &workerDispatchTestClient{
+		service: newWorkerService(registered, concreteValueHydrator{}, logger, serverProtocol),
+	}
 
 	waitFor := func(stepType string) ([]*dexpb.InvokeWaitForMethodOutput, error) {
 		return collectWaitForOutputs(client, &dexpb.InvokeWaitForMethodRequest{
@@ -116,12 +125,13 @@ func TestWorkerRejectsSubFlowFromDashedStepType(t *testing.T) {
 	}
 
 	outputs, err := waitFor("charge-order")
-	require.Empty(t, outputs)
-	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.ErrorContains(t, err,
-		`Step type "charge-order" contains "-" and cannot start SubFlows: the child Flow ID joins `+
-			`the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash makes it `+
-			`ambiguous. Rename the Step type`)
+	require.NoError(t, err)
+	require.Len(t, outputs, 1)
+	waiting := outputs[0].GetResult().GetWaitingCondition()
+	require.Len(t, waiting.GetSubFlowConditions(), 1)
+	require.Len(t, waiting.GetTimerConditions(), 1)
+	require.Len(t, logger.warnings, 1)
+	require.Contains(t, logger.warnings[0], "cannot start SubFlows")
 
 	outputs, err = waitFor(GetFinalStepType(subFlowStartingStep{}))
 	require.NoError(t, err)
@@ -132,15 +142,5 @@ func TestWorkerRejectsSubFlowFromDashedStepType(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, outputs, 1)
 	require.Len(t, outputs[0].GetResult().GetWaitingCondition().GetTimerConditions(), 1)
-}
-
-func TestValidateSubFlowStartingStepTypeChecksDashAndSubFlows(t *testing.T) {
-	err := validateSubFlowStartingStepType("b-C", &dexpb.WaitingCondition{
-		SubFlowConditions: []*dexpb.SubFlowCondition{{}},
-	})
-	require.ErrorContains(t, err, `Step type "b-C" contains "-"`)
-	require.NoError(t, validateSubFlowStartingStepType("bC", &dexpb.WaitingCondition{
-		SubFlowConditions: []*dexpb.SubFlowCondition{{}},
-	}))
-	require.NoError(t, validateSubFlowStartingStepType("b-C", &dexpb.WaitingCondition{}))
+	require.Len(t, logger.warnings, 1)
 }

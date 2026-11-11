@@ -8,7 +8,6 @@
 
 import type { Context } from "./context.js";
 import type { Flow } from "./flow.js";
-import type { InvalidStepResultError } from "./errors.js";
 import type { FlowResult } from "./flow-result.js";
 import { InvocationContext } from "./invocation-context.js";
 import type {
@@ -90,10 +89,12 @@ export const SubFlow = Object.freeze({
    * Only a Step whose Step type contains no "-" can start SubFlows.
    * The generated child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index
    * with "-", so a dash in the Step type would let two parents share one child.
-   * When a waitFor whose Step type contains "-" returns a SubFlow condition, the Worker reports
-   * an {@link InvalidStepResultError} and sends nothing to the server.
+   * When a waitFor whose Step type contains "-" returns a SubFlow condition, the server rejects
+   * the result as an invalid Worker response.
+   * It fails the attempt without retry, so under the default policy the Flow fails.
+   * The Worker logs a warning that names the Step type.
    * To fix it, rename the Step type returned by `getStepType`, for example from "b-C" to "bC".
-   * Changed in 1.44.0: a Step whose Step type contains "-" can no longer start SubFlows.
+   * Changed in 1.45.0: a Step whose Step type contains "-" can no longer start SubFlows.
    * @typeParam Input - Target starting Step input type.
    * @param flow - Exact target Flow instance registered by the Worker.
    * @param input - Input accepted by its starting Step.
