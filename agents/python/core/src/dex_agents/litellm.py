@@ -537,7 +537,7 @@ def _chat_messages(
     *,
     provider: str,
     api: str,
-    image_bytes: Mapping[str, bytes] | None,
+    image_bytes: Mapping[str, bytes] | None = None,
 ) -> list[dict[str, Any]]:
     """Return the Chat Completions messages; ``image_bytes=None`` leaves every image out."""
     messages: list[dict[str, Any]] = []
