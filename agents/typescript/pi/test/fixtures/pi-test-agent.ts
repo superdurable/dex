@@ -8,6 +8,7 @@
 
 import { join } from "node:path";
 
+import type { CompactionPolicy } from "@superdurable/dex-agents";
 import type { ModelClient } from "@superdurable/dex-agents/stepwise";
 import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
 import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
@@ -28,6 +29,9 @@ export const piTestModelServerVariable = "PI_TEST_MODEL_SERVER";
 /** Environment variable naming the marker directory for a Worker process. */
 export const piTestMarkerDirectoryVariable = "PI_TEST_MARKER_DIRECTORY";
 
+/** Characters added to the result of an order ID containing `huge`, to push a session over its window. */
+export const hugeOrderPaddingCharacters = 80_000;
+
 /** Flow type of the agent that the Worker process registers. */
 export const piWorkerKillFlowType = "PiWorkerKillAgent";
 
@@ -42,6 +46,7 @@ export interface PiTestAgentOptions {
   /** Model ID of the Anthropic model for each call, read on every call. */
   readonly anthropicModelId?: () => string;
   readonly prepareRequest?: PiAiModelClientOptions["prepareRequest"];
+  readonly compaction?: CompactionPolicy;
 }
 
 /** A Stepwise agent with Pi tools; session settings `model` picks `openai` (default) or `anthropic`. */
@@ -71,6 +76,7 @@ export function createPiTestAgentFlow(options: PiTestAgentOptions) {
       model: openAiModel,
       resolveModel: (settings) => (settings["model"] === "anthropic" ? resolveAnthropicModel() : openAiModel),
       modelSettings: { reasoningEffort: "medium" },
+      ...(options.compaction === undefined ? {} : { compaction: options.compaction }),
       tools: [
         piAgentFunctionTool(tools.lookupOrder()),
         piAgentFunctionTool(tools.getWeather(), { effect: "read" }),
@@ -102,7 +108,8 @@ class PiTestTools {
       execute: async (toolCallId, params: { order_id: string }, signal, onUpdate) => {
         await this.recordAndWait("lookup_order", toolCallId, params.order_id, signal);
         onUpdate?.(textResult(`looking up ${params.order_id}`));
-        return textResult(`order ${params.order_id} shipped`);
+        const padding = params.order_id.includes("huge") ? ` ${"x".repeat(hugeOrderPaddingCharacters)}` : "";
+        return textResult(`order ${params.order_id} shipped${padding}`);
       },
     };
   }

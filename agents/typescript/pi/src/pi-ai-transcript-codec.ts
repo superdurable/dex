@@ -40,6 +40,8 @@ type StoredAssistantMessage = Pick<
 interface StoredPiAiMessage {
   readonly format: typeof storedMessageFormat;
   readonly piAiVersion: string;
+  /** Set when the call ran without thinking because another model answered earlier in its tool loop. */
+  readonly thinkingDisabledInToolLoop?: true;
   readonly message: StoredAssistantMessage;
 }
 
@@ -51,11 +53,12 @@ export interface PiAiModelIdentity {
 }
 
 /** Serializes a response's content, identity, and token usage, with the running pi-ai version. */
-export function encodeStoredPiAiMessage(message: AssistantMessage): string {
+export function encodeStoredPiAiMessage(message: AssistantMessage, isThinkingDisabledInToolLoop: boolean): string {
   const { cost: _localCost, ...usage } = message.usage;
   const stored: StoredPiAiMessage = {
     format: storedMessageFormat,
     piAiVersion: PI_AI_VERSION,
+    ...(isThinkingDisabledInToolLoop ? { thinkingDisabledInToolLoop: true } : {}),
     message: {
       role: "assistant",
       content: message.content,
@@ -77,6 +80,18 @@ export function encodeStoredPiAiMessage(message: AssistantMessage): string {
  * @throws {TypeError} When the item is not an envelope this package wrote.
  */
 export function decodeStoredPiAiMessage(itemText: string): AssistantMessage {
+  return decodeStoredPiAiItem(itemText).message;
+}
+
+/** Whether a stored item records that its call ran without thinking for a model change in its tool loop. */
+export function isStoredThinkingDisabledInToolLoop(item: ModelOutputItem): boolean {
+  return item.api === piAiModelClientApi && decodeStoredPiAiItem(item.item).isThinkingDisabledInToolLoop;
+}
+
+function decodeStoredPiAiItem(itemText: string): {
+  readonly message: AssistantMessage;
+  readonly isThinkingDisabledInToolLoop: boolean;
+} {
   let stored: Partial<StoredPiAiMessage> | null;
   try {
     stored = JSON.parse(itemText) as Partial<StoredPiAiMessage> | null;
@@ -87,13 +102,20 @@ export function decodeStoredPiAiMessage(itemText: string): AssistantMessage {
   if (stored?.format !== storedMessageFormat) {
     throw new TypeError(unrecognizedItemMessage(storedVersion, `its format is ${JSON.stringify(stored?.format)}, not 1`));
   }
-  const problem = findStoredMessageProblem(stored.message);
+  const flag: unknown = stored.thinkingDisabledInToolLoop;
+  const problem =
+    flag === undefined || typeof flag === "boolean"
+      ? findStoredMessageProblem(stored.message)
+      : "thinkingDisabledInToolLoop is not a boolean";
   if (problem !== undefined) {
     throw new TypeError(unrecognizedItemMessage(storedVersion, problem));
   }
   const message = stored.message as StoredAssistantMessage;
   // Fixed values for the local fields pi-ai's type requires, so a replayed request never depends on a clock.
-  return { ...message, usage: { ...message.usage, cost: zeroCost() }, timestamp: 0 };
+  return {
+    message: { ...message, usage: { ...message.usage, cost: zeroCost() }, timestamp: 0 },
+    isThinkingDisabledInToolLoop: flag === true,
+  };
 }
 
 /** The pi-ai model of a stored item, or `undefined` when another client stored it. */

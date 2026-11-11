@@ -125,7 +125,8 @@ model call with one pi-ai `streamSimple` request, imported from
 `@earendil-works/pi-ai/compat`.
 
 - **One request per call.** pi-ai's client retries are off, so a retry is a
-  `RunModel` attempt that the Flow history shows.
+  `RunModel` attempt that the Flow history shows. Bedrock is the exception;
+  see Not supported.
 - **Live output.** Text streams as `text_delta` events and thinking as
   `reasoning_delta` events.
 - **Errors retry.** pi-ai ends every failed request with an error event
@@ -187,8 +188,10 @@ from an older or newer pi-ai with extra fields still replays.
 When another model answered earlier in the current tool loop, for example
 after a deploy changed the model during a turn, every later call of that loop
 sends no thinking level. Anthropic rejects thinking that does not start with
-the turn. The loop ends at the next user message; the calls after it think
-again.
+the turn. Each such response is stored with `"thinkingDisabledInToolLoop":
+true` in its envelope, so the loop keeps thinking off even after compaction
+removed the other model's output. The loop ends at the next user message; the
+calls after it think again.
 
 ## Tools
 
@@ -324,10 +327,12 @@ A compatibility layer for the `pi-durable` API is tracked in
   the tool again. Wrap such a tool with `effect: "non_idempotent_write"`
   instead of raising it by policy.
 - Bedrock retries inside one attempt: with pi-ai 1.5.1, the
-  `bedrock-converse-stream` API builds its AWS client without a retry limit and
-  ignores `maxRetries`, so one `RunModel` attempt may send up to three
-  requests, and Dex's retries multiply them. Model calls have no side effects,
-  so results stay correct; only latency and request counts grow.
+  `bedrock-converse-stream` API ignores `maxRetries` and leaves retries to the
+  AWS SDK, so one `RunModel` attempt may send several requests: 3 attempts by
+  default, as the AWS SDK configuration sets, such as `AWS_MAX_ATTEMPTS` or a
+  profile's `max_attempts`. Dex's `RunModel` retries multiply them. Model calls
+  have no side effects, so results stay correct; only latency and request
+  counts grow.
 - Images in tool results: each image becomes a text note.
 - `prepareArguments` before the schema check: the Stepwise runner checks raw
   arguments against `parameters` before the tool runs, so `prepareArguments`

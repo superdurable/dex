@@ -20,7 +20,6 @@ import { streamSimple } from "@earendil-works/pi-ai/compat";
 import { emptyAgentUsage, type AgentUsage } from "@superdurable/dex-agents";
 import type {
   ModelClient,
-  ModelInputItem,
   ModelOutputItem,
   ModelOutputWriter,
   ModelRequest,
@@ -31,6 +30,7 @@ import type {
 
 import {
   encodeStoredPiAiMessage,
+  isStoredThinkingDisabledInToolLoop,
   piAiModelClientApi,
   readMessageText,
   readModelToolCalls,
@@ -74,15 +74,20 @@ export interface PiAiModelClientOptions {
  * Creates a Stepwise {@link ModelClient} that makes each model call with pi-ai.
  *
  * Dex runs the agent loop: each model call is one `RunModel` Step and each tool call is its own Step. pi-ai only
- * talks to the provider. Each `callModel` makes exactly one `streamSimple` request, with pi-ai's client retries
- * off, so every retry is a `RunModel` attempt in the Flow history. Text and thinking stream to `AgentEvents` as
- * `text_delta` and `reasoning_delta` events while the call runs.
+ * talks to the provider. Each `callModel` makes one `streamSimple` request with pi-ai's client retries off, so every
+ * retry is a `RunModel` attempt in the Flow history. The exception is Bedrock (`bedrock-converse-stream`): pi-ai
+ * 1.5.1 ignores `maxRetries` there, so the AWS SDK retries inside one attempt, 3 attempts by default, as the AWS SDK
+ * configuration sets, such as `AWS_MAX_ATTEMPTS` or a profile's `max_attempts`. Text and thinking stream to
+ * `AgentEvents` as `text_delta` and `reasoning_delta` events while the call runs.
  *
- * The client stores each response as pi-ai's whole `AssistantMessage`, with thinking signatures, provider, API,
- * and model, plus the pi-ai version that produced it. It replays that message unchanged to every later model call,
- * whatever the model, because pi-ai converts messages between providers itself: it keeps thinking for the same
- * model and drops it for another. A stored message whose shape this pi-ai cannot read fails the model call with a
- * `TypeError` that names both pi-ai versions.
+ * The client stores each response as the replay fields of pi-ai's `AssistantMessage`: the content with thinking
+ * signatures; `api`, `provider`, and `model`; `stopReason`; `responseModel`, `responseId`, and
+ * `providerThinkingLevel` when pi-ai set them; and the token counts of `usage`. It also stores the pi-ai version
+ * that produced the response. Local telemetry, such as `timestamp`, `durationMs`, `usage.cost`, and diagnostics, is
+ * not stored. The client replays that message to every later model call, whatever the model, because pi-ai
+ * converts messages between providers itself: it keeps thinking for the same model and drops it for another. A
+ * stored message whose shape this pi-ai cannot read fails the model call with a `TypeError` that names both pi-ai
+ * versions and the field.
  *
  * Only a response that stops for tool use asks Dex to run tools. A response that ends with an error or an abort,
  * such as an HTTP 500 or a stream that broke after a complete tool call, throws, so Dex retries the `RunModel`
@@ -134,7 +139,8 @@ class PiAiModelClient implements ModelClient {
         throw new TypeError("prepareRequest must return a pi-ai context with a messages array");
       }
     }
-    const events = streamSimple(this.model, context, this.buildStreamOptions(request));
+    const isThinkingDisabledInToolLoop = this.isThinkingDisabledInToolLoop(request);
+    const events = streamSimple(this.model, context, this.buildStreamOptions(request, isThinkingDisabledInToolLoop));
     let finalMessage: AssistantMessage | undefined;
     let failedMessage: AssistantMessage | undefined;
     for await (const event of events) {
@@ -167,7 +173,7 @@ class PiAiModelClient implements ModelClient {
     if (finalMessage.stopReason === "deferred") {
       throw new Error("the pi-ai model call returned a deferred response, which Dex does not request");
     }
-    return this.toModelResponse(finalMessage);
+    return this.toModelResponse(finalMessage, isThinkingDisabledInToolLoop);
   }
 
   public estimateInputTokens(request: ModelRequest): number {
@@ -189,9 +195,9 @@ class PiAiModelClient implements ModelClient {
     };
   }
 
-  private buildStreamOptions(request: ModelRequest): SimpleStreamOptions {
+  private buildStreamOptions(request: ModelRequest, isThinkingDisabledInToolLoop: boolean): SimpleStreamOptions {
     const settings = request.settings;
-    const reasoning = this.resolveThinkingLevel(request);
+    const reasoning = isThinkingDisabledInToolLoop ? undefined : this.resolveThinkingLevel(request);
     // The thinking level comes only from reasoningEffort, so the model-change guard cannot be bypassed.
     const { reasoning: _ignoredReasoning, ...providerOptions } = (settings.providerOptions?.[this.model.provider] ??
       {}) as SimpleStreamOptions;
@@ -218,21 +224,24 @@ class PiAiModelClient implements ModelClient {
         `pi-ai supports reasoning efforts ${[thinkingOffEffort, ...thinkingLevels].join(", ")}, not ${reasoningEffort}`,
       );
     }
-    if (this.isContinuingToolLoopOfAnotherModel(request.inputItems)) {
-      return undefined;
-    }
     return reasoningEffort as ThinkingLevel;
   }
 
-  /** Whether this call continues a tool loop, since the last user text, in which another model answered. */
-  private isContinuingToolLoopOfAnotherModel(items: readonly ModelInputItem[]): boolean {
-    if (items.at(-1)?.type !== "tool_result") {
+  /** Whether a thinking call continues a tool loop where another model answered; the stored flag survives compaction. */
+  private isThinkingDisabledInToolLoop(request: ModelRequest): boolean {
+    const items = request.inputItems;
+    if (this.resolveThinkingLevel(request) === undefined || items.at(-1)?.type !== "tool_result") {
       return false;
     }
     const lastUserTextIndex = items.map((item) => item.type).lastIndexOf("user_text");
-    return items
+    const toolLoopOutputs = items
       .slice(lastUserTextIndex + 1)
-      .some((item) => item.type === "model_output" && !this.isOwnModelOutput(item));
+      .filter((item): item is ModelOutputItem => item.type === "model_output");
+    const latestOutput = [...items].reverse().find((item): item is ModelOutputItem => item.type === "model_output");
+    return (
+      toolLoopOutputs.some((item) => !this.isOwnModelOutput(item)) ||
+      (latestOutput !== undefined && isStoredThinkingDisabledInToolLoop(latestOutput))
+    );
   }
 
   private isOwnModelOutput(item: ModelOutputItem): boolean {
@@ -245,14 +254,14 @@ class PiAiModelClient implements ModelClient {
     );
   }
 
-  private toModelResponse(message: AssistantMessage): ModelResponse {
+  private toModelResponse(message: AssistantMessage, isThinkingDisabledInToolLoop: boolean): ModelResponse {
     const text = readMessageText(message);
     const toolCalls = readModelToolCalls(message);
     const outputItem: ModelOutputItem = {
       type: "model_output",
       provider: this.model.provider,
       api: piAiModelClientApi,
-      item: encodeStoredPiAiMessage(message),
+      item: encodeStoredPiAiMessage(message, isThinkingDisabledInToolLoop),
       text: text === "" ? null : text,
       toolCalls,
     };

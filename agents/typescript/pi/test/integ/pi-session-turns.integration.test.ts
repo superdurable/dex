@@ -14,7 +14,11 @@ import { after, before, describe, test } from "node:test";
 
 import type { Context } from "@earendil-works/pi-ai";
 import { outcomeUnknownToolResult, type AgentMessage } from "@superdurable/dex-agents";
-import { createStepwiseAgentSessionFlow, type ModelClient } from "@superdurable/dex-agents/stepwise";
+import {
+  contextSummaryRequest,
+  createStepwiseAgentSessionFlow,
+  type ModelClient,
+} from "@superdurable/dex-agents/stepwise";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -37,6 +41,7 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
   let sessions: AgentSessionTestClient;
   let preparedSessions: AgentSessionTestClient;
   let unknownItemSessions: AgentSessionTestClient;
+  let compactingSessions: AgentSessionTestClient;
   let markerDirectory: string;
   let anthropicModelId = "claude-fake-1";
   const prepareRequestFailures = new Set<string>();
@@ -68,6 +73,13 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
         return context;
       },
     });
+    const compactingFlow = createPiTestAgentFlow({
+      flowType: "PiCompactingAgent",
+      modelServerBaseUrl: modelServer.baseUrl,
+      markerDirectory,
+      anthropicModelId: () => anthropicModelId,
+      compaction: { contextWindowTokens: 20_000 },
+    });
     const unknownItemFlow = createStepwiseAgentSessionFlow(
       {
         name: "pi-unknown-item",
@@ -81,12 +93,13 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
     );
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
-      flows: [flow, preparedFlow, unknownItemFlow],
+      flows: [flow, preparedFlow, unknownItemFlow, compactingFlow],
       isWorkerInProcess: true,
     });
     sessions = new AgentSessionTestClient(environment.client, flow);
     preparedSessions = new AgentSessionTestClient(environment.client, preparedFlow);
     unknownItemSessions = new AgentSessionTestClient(environment.client, unknownItemFlow);
+    compactingSessions = new AgentSessionTestClient(environment.client, compactingFlow);
   });
 
   after(async () => {
@@ -458,6 +471,67 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
         ["claude-fake-2", true],
       ],
     );
+  });
+
+  test("thinking stays off in a tool loop after compaction removed the other model's output", async () => {
+    const token = newToken();
+    const sessionId = `pi-compacted-change-${token}`;
+    const gateName = `gated-huge-${token}`;
+    let agentCallCount = 0;
+    modelServer.script(token, (request) => {
+      if (JSON.stringify(request.body).includes(contextSummaryRequest)) {
+        return { text: `summary of the earlier work ${token}` };
+      }
+      agentCallCount += 1;
+      switch (agentCallCount) {
+        case 1:
+          return {
+            thinking: { text: "Look it up.", signature: `sig-${token}` },
+            toolCalls: [{ id: "toolu_huge", name: "lookup_order", arguments: JSON.stringify({ order_id: gateName }) }],
+          };
+        case 2:
+          return {
+            toolCalls: [{ id: "toolu_small", name: "lookup_order", arguments: JSON.stringify({ order_id: `small-${token}` }) }],
+          };
+        default:
+          return { text: `answer ${agentCallCount}` };
+      }
+    });
+    try {
+      await compactingSessions.startSession(sessionId, `compact ${token}`, {}, { model: "anthropic" });
+      const gate = new FileGate(markerDirectory, gateName);
+      await gate.waitUntilReached();
+      anthropicModelId = "claude-fake-2";
+      gate.release();
+      await compactingSessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+      assert.equal(await compactingSessions.sendUserMessage(sessionId, `next ${token}`), true);
+      await compactingSessions.waitForCompletedTurns(sessionId, 2, { timeoutMs: 120_000 });
+    } finally {
+      anthropicModelId = "claude-fake-1";
+    }
+
+    const requests = modelServer.requests(token);
+    const agentRequests = requests.filter((request) => !JSON.stringify(request.body).includes(contextSummaryRequest));
+    assert.ok(requests.length > agentRequests.length, "the session compacted");
+    assert.deepEqual(
+      agentRequests.map((request) => [request.body["model"], request.body["thinking"]?.type === "enabled"]),
+      [
+        ["claude-fake-1", true],
+        ["claude-fake-2", false],
+        ["claude-fake-2", false],
+        ["claude-fake-2", true],
+      ],
+    );
+    const thirdRequest = JSON.stringify(agentRequests[2]?.body);
+    assert.equal(thirdRequest.includes("toolu_huge"), false, "compaction removed the first model's output");
+    assert.equal(thirdRequest.includes("toolu_small"), true);
+    const storedFlags = (await compactingSessions.getAgentSnapshot(sessionId)).messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => {
+        const item = JSON.parse(message.frameworkItem) as { item: string };
+        return (JSON.parse(item.item) as { thinkingDisabledInToolLoop?: boolean }).thinkingDisabledInToolLoop ?? false;
+      });
+    assert.deepEqual(storedFlags, [false, true, true, false]);
   });
 
   test("an AgentTool's replay gives its effect, and a tool with neither replay nor effect fails at definition", async () => {
