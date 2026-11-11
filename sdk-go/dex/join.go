@@ -57,6 +57,10 @@ import (
 //   - A branch canceled before it reports never reports, so ForAllBranches waits forever. Cancel
 //     the join Step together with its branches, report a canceled result for the branch from the
 //     canceling RPC with ReportBranchResult, or combine the join Condition with a Timer in AnyOf.
+//   - A round whose branches were canceled cannot be fully reset: ForRemainingBranches waits for
+//     results that canceled branches never report. receivedCount never counts canceled branches.
+//     Reset such a round only after an RPC has reported a result for each canceled branch with
+//     ReportBranchResult. Otherwise a canceling join does not loop over the same Join.
 //   - When a join Step is canceled after its wait consumed results but before its Execute commits,
 //     what happens to those results depends on the server version. A server that returns consumed
 //     messages on cancellation puts them back at the front of the round's instance, so a new join
@@ -66,9 +70,17 @@ import (
 //     it, stay pending in the round's instance until the Flow closes. They do not block
 //     GracefulComplete.
 //
-// Example (two rounds that each accept two of three quotes):
+// Example (two rounds that each accept two of three quotes, as a complete package):
 //
+//	package quotes
+//
+//	import "github.com/superdurable/dex/sdk-go/dex"
+//
+//	// QuoteReceived collects one quote from each supplier branch.
 //	var QuoteReceived = dex.DefineJoin[string]("quoteReceived")
+//
+//	// SupplierReleased tells a supplier branch that its quote is ready.
+//	var SupplierReleased = dex.DefineChannelMap[dex.None]("supplierReleased")
 //
 //	type QuoteRequest struct {
 //		RequiredQuotes int            `json:"requiredQuotes"`
@@ -82,11 +94,28 @@ import (
 //		Round   dex.JoinRound `json:"round"`
 //	}
 //
+//	type SupplierQuoteInput struct {
+//		Supplier string        `json:"supplier"`
+//		Round    dex.JoinRound `json:"round"`
+//	}
+//
+//	type QuoteFlow struct{ dex.FlowDefaults }
+//
+//	func (QuoteFlow) GetSteps() []dex.StepDef {
+//		return []dex.StepDef{
+//			dex.DefineStartStep(RequestQuotes{}),
+//			dex.DefineStep(QuoteFromSupplier{}),
+//			dex.DefineStep(AcceptQuotes{}),
+//		}
+//	}
+//
 //	func (QuoteFlow) GetPersistenceSchema() dex.PersistenceSchema {
-//		return dex.PersistenceSchema{Channels: []dex.ChannelDef{QuoteReceived}}
+//		return dex.PersistenceSchema{Channels: []dex.ChannelDef{QuoteReceived, SupplierReleased}}
 //	}
 //
 //	// RequestQuotes is the split Step. Before round two it resets round one.
+//	type RequestQuotes struct{ dex.StepDefaults }
+//
 //	func (RequestQuotes) WaitFor(_ dex.Context, request QuoteRequest) (*dex.Wait, error) {
 //		if request.PreviousRound == nil {
 //			return dex.SkipWaitImmediately(), nil
@@ -104,28 +133,35 @@ import (
 //				return nil, err
 //			}
 //		}
-//		movements, err := QuoteReceived.Fork(ctx,
-//			[]func(dex.JoinRound) dex.StepMovement{
-//				func(round dex.JoinRound) dex.StepMovement { return dex.MovementOf(QuoteFromSupplierA{}, round) },
-//				func(round dex.JoinRound) dex.StepMovement { return dex.MovementOf(QuoteFromSupplierB{}, round) },
-//				func(round dex.JoinRound) dex.StepMovement { return dex.MovementOf(QuoteFromSupplierC{}, round) },
-//			},
-//			func(round dex.JoinRound) dex.StepMovement {
-//				return dex.MovementOf(AcceptQuotes{}, QuoteJoinInput{Request: request, Round: round})
-//			},
-//		)
+//		branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, 3)
+//		for _, supplier := range []string{"A", "B", "C"} {
+//			branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+//				return dex.MovementOf(QuoteFromSupplier{}, SupplierQuoteInput{Supplier: supplier, Round: round})
+//			})
+//		}
+//		movements, err := QuoteReceived.Fork(ctx, branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+//			return dex.MovementOf(AcceptQuotes{}, QuoteJoinInput{Request: request, Round: round})
+//		})
 //		if err != nil {
 //			return nil, err
 //		}
 //		return dex.GoToMany(movements...), nil
 //	}
 //
-//	// QuoteFromSupplierA is one branch. It reports its result and ends.
-//	func (QuoteFromSupplierA) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
-//		return QuoteReceived.EndBranch(ctx, round, "A")
+//	// QuoteFromSupplier is one branch. It reports its result and ends.
+//	type QuoteFromSupplier struct{ dex.StepDefaults }
+//
+//	func (QuoteFromSupplier) WaitFor(_ dex.Context, input SupplierQuoteInput) (*dex.Wait, error) {
+//		return dex.Until(SupplierReleased.ForOne(input.Supplier)), nil
+//	}
+//
+//	func (QuoteFromSupplier) Execute(ctx dex.Context, input SupplierQuoteInput) (*dex.StepDecision, error) {
+//		return QuoteReceived.EndBranch(ctx, input.Round, input.Supplier)
 //	}
 //
 //	// AcceptQuotes is the join Step. It starts the next round with the same JoinRound.
+//	type AcceptQuotes struct{ dex.StepDefaults }
+//
 //	func (AcceptQuotes) WaitFor(_ dex.Context, input QuoteJoinInput) (*dex.Wait, error) {
 //		return dex.Until(QuoteReceived.ForBranches(input.Round, input.Request.RequiredQuotes)), nil
 //	}
@@ -135,23 +171,17 @@ import (
 //		if err != nil {
 //			return nil, err
 //		}
-//		movements := []dex.StepMovement{dex.MovementOf(PlaceOrder{}, acceptedQuotes)}
+//		if err := ctx.RecordEvent("acceptedQuotes", acceptedQuotes); err != nil {
+//			return nil, err
+//		}
 //		if input.Request.RoundNumber < input.Request.RoundCount {
 //			nextRequest := input.Request
 //			nextRequest.RoundNumber++
 //			nextRequest.PreviousRound = &input.Round
-//			movements = append(movements, dex.MovementOf(RequestQuotes{}, nextRequest))
+//			return dex.GoTo(RequestQuotes{}, nextRequest), nil
 //		}
-//		return dex.GoToMany(movements...), nil
-//	}
-//
-// For a run-time number of branches, map the inputs to builders:
-//
-//	builders := make([]func(dex.JoinRound) dex.StepMovement, 0, len(reviewers))
-//	for _, reviewer := range reviewers {
-//		builders = append(builders, func(round dex.JoinRound) dex.StepMovement {
-//			return dex.MovementOf(ReviewDocument{}, ReviewInput{Reviewer: reviewer, Round: round})
-//		})
+//		// ForceComplete abandons the last round's branch whose quote is not needed.
+//		return dex.ForceComplete(acceptedQuotes), nil
 //	}
 //
 // Since 1.41.0.
