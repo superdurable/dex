@@ -289,8 +289,8 @@ func TestVisualizePythonFanOutExtendGenerator(t *testing.T) {
 	for _, diagnostic := range graph.Diagnostics {
 		require.NotContains(t, diagnostic.Message, "Step DoWork is not reachable")
 	}
-	require.True(t, hasEdge(graph.Edges, "transition", "decision:step:InitStep:80:16", "step:Await"))
-	require.True(t, hasEdge(graph.Edges, "transition", "decision:step:InitStep:80:16", "step:DoWork"))
+	require.True(t, hasEdge(graph.Edges, "transition", "decision:step:InitStep:82:16", "step:Await"))
+	require.True(t, hasEdge(graph.Edges, "transition", "decision:step:InitStep:82:16", "step:DoWork"))
 }
 
 func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {

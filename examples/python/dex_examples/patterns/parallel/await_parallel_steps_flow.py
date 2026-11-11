@@ -47,38 +47,40 @@ def build_work_item(index: int) -> Callable[[JoinRound], StepMovement[WorkItem]]
 # dex:group group-id:parallel-work group-label:"Parallel work"
 # dex:explanation text:"Do one unit of work and report that it finished."
 class DoWork(Step[WorkItem]):
-    def __init__(self, work_done: Join[None]) -> None:
-        self.work_done = work_done
+    def __init__(self, work_completed: Join[int]) -> None:
+        self.work_completed = work_completed
 
     async def execute(  # type: ignore[override]
         self, context: AsyncContext, input: WorkItem
     ) -> StepDecision:
         await asyncio.sleep(random.uniform(0.05, 0.5))
-        return self.work_done.end_branch(context, input.round, None)
+        return self.work_completed.end_branch(context, input.round, input.index)
 
 
 # dex:group group-id:await group-label:"Await"
 # dex:explanation text:"Wait for every work Step to report, then complete."
 class Await(Step[JoinRound]):
-    def __init__(self, work_done: Join[None]) -> None:
-        self.work_done = work_done
+    def __init__(self, work_completed: Join[int]) -> None:
+        self.work_completed = work_completed
 
     def wait_for(self, context: Context, input: JoinRound) -> Wait:
-        return Wait.until(self.work_done.for_all_branches(input))
+        return Wait.until(self.work_completed.for_all_branches(input))
 
     def execute(self, context: Context, input: JoinRound) -> StepDecision:
-        return graceful_complete(len(self.work_done.branch_results(context, input)))
+        return graceful_complete(
+            len(self.work_completed.branch_results(context, input))
+        )
 
 
 # dex:group group-id:setup group-label:"Setup"
 # dex:explanation text:"Start one work Step per item and the Step that awaits them."
 class InitStep(Step[int]):
-    def __init__(self, work_done: Join[None]) -> None:
-        self.work_done = work_done
+    def __init__(self, work_completed: Join[int]) -> None:
+        self.work_completed = work_completed
 
     def execute(self, context: Context, input: int) -> StepDecision:
         return go_to_many(
-            *self.work_done.fork(
+            *self.work_completed.fork(
                 context,
                 [build_work_item(index) for index in range(input)],
                 lambda join_round: StepMovement.of(Await, join_round),
@@ -87,15 +89,15 @@ class InitStep(Step[int]):
 
 
 class AwaitParallelStepsFlow(Flow[int]):
-    work_done = Join[None]("parallel-complete", type(None))
+    work_completed = Join("parallel-complete", int)
 
     def __init__(self) -> None:
-        self.init = InitStep(self.work_done)
-        self.work = DoWork(self.work_done)
-        self.await_step = Await(self.work_done)
+        self.init = InitStep(self.work_completed)
+        self.work = DoWork(self.work_completed)
+        self.await_step = Await(self.work_completed)
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.init).other_steps(self.work, self.await_step)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.work_done)
+        return PersistenceSchema.of(self.work_completed)

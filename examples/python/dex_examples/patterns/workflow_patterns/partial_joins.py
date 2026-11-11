@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-
 from typing import Any
 
 from dex import (
@@ -41,7 +40,6 @@ from dex import (
 )
 
 BRANCH_LETTERS = ("A", "B", "C")
-BRANCH_COUNT = len(BRANCH_LETTERS)
 
 
 def require_branch_letter(value: str) -> str:
@@ -157,6 +155,7 @@ class AcceptQuotes(Step[QuoteJoin]):
         movements: list[StepMovement[Any]] = [
             StepMovement.of(PlaceOrder, AcceptedQuotes(quote_round.round, accepted))
         ]
+        # The last round's late quotes stay pending until the Flow closes.
         if quote_round.round < quote_round.round_count:
             next_round = replace(
                 quote_round, round=quote_round.round + 1, previous_round=input.join_round
@@ -298,6 +297,7 @@ class BlockingJoin(Step[BlockingJoinInput]):
         movements: list[StepMovement[Any]] = [
             StepMovement.of(ProcessRound, ProcessedRound(blocking_round.round, fired))
         ]
+        # The last round's late signals stay pending until the Flow closes.
         if blocking_round.round < BLOCKING_JOIN_ROUNDS:
             next_round = replace(
                 blocking_round,

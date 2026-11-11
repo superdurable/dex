@@ -384,6 +384,7 @@ class AcceptInspections(Step[InspectionJoin]):
             sorted(UNIT_INSPECTED.branch_results(context, input.join_round)),
         )
         movements: list[StepMovement[Any]] = [StepMovement.of(ApproveBatch, approved)]
+        # The last round's late inspections stay pending until the Flow closes.
         if inspection_round.round < inspection_round.round_count:
             next_round = replace(
                 inspection_round,
