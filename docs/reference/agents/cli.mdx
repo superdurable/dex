@@ -10,7 +10,7 @@ durable Dex agent session. Each command runs one harness: the built-in agent
 loop or one agent framework. You chat with the agent, approve its tool calls,
 and resume the session later. You write no application code.
 
-Every command shares one runtime. The runtime reads the configuration file,
+Every command shares one CLI core. The CLI core reads the configuration file,
 reuses or starts a local **dexcli dev**, connects Connector tools through the
 Connectors MCP server, offers local tools, and runs the Worker in the
 command's process. All commands read the same configuration format, so one
