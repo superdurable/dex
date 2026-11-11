@@ -76,7 +76,7 @@ func NewServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS) (*Serv
 	if assets == nil {
 		panic("Web assets must not be nil")
 	}
-	flowDefinitions, err := NewDirectoryFlowDefinitionProvider(cfg.FlowRenderingDirectory)
+	flowDefinitions, err := newFlowDefinitionSources(cfg.FlowRenderingDirectory, client)
 	if err != nil {
 		return nil, err
 	}
@@ -91,14 +91,14 @@ func NewFlowRenderingServer(cfg *Config, graph []byte, assets fs.FS) (*Server, e
 	if assets == nil {
 		panic("Web assets must not be nil")
 	}
-	snapshot, err := snapshotFromGraph(graph)
+	flowDefinitions, err := newVisualizeFlowDefinitionSources(graph)
 	if err != nil {
 		return nil, err
 	}
-	return newServer(cfg, nil, assets, staticFlowDefinitionProvider{snapshot: snapshot})
+	return newServer(cfg, nil, assets, flowDefinitions)
 }
 
-func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDefinitions FlowDefinitionProvider) (*Server, error) {
+func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDefinitions flowDefinitionLookup) (*Server, error) {
 	basePath, err := ValidateBasePath(cfg.BasePath)
 	if err != nil {
 		return nil, err
@@ -146,7 +146,7 @@ func newStandaloneBasePathHandler(basePath string, framing framePolicy, next htt
 type targetRoutes struct {
 	// client is nil for a Flow rendering server, which has no FlowService.
 	client          dexpb.FlowServiceClient
-	flowDefinitions FlowDefinitionProvider
+	flowDefinitions flowDefinitionLookup
 	// connectorSetup is nil when local Connector setup is disabled.
 	connectorSetup *connectorSetup
 	basePath       string
@@ -162,13 +162,20 @@ func (pages *sitePages) newTargetRouteMux(routes targetRoutes) *http.ServeMux {
 			if loadErr != nil {
 				return api.V2DefinitionSnapshot{}, loadErr
 			}
-			return api.V2DefinitionSnapshot{
-				Definitions: snapshot.V2Definitions,
-				Revision:    snapshot.DefinitionRevision,
-			}, nil
-		}), api.V2HandlerConfig{})
+			return v2DefinitionSnapshot(snapshot), nil
+		}), api.V2HandlerConfig{
+			FlowTypeDefinitionLoader: func(ctx context.Context, flowTypes []string) (api.V2DefinitionSnapshot, error) {
+				snapshot, loadErr := routes.flowDefinitions.loadFlowTypes(ctx, flowTypes)
+				if loadErr != nil {
+					return api.V2DefinitionSnapshot{}, loadErr
+				}
+				return v2DefinitionSnapshot(snapshot), nil
+			},
+		})
 	}
 	mux.HandleFunc("GET /api/flow-definitions", serveFlowDefinitions(routes.flowDefinitions))
+	mux.HandleFunc("GET /api/flow-definitions/{flowType}", serveFlowTypeDefinitions(routes.flowDefinitions))
+	mux.HandleFunc("GET /api/flow-definition-types", serveFlowDefinitionTypes(routes.flowDefinitions))
 	if routes.connectorSetup != nil {
 		routes.connectorSetup.registerHandlers(mux)
 	}
@@ -243,35 +250,14 @@ func (s *Server) Handler() http.Handler {
 	return s.httpServer.Handler
 }
 
-type staticFlowDefinitionProvider struct {
-	snapshot *FlowDefinitionSnapshot
-}
-
-func (p staticFlowDefinitionProvider) Load(context.Context) (*FlowDefinitionSnapshot, error) {
-	return p.snapshot, nil
-}
-
-func serveFlowDefinitions(provider FlowDefinitionProvider) http.HandlerFunc {
-	return func(response http.ResponseWriter, request *http.Request) {
-		snapshot, err := provider.Load(request.Context())
-		if err != nil {
-			writeFlowDefinitionSourceError(response, err)
-			return
-		}
-		setSnapshotETag(response, snapshot.DefinitionRevision)
-		response.Header().Set("Content-Type", "application/json; charset=utf-8")
-		response.WriteHeader(http.StatusOK)
-		_, _ = response.Write(snapshot.Response)
-	}
-}
-
-func readinessHandler(client dexpb.FlowServiceClient, provider FlowDefinitionProvider) http.HandlerFunc {
+func readinessHandler(client dexpb.FlowServiceClient, provider flowDefinitionLookup) http.HandlerFunc {
 	var serverEngineResolver *api.ServerEngineResolver
 	if client != nil {
 		serverEngineResolver = api.NewServerEngineResolver(client)
 	}
 	return func(response http.ResponseWriter, request *http.Request) {
-		snapshot, err := provider.Load(request.Context())
+		// Readiness lists Flow types instead of reading every definition, so a probe stays cheap.
+		list, err := provider.listFlowTypes(request.Context())
 		if err != nil {
 			writeFlowDefinitionSourceError(response, err)
 			return
@@ -282,12 +268,13 @@ func readinessHandler(client dexpb.FlowServiceClient, provider FlowDefinitionPro
 				return
 			}
 		}
-		setSnapshotETag(response, snapshot.DefinitionRevision)
+		revision := list.revision()
+		setSnapshotETag(response, revision)
 		writeWebJSON(response, http.StatusOK, map[string]interface{}{
 			"status":             "ready",
-			"definitionRevision": snapshot.DefinitionRevision,
-			"source":             snapshot.Source,
-			"definitionCount":    snapshot.DefinitionCount,
+			"definitionRevision": revision,
+			"source":             list.source,
+			"definitionCount":    len(list.FlowTypes),
 		})
 	}
 }
