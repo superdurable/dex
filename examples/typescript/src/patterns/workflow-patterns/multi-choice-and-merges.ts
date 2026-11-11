@@ -20,6 +20,7 @@
 import {
   Attribute,
   Channel,
+  Join,
   StepList,
   StepMovement,
   Wait,
@@ -28,10 +29,12 @@ import {
   goTo,
   goToMany,
   gracefulComplete,
+  joinRoundCodec,
   jsonCodec,
   stringCodec,
   type Context,
   type Flow,
+  type JoinRound,
   type PersistenceSchema,
   type Step,
   type StepClass,
@@ -39,7 +42,7 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
-// WCP-6, WCP-7, and WCP-37: the choosing Step passes the branch count to the join.
+// WCP-6, WCP-7, and WCP-37: the choosing Step forks only the selected branches.
 
 export interface NotificationChoice {
   readonly sendEmail: boolean;
@@ -47,15 +50,15 @@ export interface NotificationChoice {
   readonly sendPush: boolean;
 }
 
-const notificationSent = new Channel("notificationSent", stringCodec);
+const notificationSent = new Join("notificationSent", stringCodec);
 
 class SelectNotificationChannels implements Step<NotificationChoice> {
   public getStepType(): string {
     return "SelectNotificationChannels";
   }
 
-  public execute(_context: Context, choice: NotificationChoice): StepDecision {
-    const selected: StepClass<void>[] = [];
+  public execute(context: Context, choice: NotificationChoice): StepDecision {
+    const selected: StepClass<JoinRound>[] = [];
     if (choice.sendEmail) {
       selected.push(SendEmail);
     }
@@ -69,58 +72,64 @@ class SelectNotificationChannels implements Step<NotificationChoice> {
       return gracefulComplete([]);
     }
     return goToMany(
-      StepMovement.of(SynchronizingMerge, selected.length),
-      ...selected.map((branch) => StepMovement.of(branch, undefined)),
+      ...notificationSent.fork(
+        context,
+        selected.map((branch) => (round: JoinRound) => StepMovement.of(branch, round)),
+        (round) => StepMovement.of(SynchronizingMerge, round),
+      ),
     );
   }
 }
 
-class SendEmail implements Step<void> {
+class SendEmail implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+
   public getStepType(): string {
     return "SendEmail";
   }
 
-  public execute(context: Context, _input: void): StepDecision {
-    notificationSent.publish(context, "SendEmail");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return notificationSent.endBranch(context, round, "SendEmail");
   }
 }
 
-class SendSms implements Step<void> {
+class SendSms implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+
   public getStepType(): string {
     return "SendSms";
   }
 
-  public execute(context: Context, _input: void): StepDecision {
-    notificationSent.publish(context, "SendSms");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return notificationSent.endBranch(context, round, "SendSms");
   }
 }
 
-class SendPush implements Step<void> {
+class SendPush implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+
   public getStepType(): string {
     return "SendPush";
   }
 
-  public execute(context: Context, _input: void): StepDecision {
-    notificationSent.publish(context, "SendPush");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return notificationSent.endBranch(context, round, "SendPush");
   }
 }
 
-class SynchronizingMerge implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+class SynchronizingMerge implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
 
   public getStepType(): string {
     return "SynchronizingMerge";
   }
 
-  public waitFor(_context: Context, selectedCount: number): Wait {
-    return Wait.until(notificationSent.forN(selectedCount));
+  public waitFor(_context: Context, round: JoinRound): Wait {
+    return Wait.until(notificationSent.forAllBranches(round));
   }
 
-  public execute(context: Context, _selectedCount: number): StepDecision {
-    return gracefulComplete([...notificationSent.results(context)].sort());
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return gracefulComplete([...notificationSent.branchResults(context, round)].sort());
   }
 }
 
