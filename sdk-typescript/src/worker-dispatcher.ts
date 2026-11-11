@@ -143,7 +143,7 @@ export class WorkerDispatcher {
       try {
         response = InvokeWaitForMethodResponse.create({
           ...attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
-          waitingCondition: mapWait(this.registry, flow, wait),
+          waitingCondition: mapWait(this.registry, flow, step.name, wait),
           upsertStepExeLocals: [...context.getLocalWrites()],
           recordEvents: [...context.getEvents()],
           publishToChannel: [...context.getPublications()],
@@ -477,6 +477,7 @@ function rpcResult(
 function mapWait(
   registry: Registry,
   flow: RegisteredFlow,
+  stepType: string,
   wait: Wait | undefined,
 ): WaitingCondition | undefined {
   if (wait === undefined) {
@@ -485,7 +486,7 @@ function mapWait(
   if (wait.kind === "skipImmediately") {
     return undefined;
   }
-  const mapper = new ConditionMapper(registry, flow);
+  const mapper = new ConditionMapper(registry, flow, stepType);
   let waitingConditionType: WaitingConditionType;
   const combinations: ProtoConditionCombination[] = [];
   if (wait.kind === "allOf" || wait.kind === "anyOf") {
@@ -749,6 +750,7 @@ class ConditionMapper {
   public constructor(
     private readonly registry: Registry,
     private readonly flow: RegisteredFlow,
+    private readonly stepType: string,
   ) {}
 
   public add(condition: Condition, idRequired: boolean): string {
@@ -794,6 +796,7 @@ class ConditionMapper {
         }),
       );
     } else {
+      requireSubFlowStartingStepType(this.stepType);
       const targetFlow = condition.subFlow;
       if (targetFlow === undefined) {
         throw new TypeError("SubFlow requires a target Flow");
@@ -834,6 +837,17 @@ function attributeWritesWithActionPermissionMappings(
     upsertAttributes,
     actionPermissionMappings: actionPermissionMappingsForWrites(flow.actions, upsertAttributes),
   };
+}
+
+// Child Flow IDs join their parts with "-", so a dash in the Step type makes them ambiguous.
+function requireSubFlowStartingStepType(stepType: string): void {
+  if (stepType.includes("-")) {
+    throw new TypeError(
+      `Step type "${stepType}" contains "-" and cannot start SubFlows: the child Flow ID joins ` +
+        `the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash makes it ` +
+        `ambiguous. Rename the Step type.`,
+    );
+  }
 }
 
 function mapSubFlowOptions(

@@ -12,6 +12,7 @@ package dex
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 )
@@ -19,6 +20,7 @@ import (
 func mapRegisteredWait(
 	registry *Registry,
 	flow *registeredFlow,
+	stepType string,
 	wait *Wait,
 ) (*dexpb.WaitingCondition, error) {
 	if wait == nil {
@@ -27,7 +29,27 @@ func mapRegisteredWait(
 	if err := validateRegisteredWait(flow, wait); err != nil {
 		return nil, err
 	}
-	return mapWaitWithRegistry(registry, flow, wait)
+	waiting, err := mapWaitWithRegistry(registry, flow, wait)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSubFlowStartingStepType(stepType, waiting); err != nil {
+		return nil, err
+	}
+	return waiting, nil
+}
+
+// The server rejects such a Step because child Flow IDs join their parts with "-".
+func validateSubFlowStartingStepType(stepType string, waiting *dexpb.WaitingCondition) error {
+	if len(waiting.GetSubFlowConditions()) == 0 || !strings.Contains(stepType, "-") {
+		return nil
+	}
+	return fmt.Errorf(
+		"dex: Step type %q contains \"-\" and cannot start SubFlows: the child Flow ID joins "+
+			"the parent Flow ID, Step execution ID, and SubFlow index with \"-\", so a dash "+
+			"makes it ambiguous. Rename the Step type",
+		stepType,
+	)
 }
 
 func validateRegisteredWait(flow *registeredFlow, wait *Wait) error {

@@ -117,7 +117,7 @@ class WorkerDispatcher:
                 publish_to_channel=context.publications,
                 delete_from_channel=context.channel_deletions,
             )
-            waiting = self._map_wait(flow, wait)
+            waiting = self._map_wait(flow, step.name, wait)
             if waiting is not None:
                 response.waiting_condition.CopyFrom(waiting)
             yield pb.InvokeWaitForMethodOutput(result=response)
@@ -623,6 +623,7 @@ class WorkerDispatcher:
     def _map_wait(
         self,
         flow: _RegisteredFlow,
+        step_type: str,
         wait: Wait,
     ) -> pb.WaitingCondition | None:
         if wait.kind is WaitKind.SKIP_IMMEDIATELY:
@@ -648,6 +649,8 @@ class WorkerDispatcher:
                 )
         else:
             raise ValueError("unsupported Wait kind")
+        if mapper.sub_flows and "-" in step_type:
+            raise ValueError(_dashed_sub_flow_starter_detail(step_type))
         waiting.timer_conditions.extend(mapper.timers)
         waiting.channel_conditions.extend(mapper.channels)
         waiting.sub_flow_conditions.extend(mapper.sub_flows)
@@ -975,6 +978,15 @@ class WorkerDispatcher:
         if seconds < 0 or not seconds.is_integer() or seconds > 2**31 - 1:
             raise ValueError("duration must be whole seconds within int32")
         return int(seconds)
+
+
+def _dashed_sub_flow_starter_detail(step_type: str) -> str:
+    return (
+        f'Step type "{step_type}" contains "-" and cannot start SubFlows: '
+        "the child Flow ID joins the parent Flow ID, Step execution ID, and "
+        'SubFlow index with "-", so a dash makes it ambiguous. '
+        "Rename the Step type."
+    )
 
 
 class _ConditionMapper:

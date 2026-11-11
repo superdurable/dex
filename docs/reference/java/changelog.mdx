@@ -12,6 +12,10 @@ This page lists user-visible changes to the Java SDK, newest first; each section
 
 Not released yet. The next minor release, sdk-java/v1.44.0, ships these changes.
 
+### Breaking
+
+- A Step whose Step type contains **-** can no longer start SubFlows. The child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with **-**, so a dash made two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the Worker fails the invocation with **InvalidStepResultException**, and the server rejects the result as a non-retryable invalid Worker response. Steps that start no SubFlows are unaffected. To migrate, rename the Step type, for example by overriding **getStepType**; the rename changes the child Flow IDs of new SubFlow starts. [Reference](/reference/java/subflow#step-types-that-start-subflows).
+
 ### Added
 
 - **Join** and **JoinRound** synchronize parallel branches of one Flow. **Join.fork** starts a round from a split Step and derives the round key and branch count; **Join.forkWithRoundKey** takes an application key, for example in an RPC. Branches report with **endBranch** or **reportBranchResult**. The join Step waits with **forAllBranches**, **forFirstBranch**, or **forBranches**, and the next round resets with **forRemainingBranches**. A Join is stored as a ChannelMap with the same name; **Join.getChannelMap** returns it for reading a round's pending results, never for publishing. [Reference](/reference/java/waits).

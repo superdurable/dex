@@ -332,10 +332,24 @@ final class WorkerDispatcher {
         } else {
             throw new InvalidStepResultException(source + " returned an unsupported Wait kind");
         }
+        if (!mapper.subFlows.isEmpty()) {
+            requireSubFlowStartingStepType(source, step.getName());
+        }
         waiting.addAllTimerConditions(mapper.timers);
         waiting.addAllChannelConditions(mapper.channels);
         waiting.addAllSubFlowConditions(mapper.subFlows);
         return waiting.build();
+    }
+
+    private static void requireSubFlowStartingStepType(
+            final String source,
+            final String stepType) {
+        if (stepType.contains("-")) {
+            throw new InvalidStepResultException(source + ": Step type \"" + stepType
+                    + "\" contains \"-\" and cannot start SubFlows: the child Flow ID joins"
+                    + " the parent Flow ID, Step execution ID, and SubFlow index with \"-\","
+                    + " so a dash makes it ambiguous. Rename the Step type.");
+        }
     }
 
     private static void addConditions(

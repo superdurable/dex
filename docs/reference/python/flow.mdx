@@ -23,6 +23,8 @@ A Flow registers its Steps, its persistence schema, and its RPC handlers.
 
 The Flow type defaults to the Flow class name, and the Step type to the Step
 class name. Override **get_flow_type** or **get_step_type** to set another name.
+A Step type set with **get_step_type** must not contain "-" if the Step
+starts SubFlows. See [Step types that start SubFlows](./subflow.mdx#step-types-that-start-subflows).
 
 ## FlowConfig {#flow-config}
 

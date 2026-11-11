@@ -12,6 +12,10 @@ This page lists user-visible changes to the TypeScript SDK, newest first; each s
 
 Not released yet. The next minor release, sdk-typescript/v1.44.0, ships these changes.
 
+### Breaking
+
+- A Step whose Step type contains "-" can no longer start SubFlows. The generated child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash let two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the Worker reports an **InvalidStepResultError** before it sends anything to the server, and the server rejects it too. To migrate, rename the Step type that **getStepType** returns so it has no "-". Step types with "-" that never start SubFlows are unaffected. [Reference](/reference/typescript/subflow#step-types-that-start-subflows).
+
 ### Added
 
 - **Join** synchronizes parallel branches through a ChannelMap of branch results. **Join.fork** starts one round from a Step and creates its **JoinRound** token; **Join.forkWithRoundKey** does the same with an explicit key, for example in an RPC. Branches report with **Join.endBranch** or **Join.reportBranchResult**. The join Step waits with **Join.forAllBranches**, **Join.forFirstBranch**, or **Join.forBranches** and reads **Join.branchResults**. The next round resets the previous one with **Join.forRemainingBranches** and reads **Join.remainingBranchResults**. **joinRoundCodec** encodes a JoinRound as a JSON object with the fields **roundKey** and **branchCount**, and **PersistenceSchema.channels** accepts a Join. **Join.channelMap** is the registered ChannelMap, for reading a round's pending results, for example in an RPC; never publish to it directly. [Reference](/reference/typescript/waits).

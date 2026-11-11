@@ -97,6 +97,14 @@ func Timer(duration time.Duration, options ...ConditionOption) Condition {
 // Invalid options or unencodable input fail serialization of the returned Wait.
 // Child failure is represented by FlowResult.Status; inspect it before decoding outputs.
 //
+// Only a Step whose Step type contains no "-" can start SubFlows. The child Flow ID joins the
+// parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash makes it ambiguous.
+// Default Step types are Go type names and never contain "-"; only a GetStepType override can.
+// When such a Step returns a Wait with a SubFlow Condition, the Worker rejects the WaitFor result
+// with an InvalidStepResultError and sends nothing to the server. Rename the Step type to fix it.
+//
+// Changed in 1.44.0: a Step whose Step type contains "-" can no longer start SubFlows.
+//
 //	return dex.Until(dex.SubFlow(ChargeFlow{}, chargeInput)), nil
 func SubFlow(target Flow, input any, options ...SubFlowOptions) Condition {
 	condition := &conditionImpl{

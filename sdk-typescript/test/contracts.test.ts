@@ -393,6 +393,58 @@ test("SubFlows always send the exact pull Worker target with and without config 
   }
 });
 
+test("a Step type containing a dash cannot start SubFlows", async () => {
+  class DashChildStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string { return "DashChildStep"; }
+    public execute(): StepDecision { return gracefulComplete(); }
+  }
+  const child: Flow<void> = {
+    getFlowType: () => "DashChildFlow",
+    getSteps: () => StepList.startStep(new DashChildStep()),
+  };
+  class StartChildStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public constructor(private readonly stepType: string) {}
+    public getStepType(): string { return this.stepType; }
+    public waitFor(): Wait { return Wait.until(SubFlow.run(child, undefined)); }
+    public execute(): StepDecision { return gracefulComplete(); }
+  }
+  class DashTimerStep implements Step<void> {
+    public readonly inputCodec = voidCodec;
+    public getStepType(): string { return "dash-timer"; }
+    public waitFor(): Wait { return Wait.until(Timer.byDuration(1_000)); }
+    public execute(): StepDecision { return gracefulComplete(); }
+  }
+  const dashed = new StartChildStep("b-C");
+  const plain = new StartChildStep("bC");
+  const dashTimer = new DashTimerStep();
+  const parent: Flow<void> = {
+    getFlowType: () => "DashParentFlow",
+    getSteps: () => StepList.startStep(plain).otherSteps(dashed, dashTimer),
+  };
+  const hydrator = { hydrateAll: async (_flowId: string, values: readonly unknown[]) => values } as ValueHydrator;
+  const dispatcher = new WorkerDispatcher(new Registry([parent, child]), hydrator, () => 3);
+  const invoke = (stepType: string) => dispatcher.invokeWaitFor(InvokeWaitForMethodRequest.create({
+    context: ProtoContext.create({ flowId: "a", stepExecutionId: `${stepType}-1` }),
+    flowType: parent.getFlowType(), stepType,
+    stepInput: encodeValue(voidCodec, undefined),
+  }));
+  await assert.rejects(invoke("b-C"), (failure: unknown) => {
+    assert.ok(failure instanceof InvalidStepResultError);
+    assert.equal(failure.stepType, "b-C");
+    assert.match(
+      failure.message,
+      /Step type "b-C" contains "-" and cannot start SubFlows: the child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash makes it ambiguous\. Rename the Step type\./,
+    );
+    return true;
+  });
+  const started = await invoke("bC");
+  assert.equal(started.waitingCondition?.subFlowConditions[0]?.subFlowType, "DashChildFlow");
+  const timed = await invoke("dash-timer");
+  assert.equal(timed.waitingCondition?.timerConditions.length, 1);
+});
+
 test("fluent wait factories validate channel bounds", () => {
   const wait = Wait.until(Timer.byDuration(1_000));
   assert.equal(wait.conditions.length, 1);

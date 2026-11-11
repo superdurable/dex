@@ -14,8 +14,8 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     ChildFlowCompletedMessage, ChildFlowStartMessage, CrossFlowEndpoint, OutboxAckCommand,
-    OutboxRecord, OutboxRetentionTimerId, ParentFlowReference, StoredValue, TimerId, flow_command,
-    outbox_record, step_method_completed_command, timer_id,
+    OutboxRecord, OutboxRetentionTimerId, ParentFlowReference, StepExecutionRecord, StoredValue,
+    TimerId, flow_command, outbox_record, step_method_completed_command, timer_id,
 };
 
 use crate::ApplyEffect;
@@ -201,6 +201,35 @@ fn effective_flow_config(
         }
     }
     effective
+}
+
+/// Returns why `step` may not start the SubFlows its WaitFor result registers, or `None`.
+///
+/// A Step type containing `-` cannot start SubFlows.
+pub(crate) fn sub_flow_step_type_error(
+    scope: &CommandScope<'_>,
+    step: &StepExecutionRecord,
+    response: &step_method_completed_command::Response,
+) -> Option<String> {
+    // Recorded results that older binaries accepted replay as recorded.
+    if scope.is_replay || !step.step_type.contains('-') {
+        return None;
+    }
+    let step_method_completed_command::Response::WaitFor(wait_response) = response else {
+        return None;
+    };
+    let starts_sub_flows = wait_response
+        .waiting_condition
+        .as_ref()
+        .is_some_and(|condition| !condition.sub_flow_conditions.is_empty());
+    starts_sub_flows.then(|| {
+        format!(
+            "Step type {:?} contains \"-\" and cannot start SubFlows: the child Flow ID joins the \
+             parent Flow ID, Step execution ID, and SubFlow index with \"-\", so a dash makes it \
+             ambiguous. Rename the Step type.",
+            step.step_type
+        )
+    })
 }
 
 pub(crate) fn validate_child_start_conditions(

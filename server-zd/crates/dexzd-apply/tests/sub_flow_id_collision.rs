@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Known defect: dashes in Flow IDs and Step types make child Flow IDs ambiguous.
-//! Fails until the owner chooses a fix.
+//! A Step type containing `-` cannot start SubFlows, because the child Flow ID joins parts with `-`.
 
 use std::collections::BTreeMap;
 
@@ -15,25 +14,23 @@ use dexzd_apply::{
     ApplyContext, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
     apply_flow_command,
 };
-use dexzd_keyspace::row_keys::{prefix_range, run_singleton_key};
+use dexzd_keyspace::row_keys::{prefix_range, run_named_key, run_singleton_key};
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix};
 use dexzd_protocol::dex::{
-    FlowTimeoutPolicy, InvokeWaitForMethodResponse, StartFlowRequest, StepOptions,
-    SubFlowCondition, WaitingCondition, WaitingConditionType, WorkerTarget,
+    FlowStatus, FlowTimeoutPolicy, InvokeWaitForMethodResponse, StartFlowRequest, StepOptions,
+    SubFlowCondition, TimerCondition, WaitingCondition, WaitingConditionType, WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
-    ChildFlowStartMessage, FlowCommand, FlowStartCommand, InboxMessageCommand, OutboxRecord,
-    RunRecord, RunSettings, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
-    StepMethodCompletedCommand, command_reply, flow_command::Command, inbox_message_command,
-    outbox_record, step_method_completed_command,
+    FlowCommand, FlowStartCommand, OutboxRecord, RunRecord, RunSettings, StepAttemptStartedCommand,
+    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepMethod,
+    StepMethodCompletedCommand, command_reply, flow_command::Command, outbox_record,
+    step_method_completed_command,
 };
 use prost::Message;
 
 const SECOND: i64 = 1_000_000;
 const FIRST_PARENT_RUN: [u8; 16] = [1; 16];
 const SECOND_PARENT_RUN: [u8; 16] = [2; 16];
-const FIRST_CHILD_RUN: [u8; 16] = [3; 16];
-const SECOND_CHILD_RUN: [u8; 16] = [4; 16];
 
 #[derive(Default)]
 struct MemoryState {
@@ -137,13 +134,14 @@ impl Harness {
         outcome
     }
 
-    /// Starts `flow_id` at `start_step_type`, which waits on one SubFlow, and returns its start message.
-    fn start_parent_waiting_on_one_child(
+    /// Starts `flow_id` at `start_step_type` and completes its WaitFor with `condition`.
+    fn start_parent_and_complete_wait_for(
         &mut self,
         flow_id: &str,
         run_id: [u8; 16],
         start_step_type: &str,
-    ) -> OutboxRecord {
+        condition: WaitingCondition,
+    ) -> ApplyOutcome {
         let started = self.apply(
             flow_id,
             &[],
@@ -180,7 +178,7 @@ impl Harness {
                 pull_routing: None,
             }),
         ));
-        assert_ok(&self.apply(
+        self.apply(
             flow_id,
             &run_id,
             Command::StepMethodCompleted(StepMethodCompletedCommand {
@@ -188,78 +186,86 @@ impl Harness {
                 attempt: 1,
                 response: Some(step_method_completed_command::Response::WaitFor(
                     InvokeWaitForMethodResponse {
-                        waiting_condition: Some(WaitingCondition {
-                            waiting_condition_type: WaitingConditionType::AllCompleted as i32,
-                            sub_flow_conditions: vec![SubFlowCondition {
-                                condition_id: "child".to_owned(),
-                                sub_flow_type: "ChildFlow".to_owned(),
-                                start_step_type: "ChildStep".to_owned(),
-                                step_options: Some(StepOptions {
-                                    skip_wait_for: true,
-                                    ..StepOptions::default()
-                                }),
-                                ..SubFlowCondition::default()
-                            }],
-                            ..WaitingCondition::default()
-                        }),
+                        waiting_condition: Some(condition),
                         ..InvokeWaitForMethodResponse::default()
                     },
                 )),
                 ..StepMethodCompletedCommand::default()
             }),
-        ));
+        )
+    }
+
+    fn outbox(&self, flow_id: &str, run_id: [u8; 16]) -> Vec<OutboxRecord> {
         let flow_hash = self.hasher.flow_hash(TenantId::DEFAULT, flow_id);
         let (start, end) = prefix_range(&run_table_prefix(
             flow_hash,
             RunId(run_id),
             RunTable::Outbox,
         ));
-        let mut outbox: Vec<OutboxRecord> = self
-            .state
+        self.state
             .scan(ColumnFamily::Flow, &start, &end, usize::MAX)
             .expect("memory reads")
             .into_iter()
             .map(|(_, bytes)| OutboxRecord::decode(bytes.as_slice()).expect("outbox decodes"))
-            .collect();
-        assert_eq!(outbox.len(), 1, "one child start");
-        outbox.pop().expect("child start")
+            .collect()
     }
 
-    fn deliver_child_start(
-        &mut self,
-        start: &ChildFlowStartMessage,
-        message_id: &[u8],
-        new_run_id: [u8; 16],
-    ) -> ApplyOutcome {
-        self.apply(
-            &start.child_flow_id,
-            &[],
-            Command::InboxMessage(InboxMessageCommand {
-                message_id: message_id.to_vec(),
-                source: start
-                    .parent
-                    .as_ref()
-                    .and_then(|parent| parent.parent.clone()),
-                payload: Some(inbox_message_command::Payload::ChildStart(start.clone())),
-                new_run_id: new_run_id.to_vec(),
-                settings: Some(settings()),
-            }),
-        )
-    }
-
-    fn record(&self, flow_id: &str, run_id: [u8; 16]) -> Option<RunRecord> {
+    fn record(&self, flow_id: &str, run_id: [u8; 16]) -> RunRecord {
         let flow_hash = self.hasher.flow_hash(TenantId::DEFAULT, flow_id);
         let key = run_singleton_key(flow_hash, RunId(run_id), RunTable::RunRecord);
-        self.state
+        let bytes = self
+            .state
             .get(ColumnFamily::Flow, &key)
             .expect("memory reads")
-            .map(|bytes| RunRecord::decode(bytes.as_slice()).expect("run decodes"))
+            .expect("run exists");
+        RunRecord::decode(bytes.as_slice()).expect("run decodes")
+    }
+
+    fn step(
+        &self,
+        flow_id: &str,
+        run_id: [u8; 16],
+        step_execution_id: &str,
+    ) -> StepExecutionRecord {
+        let flow_hash = self.hasher.flow_hash(TenantId::DEFAULT, flow_id);
+        let key = run_named_key(
+            flow_hash,
+            RunId(run_id),
+            RunTable::StepExecution,
+            step_execution_id,
+        );
+        let bytes = self
+            .state
+            .get(ColumnFamily::Flow, &key)
+            .expect("memory reads")
+            .expect("Step exists");
+        StepExecutionRecord::decode(bytes.as_slice()).expect("Step decodes")
     }
 }
 
-fn child_start(outbox: &OutboxRecord) -> ChildFlowStartMessage {
-    match outbox.payload.clone() {
-        Some(outbox_record::Payload::ChildStart(start)) => start,
+fn one_sub_flow() -> WaitingCondition {
+    WaitingCondition {
+        waiting_condition_type: WaitingConditionType::AllCompleted as i32,
+        sub_flow_conditions: vec![SubFlowCondition {
+            condition_id: "child".to_owned(),
+            sub_flow_type: "ChildFlow".to_owned(),
+            start_step_type: "ChildStep".to_owned(),
+            step_options: Some(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            }),
+            ..SubFlowCondition::default()
+        }],
+        ..WaitingCondition::default()
+    }
+}
+
+fn child_flow_id(outbox: &[OutboxRecord]) -> String {
+    let [record] = outbox else {
+        panic!("expected one child start, got {}", outbox.len())
+    };
+    match record.payload.as_ref() {
+        Some(outbox_record::Payload::ChildStart(start)) => start.child_flow_id.clone(),
         other => panic!("expected a child start, got {other:?}"),
     }
 }
@@ -291,49 +297,79 @@ fn assert_ok(outcome: &ApplyOutcome) {
     );
 }
 
-/// Parents `a-b` (Step `C`) and `a` (Step `b-C`) both derive `SubFlow:a-b-C-1-0`.
+/// Parents `a-b` (Step `C`) and `a` (Step `b-C`) would both derive `SubFlow:a-b-C-1-0`.
 #[test]
-fn known_defect_distinct_parents_with_dashes_share_one_child_flow_id() {
+fn a_step_type_with_a_dash_cannot_start_sub_flows() {
     let mut harness = Harness::new();
-    let first_outbox = harness.start_parent_waiting_on_one_child("a-b", FIRST_PARENT_RUN, "C");
-    let second_outbox = harness.start_parent_waiting_on_one_child("a", SECOND_PARENT_RUN, "b-C");
-    let first_start = child_start(&first_outbox);
-    let second_start = child_start(&second_outbox);
-    assert_eq!(first_start.child_flow_id, "SubFlow:a-b-C-1-0");
-    assert_eq!(second_start.child_flow_id, first_start.child_flow_id);
-    assert_ne!(first_start.parent, second_start.parent);
-
-    assert_ok(&harness.deliver_child_start(
-        &first_start,
-        &first_outbox.message_id,
-        FIRST_CHILD_RUN,
+    assert_ok(&harness.start_parent_and_complete_wait_for(
+        "a-b",
+        FIRST_PARENT_RUN,
+        "C",
+        one_sub_flow(),
     ));
-    assert_ok(&harness.deliver_child_start(
-        &second_start,
-        &second_outbox.message_id,
-        SECOND_CHILD_RUN,
-    ));
-
-    let first_child = harness
-        .record(&first_start.child_flow_id, FIRST_CHILD_RUN)
-        .expect("the first parent's child run exists");
-    assert_eq!(first_child.parent, first_start.parent);
-    let second_parent = second_start.parent.expect("parent reference");
-    assert!(
-        !first_child.attached_parents.contains(&second_parent),
-        "parent `a` (Step `b-C`) attached to the child of parent `a-b` (Step `C`) \
-         and will receive that child's result"
+    assert_eq!(
+        child_flow_id(&harness.outbox("a-b", FIRST_PARENT_RUN)),
+        "SubFlow:a-b-C-1-0"
     );
+
+    harness.start_parent_and_complete_wait_for("a", SECOND_PARENT_RUN, "b-C", one_sub_flow());
+
+    assert!(
+        harness.outbox("a", SECOND_PARENT_RUN).is_empty(),
+        "the rejected result starts no child"
+    );
+    let step = harness.step("a", SECOND_PARENT_RUN, "b-C-1");
+    assert_eq!(step.phase, StepExecutionPhase::Failed as i32);
+    let record = harness.record("a", SECOND_PARENT_RUN);
+    assert_eq!(record.status, FlowStatus::Failed as i32);
+    let error_message = record.close.expect("the run is closed").error_message;
+    assert!(
+        error_message.contains(
+            "Step type \"b-C\" contains \"-\" and cannot start SubFlows: the child Flow ID joins"
+        ),
+        "{error_message}"
+    );
+}
+
+#[test]
+fn a_step_type_with_a_dash_may_wait_without_sub_flows() {
+    let mut harness = Harness::new();
+    let timer_only = WaitingCondition {
+        waiting_condition_type: WaitingConditionType::AllCompleted as i32,
+        timer_conditions: vec![TimerCondition {
+            duration_seconds: 60,
+            ..TimerCondition::default()
+        }],
+        ..WaitingCondition::default()
+    };
+    assert_ok(&harness.start_parent_and_complete_wait_for(
+        "a",
+        FIRST_PARENT_RUN,
+        "b-C",
+        timer_only,
+    ));
+    let step = harness.step("a", FIRST_PARENT_RUN, "b-C-1");
+    assert_eq!(step.phase, StepExecutionPhase::Waiting as i32);
 }
 
 /// Without a dash in the Step type the ID splits uniquely from the right.
 #[test]
 fn parents_with_dashed_flow_ids_and_plain_step_types_get_distinct_children() {
     let mut harness = Harness::new();
-    let first_outbox = harness.start_parent_waiting_on_one_child("a-b", FIRST_PARENT_RUN, "C");
-    let second_outbox = harness.start_parent_waiting_on_one_child("a", SECOND_PARENT_RUN, "C");
+    assert_ok(&harness.start_parent_and_complete_wait_for(
+        "a-b",
+        FIRST_PARENT_RUN,
+        "C",
+        one_sub_flow(),
+    ));
+    assert_ok(&harness.start_parent_and_complete_wait_for(
+        "a",
+        SECOND_PARENT_RUN,
+        "C",
+        one_sub_flow(),
+    ));
     assert_ne!(
-        child_start(&first_outbox).child_flow_id,
-        child_start(&second_outbox).child_flow_id
+        child_flow_id(&harness.outbox("a-b", FIRST_PARENT_RUN)),
+        child_flow_id(&harness.outbox("a", SECOND_PARENT_RUN))
     );
 }

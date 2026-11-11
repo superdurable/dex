@@ -26,6 +26,14 @@ package io.superdurable.dex;
  * Retried starts are idempotent through the generated request ID; {@link SubFlowReusePolicy}
  * controls reuse when a later start uses that same Flow ID with a different request ID.
  *
+ * <p>The generated Flow ID has the form {@code SubFlow:{parent Flow ID}-{Step execution ID}-{index}},
+ * and the Step execution ID starts with the Step type. A Step whose Step type contains {@code -}
+ * therefore cannot start SubFlows, because the dash would make the generated Flow ID ambiguous.
+ * Returning a SubFlow condition from such a Step's {@link Step#waitFor} fails the invocation with
+ * {@link io.superdurable.dex.exceptions.InvalidStepResultException} before anything reaches the
+ * server. Rename the Step type, through {@link Step#getStepType}, to start SubFlows from it.
+ * Changed in 1.44.0: a Step whose Step type contains {@code -} can no longer start SubFlows.
+ *
  * <pre>{@code
  * public Wait waitFor(Context context, Order input) {
  *     return Wait.until(SubFlow.run(ChargeOrderFlow.class, input));
@@ -44,6 +52,11 @@ public final class SubFlow {
     /**
      * Creates a SubFlow condition using default options.
      *
+     * <p>Return the condition from {@link Step#waitFor}. The Step type of that Step must not
+     * contain {@code -}; otherwise the invocation fails with
+     * {@link io.superdurable.dex.exceptions.InvalidStepResultException}. Changed in 1.44.0: a Step
+     * whose Step type contains {@code -} can no longer start SubFlows.
+     *
      * @param flowClass the registered SubFlow class
      * @param input the typed input for its starting Step
      * @param <I> the starting input type
@@ -60,6 +73,11 @@ public final class SubFlow {
 
     /**
      * Creates a SubFlow condition with explicit options.
+     *
+     * <p>Return the condition from {@link Step#waitFor}. The Step type of that Step must not
+     * contain {@code -}; otherwise the invocation fails with
+     * {@link io.superdurable.dex.exceptions.InvalidStepResultException}. Changed in 1.44.0: a Step
+     * whose Step type contains {@code -} can no longer start SubFlows.
      *
      * @param flowClass the registered SubFlow class
      * @param input the typed input for its starting Step

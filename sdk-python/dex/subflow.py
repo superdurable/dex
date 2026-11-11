@@ -58,6 +58,19 @@ class SubFlow:
         Dex generates stable Flow and request IDs so retries of the same start
         attach rather than creating duplicate child executions.
 
+        Only a Step whose Step type contains no ``-`` can start SubFlows. The
+        generated child Flow ID joins the parent Flow ID, the Step execution ID,
+        and the SubFlow index with ``-``. A dash in the Step type would make
+        that ID ambiguous between two parents. Default Step types are class
+        names and contain no dash. Rename a Step type set by ``get_step_type``
+        if it contains one.
+
+        .. versionchanged:: 1.44.0
+           The Worker rejects a Wait that contains a SubFlow Condition when the
+           returning Step's Step type contains ``-``. The Step's ``wait_for``
+           fails with :class:`dex.InvalidStepResultError` before anything is
+           sent to the server.
+
         Args:
             flow: The exact target Flow instance registered by the Worker.
             input: Input accepted by the target Flow's starting Step.
@@ -70,6 +83,8 @@ class SubFlow:
             ValueError: If the condition ID is invalid, or when the Worker maps a
                 Flow without a starting Step.
             FlowDefinitionError: When the Worker maps an unregistered Flow.
+            InvalidStepResultError: When the Worker maps the Condition for a Step
+                whose Step type contains ``-``.
             ValueMappingError: When the Worker cannot encode the child input.
         """
         resolved = options or SubFlowOptions()

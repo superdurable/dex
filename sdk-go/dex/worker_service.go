@@ -116,7 +116,7 @@ func (service *workerService) invokeWaitForMethod(
 	if err != nil {
 		return err
 	}
-	waiting, err := mapRegisteredWait(service.registry, flow, wait)
+	waiting, err := mapRegisteredWait(service.registry, flow, step.stepType, wait)
 	if err != nil {
 		return newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
 			FlowType: flow.flowType,

@@ -313,6 +313,37 @@ final class WorkerDispatchIntegrationTest {
     }
 
     @Test
+    void rejectsSubFlowsFromStepTypesContainingDash() throws Exception {
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+        try {
+            final InvokeWaitForMethodResponse dashFree = invokeWaitFor(
+                    running, waitRequest(concrete("subflow")));
+            assertEquals("BridgeFlow", dashFree.getWaitingCondition()
+                    .getSubFlowConditions(0).getSubFlowType());
+
+            final InvokeWaitForMethodResponse dashedWithoutSubFlow = invokeWaitFor(
+                    running, waitRequest("Bridge-SubFlowStep", concrete("timer")));
+            assertEquals(1, dashedWithoutSubFlow.getWaitingCondition().getTimerConditionsCount());
+
+            final StatusRuntimeException failure = assertThrows(
+                    StatusRuntimeException.class,
+                    () -> invokeWaitFor(running,
+                            waitRequest("Bridge-SubFlowStep", concrete("subflow"))));
+            final WorkerErrorResponse details = StatusProto.fromThrowable(failure)
+                    .getDetails(0)
+                    .unpack(WorkerErrorResponse.class);
+            assertEquals(InvalidStepResultException.class.getName(), details.getErrorType());
+            assertTrue(details.getDetail().contains(
+                    "Step type \"Bridge-SubFlowStep\" contains \"-\" and cannot start SubFlows:"
+                            + " the child Flow ID joins the parent Flow ID, Step execution ID,"
+                            + " and SubFlow index with \"-\", so a dash makes it ambiguous."
+                            + " Rename the Step type."));
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
     void mapIntrospectionTracksBufferedChanges() {
         final AttributeMap<String> attributes = AttributeMap.define("items", String.class);
         final ChannelMap<String> channels = ChannelMap.define("messages", String.class);
@@ -1006,10 +1037,16 @@ final class WorkerDispatchIntegrationTest {
     }
 
     private static InvokeWaitForMethodRequest waitRequest(final Value input) {
+        return waitRequest("BridgeStep", input);
+    }
+
+    private static InvokeWaitForMethodRequest waitRequest(
+            final String stepType,
+            final Value input) {
         return InvokeWaitForMethodRequest.newBuilder()
                 .setContext(context())
                 .setFlowType("BridgeFlow")
-                .setStepType("BridgeStep")
+                .setStepType(stepType)
                 .setStepInput(input)
                 .build();
     }
@@ -1187,6 +1224,7 @@ final class WorkerDispatchIntegrationTest {
         private final Stream<String> findings =
                 Stream.define("findings", String.class, 1_048_576);
         private final BridgeOtherStep other = new BridgeOtherStep();
+        private final DashedSubFlowStep dashed = new DashedSubFlowStep();
         private final BridgeStep start = new BridgeStep(commands, thinking, findings);
         private final Attribute<String> status = Attribute.define(
                 "status",
@@ -1197,7 +1235,7 @@ final class WorkerDispatchIntegrationTest {
 
         @Override
         public StepList<String> getSteps() {
-            return StepList.startStep(start).otherSteps(other);
+            return StepList.startStep(start).otherSteps(other, dashed);
         }
 
         @Override
@@ -1304,6 +1342,9 @@ final class WorkerDispatchIntegrationTest {
             }
             if ("empty-id".equals(input)) {
                 return Wait.allOf(commands.forOne(""));
+            }
+            if ("subflow".equals(input)) {
+                return Wait.allOf(SubFlow.run(BridgeFlow.class, "child"));
             }
             return Wait.skipImmediately();
         }
@@ -1423,6 +1464,33 @@ final class WorkerDispatchIntegrationTest {
         @Override
         public Class<String> getInputType() {
             return String.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            return StepDecision.deadEnd();
+        }
+    }
+
+    private static final class DashedSubFlowStep implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public String getStepType() {
+            return "Bridge-SubFlowStep";
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final String input) {
+            if ("subflow".equals(input)) {
+                return Wait.anyOf(
+                        Timer.byDuration(java.time.Duration.ofSeconds(1)),
+                        SubFlow.run(BridgeFlow.class, "child"));
+            }
+            return Wait.allOf(Timer.byDuration(java.time.Duration.ofSeconds(1)));
         }
 
         @Override

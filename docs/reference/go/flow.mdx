@@ -23,7 +23,8 @@ A Flow registers its Steps, its persistence schema, and its RPC handlers.
 
 The Flow type defaults to the Go type name of the Flow without its package, and
 the Step type to the Go type name of the Step. Implement **GetFlowType** or
-**GetStepType** to set another name.
+**GetStepType** to set another name. A Step whose Step type contains "-"
+cannot start SubFlows. See [Step types that start SubFlows](./subflow.mdx#step-type-rule).
 
 ## FlowConfig {#flow-config}
 

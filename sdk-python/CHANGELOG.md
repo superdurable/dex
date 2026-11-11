@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Breaking
+
+- A Step whose Step type contains `-` can no longer start SubFlows. The child
+  Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with
+  `-`, so a dash made it ambiguous. `wait_for` now fails with
+  `InvalidStepResultError` when such a Step returns a Wait with `SubFlow.run`.
+  Rename the Step type returned by `get_step_type`.
+
 ### Deprecated
 
 - Deprecated `FlowConfig.delete_expired_history_objects`. It has no effect, and the SDK no longer sends it.

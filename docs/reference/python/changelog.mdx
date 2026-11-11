@@ -12,6 +12,10 @@ This page lists user-visible changes to the Python SDK, newest first; each secti
 
 Not released yet. The next minor release, sdk-python/v1.44.0, ships these changes.
 
+### Breaking
+
+- A Step whose Step type contains "-" can no longer start SubFlows. A dash made the generated child Flow ID ambiguous, so two parents could share one child. The Worker now fails **wait_for** with **InvalidStepResultError** when such a Step returns a Wait that contains **SubFlow.run**, and the server rejects the result too. Default Step types are class names and are not affected. To migrate, change **get_step_type** to return a Step type without a dash. [Reference](/reference/python/subflow#step-types-that-start-subflows).
+
 ### Added
 
 - **Join** and **JoinRound** synchronize parallel branches of a Flow. **Join.fork** starts a round from the split Step and builds the branch and join movements, so the application keeps no branch count or round key. Branches report with **end_branch** or **report_branch_result**. The join Step waits with **for_all_branches**, **for_first_branch**, or **for_branches**, and the next round resets the previous one with **for_remaining_branches**. RPC handlers use **fork_with_round_key**. **Join.channel_map** returns the registered ChannelMap, so an RPC can load and read a round's pending results. [Reference](/reference/python/waits).

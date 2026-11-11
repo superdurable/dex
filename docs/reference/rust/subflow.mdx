@@ -21,6 +21,25 @@ them in the [Rust SDK API reference](./index.mdx#api-reference).
 | Read the generated child Flow ID | **SubFlow::flow_id** or **SubFlow::flow_id_at** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
 | Stop a child that lost an **AnyOf** | **Client::stop_flow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
 
+## Step types that start SubFlows {#step-type-rule}
+
+Changed in 1.44: a Step whose Step type contains a dash (-) cannot start
+SubFlows.
+
+Dex builds each child Flow ID from the parent Flow ID, the Step execution ID,
+and the SubFlow index. It joins them with a dash. The Step execution ID starts
+with the Step type. A dash in the Step type therefore lets two parents generate
+the same child Flow ID.
+
+If such a Step returns a **Wait** with a **SubFlow** Condition from
+**wait_for**, the Worker fails that attempt with an invalid Step result error.
+It sends no Conditions to the server. The server rejects such a result too.
+Steps with a dash in their Step type can still use every other Condition.
+
+To start SubFlows from the Step, rename its Step type. Override
+**Step::step_type** to return a name without a dash. The default Step type is
+the Rust type name, which never contains a dash.
+
 ## Example {#example}
 
 Example: [examples/rust/src/primitives/subflow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/subflow/flow.rs)

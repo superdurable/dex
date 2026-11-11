@@ -8,6 +8,7 @@
 
 import type { Codec } from "./codec.js";
 import type { AsyncContext, Context } from "./context.js";
+import type { InvalidStepResultError } from "./errors.js";
 import type { AttributeLock, AttributeMap, AttributeMapLoad } from "./persistence.js";
 import type { Channel, ChannelMap, ChannelMapLoad, Wait } from "./wait.js";
 import { requireName } from "./validation.js";
@@ -214,6 +215,12 @@ export interface Step<Input> {
   readonly inputCodec?: Codec<Input>;
   /**
    * Returns the protocol Step type.
+   *
+   * A Step type that starts SubFlows must not contain "-".
+   * Dex joins the parts of a generated child Flow ID with "-", so a dash makes that ID ambiguous.
+   * Such a Step fails its waitFor with an {@link InvalidStepResultError} when it returns a SubFlow
+   * condition. Step types that never start SubFlows may still contain "-".
+   * Changed in 1.44.0: a Step whose Step type contains "-" can no longer start SubFlows.
    * @returns A non-empty Step type unique within the containing Flow.
    */
   getStepType(): string;

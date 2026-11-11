@@ -21,6 +21,24 @@ them in the [Go SDK API reference](./index.mdx#api-reference).
 | Read the generated child Flow ID | **SubFlowID** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
 | Stop a child that lost an **AnyOf** | **Client.StopFlow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
 
+## Step types that start SubFlows {#step-type-rule}
+
+Changed in 1.44: a Step whose Step type contains "-" cannot start SubFlows.
+
+The child Flow ID is "SubFlow:" followed by the parent Flow ID, the Step
+execution ID, and the SubFlow index, joined with "-". The Step execution ID is
+the Step type and a counter, also joined with "-". A dash in the Step type makes
+the child Flow ID ambiguous, so two parents could share one child.
+
+Default Step types are Go type names and never contain "-". Only a
+**GetStepType** override can return one. When such a Step returns a **Wait**
+with a **SubFlow** Condition, the Worker fails the **WaitFor** call with an
+**InvalidStepResultError** before it sends anything to Dex Server. Dex Server
+also rejects such a result. Steps with a dash that never start SubFlows are not
+affected.
+
+To migrate, rename the Step type to a name without "-".
+
 ## Example {#example}
 
 Example: [examples/go/primitives/subflow/parent_flow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/subflow/parent_flow.go)

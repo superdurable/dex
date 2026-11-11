@@ -12,6 +12,10 @@ This page lists user-visible changes to the Go SDK, newest first; each section c
 
 Not released yet. The next minor release, sdk-go/v1.44.0, ships these changes.
 
+### Breaking
+
+- A Step whose Step type contains "-" can no longer start SubFlows. The child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash made it ambiguous. When such a Step returns a **SubFlow** Condition from **WaitFor**, the Worker fails the call with an **InvalidStepResultError**. Default Step types are Go type names and are not affected; only a **GetStepType** override can contain "-". To migrate, change the **GetStepType** override to return a name without "-". [Reference](/reference/go/subflow#step-type-rule).
+
 ### Added
 
 - **Join** and **JoinRound** synchronize parallel branches of one Flow. **DefineJoin** defines a Join over a ChannelMap of branch results. **Join.Fork** starts the branches and the join Step with one **JoinRound**; **Join.ForkWithRoundKey** takes an explicit round key for RPCs. Branches report with **Join.EndBranch** or **Join.ReportBranchResult**. The join Step waits with **Join.ForAllBranches**, **Join.ForFirstBranch**, or **Join.ForBranches** and reads **Join.BranchResults**. The next round's split Step resets the previous round with **Join.ForRemainingBranches** and reads **Join.RemainingBranchResults**. **Join.ChannelMap** returns the underlying ChannelMap for reading or loading a round's pending results. [API reference](pathname:///api/go/latest/dex/#type-join).
