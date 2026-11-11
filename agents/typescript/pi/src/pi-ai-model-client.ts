@@ -38,6 +38,16 @@ import {
   toPiAiMessages,
 } from "./pi-ai-transcript-codec.js";
 
+/**
+ * Input tokens that the pi-ai model client's `estimateInputTokens` counts for each image. It never reads the bytes.
+ *
+ * Compaction compares the estimate with the context window, so each image adds this many tokens to the estimate of
+ * a request. It matches the AI SDK client's `estimatedImageInputTokens`.
+ *
+ * @since 0.5.0
+ */
+export const piAiEstimatedImageInputTokens = 1600;
+
 const thinkingLevels: readonly ThinkingLevel[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
 const thinkingOffEffort = "off";
 
@@ -57,7 +67,8 @@ export interface PiAiModelClientOptions {
   /**
    * Replaces the pi-ai context right before each provider request, like Pi's `prepareRequest` hook.
    *
-   * Use it to add per-request information or to trim messages for one request. It runs inside the `RunModel`
+   * Use it to add per-request information or to trim messages for one request. The context holds each image as
+   * pi-ai image content with its base64 bytes. It runs inside the `RunModel`
    * Step and Dex never replays Step code, so it does not follow a determinism rule. It changes only this one
    * request: the session keeps its stored messages, and the next model call builds its context from them again.
    * An exception fails the `RunModel` attempt, which Dex retries like a model error. The context it receives
@@ -100,6 +111,17 @@ export interface PiAiModelClientOptions {
  * When another model answered earlier in the current tool loop, as after a deploy that changed the model during a
  * turn, every later call of that loop sends no thinking level, because a provider such as Anthropic rejects thinking
  * that does not start with the turn. The loop ends at the next user message, and the calls after it think again.
+ *
+ * Images of user text and tool result items reach the model as pi-ai image content,
+ * `{ type: "image", data, mimeType }` with the base64 of their bytes from `ModelRequest.imageBytes`, after the item's
+ * text and in order. A user message with images has a text part and one image part per image; a tool result message
+ * has its text part and then the images. An item with images and empty text has no text part, because Anthropic
+ * rejects an empty text block; an item without images keeps its text, even when empty. pi-ai converts them for the
+ * provider. For example, OpenAI Chat Completions keeps the tool message text-only and adds a user message with the
+ * tool result's images after it. A model whose `input` lacks `"image"` gets pi-ai's placeholder text instead, one
+ * note for each run of adjacent images, such as `(tool image omitted: model does not support images)`. A request whose `imageBytes` lacks an
+ * image's bytes throws a `TypeError` before pi-ai sends anything. `estimateInputTokens` counts
+ * {@link piAiEstimatedImageInputTokens} for each image.
  *
  * pi-ai's provider-neutral tool choice is `auto` or `none`, so a request that forces a tool, such as a planning
  * turn with `planningToolChoice: "required"`, throws a `TypeError`.
@@ -179,7 +201,11 @@ class PiAiModelClient implements ModelClient {
   public estimateInputTokens(request: ModelRequest): number {
     const characters =
       request.instructions.length + JSON.stringify(request.inputItems).length + JSON.stringify(request.tools).length;
-    return Math.ceil(characters / 4);
+    const imageCount = request.inputItems.reduce(
+      (count, item) => count + (item.type === "model_output" ? 0 : (item.images ?? []).length),
+      0,
+    );
+    return Math.ceil(characters / 4) + imageCount * piAiEstimatedImageInputTokens;
   }
 
   private buildContext(request: ModelRequest): Context {
@@ -190,7 +216,7 @@ class PiAiModelClient implements ModelClient {
     }));
     return {
       ...(request.instructions.trim() === "" ? {} : { systemPrompt: request.instructions }),
-      messages: toPiAiMessages(request.inputItems),
+      messages: toPiAiMessages(request.inputItems, request.imageBytes ?? new Map()),
       ...(tools.length === 0 ? {} : { tools }),
     };
   }
