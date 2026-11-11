@@ -85,20 +85,14 @@ const sidebars: SidebarsConfig = {
       customProps: {section: 'agent-frameworks'},
       link: {type: 'doc', id: 'agent-frameworks'},
       items: [
-        {
-          type: 'category',
-          label: 'Frameworks',
-          items: [
-            'agent-frameworks/built-in-agent-loop',
-            'agent-frameworks/claude-agent-sdk',
-            'agent-frameworks/openai-agents-sdk',
-            'agent-frameworks/pydantic-ai',
-            'agent-frameworks/langchain-langgraph',
-            'agent-frameworks/google-adk',
-            'agent-frameworks/vercel-ai-sdk',
-            'agent-frameworks/mastra',
-          ],
-        },
+        'agent-frameworks/built-in-agent-loop',
+        'agent-frameworks/claude-agent-sdk',
+        'agent-frameworks/openai-agents-sdk',
+        'agent-frameworks/pydantic-ai',
+        'agent-frameworks/langchain-langgraph',
+        'agent-frameworks/google-adk',
+        'agent-frameworks/vercel-ai-sdk',
+        'agent-frameworks/mastra',
       ],
     },
     {
