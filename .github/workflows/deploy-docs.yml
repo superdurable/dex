@@ -67,13 +67,15 @@ jobs:
             api-reference-tree-${{ runner.os }}-${{ steps.api-plan.outputs.entries-hash }}-
             api-reference-tree-${{ runner.os }}-
       - name: Generate stale API references
+        id: api-refresh
         env:
           DEX_API_TOOL_HASH: ${{ steps.api-plan.outputs.tool-hash }}
         run: node scripts/refresh-api-reference-cache.mjs refresh "$VERSION_SCOPE"
       # Saved before the docs build, so a later failure keeps the generated trees.
       # Partial sets are safe: stamps follow successful generation, and the run id prevents an exact hit.
+      # An unchanged tree is already cached, so it is not saved again.
       - uses: actions/cache/save@v4
-        if: ${{ !cancelled() && steps.api-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && fromJSON(steps.api-refresh.outputs.changed-tree-count || '0') > 0 }}
         with:
           path: docs/.cache/api-reference
           key: ${{ steps.api-cache.outputs.cache-primary-key }}-${{ github.run_id }}

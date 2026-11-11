@@ -10,7 +10,7 @@
 
 import {execFile, spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {readdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
+import {appendFile, readdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {promisify} from 'node:util';
@@ -29,7 +29,8 @@ const usage = `Usage: node scripts/refresh-api-reference-cache.mjs <plan|refresh
            "refresh latest" prunes non-latest trees. It does not fetch tags; run plan first.
 
 DEX_API_TOOL_HASH is required: the hash of the API reference tools.
-DEX_API_OUTPUT optionally changes the cache root (default .cache/api-reference).`;
+DEX_API_OUTPUT optionally changes the cache root (default .cache/api-reference).
+In GitHub Actions, refresh writes changed-tree-count (generated plus removed trees) to GITHUB_OUTPUT.`;
 // Maven Central artifacts are immutable, so the version identifies the Javadoc.
 const javaRevision = 'maven-central';
 
@@ -46,9 +47,18 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     await fetchReleaseTags(entries);
     console.log(entriesHash(await resolveRevisions(entries), toolHash));
   } else {
-    await refreshApiReferenceCache({
-      cacheRoot, toolHash, entries: await resolveRevisions(entries), generate: generateWithBuildScript,
-    });
+    let changedTreeCount = 0;
+    const generate = async (entry) => {
+      await generateWithBuildScript(entry);
+      changedTreeCount += 1;
+    };
+    try {
+      const outcome = await refreshApiReferenceCache({cacheRoot, toolHash, entries: await resolveRevisions(entries), generate});
+      changedTreeCount += outcome.removed.length;
+    } finally {
+      // Written even on failure, so CI can save the trees finished before it.
+      if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `changed-tree-count=${changedTreeCount}\n`);
+    }
   }
 }
 
