@@ -47,10 +47,14 @@ public class BlockingPartialJoinFlow implements Flow<BlockingPartialJoinFlow.Blo
      * null in the first round.
      */
     public record BlockingJoinRound(int requiredSignals, int round, JoinRound previousRound) {
+        /** Creates the first round, which has no previous Join round. */
+        public BlockingJoinRound(final int requiredSignals, final int round) {
+            this(requiredSignals, round, null);
+        }
     }
 
     /** The join Step input: the blocking round and the Join round it waits on. */
-    public record BlockingRoundJoin(BlockingJoinRound blockingRound, JoinRound joinRound) {
+    public record BlockingRoundJoinInput(BlockingJoinRound blockingRound, JoinRound joinRound) {
     }
 
     /** The branches whose signals fired the join in one round. */
@@ -130,7 +134,7 @@ public class BlockingPartialJoinFlow implements Flow<BlockingPartialJoinFlow.Blo
                             round -> StepMovement.of(SignalFromBranchB.class, round),
                             round -> StepMovement.of(SignalFromBranchC.class, round)),
                     round -> StepMovement.of(
-                            BlockingJoin.class, new BlockingRoundJoin(blockingRound, round))));
+                            BlockingJoin.class, new BlockingRoundJoinInput(blockingRound, round))));
         }
     }
 
@@ -185,20 +189,20 @@ public class BlockingPartialJoinFlow implements Flow<BlockingPartialJoinFlow.Blo
         }
     }
 
-    static final class BlockingJoin implements Step<BlockingRoundJoin> {
+    static final class BlockingJoin implements Step<BlockingRoundJoinInput> {
         @Override
-        public Class<BlockingRoundJoin> getInputType() {
-            return BlockingRoundJoin.class;
+        public Class<BlockingRoundJoinInput> getInputType() {
+            return BlockingRoundJoinInput.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final BlockingRoundJoin roundJoin) {
+        public Wait waitFor(final Context context, final BlockingRoundJoinInput roundJoin) {
             return Wait.until(branchCompleted.forBranches(
                     roundJoin.joinRound(), roundJoin.blockingRound().requiredSignals()));
         }
 
         @Override
-        public StepDecision execute(final Context context, final BlockingRoundJoin roundJoin) {
+        public StepDecision execute(final Context context, final BlockingRoundJoinInput roundJoin) {
             final BlockingJoinRound blockingRound = roundJoin.blockingRound();
             final List<String> fired = branchCompleted
                     .getBranchResults(context, roundJoin.joinRound())

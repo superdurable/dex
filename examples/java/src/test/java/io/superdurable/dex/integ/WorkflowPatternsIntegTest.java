@@ -193,7 +193,7 @@ public class WorkflowPatternsIntegTest {
         final String flowId = startPatternFlow(
                 StructuredPartialJoinFlow.class,
                 "discriminator",
-                new StructuredPartialJoinFlow.QuoteRound(1, 1, 2, null));
+                new StructuredPartialJoinFlow.QuoteRound(1, 1, 2));
         releaseSupplierQuotes(flowId, "A");
         waitForStep(flowId, "PlaceOrder", 1);
         releaseSupplierQuotes(flowId, "B", "C");
@@ -218,7 +218,7 @@ public class WorkflowPatternsIntegTest {
         final String flowId = startPatternFlow(
                 StructuredPartialJoinFlow.class,
                 "partial-join",
-                new StructuredPartialJoinFlow.QuoteRound(2, 1, 2, null));
+                new StructuredPartialJoinFlow.QuoteRound(2, 1, 2));
         releaseSupplierQuotes(flowId, "A");
         waitForStep(flowId, "QuoteFromSupplierA", 1);
         releaseSupplierQuotes(flowId, "B");
@@ -247,7 +247,7 @@ public class WorkflowPatternsIntegTest {
         final String flowId = startPatternFlow(
                 BlockingPartialJoinFlow.class,
                 "blocking-discriminator",
-                new BlockingPartialJoinFlow.BlockingJoinRound(1, 1, null));
+                new BlockingPartialJoinFlow.BlockingJoinRound(1, 1));
         final BlockingPartialJoinFlow stub = rpcStub(BlockingPartialJoinFlow.class, flowId);
         sendBranchSignals(flowId, "A");
         waitForStep(flowId, "ProcessRound", 1);
@@ -270,7 +270,7 @@ public class WorkflowPatternsIntegTest {
         final String flowId = startPatternFlow(
                 BlockingPartialJoinFlow.class,
                 "blocking-partial-join",
-                new BlockingPartialJoinFlow.BlockingJoinRound(2, 1, null));
+                new BlockingPartialJoinFlow.BlockingJoinRound(2, 1));
         final BlockingPartialJoinFlow stub = rpcStub(BlockingPartialJoinFlow.class, flowId);
         sendBranchSignals(flowId, "A", "B");
         waitForStep(flowId, "ProcessRound", 1);
@@ -434,7 +434,7 @@ public class WorkflowPatternsIntegTest {
         final String flowId = startPatternFlow(
                 StaticPartialJoinForMultipleInstancesFlow.class,
                 "instances-static-join",
-                new StaticPartialJoinForMultipleInstancesFlow.InspectionRound(3, 2, 1, 2, null));
+                new StaticPartialJoinForMultipleInstancesFlow.InspectionRound(3, 2, 1, 2));
         final StaticPartialJoinForMultipleInstancesFlow stub =
                 rpcStub(StaticPartialJoinForMultipleInstancesFlow.class, flowId);
         client().invokeRPC(stub::releaseInspections, 2);

@@ -55,10 +55,18 @@ public class StaticPartialJoinForMultipleInstancesFlow
             int round,
             int roundCount,
             JoinRound previousRound) {
+        /** Creates the first round, which has no previous Join round. */
+        public InspectionRound(
+                final int inspectionCount,
+                final int requiredInspections,
+                final int round,
+                final int roundCount) {
+            this(inspectionCount, requiredInspections, round, roundCount, null);
+        }
     }
 
     /** One instance of a round: its unit index and the Join round it reports to. */
-    public record UnitInspection(int unitIndex, JoinRound joinRound) {
+    public record UnitInspection(int unitIndex, JoinRound round) {
     }
 
     /** The join Step input: the inspection round and the Join round it waits on. */
@@ -146,7 +154,7 @@ public class StaticPartialJoinForMultipleInstancesFlow
 
         @Override
         public StepDecision execute(final Context context, final UnitInspection unit) {
-            return unitInspected.endBranch(context, unit.joinRound(), unit.unitIndex());
+            return unitInspected.endBranch(context, unit.round(), unit.unitIndex());
         }
     }
 

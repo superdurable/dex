@@ -52,6 +52,10 @@ public class StructuredPartialJoinFlow implements Flow<StructuredPartialJoinFlow
      */
     public record QuoteRound(
             int requiredQuotes, int round, int roundCount, JoinRound previousRound) {
+        /** Creates the first round, which has no previous Join round. */
+        public QuoteRound(final int requiredQuotes, final int round, final int roundCount) {
+            this(requiredQuotes, round, roundCount, null);
+        }
     }
 
     /** The join Step input: the quote round and the Join round it waits on. */
