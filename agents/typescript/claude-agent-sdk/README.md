@@ -138,8 +138,8 @@ The session's RPCs, persistence, events, and Flow shape are the core's; see the
 
 | Export | Purpose |
 | --- | --- |
-| `createClaudeAgentSessionFlow(agent, flowType, sessionOptions?)` | Builds the session Flow from a `ClaudeAgentDefinition` `{ options, customTools?, toolPolicies?, customToolServerName?, toolSources?, toolSourceListingTimeoutMs? }` and the core's session options without `toolPolicies` |
-| `ClaudeAgentRunner` | The `AgentFrameworkRunner`; `new ClaudeAgentRunner(options, { customTools, customToolServerName, toolSources, toolSourceListingTimeoutMs })` for `createAgentSessionFlow`. Its `toolCallStepOptions` gives a source call its source's tool Step options |
+| `createClaudeAgentSessionFlow(agent, flowType, sessionOptions?)` | Builds the session Flow from a `ClaudeAgentDefinition` `{ options, customTools?, toolPolicies?, customToolServerName?, toolSources?, toolSourceListingTimeoutMs?, mediaStore? }` and the core's session options without `toolPolicies` |
+| `ClaudeAgentRunner` | The `AgentFrameworkRunner`; `new ClaudeAgentRunner(options, { customTools, customToolServerName, toolSources, toolSourceListingTimeoutMs, mediaStore })` for `createAgentSessionFlow`. Its `toolCallStepOptions` gives a source call its source's tool Step options |
 | `ClaudeAgentQueryOptions` | The SDK `Options` an application may set |
 | `ClaudeAgentOptionsFactory`, `ClaudeAgentOptionsContext` | Options per segment from `{ flowId, turnId, attempt }` |
 | `currentDeferredToolExecution()` | Inside a custom tool handler: the `DeferredToolExecution` of the tool Step, or `undefined` inline |
@@ -273,6 +273,46 @@ const flow = createClaudeAgentSessionFlow(
   replay-only, so the resumed CLI receives its recorded result. A new call of that tool is denied in
   the turn ("its tool source does not offer this tool now"), so it never starts a tool Step under a
   new Call ID.
+
+## Images
+
+Pass `mediaStore`, the store your clients upload to, and the session accepts user messages with images. Without it,
+the runner has no `buildUserMessageWithImages`, so `sendUserMessage` with images returns `false`, as before. See the
+core's [Images](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md#images) section for
+references and stores.
+
+```ts
+import { sendAgentUserMessage } from "@superdurable/dex-agents";
+import { S3MediaStore } from "@superdurable/dex-agents/s3";
+
+const media = new S3MediaStore({ bucket: "agent-media", prefix: "sessions" });
+const flow = createClaudeAgentSessionFlow({ options: buildOptions, customTools: [lookupOrder], mediaStore: media }, "SupportAgent");
+
+const reference = await media.putImage(await readFile("chart.png"));
+await sendAgentUserMessage(client, flow, "session-42", { text: "What does this chart show?", images: [reference] });
+```
+
+- **User images.** The prompt sends the message text, then each image as a Claude `image` block,
+  `{"type": "image", "source": {"type": "base64", "media_type": ..., "data": ...}}`, in reference order. The stored
+  `user_prompt` item adds `"images"`, the wire fields of each reference, as the Python adapter writes them.
+- **Tool result images.** A deferred call's result `images` reach the model inside its `tool_result`, as `image`
+  blocks after the output text: the custom tool server answers the resumed call with MCP `image` content, which the
+  CLI turns into Claude `image` blocks. No separate message is added. A deferred custom tool's own MCP `image`
+  content is uploaded in its tool Step and recorded as `images`, so it replays the same way. The stored tool result
+  message's `images` are the references the model saw.
+- **References in storage.** The CLI writes image bytes into its transcript. Before an entry reaches Dex state, the
+  runner replaces the `data` of each base64 image `source` with `{"dex_image_reference": {<reference fields>}}`,
+  keeping every other key in place; this covers `frameworkItem`, the run state of a suspended turn, and copies such
+  as `toolUseResult`. An image without a known reference, such as one an inline `read` tool returned, is uploaded
+  first. When the CLI resumes the session, the runner reads the bytes back and restores each entry exactly, so the
+  replayed model input is the same on any Worker. The encoding matches the Python adapter.
+- Only Claude `image` blocks are rewritten. Other base64 content, such as a PDF `document` block, or a copy that a
+  Claude Code tool keeps in a shape of its own, such as `Read` of an image file, is stored as the CLI wrote it.
+- A store read failure fails the `RunModel` attempt, which retries. An image the store refuses, or base64 that would
+  not restore to the same text, fails the attempt too, rather than storing bytes.
+- The CLI also writes each image to a local file and adds a `[Image: source: <path>]` text after it. That text
+  replays as stored; the file is not needed on another Worker.
+- A runner without a store fails a turn whose stored history holds image references.
 
 ## How a turn runs
 

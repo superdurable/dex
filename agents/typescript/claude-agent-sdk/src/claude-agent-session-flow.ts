@@ -10,6 +10,7 @@ import {
   createAgentSessionFlow,
   type AgentSessionFlow,
   type AgentSessionOptions,
+  type MediaStore,
   type ToolPolicy,
 } from "@superdurable/dex-agents";
 
@@ -69,6 +70,19 @@ export interface ClaudeAgentDefinition {
    * @since 0.4.0
    */
   readonly toolSourceListingTimeoutMs?: number;
+  /**
+   * The store that holds the session's images, such as `S3MediaStore`; pass the store your clients upload to, on
+   * every Worker. With a store, the session accepts user messages with images, and the model sees them and tool
+   * result images as Claude `image` blocks; the session stores only references. Omit it to refuse images. See
+   * {@link ClaudeAgentRunnerOptions.mediaStore}, which also has an example.
+   *
+   * @example
+   * ```ts
+   * const flow = createClaudeAgentSessionFlow({ options: buildOptions, mediaStore: media }, "SupportAgent");
+   * ```
+   * @since 0.5.0
+   */
+  readonly mediaStore?: MediaStore;
 }
 
 /** Session options of {@link createClaudeAgentSessionFlow}; tool policies belong to the agent definition. */
@@ -151,6 +165,7 @@ export function createClaudeAgentSessionFlow(
     ...(agent.toolSourceListingTimeoutMs === undefined
       ? {}
       : { toolSourceListingTimeoutMs: agent.toolSourceListingTimeoutMs }),
+    ...(agent.mediaStore === undefined ? {} : { mediaStore: agent.mediaStore }),
   });
   return createAgentSessionFlow(runner, flowType, {
     ...sessionOptions,

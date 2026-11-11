@@ -8,11 +8,19 @@
 
 import { runAgentWorkerProcess } from "@superdurable/dex-agents/testing";
 
-import { createClaudeTestAgentFlow } from "./claude-test-agent.js";
+import {
+  claudeTestAgentCliVariable,
+  claudeTestAgentMediaStoreVariable,
+  createClaudeTestAgentFlow,
+  type ClaudeTestAgentCli,
+} from "./claude-test-agent.js";
 import { fakeClaudeStateDirectoryVariable } from "./fake-claude-cli-environment.js";
 
 const stateDirectory = process.env[fakeClaudeStateDirectoryVariable];
 if (stateDirectory === undefined || stateDirectory === "") {
   throw new Error(`${fakeClaudeStateDirectoryVariable} is not set`);
 }
-await runAgentWorkerProcess([createClaudeTestAgentFlow(stateDirectory)]);
+const cliJson = process.env[claudeTestAgentCliVariable];
+const cli = cliJson === undefined || cliJson === "" ? undefined : (JSON.parse(cliJson) as ClaudeTestAgentCli);
+const hasMediaStore = process.env[claudeTestAgentMediaStoreVariable] === "1";
+await runAgentWorkerProcess([createClaudeTestAgentFlow(stateDirectory, cli, {}, hasMediaStore)]);

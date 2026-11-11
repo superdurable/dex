@@ -21,7 +21,10 @@ import {
 import {
   ToolExecutionError,
   ToolOutcomeUnknownError,
+  collectTurnImages,
+  loadImages,
   type AgentFrameworkRunner,
+  type AgentImageReference,
   type AgentToolCall,
   type AgentTurnContext,
   type AgentTurnOutcome,
@@ -29,6 +32,7 @@ import {
   type DeferredToolExecution,
   type DeferredToolOutcome,
   type FrameworkMessage,
+  type MediaStore,
   type ModelCallMetadata,
   type ToolCallStepOptions,
   type ToolExecutionResult,
@@ -50,8 +54,9 @@ import {
   buildTurnPromptContent,
   toolResultText,
   type ClaudeTranscriptEntry,
-  type PromptTextBlock,
+  type PromptContentBlock,
 } from "./claude-transcript.js";
+import { TranscriptImageCodec, imageReferencesIn } from "./claude-transcript-images.js";
 import { TurnSegmentSessionStore } from "./turn-segment-session-store.js";
 
 // Claude Code's ModelUsage provider values that have a well-known gen_ai.provider.name.
@@ -197,6 +202,28 @@ export interface ClaudeAgentRunnerOptions {
    * @since 0.4.0
    */
   readonly toolSourceListingTimeoutMs?: number;
+  /**
+   * The store that holds the session's images, such as `S3MediaStore` from `@superdurable/dex-agents/s3` or
+   * `LocalDirectoryMediaStore`. Use the store your clients upload to, on every Worker of the Flow type.
+   *
+   * With a store, the runner has {@link ClaudeAgentRunner.buildUserMessageWithImages}, so the session accepts user
+   * messages with images. The model sees a user message's images as Claude `image` blocks after its text, and a tool
+   * result's images as `image` blocks inside its `tool_result`. Every `RunModel` attempt reads the session's images
+   * from the store, and the runner uploads every image the CLI produces itself, such as one an inline tool returns,
+   * so stored image blocks hold references, not bytes. A deferred custom tool's MCP `image` content is
+   * uploaded in its tool Step and recorded as the call's `images`. A store read failure fails the attempt, which the
+   * `RunModel` retry policy retries. Omit it to keep images out: the session then refuses user messages with images.
+   *
+   * @example
+   * ```ts
+   * const media = new S3MediaStore({ bucket: "agent-media", prefix: "sessions" });
+   * const runner = new ClaudeAgentRunner(buildOptions, { customTools: [lookupOrder], mediaStore: media });
+   * const reference = await media.putImage(chartPng);
+   * await sendAgentUserMessage(client, flow, "session-42", { text: "What does this chart show?", images: [reference] });
+   * ```
+   * @since 0.5.0
+   */
+  readonly mediaStore?: MediaStore;
 }
 
 const adapterOwnedOptionNames = [
@@ -273,6 +300,10 @@ export function currentDeferredToolExecution(): DeferredToolExecution | undefine
  * Changed in 0.4.0: your PreToolUse hooks are skipped for a resumed call with a final record, and an approved tool
  * that runs inside the CLI resumes with its recorded input.
  *
+ * With a {@link ClaudeAgentRunnerOptions.mediaStore}, the runner takes images: the model sees them as Claude `image`
+ * blocks, and the session stores only references. Without one, the runner has no `buildUserMessageWithImages`, so
+ * the session refuses images. Changed in 0.5.0: the runner takes images with a media store.
+ *
  * Most applications call {@link createClaudeAgentSessionFlow} instead of constructing the runner.
  *
  * A turn attempt fails with a `TypeError` when the options set an option the adapter owns (see
@@ -292,15 +323,30 @@ export function currentDeferredToolExecution(): DeferredToolExecution | undefine
  * ```
  */
 export class ClaudeAgentRunner implements AgentFrameworkRunner {
+  /**
+   * Stores user text and its images as the prompt of the next turn. Present only when the runner has a
+   * {@link ClaudeAgentRunnerOptions.mediaStore}; without it the session refuses images.
+   *
+   * The next turn's prompt sends the text, then each image as a Claude `image` block whose bytes the runner reads
+   * from the store, in reference order.
+   *
+   * @param text - The user message text.
+   * @param images - The message's images.
+   * @returns A `"user"` message whose `frameworkItem` is `{"kind": "user_prompt", "text": text, "images": [...]}`,
+   * each image as its wire fields (`uri`, `mime_type`, `sha256`, `size_bytes`, `type`).
+   * @since 0.5.0
+   */
+  public readonly buildUserMessageWithImages?: (text: string, images: readonly AgentImageReference[]) => FrameworkMessage;
   private readonly toolCatalog: ToolCatalog;
   private readonly toolSourceRouter: ToolSourceRouter;
+  private readonly mediaStore: MediaStore | undefined;
 
   /**
    * Creates a runner for one agent.
    *
    * @param options - The application's Claude Agent SDK options, or a factory that returns them for
    * each turn segment. A factory runs on the Worker for every `RunModel` attempt.
-   * @param runnerOptions - Custom tools, the custom tool server name, and tool sources.
+   * @param runnerOptions - Custom tools, the custom tool server name, tool sources, and the media store.
    * @throws {TypeError} When the server name is invalid; two custom tools share a name; a tool source lacks a
    * `ToolSource` method or a non-blank `sourceName`; two sources share a `sourceName`; or a source's
    * `declaredToolNames` repeat a custom tool, a Claude Code tool, or another source's tool.
@@ -322,6 +368,14 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
       runnerOptions.toolSourceListingTimeoutMs ?? defaultToolSourceListingTimeoutMs,
       [...cliToolNames, ...this.toolCatalog.customTools.map((customTool) => customTool.name)],
     );
+    this.mediaStore = runnerOptions.mediaStore;
+    // The session takes images only from a runner that has this method.
+    if (this.mediaStore !== undefined) {
+      this.buildUserMessageWithImages = (text, images) => ({
+        ...this.buildUserMessage(text),
+        frameworkItem: encodeUserPromptItem(text, images),
+      });
+    }
   }
 
   /**
@@ -367,7 +421,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     const committedTranscript = loadSessionTranscript(turn.messages);
     let sessionId: string | null;
     let earlierTurnEntries: readonly ClaudeTranscriptEntry[];
-    let promptContent: string | PromptTextBlock[] | undefined;
+    let promptContent: string | PromptContentBlock[] | undefined;
     if (turn.frameworkRunState === null) {
       sessionId = committedTranscript.sessionId;
       earlierTurnEntries = [];
@@ -380,10 +434,19 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     }
     const resumedEntries = [...committedTranscript.entries, ...earlierTurnEntries];
     const resumedSessionId = resumedEntries.length === 0 ? null : sessionId;
-    const sessionStore = new TurnSegmentSessionStore(resumedSessionId, resumedEntries);
+    const imageCodec = this.transcriptImageCodec(turn, [resumedEntries, promptContent]);
+    const sessionStore = new TurnSegmentSessionStore(resumedSessionId, resumedEntries, imageCodec);
     const toolCatalog = await this.listSegmentTools(turn);
-    const toolCallGate = new ToolCallGate(turn, toolCatalog, answeredToolUseIds(resumedEntries));
+    const toolCallGate = new ToolCallGate(
+      turn,
+      toolCatalog,
+      answeredToolUseIds(resumedEntries),
+      await this.loadRecordedToolImages(turn),
+    );
     const observer = new TurnSegmentObserver(turn, toolCallGate);
+    if (imageCodec !== undefined && promptContent !== undefined) {
+      promptContent = await imageCodec.restoreImageBytes(promptContent);
+    }
     const segmentInput = new TurnSegmentInput(promptContent);
     const abortController = new AbortController();
     const abortSegment = (): void => abortController.abort(turn.cancellationSignal.reason);
@@ -447,7 +510,8 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
    *
    * @param call - The approved record and its idempotency key.
    * @returns The source's output; the custom tool's text output; or {@link approvedCliToolOutput} for a tool that
-   * runs inside the CLI. Non-text content of a custom tool is replaced by a short placeholder.
+   * runs inside the CLI. Non-text content of a custom tool is replaced by a short placeholder. With a media store, its
+   * MCP `image` content is uploaded and returned as `images` instead.
    * @throws {ToolExecutionError} When the arguments do not match the input schema, the custom tool
    * returned `isError`, or the source threw it. The model sees the text. The runner also throws it when a source
    * asks the user a question, which this adapter does not support, or starts a tool task for a `read` call.
@@ -481,11 +545,21 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     const result = await runningDeferredToolExecution.run(call, () =>
       customTool.handler(toolArguments, handlerExtra),
     );
-    const text = toolResultText(result.content);
+    let content: readonly unknown[] = result.content;
+    const images: AgentImageReference[] = [];
+    if (this.mediaStore !== undefined && result.isError !== true) {
+      for (const block of content) {
+        if (isMcpImageContent(block)) {
+          images.push(await this.mediaStore.putImage(new Uint8Array(Buffer.from(block.data, "base64"))));
+        }
+      }
+      content = content.filter((block) => !isMcpImageContent(block));
+    }
+    const text = toolResultText(content);
     if (result.isError === true) {
       throw new ToolExecutionError(text);
     }
-    return { output: text };
+    return images.length === 0 ? { output: text } : { output: text, images };
   }
 
   /**
@@ -514,6 +588,24 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
       return undefined;
     }
     return routed.source.toolCallStepOptions?.(withSourceReference(toolCall, routed.reference));
+  }
+
+  private async loadRecordedToolImages(turn: AgentTurnContext): Promise<ReadonlyMap<string, Uint8Array>> {
+    const references = turn.toolCalls.flatMap((record) => record.images ?? []);
+    if (this.mediaStore === undefined || references.length === 0) {
+      return new Map();
+    }
+    return loadImages(this.mediaStore, references);
+  }
+
+  private transcriptImageCodec(turn: AgentTurnContext, storedValues: readonly unknown[]): TranscriptImageCodec | undefined {
+    if (this.mediaStore === undefined) {
+      if (imageReferencesIn(storedValues).length > 0) {
+        throw new Error("the session stored image references, but ClaudeAgentRunner has no mediaStore to read them from");
+      }
+      return undefined;
+    }
+    return new TranscriptImageCodec(this.mediaStore, collectTurnImages(turn));
   }
 
   // A source's listing may lack a tool the turn already called; its record must still replay.
@@ -630,7 +722,7 @@ class TurnSegmentInput implements AsyncIterable<SDKUserMessage> {
   private readonly closed: Promise<void>;
   private resolveClosed: () => void = () => undefined;
 
-  public constructor(private readonly promptContent: string | PromptTextBlock[] | undefined) {
+  public constructor(private readonly promptContent: string | PromptContentBlock[] | undefined) {
     this.closed = new Promise<void>((resolve) => {
       this.resolveClosed = resolve;
     });
@@ -645,7 +737,8 @@ class TurnSegmentInput implements AsyncIterable<SDKUserMessage> {
       yield {
         type: "user",
         session_id: "",
-        message: { role: "user", content: this.promptContent },
+        // The runner restored every image block's base64 data before the segment started.
+        message: { role: "user", content: this.promptContent as SDKUserMessage["message"]["content"] },
         parent_tool_use_id: null,
       };
     }
@@ -826,6 +919,10 @@ function requireToolExecutionResult(record: AgentToolCall, outcome: DeferredTool
     throw new ToolExecutionError(message);
   }
   throw new ToolOutcomeUnknownError(message);
+}
+
+function isMcpImageContent(block: unknown): block is { readonly type: "image"; readonly data: string } {
+  return isRecord(block) && block["type"] === "image" && typeof block["data"] === "string";
 }
 
 function onlyValue(values: ReadonlySet<string>): string | undefined {

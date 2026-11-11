@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { tool, type HookCallbackMatcher, type PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import { LocalDirectoryMediaStore } from "@superdurable/dex-agents";
 import type {
   AgentSessionFlow,
   AgentToolCall,
@@ -18,6 +19,7 @@ import type {
   DeferredToolCall,
   DeferredToolExecution,
   DeferredToolOutcome,
+  MediaStore,
   ToolCallStepOptions,
   ToolExecutionResult,
   ToolPolicy,
@@ -66,7 +68,42 @@ export const denyFlagFileName = "deny-publish-and-post-note";
 /** The reason that hook gives. */
 export const applicationHookDenial = "the application hook denies this call";
 
+/** Worker child variable: `"1"` gives the agent a media store, {@link createMediaStore}. */
+export const claudeTestAgentMediaStoreVariable = "CLAUDE_TEST_AGENT_MEDIA_STORE";
+/** Worker child variable: a JSON {@link ClaudeTestAgentCli}, so a child runs the same CLI as the test's Flow. */
+export const claudeTestAgentCliVariable = "CLAUDE_TEST_AGENT_CLI";
+
 const fakeClaudeCliPath = fileURLToPath(new URL("./fake-claude-cli.js", import.meta.url));
+const conformanceImagesPath = fileURLToPath(new URL("../../../../../conformance/images.json", import.meta.url));
+
+/** One image of the cores' shared conformance data. */
+export interface ConformanceImage {
+  readonly name: string;
+  readonly base64: string;
+  readonly mime_type: string;
+  readonly sha256: string;
+}
+
+/** The conformance images by name: `png`, `jpeg`, `gif`, and `webp`. */
+export const conformanceImages: ReadonlyMap<string, ConformanceImage> = new Map(
+  (JSON.parse(readFileSync(conformanceImagesPath, "utf8")) as { readonly images: readonly ConformanceImage[] }).images.map(
+    (image) => [image.name, image],
+  ),
+);
+
+/** Returns one conformance image. */
+export function conformanceImage(name: string): ConformanceImage {
+  const image = conformanceImages.get(name);
+  if (image === undefined) {
+    throw new Error(`no conformance image ${name}`);
+  }
+  return image;
+}
+
+/** The media store a test shares with its Workers: a local directory under the state directory. */
+export function createMediaStore(stateDirectory: string): LocalDirectoryMediaStore {
+  return new LocalDirectoryMediaStore(join(stateDirectory, "media"));
+}
 
 // Annotations classify lookup and charge; Bash keeps the default, which needs approval.
 const testToolPolicies: Readonly<Record<string, ToolPolicy>> = {
@@ -76,6 +113,8 @@ const testToolPolicies: Readonly<Record<string, ToolPolicy>> = {
   Agent: { effect: "read" },
   // Claims read; a connector tool takes only the approval from it.
   policy_note: { effect: "read", requiresApproval: true },
+  screenshot: { effect: "read", requiresApproval: true },
+  draw: { effect: "non_idempotent_write", requiresApproval: false },
 };
 
 /** The test agent's CLI: the fake when `executablePath` is unset, else `environment` is the whole environment. */
@@ -88,11 +127,16 @@ export interface ClaudeTestAgentCli {
   readonly allowedTools?: readonly string[];
 }
 
-/** Creates the Claude agent Flow; tests and the Worker child build it identically. */
+/**
+ * Creates the Claude agent Flow; tests and the Worker child build it identically. With `hasMediaStore`, the agent
+ * takes images from {@link createMediaStore} and adds `screenshot`, a source tool that needs approval and returns the
+ * GIF conformance image as a reference, and `draw`, a deferred custom tool that returns the JPEG one as MCP content.
+ */
 export function createClaudeTestAgentFlow(
   stateDirectory: string,
   cli?: ClaudeTestAgentCli,
   sessionOptions: ClaudeAgentSessionOptions = {},
+  hasMediaStore = false,
 ): AgentSessionFlow {
   mkdirSync(join(stateDirectory, "workspace"), { recursive: true });
   mkdirSync(join(stateDirectory, "claude-config"), { recursive: true });
@@ -119,20 +163,75 @@ export function createClaudeTestAgentFlow(
       ],
     },
   });
+  const mediaStore = hasMediaStore ? createMediaStore(stateDirectory) : undefined;
+  const customTools = createTestCustomTools(stateDirectory);
+  const toolSources: ToolSource[] = [
+    createLedgerToolSource(stateDirectory),
+    new HidingToolSource(stateDirectory),
+    new UnsupportedOutcomeToolSource(),
+  ];
+  if (mediaStore !== undefined) {
+    customTools.push(createDrawTool(stateDirectory));
+    toolSources.push(new ScreenshotToolSource(stateDirectory, mediaStore));
+  }
   return createClaudeAgentSessionFlow(
     {
       options: buildOptions,
-      customTools: createTestCustomTools(stateDirectory),
+      customTools,
       toolPolicies: testToolPolicies,
-      toolSources: [
-        createLedgerToolSource(stateDirectory),
-        new HidingToolSource(stateDirectory),
-        new UnsupportedOutcomeToolSource(),
-      ],
+      toolSources,
+      ...(mediaStore === undefined ? {} : { mediaStore }),
     },
     cli?.flowType ?? claudeTestAgentFlowType,
     sessionOptions,
   );
+}
+
+/** Lists `screenshot`, which uploads the GIF conformance image and returns its reference. */
+export class ScreenshotToolSource implements ToolSource {
+  public readonly sourceName = "screenshots";
+  private readonly invocations: InvocationLog;
+
+  public constructor(
+    stateDirectory: string,
+    private readonly mediaStore: MediaStore,
+  ) {
+    this.invocations = new InvocationLog(join(stateDirectory, fakeClaudeInvocationLogName));
+  }
+
+  public async listTools(): Promise<readonly SourceToolDefinition[]> {
+    return [{ name: "screenshot", description: "Take a screenshot", inputSchema: { type: "object", properties: {} } }];
+  }
+
+  public deferredToolCall(
+    turn: AgentTurnContext,
+    call: { readonly toolCallId: string; readonly toolName: string; readonly arguments: string },
+  ): DeferredToolCall {
+    return { ...call, policy: turn.resolveToolPolicy(call.toolName, "read") };
+  }
+
+  public async executeDeferredToolCall(): Promise<DeferredToolOutcome> {
+    this.invocations.record("screenshot");
+    const reference = await this.mediaStore.putImage(Buffer.from(conformanceImage("gif").base64, "base64"));
+    return { output: "took a screenshot", images: [reference] };
+  }
+
+  public async pollToolTask(): Promise<ToolTaskPollOutcome> {
+    throw new Error("screenshot starts no tool task");
+  }
+}
+
+function createDrawTool(stateDirectory: string): ClaudeCustomTool {
+  const invocations = new InvocationLog(join(stateDirectory, fakeClaudeInvocationLogName));
+  return tool("draw", "Draw a picture", { subject: z.string() }, async (toolArguments) => {
+    invocations.record("draw");
+    return {
+      content: [
+        { type: "text", text: `drew ${toolArguments.subject}` },
+        { type: "image", data: conformanceImage("jpeg").base64, mimeType: "image/jpeg" },
+      ],
+    };
+  });
 }
 
 /**

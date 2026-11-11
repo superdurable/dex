@@ -209,10 +209,12 @@ export class ToolCallGate {
   private readonly customToolCallPlans = new Map<string, CustomToolCallPlan>();
 
   // settledToolUseIds: calls the stored transcript already answers; only a pending deferral may replay.
+  // recordedImages: loaded before the CLI starts, so a store failure fails the attempt instead of reaching the model.
   public constructor(
     private readonly turn: AgentTurnContext,
     private readonly toolCatalog: ToolCatalog,
     private readonly settledToolUseIds: ReadonlySet<string>,
+    private readonly recordedImages: ReadonlyMap<string, Uint8Array> = new Map(),
   ) {}
 
   /** Returns the policy of a custom or CLI tool, or `undefined` for a source or replay-only tool. */
@@ -337,7 +339,7 @@ export class ToolCallGate {
       return textToolResult(unpermittedToolCallMessage(toolName), true);
     }
     if (plan.recordedToolCall !== undefined) {
-      return recordedToolCallResult(plan.recordedToolCall);
+      return this.recordedToolCallResultWithImages(plan.recordedToolCall);
     }
     // A source tool runs only in its tool Step; the server only replays its record.
     if (runCustomTool === undefined) {
@@ -436,6 +438,23 @@ export class ToolCallGate {
     const plan = this.customToolCallPlans.get(toolUseId);
     this.customToolCallPlans.delete(toolUseId);
     return plan;
+  }
+
+  // MCP image content, which the CLI passes to the model inside the tool_result.
+  private recordedToolCallResultWithImages(record: AgentToolCall): CustomToolResult {
+    const result = recordedToolCallResult(record);
+    const references = record.images ?? [];
+    if (this.recordedImages.size === 0 || references.length === 0) {
+      return result;
+    }
+    const imageContent = references.map((reference) => {
+      const imageBytes = this.recordedImages.get(reference.sha256);
+      if (imageBytes === undefined) {
+        throw new Error(`image ${reference.uri} of tool call ${record.toolCallId} was not loaded`);
+      }
+      return { type: "image" as const, data: Buffer.from(imageBytes).toString("base64"), mimeType: reference.mimeType };
+    });
+    return { ...result, content: [...result.content, ...imageContent] };
   }
 
   private refuseUnplannedToolCall(toolName: string): CustomToolResult {
