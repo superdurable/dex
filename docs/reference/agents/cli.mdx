@@ -84,14 +84,21 @@ store a key.
 | Command | Environment variables |
 | --- | --- |
 | **dex-agents-claude-sdk** | **ANTHROPIC_API_KEY** |
-| **dex-agents-openai-sdk** | **OPENAI_API_KEY**; optional **OPENAI_BASE_URL** |
+| **dex-agents-openai-sdk** | **OPENAI_API_KEY** |
 | **dex-agents-google-adk** | **GOOGLE_API_KEY** or **GEMINI_API_KEY** |
-| **dex-agents-builtin** (Python) | LiteLLM reads each provider's standard variables, such as **OPENAI_API_KEY** and **OPENAI_BASE_URL** for **openai/** models and **ANTHROPIC_API_KEY** for **anthropic/** models |
-| **dex-agents-pydantic-ai** | **OPENAI_API_KEY** for **openai:**, optional **OPENAI_BASE_URL**; **ANTHROPIC_API_KEY** for **anthropic:**, optional **ANTHROPIC_BASE_URL**; **GOOGLE_API_KEY** for **google-gla:** |
-| **dex-agents-deepagents** | **OPENAI_API_KEY** for **openai:**, optional **OPENAI_BASE_URL**; **ANTHROPIC_API_KEY** for **anthropic:**; **GOOGLE_API_KEY** for **google_genai:** |
-| **dex-agents-builtin** (TypeScript), **dex-agents-vercel-ai** | **OPENAI_API_KEY** for **openai/**, optional **OPENAI_BASE_URL**; **ANTHROPIC_API_KEY** for **anthropic/**, optional **ANTHROPIC_BASE_URL** |
-| **dex-agents-mastra** | The provider's standard variable, such as **OPENAI_API_KEY**, optional **OPENAI_BASE_URL**, or **ANTHROPIC_API_KEY** |
+| **dex-agents-builtin** (Python) | LiteLLM reads each provider's standard variables, such as **OPENAI_API_KEY** for **openai/** models and **ANTHROPIC_API_KEY** for **anthropic/** models |
+| **dex-agents-pydantic-ai** | **OPENAI_API_KEY** for **openai:**, **ANTHROPIC_API_KEY** for **anthropic:**, **GOOGLE_API_KEY** for **google-gla:** |
+| **dex-agents-deepagents** | **OPENAI_API_KEY** for **openai:**, **ANTHROPIC_API_KEY** for **anthropic:**, **GOOGLE_API_KEY** for **google_genai:** |
+| **dex-agents-builtin** (TypeScript), **dex-agents-vercel-ai** | **OPENAI_API_KEY** for **openai/**, **ANTHROPIC_API_KEY** for **anthropic/** |
+| **dex-agents-mastra** | The provider's standard variable, such as **OPENAI_API_KEY** or **ANTHROPIC_API_KEY** |
 | **dex-agents-pi** | The key that pi-ai names for the provider, such as **ANTHROPIC_API_KEY**, **OPENAI_API_KEY**, or **GEMINI_API_KEY** |
+
+To send model calls to another endpoint, such as a proxy, set
+**OPENAI_BASE_URL** for OpenAI models. **ANTHROPIC_BASE_URL** does the same for
+Anthropic models in **dex-agents-pydantic-ai**, **dex-agents-vercel-ai**, and
+the TypeScript **dex-agents-builtin**. **dex-agents-pi** reads neither; it
+takes provider URLs from **pi.provider_base_urls**. See
+[Harness options](#harness-options).
 
 **dex-agents-pi** stops before the chat when the configured model's key is
 missing, and names the variable. A turn whose session settings pick a model
@@ -132,6 +139,7 @@ dex-agents-NAME [run|init|connectors|sessions] [options]
   -y, --yes             Write and use the defaults instead of asking.
   -r, --resume <id>     Continue a session.
   -m, --model <id>      Override the configured model.
+  -h, --help            Show this help.
 ```
 
 The exit code is 0 on success. It is 1 for a failure at run time, such as a
@@ -439,7 +447,8 @@ A **tools** list names each operation by its snake-case name, such as
 **get_message**, or by its operationId, such as **getMessage**. An acronym
 stays one word, so **listStoryIDs** is **list_story_ids**. Two entries must not
 cover the same connection, so **slack** and **slack/work** cannot appear
-together. An empty list gives the agent no Connector tools.
+together. A **tools** list names at least one operation. An empty
+**connectors.enabled** list gives the agent no Connector tools.
 
 The agent sees each Connector tool by its MCP name, such as
 **slack_post_thread_reply**. **approval.always** names it the same way. Each
