@@ -355,6 +355,28 @@ describe("LocalDirectoryMediaStore on the file system", () => {
     assert.ok(synced.has(statSync(store.imagePath(reference.sha256)).ino));
   });
 
+  test("every putImage syncs the directory chain another creator left unsynced", async () => {
+    const directory = newDirectory();
+    const root = join(directory, "media");
+    // Another process created the root and never synced its parent.
+    mkdirSync(root, { mode: 0o700 });
+    const store = new LocalDirectoryMediaStore(root);
+    const synced = new Set<number>();
+    const recordSync = async (handle: FileHandle): Promise<void> => {
+      synced.add((await handle.stat()).ino);
+    };
+
+    await withFileHandleHook("sync", recordSync, () => store.putImage(png));
+    assert.ok(synced.has(statSync(directory).ino), "the root's parent was synced");
+    assert.ok(synced.has(statSync(root).ino), "the root was synced");
+
+    synced.clear();
+    await withFileHandleHook("sync", recordSync, () => store.putImage(png));
+    for (const path of [directory, root, join(root, "sha256")]) {
+      assert.ok(synced.has(statSync(path).ino), `${path} was synced by the identical put`);
+    }
+  });
+
   test("a read whose directory is swapped after the open returns nothing", async () => {
     const directory = newDirectory();
     const root = join(directory, "media");

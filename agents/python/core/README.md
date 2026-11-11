@@ -744,8 +744,9 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   the same in every core. `put_image` copies the bytes into a temporary file
   in the same directory and renames it into place; an existing file with the
   same bytes is success. Directories it creates get mode `0700` and files
-  `0600`, and it syncs the parent of each new directory before the first
-  `put_image` returns. It opens every path relative to an open directory, so
+  `0600`. Before every `put_image` returns, even when the file already
+  existed, it syncs the `sha256` directory, the root, and the root's parent,
+  so a returned reference survives a crash. It opens every path relative to an open directory, so
   it follows no symbolic link under the root. It refuses a symbolic link, a
   special file, or an image file with more than one hard link there with
   `MediaStoreError`. Reads check the file's size first, read at most one byte past `size_bytes`, and run

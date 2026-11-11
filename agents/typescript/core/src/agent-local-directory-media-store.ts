@@ -46,8 +46,9 @@ const openRetryDelayMs = 5;
  * `putImage` copies the bytes into a temporary file in the same directory, syncs it, and renames it into place, so a
  * reader never sees a partial image. An existing file with the same bytes is success, so retried and concurrent uploads
  * of the same bytes leave one file; an existing file with other bytes is replaced. Directories the store creates get
- * mode `0700` and image files mode `0600`, narrowed further by the process umask. The store syncs the parent of every
- * directory it creates, and the `sha256` directory after each rename, so a returned reference survives a crash.
+ * mode `0700` and image files mode `0600`, narrowed further by the process umask. Before each put returns, the store
+ * syncs the image file, the `sha256` directory, the root, and the root's parent, and it syncs the parent of every other
+ * directory it creates, so a returned reference survives a crash.
  *
  * The store refuses a `sha256` directory or an image file that is a symbolic link or not a regular file, and an image
  * file with more than one hard link, with `MediaStoreError`, on both upload and read. The root itself may be a symbolic
@@ -132,13 +133,15 @@ export class LocalDirectoryMediaStore implements MediaStore {
         throw error;
       }
       await makeDirectory(this.imageDirectory());
-      // Also after EEXIST: the racing creator may not have synced it yet.
-      await syncDirectory(this.root);
       await this.requireImageDirectory();
     }
     if (!(await this.hasImageFile(reference, copy))) {
       await this.replaceImageFile(reference, copy);
     }
+    // Every put syncs its directory chain: a concurrent creator may not have yet.
+    await syncDirectory(this.imageDirectory());
+    await syncDirectory(this.root);
+    await syncDirectory(posix.dirname(this.root));
     return reference;
   }
 
@@ -342,7 +345,6 @@ export class LocalDirectoryMediaStore implements MediaStore {
     if (!(await isSameFile(imagePath, written)) && !(await this.hasImageFile(reference, data))) {
       throw this.directoryChanged(reference);
     }
-    await syncDirectory(directory);
   }
 }
 

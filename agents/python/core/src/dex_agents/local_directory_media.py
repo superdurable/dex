@@ -68,9 +68,10 @@ class LocalDirectoryMediaStore:
     image. An existing file with the same bytes is success, so retried and
     concurrent uploads of the same bytes leave one file; an existing file with
     other bytes is replaced. Directories the store creates get mode ``0700``
-    and image files mode ``0600``, narrowed further by the process umask. The
-    store syncs the parent of every directory it creates, and the ``sha256``
-    directory after each rename, so a returned reference survives a crash.
+    and image files mode ``0600``, narrowed further by the process umask.
+    Before each put returns, the store syncs the image file, the ``sha256``
+    directory, the root, and the root's parent, and it syncs the parent of
+    every other directory it creates, so a returned reference survives a crash.
 
     The store follows no symbolic link under the root: it opens every path
     relative to an open directory, and refuses a ``sha256`` directory or an
@@ -204,17 +205,18 @@ class LocalDirectoryMediaStore:
             except FileNotFoundError:
                 with contextlib.suppress(FileExistsError):
                     os.mkdir(_IMAGE_DIRECTORY_NAME, _DIRECTORY_MODE, dir_fd=root_fd)
-                # Also after FileExistsError: the racing creator may not have synced it yet.
-                os.fsync(root_fd)
                 directory_fd = self._open_image_directory(root_fd)
+            try:
+                if not self._has_image_file(directory_fd, reference, data):
+                    _replace_file(directory_fd, reference.sha256, data)
+                # Every put syncs its directory chain: a concurrent creator may not have yet.
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+            os.fsync(root_fd)
         finally:
             os.close(root_fd)
-        try:
-            if self._has_image_file(directory_fd, reference, data):
-                return
-            _replace_file(directory_fd, reference.sha256, data)
-        finally:
-            os.close(directory_fd)
+        _sync_directory(posixpath.dirname(self._root))
 
     def _make_root(self) -> None:
         missing: list[str] = []
@@ -365,7 +367,6 @@ def _replace_file(directory_fd: int, name: str, data: bytes) -> None:
         with contextlib.suppress(OSError):
             os.unlink(temporary_name, dir_fd=directory_fd)
         raise
-    os.fsync(directory_fd)
 
 
 def _sync_directory(path: str) -> None:

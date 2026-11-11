@@ -286,3 +286,28 @@ async def test_the_first_put_syncs_the_parent_of_every_directory_it_creates(
     # The sha256 directory after the rename, and the image file itself.
     assert (root / "sha256").stat().st_ino in synced
     assert Path(store.image_path(reference.sha256)).stat().st_ino in synced
+
+
+async def test_every_put_syncs_the_directory_chain_another_creator_left_unsynced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: set[int] = set()
+    fsync = os.fsync
+
+    def recording_fsync(fd: int) -> None:
+        synced.add(os.fstat(fd).st_ino)
+        fsync(fd)
+
+    root = tmp_path / "media"
+    # Another process created the root and never synced its parent.
+    root.mkdir(mode=0o700)
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    store = LocalDirectoryMediaStore(root)
+
+    await store.put_image(PNG)
+    assert {tmp_path.stat().st_ino, root.stat().st_ino} <= synced
+
+    synced.clear()
+    await store.put_image(PNG)
+    chain = {tmp_path.stat().st_ino, root.stat().st_ino, (root / "sha256").stat().st_ino}
+    assert chain <= synced
