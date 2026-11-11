@@ -239,7 +239,7 @@ export class TestHome {
   }
 
   /**
-   * Returns the command's environment: no provider variable of the host, and no rg or fd download.
+   * Returns the command's environment: no provider variable of the host.
    * @returns The variables.
    */
   public environment(): NodeJS.ProcessEnv {
@@ -254,7 +254,6 @@ export class TestHome {
       ...(process.env.DEX_SERVER_ZD_BINARY === undefined ? {} : { DEX_SERVER_ZD_BINARY: process.env.DEX_SERVER_ZD_BINARY }),
       DEX_AGENTS_DEX_PORT: String(this.ports.dexPort),
       DEX_AGENTS_WEB_PORT: String(this.ports.webPort),
-      PI_OFFLINE: "1",
       HTTPS_PROXY: this.proxyUrl,
       HTTP_PROXY: this.proxyUrl,
       NO_PROXY: "127.0.0.1,localhost",

@@ -79,10 +79,6 @@ export class PiToolCallOperations {
     return true;
   }
 
-  public async isDirectory(absolutePath: string): Promise<boolean> {
-    return (await this.files.statExisting(absolutePath)).isDirectory();
-  }
-
   /** Answers for an entry of a listed directory without following it; checks any other path. */
   public async describeDirectoryOrEntry(absolutePath: string): Promise<DirectoryTest> {
     const entry = this.listedEntries.get(absolutePath);

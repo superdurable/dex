@@ -136,15 +136,15 @@ you questions.
   configuration of the Worker that runs it and the settings its turn started
   with. A call whose group is off there, or that ran without approval but now
   needs one, records `failed` and does not run.
-- `find` walks the workspace through the workspace file layer instead of
-  running `fd`. It matches Pi's glob rules, skips `.git` and `node_modules`,
-  never follows links, and does not read `.gitignore`.
-- `grep` checks its search directory through the workspace file layer, then
-  runs `rg` on it. `rg` does not follow links below that directory, but it
-  reads a file with more than one hard link. When `rg` is not on `PATH` or in
-  `~/.pi/agent/bin`, pi-coding-agent downloads it from GitHub into
-  `~/.pi/agent/bin` on first use. Set `PI_OFFLINE=1` to stop the download;
-  `grep` then fails until you install `rg`.
+- `find` and `grep` walk the workspace through the workspace file layer
+  instead of running `fd` and `rg`, so the command needs neither and never
+  downloads them. They skip `.git` and `node_modules`, never follow links, and
+  do not read `.gitignore`. `find` matches Pi's glob rules. `grep` reads each
+  regular file through the layer, skipping files with more than one hard link,
+  files outside the workspace, and binary files; it takes Pi's options
+  (`pattern`, `path`, `glob`, `ignoreCase`, `literal`, `context`, `limit`)
+  and matches with JavaScript regular expressions, close to `rg`'s syntax.
+  Both are slower than `fd` and `rg` on large trees.
 - Images that `read` returns reach the model as a note naming the image type.
 
 The command imports pi-coding-agent's package root, because the package exports
@@ -180,5 +180,4 @@ DEXCLI=/path/to/dexcli ./ci.sh
 `dex-server-zd` must sit next to `dexcli`. The tests run the command as a child
 process with a private home. pi-ai's Anthropic provider calls
 `test/fixtures/mock-messages-api.ts`, a scripted Messages API on 127.0.0.1,
-through `pi.provider_base_urls`; a refusing proxy stops any other request, and
-`PI_OFFLINE=1` stops the `rg` and `fd` downloads.
+through `pi.provider_base_urls`; a refusing proxy stops any other request.

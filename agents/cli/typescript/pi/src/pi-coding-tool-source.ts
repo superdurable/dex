@@ -42,6 +42,7 @@ import {
 import { piAgentFunctionTool, type PiAgentToolLike } from "@superdurable/dex-agents-pi";
 
 import { PiToolCallOperations } from "./pi-tool-call-operations.js";
+import { WorkspaceGrep, type WorkspaceGrepArguments } from "./workspace-grep.js";
 
 /**
  * How the command runs one of pi-coding-agent's tools: the local tool group that switches it, its effect, and
@@ -103,8 +104,8 @@ const refusalReferenceKey = "refused";
  * - Every file access of the file tools goes through the runtime's `WorkspaceFiles`, with the path Pi finally
  *   opens, so the runtime's workspace boundary applies: no path outside the workspace, no final symbolic link
  *   followed, no file with more than one hard link, and writes by temporary file and rename. `edit` fails with a
- *   conflict when the file changed after it read it. `find` walks the workspace through it instead of running
- *   `fd`. `grep` checks its search directory through it, then runs `rg`.
+ *   conflict when the file changed after it read it. `find` and `grep` walk the workspace and read its files
+ *   through it instead of running `fd` and `rg`; they do not read ignore files.
  * - A file tool's failure records `failed`, and the model sees why: writes replace the file by rename, so a failed
  *   write leaves it unchanged.
  * - A `bash` call that fails before its command starts records `failed`. A failure after that records
@@ -121,6 +122,7 @@ export class PiCodingToolSource implements ToolSource {
   public readonly sourceName = "pi_coding_tools";
   private readonly workspace: string;
   private readonly files: WorkspaceFiles;
+  private readonly grep: WorkspaceGrep;
   private readonly definitions: readonly SourceToolDefinition[];
 
   /**
@@ -140,6 +142,7 @@ export class PiCodingToolSource implements ToolSource {
     }
     this.workspace = realpathSync.native(context.workspace);
     this.files = new WorkspaceFiles(this.workspace);
+    this.grep = new WorkspaceGrep(this.files);
     this.definitions = Object.keys(piCodingLocalTools).map((toolName) => {
       const tool = this.createPiTool(toolName, new PiToolCallOperations(this.files));
       const parameters = tool.parameters as Record<string, unknown>;
@@ -328,8 +331,16 @@ export class PiCodingToolSource implements ToolSource {
             detectImageMimeType: (absolutePath) => operations.detectImageMimeType(absolutePath),
           },
         });
-      case "grep":
-        return createGrepTool(workspace, { operations: { isDirectory: (absolutePath) => operations.isDirectory(absolutePath) } });
+      case "grep": {
+        const piGrep = createGrepTool(workspace);
+        return {
+          name: piGrep.name,
+          description: piGrep.description.replace(" Respects .gitignore.", ""),
+          parameters: piGrep.parameters,
+          execute: (_toolCallId, grepArguments: WorkspaceGrepArguments, signal) =>
+            this.grep.search(grepArguments.path ?? ".", grepArguments, signal),
+        };
+      }
       case "find":
         return createFindTool(workspace, {
           operations: {

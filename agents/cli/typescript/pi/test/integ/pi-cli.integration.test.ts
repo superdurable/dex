@@ -367,12 +367,34 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     }
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
-    // grep reports its own error when rg is missing; either way nothing outside reaches the model.
-    assert.ok((cli.stdout.all.match(/is outside the workspace/g)?.length ?? 0) >= 3);
+    assert.equal(cli.stdout.all.match(/is outside the workspace/g)?.length, calls.length);
     assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
   });
 
-  test("a hard link to an outside file is refused for read, write, and edit", async () => {
+  test("grep matches with a glob, ignoring case, a literal, context lines, and a limit", async () => {
+    const home = newHome(noConnectors);
+    mkdirSync(join(home.workspace, "src"), { recursive: true });
+    writeFileSync(join(home.workspace, "src", "a.ts"), "const Alpha = 1;\nconst beta = 2;\nconst gamma = 3;\n");
+    writeFileSync(join(home.workspace, "src", "b.md"), "alpha in the docs\n");
+    writeFileSync(join(home.workspace, "notes.txt"), "a.b is literal\naxb is not\n");
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, glob: "*.ts" }));
+    await cli.stdout.waitFor("grep: src/a.ts:1: const Alpha = 1;");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, limit: 1 }));
+    await cli.stdout.waitFor("1 matches limit reached");
+    cli.writeLine(call("grep", { pattern: "a.b", literal: true }));
+    await cli.stdout.waitFor("grep: notes.txt:1: a.b is literal");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine(call("grep", { pattern: "beta", path: "src", context: 1 }));
+    await cli.stdout.waitFor("grep: a.ts-1- const Alpha = 1;\na.ts:2: const beta = 2;\na.ts-3- const gamma = 3;");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.doesNotMatch(cli.stdout.all, /b\.md|axb|Approve grep/);
+  });
+
+  test("a hard link to an outside file is refused for read, write, and edit, and grep never reads it", async () => {
     const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
     writeFileSync(join(outside, "secret.txt"), "do not read");
     const home = newHome(noConnectors);
@@ -382,6 +404,8 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     await cli.waitForSession();
     cli.writeLine(call("read", { path: "linked.txt" }));
     await cli.stdout.waitFor("has 2 hard links");
+    cli.writeLine(call("grep", { pattern: "read" }));
+    await cli.stdout.waitFor("grep: No matches found");
     cli.writeLine(call("write", { path: "linked.txt", content: "overwritten" }));
     await cli.stdout.waitFor("Approve write?");
     cli.writeLine("y");
