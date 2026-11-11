@@ -16,6 +16,8 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.JoinRound;
+import io.superdurable.dex.PackagePrivateTestAccess;
+import io.superdurable.dex.RPCInvokeOptions;
 import io.superdurable.dex.Registry;
 import io.superdurable.dex.StepCompletion;
 import io.superdurable.dex.StepExecutionId;
@@ -57,13 +59,14 @@ public final class JoinIntegTest {
                     workflow,
                     "join-all-of",
                     names,
-                    JoinIntegAllOfWorkflow.JoinMode.GATED_ALL_BRANCHES);
+                    JoinIntegAllOfWorkflow.JoinMode.LATE_JOIN_START);
             final JoinIntegAllOfWorkflow stub = stub(environment, flowId);
             for (String name : Arrays.asList("A", "C", "B")) {
                 environment.client().invokeRPC(stub::releaseBranch, name);
                 // Branch execution numbers follow fork order.
                 waitForStep(environment, flowId, "JoinIntegAllOfBranch", names.indexOf(name) + 1);
             }
+            // The join Step starts only now, after every branch result committed.
             environment.client().invokeRPC(stub::releaseJoinGate);
             final JoinIntegAllOfWorkflow.JoinOutcome outcome = allOfOutcome(environment, flowId);
             assertEquals(JoinIntegAllOfWorkflow.SPLIT_STEP_TYPE + "-1", outcome.roundKey);
@@ -194,13 +197,28 @@ public final class JoinIntegTest {
             environment.client().invokeRPC(stub::releaseCarrier, "B");
             waitForStep(environment, flowId, JoinIntegCancellingWorkflow.BRANCH_STEP_TYPE, 2);
             environment.client().invokeRPC(stub::releaseJoinGate);
+            waitForStep(environment, flowId, JoinIntegCancellingWorkflow.JOIN_STEP_TYPE, 1);
+            // Branch C is canceled, so releasing it now cannot produce a result.
+            environment.client().invokeRPC(stub::releaseCarrier, "C");
 
+            final String roundKey = "JoinIntegCancellingSplit-1";
+            final JoinIntegCancellingWorkflow.PendingBids pendingBids = environment.client().invokeRPC(
+                    stub::getPendingBids,
+                    roundKey,
+                    RPCInvokeOptions.newBuilder()
+                            .addLoadChannelMapInstance(
+                                    PackagePrivateTestAccess.channelMapOf(workflow.bidReceived),
+                                    roundKey)
+                            .build());
+            assertEquals(1, pendingBids.size);
+            assertEquals(Collections.singletonList("B"), pendingBids.values);
+
+            environment.client().invokeRPC(stub::finishRun);
             final FlowResult result = environment.client().waitForFlow(flowId, FLOW_TIMEOUT);
             assertEquals(FlowStatus.COMPLETED, result.getStatus());
             final JoinIntegCancellingWorkflow.BidOutcome outcome =
                     result.getSingleOutput(JoinIntegCancellingWorkflow.BidOutcome.class);
             assertEquals(Collections.singletonList("A"), outcome.winningBids);
-            assertEquals(Collections.singletonList("B"), outcome.lateBids);
         }
     }
 
@@ -244,7 +262,7 @@ public final class JoinIntegTest {
                     workflow,
                     "join-rpc-fork",
                     Collections.singletonList("A"),
-                    JoinIntegAllOfWorkflow.JoinMode.GATED_ALL_BRANCHES);
+                    JoinIntegAllOfWorkflow.JoinMode.LATE_JOIN_START);
             final JoinIntegAllOfWorkflow stub = stub(environment, flowId);
 
             final WorkerInvocationException forkFailure = assertThrows(
@@ -294,6 +312,7 @@ public final class JoinIntegTest {
         final JoinIntegInvalidUsageWorkflow.Misuse[] misuses = {
             JoinIntegInvalidUsageWorkflow.Misuse.FOR_BRANCHES_ZERO,
             JoinIntegInvalidUsageWorkflow.Misuse.FOR_BRANCHES_ABOVE_BRANCH_COUNT,
+            JoinIntegInvalidUsageWorkflow.Misuse.FOR_FIRST_BRANCH_WITHOUT_BRANCHES,
             JoinIntegInvalidUsageWorkflow.Misuse.FOR_REMAINING_BRANCHES_NEGATIVE,
             JoinIntegInvalidUsageWorkflow.Misuse.FOR_REMAINING_BRANCHES_ABOVE_BRANCH_COUNT,
         };

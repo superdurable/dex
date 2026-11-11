@@ -33,7 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
-/** Forks one branch per name and joins them all, optionally behind a gate or a deadline. */
+/** Forks one branch per name and joins them all; the join may start late or have a deadline. */
 class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> {
     static final String SPLIT_STEP_TYPE = "JoinIntegAllOfSplit";
     static final String JOIN_STEP_TYPE = "JoinIntegAllOfJoin";
@@ -42,7 +42,7 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
 
     enum JoinMode {
         ALL_BRANCHES,
-        GATED_ALL_BRANCHES,
+        LATE_JOIN_START,
         DEADLINE
     }
 
@@ -51,12 +51,13 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
     final Channel<String> joinGate = Channel.define("joinGate", String.class);
     private final JoinIntegAllOfSplit split = new JoinIntegAllOfSplit();
     private final JoinIntegAllOfBranch branch = new JoinIntegAllOfBranch();
+    private final JoinIntegAllOfGate gate = new JoinIntegAllOfGate();
     private final JoinIntegAllOfJoin join = new JoinIntegAllOfJoin();
     private final JoinIntegAllOfReset reset = new JoinIntegAllOfReset();
 
     @Override
     public StepList<SplitInput> getSteps() {
-        return StepList.startStep(split).otherSteps(branch, join, reset);
+        return StepList.startStep(split).otherSteps(branch, gate, join, reset);
     }
 
     @Override
@@ -98,7 +99,7 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
                 rpcFork.roundKey,
                 branchBuilders(rpcFork.names),
                 joinBuilder(JoinMode.ALL_BRANCHES));
-        return RPCResult.of(null, movements.toArray(new StepMovement<?>[0]));
+        return RPCResult.of(null, movements);
     }
 
     private static List<Function<JoinRound, StepMovement<?>>> branchBuilders(
@@ -114,6 +115,9 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
     }
 
     private static Function<JoinRound, StepMovement<?>> joinBuilder(final JoinMode joinMode) {
+        if (joinMode == JoinMode.LATE_JOIN_START) {
+            return round -> StepMovement.of(JoinIntegAllOfGate.class, new JoinInput(round, joinMode));
+        }
         return round -> StepMovement.of(JoinIntegAllOfJoin.class, new JoinInput(round, joinMode));
     }
 
@@ -129,7 +133,7 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
                     context,
                     branchBuilders(input.names),
                     joinBuilder(input.joinMode));
-            return StepDecision.goToMany(movements.toArray(new StepMovement<?>[0]));
+            return StepDecision.goToMany(movements);
         }
     }
 
@@ -150,6 +154,24 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
         }
     }
 
+    // Delays the join Step itself, so it starts only after the gate opens.
+    final class JoinIntegAllOfGate implements Step<JoinInput> {
+        @Override
+        public Class<JoinInput> getInputType() {
+            return JoinInput.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final JoinInput input) {
+            return Wait.until(joinGate.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final JoinInput input) {
+            return StepDecision.goTo(JoinIntegAllOfJoin.class, input);
+        }
+    }
+
     final class JoinIntegAllOfJoin implements Step<JoinInput> {
         @Override
         public Class<JoinInput> getInputType() {
@@ -158,16 +180,12 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
 
         @Override
         public Wait waitFor(final Context context, final JoinInput input) {
-            switch (input.joinMode) {
-                case GATED_ALL_BRANCHES:
-                    return Wait.allOf(joinGate.forOne(), branchResults.forAllBranches(input.round));
-                case DEADLINE:
-                    return Wait.anyOf(
-                            Timer.byDuration(Duration.ofSeconds(2), "deadline"),
-                            branchResults.forAllBranches(input.round, "allBranches"));
-                default:
-                    return Wait.until(branchResults.forAllBranches(input.round));
+            if (input.joinMode == JoinMode.DEADLINE) {
+                return Wait.anyOf(
+                        Timer.byDuration(Duration.ofSeconds(2), "deadline"),
+                        branchResults.forAllBranches(input.round, "allBranches"));
             }
+            return Wait.until(branchResults.forAllBranches(input.round));
         }
 
         @Override

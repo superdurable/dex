@@ -33,7 +33,7 @@ import java.util.function.Function;
  *   <li><b>Split.</b> The split Step's Execute calls {@link #fork}. It creates one
  *       {@link JoinRound} whose key is the split Step's execution ID and whose branch count is the
  *       number of branch builders. It calls each builder and the join builder with that round and
- *       returns the movements. Return them with {@link StepDecision#goToMany}.</li>
+ *       returns the movements. Return them with {@link StepDecision#goToMany(List)}.</li>
  *   <li><b>Branch.</b> Each branch reports exactly one result per round. Its last Step returns
  *       {@link #endBranch}, or calls {@link #reportBranchResult} when it must continue.</li>
  *   <li><b>Join.</b> The join Step's WaitFor waits with {@link #forAllBranches},
@@ -45,10 +45,44 @@ import java.util.function.Function;
  *       round until every branch of the previous round has reported.</li>
  * </ol>
  *
- * <p>Example: request three quotes, accept the first two, and repeat for a number of rounds.
+ * <p>Example: request three quotes per round, accept the first two, and repeat for three rounds.
+ * The example compiles as written.
  *
  * <pre>{@code
- * public final class QuoteFlow implements Flow<QuoteRequest> {
+ * import io.superdurable.dex.Channel;
+ * import io.superdurable.dex.Context;
+ * import io.superdurable.dex.Flow;
+ * import io.superdurable.dex.Join;
+ * import io.superdurable.dex.JoinRound;
+ * import io.superdurable.dex.PersistenceSchema;
+ * import io.superdurable.dex.Step;
+ * import io.superdurable.dex.StepDecision;
+ * import io.superdurable.dex.StepList;
+ * import io.superdurable.dex.StepMovement;
+ * import io.superdurable.dex.Wait;
+ * import java.util.ArrayList;
+ * import java.util.Arrays;
+ * import java.util.List;
+ * import java.util.function.Function;
+ *
+ * public final class QuoteFlow implements Flow<QuoteFlow.QuoteRequest> {
+ *     public static final class QuoteRequest {
+ *         public int requiredQuotes = 2;
+ *         public int roundNumber = 1;
+ *         public int roundCount = 3;
+ *         public JoinRound previousRound; // null in the first round
+ *     }
+ *
+ *     public static final class SupplierInput {
+ *         public String supplier;
+ *         public JoinRound round;
+ *     }
+ *
+ *     public static final class AcceptInput {
+ *         public QuoteRequest request;
+ *         public JoinRound round;
+ *     }
+ *
  *     private final Join<String> quoteReceived = Join.define("quoteReceived", String.class);
  *     private final Channel<Void> supplierReleased = Channel.define("supplierReleased", Void.class);
  *     private final RequestQuotes requestQuotes = new RequestQuotes();
@@ -63,7 +97,7 @@ import java.util.function.Function;
  *         return PersistenceSchema.of(quoteReceived, supplierReleased);
  *     }
  *
- *     // QuoteRequest: requiredQuotes, roundNumber, roundCount, previousRound (null in round 1).
+ *     // Split: reset the previous round, then fork three branches and one join.
  *     final class RequestQuotes implements Step<QuoteRequest> {
  *         public Class<QuoteRequest> getInputType() {
  *             return QuoteRequest.class;
@@ -73,7 +107,6 @@ import java.util.function.Function;
  *             if (request.previousRound == null) {
  *                 return Wait.skipImmediately();
  *             }
- *             // Reset: consume the late quotes of the previous round before forking again.
  *             return Wait.until(quoteReceived.forRemainingBranches(
  *                     request.previousRound, request.requiredQuotes));
  *         }
@@ -81,18 +114,24 @@ import java.util.function.Function;
  *         public StepDecision execute(Context context, QuoteRequest request) {
  *             List<Function<JoinRound, StepMovement<?>>> branches = new ArrayList<>();
  *             for (String supplier : Arrays.asList("A", "B", "C")) {
- *                 branches.add(round -> StepMovement.of(
- *                         QuoteFromSupplier.class, new SupplierInput(supplier, round)));
+ *                 branches.add(round -> {
+ *                     SupplierInput branchInput = new SupplierInput();
+ *                     branchInput.supplier = supplier;
+ *                     branchInput.round = round;
+ *                     return StepMovement.of(QuoteFromSupplier.class, branchInput);
+ *                 });
  *             }
- *             List<StepMovement<?>> movements = quoteReceived.fork(
- *                     context,
- *                     branches,
- *                     round -> StepMovement.of(
- *                             AcceptQuotes.class, new AcceptInput(request, round)));
- *             return StepDecision.goToMany(movements.toArray(new StepMovement<?>[0]));
+ *             List<StepMovement<?>> movements = quoteReceived.fork(context, branches, round -> {
+ *                 AcceptInput joinInput = new AcceptInput();
+ *                 joinInput.request = request;
+ *                 joinInput.round = round;
+ *                 return StepMovement.of(AcceptQuotes.class, joinInput);
+ *             });
+ *             return StepDecision.goToMany(movements);
  *         }
  *     }
  *
+ *     // Branch: report exactly one result, then end.
  *     final class QuoteFromSupplier implements Step<SupplierInput> {
  *         public Class<SupplierInput> getInputType() {
  *             return SupplierInput.class;
@@ -107,6 +146,7 @@ import java.util.function.Function;
  *         }
  *     }
  *
+ *     // Join: accept the first requiredQuotes results, then start the next round.
  *     final class AcceptQuotes implements Step<AcceptInput> {
  *         public Class<AcceptInput> getInputType() {
  *             return AcceptInput.class;
@@ -123,9 +163,11 @@ import java.util.function.Function;
  *             if (request.roundNumber == request.roundCount) {
  *                 return StepDecision.forceComplete(accepted);
  *             }
- *             QuoteRequest next = new QuoteRequest(
- *                     request.requiredQuotes, request.roundNumber + 1, request.roundCount,
- *                     input.round);
+ *             QuoteRequest next = new QuoteRequest();
+ *             next.requiredQuotes = request.requiredQuotes;
+ *             next.roundNumber = request.roundNumber + 1;
+ *             next.roundCount = request.roundCount;
+ *             next.previousRound = input.round;
  *             return StepDecision.goTo(RequestQuotes.class, next);
  *         }
  *     }
@@ -167,6 +209,10 @@ import java.util.function.Function;
  *       {@link StepDecision#withCancelingSteps}, which is correct only when one round is active at
  *       a time. Rounds forked by an RPC through {@link #forkWithRoundKey} share their parent with
  *       every other Step that RPC name started, so prefer {@code withCancelingSteps} there.</li>
+ *   <li>A branch canceled by a cancelling join never reports, so the next split cannot reset that
+ *       round with {@link #forRemainingBranches}; it would wait forever. Do not reset a cancelling
+ *       join's round. Its late results stay until the Flow closes. To reset it anyway, have an RPC
+ *       report a result for every canceled branch with {@link #reportBranchResult} first.</li>
  *   <li>A branch canceled from outside never reports, so an all-branches join keeps waiting.
  *       Include the join in the cancellation, have the canceling RPC report a result for the
  *       canceled branch with {@link #reportBranchResult}, or give the join a Timer deadline.</li>
@@ -231,8 +277,8 @@ public final class Join<T> extends PersistenceDefinition {
      * <p>The round key is the current Step execution ID, which is unique in the Flow run and stays
      * the same across retries. The branch count is {@code branchBuilders.size()}. Fork calls every
      * branch builder in order and then the join builder, each with the same {@link JoinRound}, and
-     * returns the movements in that order. Pass them to {@link StepDecision#goToMany}, optionally
-     * together with other movements. Fork itself makes no server call.
+     * returns the movements in that order. Pass them to {@link StepDecision#goToMany(List)},
+     * optionally together with other movements. Fork itself makes no server call.
      *
      * <p>An empty builder list is allowed. Its round has zero branches, and
      * {@link #forAllBranches} on it is satisfied immediately.
@@ -278,7 +324,7 @@ public final class Join<T> extends PersistenceDefinition {
      * instance keys of a hand-written join, such as {@code round-3}. The key must be unique among
      * the rounds of this Join that can be active at the same time; two active rounds with the same
      * key share their results. Otherwise it behaves like {@link #fork}. In an RPC, return the
-     * movements with {@link RPCResult#of(Object, StepMovement[])}.
+     * movements with {@link RPCResult#of(Object, List)}.
      *
      * @param roundKey the round key, used as the ChannelMap instance key; must not be blank or
      *     contain {@code /}
@@ -379,6 +425,10 @@ public final class Join<T> extends PersistenceDefinition {
      * must know which branch won. Reset with {@code forRemainingBranches(round, 1)} when the Flow
      * loops.
      *
+     * <p>A round with zero branches has no first result, so this method throws instead of
+     * returning a condition that would wait forever. When a round may be empty, check
+     * {@link JoinRound#getBranchCount()} first.
+     *
      * @param round the round received in the join Step's input
      * @return the condition
      * @throws IllegalArgumentException if the round has a blank key, a key containing {@code /},
@@ -470,8 +520,9 @@ public final class Join<T> extends PersistenceDefinition {
      * no messages behind. When nothing remains, it is satisfied immediately. In the first round,
      * which has no previous round, return {@link Wait#skipImmediately()} instead.
      *
-     * <p>When an RPC reported for canceled branches, or a canceling join left branches that will
-     * never report, count those branches in {@code receivedCount} too.
+     * <p>Count only the results the join consumed. The reset waits for every other branch of the
+     * round, so it never completes while a canceled branch has no reported result. Do not reset
+     * the round of a cancelling join unless an RPC reported a result for each canceled branch.
      *
      * @param round the previous round
      * @param receivedCount the number of results already consumed from that round, which is the

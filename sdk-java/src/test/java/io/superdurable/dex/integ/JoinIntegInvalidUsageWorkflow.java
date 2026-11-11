@@ -37,6 +37,7 @@ class JoinIntegInvalidUsageWorkflow implements Flow<JoinIntegInvalidUsageWorkflo
         FORK_TWICE,
         FOR_BRANCHES_ZERO,
         FOR_BRANCHES_ABOVE_BRANCH_COUNT,
+        FOR_FIRST_BRANCH_WITHOUT_BRANCHES,
         FOR_REMAINING_BRANCHES_NEGATIVE,
         FOR_REMAINING_BRANCHES_ABOVE_BRANCH_COUNT
     }
@@ -70,6 +71,9 @@ class JoinIntegInvalidUsageWorkflow implements Flow<JoinIntegInvalidUsageWorkflo
                     break;
                 case FOR_BRANCHES_ABOVE_BRANCH_COUNT:
                     condition = misusedResults.forBranches(round, BRANCH_COUNT + 1);
+                    break;
+                case FOR_FIRST_BRANCH_WITHOUT_BRANCHES:
+                    condition = misusedResults.forFirstBranch(new JoinRound("Misused-2", 0));
                     break;
                 case FOR_REMAINING_BRANCHES_NEGATIVE:
                     condition = misusedResults.forRemainingBranches(round, -1);

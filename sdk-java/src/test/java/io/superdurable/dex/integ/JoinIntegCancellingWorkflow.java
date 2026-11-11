@@ -14,12 +14,15 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.ChannelMap;
+import io.superdurable.dex.ChannelMessage;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.Join;
 import io.superdurable.dex.JoinRound;
+import io.superdurable.dex.PackagePrivateTestAccess;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
+import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -30,31 +33,50 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
-/** Takes the first of three bids, cancels the sibling branches, and drains the late bid. */
+/** Takes the first of three bids, cancels the sibling branches, and holds the run open. */
 class JoinIntegCancellingWorkflow implements Flow<JoinIntegCancellingWorkflow.CarrierList> {
     static final String BRANCH_STEP_TYPE = "JoinIntegCancellingBranch";
+    static final String JOIN_STEP_TYPE = "JoinIntegCancellingJoin";
 
     final Join<String> bidReceived = Join.define("bidReceived", String.class);
     final ChannelMap<String> carrierReleased = ChannelMap.define("carrierReleased", String.class);
     final Channel<String> joinGate = Channel.define("joinGate", String.class);
+    final Channel<String> runFinished = Channel.define("runFinished", String.class);
     private final JoinIntegCancellingSplit split = new JoinIntegCancellingSplit();
     private final JoinIntegCancellingBranch branch = new JoinIntegCancellingBranch();
     private final JoinIntegCancellingJoin join = new JoinIntegCancellingJoin();
-    private final JoinIntegCancellingDrain drain = new JoinIntegCancellingDrain();
+    private final JoinIntegCancellingHold hold = new JoinIntegCancellingHold();
 
     @Override
     public StepList<CarrierList> getSteps() {
-        return StepList.startStep(split).otherSteps(branch, join, drain);
+        return StepList.startStep(split).otherSteps(branch, join, hold);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(bidReceived, carrierReleased, joinGate);
+        return PersistenceSchema.of(bidReceived, carrierReleased, joinGate, runFinished);
     }
 
     @RPC
     public void releaseCarrier(final Context context, final String carrier) {
         carrierReleased.publish(context, carrier, carrier);
+    }
+
+    @RPC
+    public void finishRun(final Context context) {
+        runFinished.publish(context, "finish");
+    }
+
+    @RPC
+    public RPCResult<PendingBids> getPendingBids(final Context context, final String roundKey) {
+        final ChannelMap<String> bidMessages = PackagePrivateTestAccess.channelMapOf(bidReceived);
+        final PendingBids pendingBids = new PendingBids();
+        pendingBids.size = bidMessages.size(context, roundKey);
+        pendingBids.values = new ArrayList<String>();
+        for (ChannelMessage<String> message : bidMessages.pendingMessages(context, roundKey)) {
+            pendingBids.values.add(message.getValue());
+        }
+        return RPCResult.of(pendingBids);
     }
 
     @RPC
@@ -81,7 +103,7 @@ class JoinIntegCancellingWorkflow implements Flow<JoinIntegCancellingWorkflow.Ca
                     context,
                     branchBuilders,
                     round -> StepMovement.of(JoinIntegCancellingJoin.class, round));
-            return StepDecision.goToMany(movements.toArray(new StepMovement<?>[0]));
+            return StepDecision.goToMany(movements);
         }
     }
 
@@ -118,12 +140,12 @@ class JoinIntegCancellingWorkflow implements Flow<JoinIntegCancellingWorkflow.Ca
             final BidOutcome outcome = new BidOutcome();
             outcome.round = round;
             outcome.winningBids = new ArrayList<String>(bidReceived.getBranchResults(context, round));
-            return StepDecision.goTo(JoinIntegCancellingDrain.class, outcome)
+            return StepDecision.goTo(JoinIntegCancellingHold.class, outcome)
                     .withCancelingSiblingSteps(JoinIntegCancellingBranch.class);
         }
     }
 
-    final class JoinIntegCancellingDrain implements Step<BidOutcome> {
+    final class JoinIntegCancellingHold implements Step<BidOutcome> {
         @Override
         public Class<BidOutcome> getInputType() {
             return BidOutcome.class;
@@ -131,16 +153,11 @@ class JoinIntegCancellingWorkflow implements Flow<JoinIntegCancellingWorkflow.Ca
 
         @Override
         public Wait waitFor(final Context context, final BidOutcome outcome) {
-            // One bid was consumed by the join and one branch was canceled; one late bid remains.
-            return Wait.until(bidReceived.forRemainingBranches(
-                    outcome.round,
-                    outcome.round.getBranchCount() - 1));
+            return Wait.until(runFinished.forOne());
         }
 
         @Override
         public StepDecision execute(final Context context, final BidOutcome outcome) {
-            outcome.lateBids = new ArrayList<String>(
-                    bidReceived.getRemainingBranchResults(context, outcome.round));
             return StepDecision.gracefulComplete(outcome);
         }
     }
@@ -172,6 +189,10 @@ class JoinIntegCancellingWorkflow implements Flow<JoinIntegCancellingWorkflow.Ca
     public static final class BidOutcome {
         public JoinRound round;
         public List<String> winningBids;
-        public List<String> lateBids;
+    }
+
+    public static final class PendingBids {
+        public int size;
+        public List<String> values;
     }
 }

@@ -104,7 +104,7 @@ class JoinIntegPartialWorkflow implements Flow<JoinIntegPartialWorkflow.QuoteReq
                     round -> StepMovement.of(
                             JoinIntegPartialAccept.class,
                             new AcceptInput(input, round)));
-            return StepDecision.goToMany(movements.toArray(new StepMovement<?>[0]));
+            return StepDecision.goToMany(movements);
         }
     }
 
