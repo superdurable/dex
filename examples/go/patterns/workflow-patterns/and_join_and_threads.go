@@ -122,7 +122,7 @@ func (RecordMatch) Execute(_ dex.Context, match InvoicePaymentMatch) (*dex.StepD
 	return dex.GracefulComplete(match), nil
 }
 
-var ParcelPackedChannel = dex.DefineChannel[int]("parcelPacked")
+var ParcelPackedJoin = dex.DefineJoin[int]("parcelPacked")
 
 // ThreadSplitMergeFlow implements WCP-41 and WCP-42 with k PackParcel executions.
 type ThreadSplitMergeFlow struct{ dex.FlowDefaults }
@@ -136,34 +136,49 @@ func (*ThreadSplitMergeFlow) GetSteps() []dex.StepDef {
 }
 
 func (*ThreadSplitMergeFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{ParcelPackedChannel}}
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{ParcelPackedJoin}}
 }
 
 type SplitShipment struct{ dex.StepDefaultsNoWaitFor[int] }
 
-func (SplitShipment) Execute(_ dex.Context, parcelCount int) (*dex.StepDecision, error) {
-	movements := make([]dex.StepMovement, 0, parcelCount+1)
+func (SplitShipment) Execute(ctx dex.Context, parcelCount int) (*dex.StepDecision, error) {
+	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, parcelCount)
 	for index := range parcelCount {
-		movements = append(movements, dex.MovementOf(PackParcel{}, index))
+		branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(PackParcel{}, ParcelBranch{Index: index, Round: round})
+		})
 	}
-	movements = append(movements, dex.MovementOf(MergeParcels{}, parcelCount))
+	movements, err := ParcelPackedJoin.Fork(ctx, branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+		return dex.MovementOf(MergeParcels{}, round)
+	})
+	if err != nil {
+		return nil, err
+	}
 	return dex.GoToMany(movements...), nil
 }
 
-type PackParcel struct{ dex.StepDefaultsNoWaitFor[int] }
+// ParcelBranch is the input of one PackParcel thread.
+type ParcelBranch struct {
+	Index int           `json:"index"`
+	Round dex.JoinRound `json:"round"`
+}
 
-func (PackParcel) Execute(ctx dex.Context, index int) (*dex.StepDecision, error) {
-	return publishAndDeadEnd(ctx, ParcelPackedChannel, index)
+type PackParcel struct {
+	dex.StepDefaultsNoWaitFor[ParcelBranch]
+}
+
+func (PackParcel) Execute(ctx dex.Context, branch ParcelBranch) (*dex.StepDecision, error) {
+	return ParcelPackedJoin.EndBranch(ctx, branch.Round, branch.Index)
 }
 
 type MergeParcels struct{ dex.StepDefaults }
 
-func (MergeParcels) WaitFor(_ dex.Context, parcelCount int) (*dex.Wait, error) {
-	return dex.Until(ParcelPackedChannel.ForN(parcelCount)), nil
+func (MergeParcels) WaitFor(_ dex.Context, round dex.JoinRound) (*dex.Wait, error) {
+	return dex.Until(ParcelPackedJoin.ForAllBranches(round)), nil
 }
 
-func (MergeParcels) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	indexes, err := ParcelPackedChannel.GetConditionResults(ctx)
+func (MergeParcels) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	indexes, err := ParcelPackedJoin.BranchResults(ctx, round)
 	if err != nil {
 		return nil, err
 	}

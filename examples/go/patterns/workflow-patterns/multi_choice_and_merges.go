@@ -26,7 +26,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-var NotificationSentChannel = dex.DefineChannel[string]("notificationSent")
+var NotificationSentJoin = dex.DefineJoin[string]("notificationSent")
 
 // NotificationSelection chooses which notification branches run.
 type NotificationSelection struct {
@@ -35,8 +35,8 @@ type NotificationSelection struct {
 	SendPush  bool `json:"sendPush"`
 }
 
-// MultiChoiceSynchronizingMergeFlow implements WCP-6 Multi-Choice and, by passing
-// the selected branch count to the join, WCP-7 and WCP-37 synchronizing merges.
+// MultiChoiceSynchronizingMergeFlow implements WCP-6 Multi-Choice and, by forking
+// only the selected branches, WCP-7 and WCP-37 synchronizing merges.
 type MultiChoiceSynchronizingMergeFlow struct{ dex.FlowDefaults }
 
 func (*MultiChoiceSynchronizingMergeFlow) GetSteps() []dex.StepDef {
@@ -50,7 +50,7 @@ func (*MultiChoiceSynchronizingMergeFlow) GetSteps() []dex.StepDef {
 }
 
 func (*MultiChoiceSynchronizingMergeFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{NotificationSentChannel}}
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{NotificationSentJoin}}
 }
 
 type SelectNotificationChannels struct {
@@ -58,58 +58,69 @@ type SelectNotificationChannels struct {
 }
 
 func (SelectNotificationChannels) Execute(
-	_ dex.Context,
+	ctx dex.Context,
 	selection NotificationSelection,
 ) (*dex.StepDecision, error) {
-	var branches []dex.StepMovement
+	var branchBuilders []func(dex.JoinRound) dex.StepMovement
 	if selection.SendEmail {
-		branches = append(branches, dex.MovementOf(SendEmail{}, nil))
+		branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(SendEmail{}, round)
+		})
 	}
 	if selection.SendSms {
-		branches = append(branches, dex.MovementOf(SendSms{}, nil))
+		branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(SendSms{}, round)
+		})
 	}
 	if selection.SendPush {
-		branches = append(branches, dex.MovementOf(SendPush{}, nil))
+		branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(SendPush{}, round)
+		})
 	}
-	if len(branches) == 0 {
+	if len(branchBuilders) == 0 {
 		return dex.GracefulComplete([]string{}), nil
 	}
-	movements := append([]dex.StepMovement{dex.MovementOf(SynchronizingMerge{}, len(branches))}, branches...)
+	movements, err := NotificationSentJoin.Fork(ctx, branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+		return dex.MovementOf(SynchronizingMerge{}, round)
+	})
+	if err != nil {
+		return nil, err
+	}
 	return dex.GoToMany(movements...), nil
 }
 
 type SendEmail struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
+	dex.StepDefaultsNoWaitFor[dex.JoinRound]
 }
 
-func (SendEmail) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	return publishAndDeadEnd(ctx, NotificationSentChannel, "SendEmail")
+func (SendEmail) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	return NotificationSentJoin.EndBranch(ctx, round, "SendEmail")
 }
 
 type SendSms struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
+	dex.StepDefaultsNoWaitFor[dex.JoinRound]
 }
 
-func (SendSms) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	return publishAndDeadEnd(ctx, NotificationSentChannel, "SendSms")
+func (SendSms) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	return NotificationSentJoin.EndBranch(ctx, round, "SendSms")
 }
 
 type SendPush struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
+	dex.StepDefaultsNoWaitFor[dex.JoinRound]
 }
 
-func (SendPush) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	return publishAndDeadEnd(ctx, NotificationSentChannel, "SendPush")
+func (SendPush) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	return NotificationSentJoin.EndBranch(ctx, round, "SendPush")
 }
 
 type SynchronizingMerge struct{ dex.StepDefaults }
 
-func (SynchronizingMerge) WaitFor(_ dex.Context, branchCount int) (*dex.Wait, error) {
-	return dex.Until(NotificationSentChannel.ForN(branchCount)), nil
+func (SynchronizingMerge) WaitFor(_ dex.Context, round dex.JoinRound) (*dex.Wait, error) {
+	return dex.Until(NotificationSentJoin.ForAllBranches(round)), nil
 }
 
-func (SynchronizingMerge) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	branches, err := NotificationSentChannel.GetConditionResults(ctx)
+func (SynchronizingMerge) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	branches, err := NotificationSentJoin.BranchResults(ctx, round)
 	if err != nil {
 		return nil, err
 	}

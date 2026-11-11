@@ -53,12 +53,14 @@ from dex_examples.patterns.workflow_patterns.multi_choice_and_merges import (
 )
 from dex_examples.patterns.workflow_patterns.multiple_instances import (
     IS_BID_ADMISSION_CLOSED,
+    IGNORED_INSPECTIONS,
     BidJoin,
     InspectedUnits,
     InspectionRound,
     PartialInspection,
 )
 from dex_examples.patterns.workflow_patterns.partial_joins import (
+    IGNORED_QUOTES,
     AcceptedQuotes,
     BlockingJoinRound,
     IgnoredQuotes,
@@ -337,9 +339,7 @@ async def test_wcp9_structured_discriminator_resets_for_a_second_round(
         AcceptedQuotes(1, ["A"]),
         AcceptedQuotes(2, ["B"]),
     ]
-    assert outputs_of(result, "ResetQuoteJoin", IgnoredQuotes) == [
-        IgnoredQuotes(2, ["A", "C"])
-    ]
+    assert await read_ignored_quotes(client, flow_id) == IgnoredQuotes(1, ["B", "C"])
 
 async def test_wcp30_structured_partial_join_fires_after_two_quotes_each_round(
     patterns: WorkflowPatternFlows,
@@ -366,9 +366,12 @@ async def test_wcp30_structured_partial_join_fires_after_two_quotes_each_round(
         AcceptedQuotes(1, ["A", "B"]),
         AcceptedQuotes(2, ["A", "C"]),
     ]
-    assert outputs_of(result, "ResetQuoteJoin", IgnoredQuotes) == [
-        IgnoredQuotes(2, ["B"])
-    ]
+    assert await read_ignored_quotes(client, flow_id) == IgnoredQuotes(1, ["C"])
+
+
+async def read_ignored_quotes(client: AsyncClient, flow_id: str) -> IgnoredQuotes | None:
+    values = await client.get_attributes(flow_id, IGNORED_QUOTES)
+    return values.get(IGNORED_QUOTES)
 
 
 async def release_supplier_quotes(
@@ -601,9 +604,13 @@ async def test_wcp34_static_partial_join_for_multiple_instances_two_rounds(
     approved = outputs_of(result, "ApproveBatch", InspectedUnits)
     assert [batch.round for batch in approved] == [1, 2]
     assert all(len(set(batch.unit_indexes)) == 2 for batch in approved)
-    reset = outputs_of(result, "ResetInspectionJoin", InspectedUnits)
-    assert [batch.round for batch in reset] == [2]
-    assert sorted([*approved[1].unit_indexes, *reset[0].unit_indexes]) == [0, 1, 2]
+    ignored = (await client.get_attributes(flow_id, IGNORED_INSPECTIONS)).get(
+        IGNORED_INSPECTIONS
+    )
+    assert ignored is not None
+    assert ignored.round == 1
+    assert len(ignored.unit_indexes) == 1
+    assert sorted([*approved[0].unit_indexes, *ignored.unit_indexes]) == [0, 1, 2]
 
 async def test_wcp35_cancelling_partial_join_for_multiple_instances(
     patterns: WorkflowPatternFlows,

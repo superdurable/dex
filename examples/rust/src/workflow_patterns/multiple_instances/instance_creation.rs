@@ -16,11 +16,12 @@
 
 use std::sync::LazyLock;
 
-use crate::workflow_patterns::sorted;
+use crate::workflow_patterns::{JoinBranchBuilder, sorted};
 use dex_sdk::{
-    Attribute, AttributeMap, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc,
-    RpcList, RpcResult, Step, StepDecision, StepList, StepMovement, Wait,
+    Attribute, AttributeMap, Channel, Context, Flow, HandlerResult, Join, JoinRound,
+    PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepMovement, Wait,
 };
+use serde::{Deserialize, Serialize};
 
 static INVITATION_RELEASED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("invitationReleased"));
@@ -119,8 +120,7 @@ pub static STARTED_REVIEWERS: LazyLock<AttributeMap<bool>> =
     LazyLock::new(|| AttributeMap::new("startedReviewers"));
 static REVIEW_GATE_OPENED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("reviewGateOpened"));
-static REVIEW_COMPLETED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("reviewCompleted"));
+static REVIEW_COMPLETED: LazyLock<Join<String>> = LazyLock::new(|| Join::new("reviewCompleted"));
 
 pub const GET_STARTED_DESIGN_TIME_REVIEW_COUNT: Rpc<(), usize> =
     Rpc::new("get_started_design_time_review_count");
@@ -189,10 +189,8 @@ struct StartDesignTimeReviews;
 impl Step for StartDesignTimeReviews {
     type Input = ();
 
-    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(start_reviews(
-            DESIGN_TIME_REVIEWERS.map(str::to_string).to_vec(),
-        ))
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        start_reviews(context, DESIGN_TIME_REVIEWERS.map(str::to_string).to_vec())
     }
 }
 
@@ -249,10 +247,10 @@ impl Step for StartRunTimeReviews {
 
     fn execute(
         &self,
-        _context: &mut Context,
+        context: &mut Context,
         reviewers: Self::Input,
     ) -> HandlerResult<StepDecision> {
-        Ok(start_reviews(reviewers))
+        start_reviews(context, reviewers)
     }
 }
 
@@ -260,7 +258,7 @@ fn review_persistence() -> PersistenceSchema {
     PersistenceSchema::new()
         .attribute_map(&STARTED_REVIEWERS)
         .channel(&REVIEW_GATE_OPENED)
-        .channel(&REVIEW_COMPLETED)
+        .join(&REVIEW_COMPLETED)
 }
 
 fn count_started_reviews(context: &Context) -> HandlerResult<RpcResult<usize>> {
@@ -274,30 +272,50 @@ fn open_review_gate(context: &mut Context, count: usize) -> HandlerResult<()> {
     Ok(())
 }
 
-/// Starts one ReviewDocument per reviewer and the join that waits for all.
-fn start_reviews(reviewers: Vec<String>) -> StepDecision {
-    let collect_reviews = StepMovement::to(&CollectReviews, reviewers.len());
+/// One review instance of a round.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentReview {
+    pub reviewer: String,
+    pub round: JoinRound,
+}
+
+/// Forks one ReviewDocument per reviewer and the join that waits for all.
+fn start_reviews(context: &mut Context, reviewers: Vec<String>) -> HandlerResult<StepDecision> {
     let reviews = reviewers
         .into_iter()
-        .map(|reviewer| StepMovement::to(&ReviewDocument, reviewer));
-    StepDecision::go_to_many(reviews.chain([collect_reviews]))
+        .map(|reviewer| {
+            Box::new(move |round: &JoinRound| {
+                StepMovement::to(
+                    &ReviewDocument,
+                    DocumentReview {
+                        reviewer,
+                        round: round.clone(),
+                    },
+                )
+            }) as JoinBranchBuilder
+        })
+        .collect();
+    let movements = REVIEW_COMPLETED.fork(context, reviews, |round| {
+        StepMovement::to(&CollectReviews, round)
+    })?;
+    Ok(StepDecision::go_to_many(movements))
 }
 
 #[derive(Default)]
 struct ReviewDocument;
 
 impl Step for ReviewDocument {
-    type Input = String;
+    type Input = DocumentReview;
 
     /// Marks the instance started, then holds it at the concurrency gate.
-    fn wait_for(&self, context: &mut Context, reviewer: Self::Input) -> HandlerResult<Wait> {
-        STARTED_REVIEWERS.set(context, &reviewer, true)?;
+    fn wait_for(&self, context: &mut Context, review: Self::Input) -> HandlerResult<Wait> {
+        STARTED_REVIEWERS.set(context, &review.reviewer, true)?;
         Ok(Wait::until(REVIEW_GATE_OPENED.for_one()))
     }
 
-    fn execute(&self, context: &mut Context, reviewer: Self::Input) -> HandlerResult<StepDecision> {
-        REVIEW_COMPLETED.publish(context, reviewer)?;
-        Ok(StepDecision::dead_end())
+    fn execute(&self, context: &mut Context, review: Self::Input) -> HandlerResult<StepDecision> {
+        REVIEW_COMPLETED.end_branch(context, &review.round, review.reviewer)
     }
 }
 
@@ -305,18 +323,14 @@ impl Step for ReviewDocument {
 struct CollectReviews;
 
 impl Step for CollectReviews {
-    type Input = usize;
+    type Input = JoinRound;
 
-    fn wait_for(&self, _context: &mut Context, review_count: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(REVIEW_COMPLETED.for_n(review_count)))
+    fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(REVIEW_COMPLETED.for_all_branches(&round)))
     }
 
-    fn execute(
-        &self,
-        context: &mut Context,
-        _review_count: Self::Input,
-    ) -> HandlerResult<StepDecision> {
-        let reviewers = REVIEW_COMPLETED.condition_results(context)?;
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        let reviewers = REVIEW_COMPLETED.branch_results(context, &round)?;
         Ok(StepDecision::graceful_complete(sorted(reviewers)))
     }
 }
