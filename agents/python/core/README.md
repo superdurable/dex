@@ -18,7 +18,7 @@ at most the one call that was running.
 
 Applications usually install an adapter, which brings in this package. To
 build a runner of your own, install the core directly. It needs Python 3.11 or
-later and requires the released `dex-python-sdk==1.38.0`:
+later and requires the released `dex-python-sdk==1.44.0`:
 
 ```bash
 pip install dex-agents

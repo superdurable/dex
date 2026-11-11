@@ -3,7 +3,7 @@
 Durable [Pi](https://github.com/earendil-works/pi) agents on Dex. One Flow
 execution is one agent session, and the Flow ID is the session ID.
 
-Dex runs the agent loop, not Pi. The session is the Stepwise session Flow of
+Dex runs the agent loop, not Pi. The session is the built-in agent loop session Flow of
 [`@superdurable/dex-agents`](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md):
 each model call is one `RunModel` Step, each tool call is its own Step, and the
 tool calls of one model response run in parallel. Dex decides when to call the
@@ -32,7 +32,7 @@ are peer dependencies. The application installs exactly one copy of each,
 because the Dex Registry matches Flow classes and RPC registrations by
 identity, and the session recognizes `ToolExecutionError` only from its own
 copy of the core. Requirements: Node `^22.19.0 || ^24.0.0` (pi-ai needs
-22.19), `@superdurable/dex` 1.38.0, and `@earendil-works/pi-ai` `^1.5.1` (the
+22.19), `@superdurable/dex` 1.44.0, and `@earendil-works/pi-ai` `^1.5.1` (the
 tests run 1.5.1). The package does not depend on `@earendil-works/pi-agent-core`
 or `@earendil-works/pi-durable`: it reads their tools through structural types.
 The example below also imports `@earendil-works/pi-agent-core` for the
@@ -47,7 +47,7 @@ import { getModel } from "@earendil-works/pi-ai/compat";
 import { obj, str } from "@earendil-works/pi-schema";
 import { Client, Registry, Worker, openBlobCache } from "@superdurable/dex";
 import { startAgentSession } from "@superdurable/dex-agents";
-import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
+import { createBuiltinAgentSessionFlow } from "@superdurable/dex-agents/builtin-loop";
 import { createPiAiModelClient, piAgentFunctionTool } from "@superdurable/dex-agents-pi";
 
 const customerArguments = obj({ customerId: str() });
@@ -76,7 +76,7 @@ const refundOrder: AgentTool<typeof orderArguments> = {
   }),
 };
 
-const flow = createStepwiseAgentSessionFlow(
+const flow = createBuiltinAgentSessionFlow(
   {
     name: "support",
     instructions: "Help customers with their orders. Refund only when asked.",
@@ -115,7 +115,7 @@ await client.invokeRPC(flow.sendUserMessage, "session-42", { text: "Thanks" });
 ```
 
 Everything else about the session, such as `resolveModel`, tool sources,
-built-in tools, plan mode, compaction, and spend limits, is the Stepwise
+built-in tools, plan mode, compaction, and spend limits, is the built-in loop
 `AgentDefinition` of the core. See the core README.
 
 ## The model client
@@ -199,7 +199,7 @@ calls after it think again.
 ### Pi `AgentTool`
 
 `piAgentFunctionTool(tool, { effect, requiresApproval })` wraps a Pi
-`AgentTool` as a Stepwise function tool, so each call runs in its own tool Step.
+`AgentTool` as a built-in loop function tool, so each call runs in its own tool Step.
 
 Every Dex tool declares its side-effect class:
 
@@ -213,7 +213,7 @@ Every Dex tool declares its side-effect class:
 The tools of `@earendil-works/pi-coding-agent` declare no `replay`, so pass
 their effect. A call runs `tool.execute(toolCallId, params, signal, onUpdate)`:
 
-- The Stepwise runner checks the raw arguments against `parameters` first.
+- The built-in loop runner checks the raw arguments against `parameters` first.
   Then `prepareArguments`, when the tool has one, repairs them, and pi-ai's
   `validateToolArguments` validates and coerces them, as Pi does.
 - `signal` is the attempt's cancellation signal.
@@ -258,13 +258,13 @@ effect comes from `effect`, or else from `replay`: `safe` gives
 | `afterToolCall` result changes | Change the result inside your tool |
 | `transformContext` (trimming, compaction) | The core's context compaction; `prepareRequest` for a change to one request |
 | `prepareRequest` | The `prepareRequest` option of `createPiAiModelClient` |
-| `finishTurn` returns `end`: end after the tools | The Stepwise `decideTurnContinuation` hook returns `"end"` |
-| `finishTurn` returns `continue`: run again after an answer | The Stepwise `decideTurnContinuation` hook returns `"continue"` |
+| `finishTurn` returns `end`: end after the tools | The built-in loop `decideTurnContinuation` hook returns `"end"` |
+| `finishTurn` returns `continue`: run again after an answer | The built-in loop `decideTurnContinuation` hook returns `"continue"` |
 | `subscribe()` events | The `AgentEvents` Stream and the UI stream |
 | `abort()` | The session's `cancel_turn` |
 | `pi-durable` | Dex itself |
 
-The `decideTurnContinuation` hook belongs to the core's Stepwise
+The `decideTurnContinuation` hook belongs to the core's built-in loop
 `AgentDefinition`, not to this package.
 
 ## Moving from pi-durable
@@ -273,7 +273,7 @@ Dex replaces `pi-durable`, not Pi. Your pi-ai models and Pi tools stay; Dex
 takes over durability and the loop. Dex is not a drop-in replacement: moving
 means rewriting the harness entry code. `Harness.open`, the root conversation,
 `submit`, and `wait` become a Dex session Flow built with
-`createStepwiseAgentSessionFlow`, a Worker, and Client calls such as
+`createBuiltinAgentSessionFlow`, a Worker, and Client calls such as
 `startAgentSession`, `sendUserMessage`, and `getAgentSnapshot`. What carries
 over:
 
@@ -319,7 +319,7 @@ A compatibility layer for the `pi-durable` API is tracked in
 - `executionMode: "sequential"`: Dex runs the tool calls of one model response
   in parallel. Both wrappers throw a `TypeError` for such a tool.
 - `AgentToolResult.terminate`: Dex ignores it. End a turn after tools with the
-  Stepwise `decideTurnContinuation` hook.
+  built-in loop `decideTurnContinuation` hook.
 - Forced tool choices: see the model client.
 - A tool policy that raises a Pi tool to `non_idempotent_write`: the wrappers
   decide how to report a thrown error from the effect the tool was wrapped
@@ -335,7 +335,7 @@ A compatibility layer for the `pi-durable` API is tracked in
   have no side effects, so results stay correct; only latency and request
   counts grow.
 - Images in tool results: each image becomes a text note.
-- `prepareArguments` before the schema check: the Stepwise runner checks raw
+- `prepareArguments` before the schema check: the built-in loop runner checks raw
   arguments against `parameters` before the tool runs, so `prepareArguments`
   repairs only arguments that already pass that check.
 - `pi-durable` Harness features: `api`, `control`, Extensions, and fork.

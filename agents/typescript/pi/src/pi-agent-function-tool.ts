@@ -8,7 +8,7 @@
 
 import { validateToolArguments, type JsonObject } from "@earendil-works/pi-ai";
 import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
-import type { FunctionTool, ToolCallContext } from "@superdurable/dex-agents/stepwise";
+import type { FunctionTool, ToolCallContext } from "@superdurable/dex-agents/builtin-loop";
 
 import {
   buildPiFunctionTool,
@@ -95,7 +95,7 @@ export interface PiAgentFunctionToolOptions {
 }
 
 /**
- * Wraps a Pi `AgentTool` as a Stepwise {@link FunctionTool}, so each of its calls runs in its own Dex tool Step.
+ * Wraps a Pi `AgentTool` as a built-in loop {@link FunctionTool}, so each of its calls runs in its own Dex tool Step.
  *
  * Every Dex tool declares its side-effect class. Pass `effect`, or declare `replay` on the tool:
  * `replay: "safe"` runs as `idempotent_write`, which `CallTool` retries, and `replay: "never"` runs as
@@ -104,7 +104,7 @@ export interface PiAgentFunctionToolOptions {
  * tool.
  *
  * Each call runs `tool.execute(toolCallId, params, signal, onUpdate)`:
- * - The Stepwise runner first checks the raw arguments against `parameters`. Then `prepareArguments`, when the tool
+ * - The built-in loop runner first checks the raw arguments against `parameters`. Then `prepareArguments`, when the tool
  *   has one, repairs them, and pi-ai's `validateToolArguments` validates and coerces them, as Pi does.
  * - `signal` is the attempt's cancellation signal.
  * - The text of each `onUpdate` partial result is written as a `pi.tool_progress` event with `tool_call_id`,
@@ -120,7 +120,7 @@ export interface PiAgentFunctionToolOptions {
  * - An error thrown after Dex cancelled the attempt is rethrown unchanged.
  *
  * Dex runs the calls of one model response in parallel, so `executionMode: "sequential"` is not supported. Dex
- * ignores the result's `terminate` hint; the Stepwise `decideTurnContinuation` hook ends a turn after tools.
+ * ignores the result's `terminate` hint; the built-in loop `decideTurnContinuation` hook ends a turn after tools.
  *
  * Pass the idempotency key yourself when a tool writes: Pi tools do not receive Dex's `ToolCallContext`, so wrap
  * such a tool with `functionTool` instead when it needs `idempotencyKey`.

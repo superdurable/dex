@@ -116,12 +116,12 @@ def release_asset_name(version: str, system: str, machine: str) -> str:
     """Return the release archive name for a platform.
 
     Args:
-        version: The ``dexcli`` version, such as ``1.42.0``.
+        version: The ``dexcli`` version, such as ``1.44.0``.
         system: ``sys.platform``, such as ``darwin`` or ``linux``.
         machine: ``platform.machine()``, such as ``arm64`` or ``x86_64``.
 
     Returns:
-        Such as ``dexcli_v1.42.0_darwin_arm64.tar.gz``.
+        Such as ``dexcli_v1.44.0_darwin_arm64.tar.gz``.
 
     Raises:
         DexcliInstallError: If no release is built for the platform.

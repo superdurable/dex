@@ -34,7 +34,7 @@ export const scriptedHarnessDirectoryVariable = "DEX_AGENTS_CLI_TEST_DIRECTORY";
 export const scriptedHarnessVariantVariable = "DEX_AGENTS_CLI_TEST_HARNESS";
 
 /**
- * A Stepwise test harness whose model follows commands in the user's text:
+ * A built-in loop test harness whose model follows commands in the user's text:
  *
  * - `tools`: answers with the offered tool names.
  * - `model`: answers with the turn's model.
