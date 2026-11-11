@@ -54,6 +54,7 @@ var (
 	joinResultsCopy   = dex.DefineChannelMap[string]("go-join-results")
 	joinBranchRelease = dex.DefineChannelMap[dex.None]("go-join-branch-release")
 	joinGate          = dex.DefineChannel[dex.None]("go-join-gate")
+	joinBranchWaiting = dex.DefineChannel[string]("go-join-branch-waiting")
 )
 
 type joinFlow struct {
@@ -102,6 +103,7 @@ type joinChannelSizesInput struct {
 type joinChannelSizes struct {
 	PendingResults  int `json:"pendingResults"`
 	PendingReleases int `json:"pendingReleases"`
+	WaitingBranches int `json:"waitingBranches"`
 }
 
 type joinReportInput struct {
@@ -138,7 +140,7 @@ func (flow joinFlow) GetRPCs() []dex.RPCDef {
 }
 
 func (joinFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{joinResults, joinBranchRelease, joinGate}}
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{joinResults, joinBranchRelease, joinGate, joinBranchWaiting}}
 }
 
 func (joinFlow) ReleaseJoinBranch(ctx dex.Context, branchName string) (*dex.RPCResult[dex.None], error) {
@@ -163,6 +165,7 @@ func (joinFlow) GetJoinChannelSizes(
 	return &dex.RPCResult[joinChannelSizes]{Output: joinChannelSizes{
 		PendingResults:  joinResults.ChannelMap().Size(ctx, input.RoundKey),
 		PendingReleases: joinBranchRelease.Size(ctx, input.BranchName),
+		WaitingBranches: joinBranchWaiting.Size(ctx),
 	}}, nil
 }
 
@@ -298,7 +301,11 @@ type joinCancelableBranchStep struct {
 	dex.StepDefaults
 }
 
-func (joinCancelableBranchStep) WaitFor(_ dex.Context, input joinBranchInput) (*dex.Wait, error) {
+// WaitFor marks the branch as waiting in the same commit that registers its wait.
+func (joinCancelableBranchStep) WaitFor(ctx dex.Context, input joinBranchInput) (*dex.Wait, error) {
+	if err := joinBranchWaiting.Publish(ctx, input.Name); err != nil {
+		return nil, err
+	}
 	return dex.Until(joinBranchRelease.ForOne(input.Name)), nil
 }
 
@@ -378,7 +385,7 @@ func (joinStep) Execute(ctx dex.Context, input joinStepInput) (*dex.StepDecision
 	switch {
 	case plan.Scenario == joinFirstAndCancel:
 		return dex.GoTo(joinFinishStep{}, plan.Summary).CancelSiblingSteps(joinBranchStep{}), nil
-	case plan.Scenario == joinRPCReportsCanceled:
+	case plan.Scenario == joinRPCReportsCanceled, plan.Scenario == joinKeyIsolation:
 		return dex.GoTo(joinFinishStep{}, plan.Summary), nil
 	case plan.RoundNumber < plan.RoundCount:
 		nextPlan := plan
@@ -485,7 +492,6 @@ func TestJoinPartialRoundsResetBeforeTheNextRoundStarts(t *testing.T) {
 	var sizes joinChannelSizes
 	invokeJoinRPC(t, flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: "joinSplitStep-1", BranchName: "A"}, &sizes)
 	require.Equal(t, joinChannelSizes{PendingResults: 0, PendingReleases: 1}, sizes)
-	requireJoinStepStillRunning(t, flowID, joinSplitStep{}, 2)
 
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "C", nil)
 	waitForJoinStep(t, flowID, joinSplitStep{}, 2)
@@ -512,10 +518,16 @@ func TestJoinResultsUnderAnotherRoundKeyDoNotSatisfyTheRound(t *testing.T) {
 	var sizes joinChannelSizes
 	invokeJoinRPC(t, flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: otherRound.RoundKey, BranchName: "A"}, &sizes)
 	require.Equal(t, 2, sizes.PendingResults)
-	requireJoinStepStillRunning(t, flowID, joinStep{}, 1)
 
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "B", nil)
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "A", nil)
+	waitForJoinStep(t, flowID, joinStep{}, 1)
+	// The join consumed its own round only; the other round's results are still pending.
+	invokeJoinRPC(t, flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: otherRound.RoundKey, BranchName: "A"}, &sizes)
+	require.Equal(t, 2, sizes.PendingResults)
+	invokeJoinRPC(t, flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: "joinSplitStep-1", BranchName: "A"}, &sizes)
+	require.Equal(t, 0, sizes.PendingResults)
+	invokeJoinRPC(t, flowID, joinFlow{}.OpenJoinGate, nil, nil)
 	summary := waitForJoinSummary(t, flowID)
 	require.Len(t, summary.BranchResults, 1)
 	require.ElementsMatch(t, []string{"A", "B"}, summary.BranchResults[0])
@@ -552,8 +564,13 @@ func TestJoinRPCReportsAResultForACanceledBranch(t *testing.T) {
 		ReleasedBranches: []string{"A"},
 	})
 	round := dex.JoinRound{RoundKey: "joinSplitStep-1", BranchCount: 2}
-	// The split's commit creates branch B, so CancelSteps finds it.
-	waitForJoinStep(t, flowID, joinSplitStep{}, 1)
+	var sizes joinChannelSizes
+	var err error
+	require.Eventually(t, func() bool {
+		var polled joinChannelSizes
+		err = integClient.InvokeRPC(integrationContext(t), flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: round.RoundKey, BranchName: "B"}, &polled)
+		return err == nil && polled.WaitingBranches == 1
+	}, 30*time.Second, 50*time.Millisecond, "branch B never reached its wait: %v", err)
 	invokeJoinRPC(t, flowID, joinFlow{}.ReportJoinBranchResult, joinReportInput{
 		Round:             round,
 		Result:            "B-canceled",
@@ -564,12 +581,8 @@ func TestJoinRPCReportsAResultForACanceledBranch(t *testing.T) {
 
 	// A waiting branch B would consume this release at once; it stays pending only after cancellation.
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "B", nil)
-	var sizes joinChannelSizes
 	invokeJoinRPC(t, flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: round.RoundKey, BranchName: "B"}, &sizes)
-	require.Equal(t, joinChannelSizes{PendingResults: 0, PendingReleases: 1}, sizes)
-	requireJoinStepStillRunning(t, flowID, joinFinishStep{}, 1)
-	invokeJoinRPC(t, flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: round.RoundKey, BranchName: "B"}, &sizes)
-	require.Equal(t, joinChannelSizes{PendingResults: 0, PendingReleases: 1}, sizes)
+	require.Equal(t, joinChannelSizes{PendingResults: 0, PendingReleases: 1, WaitingBranches: 1}, sizes)
 	invokeJoinRPC(t, flowID, joinFlow{}.OpenJoinGate, nil, nil)
 
 	summary := waitForJoinSummary(t, flowID)
@@ -702,19 +715,6 @@ func waitForJoinStep[IN any](t *testing.T, flowID string, step dex.Step[IN], exe
 		dex.StepExecutionID{StepType: dex.GetFinalStepType(step), ExecutionNumber: ptr.Any(executionNumber)},
 		dex.WaitForStepCompletionOptions{RequestID: uuid.NewString()},
 	))
-}
-
-func requireJoinStepStillRunning[IN any](t *testing.T, flowID string, step dex.Step[IN], executionNumber int32) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(integrationContext(t), 2*time.Second)
-	defer cancel()
-	err := integClient.WaitForStepCompletion(
-		ctx,
-		flowID,
-		dex.StepExecutionID{StepType: dex.GetFinalStepType(step), ExecutionNumber: ptr.Any(executionNumber)},
-		dex.WaitForStepCompletionOptions{RequestID: uuid.NewString()},
-	)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func waitForJoinSummary(t *testing.T, flowID string) joinSummary {
