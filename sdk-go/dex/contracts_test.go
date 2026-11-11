@@ -274,6 +274,15 @@ func TestPublicContractsCompile(t *testing.T) {
 	tlsOptions := &dex.FlowServiceTLSOptions{AdditionalRootCAsPEM: []byte("pem"), ServerName: "dex.example.com"}
 	_ = dex.ClientOptions{FlowServiceAddress: "dex.example.com:443", FlowServiceTLS: tlsOptions}
 	_ = dex.WorkerOptions{FlowServiceAddress: "dex.example.com:443", FlowServiceTLS: tlsOptions}
+	_ = dex.WorkerOptions{
+		FlowDefinitionPaths: []string{"flow-definitions"},
+		FlowDefinitions:     []dex.FlowDefinitionDocument{{FlowType: "OrderFlow", Content: []byte("{}"), GeneratedAt: time.Unix(0, 0)}},
+	}
+	var readFlowDefinitionFiles func([]string) ([]dex.FlowDefinitionDocument, error) = dex.ReadFlowDefinitionFiles
+	_ = readFlowDefinitionFiles
+	var uploadFlowDefinitions func(*dex.Client, context.Context, []dex.FlowDefinitionDocument, bool) ([]dex.FlowDefinitionUploadResult, error) = (*dex.Client).UploadFlowDefinitions
+	_ = uploadFlowDefinitions
+	_ = dex.FlowDefinitionUploadResult{FlowType: "OrderFlow", Outcome: dex.FlowDefinitionUploadKeptExisting, StoredDigest: "digest", StoredGeneratedAt: time.Unix(0, 0)}
 
 	initial, err := dex.InitialAttribute(statusAttribute, "new")
 	if err != nil {

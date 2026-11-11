@@ -568,7 +568,22 @@ type WorkerOptions struct {
 	Logger             Logger
 	Credential         Credential
 	GrpcMaxMessageBytes int
+	FlowDefinitionPaths []string
+	FlowDefinitions     []FlowDefinitionDocument
 }
+
+type FlowDefinitionDocument struct {
+	FlowType    string
+	Content     []byte
+	GeneratedAt time.Time
+}
+
+func ReadFlowDefinitionFiles(paths []string) ([]FlowDefinitionDocument, error)
+func (client *Client) UploadFlowDefinitions(
+	ctx context.Context,
+	documents []FlowDefinitionDocument,
+	force bool,
+) ([]FlowDefinitionUploadResult, error)
 
 // Credential supplies the bearer credential sent with every FlowService call.
 type Credential interface {
@@ -618,6 +633,13 @@ listener or advertised-address option. StartFlow and SubFlow always send a
 FlowConfig with `WorkerTarget.is_pull_mode=true`, an empty address, and a false
 headless flag. UpdateFlowConfig leaves the Worker target absent so an unrelated
 configuration update preserves the Flow's existing target on either server.
+
+`WorkerOptions.FlowDefinitionPaths` and `WorkerOptions.FlowDefinitions`
+(Go SDK 1.45.0) name Flow Definition Graph 2.0 documents. `NewWorker` reads the
+files and rejects a Flow type given twice. `Start` uploads the documents of
+registered Flow types with one `UploadFlowDefinitions` call after
+`SyncAttributeIndexes` and before opening task streams. An upload failure is
+only a warning. `Client.UploadFlowDefinitions` uploads documents from scripts.
 
 `ClientOptions.Credential` and `WorkerOptions.Credential` attach a bearer
 credential to every FlowService call. A Dex server with authentication enabled

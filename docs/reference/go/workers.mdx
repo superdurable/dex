@@ -152,3 +152,36 @@ func GetPullGreetingDiagnostics(worker *dex.Worker) PullGreetingDiagnostics {
 ```
 
 Example: [examples/go/production/pull-workers/worker.go](https://github.com/superdurable/dex/blob/main/examples/go/production/pull-workers/worker.go)
+
+## Upload Flow definitions {#flow-definitions}
+
+A Worker can store the Flow Definition Graph (FDG 2.0) JSON of its Flows on the
+Dex server at startup. Since 1.45.0.
+
+| Setting | Go name |
+| --- | --- |
+| Files or directories of FDG JSON | **WorkerOptions.FlowDefinitionPaths** |
+| In-memory documents | **WorkerOptions.FlowDefinitions**, a list of **FlowDefinitionDocument** |
+| Read files with the same rules | **ReadFlowDefinitionFiles** |
+| Upload from a script | **Client.UploadFlowDefinitions** |
+
+- A directory is read recursively. Only its **.json** files are read.
+- Each file must have a **schemaVersion** that starts with **2.** and a
+  **flow.name**. **flow.name** is the Flow type.
+- The generated time is the top-level **generatedAt**. Without it, the file
+  modification time is used.
+- **NewWorker** returns an error for an invalid file and for a Flow type given
+  twice, including once in each option.
+- **Start** uploads only the documents of Flow types in the Registry. It logs the
+  others and skips them.
+- An absolute **source.path** is uploaded relative to the working directory, or
+  as its base name when the file lies outside it.
+- Upload failures are warnings. The Worker still starts, also against a server
+  without the upload API.
+- The server keeps the document with the latest generated time. Give every
+  process of one release the same generated time. Use **force** with
+  **Client.UploadFlowDefinitions**, or **dexcli flow-definition upload --force**,
+  to roll a definition back.
+
+See the [API reference](pathname:///api/go/latest/dex/#type-workeroptions) and the
+[dexcli upload command](/reference/cli/#flow-definition).
