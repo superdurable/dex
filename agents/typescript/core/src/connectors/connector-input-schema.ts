@@ -8,7 +8,7 @@
 
 // Checks the JSON Schema subset of Connector `inputSchema` values with the Python core's messages.
 
-import { serializeJsonWithSpacedSeparators } from "../stepwise/json-schema-validation.js";
+import { serializeJsonWithSpacedSeparators } from "../builtin-loop/json-schema-validation.js";
 
 type JsonSchema = Readonly<Record<string, unknown>>;
 

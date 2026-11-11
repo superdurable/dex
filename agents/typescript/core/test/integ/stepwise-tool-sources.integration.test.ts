@@ -35,12 +35,12 @@ import {
 } from "../../src/mcp/index.js";
 import {
   ScriptedModelClient,
-  StepwiseAgentRunner,
+  BuiltinLoopAgentRunner,
   type ModelClient,
   type ModelRequest,
   type SourceToolDefinition,
   type ToolSource,
-} from "../../src/stepwise/index.js";
+} from "../../src/builtin-loop/index.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -247,7 +247,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
     const model = new ScriptedModelClient(() => ({
       toolCalls: [{ toolName: "files__send_message", arguments: { text: "wire $1M" }, toolCallId: "call-1" }],
     }));
-    const runner = new StepwiseAgentRunner({ name: "agent", instructions: "Help.", model, toolSources: [source] });
+    const runner = new BuiltinLoopAgentRunner({ name: "agent", instructions: "Help.", model, toolSources: [source] });
 
     const outcome = await runner.runModelStep(turnContext());
 
@@ -279,7 +279,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
       model: new ScriptedModelClient(() => ({ toolCalls: [{ toolName: "fetch", toolCallId: "call-1" }] })),
       toolSources: [search, fetch],
     };
-    const outcome = await new StepwiseAgentRunner(definition).runModelStep(turnContext());
+    const outcome = await new BuiltinLoopAgentRunner(definition).runModelStep(turnContext());
     const call = outcome.kind === "tool_calls_requested" ? outcome.toolCalls[0] : undefined;
     assert.deepEqual(JSON.parse(call?.toolSourceReference ?? ""), {
       stepwise_tool_source: "memory:fetch",
@@ -288,7 +288,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
 
     // A new Worker runs the tool Step while neither source can list.
     search.isListingBroken = fetch.isListingBroken = true;
-    const freshRunner = new StepwiseAgentRunner(definition);
+    const freshRunner = new BuiltinLoopAgentRunner(definition);
     assert.deepEqual(await freshRunner.executeDeferredToolCall(deferredExecution(call!)), { output: "ran fetch" });
     assert.deepEqual(await freshRunner.pollToolTask(toolTaskPoll(call!)), { output: "polled fetch" });
     assert.deepEqual(
@@ -299,7 +299,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
   });
 
   test("a call whose source cannot be told is retried, not failed", async () => {
-    const one = new StepwiseAgentRunner({
+    const one = new BuiltinLoopAgentRunner({
       name: "agent",
       instructions: "Help.",
       model: answers(),
@@ -317,7 +317,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
       one.executeDeferredToolCall(deferredExecution(moved)),
       (error: Error) => error instanceof RangeError && /memory:gone, .* is not configured on this Worker/.test(error.message),
     );
-    const several = new StepwiseAgentRunner({
+    const several = new BuiltinLoopAgentRunner({
       name: "agent",
       instructions: "Help.",
       model: answers(),
@@ -344,7 +344,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
       { connectionTimeoutMs: 3_000, connectionAttempts: 1, listingFailureBackoffMs: 300_000 },
     );
     const model = answers();
-    const runner = new StepwiseAgentRunner({
+    const runner = new BuiltinLoopAgentRunner({
       name: "agent",
       instructions: "Help.",
       model,
@@ -377,7 +377,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
   });
 
   test("a hanging source is bounded per model call", async () => {
-    const runner = new StepwiseAgentRunner({
+    const runner = new BuiltinLoopAgentRunner({
       name: "agent",
       instructions: "Help.",
       model: answers(),
@@ -397,7 +397,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
       });
     assert.throws(
       () =>
-        new StepwiseAgentRunner({
+        new BuiltinLoopAgentRunner({
           name: "agent",
           instructions: "Help.",
           model: answers(),
@@ -407,7 +407,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
     );
     assert.throws(
       () =>
-        new StepwiseAgentRunner({
+        new BuiltinLoopAgentRunner({
           name: "agent",
           instructions: "Help.",
           model: answers(),
@@ -416,7 +416,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
         }),
       (error: Error) => error.message === "tool ask_user uses the name of an enabled built-in tool",
     );
-    new StepwiseAgentRunner({ name: "agent", instructions: "Help.", model: answers(), toolSources: [source("files")] });
+    new BuiltinLoopAgentRunner({ name: "agent", instructions: "Help.", model: answers(), toolSources: [source("files")] });
   });
 
   test("a source tool name collision fails the model step before any model call", async () => {
@@ -430,7 +430,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
     ];
     for (const [toolSources, message] of cases) {
       const model = answers();
-      const runner = new StepwiseAgentRunner({
+      const runner = new BuiltinLoopAgentRunner({
         name: "agent",
         instructions: "Help.",
         model,
@@ -446,7 +446,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
       assert.deepEqual(model.requests, []);
     }
     assert.throws(
-      () => new StepwiseAgentRunner({ name: "agent", instructions: "Help.", model: answers(), toolSources: [{} as ToolSource] }),
+      () => new BuiltinLoopAgentRunner({ name: "agent", instructions: "Help.", model: answers(), toolSources: [{} as ToolSource] }),
       /has no listTools method/,
     );
   });
@@ -479,7 +479,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
         return 1;
       },
     };
-    const runner = new StepwiseAgentRunner({
+    const runner = new BuiltinLoopAgentRunner({
       name: "agent",
       instructions: "Help.",
       model,
@@ -508,7 +508,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
   test("a stored call reaches its source after sources are reordered or added", async () => {
     const search = new InMemoryToolSource("search");
     const fetch = new InMemoryToolSource("fetch");
-    const outcome = await new StepwiseAgentRunner({
+    const outcome = await new BuiltinLoopAgentRunner({
       name: "agent",
       instructions: "Help.",
       model: new ScriptedModelClient(() => ({ toolCalls: [{ toolName: "fetch", toolCallId: "call-1" }] })),
@@ -516,7 +516,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
     }).runModelStep(turnContext());
     const call = outcome.kind === "tool_calls_requested" ? outcome.toolCalls[0] : undefined;
     for (const toolSources of [[fetch, search], [new InMemoryToolSource("crm"), search, fetch]]) {
-      const deployed = new StepwiseAgentRunner({ name: "agent", instructions: "Help.", model: answers(), toolSources });
+      const deployed = new BuiltinLoopAgentRunner({ name: "agent", instructions: "Help.", model: answers(), toolSources });
       await deployed.executeDeferredToolCall(deferredExecution(call!));
       await deployed.pollToolTask(toolTaskPoll(call!));
     }
@@ -540,14 +540,14 @@ describe("tool source routing, policies, listing failures, and name collisions",
     const model = new ScriptedModelClient(() => ({
       toolCalls: [{ toolName: "files__send_message", arguments: { text: "x" }, toolCallId: "c1" }],
     }));
-    const outcome = await new StepwiseAgentRunner({
+    const outcome = await new BuiltinLoopAgentRunner({
       name: "agent",
       instructions: "Help.",
       model,
       toolSources: [files, other],
     }).runModelStep(turnContext());
     const call = outcome.kind === "tool_calls_requested" ? outcome.toolCalls[0] : undefined;
-    const swapped = new StepwiseAgentRunner({ name: "agent", instructions: "Help.", model, toolSources: [other, files] });
+    const swapped = new BuiltinLoopAgentRunner({ name: "agent", instructions: "Help.", model, toolSources: [other, files] });
     assert.deepEqual(await swapped.executeDeferredToolCall(deferredExecution(call!)), { output: "sent x" });
     assert.ok(readFileSync(join(directory, "files", fakeMcpInvocationLogName), "utf8").includes("send_message"));
   });
@@ -569,7 +569,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
     const before = new McpToolSource([server("files")], { connectionAttempts: 1 });
     assert.equal(before.sourceName, defaultMcpSourceName);
     assert.equal(defaultMcpSourceName, "mcp");
-    const outcome = await new StepwiseAgentRunner({
+    const outcome = await new BuiltinLoopAgentRunner({
       name: "agent",
       instructions: "Help.",
       model,
@@ -580,7 +580,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
     // A deploy adds a server to the same source; the files server and tool are unchanged.
     const after = new McpToolSource([server("files"), server("crm")], { connectionAttempts: 1 });
     assert.equal(after.sourceName, before.sourceName);
-    const deployed = new StepwiseAgentRunner({ name: "agent", instructions: "Help.", model, toolSources: [after] });
+    const deployed = new BuiltinLoopAgentRunner({ name: "agent", instructions: "Help.", model, toolSources: [after] });
     assert.deepEqual(await deployed.executeDeferredToolCall(deferredExecution(call!)), { output: "sent x" });
     assert.ok(readFileSync(join(directory, "files", fakeMcpInvocationLogName), "utf8").includes("send_message"));
   });
@@ -604,7 +604,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
       (source as unknown as { tools: ReadonlyMap<string, unknown> }).tools = new Map();
       return { toolCalls: [{ toolName: "files__lookup", arguments: { query: "q" }, toolCallId: "c1" }] };
     });
-    const outcome = await new StepwiseAgentRunner({
+    const outcome = await new BuiltinLoopAgentRunner({
       name: "agent",
       instructions: "Help.",
       model,
@@ -619,7 +619,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
   test("tool source names must be unique and present", () => {
     assert.throws(
       () =>
-        new StepwiseAgentRunner({
+        new BuiltinLoopAgentRunner({
           name: "agent",
           instructions: "Help.",
           model: answers(),
@@ -636,7 +636,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
     );
     assert.throws(
       () =>
-        new StepwiseAgentRunner({
+        new BuiltinLoopAgentRunner({
           name: "agent",
           instructions: "Help.",
           model: answers(),

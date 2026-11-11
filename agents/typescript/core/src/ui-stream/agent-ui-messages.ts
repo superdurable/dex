@@ -51,7 +51,7 @@ export interface AgentSessionUIMessages {
  * user message and appears as one.
  *
  * The session stores a turn's messages when the turn ends, or after each model call for a runner such as
- * the Stepwise runner. For the active turn the function shows each tool call of `snapshot.toolCalls` once in
+ * the built-in loop runner. For the active turn the function shows each tool call of `snapshot.toolCalls` once in
  * the turn's assistant message: a stored call without a result takes the record's state, and a call not
  * stored yet is added. Approvals waiting for `resolve_interrupt` are `approval-requested`, running calls
  * are `input-available` or `approval-responded`, and finished calls show their result. The active turn's

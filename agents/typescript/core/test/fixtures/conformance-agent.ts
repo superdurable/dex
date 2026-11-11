@@ -15,7 +15,7 @@ import type {
   ToolTaskPollOutcome,
 } from "../../src/agent-framework-runner.js";
 import { createAgentSessionFlow, type AgentSessionFlow, type AgentSessionOptions } from "../../src/agent-session-flow.js";
-import { StepwiseAgentRunner, functionTool, type AgentDefinition, type ModelRequest } from "../../src/stepwise/index.js";
+import { BuiltinLoopAgentRunner, functionTool, type AgentDefinition, type ModelRequest } from "../../src/builtin-loop/index.js";
 import { ScriptedModelClient, type ScriptedModelReply } from "../../src/testing/index.js";
 import { readConformanceJson } from "./conformance-suite.js";
 
@@ -44,7 +44,7 @@ export function readConformanceScenarios(): ConformanceScenario[] {
     .map((name) => readConformanceJson<ConformanceScenario>(`transcripts/${name}`));
 }
 
-class ConformanceRunner extends StepwiseAgentRunner {
+class ConformanceRunner extends BuiltinLoopAgentRunner {
   public override async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     if (call.toolCall.toolName === "start_report") {
       return { kind: "tool_task_started", taskId: `task-${call.toolCall.toolCallId}`, pollIntervalSeconds: 1 };
@@ -59,7 +59,7 @@ class ConformanceRunner extends StepwiseAgentRunner {
 }
 
 export interface ConformanceAgents {
-  readonly flows: Readonly<Record<keyof typeof conformanceFlowTypes, AgentSessionFlow<StepwiseAgentRunner>>>;
+  readonly flows: Readonly<Record<keyof typeof conformanceFlowTypes, AgentSessionFlow<BuiltinLoopAgentRunner>>>;
   /** Model requests in the transcript's form, by session Flow ID. */
   readonly modelRequests: Map<string, unknown[]>;
 }
@@ -127,7 +127,7 @@ export function createConformanceAgents(): ConformanceAgents {
       },
     }),
   ];
-  const createFlow = (profile: keyof typeof conformanceFlowTypes): AgentSessionFlow<StepwiseAgentRunner> => {
+  const createFlow = (profile: keyof typeof conformanceFlowTypes): AgentSessionFlow<BuiltinLoopAgentRunner> => {
     const definition: AgentDefinition = {
       name: `conformance-${profile}`,
       instructions: "You are the conformance agent.",

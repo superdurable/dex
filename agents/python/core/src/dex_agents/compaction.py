@@ -94,7 +94,7 @@ class CompactionPolicy:
     """Decide when a session summarizes its earlier messages, and how much it keeps.
 
     Pass it as ``AgentSessionOptions.compaction``, or as
-    ``AgentDefinition.compaction`` for a Stepwise agent. The runner must
+    ``AgentDefinition.compaction`` for an agent on the built-in loop. The runner must
     implement ``ContextCompactionRunner``; the session Flow constructor raises
     otherwise. Enable compaction only after every Worker of the Flow type runs
     a release that has the ``CompactContext`` Step.

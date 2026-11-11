@@ -25,11 +25,11 @@
 // compaction, or tool tasks, so serve each agent Flow type with Workers of one
 // language: a Go Step that finds state from those parts fails the session with
 // a reason instead of acting on it. Package
-// stepwise is the built-in agent loop on this Flow; packages openaimodel and
+// builtinloop is the built-in agent loop on this Flow; packages openaimodel and
 // anthropicmodel are its model clients, and agentstest has a scripted model
 // client and a private engine for tests.
 //
-//	flow, err := stepwise.NewStepwiseAgentSessionFlow(definition, "SupportAgent")
+//	flow, err := builtinloop.NewBuiltinAgentSessionFlow(definition, "SupportAgent")
 //	if err != nil {
 //		return err
 //	}

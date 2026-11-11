@@ -20,7 +20,11 @@ from google.adk.tools import BaseTool, ToolContext
 from google.adk.tools.base_toolset import BaseToolset
 from google.genai import types
 
-from dex_agents.stepwise import FrameworkToolSourceRouter, SourceToolDefinition, SourceToolListing
+from dex_agents.builtin_loop import (
+    FrameworkToolSourceRouter,
+    SourceToolDefinition,
+    SourceToolListing,
+)
 
 # The listing of the RunModel that runs now, with the router that listed it.
 _ACTIVE_SOURCE_TOOLS: ContextVar[tuple[FrameworkToolSourceRouter, SourceToolListing] | None] = (

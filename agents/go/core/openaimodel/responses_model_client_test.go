@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
-	"github.com/superdurable/dex/agents/go/core/stepwise"
+	"github.com/superdurable/dex/agents/go/core/builtinloop"
 )
 
 // fakeResponsesServer serves one scripted SSE stream and records every request body.
@@ -102,19 +102,19 @@ func TestResponsesModelClientStreamsOneRequestAndStoresReplayFields(t *testing.T
 	temperature := 0.2
 	output := &recordedOutput{}
 
-	response, err := client.CallModel(context.Background(), stepwise.ModelRequest{
+	response, err := client.CallModel(context.Background(), builtinloop.ModelRequest{
 		Instructions: "Help.",
-		InputItems: []stepwise.ModelInputItem{
-			stepwise.UserTextItem{Text: "where is 7?"},
-			stepwise.ModelOutputItem{Provider: "openai", API: "responses", Item: `{"type":"reasoning","id":"rs_0","encrypted_content":"keep=="}`},
-			stepwise.ModelOutputItem{Provider: "dex-scripted", API: "scripted", Item: `{"x":1}`, Text: ptr("earlier"),
-				ToolCalls: []stepwise.ModelToolCall{{ToolCallID: "c0", ToolName: "lookup_order", Arguments: `{"order_id":"6"}`}}},
-			stepwise.ToolResultItem{ToolCallID: "c0", ToolName: "lookup_order", Output: "shipped"},
+		InputItems: []builtinloop.ModelInputItem{
+			builtinloop.UserTextItem{Text: "where is 7?"},
+			builtinloop.ModelOutputItem{Provider: "openai", API: "responses", Item: `{"type":"reasoning","id":"rs_0","encrypted_content":"keep=="}`},
+			builtinloop.ModelOutputItem{Provider: "dex-scripted", API: "scripted", Item: `{"x":1}`, Text: ptr("earlier"),
+				ToolCalls: []builtinloop.ModelToolCall{{ToolCallID: "c0", ToolName: "lookup_order", Arguments: `{"order_id":"6"}`}}},
+			builtinloop.ToolResultItem{ToolCallID: "c0", ToolName: "lookup_order", Output: "shipped"},
 		},
-		Tools: []stepwise.ModelToolDefinition{{Name: "lookup_order", Description: "Look up.",
+		Tools: []builtinloop.ModelToolDefinition{{Name: "lookup_order", Description: "Look up.",
 			Parameters: json.RawMessage(`{"type":"object","properties":{"order_id":{"type":"string"}}}`)}},
-		ToolChoice: stepwise.ToolChoice{Mode: stepwise.ToolChoiceModeAuto},
-		Settings:   stepwise.ModelSettings{Temperature: &temperature, ProviderOptions: map[string]any{"parallel_tool_calls": false}},
+		ToolChoice: builtinloop.ToolChoice{Mode: builtinloop.ToolChoiceModeAuto},
+		Settings:   builtinloop.ModelSettings{Temperature: &temperature, ProviderOptions: map[string]any{"parallel_tool_calls": false}},
 	}, output)
 	require.NoError(t, err)
 
@@ -148,7 +148,7 @@ func TestResponsesModelClientStreamsOneRequestAndStoresReplayFields(t *testing.T
 	require.Equal(t, "Looking", *response.OutputItems[1].Text)
 	require.Equal(t, "openai", response.OutputItems[2].Provider)
 	require.Equal(t, "responses", response.OutputItems[2].API)
-	require.Equal(t, []stepwise.ModelToolCall{{ToolCallID: "call_1", ToolName: "lookup_order", Arguments: `{"order_id":"7"}`}}, response.ToolCalls)
+	require.Equal(t, []builtinloop.ModelToolCall{{ToolCallID: "call_1", ToolName: "lookup_order", Arguments: `{"order_id":"7"}`}}, response.ToolCalls)
 	require.Equal(t, "Looking", response.Text)
 	require.Equal(t, "gpt-test-2026", response.ResponseModel)
 	require.Equal(t, "completed", response.FinishReason)
@@ -158,8 +158,8 @@ func TestResponsesModelClientStreamsOneRequestAndStoresReplayFields(t *testing.T
 func TestResponsesModelClientMakesNoRetriesOfItsOwn(t *testing.T) {
 	server := &fakeResponsesServer{statusCode: http.StatusTooManyRequests}
 	client := newTestClient(t, server)
-	_, err := client.CallModel(context.Background(), stepwise.ModelRequest{
-		InputItems: []stepwise.ModelInputItem{stepwise.UserTextItem{Text: "hi"}},
+	_, err := client.CallModel(context.Background(), builtinloop.ModelRequest{
+		InputItems: []builtinloop.ModelInputItem{builtinloop.UserTextItem{Text: "hi"}},
 	}, &recordedOutput{})
 	require.Error(t, err)
 	require.Len(t, server.bodies, 1, "RunModel attempts are the retries")
@@ -170,9 +170,9 @@ func TestResponsesModelClientFailsAStreamWithoutCompletion(t *testing.T) {
 		`{"type":"response.failed","sequence_number":0,"response":{"id":"resp_1","status":"failed","error":{"code":"server_error","message":"boom"}}}`,
 	}}
 	client := newTestClient(t, server)
-	_, err := client.CallModel(context.Background(), stepwise.ModelRequest{
-		InputItems: []stepwise.ModelInputItem{stepwise.UserTextItem{Text: "hi"}},
-		ToolChoice: stepwise.ToolChoice{Mode: stepwise.ToolChoiceModeNamed, ToolName: "x"},
+	_, err := client.CallModel(context.Background(), builtinloop.ModelRequest{
+		InputItems: []builtinloop.ModelInputItem{builtinloop.UserTextItem{Text: "hi"}},
+		ToolChoice: builtinloop.ToolChoice{Mode: builtinloop.ToolChoiceModeNamed, ToolName: "x"},
 	}, &recordedOutput{})
 	require.ErrorContains(t, err, "stream failed")
 	require.NotContains(t, server.bodies[0], "tools", "a request without tools sends no tools field")

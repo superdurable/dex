@@ -43,7 +43,7 @@ const MAX_VALUES_PER_KIND: usize = 6;
 /// Page sizes compared between local and non-local history reads; zero is the default size.
 const COMPARED_PAGE_SIZES: [i32; 2] = [3, 0];
 /// Response byte limits compared: none, and one small enough to end pages early or reject.
-const COMPARED_RESPONSE_BYTE_LIMITS: [usize; 2] = [usize::MAX, 4096];
+const COMPARED_RESPONSE_BYTE_LIMITS: [usize; 2] = [usize::MAX, 1024];
 const ONE_DAY_NANOS: i128 = 86_400 * 1_000_000_000;
 
 type TargetResult = Result<TimeTravelTargetForTest, CommandReply>;

@@ -111,7 +111,7 @@ export interface PlanExecutionRequest {
  *
  * Set them in {@link AgentSessionStartInput.sessionSettings} and replace them with the
  * `update_session_settings` RPC. A runner reads the settings of the running turn from
- * `AgentTurnContext.sessionSettings`; a Stepwise agent maps them to a model client with
+ * `AgentTurnContext.sessionSettings`; a built-in loop agent maps them to a model client with
  * `AgentDefinition.resolveModel`. Keys keep their spelling on the wire; nothing is converted to snake_case.
  *
  * Settings are stored in the session and returned by `get_agent_snapshot`, so never put a secret in them. Put a

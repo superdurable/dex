@@ -20,7 +20,7 @@ import type { AgentSessionPersistence } from "../../src/agent-session-persistenc
 import { toolStepOptions, toolTaskPollMovement } from "../../src/agent-session-steps.js";
 import { agentSessionStepTypes } from "../../src/agent-session-step-types.js";
 import type { AgentToolCallRecord, ToolEffect } from "../../src/agent-session-values.js";
-import { createStepwiseAgentSessionFlow } from "../../src/stepwise/index.js";
+import { createBuiltinAgentSessionFlow } from "../../src/builtin-loop/index.js";
 import { ScriptedModelClient } from "../../src/testing/index.js";
 import { conformanceSuiteDirectory, readConformanceJson } from "../fixtures/conformance-suite.js";
 import { SessionFlowSource } from "../fixtures/session-flow-source.js";
@@ -80,7 +80,7 @@ const graph = readConformanceJson<SessionGraph>("session_graph.json");
 const renderings = readConformanceJson<{
   readonly cases: readonly { readonly flow_type: string; readonly action_permission: string; readonly sha256: string }[];
 }>("session_graph_renderings.json");
-const flow = createStepwiseAgentSessionFlow(
+const flow = createBuiltinAgentSessionFlow(
   { name: "graph-manifest", instructions: "Describe the session Flow.", model: new ScriptedModelClient(() => ({ text: "ok" })) },
   "ConformanceAgent",
 );

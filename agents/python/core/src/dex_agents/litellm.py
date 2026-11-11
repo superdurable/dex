@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""A Stepwise ``ModelClient`` on LiteLLM, installed with ``dex-agents[litellm]``.
+"""A built-in agent loop ``ModelClient`` on LiteLLM, installed with ``dex-agents[litellm]``.
 
 OpenAI models use the Responses API with ``store=False`` and encrypted
 reasoning content, so reasoning items replay without provider-side state.
@@ -29,7 +29,7 @@ except ImportError as error:  # pragma: no cover - exercised by the built-packag
         "dex_agents.litellm needs LiteLLM; install it with: pip install 'dex-agents[litellm]'"
     ) from error
 
-from dex_agents.stepwise.model import (
+from dex_agents.builtin_loop.model import (
     ModelInputItem,
     ModelOutputItem,
     ModelOutputWriter,

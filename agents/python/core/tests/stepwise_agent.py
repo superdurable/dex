@@ -79,16 +79,16 @@ from dex_agents import (
     ToolEffect,
     ToolInputRequested,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     DEFAULT_MAX_MODEL_CALLS_PER_TURN,
     AgentDefinition,
+    BuiltinLoopAgentRunner,
     InstructionContext,
     ModelRequest,
-    StepwiseAgentRunner,
     ToolCallContext,
+    builtin_agent_session_flow,
+    builtin_agent_session_options,
     function_tool,
-    stepwise_agent_session_flow,
-    stepwise_agent_session_options,
 )
 from dex_agents.testing import (
     FileGate,
@@ -110,7 +110,7 @@ INSTRUCTIONS = "You are a scripted test agent."
 MODEL_NAMES = ("default", "alpha", "beta")
 
 
-class BrokenUnfinishedTurnBuilderRunner(StepwiseAgentRunner):
+class BrokenUnfinishedTurnBuilderRunner(BuiltinLoopAgentRunner):
     def __init__(self, definition: AgentDefinition, mode: str, state_dir: Path) -> None:
         super().__init__(definition)
         self._mode = mode
@@ -134,7 +134,7 @@ class GatedCancellationSessionFlow(AgentSessionFlow):
 
     def __init__(
         self,
-        runner: StepwiseAgentRunner,
+        runner: BuiltinLoopAgentRunner,
         *,
         options: AgentSessionOptions,
         state_dir: Path,
@@ -376,18 +376,18 @@ def build_stepwise_agent_flow(
     )
     if cancel_rpc_gate is not None or finish_cancellation_gate is not None:
         return GatedCancellationSessionFlow(
-            StepwiseAgentRunner(definition),
-            options=stepwise_agent_session_options(definition),
+            BuiltinLoopAgentRunner(definition),
+            options=builtin_agent_session_options(definition),
             state_dir=state_dir,
             cancel_rpc_gate=cancel_rpc_gate,
             finish_cancellation_gate=finish_cancellation_gate,
         )
     if unfinished_builder_mode is None:
-        return stepwise_agent_session_flow(definition, flow_type=STEPWISE_AGENT_FLOW_TYPE)
+        return builtin_agent_session_flow(definition, flow_type=STEPWISE_AGENT_FLOW_TYPE)
     return AgentSessionFlow(
         BrokenUnfinishedTurnBuilderRunner(definition, unfinished_builder_mode, state_dir),
         flow_type=STEPWISE_AGENT_FLOW_TYPE,
-        options=stepwise_agent_session_options(definition),
+        options=builtin_agent_session_options(definition),
     )
 
 

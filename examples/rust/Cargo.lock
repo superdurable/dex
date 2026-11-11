@@ -247,9 +247,9 @@ dependencies = [
 
 [[package]]
 name = "dex-blob-cache"
-version = "1.31.0"
+version = "1.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7c22ba1ca2ce2ea71465088d3eacd085c9395a7a5daa98ba8ad6bbea35b0cc4"
+checksum = "689ff0171fd27bcf58678a749a95de0bd3eb543de3d29512423c426ff0d6203e"
 dependencies = [
  "crc32c",
  "sha2",
@@ -274,9 +274,9 @@ dependencies = [
 
 [[package]]
 name = "dex-protocol"
-version = "1.31.0"
+version = "1.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "593a66c639fe264152db07853f5317087135155bd651cdbd64ad07ed8a4d3adb"
+checksum = "f61fa1a80ef42df8741a783c406a8a98fcd02b3cb9cd3db2cd40b97b2bf328f8"
 dependencies = [
  "prost",
  "prost-types",
@@ -288,9 +288,9 @@ dependencies = [
 
 [[package]]
 name = "dex-sdk"
-version = "1.31.0"
+version = "1.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e92ec761f9e56361a24e314c1adbcfff0ccb8ec3d9f720ec40900fa6f9dfbec8"
+checksum = "785b561629e880a7a2ecfd43b46ccd8140224f85891532e7b01da7e61a5e9c82"
 dependencies = [
  "bytes",
  "dex-blob-cache",
@@ -301,6 +301,8 @@ dependencies = [
  "prost",
  "prost-types",
  "reqwest",
+ "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "tokio",
@@ -1474,12 +1476,25 @@ version = "0.23.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
 dependencies = [
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
  "rustls-webpki",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rustls-native-certs"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a073f5dc7469f984c52ad2752b63b0807745133b6de880b7b64c1ac4c48aec4"
+dependencies = [
+ "openssl-probe",
+ "rustls-pki-types",
+ "schannel",
+ "security-framework",
 ]
 
 [[package]]
@@ -1918,6 +1933,7 @@ dependencies = [
  "socket2",
  "sync_wrapper",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "tower",
  "tower-layer",

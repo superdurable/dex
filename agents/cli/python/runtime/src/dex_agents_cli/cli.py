@@ -38,7 +38,7 @@ from dex import (
 )
 
 from dex_agents import AgentSessionClient
-from dex_agents.stepwise import ToolSource
+from dex_agents.builtin_loop import ToolSource
 from dex_agents_cli.chat import Terminal, TerminalChat
 from dex_agents_cli.config import AUTO, ConnectorEntry, EffectiveConfig
 from dex_agents_cli.config_file import (

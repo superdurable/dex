@@ -91,7 +91,7 @@ exits with its result, because open connections can keep Node running.
 
 ```ts
 #!/usr/bin/env node
-import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
+import { createBuiltinAgentSessionFlow } from "@superdurable/dex-agents/builtin-loop";
 import { runAgentCli, type AgentHarness } from "@superdurable/dex-agents-cli";
 
 const harness: AgentHarness = {
@@ -101,7 +101,7 @@ const harness: AgentHarness = {
   defaultModel: "openai/gpt-5-mini",
   replacedLocalTools: [], // for example ["files", "shell", "web_fetch"] for Claude Code
   createSessionFlow: (context) =>
-    createStepwiseAgentSessionFlow(
+    createBuiltinAgentSessionFlow(
       {
         name: "assistant",
         instructions: (turn) =>
@@ -143,7 +143,7 @@ interface HarnessContext {
 type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
 ```
 
-- A Stepwise harness puts `context.toolSources` in
+- A built-in loop harness puts `context.toolSources` in
   `AgentDefinition.toolSources`. A runner-based adapter, such as the Claude
   Agent SDK, OpenAI Agents, Vercel AI, or Mastra adapter, passes them to its
   runner's `toolSources` and builds the Flow with `createAgentSessionFlow`.
@@ -180,7 +180,7 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
     parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
     effect: "non_idempotent_write",
     execute: async ({ command }, call) => {
-      // call is the Stepwise ToolCallContext, with flowId and turnId.
+      // call is the built-in loop ToolCallContext, with flowId and turnId.
       const permissions = await context.resolveToolStepPermissions(call);
       if (!isLocalToolGroupEnabled(permissions, "shell")) {
         throw new ToolExecutionError("shell commands are switched off; the command did not run");
@@ -348,7 +348,7 @@ DEXCLI=/path/to/dexcli ./ci.sh
 
 `ci.sh` builds the core, installs the locked dependencies, typechecks, and
 runs the conformance cases of `agents/conformance/cli_config.json` and the
-integration tests. The integration tests run a scripted Stepwise harness
+integration tests. The integration tests run a scripted built-in loop harness
 against a private `dexcli dev`, a fake connectors MCP server, and a local
 web page. `.npmrc` sets `install-links`, so the local core is copied with one
 shared `@superdurable/dex`, as in a published install.

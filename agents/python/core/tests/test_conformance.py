@@ -31,6 +31,8 @@ from dex_agents import (
     ToolCallStatus,
     build_plan_execution_message,
 )
+from dex_agents.builtin_loop import DEFAULT_MAX_MODEL_CALLS_PER_TURN
+from dex_agents.builtin_loop.runner import _read_tool_source_envelope, _write_tool_source_envelope
 from dex_agents.session_flow import ALL_PENDING_MESSAGES, MESSAGE_PAGE_LIMIT, SNAPSHOT_MESSAGE_LIMIT
 from dex_agents.session_settings import (
     SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
@@ -38,8 +40,6 @@ from dex_agents.session_settings import (
     session_settings_size,
     validate_session_settings,
 )
-from dex_agents.stepwise import DEFAULT_MAX_MODEL_CALLS_PER_TURN
-from dex_agents.stepwise.runner import _read_tool_source_envelope, _write_tool_source_envelope
 
 SUITE_DIR = Path(__file__).resolve().parents[3] / "conformance"
 

@@ -24,7 +24,6 @@ package workflowpatterns
 import (
 	"errors"
 	"slices"
-	"strconv"
 
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -185,24 +184,6 @@ func getAttributeOrZero[T any](ctx dex.Context, attribute dex.Attribute[T]) (T, 
 		return zero, nil
 	}
 	return value, err
-}
-
-// roundInstance returns the ChannelMap instance key of one join round.
-func roundInstance(round int) string {
-	return "round-" + strconv.Itoa(round)
-}
-
-// publishRoundSignalAndDeadEnd publishes value to the round's ChannelMap instance and ends the branch.
-func publishRoundSignalAndDeadEnd[T any](
-	ctx dex.Context,
-	channelMap dex.ChannelMap[T],
-	round int,
-	value T,
-) (*dex.StepDecision, error) {
-	if err := channelMap.Publish(ctx, roundInstance(round), value); err != nil {
-		return nil, err
-	}
-	return dex.DeadEnd(), nil
 }
 
 // openGate releases count instances held by a concurrency gate.
