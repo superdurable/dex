@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
-	"github.com/superdurable/dex/agents/go/core/stepwise"
+	"github.com/superdurable/dex/agents/go/core/builtinloop"
 )
 
 type fakeMessagesServer struct {
@@ -117,33 +117,33 @@ func TestMessagesModelClientStreamsOneRequestAndStoresTheLiteLLMShape(t *testing
 	maxOutputTokens := int64(512)
 	output := &recordedOutput{}
 
-	response, err := client.CallModel(context.Background(), stepwise.ModelRequest{
+	response, err := client.CallModel(context.Background(), builtinloop.ModelRequest{
 		Instructions: "Help.",
-		InputItems: []stepwise.ModelInputItem{
-			stepwise.UserTextItem{Text: "where is 6?"},
+		InputItems: []builtinloop.ModelInputItem{
+			builtinloop.UserTextItem{Text: "where is 6?"},
 			// The Python core's LiteLLM item for an Anthropic response.
-			stepwise.ModelOutputItem{Provider: "anthropic", API: "chat_completions",
+			builtinloop.ModelOutputItem{Provider: "anthropic", API: "chat_completions",
 				Item:      `{"role":"assistant","content":"Checking 6.","tool_calls":[{"id":"toolu_0","type":"function","function":{"name":"lookup_order","arguments":"{\"order_id\": \"6\"}"}}],"thinking_blocks":[{"type":"thinking","thinking":"t","signature":"keep=="},{"type":"redacted_thinking","data":"r=="}]}`,
 				Text:      ptr("Checking 6."),
-				ToolCalls: []stepwise.ModelToolCall{{ToolCallID: "toolu_0", ToolName: "lookup_order", Arguments: `{"order_id": "6"}`}}},
-			stepwise.ToolResultItem{ToolCallID: "toolu_0", ToolName: "lookup_order", Output: "shipped"},
-			stepwise.UserTextItem{Text: "and 7?"},
+				ToolCalls: []builtinloop.ModelToolCall{{ToolCallID: "toolu_0", ToolName: "lookup_order", Arguments: `{"order_id": "6"}`}}},
+			builtinloop.ToolResultItem{ToolCallID: "toolu_0", ToolName: "lookup_order", Output: "shipped"},
+			builtinloop.UserTextItem{Text: "and 7?"},
 			// The TypeScript core's AI SDK item for an Anthropic response.
-			stepwise.ModelOutputItem{Provider: "anthropic.messages", API: "ai-sdk",
+			builtinloop.ModelOutputItem{Provider: "anthropic.messages", API: "ai-sdk",
 				Item:      `{"role":"assistant","content":[{"type":"reasoning","text":"u","providerOptions":{"anthropic":{"signature":"ts=="}}},{"type":"text","text":"Checking."},{"type":"tool-call","toolCallId":"toolu_9","toolName":"lookup_order","input":{"order_id":"7"}}]}`,
 				Text:      ptr("Checking."),
-				ToolCalls: []stepwise.ModelToolCall{{ToolCallID: "toolu_9", ToolName: "lookup_order", Arguments: `{"order_id":"7"}`}}},
-			stepwise.ToolResultItem{ToolCallID: "toolu_9", ToolName: "lookup_order", Output: "pending"},
-			stepwise.UserTextItem{Text: "and 8?"},
+				ToolCalls: []builtinloop.ModelToolCall{{ToolCallID: "toolu_9", ToolName: "lookup_order", Arguments: `{"order_id":"7"}`}}},
+			builtinloop.ToolResultItem{ToolCallID: "toolu_9", ToolName: "lookup_order", Output: "pending"},
+			builtinloop.UserTextItem{Text: "and 8?"},
 			// Another provider's item replays as text and tool calls only.
-			stepwise.ModelOutputItem{Provider: "openai", API: "responses", Item: `{}`, Text: ptr("Checking 8."),
-				ToolCalls: []stepwise.ModelToolCall{{ToolCallID: "call_8", ToolName: "lookup_order", Arguments: `{"order_id":"8"}`}}},
-			stepwise.ToolResultItem{ToolCallID: "call_8", ToolName: "lookup_order", Output: "late"},
+			builtinloop.ModelOutputItem{Provider: "openai", API: "responses", Item: `{}`, Text: ptr("Checking 8."),
+				ToolCalls: []builtinloop.ModelToolCall{{ToolCallID: "call_8", ToolName: "lookup_order", Arguments: `{"order_id":"8"}`}}},
+			builtinloop.ToolResultItem{ToolCallID: "call_8", ToolName: "lookup_order", Output: "late"},
 		},
-		Tools: []stepwise.ModelToolDefinition{{Name: "lookup_order", Description: "Look up.",
+		Tools: []builtinloop.ModelToolDefinition{{Name: "lookup_order", Description: "Look up.",
 			Parameters: json.RawMessage(`{"type":"object"}`)}},
-		ToolChoice: stepwise.ToolChoice{Mode: stepwise.ToolChoiceModeRequired},
-		Settings:   stepwise.ModelSettings{MaxOutputTokens: &maxOutputTokens},
+		ToolChoice: builtinloop.ToolChoice{Mode: builtinloop.ToolChoiceModeRequired},
+		Settings:   builtinloop.ModelSettings{MaxOutputTokens: &maxOutputTokens},
 	}, output)
 	require.NoError(t, err)
 
@@ -196,7 +196,7 @@ func TestMessagesModelClientStreamsOneRequestAndStoresTheLiteLLMShape(t *testing
 		`"thinking_blocks":[{"type":"thinking","thinking":"Check the order.","signature":"sig=="},{"type":"redacted_thinking","data":"opaque=="}]}`,
 		response.OutputItems[0].Item)
 	require.Equal(t, "Looking it up.", response.Text)
-	require.Equal(t, []stepwise.ModelToolCall{
+	require.Equal(t, []builtinloop.ModelToolCall{
 		{ToolCallID: "toolu_1", ToolName: "lookup_order", Arguments: `{"order_id": "7"}`},
 		{ToolCallID: "toolu_2", ToolName: "lookup_order", Arguments: `{"order_id":"8"}`},
 	}, response.ToolCalls, "input that arrives whole in content_block_start is the call's arguments")
@@ -216,12 +216,12 @@ func TestMessagesModelClientNeverStoresOrSendsAnEmptyAssistantMessage(t *testing
 		`{"type":"message_stop"}`,
 	}}
 	client := newTestClient(t, server)
-	response, err := client.CallModel(context.Background(), stepwise.ModelRequest{
-		InputItems: []stepwise.ModelInputItem{
-			stepwise.UserTextItem{Text: "hi"},
-			stepwise.ModelOutputItem{Provider: "anthropic", API: "chat_completions", Item: `{"role":"assistant","content":null}`},
-			stepwise.ModelOutputItem{Provider: "anthropic", API: "chat_completions", Item: `{"role":"assistant","content":""}`},
-			stepwise.UserTextItem{Text: "again"},
+	response, err := client.CallModel(context.Background(), builtinloop.ModelRequest{
+		InputItems: []builtinloop.ModelInputItem{
+			builtinloop.UserTextItem{Text: "hi"},
+			builtinloop.ModelOutputItem{Provider: "anthropic", API: "chat_completions", Item: `{"role":"assistant","content":null}`},
+			builtinloop.ModelOutputItem{Provider: "anthropic", API: "chat_completions", Item: `{"role":"assistant","content":""}`},
+			builtinloop.UserTextItem{Text: "again"},
 		},
 	}, &recordedOutput{})
 	require.NoError(t, err)
@@ -245,20 +245,20 @@ func TestMessagesModelClientStoresEmptyArgumentsAsPythonDoes(t *testing.T) {
 		`{"type":"message_stop"}`,
 	}}
 	client := newTestClient(t, server)
-	response, err := client.CallModel(context.Background(), stepwise.ModelRequest{
-		InputItems: []stepwise.ModelInputItem{stepwise.UserTextItem{Text: "list them"}},
+	response, err := client.CallModel(context.Background(), builtinloop.ModelRequest{
+		InputItems: []builtinloop.ModelInputItem{builtinloop.UserTextItem{Text: "list them"}},
 	}, &recordedOutput{})
 	require.NoError(t, err)
 	require.Equal(t, `{"role":"assistant","content":null,"tool_calls":[{"id":"toolu_1","type":"function","function":{"name":"list_orders","arguments":""}}]}`,
 		response.OutputItems[0].Item)
-	require.Equal(t, []stepwise.ModelToolCall{{ToolCallID: "toolu_1", ToolName: "list_orders", Arguments: "{}"}}, response.ToolCalls)
+	require.Equal(t, []builtinloop.ModelToolCall{{ToolCallID: "toolu_1", ToolName: "list_orders", Arguments: "{}"}}, response.ToolCalls)
 }
 
 func TestMessagesModelClientMakesNoRetriesOfItsOwn(t *testing.T) {
 	server := &fakeMessagesServer{statusCode: http.StatusServiceUnavailable}
 	client := newTestClient(t, server)
-	_, err := client.CallModel(context.Background(), stepwise.ModelRequest{
-		InputItems: []stepwise.ModelInputItem{stepwise.UserTextItem{Text: "hi"}},
+	_, err := client.CallModel(context.Background(), builtinloop.ModelRequest{
+		InputItems: []builtinloop.ModelInputItem{builtinloop.UserTextItem{Text: "hi"}},
 	}, &recordedOutput{})
 	require.Error(t, err)
 	require.Len(t, server.bodies, 1, "RunModel attempts are the retries")
@@ -272,8 +272,8 @@ func TestMessagesModelClientFailsOnAnErrorEvent(t *testing.T) {
 		`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`,
 	}}
 	client := newTestClient(t, server)
-	_, err := client.CallModel(context.Background(), stepwise.ModelRequest{
-		InputItems: []stepwise.ModelInputItem{stepwise.UserTextItem{Text: "hi"}},
+	_, err := client.CallModel(context.Background(), builtinloop.ModelRequest{
+		InputItems: []builtinloop.ModelInputItem{builtinloop.UserTextItem{Text: "hi"}},
 	}, &recordedOutput{})
 	require.Error(t, err)
 }

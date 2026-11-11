@@ -3,9 +3,17 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
-## 1.0.12 - 2026-11-11
+## 1.0.14 - 2026-11-11
 
 - Add the SubFlow naming rule to `dex-sdk` `subflow.md`: a Step whose Step type contains `-` cannot start SubFlows, because the child Flow ID joins its parts with `-`.
+
+## 1.0.13 - 2026-11-10
+
+- Correct the ID reuse table in `dex-sdk` `flow.md`: allow-if-previous-failed starts a new run after a failed, canceled, or terminated run, not only a failed one.
+
+## 1.0.12 - 2026-11-10
+
+- Correct the start identity rule in `dex-sdk` `error-handling.md`: a StartFlow retry whose Request ID matches the latest run's start returns that run under every ID reuse policy and never starts a second run or terminates the first. A rejecting policy still keeps the original run the latest one.
 
 ## 1.0.11 - 2026-11-10
 

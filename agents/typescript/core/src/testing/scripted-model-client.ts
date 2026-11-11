@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 
-// The scripted model client lives in the stepwise entry point; this path keeps the 0.1.0 module.
+// The scripted model client lives in the builtin-loop entry point; this path keeps the 0.1.0 module.
 export {
   ScriptedModelClient,
   scriptedModelApi,
@@ -15,4 +15,4 @@ export {
   type ScriptedModelReply,
   type ScriptedModelResponder,
   type ScriptedToolCall,
-} from "../stepwise/scripted-model-client.js";
+} from "../builtin-loop/scripted-model-client.js";

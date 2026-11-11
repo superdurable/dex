@@ -31,7 +31,7 @@ The model reads one command from the user message:
 Every model call records ``<turn_id>:<model call>:<sha256>:<size>,...`` in
 ``image-loads.log`` for the bytes it loaded, and every upload records
 ``upload <sha256> attempt <n>`` in ``uploads.log``. The store is a
-``DirectoryMediaStore`` under the state directory, or an ``S3MediaStore``
+``LocalDirectoryMediaStore`` under the state directory, or an ``S3MediaStore``
 when ``IMAGE_AGENT_S3_ENDPOINT`` and ``IMAGE_AGENT_S3_BUCKET`` are set.
 """
 
@@ -56,6 +56,7 @@ from dex_agents import (
     DeferredToolCall,
     DeferredToolExecution,
     FrameworkMessage,
+    LocalDirectoryMediaStore,
     MediaStore,
     MessageRole,
     ToolCallsRequested,
@@ -68,7 +69,6 @@ from dex_agents import (
     load_images,
 )
 from dex_agents.testing import FileGate, InvocationLog
-from tests.directory_media_store import DirectoryMediaStore
 
 IMAGE_AGENT_FLOW_TYPE = "ImageAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "IMAGE_AGENT_STATE_DIR"
@@ -107,7 +107,7 @@ def screenshot_png() -> bytes:
 def build_media_store(state_dir: Path) -> MediaStore:
     endpoint = os.environ.get(S3_ENDPOINT_ENVIRONMENT_VARIABLE)
     if endpoint is None:
-        return DirectoryMediaStore(state_dir / MEDIA_DIRECTORY_NAME)
+        return LocalDirectoryMediaStore(state_dir / MEDIA_DIRECTORY_NAME)
     # Imported here, so the default store needs no boto3.
     from dex_agents.s3 import S3MediaStore
 

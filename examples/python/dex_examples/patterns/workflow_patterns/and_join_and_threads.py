@@ -17,19 +17,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from dex import (
     Channel,
     Context,
     Flow,
+    Join,
+    JoinRound,
     PersistenceSchema,
     Step,
     StepDecision,
     StepList,
     StepMovement,
     Wait,
-    dead_end,
     go_to_many,
     graceful_complete,
     rpc,
@@ -101,32 +102,45 @@ class GeneralizedAndJoinFlow(Flow[InvoicePaymentMatching]):
         PAYMENT_RECEIVED.publish(context, input)
 
 
-# WCP-42 Thread Split and WCP-41 Thread Merge: threads of one Step type, then ForN.
+# WCP-42 Thread Split and WCP-41 Thread Merge: threads of one Step type, then a Join.
 
-PARCEL_PACKED = Channel("parcelPacked", int)
+PARCEL_PACKED = Join("parcelPacked", int)
+
+
+@dataclass(frozen=True)
+class ParcelPacking:
+    parcel_index: int
+    join_round: JoinRound
+
+
+def build_pack_parcel(parcel_index: int) -> Callable[[JoinRound], StepMovement[ParcelPacking]]:
+    return lambda join_round: StepMovement.of(
+        PackParcel, ParcelPacking(parcel_index, join_round)
+    )
 
 
 class SplitShipment(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
-        movements: list[StepMovement[Any]] = [
-            StepMovement.of(PackParcel, index) for index in range(input)
-        ]
-        movements.append(StepMovement.of(MergeParcels, input))
-        return go_to_many(*movements)
+        return go_to_many(
+            *PARCEL_PACKED.fork(
+                context,
+                [build_pack_parcel(parcel_index) for parcel_index in range(input)],
+                lambda join_round: StepMovement.of(MergeParcels, join_round),
+            )
+        )
 
 
-class PackParcel(Step[int]):
-    def execute(self, context: Context, input: int) -> StepDecision:
-        PARCEL_PACKED.publish(context, input)
-        return dead_end()
+class PackParcel(Step[ParcelPacking]):
+    def execute(self, context: Context, input: ParcelPacking) -> StepDecision:
+        return PARCEL_PACKED.end_branch(context, input.join_round, input.parcel_index)
 
 
-class MergeParcels(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
-        return Wait.until(PARCEL_PACKED.for_n(input))
+class MergeParcels(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
+        return Wait.until(PARCEL_PACKED.for_all_branches(input))
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        return graceful_complete(sorted(PARCEL_PACKED.results(context)))
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return graceful_complete(sorted(PARCEL_PACKED.branch_results(context, input)))
 
 
 class ThreadSplitMergeFlow(Flow[int]):

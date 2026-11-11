@@ -35,8 +35,8 @@ import {
   type ToolTaskPollOutcome,
 } from "../agent-framework-runner.js";
 import type { AgentToolCall, ToolEffect } from "../agent-session-values.js";
-import { serializeJsonWithSpacedSeparators } from "../stepwise/json-schema-validation.js";
-import type { SourceToolDefinition, ToolSource } from "../stepwise/tool-source.js";
+import { serializeJsonWithSpacedSeparators } from "../builtin-loop/json-schema-validation.js";
+import type { SourceToolDefinition, ToolSource } from "../builtin-loop/tool-source.js";
 import { checkConnectorInputSchema, compareCodePoints, findConnectorInputViolation } from "./connector-input-schema.js";
 import {
   ConnectorStepContext,
@@ -184,7 +184,7 @@ export interface ConnectorToolOptions<Input> {
 }
 
 /**
- * One Connector operation offered to a Stepwise agent as a tool. Create it with {@link connectorTool}.
+ * One Connector operation offered to a built-in loop agent as a tool. Create it with {@link connectorTool}.
  * @since 0.4.0
  */
 export interface ConnectorTool {
@@ -292,7 +292,7 @@ export function classifyConnectorBranch(options: {
 }
 
 /**
- * Offers one reviewed Connector operation to a Stepwise agent as a tool.
+ * Offers one reviewed Connector operation to a built-in loop agent as a tool.
  *
  * The tool's name, description, and argument schema come from the operation's entry in its package's
  * `dex-connector.json`. Only an operation whose entry says `agent.exposed: true` can become a tool; nothing is
@@ -430,7 +430,7 @@ export function connectorTool<Input, Output>(
 }
 
 /**
- * Offers reviewed Connector operations to a Stepwise agent as tools.
+ * Offers reviewed Connector operations to a built-in loop agent as tools.
  *
  * Put it in `AgentDefinition.toolSources`, as `McpToolSource` is. It lists exactly the tools the application
  * passes; no Connector is exposed by default. Each call runs one operation invocation in its own tool Step, through
@@ -457,7 +457,7 @@ export function connectorTool<Input, Output>(
  *
  * @example
  * ```ts
- * const flow = createStepwiseAgentSessionFlow(
+ * const flow = createBuiltinAgentSessionFlow(
  *   { name: "support", instructions: "You help customers.", model,
  *     toolSources: [new ConnectorToolSource([refund, reply])] },
  *   "SupportAgent",

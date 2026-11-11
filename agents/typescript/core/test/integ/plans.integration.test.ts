@@ -22,7 +22,7 @@ import {
   writeTodosCalledMoreThanOnce,
   type AgentSnapshot,
 } from "../../src/index.js";
-import { StepwiseAgentRunner } from "../../src/stepwise/index.js";
+import { BuiltinLoopAgentRunner } from "../../src/builtin-loop/index.js";
 import { streamAgentUIMessageChunks, type AgentUIMessageChunk } from "../../src/ui-stream/index.js";
 import {
   AgentSessionTestClient,
@@ -504,12 +504,12 @@ describe("plans: write_todos, plan mode, and execute_plan", () => {
       /planModeEnabled requires a runner that supports plan mode/,
     );
     assert.throws(
-      () => new StepwiseAgentRunner({ name: "agent", instructions: "Help.", model, planModeEnabled: true }),
+      () => new BuiltinLoopAgentRunner({ name: "agent", instructions: "Help.", model, planModeEnabled: true }),
       /planModeEnabled requires the write_todos built-in tool/,
     );
     assert.throws(
       () =>
-        new StepwiseAgentRunner({
+        new BuiltinLoopAgentRunner({
           name: "agent",
           instructions: "Help.",
           model,

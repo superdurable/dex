@@ -235,6 +235,154 @@
         "store_error": "media store location memory://éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé makes image URIs longer than 1024 bytes as UTF-8",
         "build_error": "image reference uri must be at most 1024 bytes as UTF-8"
       }
+    ],
+    "local_directory": [
+      {
+        "name": "plain",
+        "root": "/var/agent-media",
+        "store_uri": "file:///var/agent-media",
+        "image_path": "/var/agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///var/agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "trailing-slash",
+        "root": "/var/agent-media/",
+        "store_uri": "file:///var/agent-media",
+        "image_path": "/var/agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///var/agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "dot-segments",
+        "description": "Dot segments are resolved as text, never through the file system.",
+        "root": "/var/./cache/../agent-media",
+        "store_uri": "file:///var/agent-media",
+        "image_path": "/var/agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///var/agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "repeated-slashes",
+        "description": "Two leading slashes collapse to one, as any other run of slashes does.",
+        "root": "//var//agent-media",
+        "store_uri": "file:///var/agent-media",
+        "image_path": "/var/agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///var/agent-media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "space",
+        "root": "/Users/ada/Library/Application Support/dex media",
+        "store_uri": "file:///Users/ada/Library/Application%20Support/dex%20media",
+        "image_path": "/Users/ada/Library/Application Support/dex media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///Users/ada/Library/Application%20Support/dex%20media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "unreserved",
+        "description": "ASCII letters, digits, - . _ ~ and / stay as they are.",
+        "root": "/srv/A-z_0.9~x",
+        "store_uri": "file:///srv/A-z_0.9~x",
+        "image_path": "/srv/A-z_0.9~x/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///srv/A-z_0.9~x/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "reserved",
+        "description": "Every other byte is percent-encoded with uppercase hex.",
+        "root": "/srv/a%b#c?d!e'f(g)h*i",
+        "store_uri": "file:///srv/a%25b%23c%3Fd%21e%27f%28g%29h%2Ai",
+        "image_path": "/srv/a%b#c?d!e'f(g)h*i/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///srv/a%25b%23c%3Fd%21e%27f%28g%29h%2Ai/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "sub-delimiters",
+        "root": "/srv/a+b,c;d=e:f@g$h&i[j]",
+        "store_uri": "file:///srv/a%2Bb%2Cc%3Bd%3De%3Af%40g%24h%26i%5Bj%5D",
+        "image_path": "/srv/a+b,c;d=e:f@g$h&i[j]/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///srv/a%2Bb%2Cc%3Bd%3De%3Af%40g%24h%26i%5Bj%5D/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "two-byte",
+        "description": "Each UTF-8 byte of a non-ASCII character is percent-encoded, without Unicode normalization.",
+        "root": "/srv/médias",
+        "store_uri": "file:///srv/m%C3%A9dias",
+        "image_path": "/srv/médias/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///srv/m%C3%A9dias/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "cjk",
+        "root": "/srv/图片",
+        "store_uri": "file:///srv/%E5%9B%BE%E7%89%87",
+        "image_path": "/srv/图片/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///srv/%E5%9B%BE%E7%89%87/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "emoji",
+        "root": "/srv/📷",
+        "store_uri": "file:///srv/%F0%9F%93%B7",
+        "image_path": "/srv/📷/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///srv/%F0%9F%93%B7/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      },
+      {
+        "name": "at-length-limit",
+        "description": "157 two-byte characters, 6 URI bytes each, make image URIs exactly 1024 bytes.",
+        "root": "/xyééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "store_uri": "file:///xy%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9",
+        "image_path": "/xyééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+        "image_uri": "file:///xy%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+      }
+    ],
+    "local_directory_rejected_roots": [
+      {
+        "name": "empty",
+        "root": "",
+        "error": "LocalDirectoryMediaStore root must be an absolute path"
+      },
+      {
+        "name": "relative",
+        "root": "agent-media",
+        "error": "LocalDirectoryMediaStore root must be an absolute path"
+      },
+      {
+        "name": "dot-relative",
+        "root": "./agent-media",
+        "error": "LocalDirectoryMediaStore root must be an absolute path"
+      },
+      {
+        "name": "lone-surrogate",
+        "root": "/var/agent-media-\ud800",
+        "error": "LocalDirectoryMediaStore root must be well-formed Unicode"
+      },
+      {
+        "name": "nul",
+        "root": "/var/agent\u0000media",
+        "error": "LocalDirectoryMediaStore root must not contain NUL"
+      },
+      {
+        "name": "file-system-root",
+        "root": "/",
+        "error": "LocalDirectoryMediaStore root must not be the file system root"
+      },
+      {
+        "name": "file-system-root-by-dot-segments",
+        "root": "/var/..",
+        "error": "LocalDirectoryMediaStore root must not be the file system root"
+      },
+      {
+        "name": "two-slashes",
+        "root": "//",
+        "error": "LocalDirectoryMediaStore root must not be the file system root"
+      }
+    ],
+    "local_directory_too_long": [
+      {
+        "name": "ascii",
+        "description": "Image URIs of this root are 1025 bytes.",
+        "root": "/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "store_error": "media store location file:///xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx makes image URIs longer than 1024 bytes as UTF-8"
+      },
+      {
+        "name": "multibyte",
+        "description": "157 two-byte characters, 6 URI bytes each, make image URIs 1025 bytes.",
+        "root": "/xyzééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "store_error": "media store location file:///xyz%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9%C3%A9 makes image URIs longer than 1024 bytes as UTF-8"
+      }
     ]
   },
   "references": {
@@ -379,5 +527,12 @@
       "repeat": 1,
       "error": "images[1]: image reference mime_type must be one of image/png, image/jpeg, image/gif, image/webp"
     }
-  ]
+  ],
+  "local_directory_store_errors": {
+    "description": "Read and write errors of LocalDirectoryMediaStore; {uri} is the reference's uri, {path} an absolute path.",
+    "missing": "image {uri} is not in the media store",
+    "not_regular_file": "image {uri} is a symbolic link or not a regular file in the media store",
+    "not_directory": "media store directory {path} is a symbolic link or not a directory",
+    "hard_link": "image {uri} has more than one hard link in the media store"
+  }
 }

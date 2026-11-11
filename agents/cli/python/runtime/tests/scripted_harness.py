@@ -6,11 +6,12 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""A Stepwise test harness whose scripted model obeys commands in the user's message.
+"""A built-in loop test harness whose scripted model obeys commands in the user's message.
 
 The last user message picks the reply:
 
 * ``tools``: lists the offered tool names, sorted.
+* ``cached``: lists the sources' cached tool names when the Flow was built, sorted.
 * ``model``: names the turn's model; ``prompt``: shows the turn's instructions.
 * ``history``: lists the earlier user messages.
 * ``call <tool> <json arguments>``: calls one tool.
@@ -32,15 +33,15 @@ from pathlib import Path
 from typing import Any
 
 from dex_agents import AgentSessionFlow, BuiltInTool, ToolEffect, ToolPolicy
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     AgentDefinition,
     InstructionContext,
     ModelRequest,
     ScriptedModelClient,
     ScriptedModelReply,
     ScriptedToolCall,
+    builtin_agent_session_flow,
     function_tool,
-    stepwise_agent_session_flow,
 )
 from dex_agents_cli import (
     AgentHarness,
@@ -59,7 +60,7 @@ _MAX_SHOWN_OUTPUT = 300
 
 
 class ScriptedHarness:
-    """The test harness: a Stepwise agent on a scripted model, with every local tool group."""
+    """The test harness: a built-in loop agent on a scripted model, with every local tool group."""
 
     name = "scripted"
     config_section = "builtin"
@@ -72,17 +73,24 @@ class ScriptedHarness:
         tool_policies: Mapping[str, ToolPolicy] | None = None,
         *,
         has_replacement_shell_tool: bool = False,
+        is_tool_set_fixed_at_build: bool = False,
     ) -> None:
         self._tool_policies = dict(tool_policies or {})
         self._has_replacement_shell_tool = has_replacement_shell_tool
+        self.is_tool_set_fixed_at_build = is_tool_set_fixed_at_build
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
+        cached_at_build = sorted(
+            tool.name
+            for source in context.tool_sources
+            for tool in getattr(source, "cached_tools", tuple)()
+        )
         models: dict[str, ScriptedModelClient] = {}
 
         def resolve_model(session_settings: Mapping[str, Any]) -> ScriptedModelClient:
             model_name = context.resolve_turn(session_settings).model
             if model_name not in models:
-                models[model_name] = ScriptedModelClient(_responder(model_name))
+                models[model_name] = ScriptedModelClient(_responder(model_name, cached_at_build))
             return models[model_name]
 
         def instructions(instruction_context: InstructionContext) -> str:
@@ -110,7 +118,7 @@ class ScriptedHarness:
             built_in_tools=frozenset({BuiltInTool.ASK_USER}),
             tool_policies=self._tool_policies,
         )
-        return stepwise_agent_session_flow(definition, flow_type=context.flow_type)
+        return builtin_agent_session_flow(definition, flow_type=context.flow_type)
 
 
 def build_session_flow_without_tools(flow_type: str = SCRIPTED_FLOW_TYPE) -> AgentSessionFlow:
@@ -128,7 +136,7 @@ def build_session_flow_without_tools(flow_type: str = SCRIPTED_FLOW_TYPE) -> Age
     return ScriptedHarness().create_session_flow(context)
 
 
-def _responder(model_name: str) -> Any:
+def _responder(model_name: str, cached_at_build: list[str]) -> Any:
     async def respond(request: ModelRequest) -> ScriptedModelReply:
         results = ScriptedModelClient.tool_results(request)
         if results:
@@ -143,6 +151,8 @@ def _responder(model_name: str) -> Any:
             case "tools":
                 names = sorted(tool.name for tool in request.tools)
                 return ScriptedModelReply(text="tools: " + ",".join(names))
+            case "cached":
+                return ScriptedModelReply(text="cached: " + ",".join(cached_at_build))
             case "model":
                 return ScriptedModelReply(text=f"model: {model_name}")
             case "prompt":

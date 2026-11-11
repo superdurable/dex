@@ -98,6 +98,9 @@ SUBAGENT_DEFERRAL_REFUSED_MESSAGE = (
     "{tool_name} did not run. It must run outside this turn, which a subagent cannot do. "
     "Call it from the main conversation instead."
 )
+CLAUDE_CODE_TOOL_PERMISSION_FAILED_MESSAGE = (
+    "{tool_name} did not run: its permission check failed: {error}"
+)
 UNPERMITTED_TOOL_CALL_MESSAGE = (
     "{tool_name} did not run: the session's tool policies do not permit this call."
 )
@@ -128,6 +131,42 @@ SETTLED_REPLAY_MESSAGE = (
     "{tool_name} did not run: the recorded call {tool_use_id} was already resumed in an "
     "earlier turn segment."
 )
+
+
+@dataclass(frozen=True)
+class ClaudeCodeToolDenial:
+    """Refuse one call of a tool that runs inside the Claude Code CLI.
+
+    Return it from a ``ClaudeCodeToolPermission`` to deny the call before it
+    runs or waits for approval. The model sees the reason as the tool result,
+    after Claude Code's ``PreToolUse:<tool> hook error:`` prefix.
+
+    .. versionadded:: 0.5.0
+
+    Attributes:
+        reason: Why the call did not run, such as ``"shell commands are
+            switched off for this session"``.
+    """
+
+    reason: str
+
+
+#: Decides one call of a tool that runs inside the Claude Code CLI, from its input.
+#:
+#: The runner calls it in the PreToolUse hook for every new call of a Claude
+#: Code tool, such as ``Bash``, ``Read``, or an external MCP server's
+#: ``mcp__<server>__<tool>``, with the ``RunModel`` context, the tool's CLI
+#: name, and the input the hook receives. Return a ``ToolPolicy`` for this
+#: call, ``ClaudeCodeToolDenial`` to refuse it, or ``None`` to use the
+#: session's ``tool_policies`` and ``default_tool_effect``. A call whose policy
+#: needs approval defers and waits; otherwise it runs inside the turn at once.
+#: An exception denies the call. It is never asked about custom or source
+#: tools, or about a resumed call that already has a final record.
+#:
+#: .. versionadded:: 0.5.0
+ClaudeCodeToolPermission = Callable[
+    [AgentTurnContext, str, Mapping[str, Any]], ToolPolicy | ClaudeCodeToolDenial | None
+]
 
 
 class ToolCatalog:
@@ -260,9 +299,11 @@ class ToolCallGate:
         turn: AgentTurnContext,
         tool_catalog: ToolCatalog,
         settled_tool_use_ids: Collection[str],
+        claude_code_tool_permission: ClaudeCodeToolPermission | None = None,
     ) -> None:
         self._turn = turn
         self._tool_catalog = tool_catalog
+        self._claude_code_tool_permission = claude_code_tool_permission
         # Calls the stored transcript already answers: only a pending deferral may replay.
         self._settled_tool_use_ids = frozenset(settled_tool_use_ids)
         self._replayed_tool_use_ids: set[str] = set()
@@ -348,7 +389,13 @@ class ToolCallGate:
             None if served_tool_name is None else self._tool_catalog.source_tool(served_tool_name)
         )
         custom_tool_name = None if source_tool is not None else served_tool_name
-        policy = self.resolve_policy(cli_tool_name)
+        if served_tool_name is None and self._claude_code_tool_permission is not None:
+            decision = self._decide_claude_code_tool_permission(cli_tool_name, tool_input)
+            if isinstance(decision, ClaudeCodeToolDenial):
+                return _pre_tool_use_decision("deny", decision.reason)
+            policy = decision if decision is not None else self.resolve_policy(cli_tool_name)
+        else:
+            policy = self.resolve_policy(cli_tool_name)
         if not self._tool_catalog.requires_deferral(custom_tool_name is not None, policy):
             self._permit_inline_tool_call(call_id, policy_tool_name, custom_tool_name)
             return _pre_tool_use_decision("allow")
@@ -378,6 +425,22 @@ class ToolCallGate:
         self._segment_deferral = deferral
         self._segment_deferral_source_tool = source_tool
         return _pre_tool_use_decision("defer", "The Dex agent session settles this call.")
+
+    def _decide_claude_code_tool_permission(
+        self, cli_tool_name: str, tool_input: Mapping[str, Any]
+    ) -> ToolPolicy | ClaudeCodeToolDenial | None:
+        permission = self._claude_code_tool_permission
+        if permission is None:
+            return None
+        try:
+            return permission(self._turn, cli_tool_name, tool_input)
+        except Exception as error:
+            # A hook error would not stop the CLI, so a failed check must deny the call.
+            return ClaudeCodeToolDenial(
+                CLAUDE_CODE_TOOL_PERMISSION_FAILED_MESSAGE.format(
+                    tool_name=cli_tool_name, error=error
+                )
+            )
 
     async def decide_tool_permission(
         self,

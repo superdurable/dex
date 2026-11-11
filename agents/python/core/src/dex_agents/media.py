@@ -11,8 +11,9 @@
 A session stores only ``AgentImageReference`` values. The bytes live in a
 ``MediaStore``, keyed by their SHA-256, so an upload is idempotent and a
 reference always reads back the bytes it was made from. ``S3MediaStore`` in
-``dex_agents.s3`` keeps them in an S3-compatible bucket, and
-``InMemoryMediaStore`` keeps them in the process for tests.
+``dex_agents.s3`` keeps them in an S3-compatible bucket,
+``LocalDirectoryMediaStore`` in a local directory for one machine, and
+``InMemoryMediaStore`` in the process for tests.
 
 Example:
     >>> store = InMemoryMediaStore()
@@ -92,10 +93,11 @@ class MediaStore(Protocol):
     Implementations key every object by the SHA-256 of its bytes, under a
     location of their own, so ``put_image`` is idempotent: the same bytes give
     the same reference and one object, however often a retried tool Step or
-    client uploads them. Use ``S3MediaStore`` for an S3-compatible bucket or
-    ``InMemoryMediaStore`` in tests. Upload with ``put_image`` before a reference
-    enters a message or a tool result, and read with ``get_image`` or
-    ``load_images`` when building model input.
+    client uploads them. Use ``S3MediaStore`` for an S3-compatible bucket,
+    ``LocalDirectoryMediaStore`` when every client and Worker runs on one
+    machine, or ``InMemoryMediaStore`` in tests. Upload with ``put_image``
+    before a reference enters a message or a tool result, and read with
+    ``get_image`` or ``load_images`` when building model input.
 
     Example:
         >>> reference = await store.put_image(screenshot_png)

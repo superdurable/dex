@@ -4,7 +4,7 @@ Four runnable Flow examples cover the common parallel Step shapes:
 
 - `StaticParallelStepsFlow` starts `WorkAStep` and `WorkBStep`.
 - `DynamicParallelStepsFlow` creates N `DoWorkStep` executions at runtime.
-- `AwaitParallelStepsFlow` waits for one `completeCh` message from every worker.
+- `AwaitParallelStepsFlow` forks the workers with a Join and waits for every worker's result.
 - `FirstWinParallelStepsFlow` keeps the first result and cancels sibling workers.
 
 The dynamic workers use short random delays so completion order, waiting, and

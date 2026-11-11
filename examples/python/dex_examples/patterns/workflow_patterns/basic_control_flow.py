@@ -20,13 +20,14 @@ from dex import (
     Channel,
     Context,
     Flow,
+    Join,
+    JoinRound,
     PersistenceSchema,
     Step,
     StepDecision,
     StepList,
     StepMovement,
     Wait,
-    dead_end,
     go_to,
     go_to_many,
     graceful_complete,
@@ -68,41 +69,45 @@ class SequenceFlow(Flow[list[str]]):
 
 # WCP-2 Parallel Split and WCP-3 Synchronization: the join waits for each branch.
 
-FULFILLMENT_BRANCH_COMPLETED = Channel("fulfillmentBranchCompleted", str)
+FULFILLMENT_BRANCH_COMPLETED = Join("fulfillmentBranchCompleted", str)
 PAYMENT_APPROVED = Channel("paymentApproved", str)
-FULFILLMENT_BRANCH_COUNT = 2
 
 
 class SplitOrder(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         return go_to_many(
-            StepMovement.of(PackItems, None),
-            StepMovement.of(ChargePayment, None),
-            StepMovement.of(SynchronizeFulfillment, None),
+            *FULFILLMENT_BRANCH_COMPLETED.fork(
+                context,
+                [
+                    lambda join_round: StepMovement.of(PackItems, join_round),
+                    lambda join_round: StepMovement.of(ChargePayment, join_round),
+                ],
+                lambda join_round: StepMovement.of(SynchronizeFulfillment, join_round),
+            )
         )
 
 
-class PackItems(Step[None]):
-    def execute(self, context: Context, input: None) -> StepDecision:
-        FULFILLMENT_BRANCH_COMPLETED.publish(context, "PackItems")
-        return dead_end()
+class PackItems(Step[JoinRound]):
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return FULFILLMENT_BRANCH_COMPLETED.end_branch(context, input, "PackItems")
 
 
-class ChargePayment(Step[None]):
-    def wait_for(self, context: Context, input: None) -> Wait:
+class ChargePayment(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
         return Wait.until(PAYMENT_APPROVED.for_one())
 
-    def execute(self, context: Context, input: None) -> StepDecision:
-        FULFILLMENT_BRANCH_COMPLETED.publish(context, "ChargePayment")
-        return dead_end()
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return FULFILLMENT_BRANCH_COMPLETED.end_branch(context, input, "ChargePayment")
 
 
-class SynchronizeFulfillment(Step[None]):
-    def wait_for(self, context: Context, input: None) -> Wait:
-        return Wait.until(FULFILLMENT_BRANCH_COMPLETED.for_n(FULFILLMENT_BRANCH_COUNT))
+class SynchronizeFulfillment(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
+        return Wait.until(FULFILLMENT_BRANCH_COMPLETED.for_all_branches(input))
 
-    def execute(self, context: Context, input: None) -> StepDecision:
-        return graceful_complete(sorted(FULFILLMENT_BRANCH_COMPLETED.results(context)))
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return graceful_complete(
+            sorted(FULFILLMENT_BRANCH_COMPLETED.branch_results(context, input))
+        )
 
 
 class ParallelSplitSynchronizationFlow(Flow[None]):

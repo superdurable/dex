@@ -19,7 +19,7 @@ from datetime import timedelta
 from typing import Any
 
 from dex_agents import AgentToolCall, AgentTurnContext, DeferredToolCall
-from dex_agents.stepwise import SourceToolDefinition, ToolSource
+from dex_agents.builtin_loop import SourceToolDefinition, ToolSource
 
 _LOGGER = logging.getLogger(__name__)
 _TOOL_SOURCE_METHODS = (

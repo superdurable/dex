@@ -20,7 +20,13 @@ import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { claudeTranscriptItemKind } from "../../src/index.js";
 import { ClaudeAgentTestHarness } from "../fixtures/claude-agent-test-harness.js";
-import { denyFlagFileName } from "../fixtures/claude-test-agent.js";
+import {
+  deniedBashCommandPrefix,
+  deniedBashCommandReason,
+  denyFlagFileName,
+  failingPermissionBashCommand,
+  inlineBashCommand,
+} from "../fixtures/claude-test-agent.js";
 import { fakeClaudeResumeWithoutHooksVariable } from "../fixtures/fake-claude-cli-environment.js";
 
 const callAloneResult = "did not run. It must run outside this turn";
@@ -130,6 +136,60 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
     assert.equal(agent.invocations.count("publish"), 1);
     const stepTypes = await agent.executedStepTypes(sessionId);
     assert.equal(stepTypes.filter((stepType) => stepType === "CallSingleAttemptTool").length, 1);
+  });
+
+  test("stored transcripts leave out leaf pointers", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("leaf-pointers");
+    await agent.sessions.startSession(sessionId, 'call publish {"message":"leaf"}');
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await agent.waitForTurns(sessionId, 1);
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, "say next"), true);
+    const snapshot = await agent.waitForTurns(sessionId, 2);
+
+    // The fake CLI ends every segment with a last-prompt entry, which would name a stale leaf.
+    const storedEntryTypes = new Set(
+      snapshot.messages
+        .filter((message) => message.frameworkItem !== "")
+        .map((message) => JSON.parse(message.frameworkItem) as { kind: string; entries?: Record<string, unknown>[] })
+        .filter((item) => item.kind === claudeTranscriptItemKind)
+        .flatMap((item) => item.entries ?? [])
+        .map((entry) => entry["type"]),
+    );
+    assert.ok(storedEntryTypes.has("assistant"));
+    assert.ok(!storedEntryTypes.has("last-prompt"));
+  });
+
+  test("the Claude Code tool permission decides each call from its input", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("permission");
+    await agent.sessions.startSession(sessionId, `call Bash ${JSON.stringify({ command: inlineBashCommand })}`);
+    const first = await agent.waitForTurns(sessionId, 1);
+    assert.equal(first.messages.at(-1)?.text, `Bash: ran ${inlineBashCommand}`);
+    assert.deepEqual(first.pendingInterrupts, []);
+    assert.equal(agent.invocations.count("Bash"), 1);
+
+    const deniedCommand = `${deniedBashCommandPrefix} rm -rf build`;
+    assert.equal(
+      await agent.sessions.sendUserMessage(sessionId, `call Bash ${JSON.stringify({ command: deniedCommand })}`),
+      true,
+    );
+    const second = await agent.waitForTurns(sessionId, 2);
+    assert.equal(second.messages.at(-1)?.text, `Bash: PreToolUse:Bash hook error: ${deniedBashCommandReason}`);
+    assert.equal(agent.invocations.count("Bash"), 1);
+  });
+
+  test("a failing Claude Code tool permission denies the call", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("permission-fails");
+    await agent.sessions.startSession(sessionId, `call Bash ${JSON.stringify({ command: failingPermissionBashCommand })}`);
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      "Bash: PreToolUse:Bash hook error: Bash did not run: its permission check failed: the permission check broke",
+    );
+    assert.equal(agent.invocations.count("Bash"), 0);
   });
 
   test("an approved CLI tool rewritten by an application hook runs the approved input on resume", async () => {

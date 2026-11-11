@@ -1,4 +1,5 @@
-% A Machine-Checked Expressiveness Theorem for the Dex Durable Workflow Programming Model
+% Machine-Checked Expressiveness and Failure Transparency for the Dex Durable Workflow
+% Programming Model
 %
 % Build (from the repository root):
 %   tectonic -o docs/static/papers formal/paper/dex-expressiveness.tex
@@ -62,9 +63,10 @@
 \setlength{\emergencystretch}{2em}
 \renewcommand{\arraystretch}{1.18}
 
-\title{A Machine-Checked Expressiveness Theorem for the\\
-Dex Durable Workflow Programming Model}
-\author{Quanzheng Long\\[2pt] Superdurable\\[2pt] \texttt{long@superdurable.io}}
+\title{Machine-Checked Expressiveness and Failure Transparency\\
+for the Dex Durable Workflow Programming Model}
+\author{Quanzheng Long\\[2pt] Superdurable\\[2pt] \texttt{long@superdurable.io}
+\and Zheng Zheng\\[2pt] Superdurable\\[2pt] \texttt{zane@superdurable.io}}
 \date{November 2026}
 
 \begin{document}
@@ -76,23 +78,31 @@ Dex is a durable workflow framework. An application is a \emph{Flow} of
 \kw{Execute} method that returns a \emph{StepDecision}, and the Steps of a
 Flow share \emph{Attributes}, \emph{Channels}, and \emph{Timers}. This model
 has no threads, no locks held across waits, and no blocking calls. We ask
-whether it can nevertheless express ordinary concurrent programs, and we
-answer with a theorem instead of a list of examples. We define a small
-concurrent imperative language \Lang{} with threads, mutexes, condition
-variables, channels, timers, fork and join, cooperative cancellation,
-exceptions, and external effects. We give a formal operational semantics of
-the Dex core, written against the server implementation, and a translation
-from \Lang{} into Dex Flows. We prove, in Lean~4, that every well-formed
-\Lang{} program and its translation have the same observable finite traces
-(safety) and the same fair maximal traces with termination, deadlock, and
-divergence markers (liveness), in a failure-free environment. The proof is
-about 38,000 lines of Lean with no dependency beyond the Lean core, no
-proof in it contains a \texttt{sorry} placeholder, and the theorems depend
-only on the three standard axioms. We also report how
-the proof was engineered: fixed statements proved in parallel work packages,
-six gaps in the simulation invariant that a fuzz of perturbed reachable
-states reproduces on the old definitions and no longer finds on the new
-ones, and two defects in the real server that writing the semantics exposed.
+two questions: can it express ordinary concurrent programs, and does a Flow
+behave the same when the system fails? We answer both with theorems
+instead of examples. We define a small concurrent imperative language
+\Lang{} with threads, mutexes, condition variables, channels, timers, fork
+and join, cooperative cancellation, exceptions, and external effects. We
+give a formal operational semantics of the Dex core, written against the
+server implementation, and a translation from \Lang{} into Dex Flows. We
+prove, in Lean~4, that every well-formed \Lang{} program and its
+translation have the same observable finite traces (safety) and the same
+fair maximal traces with termination, deadlock, and divergence markers
+(liveness), in a failure-free environment. We then extend the semantics
+with server crashes, standby takeovers, Worker failures and retries, zombie
+Workers that keep running after the server gave them up, duplicate
+results, and client retries. Under explicit hypotheses and in the same
+fragment, we prove that failures are transparent: erasing the repeated
+external effects from a trace with failures gives a failure-free trace,
+and for fair runs the erasure keeps the marker. Composed, the two theorems
+relate a well-formed \Lang{} program to its execution on a failing server,
+up to repeated effects. The two proofs are about 72,000 lines of Lean with
+no dependency beyond the Lean core and no \texttt{sorry} placeholder, and
+the main theorems depend only on the three standard axioms. We also report
+how the proofs were engineered: fixed statements proved in parallel work
+packages, gaps in the simulation invariants that a fuzz of perturbed
+reachable states finds, and two defects in the real server that writing
+the semantics exposed.
 \end{abstract}
 
 \input{sections/01-introduction}
@@ -102,9 +112,10 @@ ones, and two defects in the real server that writing the semantics exposed.
 \input{sections/05-theorems}
 \input{sections/06-proof}
 \input{sections/07-engineering}
-\input{sections/08-limitations}
-\input{sections/09-related}
-\input{sections/10-conclusion}
+\input{sections/08-failures}
+\input{sections/09-limitations}
+\input{sections/10-related}
+\input{sections/11-conclusion}
 
 {\small
 \setlength{\bibsep}{3pt plus 1pt}

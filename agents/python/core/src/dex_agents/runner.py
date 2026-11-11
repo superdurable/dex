@@ -1080,12 +1080,12 @@ class PlanModeRunner(Protocol):
     * In a ``PLANNING`` turn it offers only the ``write_todos`` definition from
       ``BUILT_IN_TOOL_DEFINITIONS``. It may force ``write_todos`` on the
       turn's first model call while the plan is not a draft yet, where the
-      model accepts a forced tool choice; Stepwise does with
+      model accepts a forced tool choice; the built-in loop does with
       ``planning_tool_choice="required"``.
     * In every turn it shows the plan with ``build_plan_note(turn.plan,
       turn.interaction_mode)`` as user text before the turn's messages.
 
-    The Stepwise runner implements it. A framework adapter that cannot change
+    The built-in loop runner implements it. A framework adapter that cannot change
     the tools it offers between turns leaves plan mode off.
 
     Example:
@@ -1108,7 +1108,7 @@ class ToolCallStepOptionsProvider(Protocol):
     """Give a tool call's Step its own timeout and retry policy.
 
     A runner implements it when some tools need options other than the
-    tool Steps' defaults, as ``StepwiseAgentRunner`` does for a tool source
+    tool Steps' defaults, as ``BuiltinLoopAgentRunner`` does for a tool source
     that defines ``tool_call_step_options``. The session calls it whenever it
     starts a call's tool Step, including after an approval, so it must
     answer from the record alone. A method that raises leaves the defaults.

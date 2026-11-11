@@ -38,7 +38,7 @@ from dex import (
 )
 
 from dex_agents import AgentSessionClient
-from dex_agents.stepwise import ToolSource
+from dex_agents.builtin_loop import ToolSource
 from dex_agents_cli.chat import Terminal, TerminalChat
 from dex_agents_cli.config import AUTO, ConnectorEntry, EffectiveConfig
 from dex_agents_cli.config_file import (
@@ -252,7 +252,7 @@ async def _run(
         _report_ignored_settings,
     )
     endpoint = await _resolve_server(config, environment)
-    connectors = await _connect_connectors(config, endpoint, resolver)
+    connectors = await _connect_connectors(config, endpoint, resolver, harness)
     local_tools = _local_tool_source(config, workspace, harness, resolver)
     tool_sources: list[ToolSource] = [
         source for source in (connectors, local_tools) if source is not None
@@ -351,13 +351,18 @@ def _connectors_mcp_url(config: EffectiveConfig, endpoint: DexServerEndpoint) ->
 
 
 async def _connect_connectors(
-    config: EffectiveConfig, endpoint: DexServerEndpoint, resolver: TurnConfigResolver
+    config: EffectiveConfig,
+    endpoint: DexServerEndpoint,
+    resolver: TurnConfigResolver,
+    harness: AgentHarness,
 ) -> ConnectorsMcpToolSource | None:
     """Check the connectors MCP server and return its source, or ``None`` for no connector tools.
 
     An unavailable ``auto`` server only warns: the source lists it again on
-    every turn, so a server that is still starting comes alive. An explicit
-    URL that is unavailable fails the command with exit code 1.
+    every turn, so a server that is still starting comes alive. A harness
+    whose tool set is fixed at build time gets no connector tools in this run
+    then, and the warning says to restart it. An explicit URL that is
+    unavailable fails the command with exit code 1.
     """
     if config.connectors.enabled == ():
         return None
@@ -368,18 +373,38 @@ async def _connect_connectors(
             "Set connectors.mcp to the MCP server's URL."
         )
         return None
+    is_tool_set_fixed = _is_tool_set_fixed_at_build(harness)
     try:
         catalog = await read_connector_catalog(url)
     except ConnectorsMcpUnavailableError as error:
         message = f"The connectors MCP server is unavailable: {error}"
         if config.connectors.mcp != AUTO:
             raise CommandFailure(message) from error
-        print(f"{message}. Continuing without connector tools until it answers.")
+        if is_tool_set_fixed:
+            print(f"{message}. {_restart_for_connector_tools(harness)}")
+        else:
+            print(f"{message}. Continuing without connector tools until it answers.")
         return ConnectorsMcpToolSource(
             url, resolver, is_available=False, report=_report_on_standard_error
         )
     _report_unauthorized(config, catalog, endpoint.web_url)
-    return ConnectorsMcpToolSource(url, resolver, report=_report_on_standard_error)
+    source = ConnectorsMcpToolSource(url, resolver, report=_report_on_standard_error)
+    await source.list_file_enabled_tools()
+    if is_tool_set_fixed and not source.is_available:
+        restart = _restart_for_connector_tools(harness)
+        print(f"The connectors MCP server could not be listed. {restart}")
+    return source
+
+
+def _is_tool_set_fixed_at_build(harness: AgentHarness) -> bool:
+    return getattr(harness, "is_tool_set_fixed_at_build", False) is True
+
+
+def _restart_for_connector_tools(harness: AgentHarness) -> str:
+    return (
+        f"{command_name(harness)} fixes its tools when it starts, so this run has no connector "
+        "tools. Restart it once the connectors MCP server answers."
+    )
 
 
 def _report_unauthorized(

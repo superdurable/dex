@@ -19,18 +19,20 @@
 
 import {
   Channel,
+  Join,
   StepList,
   StepMovement,
   Wait,
-  deadEnd,
   doubleCodec,
   goTo,
   goToMany,
   gracefulComplete,
+  joinRoundCodec,
   rpc,
   stringCodec,
   type Context,
   type Flow,
+  type JoinRound,
   type PersistenceSchema,
   type Step,
   type StepDecision,
@@ -86,63 +88,68 @@ export class SequenceFlow implements Flow<string[]> {
   }
 }
 
-// WCP-2 and WCP-3: GoToMany splits; the join waits for one message per branch.
+// WCP-2 and WCP-3: the Join forks the branches; the join waits for every branch.
 
-const fulfillmentBranchCompleted = new Channel("fulfillmentBranchCompleted", stringCodec);
+const fulfillmentBranchCompleted = new Join("fulfillmentBranchCompleted", stringCodec);
 const paymentApproved = new Channel("paymentApproved", stringCodec);
-const FULFILLMENT_BRANCH_COUNT = 2;
 
 class SplitOrder implements Step<void> {
   public getStepType(): string {
     return "SplitOrder";
   }
 
-  public execute(_context: Context, _input: void): StepDecision {
+  public execute(context: Context, _input: void): StepDecision {
     return goToMany(
-      StepMovement.of(PackItems, undefined),
-      StepMovement.of(ChargePayment, undefined),
-      StepMovement.of(SynchronizeFulfillment, undefined),
+      ...fulfillmentBranchCompleted.fork(
+        context,
+        [(round) => StepMovement.of(PackItems, round), (round) => StepMovement.of(ChargePayment, round)],
+        (round) => StepMovement.of(SynchronizeFulfillment, round),
+      ),
     );
   }
 }
 
-class PackItems implements Step<void> {
+class PackItems implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+
   public getStepType(): string {
     return "PackItems";
   }
 
-  public execute(context: Context, _input: void): StepDecision {
-    fulfillmentBranchCompleted.publish(context, "PackItems");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return fulfillmentBranchCompleted.endBranch(context, round, "PackItems");
   }
 }
 
-class ChargePayment implements Step<void> {
+class ChargePayment implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+
   public getStepType(): string {
     return "ChargePayment";
   }
 
-  public waitFor(_context: Context, _input: void): Wait {
+  public waitFor(_context: Context, _round: JoinRound): Wait {
     return Wait.until(paymentApproved.forOne());
   }
 
-  public execute(context: Context, _input: void): StepDecision {
-    fulfillmentBranchCompleted.publish(context, "ChargePayment");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return fulfillmentBranchCompleted.endBranch(context, round, "ChargePayment");
   }
 }
 
-class SynchronizeFulfillment implements Step<void> {
+class SynchronizeFulfillment implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+
   public getStepType(): string {
     return "SynchronizeFulfillment";
   }
 
-  public waitFor(_context: Context, _input: void): Wait {
-    return Wait.until(fulfillmentBranchCompleted.forN(FULFILLMENT_BRANCH_COUNT));
+  public waitFor(_context: Context, round: JoinRound): Wait {
+    return Wait.until(fulfillmentBranchCompleted.forAllBranches(round));
   }
 
-  public execute(context: Context, _input: void): StepDecision {
-    return gracefulComplete([...fulfillmentBranchCompleted.results(context)].sort());
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return gracefulComplete([...fulfillmentBranchCompleted.branchResults(context, round)].sort());
   }
 }
 

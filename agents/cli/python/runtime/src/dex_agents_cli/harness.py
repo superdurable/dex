@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from dex_agents import AgentSessionFlow, DeferredToolExecution
-from dex_agents.stepwise import ToolSource
+from dex_agents.builtin_loop import ToolSource
 from dex_agents_cli.config import EffectiveConfig
 from dex_agents_cli.turns import (
     ResolvedTurn,
@@ -56,6 +56,14 @@ class AgentHarness(Protocol):
     its console script. The runtime owns everything else: the configuration
     file, the Dex server, connector and local tools, sessions, the Worker, and
     the terminal chat.
+
+    A harness whose runner fixes its tools when it is built, such as one on
+    the OpenAI Agents SDK adapter, also sets the optional class attribute
+    ``is_tool_set_fixed_at_build = True``. Such a runner offers only the tools
+    that the sources cache before the Flow is built: the tools the
+    configuration file enables and the connectors MCP server lists at
+    startup. When that listing fails, the command warns that the run has no
+    connector tools and that a restart brings them back.
 
     Example:
         >>> class ClaudeHarness:
@@ -110,7 +118,7 @@ class AgentHarness(Protocol):
 
         Called once per command run, before the Worker starts. Offer every
         source in ``context.tool_sources`` to the model; a runner-based
-        adapter passes them as ``tool_sources``, and a Stepwise harness puts
+        adapter passes them as ``tool_sources``, and a built-in loop harness puts
         them in ``AgentDefinition.tool_sources``. Choose each model call's
         model and instructions with ``context.resolve_turn``.
 
@@ -152,7 +160,7 @@ class HarnessContext:
         """Return a turn's model, instructions, and narrowed configuration.
 
         Call it in each model call with the turn's session settings, such as
-        ``AgentTurnContext.session_settings`` or a Stepwise ``resolve_model``
+        ``AgentTurnContext.session_settings`` or a built-in loop ``resolve_model``
         argument.
 
         Example:
@@ -218,7 +226,7 @@ class HarnessContext:
         Args:
             call: The tool Step's call, for a runner's ``execute_deferred_tool_call``.
                 ``None`` reads the tool Step or model call running in this
-                task, as a Stepwise function tool does.
+                task, as a built-in loop function tool does.
 
         Returns:
             The turn's configuration and instructions.

@@ -8,7 +8,7 @@
 
 """How the runtime's sources build and refuse tool calls for a turn.
 
-A Stepwise session never builds a call of a tool its listing left out, so a
+A built-in loop session never builds a call of a tool its listing left out, so a
 stale listing kept by a runner, or a model naming a switched-off tool, is
 driven here directly through the source's ``deferred_tool_call``.
 """

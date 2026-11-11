@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { AgentToolCall, AgentTurnContext, DeferredToolCall } from "@superdurable/dex-agents";
-import type { SourceToolDefinition, ToolSource } from "@superdurable/dex-agents/stepwise";
+import type { SourceToolDefinition, ToolSource } from "@superdurable/dex-agents/builtin-loop";
 
 const toolSourceMethodNames = ["listTools", "deferredToolCall", "executeDeferredToolCall", "pollToolTask"] as const;
 // The adapter's envelope around a source's toolSourceReference: the building source's name.

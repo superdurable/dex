@@ -49,15 +49,15 @@ from dex_agents import (
     FrameworkMessage,
     ToolEffect,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     AgentDefinition,
+    BuiltinLoopAgentRunner,
     ModelClient,
     ModelRequest,
     NamedToolChoice,
     PlanningToolChoice,
-    StepwiseAgentRunner,
+    builtin_agent_session_options,
     function_tool,
-    stepwise_agent_session_options,
 )
 from dex_agents.testing import (
     FileGate,
@@ -78,7 +78,7 @@ APPROVED_PLAN_PREFIX = "[Dex] The user approved plan revision"
 PLAN_NOTE_PREFIX = "[Dex] The current plan"
 
 
-class GatedPlanRunner(StepwiseAgentRunner):
+class GatedPlanRunner(BuiltinLoopAgentRunner):
     """Waits at, or fails before, the user message whose text has a prefix."""
 
     def __init__(self, definition: AgentDefinition, state_dir: Path, gate: str | None) -> None:
@@ -191,7 +191,7 @@ def build_plan_agent_flow(
     return AgentSessionFlow(
         GatedPlanRunner(definition, state_dir, user_message_gate),
         flow_type=PLAN_AGENT_FLOW_TYPE,
-        options=stepwise_agent_session_options(definition),
+        options=builtin_agent_session_options(definition),
     )
 
 

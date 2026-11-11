@@ -27,9 +27,13 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Controls whether [`crate::Client::start_flow_with_options`] may reuse a Flow ID.
 pub enum IdReusePolicy {
-    /// Uses the Dex server's configured reuse policy.
+    /// Rejects the start whenever the Flow ID has a run, the same as [`IdReusePolicy::Disallow`].
+    /// The server does not make this default configurable.
     Default,
-    /// Allows reuse only when the previous run failed.
+    /// Starts a new run only when the latest run closed abnormally: failed, canceled, or
+    /// terminated. A Flow timeout closes a run as failed or canceled under the fail or cancel
+    /// timeout policy. Under the handler policy, the timeout handler's outcome decides. A running
+    /// or completed latest run rejects the start.
     AllowIfPreviousFailed,
     /// Allows reuse when no run with the ID is currently active.
     AllowIfNotRunning,
@@ -264,10 +268,11 @@ impl StartFlowOptions {
     /// existing run only when [`StartFlowOptions::ignore_already_started`] is `true` and this
     /// request ID matches the request that started that run. Without that option, the retry returns
     /// [`SdkError::FlowAlreadyStarted`](crate::SdkError::FlowAlreadyStarted) even when the first
-    /// attempt created the Flow. The match applies only when the ID reuse policy rejects the start.
-    /// A policy that permits another run starts a new run instead. Dex compares only request IDs,
-    /// not input or other options, so never reuse a request ID for a different logical start. See
-    /// [`StartFlowOptions`] for an example that sets both options.
+    /// attempt created the Flow. The match uses the latest run of the Flow ID and takes precedence
+    /// over the ID reuse policy. A retry never starts a second run or terminates the run it
+    /// started. Dex compares only request IDs, not input or other options, so never reuse a request
+    /// ID for a different logical start. See [`StartFlowOptions`] for an example that sets both
+    /// options.
     pub fn request_id(mut self, value: impl Into<String>) -> Self {
         self.request_id = Some(value.into());
         self

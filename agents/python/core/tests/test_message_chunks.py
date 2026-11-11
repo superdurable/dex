@@ -37,7 +37,7 @@ from dex_agents import (
     MessageRole,
     message_sequence_key,
 )
-from dex_agents.stepwise import CONTEXT_SUMMARY_NOTE_HEADER
+from dex_agents.builtin_loop import CONTEXT_SUMMARY_NOTE_HEADER
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
     AgentTestStack,

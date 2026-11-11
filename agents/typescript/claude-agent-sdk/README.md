@@ -138,8 +138,9 @@ The session's RPCs, persistence, events, and Flow shape are the core's; see the
 
 | Export | Purpose |
 | --- | --- |
-| `createClaudeAgentSessionFlow(agent, flowType, sessionOptions?)` | Builds the session Flow from a `ClaudeAgentDefinition` `{ options, customTools?, toolPolicies?, customToolServerName?, toolSources?, toolSourceListingTimeoutMs? }` and the core's session options without `toolPolicies` |
-| `ClaudeAgentRunner` | The `AgentFrameworkRunner`; `new ClaudeAgentRunner(options, { customTools, customToolServerName, toolSources, toolSourceListingTimeoutMs })` for `createAgentSessionFlow`. Its `toolCallStepOptions` gives a source call its source's tool Step options |
+| `createClaudeAgentSessionFlow(agent, flowType, sessionOptions?)` | Builds the session Flow from a `ClaudeAgentDefinition` `{ options, customTools?, toolPolicies?, customToolServerName?, toolSources?, toolSourceListingTimeoutMs?, claudeCodeToolPermission? }` and the core's session options without `toolPolicies` |
+| `ClaudeAgentRunner` | The `AgentFrameworkRunner`; `new ClaudeAgentRunner(options, { customTools, customToolServerName, toolSources, toolSourceListingTimeoutMs, claudeCodeToolPermission })` for `createAgentSessionFlow`. Its `toolCallStepOptions` gives a source call its source's tool Step options |
+| `ClaudeCodeToolPermission`, `ClaudeCodeToolDenial` | A per-call decision for tools that run inside the CLI; see "Per-call decisions for Claude Code tools" |
 | `ClaudeAgentQueryOptions` | The SDK `Options` an application may set |
 | `ClaudeAgentOptionsFactory`, `ClaudeAgentOptionsContext` | Options per segment from `{ flowId, turnId, attempt }` |
 | `currentDeferredToolExecution()` | Inside a custom tool handler: the `DeferredToolExecution` of the tool Step, or `undefined` inline |
@@ -214,6 +215,23 @@ An inline `read` call runs inside `RunModel`, not in a tool Step. An error throw
 not fail `RunModel`: the custom tool server turns it into an MCP error result, and the model reads its
 text. An inline `read` tool therefore cannot ask for a `RunModel` retry. Retry transient failures
 inside the handler before it throws.
+
+### Per-call decisions for Claude Code tools
+
+A policy names a tool, so every call of `Bash` gets the same approval. `claudeCodeToolPermission`
+decides each new call of a tool that runs inside the CLI from its input instead, such as `Bash`
+commands on an allow list or file paths that must stay in one directory. The adapter calls it in its
+PreToolUse hook with the `RunModel` context, the tool's CLI name, and the input the hook receives:
+
+- a `ToolPolicy` is the call's policy; without `requiresApproval`, `non_idempotent_write` and
+  `unclassified` wait for approval;
+- `new ClaudeCodeToolDenial(reason)` denies the call, and the model sees
+  `PreToolUse:<tool> hook error: <reason>`;
+- `undefined` keeps the session's `toolPolicies` and `defaultToolEffect`;
+- a thrown error denies the call with the error's message.
+
+It is not asked about custom or source tools, or about a resumed call that already has a final
+record, and the `allowedTools` check keeps using the session's policies. Since 0.5.0.
 
 ## Tool sources and connector tools
 
@@ -408,6 +426,9 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
 - Files the CLI changes in `cwd`. Point `cwd` at storage that survives the Worker, such as a sandbox
   owned by the session, for file-editing agents.
 - Subagent transcripts. Resume needs only the main transcript.
+- Claude Code's `last-prompt` entries. Each names the leaf a resume continues from, and one stored
+  from an earlier segment would make a later resume skip every entry after it. Entries that adapter
+  0.4.0 stored are dropped when a segment reads the transcript.
 
 When a turn fails after deferred calls ran, the core stores a turn-failure note that lists them. The
 failed turn's transcript is not stored, so the next turn resumes the last completed turn's Claude
@@ -494,7 +515,7 @@ observed behavior and speaks this subset of the SDK's stream-json protocol, take
 | CLI to SDK | `control_request` `hook_callback` with a PreToolUse input (`tool_name`, the original `tool_input`, `tool_use_id`); the SDK answers with `hookSpecificOutput.permissionDecision` and optionally `updatedInput`, which the CLI applies. Several decisions combine as deny over defer over ask over allow; a denial's tool result reads `PreToolUse:<tool> hook error: <reason>` |
 | CLI to SDK | `control_request` `can_use_tool` when no hook allowed, denied, or deferred the call; the SDK answers `behavior` `allow` or `deny` |
 | CLI to SDK | `system` `init` per turn naming the requested model, `stream_event` `content_block_delta` text deltas, one `assistant` message per content block naming a dated response model, a `stream_event` `message_delta` with the stop reason after each model call, `user` tool results, and `result` with `usage` and `modelUsage` keyed by the requested model with provider `firstParty`, or with `terminal_reason: "tool_deferred"` and the last deferred call in `deferred_tool_use`; an error result has `subtype: "error_during_execution"` and exit status 1 |
-| CLI to SDK | `transcript_mirror` frames `{filePath, entries}` for every transcript line |
+| CLI to SDK | `transcript_mirror` frames `{filePath, entries}` for every transcript line, including a `last-prompt` entry naming the leaf before each result |
 | Transcript | `user`, `assistant`, and `attachment` `hook_deferred_tool` entries with `uuid` and `parentUuid`. Every `defer` is honored. On `--resume`, the last deferral without a tool result runs at once, without user input, from the original `tool_use` input through every hook again. It reports `tool_deferred_unavailable` when its MCP server was not declared in `--mcp-config` (an SDK server, or an `alwaysLoad` HTTP server), runs without hooks when `--await-initialize` is missing or `FAKE_CLAUDE_RESUME_WITHOUT_HOOKS=1`, and then appends an `isMeta` "Continue from where you left off." entry |
 
 The scripted model, in the fake CLI and in the mock Messages API, reads commands from the last text

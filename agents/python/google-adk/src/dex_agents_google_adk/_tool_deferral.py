@@ -38,7 +38,7 @@ from dex_agents import (
     ToolPolicy,
     describe_tool_call_outcome,
 )
-from dex_agents.stepwise import FrameworkToolSourceRouter, SourceToolListing
+from dex_agents.builtin_loop import FrameworkToolSourceRouter, SourceToolListing
 from dex_agents_google_adk._tool_sources import SourceTool, SourceToolset
 
 TOOL_DEFERRAL_PLUGIN_NAME = "dex_tool_deferral"

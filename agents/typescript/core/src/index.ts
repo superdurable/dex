@@ -65,6 +65,7 @@ export {
   type TurnCompleted,
   type ToolCallsRequested,
 } from "./agent-framework-runner.js";
+export { LocalDirectoryMediaStore } from "./agent-local-directory-media-store.js";
 export {
   ImageValidationError,
   InMemoryMediaStore,
@@ -206,4 +207,4 @@ export {
   type ListedSourceTool,
   type ToolSourceRouterOptions,
 } from "./tool-source-router.js";
-export { type SourceToolDefinition, type ToolSource } from "./stepwise/tool-source.js";
+export { type SourceToolDefinition, type ToolSource } from "./builtin-loop/tool-source.js";

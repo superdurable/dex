@@ -14,7 +14,7 @@ Flow runs every model call and every tool call as its own Step, and owns the
 conversation, tool approvals, questions, durable waits, plans, steering, tool
 tasks, and live events. See the package README for the full contract.
 
-``dex_agents.stepwise`` adds a built-in agent loop for agents defined in Dex
+``dex_agents.builtin_loop`` adds a built-in agent loop for agents defined in Dex
 terms, and ``dex_agents.litellm`` (extra ``dex-agents[litellm]``) a model
 client on LiteLLM.
 
@@ -51,6 +51,7 @@ from dex_agents.compaction import (
     select_turn_boundary_cutoff,
 )
 from dex_agents.events import AgentEventType, AgentEventWriter
+from dex_agents.local_directory_media import LocalDirectoryMediaStore
 from dex_agents.media import (
     MAX_IMAGE_BYTES,
     MAX_IMAGE_URI_LENGTH,
@@ -353,6 +354,7 @@ __all__ = [
     "InteractionMode",
     "InterruptKind",
     "ListAgentMessagesRequest",
+    "LocalDirectoryMediaStore",
     "MediaStore",
     "MediaStoreError",
     "MessageRole",

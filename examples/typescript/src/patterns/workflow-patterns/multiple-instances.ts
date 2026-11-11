@@ -21,7 +21,7 @@ import {
   Attribute,
   AttributeMap,
   Channel,
-  ChannelMap,
+  Join,
   StepList,
   StepMovement,
   Wait,
@@ -31,12 +31,14 @@ import {
   goTo,
   goToMany,
   gracefulComplete,
+  joinRoundCodec,
   jsonCodec,
   rpc,
   stringCodec,
-  withCancelingSteps,
+  withCancelingSiblingSteps,
   type Context,
   type Flow,
+  type JoinRound,
   type PersistenceSchema,
   type RPCResult,
   type Step,
@@ -127,53 +129,58 @@ export class MultipleInstancesWithoutSynchronizationFlow implements Flow<string[
 }
 
 
-// WCP-13 and WCP-14: the count is known when instances start, so ForN joins them.
+// WCP-13 and WCP-14: the Join forks one branch per reviewer and counts them.
 
 // Each instance marks itself started, then waits at a gate, so all run at once.
 
+interface ReviewerAssignment {
+  readonly reviewer: string;
+  readonly round: JoinRound;
+}
+
 const startedReviewers = new AttributeMap("startedReviewers", booleanCodec);
 const reviewGateOpened = new Channel("reviewGateOpened", stringCodec);
-const reviewCompleted = new Channel("reviewCompleted", stringCodec);
+const reviewCompleted = new Join("reviewCompleted", stringCodec);
 const DESIGN_TIME_REVIEWERS = ["legal", "finance", "security"];
 
-class ReviewDocument implements Step<string> {
-  public readonly inputCodec = stringCodec;
-
+class ReviewDocument implements Step<ReviewerAssignment> {
   public getStepType(): string {
     return "ReviewDocument";
   }
 
-  public waitFor(context: Context, reviewer: string): Wait {
-    startedReviewers.set(context, reviewer, true);
+  public waitFor(context: Context, assignment: ReviewerAssignment): Wait {
+    startedReviewers.set(context, assignment.reviewer, true);
     return Wait.until(reviewGateOpened.forOne());
   }
 
-  public execute(context: Context, reviewer: string): StepDecision {
-    reviewCompleted.publish(context, reviewer);
-    return deadEnd();
+  public execute(context: Context, assignment: ReviewerAssignment): StepDecision {
+    return reviewCompleted.endBranch(context, assignment.round, assignment.reviewer);
   }
 }
 
-class CollectReviews implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+class CollectReviews implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
 
   public getStepType(): string {
     return "CollectReviews";
   }
 
-  public waitFor(_context: Context, reviewerCount: number): Wait {
-    return Wait.until(reviewCompleted.forN(reviewerCount));
+  public waitFor(_context: Context, round: JoinRound): Wait {
+    return Wait.until(reviewCompleted.forAllBranches(round));
   }
 
-  public execute(context: Context, _reviewerCount: number): StepDecision {
-    return gracefulComplete([...reviewCompleted.results(context)].sort());
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return gracefulComplete([...reviewCompleted.branchResults(context, round)].sort());
   }
 }
 
-function startReviews(reviewers: readonly string[]): StepDecision {
+function startReviews(context: Context, reviewers: readonly string[]): StepDecision {
   return goToMany(
-    ...reviewers.map((reviewer) => StepMovement.of(ReviewDocument, reviewer)),
-    StepMovement.of(CollectReviews, reviewers.length),
+    ...reviewCompleted.fork(
+      context,
+      reviewers.map((reviewer) => (round: JoinRound) => StepMovement.of(ReviewDocument, { reviewer, round })),
+      (round) => StepMovement.of(CollectReviews, round),
+    ),
   );
 }
 
@@ -182,8 +189,8 @@ class StartDesignTimeReviews implements Step<void> {
     return "StartDesignTimeReviews";
   }
 
-  public execute(_context: Context, _input: void): StepDecision {
-    return startReviews(DESIGN_TIME_REVIEWERS);
+  public execute(context: Context, _input: void): StepDecision {
+    return startReviews(context, DESIGN_TIME_REVIEWERS);
   }
 }
 
@@ -192,8 +199,8 @@ class StartRunTimeReviews implements Step<string[]> {
     return "StartRunTimeReviews";
   }
 
-  public execute(_context: Context, reviewers: string[]): StepDecision {
-    return startReviews(reviewers);
+  public execute(context: Context, reviewers: string[]): StepDecision {
+    return startReviews(context, reviewers);
   }
 }
 
@@ -373,18 +380,24 @@ export class NoPriorKnowledgeMultipleInstancesFlow implements Flow<string[]> {
   }
 }
 
-// WCP-34: instances publish to their round's ChannelMap instance; a reset re-enables the join.
+// WCP-34: instances report to their round's Join; the next round's split resets the Join.
 
 export interface InspectionRound {
   readonly inspectionCount: number;
   readonly requiredInspections: number;
   readonly round: number;
   readonly roundCount: number;
+  readonly previousRound?: JoinRound;
 }
 
 export interface UnitInspection {
-  readonly round: number;
   readonly unitIndex: number;
+  readonly round: JoinRound;
+}
+
+export interface InspectionJoin {
+  readonly inspection: InspectionRound;
+  readonly round: JoinRound;
 }
 
 export interface InspectedUnits {
@@ -393,23 +406,43 @@ export interface InspectedUnits {
 }
 
 const inspectionReleased = new Channel("inspectionReleased", stringCodec);
-const unitInspected = new ChannelMap("unitInspected", doubleCodec);
-
-function inspectionRoundInstance(round: number): string {
-  return `round-${round}`;
-}
+const unitInspected = new Join("unitInspected", doubleCodec);
+// The late inspections of the most recently reset round.
+export const ignoredInspections = new Attribute(
+  "ignoredInspections",
+  jsonCodec<InspectedUnits>({ typeName: "InspectedUnits" }),
+);
 
 class StartInspections implements Step<InspectionRound> {
   public getStepType(): string {
     return "StartInspections";
   }
 
-  public execute(_context: Context, inspection: InspectionRound): StepDecision {
+  public waitFor(_context: Context, inspection: InspectionRound): Wait {
+    if (inspection.previousRound === undefined) {
+      return Wait.skipImmediately();
+    }
+    return Wait.until(
+      unitInspected.forRemainingBranches(inspection.previousRound, inspection.requiredInspections),
+    );
+  }
+
+  public execute(context: Context, inspection: InspectionRound): StepDecision {
+    if (inspection.previousRound !== undefined) {
+      ignoredInspections.set(context, {
+        round: inspection.round - 1,
+        unitIndexes: sortNumbers(unitInspected.remainingBranchResults(context, inspection.previousRound)),
+      });
+    }
     return goToMany(
-      ...Array.from({ length: inspection.inspectionCount }, (_, unitIndex) =>
-        StepMovement.of(InspectUnit, { round: inspection.round, unitIndex }),
+      ...unitInspected.fork(
+        context,
+        Array.from(
+          { length: inspection.inspectionCount },
+          (_, unitIndex) => (round: JoinRound) => StepMovement.of(InspectUnit, { unitIndex, round }),
+        ),
+        (round) => StepMovement.of(AcceptInspections, { inspection, round }),
       ),
-      StepMovement.of(AcceptInspections, inspection),
     );
   }
 }
@@ -424,31 +457,39 @@ class InspectUnit implements Step<UnitInspection> {
   }
 
   public execute(context: Context, unit: UnitInspection): StepDecision {
-    unitInspected.publish(context, inspectionRoundInstance(unit.round), unit.unitIndex);
-    return deadEnd();
+    return unitInspected.endBranch(context, unit.round, unit.unitIndex);
   }
 }
 
-class AcceptInspections implements Step<InspectionRound> {
+class AcceptInspections implements Step<InspectionJoin> {
   public getStepType(): string {
     return "AcceptInspections";
   }
 
-  public waitFor(_context: Context, inspection: InspectionRound): Wait {
-    const instance = inspectionRoundInstance(inspection.round);
-    return Wait.until(unitInspected.forN(instance, inspection.requiredInspections));
+  public waitFor(_context: Context, join: InspectionJoin): Wait {
+    return Wait.until(unitInspected.forBranches(join.round, join.inspection.requiredInspections));
   }
 
-  public execute(context: Context, inspection: InspectionRound): StepDecision {
-    const instance = inspectionRoundInstance(inspection.round);
+  public execute(context: Context, join: InspectionJoin): StepDecision {
+    const { inspection, round } = join;
     const approved: InspectedUnits = {
       round: inspection.round,
-      unitIndexes: sortNumbers(unitInspected.results(context, instance)),
+      unitIndexes: sortNumbers(unitInspected.branchResults(context, round)),
     };
-    return goToMany(
-      StepMovement.of(ApproveBatch, approved),
-      StepMovement.of(ResetInspectionJoin, inspection),
-    );
+    if (inspection.round < inspection.roundCount) {
+      return goToMany(
+        StepMovement.of(ApproveBatch, approved),
+        StepMovement.of(StartInspections, {
+          inspectionCount: inspection.inspectionCount,
+          requiredInspections: inspection.requiredInspections,
+          round: inspection.round + 1,
+          roundCount: inspection.roundCount,
+          previousRound: round,
+        }),
+      );
+    }
+    // The last round's late inspections stay pending until the Flow closes.
+    return goTo(ApproveBatch, approved);
   }
 }
 
@@ -462,35 +503,11 @@ class ApproveBatch implements Step<InspectedUnits> {
   }
 }
 
-class ResetInspectionJoin implements Step<InspectionRound> {
-  public getStepType(): string {
-    return "ResetInspectionJoin";
-  }
-
-  public waitFor(_context: Context, inspection: InspectionRound): Wait {
-    const instance = inspectionRoundInstance(inspection.round);
-    const remaining = inspection.inspectionCount - inspection.requiredInspections;
-    return Wait.until(unitInspected.forN(instance, remaining));
-  }
-
-  public execute(context: Context, inspection: InspectionRound): StepDecision {
-    if (inspection.round < inspection.roundCount) {
-      return goTo(StartInspections, { ...inspection, round: inspection.round + 1 });
-    }
-    const remainingUnits: InspectedUnits = {
-      round: inspection.round,
-      unitIndexes: sortNumbers(unitInspected.results(context, inspectionRoundInstance(inspection.round))),
-    };
-    return gracefulComplete(remainingUnits);
-  }
-}
-
 export class StaticPartialJoinForMultipleInstancesFlow implements Flow<InspectionRound> {
   private readonly startInspections = new StartInspections();
   private readonly inspectUnit = new InspectUnit();
   private readonly acceptInspections = new AcceptInspections();
   private readonly approveBatch = new ApproveBatch();
-  private readonly resetInspectionJoin = new ResetInspectionJoin();
 
   public getFlowType(): string {
     return "StaticPartialJoinForMultipleInstancesFlow";
@@ -501,12 +518,11 @@ export class StaticPartialJoinForMultipleInstancesFlow implements Flow<Inspectio
       this.inspectUnit,
       this.acceptInspections,
       this.approveBatch,
-      this.resetInspectionJoin,
     );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [inspectionReleased, unitInspected] };
+    return { attributes: [ignoredInspections], channels: [inspectionReleased, unitInspected] };
   }
 
   @rpc({ inputCodec: doubleCodec })
@@ -525,55 +541,68 @@ export interface PartialInspection {
 }
 
 const quorumInspectionReleased = new Channel("quorumInspectionReleased", stringCodec);
-const quorumUnitInspected = new Channel("quorumUnitInspected", doubleCodec);
+const quorumUnitInspected = new Join("quorumUnitInspected", doubleCodec);
 const quorumCertified = new Channel("quorumCertified", stringCodec);
+
+interface QuorumUnitInspection {
+  readonly unitIndex: number;
+  readonly round: JoinRound;
+}
+
+interface QuorumInspectionJoin {
+  readonly requiredInspections: number;
+  readonly round: JoinRound;
+}
 
 class StartQuorumInspections implements Step<PartialInspection> {
   public getStepType(): string {
     return "StartQuorumInspections";
   }
 
-  public execute(_context: Context, inspection: PartialInspection): StepDecision {
+  public execute(context: Context, inspection: PartialInspection): StepDecision {
     return goToMany(
-      ...Array.from({ length: inspection.inspectionCount }, (_, index) =>
-        StepMovement.of(InspectQuorumUnit, index),
+      ...quorumUnitInspected.fork(
+        context,
+        Array.from(
+          { length: inspection.inspectionCount },
+          (_, unitIndex) => (round: JoinRound) => StepMovement.of(InspectQuorumUnit, { unitIndex, round }),
+        ),
+        (round) =>
+          StepMovement.of(AcceptQuorumInspections, {
+            requiredInspections: inspection.requiredInspections,
+            round,
+          }),
       ),
-      StepMovement.of(AcceptQuorumInspections, inspection.requiredInspections),
     );
   }
 }
 
-class InspectQuorumUnit implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
+class InspectQuorumUnit implements Step<QuorumUnitInspection> {
   public getStepType(): string {
     return "InspectQuorumUnit";
   }
 
-  public waitFor(_context: Context, _unitIndex: number): Wait {
+  public waitFor(_context: Context, _unit: QuorumUnitInspection): Wait {
     return Wait.until(quorumInspectionReleased.forOne());
   }
 
-  public execute(context: Context, unitIndex: number): StepDecision {
-    quorumUnitInspected.publish(context, unitIndex);
-    return deadEnd();
+  public execute(context: Context, unit: QuorumUnitInspection): StepDecision {
+    return quorumUnitInspected.endBranch(context, unit.round, unit.unitIndex);
   }
 }
 
-class AcceptQuorumInspections implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
+class AcceptQuorumInspections implements Step<QuorumInspectionJoin> {
   public getStepType(): string {
     return "AcceptQuorumInspections";
   }
 
-  public waitFor(_context: Context, requiredInspections: number): Wait {
-    return Wait.until(quorumUnitInspected.forN(requiredInspections));
+  public waitFor(_context: Context, join: QuorumInspectionJoin): Wait {
+    return Wait.until(quorumUnitInspected.forBranches(join.round, join.requiredInspections));
   }
 
-  public execute(context: Context, _requiredInspections: number): StepDecision {
-    return withCancelingSteps(
-      goTo(CertifyQuorum, sortNumbers(quorumUnitInspected.results(context))),
+  public execute(context: Context, join: QuorumInspectionJoin): StepDecision {
+    return withCancelingSiblingSteps(
+      goTo(CertifyQuorum, sortNumbers(quorumUnitInspected.branchResults(context, join.round))),
       InspectQuorumUnit,
     );
   }
