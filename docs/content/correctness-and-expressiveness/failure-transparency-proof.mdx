@@ -55,8 +55,6 @@ equals an earlier effect in value.
 
 A Step method can run in several attempts. Every attempt reads the same
 snapshot: Dex takes it at the first attempt, and every retry reuses it.
-Hard-delete Attributes are the exception. Dex reads them again on every
-attempt, and the proof leaves them out.
 
 The proof assumes that a Step method's effects depend only on what Dex passes
 it, and not on which attempt is running. Then every attempt computes the same
@@ -113,6 +111,7 @@ The proof holds under these conditions:
   attempt number, the first attempt time, the last error, or the last
   heartbeat value. Code that resumes from a heartbeat checkpoint is outside the
   proof.
+- **No hard-delete Attributes.** Dex reads them again on every attempt.
 - **Every attempt command names its task.** The server tags each command of a
   started attempt, such as its result, a heartbeat, or its failure, with the
   task that ran it. Every logged command of this kind carries the tag.

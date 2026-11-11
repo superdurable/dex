@@ -6,8 +6,7 @@ slug: /correctness-and-expressiveness/expressiveness-proof
 
 # Expressiveness proof
 
-Dex has a computer-checked proof of what it can express. The full argument is
-in the paper.
+Dex has a computer-checked proof of what it can express.
 
 - [Download the paper (PDF)](/papers/dex-expressiveness.pdf)
 - [Formal sources on GitHub](https://github.com/superdurable/dex/tree/main/formal)
@@ -56,8 +55,6 @@ an application. Model your own Flow with the
 
 ## How each construct is built {#how-each-construct-is-built}
 
-This table summarizes the translation in the paper.
-
 | Construct | Dex building blocks | Related design pattern |
 | --- | --- | --- |
 | Thread | A chain of Steps, usually one for each statement. **wait** takes three Steps, and **sleep** and timed **select** add an entry Step. The thread's position and local state travel in the Step input. A running thread is one active Step execution at a time. | |
@@ -72,8 +69,8 @@ This table summarizes the translation in the paper.
 | Exit or failure | **ForceComplete** with the result, or **ForceFail** with the error. | |
 | External effect | An **Execute** whose only effect is that external call. | |
 
-The mutex shows why the details matter. An Attribute lock would not work,
-because it covers one Step method and not a wait. A Channel token can be held
+An Attribute lock would not work for the mutex, because it covers one Step
+method and not a wait. A Channel token can be held
 across many Steps and waits.
 
 ## How it was checked {#how-it-was-checked}

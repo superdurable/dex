@@ -141,8 +141,8 @@ limit.
   only. It assumes that no method exhausts its retries, that user code
   ignores the attempt number and similar context, and, for liveness, that
   failures are finitely many. It keeps the timer order of the first
-  theorem as an idealization. Effects can repeat and overlap; they are not
-  exactly-once.
+  theorem as an idealization. Effects can repeat and overlap; the theorem
+  does not make them exactly-once.
 \item \emph{A model, not the code.} The Dex side of the theorem is a
   hand-written model of the server, validated by review against the source.
   It is not extracted from the implementation.

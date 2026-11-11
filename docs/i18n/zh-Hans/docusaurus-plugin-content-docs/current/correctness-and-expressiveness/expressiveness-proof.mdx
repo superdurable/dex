@@ -6,7 +6,7 @@ slug: /correctness-and-expressiveness/expressiveness-proof
 
 # 表达能力证明
 
-Dex 有一个经计算机检查的证明，说明它能表达什么。完整论证见论文。
+Dex 有一个经计算机检查的证明，说明它能表达什么。
 
 - [下载论文（PDF）](/papers/dex-expressiveness.pdf)
 - [GitHub 上的形式化源码](https://github.com/superdurable/dex/tree/main/formal)
@@ -43,8 +43,6 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 
 ## 每个构件如何搭建 {#how-each-construct-is-built}
 
-下表总结了论文中的翻译。
-
 | 构件 | Dex 构件 | 相关设计模式 |
 | --- | --- | --- |
 | 线程 | 一串 Step，通常每条语句一个。**wait** 用三个 Step，**sleep** 和带超时的 **select** 会多一个入口 Step。线程的位置和局部状态放在 Step 输入中传递。任一时刻，一个运行中的线程就是一个活跃的 Step 执行。 | |
@@ -59,7 +57,7 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 | 退出或失败 | 带结果的 **ForceComplete**，或带错误的 **ForceFail**。 | |
 | 外部副作用 | 一个 **Execute**，它唯一的副作用就是这次外部调用。 | |
 
-互斥锁说明了细节为何重要。Attribute 锁不行，因为它只覆盖一个 Step 方法，不覆盖等待。Channel token 可以跨多个 Step 和等待持有。
+互斥锁不能用 Attribute 锁实现，因为它只覆盖一个 Step 方法，不覆盖等待。Channel token 可以跨多个 Step 和等待持有。
 
 ## 如何验证 {#how-it-was-checked}
 
