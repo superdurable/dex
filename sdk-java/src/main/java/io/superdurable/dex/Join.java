@@ -224,7 +224,7 @@ import java.util.function.Function;
  *
  * @param <T> the branch result type; each result is stored exactly as a {@code ChannelMap<T>}
  *     message
- * @since 1.42.0
+ * @since 1.43.0
  */
 public final class Join<T> extends PersistenceDefinition {
     private final ChannelMap<T> channelMap;
@@ -287,7 +287,7 @@ public final class Join<T> extends PersistenceDefinition {
      * }</pre>
      *
      * @return the registered ChannelMap with the same name as this Join
-     * @since 1.42.0
+     * @since 1.43.0
      */
     public ChannelMap<T> getChannelMap() {
         return channelMap;

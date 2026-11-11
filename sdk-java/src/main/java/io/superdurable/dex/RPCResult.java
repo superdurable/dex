@@ -101,7 +101,7 @@ public final class RPCResult<O> {
      * @param <O> the output type
      * @return the RPC result
      * @throws NullPointerException if {@code nextSteps} is {@code null}
-     * @since 1.42.0
+     * @since 1.43.0
      */
     public static <O> RPCResult<O> of(
             final O output,

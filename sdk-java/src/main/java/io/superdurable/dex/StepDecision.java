@@ -126,7 +126,7 @@ public final class StepDecision {
      * @param movements the movements to schedule, in order
      * @return a multi-movement decision
      * @throws NullPointerException if {@code movements} is {@code null}
-     * @since 1.42.0
+     * @since 1.43.0
      */
     public static StepDecision goToMany(final List<? extends StepMovement<?>> movements) {
         Objects.requireNonNull(movements, "movements");
