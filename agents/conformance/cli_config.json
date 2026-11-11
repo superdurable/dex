@@ -20,7 +20,7 @@
     "claude",
     "openai",
     "pydantic_ai",
-    "langgraph",
+    "deepagents",
     "google_adk",
     "vercel_ai",
     "mastra",
@@ -427,7 +427,7 @@
     {
       "name": "addresses-and-paths-as-written",
       "description": "URLs and paths stay as written: ~ and relative paths are expanded where they are used, not here.",
-      "harness_section": "langgraph",
+      "harness_section": "deepagents",
       "harness_default_model": "openai:gpt-5-mini",
       "config": {
         "system_prompt_file": "prompts/assistant.md",

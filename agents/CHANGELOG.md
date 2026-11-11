@@ -76,6 +76,16 @@ for the Dex SDK and framework versions each release supports.
   has the command, file tools stay in the workspace, and the tool Step checks an
   approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
   [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
+- Python commands for the other harnesses, not published yet, on the shared
+  CLI runtime: **dex-agents-openai-sdk** (OpenAI Agents SDK),
+  **dex-agents-pydantic-ai** (Pydantic AI), **dex-agents-deepagents** (Deep
+  Agents on the LangGraph adapter), **dex-agents-google-adk** (Google ADK), and
+  **dex-agents-builtin** (the Dex Stepwise loop on LiteLLM). Each uses the
+  runtime's local and connector tools, so every tool call is its own Dex tool
+  Step with the runtime's policy, and each model call uses its turn's model and
+  instructions. Provider keys come only from each provider's standard
+  environment variables. The configuration file's `langgraph` section is now
+  `deepagents`. See [cli/python](cli/python).
 - Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
   (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
   Claude Code CLI from its input. It returns a **ToolPolicy** for that call,
