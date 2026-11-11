@@ -110,13 +110,14 @@ const discardedModelOutput: ModelOutputWriter = {
  * tasks. Its {@link cancelToolTask} passes a task that `cancel_turn` abandoned to that source's optional
  * `cancelToolTask`.
  *
- * With a media store, the runner shows images to the model. It has {@link buildUserMessageWithImages}, so
- * `send_user_message` accepts images: the stored `user_text` item keeps their references after the text. A tool
+ * With a media store, the runner shows images to the model. It then has `buildUserMessageWithImages` of
+ * {@link AgentFrameworkRunner}, as an own property, so `send_user_message` accepts images: the stored `user_text` item keeps their references after the text. A tool
  * result item keeps the references of `AgentToolCall.images`. Before each model call, the runner reads the bytes of
  * every image in the request with `loadImages` and passes them in `ModelRequest.imageBytes`; the model client
  * converts each image to the provider's image part. A failed read fails that `RunModel` attempt, which retries. The
  * model call that writes a context summary sees the text of the items only. Without a store the session refuses
- * user images, and a tool result's images are stored but not shown to the model.
+ * user images, and a tool result's images are stored but not shown to the model. The class declares neither member,
+ * so a subclass may still define its own `buildUserMessageWithImages` or `mediaStore`.
  *
  * @example
  * ```ts
@@ -133,32 +134,19 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
   public readonly definition: AgentDefinition;
   /** The runner honors {@link AgentTurnContext.interactionMode}, so plan mode can be enabled. */
   public readonly supportsPlanMode = true;
-  /**
-   * Stores user text and its images as one `user_text` item that holds the references, not the bytes.
-   *
-   * It is present only when the runner has a media store, so a session without one refuses images. Each model call
-   * reads the bytes from the store and the model client sends every image after the text, in reference order.
-   *
-   * @param text - The user message text.
-   * @param images - The message's images, uploaded to the runner's media store.
-   * @returns The `user` message the session stores as the turn's first message.
-   * @since 0.5.0
-   */
-  public readonly buildUserMessageWithImages?: (
-    text: string,
-    images: readonly AgentImageReference[],
-  ) => FrameworkMessage;
   private readonly functionToolsByName: ReadonlyMap<string, FunctionTool>;
   private readonly toolSources: ToolSourceRouter;
   private readonly maxModelCallsPerTurn: number;
-  private readonly mediaStore: MediaStore | undefined;
+  // An ES private field, so it never collides with a subclass member.
+  readonly #mediaStore: MediaStore | undefined;
 
   /**
    * Creates the runner and checks the definition.
    * @param definition - The agent definition.
    * @param mediaStore - The store that holds the session's images, such as `S3MediaStore`. With it, the runner
    * accepts user messages with images and shows them and tool result images to the model, reading the bytes for
-   * each model call; stored messages hold only references. Use the store the clients and tools upload to. Omit it
+   * each model call; stored messages hold only references. It also gets an own `buildUserMessageWithImages`, which
+   * stores user text and its images as one `user_text` item that holds the references, not the bytes. Use the store the clients and tools upload to. Omit it
    * to refuse user images and show tool result images to the model as text only. Since 0.5.0.
    *
    * Changed in 0.5.0: takes `mediaStore`.
@@ -221,10 +209,11 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     this.functionToolsByName = functionToolsByName;
     this.toolSources = toolSources;
     this.maxModelCallsPerTurn = maxModelCallsPerTurn;
-    this.mediaStore = mediaStore;
+    this.#mediaStore = mediaStore;
     if (mediaStore !== undefined) {
-      // The session accepts images only from a runner with this method.
-      this.buildUserMessageWithImages = (text, images) =>
+      // The session accepts images only from a runner with this method; the class leaves it undeclared for subclasses.
+      const runner: AgentFrameworkRunner<DeferredToolOutcome> = this;
+      runner.buildUserMessageWithImages = (text: string, images: readonly AgentImageReference[]): FrameworkMessage =>
         toBuiltinLoopFrameworkMessage({ type: "user_text", text, images: [...images] });
     }
   }
@@ -588,7 +577,7 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     }
     return this.resolveModel(turn.sessionSettings).estimateInputTokens({
       instructions: "",
-      inputItems: this.mediaStore === undefined ? stripImages(items) : items,
+      inputItems: this.#mediaStore === undefined ? stripImages(items) : items,
       tools: [],
       toolChoice: "none",
       settings: this.definition.modelSettings ?? {},
@@ -599,7 +588,7 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
 
   /** Returns the request with the bytes of its images, read from the store right now. */
   private async addImageBytes(request: ModelRequest): Promise<ModelRequest> {
-    if (this.mediaStore === undefined) {
+    if (this.#mediaStore === undefined) {
       return this.keepShownImagesOnly(request);
     }
     const references = request.inputItems.flatMap((item) =>
@@ -608,12 +597,12 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     if (references.length === 0) {
       return request;
     }
-    return { ...request, imageBytes: await loadImages(this.mediaStore, references) };
+    return { ...request, imageBytes: await loadImages(this.#mediaStore, references) };
   }
 
   private keepShownImagesOnly(request: ModelRequest): ModelRequest {
     // Without a store the model sees no image, such as a tool source's.
-    return this.mediaStore === undefined ? { ...request, inputItems: stripImages(request.inputItems) } : request;
+    return this.#mediaStore === undefined ? { ...request, inputItems: stripImages(request.inputItems) } : request;
   }
 
   /** A built-in enabled only in the session options must not share a function tool's name. */

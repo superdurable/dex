@@ -383,13 +383,6 @@ class BuiltinLoopAgentRunner:
     #: The runner honors ``AgentTurnContext.interaction_mode``, so plan mode can be enabled.
     supports_plan_mode = True
 
-    #: Store user text and its images as one ``user_text`` item that holds the
-    #: references. The attribute exists only on a runner built with a
-    #: ``media_store``.
-    #:
-    #: .. versionadded:: 0.5.0
-    build_user_message_with_images: Callable[[str, Sequence[AgentImageReference]], FrameworkMessage]
-
     def __init__(
         self, definition: AgentDefinition, *, media_store: MediaStore | None = None
     ) -> None:
@@ -404,12 +397,18 @@ class BuiltinLoopAgentRunner:
                 it shows from the store; a failed read fails the ``RunModel``
                 attempt. Use the store the clients and tools upload to.
                 ``None``, the default, refuses user images and shows tool
-                result images to the model as text only.
+                result images to the model as text only. With a store the
+                runner gets the instance attribute
+                ``build_user_message_with_images``, which stores user text and
+                its images as one ``user_text`` item that holds the
+                references. The class declares neither, so a subclass may
+                define its own ``build_user_message_with_images``.
 
                 .. versionadded:: 0.5.0
         """
         self._definition = definition
-        self._media_store = media_store
+        # Name-mangled, so a subclass attribute of the same name changes nothing here.
+        self.__media_store = media_store
         if media_store is not None:
             # The session accepts images only from a runner with this attribute.
             self.build_user_message_with_images = self._build_user_message_with_images
@@ -863,7 +862,7 @@ class BuiltinLoopAgentRunner:
         return self._resolve_model(turn.session_settings).estimate_input_tokens(
             ModelRequest(
                 instructions="",
-                input_items=items if self._media_store is not None else _strip_images(items),
+                input_items=items if self.__media_store is not None else _strip_images(items),
                 tools=[],
                 tool_choice="none",
                 settings=self._definition.model_settings,
@@ -878,7 +877,7 @@ class BuiltinLoopAgentRunner:
 
     async def _add_image_bytes(self, request: ModelRequest) -> ModelRequest:
         """Return the request with the bytes of its images, read from the store right now."""
-        if self._media_store is None:
+        if self.__media_store is None:
             return self._shown_images_only(request)
         references = [
             image
@@ -888,10 +887,10 @@ class BuiltinLoopAgentRunner:
         ]
         if not references:
             return request
-        return replace(request, image_bytes=await load_images(self._media_store, references))
+        return replace(request, image_bytes=await load_images(self.__media_store, references))
 
     def _shown_images_only(self, request: ModelRequest) -> ModelRequest:
-        if self._media_store is not None:
+        if self.__media_store is not None:
             return request
         # Without a store the model sees no image, such as a tool source's.
         return replace(request, input_items=_strip_images(request.input_items))
