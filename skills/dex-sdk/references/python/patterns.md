@@ -9,7 +9,7 @@ This page maps each pattern to its Python API shape and runnable example.
 | --- | --- | --- |
 | Static parallel | `go_to_many(StepMovement.of(WorkA, x), StepMovement.of(WorkB, x))` | [static](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/parallel/static_parallel_steps_flow.py) |
 | Dynamic parallel | build `list[StepMovement[Any]]` from input, then `go_to_many(*movements)` | [dynamic](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/parallel/dynamic_parallel_steps_flow.py) |
-| Await all | branches publish once and `dead_end()`; a coordinator waits on `for_n(count)` | [await](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/parallel/await_parallel_steps_flow.py) |
+| Await all | `go_to_many(*join.fork(context, builders, join_builder))`; each branch returns `join.end_branch(context, round, result)`; the join Step waits on `join.for_all_branches(round)` | [await](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/parallel/await_parallel_steps_flow.py) |
 | First win | the winner returns `graceful_complete(x).with_canceling_sibling_steps(Loser)` | [first win](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/parallel/first_win_parallel_steps_flow.py) |
 | Parallel SubFlows | one `SubFlow.run(child, request)` per request in `Wait.all_of` | [parallel-subflows](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/parallel-subflows) (basic, long- and short-lived parent, wait for half, partitioning, back pressure) |
 | Polling | one long async `execute` loop; see below | [polling](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/polling/polling_flow.py) |
@@ -208,8 +208,12 @@ class ConversationFlow(Flow[None]):
 
 ## Python notes for the other patterns
 
-- Await all: branches call `done.publish(context, None)` and return
-  `dead_end()`; the coordinator waits on `Wait.until(done.for_n(count))`.
+- Await all: declare `Join("name", ResultType)` on the Flow and pass it to
+  `PersistenceSchema.of`. Each branch builder is a `Callable[[JoinRound],
+  StepMovement]`; a branch returns `join.end_branch(context, round, result)`,
+  and the join Step reads `join.branch_results(context, round)`. A partial join
+  waits on `join.for_branches(round, n)`, and the next round resets with
+  `join.for_remaining_branches(previous_round, n)`.
 - Revision Attribute match: `wait_for_attribute_match(flow_id, REVISION,
   AttributeMatch.greater_than_or_equal(n), WaitForAttributeOptions(request_timeout=...))`
   returns the matched value; reload state with `get_attributes` afterwards.

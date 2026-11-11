@@ -16,7 +16,7 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 Channel 适合 Step 要等待的事件，例如一次审批、用户回复或新的工作项。会被覆盖、多次读取的状态，用 [Attribute](/concepts/primitives/attribute)。可以丢失的实时进度，用 [Stream](/concepts/primitives/stream)。
 
-要等待并行分支完成，用 **Join**。Join 建在 ChannelMap 之上，它会替你数分支，并区分每一轮。见 [Await Parallel Steps](/design-patterns/parallel/await)。
+要等待并行分支完成，用 **Join**。Join 建在 ChannelMap 之上，它会替你数分支，并区分每一轮。见 [等待并行 Step](/design-patterns/parallel/await)。
 
 ## 保证
 
