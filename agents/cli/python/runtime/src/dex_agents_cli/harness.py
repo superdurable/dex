@@ -373,9 +373,6 @@ def session_flow_type(
         >>> session_flow_type("DexAgentsClaudeSdkCliSession", config_path, workspace)
         'DexAgentsClaudeSdkCliSession-k3x9q0'
 
-    .. versionchanged:: 0.5.0
-        The suffix is 6 base36 characters instead of 12 hex digits.
-
     Args:
         harness_flow_type: The harness's ``flow_type``.
         config_path: The configuration file, or ``None`` when the command runs on defaults.

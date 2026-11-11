@@ -575,10 +575,7 @@ export function namespaceSessionFlowType(harnessFlowType: string, identity: Sess
   return `${harnessFlowType}-${suffix}`;
 }
 
-/**
- * Returns what a new session records about where the command runs, as `AgentSessionStartInput.startEnvironment`:
- * the hashed `host_name`, `user_id`, `config_identity`, and `workspace`, and `user_name` when the system can tell it.
- */
+/** Returns the hashed identity plus `user_name`, recorded as the session's `startEnvironment`. */
 function sessionStartEnvironment(identity: SessionEnvironmentIdentity): Record<string, string> {
   const userName = currentUserName();
   return {
