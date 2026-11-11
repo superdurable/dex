@@ -167,7 +167,7 @@ impl PersistenceSchema {
     /// name. The name must differ from every other definition in the Flow, including Channels and
     /// Channel maps; registration otherwise fails with a Flow definition error.
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn join<T>(mut self, join: &Join<T>) -> Self {
         self.definitions.push(PersistenceDefinition::new(
             join.name(),

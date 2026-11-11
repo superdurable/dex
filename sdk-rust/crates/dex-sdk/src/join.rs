@@ -25,7 +25,7 @@ use crate::{
 ///
 /// See [`Join`] for a complete example.
 ///
-/// Since 1.41.0.
+/// Since 1.43.0.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JoinRound {
@@ -264,7 +264,7 @@ pub struct JoinRound {
 /// }
 /// ```
 ///
-/// Since 1.41.0.
+/// Since 1.43.0.
 pub struct Join<T> {
     channel_map: ChannelMap<T>,
 }
@@ -277,7 +277,7 @@ impl<T> Join<T> {
     /// hand-written Channel-map join keeps in-flight Flows working when it reuses that map's name and
     /// value type and forks with [`Self::fork_with_round_key`] and the same instance keys.
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             channel_map: ChannelMap::new(name),
@@ -306,7 +306,7 @@ impl<T> Join<T> {
     /// [`Self::fork_with_round_key`] there. Also returns an error when this invocation already
     /// forked this Join with `fork`. Both errors are deterministic, so a retry fails the same way.
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     #[expect(
         clippy::type_complexity,
         reason = "the boxed builder type stays inline so Join and JoinRound remain the only public types"
@@ -343,7 +343,7 @@ impl<T> Join<T> {
     ///
     /// Returns a [`HandlerError`] when `round_key` is empty or contains `/`.
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     #[expect(
         clippy::type_complexity,
         reason = "the boxed builder type stays inline so Join and JoinRound remain the only public types"
@@ -382,7 +382,7 @@ impl<T> Join<T> {
     ///
     /// Returns the errors of [`Self::report_branch_result`].
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn end_branch(
         &self,
         context: &mut Context,
@@ -408,7 +408,7 @@ impl<T> Join<T> {
     /// Returns a [`HandlerError`] when the Join is not in the Flow's persistence schema, when the
     /// round key is empty or contains `/`, or when `result` cannot be encoded.
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn report_branch_result(
         &self,
         context: &mut Context,
@@ -429,7 +429,7 @@ impl<T> Join<T> {
     /// An invalid round, with an empty key or a key containing `/`, makes the Step's `wait_for`
     /// fail when the SDK sends the Wait.
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn for_all_branches(&self, round: &JoinRound) -> Condition {
         self.counted_condition(round, round.branch_count)
     }
@@ -444,7 +444,7 @@ impl<T> Join<T> {
     /// A round with zero branches, or an invalid round, makes the Step's `wait_for` fail when the
     /// SDK sends the Wait.
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn for_first_branch(&self, round: &JoinRound) -> Condition {
         self.for_branches(round, 1)
     }
@@ -458,7 +458,7 @@ impl<T> Join<T> {
     /// A `count` outside `1..=round.branch_count`, or an invalid round, makes the Step's `wait_for`
     /// fail when the SDK sends the Wait.
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn for_branches(&self, round: &JoinRound, count: usize) -> Condition {
         if count == 0 || count > round.branch_count {
             return Condition::invalid(format!(
@@ -484,7 +484,7 @@ impl<T> Join<T> {
     /// A `received_count` greater than `round.branch_count`, or an invalid round, makes the Step's
     /// `wait_for` fail when the SDK sends the Wait.
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn for_remaining_branches(&self, round: &JoinRound, received_count: usize) -> Condition {
         let Some(remaining_count) = round.branch_count.checked_sub(received_count) else {
             return Condition::invalid(format!(
@@ -506,7 +506,7 @@ impl<T> Join<T> {
     /// Returns a [`HandlerError`] when the Join is not in the Flow's persistence schema, when the
     /// round key is invalid, or when a result cannot be decoded.
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn branch_results(&self, context: &Context, round: &JoinRound) -> HandlerResult<Vec<T>>
     where
         T: Value,
@@ -525,7 +525,7 @@ impl<T> Join<T> {
     ///
     /// Returns the errors of [`Self::branch_results`].
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn remaining_branch_results(
         &self,
         context: &Context,
@@ -572,7 +572,7 @@ impl<T> Join<T> {
     /// }
     /// ```
     ///
-    /// Since 1.41.0.
+    /// Since 1.43.0.
     pub fn channel_map(&self) -> &ChannelMap<T> {
         &self.channel_map
     }
