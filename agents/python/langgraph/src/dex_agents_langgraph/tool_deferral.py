@@ -74,7 +74,8 @@ class DurableToolCallMiddleware(AgentMiddleware):
 
     Put it first in ``middleware`` so it is the outermost tool wrapper.
     Middleware listed before it see every tool call. Middleware listed after it
-    never see a call inside a session, because the tool runs outside the graph.
+    never see a call inside a session, because the tool runs outside the graph,
+    unless the session Flow sets ``should_defer_tool_calls_before_middleware``.
 
     Inside a session it also adds the tools of the session's tool sources,
     such as ``ConnectorToolSource``, to every model request, after the
@@ -88,7 +89,8 @@ class DurableToolCallMiddleware(AgentMiddleware):
     ``create_deep_agent`` places the middleware you pass after its own, so
     this middleware cannot be first in a Deep Agents agent. Set the session
     Flow's ``should_defer_tool_calls_before_middleware`` to make the deferral
-    the outermost tool wrapper anyway.
+    the outermost tool wrapper anyway. Each tool Step then runs every
+    middleware tool wrapper, this one included, around the tool once.
 
     With a runner ``media_store``, it also replaces each image reference in
     the request's messages with the image's bytes, as a base64 image block,

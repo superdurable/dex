@@ -51,35 +51,58 @@ error.
 
 ## Deep Agents' tools in Dex
 
-The agent runs on the LangGraph adapter, so every model call is a `RunModel`
-Step and every tool call runs once in its own tool Step, after approval when
-its policy asks for it.
+The agent keeps Deep Agents' own tools and behavior. The CLI core adds the
+connector, web fetch, and browser tools on top. The agent runs on the
+LangGraph adapter, so every model call is a `RunModel` Step and every tool
+call runs in its own tool Step, after approval when its policy asks for it.
 
 | Deep Agents tool | In this command |
 | --- | --- |
-| `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep` | Removed. The CLI core's local tools provide `read_file`, `write_file`, `edit_file`, `list_directory`, and `search_files` on the real workspace, with the CLI core's rules: reads run at once, writes wait for approval. |
-| `execute` | Removed. The CLI core's `run_shell_command` runs in the workspace and waits for approval unless `local_tools.shell.allow` has the command. |
-| `task` (subagents) | Excluded with the adapter's `excluded_tool_names`. A subagent would make its own model and tool calls inside one tool Step, without their own Steps or approvals. |
-| `write_todos` | Kept, as a read-only tool that runs at once. Its result repeats the plan, so the plan stays in the conversation. |
+| `ls`, `read_file`, `glob`, `grep` | Reads of the real workspace files. They run at once. |
+| `write_file`, `edit_file`, `delete` | Writes of the real workspace files. They run at once unless `approval.always` names the tool. |
+| `execute` | Runs a command with `/bin/sh` in the workspace. It runs at once unless `approval.always` names it; `local_tools.shell.allow` has no effect. |
+| `task` | Runs a subagent inside the call's tool Step. It runs at once unless `approval.always` names `task`, a file write, or `execute`. |
+| `write_todos` | Updates the todo list in the agent's state. It runs at once. |
 
-- The CLI core's web fetch, browser, and connector tools are offered as well.
-  `local_tools`, `approval.always`, and session settings work as for every
-  command.
-- Deep Agents' own file tools work on a virtual file system in the agent
-  state, and their names are the CLI core's. The command replaces Deep
-  Agents' `FilesystemMiddleware` with one that adds no tools. The session
-  Flow excludes `task`, defers each tool call before any middleware tool
-  wrapper, and gives every model call the turn's model through the adapter's
-  `select_turn_chat_model`.
-- LangChain's own todo tool updates the agent state with a graph `Command`.
-  A tool Step returns only content, so this command's `write_todos` returns
-  the plan as text instead.
-- Deep Agents' summarization is replaced too. It would make an extra model
-  call with the configuration file's model inside a `RunModel` Step, so a
-  model from the session settings would not reach it. The session does not
-  compact either: Dex compaction needs the model's context window, which the
-  configuration does not set. A long session ends when its input no longer
-  fits the model's context window; start a new session then.
+- Deep Agents asks for no approval unless `interrupt_on` names a tool, and
+  this command follows it: `approval.always` plays the role of
+  `interrupt_on`. Connector writes always wait for approval.
+- The file tools use Deep Agents' `LocalShellBackend` on the host's paths,
+  rooted at the workspace, so a file tool and `execute` name a file the same
+  way. Paths are absolute. A path that resolves outside the workspace fails
+  with an error the model sees. `execute` is not confined.
+- `local_tools.files` and `local_tools.shell.enabled` switch the tools on and
+  off per turn. `task` needs both, because a subagent uses both.
+- Each tool Step runs Deep Agents' tool middleware around the tool once, such
+  as `FilesystemMiddleware`'s eviction of a large result to a file. The
+  session Flow sets the adapter's `should_defer_tool_calls_before_middleware`
+  for that. Deep Agents writes evicted results and long user messages to
+  `dex-agents-deepagents-<user ID>` in the system's temporary directory, under
+  the paths `/large_tool_results/` and `/conversation_history/`, which its
+  file tools read.
+- `edit_file`, `execute`, and `task` calls are never retried, so a Worker that
+  dies during one records `outcome_unknown`. `write_file` and `delete` calls
+  may run again after a failure.
+- `write_todos` is LangChain's `TodoListMiddleware` tool. It returns a graph
+  `Command` that the adapter records and applies. Each turn starts from the
+  stored messages, so the todo list lasts for one turn; the plan stays in the
+  conversation.
+- `task` runs the subagent's model and tool calls inline, in one tool Step.
+  They have no Steps or approvals of their own, use the configuration file's
+  model even when session settings change it, and do not count in the
+  session's usage. Connector tools are not offered to a subagent.
+- A connector tool whose name a Deep Agents tool has gets the prefix
+  `connector_`, such as `connector_read_file`. The other connector tools keep
+  their names.
+- Every model call gets the turn's instructions, the workspace path, and the
+  turn's model through the adapter's `select_turn_chat_model`.
+- Deep Agents' summarization is turned off for now. It would make an extra
+  model call with the configuration file's model inside a `RunModel` Step, so
+  a model from the session settings would not reach it. The session does not
+  compact either: Dex compaction needs
+  the model's context window, which the configuration does not set. A long
+  session ends when its input no longer fits the model's context window;
+  start a new session then.
 
 ## Images
 
@@ -106,13 +129,18 @@ model calls the scripted Responses API of
 [`dex-agents-cli-testing`](../testing) on 127.0.0.1; a refused proxy stops
 any other request, and no provider variable of the host reaches the command.
 A fake connectors MCP server serves a connector read and write. The tests
-cover a chat turn and `--resume`, `read_file` without approval and
-`write_file` after approval, a connector read and an approved connector write
-that runs once, a model change in the session settings, a key in the
-`deepagents` section, the offered tools without Deep Agents' file and
-subagent tools, and `write_todos`.
-They also cover a `system_prompt` set in the session settings, which reaches
-the next model request, and a rejected file write and connector write, which
-never run.
-The Deep Agents command also checks that its graph has no summarization and
-that a model from the session settings reaches every model call.
+cover a chat turn and `--resume`; `read_file`, `write_file`, and `edit_file` on
+real workspace files without approval; `execute` in the workspace; a path
+outside the workspace, which is refused; `write_file` waiting for approval
+when `approval.always` names it, and rejected file and connector writes that
+never run; a connector read and an approved connector write that runs once; a
+connector tool named `read_file`, which the model sees as
+`connector_read_file`; `write_todos`; and a `task` subagent that writes a
+workspace file inside one tool Step.
+They also cover the offered tools, which are Deep Agents' own and none of
+the CLI core's file and shell tools; switched-off file and shell tools, which
+are not offered; a model change and a `system_prompt` in the session
+settings, which reach the next model request; and a key in the `deepagents`
+section. The command also checks that its graph has no summarization, that
+its tool rules cover every tool of the graph, and that a model from the
+session settings reaches every model call.

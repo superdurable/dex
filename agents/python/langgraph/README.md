@@ -237,10 +237,20 @@ research_agent = langchain_agent_session_flow(
 
 - `should_defer_tool_calls_before_middleware=True` makes the deferral the
   outermost tool wrapper. `create_deep_agent` places the middleware you pass
-  after its own, so `DurableToolCallMiddleware` cannot be first there. Deep
-  Agents' own tool wrappers, such as the large-result eviction of its
-  `FilesystemMiddleware`, then never run in a session. The runner changes
-  only its own copy of the root graph, so the graph you pass is unchanged.
+  after its own, so `DurableToolCallMiddleware` cannot be first there. Each
+  tool Step then runs the call through the tool node's middleware tool
+  wrappers, such as the large-result eviction of Deep Agents'
+  `FilesystemMiddleware`, once. The wrappers see the state of the call's
+  deferral without the message list, and their state writes are recorded
+  with the tool's. `RunModel` replays the wrapped result and never runs the
+  wrappers. The runner changes only its own copy of the root graph, so the
+  graph you pass is unchanged.
+- A tool's `ToolRuntime` in its tool Step has the compiled graph's `store`,
+  so a `StoreBackend` works when you compile the agent with a store. It has
+  no `context`: the session runs the graph without a run context, in
+  `RunModel` too. A store such as `InMemoryStore` lives in one Worker
+  process, so use a shared store when Workers restart or run on several
+  machines.
 - `excluded_tool_names=["task"]` turns off subagents. The model is not
   offered `task`, and a tool Step never runs it. See the limits below.
 - Deep Agents keeps `messages` and `files` in `DeltaChannel` state channels.
@@ -481,12 +491,20 @@ that already ran.
 ## Middleware order
 
 Put `DurableToolCallMiddleware` first in `middleware`, so it is the outermost
-tool wrapper. Middleware listed before it see every tool call. Middleware
-listed after it never see a call inside a session, because the tool runs
-outside the graph. Model middleware, such as dynamic tool selection or
-summarization, keeps working; its model calls run inside `RunModel`. When
-the agent builder decides the order, as `create_deep_agent` does, set
-`should_defer_tool_calls_before_middleware=True` for the same effect.
+tool wrapper. Middleware listed before it see every tool call in `RunModel`,
+when it is deferred and when its recorded result replays. Without
+`should_defer_tool_calls_before_middleware`, middleware listed after it
+never see a call inside a session, because the tool Step calls the tool
+alone. Model middleware, such as dynamic tool selection or summarization,
+keeps working; its model calls run inside `RunModel`.
+
+Set `should_defer_tool_calls_before_middleware=True` to run every middleware
+tool wrapper of the root graph's tool nodes, such as error handling, result
+eviction, or argument checks, in the call's own tool Step, once. The
+deferral is then the outermost wrapper whatever the middleware order, so
+`RunModel` never runs a tool wrapper. Set it whenever the agent builder
+decides the order, as `create_deep_agent` does. A tool of `tools=` that no
+tool node has, and a tool of a subgraph's tool node, still run alone.
 
 LangChain's `HumanInTheLoopMiddleware` raises its own interrupts, which the
 session cannot answer. Use `ToolPolicy(..., requires_approval=True)` and
@@ -521,9 +539,11 @@ session without the restart; a tool that returns a `Command` and a later tool
 that reads the state it set; `task` excluded from model requests and tool
 Steps; a tool source's `read_file` that replaces the excluded graph tool, and
 the refused collision without the exclusion; and session settings that pick
-the model of each turn. They also check that a middleware tool wrapper never
-runs when the deferral comes first, and that two runners sharing one graph
-keep their own middleware order. Further cases cover state writes that apply
+the model of each turn. They also check that a middleware tool wrapper runs
+once, in the tool Step, when the deferral comes first, also after a Worker
+restart; that Deep Agents' `FilesystemMiddleware` evicts a large tool result
+to a file in its tool Step, which a later tool lists; and that two runners
+sharing one graph keep their own middleware order. Further cases cover state writes that apply
 once through a failed tool attempt and a `RunModel` rerun after a Worker
 restart, which sends the same model request; live records whose browser
 snapshot has no `runner_tool_state`; tool output that looks like recorded
