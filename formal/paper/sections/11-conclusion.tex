@@ -14,9 +14,7 @@ a finite trace with crashes, takeovers, Worker retries, zombie Workers, and
 duplicate deliveries gives a failure-free trace, and that every
 failure-free trace remains possible; for fair runs the erasure keeps the
 marker, and the reverse inclusion holds for words without StartFlow
-retries. The statements are
-precise, their scope is explicit, and their proofs are checked by the Lean
-kernel from three standard axioms.
+retries. The Lean kernel checks both proofs from three standard axioms.
 
 The constructive content is the translation. Each live thread that has not
 halted is carried by one active Step, whose input is the thread's state; a
@@ -40,16 +38,14 @@ that can be tested cheaply before anyone tries to prove it. We lost time to
 six gaps that a fuzz of perturbed reachable states finds in under a
 minute.
 
-The failure theorem adds a lesson of its own. Repeated effects are not
-arbitrary: because every attempt of a method reuses one snapshot and runs
-the same handler, the first occurrences of its effects come in order, even
-when zombies overlap with newer attempts. That is what makes erasure
-work. It also tells an application what to prepare for: every extra
+The failure theorem adds a lesson of its own. Because every attempt of a
+method reuses one snapshot and runs the same handler, the first
+occurrences of its effects come in order, even when zombies overlap with
+newer attempts. That order is what makes erasure work. It also tells an application what to prepare for: every extra
 external call repeats an earlier one, possibly late, so each call must be
 safe to repeat and safe to arrive late.
 
-The limits are equally explicit. The Dex side is a model validated by
-review, and liveness assumes fair scheduling and Workers that settle. The
+The Dex side is a model validated by review, and liveness assumes fair scheduling and Workers that settle. The
 failure theorem covers SYNC methods only, assumes that no method exhausts
 its retries and that user code ignores its attempt, keeps the timer order
 as an idealization, and has a backward liveness inclusion only for words

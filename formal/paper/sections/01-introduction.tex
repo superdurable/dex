@@ -45,9 +45,9 @@ trace, and every failure-free trace remains possible. For fair runs the
 erasure keeps the termination, deadlock, or divergence marker.}
 \end{quote}
 
-The first claim is about expressiveness, and \S\ref{sec:language} to
-\S\ref{sec:engineering} develop it. The second is about durability, the
-reason a workflow engine exists, and \S\ref{sec:failures} develops it.
+\S\ref{sec:language} to \S\ref{sec:engineering} develop the first
+claim, about expressiveness. \S\ref{sec:failures} develops the second,
+about durability, the reason a workflow engine exists.
 
 \paragraph{What ``expressive'' means here.}
 \Lang{} is a conventional shared-memory concurrent language: threads with
@@ -125,25 +125,24 @@ and Timers.
   \lean{endToEnd_liveness}, with the same three axioms. Kernel-checked
   witnesses apply the safety statement and the forward liveness inclusion
   with the markers \mterm{} and \mdead{}. Counterexamples show that H1
-  and H3 are needed and that a re-sent publication is a second request;
-  the H4 counterexample also violates H1, of which H4 is a special case in
-  the model.
+  and H3 are needed and that a re-sent publication is a second request.
+  The H4 counterexample also violates H1, because in the model H4 is a
+  special case of H1.
 \end{enumerate}
 
 \paragraph{What is not claimed.}
 The scope is narrow on purpose, and \S\ref{sec:limitations} discusses each
 limit.
 \begin{itemize}
-\item \emph{Failures are a separate theorem, under hypotheses.} The first
-  theorem's environment has no crashes, no retries, and no redelivery. This
-  split is deliberate. The first theorem fixes what a Flow does when
-  nothing fails; the second (\S\ref{sec:failures}) relates runs with
-  failures to it. The failure theorem covers SYNC Step methods only,
-  assumes that no method exhausts its retries and that user code ignores
-  the attempt number and similar context, assumes finitely many failures
-  for liveness, and keeps the timer order of the first theorem as an
-  idealization. Effects may repeat and overlap; the theorem does not make
-  them exactly-once.
+\item \emph{Failures are a separate theorem, under hypotheses.} By
+  design, the first theorem covers failure-free runs: it fixes what a Flow
+  does when nothing fails, and the second (\S\ref{sec:failures}) relates
+  runs with failures to it. The failure theorem covers SYNC Step methods
+  only. It assumes that no method exhausts its retries, that user code
+  ignores the attempt number and similar context, and, for liveness, that
+  failures are finitely many. It keeps the timer order of the first
+  theorem as an idealization. Effects can repeat and overlap; they are not
+  exactly-once.
 \item \emph{A model, not the code.} The Dex side of the theorem is a
   hand-written model of the server, validated by review against the source.
   It is not extracted from the implementation.

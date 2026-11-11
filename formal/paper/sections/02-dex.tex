@@ -208,9 +208,9 @@ arbitrarily late: any commit may come between a timer becoming due and its
 firing, so a due timer can lose an \kw{AnyOf} race to a message that arrives
 after its fire time. The specification argues from the timer service's code
 that the server fires a prefix, and not an arbitrary subset. A later review
-found one window, without any failure, in which that is not exact: the
-server can fire a timer while an earlier-due timer, armed by a command
-applied just before, is still armed. Both theorems keep the prefix rule as
+found one failure-free window in which that is not exact: the server can
+fire a timer while an earlier-due timer, armed by a command applied just
+before, is still armed. Both theorems keep the prefix rule as
 an explicit idealization (\S\ref{sec:limitations}). An over-approximation
 would be unsafe here: for an equivalence theorem, extra Dex runs are extra
 obligations for \Lang{}.

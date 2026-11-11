@@ -72,18 +72,17 @@ place where a real deployment can leave the theorem.
 \item \emph{Timer order is idealized.} Both theorems fire timers as a
   prefix of the due timers. The server can fire a timer while an earlier-due
   timer, armed by a command applied just before the scan's command, is
-  still armed. The owner kept the prefix rule, because no distributed
+  still armed. We kept the prefix rule, because no distributed
   system guarantees the order of timers due at almost the same time.
   Neither theorem covers runs in that window.
 \item \emph{One owner at a time.} A standby takeover is in scope.
   Multi-node partition ownership is not: the server runs one node per
   cluster, and the model has one log writer at a time.
 \end{itemize}
-The theorem also says less than a reader might hope about effects. A retry
-can run a Step method's external calls again, and an older attempt can
-make a call late, after a newer attempt's call. The theorem guarantees only
-that every extra external call repeats an earlier one. An application must
-make each external call safe to repeat and safe to arrive late, for
+About effects, the theorem guarantees only that every extra external call
+repeats an earlier one. A retry can run a Step method's external calls
+again, and an older attempt can make a call late, after a newer attempt's
+call. An application must therefore make each external call safe to repeat and safe to arrive late, for
 example with an idempotency key that the external system deduplicates on,
 built from the Flow run, the Step execution, the method, and the effect.
 The server's deterministic simulation harness
@@ -102,12 +101,11 @@ eventually settles, by returning or by being abandoned after its invocation
 was canceled. The server does not guarantee this on its own. Cancellation
 of a running handler is cooperative, and in the failure-free model there is
 no method timeout to end a handler that never returns. Under failures a
-timeout fails the attempt, but the handler may keep running as a zombie,
+timeout fails the attempt, but the handler can keep running as a zombie,
 so the failure theorem's liveness keeps the assumption for zombies. Its F4
-lets any real task be dropped. So the failure theorem's liveness excludes
-only runs in which some task never returns and is never dropped; a
-handler that hangs is allowed once its attempt fails and its zombie is
-dropped. The first theorem's liveness excludes runs in which a task of a
+lets any real task be dropped, so it excludes only runs in which some task
+never returns and is never dropped: a handler that hangs is allowed once
+its attempt fails and its zombie is dropped. The first theorem's liveness excludes runs in which a task of a
 live invocation never returns. The safety theorems apply to every run. The fair runs that the development exhibits
 (\S\ref{sec:nonvacuity}) cover termination, deadlock, and divergence by an
 infinite input word. A fair run of a program that diverges on its own, on a

@@ -25,13 +25,13 @@ The proof covers these failures:
 - a Worker result arrives twice, or arrives after its attempt was replaced;
 - a client sends the same **StartFlow** request again.
 
-It compares the events of a Flow run with these failures to the events of the
-same Flow without them, in three parts.
+It compares runs with these failures to runs of the same Flow without them,
+in three parts.
 
-- **Remove the repeats, and a sequence without failures remains.** Take the events
-  of a run with failures so far, and remove every repeated external effect.
-  The rest is a sequence that the Flow can produce without failures, for the
-  same requests minus the **StartFlow** retries.
+- **Remove the repeats, and a sequence without failures remains.** Remove
+  every repeated external effect from the events of a run with failures so
+  far. The rest is a sequence that the Flow can produce without failures, for
+  the same requests minus the **StartFlow** retries.
 - **Every sequence without failures stays possible.** A run in which no
   failure happens produces it.
 - **Fair runs end the same way.** Take the whole event sequence of a fair run
@@ -44,11 +44,12 @@ same Flow without them, in three parts.
 Each repeated effect is an exact copy of an earlier effect of the same Step
 method.
 
-The [Expressiveness proof](/correctness-and-expressiveness/expressiveness-proof)
-covers runs without failures. Combined, the two proofs cover every well-formed
-program of its small concurrent language. On Dex, such a program produces the
-events of a run without failures, except that external effects can repeat.
-For these programs, each extra effect equals an earlier effect in value.
+Combined with the
+[Expressiveness proof](/correctness-and-expressiveness/expressiveness-proof),
+this covers every well-formed program of its small concurrent language. On
+Dex, such a program produces the events of a run without failures, except
+that external effects can repeat. For these programs, each extra effect
+equals an earlier effect in value.
 
 ## Why repeats stay simple {#why-repeats-stay-simple}
 

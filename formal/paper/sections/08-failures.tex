@@ -1,10 +1,10 @@
 \section{Failure transparency}
 \label{sec:failures}
 
-The theorems of \S\ref{sec:theorems} assume that nothing fails. This
+The theorems of \S\ref{sec:theorems} cover failure-free runs. This
 section adds server crashes, standby takeovers, Worker failures, retries,
 zombie Workers, duplicate results, and StartFlow retries, and proves the
-second theorem in the same fragment, under the hypotheses of
+second theorem in the same fragment under the hypotheses of
 \S\ref{sec:failure-scope}. For finite traces it gives two inclusions:
 erasing the repeated external effects of a trace with failures gives a
 failure-free trace for the word without retries, and every failure-free
@@ -81,13 +81,13 @@ wait timers, which then acts as \rulename{TIMER-FIRE}.}
 \label{tab:failure-rules}
 \end{table}
 
-Three choices make the model larger than the code, which is the safe
-direction for an inclusion theorem: more DexF runs are more obligations.
-Failures are nondeterministic and unconditioned; the model does not
-describe how the engine detects them. A zombie may emit effects at any
-later time, also after a newer attempt of the same method has started. And
-a zombie's result may commit after a crash and before its interrupt, an
-order that the code makes unlikely but that the model allows.
+Three choices make the model larger than the code, the safe direction
+for an inclusion theorem: more DexF runs are more obligations. Failures
+are nondeterministic and can happen at any time, with no model of how the
+engine detects them. A zombie can emit effects at any later time, even
+after a newer attempt of the same method has started. A zombie's result
+can commit after a crash and before its interrupt, an order that the code
+makes unlikely.
 
 \paragraph{Durability.}
 The durable point of a commit is its log batch in object storage, written
@@ -102,9 +102,9 @@ those tasks are zombies, and their results cannot reach the new owner.
 \subsection{Scope, decisions, and hypotheses}
 \label{sec:failure-scope}
 
-The owner decided the scope before any proof (decisions D1 to D8 and OD1 of
-the specification). Table~\ref{tab:failure-hypotheses} lists what the
-theorem assumes and how the Lean model treats each assumption.
+We fixed the scope before any proof (decisions D1 to D8 and OD1 of the
+specification). Table~\ref{tab:failure-hypotheses} lists each assumption
+and how the Lean model treats it.
 
 \begin{table}[t]
 \centering
@@ -168,24 +168,24 @@ that change observable behavior beyond repeated effects.}
 \label{tab:failure-hypotheses}
 \end{table}
 
-Four entries hold by construction, and it is worth saying what that means.
-The Lean model has no failure policy, no ASYNC start, and no purge of a
-closed run. The theorem covers those features by leaving them out; the
-named predicates make the omission visible in every statement. H3 is the
-one real hypothesis on the program. A DexF program is a function from the
+Four entries hold by construction. The Lean model has no failure policy,
+no ASYNC start, and no purge of a closed run, and its task IDs are minted
+numbers. The
+theorem excludes those three features, and the named predicates make the
+exclusion visible in every statement. H3 is the one real hypothesis on the
+program. A DexF program is a function from the
 attempt context to a Flow definition, so a program that reads its attempt
 number is expressible, and the theorem excludes it explicitly.
 
-D5, finitely many failures, is a necessary assumption, not a choice: no
-system makes progress under infinitely many crashes. D6 needs no clock
+D5, finitely many failures, is necessary: no system makes progress under
+infinitely many crashes. D6 needs no clock
 agreement between hosts. Stamps increase strictly after a takeover too,
 because the new owner seeds its watermark from the largest applied stamp.
 The timer order of OD1 is an idealization. The specification found one
-window in which the code fires a timer while an earlier-due timer, armed by
-a command applied just before, is still armed (Open question~26). It
-exists without any failure. The owner kept the prefix rule for both
-theorems, so that they compose, and neither theorem covers runs in that
-window.
+window, present without any failure, in which the code fires a timer while
+an earlier-due timer, armed by a command applied just before, is still
+armed (Open question~26). We kept the prefix rule for both theorems so
+that they compose; neither covers runs in that window.
 
 \subsection{Repetitions and erasure}
 \label{sec:repetitions}
@@ -218,7 +218,7 @@ The first occurrences are therefore the effects of one \emph{virtual} task
 of Dex, and every other $\ev{fx}$ event of the method equals the first
 occurrence of its index. D2 is needed for the first fact: under ASYNC a
 crash can lose a start that a Worker already received, and the rerun takes
-a new snapshot, so its effect list may differ.
+a new snapshot, so its effect list can differ.
 
 \subsection{The abstraction map}
 \label{sec:abstraction}
@@ -267,10 +267,10 @@ their only other reader:
   heartbeat at the same sequence number, and need different relabelings.
 \end{itemize}
 
-The specification classifies every command by apply's outcome. Whether a
-command takes a run sequence number is decided by whether it advances the
-run's persisted sequence counter: normal and failure commands do,
-bookkeeping commands do not. \emph{Normal} commands map to Dex commits;
+The specification classifies every command by apply's outcome. A command
+takes a run sequence number exactly when it advances the run's persisted
+sequence counter: normal and failure commands do, bookkeeping commands do
+not. \emph{Normal} commands map to Dex commits;
 \emph{failure}, \emph{bookkeeping}, internal ignored, and post-close
 housekeeping commands map to stutters; a rejected client request maps to
 the same Dex rejection with the same event. Worker steps follow the ghosts:
@@ -326,8 +326,7 @@ A DexF step is a progress step exactly when its image under the transition
 map is a Dex progress step (\lean{isProgress_eq_dexProgress}). Failures,
 stale results other than that of the last task of a canceled invocation,
 StartFlow retries, and repeated effects are therefore not progress, and
-infinitely many of them do not make a run divergent. The
-theorem says nothing about an internal livelock of the engine.
+infinitely many of them do not make a run divergent.
 
 \begin{Verbatim}[fontsize=\scriptsize]
 theorem liveness_failure (program : Program σ)
@@ -505,7 +504,7 @@ publication counts as a second request
 (\file{Failure/Examples/HypothesisCounterexamples.lean}). Without H3
 (\lean{attemptSensitive_isNotRepetition}), attempt $a$ emits $a$ copies of
 $a$; the retry emits $\ev{fx}(2)$, which no failure-free run emits, so
-both safety statements fail. Its output depends on the attempt number.
+both safety statements fail.
 Without H1 (\lean{exhaustion_isNotFailureFree}), an exhausted attempt
 closes the Flow as Failed, which no failure-free run of that Flow does,
 because it never decides ForceFail. The run of
