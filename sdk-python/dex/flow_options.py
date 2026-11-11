@@ -28,7 +28,8 @@ class IdReusePolicy(Enum):
     """Control whether ``start_flow`` may reuse an existing Flow ID.
 
     Attributes:
-        DEFAULT: Use the Dex server default, which rejects every previously used Flow ID.
+        DEFAULT: Reject the start whenever the Flow ID has a run, the same as
+            ``DISALLOW``. The server does not make this default configurable.
         ALLOW_IF_PREVIOUS_FAILED: Start a new run only when the latest run
             closed abnormally: failed, canceled, or terminated. A Flow timeout
             closes a run as failed or canceled under the fail or cancel

@@ -466,7 +466,8 @@ func defaultSubFlowOptions() SubFlowOptions {
 type IDReusePolicy uint8
 
 const (
-	// IDReuseDefault uses the server default, which rejects every previously used Flow ID.
+	// IDReuseDefault rejects the start whenever the Flow ID has a run, the same as IDReuseDisallow.
+	// The server does not make this default configurable.
 	IDReuseDefault IDReusePolicy = iota
 	// IDReuseAllowIfPreviousFailed starts a new run only when the latest run closed abnormally:
 	// failed, canceled, or terminated.

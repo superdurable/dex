@@ -17,7 +17,10 @@ package io.superdurable.dex;
  * the server against prior and currently running executions with the same Flow ID.
  */
 public enum IdReusePolicy {
-    /** Uses the Dex server default, which rejects every previously used Flow ID. */
+    /**
+     * Rejects the start whenever the Flow ID has a run, the same as {@link #DISALLOW}. The server
+     * does not make this default configurable.
+     */
     DEFAULT,
 
     /**

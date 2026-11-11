@@ -27,7 +27,8 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Controls whether [`crate::Client::start_flow_with_options`] may reuse a Flow ID.
 pub enum IdReusePolicy {
-    /// Uses the Dex server's configured reuse policy.
+    /// Rejects the start whenever the Flow ID has a run, the same as [`IdReusePolicy::Disallow`].
+    /// The server does not make this default configurable.
     Default,
     /// Starts a new run only when the latest run closed abnormally: failed, canceled, or
     /// terminated. A Flow timeout closes a run as failed or canceled under the fail or cancel
