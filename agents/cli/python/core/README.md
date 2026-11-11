@@ -40,8 +40,8 @@ Without a terminal it runs on the defaults, writes nothing, and says to run
 JSON Pointer, such as `schema at "/local_tools/shell/allow" (schema keyword type)`.
 
 The exit code is 0 on success; 1 for a failure at run time, such as a Dex
-server that does not start, an explicit `connectors.mcp` URL that is
-unavailable, or a turn or session that failed during the chat; and 2 for a
+server that does not start, an explicit `connectors.mcp` URL that does not
+answer, or a turn or session that failed during the chat; and 2 for a
 usage or configuration error.
 
 ### Sessions and Flow types
@@ -228,7 +228,9 @@ read, and caches them for the harness:
   names the log file `~/.dex/agents/<harness>.log` and the Dex Web
   Connectors page; each failed listing and its error go to the log file
   only. An explicit `connectors.mcp` URL
-  that does not answer stops the command with exit code 1.
+  that does not answer stops the command with exit code 1. A server that
+  answers `initialize` but cannot be listed only warns, whichever URL names
+  it.
 - A harness whose runner fixes its tools when it is built, such as the OpenAI
   Agents SDK command, declares `is_tool_set_fixed_at_build = True`. It offers
   only the connector tools of the startup listing; session settings still

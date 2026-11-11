@@ -165,6 +165,10 @@ class ConnectorsMcpUnavailableError(Exception):
     """Report that the connectors MCP server cannot be listed, with the reason."""
 
 
+class ConnectorsMcpListingError(ConnectorsMcpUnavailableError):
+    """Report that the connectors MCP server answered ``initialize`` but its listing failed."""
+
+
 @dataclass(frozen=True)
 class ConnectorToolDefinition:
     """A connector tool as the model sees it: the MCP tool name without a server prefix.
@@ -209,7 +213,10 @@ async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
     Raises:
         ConnectorsMcpUnavailableError: If the server cannot be listed. A server
             that answers 503 gives its reason, such as that it is still starting.
+            It is a ``ConnectorsMcpListingError`` when the server answered
+            ``initialize`` and only the listing failed.
     """
+    is_initialized = False
     try:
         async with Client(
             url,
@@ -217,6 +224,7 @@ async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
             client_info=_client_info(),
             cache=None,
         ) as client:
+            is_initialized = True
             tools: list[Any] = []
             cursor: str | None = None
             for _ in range(_LISTING_PAGE_LIMIT):
@@ -226,7 +234,10 @@ async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
                 if not cursor:
                     break
     except Exception as error:
-        raise ConnectorsMcpUnavailableError(await _describe_unavailable(url, error)) from error
+        reason = await _describe_unavailable(url, error)
+        if is_initialized:
+            raise ConnectorsMcpListingError(reason) from error
+        raise ConnectorsMcpUnavailableError(reason) from error
     return tuple(
         ConnectorCatalogTool(
             name=tool.name, description=tool.description or "", identity=_identity(tool.meta)

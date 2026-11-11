@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import re
 import threading
@@ -244,6 +245,76 @@ async def test_an_explicit_mcp_server_that_is_starting_fails_with_its_reason(
         completed = await asyncio.to_thread(cli_home.run, stdin="tools\n")
     assert completed.returncode == 1
     assert "is not ready: the connectors MCP server is starting" in completed.stderr
+
+
+@contextlib.contextmanager
+def mcp_server_that_fails_listing(reason: str) -> Iterator[str]:
+    """Answer ``initialize`` and notifications, and 503 with ``reason`` for everything else."""
+
+    class AnswerInitializeOnly(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self._answer(503, "text/plain", reason.encode())
+
+        def do_DELETE(self) -> None:
+            self._answer(204, "text/plain", b"")
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            request = json.loads(self.rfile.read(length) or b"{}")
+            method = request.get("method", "") if isinstance(request, dict) else ""
+            if method == "initialize":
+                result = {
+                    "protocolVersion": request["params"]["protocolVersion"],
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "fails-listing", "version": "0.0.0"},
+                }
+                body = json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result})
+                self._answer(200, "application/json", body.encode())
+            elif method.startswith("notifications/"):
+                self._answer(202, "text/plain", b"")
+            else:
+                self._answer(503, "text/plain", reason.encode())
+
+        def _answer(self, status: int, content_type: str, body: bytes) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            del format, args
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), AnswerInitializeOnly)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/mcp"
+    finally:
+        server.shutdown()
+
+
+async def test_an_explicit_mcp_server_that_answers_initialize_but_fails_listing_only_warns(
+    cli_home: CliHome,
+) -> None:
+    with mcp_server_that_fails_listing("the catalog is not ready") as url:
+        cli_home.write_config(
+            config_yaml({"connectors": {"mcp": url}, "local_tools": NO_LOCAL_TOOLS})
+        )
+        completed = await asyncio.to_thread(cli_home.run, stdin="hello\n")
+    assert completed.returncode == 0, completed.stderr
+    assert "echo: hello" in completed.stdout
+    output = completed.stdout + completed.stderr
+    connector_lines = [
+        line
+        for line in output.splitlines()
+        if "connectors MCP server is unavailable" in line
+        or "Connector tools are unavailable" in line
+    ]
+    assert len(connector_lines) == 1, output
+    assert "the catalog is not ready" in connector_lines[0]
+    log_text = (cli_home.home / ".dex" / "agents" / "scripted.log").read_text(encoding="utf-8")
+    assert f"connectors MCP server {url} could not be listed" in log_text
 
 
 async def test_an_unauthorized_connection_prints_a_hint_and_opens_the_connectors_page(
