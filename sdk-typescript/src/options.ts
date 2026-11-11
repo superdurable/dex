@@ -178,8 +178,8 @@ export type ActiveStepSearchMode =
 /** Controls whether `startFlow` may reuse a previously used Flow ID. */
 export const IdReusePolicy = Object.freeze({
   /**
-   * Rejects the start whenever the Flow ID has a run, the same as `DISALLOW`. The server does not
-   * make this default configurable.
+   * Rejects the start whenever the Flow ID has a run, the same as `DISALLOW`.
+   * The server does not make this default configurable.
    */
   DEFAULT: "default",
   /**
