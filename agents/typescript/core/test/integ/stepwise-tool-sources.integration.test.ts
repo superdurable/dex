@@ -336,12 +336,18 @@ describe("tool source routing, policies, listing failures, and name collisions",
     const directory = mkdtempSync(join(tmpdir(), "stepwise-down-"));
     const refusingLog = join(directory, "refusing.log");
     const hangingLog = join(directory, "hanging.log");
+    const warnings: string[] = [];
     const source = new McpToolSource(
       [
         { transport: "stdio", name: "refusing", command: writeLaunchScript(join(directory, "refusing"), refusingLog, "exit 1") },
         { transport: "stdio", name: "hanging", command: writeLaunchScript(join(directory, "hanging"), hangingLog, "exec sleep 60") },
       ],
-      { connectionTimeoutMs: 3_000, connectionAttempts: 1, listingFailureBackoffMs: 300_000 },
+      {
+        connectionTimeoutMs: 3_000,
+        connectionAttempts: 1,
+        listingFailureBackoffMs: 300_000,
+        logWarning: (message) => warnings.push(message),
+      },
     );
     const model = answers();
     const runner = new BuiltinLoopAgentRunner({
@@ -374,6 +380,11 @@ describe("tool source routing, policies, listing failures, and name collisions",
     );
     assert.equal(launches(refusingLog), 1);
     assert.equal(launches(hangingLog), 1);
+    // The backoff keeps each down server to one warning, written through logWarning.
+    assert.deepEqual(
+      warnings.map((warning) => warning.split(":")[0]).sort(),
+      ["left MCP server hanging out of the tool listing", "left MCP server refusing out of the tool listing"],
+    );
   });
 
   test("a hanging source is bounded per model call", async () => {

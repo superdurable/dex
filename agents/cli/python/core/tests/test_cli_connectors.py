@@ -12,13 +12,22 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
+import re
 import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import pytest
+
 from dex_agents.testing import find_free_ports
-from dex_agents_cli_core import session_flow_type
+from dex_agents_cli_core import (
+    ConnectorsMcpToolSource,
+    TurnConfigResolver,
+    resolve_config,
+    session_flow_type,
+)
 from tests.conftest import (
     CliHome,
     FakeConnectorsMcp,
@@ -272,3 +281,65 @@ async def test_connectors_lists_the_tools_and_whether_the_config_enables_them(
     assert f"Connections in Dex Web (http://127.0.0.1:{cli_home.web_port}/v1/connectors)" in (
         completed.stdout
     )
+
+
+async def test_an_unavailable_auto_mcp_server_prints_one_short_line_across_turns(
+    cli_home: CliHome,
+) -> None:
+    # This dexcli dev serves no connectors MCP server, so connectors.mcp: auto only warns.
+    completed = await asyncio.to_thread(cli_home.run, stdin="hello\nagain\n")
+    assert completed.returncode == 0, completed.stderr
+    assert "echo: hello" in completed.stdout
+    assert "echo: again" in completed.stdout
+    output = completed.stdout + completed.stderr
+    log_path = cli_home.home / ".dex" / "agents" / "scripted.log"
+    connector_lines = [
+        line
+        for line in output.splitlines()
+        if re.search("Connector tools|MCP server|tool listing", line, re.IGNORECASE)
+    ]
+    assert connector_lines == [
+        "Connector tools are unavailable for now; each turn tries again. "
+        f"See {log_path} for the error and "
+        f"http://127.0.0.1:{cli_home.web_port}/v1/connectors for connections."
+    ], output
+    log = log_path.read_text(encoding="utf-8")
+    failure = re.search(r"connectors MCP server \S+ is unavailable: (.+)", log)
+    assert failure is not None, log
+    assert failure.group(1) not in output
+    assert "out of the tool listing" in log
+
+
+async def test_a_server_that_stops_and_returns_prints_one_line_each_way(
+    fake_mcp: FakeConnectorsMcp, caplog: pytest.LogCaptureFixture
+) -> None:
+    config = resolve_config({"connectors": {"mcp": fake_mcp.url}}, "builtin", "scripted-model")
+    lines: list[str] = []
+    source = ConnectorsMcpToolSource(
+        fake_mcp.url,
+        TurnConfigResolver(config, None, lambda warnings: None),
+        report=lines.append,
+        unavailable_hint="See the log file.",
+    )
+    assert await source.list_file_enabled_tools()
+    fake_mcp.stop()
+    with caplog.at_level(logging.WARNING, logger="dex_agents_cli_core.connectors"):
+        # Two turns' listings fail: one short line, and each error in the log.
+        assert await source.list_file_enabled_tools() == ()
+        assert await source.list_file_enabled_tools() == ()
+    assert lines == [
+        "Connector tools are unavailable for now; each turn tries again. See the log file."
+    ]
+    failures = [
+        record
+        for record in caplog.records
+        if record.name == "dex_agents_cli_core.connectors"
+        and record.getMessage().startswith(f"connectors MCP server {fake_mcp.url} is unavailable: ")
+    ]
+    assert len(failures) == 2
+    await fake_mcp.start()
+    assert await source.list_file_enabled_tools()
+    assert lines == [
+        "Connector tools are unavailable for now; each turn tries again. See the log file.",
+        "Connector tools are available again.",
+    ]

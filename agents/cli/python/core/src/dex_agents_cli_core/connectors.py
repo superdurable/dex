@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
@@ -57,6 +58,7 @@ _CLIENT_NAME = "dex-agents-cli"
 _CATALOG_TIMEOUT_SECONDS = 15.0
 _CATALOG_REFRESH_SECONDS = 30.0
 _LISTING_PAGE_LIMIT = 100
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -182,6 +184,19 @@ class ConnectorToolDefinition:
     identity: ConnectorToolIdentity | None = None
 
 
+def connectors_unavailable_line(hint: str | None) -> str:
+    """Return the terminal line for connector tools that each turn tries again.
+
+    Args:
+        hint: A sentence to append, such as where the log file is.
+
+    Returns:
+        The line.
+    """
+    line = "Connector tools are unavailable for now; each turn tries again."
+    return line if hint is None else f"{line} {hint}"
+
+
 async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
     """List the connectors MCP server's tools and the connector operation each one runs.
 
@@ -239,6 +254,7 @@ class ConnectorsMcpToolSource:
         is_available: bool = True,
         report: Callable[[str], None] | None = None,
         media_store: MediaStore | None = None,
+        unavailable_hint: str | None = None,
     ) -> None:
         """Connect to one connectors MCP server.
 
@@ -247,18 +263,28 @@ class ConnectorsMcpToolSource:
             resolver: The turn configuration resolver.
             is_available: Whether the server answered when the command started.
             report: Prints a line when the server stops or starts answering;
-                ``None`` prints nothing.
+                ``None`` prints nothing. Each failed listing, with its
+                error, goes to the ``logging`` warning log instead.
+
+                .. versionchanged:: 0.6.0
+                   The line no longer carries the error.
             media_store: The store for the images that tool results carry.
                 With a store, each image of a successful result is uploaded
                 in the tool Step and reaches the model as an image reference.
                 ``None``, the default, keeps images as JSON in the output text.
 
                 .. versionadded:: 0.5.0
+            unavailable_hint: A sentence appended to the line ``report``
+                prints when the server stops answering, such as where the
+                log file is. ``None``, the default, appends nothing.
+
+                .. versionadded:: 0.6.0
         """
         self._url = url
         self._resolver = resolver
         self._is_available = is_available
         self._report = report
+        self._unavailable_hint = unavailable_hint
         self._mcp = McpToolSource(
             [McpStreamableHttpServerConfig(name=_MCP_SERVER_NAME, url=url)],
             client_name=_CLIENT_NAME,
@@ -316,12 +342,15 @@ class ConnectorsMcpToolSource:
             mcp_tools = await self._mcp.list_tools(refresh=True)
             catalog = await read_connector_catalog(self._url)
         except (McpToolListingError, ConnectorsMcpUnavailableError) as error:
+            _LOGGER.warning("connectors MCP server %s is unavailable: %s", self._url, error)
             if self._is_available and self._report is not None:
-                self._report(f"Connector tools are unavailable for now: {error}")
+                self._report(connectors_unavailable_line(self._unavailable_hint))
             self._is_available = False
             return ()
-        if not self._is_available and self._report is not None:
-            self._report("Connector tools are available again.")
+        if not self._is_available:
+            _LOGGER.info("connectors MCP server %s is available again", self._url)
+            if self._report is not None:
+                self._report("Connector tools are available again.")
         self._is_available = True
         identities = {tool.name: tool.identity for tool in catalog}
         self._last_listing = tuple(

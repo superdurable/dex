@@ -85,7 +85,7 @@ async def test_without_a_terminal_it_runs_on_defaults_and_writes_no_file(cli_hom
     assert f"Using the running dexcli dev at {cli_home.address}" in completed.stdout
     assert "echo: hello there" in completed.stdout
     # This dexcli dev serves no connectors MCP server, so connectors.mcp: auto only warns.
-    assert "The connectors MCP server is unavailable" in completed.stdout
+    assert "Connector tools are unavailable for now; each turn tries again." in completed.stdout
     assert not cli_home.config_path.exists()
     # The default workspace is a dedicated directory under the home, not the home itself.
     assert (cli_home.home / "dex-agent-workspace").is_dir()
@@ -102,7 +102,7 @@ async def test_a_fixed_tool_set_harness_is_told_to_restart_for_connector_tools(
         "dex-agents-scripted fixes its tools when it starts, so this run has no connector "
         "tools. Restart it once the connectors MCP server answers."
     ) in completed.stdout
-    assert "Continuing without connector tools until it answers" not in completed.stdout
+    assert "each turn tries again" not in completed.stdout
 
 
 async def test_an_invalid_config_names_the_error_code_and_pointer(cli_home: CliHome) -> None:

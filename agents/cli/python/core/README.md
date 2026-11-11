@@ -221,10 +221,13 @@ configuration file enables, which is one MCP `tools/list` and one more catalog
 read, and caches them for the harness:
 
 - An `auto` server that does not answer, such as one answering 503 while it
-  starts or an older `dexcli` without `/mcp`, gives a warning with the reason.
+  starts or an older `dexcli` without `/mcp`, gives a short warning.
   The command runs without connector tools and lists the server again in every
   model call, printing `Connector tools are unavailable for now` and
-  `Connector tools are available again` when that changes. An explicit `connectors.mcp` URL
+  `Connector tools are available again` when that changes. The warning
+  names the log file `~/.dex/agents/<harness>.log` and the Dex Web
+  Connectors page; each failed listing and its error go to the log file
+  only. An explicit `connectors.mcp` URL
   that does not answer stops the command with exit code 1.
 - A harness whose runner fixes its tools when it is built, such as the OpenAI
   Agents SDK command, declares `is_tool_set_fixed_at_build = True`. It offers

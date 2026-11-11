@@ -302,8 +302,12 @@ serves at `<Dex Web URL>/mcp`. When the CLI core starts `dexcli dev`, it takes
 the URL from the `Connectors MCP:` line of its output. When an `auto` server is
 not available, such as one answering 503 while it starts, or an older
 `dexcli` without `/mcp`, the command warns and continues; each model call
-lists the server again, so its tools appear once it is ready. An explicit
-`connectors.mcp` URL that is not available stops the command.
+lists the server again, so its tools appear once it is ready. The terminal
+shows one short line when connector tools become unavailable, naming the log
+file `~/.dex/agents/<harness>.log` and the Dex Web Connectors page, and one
+line when they are available again. Each failed listing and its error go to
+the log file only. An explicit `connectors.mcp` URL that is not available
+stops the command.
 
 A harness whose runner fixes its tools when the Flow is built declares
 `isToolSetFixedAtBuild: true`. The CLI core then lists the connector tools the

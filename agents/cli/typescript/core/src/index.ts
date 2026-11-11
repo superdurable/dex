@@ -68,6 +68,7 @@ export {
   probeConnectorsMcp,
   type ConnectorToolIdentity,
   type ConnectorsMcpAvailability,
+  type ConnectorsMcpToolSourceOptions,
 } from "./connector-tool-source.js";
 export { pinnedDexcliVersion, resolveDexcliExecutable } from "./dexcli-binary.js";
 export {

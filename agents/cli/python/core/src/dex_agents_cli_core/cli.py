@@ -61,6 +61,7 @@ from dex_agents_cli_core.connectors import (
     ConnectorCatalogTool,
     ConnectorsMcpToolSource,
     ConnectorsMcpUnavailableError,
+    connectors_unavailable_line,
     read_connector_catalog,
 )
 from dex_agents_cli_core.dex_server import DexServerEndpoint, DexServerError, resolve_dex_server
@@ -196,12 +197,16 @@ def _parse_arguments(harness: AgentHarness, argv: Sequence[str] | None) -> _Argu
 
 def _configure_logging(environment: CommandEnvironment, harness: AgentHarness) -> None:
     environment.agents_directory.mkdir(parents=True, exist_ok=True)
-    log_path = environment.agents_directory / f"{harness.name}.log"
+    log_path = _log_file_path(environment, harness)
     handler = logging.FileHandler(log_path, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(logging.INFO)
+
+
+def _log_file_path(environment: CommandEnvironment, harness: AgentHarness) -> Path:
+    return environment.agents_directory / f"{harness.name}.log"
 
 
 def _is_interactive() -> bool:
@@ -268,7 +273,9 @@ async def _run(
         _report_ignored_settings,
     )
     endpoint = await _resolve_server(config, environment)
-    connectors = await _connect_connectors(config, endpoint, resolver, harness, media_store)
+    connectors = await _connect_connectors(
+        config, endpoint, resolver, harness, media_store, environment
+    )
     local_tools = _local_tool_source(config, workspace, harness, resolver)
     tool_sources: list[ToolSource] = [
         source for source in (connectors, local_tools) if source is not None
@@ -409,6 +416,7 @@ async def _connect_connectors(
     resolver: TurnConfigResolver,
     harness: AgentHarness,
     media_store: MediaStore,
+    environment: CommandEnvironment,
 ) -> ConnectorsMcpToolSource | None:
     """Check the connectors MCP server and return its source, or ``None`` for no connector tools.
 
@@ -428,32 +436,47 @@ async def _connect_connectors(
         )
         return None
     is_tool_set_fixed = _is_tool_set_fixed_at_build(harness)
+    hint = _connectors_unavailable_hint(environment, harness, endpoint.web_url)
     try:
         catalog = await read_connector_catalog(url)
     except ConnectorsMcpUnavailableError as error:
-        message = f"The connectors MCP server is unavailable: {error}"
         if config.connectors.mcp != AUTO:
-            raise CommandFailure(message) from error
+            raise CommandFailure(f"The connectors MCP server is unavailable: {error}") from error
+        _LOGGER.warning("connectors MCP server %s is unavailable: %s", url, error)
         if is_tool_set_fixed:
-            print(f"{message}. {_restart_for_connector_tools(harness)}")
+            restart = _restart_for_connector_tools(harness)
+            print(f"The connectors MCP server is unavailable. {hint} {restart}")
         else:
-            print(f"{message}. Continuing without connector tools until it answers.")
+            print(connectors_unavailable_line(hint))
         return ConnectorsMcpToolSource(
             url,
             resolver,
             is_available=False,
             report=_report_on_standard_error,
             media_store=media_store,
+            unavailable_hint=hint,
         )
     _report_unauthorized(config, catalog, endpoint.web_url)
     source = ConnectorsMcpToolSource(
-        url, resolver, report=_report_on_standard_error, media_store=media_store
+        url,
+        resolver,
+        report=_report_on_standard_error,
+        media_store=media_store,
+        unavailable_hint=hint,
     )
     await source.list_file_enabled_tools()
     if is_tool_set_fixed and not source.is_available:
         restart = _restart_for_connector_tools(harness)
-        print(f"The connectors MCP server could not be listed. {restart}")
+        print(f"The connectors MCP server could not be listed. {hint} {restart}")
     return source
+
+
+def _connectors_unavailable_hint(
+    environment: CommandEnvironment, harness: AgentHarness, web_url: str | None
+) -> str:
+    """Say where the error and the connections are, for a line about an unavailable server."""
+    page = f"{web_url}{CONNECTORS_WEB_PATH}" if web_url else "the Dex Web Connectors page"
+    return f"See {_log_file_path(environment, harness)} for the error and {page} for connections."
 
 
 def _is_tool_set_fixed_at_build(harness: AgentHarness) -> bool:

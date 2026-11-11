@@ -100,6 +100,41 @@ export type ConnectorsMcpAvailability =
   | { readonly isAvailable: true }
   | { readonly isAvailable: false; readonly reason: string };
 
+/**
+ * Options of {@link ConnectorsMcpToolSource}.
+ *
+ * A command with a log file passes `writeLogLine` and `unavailableHint`, so the terminal shows one short line when
+ * the server stops answering and one when it answers again, and the errors go to the log file:
+ *
+ * ```ts
+ * const source = new ConnectorsMcpToolSource(url, turns, (line) => console.error(line), mediaStore, {
+ *   isAvailable: (await probeConnectorsMcp(url)).isAvailable,
+ *   writeLogLine: (line) => appendFileSync(logPath, `${line}\n`),
+ *   unavailableHint: `See ${logPath} for the error.`,
+ * });
+ * ```
+ *
+ * @since 0.6.0
+ */
+export interface ConnectorsMcpToolSourceOptions {
+  /**
+   * Whether the server answered when the command started. With `false`, the first failed listing writes no terminal
+   * line, because the command already said the server is unavailable. Defaults to `true`.
+   */
+  readonly isAvailable?: boolean;
+  /**
+   * Writes one line to the command's log file: each failed listing with its full error, and each warning of the
+   * wrapped `McpToolSource`. Omitted, the terminal line of a failure carries the error, and the `McpToolSource`
+   * warnings go to `console.warn`.
+   */
+  readonly writeLogLine?: (line: string) => void;
+  /**
+   * A sentence appended to the terminal line when the server stops answering, such as where the log file is. It is
+   * used only with `writeLogLine`. Defaults to no sentence.
+   */
+  readonly unavailableHint?: string;
+}
+
 /** A listed tool with the MCP tool it renames. */
 interface ConnectorSourceTool extends SourceToolDefinition {
   readonly mcpTool: McpTool;
@@ -125,7 +160,9 @@ export class ConnectorsMcpToolSource implements ToolSource {
   private identities: { readonly expiresAt: number; readonly byToolName: ReadonlyMap<string, ConnectorToolIdentity> } =
     { expiresAt: 0, byToolName: new Map() };
   private lastListing: readonly ConnectorSourceTool[] = [];
-  private lastListingFailure: string | undefined;
+  private isServerAvailable: boolean;
+  private readonly writeLogLine: ((line: string) => void) | undefined;
+  private readonly unavailableHint: string | undefined;
 
   /**
    * Creates the source.
@@ -135,19 +172,25 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * @param mediaStore - The store for the images that tool results carry. With a store, each image of a successful
    * result is uploaded in the tool Step and reaches the model as an image reference. Omitted, images stay JSON in
    * the output text. Since 0.5.0.
+   * @param options - The availability at startup and where the errors go. Since 0.6.0.
    */
   public constructor(
     private readonly url: string,
     private readonly turns: TurnConfigResolver,
     private readonly log: (line: string) => void,
     mediaStore?: MediaStore,
+    options: ConnectorsMcpToolSourceOptions = {},
   ) {
+    this.isServerAvailable = options.isAvailable ?? true;
+    this.writeLogLine = options.writeLogLine;
+    this.unavailableHint = options.unavailableHint;
     this.mcp = new McpToolSource(
       [{ name: mcpServerName, transport: "streamable_http", url, trustsToolAnnotations: true }],
       {
         resourceAndPromptToolsEnabled: false,
         clientName: "dex-agents-cli",
         ...(mediaStore === undefined ? {} : { mediaStore }),
+        ...(options.writeLogLine === undefined ? {} : { logWarning: options.writeLogLine }),
       },
     );
   }
@@ -163,17 +206,14 @@ export class ConnectorsMcpToolSource implements ToolSource {
     try {
       [tools, identities] = await Promise.all([this.mcp.listTools(), this.readIdentities()]);
     } catch (error: unknown) {
-      const reason = describeError(error);
-      if (reason !== this.lastListingFailure) {
-        this.log(`Connector tools are unavailable for now: ${reason}`);
-        this.lastListingFailure = reason;
-      }
+      this.reportListingFailure(describeError(error));
       this.lastListing = [];
       return [];
     }
-    if (this.lastListingFailure !== undefined) {
+    if (!this.isServerAvailable) {
       this.log("Connector tools are available again.");
-      this.lastListingFailure = undefined;
+      this.writeLogLine?.(`connectors MCP server ${this.url} is available again`);
+      this.isServerAvailable = true;
     }
     const listed: ConnectorSourceTool[] = [];
     for (const tool of tools) {
@@ -191,7 +231,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * @since 0.5.0
    */
   public get isAvailable(): boolean {
-    return this.lastListingFailure === undefined;
+    return this.isServerAvailable;
   }
 
   /**
@@ -393,6 +433,22 @@ export class ConnectorsMcpToolSource implements ToolSource {
     }
     this.identities = { expiresAt: Date.now() + identityListingTtlMs, byToolName };
     return byToolName;
+  }
+
+  /** Logs every failure; the terminal gets one line only when the server stops answering. */
+  private reportListingFailure(reason: string): void {
+    const wasAvailable = this.isServerAvailable;
+    this.isServerAvailable = false;
+    if (this.writeLogLine === undefined) {
+      if (wasAvailable) {
+        this.log(`Connector tools are unavailable for now: ${reason}`);
+      }
+      return;
+    }
+    this.writeLogLine(`connectors MCP server ${this.url} is unavailable: ${reason}`);
+    if (wasAvailable) {
+      this.log(connectorsUnavailableLine(this.unavailableHint));
+    }
   }
 
   private isToolEnabled(
@@ -645,6 +701,12 @@ function throwWhenDisabled(toolCall: AgentToolCall): void {
   if (typeof reference === "object" && reference !== null && disabledReferenceKey in reference) {
     throw new ToolExecutionError(`tool ${toolCall.toolName} is not enabled for this session`);
   }
+}
+
+/** The terminal line for connector tools that each turn tries again, with an optional hint sentence. */
+export function connectorsUnavailableLine(hint: string | undefined): string {
+  const line = "Connector tools are unavailable for now; each turn tries again.";
+  return hint === undefined ? line : `${line} ${hint}`;
 }
 
 function describeError(error: unknown): string {

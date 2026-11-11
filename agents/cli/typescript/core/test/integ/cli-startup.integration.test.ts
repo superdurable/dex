@@ -119,6 +119,31 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.equal(await cli.waitForExit(), 0);
   });
 
+  test("an unavailable connectors server prints one short line across turns, and its errors go to the log file", async () => {
+    // This private engine's dexcli dev serves no connectors MCP server, so connectors.mcp: auto only warns.
+    const home = new TestHome(enginePorts(engine));
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine("hello");
+    await cli.stdout.waitFor("echo: hello");
+    cli.writeLine("again");
+    await cli.stdout.waitFor("echo: again");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+
+    const logPath = join(home.directory, ".dex", "agents", "scripted.log");
+    const connectorLines = cli.stderr.all.split("\n").filter((line) => /Connector tools|MCP server|tool listing/i.test(line));
+    assert.equal(connectorLines.length, 1, cli.stderr.all);
+    assert.match(
+      connectorLines[0] ?? "",
+      /^Connector tools are unavailable for now; each turn tries again\. See (.+) for the error and http:\/\/\S+\/v1\/connectors for connections\.$/,
+    );
+    assert.ok(connectorLines[0]?.includes(logPath), connectorLines[0]);
+    const log = readFileSync(logPath, "utf8");
+    assert.match(log, /connectors MCP server \S+ is unavailable: /);
+    assert.match(log, /left MCP server connectors out of the tool listing: /);
+  });
+
   test("a harness that fixes its tools at build says a restart brings connector tools back", async () => {
     const home = new TestHome(enginePorts(engine), fixedToolSetScriptedHarness);
     const cli = start(home);
@@ -139,7 +164,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\n`);
       const cli = start(home);
       await cli.waitForSession();
-      await cli.stderr.waitFor("The connectors MCP server could not be listed: ");
+      await cli.stderr.waitFor("The connectors MCP server could not be listed. See ");
       await cli.stderr.waitFor(
         "dex-agents-scripted fixes its tools when it starts, so this run has no connector tools. " +
           "Restart it once the connectors MCP server answers.",

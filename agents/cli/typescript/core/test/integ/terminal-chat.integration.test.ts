@@ -443,13 +443,24 @@ describe("terminal chat with connectors and session settings", () => {
   test("an unavailable connectors server offers no tools, and its tools return in a later listing", async () => {
     const effective = resolveConfig({ connectors: { mcp: connectorsUrl } }, "builtin", "scripted/default");
     const lines: string[] = [];
-    const source = new ConnectorsMcpToolSource(connectorsUrl, new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined)), (line) =>
-      lines.push(line),
+    const logLines: string[] = [];
+    const source = new ConnectorsMcpToolSource(
+      connectorsUrl,
+      new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined)),
+      (line) => lines.push(line),
+      undefined,
+      { writeLogLine: (line) => logLines.push(line), unavailableHint: "See the log file." },
     );
     connectors.unavailableReason = "the connectors MCP server is starting";
     try {
+      // Two turns' listings fail: the terminal gets one short line, and the log file gets each error.
       assert.deepEqual(await source.listTools(), []);
-      assert.match(lines.join("\n"), /Connector tools are unavailable for now/);
+      assert.deepEqual(await source.listTools(), []);
+      assert.deepEqual(lines, ["Connector tools are unavailable for now; each turn tries again. See the log file."]);
+      assert.equal(source.isAvailable, false);
+      const failures = logLines.filter((line) => line.startsWith(`connectors MCP server ${connectorsUrl} is unavailable: `));
+      assert.equal(failures.length, 2, logLines.join("\n"));
+      assert.match(logLines.join("\n"), /the connectors MCP server is starting/);
     } finally {
       connectors.unavailableReason = undefined;
     }
@@ -457,7 +468,11 @@ describe("terminal chat with connectors and session settings", () => {
       description: "the connector tools to return",
       timeoutMs: 60_000,
     });
-    assert.match(lines.join("\n"), /Connector tools are available again/);
+    assert.deepEqual(lines, [
+      "Connector tools are unavailable for now; each turn tries again. See the log file.",
+      "Connector tools are available again.",
+    ]);
+    assert.equal(source.isAvailable, true);
   });
 
   test("a Worker whose file now switches shell off refuses a shell Step that another process requested", async () => {

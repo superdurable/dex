@@ -53,6 +53,7 @@ import {
 import {
   ConnectorsMcpToolSource,
   DisabledConnectorsToolSource,
+  connectorsUnavailableLine,
   probeConnectorsMcp,
   type ConnectorToolIdentity,
 } from "./connector-tool-source.js";
@@ -362,6 +363,11 @@ class AgentCliCommand {
     } finally {
       clearTimeout(timer);
     }
+    this.writeLogLine(line);
+  }
+
+  /** Appends one timestamped line to the log file. */
+  private writeLogLine(line: string): void {
     try {
       mkdirSync(this.environment.agentsDirectory, { recursive: true });
       appendFileSync(this.logFilePath(), `${new Date().toISOString()} ${line}\n`);
@@ -453,13 +459,19 @@ class AgentCliCommand {
     if (!availability.isAvailable && !isAuto) {
       throw new Error(`the connectors MCP server is unavailable: ${availability.reason}`);
     }
-    const source = new ConnectorsMcpToolSource(url, turns, this.log, mediaStore);
+    const hint = this.connectorsUnavailableHint(server);
+    const source = new ConnectorsMcpToolSource(url, turns, this.log, mediaStore, {
+      isAvailable: availability.isAvailable,
+      writeLogLine: (line) => this.writeLogLine(line),
+      unavailableHint: hint,
+    });
     const isToolSetFixed = this.harness.isToolSetFixedAtBuild === true;
     if (!availability.isAvailable) {
+      this.writeLogLine(`connectors MCP server ${url} is unavailable: ${availability.reason}`);
       this.log(
         isToolSetFixed
-          ? `The connectors MCP server is unavailable: ${availability.reason}. ${this.restartForConnectorTools()}`
-          : `Connector tools are unavailable for now; each turn tries again: ${availability.reason}`,
+          ? `The connectors MCP server is unavailable. ${hint} ${this.restartForConnectorTools()}`
+          : connectorsUnavailableLine(hint),
       );
       return source;
     }
@@ -471,16 +483,23 @@ class AgentCliCommand {
     try {
       identities = await source.readIdentities();
     } catch (error: unknown) {
-      this.log(`The connectors MCP server could not be listed: ${describe(error)}. ${this.restartForConnectorTools()}`);
+      this.writeLogLine(`connectors MCP server ${url} could not be listed: ${describe(error)}`);
+      this.log(`The connectors MCP server could not be listed. ${hint} ${this.restartForConnectorTools()}`);
       return source;
     }
     await this.reportUnauthorizedConnectors(effective, identities, server, isOpeningConnectorsPage);
     // Outside a model call the listing uses the file's configuration.
     await source.listTools();
     if (!source.isAvailable) {
-      this.log(`The connectors MCP server could not be listed. ${this.restartForConnectorTools()}`);
+      this.log(`The connectors MCP server could not be listed. ${hint} ${this.restartForConnectorTools()}`);
     }
     return source;
+  }
+
+  /** Says where the error and the connections are, for a terminal line about an unavailable server. */
+  private connectorsUnavailableHint(server: DexServerConnection): string {
+    const page = server.webUrl === null ? "the Dex Web Connectors page" : `${server.webUrl}/v1/connectors`;
+    return `See ${this.logFilePath()} for the error and ${page} for connections.`;
   }
 
   private restartForConnectorTools(): string {
