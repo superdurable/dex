@@ -176,7 +176,9 @@ for the Dex SDK and framework versions each release supports.
   longer keeps Claude Code's `last-prompt` entries. Such an entry names the
   leaf a resume continues from, so after a deferred call a later segment could
   resume at an earlier message: the model lost the previous answer, and a
-  resumed segment lost the turn's prompt and its tool call.
+  resumed segment lost the turn's prompt and its tool call. Entries that 0.4.0
+  already stored, in messages or in a suspended turn's run state, are dropped
+  when the next segment reads them, so existing sessions recover too.
 - Python and TypeScript Claude Agent SDK adapters: when the Claude Code CLI
   returns an error result, the turn's error now reads "the Claude Code CLI
   returned an error result (subtype ...)". It used to read "reported success"
