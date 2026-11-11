@@ -236,6 +236,16 @@ fn join_round_json_field_names_are_stable() {
         serde_json::from_str::<dex_sdk::JoinRound>(r#"{"roundKey":"round-1","branchCount":-1}"#)
             .is_err()
     );
+    let with_unknown_field: dex_sdk::JoinRound =
+        serde_json::from_str(r#"{"roundKey":"round-2","branchCount":2,"addedLater":true}"#)
+            .expect("decode JoinRound with an unknown field");
+    assert_eq!(
+        dex_sdk::JoinRound {
+            round_key: "round-2".to_string(),
+            branch_count: 2,
+        },
+        with_unknown_field
+    );
 }
 
 #[test]
