@@ -67,7 +67,7 @@ public class RunTimeMultipleInstancesFlow implements Flow<String[]> {
 
         @Override
         public StepDecision execute(final Context context, final String[] reviewers) {
-            return DesignTimeMultipleInstancesFlow.startReviews(reviewers);
+            return DesignTimeMultipleInstancesFlow.startReviews(context, reviewers);
         }
     }
 }
